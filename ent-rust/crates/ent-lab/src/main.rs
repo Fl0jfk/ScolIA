@@ -3090,7 +3090,7 @@ async fn explorer_foyer_admin(
         .map(|l| i32::from(l.part_paiement.unwrap_or(0)))
         .sum();
     if sum != 100 {
-        return Err(format!("batch 60/40: somme={sum}").into());
+        return Err(format!("batch 60/40: somme={sum}"));
     }
     r.geste("batch atomique parts 60/40 Lily+Tom OK");
 
@@ -4173,7 +4173,7 @@ async fn explorer_facturation(
         return Err(format!(
             "export OGEC incomplet (attendu n° {}) : {}",
             emise.numero,
-            &csv_txt.chars().take(200).collect::<String>()
+            csv_txt.chars().take(200).collect::<String>()
         ));
     }
     r.geste(format!(
@@ -4389,7 +4389,7 @@ async fn explorer_facturation(
         || !pain_txt.contains("<SeqTp>RCUR</SeqTp>")
         || !pain_txt.contains(&prev2.end_to_end_id)
     {
-        return Err(format!("pain.008 invalide : {}", &pain_txt.chars().take(280).collect::<String>()));
+        return Err(format!("pain.008 invalide : {}", pain_txt.chars().take(280).collect::<String>()));
     }
     r.geste(format!(
         "export pain.008 {} octets · SeqTp=RCUR · e2e {}",
@@ -5558,8 +5558,7 @@ async fn explorer_sanctions_vs(
     if solde_avant < 5 || solde != solde_avant - 5 {
         return Err(format!(
             "solde points: {solde_avant} → {solde} (5 attendus en moins)"
-        )
-        .into());
+        ));
     }
     let lily_solde = ent
         .solde_points_vs_for_actor(
@@ -5571,7 +5570,7 @@ async fn explorer_sanctions_vs(
         .await
         .map_err(|e| e.to_string())?;
     if lily_solde != solde {
-        return Err(format!("Lily doit voir le solde points {solde}").into());
+        return Err(format!("Lily doit voir le solde points {solde}"));
     }
     r.geste(format!(
         "commission décide avertissement · permis à points {solde_avant}→{solde}"

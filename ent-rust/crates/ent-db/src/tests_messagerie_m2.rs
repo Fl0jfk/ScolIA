@@ -4,7 +4,7 @@
 //! La décision pure de la matrice est testée sans base dans `msg_matrice::tests`.
 
 use super::tests_messagerie_m1::{
-    compte_eleve as _compte_eleve, compter, corps_du_fil, ecrit, labo, lier, lit, nouveau_foyer,
+    compter, corps_du_fil, ecrit, labo, lier, lit, nouveau_foyer,
     nouvel_utilisateur, ouvrir, ouvrir_un, participants, role,
 };
 use super::*;

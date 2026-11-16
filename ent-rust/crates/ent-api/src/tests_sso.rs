@@ -27,7 +27,7 @@ async fn banc() -> Option<Banc> {
     let url = std::env::var("ENT_DATABASE_URL")
         .ok()
         .filter(|u| !u.trim().is_empty())?;
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let etab = Uuid::new_v4();
     let mut idp = TestIdp::new();

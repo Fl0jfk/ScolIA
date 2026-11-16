@@ -94,7 +94,7 @@ pub(crate) struct Env {
 pub(crate) async fn preparer() -> Option<Env> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let admin = PgPoolOptions::new().max_connections(2).connect(&url).await.unwrap();
     // Les GRANT sur toutes les tables modifient les mêmes lignes du catalogue : lancés en parallèle par les

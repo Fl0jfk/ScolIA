@@ -3,6 +3,12 @@
 //! **Sécurité :** `PgEnt::connect` refuse toute URL hors loopback.
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
+// Raison (ménage des avertissements, règle 31) : les lignes lues par `sqlx::query_as` sont des tuples
+// anonymes (`type_complexity`, 54 sites) et les services métier prennent leurs faits à plat
+// (`too_many_arguments`, 29 sites). Un alias ou une struct de paramètres par site serait un grand
+// refactoring sans gain de sécurité ; à reprendre module par module lors de leur prochaine refonte.
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
+
 mod absence_repo;
 mod assiduite;
 mod assiduite_as1;
@@ -667,6 +673,26 @@ mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v0c;
 
+/// URL de la base des tests d'intégration (`ENT_DATABASE_URL`).
+///
+/// Sans base : `None` et le test s'ignore en local, mais **échoue explicitement** en CI
+/// (`CI` défini) ou si `ENT_EXIGER_BASE=1` : un test d'intégration vert sans avoir rien
+/// vérifié donne une fausse assurance (socle 3, I0 §2.2 pt 13).
+pub fn url_base_de_test() -> Option<String> {
+    let url = std::env::var("ENT_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    if url.is_none() {
+        let exige = std::env::var("ENT_EXIGER_BASE").is_ok_and(|v| matches!(v.trim(), "1" | "true"))
+            || std::env::var("CI").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "false");
+        assert!(
+            !exige,
+            "ENT_DATABASE_URL absente : les tests d'intégration exigent une base en CI (ENT_EXIGER_BASE)"
+        );
+    }
+    url
+}
+
 #[cfg(test)]
 mod integration_tests {
     use super::*;
@@ -961,24 +987,4 @@ mod integration_tests {
             .await
             .expect("tenant"));
     }
-}
-
-/// URL de la base des tests d'intégration (`ENT_DATABASE_URL`).
-///
-/// Sans base : `None` et le test s'ignore en local, mais **échoue explicitement** en CI
-/// (`CI` défini) ou si `ENT_EXIGER_BASE=1` : un test d'intégration vert sans avoir rien
-/// vérifié donne une fausse assurance (socle 3, I0 §2.2 pt 13).
-pub fn url_base_de_test() -> Option<String> {
-    let url = std::env::var("ENT_DATABASE_URL")
-        .ok()
-        .filter(|u| !u.trim().is_empty());
-    if url.is_none() {
-        let exige = std::env::var("ENT_EXIGER_BASE").is_ok_and(|v| matches!(v.trim(), "1" | "true"))
-            || std::env::var("CI").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "false");
-        assert!(
-            !exige,
-            "ENT_DATABASE_URL absente : les tests d'intégration exigent une base en CI (ENT_EXIGER_BASE)"
-        );
-    }
-    url
 }

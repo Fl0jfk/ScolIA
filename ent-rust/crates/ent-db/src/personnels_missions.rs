@@ -1281,7 +1281,7 @@ impl PgEnt {
                     agent: n.clone(),
                 })
                 .collect();
-            cand.sort_by(|x, y| x.agent.to_lowercase().cmp(&y.agent.to_lowercase()));
+            cand.sort_by_key(|x| x.agent.to_lowercase());
             if pp.is_empty() {
                 sans.push(cid);
             }

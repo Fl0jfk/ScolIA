@@ -60,7 +60,7 @@ pub fn siren_valide(s: &str) -> bool {
             }
         })
         .sum();
-    somme % 10 == 0
+    somme.is_multiple_of(10)
 }
 
 fn sans_confusion(d: &str) -> String {

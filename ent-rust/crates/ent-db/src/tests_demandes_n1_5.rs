@@ -269,8 +269,8 @@ fn t_reprise_fonctions_pures() {
         ("vie_scolaire.demande_interne", false)
     );
     // La corbeille et toute route inconnue vont à la file de tri : jamais perdues.
-    assert_eq!(nature_depuis_route("corbeille").1, true);
-    assert_eq!(nature_depuis_route("route_jamais_vue").1, true);
+    assert!(nature_depuis_route("corbeille").1);
+    assert!(nature_depuis_route("route_jamais_vue").1);
     assert!(horodatage("2026-11-02T09:00:00Z").is_some());
     assert!(horodatage("2026-11-02").is_some());
     assert!(horodatage("n'importe quoi").is_none());

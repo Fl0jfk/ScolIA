@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| { }).await;
     reset(&ent, cast.etablissement_id).await;
     Some((ent, cast))
 }

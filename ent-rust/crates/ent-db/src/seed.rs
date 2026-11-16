@@ -1525,7 +1525,7 @@ impl PgEnt {
                     etablissement_id: etab,
                     foyer_id: harry.foyer_id,
                     annee_scolaire: annee_quotient,
-                    quotient_centimes: 850_50,
+                    quotient_centimes: 85_050,
                     parts_x100: 250,
                     actor_user_id: compta.user_id,
                 },
@@ -2099,7 +2099,7 @@ impl PgEnt {
             let ron_id = labo_eleve_prenom(eleves, "Ron").map(|r| r.id);
             let mut ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
             if let Some(rid) = ron_id {
-                if !ids_molly.iter().any(|id| *id == rid) {
+                if !ids_molly.contains(&rid) {
                     if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
                         self.link_parent(CreateLien {
                             etablissement_id: etab,
@@ -2118,7 +2118,7 @@ impl PgEnt {
                         ids_molly.push(rid);
                     }
                 }
-                if !ids_molly.iter().any(|id| *id == ginny_id) {
+                if !ids_molly.contains(&ginny_id) {
                     self.link_parent(CreateLien {
                         etablissement_id: etab,
                         eleve_id: ginny_id,
@@ -2781,7 +2781,7 @@ impl PgEnt {
                 .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
                 .await?;
             let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
-            if !ids_molly.iter().any(|id| *id == ron.id) {
+            if !ids_molly.contains(&ron.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ron.id,
@@ -2797,7 +2797,7 @@ impl PgEnt {
                 })
                 .await?;
             }
-            if !ids_molly.iter().any(|id| *id == ginny.id) {
+            if !ids_molly.contains(&ginny.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ginny.id,
@@ -3640,7 +3640,7 @@ impl PgEnt {
                 .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
                 .await?;
             let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
-            if !ids_molly.iter().any(|id| *id == ron.id) {
+            if !ids_molly.contains(&ron.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ron.id,
@@ -3656,7 +3656,7 @@ impl PgEnt {
                 })
                 .await?;
             }
-            if !ids_molly.iter().any(|id| *id == ginny.id) {
+            if !ids_molly.contains(&ginny.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ginny.id,
@@ -4278,7 +4278,7 @@ impl PgEnt {
                 .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
                 .await?;
             let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
-            if !ids_molly.iter().any(|id| *id == ron.id) {
+            if !ids_molly.contains(&ron.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ron.id,
@@ -4294,7 +4294,7 @@ impl PgEnt {
                 })
                 .await?;
             }
-            if !ids_molly.iter().any(|id| *id == ginny.id) {
+            if !ids_molly.contains(&ginny.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ginny.id,
@@ -4604,7 +4604,7 @@ impl PgEnt {
                 .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
                 .await?;
             let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
-            if !ids_molly.iter().any(|id| *id == ron.id) {
+            if !ids_molly.contains(&ron.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ron.id,
@@ -4620,7 +4620,7 @@ impl PgEnt {
                 })
                 .await?;
             }
-            if !ids_molly.iter().any(|id| *id == ginny.id) {
+            if !ids_molly.contains(&ginny.id) {
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
                     eleve_id: ginny.id,

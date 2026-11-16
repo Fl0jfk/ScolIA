@@ -706,6 +706,8 @@ impl PgEnt {
         })
     }
 
+    // Lot AS4 (arrêt d'un mois) : appelé à l'arrêt d'un mois, pas encore branché.
+    #[allow(dead_code)]
     /// Fige les règles utilisées par un mois arrêté (appelé par AS4 à l'arrêt d'un mois ; exposé ici
     /// pour que le critère « une règle utilisée par un mois arrêté est immuable » soit vérifié dès AS1).
     pub(crate) async fn figer_regle_en_vigueur(

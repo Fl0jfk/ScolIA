@@ -149,7 +149,7 @@ async fn refus_echeance_avancee_confirmation_et_application_seule_a_l_heure_de_l
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
-    let (s1, s2) = deux_seances(&fx, 3).await;
+    let (s1, _s2) = deux_seances(&fx, 3).await;
     let t = travail_sur_seance(&fx, s1).await;
     annuler(&fx, s1).await;
     let l = fx.ent.cdt_reports_lister(&fx.prof()).await.unwrap();

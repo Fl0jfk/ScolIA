@@ -63,6 +63,9 @@ pub enum MailError {
     Smtp(String),
 }
 
+/// Corps de mails conservés en dry-run (labo / tests) : `(destinataire, sujet, corps)`.
+type CorpsDryRun = Arc<Mutex<Vec<(String, String, String)>>>;
+
 /// Service mail partageable (PgEnt / lab).
 #[derive(Clone)]
 pub struct MailService {
@@ -73,7 +76,7 @@ pub struct MailService {
     /// Corps des messages dry-run `(destinataire, sujet, texte)` — **seulement**
     /// pour `dry_run_only()` (labo / tests : lire les liens envoyés). `None`
     /// partout ailleurs : un corps (donc un jeton) n'est jamais conservé en mémoire.
-    corps_dry_run: Option<Arc<Mutex<Vec<(String, String, String)>>>>,
+    corps_dry_run: Option<CorpsDryRun>,
 }
 
 impl Default for MailService {

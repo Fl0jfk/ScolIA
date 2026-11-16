@@ -451,6 +451,8 @@ pub fn plan_controle_sortie(
     )
 }
 
+// 8 paramètres : faits de contexte passés à plat, volontairement (appel unique, pas de struct à maintenir).
+#[allow(clippy::too_many_arguments)]
 pub fn plan_controle_sortie_avec_contexte(
     etablissement_id: Uuid,
     eleve_id: Uuid,

@@ -786,6 +786,8 @@ impl PgAuthRepo {
         Ok(row.map(|(r,)| r))
     }
 
+    // Réinitialisation par un tiers : prévue au socle 6 (docs/socles/06_PERSONNELS.md), pas encore branchée.
+    #[allow(dead_code)]
     /// Écrit directement un nouveau mot de passe (réinitialisation par un tiers).
     pub async fn set_password(&self, user_id: Uuid, new_password: &str) -> Result<(), AuthError> {
         assert_password_policy(new_password)?;
@@ -969,31 +971,6 @@ impl PgAuthRepo {
             portee,
             casquette,
         })
-    }
-
-    /// Premier membre staff dont le rôle est dans la liste (ordre = priorité).
-    pub async fn first_member_with_roles(
-        &self,
-        etablissement_id: Uuid,
-        roles: &[&str],
-    ) -> Result<Option<Uuid>, AuthError> {
-        if roles.is_empty() {
-            return Ok(None);
-        }
-        let row: Option<(Uuid,)> = sqlx::query_as(
-            r#"
-            SELECT user_id FROM ent_membership
-            WHERE etablissement_id = $1 AND role = ANY($2)
-            ORDER BY array_position($2::text[], role), created_at
-            LIMIT 1
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(roles)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| AuthError::InvalidCredentials)?;
-        Ok(row.map(|(id,)| id))
     }
 
     /// Membres staff dont le rôle est dans la liste (sans doublon user_id).

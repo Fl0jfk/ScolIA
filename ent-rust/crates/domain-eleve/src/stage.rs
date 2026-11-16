@@ -170,7 +170,7 @@ pub fn siret_cle_valide(siret: &str) -> bool {
             }
         })
         .sum();
-    somme % 10 == 0
+    somme.is_multiple_of(10)
 }
 
 /// Statuts d'un stage déclaré (RS-01). `declaree` : stage connu de l'établissement **sans

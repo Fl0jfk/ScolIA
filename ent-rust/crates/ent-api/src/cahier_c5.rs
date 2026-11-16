@@ -44,10 +44,10 @@ pub fn routes() -> Router<AppState> {
     let gros = DefaultBodyLimit::max(up.limite_corps_base64(ent_db::upload::UsageFichier::Copie).saturating_mul(FICHIERS_PAR_CORPS));
     Router::new()
         .route("/cahier/c5/travaux/{id}/remise", get(remise))
-        .route("/cahier/c5/travaux/{id}/brouillon", put(brouillon).layer(gros.clone()))
+        .route("/cahier/c5/travaux/{id}/brouillon", put(brouillon).layer(gros))
         .route("/cahier/c5/travaux/{id}/brouillon/pieces/{piece_id}", delete(brouillon_piece))
-        .route("/cahier/c5/travaux/{id}/depot", post(deposer).layer(gros.clone()))
-        .route("/cahier/c5/travaux/{id}/depot-au-nom", post(depot_au_nom).layer(gros.clone()))
+        .route("/cahier/c5/travaux/{id}/depot", post(deposer).layer(gros))
+        .route("/cahier/c5/travaux/{id}/depot-au-nom", post(depot_au_nom).layer(gros))
         .route("/cahier/c5/travaux/{id}/signalement", post(signaler))
         .route("/cahier/c5/travaux/{id}/delai", post(demander_delai))
         .route("/cahier/c5/travaux/{id}/delais", get(delais_attente))

@@ -194,18 +194,15 @@ impl JoursOuvres {
         Self(jours.into_iter().collect())
     }
 
-    pub fn est_ouvre(&self, j: NaiveDate) -> bool {
-        self.0.contains(&j)
+    /// Premier jour ouvré strictement après `j` (utilisé par les tests uniquement).
+    #[cfg(test)]
+    pub fn lendemain(&self, j: NaiveDate) -> Option<NaiveDate> {
+        self.0.range(j + Duration::days(1)..).next().copied()
     }
 
     /// Dernier jour ouvré strictement avant `j`.
     pub fn veille(&self, j: NaiveDate) -> Option<NaiveDate> {
         self.0.range(..j).next_back().copied()
-    }
-
-    /// Premier jour ouvré strictement après `j`.
-    pub fn lendemain(&self, j: NaiveDate) -> Option<NaiveDate> {
-        self.0.range(j + Duration::days(1)..).next().copied()
     }
 
     /// Jours ouvrés dans [du, au] (bornes comprises).

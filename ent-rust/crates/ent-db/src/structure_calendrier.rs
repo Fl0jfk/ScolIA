@@ -78,7 +78,8 @@ pub const SERVICES: [&str; 7] = [
     "vie_scolaire",
 ];
 const JOURS: [&str; 7] = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
-/// Semaine type par défaut (même valeur que la colonne `jours_ouvres` du profil, migration 332).
+/// Semaine type par défaut (même valeur que la colonne `jours_ouvres` du profil, migration 332) : tests uniquement.
+#[cfg(test)]
 const JOURS_OUVRES_DEFAUT: &str = r#"{"lun":["matin","apres_midi"],"mar":["matin","apres_midi"],"mer":["matin"],"jeu":["matin","apres_midi"],"ven":["matin","apres_midi"]}"#;
 /// Ordre de présentation du type d'une journée quand plusieurs événements s'appliquent.
 const PRIORITE_TYPES: [&str; 14] = [

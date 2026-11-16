@@ -486,7 +486,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         &mut tx,
         etab,
         aine,
-        &[mere.clone()],
+        std::slice::from_ref(&mere),
         &[],
         SourceLien::Inscription,
         d,
@@ -513,7 +513,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         &mut tx,
         etab,
         cadet,
-        &[mere.clone()],
+        std::slice::from_ref(&mere),
         &[],
         SourceLien::Inscription,
         d,
@@ -526,7 +526,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         &mut tx,
         etab,
         cadet,
-        &[mere.clone()],
+        std::slice::from_ref(&mere),
         &[Resolution {
             cle: mere.cle,
             personne: Some(ResolutionPersonne::MemePersonne(premiere.personne_id)),
@@ -548,7 +548,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         &mut tx,
         etab,
         cadet,
-        &[mere.clone()],
+        std::slice::from_ref(&mere),
         &[Resolution {
             cle: mere.cle,
             personne: Some(ResolutionPersonne::MemePersonne(premiere.personne_id)),
@@ -567,7 +567,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         &mut tx,
         etab,
         cadet,
-        &[mere.clone()],
+        std::slice::from_ref(&mere),
         &[Resolution {
             cle: mere.cle,
             personne: Some(ResolutionPersonne::MemePersonne(premiere.personne_id)),
@@ -828,7 +828,7 @@ async fn demande_deja_en_attente_remplacee_ou_refusee() {
         &mut tx,
         etab,
         eleve,
-        &[decl.clone()],
+        std::slice::from_ref(&decl),
         &[Resolution {
             cle: decl.cle,
             personne: Some(ResolutionPersonne::MemePersonne(pers)),

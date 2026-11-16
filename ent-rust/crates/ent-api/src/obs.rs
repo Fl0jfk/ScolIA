@@ -144,6 +144,8 @@ pub async fn suivre_requetes(State(state): State<AppState>, req: Request, next: 
 
 /// Contrôle d'accès de la supervision (`/metrics`, `/health/detail`) : désactivé → 404,
 /// ouvert → accepté, jeton → `Authorization: Bearer` obligatoire.
+// L'erreur est une réponse HTTP prête à servir (taille sans conséquence ici).
+#[allow(clippy::result_large_err)]
 pub fn exiger_supervision(state: &AppState, entetes: &HeaderMap) -> Result<(), Response> {
     match &state.metrics_acces {
         MetricsAcces::Desactive => Err(StatusCode::NOT_FOUND.into_response()),

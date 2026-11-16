@@ -592,7 +592,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         // Socle 8 N3 : l'ancien réglage est reflété dans les préférences de la brique (une seule vérité).
-        crate::ntf::reglages::refleter_ancien_reglage(&mut *tx, etablissement_id, user_id, &pref, Utc::now())
+        crate::ntf::reglages::refleter_ancien_reglage(&mut tx, etablissement_id, user_id, &pref, Utc::now())
             .await
             .map_err(db)?;
         tx.commit().await?;
@@ -1495,8 +1495,10 @@ mod tests {
     #[test]
     fn preferences_validees() {
         assert!(Preferences::default().valider().is_ok());
-        let mut p = Preferences::default();
-        p.resume = "hebdo".into();
+        let p = Preferences {
+            resume: "hebdo".into(),
+            ..Default::default()
+        };
         assert!(p.valider().is_err());
         let p = Preferences {
             calme_debut: Some(60),

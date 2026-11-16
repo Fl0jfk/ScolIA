@@ -39,7 +39,7 @@ const FONCTIONS_RETIREES: &[&str] = &[
 async fn base() -> Option<PgEnt> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     Some(ent)
 }
@@ -156,7 +156,7 @@ async fn compte_registre(pool: &sqlx::PgPool) -> i64 {
 #[tokio::test]
 async fn base_neuve_puis_deux_demarrages_de_suite() {
     let Some((url, nom, admin)) = base_jetable("neuve").await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("premier démarrage");
     assert_eq!(compte_registre(ent.pool()).await, MIGRATIONS.len() as i64, "chaque fichier est inscrit");
     let avant: Vec<(String, String, chrono::DateTime<chrono::Utc>)> =
@@ -181,7 +181,7 @@ async fn base_neuve_puis_deux_demarrages_de_suite() {
 #[tokio::test]
 async fn base_existante_sans_registre_migree_jusqu_a_667() {
     let Some((url, nom, admin)) = base_jetable("existante").await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     appliquer_jusqu_a(ent.pool(), "667_d036_personne_fusion_normalisee").await.expect("migrations jusqu'à 667");
     assert!(!sans_colonnes_retirees(ent.pool()).await, "à 667 les anciennes colonnes existent encore");
     let (reg,): (bool,) = sqlx::query_as("SELECT to_regclass('public.ent_migration_appliquee') IS NOT NULL")
@@ -219,7 +219,7 @@ async fn base_existante_sans_registre_migree_jusqu_a_667() {
 #[tokio::test]
 async fn un_fichier_modifie_apres_application_est_refuse() {
     let Some((url, nom, admin)) = base_jetable("modifie").await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     // Simule « le fichier 560 a changé depuis son application » : l'empreinte enregistrée n'est plus la sienne.
     sqlx::query("UPDATE ent_migration_appliquee SET empreinte = repeat('0', 64) WHERE nom = '560_delegation_droits_normalises'")
@@ -240,7 +240,7 @@ async fn un_fichier_modifie_apres_application_est_refuse() {
 #[tokio::test]
 async fn un_fichier_en_echec_ne_laisse_aucune_trace() {
     let Some((url, nom, admin)) = base_jetable("echec").await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let avant = compte_registre(ent.pool()).await;
     let r = appliquer_dans_une_transaction(ent.pool(), "999_echec_de_test", "CREATE TABLE ent_d036_trace (a INTEGER);\nSELECT 1 / 0;").await;

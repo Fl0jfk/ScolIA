@@ -104,7 +104,7 @@ pub struct SaisieSousTraitant<'a> {
 impl PgEnt {
     /// **Appel système** (console plateforme, à venir) : enregistre un sous-traitant de la plateforme. Aucune
     /// route utilisateur ne l'expose ; aucun droit d'établissement ne le permet.
-    #[cfg_attr(not(test), allow(dead_code))] // appelé par la console plateforme (à venir) ; les tests l'exercent
+    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // appelé par la console plateforme (à venir) ; seuls des tests labo l'exercent
     pub(crate) async fn declarer_soustraitant_plateforme(
         &self,
         s: SaisieSousTraitant<'_>,
@@ -151,7 +151,7 @@ impl PgEnt {
 
     /// **Appel système** : annonce l'entrée, la sortie ou le changement d'un sous-traitant. L'effet n'arrive
     /// pas avant le délai d'objection (30 jours, S-547).
-    #[cfg_attr(not(test), allow(dead_code))] // idem
+    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // idem
     pub(crate) async fn annoncer_soustraitant(
         &self,
         soustraitant_id: Uuid,

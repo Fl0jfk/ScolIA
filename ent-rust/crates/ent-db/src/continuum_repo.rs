@@ -204,7 +204,7 @@ impl PgContinuumRepo {
         let all = self.list_scolarites_eleve(etablissement_id, eleve_id).await?;
         Ok(all
             .into_iter()
-            .filter(|s| annees.iter().any(|a| *a == s.annee_scolaire.as_str()))
+            .filter(|s| annees.contains(&s.annee_scolaire.as_str()))
             .collect())
     }
 

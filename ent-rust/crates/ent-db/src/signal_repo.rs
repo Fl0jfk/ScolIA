@@ -58,35 +58,6 @@ impl PgSignalRepo {
         row.into_signal().ok_or(DomainError::NotFound)
     }
 
-    /// Attache le fil d'alerte famille une seule fois (idempotent).
-    /// Retourne `true` si le lien a été posé maintenant.
-    pub async fn set_fil_alerte(
-        &self,
-        etablissement_id: Uuid,
-        signal_id: Uuid,
-        fil_id: Uuid,
-    ) -> Result<bool, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        let n = sqlx::query(
-            r#"
-            UPDATE ent_absence_signal
-            SET fil_alerte_id = $3, updated_at = now()
-            WHERE etablissement_id = $1
-              AND id = $2
-              AND fil_alerte_id IS NULL
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(signal_id)
-        .bind(fil_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?
-        .rows_affected();
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(n > 0)
-    }
-
     /// Attache le dossier de commission une seule fois (idempotent).
     pub async fn set_commission_dossier(
         &self,

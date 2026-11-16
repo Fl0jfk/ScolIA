@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| { }).await;
     Some((ent, cast))
 }
 
@@ -35,7 +35,7 @@ fn nouvel_eleve(etab: Uuid, nom: &str, acteur: Uuid) -> CreateEleve {
 
 /// Nom sans chiffre (l'identité versionnée refuse les chiffres dans un nom).
 fn alpha(prefixe: &str) -> String {
-    format!("{prefixe}{}", &Uuid::new_v4().simple().to_string()[..8].replace(char::is_numeric, "x"))
+    format!("{prefixe}{}", Uuid::new_v4().simple().to_string()[..8].replace(char::is_numeric, "x"))
 }
 
 fn unique(prefixe: &str) -> String {

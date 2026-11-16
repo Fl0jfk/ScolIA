@@ -1193,8 +1193,8 @@ impl PgEnt {
         .map_err(db)?;
         let devient_visible =
             etat == "publie" && !etait_visible && visible_a.is_some_and(|v| v <= maintenant);
-        if t.ancien_id.is_some() || devient_visible {
-            if miroir_travail(&mut tx, a.etablissement_id, id).await? && devient_visible {
+        if (t.ancien_id.is_some() || devient_visible)
+            && miroir_travail(&mut tx, a.etablissement_id, id).await? && devient_visible {
                 let type_evt = if rendu == "en_ligne" {
                     types::CAHIER_TRAVAIL_A_RENDRE
                 } else {
@@ -1210,7 +1210,6 @@ impl PgEnt {
                 )
                 .await?;
             }
-        }
         if etait_visible && t.public == "cours" {
             let mut champs: Vec<&str> = Vec::new();
             if titre.as_deref().is_some_and(|x| x != t.titre) {

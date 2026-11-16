@@ -5,7 +5,6 @@
 //! datés. Chaque test ne vérifie que ses propres lignes.
 
 use super::*;
-use crate::cahier_c4::*;
 use chrono::DateTime;
 use domain_eleve::CreateEleve;
 use ent_types::cahier_c2::*;

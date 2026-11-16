@@ -141,7 +141,7 @@ pub enum ErreurSaisie {
 
 /// Valeur en centièmes si elle a au plus deux décimales (et est finie, positive).
 pub fn centiemes(x: f64) -> Option<i64> {
-    if !x.is_finite() || x < 0.0 || x > 1.0e9 {
+    if !x.is_finite() || !(0.0..=1.0e9).contains(&x) {
         return None;
     }
     let c = (x * 100.0).round();

@@ -240,7 +240,7 @@ fn autre_etablissement_refuse() {
         );
         assert_eq!(r, Err(PresignError::InvalidParam));
         // Recoller la signature d'un lien de A sur la charge d'un lien de B est refusé.
-        let doc_a = deposer(m, &m.jeton(Direction).to_string(), m.a.objets.eleve, "A", "application/pdf", b"%PDF-A").await;
+        let doc_a = deposer(m, m.jeton(Direction), m.a.objets.eleve, "A", "application/pdf", b"%PDF-A").await;
         let la = m.appel("POST", &format!("/documents/{doc_a}/lien"), Some(m.jeton(Direction)), None).await;
         let lb = m.appel("POST", &format!("/documents/{doc_b}/lien"), Some(&dir_b), None).await;
         assert_eq!(lb.statut, StatusCode::OK);

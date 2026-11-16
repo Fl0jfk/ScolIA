@@ -157,31 +157,6 @@ impl PgAppelRepo {
         Self { pool }
     }
 
-    pub async fn insert_appel(&self, a: &Appel) -> Result<(), DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
-        sqlx::query(
-            r#"
-            INSERT INTO ent_appel (
-                id, etablissement_id, classe, jour, auteur_user_id, statut,
-                creneau_id, matiere_libelle
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            "#,
-        )
-        .bind(a.id)
-        .bind(a.etablissement_id)
-        .bind(&a.classe)
-        .bind(a.jour)
-        .bind(a.auteur_user_id)
-        .bind(a.statut.as_str())
-        .bind(a.creneau_id)
-        .bind(a.matiere_libelle.as_deref())
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
-    }
-
     pub async fn get(
         &self,
         etablissement_id: Uuid,
@@ -304,27 +279,6 @@ impl PgAppelRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AppelRow::into_appel))
-    }
-
-    pub async fn insert_ligne(&self, l: &AppelLigne) -> Result<(), DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, l.etablissement_id).await.map_err(map_sqlx)?;
-        sqlx::query(
-            r#"
-            INSERT INTO ent_appel_ligne (id, etablissement_id, appel_id, eleve_id, etat)
-            VALUES ($1,$2,$3,$4,$5)
-            ON CONFLICT (appel_id, eleve_id) DO UPDATE SET etat = EXCLUDED.etat
-            "#,
-        )
-        .bind(l.id)
-        .bind(l.etablissement_id)
-        .bind(l.appel_id)
-        .bind(l.eleve_id)
-        .bind(l.etat.as_str())
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
     }
 
     /// Modifie l'état d'une ligne **uniquement si l'appel est ouvert** (ancien point d'entrée,

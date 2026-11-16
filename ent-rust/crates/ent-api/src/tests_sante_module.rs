@@ -105,7 +105,7 @@ async fn module_sante_ferme_par_defaut_active_par_un_administrateur_et_isole() {
     assert_eq!(st, StatusCode::UNAUTHORIZED);
 
     // Fermé par défaut : toutes les routes de santé, anciennes et nouvelles, refusent (403).
-    assert_eq!(state.ent.module_sante_actif(cast.etablissement_id).await.unwrap(), false);
+    assert!(!state.ent.module_sante_actif(cast.etablissement_id).await.unwrap());
     let gardees = [
         ("GET", "/sante/passages".to_string()),
         ("GET", "/sante/catalogue".to_string()),
@@ -135,7 +135,7 @@ async fn module_sante_ferme_par_defaut_active_par_un_administrateur_et_isole() {
         let (st, _) = appel(&app, "PUT", "/sante/module", Some(jeton), Some(json!({"actif": true}))).await;
         assert_eq!(st, StatusCode::FORBIDDEN, "activation réservée aux administrateurs");
     }
-    assert_eq!(state.ent.module_sante_actif(cast.etablissement_id).await.unwrap(), false);
+    assert!(!state.ent.module_sante_actif(cast.etablissement_id).await.unwrap());
 
     // Activation par la direction : les routes répondent normalement (plus le refus du module).
     let (st, corps) = appel(&app, "PUT", "/sante/module", Some(dir), Some(json!({"actif": true}))).await;
@@ -150,7 +150,7 @@ async fn module_sante_ferme_par_defaut_active_par_un_administrateur_et_isole() {
     // Isolation : l'autre établissement reste fermé.
     let (st, corps) = appel(&app, "GET", "/sante/passages", Some(autre.direction.token.as_str()), None).await;
     assert!(refuse_module(st, &corps), "{st} {corps}");
-    assert_eq!(state.ent.module_sante_actif(autre.etablissement_id).await.unwrap(), false);
+    assert!(!state.ent.module_sante_actif(autre.etablissement_id).await.unwrap());
 
     // Désactivation : retour immédiat au refus.
     let (st, _) = appel(&app, "PUT", "/sante/module", Some(dir), Some(json!({"actif": false}))).await;

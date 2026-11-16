@@ -704,7 +704,7 @@ mod tests {
             mandat_signe_at: Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap(),
             facture_numero: "F-1".into(),
         };
-        let csv = String::from_utf8(render_sepa_csv(&[ligne.clone()])).unwrap();
+        let csv = String::from_utf8(render_sepa_csv(std::slice::from_ref(&ligne))).unwrap();
         assert!(csv.contains("date_execution;rum"));
         assert!(csv.contains("42,50"));
         assert!(csv.contains("SEPA-F1-abcd"));

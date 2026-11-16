@@ -7,7 +7,6 @@
 use super::*;
 use chrono::{DateTime, Duration, Utc};
 use ent_types::cahier_c2::*;
-use ent_types::cahier_c5::*;
 use ent_types::cahier_c7::*;
 
 async fn jour(fx: &Fx) -> NaiveDate {

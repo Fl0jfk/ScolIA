@@ -45,18 +45,18 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/travaux/{id}/suivi", get(suivi))
         .route(
             "/cahier/travaux/{id}/pieces",
-            post(piece_travail).layer(corps_fichier.clone()),
+            post(piece_travail).layer(corps_fichier),
         )
         .route(
             "/cahier/contenus/{id}/pieces",
-            post(piece_seance).layer(corps_fichier.clone()),
+            post(piece_seance).layer(corps_fichier),
         )
         .route("/cahier/pieces/{id}/lien", post(lien_piece))
         .route("/cahier/pieces/{id}", axum::routing::delete(retirer_piece))
         .route("/cahier/travaux/{id}/retrait", post(retirer_travail))
         .route(
             "/cahier/travaux/{id}/remise",
-            post(rendre).layer(corps_fichier.clone()),
+            post(rendre).layer(corps_fichier),
         )
         .route(
             "/cahier/remises/{id}/retour",

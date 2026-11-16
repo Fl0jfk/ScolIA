@@ -656,7 +656,7 @@ impl PgEnt {
         // Les affectations (classe, groupes) s'arrêtent la veille de la sortie : port du socle 5 (STR-67), dans la
         // transaction de la sortie ; les affectations qui n'avaient pas commencé sont annulées (archivées).
         crate::structure_groupes::groupes::fermer_affectations(
-            &mut **tx,
+            tx,
             etab,
             eleve,
             plan.date_sortie,
@@ -1078,9 +1078,9 @@ impl PgEnt {
         if cmd.date_effet < debut || cmd.date_effet > fin {
             return Err(EntDbError::SaisieInvalide("la date d'effet est hors de l'année de cette classe"));
         }
-        let jour = Repo::jour(&mut **tx, etab).await?;
-        if Repo::statuts(&mut **tx, etab, eleve).await?.0.as_deref() == Some("sorti")
-            && Repo::periodes(&mut **tx, etab, eleve).await?.iter().all(|p| !p.couvre(cmd.date_effet))
+        let jour = Repo::jour(tx, etab).await?;
+        if Repo::statuts(tx, etab, eleve).await?.0.as_deref() == Some("sorti")
+            && Repo::periodes(tx, etab, eleve).await?.iter().all(|p| !p.couvre(cmd.date_effet))
             && cmd.date_effet <= jour
         {
             return Err(EntDbError::ConflitDossier("l'élève n'est pas scolarisé à cette date"));

@@ -207,26 +207,26 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<DroitsPersonnel, EntDbError> {
-        let mut d = DroitsPersonnel::default();
-        d.responsables_lire = self
-            .autoriser_eleve(etab, actor, role, Action::ResponsablesLire, eleve_id)
-            .await?;
-        d.adresses_lire = self
-            .autoriser_eleve(etab, actor, role, Action::ResponsablesAdressesLire, eleve_id)
-            .await?;
-        d.juridique_lire = self
-            .autoriser_eleve(etab, actor, role, Action::ResponsablesJuridiqueLire, eleve_id)
-            .await?;
-        d.protege_lire = self
-            .autoriser_eleve(etab, actor, role, Action::ResponsablesProtegeLire, eleve_id)
-            .await?;
-        d.remise_lire = self
-            .autoriser_eleve(etab, actor, role, Action::RemiseLire, eleve_id)
-            .await?;
-        d.payeurs_definir = self
-            .a_action_etablissement(etab, actor, role, Action::PayeursDefinir)
-            .await?;
-        Ok(d)
+        Ok(DroitsPersonnel {
+            responsables_lire: self
+                .autoriser_eleve(etab, actor, role, Action::ResponsablesLire, eleve_id)
+                .await?,
+            adresses_lire: self
+                .autoriser_eleve(etab, actor, role, Action::ResponsablesAdressesLire, eleve_id)
+                .await?,
+            juridique_lire: self
+                .autoriser_eleve(etab, actor, role, Action::ResponsablesJuridiqueLire, eleve_id)
+                .await?,
+            protege_lire: self
+                .autoriser_eleve(etab, actor, role, Action::ResponsablesProtegeLire, eleve_id)
+                .await?,
+            remise_lire: self
+                .autoriser_eleve(etab, actor, role, Action::RemiseLire, eleve_id)
+                .await?,
+            payeurs_definir: self
+                .a_action_etablissement(etab, actor, role, Action::PayeursDefinir)
+                .await?,
+        })
     }
 
     /// Conflit d'intérêts de cet agent vis-à-vis de cet élève (R-A18). `None` pour une famille ou

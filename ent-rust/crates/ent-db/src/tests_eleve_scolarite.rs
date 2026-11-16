@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| { }).await;
     Some((ent, cast))
 }
 
@@ -118,8 +118,6 @@ async fn piece(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
     .unwrap();
     id
 }
-
-const ADM: &str = "administratif";
 
 /// Le statut est DÉRIVÉ : la base et la logique pure donnent le même résultat à toutes les
 /// bornes, et le cache d'`ent_eleve` suit chaque commande ; jamais saisi.

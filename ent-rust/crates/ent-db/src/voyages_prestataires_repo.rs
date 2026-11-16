@@ -35,7 +35,7 @@ use crate::voyages_budget::montant_en_centimes;
 use crate::voyages_budget_repo::{emettre_document, DocumentVue};
 use crate::voyages_pdf::rendre;
 use crate::voyages_prestataires::{
-    adresse_valide, blocs_commande, blocs_demande_devis, contient_reference, ligne_propre,
+    adresse_valide, blocs_commande, blocs_demande_devis, ligne_propre,
     message_envoi, reference_courrier, siren_valide, FaitsCommande, FaitsDemande, CATEGORIES,
 };
 use crate::voyages_repo::{
@@ -2025,13 +2025,4 @@ impl PgEnt {
         self.voyages_exiger(a, Action::VoyagesPrestataires).await?;
         self.voyages_envois_traiter(a.etablissement_id, 50).await
     }
-}
-
-/// La référence de correspondance de la sortie (pour l'écran et le courrier entrant).
-pub(crate) fn reference_pour(so: &SortieLigne, etab: Uuid) -> String {
-    reference_courrier(&so.reference, etab, so.id)
-}
-
-pub(crate) fn texte_contient_reference(texte: &str, so: &SortieLigne, etab: Uuid) -> bool {
-    contient_reference(texte, &reference_pour(so, etab))
 }

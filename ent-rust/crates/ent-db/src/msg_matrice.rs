@@ -390,15 +390,13 @@ pub fn decider(
         return Refuse(Refus::EleveMineurSeulementParLesResponsables);
     }
     // La raison : lien d'enseignement, classe, mission, ou lien familial.
-    let raison_requise = match (acteur, cible) {
-        (Acteur::Professeur, Cible::Famille | Cible::Eleve | Cible::Aesh) => true,
-        (Acteur::ProfPrincipal, Cible::Famille | Cible::Eleve) => true,
-        (Acteur::Aesh, Cible::Famille | Cible::Eleve) => true,
-        (Acteur::Sante, Cible::Famille | Cible::Eleve) => true,
-        (Acteur::Famille, Cible::Professeur) => true,
-        (Acteur::EleveMineur | Acteur::EleveMajeur, Cible::Professeur) => true,
-        _ => false,
-    };
+    let raison_requise = matches!(
+        (acteur, cible),
+        (Acteur::Professeur, Cible::Famille | Cible::Eleve | Cible::Aesh)
+            | (Acteur::ProfPrincipal | Acteur::Aesh | Acteur::Sante, Cible::Famille | Cible::Eleve)
+            | (Acteur::Famille | Acteur::EleveMineur | Acteur::EleveMajeur, Cible::Professeur)
+    );
+
     if raison_requise && !faits.raison {
         // CM-35 : un ancien professeur ne **rouvre** pas, mais **répond** pendant 15 jours.
         let dans_le_delai = faits

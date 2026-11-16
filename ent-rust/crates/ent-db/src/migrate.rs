@@ -485,6 +485,7 @@ pub(crate) async fn appliquer_dans_une_transaction(pool: &PgPool, nom: &str, sql
 /// Tests : applique les migrations dans l'ordre **jusqu'à** `dernier` (inclus), **sans** registre ni
 /// transaction — reproduit une base antérieure au registre, migrée jusqu'à une version donnée.
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<(), MigrateError> {
     let mut trouve = false;
     for (nom, sql) in MIGRATIONS {
@@ -501,6 +502,7 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
 /// données (« legacy » insérées après coup) que les fichiers de reprise savent absorber.
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
     // Ces fichiers (reprises du lot D-036) lisent des colonnes retirées par 668 et 669 : on ne les rejoue
     // pas (il n'y a plus de ligne « héritée » à reprendre, les colonnes n'existent plus).
@@ -536,13 +538,16 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
 /// (ex. immuabilité de `ent_objet`, migration 500) voyait alors l'écriture acceptée. Deux rejeux en parallèle sont
 /// aussi sérialisés.
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 const CLE_REJEU: i64 = 7770043;
 
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 pub(crate) struct GardeRejeu(sqlx::PgConnection);
 
 /// Prend le verrou **partagé** : aucun rejeu ne tourne tant que la garde est tenue. À libérer avec `liberer()`.
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 pub(crate) async fn garde_rejeu_partagee(pool: &PgPool) -> GardeRejeu {
     let mut c = pool.acquire().await.expect("connexion").detach();
     sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(CLE_REJEU).execute(&mut c).await.expect("verrou");
@@ -551,6 +556,7 @@ pub(crate) async fn garde_rejeu_partagee(pool: &PgPool) -> GardeRejeu {
 
 #[cfg(test)]
 impl GardeRejeu {
+    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
     pub(crate) async fn liberer(mut self) {
         let _ = sqlx::query("SELECT pg_advisory_unlock_shared($1)").bind(CLE_REJEU).execute(&mut self.0).await;
     }
@@ -573,6 +579,7 @@ fn ordres(sql: &str) -> Vec<String> {
 
 /// Applique un fichier ordre par ordre, sans transaction ni registre (tests seulement).
 #[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
     for stmt in ordres(sql) {
         sqlx::query(&stmt).execute(pool).await?;

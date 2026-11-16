@@ -706,6 +706,8 @@ impl PgFoyerRepo {
         Ok(rows.into_iter().map(|(e,)| e).collect())
     }
 
+    // Façade conservée (socle 4, lot A0-c, docs/socles/04_ADMINISTRATIF.md) : exercée par les tests, les envois passent par le port `destinataires`.
+    #[allow(dead_code)]
     /// E-mails des responsables liés à l'élève (portail famille).
     ///
     /// Lit les coordonnées de la **personne** (D-020), qu'elle ait un compte ou non ; l'e-mail
@@ -756,6 +758,8 @@ impl PgFoyerRepo {
         Ok(rows.into_iter().map(|(e,)| e).collect())
     }
 
+    // Façade conservée (socle 4, lot A0-c, docs/socles/04_ADMINISTRATIF.md) : exercée par les tests.
+    #[allow(dead_code)]
     /// Téléphones des responsables liés (SMS) : fiche de la personne d'abord, compte en repli,
     /// préférences respectées (`canal_sms`).
     pub async fn telephones_parents_eleve(

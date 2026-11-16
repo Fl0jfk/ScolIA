@@ -1441,7 +1441,7 @@ impl PgEnt {
             return Err(EntDbError::FichierAbsent);
         }
         self.tracer_acces_sensible(etab, a.user_id, a.role, None, "telechargement", "cahier_copie", &format!("Lien court vers une pièce de copie {piece_id}"))
-            .await;
+            .await?;
         Ok(LienFichier { url: lien.url, expires_at: lien.expires_at })
     }
 

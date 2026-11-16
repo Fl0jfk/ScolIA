@@ -102,10 +102,10 @@ jobs:
         with:
           workspaces: "ent-rust -> target"
           shared-key: backend-lint
-      - name: Clippy (erreurs bloquantes ; avertissements existants signalés)
+      - name: Clippy (bloquant sur les avertissements)
         run: |
-          cargo clippy --locked --workspace --all-targets
-          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo -- -D warnings
           cargo clippy --locked -p ent-types --all-targets -- -D warnings
       - name: "Compilation (profil production, SANS la feature labo)"
         run: cargo build --locked --workspace
@@ -176,7 +176,8 @@ jobs:
     name: Backend — tests avec labo (tranche ${{ matrix.tranche }}/20)
     needs: backend-archive
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 90 min (et non 60) : les tranches grossissent à chaque lot ; la tranche 1 du run 306 a passé ses 161 tests en 59 min 10 s puis a été coupée.
+    timeout-minutes: 90
     strategy:
       fail-fast: false      # voir tous les échecs d'un coup
       matrix:

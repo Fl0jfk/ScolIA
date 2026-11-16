@@ -80,7 +80,7 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
         let prec = if i > 0 { lignes[i - 1].trim_end() } else { "" };
         let drapeau = if t == "pool," || t == "pool);" || t == "pool)" || t == "self.pool()," {
             // argument nu d'un appel : valide si l'appel ouvre un contexte (ligne précédente).
-            prec.ends_with('(') && !appelants.iter().any(|m| prec.ends_with(&format!("{m}")) )
+            prec.ends_with('(') && !appelants.iter().any(|m| prec.ends_with(&m.to_string()) )
         } else {
             motifs.iter().any(|m| code.contains(m)) && !ok.iter().any(|m| code.contains(m))
         };

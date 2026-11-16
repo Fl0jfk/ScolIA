@@ -110,10 +110,10 @@ impl PgInfirmerieRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(rows
+        rows
             .into_iter()
             .filter_map(|r| r.into_passage(&self.champs).transpose())
-            .collect::<Result<Vec<_>, _>>()?)
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn list_jour(
@@ -140,10 +140,10 @@ impl PgInfirmerieRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(rows
+        rows
             .into_iter()
             .filter_map(|r| r.into_passage(&self.champs).transpose())
-            .collect::<Result<Vec<_>, _>>()?)
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn upsert_fiche(&self, f: &FicheSante) -> Result<FicheSante, DomainError> {

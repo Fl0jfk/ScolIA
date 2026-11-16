@@ -107,7 +107,7 @@ async fn dossier_separe(ent: &PgEnt, etab: Uuid, nom: &str) -> Dossier {
     Dossier { eleve, pers_a, user_a, lien_a, pers_b, lien_b }
 }
 
-fn de<'a>(rs: &'a [Responsable], pers: Uuid) -> &'a Responsable {
+fn de(rs: &[Responsable], pers: Uuid) -> &Responsable {
     rs.iter().find(|r| r.personne.id == pers).expect("responsable absent")
 }
 

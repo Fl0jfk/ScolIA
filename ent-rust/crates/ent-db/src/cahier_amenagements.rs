@@ -15,17 +15,6 @@ use crate::ref_commun::db;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
-/// Catalogue fermé des faits utiles.
-pub const CODES_AMENAGEMENT: [&str; 7] = [
-    "temps_majore",
-    "version_allegee",
-    "police_agrandie",
-    "document_audio",
-    "lecture_consigne",
-    "ordinateur",
-    "pas_de_copie_tableau",
-];
-
 /// Un fait d'aménagement utile, applicable à une date.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AmenagementUtile {
