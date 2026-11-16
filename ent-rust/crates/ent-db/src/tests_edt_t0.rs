@@ -45,6 +45,8 @@ async fn d1_regeneration_apres_jour_ferie_conserve_le_cahier() {
     };
     let e = cast.etablissement_id;
     let a = adm(&cast);
+    // Les créneaux du jour du jeu d'essai (le lundi : même jour que celui du test) fausseraient les comptes.
+    crate::tests_edt_t1_t2::ecarter_creneaux_du_jeu_d_essai(&ent, &cast).await;
     let annee = ent.referentiel_annee_courante_assuree(e).await.unwrap();
     ent.ref_amorcer_grille(&a).await.unwrap();
     let mut lundi = today_utc().clamp(annee.date_debut, annee.date_fin);
