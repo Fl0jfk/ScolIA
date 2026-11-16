@@ -138,11 +138,10 @@ pub fn plan_upsert_info_comp_valeur(
                 return Err(DomainError::InfoCompInvalide);
             }
         }
-        InfoCompType::Date if !valeur.is_empty() => {
-            if chrono::NaiveDate::parse_from_str(&valeur, "%Y-%m-%d").is_err() {
+        InfoCompType::Date if !valeur.is_empty()
+            && chrono::NaiveDate::parse_from_str(&valeur, "%Y-%m-%d").is_err() => {
                 return Err(DomainError::InfoCompInvalide);
             }
-        }
         _ => {}
     }
     Ok(InfoCompValeur {

@@ -40,7 +40,7 @@ pub fn plan_creer_salle(cmd: CreerSalle) -> Result<Salle, DomainError> {
         return Err(DomainError::SalleInvalide);
     }
     if let Some(c) = cmd.capacite {
-        if c < 0 || c > 500 {
+        if !(0..=500).contains(&c) {
             return Err(DomainError::SalleInvalide);
         }
     }

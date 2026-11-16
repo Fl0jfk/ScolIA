@@ -312,7 +312,7 @@ pub fn plan_modifier_chambre_internat(
         c.code = code.to_string();
     }
     if let Some(cap) = cmd.capacite {
-        if cap < 1 || cap > CAPACITE_MAX_CHAMBRE {
+        if !(1..=CAPACITE_MAX_CHAMBRE).contains(&cap) {
             return Err(DomainError::InternatChambreInvalide);
         }
         if cap < pic_occupation {

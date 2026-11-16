@@ -264,7 +264,7 @@ pub fn planifier_ouverture(
         return Err(ErreurScolarite::Conflit("un élève décédé ne peut pas être réintégré"));
     }
     if reintegration {
-        let derniere = existantes
+        let _derniere = existantes
             .iter()
             .max_by_key(|p| p.date_entree)
             .ok_or(ErreurScolarite::Invalide(

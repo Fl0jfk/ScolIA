@@ -784,7 +784,7 @@ mod tests {
             actif: true,
         };
         let mer = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap();
-        assert!(inscrit_activite_kind_au_jour(&[g.clone()], &[act.clone()], RepasActiviteKind::Midi, mer));
+        assert!(inscrit_activite_kind_au_jour(std::slice::from_ref(&g), std::slice::from_ref(&act), RepasActiviteKind::Midi, mer));
         let d = plan_poser_dispense_repas(PoserDispenseRepas {
             etablissement_id: etab,
             eleve_id: eleve,
@@ -796,20 +796,20 @@ mod tests {
         })
         .unwrap();
         assert!(!inscrit_activite_kind_au_jour_avec_dispenses(
-            &[g.clone()],
-            &[act.clone()],
-            &[d.clone()],
+            std::slice::from_ref(&g),
+            std::slice::from_ref(&act),
+            std::slice::from_ref(&d),
             RepasActiviteKind::Midi,
             mer
         ));
         let debut = NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(); // lun
         let fin = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap(); // ven
-        let sans = compter_jours_facturables(&[g.clone()], &[act.clone()], &[], RepasActiviteKind::Midi, debut, fin)
+        let sans = compter_jours_facturables(std::slice::from_ref(&g), std::slice::from_ref(&act), &[], RepasActiviteKind::Midi, debut, fin)
             .unwrap();
         let avec = compter_jours_facturables(
-            &[g.clone()],
-            &[act.clone()],
-            &[d.clone()],
+            std::slice::from_ref(&g),
+            std::slice::from_ref(&act),
+            std::slice::from_ref(&d),
             RepasActiviteKind::Midi,
             debut,
             fin,
@@ -860,7 +860,7 @@ mod tests {
                 source: PassageSource::Badge,
                 actor_user_id: None,
             },
-            &[g.clone()],
+            std::slice::from_ref(&g),
             &[],
             false,
         )
@@ -876,7 +876,7 @@ mod tests {
                 source: PassageSource::Badge,
                 actor_user_id: None,
             },
-            &[g.clone()],
+            std::slice::from_ref(&g),
             &[],
             true,
         )
