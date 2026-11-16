@@ -102,10 +102,10 @@ jobs:
         with:
           workspaces: "ent-rust -> target"
           shared-key: backend-lint
-      - name: Clippy (erreurs bloquantes ; avertissements existants signalés)
+      - name: Clippy (bloquant sur les avertissements)
         run: |
-          cargo clippy --locked --workspace --all-targets
-          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo -- -D warnings
           cargo clippy --locked -p ent-types --all-targets -- -D warnings
       - name: "Compilation (profil production, SANS la feature labo)"
         run: cargo build --locked --workspace
