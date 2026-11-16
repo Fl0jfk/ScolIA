@@ -322,6 +322,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2411_cdt_archives"),
     m!("2412_cdt_reprise"),
     m!("2413_cdt_c2_saisie_publication"),
+    m!("2414_cdt_c3_agenda_cahier_famille"),
+    m!("2415_cdt_c4_charge"),
+    m!("2416_cdt_c5_rendu_retour"),
+    m!("2417_cdt_c6_continuite"),
+    m!("2418_cdt_c7_adaptations"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
     // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.

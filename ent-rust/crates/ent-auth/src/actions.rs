@@ -515,6 +515,8 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
+    /// Régler les repères de charge de travail de l'établissement (lot C4, S20-10).
+    CahierParametrer,
     // ── Socle 6, lots P5 et P6 (`06_PERSONNELS.md` §14.2) ──
     /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
     /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
@@ -567,7 +569,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 234] = [
+    pub const TOUTES: [Action; 235] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -767,6 +769,7 @@ impl Action {
         Action::AbsencesAutorisationDecider,
         Action::CahierRetirer,
         Action::CahierContribuer,
+        Action::CahierParametrer,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::PersonnelsAbsencesDeclarer,
         Action::PersonnelsAbsencesSignaler,
@@ -1047,6 +1050,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
+            Self::CahierParametrer => "cahier.parametrer",
             Self::EquipesGerer => "equipes.gerer",
             Self::SignatureHabiliter => "signature.habiliter",
             Self::StructureGerer => "structure.gerer",
@@ -1289,6 +1293,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
+            Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
             Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
             Self::StructureGerer => "Gérer les groupes et leurs classes d'origine (créer, générer, modifier, fermer)",
@@ -2409,6 +2414,7 @@ fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     if matches!(role, Role::Admin | Role::Direction) {
         d.push((CahierRetirer, Portee::Etablissement));
+        d.push((CahierParametrer, Portee::Etablissement));
     }
     if role == Role::Prof {
         d.push((CahierRetirer, Portee::MesClasses));

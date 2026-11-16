@@ -437,6 +437,7 @@ async fn droits_du_moteur_navigation_et_refus() {
             navigation::ACCUEIL,
             navigation::CHANGEMENTS_EDT,
             navigation::AGENDA,
+            navigation::MON_CAHIER,
             navigation::EVALUATIONS,
             navigation::ABSENCES,
             navigation::RENDEZ_VOUS,
