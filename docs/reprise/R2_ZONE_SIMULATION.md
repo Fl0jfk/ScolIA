@@ -42,9 +42,9 @@ Décodés strictement : `rentree/submissions/pending/<jeton>/meta.json` et `requ
 
 ## 3. Zone de reprise (migration 2566, générée)
 
-- Schéma `reprise`, **190 − non chargées** tables `reprise.next_<table>` (une par table source chargée : disposition reprise, rapprochement ou archive, soit 157 tables) + 6 tables S3 typées. Colonnes de données en **texte brut**, une par champ attendu, plus les colonnes de transit `_execution_id`, `_etablissement_cible`, `_source_ligne`, `_cle_source`, `_empreinte`, `_objet`, `_disposition` (et `_type_feuille` pour les tables clé-valeur).
+- Schéma `reprise` : **159** tables `reprise.next_<table>` (une par table source chargée : disposition reprise, rapprochement, archive ou conteneur de collections, sur les 190 du schéma attendu ; santé, secrets, jetons, état d'interface et technique ne sont jamais chargés) + **6** tables S3 typées, soit 165. Colonnes de données en **texte brut**, une par champ attendu, plus les colonnes de transit `_execution_id`, `_etablissement_cible`, `_source_ligne`, `_cle_source`, `_empreinte`, `_objet`, `_disposition` (et `_type_feuille` pour les tables clé-valeur).
 - **Séparée du métier** : schéma distinct, aucune clé étrangère, aucune RLS métier, aucune table dans `public`.
-- **Invisible** de tout utilisateur de l'ENT : `REVOKE ALL … FROM PUBLIC`, aucun droit pour le rôle de l'application ; seul `ent_repris` (`ent_reprise`, `NOLOGIN`) y accède. Testé : un rôle quelconque reçoit « permission denied » (42501), `PUBLIC` n'a aucun droit.
+- **Invisible** de tout utilisateur de l'ENT : `REVOKE ALL … FROM PUBLIC`, aucun droit pour le rôle de l'application ; seul le rôle `ent_reprise` (`NOLOGIN`, créé si les droits le permettent) y accède. Testé : un rôle quelconque reçoit « permission denied » (42501), `PUBLIC` n'a aucun droit.
 - **Purgée** : `vider_zone(execution)` supprime toutes les lignes de l'exécution ; la date est notée (`rep_execution.zone_videe_le`).
 - Chargée **après** le décodage, relue et comparée (nombre de lignes par table) avant la simulation ; une zone qui ne relit pas ce qu'on y a mis fait échouer l'exécution.
 - Exception « instantané d'audit » de D-036 déclarée à `docs/socles/MIGRATIONS.md` (colonnes JSON du Next.js en texte brut le temps de la vérification).
@@ -63,6 +63,20 @@ Fonction pure (`simuler`) : entrée = décodage + correspondances enregistrées 
 Invariant par objet **et en total**, vérifié par les tests et par une contrainte `CHECK` de la base : `lues = créées + mises à jour + inchangées + archivées + ignorées + refusées + à décider`.
 **Aucune écriture dans le métier** : testé contre la base par comptage de toutes les tables hors `rep_*` avant et après (identique), et `rep_correspondance` reste vide après une simulation. La simulation n'écrit que la **trace** de l'exécution (`rep_execution*`, `rep_refus`) et la zone de transit.
 **Rejouable / idempotent** : deux simulations identiques ont la même empreinte de rapport ; après enregistrement des correspondances, une nouvelle simulation donne 0 création, 0 mise à jour, `inchangées` = anciennes créations, et le « à décider » reste à décider.
+
+## 6. Vérifications (honnêtes : ce qui a tourné)
+- `ent-reprise` : 86 tests unitaires + 46 tests d'intégration (dont 16 de décodage, 8 de simulation) verts ; R0 et R1 inchangés et verts.
+- `ent-db` sur PostgreSQL 16 local : 8 tests `tests_reprise_r2` verts (simulation sans écriture métier, zone relue puis purgée, zone invisible d'un autre rôle, invariant refusé par la base, rejeu, numérotation, correspondance idempotente et jamais écrasée, refus sans donnée, écart de schéma) ; registre des tables, tests RLS (compteur +5), garde statique d'isolation SQL (étendue aux tables `rep_*`), garde d'accès au pool, test du tag de migration verts.
+- **clippy 1.99.0** `--workspace --tests --features ent-db/labo` : **0 avertissement** (sur tout le workspace, pas seulement les lignes du lot) ; `cargo fmt -p ent-reprise --check` propre ; aucun `cargo fmt --all` ; aucun `#[ignore]`.
+- **CI GitHub** : une seule, en fin de lot, après la fusion d'`origin/ENT` (SHA et run transmis au pilote).
+
+## 7. Limites et questions
+1. **Colonnes JSON « à cataloguer »** (§2) : refus massif de `personnel.payload` attendu sur l'export réel tant que le catalogue n'est pas complété ; choix assumé, à confirmer par le pilote.
+2. **Le chargement en zone et la simulation contre la base** sont des fonctions d'`ent-db` ; il n'y a pas encore d'outil d'exploitation qui les appelle (MS4 : opérateur, `--cible`, deux personnes pour l'application). `ent-reprise` reste sans accès base.
+3. **Mémoire** : le décodage garde les lignes comprises en mémoire avant le chargement ; suffisant pour les répétitions, à passer en flux si l'export réel est très volumineux (non mesuré).
+4. **Dérogations à la conception** : `rep_decision`, `rep_synonyme`, `rep_echantillon`, `rep_bascule*` non créées (numéros à attribuer dans 2567–2577) ; `rep_execution_a_decider` ajoutée ; `reprises` détaillé en créées / mises à jour / inchangées.
+5. **Classement du périmètre** (`perimetre_reprise.tsv`) : proposé d'après T0 §4–5 et le plan de bascule ; **non validé par Florian** (par exemple notes et vie scolaire en `archive`, `settings__*` en `archive`, `bien-etre` traité comme sensible/refusé en attendant Q-PB4).
+6. Le test local complet d'`ent-db` n'a pas été rejoué en entier (la suite entière dépasse le conteneur) : seuls les tests du lot et les gardes concernées ont tourné ; la CI fait foi pour le reste.
 
 ## 4bis. Ce que le lot ne fait pas (et pourquoi)
 - Il **ne crée aucun objet métier** ni aucune fiche du cœur : R3 (rapprochement, file de décisions) et les lots de module (R5 à R9).
