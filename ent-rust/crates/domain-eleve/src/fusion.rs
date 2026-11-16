@@ -291,6 +291,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_journal", "Journal et événements"),
         ("ent_metier_event", "Journal et événements"),
         ("ent_contrainte", "Emploi du temps"),
+        ("ent_edt_individuelle", "Emploi du temps"),
         ("ent_edt_localisation", "Emploi du temps"),
         ("ent_cours_membre", "Emploi du temps"),
     ];
