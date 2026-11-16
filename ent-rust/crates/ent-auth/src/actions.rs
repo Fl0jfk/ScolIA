@@ -55,6 +55,8 @@ pub enum Action {
     VoyagesPorteur,
     /// Demandes de devis, avenants et courriers aux prestataires (secrétariat, comptabilité, direction) : corrige le défaut de Next.js (VD-14).
     VoyagesPrestataires,
+    /// Socle 42, lot V0d : reprise des séjours de Next.js (zone de reprise, tableau de bascule, bascule). Administrateur et direction.
+    VoyagesReprise,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -579,7 +581,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 238] = [
+    pub const TOUTES: [Action; 239] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -834,6 +836,8 @@ impl Action {
         Action::AutorisationsLire,
         Action::AutorisationsGerer,
         Action::AutorisationsParametrer,
+        // Socle 42, lot V0d (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::VoyagesReprise,
     ];
 
     pub fn code(self) -> &'static str {
@@ -859,6 +863,7 @@ impl Action {
             Self::VoyagesBudgetValider => "voyages.budget_valider",
             Self::VoyagesPorteur => "voyages.porteur",
             Self::VoyagesPrestataires => "voyages.prestataires",
+            Self::VoyagesReprise => "voyages.reprise",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -1103,6 +1108,7 @@ impl Action {
             Self::VoyagesBudgetValider => "Valider le budget d'un voyage (comptabilité)",
             Self::VoyagesPorteur => "Attribuer ou transférer le porteur d'une sortie",
             Self::VoyagesPrestataires => "Demander des devis et écrire aux prestataires d'une sortie dont on n'est pas le porteur",
+            Self::VoyagesReprise => "Reprendre les séjours de Next.js : zone de reprise, tableau et bascule (administrateur, direction)",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -1408,6 +1414,7 @@ impl Action {
             | Self::VoyagesBudgetValider
             | Self::VoyagesPorteur
             | Self::VoyagesPrestataires
+            | Self::VoyagesReprise
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -2416,6 +2423,10 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if matches!(role, Role::Admin | Role::Compta) {
         d.push(etab(VoyagesBudgetValider));
+    }
+    // Lot V0d : la reprise voit des séjours entiers et leurs participants : administrateur et direction seuls.
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(VoyagesReprise));
     }
 }
 
@@ -3572,6 +3583,21 @@ mod oracle_a1 {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
         assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("demandes.")).count(), 16);
+    }
+
+    /// Socle 42, lot V0d : `voyages.reprise` (reprise de Next.js) est réservée à l'administrateur et à la direction.
+    #[test]
+    fn voyages_v0d_reprise_admin_et_direction_seulement() {
+        let a = |r: Role| modele_par_defaut(r).iter().any(|(y, _)| *y == Action::VoyagesReprise);
+        for (r, attendu) in [
+            (Role::Admin, true), (Role::Direction, true), (Role::Administratif, false), (Role::Compta, false),
+            (Role::Prof, false), (Role::Cpe, false), (Role::Accueil, false), (Role::Infirmerie, false),
+            (Role::Psy, false), (Role::Parent, false), (Role::Eleve, false),
+        ] {
+            assert_eq!(a(r), attendu, "{r:?} voyages.reprise");
+        }
+        assert_eq!(Action::parse("voyages.reprise"), Some(Action::VoyagesReprise));
+        assert_eq!(Action::VoyagesReprise.portees_admises(), &[Portee::Etablissement]);
     }
 
     #[test]

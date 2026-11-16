@@ -47,6 +47,8 @@ mod structure_offre;
 mod structure_periodes;
 mod voyages;
 mod voyages_achats;
+mod voyages_v0d;
+mod voyages_v1;
 mod edt_s2;
 mod roles;
 mod routes;
@@ -366,6 +368,8 @@ mod tests_structure_s4;
 mod tests_structure_s6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_voyages;
+#[cfg(all(test, feature = "labo"))]
+mod tests_voyages_v0d_v1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]

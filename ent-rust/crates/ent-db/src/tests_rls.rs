@@ -319,7 +319,10 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 1 du socle 10 (T4, migration 447 : journal de localisation ; RLS en 454).
     // + 7 du socle 18 (lot FO1, migrations 2361–2363 : objets d'accord, usages, versions, usages couverts, décisions, usages
     // décidés, journal ; le catalogue de référence et ses usages sont globaux, sans établissement donc sans RLS).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7, "tables avec RLS activée et forcée");
+    // + 15 du socle 42 (lot V0d : migration 645 = commande de restauration, lignes, attributions, convives externes, avis, clés de réponse ;
+    // migration 646 = journal de voyage, délégués, publications, photos, marquage des élèves, liens nominatifs ; migration 647 = séjours repris,
+    // participants de la reprise, écarts) + 6 du lot V1 (migration 648 = campagne, exigences, faits de signature, relances ; migration 649 = transmissions, champs).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

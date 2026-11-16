@@ -345,9 +345,18 @@ pub mod voyages_budget_repo;
 pub mod voyages_pdf;
 pub mod voyages_prestataires;
 pub mod voyages_prestataires_repo;
+pub mod voyages_courrier_ports;
+pub mod voyages_exigences;
+pub mod voyages_exigences_repo;
+pub mod voyages_missions_repo;
 pub mod voyages_courrier_repo;
+pub mod voyages_journal_repo;
 pub mod voyages_rappels;
 pub mod voyages_reactions;
+pub mod voyages_reprise;
+pub mod voyages_reprise_repo;
+pub mod voyages_restauration;
+pub mod voyages_restauration_repo;
 pub mod voyages_repo;
 pub use messagerie_m0b::{
     ApercuAnnonce, FilOuvert, LienAVerifier, MessageEnvoye, OptionsEnvoiMessage, PageFils,
@@ -643,6 +652,10 @@ mod tests_afaire_p4;
 mod tests_recherche_p5;
 #[cfg(test)]
 mod tests_voyages_v0b;
+#[cfg(test)]
+mod tests_voyages_v0d;
+#[cfg(test)]
+mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

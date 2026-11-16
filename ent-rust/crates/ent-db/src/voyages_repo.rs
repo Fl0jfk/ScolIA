@@ -941,7 +941,7 @@ fn valider_saisie(s: &SortieSaisie) -> Result<SaisieValide, EntDbError> {
 }
 
 /// Année scolaire qui contient la date de début (R-SV29 : les dates sont dans l'année du socle 5).
-async fn annee_de(
+pub(crate) async fn annee_de(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     debut: DateTime<Utc>,
@@ -2691,7 +2691,7 @@ async fn rouvrir_liste(
     ])
 }
 
-async fn liste_participants(
+pub(crate) async fn liste_participants(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     s: &SortieLigne,

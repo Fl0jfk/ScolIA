@@ -1095,6 +1095,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/demarrer"),
     ("POST", "/preinscription/verifier"),
     ("POST", "/inscriptions/invitations/accepter"),
+    // Journal de voyage (socle 42, V0d) : famille SANS compte ; le jeton du lien nominatif (empreinte seule en base,
+    // expirant, révocable, débit limité) fait foi, l'établissement vient du jeton. Réponses identiques pour tout jeton refusé.
+    ("GET", "/voyages/journal/lien/{jeton}"),
+    ("GET", "/voyages/journal/lien/{jeton}/photos/{phid}"),
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
