@@ -20,6 +20,8 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 **Décisions attendues de Florian** : ordre de la file du matin (AS6, hypothèse en 9 niveaux, avis du pilote favorable) ; délai de consolidation des avis (AS5 : 10, 15 ou 20 min).
 
+**Décidé par Florian (16-11, 17 h)** : proposition de remplaçant (socle 15, A4/A11c) : pas de compteur « N demandes sans suite » ; mention neutre « répond rarement aux sollicitations », visible du seul organisateur des remplacements, jamais du professeur concerné (mis en œuvre par A4bis).
+
 **Ce qui a coincé** : nuit de file CI saturée (run d'ENT bloqué plus de 2 h) ; tranche 1 coupée à 60 min ; défaut du jeu d'essai EDT le lundi ; écart de version Rust CI (1.99) / sessions (1.97). Tout est corrigé ou contourné.
 
 **Signature (I-013)** : chemin de preuve d'EcoleDirecte analysé ; décision : tout en maison au départ (passkey, empreinte, journal chaîné, PDF de preuve) ; horodatage qualifié mutualisé par ScolIA en production, sélectif (convocations disciplinaires, finalisation des inscriptions), ≈ 2 000 documents/an pour 1 500 élèves.
