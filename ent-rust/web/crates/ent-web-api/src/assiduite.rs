@@ -7,7 +7,7 @@
 use chrono::NaiveDate;
 use ent_types::assiduite::{
     ApercuMasseDto, AppelV2Dto, AvisDemiJourneeDto, BilanMasseDto, CommunicationFamilleDto,
-    CorrigerLigneBody, DeposerJustificatifBody, DetailEpisodeDto, EpisodeDto,
+    ContactDto, CorrigerLigneBody, CourrierDto, RectificationDto, RequalifierEpisodeBody, DeposerJustificatifBody, DetailEpisodeDto, EpisodeDto,
     EpisodeSansReponseDto, EpisodeVueFamilleDto, EpisodeVueProfesseurDto, HistoLigneDto,
     IncoherenceV2Dto, JustificatifDto, LienJustificatifDto, MotifAsdDto, NatureMotifDto,
     ParamFamilleDto, PointerLigneBody, QualifierEpisodeBody, SelectionMasseBody,
@@ -345,6 +345,66 @@ impl ApiClient {
         self.appel(
             Methode::Get,
             &format!("/assiduite/eleves/{eleve_id}/situation-accueil"),
+            None,
+        )
+        .await
+    }
+
+    // ── Dossier d'un élève (AS14d) ──────────────────────────────────────────────────────────
+
+    /// `POST /assiduite/episodes/{id}/requalification` (`absences.qualifier`, motif codé obligatoire).
+    pub async fn requalifier_episode(
+        &self,
+        id: Uuid,
+        q: &RequalifierEpisodeBody,
+    ) -> Result<EpisodeDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/assiduite/episodes/{id}/requalification"),
+            Some(corps(q)?),
+        )
+        .await
+    }
+
+    /// `GET /assiduite/eleves/{id}/contacts` (`assiduite.suivre`).
+    pub async fn contacts_eleve(&self, eleve_id: Uuid) -> Result<Vec<ContactDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/assiduite/eleves/{eleve_id}/contacts"),
+            None,
+        )
+        .await
+    }
+
+    /// `GET /assiduite/eleves/{id}/courriers` (`assiduite.suivre`).
+    pub async fn courriers_eleve(&self, eleve_id: Uuid) -> Result<Vec<CourrierDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/assiduite/eleves/{eleve_id}/courriers"),
+            None,
+        )
+        .await
+    }
+
+    /// `GET /assiduite/mois/{mois}/rectifications` (`assiduite.signaler`) : celles de tout
+    /// l'établissement pour le mois ; l'écran filtre l'élève.
+    pub async fn rectifications_mois(
+        &self,
+        mois: NaiveDate,
+    ) -> Result<Vec<RectificationDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/assiduite/mois/{mois}/rectifications"),
+            None,
+        )
+        .await
+    }
+
+    /// `POST /assiduite/rectifications/{id}/vue` : « vue » une seule fois.
+    pub async fn rectification_vue(&self, id: Uuid) -> Result<(), ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/assiduite/rectifications/{id}/vue"),
             None,
         )
         .await

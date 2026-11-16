@@ -402,3 +402,70 @@ pub struct SituationAccueilDto {
     /// Absent à l'appel de ce matin.
     pub absent_ce_matin: bool,
 }
+
+// ─── Dossier d'assiduité d'un élève (AS14d) ──────────────────────────────────────────────────────
+
+/// Corps de `POST /assiduite/episodes/{id}/requalification` : le motif codé est obligatoire.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequalifierEpisodeBody {
+    pub qualification: String,
+    pub version: i32,
+    /// `erreur_de_saisie`, `nouvelle_piece`, `decision_direction`, `changement_de_nature`, `autre`.
+    pub motif_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nature_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub libelle_famille_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_interne: Option<String>,
+}
+
+/// Contact tracé avec une famille (`GET /assiduite/eleves/{id}/contacts`, `assiduite.suivre`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContactDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub absence_id: Option<Uuid>,
+    /// `telephone`, `sms`, `courriel`, `rencontre`, `courrier`.
+    pub canal: String,
+    /// Sens du contact (sortant ou entrant), chaîne du serveur.
+    pub sens: String,
+    /// `joint`, `message_laisse`, `ne_repond_pas`, `numero_faux`, `envoye`, `rencontre_faite`.
+    pub issue: String,
+    #[serde(default)]
+    pub note_interne: Option<String>,
+    pub cree_le: DateTime<Utc>,
+}
+
+/// Courrier préparé pour une famille (`GET /assiduite/eleves/{id}/courriers`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CourrierDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub absence_id: Option<Uuid>,
+    /// `relance_absence`, `avis_absence`, `autre`.
+    pub nature: String,
+    /// `prepare`, `valide`, `poste`, `abandonne`.
+    pub statut: String,
+    pub prepare_le: DateTime<Utc>,
+    pub valide_le: Option<DateTime<Utc>>,
+    pub poste_le: Option<DateTime<Utc>>,
+    pub abandon_code: Option<String>,
+}
+
+/// Rectification postérieure à l'arrêt d'un mois (`GET /assiduite/mois/{mois}/rectifications`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RectificationDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub mois: NaiveDate,
+    pub avant_demi_journees: i32,
+    pub avant_non_justifiees: i32,
+    pub apres_demi_journees: i32,
+    pub apres_non_justifiees: i32,
+    /// `recalcul`, `requalification`, `correction_appel`, `neutralisation`, `calendrier`.
+    pub cause: String,
+    pub touche_signalement: bool,
+    pub cree_le: DateTime<Utc>,
+    pub vue_par: Option<Uuid>,
+}

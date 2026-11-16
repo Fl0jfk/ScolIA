@@ -744,3 +744,12 @@
   .asd-tableau tr { display: grid; gap: var(--esp-2); padding: var(--esp-3) var(--esp-4); border-bottom: 1px solid var(--c-ligne); }
 }
 .asd-onglets .ui-segmente { display: flex; flex-wrap: wrap; max-width: 100%; }
+/* Dossier d'assiduité d'un élève et signalements (AS14d, AS14e). */
+.asd-dossier__tete { display: grid; gap: var(--esp-1); margin-block: var(--esp-3); }
+.asd-mois { display: grid; gap: var(--esp-2); margin-block: var(--esp-4); padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }
+.asd-mois__titre { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); font-size: var(--taille-l); }
+.asd-liste, .asd-rectifs, .asd-chrono { display: grid; gap: var(--esp-2); margin: 0; padding-left: var(--esp-5); }
+.asd-chrono > li { padding: var(--esp-2) var(--esp-3); border-left: 3px solid var(--c-ligne); }
+.asd-signalements .asd-relecture { flex-basis: 100%; }
+.asd-relecture summary { cursor: pointer; font-weight: var(--graisse-forte); padding-block: var(--esp-1); }
+.asd-signalement { align-items: flex-start; }

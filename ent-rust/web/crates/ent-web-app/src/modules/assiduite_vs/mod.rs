@@ -10,7 +10,10 @@
 //! personne, avec la version lue (conflit si l'épisode a changé).
 
 pub mod accueil;
+pub mod dossier;
+pub mod dossier_modele;
 pub mod modele;
+pub mod signalements;
 
 use chrono::NaiveDate;
 use ent_types::assiduite::{
@@ -31,6 +34,7 @@ use crate::composants_metier::absences::libelle_periode;
 use crate::composants_metier::recherche_eleve::RechercheEleve;
 use crate::noyau::ecriture::message_echec;
 use crate::noyau::erreurs::ErreurChargement;
+use crate::noyau::navigation;
 use crate::noyau::session;
 use crate::noyau::temps::date_heure_paris;
 use modele::{
@@ -55,6 +59,7 @@ pub fn PageAssiduite() -> impl IntoView {
         OptionSegment::new("justificatifs", "Justificatifs"),
         OptionSegment::new("sans_reponse", "Sans réponse"),
         OptionSegment::new("avis", "Avis aux familles"),
+        OptionSegment::new("dossier", "Dossier d'un élève"),
     ];
     view! {
         <Title text="Assiduité"/>
@@ -69,6 +74,7 @@ pub fn PageAssiduite() -> impl IntoView {
             "justificatifs" => view! { <FileEpisodes avec_justificatif=true natures=natures_liste/> }.into_any(),
             "sans_reponse" => view! { <SansReponse/> }.into_any(),
             "avis" => view! { <AvisFamilles/> }.into_any(),
+            "dossier" => view! { <dossier::ChoixDossier/> }.into_any(),
             _ => view! { <FileEpisodes avec_justificatif=false natures=natures_liste/> }.into_any(),
         }}
     }
@@ -399,6 +405,9 @@ fn DetailEpisode(
                             </Bouton>
                         </div>
                         <p>
+                            <a href=format!("{}/eleves/{eleve_id}", navigation::ASSIDUITE)>"Ouvrir le dossier de l'élève"</a>
+                        </p>
+                        <p>
                             <Badge libelle=libelle_etat_episode(&e.etat) ton=TonEtat::Info/>
                             {(e.etat == "qualifie").then(|| view! { <Badge libelle=libelle_qualification(&e.qualification)/> })}
                             {e.prevenue.then(|| view! { <Badge libelle="Prévenue par la famille" ton=TonEtat::Ok/> })}
@@ -443,6 +452,7 @@ fn DetailEpisode(
                         {if qualifiable {
                             view! { <FormulaireQualification episode=e.clone() natures=natures apres=apres proposition=d.propositions.iter().find(|p| p.etat == "en_attente").map(|p| (p.id, p.qualification.clone()))/> }.into_any()
                         } else {
+                            let requalifiable = e.etat == "qualifie";
                             view! {
                                 <p class="texte-attenue">
                                     {format!(
@@ -451,6 +461,9 @@ fn DetailEpisode(
                                         libelle_famille(e.libelle_famille_code.as_deref().unwrap_or("")),
                                     )}
                                 </p>
+                                {requalifiable.then(|| view! {
+                                    <dossier::FormulaireRequalification episode=e.clone() natures=natures apres=apres/>
+                                })}
                             }
                                 .into_any()
                         }}
