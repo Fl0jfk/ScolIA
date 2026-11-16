@@ -141,9 +141,10 @@ CREATE TRIGGER ent_sortie_relance_immuable
 -- document s'étend et le document peut désigner l'adulte concerné (clé composite).
 DO $$
 BEGIN
+    -- Rejeu : la migration 644 recrée sa contrainte v0c si elle est absente ; elle est donc supprimée à CHAQUE passage.
+    ALTER TABLE ent_sortie_document DROP CONSTRAINT IF EXISTS ent_sortie_document_type_v0c_chk;
+    ALTER TABLE ent_sortie_document DROP CONSTRAINT IF EXISTS ent_sortie_document_type_check;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_sortie_document_type_v1_chk') THEN
-        ALTER TABLE ent_sortie_document DROP CONSTRAINT IF EXISTS ent_sortie_document_type_v0c_chk;
-        ALTER TABLE ent_sortie_document DROP CONSTRAINT IF EXISTS ent_sortie_document_type_check;
         ALTER TABLE ent_sortie_document ADD CONSTRAINT ent_sortie_document_type_v1_chk CHECK (
             type IN ('budget', 'circulaire', 'demande_devis', 'devis', 'bon_commande', 'avenant',
                      'ordre_mission', 'autorisation_adulte', 'liste_nominative'));

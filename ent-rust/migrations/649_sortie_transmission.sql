@@ -65,8 +65,8 @@ CREATE TABLE IF NOT EXISTS ent_sortie_transmission_champ (
 -- L'envoi d'une liste nominative passe par la file d'envoi des prestataires (V0c) : nouveau type.
 DO $$
 BEGIN
+    ALTER TABLE ent_sortie_envoi DROP CONSTRAINT IF EXISTS ent_sortie_envoi_type_check;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_sortie_envoi_type_v1_chk') THEN
-        ALTER TABLE ent_sortie_envoi DROP CONSTRAINT IF EXISTS ent_sortie_envoi_type_check;
         ALTER TABLE ent_sortie_envoi ADD CONSTRAINT ent_sortie_envoi_type_v1_chk CHECK (
             type IN ('demande_devis', 'relance', 'bon_commande', 'avenant', 'liste_nominative'));
     END IF;

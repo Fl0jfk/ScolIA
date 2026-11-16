@@ -65,6 +65,8 @@ pub const SOURCES: [&str; 46] = [
     include_str!("../../src/agenda.rs"),
     include_str!("../../src/internat.rs"),
     include_str!("../../src/voyages_achats.rs"),
+    include_str!("../../src/voyages_v0d.rs"),
+    include_str!("../../src/voyages_v1.rs"),
     include_str!("../../src/assiduite.rs"),
     include_str!("../../src/documents_verif.rs"),
 ];
@@ -115,6 +117,8 @@ pub const NOMS_SOURCES: [&str; 46] = [
     "agenda.rs",
     "internat.rs",
     "voyages_achats.rs",
+    "voyages_v0d.rs",
+    "voyages_v1.rs",
     "assiduite.rs",
     "documents_verif.rs",
 ];
