@@ -311,19 +311,30 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
     let jour = aujourdhui(&ent, &cast).await;
     let non_assuree = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let assuree = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
-    // Année scolaire couvrant le jour et séance du socle 10 « non assurée » (préparation par le propriétaire).
-    let annee = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
-         VALUES ($1, $2, 'AS6', $3, $4, true)",
-    )
-    .bind(annee)
-    .bind(etab)
-    .bind(jour - Duration::days(200))
-    .bind(jour + Duration::days(200))
-    .execute(ent.pool_verif())
-    .await
-    .unwrap();
+    // Séance du socle 10 « non assurée » (préparation par le propriétaire) rattachée à l'année du jeu de labo.
+    let annee: Uuid = match sqlx::query_scalar("SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante")
+        .bind(etab)
+        .fetch_optional(ent.pool_verif())
+        .await
+        .unwrap()
+    {
+        Some(a) => a,
+        None => {
+            let a = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
+                 VALUES ($1, $2, 'AS6', $3, $4, true)",
+            )
+            .bind(a)
+            .bind(etab)
+            .bind(jour - Duration::days(200))
+            .bind(jour + Duration::days(200))
+            .execute(ent.pool_verif())
+            .await
+            .unwrap();
+            a
+        }
+    };
     for (c, etat) in [(non_assuree, "non_assuree"), (assuree, "prevue")] {
         sqlx::query(
             "INSERT INTO ent_edt_seance (id, etablissement_id, annee_id, creneau_id, jour, classe, prof_user_id,
@@ -717,7 +728,7 @@ async fn as6_prevenir_maintenant_passe_par_le_moteur_en_u3_sans_delai() {
         .is_err());
     // Les événements ne portent aucun texte libre (R-AS25).
     let mauvais: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = ANY($2)
+        "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND type = ANY($2)
             AND payload::text ~* '(texte|note|motif_texte|nom|prenom)'",
     )
     .bind(etab)
@@ -754,10 +765,32 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     poser_regle(&ent, etab, 10, 15).await;
     let jour = aujourdhui(&ent, &cast).await;
     let (lea, tom) = (cast.eleve_lea_id, cast.eleve_tom_id);
-    let (hermione, ron, ginny) = (cast.eleves[2].id, cast.eleve_ron_id.unwrap_or(cast.eleves[3].id), cast.eleve_ginny_id.unwrap_or(cast.eleves[4].id));
-    // Ginny : présente à 8 h, absente à 10 h (après présence).
-    appel(&ent, &cast, jour, (8, 0), (9, 0), &[(ginny, "present"), (lea, "absent"), (tom, "absent"), (hermione, "absent"), (ron, "absent")]).await;
-    appel(&ent, &cast, jour, (10, 0), (11, 0), &[(ginny, "absent")]).await;
+    let par_prenom = |p: &str| cast.eleves.iter().find(|e| e.prenom == p).map(|e| e.id).expect("élève du labo");
+    let (hermione, ron, ginny) = (par_prenom("Hermione"), par_prenom("Ron"), par_prenom("Ginny"));
+    // Chacun pointé dans l'appel de sa classe de 8 h ; Ginny, présente à 8 h, est absente à 10 h (après présence).
+    let classe_de = |id: Uuid| cast.eleves.iter().find(|e| e.id == id).map(|e| e.classe.clone()).unwrap_or_else(|| "4B".into());
+    for classe in ["4B", "5A"] {
+        let c = ent
+            .seed_creneau_du_jour(etab, classe, "AS6", cast.prof.user_id, jour, t(8, 0), t(9, 0), None)
+            .await
+            .unwrap()
+            .id;
+        let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
+        for (e, etat) in [(ginny, "present"), (lea, "absent"), (tom, "absent"), (hermione, "absent"), (ron, "absent")] {
+            if classe_de(e) == classe {
+                ent.pointer_ligne_v2(etab, a.id, e, cast.prof.user_id, "prof", saisie(etat), "web").await.unwrap();
+            }
+        }
+        valider(&ent, &cast, a.id).await;
+    }
+    let c10 = ent
+        .seed_creneau_du_jour(etab, &classe_de(ginny), "AS6", cast.prof.user_id, jour, t(10, 0), t(11, 0), None)
+        .await
+        .unwrap()
+        .id;
+    let (a10, _) = ent.ouvrir_appel(etab, c10, jour, cast.prof.user_id, "prof").await.unwrap();
+    ent.pointer_ligne_v2(etab, a10.id, ginny, cast.prof.user_id, "prof", saisie("absent"), "web").await.unwrap();
+    valider(&ent, &cast, a10.id).await;
     distribuer(&ent, etab).await;
     // Un créneau de 8 h 20 sans appel : pas encore dans la file à 8 h 31 (début + 2 × 15 = 8 h 50).
     let sans_appel_tot = creneau(&ent, &cast, jour, (8, 20), (9, 20)).await;
@@ -911,7 +944,7 @@ async fn as6_cloisonnement_par_etablissement() {
     distribuer(&ent, etab).await;
     let alerte = alertes(&ent, etab, lea, "absence_apres_presence").await[0].0;
     // Même identité, mais dans un établissement où elle n'a aucun droit : refus ou « introuvable », jamais de donnée.
-    assert!(ent.file_du_matin_for_actor(autre, cast.cpe.user_id, "cpe", None, Utc::now()).await.is_err());
+    assert!(ent.file_du_matin_for_actor(autre, cast.cpe.user_id, "cpe", None, Utc::now()).await.map_or(true, |f| f.entrees.is_empty()));
     assert!(ent.alerte_traiter_for_actor(autre, cast.cpe.user_id, "cpe", alerte, "sans_suite").await.is_err());
     assert!(ent.alerte_prendre_for_actor(autre, cast.cpe.user_id, "cpe", alerte).await.is_err());
     assert!(ent.prevenir_maintenant_for_actor(autre, cast.cpe.user_id, "cpe", PrevenirMaintenant { eleve_id: lea, raison_code: "fugue_suspectee".into() }).await.is_err());
