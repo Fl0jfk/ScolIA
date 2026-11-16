@@ -555,6 +555,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Archive datée des exceptions levées ou remplacées (A0, AR-15) : rien ne s'efface.
     t("ent_edt_exception_levee", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_import", "emploi_du_temps_structure", Portee::Etablissement),
+    // Socle 10, lot T5 : version individuelle d'un élève (l'effet est porté par `ent_cours_membre`).
+    t("ent_edt_individuelle", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    t("ent_edt_individuelle_ligne", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     // Socle 10, lot T3 : journal du réel, lots et motifs internes (jamais exportés hors direction).
     // Socle 10, lot T4 : lectures de localisation d'un élève (qui, quand, pourquoi ; jamais le lieu).
     t("ent_edt_localisation_journal", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
@@ -570,6 +573,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_edt_seance_lieu", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_seance_public_fusion", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_version", "emploi_du_temps_structure", Portee::Etablissement).export(),
+    // Socle 10, lot T5 : historique des faits de publication.
+    t("ent_edt_version_journal", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_version_perimetre", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_eleve", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_eleve_bourse", "finances", Portee::Etablissement).perso().export(),
