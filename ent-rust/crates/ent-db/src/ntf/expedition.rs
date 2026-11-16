@@ -31,10 +31,61 @@ fn jour_fr(j: NaiveDate) -> String {
     j.format("%d/%m/%Y").to_string()
 }
 
-fn rendre(texte: &str, prenom: &str, jour: Option<NaiveDate>) -> String {
+/// Paramètres de texte d'un avis qui s'ajoutent au prénom et au jour (socle 12, AS5) : demi-journée et sens
+/// d'une décision. Valeurs codées, jamais de texte libre ; une valeur inconnue se rend vide.
+#[derive(Debug, Clone, Default)]
+struct ParamsTexte {
+    periode: Option<String>,
+    decision: Option<String>,
+}
+
+fn periode_fr(p: Option<&str>) -> &'static str {
+    match p {
+        Some("matin") => " (matin)",
+        Some("apres_midi") => " (après-midi)",
+        _ => "",
+    }
+}
+
+fn decision_fr(d: Option<&str>) -> &'static str {
+    match d {
+        Some("justifiee") => "justifiée",
+        Some("non_justifiee") => "non justifiée",
+        _ => "modifiée",
+    }
+}
+
+fn rendre(texte: &str, prenom: &str, jour: Option<NaiveDate>, p: &ParamsTexte) -> String {
     texte
         .replace("{prenom}", prenom)
         .replace("{jour}", &jour.map(jour_fr).unwrap_or_else(|| "ce jour".into()))
+        .replace("{periode}", periode_fr(p.periode.as_deref()))
+        .replace("{decision}", decision_fr(p.decision.as_deref()))
+}
+
+async fn params_texte(
+    tx: &mut sqlx::PgConnection,
+    etablissement_id: Uuid,
+    avis_id: Uuid,
+) -> Result<ParamsTexte, EntDbError> {
+    let lignes: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT cle, valeur_texte FROM ent_ntf_avis_param
+          WHERE etablissement_id = $1 AND avis_id = $2 AND cle IN ('periode', 'decision')",
+    )
+    .bind(etablissement_id)
+    .bind(avis_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(db)?;
+    let mut p = ParamsTexte::default();
+    for (cle, v) in lignes {
+        match cle.as_str() {
+            "periode" => p.periode = v,
+            "decision" => p.decision = v,
+            _ => {}
+        }
+    }
+    Ok(p)
 }
 
 /// Ancien `kind` de l'ENT pour une nature (l'interface le reconnaît) ; à défaut, le second segment du code.
@@ -117,8 +168,9 @@ pub async fn expedier_avis_dus(
                 .unwrap_or_default(),
             None => String::new(),
         };
-        let titre = rendre(n.gabarit.titre, &prenom, jour);
-        let corps = rendre(n.gabarit.corps, &prenom, jour);
+        let pt = params_texte(&mut tx, etablissement_id, avis_id).await?;
+        let titre = rendre(n.gabarit.titre, &prenom, jour, &pt);
+        let corps = rendre(n.gabarit.corps, &prenom, jour, &pt);
         let destinataires: Vec<(Uuid, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
             "SELECT id, compte_id, personne_id FROM ent_ntf_destinataire
               WHERE etablissement_id = $1 AND avis_id = $2 AND retenu AND statut = 'a_remettre' ORDER BY created_at, id",
@@ -377,14 +429,15 @@ pub async fn reserver_remises_sans_compte(
                 .unwrap_or_default(),
             None => String::new(),
         };
+        let pt = params_texte(&mut tx, etablissement_id, avis_id).await?;
         prises.push(RemiseDirecte {
             remise_id,
             etablissement_id,
             eleve_id,
             kind: kind_pour(n.code),
             destination: adresse,
-            sujet: rendre(n.gabarit.titre, &prenom, jour),
-            corps: rendre(n.gabarit.corps, &prenom, jour),
+            sujet: rendre(n.gabarit.titre, &prenom, jour, &pt),
+            corps: rendre(n.gabarit.corps, &prenom, jour, &pt),
         });
     }
     tx.commit().await.map_err(db)?;

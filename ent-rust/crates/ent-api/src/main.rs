@@ -345,6 +345,22 @@ async fn run_api() {
             }
         });
     }
+    // Socle 12 (AS5) : relance graduée des absences sans motif, au jour métier de chaque établissement. Inactive
+    // tant que `vie_scolaire.relance_justificatif` n'est pas basculée sur la brique ; idempotente (une étape ne
+    // part qu'une fois par épisode).
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.assiduite_relance_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(etapes = n, "relances d'assiduité"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("relance d'assiduité : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {

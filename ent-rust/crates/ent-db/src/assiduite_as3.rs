@@ -770,6 +770,7 @@ impl PgEnt {
         legacy_id: Uuid,
         acteur: Option<Uuid>,
         publies: &mut Vec<MetierEvent>,
+        sans_evenement: bool,
     ) -> Result<(), EntDbError> {
         let (en_attente, valides, qualifies): (i64, i64, i64) = sqlx::query_as(
             "SELECT count(*) FILTER (WHERE etat IN ('ouvert', 'a_qualifier')),
@@ -808,7 +809,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        if let Some((eleve_id,)) = r {
+        if let (Some((eleve_id,)), false) = (r, sans_evenement) {
             // L'ancien événement de décision reste émis : la famille est informée comme avant (sans la note).
             let type_name = if statut == "justifiee" {
                 ent_events::types::ELEVE_ABSENCE_JUSTIFIED
@@ -914,7 +915,15 @@ impl PgEnt {
         )
         .await?;
         if let Some(legacy) = ep.absence_legacy_id {
-            self.projeter_vers_ancien_tx(tx, etab, legacy, acteur, publies).await?;
+            // AS5 : quand la brique de notifications sert `absence_decision`, la requalification est notifiée
+            // une seule fois par elle ; l'ancien circuit garde son statut mais n'émet plus d'événement de plus.
+            let silence = origine == "requalification" && {
+                let r = crate::ntf::service::reglage_nature(tx, etab, crate::ntf::catalogue::ABSENCE_DECISION.code)
+                    .await
+                    .map_err(db)?;
+                r.via_brique && !r.desactivee
+            };
+            self.projeter_vers_ancien_tx(tx, etab, legacy, acteur, publies, silence).await?;
         }
         Ok(())
     }
@@ -1279,7 +1288,7 @@ impl PgEnt {
 
     /// Qui, parmi la famille ou l'élève, peut agir sur cet élève : `famille` (responsable avec
     /// `peut_justifier_absence`), `eleve_majeur`, ou personne.
-    async fn qualite_famille(
+    pub(crate) async fn qualite_famille(
         &self,
         etab: Uuid,
         acteur: Uuid,

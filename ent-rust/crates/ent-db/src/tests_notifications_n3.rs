@@ -63,6 +63,7 @@ fn demande(etab: Uuid, nature: &'static NatureAvisDecl, eleve: Uuid, cle: &str, 
         cause_event_id: None,
         effet_le: instant(effet),
         urgence_plus: plus,
+        delai_min: None,
     }
 }
 

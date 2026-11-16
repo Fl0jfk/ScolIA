@@ -372,6 +372,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("3803_ntf_preferences"),
     // Lot N2 (destinataires = personnes).
     m!("3808_ntf_gels_liens_a_prevenir"),
+    // Socle 12, lot AS5 (plage 2247–2255) : ces migrations référencent `ent_ntf_avis` (socle 8, 3801) ; elles sont
+    // donc appliquées APRÈS les migrations 38xx (l'ordre d'application est celui de ce tableau, pas le numéro).
+    // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
+    m!("2247_assiduite_as5_relance_contact"),
+    m!("2248_assiduite_as5_avis_demi_journee"),
+    m!("2249_assiduite_as5_courrier"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

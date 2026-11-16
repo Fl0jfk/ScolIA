@@ -53,6 +53,8 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(crate::afaire_service::ConsommateurAfaire),
         // Socle 8 N1 : brique de notifications (bascule progressive par établissement et par nature).
         Arc::new(crate::ntf::consommateur::ConsommateurAvis::nouveau()),
+        // Socle 12 AS5 : avis d'absence par demi-journée, démenti, décision modifiée (via le moteur ci-dessus).
+        Arc::new(crate::assiduite_as5::ConsommateurFamilles),
     ]
 }
 

@@ -857,6 +857,7 @@ pub fn router() -> Router<AppState> {
     // Vie scolaire complète (S2-4, module séparé : `vie_scolaire.rs`).
     let r = r.merge(crate::vie_scolaire::routes());
     let r = r.merge(crate::assiduite::routes());
+    let r = r.merge(crate::assiduite_familles::routes());
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
     let r = r.merge(crate::recherche::routes());

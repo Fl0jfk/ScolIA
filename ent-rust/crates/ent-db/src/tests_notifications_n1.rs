@@ -329,6 +329,7 @@ async fn n1_service_refus_idempotence_etat_et_annulation() {
         cause_event_id: None,
         effet_le: instant,
         urgence_plus: None,
+        delai_min: None,
     };
     let mut tx = TenantTx::begin(ent.pool(), etab).await.unwrap();
     assert!(matches!(

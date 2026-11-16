@@ -50,6 +50,7 @@ mod recherche;
 mod demandes;
 mod portail;
 mod assiduite;
+mod assiduite_familles;
 mod vie_scolaire;
 mod evaluations;
 mod agenda;

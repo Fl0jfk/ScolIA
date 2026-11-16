@@ -8732,6 +8732,29 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         // dans la même transaction que l'ancien circuit.
         self.episode_rattacher_seance_tx(tx, appel, eleve_id, absence.id, actor_user_id, publies)
             .await?;
+        // AS5 (§14.1) : une absence est constatée à cette séance. Le consommateur `assiduite.familles` décide de
+        // l'avis **par demi-journée** (un seul avis vivant par élève et demi-journée) ; l'événement n'est donc
+        // émis pour chaque séance, même quand l'absence ancienne couvre déjà le jour (DA-05).
+        publies.push(
+            tx.publier_avec(
+                MetierEventDraft {
+                    etablissement_id,
+                    type_name: crate::assiduite_as5::types_as5::ABSENCE_OUVERTE.to_string(),
+                    aggregate: AggregateKind::Absence,
+                    aggregate_id: absence.id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "appel_id": appel.id,
+                        "jour": appel.jour.to_string(),
+                        "source": "appel",
+                        "prevenue": prevenue,
+                    }),
+                    actor_user_id: actor_user_id.clone(),
+                },
+                suite,
+            )
+            .await?,
+        );
         if regroupee && (prevenue || deja_avis) {
             return Ok(());
         }
@@ -8750,6 +8773,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         "source": "appel",
                         "appel_id": appel.id,
                         "prevenue": prevenue,
+                        // L'avis d'absence est décidé par demi-journée (AS5) quand la brique le sert.
+                        "avis_demi_journee": true,
                     }),
                     actor_user_id: actor_user_id.clone(),
                 },

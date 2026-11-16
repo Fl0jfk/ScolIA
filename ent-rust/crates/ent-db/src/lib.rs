@@ -9,6 +9,7 @@ mod assiduite_as1;
 mod assiduite_as2;
 mod assiduite_as3;
 mod assiduite_as4;
+mod assiduite_as5;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -306,6 +307,11 @@ pub use assiduite_as4::{
     deriver_jour, expliquer, ArretMois, DemiJourneeCalc, DemiJourneeCalculee, Definition, EleveMoisArrete, Ouverture,
     ParamsJour, Raison, Rectification, ResumeRecalcul, CAUSES_RECTIFICATION,
 };
+pub use assiduite_as5::{
+    delais_rythme, periode_de, AvisDemiJourneeAsd, BilanRelance, CommunicationFamille, ConsommateurFamilles, ContactAsd,
+    CourrierAsd, EpisodeSansReponse, ParamFamille, PreparerCourrier, RelanceAsd, TracerContact, ABANDONS_COURRIER,
+    CANAUX_CONTACT, CONSOMMATEUR_FAMILLES, ETAPES, ISSUES_CONTACT, NATURES_COURRIER, RYTHMES,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -554,6 +560,8 @@ mod tests_assiduite_as2;
 mod tests_assiduite_as3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

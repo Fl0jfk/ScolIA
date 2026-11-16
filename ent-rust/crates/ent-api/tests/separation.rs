@@ -1678,6 +1678,42 @@ async fn construire_doubles(m: &Monde) -> Vec<Double> {
 }
 
 /// Toutes les spécifications de la matrice (lectures et écritures par identifiant).
+/// Socle 12, lot AS5 (familles et notifications). Le suivi de l'information des familles (avis, contacts, courriers,
+/// relances) est réservé à la vie scolaire, au secrétariat et à la direction (`assiduite.suivre`) : ni le professeur,
+/// ni la comptabilité, ni l'infirmerie, ni la psychologue, ni une famille, ni l'élève. La vue « communications »
+/// est celle du responsable (droit de voir la vie scolaire ou de justifier, comme les épisodes d'AS3), jamais du personnel ni de l'élève.
+/// Les écritures visant un élève de B avec la session de A sont refusées (même réponse que « inexistant »).
+fn specs_domaine_assiduite_familles() -> Vec<Spec> {
+    vec![
+        lire("assiduite-avis-eleve", "/assiduite/eleves/{eleve}/avis", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-contacts-eleve", "/assiduite/eleves/{eleve}/contacts", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-courriers-eleve", "/assiduite/eleves/{eleve}/courriers", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-communications", "/assiduite/eleves/{eleve}/communications", &[Parent, ParentSansDrapeaux], &[]),
+        lire("assiduite-familles-parametres", "/assiduite/familles/parametres", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-sans-reponse", "/assiduite/relances/sans-reponse", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-numeros-faux", "/assiduite/contacts/numeros-faux", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        ecrire_sur_b(
+            "assiduite-contact-sur-B",
+            "POST",
+            "/assiduite/contacts",
+            Some(r#"{"eleve_id":"{eleve}","canal":"telephone","issue":"joint"}"#),
+        ),
+        ecrire_sur_b(
+            "assiduite-courrier-sur-B",
+            "POST",
+            "/assiduite/courriers",
+            Some(r#"{"eleve_id":"{eleve}","nature":"avis_absence"}"#),
+        ),
+        ecrire_sur_b("assiduite-courrier-valider-B", "POST", "/assiduite/courriers/{absence}/valider", Some("{}")),
+        ecrire_sur_b("assiduite-numero-faux-B", "POST", "/assiduite/contacts/{absence}/numero-faux/cloturer", Some("{}")),
+    ]
+}
+
+#[test]
+fn domaine_assiduite_familles() {
+    jouer("assiduite_familles", &specs_domaine_assiduite_familles());
+}
+
 fn toutes_les_specs() -> Vec<Spec> {
     let mut v = Vec::new();
     v.extend(specs_domaine_eleve_dossier());
@@ -1689,6 +1725,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());
+    v.extend(specs_domaine_assiduite_familles());
     v.extend(specs_domaine_cours());
     v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
     v

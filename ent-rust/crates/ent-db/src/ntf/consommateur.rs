@@ -85,6 +85,7 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
                 cause_event_id: Some(vue.id()),
                 effet_le: evt.event().created_at,
                 urgence_plus: None,
+                delai_min: None,
             },
         )
         .await

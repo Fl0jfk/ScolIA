@@ -503,6 +503,10 @@ pub enum Action {
     AbsencesJustificatifMedicalLire,
     /// Décider d'une demande d'autorisation d'absence (accorder, refuser, transmettre au DASEN).
     AbsencesAutorisationDecider,
+    // ── Socle 12, lot AS5 : familles et notifications (`12_ASSIDUITE.md` §14.4, §15.1) ──
+    /// Suivre l'information des familles : tracer un contact, voir les relances « sans réponse », préparer un
+    /// courrier postal, régler le rythme de relance en lecture (D-017 : CPE, AED, secrétariat, direction).
+    AssiduiteSuivre,
     // ── Socle 20, lot C2 : cahier de textes, saisie et publication (`20_CAHIER_DE_TEXTES.md` §19.1) ──
     /// Retirer de la diffusion une entrée ou un travail du cahier (motif obligatoire, versions gardées).
     CahierRetirer,
@@ -560,7 +564,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 231] = [
+    pub const TOUTES: [Action; 232] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -758,6 +762,7 @@ impl Action {
         Action::AbsencesJustificatifLire,
         Action::AbsencesJustificatifMedicalLire,
         Action::AbsencesAutorisationDecider,
+        Action::AssiduiteSuivre,
         Action::CahierRetirer,
         Action::CahierContribuer,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
@@ -1032,6 +1037,7 @@ impl Action {
             Self::AbsencesJustificatifLire => "absences.justificatif_lire",
             Self::AbsencesJustificatifMedicalLire => "absences.justificatif_medical_lire",
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
+            Self::AssiduiteSuivre => "assiduite.suivre",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
             Self::EquipesGerer => "equipes.gerer",
@@ -1271,6 +1277,7 @@ impl Action {
             Self::AbsencesJustificatifLire => "Lire les justificatifs d'absence non médicaux",
             Self::AbsencesJustificatifMedicalLire => "Lire les justificatifs d'absence médicaux (lecture journalisée)",
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
+            Self::AssiduiteSuivre => "Suivre l'information des familles : contacts, relances sans réponse, courriers postaux",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
@@ -1539,6 +1546,7 @@ impl Action {
             | Self::AbsencesJustificatifLire
             | Self::AbsencesJustificatifMedicalLire
             | Self::AbsencesAutorisationDecider
+            | Self::AssiduiteSuivre
             => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
@@ -2276,6 +2284,11 @@ fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
     // Décision d'autorisation d'absence (R131-5) : chef d'établissement.
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AbsencesAutorisationDecider));
+    }
+    // AS5 : suivi de l'information des familles (contacts, relances, courriers). La vie scolaire et le
+    // secrétariat le détiennent ; un AED l'obtient par un rôle libre (D-017). Jamais le professeur.
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(AssiduiteSuivre));
     }
 }
 

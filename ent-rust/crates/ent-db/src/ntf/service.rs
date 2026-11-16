@@ -52,6 +52,9 @@ pub struct DemandeAvis {
     pub effet_le: DateTime<Utc>,
     /// Monter d'un cran dans les bornes de la nature, jamais descendre.
     pub urgence_plus: Option<Urgence>,
+    /// Délai de confirmation imposé par l'émetteur, en minutes (la brique émettrice porte son propre réglage :
+    /// l'assiduité le lit dans sa règle datée, R-AS15) ; `None` = réglage de l'établissement ou de la nature.
+    pub delai_min: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,7 +151,10 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
         Some(plus) => n.urgence.plus(plus, if n.brique_u3_autorisee { Urgence::U3 } else { Urgence::U2 }),
         None => n.urgence,
     };
-    let delai = delai_confirmation(conn, d.etablissement_id, n).await?;
+    let delai = match d.delai_min {
+        Some(m) => Duration::minutes(m.clamp(0, 240)),
+        None => delai_confirmation(conn, d.etablissement_id, n).await?,
+    };
     let confirme_apres = d.effet_le + delai;
     let avis_id = Uuid::new_v4();
     let insere: Option<(Uuid,)> = sqlx::query_as(
