@@ -103,6 +103,10 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("personnel/signaler-absence") view=modules::absences_personnels::PageSignalerAbsence/>
                     <Route path=path!("personnel/ce-matin") view=modules::absences_personnels::PageCeMatin/>
                     <Route path=path!("personnel/remplacements") view=modules::absences_personnels::PageMesRemplacements/>
+                    <Route path=path!("personnel/mes-heures") view=modules::absences_personnels::PageMesHeures/>
+                    <Route path=path!("personnel/etats-heures") view=modules::absences_personnels::PageEtatsHeures/>
+                    <Route path=path!("personnel/rcd") view=modules::absences_personnels::PageRcd/>
+                    <Route path=path!("personnel/parametrage-absences") view=modules::absences_personnels::PageParametrageAbsences/>
                     <Route path=path!("accompagnement") view=modules::accompagnement::PageAccompagnement/>
                     <Route path=path!("accompagnement/eleves/:id") view=modules::accompagnement::PageAccompagnementEleve/>
                     <Route path=path!("amenagements") view=modules::amenagements::PageAmenagements/>

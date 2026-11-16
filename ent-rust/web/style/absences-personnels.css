@@ -38,3 +38,10 @@
 /* Sections de la fiche et files : le contrôle segmenté passe à la ligne sur téléphone. */
 .absp-onglets { margin-bottom: var(--esp-3); max-width: 100%; }
 .absp-onglets .ui-segmente { display: flex; flex-wrap: wrap; width: 100%; }
+/* A11d à A11f : heures, états, RCD, réglages. */
+dl.absp-carte { margin: 0; }
+.absp-ligne dt { color: var(--c-attenue); }
+.absp-ligne dd { margin: 0; font-weight: var(--graisse-forte); }
+.absp-jauge { width: 100%; height: var(--esp-3); }
+.absp-valeur-code { font-family: var(--police-mono, monospace); }
+details > summary { min-height: var(--cible); display: flex; align-items: center; cursor: pointer; font-weight: var(--graisse-forte); }

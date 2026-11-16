@@ -1080,6 +1080,111 @@ impl PgEnt {
         tx.commit().await.map_err(db)?;
         self.edt_reference_for_actor(etab, actor, role).await
     }
+
+    // ───────────────────────────── ABP-262 : seuil de la mention « répond rarement » (A11f) ─────────────────────────────
+
+    /// Le seuil en vigueur. Lisible de la direction (`parametrer`) et de qui organise les remplacements : ce sont les
+    /// seuls à qui la mention est servie ; un professeur n'y accède jamais.
+    pub async fn parametres_absences_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<ParametresAbsencesDto, EntDbError> {
+        self.exiger_personnel_abs(role).await?;
+        if !(self.a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesParametrer).await?
+            || self.peut_lire_organisation(etab, actor, role).await?)
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let ligne: Option<(i16, DateTime<Utc>)> =
+            sqlx::query_as("SELECT seuil_sans_reponse_min, modifie_le FROM ent_absp_param WHERE etablissement_id = $1")
+                .bind(etab)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
+        Ok(match ligne {
+            // Une ligne créée pour un autre réglage (EDT de référence) porte la valeur d'origine : non « réglée ».
+            Some((v, le)) => ParametresAbsencesDto {
+                seuil_sans_reponse_min: v,
+                seuil_sans_reponse_defaut: SEUIL_SANS_REPONSE_DEFAUT,
+                regle: v != SEUIL_SANS_REPONSE_DEFAUT,
+                modifie_le: (v != SEUIL_SANS_REPONSE_DEFAUT).then_some(le),
+            },
+            None => ParametresAbsencesDto {
+                seuil_sans_reponse_min: SEUIL_SANS_REPONSE_DEFAUT,
+                seuil_sans_reponse_defaut: SEUIL_SANS_REPONSE_DEFAUT,
+                regle: false,
+                modifie_le: None,
+            },
+        })
+    }
+
+    /// Règle le seuil de l'établissement, de 1 à 20 (droit `parametrer` : direction et administration). Une écriture,
+    /// journalisée (objet `param`, valeurs avant et après) ; le réglage d'un établissement n'atteint jamais un autre.
+    pub async fn definir_parametres_absences_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        body: &ModifierParametresAbsencesBody,
+    ) -> Result<ParametresAbsencesDto, EntDbError> {
+        self.exiger_personnel_abs(role).await?;
+        if !self.a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesParametrer).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        if !(1..=20).contains(&body.seuil_sans_reponse_min) {
+            return Err(invalide("Le seuil va de 1 à 20 demandes restées sans réponse."));
+        }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let avant = seuil_sans_reponse_tx(&mut tx, etab).await?;
+        sqlx::query(
+            "INSERT INTO ent_absp_param (etablissement_id, seuil_sans_reponse_min, modifie_par_user_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (etablissement_id) DO UPDATE SET seuil_sans_reponse_min = $2, modifie_le = now(),
+                    modifie_par_user_id = $3",
+        )
+        .bind(etab)
+        .bind(body.seuil_sans_reponse_min)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        if avant != i64::from(body.seuil_sans_reponse_min) {
+            super::rcd::journal_objet(
+                &mut tx,
+                etab,
+                "param",
+                etab,
+                "seuil_sans_reponse",
+                Some("seuil_sans_reponse_min"),
+                Some(&avant.to_string()),
+                Some(&body.seuil_sans_reponse_min.to_string()),
+                actor,
+            )
+            .await?;
+        }
+        tx.commit().await.map_err(db)?;
+        self.parametres_absences_for_actor(etab, actor, role).await
+    }
+}
+
+/// Seuil d'origine de la mention « répond rarement aux sollicitations » : au moins trois demandes restées sans
+/// réponse. Valeur appliquée tant que l'établissement n'a pas réglé la sienne (A11f, migration 2315).
+pub const SEUIL_SANS_REPONSE_DEFAUT: i16 = 3;
+
+/// Seuil en vigueur pour l'établissement : sa valeur réglée, sinon celle d'origine.
+pub(crate) async fn seuil_sans_reponse_tx(conn: &mut PgConnection, etab: Uuid) -> Result<i64, EntDbError> {
+    let (v,): (i16,) = sqlx::query_as(
+        "SELECT COALESCE((SELECT seuil_sans_reponse_min FROM ent_absp_param WHERE etablissement_id = $1), $2)",
+    )
+    .bind(etab)
+    .bind(SEUIL_SANS_REPONSE_DEFAUT)
+    .fetch_one(conn)
+    .await
+    .map_err(db)?;
+    Ok(i64::from(v))
 }
 
 async fn jour_du_jour(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
