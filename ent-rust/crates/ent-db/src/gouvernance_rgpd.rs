@@ -400,6 +400,7 @@ fn traitements_du_public(public: &str) -> &'static [&'static str] {
             "sorties_voyages",
             "documents",
             "sante",
+            "reprise_mise_en_service",
             "comptes_securite",
         ],
         "eleves_college" | "eleves_lycee" => &[
@@ -413,10 +414,12 @@ fn traitements_du_public(public: &str) -> &'static [&'static str] {
             "sorties_voyages",
             "documents",
             "sante",
+            "reprise_mise_en_service",
             "comptes_securite",
         ],
         "personnels" => &[
             "personnels",
+            "reprise_mise_en_service",
             "comptes_securite",
             "communication",
             "organisation_pilotage",

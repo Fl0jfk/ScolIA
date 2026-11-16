@@ -192,6 +192,16 @@ pub const TRAITEMENTS_BASE: &[TraitementBase] = &[
         module: None,
     },
     TraitementBase {
+        code: "reprise_mise_en_service",
+        libelle: "Reprise des données de l'ancien outil à la mise en service",
+        finalite: "Reprendre les données de l'ancien outil (Next.js) à la mise en service de l'établissement : décoder l'export, simuler la reprise, tracer les comptes, les refus et la correspondance des identifiants. Aucune donnée de santé n'est reprise. Les données de la zone de transit sont purgées après la reprise ; seuls les comptes, les refus sans donnée personnelle et la correspondance des identifiants sont conservés comme preuve. Destinataire : l'opérateur ScolIA seulement, jamais un utilisateur de l'ENT.",
+        personnes: &["élèves", "responsables légaux", "personnels"],
+        domaines: &["mise_en_service"],
+        // Aucune action de lecture applicative : la zone n'est lisible que par l'outil de reprise (rôle `ent_reprise`).
+        lecture: &[],
+        module: None,
+    },
+    TraitementBase {
         code: "conformite",
         libelle: "Conformité : registre, conservation et décisions",
         finalite: "Tenir le registre des traitements, les règles de conservation et le journal des décisions de conformité.",
