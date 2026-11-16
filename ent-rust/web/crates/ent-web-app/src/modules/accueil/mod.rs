@@ -18,7 +18,8 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 
 use crate::composants_metier::seances::{libelle_moment, lien_appel, prochaine, trier, Moment};
-use crate::noyau::coquille::use_droits;
+use crate::composants_metier::tableau_vs::TableauVieScolaire;
+use crate::noyau::coquille::{use_droits, use_droits_moteur};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::session;
@@ -61,6 +62,8 @@ fn PortailRendu(
     on_reessayer: Callback<()>,
 ) -> impl IntoView {
     let droits = use_droits();
+    let moteur = use_droits_moteur();
+    let vie_scolaire = Memo::new(move |_| moteur.get().peut_verifier_appels());
     let prof = modele::est_professeur(page.profil);
     // Mode alerte (lot P7) : la page entière est la page d'alerte, aucune autre tuile, rien de masquable.
     if let Some(alerte) = page.alerte {
@@ -71,6 +74,8 @@ fn PortailRendu(
     view! {
         <p class="texte-attenue">{modele::sous_titre(page.mode)}</p>
         <Bandeaux visibles=page.bandeaux replies=page.bandeaux_replies/>
+        // Vie scolaire (CPE, AED, direction…) : tableau en panneaux ; le serveur revérifie chaque droit.
+        {move || vie_scolaire.get().then(|| view! { <TableauVieScolaire/> })}
         <GrilleBento libelle="Tableau de bord">
             {move || (prof && droits.get().faire_appel).then(|| view! { <BlocProchainCours jour=jour/> })}
             {tuiles

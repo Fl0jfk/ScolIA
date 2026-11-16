@@ -403,6 +403,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2251_assiduite_as6_relance_appel"),
     m!("2252_assiduite_as6_substitution"),
     m!("2253_assiduite_as6_prevenir_maintenant"),
+    // Socle 12, lot AS14b-bis (2254, 2255) : réglage de l'heure de bascule et disposition du tableau de bord ; sous 3808.
+    m!("2254_assiduite_as14b_bis_reglage_bascule"),
+    m!("2255_assiduite_as14b_bis_preference"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

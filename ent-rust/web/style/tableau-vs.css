@@ -1,0 +1,48 @@
+/* Tableau de bord de la vie scolaire en panneaux (socle 12, AS14b-bis). Jetons de ui.css uniquement.
+   Fichier séparé : une ligne d'import dans ent-web.css. Téléphone d'abord : une colonne, Urgent en tête ;
+   deux colonnes au-delà de 48 rem ; un panneau « grand » prend toute la largeur. */
+.tdb { display: grid; gap: var(--esp-3); margin-bottom: var(--esp-5); min-width: 0; }
+.tdb-entete { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2) var(--esp-4); }
+.tdb-titre { margin: 0; font-size: var(--taille-titre); }
+.tdb-mode { margin: 0; flex: 1 1 14rem; font-size: var(--taille-s); color: var(--c-attenue); }
+.tdb-entete__actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+
+/* Bandeau Urgent : toujours là. Plein = fond d'alerte + bord marqué ; vide = discret (une ligne). */
+.tdb-urgent { display: grid; gap: var(--esp-2); padding: var(--esp-3) var(--esp-4); border-radius: var(--rayon); min-width: 0; }
+.tdb-urgent--plein { background: var(--c-mal-doux); border: 2px solid var(--c-mal); }
+.tdb-urgent--vide { background: var(--c-surface-2); border: 1px solid var(--c-ligne); padding-block: var(--esp-2); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--esp-3); }
+.tdb-urgent__titre { margin: 0; font-size: var(--taille-l); }
+.tdb-urgent--plein .tdb-urgent__titre { color: var(--c-mal); }
+.tdb-urgent--vide .tdb-urgent__titre { font-size: var(--taille-s); font-weight: var(--graisse-forte); color: var(--c-attenue); }
+.tdb-urgent__rien { margin: 0; font-size: var(--taille-s); color: var(--c-attenue); }
+
+.tdb-grille { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--esp-3); }
+.tdb-panneau { display: grid; gap: var(--esp-2); align-content: start; padding: var(--esp-3) var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); min-width: 0; }
+.tdb-panneau__entete { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.tdb-panneau__titre { margin: 0; font-size: var(--taille-l); flex: 1 1 auto; }
+.tdb-panneau--grand { border: 2px solid var(--c-acc); }
+.tdb-panneau--grand .tdb-panneau__titre { font-size: var(--taille-titre); }
+.tdb-panneau__corps[hidden], .tdb-dispo[hidden] { display: none; }
+.tdb-vide { margin: 0; font-size: var(--taille-s); color: var(--c-attenue); }
+
+.tdb-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-2); }
+.tdb-ligne { display: grid; gap: var(--esp-2); padding: var(--esp-2) 0; border-bottom: 1px solid var(--c-ligne); min-width: 0; overflow-wrap: anywhere; }
+.tdb-ligne:last-child { border-bottom: 0; }
+.tdb-ligne__texte { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--esp-1) var(--esp-3); }
+.tdb-ligne__qui { font-weight: var(--graisse-forte); }
+.tdb-ligne__raison { font-weight: var(--graisse-moyenne); }
+.tdb-ligne__meta { font-size: var(--taille-s); color: var(--c-attenue); }
+.tdb-ligne__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.tdb-lien { font-size: var(--taille-s); padding-inline: var(--esp-2); min-height: 2rem; display: inline-flex; align-items: center; }
+
+.tdb-dispo { display: grid; gap: var(--esp-3); padding: var(--esp-3) var(--esp-4); background: var(--c-surface-2); border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon); }
+.tdb-dispo__mode, .tdb-dispo__note { margin: 0; font-size: var(--taille-s); color: var(--c-attenue); }
+.tdb-dispo__liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-1); }
+.tdb-dispo__ligne { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.tdb-dispo__nom { flex: 1 1 12rem; font-weight: var(--graisse-moyenne); }
+.tdb-dispo__actions, .tdb-dispo__bascule { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-3); }
+
+@media (min-width: 48rem) {
+  .tdb-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tdb-panneau--grand { grid-column: 1 / -1; }
+}
