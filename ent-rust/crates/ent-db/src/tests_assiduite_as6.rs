@@ -806,7 +806,7 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     let niveau = |e: Uuid| par_eleve(e).map(|x| x.niveau);
     assert_eq!(niveau(lea), Some(1), "{:#?}", f.entrees);
     assert_eq!(niveau(ginny), Some(3));
-    assert_eq!(niveau(tom), Some(4));
+    assert_eq!(niveau(tom), Some(4), "{:#?}", f.entrees.iter().map(|x| (x.nom.clone(), x.categorie.clone(), x.niveau)).collect::<Vec<_>>());
     assert_eq!(niveau(hermione), Some(5));
     assert_eq!(niveau(ron), Some(6));
     // Une ligne par élève ; les autres raisons de Léa (absente sans nouvelles) sont listées sur sa ligne.
