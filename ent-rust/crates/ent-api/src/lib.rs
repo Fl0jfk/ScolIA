@@ -50,6 +50,7 @@ mod voyages_achats;
 mod voyages_v0d;
 mod voyages_v1;
 mod edt_s2;
+mod edt_t5;
 mod roles;
 mod routes;
 mod afaire;
