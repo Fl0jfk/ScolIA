@@ -49,8 +49,18 @@ Interdits maintenus : aucune levée automatique, aucune suppression (la levée a
 | `a4bis_absence_ecourtee_et_prolongee` | écourtée (réponse conservée à revoir, demande ouverte close), prolongée (nouvelle séance remplacée sans validation) |
 | `a0_ar11_…` (adapté) | l'ancien test exigeait « validée » : il vérifie maintenant absence annulée / autre agent refusés (messages), déclarée acceptée, autre établissement « introuvable » |
 
-## 6. Vérifications
+## 6. Mention « répond rarement aux sollicitations » (décision de Florian, 2026-11-16)
 
-Voir la section « Résultats » ci-dessous (complétée après exécution).
+La raison chiffrée « N demandes sans suite » des propositions de remplaçants (`PropositionDto.demandes_sans_suite`) est **supprimée** et remplacée par `repond_rarement: bool`, mention neutre sans chiffre.
 
-**Résultats :** à compléter.
+* **Seuil** (la conception n'en fixe aucun ; valeur par défaut documentée ici, constante `SEUIL_SANS_REPONSE_MIN` de `reponse.rs`) : au moins **3 demandes restées sans réponse** (expirées) sur les 12 derniers mois **et** au moins la moitié des demandes traitées (acceptées, désignées, refusées, expirées). Un refus, même sans motif, est une réponse : il ne compte pas. Non réglable par établissement : il faudrait une table de paramètres (migration), non demandée ; à décider si besoin (S-15xx).
+* **Visibilité** : le DTO n'est servi que par `propositions_impact_for_actor`, qui exige le droit d'organiser. Un professeur (concerné, collègue, absent) reçoit un refus ; ni « mes demandes » ni l'impact ne portent la mention.
+* Le compte de demandes sans suite reste **interne** (tri d'équité inchangé), jamais sérialisé.
+* **À faire à la fusion de la branche `ent-socle-15-code-a11`** (non encore dans ENT) : l'écran A11c lit `demandes_sans_suite` (`ent-web-app/.../absences_personnels/modele.rs` l. 1063 et 1591, et le test `ent-web-server/tests/absences_personnels.rs` l. 606). Il faut afficher « répond rarement aux sollicitations » quand `repond_rarement` est vrai, sans nombre, et ajuster ce test.
+* Test : `a4bis_repond_rarement_visible_du_seul_organisateur` (+ test pur du seuil).
+
+Autres corrections trouvées en chemin : `lever_reponse` ne levait la réponse que par le recalcul, donc **jamais** pour une absence qui ne touche plus la séance (annulée, écourtée) : le remplaçant restait « actif » et son heure était constatée à tort ; elle lève maintenant la réponse elle-même. Le recalcul supprimait un impact portant des demandes (violation de clé étrangère, « référence inconnue ») : il le conserve.
+
+## 7. Vérifications
+
+Résultats : voir la section ci-dessous (complétée après exécution).
