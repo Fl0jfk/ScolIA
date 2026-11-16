@@ -36,6 +36,17 @@ use crate::tenant_tx::{etablissements_systeme, ContexteSysteme};
 /// Fenêtre de service d'une sollicitation immédiate (§11.3, Q-AP14) : de 6 h 30 à 20 h, heure de l'établissement.
 pub const SERVICE_DEBUT: (u32, u32) = (6, 30);
 pub const SERVICE_FIN: (u32, u32) = (20, 0);
+/// Seuil de la mention « répond rarement aux sollicitations » (décision de Florian, 2026-11-16 ; la conception ne
+/// fixe aucun seuil, celui-ci est une valeur par défaut documentée dans `15_ABSENCES_A4BIS.md`) : au moins
+/// `SEUIL_SANS_REPONSE_MIN` demandes **restées sans réponse** (expirées) sur l'année, **et** au moins la moitié des
+/// demandes traitées. Un refus, même sans motif, est une réponse : il ne compte pas ici. Jamais un chiffre affiché.
+pub const SEUIL_SANS_REPONSE_MIN: i64 = 3;
+
+/// `expirees` : demandes restées sans réponse ; `traitees` : acceptées, désignées, refusées ou expirées.
+pub fn repond_rarement(expirees: i64, traitees: i64) -> bool {
+    expirees >= SEUIL_SANS_REPONSE_MIN && expirees * 2 >= traitees
+}
+
 const REFUS_CODES: &[&str] = &["absent", "autre_service", "delai", "autre"];
 
 /// Une sollicitation est-elle envoyable à cette heure locale ? Hors fenêtre, elle attend 6 h 30.
@@ -228,7 +239,7 @@ impl PgEnt {
     // ───────────────────────────── ABP-167 : propositions ─────────────────────────────
 
     /// Remplaçants possibles pour un impact, du mieux placé au moins bien placé, **avec leurs raisons** :
-    /// même discipline d'abord, puis le moins sollicité sur l'année (remplacements faits, puis demandes sans suite),
+    /// même discipline d'abord, puis le moins sollicité sur l'année (remplacements faits, puis demandes sans suite : compte interne, jamais affiché),
     /// puis la charge de la journée, puis le nom. Candidats : libres sur la plage et sans conflit (règles de
     /// l'emploi du temps), hors l'absent et hors un agent déjà retenu sur une plage qui chevauche.
     pub async fn propositions_impact_for_actor(
@@ -252,7 +263,8 @@ impl PgEnt {
         let acteur = Acteur { etablissement_id: etab, user_id: actor, role };
         let candidats = self.edt_candidats_remplacants(&acteur, creneau, jour, true).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let mut sortie: Vec<PropositionDto> = Vec::new();
+        // (demandes sans suite, proposition) : le compte sert au seul tri et ne sort jamais.
+        let mut sortie: Vec<(i64, PropositionDto)> = Vec::new();
         for c in candidats {
             let Some(agent) = agent_du_user_tx(&mut tx, etab, c.user_id).await? else { continue };
             if agent == absence_agent {
@@ -273,9 +285,11 @@ impl PgEnt {
             if pris {
                 continue;
             }
-            let (faits, sans_suite): (i64, i64) = sqlx::query_as(
+            let (faits, sans_suite, expirees, traitees): (i64, i64, i64, i64) = sqlx::query_as(
                 "SELECT count(*) FILTER (WHERE etat IN ('acceptee', 'designee')),
-                        count(*) FILTER (WHERE etat IN ('refusee', 'expiree'))
+                        count(*) FILTER (WHERE etat IN ('refusee', 'expiree')),
+                        count(*) FILTER (WHERE etat = 'expiree'),
+                        count(*) FILTER (WHERE etat IN ('acceptee', 'designee', 'refusee', 'expiree'))
                    FROM ent_absp_sollicitation
                   WHERE etablissement_id = $1 AND agent_id = $2 AND envoyee_le >= now() - interval '1 year'",
             )
@@ -284,19 +298,20 @@ impl PgEnt {
             .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
-            sortie.push(PropositionDto {
+            sortie.push((sans_suite, PropositionDto {
                 agent_id: agent,
                 nom: c.nom,
                 meme_discipline: c.competent,
                 seances_ce_jour: c.seances_ce_jour as u32,
                 remplacements_faits: faits as u32,
-                demandes_sans_suite: sans_suite as u32,
-            });
+                repond_rarement: repond_rarement(expirees, traitees),
+            }));
         }
-        sortie.sort_by(|a, b| {
-            (!a.meme_discipline, a.remplacements_faits, a.demandes_sans_suite, a.seances_ce_jour, &a.nom)
-                .cmp(&(!b.meme_discipline, b.remplacements_faits, b.demandes_sans_suite, b.seances_ce_jour, &b.nom))
+        sortie.sort_by(|(sa, a), (sb, b)| {
+            (!a.meme_discipline, a.remplacements_faits, *sa, a.seances_ce_jour, &a.nom)
+                .cmp(&(!b.meme_discipline, b.remplacements_faits, *sb, b.seances_ce_jour, &b.nom))
         });
+        let sortie = sortie.into_iter().map(|(_, p)| p).collect();
         Ok(sortie)
     }
 
@@ -1138,6 +1153,14 @@ mod tests_purs {
 
     fn h(h: u32, m: u32) -> NaiveTime {
         NaiveTime::from_hms_opt(h, m, 0).unwrap()
+    }
+
+    #[test]
+    fn la_mention_repond_rarement_a_un_seuil_et_ne_compte_pas_les_refus() {
+        assert!(!repond_rarement(2, 2), "deux demandes sans réponse : sous le seuil");
+        assert!(repond_rarement(3, 6));
+        assert!(!repond_rarement(3, 8), "moins de la moitié des demandes traitées");
+        assert!(!repond_rarement(0, 20));
     }
 
     #[test]

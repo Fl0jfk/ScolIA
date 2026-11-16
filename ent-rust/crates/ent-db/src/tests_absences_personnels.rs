@@ -5698,3 +5698,49 @@ async fn a4bis_absence_ecourtee_et_prolongee() {
     x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3b.id).await.unwrap();
     assert_eq!(x.etat_impact(i3b).await, "remplace");
 }
+
+/// Décision de Florian (2026-11-16) : la raison chiffrée « N demandes sans suite » devient une mention neutre et non
+/// chiffrée, « répond rarement aux sollicitations », posée au-delà d'un seuil et **visible de la seule personne qui
+/// organise** : jamais du professeur concerné ni de ses collègues.
+#[tokio::test]
+async fn a4bis_repond_rarement_visible_du_seul_organisateur() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    let propose = |x: &Cadre| {
+        let ent = &x.ent;
+        let (etab, dir) = (x.etab, x.dir);
+        async move { ent.propositions_impact_for_actor(etab, dir, "direction", impact).await.unwrap() }
+    };
+    // Sous le seuil : aucune mention.
+    assert!(propose(&x).await.iter().all(|p| !p.repond_rarement));
+    // Trois demandes restées sans réponse (expirées) sur l'année : la mention apparaît.
+    for _ in 0..crate::absences_personnels::reponse::SEUIL_SANS_REPONSE_MIN {
+        let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+        sqlx::query("UPDATE ent_absp_sollicitation SET expire_le = now() - interval '1 minute' WHERE id = $1")
+            .bind(s.id)
+            .execute(x.ent.pool())
+            .await
+            .unwrap();
+        x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
+    }
+    let props = propose(&x).await;
+    let p2 = props.iter().find(|p| p.agent_id == ag2).expect("prof2 proposé");
+    assert!(p2.repond_rarement, "{props:?}");
+    let ag3 = x.agent_user(x.prof3).await;
+    assert!(!props.iter().find(|p| p.agent_id == ag3).expect("prof3 proposé").repond_rarement);
+    // Aucun compte de demandes sans suite dans la réponse destinée à l'organisateur.
+    let json = serde_json::to_string(&props).unwrap();
+    assert!(!json.contains("sans_suite"), "{json}");
+    // Ni le professeur concerné, ni un collègue, ni l'absent : refusés sur les propositions ; rien dans ce qu'ils lisent.
+    for (u, r) in [(x.prof2, "prof"), (x.prof3, "prof"), (x.prof, "prof")] {
+        let e = x.ent.propositions_impact_for_actor(x.etab, u, r, impact).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden | EntDbError::Domain(DomainError::NotFound)), "{r} : {e:?}");
+        let mes = serde_json::to_string(&x.ent.mes_sollicitations_for_actor(x.etab, u, r).await.unwrap()).unwrap();
+        for interdit in ["rarement", "sans_suite", "repond"] {
+            assert!(!mes.contains(interdit), "« {interdit} » dans « mes demandes » de {r} : {mes}");
+        }
+    }
+    let impacts = serde_json::to_string(&x.ent.impact_absence_for_actor(x.etab, x.prof, "prof", _a).await.unwrap()).unwrap();
+    assert!(!impacts.contains("rarement") && !impacts.contains("sans_suite"), "{impacts}");
+}
