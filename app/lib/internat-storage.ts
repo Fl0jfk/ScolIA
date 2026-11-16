@@ -205,13 +205,30 @@ async function listInternatRollCallDates(): Promise<Array<{ date: string; period
     .sort((a, b) => b.date.localeCompare(a.date) || (a.period === "matin" ? 1 : 0) - (b.period === "matin" ? 1 : 0));
 }
 
+/**
+ * Lit les appels dans l'ordre donné, par petits paquets en parallèle
+ * (auparavant un par un : jusqu'à 60 lectures en série pour les statistiques).
+ * Paquet limité pour ne pas accaparer le pool de connexions.
+ */
+async function* readRollCallsInOrder(
+  entries: Array<{ date: string; period: InternatRollCallPeriod }>,
+  chunkSize = 4,
+): AsyncGenerator<{ date: string; period: InternatRollCallPeriod; rc: InternatRollCall }> {
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    const chunk = entries.slice(i, i + chunkSize);
+    const rcs = await Promise.all(chunk.map((e) => getInternatRollCall(e.date, e.period)));
+    for (let j = 0; j < chunk.length; j++) {
+      yield { date: chunk[j].date, period: chunk[j].period, rc: rcs[j] };
+    }
+  }
+}
+
 export async function listValidatedRollCalls(limit = 30, period?: InternatRollCallPeriod): Promise<InternatRollCall[]> {
   const entries = (await listInternatRollCallDates())
     .filter((e) => !period || e.period === period)
     .slice(0, limit * 2);
   const out: InternatRollCall[] = [];
-  for (const { date, period: p } of entries) {
-    const rc = await getInternatRollCall(date, p);
+  for await (const { rc } of readRollCallsInOrder(entries)) {
     if (rc.status === "validee") out.push(rc);
     if (out.length >= limit) break;
   }
@@ -243,9 +260,8 @@ export async function listRollCallHistory(params: {
     marks: Array<{ studentId: string; mark: string }>;
   }> = [];
 
-  for (const { date, period } of filtered) {
+  for await (const { date, period, rc } of readRollCallsInOrder(filtered)) {
     if (out.length >= limit) break;
-    const rc = await getInternatRollCall(date, period);
     if (rc.status !== "validee") continue;
     const marks: Array<{ studentId: string; mark: string }> = [];
     for (const [studentId, mark] of Object.entries(rc.boys.marks)) {

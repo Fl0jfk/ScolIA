@@ -60,28 +60,33 @@ export async function getCollectionRecord<T extends Record<string, unknown>>(
   recordId: string,
 ): Promise<T | null> {
   const db = getDb();
-  const [row] = await db
-    .select()
-    .from(entCollectionRecord)
-    .where(
-      and(
-        eq(entCollectionRecord.etablissementId, etablissementId),
-        eq(entCollectionRecord.collection, collection),
-        eq(entCollectionRecord.recordId, recordId),
+  // Les deux lectures en parallèle (auparavant l'une après l'autre) : chaque
+  // getJson du site économise un aller-retour base. Les attributs sont ignorés
+  // si l'enregistrement n'existe pas.
+  const [[row], attrs] = await Promise.all([
+    db
+      .select()
+      .from(entCollectionRecord)
+      .where(
+        and(
+          eq(entCollectionRecord.etablissementId, etablissementId),
+          eq(entCollectionRecord.collection, collection),
+          eq(entCollectionRecord.recordId, recordId),
+        ),
+      )
+      .limit(1),
+    db
+      .select()
+      .from(entCollectionAttr)
+      .where(
+        and(
+          eq(entCollectionAttr.etablissementId, etablissementId),
+          eq(entCollectionAttr.collection, collection),
+          eq(entCollectionAttr.recordId, recordId),
+        ),
       ),
-    )
-    .limit(1);
+  ]);
   if (!row) return null;
-  const attrs = await db
-    .select()
-    .from(entCollectionAttr)
-    .where(
-      and(
-        eq(entCollectionAttr.etablissementId, etablissementId),
-        eq(entCollectionAttr.collection, collection),
-        eq(entCollectionAttr.recordId, recordId),
-      ),
-    );
   const obj = inflateFromAttrs(attrs.map((a) => ({ path: a.path, value: a.value })));
   if (!obj.id) obj.id = recordId;
   return obj as T;

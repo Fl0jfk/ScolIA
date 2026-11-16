@@ -41,7 +41,10 @@ export function getDb() {
       // max_scale=3 → ~24 connexions app ; Postgres Scaleway = 100.
       max: 8,
       prepare: false,
-      idle_timeout: 20,
+      // 2 min : à 20 s, chaque reprise après une courte pause rouvrait les
+      // connexions (TLS + authentification) et ralentissait les rafales de
+      // requêtes au chargement d'une page. Le plafond (max) ne change pas.
+      idle_timeout: 120,
       max_lifetime: 60 * 10,
       connect_timeout: 3,
     });
