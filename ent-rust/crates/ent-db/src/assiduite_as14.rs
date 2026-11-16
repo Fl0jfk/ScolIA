@@ -121,7 +121,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         // Journal : qui a lu quoi, quand — identifiants seulement.
-        (&mut *tx)
+        (*tx)
             .publier_avec(
                 MetierEventDraft {
                     etablissement_id: etab,
