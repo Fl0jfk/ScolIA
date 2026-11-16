@@ -755,8 +755,9 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     let etab = cast.etablissement_id;
     poser_regle(&ent, etab, 10, 15).await;
     let jour = aujourdhui(&ent, &cast).await;
-    let (lea, tom) = (cast.eleve_lea_id, cast.eleve_tom_id);
+    let lea = cast.eleve_lea_id;
     let par_prenom = |p: &str| cast.eleves.iter().find(|e| e.prenom == p).map(|e| e.id).expect("élève du labo");
+    let tom = par_prenom("Draco");
     let (hermione, ron, ginny) = (par_prenom("Hermione"), par_prenom("Ron"), par_prenom("Ginny"));
     // Chacun pointé dans l'appel de sa classe de 8 h ; Ginny, présente à 8 h, est absente à 10 h (après présence).
     let mut classe_ginny = String::from("4B");
