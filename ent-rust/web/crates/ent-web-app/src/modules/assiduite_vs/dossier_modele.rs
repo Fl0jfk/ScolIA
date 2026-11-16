@@ -151,7 +151,11 @@ pub fn total_annee(mois: &[MoisDecompte]) -> (i64, i64) {
 
 /// « Mardi 8 septembre, matin ».
 pub fn libelle_demi_journee(d: &DemiJourneeDto) -> String {
-    format!("{}, {}", date_longue(d.jour), libelle_periode_avis(&d.periode))
+    format!(
+        "{}, {}",
+        date_longue(d.jour),
+        libelle_periode_avis(&d.periode)
+    )
 }
 
 /// Ce que dit une ligne du décompte : l'état, jamais seulement une couleur.
@@ -605,7 +609,11 @@ mod tests {
         assert_eq!(m[0].mois, d("2026-10-01"));
         assert_eq!((m[0].comptees, m[0].non_justifiees), (3, 2));
         assert_eq!(m[0].etat, EtatSeuil::Proche);
-        assert_eq!(m[0].lignes.len(), 4, "la ligne qui ne compte pas reste visible");
+        assert_eq!(
+            m[0].lignes.len(),
+            4,
+            "la ligne qui ne compte pas reste visible"
+        );
         assert_eq!(m[1].mois, d("2026-09-01"));
         assert_eq!(total_annee(&m), (4, 3));
     }
@@ -622,7 +630,10 @@ mod tests {
 
     #[test]
     fn etat_d_une_ligne_jamais_par_la_couleur() {
-        assert_eq!(etat_demi_journee(&dj("2026-10-05", "matin", false, false)).0, "Ne compte pas");
+        assert_eq!(
+            etat_demi_journee(&dj("2026-10-05", "matin", false, false)).0,
+            "Ne compte pas"
+        );
         assert_eq!(
             etat_demi_journee(&dj("2026-10-05", "matin", true, true)).0,
             "Compte, non justifiée"
@@ -631,7 +642,10 @@ mod tests {
             etat_demi_journee(&dj("2026-10-05", "matin", true, false)).0,
             "Compte, justifiée"
         );
-        assert!(libelle_demi_journee(&dj("2026-10-05", "apres_midi", true, true)).contains("après-midi"));
+        assert!(
+            libelle_demi_journee(&dj("2026-10-05", "apres_midi", true, true))
+                .contains("après-midi")
+        );
     }
 
     #[test]
@@ -648,23 +662,41 @@ mod tests {
             qualification: "excuse_valable".into(),
             ..Default::default()
         };
-        assert!(corps_requalification("sans_motif", &s, 3).is_err(), "sans motif codé");
+        assert!(
+            corps_requalification("sans_motif", &s, 3).is_err(),
+            "sans motif codé"
+        );
         s.motif_code = "nouvelle_piece".into();
         let c = corps_requalification("sans_motif", &s, 3).unwrap();
         assert_eq!((c.version, c.motif_code.as_str()), (3, "nouvelle_piece"));
-        assert!(corps_requalification("excuse_valable", &s, 3).is_err(), "même qualification");
+        assert!(
+            corps_requalification("excuse_valable", &s, 3).is_err(),
+            "même qualification"
+        );
         s.qualification = "reputee_legitime".into();
-        assert!(corps_requalification("sans_motif", &s, 3).is_err(), "nature obligatoire");
+        assert!(
+            corps_requalification("sans_motif", &s, 3).is_err(),
+            "nature obligatoire"
+        );
         s.nature_code = "maladie".into();
         assert_eq!(
-            corps_requalification("sans_motif", &s, 3).unwrap().nature_code.as_deref(),
+            corps_requalification("sans_motif", &s, 3)
+                .unwrap()
+                .nature_code
+                .as_deref(),
             Some("maladie")
         );
         s.motif_code = "inventé".into();
-        assert!(corps_requalification("sans_motif", &s, 3).is_err(), "motif hors liste");
+        assert!(
+            corps_requalification("sans_motif", &s, 3).is_err(),
+            "motif hors liste"
+        );
         s.motif_code = "autre".into();
         s.note = "x".repeat(501);
-        assert!(corps_requalification("sans_motif", &s, 3).is_err(), "note trop longue");
+        assert!(
+            corps_requalification("sans_motif", &s, 3).is_err(),
+            "note trop longue"
+        );
     }
 
     #[test]

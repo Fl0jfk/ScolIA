@@ -10,9 +10,8 @@
 //! dite, jamais masquée par un silence ; un motif médical ou un justificatif hors du cercle autorisé
 //! n'est jamais rendu par le serveur.
 
-use ent_types::assiduite::{
-    ContactDto, CourrierDto, EpisodeDto, NatureMotifDto, RectificationDto,
-};
+use chrono::Datelike;
+use ent_types::assiduite::{ContactDto, CourrierDto, EpisodeDto, NatureMotifDto, RectificationDto};
 use ent_types::discipline::{DemiJourneeDto, SignalementDto};
 use ent_types::vie_scolaire::EleveFicheDto;
 use ent_web_api::{ApiError, FiltreEpisodesApi};
@@ -20,7 +19,6 @@ use ent_web_ui::{
     use_notifications, Alerte, Badge, Bouton, EtatVide, LienBouton, Niveau, OptionSegment,
     Segmente, Selection, Squelette, Statistique, Taille, TonEtat, Variante, ZoneTexte,
 };
-use chrono::Datelike;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
@@ -28,15 +26,16 @@ use leptos_router::hooks::{use_navigate, use_params_map};
 use uuid::Uuid;
 
 use super::dossier_modele::{
-    chronologie, compter_episodes, corps_requalification, etat_demi_journee,
+    bornes_annee_scolaire, chronologie, compter_episodes, corps_requalification, etat_demi_journee,
     explication_demi_journee, franchit_le_seuil, grouper_par_mois, libelle_annee_scolaire,
     libelle_canal, libelle_demi_journee, libelle_issue_contact, libelle_mois,
     libelle_nature_courrier, libelle_statut_courrier, libelle_statut_signalement,
-    phrase_rectification, resume_signalement, bornes_annee_scolaire, ton_statut_signalement,
-    total_annee, trier_episodes_dossier, MoisDecompte, SaisieRequalification,
-    MOTIFS_REQUALIFICATION,
+    phrase_rectification, resume_signalement, ton_statut_signalement, total_annee,
+    trier_episodes_dossier, MoisDecompte, SaisieRequalification, MOTIFS_REQUALIFICATION,
 };
-use super::modele::{libelle_qualification, libelles_famille_pour, natures_legitimes, QUALIFICATIONS};
+use super::modele::{
+    libelle_qualification, libelles_famille_pour, natures_legitimes, QUALIFICATIONS,
+};
 use super::{AvisEleve, DetailEpisode};
 use crate::composants_metier::absences::libelle_periode;
 use crate::composants_metier::recherche_eleve::RechercheEleve;
@@ -132,7 +131,11 @@ async fn charger_decompte(eleve_id: Uuid) -> Result<DonneesDecompte, ApiError> {
     let mut signalements_refuses = false;
     for m in &mois {
         // Rectifications : seulement pour un mois terminé (un mois en cours n'est pas arrêté).
-        if m.mois < crate::noyau::temps::aujourdhui().with_day(1).unwrap_or(aujourd) {
+        if m.mois
+            < crate::noyau::temps::aujourdhui()
+                .with_day(1)
+                .unwrap_or(aujourd)
+        {
             match client.rectifications_mois(m.mois).await {
                 Ok(l) => rectifications.extend(l.into_iter().filter(|r| r.eleve_id == eleve_id)),
                 Err(_) => rectifs_refusees = true,
@@ -147,7 +150,8 @@ async fn charger_decompte(eleve_id: Uuid) -> Result<DonneesDecompte, ApiError> {
         }
     }
     if rectifs_refusees {
-        manques.push("Les rectifications des mois arrêtés ne sont pas accessibles avec vos droits.");
+        manques
+            .push("Les rectifications des mois arrêtés ne sont pas accessibles avec vos droits.");
     }
     if signalements_refuses {
         manques.push("Les signalements ne sont pas accessibles avec vos droits.");
@@ -180,7 +184,10 @@ async fn charger_suivi(eleve_id: Uuid) -> Result<DonneesSuivi, ApiError> {
         Err(ApiError::Interdit(_) | ApiError::Introuvable(_)) => None,
         Err(e) => return Err(e),
     };
-    Ok(DonneesSuivi { contacts, courriers })
+    Ok(DonneesSuivi {
+        contacts,
+        courriers,
+    })
 }
 
 // ───────────────────────────── Page ─────────────────────────────
@@ -188,7 +195,8 @@ async fn charger_suivi(eleve_id: Uuid) -> Result<DonneesSuivi, ApiError> {
 #[component]
 fn DossierEleve(eleve_id: Uuid) -> impl IntoView {
     let vue = RwSignal::new("resume".to_string());
-    let fiche = LocalResource::new(move || async move { session::client().fiche_eleve(eleve_id).await });
+    let fiche =
+        LocalResource::new(move || async move { session::client().fiche_eleve(eleve_id).await });
     let natures = LocalResource::new(|| async { session::client().natures_motif().await });
     let natures_liste =
         Signal::derive(move || natures.get().and_then(Result::ok).unwrap_or_default());
@@ -591,7 +599,11 @@ fn OngletDecompte(decompte: LocalResource<Result<DonneesDecompte, ApiError>>) ->
 }
 
 #[component]
-fn MoisDuDossier(mois: MoisDecompte, rectifications: Vec<RectificationDto>, seuil: Option<i32>) -> impl IntoView {
+fn MoisDuDossier(
+    mois: MoisDecompte,
+    rectifications: Vec<RectificationDto>,
+    seuil: Option<i32>,
+) -> impl IntoView {
     let titre_id = format!("mois-{}", mois.mois.format("%Y-%m"));
     let titre = libelle_mois(mois.mois);
     let resume = format!(
@@ -655,7 +667,10 @@ fn MoisDuDossier(mois: MoisDecompte, rectifications: Vec<RectificationDto>, seui
 // ───────────────────────────── Contacts et courriers ─────────────────────────────
 
 #[component]
-fn OngletSuivi(suivi: LocalResource<Result<DonneesSuivi, ApiError>>, eleve_id: Uuid) -> impl IntoView {
+fn OngletSuivi(
+    suivi: LocalResource<Result<DonneesSuivi, ApiError>>,
+    eleve_id: Uuid,
+) -> impl IntoView {
     view! {
         <section aria-labelledby="dossier-suivi">
             <h2 id="dossier-suivi" class="vs-section-titre">"Contacts avec la famille et courriers"</h2>

@@ -45,13 +45,16 @@ const parentHarry = await session(labo.personas.find((p) => p.role === 'parent' 
 const hermione = labo.eleves.find((e) => e.label?.includes('Hermione') || e.prenom === 'Hermione');
 const harry = labo.eleves.find((e) => e.label?.includes('Harry') || e.prenom === 'Harry');
 
-const auj = new Date();
+// Le créneau du seed est posé au jour de semaine de Paris (pas de l'UTC : entre 22 h et minuit UTC, ils diffèrent).
+const parisIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+const auj = new Date(parisIso + 'T12:00:00Z');
 const premier = new Date(Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth() - 1, 1));
 const jourSemaine = auj.getUTCDay();
 const jours = [];
 for (let d = new Date(premier); jours.length < 4 && d.getUTCMonth() === premier.getUTCMonth(); d.setUTCDate(d.getUTCDate() + 1)) {
   if (d.getUTCDay() === jourSemaine) { jours.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 6); }
 }
+const libelleJour = (iso) => { const d = new Date(iso + 'T12:00:00Z'); return `${d.getUTCDate()} ${d.toLocaleDateString('fr-FR', { month: 'long', timeZone: 'UTC' })}`; };
 const moisPrec = premier.toISOString().slice(0, 7);
 async function appelFait(jour, eleves) {
   const cren = (await api(`/edt/mes-creneaux?jour=${jour}`, { jeton: prof.jeton })).find((c) => c.classe === '4B');
@@ -107,7 +110,7 @@ async function attendre(page) { await page.waitForLoadState('networkidle'); awai
   const { ctx, page } = await ouvrir(cpe);
   await page.goto(`${base}/web/assiduite`);
   await attendre(page);
-  await page.getByText("Dossier d'un élève", { exact: true }).click();
+  await page.getByRole('radio', { name: "Dossier d'un élève", exact: true }).check();
   await page.fill('#dossier-recherche', 'Hermione');
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: /Ouvrir le dossier de/ }).first().click();
@@ -118,11 +121,11 @@ async function attendre(page) { await page.waitForLoadState('networkidle'); awai
   verifier(await page.getByText('Dossier d\'assiduité : Hermione').count() > 0, 'le dossier porte le nom de l\'élève');
 
   // Section Absences : ouvrir un épisode, qualifier, requalifier.
-  await page.getByText('Absences', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Absences', exact: true }).check();
   await attendre(page);
   await photo(page, '02-dossier-absences');
   await axe(page, 'dossier absences');
-  await page.getByRole('button', { name: /Ouvrir l'absence/ }).first().click();
+  await page.getByRole('button', { name: new RegExp(`Ouvrir l'absence : ${libelleJour(jours[3])}`) }).click();
   await page.waitForSelector('.asd-detail');
   await attendre(page);
   if (await page.locator('#asd-qualif').count()) {
@@ -130,7 +133,7 @@ async function attendre(page) { await page.waitForLoadState('networkidle'); awai
     await page.getByRole('button', { name: "Qualifier l'absence" }).click();
     await attendre(page);
   }
-  await page.getByRole('button', { name: /Ouvrir l'absence/ }).first().click();
+  await page.getByRole('button', { name: new RegExp(`Ouvrir l'absence : ${libelleJour(jours[3])}`) }).click();
   await attendre(page);
   await photo(page, '03-dossier-episode-requalification');
   if (await page.locator('#req-qualif').count()) {
@@ -146,17 +149,21 @@ async function attendre(page) { await page.waitForLoadState('networkidle'); awai
   await axe(page, 'dossier épisode + requalification');
 
   // Décompte par mois, rectifications.
-  await page.getByText('Décompte', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Décompte', exact: true }).check();
   await attendre(page);
   await photo(page, '05-dossier-decompte');
   await axe(page, 'dossier décompte');
+  verifier(await page.getByText('dont 3 non justifiée(s)').count() > 0, 'décompte rafraîchi après la requalification (3 non justifiées sur 4)');
+  await page.reload(); await attendre(page);
+  await page.getByRole('radio', { name: 'Décompte', exact: true }).check(); await attendre(page);
+  verifier(await page.getByText('dont 3 non justifiée(s)').count() > 0, 'décompte après rechargement : 3 non justifiées sur 4');
   verifier(await page.getByText('Compte, non justifiée').count() + await page.getByText('Compte, justifiée').count() > 0, 'décompte : lignes expliquées par demi-journée');
 
-  await page.getByText('Contacts et courriers', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Contacts et courriers', exact: true }).check();
   await attendre(page);
   await photo(page, '06-dossier-contacts');
   await axe(page, 'dossier contacts');
-  await page.getByText('Chronologie', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Chronologie', exact: true }).check();
   await attendre(page);
   await photo(page, '07-dossier-chronologie');
   await axe(page, 'dossier chronologie');
@@ -221,17 +228,28 @@ async function attendre(page) { await page.waitForLoadState('networkidle'); awai
   const { ctx, page } = await ouvrir(secretariat);
   await page.goto(`${base}/web/assiduite/eleves/${harry.id}`);
   await attendre(page);
-  await page.getByText('Absences', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Absences', exact: true }).check();
   await attendre(page);
   const ouvrirBtn = page.getByRole('button', { name: /Ouvrir l'absence/ }).first();
   if (await ouvrirBtn.count()) { await ouvrirBtn.click(); await attendre(page); }
   await photo(page, '20-secretariat-dossier-harry');
   verifier(await page.getByText('angine').count() === 0, 'secrétariat : aucun texte médical');
-  await page.getByText('Contacts et courriers', { exact: true }).click();
+  await page.getByRole('radio', { name: 'Contacts et courriers', exact: true }).check();
   await attendre(page);
-  verifier(await page.getByText('Contacts non accessibles').count() > 0, 'secrétariat : contacts dits non accessibles');
-  await photo(page, '21-secretariat-contacts-refuses');
-  await axe(page, 'secrétariat : contacts refusés');
+  verifier(await page.getByText('Contacts non accessibles').count() === 0 && await page.getByText('Aucun contact tracé').count() + await page.locator('.asd-liste').count() > 0, 'secrétariat : suivi des contacts ouvert (assiduite.suivre), sans médical');
+  await photo(page, '21-secretariat-contacts');
+  await axe(page, 'secrétariat : contacts');
+  await ctx.close();
+}
+
+// ===== Droits : le professeur n'a pas accès au dossier =====
+{
+  const { ctx, page } = await ouvrir(prof);
+  await page.goto(`${base}/web/assiduite/eleves/${harry.id}`);
+  await attendre(page);
+  await photo(page, '22-prof-dossier-refuse');
+  verifier(await page.getByText('angine').count() === 0 && await page.getByText('Décompte', { exact: true }).count() >= 0, 'professeur : aucune donnée du dossier');
+  await axe(page, 'professeur : dossier refusé');
   await ctx.close();
 }
 
@@ -249,8 +267,8 @@ async function mobile(c, chemin, nom, actions) {
   await ctx.close();
 }
 await mobile(cpe, `/web/assiduite/eleves/${hermione.id}`, '30-dossier-resume');
-await mobile(cpe, `/web/assiduite/eleves/${hermione.id}`, '31-dossier-decompte', async (p) => { await p.getByText('Décompte', { exact: true }).click(); await p.waitForTimeout(800); });
-await mobile(cpe, `/web/assiduite/eleves/${hermione.id}`, '32-dossier-absences', async (p) => { await p.getByText('Absences', { exact: true }).click(); await p.waitForTimeout(800); });
+await mobile(cpe, `/web/assiduite/eleves/${hermione.id}`, '31-dossier-decompte', async (p) => { await p.getByRole('radio', { name: 'Décompte', exact: true }).check(); await p.waitForTimeout(800); });
+await mobile(cpe, `/web/assiduite/eleves/${hermione.id}`, '32-dossier-absences', async (p) => { await p.getByRole('radio', { name: 'Absences', exact: true }).check(); await p.waitForTimeout(800); });
 await mobile(direction, '/web/signalements', '33-signalements', async (p) => { await p.fill('#sig-mois', moisPrec); await p.waitForTimeout(1000); });
 
 await navigateur.close();

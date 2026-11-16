@@ -79,7 +79,12 @@ pub fn PageSignalements() -> impl IntoView {
 pub fn noms_depuis_decompte(d: &DecompteMoisDto) -> HashMap<Uuid, String> {
     d.eleves
         .iter()
-        .map(|e| (e.eleve_id, format!("{} {}", e.prenom, e.nom).trim().to_string()))
+        .map(|e| {
+            (
+                e.eleve_id,
+                format!("{} {}", e.prenom, e.nom).trim().to_string(),
+            )
+        })
         .collect()
 }
 
@@ -113,7 +118,9 @@ fn ContenuMois(mois: NaiveDate) -> impl IntoView {
     let signalements =
         LocalResource::new(move || async move { session::client().signalements(mois).await });
     let rectifs =
-        LocalResource::new(move || async move { session::client().rectifications_mois(mois).await });
+        LocalResource::new(
+            move || async move { session::client().rectifications_mois(mois).await },
+        );
     let ecriture = Ecriture::nouveau(Callback::new(move |_| {
         decompte.refetch();
         signalements.refetch();
@@ -124,7 +131,10 @@ fn ContenuMois(mois: NaiveDate) -> impl IntoView {
     let proposer = Callback::new(move |_| {
         ecriture.lancer(async move {
             let l = session::client().proposer_signalements(mois).await?;
-            Ok(format!("{} signalement(s) proposé(s) pour ce mois.", l.len()))
+            Ok(format!(
+                "{} signalement(s) proposé(s) pour ce mois.",
+                l.len()
+            ))
         });
     });
     view! {
@@ -216,7 +226,11 @@ fn ElevesASuivre(decompte: DecompteMoisDto, signalements: Vec<SignalementDto>) -
     let au_seuil = decompte.eleves.iter().filter(|e| e.seuil_atteint).count();
     let a_suivre = eleves_a_suivre(&decompte);
     let arrete = decompte.arrete;
-    let ton_seuil = if au_seuil > 0 { TonEtat::Avertissement } else { TonEtat::Ok };
+    let ton_seuil = if au_seuil > 0 {
+        TonEtat::Avertissement
+    } else {
+        TonEtat::Ok
+    };
     if a_suivre.is_empty() {
         return view! {
             <EtatVide titre="Aucun élève à suivre" message="Aucune demi-journée non justifiée n'est comptée ce mois-ci."/>
@@ -479,7 +493,9 @@ mod tests {
 
     fn neuf() -> Uuid {
         static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        Uuid::from_u128(u128::from(N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+        Uuid::from_u128(u128::from(
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
     }
 
     fn eleve(nom: &str, non_just: i64, atteint: bool) -> DecompteEleveDto {
@@ -524,7 +540,11 @@ mod tests {
         };
         let v = eleves_a_suivre(&d);
         let noms: Vec<&str> = v.iter().map(|e| e.nom.as_str()).collect();
-        assert_eq!(noms, vec!["Aubry", "Zola", "Petit"], "à égalité, ordre alphabétique");
+        assert_eq!(
+            noms,
+            vec!["Aubry", "Zola", "Petit"],
+            "à égalité, ordre alphabétique"
+        );
         assert_eq!(noms_depuis_decompte(&d).len(), 4);
     }
 
@@ -537,7 +557,11 @@ mod tests {
             rectif(true, false, 10),
         ];
         let t = rectifications_a_traiter(&v);
-        assert_eq!(t.len(), 3, "celles qui ne touchent aucun signalement sont écartées");
+        assert_eq!(
+            t.len(),
+            3,
+            "celles qui ne touchent aucun signalement sont écartées"
+        );
         assert!(t[0].vue_par.is_none() && t[1].vue_par.is_none() && t[2].vue_par.is_some());
         assert!(t[0].cree_le > t[1].cree_le, "la plus récente d'abord");
     }
@@ -546,6 +570,8 @@ mod tests {
     fn le_manque_est_dit() {
         assert_eq!(MANQUE_AS9.len(), 5);
         assert!(MANQUE_AS9.iter().any(|m| m.contains("passkey")));
-        assert!(MANQUE_AS9.iter().any(|m| m.contains("export")|| m.contains("PDF")));
+        assert!(MANQUE_AS9
+            .iter()
+            .any(|m| m.contains("export") || m.contains("PDF")));
     }
 }

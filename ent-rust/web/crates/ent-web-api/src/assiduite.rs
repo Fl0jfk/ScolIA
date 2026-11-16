@@ -7,11 +7,11 @@
 use chrono::NaiveDate;
 use ent_types::assiduite::{
     ApercuMasseDto, AppelV2Dto, AvisDemiJourneeDto, BilanMasseDto, CommunicationFamilleDto,
-    ContactDto, CorrigerLigneBody, CourrierDto, RectificationDto, RequalifierEpisodeBody, DeposerJustificatifBody, DetailEpisodeDto, EpisodeDto,
-    EpisodeSansReponseDto, EpisodeVueFamilleDto, EpisodeVueProfesseurDto, HistoLigneDto,
-    IncoherenceV2Dto, JustificatifDto, LienJustificatifDto, MotifAsdDto, NatureMotifDto,
-    ParamFamilleDto, PointerLigneBody, QualifierEpisodeBody, SelectionMasseBody,
-    SituationAccueilDto, ValiderAppelBody,
+    ContactDto, CorrigerLigneBody, CourrierDto, DeposerJustificatifBody, DetailEpisodeDto,
+    EpisodeDto, EpisodeSansReponseDto, EpisodeVueFamilleDto, EpisodeVueProfesseurDto,
+    HistoLigneDto, IncoherenceV2Dto, JustificatifDto, LienJustificatifDto, MotifAsdDto,
+    NatureMotifDto, ParamFamilleDto, PointerLigneBody, QualifierEpisodeBody, RectificationDto,
+    RequalifierEpisodeBody, SelectionMasseBody, SituationAccueilDto, ValiderAppelBody,
 };
 use serde_json::Value;
 use uuid::Uuid;

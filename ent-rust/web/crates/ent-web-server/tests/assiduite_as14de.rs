@@ -17,8 +17,8 @@ use chrono::{Datelike, Duration, NaiveDate};
 use ent_types::assiduite::{DeposerJustificatifBody, PointerLigneBody, QualifierEpisodeBody};
 use ent_web_api::{ApiClient, ApiError, Connexion, FiltreEpisodesApi};
 use ent_web_app::modules::assiduite_vs::dossier_modele::{
-    chronologie, corps_requalification, grouper_par_mois, lignes_dossier_signalement,
-    EtatSeuil, SaisieRequalification,
+    chronologie, corps_requalification, grouper_par_mois, lignes_dossier_signalement, EtatSeuil,
+    SaisieRequalification,
 };
 use ent_web_server::labo::{self, Labo};
 use uuid::Uuid;
@@ -142,7 +142,11 @@ fn jour_neuf(k: i64) -> NaiveDate {
     ent_db::jour_paris() + Duration::weeks(30 + k * 30 + n.rem_euclid(20))
 }
 
-async fn episode_du(cpe: &ApiClient, eleve: Uuid, jour: NaiveDate) -> ent_types::assiduite::EpisodeDto {
+async fn episode_du(
+    cpe: &ApiClient,
+    eleve: Uuid,
+    jour: NaiveDate,
+) -> ent_types::assiduite::EpisodeDto {
     cpe.episodes(&FiltreEpisodesApi {
         etat: Some("tous"),
         eleve_id: Some(eleve),
@@ -252,7 +256,10 @@ async fn as14d_dossier_qualification_requalification_et_droits() {
         vu_secretariat.iter().all(|j| !j.medical),
         "le secrétariat ne reçoit jamais une pièce médicale : {vu_secretariat:?}"
     );
-    let detail_secretariat = secretariat.episode(ep.id).await.expect("détail secrétariat");
+    let detail_secretariat = secretariat
+        .episode(ep.id)
+        .await
+        .expect("détail secrétariat");
     assert!(
         !format!("{detail_secretariat:?}").contains("angine"),
         "aucun texte médical dans le détail rendu au secrétariat"
@@ -307,7 +314,10 @@ async fn as14d_dossier_qualification_requalification_et_droits() {
             },
         )
         .await;
-    assert!(hors_liste.is_err(), "un motif de requalification hors liste est refusé");
+    assert!(
+        hors_liste.is_err(),
+        "un motif de requalification hors liste est refusé"
+    );
     let req = cpe
         .requalifier_episode(
             ep.id,
@@ -323,11 +333,15 @@ async fn as14d_dossier_qualification_requalification_et_droits() {
         apres.historique
     );
     // Un professeur et la famille ne requalifient pas.
-    let corps = corps_requalification("excuse_valable", &SaisieRequalification {
-        qualification: "non_valable".into(),
-        motif_code: "autre".into(),
-        ..Default::default()
-    }, req.version)
+    let corps = corps_requalification(
+        "excuse_valable",
+        &SaisieRequalification {
+            qualification: "non_valable".into(),
+            motif_code: "autre".into(),
+            ..Default::default()
+        },
+        req.version,
+    )
     .unwrap();
     assert!(prof.requalifier_episode(ep.id, &corps).await.is_err());
     assert!(lily.requalifier_episode(ep.id, &corps).await.is_err());
@@ -352,9 +366,18 @@ async fn as14d_dossier_qualification_requalification_et_droits() {
     cpe.rectifications_mois(premier_du_mois(jour))
         .await
         .expect("rectifications du mois");
-    assert!(prof.rectifications_mois(premier_du_mois(jour)).await.is_err());
-    assert!(lily.rectifications_mois(premier_du_mois(jour)).await.is_err());
-    assert!(cpe.rectifications_mois(jour.with_day(2).unwrap()).await.is_err());
+    assert!(prof
+        .rectifications_mois(premier_du_mois(jour))
+        .await
+        .is_err());
+    assert!(lily
+        .rectifications_mois(premier_du_mois(jour))
+        .await
+        .is_err());
+    assert!(cpe
+        .rectifications_mois(jour.with_day(2).unwrap())
+        .await
+        .is_err());
     assert!(cpe.rectification_vue(Uuid::new_v4()).await.is_err());
 
     // Chronologie : l'absence qualifiée apparaît ; la note interne reste au personnel habilité.
@@ -405,7 +428,15 @@ fn quatre_jours_du_mois_precedent() -> (NaiveDate, [NaiveDate; 4]) {
     while j.weekday() != aujourd.weekday() {
         j += Duration::days(1);
     }
-    (mois, [j, j + Duration::weeks(1), j + Duration::weeks(2), j + Duration::weeks(3)])
+    (
+        mois,
+        [
+            j,
+            j + Duration::weeks(1),
+            j + Duration::weeks(2),
+            j + Duration::weeks(3),
+        ],
+    )
 }
 
 /// AS14e : un élève atteint le seuil du mois ; la vie scolaire propose, la direction relit et décide,
@@ -437,12 +468,18 @@ async fn as14e_seuil_proposition_decision_et_rectification() {
         "quatre absences non justifiées dans le mois : {h:?} (seuil {})",
         regle.seuil_signalement
     );
-    assert_eq!(h.seuil_atteint, h.demi_journees_non_justifiees >= i64::from(decompte.seuil_signalement));
+    assert_eq!(
+        h.seuil_atteint,
+        h.demi_journees_non_justifiees >= i64::from(decompte.seuil_signalement)
+    );
 
     // Préparation : le CPE propose, la proposition est idempotente et porte le dossier pré-rempli.
     let propose = cpe.proposer_signalements(mois).await.expect("proposition");
     assert!(propose.iter().any(|s| s.eleve_id == hermione));
-    let encore = cpe.proposer_signalements(mois).await.expect("proposition rejouée");
+    let encore = cpe
+        .proposer_signalements(mois)
+        .await
+        .expect("proposition rejouée");
     assert_eq!(
         encore.iter().filter(|s| s.eleve_id == hermione).count(),
         1,
@@ -469,7 +506,10 @@ async fn as14e_seuil_proposition_decision_et_rectification() {
     assert!(prof.proposer_signalements(mois).await.is_err());
     assert!(lily.decider_signalement(s.id, "valider").await.is_err());
     assert!(
-        direction.decider_signalement(s.id, "emettre").await.is_err(),
+        direction
+            .decider_signalement(s.id, "emettre")
+            .await
+            .is_err(),
         "on ne note pas comme transmis un signalement non validé"
     );
     let valide = direction
@@ -481,17 +521,26 @@ async fn as14e_seuil_proposition_decision_et_rectification() {
         direction.decider_signalement(s.id, "valider").await,
         Err(ApiError::Conflit(_))
     ));
-    assert!(direction.decider_signalement(s.id, "n'importe quoi").await.is_err());
+    assert!(direction
+        .decider_signalement(s.id, "n'importe quoi")
+        .await
+        .is_err());
 
     // Arrêt du mois par la direction (le CPE n'a pas la règle de gestion), puis requalification
     // postérieure : le mois figé ne bouge pas, la différence est une rectification qui touche le
     // signalement.
     assert!(cpe
-        .post_json(&format!("/assiduite/mois/{mois}/arreter"), serde_json::json!({}))
+        .post_json(
+            &format!("/assiduite/mois/{mois}/arreter"),
+            serde_json::json!({})
+        )
         .await
         .is_err());
     direction
-        .post_json(&format!("/assiduite/mois/{mois}/arreter"), serde_json::json!({}))
+        .post_json(
+            &format!("/assiduite/mois/{mois}/arreter"),
+            serde_json::json!({}),
+        )
         .await
         .expect("arrêt du mois");
     let fige = cpe.decompte_mensuel(mois).await.unwrap();
@@ -571,7 +620,10 @@ async fn as14e_seuil_proposition_decision_et_rectification() {
     let sig_b = dir_b.signalements(mois).await.expect("signalements de B");
     assert!(sig_b.iter().all(|x| x.eleve_id != hermione));
     assert!(dir_b.decider_signalement(s.id, "valider").await.is_err());
-    let rect_b = dir_b.rectifications_mois(mois).await.expect("rectifications de B");
+    let rect_b = dir_b
+        .rectifications_mois(mois)
+        .await
+        .expect("rectifications de B");
     assert!(rect_b.iter().all(|x| x.eleve_id != hermione));
     assert!(dir_b.rectification_vue(r.id).await.is_err());
 }
