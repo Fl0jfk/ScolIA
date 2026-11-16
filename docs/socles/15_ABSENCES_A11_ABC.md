@@ -118,7 +118,10 @@ Aucun constat bloquant ; minimisation, sécurité du frontend, arrêt des lots s
 
 ## 9. Fusion, CI et résultats chiffrés
 
-*À compléter à la livraison* (fusion d'`origin/ENT` avec la règle 28, une seule CI, SHA et run) : voir le bas de ce fichier.
+- `origin/ENT` fusionné juste avant la CI (8d6c9b25 : un seul changement, `.github/workflows/ent-rust.yml`). **Règle 28 appliquée** : `TOUTES`, compte RLS, `MIGRATION_TAG`, sources de routes relus : **inchangés** (ce lot n'ajoute ni action, ni route, ni migration).
+- **Une seule CI** : run **323** (`workflow_dispatch`, branche `ent-socle-15-code-a11`), SHA **08a1b9141b741be95c7159277afdf2c850f42a3b** : https://github.com/Fl0jfk/ScolIA/actions/runs/43910450010 (le workflow ne se déclenche pas sur push de cette branche). Verdict : voir le message au pilote.
+- Local : 29 + 458 + 14 tests unitaires, 21 + 3 (`entetes_securite`, `droits_parite`), 9 (`contre_backend`) + 5 (`absences_personnels`) contre le vrai backend ; clippy `-D warnings` 1.99.0 (SSR, serveur avec et sans `labo`, wasm32) : 0 avertissement ; formatage propre.
+- Les correctifs de la revue (§6 bis) sont postérieurs au parcours navigateur de §5 (modifications de la déclaration, du plan et de la fiche) : le parcours n'a **pas** été rejoué après eux ; les tests et clippy l'ont été.
 
 ## 10. Reproduire
 
