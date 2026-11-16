@@ -59,3 +59,17 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# Hachage Argon2id optimisé en dev/test (lot « base modèle des tests », mesuré le 2026-11-16).
+# Un hachage dure 0,41 s sans optimisation contre 0,023 s avec opt-level 3 (×18). Le semis du labo
+# (`seed_labo_cast`, appelé par presque tous les tests de base) en fait ≈ 80 : il durait 33 à 35 s et
+# faisait 99 % du temps d'un test de base. Mesuré après : semis ≈ 6,5 s, test de base ≈ 6,7 s
+# (≈ 12,5 s s'il sème deux fois, contre ≈ 67 s), en modes normal et RLS strict.
+# `argon2` fait presque tout le gain ; `blake2` (hachage interne d'Argon2) ajoute ≈ 10 %.
+# `password-hash` (simple encodage) n'a aucun effet mesurable : non listé.
+# Aucun changement de code ni de paramètres : même algorithme, mêmes sorties ; release inchangé.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
