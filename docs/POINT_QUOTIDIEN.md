@@ -6,6 +6,28 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-16 (lundi soir, 19 h Paris) — point du jour (complète celui de 15 h 30)
+
+**Sur ENT (validé par la CI)** — ENT = 8c504089 (run 324 vert) :
+- Depuis 15 h 30 : socle 10 T5 (EDT) ; correctif CI « archives nextest à 2 compilations » (la machine manquait de mémoire, jobs tués sans journal) ; **socle 12 AS14a–c, premiers écrans de la démonstration de décembre** (appel du professeur, journée de la vie scolaire, accueil, espace famille et élève ; axe-core 0 violation, 375 px, parcours joué dans Chromium).
+- Dans la journée (voir le point de 15 h 30) : correctif EDT du lundi, M3–M4, D5b, C5–C7, FO0–FO1, V0d–V1, AS5, Argon2 (CI ×5), ménage (0 avertissement, CI bloquante).
+
+**Prêt mais pas encore sur ENT** (CI de branche vertes, fusion faite par le pilote, vérification locale en cours) : socle 12 **AS6** (file du matin, relances, appel à la place, « prévenir maintenant ») et socle 15 **A11a–c** (écrans des absences des personnels : déclarer, files, « ce matin », remplacements).
+
+**En cours** : socle 15 **A4bis** (organiser un remplacement sans attendre la validation de l'absence, défaut révélé par A11 ; + mention « répond rarement aux sollicitations »).
+
+**Conçu mais pas codé (prochains)** : écrans AS14d–f (qualification et dossier, signalement, paramétrage) ; A11d–f ; reprise des données Next.js (socle 28 R1 : outil d'anonymisation à livrer à Florian le **4 décembre**) ; lots d'écrans des autres modules utilisés aujourd'hui dans Next.js (voir `PLAN_BASCULE_FEVRIER.md` §1.2).
+
+**Tableau d'avancement** : un tableau fonction par fonction de Next.js (backend, écrans, reprise) est demandé par Florian pour le 17-11.
+
+**Décisions de Florian aujourd'hui** : signature tout en maison, horodatage qualifié mutualisé et sélectif plus tard (I-013) ; « répond rarement aux sollicitations » au lieu d'un compteur ; délai d'avis d'absence **paramétrable par établissement** (déjà le cas : règle d'assiduité datée, défaut 10 min ; incohérence à corriger : réglage jusqu'à 240 min mais plafond silencieux à 30 min, pour AS14f).
+
+**Décisions attendues de Florian** : ordre de la file du matin (AS6, 9 niveaux, reformulé le 16-11 au soir).
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) : rien d'urgent cette semaine. Prochain besoin : l'**export anonymisé de Next.js**, juste après la livraison de l'outil d'anonymisation (R1, 4 décembre). Plus tard : exports Charlemagne (F-01 à F-04), liste et exemples SIECLE/STS (F-05, F-07), démarche éditeur auprès du ministère (F-06).
+
+**Ce qui a coincé** : run d'ENT rouge sur T5 (manque de mémoire de la machine de CI, corrigé) ; **trou découvert dans la CI : une vingtaine de fichiers de tests web contre le backend (≈ 60 tests : assiduité, cahier, voyages, messagerie, finances, inscriptions, sécurité…) n'étaient lancés par aucune étape** ; vérification locale en cours, puis ajout à la CI.
+
 ## 2026-11-16 (lundi, 15 h 30 Paris) — point du jour
 
 **Sur ENT (validé par la CI)** — ENT = 45ad45eb :
