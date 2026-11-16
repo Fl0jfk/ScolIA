@@ -591,8 +591,11 @@ pub struct PropositionDto {
     pub seances_ce_jour: u32,
     /// Équité : remplacements déjà acceptés sur l'année (les moins sollicités d'abord).
     pub remplacements_faits: u32,
-    /// Demandes refusées ou expirées sur l'année (comptées dans l'équité).
-    pub demandes_sans_suite: u32,
+    /// Mention **neutre et non chiffrée** : « répond rarement aux sollicitations ». Posée seulement au-delà d'un
+    /// seuil (voir `repond_rarement`). Ce DTO n'est servi qu'à la personne qui organise les remplacements ; le
+    /// professeur concerné et ses collègues ne le reçoivent jamais (décision de Florian, 2026-11-16).
+    #[serde(default)]
+    pub repond_rarement: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

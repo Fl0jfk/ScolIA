@@ -402,3 +402,126 @@ pub struct SituationAccueilDto {
     /// Absent à l'appel de ce matin.
     pub absent_ce_matin: bool,
 }
+
+// ─── Tableau de bord de la vie scolaire (AS6 + AS14b-bis) ──────────────────────────────────────
+
+/// Une ligne de la file du matin (`GET /assiduite/file-du-matin`). Ni motif, ni note interne, ni texte libre.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntreeFileDto {
+    pub cle: String,
+    /// `urgence` · `non_arrivee` · `apres_presence` · `non_jointe` · `sans_nouvelles` · `appel_non_fait` ·
+    /// `incoherence`.
+    pub categorie: String,
+    #[serde(default)]
+    pub raisons: Vec<String>,
+    /// 1 (le plus urgent) à 9 : calculé par le serveur (`niveau_de`).
+    pub niveau: u8,
+    pub rang: u32,
+    pub eleve_id: Option<Uuid>,
+    pub nom: Option<String>,
+    pub prenom: Option<String>,
+    pub classe: Option<String>,
+    pub mineur: Option<bool>,
+    pub vigilance: bool,
+    pub depuis: Option<NaiveTime>,
+    pub minutes_depuis: Option<i64>,
+    pub nb_seances: Option<i64>,
+    pub absence_id: Option<Uuid>,
+    pub alerte_id: Option<Uuid>,
+    pub creneau_id: Option<Uuid>,
+    pub classe_seance: Option<String>,
+    pub intervenant_user_id: Option<Uuid>,
+    pub detail_code: Option<String>,
+    pub contacts_joints: i64,
+    pub contacts_sans_succes: i64,
+    pub pris_par: Option<Uuid>,
+    pub pris_jusqua: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FileDuMatinDto {
+    pub jour: NaiveDate,
+    pub heure_locale: NaiveTime,
+    pub entrees: Vec<EntreeFileDto>,
+    #[serde(default)]
+    pub compteurs: std::collections::BTreeMap<String, i64>,
+}
+
+/// Un élève exclu de cours ce jour, arrivée non confirmée (`GET /assiduite/exclus-du-jour`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExcluDuJourDto {
+    pub appel_id: Uuid,
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub classe: Option<String>,
+    pub mineur: bool,
+    pub depuis: NaiveTime,
+    pub minutes_depuis: i64,
+    /// Déjà dans le bandeau « Urgent » (au moins 10 minutes sans arrivée).
+    pub urgent: bool,
+    pub creneau_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExclusDuJourDto {
+    pub heure_locale: NaiveTime,
+    pub exclus: Vec<ExcluDuJourDto>,
+}
+
+/// Disposition d'un panneau : la position dans la liste est le rang.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreferencePanneauDto {
+    pub panneau: String,
+    pub replie: bool,
+    pub masque: bool,
+}
+
+/// `GET /assiduite/tableau/configuration` : heure de bascule de l'établissement (heure locale) et disposition de
+/// l'utilisateur (`None` = automatique).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigTableauDto {
+    pub heure_bascule: NaiveTime,
+    pub preference: Option<Vec<PreferencePanneauDto>>,
+}
+
+/// Corps de `PUT /assiduite/tableau/heure-bascule` et sa réponse.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeureBasculeBody {
+    pub heure: NaiveTime,
+}
+
+/// Corps de `PUT /assiduite/tableau/preference`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreferenceTableauBody {
+    pub panneaux: Vec<PreferencePanneauDto>,
+}
+
+/// Alerte de la vie scolaire (réponse de « je prends » et de « traiter »).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlerteDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub kind: String,
+    pub statut: String,
+    pub pris_par: Option<Uuid>,
+    pub pris_jusqua: Option<DateTime<Utc>>,
+    pub cloture_code: Option<String>,
+}
+
+/// Réponse de « prévenir maintenant ».
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResultatPrevenirDto {
+    pub deja_fait: bool,
+    pub destinataires: usize,
+    pub sans_destinataire: bool,
+}
+
+/// Corps de `POST /assiduite/contacts` (trace d'un contact avec la famille ; note interne jamais visible d'elle).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TracerContactBody {
+    pub eleve_id: Uuid,
+    pub absence_id: Option<Uuid>,
+    pub canal: String,
+    pub issue: String,
+}
