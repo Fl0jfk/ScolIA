@@ -23,7 +23,21 @@ pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     ent.migrate().await.expect("migrate");
     ent.install_brain_p0();
     let cast = ent.seed_labo_cast().await.expect("seed cast");
+    ecarter_creneaux_du_jeu_d_essai(&ent, &cast).await;
     Some((ent, cast))
+}
+
+/// Correctif fuseau EDT / jour de la semaine : le jeu d'essai pose deux créneaux « du jour » (jour courant de Paris). Les
+/// tests de l'emploi du temps posent leurs propres créneaux (le lundi, le mardi…) et comptent les séances de toute
+/// l'année : le lundi, les créneaux du jeu d'essai (aussi le lundi) s'y ajoutaient et faussaient les comptes (échec tous les
+/// lundis, d'où les rouges de 23 h–minuit UTC, déjà lundi à Paris). Ils sont donc écartés de la génération (alternance B
+/// sans calendrier d'alternance : jamais de séance), sans être supprimés (des lignes d'appel peuvent les viser).
+pub(crate) async fn ecarter_creneaux_du_jeu_d_essai(ent: &PgEnt, cast: &LaboCast) {
+    sqlx::query("UPDATE ent_edt_creneau SET semaine_ab = 'b' WHERE etablissement_id = $1")
+        .bind(cast.etablissement_id)
+        .execute(ent.pool())
+        .await
+        .expect("écarter les créneaux du jeu d'essai");
 }
 
 pub(crate) fn acteur(cast: &LaboCast, user: Uuid, role: Role) -> Acteur<'static> {
