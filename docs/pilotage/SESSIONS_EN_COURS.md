@@ -93,6 +93,7 @@ Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). A
 Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser quand vert : A7, P7 (avec P5–P6), C4, D0 ; N1-3 en vérification locale.
 
 ### File d'attente (prochaine place libre, dans cet ordre)
+0. **Base modèle des tests** (validé par Florian le 16-11) : mesurer, puis `CREATE DATABASE … TEMPLATE` ; mission complète dans `docs/pilotage/LOT_BASE_MODELE_TESTS.md`. En cours le 16-11 : T5, AS5, ménage des avertissements (3 sessions au plus, règle 32).
 1. **PDF maison : accents et mise en page** (D-062) : encodage WinAnsi des polices standard (fin des « ? »), plusieurs pages, tableaux, logo JPEG, numéros de page ; tests sur bulletins, factures, courriers ; aucune dépendance.
 2. Socle 12 AS5 (avis regroupés, démenti notifié) — après N0a/N0b du socle 8.
 3. Socle 8 N0b (justesse : infirmerie, décès, droits du lien, fuseau, codage SMS).
