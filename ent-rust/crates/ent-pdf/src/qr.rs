@@ -545,7 +545,9 @@ pub(crate) mod decodeur {
             droite -= 2;
         }
         let mots: Vec<u8> = bits
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|c| c.iter().fold(0u8, |a, &b| a << 1 | u8::from(b)))
             .collect();
         // Désentrelacement.
