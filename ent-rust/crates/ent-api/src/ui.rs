@@ -77,129 +77,6 @@ pub(crate) fn assemble(labo: bool) -> String {
     page.replace("@@L_LOGIN_HINT@@", "Connexion à votre établissement.")
 }
 
-/// Fragments d'interface réservés au labo : compilés seulement avec la feature.
-#[cfg(feature = "labo")]
-mod labo_fragments {
-    pub(super) const FRAGMENTS: [(&str, &str); 5] = [
-        (
-            "@@L_LOGIN_HINT@@",
-            "Connexion labo — Postgres local. Mot de passe seed : <code>@@LABO_PWD@@</code>",
-        ),
-        (
-            "@@L_LOGIN_BOOT@@",
-            r##"<div class="actions">
-      <button type="button" class="primary" id="btnBoot">Créer l’école labo (Harry Potter)</button>
-      <span id="bootMsg" class="muted"></span>
-    </div>"##,
-        ),
-        (
-            "@@L_LOGIN_PERSONA@@",
-            r##"<label>Persona
-      <select id="persona" ${opts ? '' : 'disabled'}>
-        ${opts || '<option value="">— bootstrap d’abord —</option>'}
-      </select>
-    </label>"##,
-        ),
-        ("@@L_PWD_VALUE@@", r##"value="@@LABO_PWD@@""##),
-        (
-            "@@L_LOGIN_BOOTJS@@",
-            r##"const btnBoot = document.getElementById('btnBoot');
-  if (btnBoot) btnBoot.onclick = async () => {
-    const msg = document.getElementById('bootMsg');
-    msg.textContent = 'Création… (20–30 s)';
-    try {
-      const cast = await api('/labo/bootstrap', { method: 'POST', body: '{}' });
-      STORE.cast = cast;
-      STORE.etab = cast.etablissement_id;
-      msg.innerHTML = `<span class="ok">OK</span> — ${cast.eleves.length} élèves`;
-      toastLaboBootstrap(cast);
-      render();
-    } catch (e) {
-      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
-    }
-  };"##,
-        ),
-    ];
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const MARQUEURS: [&str; 6] = [
-        "@@L_LOGIN_HINT@@",
-        "@@L_LOGIN_BOOT@@",
-        "@@L_LOGIN_PERSONA@@",
-        "@@L_PWD_VALUE@@",
-        "@@L_LOGIN_BOOTJS@@",
-        "@@LABO_PWD@@",
-    ];
-
-    /// Mot de passe public du labo, reconstitué pour ne pas figer le littéral ici.
-    fn mdp_public() -> String {
-        ["DevLocal", "Pass1!"].concat()
-    }
-
-    #[test]
-    fn page_prod_sans_aide_labo_ni_mot_de_passe() {
-        let page = assemble(false);
-        assert!(!page.contains(&mdp_public()), "mot de passe public servi");
-        assert!(!page.contains("/labo/bootstrap"));
-        assert!(!page.contains("btnBoot"));
-        assert!(!page.contains("id=\"persona\""));
-        for m in MARQUEURS {
-            assert!(!page.contains(m), "marqueur non résolu : {m}");
-        }
-        assert!(page.contains("id=\"loginForm\""));
-    }
-
-    /// Revue finale socle 1 : la CSP n'autorise que le script de la page (empreinte),
-    /// aucun `unsafe-inline` pour les scripts, et la page ne contient aucun gestionnaire
-    /// d'événement en attribut (qui serait bloqué par cette CSP).
-    #[test]
-    fn csp_ancienne_ui_autorise_seulement_le_script_de_la_page() {
-        for labo in [false, true] {
-            let page = assemble(labo);
-            let csp = csp_pour(&page);
-            assert_eq!(page.matches("<script").count(), 1, "un seul script attendu");
-            let script_src = csp
-                .split(';')
-                .map(str::trim)
-                .find(|d| d.starts_with("script-src"))
-                .expect("script-src");
-            assert!(script_src.starts_with("script-src 'sha256-"), "{script_src}");
-            assert!(!script_src.contains("unsafe"), "{script_src}");
-            assert!(csp.contains("object-src 'none'") && csp.contains("base-uri 'none'"));
-            assert!(csp.contains("connect-src 'self'"));
-            for attr in [" onclick=", " onload=", " onerror=", " onchange=", " onsubmit=", "javascript:"] {
-                assert!(!page.contains(attr), "attribut actif en ligne : {attr}");
-            }
-        }
-        // L'empreinte change avec le script : une page modifiée ne réutilise pas l'ancienne.
-        assert_ne!(csp_pour("<script>a</script>"), csp_pour("<script>b</script>"));
-    }
-
-    #[cfg(not(feature = "labo"))]
-    #[test]
-    fn sans_feature_le_mode_labo_demande_reste_prod() {
-        let page = assemble(true);
-        assert!(!page.contains(&mdp_public()));
-        assert!(!page.contains("/labo/bootstrap"));
-    }
-
-    #[cfg(feature = "labo")]
-    #[test]
-    fn page_labo_avec_feature_contient_aide_et_resout_les_marqueurs() {
-        let page = assemble(true);
-        assert!(page.contains(&mdp_public()));
-        assert!(page.contains("/labo/bootstrap"));
-        assert!(page.contains("btnBoot"));
-        for m in MARQUEURS {
-            assert!(!page.contains(m), "marqueur non résolu : {m}");
-        }
-    }
-}
-
 const APP: &str = r##"<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -54251,3 +54128,126 @@ render();
 </body>
 </html>
 "##;
+
+/// Fragments d'interface réservés au labo : compilés seulement avec la feature.
+#[cfg(feature = "labo")]
+mod labo_fragments {
+    pub(super) const FRAGMENTS: [(&str, &str); 5] = [
+        (
+            "@@L_LOGIN_HINT@@",
+            "Connexion labo — Postgres local. Mot de passe seed : <code>@@LABO_PWD@@</code>",
+        ),
+        (
+            "@@L_LOGIN_BOOT@@",
+            r##"<div class="actions">
+      <button type="button" class="primary" id="btnBoot">Créer l’école labo (Harry Potter)</button>
+      <span id="bootMsg" class="muted"></span>
+    </div>"##,
+        ),
+        (
+            "@@L_LOGIN_PERSONA@@",
+            r##"<label>Persona
+      <select id="persona" ${opts ? '' : 'disabled'}>
+        ${opts || '<option value="">— bootstrap d’abord —</option>'}
+      </select>
+    </label>"##,
+        ),
+        ("@@L_PWD_VALUE@@", r##"value="@@LABO_PWD@@""##),
+        (
+            "@@L_LOGIN_BOOTJS@@",
+            r##"const btnBoot = document.getElementById('btnBoot');
+  if (btnBoot) btnBoot.onclick = async () => {
+    const msg = document.getElementById('bootMsg');
+    msg.textContent = 'Création… (20–30 s)';
+    try {
+      const cast = await api('/labo/bootstrap', { method: 'POST', body: '{}' });
+      STORE.cast = cast;
+      STORE.etab = cast.etablissement_id;
+      msg.innerHTML = `<span class="ok">OK</span> — ${cast.eleves.length} élèves`;
+      toastLaboBootstrap(cast);
+      render();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };"##,
+        ),
+    ];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MARQUEURS: [&str; 6] = [
+        "@@L_LOGIN_HINT@@",
+        "@@L_LOGIN_BOOT@@",
+        "@@L_LOGIN_PERSONA@@",
+        "@@L_PWD_VALUE@@",
+        "@@L_LOGIN_BOOTJS@@",
+        "@@LABO_PWD@@",
+    ];
+
+    /// Mot de passe public du labo, reconstitué pour ne pas figer le littéral ici.
+    fn mdp_public() -> String {
+        ["DevLocal", "Pass1!"].concat()
+    }
+
+    #[test]
+    fn page_prod_sans_aide_labo_ni_mot_de_passe() {
+        let page = assemble(false);
+        assert!(!page.contains(&mdp_public()), "mot de passe public servi");
+        assert!(!page.contains("/labo/bootstrap"));
+        assert!(!page.contains("btnBoot"));
+        assert!(!page.contains("id=\"persona\""));
+        for m in MARQUEURS {
+            assert!(!page.contains(m), "marqueur non résolu : {m}");
+        }
+        assert!(page.contains("id=\"loginForm\""));
+    }
+
+    /// Revue finale socle 1 : la CSP n'autorise que le script de la page (empreinte),
+    /// aucun `unsafe-inline` pour les scripts, et la page ne contient aucun gestionnaire
+    /// d'événement en attribut (qui serait bloqué par cette CSP).
+    #[test]
+    fn csp_ancienne_ui_autorise_seulement_le_script_de_la_page() {
+        for labo in [false, true] {
+            let page = assemble(labo);
+            let csp = csp_pour(&page);
+            assert_eq!(page.matches("<script").count(), 1, "un seul script attendu");
+            let script_src = csp
+                .split(';')
+                .map(str::trim)
+                .find(|d| d.starts_with("script-src"))
+                .expect("script-src");
+            assert!(script_src.starts_with("script-src 'sha256-"), "{script_src}");
+            assert!(!script_src.contains("unsafe"), "{script_src}");
+            assert!(csp.contains("object-src 'none'") && csp.contains("base-uri 'none'"));
+            assert!(csp.contains("connect-src 'self'"));
+            for attr in [" onclick=", " onload=", " onerror=", " onchange=", " onsubmit=", "javascript:"] {
+                assert!(!page.contains(attr), "attribut actif en ligne : {attr}");
+            }
+        }
+        // L'empreinte change avec le script : une page modifiée ne réutilise pas l'ancienne.
+        assert_ne!(csp_pour("<script>a</script>"), csp_pour("<script>b</script>"));
+    }
+
+    #[cfg(not(feature = "labo"))]
+    #[test]
+    fn sans_feature_le_mode_labo_demande_reste_prod() {
+        let page = assemble(true);
+        assert!(!page.contains(&mdp_public()));
+        assert!(!page.contains("/labo/bootstrap"));
+    }
+
+    #[cfg(feature = "labo")]
+    #[test]
+    fn page_labo_avec_feature_contient_aide_et_resout_les_marqueurs() {
+        let page = assemble(true);
+        assert!(page.contains(&mdp_public()));
+        assert!(page.contains("/labo/bootstrap"));
+        assert!(page.contains("btnBoot"));
+        for m in MARQUEURS {
+            assert!(!page.contains(m), "marqueur non résolu : {m}");
+        }
+    }
+}

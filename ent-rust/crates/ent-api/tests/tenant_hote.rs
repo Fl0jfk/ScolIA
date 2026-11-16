@@ -11,13 +11,13 @@ use ent_api::{app, AppState};
 use ent_db::PgEnt;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 const MDP: &str = "TenantHote-Pass1!";
 
-static VERROU: Mutex<()> = Mutex::new(());
+static VERROU: Mutex<()> = Mutex::const_new(());
 
 /// Fixe des variables d'environnement pour la durée d'un test (restaurées,
 /// même en cas d'échec).
@@ -67,7 +67,7 @@ async fn monde() -> Option<Monde> {
         eprintln!("SKIP tenant_hote : ENT_DATABASE_URL absent");
         return None;
     };
-    let mut ent = PgEnt::connect(&url).await.expect("connexion");
+    let ent = PgEnt::connect(&url).await.expect("connexion");
     ent.migrate().await.expect("migrations");
     let state = AppState::nouveau(ent);
     let ent = state.ent.clone();
@@ -188,13 +188,14 @@ impl Monde {
     }
 }
 
-fn verrou() -> std::sync::MutexGuard<'static, ()> {
-    VERROU.lock().unwrap_or_else(|e| e.into_inner())
+/// Verrou asynchrone (pas de `std::sync::Mutex` tenu pendant un `await` : risque d'interblocage).
+async fn verrou() -> tokio::sync::MutexGuard<'static, ()> {
+    VERROU.lock().await
 }
 
 #[tokio::test]
 async fn hote_impose_l_etablissement_malgre_le_corps() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[("ENT_TENANT_PAR_HOTE", None), ("ENT_TRUST_PROXY", None)]);
     let Some(m) = monde().await else { return };
 
@@ -270,7 +271,7 @@ async fn hote_impose_l_etablissement_malgre_le_corps() {
 
 #[tokio::test]
 async fn non_membre_meme_reponse_que_identifiants_invalides() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[("ENT_TENANT_PAR_HOTE", None), ("ENT_TRUST_PROXY", None)]);
     let Some(m) = monde().await else { return };
 
@@ -308,7 +309,7 @@ async fn non_membre_meme_reponse_que_identifiants_invalides() {
 
 #[tokio::test]
 async fn strict_hote_inconnu_404() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[
         ("ENT_TENANT_PAR_HOTE", Some("strict")),
         ("ENT_TRUST_PROXY", None),
@@ -347,7 +348,7 @@ async fn strict_hote_inconnu_404() {
 
 #[tokio::test]
 async fn session_de_a_sur_l_hote_de_b_401() {
-    let _v = verrou();
+    let _v = verrou().await;
     for mode in [Some("strict"), None] {
         let _e = Env::new(&[("ENT_TENANT_PAR_HOTE", mode), ("ENT_TRUST_PROXY", None)]);
         let Some(m) = monde().await else { return };
@@ -392,7 +393,7 @@ async fn session_de_a_sur_l_hote_de_b_401() {
 
 #[tokio::test]
 async fn souple_comportement_actuel() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[
         ("ENT_TENANT_PAR_HOTE", Some("souple")),
         ("ENT_TRUST_PROXY", None),
@@ -433,7 +434,7 @@ async fn souple_comportement_actuel() {
 
 #[tokio::test]
 async fn normalisation_de_l_hote() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[
         ("ENT_TENANT_PAR_HOTE", Some("strict")),
         ("ENT_TRUST_PROXY", None),
@@ -467,7 +468,7 @@ async fn normalisation_de_l_hote() {
 
 #[tokio::test]
 async fn x_forwarded_host_ignore_sans_proxy_de_confiance() {
-    let _v = verrou();
+    let _v = verrou().await;
     let Some(m) = ({
         let _e = Env::new(&[("ENT_TENANT_PAR_HOTE", None), ("ENT_TRUST_PROXY", None)]);
         monde().await
@@ -514,7 +515,7 @@ async fn x_forwarded_host_ignore_sans_proxy_de_confiance() {
 
 #[tokio::test]
 async fn administration_des_domaines() {
-    let _v = verrou();
+    let _v = verrou().await;
     let _e = Env::new(&[("ENT_TENANT_PAR_HOTE", None), ("ENT_TRUST_PROXY", None)]);
     let Some(m) = monde().await else { return };
     let h = [("host", m.hote_a.as_str())];

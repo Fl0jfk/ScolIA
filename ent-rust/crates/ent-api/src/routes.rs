@@ -5284,7 +5284,7 @@ async fn get_recap_internat(
         .await?;
         presence_du_jour = enriched.pop();
     }
-    if let (Some(ref mut a), Some(ref ch)) = (affectation.as_mut(), recap.chambre.as_ref()) {
+    if let (Some(ref mut a), Some(ch)) = (affectation.as_mut(), recap.chambre.as_ref()) {
         if a.chambre_label.is_none() {
             a.chambre_label = Some(format!("{} · {} (ét. {})", ch.code, ch.batiment, ch.etage));
         }
@@ -6461,12 +6461,6 @@ async fn creer_tarif_conso(
     Ok((StatusCode::CREATED, Json(TarifConsoDto::from(&t))))
 }
 
-#[derive(Debug, Deserialize)]
-struct PeriodeDatesQuery {
-    debut: Option<NaiveDate>,
-    fin: Option<NaiveDate>,
-}
-
 /// `statut` (AR-22) : `a_valider` (= signalée) ou un état exact (`signalee`, `validee`, `refusee`,
 /// `annulee`). Le tableau de bord historique l'envoie ; il était ignoré (le compteur portait sur le jour).
 #[derive(Debug, Deserialize)]
@@ -7122,11 +7116,11 @@ async fn get_photo_eleve(
         .await
         .map_err(map_db)?
         .ok_or((StatusCode::NOT_FOUND, "pas de photo".into()))?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/jpeg")
         .body(Body::from(bytes))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 async fn list_params_etab(
@@ -7545,7 +7539,7 @@ async fn export_lsl(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "export", "lsl", "Export LSL").await?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -7553,7 +7547,7 @@ async fn export_lsl(
             "attachment; filename=\"export-lsl.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 async fn export_lsun(
@@ -7576,7 +7570,7 @@ async fn export_lsun(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -7584,7 +7578,7 @@ async fn export_lsun(
             "attachment; filename=\"export-lsun.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 async fn list_editions_vs(
@@ -7802,7 +7796,7 @@ async fn export_onde(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "export", "onde", "Export ONDE").await?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -7810,7 +7804,7 @@ async fn export_onde(
             "attachment; filename=\"export-onde.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 async fn export_notanet(
@@ -7833,7 +7827,7 @@ async fn export_notanet(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -7841,7 +7835,7 @@ async fn export_notanet(
             "attachment; filename=\"export-notanet.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 #[derive(Debug, Deserialize)]
@@ -7871,7 +7865,7 @@ async fn export_parcoursup(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await?;
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -7879,7 +7873,7 @@ async fn export_parcoursup(
             "attachment; filename=\"export-parcoursup.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| erreur_interne(&e))?)
+        .map_err(|e| erreur_interne(&e))
 }
 
 async fn get_recap_sortie(
@@ -11026,9 +11020,11 @@ fn map_auth(err: ent_db::EntDbError) -> (StatusCode, String) {
         (StatusCode::TOO_MANY_REQUESTS, msg)
     } else if msg.contains("déjà") {
         (StatusCode::CONFLICT, msg)
-    } else if msg.contains("trop court") || msg.contains("trop long") || msg.contains("e-mail vide") {
-        (StatusCode::BAD_REQUEST, msg)
-    } else if msg.contains("réinitialisation") {
+    } else if msg.contains("trop court")
+        || msg.contains("trop long")
+        || msg.contains("e-mail vide")
+        || msg.contains("réinitialisation")
+    {
         (StatusCode::BAD_REQUEST, msg)
     } else if msg.contains("membre") || msg.contains("refusé") {
         (StatusCode::FORBIDDEN, msg)

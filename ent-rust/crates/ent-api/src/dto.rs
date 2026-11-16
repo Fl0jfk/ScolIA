@@ -66,6 +66,8 @@ impl EleveDto {
         dto
     }
 
+    // Minimisation par niveau d'identité (sécurité) : conservée pour les routes élève, pas encore branchée.
+    #[allow(dead_code)]
     /// DTO minimisé selon le niveau d'identité du rôle (même forme JSON).
     pub fn pour(e: &Eleve, niveau: NiveauIdentite) -> Self {
         let mut c = e.clone();
