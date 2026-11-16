@@ -700,6 +700,29 @@ impl PgEnt {
                 tx.commit().await.map_err(db)?;
                 return Err(conflit("cette demande a expiré"));
             }
+            // Absence annulée entre l'envoi et l'acceptation : la demande n'a plus d'objet. On le dit, et on ne
+            // prétend pas que « la séance est pourvue ».
+            let (etat_absence,): (String,) = sqlx::query_as(
+                "SELECT etat FROM ent_absp_absence WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(imp.absence_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if etat_absence == "annulee" {
+                sqlx::query(
+                    "UPDATE ent_absp_sollicitation SET etat = 'annulee', annulee_cause = 'absence_annulee', repondue_le = now()
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(s.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                tx.commit().await.map_err(db)?;
+                return Err(conflit("cette demande n'a plus d'objet : l'absence a été annulée"));
+            }
             if !imp.ouvert() || imp.fin <= maintenant {
                 sqlx::query(
                     "UPDATE ent_absp_sollicitation SET etat = 'annulee', annulee_cause = 'prise', repondue_le = now()
