@@ -25,7 +25,7 @@ pub struct PoserConfidentialiteBody {
     /// Motif en clair ; scellé côté serveur, jamais relu hors G6.
     pub motif: String,
     /// Mesures demandées en plus des effets minimaux : `hors_trombinoscope_exporte` (**effet en E11** :
-    /// enregistrée et exposée par `eleves_hors_export`, aucun export n'existe encore),
+    /// enregistrée seulement, aucun export n'existe encore ; le lecteur sera écrit avec l'export),
     /// `adresse_protegee`, `alerte_consultation` (`masquer_photo` et `hors_annuaire` sont toujours posées).
     #[serde(default)]
     pub mesures: Vec<String>,

@@ -67,7 +67,7 @@ Local, PostgreSQL 16, Rust **1.99.0** (`--locked`), `--test-threads=1`, `CARGO_I
 | **M6** | SMS : `pg_advisory_xact_lock` par établissement avant de compter ; indicatifs limités à la France (métropole, outre-mer) et à l'Union européenne ; **2 SMS par jour** pour un mobile créé par un compte élève | `m6_*` (refus des autres pays, 4 demandes simultanées → 2 envois exactement) |
 | **M7** | `eleves_e9.rs` : `ent_db::url_base_de_test` (échoue si `ENT_EXIGER_BASE`), serveur avec distribution de l'outbox ; 404 **exact** ; total protégé **strictement égal** (+1 pour G6) ; **vrai PAI** et vraie modalité dans le jeu d'essai ; tests HTTP : tuile « classe » visible de l'enseignant et fermée à l'accueil, pas de `protocole` ni de PAI pour l'accueil, aucune date dans le JSON | `eleves_e9` (8) |
 | **F1** | nettoyage WebP en **liste blanche** (`VP8X`, `VP8 `, `VP8L`, `ALPH`, `ANIM`, `ANMF`) | `photo_nettoyage::tests` |
-| **F3** | `eleves_refus_photo` et `eleves_hors_export` en `pub(crate)` (l'export E11 les rappellera avec un contrôle d'acteur) | `f3_*` |
+| **F3** | `eleves_refus_photo` en `pub(crate)` ; `eleves_hors_export` **supprimée** après la CI rouge de 4f3de2e9 (aucun appelant, pas d'`allow(dead_code)`) : l'export E11 écrira son lecteur avec un contrôle d'acteur | `f3_*` |
 | **F4** | tuile masquée : **pas de lien**, **une seule raison** (`droit_manquant`) ; la famille reçoit **404** (et non 403) quand l'établissement lui ferme la photo ou une coordonnée ; commentaires de 3200 et du DTO corrigés | `e1_*`, `e9a_*` |
 | **F2** (suite) | **noté, pas fait** : écriture S3 sous verrou de fiche, objet orphelin si le processus plante entre l'écriture de l'objet et le commit ; à traiter dans un lot suivant (tâche de balayage des objets sans ligne) | — |
 

@@ -385,19 +385,6 @@ async fn consultation_journalisee_et_alerte() {
     assert!(r.is_err(), "journal en ajout seul");
 }
 
-/// Exports : la mesure `hors_trombinoscope_exporte` exclut l'élève de tout export nominatif.
-#[tokio::test]
-async fn eleves_hors_export() {
-    let Some((ent, cast)) = labo().await else { return };
-    let etab = cast.etablissement_id;
-    let a = eleve(&ent, etab, "Ana", "6A").await;
-    let b = eleve(&ent, etab, "Bao", "6A").await;
-    poser(&ent, &cast, a.id, "motif", &["hors_trombinoscope_exporte"]).await;
-    poser(&ent, &cast, b.id, "motif", &[]).await;
-    let l = ent.eleves_hors_export(etab, &[a.id, b.id]).await.unwrap();
-    assert_eq!(l, [a.id]);
-}
-
 // ───────────────────────────── Scellement des versions sensibles ─────────────────────────────
 
 /// Une version sensible devenue non courante est scellée : valeurs en clair vidées, une ligne

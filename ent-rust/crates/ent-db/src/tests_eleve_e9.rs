@@ -2021,13 +2021,11 @@ async fn m6_sms_liste_blanche_plafond_eleve_et_demandes_simultanees() {
 }
 
 /// F4 : la famille ne devine pas le réglage de l'établissement : 404 (déjà couvert par `e9a_*`), et une tuile
-/// masquée n'a ni lien ni raison détaillée (couvert par `e1_*`). Ici : les lecteurs du refus de photo et des
-/// exclusions d'export ne sont plus publics.
+/// masquée n'a ni lien ni raison détaillée (couvert par `e1_*`). Ici : le lecteur du refus de photo n'est pas public.
 #[test]
 fn f3_les_lecteurs_de_refus_et_d_export_ne_sont_pas_publics() {
     let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/eleve_photo.rs")).unwrap();
-    for f in ["eleves_refus_photo", "eleves_hors_export"] {
-        assert!(src.contains(&format!("pub(crate) async fn {f}")), "{f} doit rester interne à ent-db (pas de contrôle d'acteur)");
-        assert!(!src.contains(&format!("pub async fn {f}")), "{f} ne doit pas être public");
-    }
+    let f = "eleves_refus_photo";
+    assert!(src.contains(&format!("pub(crate) async fn {f}")), "{f} doit rester interne à ent-db (pas de contrôle d'acteur)");
+    assert!(!src.contains(&format!("pub async fn {f}")), "{f} ne doit pas être public");
 }

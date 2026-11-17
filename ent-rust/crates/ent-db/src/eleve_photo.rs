@@ -793,26 +793,4 @@ impl PgEnt {
         .await?;
         Ok(l.into_iter().map(|(id,)| id).collect())
     }
-
-    /// Élèves de `ids` à **exclure d'un export ou d'un trombinoscope imprimé** : mesure
-    /// `hors_trombinoscope_exporte` en vigueur. À appeler par tout export nominatif (E11), quel que
-    /// soit le droit de l'exportateur.
-    // Interne à ent-db : l'export (E11) le rappellera avec un contrôle d'acteur ; en attendant, seuls les tests l'appellent.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) async fn eleves_hors_export(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let l: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT DISTINCT c.eleve_id FROM ent_eleve_confidentialite c
-              WHERE c.etablissement_id = $1 AND c.eleve_id = ANY($2) AND c.leve_le IS NULL
-                AND 'hors_trombinoscope_exporte' = ANY(c.mesures)
-                AND c.du <= ent_jour_etablissement($1) AND (c.au IS NULL OR c.au > ent_jour_etablissement($1))",
-        )
-        .bind(etab)
-        .bind(ids)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await?;
-        Ok(l.into_iter().map(|(id,)| id).collect())
-    }
 }
