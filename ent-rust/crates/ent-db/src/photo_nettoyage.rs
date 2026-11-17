@@ -18,7 +18,8 @@ use ent_pdf::piece::jpeg_nettoye;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 const PNG_GARDES: [&[u8; 4]; 11] = [
-    b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND", b"gAMA", b"cHRM", b"sRGB", b"sBIT", b"bKGD", b"pHYs",
+    b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND", b"gAMA", b"cHRM", b"sRGB", b"sBIT", b"bKGD",
+    b"pHYs",
 ];
 
 /// Réécrit la photo sans métadonnées. `mime` : type déjà contrôlé par la politique de fichiers.
@@ -41,7 +42,20 @@ fn jpeg(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
     app1.extend_from_slice(b"Exif\0\0");
     app1.extend_from_slice(&[b'M', b'M', 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08]); // en-tête TIFF, IFD0 à 8
     app1.extend_from_slice(&[0x00, 0x01]); // une entrée
-    app1.extend_from_slice(&[0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, propre.orientation, 0x00, 0x00]);
+    app1.extend_from_slice(&[
+        0x01,
+        0x12,
+        0x00,
+        0x03,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        propre.orientation,
+        0x00,
+        0x00,
+    ]);
     app1.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // pas d'IFD suivant
     let mut sortie = Vec::with_capacity(propre.octets.len() + app1.len());
     sortie.extend_from_slice(&propre.octets[..2]); // SOI
@@ -57,9 +71,17 @@ fn png(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
     let mut sortie = PNG_SIGNATURE.to_vec();
     let (mut i, mut vu_ihdr, mut vu_iend) = (8usize, false, false);
     while i < octets.len() {
-        let lg = u32::from_be_bytes(octets.get(i..i + 4).ok_or("photo illisible")?.try_into().map_err(|_| "photo illisible")?)
-            as usize;
-        let fin = i.checked_add(12).and_then(|x| x.checked_add(lg)).ok_or("photo illisible")?;
+        let lg = u32::from_be_bytes(
+            octets
+                .get(i..i + 4)
+                .ok_or("photo illisible")?
+                .try_into()
+                .map_err(|_| "photo illisible")?,
+        ) as usize;
+        let fin = i
+            .checked_add(12)
+            .and_then(|x| x.checked_add(lg))
+            .ok_or("photo illisible")?;
         let bloc = octets.get(i..fin).ok_or("photo illisible")?;
         let genre: &[u8; 4] = bloc[4..8].try_into().map_err(|_| "photo illisible")?;
         if i == 8 && genre != b"IHDR" {
@@ -75,7 +97,11 @@ fn png(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
         }
         i = fin;
     }
-    if vu_ihdr && vu_iend { Ok(sortie) } else { Err("photo illisible") }
+    if vu_ihdr && vu_iend {
+        Ok(sortie)
+    } else {
+        Err("photo illisible")
+    }
 }
 
 fn webp(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
@@ -89,11 +115,22 @@ fn webp(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
     let mut i = 0usize;
     let mut image = false;
     while i < corps.len() {
-        let genre: [u8; 4] = corps.get(i..i + 4).ok_or("photo illisible")?.try_into().map_err(|_| "photo illisible")?;
-        let lg = u32::from_le_bytes(corps.get(i + 4..i + 8).ok_or("photo illisible")?.try_into().map_err(|_| "photo illisible")?)
-            as usize;
+        let genre: [u8; 4] = corps
+            .get(i..i + 4)
+            .ok_or("photo illisible")?
+            .try_into()
+            .map_err(|_| "photo illisible")?;
+        let lg = u32::from_le_bytes(
+            corps
+                .get(i + 4..i + 8)
+                .ok_or("photo illisible")?
+                .try_into()
+                .map_err(|_| "photo illisible")?,
+        ) as usize;
         let suivant = i.checked_add(8 + lg + (lg & 1)).ok_or("photo illisible")?;
-        let bloc = corps.get(i..suivant.min(corps.len())).ok_or("photo illisible")?;
+        let bloc = corps
+            .get(i..suivant.min(corps.len()))
+            .ok_or("photo illisible")?;
         if suivant > corps.len() + (lg & 1) {
             return Err("photo illisible");
         }
@@ -120,7 +157,11 @@ fn webp(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
     }
     let mut sortie = Vec::with_capacity(blocs.len() + 12);
     sortie.extend_from_slice(b"RIFF");
-    sortie.extend_from_slice(&u32::try_from(blocs.len() + 4).map_err(|_| "photo illisible")?.to_le_bytes());
+    sortie.extend_from_slice(
+        &u32::try_from(blocs.len() + 4)
+            .map_err(|_| "photo illisible")?
+            .to_le_bytes(),
+    );
     sortie.extend_from_slice(b"WEBP");
     sortie.extend_from_slice(&blocs);
     Ok(sortie)
@@ -155,7 +196,10 @@ mod tests {
         j.extend(segment(0xfe, b"commentaire prive"));
         j.extend(segment(0xdb, &[0u8; 65]));
         j.extend(segment(0xc0, &[8, 0, 1, 0, 1, 1, 1, 0x11, 0]));
-        j.extend(segment(0xc4, &[0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+        j.extend(segment(
+            0xc4,
+            &[0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ));
         j.extend(segment(0xda, &[1, 1, 0, 0, 63, 0]));
         j.extend_from_slice(&[0x12, 0x34]);
         j.extend_from_slice(&[0xff, 0xd9]);
@@ -166,14 +210,19 @@ mod tests {
     fn jpeg_perd_le_gps_et_les_commentaires_mais_garde_l_orientation() {
         let propre = sans_metadonnees("image/jpeg", &jpeg_avec_exif(6)).unwrap();
         let texte = String::from_utf8_lossy(&propre);
-        assert!(!texte.contains("GPS") && !texte.contains("48.8566") && !texte.contains("commentaire"));
+        assert!(
+            !texte.contains("GPS") && !texte.contains("48.8566") && !texte.contains("commentaire")
+        );
         assert_eq!(&propre[..2], &[0xff, 0xd8]);
         assert_eq!(&propre[propre.len() - 2..], &[0xff, 0xd9]);
         assert_eq!(orientation(&propre), Some(6), "la photo reste à l'endroit");
         // Une seule balise : l'orientation. Le segment ne contient plus de pointeur GPS (0x8825).
         assert!(!propre.windows(2).any(|w| w == [0x88, 0x25]));
         // Le cadre et le balayage d'origine sont intacts.
-        assert!(propre.windows(2).any(|w| w == [0xff, 0xc0]) && propre.windows(2).any(|w| w == [0xff, 0xda]));
+        assert!(
+            propre.windows(2).any(|w| w == [0xff, 0xc0])
+                && propre.windows(2).any(|w| w == [0xff, 0xda])
+        );
     }
 
     #[test]
@@ -216,7 +265,10 @@ mod tests {
         for garde in [b"IHDR", b"IDAT", b"IEND"] {
             assert!(propre.windows(4).any(|w| w == garde));
         }
-        assert!(sans_metadonnees("image/png", &PNG_SIGNATURE).is_err(), "sans IHDR ni IEND");
+        assert!(
+            sans_metadonnees("image/png", &PNG_SIGNATURE).is_err(),
+            "sans IHDR ni IEND"
+        );
     }
 
     fn bloc_webp(genre: &[u8; 4], corps: &[u8]) -> Vec<u8> {
@@ -246,10 +298,25 @@ mod tests {
             assert!(!texte.contains(interdit), "{interdit} doit disparaître");
         }
         let vp8x = propre.windows(4).position(|x| x == b"VP8X").unwrap();
-        assert_eq!(propre[vp8x + 8] & (0x20 | 0x08 | 0x04), 0, "drapeaux ICC, EXIF, XMP effacés");
-        assert_eq!(propre[vp8x + 8] & 0x10, 0x10, "le drapeau alpha, lui, est conservé");
+        assert_eq!(
+            propre[vp8x + 8] & (0x20 | 0x08 | 0x04),
+            0,
+            "drapeaux ICC, EXIF, XMP effacés"
+        );
+        assert_eq!(
+            propre[vp8x + 8] & 0x10,
+            0x10,
+            "le drapeau alpha, lui, est conservé"
+        );
         let declare = u32::from_le_bytes([propre[4], propre[5], propre[6], propre[7]]) as usize;
-        assert_eq!(declare + 8, propre.len(), "la taille de l'enveloppe RIFF est recalculée");
-        assert!(sans_metadonnees("image/webp", b"RIFF\0\0\0\0WEBP").is_err(), "sans image");
+        assert_eq!(
+            declare + 8,
+            propre.len(),
+            "la taille de l'enveloppe RIFF est recalculée"
+        );
+        assert!(
+            sans_metadonnees("image/webp", b"RIFF\0\0\0\0WEBP").is_err(),
+            "sans image"
+        );
     }
 }
