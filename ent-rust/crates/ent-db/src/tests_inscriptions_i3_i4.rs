@@ -765,8 +765,12 @@ fn dernier_code(ent: &PgEnt, to: &str) -> String {
     corps.split(": ").nth(1).unwrap().split_whitespace().next().unwrap().to_string()
 }
 
+/// La file d'envoi est commune à tous les établissements (et donc aux tests qui tournent en parallèle) : plusieurs
+/// passes, pour que les messages de CE test partent même si d'autres sont en tête de file.
 async fn expedier(ent: &PgEnt) {
-    ent.expedier_envois_inscriptions(200).await.unwrap();
+    for _ in 0..4 {
+        ent.expedier_envois_inscriptions(200).await.unwrap();
+    }
 }
 
 struct Famille {
@@ -956,7 +960,7 @@ async fn i4_refus_bloque_et_se_leve_avec_piece() {
         .mailer()
         .dry_run_corps()
         .into_iter()
-        .filter(|(_, s, _)| s.contains("en attente"))
+        .filter(|(to, s, _)| (to == &f.mere || to == &f.pere) && s.contains("en attente"))
         .collect();
     assert_eq!(msgs.len(), 2, "un message par titulaire");
     assert_eq!(msgs[0].2, msgs[1].2);
