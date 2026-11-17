@@ -427,7 +427,7 @@ async fn t_regle_un_titulaire_code_sms_et_pieces() {
     assert_eq!(empreinte.len(), 64);
     // Les mots trop longs sont tranchés par la mise en page : on compare sans espaces ni sauts de ligne.
     let texte: String = ent_pdf::releve::texte(&signe).split_whitespace().collect();
-    assert!(texte.contains(&empreinte), "empreinte complète imprimée sur la page de signatures");
+    assert!(texte.contains(&empreinte), "empreinte complète imprimée sur la page de signatures : {}", texte.chars().take(600).collect::<String>());
     assert!(texte.contains("code_sms"));
     // Aucune ligne de la preuve ne porte le numéro complet du téléphone.
     assert!(!texte.contains("0612345678"));
@@ -529,8 +529,9 @@ async fn t_mineur_ne_signe_pas_seul_majeur_si() {
     let _ = sms;
     // Aucun titulaire en droit de signer : refusé (lien sans autorité parentale).
     let orphelin = w.eleve("Seul", "Ines").await;
-    w.lier(orphelin, &w.tom, false).await;
+    w.lier(orphelin, &w.tom, true).await;
     let doc3 = w.document(orphelin, None).await;
+    w.suspendre(orphelin, &w.tom).await;
     let r = w.lancer(&w.adm(), doc3.document_id, true, vec![]).await.unwrap_err();
     assert!(est_refus(&r, RefusMetier::Conflit), "{r:?}");
 }
@@ -1046,6 +1047,8 @@ async fn t_parapheur_et_externe() {
     w.mobile(dir_fiche.personne, "0611223344").await;
     let e1 = w.eleve("Aubert", "Léo").await;
     let e2 = w.eleve("Aubert", "Mia").await;
+    w.lier(e1, &w.lily, true).await;
+    w.lier(e2, &w.lily, true).await;
     let d1 = w.document(e1, Some("stages.convention_stage")).await;
     let d2 = w.document(e2, Some("rh.contrat_travail")).await;
     let lance = |doc: Uuid, jours: i64, s: SignataireDemande| {
