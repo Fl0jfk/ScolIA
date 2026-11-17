@@ -1,0 +1,175 @@
+{
+  "etapes": [
+    "données : absences d'Hermione les 2026-10-06, 2026-10-13, 2026-10-20, 2026-10-27 (mois 2026-10)",
+    "axe dossier résumé : 0 violation(s) ",
+    "axe dossier absences : 0 violation(s) ",
+    "axe dossier épisode + requalification : 0 violation(s) ",
+    "axe dossier décompte : 0 violation(s) ",
+    "axe dossier contacts : 0 violation(s) ",
+    "axe dossier chronologie : 0 violation(s) ",
+    "axe signalements (CPE) : 0 violation(s) ",
+    "axe signalements (relecture ouverte) : 0 violation(s) ",
+    "axe signalements (confirmation) : 0 violation(s) ",
+    "axe signalements (direction, validé) : 0 violation(s) ",
+    "axe secrétariat : contacts : 0 violation(s) ",
+    "axe professeur : dossier refusé : 0 violation(s) ",
+    "axe 30-dossier-resume (375 px) : 0 violation(s) ",
+    "375 px 30-dossier-resume : débordement 0px",
+    "axe 31-dossier-decompte (375 px) : 0 violation(s) ",
+    "375 px 31-dossier-decompte : débordement 0px",
+    "axe 32-dossier-absences (375 px) : 0 violation(s) ",
+    "375 px 32-dossier-absences : débordement 0px",
+    "axe 33-signalements (375 px) : 0 violation(s) ",
+    "375 px 33-signalements : débordement 0px"
+  ],
+  "axe": [
+    {
+      "page": "dossier résumé",
+      "violations": []
+    },
+    {
+      "page": "dossier absences",
+      "violations": []
+    },
+    {
+      "page": "dossier épisode + requalification",
+      "violations": []
+    },
+    {
+      "page": "dossier décompte",
+      "violations": []
+    },
+    {
+      "page": "dossier contacts",
+      "violations": []
+    },
+    {
+      "page": "dossier chronologie",
+      "violations": []
+    },
+    {
+      "page": "signalements (CPE)",
+      "violations": []
+    },
+    {
+      "page": "signalements (relecture ouverte)",
+      "violations": []
+    },
+    {
+      "page": "signalements (confirmation)",
+      "violations": []
+    },
+    {
+      "page": "signalements (direction, validé)",
+      "violations": []
+    },
+    {
+      "page": "secrétariat : contacts",
+      "violations": []
+    },
+    {
+      "page": "professeur : dossier refusé",
+      "violations": []
+    },
+    {
+      "page": "30-dossier-resume (375 px)",
+      "violations": []
+    },
+    {
+      "page": "31-dossier-decompte (375 px)",
+      "violations": []
+    },
+    {
+      "page": "32-dossier-absences (375 px)",
+      "violations": []
+    },
+    {
+      "page": "33-signalements (375 px)",
+      "violations": []
+    }
+  ],
+  "mobile": [
+    {
+      "page": "30-dossier-resume",
+      "debordement_px": 0
+    },
+    {
+      "page": "31-dossier-decompte",
+      "debordement_px": 0
+    },
+    {
+      "page": "32-dossier-absences",
+      "debordement_px": 0
+    },
+    {
+      "page": "33-signalements",
+      "debordement_px": 0
+    }
+  ],
+  "clavier": [],
+  "erreurs": [
+    "404 http://127.0.0.1:8090/web/api/assiduite/episodes?eleve_id=8e93f381-3bea-4770-92d5-7273e63a0461&depuis=2026-09-01&etat=tous&limite=200",
+    "console Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "verifs": [
+    {
+      "ok": true,
+      "m": "le dossier porte le nom de l'élève"
+    },
+    {
+      "ok": true,
+      "m": "requalification posée depuis le dossier (motif codé)"
+    },
+    {
+      "ok": true,
+      "m": "décompte rafraîchi après la requalification (3 non justifiées sur 4)"
+    },
+    {
+      "ok": true,
+      "m": "décompte après rechargement : 3 non justifiées sur 4"
+    },
+    {
+      "ok": true,
+      "m": "décompte : lignes expliquées par demi-journée"
+    },
+    {
+      "ok": true,
+      "m": "clavier : flèches entre les sections du dossier"
+    },
+    {
+      "ok": true,
+      "m": "élèves au seuil affichés"
+    },
+    {
+      "ok": true,
+      "m": "le CPE ne décide pas"
+    },
+    {
+      "ok": true,
+      "m": "la direction voit « Valider »"
+    },
+    {
+      "ok": true,
+      "m": "signalement validé, à transmettre"
+    },
+    {
+      "ok": true,
+      "m": "le texte dit que ScolIA n'envoie rien"
+    },
+    {
+      "ok": true,
+      "m": "secrétariat : aucun texte médical"
+    },
+    {
+      "ok": true,
+      "m": "secrétariat : suivi des contacts ouvert (assiduite.suivre), sans médical"
+    },
+    {
+      "ok": true,
+      "m": "professeur : aucune donnée du dossier"
+    }
+  ]
+}
