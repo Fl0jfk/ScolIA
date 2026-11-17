@@ -16,7 +16,9 @@ unmaintained = "workspace"
 # Version retirée (« yanked ») de crates.io : bloquant.
 yanked = "deny"
 # Exceptions (format : { id = "RUSTSEC-AAAA-NNNN", reason = "…, revue le AAAA-MM-JJ" }).
-ignore = []
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono non maintenu (pas une faille) : utilisé dans ~540 fichiers et par sqlx ; remplacement par jiff ou time à étudier après la bascule de février (décision du pilote, à valider par Florian), revue le 2026-11-17" },
+]
 
 # --- Licences ---------------------------------------------------------------
 [licenses]
