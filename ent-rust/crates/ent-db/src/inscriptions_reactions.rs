@@ -176,15 +176,18 @@ pub async fn expedier_envois(
             ("accord_code", _) => match accord_demande {
                 Some(dm) => {
                     // Le code de l'envoi en cours : celui du compteur de la demande (jamais stocké).
-                    let compteur: Result<i16, String> = sqlx::query_scalar(
-                        "SELECT code_compteur FROM ent_inscription_accord_demande
-                          WHERE id = $1 AND etablissement_id = $2",
-                    )
-                    .bind(dm)
-                    .bind(etab)
-                    .fetch_one(pool)
-                    .await
-                    .map_err(|e| e.to_string());
+                    let compteur: Result<i16, String> = match crate::tenant_tx::TenantTx::begin(pool, etab).await {
+                        Ok(mut tx) => sqlx::query_scalar(
+                            "SELECT code_compteur FROM ent_inscription_accord_demande
+                              WHERE id = $1 AND etablissement_id = $2",
+                        )
+                        .bind(dm)
+                        .bind(etab)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(|e| e.to_string()),
+                        Err(e) => Err(e.to_string()),
+                    };
                     compteur
                         .and_then(|c| crate::inscriptions_accords::code_accord(dm, c))
                         .map(|code| corps.replace("{CODE}", &code))
