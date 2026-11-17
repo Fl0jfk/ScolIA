@@ -28,7 +28,15 @@ Branche `ent-socle-2-code-e7e8` (base `origin/ENT`). Conception : `docs/socles/0
 Plage 290–299 : **298** `eleve_protection_photo_coordonnees`, **299** `eleve_indicateurs`. **La plage 290–299 est désormais épuisée** ; aucune autre n'a été prise. `MIGRATION_TAG` inchangé (plus haute = numéros > 299). Aucune migration existante modifiée ; pas de JSON métier.
 
 ## 3. Compteurs
-COMPTEURS_A_REMPLIR
+Recalculés après fusion d'`origin/ENT` (96c287c5, socle 18 FO2-FO3), règle 28 :
+- **RLS** (`tests_rls.rs`) : **715** tables = base ENT (+18 du socle 18) **+ 5** (298) **+ 1** (299). `ent_catalogue_indicateur` est global, sans RLS.
+- **Registre des données** : **755** entrées, **+7** (6 `dossier_eleve` + le catalogue global) ; chaque table nouvelle classée, `ent_eleve_coordonnee_verification` neutralisée à la restauration.
+- **RGPD / conservation / extrait de la personne (R-RG14)** : tables en domaine `dossier_eleve`, donc couvertes par le fournisseur `eleve` et la catégorie `scol.dossier` ; tests verts.
+- **`TABLES_ELEVE`** : 168 entrées, **+6**, toutes `Reste` avec raison écrite ; domaines de fusion nommés.
+- **Matrice de séparation** : +31 cas ; inventaire `SOURCES` / `NOMS_SOURCES` : **63** (61 d'ENT + `eleve_protection.rs`, `eleve_synthese.rs`).
+- **`Action::TOUTES`** : **253**, inchangé par ce lot (aucune action nouvelle : `eleves.confidentiel.gerer`, `eleves.photo.gerer`, `eleves.identite.modifier`, `audit.lire` existaient).
+- **Migrations** : 298, 299 ; `MIGRATION_TAG` inchangé. **`CHAMPS_CHIFFRES`** : +2 colonnes.
+- **Événements** : +3 (`eleve.confidentialite_changee`, `eleve.consultation_protegee`, `eleve.coordonnees_modifiees`).
 
 ## 4. Écarts, limites, questions pour le pilote / Florian
 1. **Rotation de clé `enc:v2:`** (annoncée en E2/E7) : non faite — elle touche le coffre commun (`ent-auth`), hors lot.
@@ -43,4 +51,11 @@ COMPTEURS_A_REMPLIR
 10. Suite complète ent-db non rejouée en local (≈ 3 h en série) : lots ciblés ci-dessous, la CI fait foi.
 
 ## 5. Tests
-TESTS_A_REMPLIR
+Local, PostgreSQL 16, `--test-threads=1`, Rust **1.99.0** :
+- nouveaux : `tests_eleve_protection` 14, `tests_eleve_indicateurs` 6, `domain-eleve` 15 (298 au total, verts) ;
+- `ent-db` lot A (`tests_eleve_*`, RLS, registre, conservation, extrait, D-036, champs chiffrés) : 173 verts ; lot B (administratif, documents, communication, formulaires, santé, rôles, inscriptions, dossier) : 174 verts ; série finale après fusion (E7, E8, registre, RLS, extrait, conservation, D-036) : 73 verts ;
+- `ent-api` : `separation` 54 (deux passages, dont après fusion), `recette_securite_3` 10, `fichiers_depot` 7, `fichiers_liens` 10, `recette_personas_1` 14, `recette_personas_2` 6, `audit_correctifs_1` 5 : verts ;
+- `cargo +1.99.0 clippy --workspace --tests --features ent-db/labo` : **0 avertissement**, rustc compris ;
+- `cargo +1.99.0 metadata --locked` : racine et `web/` OK ; aucune dépendance nouvelle ;
+- aucun test ignoré, aucun test à l'horloge réelle (instants passés aux commandes `*_a`, mesures datées de janvier 2026, pastilles datées recalculées à un jour explicite) ; jamais `cargo fmt --all`.
+- Les tests modifiés d'autres lots : aucun (la route photo héritée garde son comportement pour le personnel ; la famille propose désormais).
