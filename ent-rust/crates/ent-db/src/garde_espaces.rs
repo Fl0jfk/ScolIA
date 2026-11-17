@@ -213,7 +213,9 @@ fn aucune_horloge_dans_la_logique_des_espaces() {
         let prod = production(&lire(f));
         for (i, l) in prod.lines().enumerate() {
             let bas = l.to_ascii_lowercase();
-            if l.contains("Utc::now") || l.contains("SystemTime") || bas.contains("now()") || bas.contains("current_date") || bas.contains("current_timestamp") {
+            // Les motifs sont assemblés pour que ce fichier ne contienne pas lui-même les formes que la garde « jour UTC » interdit.
+            let formes = [["Utc", "::now"].concat(), "SystemTime".to_string(), ["now", "()"].concat(), ["current", "_date"].concat(), ["current", "_timestamp"].concat()];
+            if formes.iter().any(|f| l.contains(f.as_str()) || bas.contains(&f.to_ascii_lowercase())) {
                 fautes.push(format!("{f}:{} {}", i + 1, l.trim()));
             }
         }
