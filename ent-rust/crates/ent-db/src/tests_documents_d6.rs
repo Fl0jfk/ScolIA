@@ -1108,7 +1108,20 @@ async fn t_parapheur_et_externe() {
         organisation: Some("Atelier du Port".into()),
         telephone: "0699887766".into(),
     });
-    let c = w.lancer(&w.adm(), d3.document_id, true, vec![ext]).await.expect("circuit avec externe");
+    let c = w
+        .ent
+        .lancer_circuit_for_actor(
+            &w.adm(),
+            DemandeCircuit {
+                document_id: d3.document_id,
+                ordre: Some(Ordre::Parallele),
+                echeance: None,
+                titulaires_de_l_eleve: true,
+                signataires: vec![ext],
+            },
+        )
+        .await
+        .expect("circuit avec externe");
     assert_eq!(c.liens_externes.len(), 1);
     let (sid_ext, jeton) = c.liens_externes[0].clone();
     let vue = w.ent.circuit_for_actor(&w.adm(), c.circuit_id).await.unwrap();
@@ -1135,7 +1148,7 @@ async fn t_parapheur_et_externe() {
     assert!(faux.is_err() || sms.dernier_code() == "000000");
     let f = w.ent.externe_signer_code(w.m.etab, &w.ctx(&h), &jeton, defi.defi_id, &sms.dernier_code()).await.expect("l'externe signe");
     assert_eq!(f.niveau, Niveau::S1);
-    // Séquentiel (convention) : l'externe a signé ; il reste le titulaire et l'élève (qui n'a pas de compte ici).
+    // L'externe a signé ; il reste le titulaire et l'élève cosignataire (la nature l'exige).
     assert!(!f.circuit_complet);
 }
 
