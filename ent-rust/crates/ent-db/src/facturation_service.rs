@@ -225,13 +225,31 @@ pub fn cle_interdite(cle: &str) -> bool {
         || c == "empreinte"
 }
 
-/// Retire de la charge d'un événement financier tout ce que R-F25 interdit : récursif, sans
-/// effet sur les identifiants, les codes, les dates et les compteurs.
+/// **Liste blanche** (revue M7) : seules les clés suivantes voyagent dans la charge d'un événement financier —
+/// des identifiants (`id`, `*_id`, `*_ids`), des codes, des dates et des compteurs. Tout le reste est retiré
+/// (restes à payer, cumuls, valeurs avant/après, empreintes…), même sous un nom qu'aucune règle ne prévoyait.
+const CLES_AUTORISEES: &[&str] = &[
+    "numero", "quittance_numero", "statut", "moyen", "categorie", "nature", "nb", "code", "palier", "rang",
+    "source", "sens", "type", "type_piece", "format", "kind", "mode", "canal", "origine", "annee_scolaire",
+    "date_effet", "date_execution", "date", "jour", "debut", "fin", "ics_change", "nom_change", "a_verifier",
+    "eleve_majeur", "crediteur_modifie", "motif_rejet", "suite", "avis_demi_journee", "prevenue",
+    // Conteneurs : leur contenu est filtré par la même liste.
+    "lignes", "echeances", "factures", "pieces", "avoirs", "comptes", "designations", "lettrage", "ecritures",
+    "propositions", "prelevements",
+];
+
+pub fn cle_autorisee(cle: &str) -> bool {
+    cle == "id" || cle.ends_with("_id") || cle.ends_with("_ids") || CLES_AUTORISEES.contains(&cle)
+}
+
+/// Retire de la charge d'un événement financier tout ce que R-F25 interdit : récursif. Deux filtres :
+/// la liste noire [`cle_interdite`] (montants, noms, coordonnées) **et** la liste blanche
+/// [`cle_autorisee`] (identifiants, codes, dates, compteurs).
 pub fn payload_neutre(v: Value) -> Value {
     match v {
         Value::Object(o) => Value::Object(
             o.into_iter()
-                .filter(|(k, _)| !cle_interdite(k))
+                .filter(|(k, _)| !cle_interdite(k) && cle_autorisee(k))
                 .map(|(k, x)| (k, payload_neutre(x)))
                 .collect(),
         ),
@@ -252,16 +270,15 @@ mod tests {
             "total_centimes": 5500, "montant_du_centimes": 1, "iban_avant": "FR76…",
             "rum": "SCOLIA1", "libelle": "Cantine", "titulaire": "M. X", "nb": 3,
             "date_execution": "2030-01-01", "reference": "CHQ-1",
-            "interne": { "montant_centimes": 1, "id": "c", "nom": "Y" },
-            "liste": [{ "bic": "X", "ok": true }],
+            "lignes": [{ "montant_centimes": 1, "ligne_id": "c", "nom": "Y", "ok": true }],
+            "deja_plus_ce": 4850, "reste": 12, "iban_masque": "FR76 ••• 1234", "ancien": "x", "nouveau": "y",
         }));
         assert_eq!(
             v,
             json!({
                 "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001", "nb": 3,
                 "date_execution": "2030-01-01",
-                "interne": { "id": "c" },
-                "liste": [{ "ok": true }],
+                "lignes": [{ "ligne_id": "c" }],
             })
         );
     }

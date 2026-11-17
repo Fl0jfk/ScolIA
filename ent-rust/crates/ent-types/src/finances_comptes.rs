@@ -112,6 +112,16 @@ pub struct CompteDto {
     pub origine: String,
 }
 
+/// Mon compte, vu par la famille ou l'élève majeur (F3) : rien des champs de gestion (SIRET, état de reprise,
+/// origine, entité de facturation, identifiant de personne).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonCompteDto {
+    pub id: Uuid,
+    pub foyer_id: Uuid,
+    pub type_debiteur: String,
+    pub libelle_facturation: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComptesFiltre {
@@ -139,6 +149,8 @@ pub struct RapportRepriseDto {
     pub pieces_rattachees: i32,
     pub foyers_a_verifier: i32,
     pub designations_creees: i32,
+    /// Élèves dont les parts de payeurs n'étaient pas valides (total ni 0 ni 100) : non repris, à vérifier (M9).
+    pub eleves_a_verifier: i32,
 }
 
 // ---------------------------------------------------------------------------
@@ -306,12 +318,12 @@ pub struct PriseEnChargeDto {
     pub statut: String,
 }
 
-/// Jour de référence d'un contrôle d'échéance (FAC-257) : paramètre explicite, jamais l'horloge dans le
-/// calcul ; la route le remplit avec le jour de Paris.
-#[derive(Clone, Debug, Default, Deserialize)]
+/// Réactivation d'une prise en charge échue (M1) : nouvelle date de fin et motif obligatoires, journalisés.
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AlertesPrisesEnChargeBody {
-    pub jour: Option<NaiveDate>,
+pub struct ReactiverPriseBody {
+    pub au: NaiveDate,
+    pub motif: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

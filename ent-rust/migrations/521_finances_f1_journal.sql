@@ -9,7 +9,7 @@
 -- * Aucun JSON métier (D-036) : colonnes typées ; `detail` est un court texte lisible
 --   (« avant → après »), **jamais** un IBAN, un numéro de compte ni une coordonnée.
 -- * Ajout seul : ni modification ni suppression, même en SQL direct (déclencheur) ; seule la
---   purge volontaire d'un établissement (`ent.purge_etablissement = 'on'`, jamais posé par
+--   purge volontaire d'un établissement (fonction `ent_fin_purger_etablissement`, migration 522, jamais appelée par
 --   l'application) est tolérée, comme pour les autres journaux.
 -- * Les montants sont en centimes entiers (BIGINT), jamais de flottant ; le journal est réservé
 --   au droit `facturation.journal` (les événements, eux, ne portent aucun montant : R-F25).
@@ -50,10 +50,8 @@ CREATE INDEX IF NOT EXISTS ent_fin_journal_acteur_idx
 CREATE OR REPLACE FUNCTION ent_trg_fin_journal_ajout_seul() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF current_setting('ent.purge_etablissement', true) = 'on' THEN
-        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-        RETURN NEW;
-    END IF;
+    -- Aucune dérogation par réglage de session (revue M6) : un `SET` du rôle applicatif ne lève rien. La
+    -- purge d'un établissement passe par la fonction `ent_fin_purger_etablissement` (migration 522).
     RAISE EXCEPTION 'journal financier : ajout seul (modification et suppression interdites)'
         USING ERRCODE = 'restrict_violation';
 END

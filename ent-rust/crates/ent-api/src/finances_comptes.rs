@@ -50,6 +50,7 @@ pub fn routes() -> Router<AppState> {
             get(prises_en_charge).post(creer_prise_en_charge),
         )
         .route("/finances/prises-en-charge/alertes", post(alertes_prises_en_charge))
+        .route("/finances/prises-en-charge/{id}/reactiver", post(reactiver_prise_en_charge))
         .route("/finances/taches", get(taches))
         .route("/finances/taches/{id}/abandonner", post(abandonner_tache))
 }
@@ -174,7 +175,7 @@ async fn reprendre_comptes(State(st): State<AppState>, s: EntSession) -> Res<Jso
     ))
 }
 
-async fn mes_comptes(State(st): State<AppState>, s: EntSession) -> Res<Json<Vec<CompteDto>>> {
+async fn mes_comptes(State(st): State<AppState>, s: EntSession) -> Res<Json<Vec<MonCompteDto>>> {
     Ok(Json(
         st.ent
             .mes_comptes_for_actor(s.etablissement_id, s.user_id)
@@ -357,19 +358,31 @@ async fn creer_prise_en_charge(
     ))
 }
 
-async fn alertes_prises_en_charge(
-    State(st): State<AppState>,
-    s: EntSession,
-    Json(b): Json<AlertesPrisesEnChargeBody>,
-) -> Res<Json<RapportAlertesDto>> {
+/// M1 : le jour de référence est **toujours** celui de l'établissement (Paris) ; un jour fourni par le client
+/// est ignoré (il permettrait de faire passer une prise en charge en « échue » à volonté).
+async fn alertes_prises_en_charge(State(st): State<AppState>, s: EntSession) -> Res<Json<RapportAlertesDto>> {
     Ok(Json(
         st.ent
             .alerter_prises_en_charge_for_actor(
                 s.etablissement_id,
                 s.user_id,
                 &s.role,
-                b.jour.unwrap_or_else(domain_eleve::horloge::jour_paris),
+                domain_eleve::horloge::jour_paris(),
             )
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn reactiver_prise_en_charge(
+    State(st): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ReactiverPriseBody>,
+) -> Res<Json<PriseEnChargeDto>> {
+    Ok(Json(
+        st.ent
+            .reactiver_prise_en_charge_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
             .await
             .map_err(map_db)?,
     ))

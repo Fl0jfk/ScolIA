@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS ent_fin_reprise_rapport (
     pieces_rattachees INTEGER NOT NULL,
     foyers_a_verifier INTEGER NOT NULL,
     designations_creees INTEGER NOT NULL,
+    -- M9 : élèves dont les liens payeurs n'ont pas des parts valides (total ni 0 ni 100) : non repris, à vérifier.
+    eleves_a_verifier INTEGER NOT NULL DEFAULT 0,
     lance_par UUID
 );
 CREATE INDEX IF NOT EXISTS ent_fin_reprise_rapport_idx ON ent_fin_reprise_rapport (etablissement_id, le DESC);
@@ -395,7 +397,7 @@ CREATE TRIGGER ent_fac_facture_pose_compte_trg
 -- pièce n'est modifié (seule la colonne de rattachement `compte_id`, créée ci-dessus).
 CREATE OR REPLACE FUNCTION ent_fin_reprendre_comptes(p_etab UUID, p_par UUID DEFAULT NULL)
 RETURNS TABLE (comptes_crees INTEGER, pieces_rattachees INTEGER, foyers_a_verifier INTEGER,
-               designations_creees INTEGER)
+               designations_creees INTEGER, eleves_a_verifier INTEGER)
 LANGUAGE plpgsql AS $$
 DECLARE
     v_avant INTEGER;
@@ -403,6 +405,7 @@ DECLARE
     v_pieces INTEGER := 0;
     v_verifier INTEGER;
     v_desig INTEGER := 0;
+    v_eleves INTEGER := 0;
     r RECORD;
 BEGIN
     SELECT count(*) INTO v_avant FROM ent_fin_compte WHERE etablissement_id = p_etab;
@@ -447,7 +450,11 @@ BEGIN
             id, etablissement_id, groupe_id, eleve_id, categorie, compte_id, part_bps, rang, du, source,
             statut, acceptation, motif)
         SELECT gen_random_uuid(), p_etab, t.groupe_id, li.eleve_id, 'toutes', li.compte_id,
-               CASE WHEN t.total = 0 THEN (10000 / t.nb_comptes)
+               -- M9 : le reste de la division va au premier payeur (ordre des comptes) ; somme = 100 %.
+               CASE WHEN t.total = 0
+                    THEN (10000 / t.nb_comptes)
+                         + CASE WHEN row_number() OVER (PARTITION BY li.eleve_id ORDER BY li.compte_id) = 1
+                                THEN 10000 - (10000 / t.nb_comptes) * t.nb_comptes ELSE 0 END
                     ELSE (li.part_pct * 10000 / t.total) END,
                1, li.depuis, 'reprise', 'effective', 'non_requise',
                'reprise des liens payeurs existants'
@@ -457,15 +464,24 @@ BEGIN
     )
     SELECT count(*)::int INTO v_desig FROM ins;
 
+    -- M9 : élèves ignorés (parts de liens dont le total n'est ni 0 ni 100, sans désignation) : comptés « à vérifier ».
+    SELECT count(*)::int INTO v_eleves FROM (
+        SELECT l.eleve_id FROM ent_eleve_lien l
+         WHERE l.etablissement_id = p_etab AND l.est_payeur AND l.foyer_id IS NOT NULL AND l.suspendu_le IS NULL
+           AND NOT EXISTS (SELECT 1 FROM ent_fin_designation d
+                            WHERE d.etablissement_id = p_etab AND d.eleve_id = l.eleve_id)
+         GROUP BY l.eleve_id
+        HAVING COALESCE(SUM(NULLIF(l.part_paiement, 0)), 0) NOT IN (0, 100)) x;
+
     SELECT count(*) INTO v_verifier FROM ent_fin_compte
      WHERE etablissement_id = p_etab AND a_verifier AND origine = 'reprise';
-    IF v_apres > v_avant OR v_pieces > 0 OR v_desig > 0 THEN
+    IF v_apres > v_avant OR v_pieces > 0 OR v_desig > 0 OR v_eleves > 0 THEN
         INSERT INTO ent_fin_reprise_rapport (
             id, etablissement_id, comptes_crees, pieces_rattachees, foyers_a_verifier,
-            designations_creees, lance_par)
-        VALUES (gen_random_uuid(), p_etab, v_apres - v_avant, v_pieces, v_verifier, v_desig, p_par);
+            designations_creees, eleves_a_verifier, lance_par)
+        VALUES (gen_random_uuid(), p_etab, v_apres - v_avant, v_pieces, v_verifier, v_desig, v_eleves, p_par);
     END IF;
-    RETURN QUERY SELECT v_apres - v_avant, v_pieces, v_verifier, v_desig;
+    RETURN QUERY SELECT v_apres - v_avant, v_pieces, v_verifier, v_desig, v_eleves;
 END
 $$;
 
@@ -492,10 +508,7 @@ ALTER TABLE ent_fac_facture ADD CONSTRAINT ent_fac_facture_compte_requis_chk
 CREATE OR REPLACE FUNCTION ent_trg_fin_f2_sans_suppression() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF current_setting('ent.purge_etablissement', true) = 'on' THEN
-        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-        RETURN NEW;
-    END IF;
+    -- Aucune dérogation par réglage de session (revue M6) : voir `ent_fin_purger_etablissement`.
     RAISE EXCEPTION '% : ni suppression ni vidage (historique financier)', TG_TABLE_NAME
         USING ERRCODE = 'restrict_violation';
 END
@@ -511,6 +524,11 @@ BEGIN
         EXECUTE format(
             'CREATE TRIGGER %I BEFORE DELETE ON %I FOR EACH ROW EXECUTE FUNCTION ent_trg_fin_f2_sans_suppression()',
             t || '_sans_suppression', t);
+        -- M6 : le vidage (TRUNCATE) est refusé comme la suppression ligne à ligne.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_sans_vidage', t);
+        EXECUTE format(
+            'CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_fin_f2_sans_suppression()',
+            t || '_sans_vidage', t);
     END LOOP;
 END
 $$;
@@ -543,3 +561,24 @@ $$;
 ALTER TABLE ent_fin_parametres
     ADD COLUMN IF NOT EXISTS guichet_quota_jour INTEGER NOT NULL DEFAULT 30
         CHECK (guichet_quota_jour BETWEEN 1 AND 1000);
+
+-- ── M6 : purge volontaire d'un établissement (opération d'exploitation, jamais applicative) ─────────
+-- Les déclencheurs d'ajout seul n'ont plus de dérogation par réglage de session. Seule cette fonction
+-- (SECURITY DEFINER, propriétaire des tables, exécution retirée à tous les autres rôles) vide le journal et
+-- les tables F2 d'un établissement. Les comptes, l'entité de facturation et les pièces (F0) restent : ils
+-- sont liés par clés étrangères aux pièces comptables, conservées dix ans.
+CREATE OR REPLACE FUNCTION ent_fin_purger_etablissement(p_etab UUID) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['ent_fin_journal', 'ent_fin_tache', 'ent_fin_consequence', 'ent_fin_designation',
+                             'ent_fin_prise_en_charge', 'ent_fin_reprise_rapport']
+    LOOP
+        EXECUTE format('ALTER TABLE %I DISABLE TRIGGER USER', t);
+        EXECUTE format('DELETE FROM %I WHERE etablissement_id = $1', t) USING p_etab;
+        EXECUTE format('ALTER TABLE %I ENABLE TRIGGER USER', t);
+    END LOOP;
+END
+$$;
+REVOKE ALL ON FUNCTION ent_fin_purger_etablissement(UUID) FROM PUBLIC;

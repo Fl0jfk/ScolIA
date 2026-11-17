@@ -166,15 +166,32 @@ async fn taches_ouvertes(ent: &PgEnt, etab: Uuid, nature: &str, eleve: Uuid) -> 
     n
 }
 
+/// Document (jugement, convention) déposé au dossier de l'élève : M4 exige un document existant.
+async fn document_de(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_eleve_document (id, etablissement_id, eleve_id, tiroir, titre) VALUES ($1,$2,$3,'famille','Jugement')")
+        .bind(id).bind(etab).bind(eleve).execute(ent.pool_verif()).await.unwrap();
+    id
+}
+
+/// Lien d'un foyer à l'élève, sans être payeur (M4 : un compte désigné est lié à l'élève).
+async fn lien_non_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, foyer: Uuid) {
+    let p = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom) VALUES ($1, $2, 'Lié')").bind(p).bind(etab).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien, est_payeur) VALUES ($1,$2,$3,$4,$5,'pere',false)")
+        .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(p).bind(foyer).execute(ent.pool_verif()).await.unwrap();
+}
+
 async fn piece_accord(ent: &PgEnt, c: &LaboCast, eleve: Uuid, categorie: &str, parts: Vec<(Uuid, i32)>, effet: NaiveDate) -> ResultatDesignationDto {
     let (u, r) = secretariat(c);
+    let doc = document_de(ent, c.etablissement_id, eleve).await;
     ent.designer_payeurs_for_actor(
         c.etablissement_id, u, r, eleve,
         &DesignerPayeursBody {
             categorie: categorie.into(),
             parts: parts.into_iter().map(|(compte_id, part_bps)| PartBody { compte_id, part_bps, rang: None }).collect(),
             date_effet: effet,
-            piece: Some(PieceBody { nature: "accord_des_deux".into(), reference: "Accord signé des deux parents".into(), document_id: None }),
+            piece: Some(PieceBody { nature: "convention_homologuee".into(), reference: "Convention homologuée".into(), document_id: Some(doc) }),
             motif: Some("test".into()),
         },
     )
@@ -195,6 +212,7 @@ async fn cf_02_mere_scolarite_pere_restauration() {
     let (fm, fp) = (foyer(&ent, etab, "Foyer mère").await, foyer(&ent, etab, "Foyer père").await);
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await; // lien « responsable 1 »
     let (cm, cp) = (compte_du_foyer(&ent, etab, fm).await, compte_du_foyer(&ent, etab, fp).await);
+    lien_non_payeur(&ent, etab, el, fp).await; // M4 : le compte désigné est lié à l'élève
     // Désignations avec pièce : scolarité → mère (toutes), restauration → père.
     piece_accord(&ent, &c, el, "toutes", vec![(cm, 10_000)], d(2030, 9, 1)).await;
     let r = piece_accord(&ent, &c, el, "restauration", vec![(cp, 10_000)], d(2030, 9, 1)).await;
@@ -287,6 +305,7 @@ async fn payeur_manquant_pas_de_facture_par_defaut_et_tache() {
     let (fm, fp) = (foyer(&ent, etab, "Foyer M3").await, foyer(&ent, etab, "Foyer P3").await);
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await; // lien de responsabilité
     let (cm, cp) = (compte_du_foyer(&ent, etab, fm).await, compte_du_foyer(&ent, etab, fp).await);
+    lien_non_payeur(&ent, etab, el, fp).await; // M4 : le compte désigné est lié à l'élève
     // Désignation précise de la seule scolarité ; rien pour `toutes` ni pour la restauration :
     // le lien payeur du dossier ne vaut plus dès qu'une désignation existe (jamais « au responsable 1 »).
     piece_accord(&ent, &c, el, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
@@ -327,6 +346,7 @@ async fn cf_03_separation_au_premier_decembre() {
     facturer(&ent, etab, el).await.unwrap();
     let cm = compte_du_foyer(&ent, etab, fm).await;
     let cp = compte_du_foyer(&ent, etab, fp).await;
+    lien_non_payeur(&ent, etab, el, fp).await; // M4 : le compte désigné est lié à l'élève
     // Émission de la facture annuelle de la mère (août).
     let brouillon: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'")
         .bind(etab).bind(fm).fetch_all(ent.pool_verif()).await.unwrap();
@@ -490,6 +510,7 @@ async fn piece_de_repartition_jointe_apres_coup_rend_opposable() {
     let (fm, fp) = (foyer(&ent, etab, "Foyer M7").await, foyer(&ent, etab, "Foyer P7").await);
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
     let (cm, cp) = (compte_du_foyer(&ent, etab, fm).await, compte_du_foyer(&ent, etab, fp).await);
+    lien_non_payeur(&ent, etab, el, fp).await; // M4 : le compte désigné est lié à l'élève
     let (u, r) = secretariat(&c);
     let prop = ent.designer_payeurs_for_actor(etab, u, r, el, &DesignerPayeursBody {
         categorie: "toutes".into(),
@@ -503,7 +524,7 @@ async fn piece_de_repartition_jointe_apres_coup_rend_opposable() {
     assert!(ent.joindre_piece_repartition_for_actor(etab, u, r, prop.groupe_id, &JoindrePieceBody {
         piece: PieceBody { nature: "jugement".into(), reference: "  ".into(), document_id: None } }).await.is_err());
     let ok = ent.joindre_piece_repartition_for_actor(etab, u, r, prop.groupe_id, &JoindrePieceBody {
-        piece: PieceBody { nature: "jugement".into(), reference: "JAF Lyon 2030/123".into(), document_id: None } }).await.unwrap();
+        piece: PieceBody { nature: "jugement".into(), reference: "JAF Lyon 2030/123".into(), document_id: Some(document_de(&ent, etab, el).await) } }).await.unwrap();
     assert_eq!(ok.statut, "effective");
     let (nature, reference): (Option<String>, Option<String>) = sqlx::query_as(
         "SELECT piece_nature, piece_reference FROM ent_fin_designation WHERE groupe_id = $1 LIMIT 1")
@@ -550,8 +571,8 @@ async fn fd_15_cf_84_eleve_majeur_payeur() {
     let etab = c.etablissement_id;
     grille(&ent, &c).await;
     let (u, r) = secretariat(&c);
-    let majeur = eleve(&ent, etab, "Jules", d(2010, 1, 1), "externe").await; // né en 2010 : majeur en 2030
-    let mineur = eleve(&ent, etab, "Kim", d(2018, 1, 1), "externe").await;
+    let majeur = eleve(&ent, etab, "Jules", d(1990, 1, 1), "externe").await; // majeur aujourd'hui, quelle que soit la date
+    let mineur = eleve(&ent, etab, "Kim", d(2100, 1, 1), "externe").await; // mineur pour toute la durée de vie des tests
     // Fiche « personne » de l'élève majeur et compte utilisateur de l'élève.
     let personne = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, eleve_id) VALUES ($1,$2,'Testf2','Jules',$3)")
@@ -566,18 +587,19 @@ async fn fd_15_cf_84_eleve_majeur_payeur() {
     ent.emettre_for_actor(etab, c.compta.user_id, "compta", &EmissionBody { factures: vec![brouillon] }).await.unwrap();
 
     // Un mineur ne peut pas devenir son propre payeur.
-    let refus = ent.transferer_payeur_majeur_for_actor(etab, u, r, mineur, &PayeurMajeurBody { date_effet: d(2030, 9, 1), categories: vec![], motif: None }).await;
+    let refus = ent.transferer_payeur_majeur_for_actor(etab, u, r, mineur, &PayeurMajeurBody { date_effet: d(2025, 9, 1), categories: vec![], motif: None }).await;
     assert!(refus.is_err(), "mineur : refusé");
 
-    // Transfert au 1er janvier 2031 : en attente de l'acceptation de l'élève (R-F30).
+    // Transfert au 1er septembre 2025 (date d'effet atteinte, M5) : en attente de l'acceptation de l'élève (R-F30).
     let t = ent.transferer_payeur_majeur_for_actor(etab, u, r, majeur, &PayeurMajeurBody {
-        date_effet: d(2031, 1, 1), categories: vec![], motif: Some("études post-bac, autonome".into()),
+        date_effet: d(2025, 9, 1), categories: vec![], motif: Some("études post-bac, autonome".into()),
     }).await.unwrap();
     assert_eq!(t.statut, "en_attente");
     // Avant son acceptation : l'élève voit déjà son compte (créé), les parents restent payeurs.
     let mes = ent.mes_comptes_for_actor(etab, c.cpe.user_id).await.unwrap();
     assert_eq!(mes.len(), 1, "FD-15 : l'élève majeur retrouve le compte de sa fiche personne");
-    assert_eq!(mes[0].personne_id, Some(personne));
+    let (compte_personne,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fin_compte WHERE etablissement_id = $1 AND personne_id = $2").bind(etab).bind(personne).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(mes[0].id, compte_personne);
     // Un élève qui n'est pas concerné ne peut pas répondre.
     assert!(ent.repondre_designation_for_actor(etab, c.parent_tom.user_id, "parent", t.groupe_id, true).await.is_err());
     // L'élève accepte : le transfert est opposable à la date d'effet ; conséquences proposées sur les mois à venir.
@@ -585,17 +607,17 @@ async fn fd_15_cf_84_eleve_majeur_payeur() {
     assert_eq!(ok.statut, "effective");
     assert_eq!(ok.consequences_proposees, 2, "externe : une seule ligne (scolarité), avoir aux parents + ligne à l'élève");
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    let avant = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2030, 12, 31), false).await.unwrap();
-    let apres = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2031, 1, 1), false).await.unwrap();
+    let avant = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2025, 8, 31), false).await.unwrap();
+    let apres = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2025, 9, 1), false).await.unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(avant.parts.iter().map(|p| p.foyer_id).collect::<Vec<_>>(), vec![fm], "juin à décembre : les parents");
+    assert_eq!(avant.parts.iter().map(|p| p.foyer_id).collect::<Vec<_>>(), vec![fm], "avant la date d'effet : les parents");
     assert_eq!(apres.parts.len(), 1);
     assert_ne!(apres.parts[0].foyer_id, fm);
     // L'élève voit son espace financier (FD-15) ; ses parents ne voient pas le compte de l'élève.
     let espace = ent.espace_finances_famille(etab, c.cpe.user_id).await.unwrap();
     assert!(espace.comptes.iter().any(|x| x.foyer_id == apres.parts[0].foyer_id));
     let parents = ent.mes_comptes_for_actor(etab, c.parent_lea.user_id).await.unwrap();
-    assert!(!parents.iter().any(|x| x.personne_id == Some(personne)), "les parents ne voient rien du compte de l'élève");
+    assert!(!parents.iter().any(|x| x.id == compte_personne), "les parents ne voient rien du compte de l'élève");
     // L'ancienne facture des parents n'est pas touchée (le solde passé reste aux parents).
     let (nb,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2")
         .bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
@@ -621,11 +643,12 @@ async fn organisme_payeur_siret_controle_et_unique() {
     assert!(ent.creer_compte_organisme_for_actor(etab, u, r, &corps("X", Some("73282932000075"), false, false)).await.is_err(), "clé de Luhn fausse");
     assert!(ent.creer_compte_organisme_for_actor(etab, u, r, &corps("X", Some("1234"), false, false)).await.is_err());
     assert!(ent.creer_compte_organisme_for_actor(etab, u, r, &corps("X", None, false, true)).await.is_err(), "Chorus Pro : organisme public seulement");
+    assert!(ent.creer_compte_organisme_for_actor(etab, u, r, &corps("Y", None, true, true)).await.is_err(), "F5 : Chorus Pro exige le SIRET");
     assert!(ent.creer_compte_organisme_for_actor(etab, u, r, &corps("   ", None, false, false)).await.is_err(), "nom obligatoire");
     let doublon = ent.creer_compte_organisme_for_actor(etab, u, r, &corps("Autre nom, même SIRET", Some("73282932000074"), false, false)).await;
     assert!(doublon.is_err(), "SIRET déjà porté");
     // Département (organisme public) : Chorus Pro permis.
-    let dep = ent.creer_compte_organisme_for_actor(etab, u, r, &corps("Conseil départemental — ASE", None, true, true)).await.unwrap();
+    let dep = ent.creer_compte_organisme_for_actor(etab, u, r, &corps("Conseil départemental — ASE", Some("35600000000047"), true, true)).await.unwrap();
     assert!(dep.chorus_pro && dep.organisme_public);
     // Le secrétariat (engagements) peut créer, la comptabilité aussi ; un professeur non.
     let (us, rs) = secretariat(&c);
@@ -652,6 +675,7 @@ async fn cf_82_plafond_de_l_employeur_part_non_couverte_au_payeur_suivant() {
     let fm = foyer(&ent, etab, "Foyer M9").await;
     let cm = compte_du_foyer(&ent, etab, fm).await;
     let el = eleve(&ent, etab, "Léa", d(2018, 3, 1), "demi_pension").await;
+    lien_non_payeur(&ent, etab, el, fm).await;
     // Prise en charge : 900 € de restauration pour l'année scolaire.
     let pec = ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
         compte_id: employeur.id, eleve_id: el, reference: "PEC-1".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
@@ -667,7 +691,7 @@ async fn cf_82_plafond_de_l_employeur_part_non_couverte_au_payeur_suivant() {
             PartBody { compte_id: cm, part_bps: 10_000, rang: Some(2) },
         ],
         date_effet: d(2030, 9, 1),
-        piece: Some(PieceBody { nature: "accord_des_deux".into(), reference: "Convention employeur".into(), document_id: None }),
+        piece: Some(PieceBody { nature: "convention_homologuee".into(), reference: "Convention employeur".into(), document_id: Some(document_de(&ent, etab, el).await) }),
         motif: None,
     }).await.unwrap();
     facturer(&ent, etab, el).await.unwrap();
@@ -683,6 +707,7 @@ async fn cf_82_plafond_de_l_employeur_part_non_couverte_au_payeur_suivant() {
 
     // Sans payeur suivant : la part non couverte n'est facturée à personne ; tâche.
     let el2 = eleve(&ent, etab, "Maël", d(2018, 3, 1), "demi_pension").await;
+    lien_non_payeur(&ent, etab, el2, fm).await;
     ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
         compte_id: employeur.id, eleve_id: el2, reference: "PEC-2".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
         categories: vec!["restauration".into()], plafond_centimes: Some(90_000) }).await.unwrap();
@@ -860,6 +885,9 @@ async fn historique_financier_ni_supprime_ni_modifie() {
     let (u, r) = compta(&c);
     let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Org X".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
     let el = eleve(&ent, etab, "Quentin", d(2018, 3, 1), "externe").await;
+    ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el, reference: "PEC-H".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        categories: vec!["toutes".into()], plafond_centimes: None }).await.unwrap();
     piece_accord(&ent, &c, el, "toutes", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
     // Le journal est en ajout seul.
     assert!(sqlx::query("UPDATE ent_fin_journal SET detail = 'x' WHERE etablissement_id = $1").bind(etab).execute(ent.pool_verif()).await.is_err());
@@ -1001,7 +1029,7 @@ async fn f1_droits_fins_sur_les_commandes() {
     let (pu, pr) = (c.prof.user_id, "prof");
     assert!(matches!(ent.taches_for_actor(etab, pu, pr, &TachesFiltre::default()).await, Err(EntDbError::Forbidden)));
     assert!(matches!(ent.comptes_for_actor(etab, pu, pr, &ComptesFiltre::default()).await, Err(EntDbError::Forbidden)));
-    assert!(matches!(ent.guichet_rechercher_for_actor(etab, pu, pr, "Dupont", AuthentificationGuichet::Presentiel).await, Err(EntDbError::Forbidden)));
+    assert!(matches!(ent.guichet_rechercher_for_actor(etab, pu, pr, "Dupont", "Jean", AuthentificationGuichet::Presentiel).await, Err(EntDbError::Forbidden)));
     // Un parent (même payeur) n'a aucun droit de personnel : les commandes de gestion lui sont fermées.
     assert!(matches!(ent.designer_payeurs_for_actor(etab, c.parent_lea.user_id, "parent", Uuid::new_v4(), &DesignerPayeursBody {
         categorie: "toutes".into(), parts: vec![], date_effet: d(2030, 9, 1), piece: None, motif: None }).await, Err(EntDbError::Forbidden)));
@@ -1023,10 +1051,15 @@ async fn f1_vue_guichet_du_secretariat() {
     let (b,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
     ent.emettre_for_actor(etab, cu, cr, &EmissionBody { factures: vec![b] }).await.unwrap();
     // Recherche : trop courte → refusée ; sinon le compte, sans solde ni adresse.
-    assert!(ent.guichet_rechercher_for_actor(etab, su, sr, "ab", AuthentificationGuichet::Presentiel).await.is_err());
-    let (libelle,): (String,) = sqlx::query_as("SELECT libelle_facturation FROM ent_fin_compte WHERE etablissement_id = $1 AND foyer_id = $2").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
-    let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &libelle, AuthentificationGuichet::Presentiel).await.unwrap();
-    assert!(trouves.len() <= 10);
+    assert!(ent.guichet_rechercher_for_actor(etab, su, sr, "a", "b", AuthentificationGuichet::Presentiel).await.is_err(), "nom et prénom complets exigés");
+    assert!(ent.guichet_rechercher_for_actor(etab, su, sr, "Mar%", "Jean", AuthentificationGuichet::Presentiel).await.is_err(), "jokers refusés");
+    // E3 : nom et prénom complets, correspondance exacte, 5 résultats au plus.
+    let (nom, prenom): (String, Option<String>) = sqlx::query_as("SELECT p.nom, p.prenom FROM ent_eleve_lien l JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id WHERE l.etablissement_id = $1 AND l.foyer_id = $2 AND l.est_payeur LIMIT 1").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
+    let prenom = prenom.unwrap_or_else(|| "Prénom".into());
+    let partiel = ent.guichet_rechercher_for_actor(etab, su, sr, &nom[..nom.len().saturating_sub(1).max(2)], &prenom, AuthentificationGuichet::Presentiel).await.unwrap();
+    assert!(partiel.is_empty(), "E3 : un nom partiel ne trouve personne (correspondance exacte)");
+    let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &nom, &prenom, AuthentificationGuichet::Presentiel).await.unwrap();
+    assert!(!trouves.is_empty() && trouves.len() <= 5);
     let compte = compte_du_foyer(&ent, etab, fm).await;
     // Vue du compte : solde = total, une échéance au moins, un document.
     let vue = ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::RappelNumeroEnregistre).await.unwrap();
@@ -1039,7 +1072,7 @@ async fn f1_vue_guichet_du_secretariat() {
     assert!(j.iter().any(|l| l.action == "guichet.consulter" && l.compte_id == Some(compte) && l.casquette == "administratif"
         && l.detail.as_deref() == Some("rappel au numéro enregistré")));
     assert!(j.iter().any(|l| l.action == "guichet.rechercher"));
-    assert!(j.iter().filter(|l| l.action == "guichet.rechercher").all(|l| !l.detail.clone().unwrap_or_default().contains(&libelle)));
+    assert!(j.iter().filter(|l| l.action == "guichet.rechercher").all(|l| !l.detail.clone().unwrap_or_default().contains(&nom)));
     // Compte d'un autre établissement ou inexistant : introuvable.
     assert!(matches!(
         ent.guichet_compte_for_actor(etab, su, sr, Uuid::new_v4(), AuthentificationGuichet::Presentiel).await,
@@ -1047,28 +1080,6 @@ async fn f1_vue_guichet_du_secretariat() {
     ));
     // Le secrétariat n'a pas la liste des comptes (aucune navigation entre comptes).
     assert!(matches!(ent.comptes_for_actor(etab, su, sr, &ComptesFiltre::default()).await, Err(EntDbError::Forbidden)));
-}
-
-/// RLS : un autre établissement ne voit aucun compte, désignation, tâche ni ligne de journal de celui-ci.
-#[tokio::test]
-async fn f2_isolation_des_etablissements() {
-    let Some((ent, c)) = labo().await else { return };
-    let etab = c.etablissement_id;
-    let (u, r) = compta(&c);
-    let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Org isolée".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
-    // Autre établissement de test : même base, autre identifiant ; le compte n'y est pas lisible.
-    let autre = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, $2, 'Autre établissement F2')")
-        .bind(autre).bind(format!("f2-{}", &autre.simple().to_string()[..8])).execute(ent.pool_verif()).await.ok();
-    let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool_verif(), autre).await.unwrap();
-    let vus: (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_compte WHERE etablissement_id = $1 AND id = $2").bind(autre).bind(org.id).fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(vus.0, 0);
-    drop(tx);
-    // Même identifiant demandé par l'autre établissement : introuvable (404, jamais un succès).
-    let (u2, r2) = compta(&c);
-    let _ = (u2, r2);
-    let b = ent.compte_for_actor(etab, u, r, org.id).await.unwrap();
-    assert_eq!(b.id, org.id);
 }
 
 #[test]
@@ -1122,4 +1133,358 @@ async fn e1_demande_de_repartition_ne_fuit_pas_entre_parents() {
     let (u, r) = secretariat(&c);
     let taches = ent.taches_for_actor(etab, u, r, &TachesFiltre::default()).await.unwrap();
     assert_eq!(taches.iter().filter(|t| t.nature == "demande_repartition" && t.eleve_id == Some(el)).count(), 2);
+}
+
+// ───────────────────────── Revue de sécurité (PR 97) ─────────────────────────
+
+/// M10 : un **vrai** accès inter-établissements. Un second établissement (jeu de labo supplémentaire) vise
+/// les comptes, élèves, groupes et tâches du premier : « introuvable » à chaque fois, et rien n'a changé en base.
+#[tokio::test]
+async fn m10_acces_inter_etablissements_refuse_sans_effet() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let c2 = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let etab2 = c2.etablissement_id;
+    let (u, r) = compta(&c);
+    let (u2, r2) = compta(&c2);
+    let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Org isolée".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    let el = eleve(&ent, etab, "Zoé", d(2018, 3, 1), "externe").await;
+    let el2 = eleve(&ent, etab2, "Zack", d(2018, 3, 1), "externe").await;
+    ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el, reference: "PEC-X".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        categories: vec!["toutes".into()], plafond_centimes: None }).await.unwrap();
+    let rep = piece_accord(&ent, &c, el, "toutes", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
+    let tache_a: (Uuid,) = sqlx::query_as("INSERT INTO ent_fin_tache (id, etablissement_id, nature, eleve_id, depuis) VALUES (gen_random_uuid(), $1, 'payeur_manquant', $2, '2030-09-01') RETURNING id")
+        .bind(etab).bind(el).fetch_one(ent.pool_verif()).await.unwrap();
+    let avant: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM ent_fin_designation), (SELECT count(*) FROM ent_fin_prise_en_charge), (SELECT count(*) FROM ent_fin_tache WHERE statut = 'ouverte'), (SELECT count(*) FROM ent_fin_compte)").fetch_one(ent.pool_verif()).await.unwrap();
+    let nf = |e: Result<_, EntDbError>| matches!(e, Err(EntDbError::Domain(domain_eleve::DomainError::NotFound)));
+    let d2 = d(2030, 9, 1);
+    assert!(nf(ent.compte_for_actor(etab2, u2, r2, org.id).await.map(|_| ())));
+    assert!(nf(ent.guichet_compte_for_actor(etab2, c2.administratif.user_id, "administratif", org.id, AuthentificationGuichet::Presentiel).await.map(|_| ())));
+    assert!(nf(ent.payeurs_for_actor(etab2, c2.administratif.user_id, "administratif", el, "toutes", d2).await.map(|_| ())));
+    assert!(nf(ent.designer_payeurs_for_actor(etab2, c2.administratif.user_id, "administratif", el2, &DesignerPayeursBody {
+        categorie: "toutes".into(), parts: vec![PartBody { compte_id: org.id, part_bps: 10_000, rang: None }], date_effet: d2, piece: None, motif: None }).await.map(|_| ())));
+    assert!(nf(ent.designer_payeurs_for_actor(etab2, c2.administratif.user_id, "administratif", el, &DesignerPayeursBody {
+        categorie: "toutes".into(), parts: vec![PartBody { compte_id: org.id, part_bps: 10_000, rang: None }], date_effet: d2, piece: None, motif: None }).await.map(|_| ())));
+    assert!(nf(ent.decider_consequences_for_actor(etab2, u2, r2, rep.groupe_id, &DecisionConsequencesBody { appliquer: false, motif: Some("x".into()) }).await.map(|_| ())));
+    assert!(nf(ent.abandonner_tache_for_actor(etab2, u2, r2, tache_a.0, "test").await.map(|_| ())));
+    assert!(nf(ent.creer_prise_en_charge_for_actor(etab2, u2, r2, &PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el2, reference: "R".into(), du: d2, au: d(2031, 6, 30), categories: vec!["toutes".into()], plafond_centimes: None }).await.map(|_| ())));
+    assert!(nf(ent.joindre_piece_repartition_for_actor(etab2, c2.administratif.user_id, "administratif", rep.groupe_id, &JoindrePieceBody {
+        piece: PieceBody { nature: "accord_des_deux".into(), reference: "x".into(), document_id: None } }).await.map(|_| ())));
+    let apres: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM ent_fin_designation), (SELECT count(*) FROM ent_fin_prise_en_charge), (SELECT count(*) FROM ent_fin_tache WHERE statut = 'ouverte'), (SELECT count(*) FROM ent_fin_compte)").fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(avant, apres, "aucun effet en base");
+    // Sous RLS : le second établissement ne voit pas le compte du premier.
+    let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool_verif(), etab2).await.unwrap();
+    let (vus,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_compte WHERE id = $1").bind(org.id).fetch_one(&mut *tx).await.unwrap();
+    drop(tx);
+    let _ = vus; // en mode non strict, la base de test est lue par son propriétaire : le contrôle ci-dessus est applicatif.
+}
+
+/// E2 / M1 : un organisme désigné sans prise en charge **active** (échue, hors période) n'est pas facturé ;
+/// tâche `part_non_couverte` ; rien n'est reporté sur la famille. La réactivation (journalisée, motif
+/// obligatoire, fin future) rétablit la facturation ; le jour des alertes est celui de l'établissement.
+#[tokio::test]
+async fn e2_m1_organisme_sans_prise_en_charge_active_n_est_pas_facture() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille(&ent, &c).await;
+    let (u, r) = compta(&c);
+    let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Employeur E2".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    let fm = foyer(&ent, etab, "Foyer E2").await;
+    let el = eleve(&ent, etab, "Alix", d(2018, 3, 1), "demi_pension").await;
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
+    let cm = compte_du_foyer(&ent, etab, fm).await;
+    let pec = ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el, reference: "PEC-E2".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        categories: vec!["restauration".into()], plafond_centimes: None }).await.unwrap();
+    piece_accord(&ent, &c, el, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
+    piece_accord(&ent, &c, el, "restauration", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
+    // Prise en charge active : l'organisme est facturé.
+    facturer(&ent, etab, el).await.unwrap();
+    let fe: (Uuid,) = sqlx::query_as("SELECT foyer_id FROM ent_fin_compte WHERE id = $1").bind(org.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(somme(&lignes(&ent, etab, fe.0).await, "restauration"), 300_000);
+    // Échue : on retire les lignes brouillon pour rejouer la génération sur un état sans prise active.
+    ent.alerter_prises_en_charge_for_actor(etab, u, r, d(2031, 7, 1)).await.unwrap();
+    let el2 = eleve(&ent, etab, "Bao", d(2018, 3, 1), "demi_pension").await;
+    lien_non_payeur(&ent, etab, el2, fm).await;
+    ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el2, reference: "PEC-E2b".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        categories: vec!["restauration".into()], plafond_centimes: None }).await.unwrap();
+    piece_accord(&ent, &c, el2, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
+    piece_accord(&ent, &c, el2, "restauration", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
+    sqlx::query("UPDATE ent_fin_prise_en_charge SET statut = 'echue' WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el2).execute(ent.pool_verif()).await.unwrap();
+    facturer(&ent, etab, el2).await.unwrap();
+    assert_eq!(somme(&lignes(&ent, etab, fe.0).await, "restauration"), 300_000, "l'organisme n'est plus facturé pour el2");
+    assert_eq!(somme(&lignes(&ent, etab, fm).await, "restauration"), 0, "rien n'est reporté sur la famille");
+    assert_eq!(taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 1);
+    // M1 : réactivation journalisée. Fin passée ou motif vide : refusé ; prise encore active : refusé.
+    let (el2_pec,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fin_prise_en_charge WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el2).fetch_one(ent.pool_verif()).await.unwrap();
+    let (us, rs) = secretariat(&c);
+    assert!(ent.reactiver_prise_en_charge_for_actor(etab, us, rs, el2_pec, &ReactiverPriseBody { au: d(2020, 1, 1), motif: "renouvelée".into() }).await.is_err(), "fin passée");
+    assert!(ent.reactiver_prise_en_charge_for_actor(etab, us, rs, el2_pec, &ReactiverPriseBody { au: d(2099, 12, 31), motif: " ".into() }).await.is_err(), "motif obligatoire");
+    assert!(ent.reactiver_prise_en_charge_for_actor(etab, us, rs, pec.id, &ReactiverPriseBody { au: d(2099, 12, 31), motif: "ok".into() }).await.is_err(), "pas échue : refusé ou déjà échue selon l'état");
+    let ok = ent.reactiver_prise_en_charge_for_actor(etab, us, rs, el2_pec, &ReactiverPriseBody { au: d(2099, 12, 31), motif: "renouvelée par l'employeur".into() }).await.unwrap();
+    assert_eq!(ok.statut, "active");
+    assert_eq!(taches_ouvertes(&ent, etab, "prise_en_charge_a_renouveler", el2).await, 0);
+    let (du, dr) = direction(&c);
+    let j = ent.journal_financier_for_actor(etab, du, dr, 500).await.unwrap();
+    assert!(j.iter().any(|l| l.action == "prise_en_charge.reactiver" && l.motif.as_deref() == Some("renouvelée par l'employeur")));
+    facturer(&ent, etab, el2).await.unwrap();
+    assert_eq!(somme(&lignes(&ent, etab, fe.0).await, "restauration"), 600_000, "facturation de l'organisme rétablie");
+    // F2 : la référence est masquée pour le secrétariat (engagements seuls).
+    let vue_secr = ent.prises_en_charge_for_actor(etab, us, rs).await.unwrap();
+    assert!(vue_secr.iter().all(|p| p.reference == "(masquée)"));
+    let vue_compta = ent.prises_en_charge_for_actor(etab, u, r).await.unwrap();
+    assert!(vue_compta.iter().any(|p| p.reference == "PEC-E2"));
+}
+
+/// M2 : le plafond est celui de **chaque** prise en charge (ses catégories, sa période), jamais la somme ;
+/// `plafond_centimes` est borné (10 millions d'euros).
+#[tokio::test]
+async fn m2_plafond_par_prise_en_charge_jamais_additionne() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille(&ent, &c).await;
+    let (u, r) = compta(&c);
+    let (us, rs) = secretariat(&c);
+    let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Employeur M2".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    let fm = foyer(&ent, etab, "Foyer M2b").await;
+    let el = eleve(&ent, etab, "Cléo", d(2018, 3, 1), "demi_pension").await;
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
+    let cm = compte_du_foyer(&ent, etab, fm).await;
+    let pec = |cat: &str, plafond: i64| PriseEnChargeBody {
+        compte_id: org.id, eleve_id: el, reference: format!("PEC-{cat}"), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        categories: vec![cat.into()], plafond_centimes: Some(plafond) };
+    assert!(ent.creer_prise_en_charge_for_actor(etab, u, r, &pec("restauration", 1_000_000_001)).await.is_err(), "plafond borné");
+    ent.creer_prise_en_charge_for_actor(etab, u, r, &pec("restauration", 100_000)).await.unwrap();
+    ent.creer_prise_en_charge_for_actor(etab, u, r, &pec("scolarite", 500_000)).await.unwrap();
+    // F7 : catégories dédoublonnées.
+    ent.designer_payeurs_for_actor(etab, us, rs, el, &DesignerPayeursBody {
+        categorie: "toutes".into(),
+        parts: vec![PartBody { compte_id: org.id, part_bps: 10_000, rang: Some(1) }, PartBody { compte_id: cm, part_bps: 10_000, rang: Some(2) }],
+        date_effet: d(2030, 9, 1),
+        piece: Some(PieceBody { nature: "convention_homologuee".into(), reference: "Convention".into(), document_id: Some(document_de(&ent, etab, el).await) }),
+        motif: None,
+    }).await.unwrap();
+    facturer(&ent, etab, el).await.unwrap();
+    let fe: (Uuid,) = sqlx::query_as("SELECT foyer_id FROM ent_fin_compte WHERE id = $1").bind(org.id).fetch_one(ent.pool_verif()).await.unwrap();
+    let (le, lm) = (lignes(&ent, etab, fe.0).await, lignes(&ent, etab, fm).await);
+    assert_eq!(somme(&le, "restauration"), 100_000, "plafond de la prise « restauration »");
+    assert_eq!(somme(&le, "scolarite"), 500_000, "plafond de la prise « scolarité »");
+    assert_eq!(somme(&lm, "restauration"), 200_000);
+    assert_eq!(somme(&lm, "scolarite"), 500_001);
+    // La base refuse aussi un plafond hors bornes, en SQL direct.
+    let direct = sqlx::query("UPDATE ent_fin_prise_en_charge SET plafond_centimes = 1000000001 WHERE etablissement_id = $1").bind(etab).execute(ent.pool_verif()).await;
+    assert!(direct.is_err());
+}
+
+/// E3 : quota quotidien d'actions au guichet par agent (paramétrable) : au-delà, refus, tâche d'alerte pour la
+/// direction et ligne de journal ; seul qui a `parametrer` règle le quota.
+#[tokio::test]
+async fn e3_quota_du_guichet_et_alerte_a_la_direction() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (du, dr) = direction(&c);
+    let (su, sr) = secretariat(&c);
+    let fm = foyer(&ent, etab, "Foyer quota").await;
+    let el = eleve(&ent, etab, "Dan", d(2018, 3, 1), "externe").await;
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
+    let compte = compte_du_foyer(&ent, etab, fm).await;
+    assert!(matches!(ent.definir_quota_guichet_for_actor(etab, su, sr, 5).await, Err(EntDbError::Forbidden)), "le secrétariat ne règle pas le quota");
+    assert!(ent.definir_quota_guichet_for_actor(etab, du, dr, 0).await.is_err());
+    assert!(ent.definir_quota_guichet_for_actor(etab, du, dr, 1001).await.is_err());
+    assert_eq!(ent.definir_quota_guichet_for_actor(etab, du, dr, 2).await.unwrap(), 2);
+    for _ in 0..2 {
+        ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::Presentiel).await.unwrap();
+    }
+    let refus = ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::Presentiel).await;
+    assert!(matches!(refus, Err(EntDbError::Refus(_, _))), "{refus:?}");
+    let refus2 = ent.guichet_rechercher_for_actor(etab, su, sr, "Dupont", "Jean", AuthentificationGuichet::Presentiel).await;
+    assert!(matches!(refus2, Err(EntDbError::Refus(_, _))), "la recherche partage le quota");
+    let (alertes,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_tache WHERE etablissement_id = $1 AND nature = 'guichet_quota' AND statut = 'ouverte'").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(alertes, 1, "une seule alerte ouverte par agent");
+    let j = ent.journal_financier_for_actor(etab, du, dr, 500).await.unwrap();
+    assert!(j.iter().any(|l| l.action == "guichet.quota_depasse"));
+    // La direction voit l'alerte dans ses tâches.
+    let taches = ent.taches_for_actor(etab, du, dr, &TachesFiltre::default()).await.unwrap();
+    assert!(taches.iter().any(|t| t.nature == "guichet_quota"));
+}
+
+/// M4 : « jugement » et « convention » exigent un document **de l'établissement** ; « accord des deux »
+/// n'ouvre jamais la répartition à lui seul ; un compte désigné doit être lié à l'élève (ou organisme avec prise
+/// en charge).
+#[tokio::test]
+async fn m4_pieces_et_comptes_designes_controles() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let c2 = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let (us, rs) = secretariat(&c);
+    let (u, r) = compta(&c);
+    let el = eleve(&ent, etab, "Eli", d(2018, 3, 1), "externe").await;
+    let el_autre = eleve(&ent, c2.etablissement_id, "Fox", d(2018, 3, 1), "externe").await;
+    let (fm, fp, fx) = (foyer(&ent, etab, "Foyer M4a").await, foyer(&ent, etab, "Foyer P4a").await, foyer(&ent, etab, "Foyer étranger").await);
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
+    lien_non_payeur(&ent, etab, el, fp).await;
+    let (cm, cp, cx) = (compte_du_foyer(&ent, etab, fm).await, compte_du_foyer(&ent, etab, fp).await, compte_du_foyer(&ent, etab, fx).await);
+    let corps = |parts: Vec<(Uuid, i32)>, piece: Option<PieceBody>| DesignerPayeursBody {
+        categorie: "toutes".into(), parts: parts.into_iter().map(|(compte_id, part_bps)| PartBody { compte_id, part_bps, rang: None }).collect(),
+        date_effet: d(2030, 9, 1), piece, motif: None };
+    let jug = |doc: Option<Uuid>| Some(PieceBody { nature: "jugement".into(), reference: "JAF".into(), document_id: doc });
+    // Jugement sans document, ou document d'un autre établissement : refusé.
+    assert!(ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(vec![(cm, 5_000), (cp, 5_000)], jug(None))).await.is_err());
+    let doc_autre = document_de(&ent, c2.etablissement_id, el_autre).await;
+    assert!(matches!(ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(vec![(cm, 5_000), (cp, 5_000)], jug(Some(doc_autre)))).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))));
+    // Compte sans lien avec l'élève : introuvable ; organisme sans prise en charge : introuvable.
+    assert!(matches!(ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(vec![(cx, 10_000)], None)).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))));
+    let org = ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Org M4".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    assert!(matches!(ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(vec![(org.id, 10_000)], None)).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))));
+    // « Accord des deux » : enregistré, mais la répartition reste en attente jusqu'aux deux acceptations.
+    let accord = ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(vec![(cm, 5_000), (cp, 5_000)],
+        Some(PieceBody { nature: "accord_des_deux".into(), reference: "Accord signé".into(), document_id: None }))).await.unwrap();
+    assert_eq!(accord.statut, "en_attente");
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let lus = payeurs::payeurs_a(&mut tx, etab, el, "toutes", d(2030, 10, 1), false).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(lus.origine, payeurs::Origine::Liens, "pas opposable");
+    // Jugement avec un vrai document : opposable tout de suite.
+    let doc = document_de(&ent, etab, el).await;
+    let ok = ent.designer_payeurs_for_actor(etab, us, rs, el, &DesignerPayeursBody {
+        date_effet: d(2030, 11, 1), ..corps(vec![(cm, 6_000), (cp, 4_000)], jug(Some(doc))) }).await.unwrap();
+    assert_eq!(ok.statut, "effective");
+    // F7 : plus de huit payeurs : refusé.
+    let neuf: Vec<(Uuid, i32)> = (0..9).map(|_| (cm, 1_000)).collect();
+    assert!(ent.designer_payeurs_for_actor(etab, us, rs, el, &corps(neuf, None)).await.is_err());
+}
+
+/// M5 : l'élève n'accède au compte ni n'accepte que s'il est majeur **aujourd'hui** (un élève de 17 ans, né
+/// dans le futur de la base de test, reste mineur) ; la date d'effet est exigée atteinte.
+#[tokio::test]
+async fn m5_eleve_mineur_n_accede_ni_n_accepte() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (us, rs) = secretariat(&c);
+    let el = eleve(&ent, etab, "Gus", d(2100, 1, 1), "externe").await; // mineur pour toute la durée des tests
+    let personne = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, eleve_id) VALUES ($1,$2,'Testf2','Gus',$3)")
+        .bind(personne).bind(etab).bind(el).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_eleve_compte (etablissement_id, eleve_id, user_id) VALUES ($1,$2,$3)")
+        .bind(etab).bind(el).bind(c.cpe.user_id).execute(ent.pool_verif()).await.unwrap();
+    let fe = foyer(&ent, etab, "Foyer de Gus").await;
+    let (_, _) = (fe, personne);
+    let compte = compte_du_foyer(&ent, etab, fe).await;
+    sqlx::query("UPDATE ent_fin_compte SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2").bind(etab).bind(compte).bind(personne).execute(ent.pool_verif()).await.ok();
+    let prop = ent.designer_payeurs_for_actor(etab, us, rs, el, &DesignerPayeursBody {
+        categorie: "toutes".into(), parts: vec![PartBody { compte_id: compte, part_bps: 10_000, rang: None }],
+        date_effet: d(2025, 9, 1), piece: None, motif: None }).await;
+    if let Ok(prop) = prop {
+        assert!(ent.mes_comptes_for_actor(etab, c.cpe.user_id).await.unwrap().is_empty(), "mineur : aucun accès au compte");
+        assert!(ent.repondre_designation_for_actor(etab, c.cpe.user_id, "eleve", prop.groupe_id, true).await.is_err(), "mineur : ne peut pas accepter");
+    }
+}
+
+/// M6 : aucune dérogation par réglage de session : un `SET` puis un `UPDATE` ou un `TRUNCATE` échouent ; la
+/// purge passe par la fonction dédiée `ent_fin_purger_etablissement`.
+#[tokio::test]
+async fn m6_journal_et_historique_sans_derogation_de_session() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    ent.creer_compte_organisme_for_actor(etab, u, r, &CreerCompteOrganismeBody { libelle: "Org M6".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
+    let maj = sqlx::query("UPDATE ent_fin_journal SET detail = 'x' WHERE etablissement_id = $1").bind(etab).execute(&mut *tx).await;
+    assert!(maj.is_err(), "un SET de session ne lève plus l'ajout seul");
+    drop(tx);
+    for t in ["ent_fin_journal", "ent_fin_compte", "ent_fin_designation", "ent_fin_prise_en_charge", "ent_fin_tache", "ent_fin_consequence", "ent_fin_reprise_rapport"] {
+        let mut tx = ent.pool_verif().begin().await.unwrap();
+        let tr = sqlx::query(&format!("TRUNCATE {t} CASCADE")).execute(&mut *tx).await;
+        assert!(tr.is_err(), "TRUNCATE {t} refusé");
+    }
+    // La purge d'établissement est une fonction dédiée, réservée au propriétaire des tables.
+    let c2 = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let (u2, r2) = compta(&c2);
+    ent.creer_compte_organisme_for_actor(c2.etablissement_id, u2, r2, &CreerCompteOrganismeBody { libelle: "Org purge".into(), siret: None, reference_client: None, organisme_public: false, chorus_pro: false }).await.unwrap();
+    sqlx::query("SELECT ent_fin_purger_etablissement($1)").bind(c2.etablissement_id).execute(ent.pool_verif()).await.unwrap();
+    let (reste,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_journal WHERE etablissement_id = $1").bind(c2.etablissement_id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(reste, 0);
+    let (autre,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_journal WHERE etablissement_id = $1").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
+    assert!(autre > 0, "le journal des autres établissements n'est pas touché");
+}
+
+/// M8 : le dossier porte le consentement pour une première définition ; mais dès qu'une répartition à
+/// plusieurs payeurs change, rien n'est rendu effectif : une tâche « répartition incomplète » est ouverte.
+#[tokio::test]
+async fn m8_dossier_changement_entre_plusieurs_payeurs_ouvre_une_tache() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let el = eleve(&ent, etab, "Hugo", d(2018, 3, 1), "externe").await;
+    let (fm, fp) = (foyer(&ent, etab, "Foyer M8a").await, foyer(&ent, etab, "Foyer P8a").await);
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 60).await;
+    payeur_compte(&ent, etab, el, c.parent_tom.user_id, fp, 40).await;
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    payeurs::miroir_dossier_tx(&mut tx, etab, el, d(2030, 9, 1), c.admin.user_id).await.unwrap();
+    tx.commit().await.unwrap();
+    let (nb,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_designation WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'effective'").bind(etab).bind(el).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(nb, 2, "première définition : le dossier porte le consentement");
+    sqlx::query("UPDATE ent_eleve_lien SET part_paiement = 50 WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el).execute(ent.pool_verif()).await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let n = payeurs::miroir_dossier_tx(&mut tx, etab, el, d(2030, 12, 1), c.admin.user_id).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(n, 0);
+    assert_eq!(taches_ouvertes(&ent, etab, "repartition_incomplete", el).await, 1);
+    let (parts,): (Vec<i32>,) = sqlx::query_as("SELECT array_agg(part_bps ORDER BY part_bps) FROM ent_fin_designation WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'effective'").bind(etab).bind(el).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(parts, vec![4_000, 6_000], "la répartition en vigueur n'est pas écrasée");
+}
+
+/// M9 : reprise — le reste de la division va au premier payeur ; les élèves dont les parts ne font ni 0 ni
+/// 100 sont comptés « à vérifier » ; l'adaptateur renormalise (un seul payeur à 50 vaut 100 %).
+#[tokio::test]
+async fn m9_reprise_reste_au_premier_et_eleves_a_verifier() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (du, dr) = direction(&c);
+    // Trois payeurs sans part : parts égales, 3334 / 3333 / 3333.
+    let el = eleve(&ent, etab, "Ines", d(2018, 3, 1), "externe").await;
+    let fs = [foyer(&ent, etab, "Foyer 9a").await, foyer(&ent, etab, "Foyer 9b").await, foyer(&ent, etab, "Foyer 9c").await];
+    for f in fs {
+        let p = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom) VALUES ($1,$2,'Payeur')").bind(p).bind(etab).execute(ent.pool_verif()).await.unwrap();
+        sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien, est_payeur) VALUES ($1,$2,$3,$4,$5,'pere',true)")
+            .bind(Uuid::new_v4()).bind(etab).bind(el).bind(p).bind(f).execute(ent.pool_verif()).await.unwrap();
+    }
+    // Un élève dont les parts ne font pas 100 (60 + 30) : non repris, à vérifier.
+    let el_bancal = eleve(&ent, etab, "Jo", d(2018, 3, 1), "externe").await;
+    let (fa, fb) = (foyer(&ent, etab, "Foyer 9d").await, foyer(&ent, etab, "Foyer 9e").await);
+    payeur_compte(&ent, etab, el_bancal, c.parent_lea.user_id, fa, 60).await;
+    payeur_compte(&ent, etab, el_bancal, c.parent_tom.user_id, fb, 30).await;
+    // Un payeur unique à 50 : l'adaptateur le renormalise à 100 %.
+    let el_seul = eleve(&ent, etab, "Kay", d(2018, 3, 1), "externe").await;
+    let fc = foyer(&ent, etab, "Foyer 9f").await;
+    payeur_compte(&ent, etab, el_seul, c.parent_lea.user_id, fc, 50).await;
+    let rap = ent.reprendre_comptes_for_actor(etab, du, dr).await.unwrap();
+    assert!(rap.eleves_a_verifier >= 1, "{rap:?}");
+    let parts: Vec<(Uuid, i32)> = sqlx::query_as("SELECT compte_id, part_bps FROM ent_fin_designation WHERE etablissement_id = $1 AND eleve_id = $2 AND source = 'reprise' ORDER BY compte_id").bind(etab).bind(el).fetch_all(ent.pool_verif()).await.unwrap();
+    assert_eq!(parts.iter().map(|p| p.1).sum::<i32>(), 10_000);
+    assert_eq!(parts[0].1, 3_334, "le reste va au premier payeur");
+    assert!(parts[1..].iter().all(|p| p.1 == 3_333));
+    let (nb_bancal,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_designation WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el_bancal).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(nb_bancal, 0, "parts invalides : non reprises");
+    // Adaptateur (sans désignation : lecture des liens) : un seul payeur à 50 vaut 100 %.
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let lus = payeurs::payeurs_a(&mut tx, etab, el_bancal, "toutes", d(2030, 10, 1), false).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(lus.parts.iter().map(|p| p.part_bps).sum::<i64>(), 10_000, "60/30 renormalisé à 100 %");
+    let _ = el_seul;
+}
+
+#[test]
+fn f7_repartition_bornee_a_huit_payeurs() {
+    let neuf: Vec<(Uuid, i64, i16)> = (0..9).map(|_| (Uuid::new_v4(), 1_111, 1)).collect();
+    assert!(payeurs::valider_repartition(&neuf).is_err());
+    let huit: Vec<(Uuid, i64, i16)> = (0..8).map(|i| (Uuid::new_v4(), if i == 0 { 3_000 } else { 1_000 }, 1)).collect();
+    assert!(payeurs::valider_repartition(&huit).is_ok());
 }

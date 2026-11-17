@@ -111,6 +111,29 @@ pub(crate) async fn decider_tx(
         });
     }
 
+    // M3 : verrou des foyers concernés (ordre stable) **avant** de lire les lignes existantes, pour que deux
+    // décisions concurrentes ne créditent pas deux fois la même ligne.
+    let mut foyers: Vec<Uuid> = Vec::new();
+    for r in &rows {
+        let f: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT foyer_id FROM ent_fin_compte WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(r.compte_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        if let Some((f,)) = f {
+            if !foyers.contains(&f) {
+                foyers.push(f);
+            }
+        }
+    }
+    foyers.sort();
+    for f in &foyers {
+        crate::finances::verrouiller_foyer(conn, etab, *f).await?;
+    }
+
     // 1. Avoirs au payeur sortant (par pièce d'origine).
     let ids_lignes: Vec<Uuid> = rows.iter().filter(|r| r.sens == "credit").map(|r| r.ligne_id).collect();
     let existantes = lignes_existantes(conn, etab, &ids_lignes).await?;
@@ -121,8 +144,11 @@ pub(crate) async fn decider_tx(
             continue;
         };
         let signe = if l.total < 0 { -1 } else { 1 };
-        // Jamais plus que ce qui reste à créditer sur la ligne.
-        let credit = signe * r.montant_centimes.min((l.total - l.deja_credite * signe.max(0)).abs());
+        // Jamais plus que ce qui reste à créditer sur la ligne : reste **signé** (M3), valable aussi pour une
+        // ligne de réduction (total négatif) ; un reste de signe contraire ne laisse rien à créditer.
+        let reste = l.total - l.deja_credite;
+        let disponible = if reste.signum() == l.total.signum() { reste.abs() } else { 0 };
+        let credit = signe * r.montant_centimes.min(disponible);
         avoirs.push(AvoirAFaire {
             origine: l.clone(),
             eleve_id: Some(r.eleve_id),

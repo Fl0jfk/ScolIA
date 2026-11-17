@@ -156,6 +156,10 @@ pub fn valider_repartition(parts: &[(Uuid, i64, i16)]) -> Result<(), &'static st
     if parts.is_empty() {
         return Err("au moins un payeur");
     }
+    // F7 : borne (une famille recomposée n'a pas plus de huit payeurs ; protège les boucles et les tâches).
+    if parts.len() > 8 {
+        return Err("huit payeurs au plus par répartition");
+    }
     let mut vus = std::collections::BTreeSet::new();
     for (compte, bps, rang) in parts {
         if !vus.insert(*compte) {
@@ -485,6 +489,15 @@ async fn payeurs_des_liens(
             rang: 1,
         });
     }
+    // M9 : parts renormalisées à 100 % (un seul payeur à NULL vaut 100 % ; des parts qui ne font pas 100 sont
+    // ramenées à 10 000 points de base, plus fort reste, comme l'ancien chemin) : jamais de répartition fausse.
+    let total: i64 = out.iter().map(|p| p.part_bps).sum();
+    if !out.is_empty() && total != PART_ENTIERE {
+        let poids: Vec<(Uuid, i64)> = out.iter().map(|p| (p.compte_id, p.part_bps.max(1))).collect();
+        for (p, (_, bps)) in out.iter_mut().zip(calcul::repartir(PART_ENTIERE, &poids)) {
+            p.part_bps = bps;
+        }
+    }
     Ok(out)
 }
 
@@ -786,6 +799,69 @@ async fn verrou_eleve(conn: &mut PgConnection, etab: Uuid, eleve: Uuid) -> Resul
     Ok(())
 }
 
+/// M4 : une pièce de répartition est contrôlée. « jugement » et « convention homologuée » exigent un document
+/// **existant dans l'établissement** ; « accord des deux » n'est qu'une déclaration : elle ne rend jamais la
+/// répartition opposable à elle seule (les acceptations de **tous** les payeurs désignés sont exigées).
+async fn valider_piece(conn: &mut PgConnection, etab: Uuid, piece: &PieceRepartition) -> Result<(), EntDbError> {
+    if !NATURES_PIECE.contains(&piece.nature.as_str())
+        || piece.reference.trim().is_empty()
+        || piece.reference.chars().count() > 120
+    {
+        return Err(invalide(
+            "pièce : jugement, convention homologuée ou accord des deux, avec sa référence",
+        ));
+    }
+    if piece.nature != "accord_des_deux" {
+        let Some(doc) = piece.document_id else {
+            return Err(invalide("pièce : le document du jugement ou de la convention est obligatoire"));
+        };
+        let (ok,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_eleve_document WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(doc)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if !ok {
+            return Err(introuvable());
+        }
+    }
+    Ok(())
+}
+
+/// M4 : un compte désigné est **lié à l'élève** (un lien de l'élève dans son foyer, ou la fiche « personne »
+/// de l'élève majeur lui-même) ou est un **organisme** avec une prise en charge active pour cet élève.
+async fn compte_lie_a_eleve(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    compte: Uuid,
+) -> Result<bool, EntDbError> {
+    let (ok,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS (
+            SELECT 1 FROM ent_fin_compte c
+             WHERE c.etablissement_id = $1 AND c.id = $3
+               AND ( EXISTS (SELECT 1 FROM ent_eleve_lien l
+                              WHERE l.etablissement_id = c.etablissement_id AND l.eleve_id = $2
+                                AND l.foyer_id = c.foyer_id)
+                  OR EXISTS (SELECT 1 FROM ent_personne p
+                              WHERE p.etablissement_id = c.etablissement_id AND p.id = c.personne_id
+                                AND p.eleve_id = $2)
+                  OR (c.type_debiteur = 'organisme' AND EXISTS (
+                        SELECT 1 FROM ent_fin_prise_en_charge pc
+                         WHERE pc.etablissement_id = c.etablissement_id AND pc.compte_id = c.id
+                           AND pc.eleve_id = $2 AND pc.statut = 'active'))))",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .bind(compte)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(ok)
+}
+
 /// Propose une répartition (FAC-217, FAC-218, FAC-253). Effective **tout de suite** avec une pièce ;
 /// sinon **en attente** de l'acceptation de chaque payeur désigné (R-F30) : rien ne change tant qu'un
 /// payeur n'a pas accepté (CF-74) et une tâche prévient le secrétariat.
@@ -801,14 +877,7 @@ pub(crate) async fn proposer_tx(
     }
     valider_repartition(&p.parts).map_err(invalide)?;
     if let Some(piece) = &p.piece {
-        if !NATURES_PIECE.contains(&piece.nature.as_str())
-            || piece.reference.trim().is_empty()
-            || piece.reference.chars().count() > 120
-        {
-            return Err(invalide(
-                "pièce : jugement, convention homologuée ou accord des deux, avec sa référence",
-            ));
-        }
+        valider_piece(conn, etab, piece).await?;
     }
     verrou_eleve(conn, etab, p.eleve_id).await?;
     // L'élève et les comptes appartiennent à l'établissement : sinon « introuvable » (jamais 2xx).
@@ -837,11 +906,17 @@ pub(crate) async fn proposer_tx(
             Some((etat,)) if etat != "actif" => return Err(conflit("un compte archivé ne peut plus être désigné")),
             _ => {}
         }
+        // M4 : seul un compte lié à l'élève (ou un organisme avec prise en charge) peut être désigné ;
+        // même réponse qu'un compte inconnu (pas de sondage des comptes d'autres familles).
+        if !compte_lie_a_eleve(conn, etab, p.eleve_id, *compte).await? {
+            return Err(introuvable());
+        }
     }
     let groupe = Uuid::new_v4();
     // Une proposition de la facturation exige l'acceptation, sauf pièce (R-F30, R-F31).
-    let avec_piece = p.piece.is_some();
-    let acceptation = if avec_piece { "non_requise" } else { "en_attente" };
+    // « accord des deux » seul ne suffit pas (M4) : il est enregistré mais l'acceptation reste exigée.
+    let avec_piece = p.piece.as_ref().is_some_and(|x| x.nature != "accord_des_deux");
+    let acceptation = if avec_piece || p.source == "dossier" { "non_requise" } else { "en_attente" };
     let statut = if avec_piece || p.source == "dossier" { "effective" } else { "en_attente" };
     for (compte, bps, rang) in &p.parts {
         sqlx::query(
@@ -1161,15 +1236,8 @@ pub(crate) async fn joindre_piece_tx(
     casquette: &str,
     groupe: Uuid,
     piece: &PieceRepartition,
-) -> Result<usize, EntDbError> {
-    if !NATURES_PIECE.contains(&piece.nature.as_str())
-        || piece.reference.trim().is_empty()
-        || piece.reference.chars().count() > 120
-    {
-        return Err(invalide(
-            "pièce : jugement, convention homologuée ou accord des deux, avec sa référence",
-        ));
-    }
+) -> Result<Option<usize>, EntDbError> {
+    valider_piece(conn, etab, piece).await?;
     let lignes = lignes_du_groupe(conn, etab, groupe).await?;
     if lignes.is_empty() {
         return Err(introuvable());
@@ -1177,9 +1245,10 @@ pub(crate) async fn joindre_piece_tx(
     if lignes.iter().any(|l| l.statut != "en_attente") {
         return Err(conflit("cette répartition n'est plus en attente"));
     }
+    let opposable = piece.nature != "accord_des_deux";
     sqlx::query(
         "UPDATE ent_fin_designation SET piece_nature = $3, piece_reference = $4, piece_document_id = $5,
-                acceptation = 'non_requise', updated_at = now()
+                acceptation = CASE WHEN $6 THEN 'non_requise' ELSE acceptation END, updated_at = now()
           WHERE etablissement_id = $1 AND groupe_id = $2",
     )
     .bind(etab)
@@ -1187,6 +1256,7 @@ pub(crate) async fn joindre_piece_tx(
     .bind(&piece.nature)
     .bind(piece.reference.trim())
     .bind(piece.document_id)
+    .bind(opposable)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -1198,7 +1268,11 @@ pub(crate) async fn joindre_piece_tx(
             .detail(&format!("pièce de répartition : {}", piece.nature)),
     )
     .await?;
-    activer_groupe_tx(conn, etab, acteur, casquette, groupe).await
+    if !opposable {
+        // M4 : l'accord des deux n'est qu'une déclaration : l'acceptation de chaque payeur reste exigée.
+        return Ok(None);
+    }
+    Ok(Some(activer_groupe_tx(conn, etab, acteur, casquette, groupe).await?))
 }
 
 // ---------------------------------------------------------------------------
@@ -1247,7 +1321,11 @@ pub(crate) async fn miroir_dossier_tx(
     if a == b {
         return Ok(0);
     }
-    if courantes.iter().any(|c| c.2 == "finances" || c.2 == "majeur") {
+    // M8 : le dossier porte le consentement (socle 4) pour une première définition ou un payeur unique ;
+    // mais dès qu'une répartition existante (ou la nouvelle) compte plusieurs payeurs et **change**, rien
+    // n'est rendu effectif automatiquement : une tâche prévient le secrétariat (changement entre parents).
+    let plusieurs = courantes.len() > 1 || souhaitees.len() > 1;
+    if courantes.iter().any(|c| c.2 == "finances" || c.2 == "majeur") || (plusieurs && !courantes.is_empty()) {
         ouvrir_tache(
             conn,
             etab,
@@ -1256,7 +1334,7 @@ pub(crate) async fn miroir_dossier_tx(
             None,
             Some("toutes"),
             date,
-            "le dossier a changé les payeurs alors qu'une répartition de la facturation (acceptation ou pièce) est en vigueur : rien n'a été écrasé",
+            "le dossier a changé les payeurs alors qu'une répartition est en vigueur (acceptation, pièce ou plusieurs payeurs) : rien n'a été écrasé, à traiter par le secrétariat",
             Some(acteur),
         )
         .await?;

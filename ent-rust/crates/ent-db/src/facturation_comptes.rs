@@ -139,12 +139,20 @@ pub(crate) async fn comptes_du_user(
                             AND l.user_id = $2 AND l.est_payeur)
               OR EXISTS (SELECT 1 FROM ent_eleve_compte ec
                            JOIN ent_personne p ON p.etablissement_id = ec.etablissement_id AND p.eleve_id = ec.eleve_id
+                           JOIN ent_eleve e ON e.etablissement_id = ec.etablissement_id AND e.id = ec.eleve_id
                           WHERE ec.etablissement_id = c.etablissement_id AND ec.user_id = $2
-                            AND p.id = c.personne_id))
+                            AND p.id = c.personne_id
+                            -- M5 : l'élève n'accède au compte que s'il est majeur **aujourd'hui** et qu'une
+                            -- désignation à son nom a pris effet (date d'effet atteinte).
+                            AND e.date_naissance IS NOT NULL AND e.date_naissance <= ($3::date - interval '18 years')::date
+                            AND EXISTS (SELECT 1 FROM ent_fin_designation d
+                                         WHERE d.etablissement_id = c.etablissement_id AND d.compte_id = c.id
+                                           AND d.statut IN ('effective', 'en_attente') AND d.du <= $3)))
           ORDER BY c.created_at, c.id",
     )
     .bind(etab)
     .bind(user)
+    .bind(aujourd_hui())
     .fetch_all(&mut *conn)
     .await
     .map_err(db)
@@ -160,10 +168,16 @@ pub(crate) async fn foyers_eleve_majeur_payeur(
         "SELECT DISTINCT c.foyer_id FROM ent_fin_compte c
            JOIN ent_personne p ON p.etablissement_id = c.etablissement_id AND p.id = c.personne_id
            JOIN ent_eleve_compte ec ON ec.etablissement_id = p.etablissement_id AND ec.eleve_id = p.eleve_id
-          WHERE c.etablissement_id = $1 AND ec.user_id = $2 AND c.etat = 'actif'",
+           JOIN ent_eleve e ON e.etablissement_id = ec.etablissement_id AND e.id = ec.eleve_id
+          WHERE c.etablissement_id = $1 AND ec.user_id = $2 AND c.etat = 'actif'
+            AND e.date_naissance IS NOT NULL AND e.date_naissance <= ($3::date - interval '18 years')::date
+            AND EXISTS (SELECT 1 FROM ent_fin_designation d
+                         WHERE d.etablissement_id = c.etablissement_id AND d.compte_id = c.id
+                           AND d.statut IN ('effective', 'en_attente') AND d.du <= $3)",
     )
     .bind(etab)
     .bind(user)
+    .bind(aujourd_hui())
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
@@ -411,8 +425,11 @@ impl PgEnt {
         )
         .await?;
         tx.commit().await.map_err(db)?;
-        let sans_documents = quotas_acteur(role).is_some_and(|r| matches!(r, Role::Accueil | Role::Personnel))
-            && !self.a_action_etablissement(etab, actor, role, Action::FacturationLire).await?;
+        // F1 : liste blanche — les documents ne sont vus que par l'Administratif ou un détenteur de
+        // `facturation.lire` ; tout autre rôle du guichet (accueil, personnel…) n'a que solde et échéances.
+        let voit_documents = quotas_acteur(role).is_some_and(|r| matches!(r, Role::Administratif))
+            || self.a_action_etablissement(etab, actor, role, Action::FacturationLire).await?;
+        let sans_documents = !voit_documents;
         let documents = (!sans_documents).then(|| {
             vue.factures
                 .iter()
@@ -522,6 +539,9 @@ impl PgEnt {
         if b.chorus_pro && !b.organisme_public {
             return Err(invalide("Chorus Pro ne concerne qu'un organisme public"));
         }
+        if b.chorus_pro && siret.is_none() {
+            return Err(invalide("Chorus Pro exige le SIRET de l'organisme"));
+        }
         let reference = b
             .reference_client
             .as_deref()
@@ -597,8 +617,8 @@ impl PgEnt {
     ) -> Result<RapportRepriseDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationReprise).await?;
         let mut tx = self.fin_tx(etab).await?;
-        let r: (i32, i32, i32, i32) =
-            sqlx::query_as("SELECT comptes_crees, pieces_rattachees, foyers_a_verifier, designations_creees FROM ent_fin_reprendre_comptes($1, $2)")
+        let r: (i32, i32, i32, i32, i32) =
+            sqlx::query_as("SELECT comptes_crees, pieces_rattachees, foyers_a_verifier, designations_creees, eleves_a_verifier FROM ent_fin_reprendre_comptes($1, $2)")
                 .bind(etab)
                 .bind(actor)
                 .fetch_one(&mut *tx)
@@ -607,8 +627,8 @@ impl PgEnt {
         journaliser_tx(
             &mut tx,
             &Acte::new(etab, Some(actor), role, Chemin::Comptes, "comptes.reprendre", "compte").detail(&format!(
-                "{} comptes créés, {} pièces rattachées, {} foyers à vérifier, {} désignations reprises",
-                r.0, r.1, r.2, r.3
+                "{} comptes créés, {} pièces rattachées, {} foyers à vérifier, {} désignations reprises, {} élèves à vérifier",
+                r.0, r.1, r.2, r.3, r.4
             )),
         )
         .await?;
@@ -619,7 +639,7 @@ impl PgEnt {
             AggregateKind::Facture,
             etab,
             None,
-            json!({ "comptes": r.0, "pieces": r.1, "a_verifier": r.2, "designations": r.3 }),
+            json!({ "comptes": r.0, "pieces": r.1, "a_verifier": r.2, "designations": r.3, "eleves_a_verifier": r.4 }),
             Some(actor),
             Causalite::default(),
         )
@@ -630,6 +650,7 @@ impl PgEnt {
             pieces_rattachees: r.1,
             foyers_a_verifier: r.2,
             designations_creees: r.3,
+            eleves_a_verifier: r.4,
         })
     }
 
@@ -765,8 +786,8 @@ impl PgEnt {
         tx.commit().await.map_err(db)?;
         Ok(ResultatDesignationDto {
             groupe_id: groupe,
-            statut: "effective".into(),
-            consequences_proposees: n as i32,
+            statut: if n.is_some() { "effective" } else { "en_attente" }.into(),
+            consequences_proposees: n.unwrap_or(0) as i32,
         })
     }
 
@@ -836,6 +857,69 @@ impl PgEnt {
         accuse
             .map(|(id, statut)| AccuseDemandeDto { id, statut })
             .ok_or_else(introuvable)
+    }
+
+    /// M1 : réactive une prise en charge **échue** (nouvelle date de fin postérieure à aujourd'hui, motif
+    /// obligatoire, journalisé). Une prise en charge annulée ou encore active ne se réactive pas.
+    pub async fn reactiver_prise_en_charge_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &ReactiverPriseBody,
+    ) -> Result<PriseEnChargeDto, EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationEngagements).await?;
+        let motif = b.motif.trim();
+        if motif.chars().count() < 3 || motif.chars().count() > 200 {
+            return Err(invalide("motif : 3 à 200 caractères"));
+        }
+        let mut tx = self.fin_tx(etab).await?;
+        let r: Option<(Uuid, Uuid, String, NaiveDate, String)> = sqlx::query_as(
+            "SELECT compte_id, eleve_id, reference, du, statut FROM ent_fin_prise_en_charge
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let Some((compte, eleve, _reference, du, statut)) = r else { return Err(introuvable()) };
+        if statut != "echue" {
+            return Err(conflit("seule une prise en charge échue se réactive"));
+        }
+        if b.au <= aujourd_hui() || b.au < du {
+            return Err(invalide("nouvelle fin : postérieure à aujourd'hui"));
+        }
+        sqlx::query("UPDATE ent_fin_prise_en_charge SET statut = 'active', au = $3 WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(id)
+            .bind(b.au)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now(), resolue_par = $3
+              WHERE etablissement_id = $1 AND prise_en_charge_id = $2 AND statut = 'ouverte'",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Comptes, "prise_en_charge.reactiver", "prise_en_charge")
+                .objet(id)
+                .compte(compte)
+                .eleve(eleve)
+                .motif(motif),
+        )
+        .await?;
+        let p = prise_en_charge_dto(&mut tx, etab, id).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(p)
     }
 
     /// FAC-253, CF-84 : le payeur passe des parents à l'**élève majeur** à sa demande. L'élève doit être
@@ -1074,8 +1158,15 @@ impl PgEnt {
         for c in &b.categories {
             categorie_valide(c)?;
         }
-        if b.plafond_centimes.is_some_and(|p| p <= 0) {
-            return Err(invalide("plafond : un montant positif en centimes, ou aucun"));
+        // F7 : catégories dédoublonnées (ordre conservé).
+        let mut categories: Vec<String> = Vec::new();
+        for c in &b.categories {
+            if !categories.contains(c) {
+                categories.push(c.clone());
+            }
+        }
+        if b.plafond_centimes.is_some_and(|p| p <= 0 || p > 1_000_000_000) {
+            return Err(invalide("plafond : un montant positif en centimes (10 millions d'euros au plus), ou aucun"));
         }
         let mut tx = self.fin_tx(etab).await?;
         let c = compte_row(&mut tx, etab, b.compte_id).await?;
@@ -1106,7 +1197,7 @@ impl PgEnt {
         .bind(&reference)
         .bind(b.du)
         .bind(b.au)
-        .bind(&b.categories)
+        .bind(&categories)
         .bind(b.plafond_centimes)
         .bind(actor)
         .execute(&mut *tx)
@@ -1153,9 +1244,13 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
     ) -> Result<Vec<PriseEnChargeDto>, EntDbError> {
-        if !self.a_action_etablissement(etab, actor, role, Action::FacturationEngagements).await? {
+        let engagements = self.a_action_etablissement(etab, actor, role, Action::FacturationEngagements).await?;
+        if !engagements {
             self.fin_exiger(etab, actor, role, Action::FacturationLire).await?;
         }
+        // F2 : la référence d'une prise en charge (numéro de dossier de l'organisme) n'est lue que par qui a
+        // `facturation.lire` ; le secrétariat (engagements seuls) la voit masquée.
+        let voit_reference = self.a_action_etablissement(etab, actor, role, Action::FacturationLire).await?;
         let mut tx = self.fin_tx(etab).await?;
         let rows: Vec<(Uuid, Uuid, Uuid, String, NaiveDate, NaiveDate, Vec<String>, Option<i64>, String)> =
             sqlx::query_as(
@@ -1173,7 +1268,7 @@ impl PgEnt {
                 id: r.0,
                 compte_id: r.1,
                 eleve_id: r.2,
-                reference: r.3,
+                reference: if voit_reference { r.3 } else { "(masquée)".to_string() },
                 du: r.4,
                 au: r.5,
                 categories: r.6,
@@ -1336,12 +1431,18 @@ impl PgEnt {
         &self,
         etab: Uuid,
         actor: Uuid,
-    ) -> Result<Vec<CompteDto>, EntDbError> {
+    ) -> Result<Vec<MonCompteDto>, EntDbError> {
         let mut tx = self.fin_tx(etab).await?;
         let mes = comptes_du_user(&mut tx, etab, actor).await?;
         let mut out = Vec::new();
         for (id, _) in mes {
-            out.push(compte_row(&mut tx, etab, id).await?.into());
+            let c = compte_row(&mut tx, etab, id).await?;
+            out.push(MonCompteDto {
+                id: c.id,
+                foyer_id: c.foyer_id,
+                type_debiteur: c.type_debiteur,
+                libelle_facturation: c.libelle_facturation,
+            });
         }
         tx.commit().await.map_err(db)?;
         Ok(out)
@@ -1387,4 +1488,27 @@ mod tests {
         assert_eq!(categorie_de_designation("internat"), "internat");
         assert!(NATURES_PIECE.contains(&"jugement"));
     }
+}
+
+async fn prise_en_charge_dto(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<PriseEnChargeDto, EntDbError> {
+    let r: (Uuid, Uuid, Uuid, String, NaiveDate, NaiveDate, Vec<String>, Option<i64>, String) = sqlx::query_as(
+        "SELECT id, compte_id, eleve_id, reference, du, au, categories, plafond_centimes, statut
+           FROM ent_fin_prise_en_charge WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(PriseEnChargeDto {
+        id: r.0,
+        compte_id: r.1,
+        eleve_id: r.2,
+        reference: r.3,
+        du: r.4,
+        au: r.5,
+        categories: r.6,
+        plafond_centimes: r.7,
+        statut: r.8,
+    })
 }
