@@ -31,7 +31,7 @@ Plage **3200–3219** (réservation dans `MIGRATIONS.md`) : **3200** `eleve_e9_p
 
 ## 3. Compteurs (règle 28, base `ENT` 47a5be1e inchangée)
 - **`Action::TOUTES`** : 253, **inchangé** (aucune action). **RLS** : 715, inchangé (aucune table). **Registre des données**, **`TABLES_ELEVE`**, **`CHAMPS_CHIFFRES`** : inchangés. **`SOURCES` / `NOMS_SOURCES`** : 63, inchangés (la route de liste est dans `eleve_synthese.rs`). **`MIGRATION_TAG`** : inchangé.
-- **Catalogue des pastilles** : 8 → **13** (`CATALOGUE_INDICATEURS` = `ent_catalogue_indicateur`, test d'égalité vert). **Champs du catalogue E5** : 10 → **13**. `VERSION_CATALOGUE` (conservation) : sans objet.
+- **Contrat des tuiles** : 5 → **6** (`classe`, « Vie de classe »). **Catalogue des pastilles** : 8 → **13** (`CATALOGUE_INDICATEURS` = `ent_catalogue_indicateur`, test d'égalité vert). **Champs du catalogue E5** : 10 → **13**. `VERSION_CATALOGUE` (conservation) : sans objet.
 - Événements : `scolarite.modalite_changee` écouté en plus par `e8.indicateurs`.
 
 ## 4. Écarts, hypothèses, questions pour le pilote
