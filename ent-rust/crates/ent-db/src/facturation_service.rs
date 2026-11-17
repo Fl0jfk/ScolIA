@@ -232,7 +232,8 @@ const CLES_AUTORISEES: &[&str] = &[
     "numero", "quittance_numero", "statut", "moyen", "categorie", "nature", "nb", "code", "palier", "rang",
     "source", "sens", "type", "type_piece", "format", "kind", "mode", "canal", "origine", "annee_scolaire",
     "date_effet", "date_execution", "date", "jour", "debut", "fin", "ics_change", "nom_change", "a_verifier",
-    "eleve_majeur", "crediteur_modifie", "motif_rejet", "suite", "avis_demi_journee", "prevenue",
+    "eleve_majeur", "crediteur_modifie", "ancien", "nouveau", // régimes (codes), lus par la réaction au changement de régime
+     "motif_rejet", "suite", "avis_demi_journee", "prevenue",
     // Conteneurs : leur contenu est filtré par la même liste.
     "lignes", "echeances", "factures", "pieces", "avoirs", "comptes", "designations", "lettrage", "ecritures",
     "propositions", "prelevements",
@@ -271,7 +272,7 @@ mod tests {
             "rum": "SCOLIA1", "libelle": "Cantine", "titulaire": "M. X", "nb": 3,
             "date_execution": "2030-01-01", "reference": "CHQ-1",
             "lignes": [{ "montant_centimes": 1, "ligne_id": "c", "nom": "Y", "ok": true }],
-            "deja_plus_ce": 4850, "reste": 12, "iban_masque": "FR76 ••• 1234", "ancien": "x", "nouveau": "y",
+            "deja_plus_ce": 4850, "reste": 12, "iban_masque": "FR76 ••• 1234", "ancien": "demi_pension", "nouveau": "externe", "restant": 5,
         }));
         assert_eq!(
             v,
@@ -279,6 +280,7 @@ mod tests {
                 "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001", "nb": 3,
                 "date_execution": "2030-01-01",
                 "lignes": [{ "ligne_id": "c" }],
+                "ancien": "demi_pension", "nouveau": "externe",
             })
         );
     }

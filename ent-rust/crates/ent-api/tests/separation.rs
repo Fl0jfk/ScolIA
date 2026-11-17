@@ -84,6 +84,16 @@ fn lire(
     }
 }
 
+/// Écriture ou lecture visant un objet de B : refus **exact** (401/403/404) pour tout acteur de A.
+fn refuse_sur_b(
+    nom: &'static str,
+    methode: &'static str,
+    chemin: &'static str,
+    corps: Option<&'static str>,
+) -> Spec {
+    Spec { b: Attendu::Refuse, ..ecrire_sur_b(nom, methode, chemin, corps) }
+}
+
 fn ecrire_sur_b(
     nom: &'static str,
     methode: &'static str,
@@ -758,25 +768,30 @@ fn specs_domaine_finances_comptes() -> Vec<Spec> {
         borne_a("fin-taches", "GET", "/finances/taches", None, &[]),
         borne_a("fin-consequences", "GET", "/finances/consequences", None, &[]),
         borne_a("fin-prises-en-charge", "GET", "/finances/prises-en-charge", None, &[]),
-        borne_a("fin-guichet-recherche", "GET", "/finances/guichet/recherche?nom=Martin&auth=presentiel", None, &[]),
-        ecrire_sur_b("fin-compte-B", "GET", "/finances/comptes/{foyer}", None),
-        ecrire_sur_b("fin-guichet-compte-B", "GET", "/finances/guichet/comptes/{foyer}", None),
-        ecrire_sur_b("fin-payeurs-B", "GET", "/finances/eleves/{eleve}/payeurs", None),
-        ecrire_sur_b("fin-designer-B", "POST", "/finances/eleves/{eleve}/designations",
-            Some(r#"{"categorie":"toutes","parts":[],"date_effet":"2030-09-01"}"#)),
-        ecrire_sur_b("fin-payeur-majeur-B", "POST", "/finances/eleves/{eleve}/payeur-majeur",
+        borne_a("fin-guichet-recherche", "GET", "/finances/guichet/recherche?nom=Martin&prenom=Jean&auth=presentiel", None, &[]),
+        // M10 : de vrais identifiants de B (compte, groupe, tâche, élève), des corps valides, un refus exact
+        // (401/403/404, jamais un 400 ni un 5xx) : la cible n'est jamais atteinte ni modifiée.
+        refuse_sur_b("fin-compte-B", "GET", "/finances/comptes/{compte}", None),
+        refuse_sur_b("fin-guichet-compte-B", "GET", "/finances/guichet/comptes/{compte}?auth=presentiel", None),
+        refuse_sur_b("fin-payeurs-B", "GET", "/finances/eleves/{eleve}/payeurs", None),
+        refuse_sur_b("fin-designer-B", "POST", "/finances/eleves/{eleve}/designations",
+            Some(r#"{"categorie":"toutes","parts":[{"compte_id":"{compte}","part_bps":10000}],"date_effet":"2030-09-01"}"#)),
+        refuse_sur_b("fin-payeur-majeur-B", "POST", "/finances/eleves/{eleve}/payeur-majeur",
             Some(r#"{"date_effet":"2030-09-01"}"#)),
-        ecrire_sur_b("fin-accepter-B", "POST", "/finances/designations/{foyer}/accepter", Some("{}")),
-        ecrire_sur_b("fin-refuser-B", "POST", "/finances/designations/{foyer}/refuser", Some("{}")),
-        ecrire_sur_b("fin-piece-B", "POST", "/finances/designations/{foyer}/piece",
-            Some(r#"{"piece":{"nature":"jugement","reference":"x"}}"#)),
-        ecrire_sur_b("fin-demande-B", "POST", "/finances/famille/demande-repartition",
+        refuse_sur_b("fin-accepter-B", "POST", "/finances/designations/{groupe}/accepter", Some("{}")),
+        refuse_sur_b("fin-refuser-B", "POST", "/finances/designations/{groupe}/refuser", Some("{}")),
+        refuse_sur_b("fin-piece-B", "POST", "/finances/designations/{groupe}/piece",
+            Some(r#"{"piece":{"nature":"accord_des_deux","reference":"x"}}"#)),
+        refuse_sur_b("fin-demande-B", "POST", "/finances/famille/demande-repartition",
             Some(r#"{"eleve_id":"{eleve}","categorie":"toutes"}"#)),
-        ecrire_sur_b("fin-decision-B", "POST", "/finances/consequences/{foyer}/decision",
+        refuse_sur_b("fin-decision-B", "POST", "/finances/consequences/{groupe}/decision",
             Some(r#"{"appliquer":false,"motif":"test"}"#)),
-        ecrire_sur_b("fin-abandonner-B", "POST", "/finances/taches/{foyer}/abandonner", Some("{}")),
-        ecrire_sur_b("fin-prise-en-charge-B", "POST", "/finances/prises-en-charge",
-            Some(r#"{"compte_id":"{foyer}","eleve_id":"{eleve}","reference":"R","du":"2030-09-01","au":"2031-06-30","categories":["internat"]}"#)),
+        refuse_sur_b("fin-abandonner-B", "POST", "/finances/taches/{tache}/abandonner", Some(r#"{"motif":"test"}"#)),
+        refuse_sur_b("fin-prise-en-charge-B", "POST", "/finances/prises-en-charge",
+            Some(r#"{"compte_id":"{compte}","eleve_id":"{eleve}","reference":"R","du":"2030-09-01","au":"2031-06-30","categories":["internat"]}"#)),
+        refuse_sur_b("fin-reactiver-B", "POST", "/finances/prises-en-charge/{compte}/reactiver",
+            Some(r#"{"au":"2099-12-31","motif":"test"}"#)),
+        borne_a("fin-quota", "POST", "/finances/guichet/quota", Some(r#"{"par_jour":30}"#), &[]),
     ]
 }
 

@@ -706,7 +706,7 @@ fn f0_fd27_secretariat_lecture_seule_par_defaut() {
         let lecture = m.appel("GET", "/facturation/factures", Some(&adm), None).await;
         assert_eq!(lecture.statut.as_u16(), 403, "F1 : pas de liste de tous les comptes pour le secrétariat ({})", lecture.statut);
         let guichet = m
-            .appel("GET", "/finances/guichet/recherche?nom=Martin&auth=presentiel", Some(&adm), None)
+            .appel("GET", "/finances/guichet/recherche?nom=Martin&prenom=Jean&auth=presentiel", Some(&adm), None)
             .await;
         assert!(guichet.est_succes(), "F1 : le secrétariat a la vue guichet ({})", guichet.statut);
         let ecriture = m

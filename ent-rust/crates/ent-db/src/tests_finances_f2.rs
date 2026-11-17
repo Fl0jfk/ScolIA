@@ -1056,6 +1056,7 @@ async fn f1_vue_guichet_du_secretariat() {
     // E3 : nom et prénom complets, correspondance exacte, 5 résultats au plus.
     let (nom, prenom): (String, Option<String>) = sqlx::query_as("SELECT p.nom, p.prenom FROM ent_eleve_lien l JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id WHERE l.etablissement_id = $1 AND l.foyer_id = $2 AND l.est_payeur LIMIT 1").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
     let prenom = prenom.unwrap_or_else(|| "Prénom".into());
+    sqlx::query("UPDATE ent_personne SET prenom = $3 WHERE etablissement_id = $1 AND nom = $2").bind(etab).bind(&nom).bind(&prenom).execute(ent.pool_verif()).await.unwrap();
     let partiel = ent.guichet_rechercher_for_actor(etab, su, sr, &nom[..nom.len().saturating_sub(1).max(2)], &prenom, AuthentificationGuichet::Presentiel).await.unwrap();
     assert!(partiel.is_empty(), "E3 : un nom partiel ne trouve personne (correspondance exacte)");
     let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &nom, &prenom, AuthentificationGuichet::Presentiel).await.unwrap();
