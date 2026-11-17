@@ -118,3 +118,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Q5 : 12 mois pour `mes.reprise`, à faire valider par le DPO avec les petits effectifs de S-1512.
   - Q6 : à brancher dans le lot des écrans de la file « à décider ».
 - ET0-ET1 avait signalé des marqueurs de conflit dans MIGRATIONS.md : déjà retirés sur ENT, la session est prévenue.
+- **17-11, 4 h 25 UTC** :
+  - le run 340 d'ENT (143dfa9c) est vert ;
+  - **D6 versé sur ENT 5142dc98** par avance rapide, après le run 341 vert sur le même SHA ; le run 344 d'ENT, en double, a été annulé (règle 29) ; session D6 archivée ;
+  - ET0-ET1 (run 342) et I3-I4 (run 343) ont pour consigne de ne pas refusionner : le pilote fusionnera lui-même par-dessus D6, avec recalcul des compteurs ;
+  - nouvelle session **FO2-FO3** (session_01KZCbFEWbVMqQfnFtCffXCP, branche ent-socle-18-code-fo23, migrations 2364 et suivantes).
