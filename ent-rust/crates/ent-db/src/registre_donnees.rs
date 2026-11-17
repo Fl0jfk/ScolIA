@@ -962,12 +962,19 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ref_asd_profil_niveau", "assiduite", Portee::ReferentielGlobal),
     t("ref_calendrier_officiel", "referentiel", Portee::ReferentielGlobal),
     t("ref_stage_dispositif", "stages", Portee::ReferentielGlobal),
-    // Socle 28, lot R2 : pilotage de la reprise (preuve : conservation « mes.reprise », durée à décider).
+    // Socle 28, lots R2 et R3 : pilotage de la reprise et file de rapprochement (preuve : conservation « mes.reprise », durée à décider).
+    // Les résumés minimisés de la file sont mis à NULL à la purge de la zone (MSE-179).
     t("rep_correspondance", "mise_en_service", Portee::Etablissement),
+    t("rep_decision", "mise_en_service", Portee::Etablissement).perso(),
+    t("rep_decision_raison", "mise_en_service", Portee::Etablissement).exc(Exception::SansHorodatage, "ligne fille de `rep_decision` (la date de la décision y est portée)"),
     t("rep_execution", "mise_en_service", Portee::Etablissement),
     t("rep_execution_a_decider", "mise_en_service", Portee::Etablissement),
     t("rep_execution_compte", "mise_en_service", Portee::Etablissement),
+    t("rep_proposition", "mise_en_service", Portee::Etablissement).perso(),
+    t("rep_proposition_candidat", "mise_en_service", Portee::Etablissement).perso().exc(Exception::SansHorodatage, "ligne fille de `rep_proposition` (la date de la proposition y est portée)"),
+    t("rep_proposition_raison", "mise_en_service", Portee::Etablissement).exc(Exception::SansHorodatage, "ligne fille de `rep_proposition` (la date de la proposition y est portée)"),
     t("rep_refus", "mise_en_service", Portee::Etablissement),
+    t("rep_synonyme", "mise_en_service", Portee::Etablissement),
     t("rgp_destinataire_externe", "conformite", Portee::Etablissement),
     t("rgp_document", "conformite", Portee::Etablissement),
     t("rgp_ecart", "conformite", Portee::Etablissement),

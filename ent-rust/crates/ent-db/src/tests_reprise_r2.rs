@@ -35,7 +35,7 @@ fn jeu() -> (PathBuf, OptionsDecodage) {
 }
 
 /// Lignes de chaque table du schéma `public` hors `rep_*`.
-async fn instantane_metier(pool: &PgPool) -> Vec<(String, i64)> {
+pub(crate) async fn instantane_metier(pool: &PgPool) -> Vec<(String, i64)> {
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT c.relname::text FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace
             AND c.relkind IN ('r', 'p') AND c.relname NOT LIKE 'rep\\_%' ORDER BY 1",

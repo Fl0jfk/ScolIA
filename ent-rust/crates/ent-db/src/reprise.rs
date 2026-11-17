@@ -155,8 +155,8 @@ pub async fn enregistrer_trace(
     for (objet, c) in &simulation.par_objet {
         sqlx::query(
             "INSERT INTO rep_execution_compte
-                 (execution_id, etablissement_id, objet, lues, creees, mises_a_jour, inchangees, archivees, ignorees, refusees, a_decider)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                 (execution_id, etablissement_id, objet, lues, creees, mises_a_jour, inchangees, archivees, ignorees, refusees, a_decider, rapprochees)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(exec.id)
         .bind(etab)
@@ -169,6 +169,7 @@ pub async fn enregistrer_trace(
         .bind(c.ignorees as i64)
         .bind(c.refusees as i64)
         .bind(c.a_decider as i64)
+        .bind(c.rapprochees as i64)
         .execute(&mut *tx)
         .await?;
     }
@@ -204,6 +205,7 @@ pub async fn enregistrer_trace(
         .execute(&mut *tx)
         .await?;
     }
+    crate::reprise_rapprochement::ecrire_file(&mut *tx, etab, exec, &simulation.file).await?;
     sqlx::query(
         "UPDATE rep_execution SET etat = 'terminee', fin_le = now(), rapport_empreinte = $3,
                 duree_s = GREATEST(0, EXTRACT(EPOCH FROM (now() - debut_le))::int)
@@ -299,6 +301,46 @@ pub async fn enregistrer_correspondances(
         ecrites += r.rows_affected();
         debug_assert!(matches!(p.action, Action::Creee | Action::MiseAJour));
     }
+    for x in &simulation.rapprochees {
+        let cible = Uuid::parse_str(&x.cible_id)
+            .map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
+        let id = Uuid::parse_str(&id_derive(
+            &etab_txt,
+            "rep_correspondance",
+            &x.objet,
+            &x.source_id,
+        ))
+        .expect("uuid dérivé");
+        // Le lien remplace l'éventuelle ligne « à décider » (cible provisoire dérivée) ; un lien déjà posé garde sa
+        // cible : seule l'empreinte de la source est tenue à jour.
+        let r = sqlx::query(
+            "INSERT INTO rep_correspondance
+                 (id, etablissement_id, source, source_objet, source_id, cible_objet, cible_id, regle_code, statut, execution_id, empreinte_source)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'rapprochee', $9, $10)
+             ON CONFLICT (etablissement_id, source, source_objet, source_id) DO UPDATE
+                SET cible_id = CASE WHEN rep_correspondance.statut = 'a_decider' THEN EXCLUDED.cible_id ELSE rep_correspondance.cible_id END,
+                    regle_code = CASE WHEN rep_correspondance.statut = 'a_decider' THEN EXCLUDED.regle_code ELSE rep_correspondance.regle_code END,
+                    statut = 'rapprochee',
+                    empreinte_source = EXCLUDED.empreinte_source, execution_id = EXCLUDED.execution_id, updated_at = now()
+              WHERE rep_correspondance.modifie_depuis_reprise = false
+                AND rep_correspondance.statut IN ('a_decider', 'rapprochee')
+                AND (rep_correspondance.statut = 'a_decider'
+                     OR rep_correspondance.empreinte_source IS DISTINCT FROM EXCLUDED.empreinte_source)",
+        )
+        .bind(id)
+        .bind(etab)
+        .bind(SOURCE_NEXT)
+        .bind(&x.objet)
+        .bind(&x.source_id)
+        .bind(&x.cible_objet)
+        .bind(cible)
+        .bind(&x.regle)
+        .bind(exec.id)
+        .bind(&x.empreinte)
+        .execute(&mut *tx)
+        .await?;
+        ecrites += r.rows_affected();
+    }
     for a in &simulation.a_decider {
         let cible = Uuid::parse_str(&a.cible_id)
             .map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
@@ -346,6 +388,8 @@ pub async fn noter_zone_videe(
     .bind(exec.id)
     .execute(&mut *tx)
     .await?;
+    // Les résumés minimisés de la file « à décider » partent avec la zone (MSE-179).
+    crate::reprise_rapprochement::purger_resumes(&mut *tx, etab, exec).await?;
     tx.commit().await?;
     Ok(())
 }
