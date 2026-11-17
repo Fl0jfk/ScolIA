@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS ent_espace_role_calcule (
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     source TEXT NOT NULL CHECK (source IN ('enseignant', 'eleve', 'membre_equipe', 'membre_instance', 'pp', 'cpe', 'aesh')),
     role TEXT NOT NULL CHECK (role IN ('animateur', 'contributeur', 'lecteur')),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (etablissement_id, espace_id, source),
     CONSTRAINT ent_espace_role_calcule_espace_fk FOREIGN KEY (etablissement_id, espace_id)
         REFERENCES ent_espace (etablissement_id, id) ON DELETE RESTRICT
