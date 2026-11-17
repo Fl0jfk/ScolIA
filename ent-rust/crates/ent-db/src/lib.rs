@@ -725,6 +725,8 @@ mod tests_eleve_fusion;
 mod tests_eleve_protection;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_indicateurs;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_revue_securite;
 #[cfg(test)]
 mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]

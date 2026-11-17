@@ -1449,6 +1449,12 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let limite = f.limite.unwrap_or(50).clamp(1, 200);
+        // E7 : les propositions d'un élève protégé n'existent pas pour qui n'a pas G6 (filtre SQL
+        // avant la limite).
+        let voit_proteges = self
+            .profil_champs(etab, acteur, role)
+            .await?
+            .ouvert_partout(domain_eleve::GroupeChamps::Sensible);
         let entetes = sqlx::query_as::<_, EnteteProposition>(&format!(
             "SELECT {COLONNES} FROM ent_eleve_proposition p
              WHERE etablissement_id = $1
@@ -1459,6 +1465,7 @@ impl PgEnt {
                                                  WHERE c.etablissement_id = p.etablissement_id
                                                    AND c.proposition_id = p.id AND c.champ = $5))
                AND ($6::timestamptz IS NULL OR cree_le < $6)
+               AND ($8 OR p.eleve_id IS NULL OR NOT ent_eleve_confidentiel(p.etablissement_id, p.eleve_id))
              ORDER BY cree_le DESC, id
              LIMIT $7"
         ))
@@ -1469,25 +1476,20 @@ impl PgEnt {
         .bind(&f.champ)
         .bind(f.avant)
         .bind(limite)
+        .bind(voit_proteges)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
-        // E7 : les propositions d'un élève protégé n'existent pas pour un tiers.
-        let profil = self.profil_champs(etab, acteur, role).await?;
-        let ids: Vec<Uuid> = entetes.iter().filter_map(|e| e.eleve_id).collect();
-        let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
-        let entetes: Vec<EnteteProposition> =
-            entetes.into_iter().filter(|e| e.eleve_id.is_none_or(|i| !caches.contains(&i))).collect();
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let l = assembler(&mut conn, etab, entetes, true).await?;
         drop(conn);
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             f.eleve_id,
             "propositions",
-            "consultation",
             "Consultation des propositions de modification",
+            false,
         )
         .await?;
         Ok(l)
@@ -1522,14 +1524,14 @@ impl PgEnt {
         }
         let mut v = assembler(&mut conn, etab, vec![e], true).await?;
         drop(conn);
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             eleve,
-            "propositions",
-            "consultation",
+            "proposition",
             "Consultation d'une proposition de modification",
+            false,
         )
         .await?;
         Ok(v.remove(0))

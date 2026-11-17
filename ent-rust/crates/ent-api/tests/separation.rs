@@ -1751,6 +1751,85 @@ fn l1_documents_legitimes_se_telechargent_avec_leur_contenu_exact() {
     });
 }
 
+/// E6 (revue de sécurité) : sur un élève sous confidentialité renforcée, TOUTES les routes
+/// `/eleves/{id}/…` répondent 404 (jamais 403) à un membre du personnel sans G6 ni lien direct,
+/// quelle que soit la méthode et même si son rôle n'a pas le droit habituel ; la direction (G6)
+/// l'atteint, et la mesure levée, tout redevient normal.
+#[test]
+fn e6_toute_route_eleve_est_introuvable_pour_un_tiers_sur_un_eleve_protege() {
+    let Some(m) = monde() else { return };
+    let routes: Vec<routes_src::RouteDecl> = routes_src::routes()
+        .into_iter()
+        .filter(|r| r.chemin.starts_with("/eleves/{") && !r.chemin.starts_with("/eleves/{}"))
+        .collect();
+    assert!(routes.len() > 100, "inventaire des routes /eleves/{{id}} incomplet : {}", routes.len());
+    let tiers = [Administratif, Cpe, Compta, Infirmiere, Psy];
+    let echecs = rt().block_on(async {
+        let dir = m.jeton(Direction).to_string();
+        let cree = m
+            .appel(
+                "POST",
+                "/eleves",
+                Some(&dir),
+                Some(&json!({"nom": format!("Garde{}", Uuid::new_v4().simple()), "prenom": "Eva", "classe": "6A"})),
+            )
+            .await;
+        assert!(cree.est_succes(), "création de l'élève d'essai : {} {}", cree.statut, cree.texte);
+        let id = cree.json["id"].as_str().expect("id").to_string();
+        let instancie = |gabarit: &str| {
+            let d = gabarit.find('{').unwrap();
+            let f = gabarit[d..].find('}').unwrap() + d;
+            format!("{}{}{}", &gabarit[..d], id, routes_src::instancier(&gabarit[f + 1..]))
+        };
+        // Contrôle positif : avant la mesure, le tiers atteint la fiche (200).
+        let avant = m.appel("GET", &format!("/eleves/{id}"), Some(m.jeton(Administratif)), None).await;
+        assert!(avant.est_succes(), "avant la mesure : {}", avant.statut);
+        let pose = m
+            .appel(
+                "POST",
+                &format!("/eleves/{id}/confidentialite"),
+                Some(&dir),
+                Some(&json!({"motif": "Mesure de protection", "mesures": []})),
+            )
+            .await;
+        assert!(pose.est_succes(), "pose de la mesure : {} {}", pose.statut, pose.texte);
+        let mut echecs = Vec::new();
+        for r in &routes {
+            let chemin = instancie(&r.chemin);
+            let corps = matches!(r.methode, "POST" | "PUT" | "PATCH").then(|| json!({}));
+            for a in tiers {
+                let rep = m.appel(r.methode, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                if rep.statut.as_u16() != 404 {
+                    echecs.push(format!("{a:?} {} {} → {}", r.methode, r.chemin, rep.statut.as_u16()));
+                }
+            }
+        }
+        // La direction (G6) l'atteint toujours.
+        let g6 = m.appel("GET", &format!("/eleves/{id}"), Some(&dir), None).await;
+        if !g6.est_succes() {
+            echecs.push(format!("direction (G6) : GET /eleves/{{id}} → {}", g6.statut));
+        }
+        // Mesure levée : le tiers revoit la fiche.
+        let lever = m
+            .appel(
+                "POST",
+                &format!("/eleves/{id}/confidentialite/lever"),
+                Some(&dir),
+                Some(&json!({"motif_code": "fin_de_mesure"})),
+            )
+            .await;
+        assert!(lever.est_succes(), "levée : {} {}", lever.statut, lever.texte);
+        let apres = m.appel("GET", &format!("/eleves/{id}"), Some(m.jeton(Administratif)), None).await;
+        if !apres.est_succes() {
+            echecs.push(format!("après la levée : {}", apres.statut));
+        }
+        echecs
+    });
+    CAS_EXECUTES.fetch_add(routes.len() * tiers.len(), Ordering::Relaxed);
+    eprintln!("[separation] élève protégé : {} routes × {} tiers, {} écart(s)", routes.len(), tiers.len(), echecs.len());
+    assert!(echecs.is_empty(), "routes /eleves/{{id}}/… qui ne répondent pas 404 à un tiers :\n{}", echecs.join("\n"));
+}
+
 #[test]
 fn zz_bilan() {
     eprintln!("[separation] cas exécutés dans ce processus : {}", CAS_EXECUTES.load(Ordering::Relaxed));

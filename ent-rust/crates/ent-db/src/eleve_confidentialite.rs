@@ -497,7 +497,26 @@ impl PgEnt {
         }
         self.tracer_consultation_a(etab, acteur, role, Some(eleve), "sensible", "Consultation de la mesure de confidentialité", false, maintenant)
             .await?;
-        lignes.into_iter().map(|l| l.en_vue(true)).collect()
+        // R-E10 : un agent en conflit d'intérêts avec l'élève ne lit pas le motif descellé.
+        let avec_motif = self.conflit_interet_eleve(etab, acteur, role, eleve).await?.is_none();
+        lignes.into_iter().map(|l| l.en_vue(avec_motif)).collect()
+    }
+
+    /// Parmi `ids`, les élèves actuellement protégés (sans considération de lien : sert à filtrer
+    /// les journaux et listes qui ne doivent jamais montrer un protégé hors G6).
+    pub(crate) async fn eleves_proteges_parmi(&self, etab: Uuid, ids: &[Uuid]) -> Result<HashSet<Uuid>, EntDbError> {
+        if ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let l: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT e.id FROM ent_eleve e
+              WHERE e.etablissement_id = $1 AND e.id = ANY($2) AND ent_eleve_confidentiel($1, e.id)",
+        )
+        .bind(etab)
+        .bind(ids)
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .await?;
+        Ok(l.into_iter().map(|(id,)| id).collect())
     }
 
     /// Élèves actuellement protégés (sans motif) — G6 partout : la direction y voit ses dossiers.
@@ -541,6 +560,8 @@ impl PgEnt {
         if !self.a_action_etablissement(etab, acteur, role, Action::AuditLire).await? {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : le journal d'un élève protégé n'existe pas pour un tiers (404, comme sa fiche).
+        self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
@@ -610,7 +631,7 @@ impl PgEnt {
 
     /// Vrai si la fiche de cet élève est protégée **et** que l'acteur est un tiers (accès direct
     /// par identifiant : la réponse doit être celle d'un élève absent).
-    pub(crate) async fn eleve_cache_au_tiers(
+    pub async fn eleve_cache_au_tiers(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -640,9 +661,11 @@ impl PgEnt {
     }
 
     /// Journal de consultation (ajout seul) : écrit AVANT que la lecture soit servie (une trace
-    /// sans lecture reste possible, jamais l'inverse). `alerter` : l'acteur est un tiers ; si la
-    /// mesure `alerte_consultation` est posée, l'événement d'alerte est publié dans la même
-    /// transaction.
+    /// sans lecture reste possible, jamais l'inverse). L'alerte est alignée sur `proteges_caches` :
+    /// elle est décidée ICI, pour toute lecture d'un élève protégé par un membre du personnel sans
+    /// G6 (tiers ou non-tiers à portée directe, quelle que soit la lecture) ; si la mesure
+    /// `alerte_consultation` est en vigueur, l'événement est publié dans la même transaction.
+    /// Le paramètre `_alerter` n'est conservé que pour les appelants existants : il est ignoré.
     pub(crate) async fn tracer_consultation(
         &self,
         etab: Uuid,
@@ -651,9 +674,9 @@ impl PgEnt {
         eleve: Option<Uuid>,
         action: &str,
         libelle: &str,
-        alerter: bool,
+        _alerter: bool,
     ) -> Result<(), EntDbError> {
-        self.tracer_consultation_a(etab, acteur, role, eleve, action, libelle, alerter, Utc::now()).await
+        self.tracer_consultation_a(etab, acteur, role, eleve, action, libelle, false, Utc::now()).await
     }
 
     pub(crate) async fn tracer_consultation_a(
@@ -664,16 +687,21 @@ impl PgEnt {
         eleve: Option<Uuid>,
         action: &str,
         libelle: &str,
-        alerter: bool,
+        _alerter: bool,
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
+        let sans_g6 = Role::parse(role).is_some_and(Role::is_staff)
+            && !self
+                .profil_champs(etab, acteur, role)
+                .await?
+                .ouvert_partout(GroupeChamps::Sensible);
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         journaliser_tx(&mut tx, etab, eleve, acteur, "consultation", action, libelle, role, maintenant)
             .await
             .inspect_err(|e| {
                 tracing::error!(action, error = %e, "échec d'écriture de la trace de consultation : lecture refusée");
             })?;
-        if let (true, Some(e)) = (alerter, eleve) {
+        if let (true, Some(e)) = (sans_g6, eleve) {
             let jour = Self::jour_a(&mut tx, etab, maintenant).await?;
             let alerte: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM ent_eleve_confidentialite c

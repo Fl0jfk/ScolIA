@@ -227,19 +227,30 @@ impl PgEnt {
         tx.commit().await?;
         let droits = self.droits_du_contrat(etab, acteur, role, eleve).await?;
         let a_le_droit = |actions: &[&str]| actions.iter().any(|a| droits.get(a).is_some_and(|d| d.sur_eleve));
+        // M6 : sans le module santé activé, aucune pastille ni tuile de santé.
+        let sante_active = self.module_sante_actif(etab).await?;
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        // Règle générale : une pastille n'est visible que si la tuile de son domaine l'est (un
+        // droit sur l'action de la pastille ne suffit pas si la tuile du domaine reste fermée).
+        let tuile_ouverte = |domaine: &str| {
+            (domaine != "sante" || sante_active)
+                && contrat_tuile(domaine).is_some_and(|c| a_le_droit(c.actions_requises))
+        };
         let mut pastilles: Vec<PastilleVue> = lignes
             .into_iter()
             .filter_map(|l| {
                 let def = indicateur_catalogue(&l.code)?;
-                a_le_droit(def.actions_requises).then_some(PastilleVue {
+                (a_le_droit(def.actions_requises) && tuile_ouverte(def.domaine)).then_some(PastilleVue {
                     code: def.code,
                     domaine: def.domaine,
                     libelle: def.libelle,
                     icone: def.icone,
                     gravite: def.gravite,
                     valeur_code: l.valeur_code,
-                    valeur_date: l.valeur_date,
-                    du: l.du,
+                    // `majeur` ne publie que le fait : ni la date de majorité ni son début ne
+                    // doivent laisser deviner la date de naissance exacte.
+                    valeur_date: if def.code == "majeur" { None } else { l.valeur_date },
+                    du: if def.code == "majeur" { jour } else { l.du },
                 })
             })
             .collect();
@@ -247,7 +258,9 @@ impl PgEnt {
         let mut tuiles: Vec<TuileVue> = CONTRATS_TUILES
             .iter()
             .map(|c: &ContratTuile| {
-                let etat = if a_le_droit(c.actions_requises) {
+                let etat = if c.domaine == "sante" && !sante_active {
+                    EtatTuile::Masquee(RaisonTuile::DroitManquant)
+                } else if a_le_droit(c.actions_requises) {
                     EtatTuile::Visible
                 } else if c.actions_requises.iter().any(|a| droits.get(a).is_some_and(|d| d.ailleurs)) {
                     EtatTuile::Masquee(RaisonTuile::HorsPortee)
@@ -306,20 +319,26 @@ impl PgEnt {
         if !self.a_une_action_etablissement(etab, acteur, role, def.actions_requises).await? {
             return Err(EntDbError::Forbidden);
         }
+        // M6 : une liste de santé exige le module santé de l'établissement.
+        if def.domaine == "sante" {
+            self.exiger_module_sante(etab).await?;
+        }
+        let profil = self.profil_champs(etab, acteur, role).await?;
+        // Les protégés sont écartés en SQL AVANT la limite (pas de place laissée par un absent).
         let l: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT i.eleve_id FROM ent_eleve_indicateur i
-              WHERE i.etablissement_id = $1 AND i.code = $2 ORDER BY i.du DESC, i.eleve_id LIMIT $3",
+              WHERE i.etablissement_id = $1 AND i.code = $2
+                AND ($4 OR NOT ent_eleve_confidentiel($1, i.eleve_id))
+              ORDER BY i.du DESC, i.eleve_id LIMIT $3",
         )
         .bind(etab)
         .bind(code)
         .bind(limite.clamp(1, 5000))
+        .bind(profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible))
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         let ids: Vec<Uuid> = l.into_iter().map(|(id,)| id).collect();
-        let profil = self.profil_champs(etab, acteur, role).await?;
-        let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
-        let ids: Vec<Uuid> = ids.into_iter().filter(|id| !caches.contains(id)).collect();
-        self.tracer_consultation(etab, acteur, role, None, "liste_pastille", "Consultation d'une liste par pastille", false)
+        self.tracer_consultation(etab, acteur, role, None, &format!("liste_pastille:{code}"), "Consultation d'une liste par pastille", false)
             .await?;
         Ok(ids)
     }

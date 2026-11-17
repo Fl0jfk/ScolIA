@@ -9630,6 +9630,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : l'invitation d'un élève protégé n'existe pas pour un tiers (aucun e-mail n'part).
+        self.exiger_eleve_visible(cmd.etablissement_id, cmd.actor_user_id, role, cmd.eleve_id)
+            .await?;
         if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
             return Err(EntDbError::EnvoiImpossible);
         }
@@ -9695,18 +9698,26 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         })
     }
 
+    /// Élèves actifs sans compte. Les élèves en confidentialité renforcée n'y figurent que pour qui
+    /// détient G6 (filtre SQL **avant** la limite : un tiers n'en voit ni la fiche ni la place).
     pub async fn list_eleves_sans_compte_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
     ) -> Result<Vec<Eleve>, EntDbError> {
         if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
+        let profil = self.profil_champs(etablissement_id, actor_user_id, role).await?;
         Ok(self
             .eleve_comptes
-            .list_eleves_sans_compte(etablissement_id, 100)
+            .list_eleves_sans_compte(
+                etablissement_id,
+                100,
+                profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible),
+            )
             .await?)
     }
 
@@ -9719,7 +9730,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         public_base_url: &str,
     ) -> Result<Vec<CompteEleveProvisionne>, EntDbError> {
         let sans = self
-            .list_eleves_sans_compte_for_actor(etablissement_id, role)
+            .list_eleves_sans_compte_for_actor(etablissement_id, actor_user_id, role)
             .await?;
         let mut out = Vec::new();
         for e in sans {
@@ -13714,12 +13725,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
         }
-        if parsed.is_staff()
-            && !self
+        if parsed.is_staff() {
+            if !self
                 .autoriser_eleve(etablissement_id, user_id, role, Action::JournalLire, eleve_id)
                 .await?
-        {
-            return Err(EntDbError::Forbidden);
+            {
+                return Err(EntDbError::Forbidden);
+            }
+            // E7 : un élève protégé est invisible d'un tiers, journal compris.
+            self.exiger_eleve_visible(etablissement_id, user_id, role, eleve_id).await?;
         }
         if parent
             && !self
@@ -13770,6 +13784,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             entrees.retain(|e| e.domaine != "consultation");
         }
+        // E7 : les faits de confidentialité, de photo et de coordonnées (`eleve_*`) ne se lisent
+        // qu'avec G6 (mesure posée ou levée, dates, auteur : autant de données sensibles).
+        if parsed.is_staff()
+            && !self
+                .autoriser_eleve(etablissement_id, user_id, role, Action::ElevesConfidentielGerer, eleve_id)
+                .await?
+        {
+            entrees.retain(|e| !e.domaine.starts_with("eleve_"));
+        }
         Ok(entrees)
     }
 
@@ -13790,10 +13813,22 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let lim = if limit <= 0 { 50 } else { limit.min(500) };
-        Ok(self
+        let mut entrees = self
             .journal
             .list_domaine(etablissement_id, domaine, lim)
-            .await?)
+            .await?;
+        // E7 : les lignes qui visent un élève protégé, et les faits `eleve_*`, ne se lisent qu'avec G6.
+        let profil = self.profil_champs(etablissement_id, actor_user_id, role).await?;
+        if !profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible) {
+            let ids: Vec<Uuid> = entrees.iter().filter_map(|e| e.eleve_id).collect();
+            let caches = self.proteges_caches(etablissement_id, role, &profil, &ids).await?;
+            let proteges = self.eleves_proteges_parmi(etablissement_id, &ids).await?;
+            entrees.retain(|e| {
+                !e.domaine.starts_with("eleve_")
+                    && e.eleve_id.is_none_or(|i| !caches.contains(&i) && !proteges.contains(&i))
+            });
+        }
+        Ok(entrees)
     }
 
     pub async fn list_repas_activites_for_actor(
@@ -14991,6 +15026,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             )
             .await?;
         masques.extend(self.eleves_refus_photo(etablissement_id, &ids).await?);
+        // E7 (`masquer_photo`) : silhouette pour les protégés visibles d'un non-G6 (lien direct).
+        if !profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible) {
+            masques.extend(self.eleves_proteges_parmi(etablissement_id, &ids).await?);
+        }
         Ok(eleves
             .into_iter()
             .map(|mut e| {
@@ -15044,6 +15083,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let Some(key) = eleve.photo_key.as_ref() else {
             return Ok(None);
         };
+        // E7 (`masquer_photo`) : la photo d'un élève protégé n'est servie qu'à G6, même à qui a un lien
+        // direct avec lui (il le voit, pas sa photo).
+        if Role::parse(role).is_some_and(Role::is_staff)
+            && !self
+                .profil_champs(etablissement_id, user_id, role)
+                .await?
+                .ouvert_partout(domain_eleve::GroupeChamps::Sensible)
+            && !self.eleves_proteges_parmi(etablissement_id, &[eleve.id]).await?.is_empty()
+        {
+            return Ok(None);
+        }
         // E7 (ELV-42) : refus de la photo administrative = silhouette, jamais de fichier servi.
         if !self.eleves_refus_photo(etablissement_id, &[eleve.id]).await?.is_empty() {
             return Ok(None);
@@ -20919,7 +20969,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     ReponseCopilote::refus("sans_compte", question)
                 } else {
                     let n = self
-                        .list_eleves_sans_compte_for_actor(etablissement_id, role)
+                        .list_eleves_sans_compte_for_actor(etablissement_id, actor_user_id, role)
                         .await?
                         .len();
                     ReponseCopilote::new(

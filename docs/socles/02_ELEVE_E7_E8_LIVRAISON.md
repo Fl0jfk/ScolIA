@@ -52,9 +52,9 @@ Recalculés après fusion d'`origin/ENT` (96c287c5, socle 18 FO2-FO3), règle 28
 
 ## 5. Tests
 Local, PostgreSQL 16, `--test-threads=1`, Rust **1.99.0** :
-- nouveaux : `tests_eleve_protection` 14, `tests_eleve_indicateurs` 6, `domain-eleve` 15 (298 au total, verts) ;
+- nouveaux : `tests_eleve_protection` 14, `tests_eleve_indicateurs` 6, `tests_eleve_revue_securite` 14 (correctifs de la revue, §7), `domain-eleve` 15 (298 au total, verts) ; `ent-api` : 2 tests unitaires (`eleve_garde`) ;
 - `ent-db` lot A (`tests_eleve_*`, RLS, registre, conservation, extrait, D-036, champs chiffrés) : 173 verts ; lot B (administratif, documents, communication, formulaires, santé, rôles, inscriptions, dossier) : 174 verts ; série finale après fusion (E7, E8, registre, RLS, extrait, conservation, D-036) : 73 verts ;
-- `ent-api` : `separation` 54 (deux passages, dont après fusion), `recette_securite_3` 10, `fichiers_depot` 7, `fichiers_liens` 10, `recette_personas_1` 14, `recette_personas_2` 6, `audit_correctifs_1` 5 : verts ;
+- `ent-api` : `separation` 55 (54 + le test paramétré E6 ; deux passages avant la revue, dont après fusion), `recette_securite_3` 10, `fichiers_depot` 7, `fichiers_liens` 10, `recette_personas_1` 14, `recette_personas_2` 6, `audit_correctifs_1` 5 : verts ;
 - `cargo +1.99.0 clippy --workspace --tests --features ent-db/labo` : **0 avertissement**, rustc compris ;
 - `cargo +1.99.0 metadata --locked` : racine et `web/` OK ; aucune dépendance nouvelle ;
 - aucun test ignoré, aucun test à l'horloge réelle (instants passés aux commandes `*_a`, mesures datées de janvier 2026, pastilles datées recalculées à un jour explicite) ; jamais `cargo fmt --all`.
@@ -65,3 +65,34 @@ Local, PostgreSQL 16, `--test-threads=1`, Rust **1.99.0** :
 - (b) **Oui** à une pastille neutre « protocole » pour la vie scolaire : elle signale qu'un protocole existe et qu'il faut s'adresser à l'infirmerie, sans aucun contenu de santé — lot suivant.
 - (c) **Oui** à un lot dédié pour ELV-44 et ELV-46 ; plage de migrations réservée au lancement du lot.
 - Écart 6 : la pastille `interne` devra être visible de la vie scolaire (CPE) et de l'accueil (information d'organisation) ; PAI reste réservé à `sante.lire`. **Non fait dans ce lot** : à appliquer seulement si la revue de sécurité indépendante ne demande rien d'autre, sinon avec ses retours.
+
+## 7. Correctifs de la revue de sécurité indépendante (2 critiques, 6 élevés, 6 moyens, 1 faible)
+Un test par point, dans `ent-db/src/tests_eleve_revue_securite.rs` (14 tests) et `ent-api/tests/separation.rs` (E6, paramétré). Niveau : implémenté, testé en local ; la CI fait foi.
+
+| Point | Correctif | Test |
+|---|---|---|
+| **C1** journal de l'élève | `list_journal_eleve_for_actor` : garde « élève visible » en tête ; lignes `eleve_*` (dont `eleve_sensible`, `eleve_photo`, `eleve_coordonnee`) réservées à G6 ; `list_journal_domaine_for_actor` écarte les `eleve_id` protégés | `c1_le_journal_d_un_eleve_protege_est_ferme_au_tiers` |
+| **C2** élèves sans compte | filtre SQL avant le `LIMIT` dans `list_eleves_sans_compte_for_actor` (nouveau paramètre acteur/rôle), garde dans l'invitation (`POST /eleves/{id}/compte`, aucun e-mail) et dans le provisionnement en masse | `c2_sans_compte_et_invitation_ignorent_les_proteges` |
+| **E1** consultations | `consultations_pour_acteur` : garde (404) | `e1_les_consultations_…` |
+| **E2** pastille `majeur` | seul le fait est publié (`valeur_date` vide, `du` = jour courant) ; une pastille n'est visible que si la tuile de son domaine l'est (vérifié pour tous les rôles, dont `interne` et `redoublant`) | `e2_les_pastilles_ne_devinent_pas_la_naissance_et_suivent_leur_tuile` |
+| **E3** photos manquantes | `e.statut` (et non `e.status`), `coalesce` pour un `statut` NULL ; test positif | `e3_un_eleve_sans_photo_…` |
+| **E4** (décision du pilote) | portée pédagogique conservée comme « non tiers » ; `masquer_photo` et `adresse_protegee` appliquées à ces non-tiers (photo non servie et absente du trombinoscope ; les personnes liées à l'élève, donc leurs adresses F2, sont fermées à qui n'a pas G6, même avec un lien direct) ; l'alerte `alerte_consultation` est désormais décidée **dans** `tracer_consultation` : toute lecture d'un élève protégé par un membre du personnel sans G6 alerte (même définition que `proteges_caches`), jamais G6 | `e4_alerte_pour_toute_lecture_…`, `m3_adresse_protegee_ferme_les_personnes_liees_aux_non_g6` |
+| **E5** conflit d'intérêts | `exiger_pas_de_conflit` sur toutes les écritures de photo (proposer, valider, rejeter, retirer, refus, levée) et de coordonnées (ajout, retrait, usages, vérification) ; un agent G6 en conflit ne lit pas le motif descellé | `e5_le_conflit_d_interet_bloque_…` |
+| **E6** autres routes `/eleves/{id}/…` | couche HTTP `eleve_garde::exiger_eleve_visible` (404, jamais 403) sur **toutes** les routes `/eleves/<uuid>[/…]` (112 déclarations, toutes méthodes) ; garde aussi dans `fiche_urgence_for_actor` et `pai_complet_for_actor` | `separation::e6_toute_route_eleve_…` (5 rôles tiers × toutes les routes, contrôle positif avant, G6, puis levée) ; `e6_fiche_d_urgence_et_pai_complet_…` ; test unitaire du chemin |
+| **M1** refus de photo | la famille ne pose ni ne lève un refus sur un majeur ou émancipé (404) ; elle ne lève que le refus qu'elle a posé (même source) ; le personnel lève tout | `m1_la_famille_n_a_plus_de_prise_…` |
+| **M2** usages de coordonnée | changement d'usages journalisé (`eleve_coordonnee` / `usages_modifies`, sans valeur) ; l'usage `compte` est posé ou retiré par l'élève seul (le personnel : refusé) | `m2_les_usages_sont_journalises_…` |
+| **M3** `hors_trombinoscope_exporte` | sans effet tant qu'aucun export n'existe : documenté **« effet en E11 »** (DTO, ce rapport) ; seul `eleves_hors_export` l'expose | `eleves_hors_export` (existant) |
+| **M4** domaine de journal unique | toutes les lectures sensibles (identité, identifiants, scolarité, propositions, pastilles, listes par pastille) écrivent en domaine `consultation`, le code consulté dans l'action (`liste_pastille:pai_actif`…) | `m4_toutes_les_lectures_sensibles_…` (exhaustivité) |
+| **M5** filtre avant la limite | protégés écartés en SQL **avant** le `LIMIT` : listes par pastille, file des photos à valider, photos manquantes, propositions | `m5_les_proteges_sont_ecartes_avant_la_limite` |
+| **M6** module santé | les pastilles et la tuile « santé » sont masquées, et la liste par pastille de santé refusée, tant que le module n'est pas activé | `m6_sans_module_sante_…` |
+| **F1** photo | `GET /eleves/{id}/photo` sert le type MIME réel (signature : jpeg, png, webp ; sinon flux binaire) avec `X-Content-Type-Options: nosniff` | `eleve_garde::mime_de_photo_par_signature` |
+
+Effets de bord assumés : `list_eleves_sans_compte_for_actor` prend l'acteur et le rôle ; deux tests existants ajustés (usages « compte » posés par le personnel, alerte pour tout non-G6 et plus seulement l'ouverture de fiche).
+
+### Suites notées (non faites dans ce lot, à la demande du pilote)
+- **M7** : plafond journalier des SMS de vérification de coordonnée (le plafond actuel est de 3 codes par heure et par coordonnée).
+- **F2** : photo orpheline dans le stockage si la transaction échoue après l'écriture de l'objet ; réencodage sans EXIF (métadonnées de géolocalisation).
+- **F3** : `ent_eleve.statut` NULL (traité par `coalesce` dans « photos manquantes » ; la contrainte reste à poser).
+- **F4** : tracer la lecture de la liste des élèves protégés (`eleves_proteges_pour_acteur`).
+- **F5** : valider les contraintes `NOT VALID` posées par 298 (migration dédiée après assainissement des données existantes).
+- Couche HTTP : seules les routes `/eleves/<uuid>…` sont gardées centralement ; les routes de santé ou de vie scolaire par identifiant d'élève situées sous d'autres préfixes (`/sante/…`, `/accompagnement/…`) gardent leur contrôle propre (à inventorier en E9).

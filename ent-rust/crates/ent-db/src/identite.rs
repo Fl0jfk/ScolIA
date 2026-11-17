@@ -683,18 +683,18 @@ impl PgEnt {
         if versions.is_empty() {
             return Err(DomainError::NotFound.into());
         }
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             Some(eleve),
-            "identite",
             if voit_sensible {
-                "historique_complet"
+                "identite_historique_complet"
             } else {
-                "historique"
+                "identite_historique"
             },
             "Consultation de l'historique d'identité",
+            false,
         )
         .await?;
         Ok(filtrer_historique_identite(versions, voit_sensible))

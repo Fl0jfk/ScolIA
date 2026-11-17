@@ -197,6 +197,10 @@ impl PgEnt {
         .await?;
         let (eleve,) = r.ok_or(DomainError::NotFound)?;
         let q = self.qualite_coordonnees(etab, acteur, role, eleve).await?;
+        // E5 : toute écriture/vérification passe par ici ; le personnel en conflit est refusé.
+        if q == QualiteActeur::Personnel {
+            self.exiger_pas_de_conflit(etab, acteur, role, eleve).await?;
+        }
         Ok((q, eleve))
     }
 
@@ -218,6 +222,9 @@ impl PgEnt {
     ) -> Result<CoordonneeEleveVue, EntDbError> {
         let (etab, eleve, acteur) = (cmd.etablissement_id, cmd.eleve_id, cmd.acteur);
         let qualite = self.qualite_coordonnees(etab, acteur, role, eleve).await?;
+        if qualite == QualiteActeur::Personnel {
+            self.exiger_pas_de_conflit(etab, acteur, role, eleve).await?;
+        }
         let type_ = TypeCoordonneeEleve::parse(&cmd.type_).map_err(invalide)?;
         let usages = normaliser_usages(type_, &cmd.usages).map_err(invalide)?;
         let valeur = match type_ {
@@ -434,6 +441,18 @@ impl PgEnt {
         coord: Uuid,
         usages: &[String],
     ) -> Result<CoordonneeEleveVue, EntDbError> {
+        self.modifier_usages_coordonnee_eleve_a(role, etab, acteur, coord, usages, Utc::now()).await
+    }
+
+    pub async fn modifier_usages_coordonnee_eleve_a(
+        &self,
+        role: &str,
+        etab: Uuid,
+        acteur: Uuid,
+        coord: Uuid,
+        usages: &[String],
+        maintenant: DateTime<Utc>,
+    ) -> Result<CoordonneeEleveVue, EntDbError> {
         let (qualite, eleve) = self.qualite_sur_coordonnee(etab, acteur, role, coord).await?;
         if qualite == QualiteActeur::Famille {
             return Err(EntDbError::Forbidden);
@@ -443,6 +462,13 @@ impl PgEnt {
         let c = Self::coordonnee_tx(&mut tx, etab, coord, true).await?;
         let type_ = TypeCoordonneeEleve::parse(&c.type_).map_err(invalide)?;
         let usages = normaliser_usages(type_, usages).map_err(invalide)?;
+        // M2 : l'usage « compte » (identifiant de connexion de l'élève) est réservé à l'élève
+        // lui-même ; le personnel ne peut ni l'ajouter ni le retirer à sa place.
+        let avait_compte = c.usages.iter().any(|u| u == "compte");
+        let veut_compte = usages.contains(&"compte");
+        if qualite != QualiteActeur::Eleve && avait_compte != veut_compte {
+            return Err(EntDbError::Forbidden);
+        }
         if c.statut != "active" {
             return Err(EntDbError::ConflitDossier("seule une coordonnée active a des usages"));
         }
@@ -457,6 +483,18 @@ impl PgEnt {
             .bind(&usages_texte)
             .execute(&mut *tx)
             .await?;
+        journaliser_tx(
+            &mut tx,
+            etab,
+            Some(eleve),
+            acteur,
+            "eleve_coordonnee",
+            "usages_modifies",
+            "Usages d'une coordonnée de l'élève modifiés",
+            role,
+            maintenant,
+        )
+        .await?;
         Self::publier_coordonnee_tx(&mut tx, etab, eleve, acteur, coord, &c.type_, "usages").await?;
         let vue = Self::coordonnee_tx(&mut tx, etab, coord, false).await?;
         tx.commit().await?;

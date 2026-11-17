@@ -613,7 +613,7 @@ async fn droits_ecriture_et_historique() {
     assert!(h2.len() > h.len());
     // La lecture est journalisée (acteur, objet), jamais le contenu.
     let (n,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'identite'",
+        "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'consultation' AND action LIKE 'identite_historique%'",
     )
     .bind(e.id)
     .fetch_one(ent.pool_verif())

@@ -193,6 +193,23 @@ impl PgEnt {
         }
     }
 
+    /// Qualité pour une **écriture** : le personnel en conflit d'intérêts (R-E10) est refusé, comme
+    /// pour toute écriture professionnelle sur ce dossier.
+    pub(crate) async fn qualite_ecriture_fiche(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve: Uuid,
+        action_personnel: Action,
+    ) -> Result<QualiteActeur, EntDbError> {
+        let q = self.qualite_sur_la_fiche(etab, acteur, role, eleve, action_personnel).await?;
+        if q == QualiteActeur::Personnel {
+            self.exiger_pas_de_conflit(etab, acteur, role, eleve).await?;
+        }
+        Ok(q)
+    }
+
     async fn publier_photo_tx(
         tx: &mut TenantTx<'static>,
         etab: Uuid,
@@ -273,7 +290,7 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
     ) -> Result<PhotoVue, EntDbError> {
         let (etab, eleve, acteur) = (cmd.etablissement_id, cmd.eleve_id, cmd.acteur);
-        let qualite = self.qualite_sur_la_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
+        let qualite = self.qualite_ecriture_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
         // D2 : signature binaire, liste blanche « photo », taille maximale configurable.
         let valide = self
             .politique_fichiers()
@@ -377,6 +394,7 @@ impl PgEnt {
         let r: Option<PhotoRow> = sqlx::query_as(&sql).bind(etab).bind(photo).fetch_optional(&mut **tx).await?;
         let vue: PhotoVue = r.ok_or(DomainError::NotFound)?.into();
         self.exiger_eleve_visible(etab, acteur, role, vue.eleve_id).await?;
+        self.exiger_pas_de_conflit(etab, acteur, role, vue.eleve_id).await?;
         Ok(vue)
     }
 
@@ -522,19 +540,20 @@ impl PgEnt {
         limite: i64,
     ) -> Result<Vec<PhotoVue>, EntDbError> {
         self.exiger_gestion_photo(etab, acteur, role).await?;
+        let profil = self.profil_champs(etab, acteur, role).await?;
+        // Les protégés sont écartés en SQL AVANT la limite.
         let sql = format!(
-            "SELECT {COLONNES} FROM ent_eleve_photo WHERE etablissement_id = $1 AND statut = 'proposee'
+            "SELECT {COLONNES} FROM ent_eleve_photo p WHERE etablissement_id = $1 AND statut = 'proposee'
+                AND ($3 OR NOT ent_eleve_confidentiel($1, p.eleve_id))
               ORDER BY propose_le, id LIMIT $2"
         );
         let l: Vec<PhotoRow> = sqlx::query_as(&sql)
             .bind(etab)
             .bind(limite.clamp(1, 500))
+            .bind(profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible))
             .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await?;
-        let ids: Vec<Uuid> = l.iter().map(|p| p.eleve_id).collect();
-        let profil = self.profil_champs(etab, acteur, role).await?;
-        let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
-        Ok(l.into_iter().filter(|p| !caches.contains(&p.eleve_id)).map(PhotoVue::from).collect())
+        Ok(l.into_iter().map(PhotoVue::from).collect())
     }
 
     /// ELV-42 : enregistre le refus de la photo administrative (la photo validée est retirée).
@@ -556,7 +575,7 @@ impl PgEnt {
         eleve: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
-        let qualite = self.qualite_sur_la_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
+        let qualite = self.qualite_ecriture_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
         let source = match qualite {
             QualiteActeur::Personnel => "etablissement",
             QualiteActeur::Famille => "famille",
@@ -572,6 +591,10 @@ impl PgEnt {
             .bind(maintenant)
             .fetch_one(&mut *tx)
             .await?;
+        // M1 : la famille n'a plus rien à dire sur la photo d'un majeur ou d'un émancipé (404).
+        if qualite == QualiteActeur::Famille && majeur_ou_emancipe_tx(&mut tx, etab, eleve, jour).await? {
+            return Err(DomainError::NotFound.into());
+        }
         sqlx::query(
             "INSERT INTO ent_eleve_photo_refus (id, etablissement_id, eleve_id, source, du, enregistre_par, enregistre_le)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -627,17 +650,33 @@ impl PgEnt {
         eleve: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
-        self.qualite_sur_la_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
+        let qualite = self.qualite_ecriture_fiche(etab, acteur, role, eleve, Action::ElevesPhotoGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         Self::verrouiller_fiche(&mut tx, etab, eleve).await?;
+        let jour: NaiveDate = sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, $2)")
+            .bind(etab)
+            .bind(maintenant)
+            .fetch_one(&mut *tx)
+            .await?;
+        if qualite == QualiteActeur::Famille && majeur_ou_emancipe_tx(&mut tx, etab, eleve, jour).await? {
+            return Err(DomainError::NotFound.into());
+        }
+        // M1 : seul le personnel, ou la même source que celle qui a posé le refus, peut le lever.
+        let source_requise = match qualite {
+            QualiteActeur::Personnel => None,
+            QualiteActeur::Famille => Some("famille"),
+            QualiteActeur::Eleve => Some("eleve"),
+        };
         let r = sqlx::query(
             "UPDATE ent_eleve_photo_refus SET leve_le = $3, leve_par = $4
-              WHERE etablissement_id = $1 AND eleve_id = $2 AND leve_le IS NULL",
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND leve_le IS NULL
+                AND ($5::text IS NULL OR source = $5)",
         )
         .bind(etab)
         .bind(eleve)
         .bind(maintenant)
         .bind(acteur)
+        .bind(source_requise)
         .execute(&mut *tx)
         .await?;
         if r.rows_affected() == 0 {
@@ -677,22 +716,26 @@ impl PgEnt {
         limite: i64,
     ) -> Result<Vec<Uuid>, EntDbError> {
         self.exiger_gestion_photo(etab, acteur, role).await?;
+        let voit_proteges = self
+            .profil_champs(etab, acteur, role)
+            .await?
+            .ouvert_partout(domain_eleve::GroupeChamps::Sensible);
         let l: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT e.id FROM ent_eleve e
-              WHERE e.etablissement_id = $1 AND e.fusionne_dans IS NULL AND e.status = 'scolarise'
+              WHERE e.etablissement_id = $1 AND e.fusionne_dans IS NULL
+                AND coalesce(e.statut, 'scolarise') IN ('scolarise', 'a_venir')
                 AND e.photo_id IS NULL
+                AND ($3 OR NOT ent_eleve_confidentiel(e.etablissement_id, e.id))
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_photo_refus r
                                  WHERE r.etablissement_id = e.etablissement_id AND r.eleve_id = e.id AND r.leve_le IS NULL)
               ORDER BY e.id LIMIT $2",
         )
         .bind(etab)
         .bind(limite.clamp(1, 2000))
+        .bind(voit_proteges)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
-        let ids: Vec<Uuid> = l.into_iter().map(|(id,)| id).collect();
-        let profil = self.profil_champs(etab, acteur, role).await?;
-        let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
-        Ok(ids.into_iter().filter(|id| !caches.contains(id)).collect())
+        Ok(l.into_iter().map(|(id,)| id).collect())
     }
 
     /// Élèves de `ids` à **exclure d'un export ou d'un trombinoscope imprimé** : mesure

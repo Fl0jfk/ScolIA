@@ -1649,8 +1649,8 @@ impl PgEnt {
         );
         let scol: Vec<ScolarisationEleve> = sqlx::query_as(&sql).bind(etab).bind(eleve).fetch_all(&mut *conn).await?;
         drop(conn);
-        self.tracer_acces_sensible(etab, acteur, role, Some(eleve), "scolarite", "consultation",
-            "Consultation de la scolarité de l'élève").await?;
+        self.tracer_consultation(etab, acteur, role, Some(eleve), "scolarite",
+            "Consultation de la scolarité de l'élève", false).await?;
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let sql = format!(
             "SELECT {COL_INSC} FROM ent_eleve_inscription WHERE etablissement_id = $1 AND eleve_id = $2

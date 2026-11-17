@@ -71,6 +71,7 @@ mod accords_s18;
 mod formulaires_s18;
 mod eleve_propositions;
 mod eleve_fusion;
+mod eleve_garde;
 mod eleve_protection;
 mod eleve_synthese;
 mod sante;
@@ -213,6 +214,12 @@ pub fn app(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             sante::exiger_module,
+        ))
+        // E6 : un élève sous confidentialité renforcée est introuvable (404) pour un tiers sur
+        // toute route `/eleves/{id}/…`.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            eleve_garde::exiger_eleve_visible,
         ))
         // R2 (D-017) : droits effectifs de la personne, une fois par requête.
         .layer(axum::middleware::from_fn_with_state(

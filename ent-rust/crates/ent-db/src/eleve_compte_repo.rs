@@ -113,6 +113,7 @@ impl PgEleveCompteRepo {
         &self,
         etablissement_id: Uuid,
         limit: i64,
+        voit_proteges: bool,
     ) -> Result<Vec<Eleve>, DomainError> {
         let rows = sqlx::query_as::<_, SansCompteRow>(
             r#"
@@ -125,12 +126,15 @@ impl PgEleveCompteRepo {
             WHERE e.etablissement_id = $1
               AND e.status = 'actif'
               AND c.eleve_id IS NULL
+              AND e.fusionne_dans IS NULL
+              AND ($3 OR NOT ent_eleve_confidentiel(e.etablissement_id, e.id))
             ORDER BY e.nom, e.prenom
             LIMIT $2
             "#,
         )
         .bind(etablissement_id)
         .bind(limit)
+        .bind(voit_proteges)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;

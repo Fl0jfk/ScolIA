@@ -371,7 +371,7 @@ async fn consultation_journalisee_et_alerte() {
     .fetch_all(ent.pool_verif())
     .await
     .unwrap();
-    assert_eq!(alertes, [prof.to_string()], "alerte pour le tiers seulement");
+    assert!(!alertes.is_empty() && alertes.iter().all(|a| *a == prof.to_string()), "alerte pour le non-G6 seulement : {alertes:?}");
     // La lecture du motif est tracée aussi.
     ent.mesures_confidentialite_pour_acteur_a(rdir, etab, dir, harry, plus(7)).await.unwrap();
     let c = ent.consultations_pour_acteur(rdir, etab, dir, harry, 50).await.unwrap();
@@ -547,7 +547,7 @@ async fn la_fiche_ne_voit_jamais_le_marqueur() {
 
 // ───────────────────────────── ELV-16 : photos ─────────────────────────────
 
-const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1];
+pub(crate) const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1];
 
 fn depot(etab: Uuid, eleve: Uuid, acteur: Uuid, valider: bool) -> ProposerPhoto {
     ProposerPhoto {
@@ -769,8 +769,10 @@ async fn coordonnees_de_l_eleve_et_verification_par_code() {
     assert_eq!(ok.verifiee_le, Some(plus(3)));
     assert!(invalide(&ent.verifier_coordonnee_eleve_a(radm, etab, adm, c.id, &code, plus(4)).await), "usage unique");
     assert_eq!(ent.coordonnees_eleve_pour_usage(etab, e.id, "notifications").await.unwrap(), [("email".to_string(), mail.clone())]);
-    let u = ent.modifier_usages_coordonnee_eleve(radm, etab, adm, c.id, &["urgence".into(), "compte".into()]).await.unwrap();
-    assert_eq!(u.usages, ["compte", "urgence"]);
+    // M2 : le personnel ne peut pas poser l'usage « compte » à la place de l'élève.
+    assert!(forbidden(&ent.modifier_usages_coordonnee_eleve(radm, etab, adm, c.id, &["urgence".into(), "compte".into()]).await));
+    let u = ent.modifier_usages_coordonnee_eleve(radm, etab, adm, c.id, &["urgence".into()]).await.unwrap();
+    assert_eq!(u.usages, ["urgence"]);
     assert!(ent.coordonnees_eleve_pour_usage(etab, e.id, "notifications").await.unwrap().is_empty(), "usage retiré");
 
     // Expiration : un code reçu n'est plus bon vingt minutes plus tard.
