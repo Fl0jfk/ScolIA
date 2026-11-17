@@ -218,3 +218,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **M7** : tests faibles.
   - F1, F3 et F4 dans le lot ; F2 pour plus tard.
   - Désabonnement de la PR 96 pendant les correctifs. **À signaler au DPO** : `protocole` est visible aussi de la direction et du secrétariat.
+- **17-11, 21 h 55 UTC, F1-F2 (PR 97, 162a1938)** : revue de sécurité en cours.
+  - Écart R-F23 (l'Administratif passe au guichet, sans liste de tous les comptes) confirmé par le pilote, et **soumis à Florian**.
+  - Écart « payeur dans deux foyers » accepté.
+  - **Lacune pour Florian avant février** : l'Administratif n'a jamais pu encaisser ni remettre un reçu au guichet (F0, FD-27). Piste : une action `facturation.encaisser_guichet`.
+  - Le commit de rapport reste local à la session ; il sera poussé avec les correctifs de la revue.
