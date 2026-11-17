@@ -584,7 +584,7 @@ async fn fd_15_cf_84_eleve_majeur_payeur() {
     // L'élève accepte : le transfert est opposable à la date d'effet ; conséquences proposées sur les mois à venir.
     let ok = ent.repondre_designation_for_actor(etab, c.cpe.user_id, "eleve", t.groupe_id, true).await.unwrap();
     assert_eq!(ok.statut, "effective");
-    assert_eq!(ok.consequences_proposees, 4, "2 lignes : avoir aux parents et ligne à l'élève");
+    assert_eq!(ok.consequences_proposees, 2, "externe : une seule ligne (scolarité), avoir aux parents + ligne à l'élève");
     let mut tx = ent.pool_verif().begin().await.unwrap();
     let avant = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2030, 12, 31), false).await.unwrap();
     let apres = payeurs::payeurs_a(&mut tx, etab, majeur, "toutes", d(2031, 1, 1), false).await.unwrap();
@@ -1030,8 +1030,6 @@ async fn f1_vue_guichet_du_secretariat() {
     let compte = trouves.iter().find(|x| x.libelle == libelle).unwrap().compte_id;
     // Vue du compte : solde = total, une échéance au moins, un document.
     let vue = ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::RappelNumeroEnregistre).await.unwrap();
-    let dbg: Vec<(String,i64,String)> = sqlx::query_as("SELECT numero, total_centimes, statut FROM ent_fac_facture WHERE etablissement_id=$1").bind(etab).fetch_all(ent.pool_verif()).await.unwrap();
-    eprintln!("DBGF {dbg:?} {:?}", vue.documents);
     assert_eq!(vue.solde_centimes, 1_300_001);
     assert!(!vue.echeances.is_empty());
     assert!(vue.documents.as_ref().is_some_and(|d| d.len() == 1));

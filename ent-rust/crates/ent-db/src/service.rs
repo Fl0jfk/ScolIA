@@ -14807,7 +14807,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: saved.etablissement_id,
-                type_name: types::QUOTIENT_FOYER.to_string(),
+                type_name: types::FACTURATION_QUOTIENT_DEFINI.to_string(),
                 aggregate: AggregateKind::Quotient,
                 aggregate_id: saved.id,
                 eleve_id: None,
@@ -14863,7 +14863,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: planned.etablissement_id,
-                type_name: types::TAUX_TVA.to_string(),
+                type_name: types::FACTURATION_TAUX_TVA_DEFINI.to_string(),
                 aggregate: AggregateKind::Tva,
                 aggregate_id: planned.id,
                 eleve_id: None,
@@ -20201,7 +20201,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: histo.etablissement_id,
-                type_name: types::IBAN_HISTO.to_string(),
+                type_name: types::FACTURATION_IBAN_HISTORISE.to_string(),
                 aggregate: AggregateKind::IbanHisto,
                 aggregate_id: histo.id,
                 eleve_id: None,

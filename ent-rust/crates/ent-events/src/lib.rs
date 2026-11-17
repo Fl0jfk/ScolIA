@@ -252,6 +252,9 @@ pub mod types {
     pub const FACTURATION_TACHE_PAYEUR: &str = "facturation.tache_payeur";
     pub const FACTURATION_PRISE_EN_CHARGE: &str = "facturation.prise_en_charge";
     pub const FACTURATION_GEL: &str = "facturation.gel";
+    pub const FACTURATION_QUOTIENT_DEFINI: &str = "facturation.quotient_defini";
+    pub const FACTURATION_TAUX_TVA_DEFINI: &str = "facturation.taux_tva_defini";
+    pub const FACTURATION_IBAN_HISTORISE: &str = "facturation.iban_historise";
     pub const INFIRMERIE_PASSAGE: &str = "infirmerie.passage";
     pub const INFIRMERIE_FICHE_SANTE: &str = "infirmerie.fiche_sante";
     pub const INFIRMERIE_FICHE_SANTE_PDF: &str = "infirmerie.fiche_sante_pdf";
@@ -501,6 +504,9 @@ pub const ALIAS_FACTURATION: &[(&str, &str)] = &[
     ("fac.relance_proposee", types::FACTURATION_RELANCE_PROPOSEE),
     ("fac.relance_annulee", types::FACTURATION_RELANCE_ANNULEE),
     ("fac.export_comptable", types::FACTURATION_EXPORT_COMPTABLE),
+    ("fac.quotient", types::FACTURATION_QUOTIENT_DEFINI),
+    ("fac.taux_tva", types::FACTURATION_TAUX_TVA_DEFINI),
+    ("fac.iban_histo", types::FACTURATION_IBAN_HISTORISE),
 ];
 
 /// Nom canonique d'un type financier : l'ancien nom `fac.*` / `fin.*` donne le nom
