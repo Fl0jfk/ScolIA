@@ -1027,7 +1027,7 @@ impl PgEnt {
         let resultat = {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let r = self
-                .creer_version_deposee(&mut tx, etab, moi, espace_id, dossier_id, element_cible, &valide.nom, &valide.mime, commentaire.as_deref(), reservation_id, &info, maintenant)
+                .creer_version_deposee(&mut tx, etab, moi, espace_id, dossier_id, element_cible, &valide.nom, valide.mime, commentaire.as_deref(), reservation_id, &info, maintenant)
                 .await;
             match r {
                 Ok(res) => {

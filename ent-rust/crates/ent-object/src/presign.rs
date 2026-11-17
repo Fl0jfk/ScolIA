@@ -1473,7 +1473,7 @@ mod tests_envoi {
             "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
             hex(&Sha256::digest(canonical_request.as_bytes()))
         );
-        let k_date = hmac_raw(format!("AWS4{}", cfg.secret()).as_bytes(), amz_date[..8].as_bytes());
+        let k_date = hmac_raw(format!("AWS4{}", cfg.secret()).as_bytes(), &amz_date.as_bytes()[..8]);
         let k_region = hmac_raw(&k_date, cfg.region.as_bytes());
         let k_service = hmac_raw(&k_region, b"s3");
         let k_signing = hmac_raw(&k_service, b"aws4_request");

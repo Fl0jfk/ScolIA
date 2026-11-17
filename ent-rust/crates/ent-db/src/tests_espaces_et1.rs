@@ -741,7 +741,7 @@ async fn et1_partages_nominatifs_nx32_14_a_16() {
     let recus = ent.espaces_partages_avec_moi(etab, cpe.user_id, role_c, t0()).await.unwrap();
     let mien = recus.iter().find(|x| x.element_id == Some(r.element_id)).expect("partagé avec moi");
     assert!(!mien.vu && mien.nom == nom);
-    assert_eq!(ent.espaces_invitations_non_vues(etab, cpe.user_id, role_c, t0()).await.unwrap().nombre >= 1, true);
+    assert!(ent.espaces_invitations_non_vues(etab, cpe.user_id, role_c, t0()).await.unwrap().nombre >= 1);
     ent.espaces_lien_telechargement(etab, cpe.user_id, role_c, r.element_id, None, t0()).await.unwrap();
     // Le destinataire ne repartage pas, ne renomme pas, ne supprime pas, ne dépose pas (lecture seule).
     let repartage = DemandePartage {
@@ -919,7 +919,7 @@ async fn et1_journal_ajout_seul_et_lecture_encadree() {
     let actions: Vec<&str> = j.iter().map(|l| l.action_code.as_str()).collect();
     assert!(actions.contains(&"espace.cree") && actions.contains(&"membre.ajoute") && actions.contains(&"dossier.cree"), "{actions:?}");
     // Le journal ne contient ni nom de dossier ni texte libre : des codes.
-    assert!(j.iter().all(|l| l.detail_code.as_deref().map_or(true, |d| d.len() <= 80)));
+    assert!(j.iter().all(|l| l.detail_code.as_deref().is_none_or(|d| d.len() <= 80)));
     // Direction : oui pour un espace collectif (droit `espaces.journal.lire`), non pour un espace personnel.
     assert!(ent.espaces_journal(etab, dir.user_id, role_d, espace, 10, t0()).await.is_ok());
     let perso = mon_espace(&ent, etab, prof.user_id, role).await;
