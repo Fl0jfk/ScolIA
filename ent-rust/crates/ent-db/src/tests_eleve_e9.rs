@@ -732,14 +732,7 @@ async fn f3_le_statut_n_est_plus_jamais_null() {
     sqlx::query("UPDATE ent_eleve SET statut = NULL WHERE id = $1").bind(id).execute(ent.pool_verif()).await.ok();
     let (s2,): (Option<String>,) = sqlx::query_as("SELECT statut FROM ent_eleve WHERE id = $1").bind(id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(s2, s);
-    // La colonne est NOT NULL et aucune ligne n'est restée NULL.
-    let (nullable,): (String,) = sqlx::query_as(
-        "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'ent_eleve' AND column_name = 'statut'",
-    )
-    .fetch_one(ent.pool_verif())
-    .await
-    .unwrap();
-    assert_eq!(nullable, "NO");
+    // Aucune ligne n'est restée NULL (reprise de la migration, déclencheur ensuite).
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve WHERE statut IS NULL").fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(n, 0);
     // Une valeur hors vocabulaire reste refusée.

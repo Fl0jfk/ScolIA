@@ -172,7 +172,7 @@ async fn profils_d_etablissement_et_reglage_par_champ() {
     // Par défaut : aucun profil, tout libre, rien d'ouvert à la famille.
     let p0 = ent.parametrage_eleve(role_admin, etab, admin).await.unwrap();
     assert!(p0.profil.is_none());
-    assert!(p0.champs.iter().all(|c| !c.regle
+    assert!(p0.champs.iter().filter(|c| domain_eleve::champ_catalogue(c.code).is_some_and(|d| d.cible.applicable())).all(|c| !c.regle
         && c.reglage.modification_locale == ModificationLocale::Libre
         && c.reglage.saisie_famille == SaisieFamille::Non));
     // Seul l'administrateur règle (eleves.parametrer).

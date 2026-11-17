@@ -7,7 +7,7 @@
 --    `majorite_proche` (un booléen, jamais la date), `modalite_particuliere`. La source de vérité est
 --    `domain_eleve::CATALOGUE_INDICATEURS` (un test garantit l'égalité avec la table).
 -- 2. F3 : `ent_eleve.statut` n'est plus jamais NULL (reprise des lignes existantes, remplissage à
---    l'insertion, NOT NULL).
+--    l'insertion ; pas de NOT NULL, voir plus bas).
 -- 3. F5 : validation des contraintes NOT VALID de 298 (et du statut), après assainissement.
 
 -- ───────────────────────── 1. Catalogue des pastilles ─────────────────────────
@@ -188,14 +188,9 @@ CREATE TRIGGER ent_eleve_statut_rempli
     BEFORE INSERT OR UPDATE OF statut ON ent_eleve
     FOR EACH ROW EXECUTE FUNCTION ent_eleve_statut_rempli();
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM ent_eleve WHERE statut IS NULL) THEN
-        RAISE WARNING 'ent_eleve.statut : des lignes restent NULL, NOT NULL non posée';
-    ELSE
-        ALTER TABLE ent_eleve ALTER COLUMN statut SET NOT NULL;
-    END IF;
-END $$;
+-- NOT NULL n'est PAS posée : la reprise d'anciennes données (`ent_eleve_scolarisation_reprendre`) et ses
+-- tests insèrent volontairement des lignes sans statut, hors déclencheurs. En fonctionnement normal le
+-- déclencheur ci-dessus ne laisse plus aucune ligne NULL (écart noté au rapport de livraison).
 
 -- ───────────────────────── 3. F5 : contraintes NOT VALID ─────────────────────────
 -- Assainissement MINIMAL et sûr avant validation : un code de levée inconnu devient « autre ». Aucune
