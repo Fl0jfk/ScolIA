@@ -127,6 +127,22 @@ const PROFS_SEED: &[&str] = &[
 impl PgEnt {
     /// Crée un établissement jetable + école dense qui se teste entre elle.
     pub async fn seed_labo_cast(&self) -> Result<LaboCast, EntDbError> {
+        // Tests : un rejeu de migrations (`rejouer_tout`, DDL en verrou exclusif sur les tables) lancé par un test
+        // voisin pendant le semis formait un cycle de verrous avec les écritures du semis (« deadlock detected »,
+        // `Reessayer` ou `Infrastructure`). Le semis tient donc le verrou de rejeu **partagé** : aucun rejeu
+        // ne s'intercale, les semis entre eux ne se gênent pas.
+        #[cfg(test)]
+        {
+            let garde = crate::migrate::garde_rejeu_partagee(self.pool_verif()).await;
+            let r = self.seed_labo_cast_sous_garde().await;
+            garde.liberer().await;
+            r
+        }
+        #[cfg(not(test))]
+        self.seed_labo_cast_sous_garde().await
+    }
+
+    async fn seed_labo_cast_sous_garde(&self) -> Result<LaboCast, EntDbError> {
         let etab = Uuid::new_v4();
         // Le semis joue des gestes de santé / psychologie : le verrou « module santé » (D-02,
         // audit n° 1) est levé le temps du semis, puis l'établissement revient à l'état par

@@ -397,13 +397,16 @@ async fn i2_reprise_idempotente() {
         let pool = ent.pool_verif().clone();
         async move {
             let v: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
-                "SELECT (SELECT count(*) FROM ent_inscription_offre),
-                        (SELECT count(*) FROM ent_inscription_demarche),
-                        (SELECT count(*) FROM ent_inscription_declaration_responsable),
-                        (SELECT count(*) FROM ent_inscription_decision),
-                        (SELECT count(*) FROM ent_inscription_voeu),
-                        (SELECT count(*) FROM ent_inscription_reprise_rapport)",
+                // Comptés dans l'établissement du test : les tests voisins, en parallèle, écrivent dans les
+                // mêmes tables (autres établissements) et faussaient un décompte global entre deux reprises.
+                "SELECT (SELECT count(*) FROM ent_inscription_offre WHERE etablissement_id = $1),
+                        (SELECT count(*) FROM ent_inscription_demarche WHERE etablissement_id = $1),
+                        (SELECT count(*) FROM ent_inscription_declaration_responsable WHERE etablissement_id = $1),
+                        (SELECT count(*) FROM ent_inscription_decision WHERE etablissement_id = $1),
+                        (SELECT count(*) FROM ent_inscription_voeu WHERE etablissement_id = $1),
+                        (SELECT count(*) FROM ent_inscription_reprise_rapport WHERE etablissement_id = $1)",
             )
+            .bind(etab)
             .fetch_one(&pool)
             .await
             .unwrap();
