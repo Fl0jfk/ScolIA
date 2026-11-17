@@ -440,7 +440,7 @@ async fn creer_demande_tx(
     sqlx::query(
         "INSERT INTO ent_inscription_envoi
             (id, etablissement_id, dossier_id, cle, kind, destinataire, sujet, corps, accord_demande_id)
-         VALUES ($1,$2,$3,$4,'accord',$5,$6,$7,$8)",
+         VALUES ($1,$2,$3,$4,'information',$5,$6,$7,$8)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -1074,7 +1074,7 @@ impl PgEnt {
         sqlx::query(
             "INSERT INTO ent_inscription_envoi
                 (id, etablissement_id, dossier_id, cle, kind, destinataire, sujet, corps, accord_demande_id)
-             VALUES ($1,$2,$3,$4,'accord_code',$5,$6,$7,$8)",
+             VALUES ($1,$2,$3,$4,'information',$5,$6,$7,$8)",
         )
         .bind(Uuid::new_v4())
         .bind(etab)

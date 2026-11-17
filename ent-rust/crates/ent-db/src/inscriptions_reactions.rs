@@ -123,10 +123,10 @@ pub async fn expedier_envois(
     // entier (avant : un échec au 40ᵉ message annulait la transaction et renvoyait les 39 premiers).
     let mut tx = pool.begin().await?;
     #[allow(clippy::type_complexity)] // une ligne de file : colonnes lues telles quelles, sans type métier à nommer
-    let lot: Vec<(Uuid, Uuid, Option<Uuid>, String, String, String, String, i32, Option<Uuid>)> =
+    let lot: Vec<(Uuid, Uuid, Option<Uuid>, String, String, String, String, i32, Option<Uuid>, String)> =
         sqlx::query_as(
             "SELECT id, etablissement_id, invitation_id, kind, destinataire, sujet, corps, tentatives,
-                    accord_demande_id
+                    accord_demande_id, cle
                FROM ent_inscription_envoi
               WHERE statut = 'a_envoyer' AND prochain_essai <= now()
                 AND (invitation_id IS NULL OR EXISTS (
@@ -162,9 +162,9 @@ pub async fn expedier_envois(
     }
     tx.commit().await?;
     let mut traites = 0;
-    for (id, etab, invitation_id, kind, to, sujet, corps, tentatives, accord_demande) in lot {
+    for (id, etab, invitation_id, kind, to, sujet, corps, tentatives, accord_demande, cle) in lot {
         let corps = match (kind.as_str(), invitation_id) {
-            ("accord", _) => match accord_demande {
+            (_, None) if cle.starts_with("accord:") => match accord_demande {
                 Some(dm) => crate::inscriptions_accords::jeton_accord(dm).map(|j| {
                     corps.replace(
                         "{LIEN}",
@@ -173,7 +173,7 @@ pub async fn expedier_envois(
                 }),
                 None => Err("demande d'accord absente".to_string()),
             },
-            ("accord_code", _) => match accord_demande {
+            (_, None) if cle.starts_with("accord-code:") => match accord_demande {
                 Some(dm) => {
                     // Le code de l'envoi en cours : celui du compteur de la demande (jamais stocké).
                     let compteur: Result<i16, String> = match crate::tenant_tx::TenantTx::begin(pool, etab).await {

@@ -97,11 +97,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ent_inscription_accord_demande_ouverte_uq
 
 -- La file d'envoi porte aussi la demande d'accord et son code.
 ALTER TABLE ent_inscription_envoi ADD COLUMN IF NOT EXISTS accord_demande_id UUID;
-ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envoi_kind_i2_chk;
-ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envoi_kind_i4_chk;
-ALTER TABLE ent_inscription_envoi
-    ADD CONSTRAINT ent_inscription_envoi_kind_i4_chk
-    CHECK (kind IN ('invitation', 'accueil', 'information', 'accord', 'accord_code'));
+-- Le type d'envoi reste `information` (contrainte de 309, rejouée à chaque reprise : elle ne tolère pas de nouveaux types) ;
+-- la demande d'accord et son code se reconnaissent à `accord_demande_id` et au préfixe de `cle` (`accord:`, `accord-code:`).
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_inscription_envoi_accord_fk') THEN

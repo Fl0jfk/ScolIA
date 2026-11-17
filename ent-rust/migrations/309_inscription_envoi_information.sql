@@ -5,7 +5,7 @@ ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envo
 ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envoi_kind_i2_chk;
 ALTER TABLE ent_inscription_envoi
     ADD CONSTRAINT ent_inscription_envoi_kind_i2_chk
-    CHECK (kind IN ('invitation', 'accueil', 'information', 'accord', 'accord_code'));
+    CHECK (kind IN ('invitation', 'accueil', 'information'));
 ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envoi_statut_check;
 ALTER TABLE ent_inscription_envoi DROP CONSTRAINT IF EXISTS ent_inscription_envoi_statut_i2_chk;
 ALTER TABLE ent_inscription_envoi
