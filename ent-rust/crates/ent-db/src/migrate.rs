@@ -531,6 +531,28 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
     Ok(())
 }
 
+/// Gardes de rejeu (test seulement) : ordres exécutés **juste avant** le rejeu d'un fichier, dans `rejouer_tout`.
+///
+/// Un rejeu rejoue 644 après 648. Or 644 recrée `ent_sortie_document_type_v0c_chk` (6 types) quand elle est
+/// absente, et 648 l'a supprimée en posant `ent_sortie_document_type_v1_chk` : sur une base qui contient déjà un
+/// document de type V1 (`ordre_mission`, `autorisation_adulte`, `liste_nominative`), l'ADD de 644 échouait. La garde
+/// pose une contrainte factice du même nom, la garde de 644 saute alors son bloc, et 648 la supprime ensuite.
+/// Les migrations ne sont pas modifiées (règle 25) ; la production n'exécute jamais ce tableau.
+///
+/// **Tout futur couple « migration qui recrée une contrainte qu'une migration plus récente remplace » doit être
+/// ajouté ici** (fichier concerné, ordre SQL idempotent, cause).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+const GARDES_DE_REJEU: &[(&str, &str)] = &[(
+    "644_sortie_prestataires",
+    "DO $$ BEGIN
+        IF to_regclass('ent_sortie_document') IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_sortie_document_type_v0c_chk') THEN
+            ALTER TABLE ent_sortie_document ADD CONSTRAINT ent_sortie_document_type_v0c_chk CHECK (true);
+        END IF;
+    END $$",
+)];
+
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
 /// données (« legacy » insérées après coup) que les fichiers de reprise savent absorber.
 #[cfg(test)]
@@ -558,6 +580,11 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
     for (nom, sql) in MIGRATIONS {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
             continue;
+        }
+        for (fichier, garde) in GARDES_DE_REJEU {
+            if fichier == nom {
+                sqlx::query(garde).execute(&mut verrou).await?;
+            }
         }
         apply_sql_file(pool, sql).await?;
     }

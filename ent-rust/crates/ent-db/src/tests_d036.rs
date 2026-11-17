@@ -251,3 +251,48 @@ async fn un_fichier_en_echec_ne_laisse_aucune_trace() {
     drop(ent);
     supprimer_base(&admin, &nom).await;
 }
+
+/// Garde de rejeu 644 / 648 : sur une base qui contient un document de sortie de type V1, `rejouer_tout`
+/// (deux fois) réussit, la contrainte `_v1_chk` reste en place et la contrainte factice `_v0c_chk` a disparu.
+#[tokio::test]
+async fn rejeu_644_648_avec_document_v1_garde_la_contrainte_v1() {
+    let Some(ent) = base().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    let pool = ent.pool();
+    let etab = Uuid::new_v4();
+    let doc = Uuid::new_v4();
+    // Insertion d'un document V1 hors contraintes de clé étrangère (rôle de réplication : triggers et FK
+    // inactifs), retiré à la fin de la même façon (la table est en ajout seul).
+    let mut c = pool.acquire().await.unwrap();
+    sqlx::query("SET session_replication_role = replica").execute(&mut *c).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ent_sortie_document (id, etablissement_id, sortie_id, type, cle_objet, nom, taille, sha256)
+         VALUES ($1, $2, $3, 'ordre_mission', 'cle', 'ordre.pdf', 1, repeat('a', 64))",
+    )
+    .bind(doc)
+    .bind(etab)
+    .bind(Uuid::new_v4())
+    .execute(&mut *c)
+    .await
+    .unwrap();
+    // Sans la garde, le rejeu échouait ici (ADD de la contrainte à 6 types sur une ligne V1).
+    let rejeu = async {
+        crate::migrate::rejouer_tout(pool).await.unwrap();
+        crate::migrate::rejouer_tout(pool).await.unwrap();
+    };
+    rejeu.await;
+    let contraintes: Vec<(String,)> = sqlx::query_as(
+        "SELECT conname::text FROM pg_constraint
+          WHERE conrelid = 'ent_sortie_document'::regclass AND conname LIKE 'ent_sortie_document_type%'
+          ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM ent_sortie_document WHERE id = $1").bind(doc).execute(&mut *c).await.unwrap();
+    sqlx::query("SET session_replication_role = DEFAULT").execute(&mut *c).await.unwrap();
+    assert_eq!(
+        contraintes.into_iter().map(|x| x.0).collect::<Vec<_>>(),
+        vec!["ent_sortie_document_type_v1_chk".to_string()],
+        "seule la contrainte V1 subsiste (la factice a été retirée par 648)"
+    );
+}
