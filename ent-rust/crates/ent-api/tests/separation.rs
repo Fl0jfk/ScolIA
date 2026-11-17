@@ -797,6 +797,12 @@ fn specs_domaine_finances_comptes() -> Vec<Spec> {
 
 #[test]
 fn domaine_finances_comptes() {
+    // Non-vacuité (M10) : le seed fournit de vrais compte, groupe et tâche à A **et** à B.
+    if let Some(m) = monde() {
+        for (nom, o) in [("A", &m.a.objets), ("B", &m.b.objets)] {
+            assert!(o.compte.is_some() && o.groupe.is_some() && o.tache.is_some(), "{nom} : objets financiers manquants");
+        }
+    }
     jouer("finances : comptes, payeurs, conséquences", &specs_domaine_finances_comptes());
 }
 

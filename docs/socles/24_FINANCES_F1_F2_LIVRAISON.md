@@ -63,6 +63,37 @@ Branche `ent-socle-24-code-f1f2` (partie de `origin/ENT`, fusionnée avec E7-E8 
 ## 4 ter. Préalables explicites (écart 3)
 Le **gel au décès (FAC-209 / CF-10) doit passer avant toute relance automatique en production**. Recalcul des brouillons avant F4 ; intégration « à faire » des tâches.
 
+## 4 quater. Correctifs de la revue de sécurité indépendante (PR 97)
+
+Aucun critique, pas de fuite entre établissements. Un test par correctif (`tests_finances_f2.rs`, `separation.rs`, `garde_finances_ecritures.rs`).
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| E1 | La demande de répartition d'un parent ne fuit plus vers l'autre : la tâche porte le compte du **demandeur** (clé d'idempotence par demandeur), la réponse à la famille est un **accusé neutre** (`AccuseDemandeDto` : id et statut), jamais le commentaire | `e1_demande_de_repartition_ne_fuit_pas_entre_parents` |
+| E2 | Une part portée par un compte `organisme` exige une prise en charge **active** couvrant la date et la catégorie ; sinon l'organisme n'est pas facturé, tâche `part_non_couverte`, rien sur la famille (échue / annulée / hors période = blocage) | `e2_m1_organisme_sans_prise_en_charge_active_n_est_pas_facture` |
+| E3 | Guichet : quota quotidien par agent (30 par défaut, paramétrable 1–1000 par `POST /finances/guichet/quota`, droit `parametrer`), recherches et ouvertures confondues ; au-delà : refus, journal `guichet.quota_depasse`, tâche d'alerte `guichet_quota` pour la direction ; recherche par **nom et prénom complets**, correspondance exacte (sans `ILIKE`), 5 résultats au plus ; `GET …/payeurs` reste fermé au rôle guichet seul (aucun `compte_id` hors désignation ou ouverture journalisée) | `e3_quota_du_guichet_et_alerte_a_la_direction`, `f1_vue_guichet_du_secretariat` |
+| E4 | Garde R-F1 : retire seulement les blocs `#[cfg(test)]` (accolades équilibrées), plus tout ce qui suit le premier ; test de la garde elle-même | `la_garde_analyse_le_code_apres_un_bloc_de_tests` |
+| M1 | `POST …/prises-en-charge/alertes` ignore tout jour fourni (jour de l'établissement) ; réactivation journalisée d'une prise en charge échue (`…/{id}/reactiver`, motif obligatoire, fin future) | `e2_m1_…` |
+| M2 | Plafond calculé **prise en charge par prise en charge** (catégories et période propres), jamais additionné ; verrou du foyer avant la lecture du restant ; `CHECK plafond_centimes ≤ 1 000 000 000` ; arithmétique contrôlée | `m2_plafond_par_prise_en_charge_jamais_additionne` |
+| M3 | Reste **signé** pour les lignes de réduction ; verrou du foyer avant `lignes_existantes` | `cf_03_…` (régression) |
+| M4 | « jugement » / « convention » exigent un document existant dans l'établissement ; « accord des deux » n'ouvre jamais la répartition seul (les deux acceptations restent exigées) ; un compte désigné est lié à l'élève, ou organisme avec prise en charge ; pas de règle à deux personnes (noté pour Florian) | `m4_pieces_et_comptes_designes_controles` |
+| M5 | L'élève n'accède au compte et n'accepte que s'il est majeur **aujourd'hui** et la date d'effet atteinte | `m5_eleve_mineur_n_accede_ni_n_accepte`, `fd_15_…` |
+| M6 | Plus de dérogation par `current_setting('ent.purge_etablissement')` : fonction `ent_fin_purger_etablissement` (SECURITY DEFINER, exécution retirée à PUBLIC) ; `BEFORE TRUNCATE` sur les tables F2 | `m6_journal_et_historique_sans_derogation_de_session` |
+| M7 | **Liste blanche** de clés dans les charges d'événements financiers (`cle_autorisee`) en plus de la liste noire : plus de `deja_plus_ce`, `reste`, IBAN masqué | `payload_neutre_retire_…`, `f1_journal_evenements_…` |
+| M8 | Dossier : dès qu'une répartition à plusieurs payeurs change, une tâche `repartition_incomplete` au lieu d'une répartition rendue effective | `m8_dossier_changement_entre_plusieurs_payeurs_ouvre_une_tache` |
+| M9 | Reprise : le reste de la division va au premier payeur ; élèves aux parts invalides comptés « à vérifier » (`eleves_a_verifier`) ; adaptateur des liens renormalisé à 100 % | `m9_reprise_reste_au_premier_et_eleves_a_verifier` |
+| M10 | Séparation : de **vrais** compte, groupe et tâche de B, corps valides, refus exact 401/403/404 ; test inter-établissements réel (second jeu de labo) sans effet en base | `domaine_finances_comptes`, `m10_acces_inter_etablissements_refuse_sans_effet` |
+| F1 | Documents du guichet : liste blanche (Administratif ou `facturation.lire`) | — |
+| F2 | Référence d'une prise en charge masquée pour le secrétariat | `e2_m1_…` |
+| F3 | `mes-comptes` : DTO réduit (`MonCompteDto`) | `fd_15_…` |
+| F4 | Plus de relecture sans filtre après `ON CONFLICT DO NOTHING` (accusé filtré sur le demandeur) | `e1_…` |
+| F5 | SIRET obligatoire pour Chorus Pro | `organisme_payeur_siret_controle_et_unique` |
+| F7 | Bornes (8 payeurs, 8 catégories dédoublonnées) | `f7_repartition_bornee_a_huit_payeurs` |
+| F8 | `.export()` sur journal et tâche (registre) ; purge et déclencheur cohérents | `registre` |
+| F6 | **À noter pour plus tard** (non traité dans ce lot) | — |
+
+Migration 522 modifiée dans le même lot (jamais fusionnée) : nature de tâche `guichet_quota`, colonne `ent_fin_parametres.guichet_quota_jour`, plafond ≤ 10 M€, `eleves_a_verifier`, reste de la reprise, déclencheurs sans dérogation, `ent_fin_purger_etablissement`.
+
 ## 5. Vérifications (locales)
 
 Formatage (2 commandes du job « Formatage »), clippy 1.99.0 sans avertissement (workspace, `--features ent-api/labo,ent-lab/labo`, `-p ent-types`), tests : `tests_finances`, `tests_finances_f2` (23 scénarios : CF-01, 02, 03, 16, 17, 74, 75, 82, 83, 84, FD-15, MIG-4/CF-09, journal, alias, droits fins, guichet, isolation), RLS, conservation, extrait de la personne, registre, rôles, fusion, `isolation_sql_statique`, gardes R-F1, `separation`, `recette_securite_3`, golden historique, `recette_finances_f0`.
