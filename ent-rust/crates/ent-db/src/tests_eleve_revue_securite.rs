@@ -643,3 +643,77 @@ async fn m3_adresse_protegee_ferme_les_personnes_liees_aux_non_g6() {
     ent.lever_confidentialite_a(rdir, etab, dir, e.id, "fin_de_mesure", plus(5)).await.unwrap();
     assert!(ent.personnes_en_conflit(etab, adm, radm, &[personne]).await.unwrap().is_empty(), "levée");
 }
+
+// ───────────────────────────── Pastille `interne` pour la vie scolaire et l'accueil ─────────────────────────────
+
+/// Décision du pilote : `interne` est une information d'organisation, visible de la vie scolaire
+/// (CPE) et de l'accueil ; PAI reste réservé à `sante.lire` ; rien d'autre ne s'ouvre pour eux
+/// (ni les pastilles d'identifiants, ni « redoublant », ni les tuiles identité, santé, protection).
+#[tokio::test]
+async fn interne_visible_de_la_vie_scolaire_et_de_l_accueil_sans_rien_ouvrir_d_autre() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    ent.activer_module_sante_test(etab).await;
+    let e = eleve(&ent, etab, "Interne").await;
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    ent.changer_regime_ou_site(
+        Role::Administratif.as_str(),
+        crate::scolarite::ChangementRegimeSite {
+            etablissement_id: etab,
+            eleve_id: e.id,
+            kind: domain_eleve::AttributKind::Regime,
+            valeur: "interne".into(),
+            date_effet: jour - Duration::days(3),
+            derogation: None,
+            acteur: cast.administratif.user_id,
+        },
+    )
+    .await
+    .unwrap();
+    ent.enregistrer_pai_for_actor(
+        Role::Infirmerie.as_str(),
+        domain_eleve::UpsertPai {
+            etablissement_id: etab,
+            eleve_id: e.id,
+            motif: "allergie".into(),
+            mesures_accueil: "trousse".into(),
+            protocole_urgence: "appeler le 15".into(),
+            note_interne: String::new(),
+            date_debut: jour - Duration::days(10),
+            date_fin: None,
+            actif: true,
+            actor_user_id: cast.infirmieres[0].user_id,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    distribuer(&ent, etab).await;
+    ent.reconstruire_indicateurs(etab, None, Some(jour)).await.unwrap();
+    let accueil = crate::tests_messagerie_m1::nouvel_utilisateur(&ent, etab, "accueil", "Accueil").await;
+    let codes = |s: &crate::eleve_indicateurs::SyntheseEleve| -> Vec<&'static str> { s.pastilles.iter().map(|p| p.code).collect() };
+    // Vie scolaire (CPE) et accueil : `interne`, rien d'autre.
+    for (u, role) in [(user(&cast, Role::Cpe).0, Role::Cpe.as_str()), (accueil, Role::Accueil.as_str())] {
+        let s = ent.synthese_eleve_pour_acteur(role, etab, u, e.id).await.unwrap_or_else(|x| panic!("{role} : {x:?}"));
+        assert_eq!(codes(&s), ["interne"], "{role} : seulement `interne`");
+        for t in &s.tuiles {
+            let ouverte = matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible);
+            assert_eq!(ouverte, t.domaine == "scolarite", "{role} : tuile {}", t.domaine);
+        }
+        let l = ent.eleves_par_pastille_pour_acteur(role, etab, u, "interne", 100).await.unwrap();
+        assert!(l.contains(&e.id), "{role} : liste des internes");
+        let pai = ent.eleves_par_pastille_pour_acteur(role, etab, u, "pai_actif", 100).await;
+        assert!(forbidden(&pai) || pai.is_ok_and(|l| l.is_empty()), "{role} : PAI fermé");
+    }
+    // Les autres rôles sans droit sur le régime ne la voient toujours pas ; l'infirmerie voit le PAI seulement.
+    let (compta, rcompta) = user(&cast, Role::Compta);
+    if let Ok(s) = ent.synthese_eleve_pour_acteur(rcompta, etab, compta, e.id).await {
+        assert!(!codes(&s).contains(&"interne") && !codes(&s).contains(&"pai_actif"), "compta : {:?}", codes(&s));
+    }
+    let s = ent.synthese_eleve_pour_acteur(Role::Infirmerie.as_str(), etab, cast.infirmieres[0].user_id, e.id).await.unwrap();
+    assert!(codes(&s).contains(&"pai_actif") && !codes(&s).contains(&"interne"), "infirmerie : {:?}", codes(&s));
+    // La direction voit les deux.
+    let (dir, rdir) = user(&cast, Role::Direction);
+    let s = ent.synthese_eleve_pour_acteur(rdir, etab, dir, e.id).await.unwrap();
+    assert!(codes(&s).contains(&"interne") && codes(&s).contains(&"pai_actif"));
+}

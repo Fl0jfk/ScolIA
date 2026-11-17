@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ent_catalogue_indicateur (
 );
 
 INSERT INTO ent_catalogue_indicateur (code, domaine, libelle, icone, gravite, actions_requises, depend_du_temps) VALUES
-    ('interne', 'scolarite', 'Interne', 'lit', 'information', ARRAY['eleves.lire', 'internat.gerer']::TEXT[], true),
+    ('interne', 'scolarite', 'Interne', 'lit', 'information', ARRAY['eleves.lire', 'internat.gerer', 'edt.maintenant_lire']::TEXT[], true),
     ('pai_actif', 'sante', 'PAI en cours', 'croix', 'alerte', ARRAY['sante.lire']::TEXT[], true),
     ('sans_ine', 'identifiants', 'Sans INE', 'identifiant', 'attention', ARRAY['eleves.identifiants.lire']::TEXT[], false),
     ('ine_conteste', 'identifiants', 'INE contesté', 'identifiant', 'alerte', ARRAY['eleves.identifiants.lire']::TEXT[], false),

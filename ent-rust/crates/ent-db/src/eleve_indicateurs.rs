@@ -201,7 +201,11 @@ impl PgEnt {
         if !parsed.is_staff() {
             return Err(EntDbError::Forbidden);
         }
-        if !self.autoriser_eleve(etab, acteur, role, Action::ElevesAnnuaire, eleve).await? {
+        // L'accueil n'a pas l'annuaire mais lit « maintenant » : il atteint la synthèse (seule la
+        // tuile « scolarité », donc la pastille `interne`, s'ouvre pour lui).
+        if !self.autoriser_eleve(etab, acteur, role, Action::ElevesAnnuaire, eleve).await?
+            && !self.autoriser_eleve(etab, acteur, role, Action::EdtMaintenantLire, eleve).await?
+        {
             return Err(DomainError::NotFound.into());
         }
         self.exiger_eleve_visible(etab, acteur, role, eleve).await?;

@@ -79,7 +79,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         libelle: "Interne",
         icone: "lit",
         gravite: Gravite::Information,
-        actions_requises: &["eleves.lire", "internat.gerer"],
+        actions_requises: &["eleves.lire", "internat.gerer", "edt.maintenant_lire"],
         evenements: &["eleve.regime_changed"],
         depend_du_temps: true,
     },
@@ -254,7 +254,7 @@ pub const CONTRATS_TUILES: &[ContratTuile] = &[
     ContratTuile {
         domaine: "scolarite",
         libelle: "Scolarité",
-        actions_requises: &["eleves.lire", "internat.gerer"],
+        actions_requises: &["eleves.lire", "internat.gerer", "edt.maintenant_lire"],
         lien: "/web/eleves/{eleve}/scolarite",
         personnel_seul: false,
         rang: 30,

@@ -44,7 +44,7 @@ Recalculés après fusion d'`origin/ENT` (96c287c5, socle 18 FO2-FO3), règle 28
 3. **Paramétrage photo / e-mail / mobile par champ** (`ent_param_eleve_champ`) : le catalogue E5 est limité à l'identité ; la famille et l'élève peuvent toujours proposer (validation humaine obligatoire pour la photo, code pour la coordonnée). À trancher : ajouter ces champs au catalogue E5.
 4. **Conservation des anciennes photos (N mois)** : aucune purge exécutée (durées à valider par le DPO).
 5. **Effets hors socle 2** de `adresse_protegee` et de l'envoi de messages (socle 4) et exports nominatifs (E11) : fournis seulement `eleves_hors_export` et le filtrage ; l'exportateur doit les appeler.
-6. **Pastille `interne`** : action `eleves.lire` ou `internat.gerer` ; la CPE et l'accueil ne la voient donc pas par défaut (cohérent avec l'écart n° 1 d'E1). Pastille PAI : `sante.lire` seulement (pas de pastille neutre « protocole »).
+6. **Pastille `interne`** : visible de la vie scolaire (CPE) et de l'accueil (décision du pilote, information d'organisation) : actions `eleves.lire`, `internat.gerer` ou `edt.maintenant_lire` (aucune action nouvelle ; ce dernier droit est détenu par direction, secrétariat, CPE et accueil). La tuile « scolarité » suit la même règle (E2) ; l'accueil atteint la synthèse par ce même droit, avec la seule tuile « scolarité » ouverte. PAI reste réservé à `sante.lire` (pas de pastille neutre « protocole »). Test : `interne_visible_de_la_vie_scolaire_et_de_l_accueil_sans_rien_ouvrir_d_autre`. La migration 299 (propre à ce lot, non encore versée sur ENT) a été modifiée en conséquence ; une base locale déjà migrée doit être remise à jour.
 7. **Lecture des coordonnées par le personnel** : `eleves.identite.modifier` (Admin, Direction, Administratif), pas G2 (l'infirmerie ne les lit pas).
 8. **Audit** : `audit.lire` est détenu par Administratif en plus de Admin et Direction.
 9. Les pastilles ne dépendent que des tables existantes ; `nouvel_arrivant`, `arrive_en_cours_annee`, `majorite_proche`, `modalite_particuliere` (R-E9) restent à ajouter au catalogue.
@@ -64,7 +64,7 @@ Local, PostgreSQL 16, `--test-threads=1`, Rust **1.99.0** :
 - (a) **Oui** : `photo`, `email_eleve` et `mobile_eleve` entrent au catalogue E5 — lot suivant (avec E9).
 - (b) **Oui** à une pastille neutre « protocole » pour la vie scolaire : elle signale qu'un protocole existe et qu'il faut s'adresser à l'infirmerie, sans aucun contenu de santé — lot suivant.
 - (c) **Oui** à un lot dédié pour ELV-44 et ELV-46 ; plage de migrations réservée au lancement du lot.
-- Écart 6 : la pastille `interne` devra être visible de la vie scolaire (CPE) et de l'accueil (information d'organisation) ; PAI reste réservé à `sante.lire`. **Non fait dans ce lot** : à appliquer seulement si la revue de sécurité indépendante ne demande rien d'autre, sinon avec ses retours.
+- Écart 6 : la pastille `interne` est visible de la vie scolaire (CPE) et de l'accueil ; PAI reste réservé à `sante.lire`. **Fait** (voir écart 6, §4).
 
 ## 7. Correctifs de la revue de sécurité indépendante (2 critiques, 6 élevés, 6 moyens, 1 faible)
 Un test par point, dans `ent-db/src/tests_eleve_revue_securite.rs` (14 tests) et `ent-api/tests/separation.rs` (E6, paramétré). Niveau : implémenté, testé en local ; la CI fait foi.
