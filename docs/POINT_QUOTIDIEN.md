@@ -6,6 +6,70 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-17 (mardi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT (validé par la CI)** — dernière tête verte : 79b41ca3 (run 359) :
+- Socle 15 **A4bis** : un remplacement s'organise sans attendre la validation de l'absence ; mention « répond rarement aux sollicitations ».
+- **CI** : les tests du serveur web passent contre le vrai backend. C'est le trou découvert hier : sept fichiers de tests ont été remis en état.
+- Socle 28 **R2** : zone de reprise des données Next.js, avec décodage strict, correspondance et simulation.
+- Socle 7 **D6** : brique de signature en maison (passkey, code SMS, guichet, papier, preuve chaînée, horodatage RFC 3161, parapheur). La revue de sécurité a été corrigée : 4 défauts élevés et 7 moyens.
+- Socle 3 **I3-I4** (inscriptions) : vraies pièces justificatives et accords des responsables.
+- Socle 32 **ET0-ET1** : espace documents des personnels, avec une faille inter-établissements corrigée avant versement.
+- Socle 18 **FO2-FO3** : création de formulaires, accords sur objets et dossier de preuve.
+- **Fiabilité des tests** : plus d'heure réelle dans AS6 et AG0, interblocages du rejeu corrigés, test adapté à PostgreSQL 18.
+- **Veille du pilote** : la CI commente son résultat sur une pull request. Je suis réveillé à la fin d'un run, sans rondes à vide.
+- Compteurs : 253 actions, 63 sources de routes.
+
+**Prêt mais pas encore sur ENT** :
+- Socle 2 **E7-E8** est poussé sur ENT (47a5be1e), le run 362 est en cours. Contenu : confidentialité de l'élève protégé, photos, coordonnées vérifiées, pastilles et synthèse.
+- La revue de sécurité avait relevé 2 défauts critiques et 6 élevés, tous corrigés avec un test chacun. Le test vérifie aussi que toutes les routes `/eleves/{id}/*` répondent 404 à un tiers.
+
+**En cours** (2 sessions au plus, ta décision de ce matin) :
+- Socle 24 **F1-F2** (finances) : service financier unique, comptes débiteurs et payeurs. C'est le préalable de l'argent des voyages (V2).
+- La session s'est déconnectée vers 16 h, en fin de vérification (54 tests sur 55). Je l'ai relancée.
+- La seconde place se libère dès le verdict du run 362.
+
+**Conçu mais pas codé (prochains)** :
+- Socle 2 : suite E9, catalogue des données de l'élève (photo, e-mail, mobile), pastille neutre « protocole », ELV-44 et ELV-46.
+- Voyages V2, après F1-F2.
+- Reprise R7 et R10.
+- Écrans AS14d-f.
+- Écrans du cœur pour la démo de début décembre.
+- **D-067 (ta décision d'aujourd'hui)** : jiff remplace chrono, avec sqlx 0.9, pendant un gel vers le 7 décembre, après la démo.
+
+**Tableau d'avancement par socle** (versé sur ENT ; nouveautés du jour en gras) :
+
+| Socle | Versé | Suivant |
+|---|---|---|
+| 2 Élève | E0 à E6, **E7-E8 (run en cours)** | E9, catalogue E5, pastille « protocole » |
+| 3 Inscriptions | I0 à **I4** | suite du socle |
+| 7 Documents | D0 à D5b, **D6 signature** | M3, M4, M9, M10 ; validation CMS du jeton d'horodatage |
+| 12 Assiduité | AS0 à AS6, AS14a-c | AS14d-f |
+| 15 Absences des personnels | A0 à A11c, **A4bis** | A11d-f |
+| 18 Formulaires | FO0 à **FO3** | suite du socle |
+| 24 Finances | — | **F1-F2 en cours** |
+| 28 Reprise | MS0, R0, R1, **R2** | R7, R10 |
+| 32 Espaces des personnels | **ET0-ET1** | suite du socle |
+| 42 Voyages | V0 à V1 | V2 après F1-F2 |
+
+**Décisions attendues de toi** :
+- Ordre de la file du matin (AS6, 9 niveaux) : toujours ouvert.
+- Pour le DPO plus tard, pas pour toi tout de suite : conservation de 12 mois pour `mes.reprise`, et masquage des petits effectifs (moins de 3).
+
+**À fournir par toi plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) :
+- Rien d'urgent.
+- Prochain besoin : l'**export anonymisé de Next.js**, après la livraison de l'outil d'anonymisation (R1, le 4 décembre).
+- Plus tard : exports Charlemagne (F-01 à F-04), liste et exemples SIECLE/STS (F-05, F-07), démarche éditeur (F-06).
+- Le conteneur et la base séparés chez Scaleway (F-08) ne sont plus d'actualité depuis D-064.
+
+**Ce qui a coincé** :
+- **Run 350 rouge** (FO2-FO3) : un test de rejeu était trop strict sous PostgreSQL 18, qui compte aussi les NOT NULL parmi les contraintes. Corrigé (run 358 vert).
+- Des échecs dus à la seule machine de CI qui démarrait mal, résolus en relançant le job.
+- **Avertissement d'audit sur chrono**, devenu « non maintenu » : il ne s'agit pas d'une faille. Exception datée en attendant D-067.
+- **Trou dans la règle 35** : une CI verte sur une pull request ne réveillait personne. Comblé par le job `veille-pilote-pr`.
+- La session E7-E8 a refusé une fusion demandée par message ; je l'ai faite moi-même.
+- Ma vérification locale d'E7-E8 a dépassé son temps. Le code versé est identique à celui que la CI de la pull request avait validé.
+
 ## 2026-11-16 (lundi soir, 19 h Paris) — point du jour (complète celui de 15 h 30)
 
 **Sur ENT (validé par la CI)** — ENT = 8c504089 (run 324 vert) :
