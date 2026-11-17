@@ -195,3 +195,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Nouvelle session : socle 2 E9** (session_01KZCbFFb88g8sg1K1KdSSfw, branche ent-socle-2-code-e9). Partie 1, suites d'E7-E8 : catalogue E5, pastille « protocole », pastilles R-E9, M7, F2 à F5. Partie 2 : écrans E9a et E9b pour la démo. **Plage de migrations réservée : 3200-3219.**
   - Session F1-F2 relancée : elle s'était déconnectée vers 15 h 07 UTC.
   - **Sessions qui codent : F1-F2 et E9** (2 sur 2).
+- **17-11, 20 h 10 UTC, E9** :
+  - **PR 96 en brouillon.** La partie 1 est testée en local (migration 3200). La partie 2 (écrans) n'est pas encore validée : pas de versement, et le pilote est abonné.
+  - Réponses du pilote :
+    - F3 : pas de NOT NULL (NULL = pas encore scolarisé), mais un CHECK sur les valeurs.
+    - Pastille « protocole » : visible des enseignants de l'élève et du PP, pas de l'accueil. **À signaler au DPO.**
+    - Pastilles d'arrivée et `modalite_particuliere` : visibles du PP et des enseignants par une portée pédagogique minimale. `majorite_proche` reste à l'administration et à la vie scolaire.
