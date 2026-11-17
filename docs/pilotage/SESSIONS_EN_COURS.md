@@ -144,3 +144,12 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - le seuil des 200 compte les élèves ;
     - G confirmé et P contrôlé sont retenus comme preuve, jamais G0.
   - **Ordre de versement** : I3-I4, puis ET0-ET1, puis FO2-FO3. ET et FO ajoutent chacun des actions à TOUTES et une source à SOURCES : recalculer à chaque fusion.
+- **Défaut latent de rejeu des migrations** (trouvé par le pilote le 17-11, reproduit sur ENT 5142dc98, hors I3-I4) :
+  - le test `tests_inscriptions_i2::i2_reprise_idempotente` appelle `rejouer_tout` ;
+  - au rejeu, la migration 644 recrée `ent_sortie_document_type_v0c_chk` (6 types) avant que 648 ne la retire, et échoue si la base contient déjà des documents de type V1 (`ordre_mission`, `autorisation_adulte`, `liste_nominative`) ;
+  - en CI, le test ne passe que si aucun test V1 n'a tourné avant lui dans la même base, il dépend donc de l'ordre des tests ;
+  - correctif à mettre dans le lot de fiabilité, avec `seed_labo_cast` : dans 644, ne poser la contrainte v0c que si la contrainte v1 n'existe pas encore. Aucune migration existante ne peut être modifiée (règle 25) ; c'est une exception à faire valider, ou une migration de correction placée avant 644.
+- Fusion I3-I4 sur ENT (mi3, 58fd024c), vérification locale :
+  - clippy et `Cargo.lock` OK ;
+  - ent-db en 1 fil : 255 tests verts, 1 en échec, le défaut ci-dessus ;
+  - séparation 53 et recette_securite_3 10 verts.
