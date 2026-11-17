@@ -19,15 +19,15 @@ use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use uuid::Uuid;
 
 use super::modele::{
-    corps_tuile_sans_ecran, date_naissance_affichee, designation, destination_tuile, etapes_frise,
-    libelle_consultation, libelle_ouverture, libelle_statut, libelle_statut_identifiant,
-    libelle_systeme, phrase_pastille, raison_masquage, ton_gravite, ton_statut,
-    ton_statut_identifiant, Destination, Onglet,
+    corps_tuile_sans_ecran, date_fr, date_naissance_affichee, designation, destination_tuile,
+    etapes_frise, libelle_consultation, libelle_ouverture, libelle_statut,
+    libelle_statut_identifiant, libelle_systeme, phrase_pastille, raison_masquage, ton_gravite,
+    ton_statut, ton_statut_identifiant, Destination, Onglet,
 };
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::session;
-use crate::noyau::temps::{date_heure_paris, date_longue};
+use crate::noyau::temps::date_heure_paris;
 
 fn adresse_onglet(eleve: Uuid, onglet: Onglet) -> String {
     match onglet {
@@ -325,10 +325,10 @@ fn SectionIdentite(id: Uuid, fiche: StoredValue<EleveFicheDto>) -> impl IntoView
                 .unwrap_or_else(|| "—".into()),
         ));
         if let Some(d) = f.date_entree {
-            lignes.push(("Entré le", date_longue(d)));
+            lignes.push(("Entré le", date_fr(d)));
         }
         if let Some(d) = f.date_sortie {
-            lignes.push(("Sorti le", date_longue(d)));
+            lignes.push(("Sorti le", date_fr(d)));
         }
     }
     let identifiants =
@@ -443,7 +443,7 @@ fn SectionHistorique(id: Uuid) -> impl IntoView {
                                         <li class="fiche-frise__etape">
                                             <p class="fiche-frise__titre">
                                                 <Badge libelle=e.nature ton=e.ton/>
-                                                <span>{format!("effet au {}", date_longue(e.effet_du))}</span>
+                                                <span>{format!("effet au {}", date_fr(e.effet_du))}</span>
                                             </p>
                                             {(!champs.is_empty()).then(|| view! { <p>{format!("Modifié : {champs}")}</p> })}
                                             {e.motif.clone().map(|m| view! { <p>{format!("Motif : {m}")}</p> })}

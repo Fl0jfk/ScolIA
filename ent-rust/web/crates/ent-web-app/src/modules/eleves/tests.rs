@@ -149,7 +149,7 @@ fn une_pastille_se_lit_en_toutes_lettres_valeur_comprise() {
     );
     assert_eq!(
         phrase_pastille(&pastille("pai", "alerte", None, Some(jour(2027, 6, 30)))),
-        "Interne, jusqu'au 30 juin 2027"
+        &format!("Interne, jusqu'au {}", date_fr(jour(2027, 6, 30)))
     );
     assert_eq!(teinte_gravite("alerte"), "mal");
     assert_eq!(teinte_gravite("attention"), "avert");
@@ -293,7 +293,7 @@ fn la_date_de_naissance_ne_s_invente_jamais() {
     let d = Some(jour(2012, 3, 14));
     assert_eq!(
         date_naissance_affichee(d, "jour", "declaree"),
-        "14 mars 2012"
+        "mercredi 14 mars 2012"
     );
     assert_eq!(date_naissance_affichee(d, "mois", "declaree"), "mars 2012");
     assert_eq!(
@@ -302,7 +302,7 @@ fn la_date_de_naissance_ne_s_invente_jamais() {
     );
     assert_eq!(
         date_naissance_affichee(d, "jour", "contestee"),
-        "14 mars 2012 (date contestée)"
+        "mercredi 14 mars 2012 (date contestée)"
     );
     assert_eq!(
         date_naissance_affichee(None, "inconnue", "declaree"),

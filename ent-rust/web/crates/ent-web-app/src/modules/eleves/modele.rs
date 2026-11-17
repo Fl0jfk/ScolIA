@@ -9,7 +9,16 @@ use ent_types::identite::IdentiteVersionDto;
 use ent_web_ui::TonEtat;
 use uuid::Uuid;
 
-use crate::noyau::temps::date_longue;
+use crate::noyau::temps::date_complete;
+
+/// « mercredi 14 mars 2012 » : l'année compte pour une naissance ou une échéance, le jour se lit en minuscule.
+pub fn date_fr(d: NaiveDate) -> String {
+    let t = date_complete(d);
+    let mut c = t.chars();
+    c.next().map_or_else(String::new, |p| {
+        p.to_lowercase().collect::<String>() + c.as_str()
+    })
+}
 
 /// Nombre d'élèves par page de la liste.
 pub const PAGE_TAILLE: u32 = 50;
@@ -157,7 +166,7 @@ pub fn phrase_pastille(p: &PastilleDto) -> String {
         t.push_str(&format!(" ({v})"));
     }
     if let Some(d) = p.valeur_date {
-        t.push_str(&format!(", jusqu'au {}", date_longue(d)));
+        t.push_str(&format!(", jusqu'au {}", date_fr(d)));
     }
     t
 }
@@ -340,7 +349,7 @@ pub fn date_naissance_affichee(d: Option<NaiveDate>, precision: &str, statut: &s
             crate::noyau::temps::nom_mois(chrono::Datelike::month(&d)),
             chrono::Datelike::year(&d)
         ),
-        _ => date_longue(d),
+        _ => date_fr(d),
     };
     match statut {
         "presumee" => format!("{base} (date présumée)"),
