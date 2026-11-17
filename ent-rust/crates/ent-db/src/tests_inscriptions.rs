@@ -828,7 +828,7 @@ async fn decision_capacite_et_droits() {
     assert!(matches!(
         ent.valider_inscription_for_actor(etab, d, dr, d1.id, &ValidationBody::default())
             .await,
-        Err(EntDbError::ConflitDossier(_))
+        Err(EntDbError::ConflitDossier(_) | EntDbError::ConflitDossierDetail(_))
     ));
     // Droits : prof, CPE, compta, parent n'accèdent pas à l'instruction.
     for (u, r) in [

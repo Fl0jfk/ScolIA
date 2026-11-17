@@ -139,11 +139,23 @@ async fn campagne_avec(
     accord: &str,
     regles_pieces: &[ReglePieceDto],
 ) -> Uuid {
+    campagne_annee(ent, c, accord, regles_pieces, "2027-2028").await
+}
+
+/// Une seule campagne ouverte par nature et par année : un second dossier de test prend une autre année.
+async fn campagne_annee(
+    ent: &PgEnt,
+    c: &LaboCast,
+    accord: &str,
+    regles_pieces: &[ReglePieceDto],
+    annee: &str,
+) -> Uuid {
     let (d, dr) = dir(c);
     let mut regles = crate::inscriptions_modele::regles_par_defaut("admission");
     regles.accord_responsables = accord.into();
     let mut b = campagne("admission", None);
     b.pieces = vec![];
+    b.annee_cible = annee.into();
     b.regles = Some(regles);
     let camp = ent.creer_campagne_for_actor(c.etablissement_id, d, dr, &b).await.unwrap();
     ent.definir_regles_pieces_for_actor(c.etablissement_id, d, dr, camp.id, regles_pieces)
@@ -766,8 +778,12 @@ struct Famille {
 
 /// Dossier d'admission déposé par la mère ; le père est le second parent (foyer distinct, adresse propre).
 async fn famille_privee(ent: &PgEnt, c: &LaboCast, accord: &str) -> Famille {
+    famille_privee_annee(ent, c, accord, "2027-2028").await
+}
+
+async fn famille_privee_annee(ent: &PgEnt, c: &LaboCast, accord: &str, annee: &str) -> Famille {
     let etab = c.etablissement_id;
-    let camp = campagne_avec(ent, c, accord, &[regle("livret_famille", "Livret de famille", false, "dossier", vec![])]).await;
+    let camp = campagne_annee(ent, c, accord, &[regle("livret_famille", "Livret de famille", false, "dossier", vec![])], annee).await;
     let mere = email("mere");
     let pere = email("pere");
     let jeton = verifier(ent, etab, &mere).await;
@@ -885,7 +901,7 @@ async fn i4_code_cinq_essais_et_lien_faux() {
     }
     ent.repondre_accord(etab, demande, &jeton, &nouveau, "donne").await.unwrap();
     // Le nombre de codes par demande est borné.
-    let f2 = famille_privee(&ent, &c, "tous_les_titulaires").await;
+    let f2 = famille_privee_annee(&ent, &c, "tous_les_titulaires", "2028-2029").await;
     expedier(&ent).await;
     let (d2, j2) = lien_accord(&ent, &f2.pere);
     for _ in 0..5 {
@@ -1074,7 +1090,7 @@ async fn i4_parent_sans_autorite_ne_decide_pas() {
     assert!(ent.repondre_accord_compte(etab, &jeton_beau, dossier, "refuse").await.is_err());
     assert!(!accords(&ent, &c, dossier).await.bloque_desaccord);
     // Autorité retirée APRÈS l'envoi : le lien reçu ne donne aucun droit.
-    let camp2 = campagne_avec(&ent, &c, "tous_les_titulaires", &[]).await;
+    let camp2 = campagne_annee(&ent, &c, "tous_les_titulaires", &[], "2028-2029").await;
     let mere2 = email("mere");
     let pere2 = email("pere");
     let j2 = verifier(&ent, etab, &mere2).await;
