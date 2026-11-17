@@ -889,10 +889,8 @@ impl PgEnt {
                         return Err(refus(RefusMetier::Conflit, "cette personne n'est pas titulaire en droit de l'élève du document"));
                     }
                 }
-                RoleSignataire::Eleve => {
-                    if s.eleve_id != l.eleve_id || l.eleve_id.is_none() {
-                        return Err(refus(RefusMetier::Invalide, "l'élève signataire doit être l'élève du document"));
-                    }
+                RoleSignataire::Eleve if s.eleve_id != l.eleve_id || l.eleve_id.is_none() => {
+                    return Err(refus(RefusMetier::Invalide, "l'élève signataire doit être l'élève du document"));
                 }
                 _ => {}
             }
