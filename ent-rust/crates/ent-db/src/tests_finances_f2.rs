@@ -917,6 +917,7 @@ async fn f1_journal_evenements_sans_montant_et_alias() {
     grille(&ent, &c).await;
     let (cu, cr) = compta(&c);
     let (du, dr) = direction(&c);
+    let (debut_test,): (chrono::DateTime<chrono::Utc>,) = sqlx::query_as("SELECT clock_timestamp()").fetch_one(ent.pool_verif()).await.unwrap();
     let el = eleve(&ent, etab, "Rémi", d(2018, 3, 1), "demi_pension").await;
     let fm = foyer(&ent, etab, "Foyer M11").await;
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
@@ -937,8 +938,8 @@ async fn f1_journal_evenements_sans_montant_et_alias() {
     let (su, sr) = secretariat(&c);
     assert!(matches!(ent.journal_financier_for_actor(etab, su, sr, 10).await, Err(EntDbError::Forbidden)));
     // Événements : nom canonique, aucun ancien nom, aucun montant ni IBAN dans aucune charge (R-F25).
-    let types_vus: Vec<(String, serde_json::Value)> = sqlx::query_as("SELECT type, payload FROM ent_metier_event WHERE etablissement_id = $1 AND (type LIKE 'facturation.%' OR type LIKE 'fac.%' OR type LIKE 'fin.%')")
-        .bind(etab).fetch_all(ent.pool_verif()).await.unwrap();
+    let types_vus: Vec<(String, serde_json::Value)> = sqlx::query_as("SELECT type, payload FROM ent_metier_event WHERE etablissement_id = $1 AND created_at >= $2 AND (type LIKE 'facturation.%' OR type LIKE 'fac.%' OR type LIKE 'fin.%')")
+        .bind(etab).bind(debut_test).fetch_all(ent.pool_verif()).await.unwrap();
     assert!(types_vus.iter().any(|(t, _)| t == "facturation.piece_emise"), "{:?}", types_vus.iter().map(|x| &x.0).collect::<Vec<_>>());
     assert!(types_vus.iter().all(|(t, _)| t.starts_with("facturation.")), "plus aucun ancien nom émis : {:?}", types_vus.iter().map(|x| &x.0).collect::<Vec<_>>());
     for (t, p) in &types_vus {
@@ -1017,7 +1018,7 @@ async fn f1_vue_guichet_du_secretariat() {
     let (cu, cr) = compta(&c);
     let (su, sr) = secretariat(&c);
     let el = eleve(&ent, etab, "Tess", d(2018, 3, 1), "demi_pension").await;
-    let fm = foyer(&ent, etab, "Foyer guichet").await;
+    let fm = foyer(&ent, etab, &format!("Zgu{}", &Uuid::new_v4().simple().to_string()[..8])).await;
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
     facturer(&ent, etab, el).await.unwrap();
     let (b,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
@@ -1025,7 +1026,7 @@ async fn f1_vue_guichet_du_secretariat() {
     // Recherche : trop courte → refusée ; sinon le compte, sans solde ni adresse.
     assert!(ent.guichet_rechercher_for_actor(etab, su, sr, "ab", AuthentificationGuichet::Presentiel).await.is_err());
     let (libelle,): (String,) = sqlx::query_as("SELECT libelle_facturation FROM ent_fin_compte WHERE etablissement_id = $1 AND foyer_id = $2").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
-    let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &libelle[..4.min(libelle.len())], AuthentificationGuichet::Presentiel).await.unwrap();
+    let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &libelle, AuthentificationGuichet::Presentiel).await.unwrap();
     assert!(trouves.iter().any(|x| x.libelle == libelle) && trouves.len() <= 10);
     let compte = trouves.iter().find(|x| x.libelle == libelle).unwrap().compte_id;
     // Vue du compte : solde = total, une échéance au moins, un document.

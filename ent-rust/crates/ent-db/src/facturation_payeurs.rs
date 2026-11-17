@@ -595,6 +595,21 @@ pub async fn tranches(
         }
     }
     let debuts: Vec<NaiveDate> = coupures.into_iter().collect();
+    // Avant la première désignation de l'élève, la répartition est celle des liens (comme `payeurs_a`).
+    let (premiere,): (Option<NaiveDate>,) = sqlx::query_as(
+        "SELECT min(du) FROM ent_fin_designation
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'effective'",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    let liens: Vec<(Uuid, i64)> = payeurs_des_liens(conn, etab, eleve, false)
+        .await?
+        .into_iter()
+        .map(|p| (p.compte_id, p.part_bps))
+        .collect();
     let mut out = Vec::new();
     for (i, debut) in debuts.iter().enumerate() {
         let fin = debuts
@@ -606,6 +621,11 @@ pub async fn tranches(
             .filter(|p| p.rang == 1)
             .map(|p| (p.compte_id, p.part_bps))
             .collect();
+        let parts = if parts.is_empty() && premiere.is_none_or(|p| *debut < p) {
+            liens.clone()
+        } else {
+            parts
+        };
         let total: i64 = parts.iter().map(|p| p.1).sum();
         out.push(Tranche {
             du: *debut,
