@@ -1288,14 +1288,15 @@ async fn droits_et_isolation() {
     // Lecture et gestion : comptabilité, administratif, direction ; refus prof, CPE, parent.
     for (user, role) in [
         (c.compta.user_id, Role::Compta),
-        (c.administratif.user_id, Role::Administratif),
         (c.direction.user_id, Role::Direction),
     ] {
         ent.factures_for_actor(etab, user, role.as_str(), None, None, None)
             .await
             .unwrap();
     }
+    // F1 (R-F23) : l'administratif n'a plus `facturation.lire` (guichet seulement, vue d'un compte à la fois).
     for (user, role) in [
+        (c.administratif.user_id, Role::Administratif),
         (c.prof.user_id, Role::Prof),
         (c.cpe.user_id, Role::Cpe),
         (c.parent_lea.user_id, Role::Parent),

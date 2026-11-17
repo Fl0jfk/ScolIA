@@ -261,8 +261,8 @@ async fn cf_16_cf_17_quotients_differents_et_fratrie_par_payeur() {
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 70).await;
     payeur_compte(&ent, etab, el, c.parent_tom.user_id, fp, 30).await;
     // Le père a un quotient bas : son tarif est le tarif réduit.
-    sqlx::query("INSERT INTO ent_foyer_quotient (id, etablissement_id, foyer_id, annee_scolaire, quotient_centimes) VALUES ($1,$2,$3,$4,$5)")
-        .bind(Uuid::new_v4()).bind(etab).bind(fp).bind(ANNEE).bind(40_000_i64)
+    sqlx::query("INSERT INTO ent_foyer_quotient (id, etablissement_id, foyer_id, annee_scolaire, quotient_centimes, parts_x100, updated_by_user_id) VALUES ($1,$2,$3,$4,$5,200,$6)")
+        .bind(Uuid::new_v4()).bind(etab).bind(fp).bind(ANNEE).bind(40_000_i64).bind(c.compta.user_id)
         .execute(ent.pool_verif()).await.unwrap();
     facturer(&ent, etab, el).await.unwrap();
     let (lm, lp) = (lignes(&ent, etab, fm).await, lignes(&ent, etab, fp).await);
@@ -520,6 +520,7 @@ async fn cf_75_demande_d_un_seul_parent_cree_une_tache() {
     let el = eleve(&ent, etab, "Ilan", d(2018, 3, 1), "externe").await;
     let fm = foyer(&ent, etab, "Foyer M8").await;
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 100).await;
+    compte_du_foyer(&ent, etab, fm).await; // le compte existe (reprise MIG-4 ou première pièce)
     let t = ent.demander_repartition_for_actor(etab, c.parent_lea.user_id, "parent", &DemandeRepartitionBody {
         eleve_id: el, categorie: "toutes".into(), commentaire: Some("je ne peux plus payer seule".into()),
     }).await.unwrap();
@@ -561,6 +562,9 @@ async fn fd_15_cf_84_eleve_majeur_payeur() {
     let fm = foyer(&ent, etab, "Foyer parents Jules").await;
     payeur_compte(&ent, etab, majeur, c.parent_lea.user_id, fm, 100).await;
     facturer(&ent, etab, majeur).await.unwrap();
+    let (brouillon,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'")
+        .bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
+    ent.emettre_for_actor(etab, c.compta.user_id, "compta", &EmissionBody { factures: vec![brouillon] }).await.unwrap();
 
     // Un mineur ne peut pas devenir son propre payeur.
     let refus = ent.transferer_payeur_majeur_for_actor(etab, u, r, mineur, &PayeurMajeurBody { date_effet: d(2030, 9, 1), categories: vec![], motif: None }).await;
@@ -774,8 +778,9 @@ async fn mig_4_reprise_des_comptes_cf_09() {
         foyer(&ent, etab, "Foyer sans payeur").await,
     );
     payeur_compte(&ent, etab, el, c.parent_lea.user_id, f1, 100).await;
-    payeur_compte(&ent, etab, el, c.parent_tom.user_id, f2, 50).await;
-    payeur_compte(&ent, etab, el, c.parent_weasley.as_ref().map(|p| p.user_id).unwrap_or(c.parent_tom.user_id), f2, 50).await;
+    let el2 = eleve(&ent, etab, "Pia", d(2018, 3, 1), "externe").await;
+    payeur_compte(&ent, etab, el2, c.parent_tom.user_id, f2, 50).await;
+    payeur_personne_f2(&ent, etab, el2, f2, 50).await;
     // Des pièces historiques SANS compte : on lève la contrainte le temps d'une transaction de test (on
     // reproduit ainsi une base d'avant F2), puis on la rétablit.
     let mut pieces = Vec::new();
@@ -935,7 +940,7 @@ async fn f1_journal_evenements_sans_montant_et_alias() {
     let types_vus: Vec<(String, serde_json::Value)> = sqlx::query_as("SELECT type, payload FROM ent_metier_event WHERE etablissement_id = $1 AND (type LIKE 'facturation.%' OR type LIKE 'fac.%' OR type LIKE 'fin.%')")
         .bind(etab).fetch_all(ent.pool_verif()).await.unwrap();
     assert!(types_vus.iter().any(|(t, _)| t == "facturation.piece_emise"), "{:?}", types_vus.iter().map(|x| &x.0).collect::<Vec<_>>());
-    assert!(types_vus.iter().all(|(t, _)| t.starts_with("facturation.")), "plus aucun ancien nom émis");
+    assert!(types_vus.iter().all(|(t, _)| t.starts_with("facturation.")), "plus aucun ancien nom émis : {:?}", types_vus.iter().map(|x| &x.0).collect::<Vec<_>>());
     for (t, p) in &types_vus {
         let texte = p.to_string();
         assert!(!texte.contains("centimes") && !texte.contains("iban") && !texte.contains("montant"), "{t} : {texte}");
@@ -1025,6 +1030,8 @@ async fn f1_vue_guichet_du_secretariat() {
     let compte = trouves.iter().find(|x| x.libelle == libelle).unwrap().compte_id;
     // Vue du compte : solde = total, une échéance au moins, un document.
     let vue = ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::RappelNumeroEnregistre).await.unwrap();
+    let dbg: Vec<(String,i64,String)> = sqlx::query_as("SELECT numero, total_centimes, statut FROM ent_fac_facture WHERE etablissement_id=$1").bind(etab).fetch_all(ent.pool_verif()).await.unwrap();
+    eprintln!("DBGF {dbg:?} {:?}", vue.documents);
     assert_eq!(vue.solde_centimes, 1_300_001);
     assert!(!vue.echeances.is_empty());
     assert!(vue.documents.as_ref().is_some_and(|d| d.len() == 1));
@@ -1078,4 +1085,13 @@ fn le_port_ne_depend_pas_des_foyers_historiques_pour_les_categories() {
             assert!(payeurs::CATEGORIES_DESIGNATION.contains(&c), "{cat} → {c}");
         }
     }
+}
+
+/// Second payeur du même foyer, sans compte utilisateur (fiche « personne » seule).
+async fn payeur_personne_f2(ent: &PgEnt, etab: Uuid, eleve: Uuid, foyer: Uuid, part: i16) {
+    let p = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom) VALUES ($1, $2, 'Autre payeur')")
+        .bind(p).bind(etab).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien, est_payeur, part_paiement) VALUES ($1,$2,$3,$4,$5,'pere',true,$6)")
+        .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(p).bind(foyer).bind(part).execute(ent.pool_verif()).await.unwrap();
 }

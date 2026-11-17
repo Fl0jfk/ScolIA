@@ -544,13 +544,15 @@ pub async fn payeurs_a(
         });
     }
     // Aucune désignation en vigueur à cette date : liens actuels, **seulement si l'élève n'a jamais eu de
-    // désignation** (sinon une période sans payeur reste sans payeur, jamais « au responsable 1 »).
+    // désignation** (sinon une période sans payeur reste sans payeur, jamais « au responsable 1 »). Une désignation qui ne commence qu'après `date` ne change rien à
+    // cette date : l'ancienne répartition (liens) reste en vigueur jusque-là.
     let (deja,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM ent_fin_designation WHERE etablissement_id = $1 AND eleve_id = $2
-                         AND statut = 'effective')",
+                         AND statut = 'effective' AND du <= $3)",
     )
     .bind(etab)
     .bind(eleve)
+    .bind(date)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;

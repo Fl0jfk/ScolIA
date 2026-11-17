@@ -869,6 +869,8 @@ pub(crate) async fn payeurs_liens(
             x.1 = 1;
         }
     }
+    // Un lien payeur sans part, à côté de payeurs qui en ont : il ne paie rien (pas de ligne à zéro).
+    out.retain(|x| x.1 > 0);
     Ok(out)
 }
 
