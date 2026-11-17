@@ -16,6 +16,13 @@ mod assiduite_as2;
 mod assiduite_as3;
 mod assiduite_as4;
 mod assiduite_as5;
+// Socle 32 (espaces de travail), lots ET0 et ET1.
+pub mod espaces;
+mod espaces_contenu;
+mod espaces_partages;
+mod espaces_quota;
+mod espaces_service;
+pub mod espaces_taches;
 mod assiduite_as14;
 mod assiduite_as6;
 mod assiduite_tableau;
@@ -623,6 +630,12 @@ mod tests_assiduite_as3;
 mod tests_assiduite_as4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_espaces_et0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_espaces_et1;
+#[cfg(test)]
+mod garde_espaces;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as6;
 #[cfg(all(test, feature = "labo"))]

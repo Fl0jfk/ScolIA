@@ -433,6 +433,21 @@ impl ObjectStore {
         }
     }
 
+    /// Métadonnées réelles d'un objet (taille relue chez le fournisseur) sans en lire le contenu : sert à la
+    /// **réconciliation** d'un envoi direct (socle 32, lot ET0 ; la taille reçue est comparée à la taille signée).
+    /// `Ok(None)` : absent. Une panne du fournisseur est une erreur, jamais « absent ».
+    pub fn tete(&self, key: &str) -> Result<Option<provider::ObjectHead>, ObjectStoreError> {
+        assert_safe_key(key)?;
+        match self.fournisseur()?.head(key) {
+            Ok(h) => Ok(h),
+            Err(e) => {
+                self.compteurs.head_echec.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(fournisseur = self.provider_name(), erreur = %e, "échec de lecture des métadonnées d'un objet");
+                Err(e)
+            }
+        }
+    }
+
     /// Supprime **physiquement** un objet (purge, socle 7 D9). Idempotent. Une panne remonte en erreur ;
     /// l'appelant ne marque l'objet supprimé au registre qu'après un succès. Sur un bucket versionné ou
     /// verrouillé, `DeleteObject` ne détruit pas les anciennes versions : à régler côté exploitation.

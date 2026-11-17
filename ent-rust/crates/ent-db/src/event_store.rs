@@ -177,6 +177,7 @@ pub(crate) fn aggregate_str(a: AggregateKind) -> &'static str {
         AggregateKind::Stage => "stage",
         AggregateKind::Demande => "demande",
         AggregateKind::Documents => "documents",
+        AggregateKind::Espace => "espace",
     }
 }
 
@@ -249,6 +250,7 @@ pub(crate) fn parse_aggregate(s: &str) -> AggregateKind {
         "stage" => AggregateKind::Stage,
         "demande" => AggregateKind::Demande,
         "documents" => AggregateKind::Documents,
+        "espace" => AggregateKind::Espace,
         _ => AggregateKind::Eleve,
     }
 }

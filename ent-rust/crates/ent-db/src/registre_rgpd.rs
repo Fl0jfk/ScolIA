@@ -165,6 +165,15 @@ pub const TRAITEMENTS_BASE: &[TraitementBase] = &[
         module: None,
     },
     TraitementBase {
+        code: "espaces_documents",
+        libelle: "Espaces de travail : fichiers et partages des personnels",
+        finalite: "Permettre aux personnels de ranger, partager et retrouver leurs documents de travail (espace personnel, espaces partagés entre collègues) : dossiers, fichiers et leurs versions, corbeille de 30 jours, partages nominatifs datés, journal des actes. Aucun lien public ; un fichier n'est visible des autres qu'après analyse de sécurité ; les élèves et les familles n'y ont aucun accès. Durées de conservation soumises à l'avis du DPO.",
+        personnes: &["personnels"],
+        domaines: &["espaces"],
+        lecture: &[EspacesUtiliser, EspacesJournalLire],
+        module: None,
+    },
+    TraitementBase {
         code: "personnels",
         libelle: "Personnels et absences des personnels",
         finalite: "Tenir l'annuaire des personnels, leurs missions, leurs absences et les remplacements.",

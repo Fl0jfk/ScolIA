@@ -51,7 +51,7 @@ pub(crate) async fn enregistrer_objet<'e, E: PgExecutor<'e>>(
 
 /// Exécute un appel de stockage (client S3 **synchrone**, 60 s × 3 tentatives) sur le pool
 /// des tâches bloquantes de Tokio : un S3 lent ne fige plus les fils qui servent l'API (R-06).
-async fn hors_runtime<T, F>(store: &ent_object::ObjectStore, f: F) -> Result<T, EntDbError>
+pub(crate) async fn hors_runtime<T, F>(store: &ent_object::ObjectStore, f: F) -> Result<T, EntDbError>
 where
     T: Send + 'static,
     F: FnOnce(ent_object::ObjectStore) -> Result<T, ent_object::ObjectStoreError> + Send + 'static,

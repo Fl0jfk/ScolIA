@@ -817,6 +817,200 @@ impl Presigner {
     }
 }
 
+// ─────────────────────────── Envoi direct (taille signée) ───────────────────────────
+//
+// Socle 32, lot ET0 (`32_BUREAUTIQUE.md` §15 point 3, R-ET21). Le navigateur envoie les octets **directement** au
+// magasin : l'URL émise porte la **taille annoncée dans la signature**. En mode S3, `content-length` fait partie des
+// en-têtes signés (SigV4) : le fournisseur refuse tout corps de taille différente. En mode local (labo), le jeton
+// couvre la même taille et la route d'envoi de l'API la compare au corps reçu. La taille réelle est, dans tous les cas,
+// **revérifiée après l'envoi** (réconciliation par l'hôte) : la signature n'est jamais la seule garde.
+
+/// Durée de vie d'une URL d'envoi : celle d'une réservation de quota (CET-18, 15 minutes).
+pub const UPLOAD_TTL_SECS: u64 = 900;
+/// Taille maximale annonçable pour un envoi direct (plafond d'`ent-object`, 64 Mio).
+pub const PLAFOND_ENVOI_OCTETS: u64 = 64 * 1024 * 1024;
+
+const UPLOAD_TOKEN_VERSION: u8 = 3;
+const UPLOAD_MAC_DOMAIN: &[u8] = b"ent-object-upload-v1\0";
+
+/// Ce que l'appelant demande de signer pour un envoi (après contrôle des droits et réservation du quota).
+#[derive(Debug, Clone)]
+pub struct UploadSpec {
+    pub key: String,
+    pub user_id: Uuid,
+    pub etablissement_id: Uuid,
+    /// Taille annoncée, signée dans l'URL.
+    pub taille: u64,
+}
+
+/// Contenu vérifié d'un jeton d'envoi local.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadClaims {
+    pub key: String,
+    pub expires_at: i64,
+    pub user_id: Uuid,
+    pub etablissement_id: Uuid,
+    pub taille: u64,
+}
+
+/// URL d'envoi : méthode `PUT`, corps = octets du fichier, en-têtes imposés (dont `Content-Length`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresignedUpload {
+    pub url: String,
+    pub methode: &'static str,
+    pub en_tetes: Vec<(String, String)>,
+    pub expires_at: i64,
+}
+
+/// URL pré-signée `PUT` SigV4 : `content-length` et `host` sont signés (`UNSIGNED-PAYLOAD`).
+fn s3_presign_put(cfg: &S3Config, key: &str, taille: u64, now_unix: i64, expires: u64) -> String {
+    let (scheme, host, path) = cfg.cible(key);
+    let (date, amz_date) = amz_dates(now_unix);
+    let scope = format!("{date}/{}/s3/aws4_request", cfg.region);
+    let credential = format!("{}/{}", cfg.access_key, scope);
+    let params: Vec<(String, String)> = vec![
+        ("X-Amz-Algorithm".into(), "AWS4-HMAC-SHA256".into()),
+        ("X-Amz-Credential".into(), credential),
+        ("X-Amz-Date".into(), amz_date.clone()),
+        ("X-Amz-Expires".into(), expires.to_string()),
+        ("X-Amz-SignedHeaders".into(), "content-length;host".into()),
+    ];
+    let mut enc: Vec<(String, String)> = params
+        .iter()
+        .map(|(k, v)| (uri_encode(k, true), uri_encode(v, true)))
+        .collect();
+    enc.sort();
+    let canonical_query = enc
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let canonical_request = format!(
+        "PUT\n{path}\n{canonical_query}\ncontent-length:{taille}\nhost:{host}\n\ncontent-length;host\nUNSIGNED-PAYLOAD"
+    );
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+        hex(&Sha256::digest(canonical_request.as_bytes()))
+    );
+    let k_date = hmac_raw(format!("AWS4{}", cfg.secret()).as_bytes(), date.as_bytes());
+    let k_region = hmac_raw(&k_date, cfg.region.as_bytes());
+    let k_service = hmac_raw(&k_region, b"s3");
+    let k_signing = hmac_raw(&k_service, b"aws4_request");
+    let signature = hex(&hmac_raw(&k_signing, string_to_sign.as_bytes()));
+    format!("{scheme}://{host}{path}?{canonical_query}&X-Amz-Signature={signature}")
+}
+
+impl LocalSigner {
+    fn mac_envoi(&self, payload: &[u8]) -> HmacSha256 {
+        let mut m = <HmacSha256 as Mac>::new_from_slice(&self.secret)
+            .expect("HMAC accepte toute longueur de clé");
+        m.update(UPLOAD_MAC_DOMAIN);
+        m.update(payload);
+        m
+    }
+
+    fn sign_envoi(&self, c: &UploadClaims) -> String {
+        let mut p = Vec::with_capacity(96);
+        p.push(UPLOAD_TOKEN_VERSION);
+        p.extend_from_slice(&c.expires_at.to_be_bytes());
+        p.extend_from_slice(c.user_id.as_bytes());
+        p.extend_from_slice(c.etablissement_id.as_bytes());
+        p.extend_from_slice(&c.taille.to_be_bytes());
+        let nonce = *Uuid::new_v4().as_bytes();
+        p.extend_from_slice(&nonce);
+        put_field(&mut p, &self.xor_cle(&nonce, c.key.as_bytes()));
+        let tag = self.mac_envoi(&p).finalize().into_bytes();
+        format!("{}.{}", URL_SAFE_NO_PAD.encode(&p), URL_SAFE_NO_PAD.encode(tag))
+    }
+
+    fn verify_envoi(&self, token: &str, now: i64) -> Result<UploadClaims, PresignError> {
+        if token.len() > 1024 {
+            return Err(PresignError::Malformed);
+        }
+        let (p64, t64) = token.split_once('.').ok_or(PresignError::Malformed)?;
+        let payload = URL_SAFE_NO_PAD.decode(p64).map_err(|_| PresignError::Malformed)?;
+        let tag = URL_SAFE_NO_PAD.decode(t64).map_err(|_| PresignError::Malformed)?;
+        self.mac_envoi(&payload)
+            .verify_slice(&tag)
+            .map_err(|_| PresignError::BadSignature)?;
+        let mut r = Reader(&payload);
+        if r.take(1).ok_or(PresignError::Malformed)? != [UPLOAD_TOKEN_VERSION] {
+            return Err(PresignError::Malformed);
+        }
+        let exp = i64::from_be_bytes(
+            r.take(8).ok_or(PresignError::Malformed)?.try_into().map_err(|_| PresignError::Malformed)?,
+        );
+        let user_id = Uuid::from_slice(r.take(16).ok_or(PresignError::Malformed)?)
+            .map_err(|_| PresignError::Malformed)?;
+        let etablissement_id = Uuid::from_slice(r.take(16).ok_or(PresignError::Malformed)?)
+            .map_err(|_| PresignError::Malformed)?;
+        let taille = u64::from_be_bytes(
+            r.take(8).ok_or(PresignError::Malformed)?.try_into().map_err(|_| PresignError::Malformed)?,
+        );
+        let nonce = r.take(NONCE_LEN).ok_or(PresignError::Malformed)?;
+        let cle_chiffree = r.field().ok_or(PresignError::Malformed)?;
+        let key = String::from_utf8(self.xor_cle(nonce, cle_chiffree)).map_err(|_| PresignError::Malformed)?;
+        if !r.0.is_empty() {
+            return Err(PresignError::Malformed);
+        }
+        if exp <= now {
+            return Err(PresignError::Expired);
+        }
+        if assert_safe_key(&key).is_err() || taille == 0 || taille > PLAFOND_ENVOI_OCTETS {
+            return Err(PresignError::InvalidParam);
+        }
+        Ok(UploadClaims { key, expires_at: exp, user_id, etablissement_id, taille })
+    }
+}
+
+impl Presigner {
+    /// Émet une URL d'envoi à **taille signée**. La clé doit être sûre et appartenir à l'établissement ; la taille
+    /// doit être comprise entre 1 octet et le plafond. Durée de vie : [`UPLOAD_TTL_SECS`].
+    pub fn issue_upload(&self, spec: &UploadSpec, now: i64) -> Result<PresignedUpload, PresignError> {
+        if !self.is_enabled() {
+            return Err(PresignError::Disabled);
+        }
+        if !key_belongs_to_etab(&spec.key, spec.etablissement_id) {
+            return Err(PresignError::InvalidParam);
+        }
+        if spec.taille == 0 || spec.taille > PLAFOND_ENVOI_OCTETS {
+            return Err(PresignError::InvalidParam);
+        }
+        let expires_at = now + UPLOAD_TTL_SECS as i64;
+        let en_tetes = vec![("Content-Length".to_string(), spec.taille.to_string())];
+        match &self.backend {
+            Backend::Disabled => Err(PresignError::Disabled),
+            Backend::Local(l) => {
+                let token = l.sign_envoi(&UploadClaims {
+                    key: spec.key.clone(),
+                    expires_at,
+                    user_id: spec.user_id,
+                    etablissement_id: spec.etablissement_id,
+                    taille: spec.taille,
+                });
+                let path = format!("/espaces/envoi/{token}");
+                let url = match &self.public_base {
+                    Some(b) => format!("{b}{path}"),
+                    None => path,
+                };
+                Ok(PresignedUpload { url, methode: "PUT", en_tetes, expires_at })
+            }
+            Backend::S3(cfg) => {
+                let url = s3_presign_put(cfg, &spec.key, spec.taille, now, UPLOAD_TTL_SECS);
+                Ok(PresignedUpload { url, methode: "PUT", en_tetes, expires_at })
+            }
+        }
+    }
+
+    /// Vérifie un jeton d'envoi local (signature, expiration, taille bornée). Sans état, sans I/O.
+    pub fn verify_upload_local(&self, token: &str, now: i64) -> Result<UploadClaims, PresignError> {
+        let Backend::Local(l) = &self.backend else {
+            return Err(PresignError::Disabled);
+        };
+        l.verify_envoi(token, now)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1228,5 +1422,160 @@ mod tests {
         }
         let p = Presigner::from_vars(|k| (k == "ENT_OBJECT_PRESIGN_MODE").then(|| "s3".into()));
         assert!(!p.is_enabled(), "S3 sans identifiants : fail-closed");
+    }
+}
+
+/// Socle 32, lot ET0 : envoi direct à taille signée (R-ET21, piège §20.4 « envoi de 70 Mo avec une taille signée de
+/// 1 Mo »). Aucun accès réseau : un faux fournisseur S3 recalcule la signature avec la taille **réellement** reçue.
+#[cfg(test)]
+mod tests_envoi {
+    use super::*;
+
+    const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef-secret";
+    const NOW: i64 = 1_800_000_000;
+    const MIB: u64 = 1024 * 1024;
+
+    fn spec(taille: u64) -> UploadSpec {
+        let etab = Uuid::new_v4();
+        UploadSpec {
+            key: format!("{etab}/espaces/{}", Uuid::new_v4()),
+            user_id: Uuid::new_v4(),
+            etablissement_id: etab,
+            taille,
+        }
+    }
+
+    fn cfg() -> S3Config {
+        S3Config::new("scola-test", "fr-par", "AKTEST", "secret-de-test", Some("https://s3.fr-par.scw.cloud"), false)
+            .unwrap()
+    }
+
+    /// Ce que fait le fournisseur : il reconstruit la requête canonique avec le `Content-Length` **reçu** et compare la
+    /// signature de l'URL. Une taille différente de celle signée donne `false` (HTTP 403 chez S3).
+    fn s3_accepte(cfg: &S3Config, url: &str, content_length_recu: u64) -> bool {
+        let (avant, signature) = url.rsplit_once("&X-Amz-Signature=").unwrap();
+        let (chemin_hote, requete) = avant.split_once('?').unwrap();
+        let sans_schema = chemin_hote.split_once("://").unwrap().1;
+        let (host, path) = sans_schema.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap();
+        let champ = |nom: &str| {
+            requete
+                .split('&')
+                .find_map(|kv| kv.strip_prefix(&format!("{nom}=")))
+                .unwrap()
+                .to_string()
+        };
+        let amz_date = champ("X-Amz-Date");
+        let scope = format!("{}/{}/s3/aws4_request", &amz_date[..8], cfg.region);
+        let canonical_request = format!(
+            "PUT\n{path}\n{requete}\ncontent-length:{content_length_recu}\nhost:{host}\n\ncontent-length;host\nUNSIGNED-PAYLOAD"
+        );
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+            hex(&Sha256::digest(canonical_request.as_bytes()))
+        );
+        let k_date = hmac_raw(format!("AWS4{}", cfg.secret()).as_bytes(), amz_date[..8].as_bytes());
+        let k_region = hmac_raw(&k_date, cfg.region.as_bytes());
+        let k_service = hmac_raw(&k_region, b"s3");
+        let k_signing = hmac_raw(&k_service, b"aws4_request");
+        hex(&hmac_raw(&k_signing, string_to_sign.as_bytes())) == signature
+    }
+
+    #[test]
+    fn envoi_de_70_mio_signe_1_mio_est_refuse_par_le_fournisseur() {
+        let p = Presigner::s3(cfg(), 60);
+        let s = spec(MIB);
+        let u = p.issue_upload(&s, NOW).unwrap();
+        assert_eq!(u.methode, "PUT");
+        assert_eq!(u.en_tetes, vec![("Content-Length".to_string(), MIB.to_string())]);
+        assert!(u.url.contains("X-Amz-SignedHeaders=content-length%3Bhost"), "{}", u.url);
+        assert_eq!(u.expires_at, NOW + UPLOAD_TTL_SECS as i64);
+        // Taille annoncée : acceptée. Corps de 70 Mio, ou d'un seul octet de plus : refusé.
+        assert!(s3_accepte(&cfg(), &u.url, MIB));
+        assert!(!s3_accepte(&cfg(), &u.url, 70 * MIB));
+        assert!(!s3_accepte(&cfg(), &u.url, MIB + 1));
+        assert!(!s3_accepte(&cfg(), &u.url, MIB - 1));
+        // Le secret n'apparaît jamais dans l'URL.
+        assert!(!u.url.contains("secret-de-test"));
+    }
+
+    #[test]
+    fn deux_tailles_donnent_deux_signatures() {
+        let p = Presigner::s3(cfg(), 60);
+        let mut s = spec(MIB);
+        let a = p.issue_upload(&s, NOW).unwrap().url;
+        s.taille = 2 * MIB;
+        let b = p.issue_upload(&s, NOW).unwrap().url;
+        assert_ne!(a.rsplit_once("&X-Amz-Signature=").unwrap().1, b.rsplit_once("&X-Amz-Signature=").unwrap().1);
+    }
+
+    #[test]
+    fn taille_hors_bornes_ou_cle_d_un_autre_etablissement_refusees() {
+        for p in [Presigner::s3(cfg(), 60), Presigner::local(SECRET, 60).unwrap()] {
+            assert_eq!(p.issue_upload(&spec(0), NOW), Err(PresignError::InvalidParam));
+            assert_eq!(p.issue_upload(&spec(70 * MIB), NOW), Err(PresignError::InvalidParam));
+            let mut autre = spec(MIB);
+            autre.key = format!("{}/espaces/{}", Uuid::new_v4(), Uuid::new_v4());
+            assert_eq!(p.issue_upload(&autre, NOW), Err(PresignError::InvalidParam));
+            let mut hostile = spec(MIB);
+            hostile.key = format!("{}/espaces/../x", hostile.etablissement_id);
+            assert_eq!(p.issue_upload(&hostile, NOW), Err(PresignError::InvalidParam));
+        }
+        assert_eq!(Presigner::disabled().issue_upload(&spec(MIB), NOW), Err(PresignError::Disabled));
+    }
+
+    #[test]
+    fn jeton_local_porte_la_taille_et_la_cle_sans_la_reveler() {
+        let p = Presigner::local(SECRET, 60).unwrap();
+        let s = spec(3 * MIB);
+        let u = p.issue_upload(&s, NOW).unwrap();
+        assert!(u.url.starts_with("/espaces/envoi/"));
+        let jeton = u.url.trim_start_matches("/espaces/envoi/");
+        assert!(!u.url.contains(&s.key));
+        let c = p.verify_upload_local(jeton, NOW + 899).unwrap();
+        assert_eq!((c.key.as_str(), c.taille, c.user_id), (s.key.as_str(), 3 * MIB, s.user_id));
+        assert_eq!(c.etablissement_id, s.etablissement_id);
+        assert_eq!(p.verify_upload_local(jeton, NOW + 900), Err(PresignError::Expired));
+    }
+
+    #[test]
+    fn jeton_d_envoi_et_jeton_de_lecture_ne_se_substituent_pas() {
+        let p = Presigner::local(SECRET, 60).unwrap();
+        let s = spec(MIB);
+        let envoi = p.issue_upload(&s, NOW).unwrap().url;
+        let envoi = envoi.trim_start_matches("/espaces/envoi/");
+        // Un jeton d'envoi ne sert pas à lire…
+        assert!(p.verify_local(envoi, NOW).is_err());
+        // … et un jeton de lecture ne sert pas à écrire.
+        let lecture = p
+            .issue(
+                &LinkSpec {
+                    key: s.key.clone(),
+                    user_id: s.user_id,
+                    etablissement_id: s.etablissement_id,
+                    disposition: Disposition::Attachment,
+                    filename: "a.pdf".into(),
+                    mime: "application/pdf".into(),
+                },
+                NOW,
+            )
+            .unwrap()
+            .url;
+        assert!(p.verify_upload_local(lecture.trim_start_matches("/fichiers/"), NOW).is_err());
+    }
+
+    #[test]
+    fn jeton_d_envoi_falsifie_ou_signe_par_un_autre_secret_est_refuse() {
+        let p = Presigner::local(SECRET, 60).unwrap();
+        let u = p.issue_upload(&spec(MIB), NOW).unwrap().url;
+        let jeton = u.trim_start_matches("/espaces/envoi/");
+        let (charge, tag) = jeton.split_once('.').unwrap();
+        let mut octets = URL_SAFE_NO_PAD.decode(charge).unwrap();
+        // Octets de taille (après version 1 + expiration 8 + utilisateur 16 + établissement 16) : on annonce 64 Mio.
+        octets[41..49].copy_from_slice(&(64 * MIB).to_be_bytes());
+        let truque = format!("{}.{tag}", URL_SAFE_NO_PAD.encode(&octets));
+        assert_eq!(p.verify_upload_local(&truque, NOW), Err(PresignError::BadSignature));
+        let autre = Presigner::local(b"un-tout-autre-secret-de-32-octets-ou-plus!", 60).unwrap();
+        assert_eq!(autre.verify_upload_local(jeton, NOW), Err(PresignError::BadSignature));
+        assert_eq!(p.verify_upload_local("n'importe quoi", NOW), Err(PresignError::Malformed));
     }
 }

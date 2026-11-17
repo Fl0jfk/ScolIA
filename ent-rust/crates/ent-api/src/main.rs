@@ -620,6 +620,33 @@ async fn run_api() {
         })
     });
 
+    // Socle 32 (espaces de travail, ET0–ET1) : réservations de quota expirées, corbeille (30 jours), élagage des versions et
+    // analyse antivirus des fichiers déposés. **Fermé par défaut** : sans `CLAMAV_ADDR`, rien n'est analysé et aucun fichier
+    // déposé n'est visible des autres membres. `ENT_TACHES_ESPACES=0` désactive la tâche (processus dédié).
+    let taches_espaces = (std::env::var("ENT_TACHES_ESPACES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        let antivirus = ent_db::documents_pieces_taches::antivirus_depuis_env();
+        if antivirus.is_none() {
+            tracing::warn!("CLAMAV_ADDR absente : les fichiers déposés dans les espaces restent invisibles des autres membres (fermé par défaut)");
+        }
+        tokio::spawn(async move {
+            loop {
+                match ent.espaces_tache_tous_etablissements(antivirus.clone(), chrono::Utc::now()).await {
+                    Ok((liberees, purge, elaguees, analyse)) => {
+                        if liberees + purge.effaces + purge.gardes + elaguees + analyse.saines + analyse.infectees > 0 {
+                            tracing::info!(liberees, ?purge, elaguees, ?analyse, "espaces : tâches de fond");
+                        }
+                        if analyse.indisponibles > 0 {
+                            tracing::warn!(indisponibles = analyse.indisponibles, "espaces : analyse indisponible, fichiers maintenus invisibles");
+                        }
+                    }
+                    Err(e) => tracing::warn!("espaces : tâches de fond : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -646,6 +673,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = purge_pieces {
+        t.abort();
+    }
+    if let Some(t) = taches_espaces {
         t.abort();
     }
     if let Some(t) = sollicitations_absences {

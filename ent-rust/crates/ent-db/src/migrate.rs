@@ -410,6 +410,13 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 12, lot AS14b-bis (2254, 2255) : réglage de l'heure de bascule et disposition du tableau de bord ; sous 3808.
     m!("2254_assiduite_as14b_bis_reglage_bascule"),
     m!("2255_assiduite_as14b_bis_preference"),
+    // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
+    // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
+    // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
+    m!("2640_esp_et0_quotas"),
+    m!("2641_esp_espaces_membres"),
+    m!("2642_esp_dossiers_elements_versions"),
+    m!("2643_esp_partages_journal"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

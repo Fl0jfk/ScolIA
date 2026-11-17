@@ -268,6 +268,8 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
 /// Socle 1 (B1, B2) : hors de ses élèves, un professeur est refusé (notes, vie
 /// scolaire, carnet, journal, fils). Les autres personnels gardent l'établissement.
 const GESTION_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe];
+/// Personnels qui ont une fiche d'agent dans le jeu de labo : à ajuster selon le jeu (voir le test `domaine_espaces`).
+const ESPACES_PERSONNELS: &[Acteur] = &[];
 const STAFF_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe, Compta, Infirmiere, Psy];
 const STAFF: &[Acteur] = &Acteur::STAFF;
 const TOUS: &[Acteur] = &Acteur::TOUS;
@@ -2035,6 +2037,43 @@ fn domaine_assiduite_tableau() {
     jouer("assiduite_tableau", &specs_domaine_assiduite_tableau());
 }
 
+/// Socle 32, lots ET0–ET1 (espaces de travail des personnels). Les espaces ne s'ouvrent qu'aux **personnels** (`espaces.utiliser`),
+/// jamais aux familles ni aux élèves ; un espace, un dossier ou un fichier hors de portée répond 404 (jamais 403), y compris avec
+/// un identifiant d'un autre établissement. Les chemins ci-dessous visent des identifiants inexistants (aucune ressource n'est
+/// créée par la matrice) : **personne** n'en reçoit de contenu, quelle que soit la place de l'acteur ; les listes sont testées
+/// pour la séparation des rôles (familles, élèves refusés).
+fn specs_domaine_espaces() -> Vec<Spec> {
+    const INCONNU: &str = "00000000-0000-4000-8000-0000000000e1";
+    // Les routes à identifiant exigent le même refus pour tous : aucun espace n'existe sous cet identifiant.
+    let par_id: Vec<(&'static str, String)> = vec![
+        ("espaces-detail-inconnu", format!("/espaces/{INCONNU}")),
+        ("espaces-contenu-inconnu", format!("/espaces/{INCONNU}/contenu")),
+        ("espaces-journal-inconnu", format!("/espaces/{INCONNU}/journal")),
+        ("espaces-corbeille-inconnue", format!("/espaces/{INCONNU}/corbeille")),
+        ("espaces-versions-inconnues", format!("/espaces/elements/{INCONNU}/versions")),
+        ("espaces-telechargement-inconnu", format!("/espaces/elements/{INCONNU}/telechargement")),
+        ("espaces-apercu-inconnu", format!("/espaces/elements/{INCONNU}/apercu")),
+        ("espaces-partages-de-inconnu", format!("/espaces/partages?element_id={INCONNU}")),
+    ];
+    let mut v = vec![
+        lire("espaces-liste", "/espaces", ESPACES_PERSONNELS, ESPACES_PERSONNELS),
+        lire("espaces-quota", "/espaces/quota", ESPACES_PERSONNELS, ESPACES_PERSONNELS),
+        lire("espaces-badge", "/espaces/invitations/non-vues", ESPACES_PERSONNELS, ESPACES_PERSONNELS),
+        lire("espaces-partages-avec-moi", "/espaces/partages/avec-moi", ESPACES_PERSONNELS, ESPACES_PERSONNELS),
+    ];
+    for (nom, chemin) in par_id {
+        // `lire` exige des `&'static str` : on fuit volontairement ces quelques chaînes de test (durée du processus).
+        let chemin: &'static str = Box::leak(chemin.into_boxed_str());
+        v.push(lire(nom, chemin, &[], &[]));
+    }
+    v
+}
+
+#[test]
+fn domaine_espaces() {
+    jouer("espaces", &specs_domaine_espaces());
+}
+
 fn toutes_les_specs() -> Vec<Spec> {
     let mut v = Vec::new();
     v.extend(specs_domaine_eleve_dossier());
@@ -2048,6 +2087,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
+    v.extend(specs_domaine_espaces());
     v.extend(specs_domaine_assiduite_verification());
     v.extend(specs_domaine_assiduite_tableau());
     v.extend(specs_domaine_cours());

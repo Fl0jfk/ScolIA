@@ -191,6 +191,12 @@ const N_DEM_ECHEANCE: Neutralisation = Neutralisation::Maj {
     set: "suspendue_depuis = now()",
     ou: "traitee_le IS NULL AND suspendue_depuis IS NULL",
 };
+/// Réservations de quota des espaces (socle 32, ET0) : les envois annoncés mais ni confirmés ni libérés sont libérés à la
+/// restauration (le compteur d'occupation est ensuite recalculé depuis les versions et les réservations ouvertes).
+const N_ESPACE_RESERVATION: Neutralisation = Neutralisation::Maj {
+    set: "liberee_le = now(), liberee_motif = 'restauration'",
+    ou: "confirmee_le IS NULL AND liberee_le IS NULL",
+};
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {
     set: "statut = 'echec', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_distribuer'",
@@ -636,6 +642,27 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_equipe_membre", "personnels", Portee::Etablissement).perso().export(),
     t("ent_equipe_reunion", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_equipe_type", "personnels", Portee::Etablissement).exc(Exception::EtabNullable, "types d'équipes fournis par ScolIA (etablissement_id NULL autorisé), types propres par établissement"),
+    t("ent_espace", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_ancrage", "espaces", Portee::Etablissement).perso().export(),
+    // Dérivés (aperçus, vignettes, texte extrait) : RECONSTRUCTIBLES (E12), régénérés après restauration ; jamais exportés.
+    t("ent_espace_derive", "espaces", Portee::Etablissement).perso().fichiers(Fichiers::Reference),
+    t("ent_espace_dossier", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_element", "espaces", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),
+    // Intention d'un envoi direct (nom, dossier, élément visé) attachée à sa réservation de quota : l'effet de bord (l'envoi) est neutralisé
+    // par la table de réservation ; ici il n'y a aucun état à suspendre.
+    t("ent_espace_envoi", "espaces", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("intention d'envoi : l'état à suspendre est celui de ent_espace_reservation (neutralisée à la restauration)")),
+    t("ent_espace_journal", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_membre_ajoute", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_membre_exclu", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_occupation", "espaces", Portee::Etablissement),
+    t("ent_espace_partage", "espaces", Portee::Etablissement).perso().export(),
+    t("ent_espace_quota_profil", "espaces", Portee::Etablissement),
+    // Réservations de quota : état VOLATIL (E9) — une base restaurée ne doit garder aucun envoi « annoncé » ; elles sont libérées, jamais
+    // supprimées, et les compteurs d'occupation sont recalculés par `espaces_reconcilier_occupation`.
+    t("ent_espace_reservation", "espaces", Portee::Etablissement).perso().fichiers(Fichiers::Reference).neutralise(N_ESPACE_RESERVATION),
+    t("ent_espace_role_calcule", "espaces", Portee::Etablissement),
+    t("ent_espace_version", "espaces", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),
+    t("ent_espace_version_figee", "espaces", Portee::Etablissement),
     t("ent_etablissement", "etablissement", Portee::Technique),
     t("ent_etablissement_domaine", "etablissement", Portee::Etablissement).exc(Exception::SansRls, "résolution hôte → établissement (D-012) : lue avant de connaître l'établissement"),
     t("ent_etablissement_jour_ouvre", "etablissement", Portee::Etablissement),
