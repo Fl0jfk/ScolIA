@@ -181,7 +181,12 @@ pub fn App() -> impl IntoView {
 #[component]
 fn PageEleve() -> impl IntoView {
     let droits = noyau::coquille::use_droits();
+    let session = noyau::session::use_session();
     move || {
+        // Tant que la session n'a pas répondu, on ne sait pas qui regarde : aucune page ni requête.
+        if session.moi.get().is_none() {
+            return view! { <ent_web_ui::Squelette lignes=6 libelle="Chargement…"/> }.into_any();
+        }
         if droits.get().personnel {
             modules::eleves::PageFicheHub().into_any()
         } else {

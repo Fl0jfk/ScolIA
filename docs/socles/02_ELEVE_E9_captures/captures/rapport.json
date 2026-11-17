@@ -21,14 +21,14 @@
     "OK  axe fiche historique : 0 violation(s) ",
     "OK  le protégé n'est pas dans la liste de la vie scolaire",
     "OK  sa fiche répond « introuvable », jamais « refusé »",
-    "ÉCHEC axe fiche introuvable : 1 violation(s) page-has-heading-one",
+    "OK  axe fiche introuvable : 0 violation(s) ",
     "OK  la direction (G6) ouvre la fiche du protégé",
     "OK  le professeur est informé de son périmètre",
     "OK  375 px liste : débordement 0px",
     "OK  axe liste 375 px : 0 violation(s) ",
     "OK  375 px fiche : débordement 0px",
     "OK  axe fiche 375 px : 0 violation(s) ",
-    "ÉCHEC erreurs console / page : 5 console Failed to load resource: the server responded with a status of 401 (Unauthorized) | console Failed to load resource: the server responded with a status of 404 (Not Found) | console Failed to load resource: the server responded with a status of 404 (Not Found)"
+    "ÉCHEC erreurs console / page : 2 console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche | console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
   ],
   "axe": [
     {
@@ -53,15 +53,7 @@
     },
     {
       "page": "fiche introuvable",
-      "violations": [
-        {
-          "id": "page-has-heading-one",
-          "impact": "moderate",
-          "noeuds": 1,
-          "cible": "html",
-          "html": "<html lang=\"fr\">"
-        }
-      ]
+      "violations": []
     },
     {
       "page": "liste 375 px",
@@ -94,14 +86,10 @@
     }
   ],
   "erreurs": [
-    "console Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-    "console Failed to load resource: the server responded with a status of 404 (Not Found)",
-    "console Failed to load resource: the server responded with a status of 404 (Not Found)",
-    "console Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-    "console Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    "console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche",
+    "console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
   ],
   "echecs": [
-    "axe fiche introuvable : 1 violation(s) page-has-heading-one",
-    "erreurs console / page : 5 console Failed to load resource: the server responded with a status of 401 (Unauthorized) | console Failed to load resource: the server responded with a status of 404 (Not Found) | console Failed to load resource: the server responded with a status of 404 (Not Found)"
+    "erreurs console / page : 2 console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche | console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
   ]
 }

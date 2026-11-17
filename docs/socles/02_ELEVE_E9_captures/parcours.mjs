@@ -55,6 +55,7 @@ async function ouvrir(c, largeur = 1280, hauteur = 900) {
     if (m.type() !== 'error') return;
     const u = m.location().url ?? '';
     // Attendus : la photo absente (404 d'une <img>, repli sur les initiales) et la session pas encore ouverte (401 avant connexion).
+    if (/Not Found/.test(m.text()) && /\/eleves\/[0-9a-f-]{36}$/.test(u)) return; // fiche du protégé : « introuvable » attendu
     if (/\/eleves\/[0-9a-f-]{36}\/photo$/.test(u) || (/Unauthorized/.test(m.text()) && /\/auth\/me$/.test(u))) return;
     rapport.erreurs.push(`console ${m.text()} ${u}`);
   });
@@ -169,7 +170,7 @@ const lignes = (page) => page.locator('.eleves-tableau tbody tr');
   await page.getByText('Aucun élève ne correspond').waitFor({ timeout: 8000 });
   verifie(true, 'le protégé n\'est pas dans la liste de la vie scolaire');
   await page.goto(`${base}/web/eleves/${protege.id}`);
-  await page.getByText('Fiche introuvable').waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { name: 'Fiche introuvable' }).waitFor({ timeout: 15000 });
   verifie(true, 'sa fiche répond « introuvable », jamais « refusé »');
   await cap(page, '04-protege-vie-scolaire.png');
   await axe(page, 'fiche introuvable');
