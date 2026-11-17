@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS ent_doc_signataire_mode (
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     signataire_id UUID NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('passkey', 'code_sms', 'guichet', 'papier')),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (signataire_id, mode),
     CONSTRAINT ent_doc_signataire_mode_signataire_cfk FOREIGN KEY (etablissement_id, signataire_id)
         REFERENCES ent_doc_signataire (etablissement_id, id) ON DELETE RESTRICT
