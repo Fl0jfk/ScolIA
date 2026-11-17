@@ -171,7 +171,6 @@ pub(crate) struct ReservationOuverte {
     pub espace_id: Uuid,
     pub octets: i64,
     pub cle_objet: String,
-    pub demandeur_user_id: Uuid,
     pub expire_le: DateTime<Utc>,
 }
 
@@ -194,7 +193,6 @@ pub(crate) async fn reservation_ouverte(
         espace_id: l.get(0),
         octets: l.get(1),
         cle_objet: l.get(2),
-        demandeur_user_id: l.get(3),
         expire_le: l.get(4),
     }))
 }
