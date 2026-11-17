@@ -679,8 +679,8 @@ fn domaine_fils_de_messages() {
 }
 
 fn specs_domaine_factures() -> Vec<Spec> {
-    const FACT_LIEE: &[Acteur] = &[Admin, Direction, Administratif, Compta, Parent, ParentAutreFoyer];
-    const FACT_NON_LIEE: &[Acteur] = &[Admin, Direction, Administratif, Compta];
+    const FACT_LIEE: &[Acteur] = &[Admin, Direction, Compta, Parent, ParentAutreFoyer];
+    const FACT_NON_LIEE: &[Acteur] = &[Admin, Direction, Compta];
     vec![
             lire("facture", "/facturation/factures/{facture}", FACT_LIEE, FACT_NON_LIEE),
             lire("facture-pdf", "/facturation/factures/{facture}/pdf", FACT_LIEE, FACT_NON_LIEE),
@@ -694,6 +694,44 @@ fn specs_domaine_factures() -> Vec<Spec> {
 #[test]
 fn domaine_factures() {
     jouer("factures / foyers", &specs_domaine_factures());
+}
+
+/// Socle 24, lots F1 et F2 : comptes débiteurs, payeurs désignés, conséquences, prises en charge, journal,
+/// guichet, tâches. Lectures bornées à A (aucune donnée de B) ; toute écriture visant un objet de B (élève,
+/// compte, groupe, tâche) échoue — l'identifiant de foyer de B tient lieu d'identifiant inconnu de A.
+fn specs_domaine_finances_comptes() -> Vec<Spec> {
+    vec![
+        borne_a("fin-journal", "GET", "/finances/journal", None, &[]),
+        borne_a("fin-comptes", "GET", "/finances/comptes", None, &[]),
+        borne_a("fin-mes-comptes", "GET", "/finances/mes-comptes", None, &[]),
+        borne_a("fin-taches", "GET", "/finances/taches", None, &[]),
+        borne_a("fin-consequences", "GET", "/finances/consequences", None, &[]),
+        borne_a("fin-prises-en-charge", "GET", "/finances/prises-en-charge", None, &[]),
+        borne_a("fin-guichet-recherche", "GET", "/finances/guichet/recherche?nom=Martin&auth=presentiel", None, &[]),
+        ecrire_sur_b("fin-compte-B", "GET", "/finances/comptes/{foyer}", None),
+        ecrire_sur_b("fin-guichet-compte-B", "GET", "/finances/guichet/comptes/{foyer}", None),
+        ecrire_sur_b("fin-payeurs-B", "GET", "/finances/eleves/{eleve}/payeurs", None),
+        ecrire_sur_b("fin-designer-B", "POST", "/finances/eleves/{eleve}/designations",
+            Some(r#"{"categorie":"toutes","parts":[],"date_effet":"2030-09-01"}"#)),
+        ecrire_sur_b("fin-payeur-majeur-B", "POST", "/finances/eleves/{eleve}/payeur-majeur",
+            Some(r#"{"date_effet":"2030-09-01"}"#)),
+        ecrire_sur_b("fin-accepter-B", "POST", "/finances/designations/{foyer}/accepter", Some("{}")),
+        ecrire_sur_b("fin-refuser-B", "POST", "/finances/designations/{foyer}/refuser", Some("{}")),
+        ecrire_sur_b("fin-piece-B", "POST", "/finances/designations/{foyer}/piece",
+            Some(r#"{"piece":{"nature":"jugement","reference":"x"}}"#)),
+        ecrire_sur_b("fin-demande-B", "POST", "/finances/famille/demande-repartition",
+            Some(r#"{"eleve_id":"{eleve}","categorie":"toutes"}"#)),
+        ecrire_sur_b("fin-decision-B", "POST", "/finances/consequences/{foyer}/decision",
+            Some(r#"{"appliquer":false,"motif":"test"}"#)),
+        ecrire_sur_b("fin-abandonner-B", "POST", "/finances/taches/{foyer}/abandonner", Some("{}")),
+        ecrire_sur_b("fin-prise-en-charge-B", "POST", "/finances/prises-en-charge",
+            Some(r#"{"compte_id":"{foyer}","eleve_id":"{eleve}","reference":"R","du":"2030-09-01","au":"2031-06-30","categories":["internat"]}"#)),
+    ]
+}
+
+#[test]
+fn domaine_finances_comptes() {
+    jouer("finances : comptes, payeurs, conséquences", &specs_domaine_finances_comptes());
 }
 
 fn specs_domaine_appel() -> Vec<Spec> {
@@ -1008,7 +1046,7 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
-            lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
+            lire("factures-liste", "/facturation/factures", &[Admin, Direction, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
             // Socle 8 N0a (RP1-06) : journaux d'envoi (adresses, numéros) réservés à `notifications.gerer`.
             lire("mails-liste", "/mails", &[Admin, Direction], &[Admin, Direction]),
@@ -2125,6 +2163,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_accords());
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
+    v.extend(specs_domaine_finances_comptes());
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
     v.extend(specs_domaine_espaces());
