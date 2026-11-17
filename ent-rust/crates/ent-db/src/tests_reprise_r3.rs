@@ -695,6 +695,7 @@ async fn r3_une_reprise_appliquee_fige_les_decisions() {
         .await
         .unwrap();
     let _ = id;
+    let autre = c.ligne_eleve_sans_candidat().await;
     // Une exécution d'application terminée : plus aucune décision ne se modifie.
     let exec = reprise::ouvrir_execution(
         c.ent.pool(),
@@ -720,7 +721,6 @@ async fn r3_une_reprise_appliquee_fige_les_decisions() {
         .await
         .unwrap_err();
     assert!(conflit(&e), "{e:?}");
-    let autre = c.ligne_eleve_sans_candidat().await;
     let e = c
         .ent
         .reprise_decider(
