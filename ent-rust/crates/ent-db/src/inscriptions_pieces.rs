@@ -866,13 +866,13 @@ impl PgEnt {
             if est_clos(&eff) {
                 continue;
             }
-            let nouvelles = appliquer_regles_tx(&mut **tx, etab, id).await?;
+            let nouvelles = appliquer_regles_tx(tx, etab, id).await?;
             if nouvelles.is_empty() || eff == "brouillon" {
                 continue;
             }
             total += nouvelles.len();
             suivi_tx(
-                &mut **tx,
+                tx,
                 etab,
                 id,
                 "piece",
@@ -883,7 +883,7 @@ impl PgEnt {
             )
             .await?;
             publier(
-                &mut **tx,
+                tx,
                 etab,
                 types::INSCRIPTION_PIECE_DEMANDEE,
                 AggregateKind::Admission,

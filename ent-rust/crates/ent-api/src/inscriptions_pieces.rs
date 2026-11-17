@@ -46,7 +46,7 @@ pub fn routes() -> Router<AppState> {
         .route("/inscriptions/dossiers/{id}/pieces-attendues", get(pieces))
         .route(
             "/inscriptions/dossiers/{id}/pieces/{code}/fichiers",
-            post(deposer_guichet).layer(depot.clone()),
+            post(deposer_guichet).layer(depot),
         )
         .route("/inscriptions/dossiers/{id}/pieces/{code}/controle", post(controler))
         .route("/inscriptions/dossiers/{id}/pieces/{code}/reutiliser", post(reutiliser))

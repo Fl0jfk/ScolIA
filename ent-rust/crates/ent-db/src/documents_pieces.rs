@@ -1343,7 +1343,7 @@ impl PgEnt {
         .execute(&mut **tx)
         .await
         .map_err(db)?;
-        decision(&mut **tx, etab, d.id, d.demande_id, "deposee", None, None, d.deposant.0).await?;
+        decision(tx, etab, d.id, d.demande_id, "deposee", None, None, d.deposant.0).await?;
         Ok(())
     }
 

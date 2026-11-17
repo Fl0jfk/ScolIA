@@ -934,7 +934,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         let objet = objet_de_la_nature(&d.nature);
         publier(
-            &mut **tx,
+            tx,
             etab,
             types::INSCRIPTION_ACCORD_REPONDU,
             AggregateKind::Admission,
@@ -957,17 +957,17 @@ impl PgEnt {
             .await
             .map_err(db)?;
             bloquer_tx(
-                &mut **tx,
+                tx,
                 etab,
                 d,
                 "Désaccord des responsables : seule une décision commune ou du juge aux affaires familiales permet de poursuivre",
                 actor,
             )
             .await?;
-            let toutes = declarations_tx(&mut **tx, etab, d).await?;
-            informer_desaccord_tx(&mut **tx, etab, d, &toutes).await?;
+            let toutes = declarations_tx(tx, etab, d).await?;
+            informer_desaccord_tx(tx, etab, d, &toutes).await?;
         } else {
-            suivi_tx(&mut **tx, etab, d.id, "commentaire", None, Some("Accord d'un responsable enregistré"), false, actor)
+            suivi_tx(tx, etab, d.id, "commentaire", None, Some("Accord d'un responsable enregistré"), false, actor)
                 .await?;
         }
         Ok(())
