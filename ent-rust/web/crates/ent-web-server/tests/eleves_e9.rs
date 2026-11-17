@@ -408,7 +408,7 @@ async fn l_identite_est_minimisee_et_l_historique_reserve() {
         .expect("historique");
     assert!(!versions.is_empty());
     let courante =
-        version_courante(&versions, chrono::Utc::now().date_naive()).expect("version courante");
+        version_courante(&versions, ent_db::jour_paris()).expect("version courante");
     assert_eq!(courante.nom_naissance.to_lowercase(), f.nom.to_lowercase());
     let etapes = etapes_frise(&versions);
     assert_eq!(etapes.len(), versions.len());
@@ -608,7 +608,7 @@ async fn preparer_pai_et_modalite(base: &str, l: &Labo, harry: Uuid) {
         .definir_module_sante(true)
         .await
         .expect("module santé");
-    let debut = chrono::Utc::now().date_naive() - chrono::Duration::days(30);
+    let debut = ent_db::jour_paris() - chrono::Duration::days(30);
     let corps = ent_types::sante::EnregistrerPaiBody {
         motif: "allergie sévère".into(),
         mesures_accueil: "trousse d'urgence".into(),
@@ -629,7 +629,7 @@ async fn preparer_pai_et_modalite(base: &str, l: &Labo, harry: Uuid) {
     let _ = secretariat
         .post_json(
             &format!("/eleves/{harry}/modalites"),
-            serde_json::json!({"code": "ulis", "du": (chrono::Utc::now().date_naive() - chrono::Duration::days(12)).to_string()}),
+            serde_json::json!({"code": "ulis", "du": (ent_db::jour_paris() - chrono::Duration::days(12)).to_string()}),
         )
         .await;
 }
@@ -698,7 +698,7 @@ async fn la_tuile_vie_de_classe_s_ouvre_a_l_enseignant_pas_a_l_accueil_et_ne_liv
             );
         }
     }
-    let annee = chrono::Utc::now().format("%Y-").to_string();
+    let annee = ent_db::jour_paris().format("%Y-").to_string();
     assert!(
         !dump.contains(&annee),
         "aucune date de l'année en cours dans la synthèse de l'enseignant : {dump}"
