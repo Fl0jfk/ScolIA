@@ -238,7 +238,7 @@ async fn e2_les_pastilles_ne_devinent_pas_la_naissance_et_suivent_leur_tuile() {
             if p.code == "majeur" {
                 vu_majeur = true;
                 assert_eq!(p.valeur_date, None, "{role} : pas de date de majorité");
-                assert_eq!(p.du, jour, "{role} : `du` ne révèle pas la naissance");
+                assert_eq!(p.du, None, "{role} : `du` ne révèle pas la naissance (aucune date)");
             }
             let tuile = s.tuiles.iter().find(|t| t.domaine == p.domaine);
             assert!(

@@ -288,7 +288,7 @@ async fn les_pastilles_et_les_tuiles_suivent_les_droits_de_l_acteur() {
     let t = tuile(&s, "sante");
     assert!(matches!(t.etat, EtatTuile::Masquee(RaisonTuile::DroitManquant | RaisonTuile::ReserveAuPersonnel | RaisonTuile::HorsPortee)), "{:?}", t.etat);
     assert!(t.pastilles.is_empty());
-    assert!(t.lien.contains(&e.id.to_string()));
+    assert!(t.lien.is_none(), "une tuile masquée n'a pas de lien");
     // Les tuiles sont rendues dans l'ordre du contrat, une par domaine.
     assert_eq!(s.tuiles.iter().map(|t| t.domaine).collect::<Vec<_>>(), {
         let mut c: Vec<_> = CONTRATS_TUILES.iter().collect();
