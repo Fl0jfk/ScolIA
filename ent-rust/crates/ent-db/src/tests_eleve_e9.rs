@@ -389,7 +389,7 @@ async fn e9b_protocole_signale_l_infirmerie_a_la_vie_scolaire_sans_rien_de_sante
     let p = s.pastilles.iter().find(|p| p.code == "protocole").unwrap();
     assert_eq!(
         (p.domaine, p.valeur_code.clone(), p.valeur_date),
-        ("scolarite", None, None),
+        ("classe", None, None),
         "ni nature, ni échéance"
     );
     assert_eq!(p.du, jour, "pas même la date de début du PAI");
@@ -690,10 +690,10 @@ async fn e9c_majorite_proche_est_un_booleen_sans_date() {
         !format!("{s:?}").contains(&naissance_pour(10).to_string()),
         "la date de naissance ne fuit pas"
     );
-    // La vie scolaire (sans état civil) et le professeur ne la voient pas.
-    assert!(!vues_par(&ent, &cast, Role::Cpe, proche.id)
+    // L'administration et la vie scolaire la voient (booléen).
+    assert!(vues_par(&ent, &cast, Role::Cpe, proche.id)
         .await
-        .unwrap_or_default()
+        .unwrap()
         .contains(&"majorite_proche"));
     assert!(!vues_par(&ent, &cast, Role::Prof, proche.id)
         .await
@@ -748,10 +748,10 @@ async fn e9c_modalite_particuliere_sans_detail() {
         .iter()
         .any(|p| p.code == "modalite_particuliere"));
     assert!(!format!("{s:?}").to_lowercase().contains("ulis"));
-    // La vie scolaire et le professeur ne la voient pas (réservée au secrétariat et à la direction).
-    assert!(!vues_par(&ent, &cast, Role::Cpe, e.id)
+    // La vie scolaire la voit (booléen) ; le professeur d'une autre classe n'a même pas la fiche.
+    assert!(vues_par(&ent, &cast, Role::Cpe, e.id)
         .await
-        .unwrap_or_default()
+        .unwrap()
         .contains(&"modalite_particuliere"));
     assert!(!vues_par(&ent, &cast, Role::Prof, e.id)
         .await
@@ -1684,9 +1684,14 @@ async fn e9d_l_enseignant_de_l_eleve_voit_les_pastilles_d_organisation_et_pas_le
     let l = ent.eleves_par_pastille_pour_acteur(rprof, etab, prof, "protocole", 100).await;
     assert!(forbidden(&l) || l.is_ok_and(|v| !v.contains(&sans_lien.id)), "pas de liste de travail pour un enseignant");
 
-    // Élève protégé : la direction (G6) le voit, l'enseignant de sa classe non (hors portée G6 / fiche absente).
+    // Élève protégé : la vie scolaire (tiers) ne le voit plus ; l'enseignant de sa classe garde la fiche
+    // (portée pédagogique, décision E4) mais n'y voit ni la pastille ni la tuile de protection.
     proteger_harry(&ent, &cast, rdir, dir, harry, jour).await;
-    assert!(absent(&ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await), "un protégé reste protégé de son enseignant");
+    let (cpe, rcpe) = user(&cast, Role::Cpe);
+    assert!(absent(&ent.synthese_eleve_pour_acteur(rcpe, etab, cpe, harry).await), "un protégé reste protégé d'un tiers");
+    let sp = ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await.unwrap();
+    assert!(sp.pastilles.iter().all(|p| p.code != "confidentialite_renforcee"));
+    assert!(sp.tuiles.iter().all(|t| t.domaine != "protection" || !matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible)));
     ent.lever_confidentialite_a(rdir, etab, dir, harry, "fin_de_mesure", t0()).await.unwrap();
     for c in codes_prof {
         sqlx::query("DELETE FROM ent_eleve_indicateur WHERE eleve_id = $1 AND code = $2")
