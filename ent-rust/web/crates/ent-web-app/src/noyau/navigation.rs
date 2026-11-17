@@ -99,7 +99,7 @@ pub const FORMULAIRES: &str = "/web/formulaires";
 /// Finances (S2-9) : comptabilité (personnel) et factures des payeurs (familles).
 pub const COMPTABILITE: &str = "/web/comptabilite";
 pub const MES_FACTURES: &str = "/web/mes-factures";
-/// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
+/// Élèves : liste `/web/eleves` (E9a), fiche hub `/web/eleves/{id}` (E9b), dossier 360° `/web/eleves/{id}/dossier` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
 fn entree(libelle: &str, href: &str, icone: NomIcone) -> EntreeNav {
@@ -136,6 +136,11 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.personnel && moteur.a("recherche.globale") {
         v.push(entree("Recherche", RECHERCHE, NomIcone::Personne));
+    }
+    // Socle 2 (E9a) : la liste des élèves, pour qui a l'annuaire. Le serveur reste juge du périmètre
+    // (un professeur n'y voit que ses classes) et de chaque fiche.
+    if droits.personnel && moteur.a("eleves.annuaire") {
+        v.push(entree("Élèves", ELEVES, NomIcone::Personne));
     }
     if moteur.a("recherche.debloquer") {
         v.push(entree(
@@ -931,6 +936,21 @@ mod tests {
         );
         let admin = DroitsMoteur::new(vec![droit("recherche.debloquer", "etablissement")]);
         assert!(adresses(droits_du_role("admin"), &admin).contains(&BLOCAGES_RECHERCHE.to_string()));
+    }
+
+    /// Socle 2 (E9a) : « Élèves » pour le personnel qui a l'annuaire, jamais pour les familles.
+    #[test]
+    fn la_liste_des_eleves_selon_le_moteur_de_droits() {
+        assert!(!adresses(droits_du_role("prof"), &DroitsMoteur::default()).contains(&ELEVES.to_string()));
+        let m = DroitsMoteur::new(vec![droit("eleves.annuaire", "mes_classes")]);
+        assert!(adresses(droits_du_role("prof"), &m).contains(&ELEVES.to_string()), "le professeur : son périmètre");
+        let tout = DroitsMoteur::new(vec![droit("eleves.annuaire", "etablissement")]);
+        assert!(adresses(droits_du_role("administratif"), &tout).contains(&ELEVES.to_string()));
+        assert!(
+            !adresses(droits_du_role("parent"), &tout).contains(&ELEVES.to_string()),
+            "pas pour les familles"
+        );
+        assert!(!adresses(droits_du_role("eleve"), &tout).contains(&ELEVES.to_string()));
     }
 
     #[test]

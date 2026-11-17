@@ -278,6 +278,7 @@ pub mod eleve_fusion;
 pub mod eleve_confidentialite;
 pub mod eleve_indicateurs;
 pub mod eleve_photo;
+pub mod photo_nettoyage;
 pub mod eleve_coordonnee;
 pub(crate) mod eleve_identite_scellee;
 pub mod scolarite;
@@ -459,7 +460,7 @@ pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_ctx::DroitsActeur;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
-pub use eleve_champs::EleveVue;
+pub use eleve_champs::{EleveVue, FiltreListeEleves, ListeEleves, LISTE_PLAFOND};
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
@@ -727,6 +728,8 @@ mod tests_eleve_protection;
 mod tests_eleve_indicateurs;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_revue_securite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_e9;
 #[cfg(test)]
 mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]

@@ -435,6 +435,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 18, lot FO3 (2367) : dossier de preuve par la brique de signature (tables du socle 7, 3705) ; appliquée après
     // elles, numéro sous 3808 donc `MIGRATION_TAG` inchangé (règle 28).
     m!("2367_acc_dossier_preuve"),
+    // Socle 2, lot E9 (plage 3200–3219) : pastilles R-E9, statut jamais NULL (F3), contraintes validées (F5). Appliquée
+    // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
+    // `MIGRATION_TAG` inchangé (règle 28).
+    m!("3200_eleve_e9_pastilles_statut_contraintes"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

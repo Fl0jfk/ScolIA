@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 use domain_eleve::{
-    contrat_tuile, indicateur_catalogue, indicateurs_de_l_evenement, ContratTuile, DomainError, Gravite,
+    contrat_tuile, indicateur_catalogue, indicateurs_de_l_evenement, ContratTuile, DefIndicateur, DomainError, Gravite,
     RaisonTuile, CATALOGUE_INDICATEURS, CONTRATS_TUILES, EVENEMENTS_ECOUTES,
 };
 use ent_auth::{Action, Role};
@@ -135,6 +135,9 @@ pub struct SyntheseEleve {
     pub tuiles: Vec<TuileVue>,
 }
 
+/// Pastilles qui ne livrent que le fait, jamais une date qui laisserait deviner la naissance.
+const SANS_DATE: [&str; 2] = ["majeur", "majorite_proche"];
+
 /// Pour un code d'action : détenu sur cet élève, détenu quelque part (portée).
 #[derive(Debug, Clone, Copy, Default)]
 struct DroitAction {
@@ -240,24 +243,31 @@ impl PgEnt {
             (domaine != "sante" || sante_active)
                 && contrat_tuile(domaine).is_some_and(|c| a_le_droit(c.actions_requises))
         };
+        // Un fait qui vient du module santé (PAI, protocole) n'existe pas sans ce module, même quand
+        // la pastille s'affiche dans une autre tuile (M6).
+        let module_ouvert = |def: &DefIndicateur| !def.module_sante || sante_active;
         let mut pastilles: Vec<PastilleVue> = lignes
             .into_iter()
             .filter_map(|l| {
                 let def = indicateur_catalogue(&l.code)?;
-                (a_le_droit(def.actions_requises) && tuile_ouverte(def.domaine)).then_some(PastilleVue {
+                (a_le_droit(def.actions_requises) && tuile_ouverte(def.domaine) && module_ouvert(def)).then_some(PastilleVue {
                     code: def.code,
                     domaine: def.domaine,
                     libelle: def.libelle,
                     icone: def.icone,
                     gravite: def.gravite,
                     valeur_code: l.valeur_code,
-                    // `majeur` ne publie que le fait : ni la date de majorité ni son début ne
-                    // doivent laisser deviner la date de naissance exacte.
-                    valeur_date: if def.code == "majeur" { None } else { l.valeur_date },
-                    du: if def.code == "majeur" { jour } else { l.du },
+                    // `majeur` et `majorite_proche` ne publient que le fait : ni la date de majorité
+                    // ni son début ne doivent laisser deviner la date de naissance exacte.
+                    valeur_date: if SANS_DATE.contains(&def.code) { None } else { l.valeur_date },
+                    du: if SANS_DATE.contains(&def.code) { jour } else { l.du },
                 })
             })
             .collect();
+        // Qui voit le PAI n'a pas besoin de la pastille neutre qui renvoie vers l'infirmerie.
+        if pastilles.iter().any(|p| p.code == "pai_actif") {
+            pastilles.retain(|p| p.code != "protocole");
+        }
         pastilles.sort_by(|a, b| (a.gravite, a.libelle, a.code).cmp(&(b.gravite, b.libelle, b.code)));
         let mut tuiles: Vec<TuileVue> = CONTRATS_TUILES
             .iter()
@@ -324,7 +334,7 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         // M6 : une liste de santé exige le module santé de l'établissement.
-        if def.domaine == "sante" {
+        if def.domaine == "sante" || def.module_sante {
             self.exiger_module_sante(etab).await?;
         }
         let profil = self.profil_champs(etab, acteur, role).await?;
@@ -363,6 +373,10 @@ impl PgEnt {
         let mut out = Vec::new();
         for def in CATALOGUE_INDICATEURS {
             if !self.a_une_action_etablissement(etab, acteur, role, def.actions_requises).await? {
+                continue;
+            }
+            // M6 : les compteurs d'un fait de santé n'existent pas sans le module santé.
+            if (def.domaine == "sante" || def.module_sante) && !self.module_sante_actif(etab).await? {
                 continue;
             }
             let (n,): (i64,) = sqlx::query_as(

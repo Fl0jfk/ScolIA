@@ -544,6 +544,9 @@ impl PgEnt {
             .bind(limite.clamp(1, 500))
             .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await?;
+        // F4 : la liste de tous les élèves protégés est elle-même une lecture sensible, tracée.
+        self.tracer_consultation(etab, acteur, role, None, "liste_proteges", "Consultation de la liste des élèves protégés", false)
+            .await?;
         lignes.into_iter().map(|l| l.en_vue(false)).collect()
     }
 

@@ -21,6 +21,7 @@ pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;
 pub mod edt_semaine;
+pub mod eleves;
 pub mod evaluations;
 pub mod finances;
 pub mod formulaires;

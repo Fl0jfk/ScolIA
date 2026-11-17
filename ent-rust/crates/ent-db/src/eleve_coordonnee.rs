@@ -119,6 +119,11 @@ impl From<CoordRow> for CoordonneeEleveVue {
     }
 }
 
+/// M7 : au plus 6 SMS de vérification par élève et par période de 24 h (en plus des 3 par heure et par
+/// coordonnée) ; au plus 300 pour tout l'établissement. Au-delà : refus (409), l'e-mail reste possible.
+pub const SMS_VERIFICATION_PAR_JOUR_ET_ELEVE: i64 = 6;
+pub const SMS_VERIFICATION_PAR_JOUR_ET_ETABLISSEMENT: i64 = 300;
+
 const COLONNES: &str = "id, eleve_id, type, valeur, usages, source, statut, verifiee_le, du, au, cree_par, \
                         cree_le, decide_par, decide_le, motif_code";
 
@@ -252,6 +257,15 @@ impl PgEnt {
             .await?;
         if qualite == QualiteActeur::Famille && majeur_ou_emancipe_tx(&mut tx, etab, eleve, jour).await? {
             return Err(DomainError::NotFound.into());
+        }
+        if qualite == QualiteActeur::Famille {
+            // Réglage « email_eleve » / « mobile_eleve » du catalogue (E9) : la famille ne propose que
+            // ce que l'établissement lui ouvre.
+            let champ = match type_ {
+                TypeCoordonneeEleve::Email => "email_eleve",
+                TypeCoordonneeEleve::Mobile => "mobile_eleve",
+            };
+            crate::param_eleve::exiger_saisie_famille_tx(&mut tx, etab, champ).await?;
         }
         let (vivantes,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_eleve_coordonnee
@@ -554,6 +568,26 @@ impl PgEnt {
         .await?;
         if recentes >= VERIFICATION_DEMANDES_PAR_HEURE || par_eleve >= 4 * VERIFICATION_DEMANDES_PAR_HEURE {
             return Err(EntDbError::ConflitDossier("trop de codes demandés, réessayer plus tard"));
+        }
+        // M7 : plafond JOURNALIER des SMS (24 h glissantes), par élève et pour l'établissement entier.
+        // Un SMS coûte et peut être détourné ; les demandes dont l'envoi a échoué comptent aussi.
+        if type_ == TypeCoordonneeEleve::Mobile {
+            let jour_avant = maintenant - Duration::hours(24);
+            let (sms_eleve, sms_etab): (i64, i64) = sqlx::query_as(
+                "SELECT count(*) FILTER (WHERE eleve_id = $2), count(*)
+                   FROM ent_eleve_coordonnee_verification
+                  WHERE etablissement_id = $1 AND canal = 'sms' AND envoye_le > $3",
+            )
+            .bind(etab)
+            .bind(eleve)
+            .bind(jour_avant)
+            .fetch_one(&mut *tx)
+            .await?;
+            if sms_eleve >= SMS_VERIFICATION_PAR_JOUR_ET_ELEVE || sms_etab >= SMS_VERIFICATION_PAR_JOUR_ET_ETABLISSEMENT {
+                return Err(EntDbError::ConflitDossier(
+                    "plafond quotidien de SMS de vérification atteint, réessayer demain",
+                ));
+            }
         }
         sqlx::query(
             "UPDATE ent_eleve_coordonnee_verification SET statut = 'annulee'

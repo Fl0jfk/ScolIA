@@ -38,6 +38,7 @@ mod discipline_vs;
 mod dossier;
 mod droits_moteur;
 mod edt;
+mod eleves;
 mod edt_s2;
 mod evaluations;
 mod finances;
@@ -63,6 +64,11 @@ pub use communication::{
 };
 pub use dossier::ResultatLien;
 pub use droits_moteur::DroitEffectif;
+pub use eleves::{adresse_photo_eleve, FiltreListeEleves};
+pub use ent_types::eleve_protection::ConsultationDto;
+pub use ent_types::eleve_synthese as eleve_synthese_types;
+pub use ent_types::identifiants::IdentifiantDto;
+pub use ent_types::identite::IdentiteVersionDto;
 pub use edt_s2::{
     chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
 };
