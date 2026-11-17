@@ -586,7 +586,21 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
                 sqlx::query(garde).execute(&mut verrou).await?;
             }
         }
-        apply_sql_file(pool, sql).await?;
+        // Un test voisin qui travaille sur les mêmes tables pendant le rejeu peut faire de lui la victime d'un
+        // verrou mortel (40P01) ou d'un conflit de sérialisation (40001) : les fichiers sont idempotents, on
+        // rejoue le fichier (cinq tentatives au plus, attente croissante).
+        let mut tentative = 0u64;
+        loop {
+            match apply_sql_file(pool, sql).await {
+                Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
+                    if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
+                {
+                    tentative += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
+                }
+                r => break r?,
+            }
+        }
     }
     Ok(())
 }
