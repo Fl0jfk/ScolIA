@@ -10,8 +10,8 @@ use ent_types::dossier::MasqueChampsDto;
 use ent_types::eleve_synthese::{EleveFicheDto, PastilleDto, SyntheseDto, TuileDto};
 use ent_web_api::{adresse_photo_eleve, ApiError};
 use ent_web_ui::{
-    AccesRefuse, Alerte, Annonce, Avatar, Badge, EtatVide, GrilleBento, Largeur, LienBouton, Niveau, OptionSegment,
-    Segmente, Squelette, TonEtat, Tuile, Variante,
+    AccesRefuse, Alerte, Annonce, Avatar, Badge, EtatVide, GrilleBento, Largeur, LienBouton,
+    Niveau, OptionSegment, Segmente, Squelette, TonEtat, Tuile, Variante,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -19,9 +19,10 @@ use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use uuid::Uuid;
 
 use super::modele::{
-    corps_tuile_sans_ecran, date_naissance_affichee, designation, destination_tuile, etapes_frise, libelle_consultation,
-    libelle_ouverture, libelle_statut, libelle_statut_identifiant, libelle_systeme, phrase_pastille, raison_masquage,
-    ton_gravite, ton_statut, ton_statut_identifiant, Destination, Onglet,
+    corps_tuile_sans_ecran, date_naissance_affichee, designation, destination_tuile, etapes_frise,
+    libelle_consultation, libelle_ouverture, libelle_statut, libelle_statut_identifiant,
+    libelle_systeme, phrase_pastille, raison_masquage, ton_gravite, ton_statut,
+    ton_statut_identifiant, Destination, Onglet,
 };
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
@@ -38,7 +39,11 @@ fn adresse_onglet(eleve: Uuid, onglet: Onglet) -> String {
 #[component]
 pub fn PageFicheHub() -> impl IntoView {
     let params = use_params_map();
-    let id = Memo::new(move |_| params.with(|p| p.get("id")).and_then(|i| i.parse::<Uuid>().ok()));
+    let id = Memo::new(move |_| {
+        params
+            .with(|p| p.get("id"))
+            .and_then(|i| i.parse::<Uuid>().ok())
+    });
     let fiche = LocalResource::new(move || {
         let id = id.get();
         async move {
@@ -86,7 +91,9 @@ fn ContenuFiche(fiche: EleveFicheDto) -> impl IntoView {
     let titre = format!("{nom} · fiche élève");
     let query = use_query_map();
     let navigate = use_navigate();
-    let onglet = Memo::new(move |_| Onglet::depuis_code(&query.with(|q| q.get("onglet")).unwrap_or_default()));
+    let onglet = Memo::new(move |_| {
+        Onglet::depuis_code(&query.with(|q| q.get("onglet")).unwrap_or_default())
+    });
     // Le contrôle segmenté et l'adresse restent d'accord (lien direct, retour arrière, tuiles).
     let valeur = RwSignal::new(onglet.get_untracked().code().to_string());
     Effect::new(move |_| {
@@ -104,9 +111,13 @@ fn ContenuFiche(fiche: EleveFicheDto) -> impl IntoView {
     let annonce = RwSignal::new(String::new());
     Effect::new(move |_| annonce.set(format!("Section {}", onglet.get().libelle())));
 
-    let synthese = LocalResource::new(move || async move { session::client().eleve_synthese(id).await });
+    let synthese =
+        LocalResource::new(move || async move { session::client().eleve_synthese(id).await });
     let fiche = StoredValue::new(fiche);
-    let options: Vec<OptionSegment> = Onglet::TOUS.iter().map(|o| OptionSegment::new(o.code(), o.libelle())).collect();
+    let options: Vec<OptionSegment> = Onglet::TOUS
+        .iter()
+        .map(|o| OptionSegment::new(o.code(), o.libelle()))
+        .collect();
 
     let ligne_statut = {
         let f = fiche.get_value();
@@ -205,7 +216,10 @@ fn ListePastilles(pastilles: Vec<PastilleDto>) -> impl IntoView {
 // ───────────────────────────── Synthèse ─────────────────────────────
 
 #[component]
-fn SectionSynthese(id: Uuid, synthese: LocalResource<Result<SyntheseDto, ApiError>>) -> impl IntoView {
+fn SectionSynthese(
+    id: Uuid,
+    synthese: LocalResource<Result<SyntheseDto, ApiError>>,
+) -> impl IntoView {
     let recharger = Callback::new(move |_| synthese.refetch());
     view! {
         {move || match synthese.get() {
@@ -247,7 +261,8 @@ fn TuileDomaine(id: Uuid, tuile: TuileDto) -> impl IntoView {
         .into_any();
     }
     let destination = destination_tuile(&tuile.domaine, id);
-    let corps_sans_ecran = matches!(destination, Destination::Aucune).then(|| corps_tuile_sans_ecran(&tuile.domaine));
+    let corps_sans_ecran =
+        matches!(destination, Destination::Aucune).then(|| corps_tuile_sans_ecran(&tuile.domaine));
     let lien = match &destination {
         Destination::Onglet(o) => Some(adresse_onglet(id, *o)),
         Destination::Page(p) => Some(p.clone()),
@@ -276,7 +291,8 @@ fn TuileDomaine(id: Uuid, tuile: TuileDto) -> impl IntoView {
 #[component]
 fn SectionIdentite(id: Uuid, fiche: StoredValue<EleveFicheDto>) -> impl IntoView {
     let f = fiche.get_value();
-    let mut lignes: Vec<(&'static str, String)> = vec![("Prénom", f.prenom.clone()), ("Nom", f.nom.to_uppercase())];
+    let mut lignes: Vec<(&'static str, String)> =
+        vec![("Prénom", f.prenom.clone()), ("Nom", f.nom.to_uppercase())];
     let masques: Vec<MasqueChampsDto> = f.masques.clone();
     let masque = |groupe: &str| masques.iter().any(|m| m.groupe == groupe);
     if !masque("etat_civil") {
@@ -288,11 +304,26 @@ fn SectionIdentite(id: Uuid, fiche: StoredValue<EleveFicheDto>) -> impl IntoView
                 _ => "—".into(),
             },
         ));
-        lignes.push(("Date de naissance", date_naissance_affichee(f.date_naissance, "jour", "declaree")));
+        lignes.push((
+            "Date de naissance",
+            date_naissance_affichee(f.date_naissance, "jour", "declaree"),
+        ));
     }
     if !masque("scolarite") {
-        lignes.push(("Classe", f.classe.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "—".into())));
-        lignes.push(("Régime", f.regime.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "—".into())));
+        lignes.push((
+            "Classe",
+            f.classe
+                .clone()
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| "—".into()),
+        ));
+        lignes.push((
+            "Régime",
+            f.regime
+                .clone()
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| "—".into()),
+        ));
         if let Some(d) = f.date_entree {
             lignes.push(("Entré le", date_longue(d)));
         }
@@ -300,7 +331,8 @@ fn SectionIdentite(id: Uuid, fiche: StoredValue<EleveFicheDto>) -> impl IntoView
             lignes.push(("Sorti le", date_longue(d)));
         }
     }
-    let identifiants = LocalResource::new(move || async move { session::client().eleve_identifiants(id).await });
+    let identifiants =
+        LocalResource::new(move || async move { session::client().eleve_identifiants(id).await });
     view! {
         <Tuile id="fiche-identite" titre="État civil et scolarité" largeur=Largeur::Douze>
             <dl class="fiche-liste">
@@ -379,8 +411,12 @@ fn SectionIdentite(id: Uuid, fiche: StoredValue<EleveFicheDto>) -> impl IntoView
 
 #[component]
 fn SectionHistorique(id: Uuid) -> impl IntoView {
-    let versions = LocalResource::new(move || async move { session::client().eleve_historique_identite(id).await });
-    let consultations = LocalResource::new(move || async move { session::client().eleve_consultations(id).await });
+    let versions =
+        LocalResource::new(
+            move || async move { session::client().eleve_historique_identite(id).await },
+        );
+    let consultations =
+        LocalResource::new(move || async move { session::client().eleve_consultations(id).await });
     view! {
         <Tuile id="fiche-historique" titre="Historique de l'identité" largeur=Largeur::Douze>
             {move || match versions.get() {

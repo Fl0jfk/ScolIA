@@ -7,15 +7,18 @@
 
 use ent_types::eleve_synthese::{CompteurPastilleDto, EleveListeDto};
 use ent_web_api::FiltreListeEleves;
-use ent_web_ui::{Annonce, Avatar, Badge, Bouton, EnTetePage, EtatVide, FiltrePastille, Recherche, Squelette, Variante};
+use ent_web_ui::{
+    Annonce, Avatar, Badge, Bouton, EnTetePage, EtatVide, FiltrePastille, Recherche, Squelette,
+    Variante,
+};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_meta::Title;
 use std::time::Duration;
 
 use super::modele::{
-    designation, libelle_statut, message_liste_vide, message_portee, page_precedente,
-    page_suivante, recherche_a_envoyer, resume_page, ton_statut, ouvre_la_recherche, teinte_gravite,
+    designation, libelle_statut, message_liste_vide, message_portee, ouvre_la_recherche,
+    page_precedente, page_suivante, recherche_a_envoyer, resume_page, teinte_gravite, ton_statut,
     MESSAGE_TRONQUE, PAGE_TAILLE, STATUTS,
 };
 use crate::noyau::erreurs::ErreurChargement;
@@ -70,7 +73,13 @@ pub fn PageListeEleves() -> impl IntoView {
     Effect::new(move |_| {
         let ecoute = window_event_listener(ev::keydown, move |ev| {
             let en_saisie = cible_en_saisie(&ev);
-            if ouvre_la_recherche(&ev.key(), ev.ctrl_key(), ev.meta_key(), ev.alt_key(), en_saisie) {
+            if ouvre_la_recherche(
+                &ev.key(),
+                ev.ctrl_key(),
+                ev.meta_key(),
+                ev.alt_key(),
+                en_saisie,
+            ) {
                 ev.prevent_default();
                 focaliser("eleves-recherche");
             }
@@ -78,7 +87,8 @@ pub fn PageListeEleves() -> impl IntoView {
         on_cleanup(move || ecoute.remove());
     });
 
-    let compteurs = LocalResource::new(|| async { session::client().eleves_compteurs_pastilles().await });
+    let compteurs =
+        LocalResource::new(|| async { session::client().eleves_compteurs_pastilles().await });
     let liste = LocalResource::new(move || {
         let f = FiltreListeEleves {
             q: recherche.get(),
@@ -106,7 +116,10 @@ pub fn PageListeEleves() -> impl IntoView {
     });
     let recharger = Callback::new(move |_| liste.refetch());
     let filtres_actifs = Memo::new(move |_| {
-        !recherche.get().is_empty() || !classe.get().is_empty() || !statut.get().is_empty() || !pastille.get().is_empty()
+        !recherche.get().is_empty()
+            || !classe.get().is_empty()
+            || !statut.get().is_empty()
+            || !pastille.get().is_empty()
     });
     let reinitialiser = Callback::new(move |_| {
         saisie.set(String::new());
@@ -195,7 +208,10 @@ pub fn PageListeEleves() -> impl IntoView {
 
 /// Pastilles du catalogue que le lecteur peut voir, avec leur effectif : chacune est un filtre.
 #[component]
-fn FiltresPastilles(compteurs: Vec<CompteurPastilleDto>, pastille: RwSignal<String>) -> impl IntoView {
+fn FiltresPastilles(
+    compteurs: Vec<CompteurPastilleDto>,
+    pastille: RwSignal<String>,
+) -> impl IntoView {
     view! {
         <div class="eleves-pastilles" role="group" aria-label="Filtrer par pastille">
             {compteurs
@@ -325,7 +341,9 @@ pub(super) fn cible_en_saisie(ev: &leptos::ev::KeyboardEvent) -> bool {
     ev.target()
         .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
         .is_some_and(|el| {
-            let editable = el.get_attribute("contenteditable").is_some_and(|v| v != "false");
+            let editable = el
+                .get_attribute("contenteditable")
+                .is_some_and(|v| v != "false");
             super::modele::est_zone_de_saisie(&el.tag_name(), editable)
         })
 }
@@ -333,7 +351,10 @@ pub(super) fn cible_en_saisie(ev: &leptos::ev::KeyboardEvent) -> bool {
 /// Met le focus sur l'élément d'identifiant donné (navigateur seulement ; sans effet au rendu serveur).
 pub(super) fn focaliser(id: &str) {
     use leptos::wasm_bindgen::JsCast;
-    if let Some(el) = document().get_element_by_id(id).and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok()) {
+    if let Some(el) = document()
+        .get_element_by_id(id)
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+    {
         let _ = el.focus();
     }
 }

@@ -21,7 +21,9 @@ pub const RECHERCHE_MIN: usize = 2;
 
 /// « Léa MARTIN » : prénom puis nom en capitales (le nom se lit d'un coup d'œil).
 pub fn designation(prenom: &str, nom: &str) -> String {
-    format!("{} {}", prenom.trim(), nom.trim().to_uppercase()).trim().to_string()
+    format!("{} {}", prenom.trim(), nom.trim().to_uppercase())
+        .trim()
+        .to_string()
 }
 
 /// Libellé du statut d'un élève (valeurs de `ent_eleve.status`).
@@ -43,8 +45,12 @@ pub fn ton_statut(statut: &str) -> TonEtat {
 }
 
 /// Choix du filtre de statut : (valeur envoyée au serveur, libellé).
-pub const STATUTS: [(&str, &str); 4] =
-    [("", "Tous les statuts"), ("actif", "Scolarisés"), ("preinscrit", "Préinscrits"), ("sorti", "Sortis")];
+pub const STATUTS: [(&str, &str); 4] = [
+    ("", "Tous les statuts"),
+    ("actif", "Scolarisés"),
+    ("preinscrit", "Préinscrits"),
+    ("sorti", "Sortis"),
+];
 
 // ───────────────────────────── Liste : pagination et messages ─────────────────────────────
 
@@ -84,7 +90,10 @@ pub fn message_liste_vide(filtres_actifs: bool) -> (&'static str, &'static str) 
             "Essayez sans accent, avec moins de lettres, ou retirez un filtre. La recherche tolère les fautes de frappe.",
         )
     } else {
-        ("Aucun élève à afficher", "Aucun élève n'est dans votre périmètre pour le moment.")
+        (
+            "Aucun élève à afficher",
+            "Aucun élève n'est dans votre périmètre pour le moment.",
+        )
     }
 }
 
@@ -104,12 +113,22 @@ pub fn recherche_a_envoyer(saisie: &str) -> String {
 
 /// L'élément visé par une touche est-il une zone de saisie ? (balise en capitales, comme `tagName`.)
 pub fn est_zone_de_saisie(balise: &str, contenu_editable: bool) -> bool {
-    contenu_editable || matches!(balise.to_ascii_uppercase().as_str(), "INPUT" | "TEXTAREA" | "SELECT")
+    contenu_editable
+        || matches!(
+            balise.to_ascii_uppercase().as_str(),
+            "INPUT" | "TEXTAREA" | "SELECT"
+        )
 }
 
 /// La touche « / » ouvre la recherche, sauf pendant une saisie et avec une touche de contrôle
 /// (jamais de raccourci qui vole le caractère qu'on tape).
-pub fn ouvre_la_recherche(touche: &str, ctrl: bool, meta: bool, alt: bool, en_saisie: bool) -> bool {
+pub fn ouvre_la_recherche(
+    touche: &str,
+    ctrl: bool,
+    meta: bool,
+    alt: bool,
+    en_saisie: bool,
+) -> bool {
     touche == "/" && !ctrl && !meta && !alt && !en_saisie
 }
 
@@ -187,7 +206,10 @@ impl Onglet {
 
     /// Un paramètre inconnu retombe sur la synthèse (jamais une page vide).
     pub fn depuis_code(code: &str) -> Onglet {
-        Onglet::TOUS.into_iter().find(|o| o.code() == code).unwrap_or(Onglet::Synthese)
+        Onglet::TOUS
+            .into_iter()
+            .find(|o| o.code() == code)
+            .unwrap_or(Onglet::Synthese)
     }
 }
 
@@ -234,7 +256,11 @@ pub fn corps_tuile_sans_ecran(domaine: &str) -> &'static str {
 
 /// Une tuile visible n'a ni pastille ni destination : on le dit au lieu de laisser un cadre vide.
 pub fn tuile_vide(t: &TuileDto) -> bool {
-    t.pastilles.is_empty() && matches!(destination_tuile(&t.domaine, Uuid::nil()), Destination::Aucune)
+    t.pastilles.is_empty()
+        && matches!(
+            destination_tuile(&t.domaine, Uuid::nil()),
+            Destination::Aucune
+        )
 }
 
 // ───────────────────────────── Identité et historique ─────────────────────────────
@@ -293,7 +319,10 @@ pub fn libelle_source(source: &str) -> &'static str {
 }
 
 fn texte_ou_tiret(v: &Option<String>) -> String {
-    v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map_or_else(|| "—".to_string(), str::to_string)
+    v.as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| "—".to_string(), str::to_string)
 }
 
 /// Date de naissance telle qu'on la sait : jamais de « 1ᵉʳ janvier » inventé (R-E1).
@@ -333,12 +362,25 @@ pub fn lignes_identite(v: &IdentiteVersionDto) -> Vec<LigneIdentite> {
     let l = |libelle: &'static str, valeur: String| LigneIdentite { libelle, valeur };
     let mut out = vec![
         l("Nom de naissance", v.nom_naissance.to_uppercase()),
-        l("Prénoms", if v.prenoms.is_empty() { "—".into() } else { v.prenoms.join(", ") }),
+        l(
+            "Prénoms",
+            if v.prenoms.is_empty() {
+                "—".into()
+            } else {
+                v.prenoms.join(", ")
+            },
+        ),
     ];
     if v.nom_usage.as_deref().is_some_and(|s| !s.trim().is_empty()) {
-        out.push(l("Nom d'usage", texte_ou_tiret(&v.nom_usage).to_uppercase()));
+        out.push(l(
+            "Nom d'usage",
+            texte_ou_tiret(&v.nom_usage).to_uppercase(),
+        ));
     }
-    if v.prenom_usage.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+    if v.prenom_usage
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
         out.push(l("Prénom d'usage", texte_ou_tiret(&v.prenom_usage)));
     }
     out.push(l(
@@ -351,22 +393,35 @@ pub fn lignes_identite(v: &IdentiteVersionDto) -> Vec<LigneIdentite> {
     ));
     out.push(l(
         "Date de naissance",
-        date_naissance_affichee(v.date_naissance, &v.date_naissance_precision, &v.date_naissance_statut),
+        date_naissance_affichee(
+            v.date_naissance,
+            &v.date_naissance_precision,
+            &v.date_naissance_statut,
+        ),
     ));
-    let lieu = [v.naissance_commune.as_deref(), v.naissance_lieu_etranger.as_deref()]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-    out.push(l("Lieu de naissance", if lieu.is_empty() { "—".into() } else { lieu }));
+    let lieu = [
+        v.naissance_commune.as_deref(),
+        v.naissance_lieu_etranger.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join(", ");
+    out.push(l(
+        "Lieu de naissance",
+        if lieu.is_empty() { "—".into() } else { lieu },
+    ));
     out
 }
 
 /// La version courante : la plus récente dont l'effet est atteint (un changement daté d'un jour futur
 /// n'est pas encore l'état civil), sans version qui l'ait remplacée.
-pub fn version_courante<'a>(versions: &'a [IdentiteVersionDto], jour: NaiveDate) -> Option<&'a IdentiteVersionDto> {
+pub fn version_courante<'a>(
+    versions: &'a [IdentiteVersionDto],
+    jour: NaiveDate,
+) -> Option<&'a IdentiteVersionDto> {
     versions
         .iter()
         .filter(|v| v.effet_du <= jour && v.remplacee_par.is_none())
@@ -382,7 +437,10 @@ pub fn frise(versions: &[IdentiteVersionDto]) -> Vec<&IdentiteVersionDto> {
 
 /// Champs qui diffèrent entre une version et celle qu'elle corrige ou remplace (par ses valeurs
 /// lisibles). Sans version précédente (création), rien n'est « changé » : la ligne dit la nature seule.
-pub fn champs_modifies(avant: &IdentiteVersionDto, apres: &IdentiteVersionDto) -> Vec<&'static str> {
+pub fn champs_modifies(
+    avant: &IdentiteVersionDto,
+    apres: &IdentiteVersionDto,
+) -> Vec<&'static str> {
     let mut v = Vec::new();
     if avant.nom_naissance != apres.nom_naissance {
         v.push("Nom de naissance");
@@ -443,7 +501,11 @@ pub fn etapes_frise(versions: &[IdentiteVersionDto]) -> Vec<EtapeFrise> {
             ton: ton_nature(&v.nature),
             effet_du: v.effet_du,
             source: libelle_source(&v.source),
-            champs: if i == 0 { Vec::new() } else { champs_modifies(chrono[i - 1], v) },
+            champs: if i == 0 {
+                Vec::new()
+            } else {
+                champs_modifies(chrono[i - 1], v)
+            },
             motif: v.motif.clone().filter(|m| !m.trim().is_empty()),
             corrigee: v.remplacee_par.is_some(),
             avec_piece: v.piece_document_id.is_some(),

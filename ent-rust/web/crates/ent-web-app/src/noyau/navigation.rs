@@ -941,9 +941,13 @@ mod tests {
     /// Socle 2 (E9a) : « Élèves » pour le personnel qui a l'annuaire, jamais pour les familles.
     #[test]
     fn la_liste_des_eleves_selon_le_moteur_de_droits() {
-        assert!(!adresses(droits_du_role("prof"), &DroitsMoteur::default()).contains(&ELEVES.to_string()));
+        assert!(!adresses(droits_du_role("prof"), &DroitsMoteur::default())
+            .contains(&ELEVES.to_string()));
         let m = DroitsMoteur::new(vec![droit("eleves.annuaire", "mes_classes")]);
-        assert!(adresses(droits_du_role("prof"), &m).contains(&ELEVES.to_string()), "le professeur : son périmètre");
+        assert!(
+            adresses(droits_du_role("prof"), &m).contains(&ELEVES.to_string()),
+            "le professeur : son périmètre"
+        );
         let tout = DroitsMoteur::new(vec![droit("eleves.annuaire", "etablissement")]);
         assert!(adresses(droits_du_role("administratif"), &tout).contains(&ELEVES.to_string()));
         assert!(

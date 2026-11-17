@@ -71,27 +71,43 @@ impl ApiClient {
 
     /// `GET /eleves/{id}` : l'élève minimisé selon les droits du lecteur (404 s'il n'existe pas pour lui).
     pub async fn eleve_fiche(&self, eleve: Uuid) -> Result<EleveFicheDto, ApiError> {
-        self.appel(Methode::Get, &format!("/eleves/{eleve}"), None).await
+        self.appel(Methode::Get, &format!("/eleves/{eleve}"), None)
+            .await
     }
 
     /// `GET /eleves/{id}/synthese` : pastilles visibles et tuiles par domaine (masquées avec leur raison).
     pub async fn eleve_synthese(&self, eleve: Uuid) -> Result<SyntheseDto, ApiError> {
-        self.appel(Methode::Get, &format!("/eleves/{eleve}/synthese"), None).await
+        self.appel(Methode::Get, &format!("/eleves/{eleve}/synthese"), None)
+            .await
     }
 
     /// `GET /eleves/{id}/identite/historique` : versions d'identité visibles du lecteur.
-    pub async fn eleve_historique_identite(&self, eleve: Uuid) -> Result<Vec<IdentiteVersionDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/eleves/{eleve}/identite/historique"), None).await
+    pub async fn eleve_historique_identite(
+        &self,
+        eleve: Uuid,
+    ) -> Result<Vec<IdentiteVersionDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/eleves/{eleve}/identite/historique"),
+            None,
+        )
+        .await
     }
 
     /// `GET /eleves/{id}/identifiants` : identifiants externes (INE, badge…) visibles du lecteur.
     pub async fn eleve_identifiants(&self, eleve: Uuid) -> Result<Vec<IdentifiantDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/eleves/{eleve}/identifiants"), None).await
+        self.appel(Methode::Get, &format!("/eleves/{eleve}/identifiants"), None)
+            .await
     }
 
     /// `GET /eleves/{id}/consultations` : qui a consulté ce dossier (audit, ajout seul).
     pub async fn eleve_consultations(&self, eleve: Uuid) -> Result<Vec<ConsultationDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/eleves/{eleve}/consultations?limite=50"), None).await
+        self.appel(
+            Methode::Get,
+            &format!("/eleves/{eleve}/consultations?limite=50"),
+            None,
+        )
+        .await
     }
 }
 
@@ -115,7 +131,10 @@ mod tests {
             "/eleves/liste?q=L%C3%A9a%20%26%20Co&classe=6A&pastille=sans_ine&limite=50&decalage=100"
         );
         // Rien d'injectable : un « & » ou un « = » saisi reste dans la valeur.
-        let f = FiltreListeEleves { q: "a=b&statut=sorti".into(), ..Default::default() };
+        let f = FiltreListeEleves {
+            q: "a=b&statut=sorti".into(),
+            ..Default::default()
+        };
         assert_eq!(f.chemin(), "/eleves/liste?q=a%3Db%26statut%3Dsorti");
     }
 

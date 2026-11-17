@@ -45,17 +45,29 @@ fn la_pagination_ne_sort_jamais_des_bornes() {
     assert_eq!(page_precedente(50, 50), Some(0));
     assert_eq!(page_precedente(20, 50), Some(0));
     assert_eq!(page_precedente(100, 50), Some(50));
-    assert_eq!(page_suivante(0, 50, 50), None, "exactement une page : pas de suivante");
+    assert_eq!(
+        page_suivante(0, 50, 50),
+        None,
+        "exactement une page : pas de suivante"
+    );
     assert_eq!(page_suivante(0, 50, 51), Some(50));
     assert_eq!(page_suivante(50, 50, 100), None);
     assert_eq!(page_suivante(50, 50, 101), Some(100));
-    assert_eq!(page_suivante(0, 0, 5), Some(1), "taille nulle : au moins un pas");
+    assert_eq!(
+        page_suivante(0, 0, 5),
+        Some(1),
+        "taille nulle : au moins un pas"
+    );
 }
 
 #[test]
 fn une_seule_lettre_ne_cherche_rien_et_la_saisie_est_bornee() {
     assert_eq!(recherche_a_envoyer(""), "");
-    assert_eq!(recherche_a_envoyer(" a "), "", "une lettre : liste complète");
+    assert_eq!(
+        recherche_a_envoyer(" a "),
+        "",
+        "une lettre : liste complète"
+    );
     assert_eq!(recherche_a_envoyer("  Léa  "), "Léa");
     assert_eq!(recherche_a_envoyer(&"x".repeat(500)).chars().count(), 100);
 }
@@ -63,11 +75,21 @@ fn une_seule_lettre_ne_cherche_rien_et_la_saisie_est_bornee() {
 #[test]
 fn le_raccourci_slash_ne_vole_pas_la_saisie() {
     assert!(ouvre_la_recherche("/", false, false, false, false));
-    assert!(!ouvre_la_recherche("/", false, false, false, true), "pendant une saisie");
-    assert!(!ouvre_la_recherche("/", true, false, false, false), "Ctrl+/");
+    assert!(
+        !ouvre_la_recherche("/", false, false, false, true),
+        "pendant une saisie"
+    );
+    assert!(
+        !ouvre_la_recherche("/", true, false, false, false),
+        "Ctrl+/"
+    );
     assert!(!ouvre_la_recherche("/", false, true, false, false), "⌘+/");
     assert!(!ouvre_la_recherche("a", false, false, false, false));
-    assert!(est_zone_de_saisie("input", false) && est_zone_de_saisie("TEXTAREA", false) && est_zone_de_saisie("Select", false));
+    assert!(
+        est_zone_de_saisie("input", false)
+            && est_zone_de_saisie("TEXTAREA", false)
+            && est_zone_de_saisie("Select", false)
+    );
     assert!(est_zone_de_saisie("DIV", true), "contenu éditable");
     assert!(!est_zone_de_saisie("BUTTON", false) && !est_zone_de_saisie("A", false));
 }
@@ -76,7 +98,10 @@ fn le_raccourci_slash_ne_vole_pas_la_saisie() {
 fn le_message_de_portee_n_apparait_que_si_la_liste_est_restreinte() {
     assert!(message_portee("etablissement").is_none());
     assert!(message_portee("perimetre").is_some());
-    assert!(message_portee("quelconque").is_some(), "dans le doute, on explique");
+    assert!(
+        message_portee("quelconque").is_some(),
+        "dans le doute, on explique"
+    );
 }
 
 #[test]
@@ -87,7 +112,12 @@ fn la_liste_vide_explique_selon_les_filtres() {
     assert!(m1.contains("accent") && m1.contains("filtre"));
 }
 
-fn pastille(code: &str, gravite: &str, valeur: Option<&str>, date: Option<NaiveDate>) -> PastilleDto {
+fn pastille(
+    code: &str,
+    gravite: &str,
+    valeur: Option<&str>,
+    date: Option<NaiveDate>,
+) -> PastilleDto {
     PastilleDto {
         code: code.into(),
         domaine: "scolarite".into(),
@@ -102,7 +132,10 @@ fn pastille(code: &str, gravite: &str, valeur: Option<&str>, date: Option<NaiveD
 
 #[test]
 fn une_pastille_se_lit_en_toutes_lettres_valeur_comprise() {
-    assert_eq!(phrase_pastille(&pastille("interne", "information", None, None)), "Interne");
+    assert_eq!(
+        phrase_pastille(&pastille("interne", "information", None, None)),
+        "Interne"
+    );
     assert_eq!(
         phrase_pastille(&pastille("interne", "information", Some("interne"), None)),
         "Interne (interne)"
@@ -119,15 +152,27 @@ fn une_pastille_se_lit_en_toutes_lettres_valeur_comprise() {
 
 #[test]
 fn chaque_raison_de_masquage_est_expliquee_sans_rien_reveler() {
-    for r in [Some("droit_manquant"), Some("hors_portee"), Some("reserve_au_personnel"), None, Some("inconnue")] {
+    for r in [
+        Some("droit_manquant"),
+        Some("hors_portee"),
+        Some("reserve_au_personnel"),
+        None,
+        Some("inconnue"),
+    ] {
         let t = raison_masquage(r);
         assert!(!t.is_empty());
         // Le texte dit pourquoi, jamais ce que la tuile contiendrait.
         for mot in ["PAI", "INE", "allerg", "motif"] {
-            assert!(!t.contains(mot), "{mot} ne doit pas figurer dans l'explication d'un masquage");
+            assert!(
+                !t.contains(mot),
+                "{mot} ne doit pas figurer dans l'explication d'un masquage"
+            );
         }
     }
-    assert_ne!(raison_masquage(Some("hors_portee")), raison_masquage(Some("reserve_au_personnel")));
+    assert_ne!(
+        raison_masquage(Some("hors_portee")),
+        raison_masquage(Some("reserve_au_personnel"))
+    );
 }
 
 #[test]
@@ -136,7 +181,11 @@ fn les_onglets_se_retrouvent_par_leur_code_et_un_code_inconnu_retombe_sur_la_syn
         assert_eq!(Onglet::depuis_code(o.code()), o);
     }
     assert_eq!(Onglet::depuis_code(""), Onglet::Synthese);
-    assert_eq!(Onglet::depuis_code("sante"), Onglet::Synthese, "un onglet qui n'existe pas n'ouvre rien d'autre");
+    assert_eq!(
+        Onglet::depuis_code("sante"),
+        Onglet::Synthese,
+        "un onglet qui n'existe pas n'ouvre rien d'autre"
+    );
     assert_eq!(Onglet::depuis_code("<script>"), Onglet::Synthese);
 }
 
@@ -144,16 +193,34 @@ fn les_onglets_se_retrouvent_par_leur_code_et_un_code_inconnu_retombe_sur_la_syn
 #[test]
 fn chaque_tuile_du_contrat_a_une_destination_connue_et_jamais_un_lien_mort() {
     let eleve = Uuid::nil();
-    for domaine in ["identite", "identifiants", "scolarite", "classe", "sante", "protection"] {
+    for domaine in [
+        "identite",
+        "identifiants",
+        "scolarite",
+        "classe",
+        "sante",
+        "protection",
+    ] {
         match destination_tuile(domaine, eleve) {
             Destination::Onglet(_) | Destination::Aucune => {}
-            Destination::Page(p) => assert!(p.starts_with("/web/infirmerie/eleves/"), "{domaine} → {p}"),
+            Destination::Page(p) => {
+                assert!(p.starts_with("/web/infirmerie/eleves/"), "{domaine} → {p}")
+            }
         }
     }
-    assert_eq!(destination_tuile("identite", eleve), Destination::Onglet(Onglet::Identite));
-    assert_eq!(destination_tuile("identifiants", eleve), Destination::Onglet(Onglet::Identite));
+    assert_eq!(
+        destination_tuile("identite", eleve),
+        Destination::Onglet(Onglet::Identite)
+    );
+    assert_eq!(
+        destination_tuile("identifiants", eleve),
+        Destination::Onglet(Onglet::Identite)
+    );
     assert_eq!(destination_tuile("scolarite", eleve), Destination::Aucune);
-    assert_eq!(destination_tuile("domaine_futur", eleve), Destination::Aucune);
+    assert_eq!(
+        destination_tuile("domaine_futur", eleve),
+        Destination::Aucune
+    );
     assert!(!corps_tuile_sans_ecran("scolarite").is_empty());
 }
 
@@ -173,7 +240,11 @@ fn les_domaines_du_contrat_d_e8_sont_tous_traites() {
     }
     // Et chaque pastille du catalogue a une gravité que l'écran sait teinter.
     for p in domain_eleve::CATALOGUE_INDICATEURS {
-        assert!(["mal", "avert", "info"].contains(&teinte_gravite(p.gravite.code())), "{}", p.code);
+        assert!(
+            ["mal", "avert", "info"].contains(&teinte_gravite(p.gravite.code())),
+            "{}",
+            p.code
+        );
     }
 }
 
@@ -186,11 +257,16 @@ fn une_tuile_visible_sans_pastille_ni_ecran_est_reperee() {
         lien: "/x".into(),
         etat: "visible".into(),
         raison: None,
-        pastilles: (0..n).map(|_| pastille("a", "information", None, None)).collect(),
+        pastilles: (0..n)
+            .map(|_| pastille("a", "information", None, None))
+            .collect(),
     };
     assert!(tuile_vide(&t("scolarite", 0)));
     assert!(!tuile_vide(&t("scolarite", 1)));
-    assert!(!tuile_vide(&t("identite", 0)), "elle mène à l'onglet identité");
+    assert!(
+        !tuile_vide(&t("identite", 0)),
+        "elle mène à l'onglet identité"
+    );
 }
 
 fn version(effet: NaiveDate, nature: &str, nom: &str, prenoms: &[&str]) -> IdentiteVersionDto {
@@ -220,7 +296,11 @@ fn version(effet: NaiveDate, nature: &str, nom: &str, prenoms: &[&str]) -> Ident
         piece_document_id: None,
         source: "saisie".into(),
         sensible: false,
-        enregistre_le: DateTime::<Utc>::from_timestamp(effet.and_hms_opt(8, 0, 0).unwrap().and_utc().timestamp(), 0).unwrap(),
+        enregistre_le: DateTime::<Utc>::from_timestamp(
+            effet.and_hms_opt(8, 0, 0).unwrap().and_utc().timestamp(),
+            0,
+        )
+        .unwrap(),
         enregistre_par: None,
     }
 }
@@ -228,11 +308,23 @@ fn version(effet: NaiveDate, nature: &str, nom: &str, prenoms: &[&str]) -> Ident
 #[test]
 fn la_date_de_naissance_ne_s_invente_jamais() {
     let d = Some(jour(2012, 3, 14));
-    assert_eq!(date_naissance_affichee(d, "jour", "declaree"), "14 mars 2012");
+    assert_eq!(
+        date_naissance_affichee(d, "jour", "declaree"),
+        "14 mars 2012"
+    );
     assert_eq!(date_naissance_affichee(d, "mois", "declaree"), "mars 2012");
-    assert_eq!(date_naissance_affichee(d, "annee", "presumee"), "2012 (date présumée)");
-    assert_eq!(date_naissance_affichee(d, "jour", "contestee"), "14 mars 2012 (date contestée)");
-    assert_eq!(date_naissance_affichee(None, "inconnue", "declaree"), "Date de naissance inconnue");
+    assert_eq!(
+        date_naissance_affichee(d, "annee", "presumee"),
+        "2012 (date présumée)"
+    );
+    assert_eq!(
+        date_naissance_affichee(d, "jour", "contestee"),
+        "14 mars 2012 (date contestée)"
+    );
+    assert_eq!(
+        date_naissance_affichee(None, "inconnue", "declaree"),
+        "Date de naissance inconnue"
+    );
     assert_eq!(date_naissance_affichee(None, "jour", "declaree"), "—");
 }
 
@@ -240,17 +332,28 @@ fn la_date_de_naissance_ne_s_invente_jamais() {
 fn les_lignes_d_identite_n_affichent_que_ce_que_la_version_contient() {
     let mut v = version(jour(2020, 9, 1), "creation", "Martin", &["Léa", "Rose"]);
     let l = lignes_identite(&v);
-    let valeur = |nom: &str| l.iter().find(|x| x.libelle == nom).map(|x| x.valeur.clone());
+    let valeur = |nom: &str| {
+        l.iter()
+            .find(|x| x.libelle == nom)
+            .map(|x| x.valeur.clone())
+    };
     assert_eq!(valeur("Nom de naissance").as_deref(), Some("MARTIN"));
     assert_eq!(valeur("Prénoms").as_deref(), Some("Léa, Rose"));
     assert_eq!(valeur("Sexe à l'état civil").as_deref(), Some("Féminin"));
     assert_eq!(valeur("Lieu de naissance").as_deref(), Some("Paris"));
-    assert!(valeur("Nom d'usage").is_none() && valeur("Prénom d'usage").is_none(), "pas de ligne vide d'usage");
+    assert!(
+        valeur("Nom d'usage").is_none() && valeur("Prénom d'usage").is_none(),
+        "pas de ligne vide d'usage"
+    );
     v.nom_usage = Some("Dupont".into());
     v.prenom_usage = Some("Rose".into());
     let l = lignes_identite(&v);
-    assert!(l.iter().any(|x| x.libelle == "Nom d'usage" && x.valeur == "DUPONT"));
-    assert!(l.iter().any(|x| x.libelle == "Prénom d'usage" && x.valeur == "Rose"));
+    assert!(l
+        .iter()
+        .any(|x| x.libelle == "Nom d'usage" && x.valeur == "DUPONT"));
+    assert!(l
+        .iter()
+        .any(|x| x.libelle == "Prénom d'usage" && x.valeur == "Rose"));
 }
 
 #[test]
@@ -259,11 +362,22 @@ fn la_version_courante_ignore_l_avenir_et_ce_qui_a_ete_corrige() {
     let mut corrigee = version(jour(2021, 9, 1), "correction", "Marten", &["Léa"]);
     corrigee.remplacee_par = Some(Uuid::new_v4());
     let bonne = version(jour(2021, 9, 2), "correction", "Martin", &["Léa"]);
-    let future = version(jour(2030, 1, 1), "changement_etat_civil", "Durand", &["Léa"]);
+    let future = version(
+        jour(2030, 1, 1),
+        "changement_etat_civil",
+        "Durand",
+        &["Léa"],
+    );
     let toutes = [ancienne.clone(), corrigee, bonne.clone(), future];
     let c = version_courante(&toutes, jour(2026, 11, 17)).unwrap();
-    assert_eq!(c.id, bonne.id, "ni la version corrigée, ni celle qui n'a pas encore d'effet");
-    assert_eq!(version_courante(&toutes, jour(2020, 10, 1)).unwrap().id, ancienne.id);
+    assert_eq!(
+        c.id, bonne.id,
+        "ni la version corrigée, ni celle qui n'a pas encore d'effet"
+    );
+    assert_eq!(
+        version_courante(&toutes, jour(2020, 10, 1)).unwrap().id,
+        ancienne.id
+    );
     assert!(version_courante(&toutes, jour(2019, 1, 1)).is_none());
     assert!(version_courante(&[], jour(2026, 1, 1)).is_none());
 }
@@ -274,24 +388,43 @@ fn la_frise_compare_chaque_version_a_la_precedente_dans_le_temps() {
     let mut b = version(jour(2022, 9, 1), "correction", "Martin", &["Léa", "Rose"]);
     b.motif = Some("d'après l'acte de naissance".into());
     b.piece_document_id = Some(Uuid::new_v4());
-    let mut c = version(jour(2024, 9, 1), "changement_etat_civil", "Durand", &["Léa", "Rose"]);
+    let mut c = version(
+        jour(2024, 9, 1),
+        "changement_etat_civil",
+        "Durand",
+        &["Léa", "Rose"],
+    );
     c.date_naissance_statut = "presumee".into();
     // Désordre volontaire en entrée : la frise range elle-même, la plus récente d'abord.
     let etapes = etapes_frise(&[b.clone(), c.clone(), a.clone()]);
-    assert_eq!(etapes.iter().map(|e| e.id).collect::<Vec<_>>(), [c.id, b.id, a.id]);
-    assert!(etapes[2].champs.is_empty(), "la création n'« a rien changé »");
+    assert_eq!(
+        etapes.iter().map(|e| e.id).collect::<Vec<_>>(),
+        [c.id, b.id, a.id]
+    );
+    assert!(
+        etapes[2].champs.is_empty(),
+        "la création n'« a rien changé »"
+    );
     assert_eq!(etapes[1].champs, ["Prénoms"]);
     assert_eq!(etapes[0].champs, ["Nom de naissance", "Date de naissance"]);
     assert_eq!(etapes[1].nature, "Correction d'une erreur");
     assert_eq!(etapes[0].nature, "Changement d'état civil");
-    assert!(etapes[1].avec_piece && etapes[1].motif.as_deref() == Some("d'après l'acte de naissance"));
+    assert!(
+        etapes[1].avec_piece && etapes[1].motif.as_deref() == Some("d'après l'acte de naissance")
+    );
     assert!(etapes_frise(&[]).is_empty());
 }
 
 #[test]
 fn une_correction_se_distingue_d_un_changement_d_etat_civil() {
-    assert_ne!(libelle_nature("correction"), libelle_nature("changement_etat_civil"));
-    assert_ne!(ton_nature("correction"), ton_nature("changement_etat_civil"));
+    assert_ne!(
+        libelle_nature("correction"),
+        libelle_nature("changement_etat_civil")
+    );
+    assert_ne!(
+        ton_nature("correction"),
+        ton_nature("changement_etat_civil")
+    );
     assert_eq!(libelle_nature("n'importe quoi"), "Modification");
     assert_eq!(libelle_source("siecle"), "SIECLE");
     assert_eq!(libelle_source("zzz"), "Autre source");
@@ -304,7 +437,15 @@ fn identifiants_et_consultations_ont_des_libelles_neutres() {
     assert_eq!(ton_statut_identifiant("confirme"), TonEtat::Ok);
     assert_eq!(libelle_systeme("INE"), "INE");
     assert_eq!(libelle_systeme("BADGE"), "Badge");
-    for a in ["fiche_protegee", "etat_civil", "identifiants", "coordonnees", "sensible", "pastilles_sensibles", "autre"] {
+    for a in [
+        "fiche_protegee",
+        "etat_civil",
+        "identifiants",
+        "coordonnees",
+        "sensible",
+        "pastilles_sensibles",
+        "autre",
+    ] {
         // Le libellé dit CE QUI a été lu, jamais la valeur.
         assert!(!libelle_consultation(a).is_empty());
     }
