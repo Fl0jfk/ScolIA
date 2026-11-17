@@ -61,6 +61,9 @@ Branche `ent-socle-24-code-f1f2` (partie de `origin/ENT`, fusionnée avec E7-E8 
 **Lacune explicite** : le guichet est en consultation seule. « Encaisser au comptoir et remettre un reçu » reste à la comptabilité ; si le secrétariat doit le faire, il faut une action dédiée (par exemple `facturation.encaisser_guichet` limitée aux espèces et chèques, avec reçu) — à décider par Florian, à prévoir avant la bascule de février.
 
 ## 4 ter. Préalables explicites (écart 3)
+
+**Suites à faire (notées à la demande du pilote)** : (1) liste blanche des clés d'événements **par type d'événement** (aujourd'hui globale, par forme de clé) ; (2) quota du guichet : compter le **jour de l'établissement** (fuseau) au lieu du jour de Paris.
+
 Le **gel au décès (FAC-209 / CF-10) doit passer avant toute relance automatique en production**. Recalcul des brouillons avant F4 ; intégration « à faire » des tâches.
 
 ## 4 quater. Correctifs de la revue de sécurité indépendante (PR 97)
