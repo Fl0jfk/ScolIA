@@ -67,6 +67,7 @@ pub fn PageFicheHub() -> impl IntoView {
             Some(Err(ApiError::Introuvable(_))) => {
                 view! {
                     <Title text="Fiche introuvable"/>
+                    <h1 class="ui-sr">"Fiche introuvable"</h1>
                     <EtatVide
                         titre="Fiche introuvable"
                         message="Cet élève n'existe pas dans votre établissement, ou sa fiche ne vous est pas ouverte."
