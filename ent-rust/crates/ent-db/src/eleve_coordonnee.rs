@@ -535,8 +535,9 @@ impl PgEnt {
         let type_ = TypeCoordonneeEleve::parse(&c.type_).map_err(invalide)?;
         let depuis = maintenant - Duration::hours(1);
         let (recentes,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_eleve_coordonnee_verification WHERE coordonnee_id = $1 AND envoye_le > $2",
+            "SELECT count(*) FROM ent_eleve_coordonnee_verification WHERE etablissement_id = $1 AND coordonnee_id = $2 AND envoye_le > $3",
         )
+        .bind(etab)
         .bind(coord)
         .bind(depuis)
         .fetch_one(&mut *tx)
@@ -556,8 +557,9 @@ impl PgEnt {
         }
         sqlx::query(
             "UPDATE ent_eleve_coordonnee_verification SET statut = 'annulee'
-              WHERE coordonnee_id = $1 AND statut = 'envoye'",
+              WHERE etablissement_id = $1 AND coordonnee_id = $2 AND statut = 'envoye'",
         )
+        .bind(etab)
         .bind(coord)
         .execute(&mut *tx)
         .await?;
@@ -665,8 +667,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         }
         let row: Option<(Uuid, String, i16, DateTime<Utc>)> = sqlx::query_as(
             "SELECT id, code_hash, tentatives, expire_le FROM ent_eleve_coordonnee_verification
-              WHERE coordonnee_id = $1 AND statut = 'envoye' FOR UPDATE",
+              WHERE etablissement_id = $1 AND coordonnee_id = $2 AND statut = 'envoye' FOR UPDATE",
         )
+        .bind(etab)
         .bind(coord)
         .fetch_optional(&mut *tx)
         .await?;
@@ -674,7 +677,8 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             return Err(generique());
         };
         if expire < maintenant {
-            sqlx::query("UPDATE ent_eleve_coordonnee_verification SET statut = 'expiree' WHERE id = $1")
+            sqlx::query("UPDATE ent_eleve_coordonnee_verification SET statut = 'expiree' WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
                 .bind(vid)
                 .execute(&mut *tx)
                 .await?;
@@ -686,18 +690,20 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             sqlx::query(
                 "UPDATE ent_eleve_coordonnee_verification
                     SET tentatives = tentatives + 1, statut = CASE WHEN $2 THEN 'epuisee' ELSE statut END
-                  WHERE id = $1",
+                  WHERE etablissement_id = $3 AND id = $1",
             )
             .bind(vid)
             .bind(epuise)
+            .bind(etab)
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
             return Err(generique());
         }
-        sqlx::query("UPDATE ent_eleve_coordonnee_verification SET statut = 'verifiee', verifiee_le = $2 WHERE id = $1")
+        sqlx::query("UPDATE ent_eleve_coordonnee_verification SET statut = 'verifiee', verifiee_le = $2 WHERE etablissement_id = $3 AND id = $1")
             .bind(vid)
             .bind(maintenant)
+            .bind(etab)
             .execute(&mut *tx)
             .await?;
         sqlx::query("UPDATE ent_eleve_coordonnee SET verifiee_le = $3 WHERE etablissement_id = $1 AND id = $2")
