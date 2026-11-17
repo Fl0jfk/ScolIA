@@ -544,7 +544,7 @@ async fn badge_perdu_et_droits_par_systeme() {
     assert_eq!(l.len(), 3, "ancien (révoqué), nouveau (révoqué par le second remplacement), contesté");
     // La lecture est journalisée sans la valeur.
     let (n,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'identifiants' AND action = 'consultation'",
+        "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'consultation' AND action = 'identifiants'",
     )
     .bind(e.id)
     .fetch_one(ent.pool_verif())

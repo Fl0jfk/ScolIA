@@ -740,6 +740,8 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : un élève protégé est invisible d'un tiers, même avec G3.
+        self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
@@ -752,14 +754,14 @@ impl PgEnt {
         }
         let l = PgIdentifiantRepo::de_l_eleve(&mut conn, etab, eleve).await?;
         drop(conn);
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             Some(eleve),
             "identifiants",
-            "consultation",
             "Consultation des identifiants de l'élève",
+            false,
         )
         .await?;
         Ok(l)
@@ -790,14 +792,14 @@ impl PgEnt {
         .bind(etab)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             None,
-            "identifiants",
-            "qualite",
+            "identifiants_qualite",
             "Consultation des identifiants contestés",
+            false,
         )
         .await?;
         Ok(l)

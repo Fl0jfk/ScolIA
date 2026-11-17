@@ -751,6 +751,8 @@ impl PgEnt {
         eleve_id: Uuid,
     ) -> Result<Option<PaiComplet>, EntDbError> {
         self.exiger_module_sante(etab).await?;
+        // E6 : un élève protégé est introuvable d'un tiers (défense en profondeur, en plus de la couche HTTP).
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
         let Some(pai) = self.get_pai_for_actor(etab, acteur, role, eleve_id).await? else {
             return Ok(None);
         };
@@ -1411,6 +1413,8 @@ impl PgEnt {
     ) -> Result<FicheUrgence, EntDbError> {
         self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
+        // E6 : un élève protégé est introuvable d'un tiers (défense en profondeur, en plus de la couche HTTP).
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
         let complet = self
             .est_personnel_sante(etab, acteur, role, Action::SanteLire, eleve_id)
             .await?;

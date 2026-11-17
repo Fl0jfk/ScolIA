@@ -4925,7 +4925,7 @@ async fn explorer_face_eleve(
     ));
 
     let sans_avant = ent
-        .list_eleves_sans_compte_for_actor(cast.etablissement_id, Role::Administratif.as_str())
+        .list_eleves_sans_compte_for_actor(cast.etablissement_id, cast.administratif.user_id, Role::Administratif.as_str())
         .await
         .map_err(|e| e.to_string())?;
     if sans_avant.is_empty() {
@@ -4999,7 +4999,7 @@ async fn explorer_face_eleve(
         lot.len()
     ));
     let reste = ent
-        .list_eleves_sans_compte_for_actor(cast.etablissement_id, Role::Administratif.as_str())
+        .list_eleves_sans_compte_for_actor(cast.etablissement_id, cast.administratif.user_id, Role::Administratif.as_str())
         .await
         .map_err(|e| e.to_string())?;
     if !reste.is_empty() {
@@ -5009,7 +5009,7 @@ async fn explorer_face_eleve(
 
     // Prof / parent hors invitation
     let prof_refuse = ent
-        .list_eleves_sans_compte_for_actor(cast.etablissement_id, Role::Prof.as_str())
+        .list_eleves_sans_compte_for_actor(cast.etablissement_id, cast.prof.user_id, Role::Prof.as_str())
         .await;
     if prof_refuse.is_ok() {
         return Err("prof ne doit pas lister les sans-compte".into());

@@ -547,3 +547,29 @@ jobs:
           verdict=vert
           case "$RESULTATS" in *failure*|*cancelled*) verdict=rouge;; esac
           gh pr comment 93 --body "Run ENT n° ${{ github.run_number }} (id ${{ github.run_id }}) sur \`${GITHUB_SHA::8}\` : **${verdict}** — ${RESULTATS}"
+
+  # Règle 35 : une CI verte sur une pull request de lot ne réveille pas le pilote (GitHub ne signale que les échecs).
+  # Ce job commente le résultat sur la pull request elle-même, ce qui réveille le pilote abonné. Jeton du run, aucun secret.
+  veille-pilote-pr:
+    name: Veille du pilote (commentaire sur la pull request du lot)
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [formatage, audits, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Commenter le résultat du run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TETE: ${{ github.event.pull_request.head.sha }}
+          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }}"
+        run: |
+          verdict=vert
+          case "$RESULTATS" in *failure*) verdict=rouge;; *cancelled*) verdict=annulé;; esac
+          # Un run remplacé par un push plus récent finit en « failure » sur le job de synthèse : on le dit.
+          actuel=$(gh pr view "$PR" --json headRefOid -q .headRefOid || echo inconnu)
+          if [ "$actuel" != "$TETE" ]; then verdict="remplacé par ${actuel::8} (ignorer)"; fi
+          gh pr comment "$PR" --body "Run n° ${{ github.run_number }} (id ${{ github.run_id }}) sur \`${TETE::8}\` : **${verdict}** — ${RESULTATS}"

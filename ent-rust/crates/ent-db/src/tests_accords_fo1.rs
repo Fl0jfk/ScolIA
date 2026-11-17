@@ -530,7 +530,7 @@ async fn ck36_expiration_protege_et_verifier_sans_defaut() {
 
     // R-FC11 : un élève protégé n'est jamais publié, quels que soient les accords.
     let protection = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, du, decide_par) VALUES ($1,$2,$3,'scelle', ent_aujourdhui_etab($2) - 1, $4)")
+    sqlx::query("INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, du, decide_par) VALUES ($1,$2,$3,'enc:v1:test', ent_aujourdhui_etab($2) - 1, $4)")
         .bind(protection).bind(etab).bind(harry).bind(dir).execute(ent.pool_verif()).await.unwrap();
     let droit_image = objet_publie(&ent, etab, dir, objet_propre("droit_image", "consentement", "tous", Some("signer_documents"), &["site_public"])).await;
     let _ = droit_image;

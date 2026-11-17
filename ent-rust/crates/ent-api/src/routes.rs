@@ -889,6 +889,10 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::eleve_propositions::routes());
     // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).
     let r = r.merge(crate::eleve_fusion::routes());
+    // Socle 2, lot E7 : confidentialité renforcée, photos, coordonnées propres, journal de
+    // consultation (`eleve_protection.rs`) ; lot E8 : pastilles et synthèse (`eleve_synthese.rs`).
+    let r = r.merge(crate::eleve_protection::routes());
+    let r = r.merge(crate::eleve_synthese::routes());
     // Communication complète (S2-8, module séparé : `communication_s28.rs`).
     let r = r.merge(crate::communication_s28::routes());
     // Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`accords_s18.rs`).
@@ -1497,7 +1501,7 @@ async fn list_eleves_sans_compte(
     session.require_manage_eleves()?;
     let rows = state
         .ent
-        .list_eleves_sans_compte_for_actor(session.etablissement_id, &session.role)
+        .list_eleves_sans_compte_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(rows.iter().map(EleveDto::from).collect()))
@@ -7125,11 +7129,26 @@ async fn get_photo_eleve(
         .await
         .map_err(map_db)?
         .ok_or((StatusCode::NOT_FOUND, "pas de photo".into()))?;
+    // F1 : type MIME réel (signature binaire, jamais déduit du nom) et `nosniff`.
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header(header::CONTENT_TYPE, mime_image_par_signature(&bytes))
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(Body::from(bytes))
         .map_err(|e| erreur_interne(&e))
+}
+
+/// Type MIME d'une image d'après sa signature ; inconnu → flux binaire (jamais servi comme page).
+pub(crate) fn mime_image_par_signature(octets: &[u8]) -> &'static str {
+    if octets.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if octets.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        "image/png"
+    } else if octets.len() >= 12 && &octets[0..4] == b"RIFF" && &octets[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 async fn list_params_etab(

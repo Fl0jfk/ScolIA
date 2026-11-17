@@ -543,7 +543,30 @@ impl PgEnt {
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        let mut out: std::collections::HashSet<Uuid> = rows.into_iter().map(|(id,)| id).collect();
+        // Socle 2, E7 : la mesure `adresse_protegee` d'un élève ferme F2 pour les personnes qui lui
+        // sont liées, pour qui n'a pas G6 (même lien direct : la mesure vise l'adresse, pas l'élève).
+        if !self.a_action_etablissement(etab, actor, role, Action::ElevesConfidentielGerer).await? {
+            let protegees: Vec<(Uuid,)> = sqlx::query_as(
+                "SELECT DISTINCT x.personne_id FROM (
+                    SELECT personne_id, eleve_id FROM ent_eleve_lien WHERE etablissement_id = $1
+                    UNION ALL
+                    SELECT personne_id, eleve_id FROM ent_eleve_contact_urgence WHERE etablissement_id = $1) x
+                  WHERE x.personne_id = ANY($2)
+                    AND EXISTS (SELECT 1 FROM ent_eleve_confidentialite c
+                                 WHERE c.etablissement_id = $1 AND c.eleve_id = x.eleve_id AND c.leve_le IS NULL
+                                   AND 'adresse_protegee' = ANY(c.mesures)
+                                   AND c.du <= ent_jour_etablissement($1)
+                                   AND (c.au IS NULL OR c.au > ent_jour_etablissement($1)))",
+            )
+            .bind(etab)
+            .bind(ids)
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+            .await
+            .map_err(db)?;
+            out.extend(protegees.into_iter().map(|(id,)| id));
+        }
+        Ok(out)
     }
 
     // ───────────────────────────── Interdictions ─────────────────────────────
