@@ -1,10 +1,10 @@
 # Socle 7 — lot D6 : la brique de signature (rapport de livraison)
 
 Conception suivie : `docs/socles/07_DOCUMENTS.md` §8.7, §9.6, §10, §14.5, §23 (ligne D6) ; décisions de Florian du 16-11 (`docs/idees/CARNET_IDEES.md`, I-013 et I-014, branche `ent-mc0hoe`) ; D-062 (rien de cryptographique nouveau).
-Branche : `ent-socle-7-code-d6`, partie d'`origin/ENT` (c622d696 ; `origin/ENT` fusionné avant la CI : déjà à jour).
+Branche : `ent-socle-7-code-d6`, partie d'`origin/ENT` (c622d696), puis **fusion d'`origin/ENT` 143dfa9c** (R3) après la revue de sécurité : `TOUTES` 245 (ENT) + 2 = **247**, compte RLS = ENT (+6 de R3) + 9, `MIGRATION_TAG` inchangé (3808), aucune route nouvelle donc rien dans SOURCES.
 Migration : **3705** (libre sur toutes les branches distantes ; `MIGRATION_TAG` inchangé, 3808 reste le plus haut).
 Code : `ent-db/src/documents_signature.rs` (domaine pur), `documents_signature_repo.rs` (réglages, lancement, gestion, lectures), `documents_signature_signer.rs` (modes, finalisation, horodatage, vérification), `ent-pdf/src/signatures.rs` (page de signatures), `ent-object/src/rfc3161.rs` (client RFC 3161).
-Tests : `tests_documents_d6.rs` (16 tests Postgres), tests unitaires (8 dans le domaine, 3 dans `rfc3161`, 2 dans `signatures`).
+Tests : `tests_documents_d6.rs` (22 tests Postgres), tests unitaires (8 dans le domaine, 5 dans `rfc3161`, 2 dans `signatures`).
 
 **Aucun écran et aucune route nouvelle** (la conception place écrans et routes au lot D12) : le service est appelé par les modules et, plus tard, par les routes. Seule la route publique de vérification de D3 est **étendue** (`POST /verifier` reconnaît le PDF signé et le dossier de preuve ; aucune route ajoutée, donc ni SOURCES ni matrice à modifier).
 
@@ -50,3 +50,30 @@ Tests : `tests_documents_d6.rs` (16 tests Postgres), tests unitaires (8 dans le 
 - **Papier** : désarmement des PDF et conversion des images ; **pas d'antivirus** sur le scan (ClamAV non câblé au niveau de l'application, comme D5) ; le scan n'est servi qu'au personnel `gerer`.
 - **Importer un document déjà signé** (DCT-72) et **constater l'impossibilité** (DCT-80) : non faits. Relances automatiques (DCT-63), notifications (le socle 8 n'a pas de consommateur des événements `documents.signature_demandee` / `documents.signe`) : événements publiés sans contenu, consommateurs à écrire.
 - **Pas de revue `security-review` ni `review-sonnet`** : à lancer par le pilote (D6 est listé en §23).
+
+## Corrections de la revue de sécurité indépendante (pilote, sur c8315e70)
+
+Aucun défaut critique ; 4 élevés et plusieurs moyens, **tous corrigés dans ce lot, chacun avec un test**.
+
+| Réf. | Correction | Test |
+|---|---|---|
+| **E1** jeton RFC 3161 validé par sous-chaîne | Aucune validation CMS (aucune brique libre auditée ajoutée) : le jeton reçu est conservé **tel quel**, état **`recu_non_verifie`** (jamais « obtenu » ni « vérifié ») ; texte du dossier de preuve honnête (« reçu, non vérifié… ne vaut pas horodatage qualifié vérifié ») ; **`horodatage_defaut = false` partout** (convocation, finalisation d'inscription comprises) tant que la validation n'est pas faite ; l'établissement peut l'activer par nature | `t_horodatage_port_releve_et_reprise` (jeton bidon : `recu_non_verifie`), `horodatage_desactive_par_defaut_tant_que_le_jeton_n_est_pas_valide` |
+| **E2** majeur seul ne se terminait jamais | `circuit_complet` : sans titulaire au circuit, aucun titulaire n'est attendu (hors mineur) | `t_majeur_seul_circuit_complet_de_bout_en_bout` (signature papier contrôlée → complet, PDF signé et preuve) |
+| **E3** G0 : un agent seul signait pour la famille | `g0_admis` par nature (**faux par défaut**, vrai seulement pour l'attestation d'inscription) ; confirmation par code **obligatoire** dès que la nature bloque ou signale le SMS (`g0_autorise`) ; G0 journalisé (`signature_sans_confirmation`) et événement distinct `documents.signe_sans_confirmation` ; **G0 ne satisfait jamais seul la règle** des titulaires | `t_guichet_confirmation_ou_simple` (convocation : G0 refusé), `t_tablette_sans_confirmation_ne_satisfait_jamais_seule_la_regle`, `la_tablette_sans_confirmation_n_est_jamais_admise_ou_le_sms_est_faible` |
+| **E4** droit « dans l'établissement » seulement | Toutes les voies passent par `doc_peut_sur_sujet(acteur, action, eleve_id du document)` : lancer, annuler, prolonger, remplacer, suivre, lire le PDF signé et la preuve, lire/déposer/contrôler le papier, constater, confirmer au guichet, vérifier, relancer l'horodatage | `t_droits_hors_perimetre_sur_toutes_les_voies` (voir limite ci-dessous) |
+| **M1** mineur | Au lancement : titulaires désignés **en droit de l'élève du document**, `eleve_id` d'un signataire élève = celui du document ; à la complétion : un élève mineur au circuit exige au moins **un titulaire signé**, quelle que soit la règle (y compris « aucun ») | `t_mineur_exige_un_titulaire_signe_et_titulaires_en_droit` |
+| **M5** lectures d'un titulaire | `signataire_en_droit` / `est_signataire_du_circuit` relisent le lien (autorité parentale, non suspendu, à la date) : version à signer, circuit, PDF signé, dossier de preuve | `t_lien_suspendu_ferme_les_lectures_du_titulaire_et_page_non_produite_est_dite`, `t_droits_et_lien_suspendu` |
+| **M6** URL du service d'horodatage | `ent_object::rfc3161::adresse_publique` : HTTPS seul, aucune identité dans l'adresse, **toutes** les adresses résolues publiques (ni bouclage, ni privée, ni lien local, ni CGNAT, ni multicast…), refaite à chaque envoi ; **aucune redirection** ; refusée dès l'enregistrement | `adresses_privees_refusees_publiques_admises`, `client_refuse_une_adresse_privee_sans_rien_envoyer`, `t_horodatage_port_releve_et_reprise` |
+| **M7** horodatage | Plus de « jeton conservé » sans jeton ; état **`en_cours` validé avant l'appel réseau** (pas de double appel facturable ; reprise d'un appel resté en cours plus de dix minutes) ; après cinq échecs : `echec`, **alerte** (journal `horodatage_en_echec`, événement `documents.horodatage_echec`), **reprise** par `relancer_horodatage_for_actor` | `t_horodatage_port_releve_et_reprise` |
+| **M8** page de signatures impossible | Plus de « complet » silencieux : le circuit se complète et le **dossier de preuve le dit** (« PDF signé non produit… ») ; `pdf_signe_*` reste nul | `t_lien_suspendu_ferme_les_lectures_du_titulaire_et_page_non_produite_est_dite` |
+| **M2** échecs de code | Plafond **cumulé de 10 échecs par signataire** (tous codes confondus), puis blocage et alerte (journal `signature_bloquee`, événement `documents.signature_bloquee`) | `t_plafond_cumule_d_echecs_de_code` |
+| F1 | comparaison des empreintes de code en temps constant | — |
+| F3 | prolonger un circuit prolonge les liens des externes (jamais raccourcis : garde de la base) | `t_droits_et_lien_suspendu` |
+
+**Limite de l'essai E4** : aucune action de ce domaine n'admet une portée plus étroite que « établissement » dans le modèle de droits actuel (`portees_admises`), donc un porteur de `gerer` « hors portée » ne peut pas être fabriqué en test ; le test prouve que chaque voie refuse un membre du personnel sans droit, et le code passe par la même fonction de portée que le reste du module, qui refusera dès qu'une portée plus étroite existera.
+
+## À consigner comme suite (non faits dans ce lot)
+- **Validation CMS réelle du jeton RFC 3161** (brique libre non-AGPL à choisir, à signaler au pilote avant toute dépendance) : puis passage de `recu_non_verifie` à un état vérifié et réactivation éventuelle de `horodatage_defaut` pour les convocations disciplinaires et la finalisation des dossiers d'inscription.
+- **M3** : scellé « v2 » de tous les champs probatoires, comparaison à `tete_chaine_sha256` à la lecture, HMAC.
+- **M4** : le défi passkey n'est pas dérivé du document (limite de `webauthn-rs`, déjà écrite plus haut) ; à faire valider par le juriste.
+- **M9** : séparation déposant / contrôleur du papier. **M10** : réponse publique minimisée pour les mineurs. **F2, F4 (REVOKE), F5 à F8** (dont l'ordre des verrous) : non faits.
