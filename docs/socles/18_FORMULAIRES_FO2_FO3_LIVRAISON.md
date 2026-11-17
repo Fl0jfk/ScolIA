@@ -77,6 +77,13 @@ Droits (D-017) : `formulaires.creer` (établissement ou **mes classes** ; direct
 4. Le seuil de validation (200) est-il bien **un nombre d'élèves** et non de destinataires (parents) ?
 5. Faut-il retenir, pour une décision, la signature **guichet confirmé (G)** ou **papier contrôlé (P)** de D6 ? Elles supposent que l'agent saisit la décision au nom du titulaire (canal `guichet` / `papier`, parcours FO3 suite).
 
+## Réponses du pilote (2026-11-17, à consigner, aucun code dans ce lot)
+1. Refus après accord : on bloque **la sortie concernée** (comme livré), jamais toute la famille.
+2. Décision de justice : la règle `tous` est **imposée par élève**, déclarée dans le dossier de l'élève (socle 4, autorité parentale) par la direction ou le secrétariat, avec la pièce justificative. **Suite : lot du socle 4.**
+3. Lier un document à une version d'accord : `autorisations.gerer` pour l'instant ; l'organisateur du socle 42 passera par `creer_pour` quand V1 sera branché.
+4. Le seuil de 200 compte les **élèves concernés** (comme livré).
+5. Preuve de décision : on retient **G (guichet confirmé)** et **P (papier contrôlé)**, niveau écrit dans le dossier de preuve ; G0 jamais. **Suite** : le code ne retient aujourd'hui que passkey et code SMS (écart n°11), le parcours guichet/papier reste à écrire.
+
 ## Vérifications faites
 - `cargo +1.99.0 clippy --workspace --all-targets` (avec et sans la feature `labo`) : **0 avertissement** ; `cargo check --workspace --tests` : 0 avertissement rustc.
 - Tests Postgres 16 local (données fictives), `--test-threads=1` : FO2 8/8, FO3 7/7, FO0 et FO1 (régression : leur purge supprime d'abord les tables FO2 et FO3), `tests_rls`, registres, fusion.
