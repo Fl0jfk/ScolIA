@@ -925,12 +925,23 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
         let (mut tx, moi) = self.espaces_debut(etab, user, role).await?;
+        // Une réservation qui n'est pas la mienne, ou n'existe pas dans cet établissement : « introuvable » (jamais un 2xx
+        // « idempotent » sur une cible absente). Une réservation à moi déjà confirmée ou libérée : rien à faire, succès.
+        let a_moi: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM ent_espace_reservation WHERE etablissement_id = $1 AND id = $2 AND demandeur_user_id = $3",
+        )
+        .bind(etab)
+        .bind(reservation_id)
+        .bind(moi.user)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if a_moi.is_none() {
+            return Err(introuvable());
+        }
         let Some(r) = reservation_ouverte(&mut tx, etab, reservation_id).await? else {
             return Ok(());
         };
-        if r.demandeur_user_id != moi.user {
-            return Err(introuvable());
-        }
         quota_liberer(&mut tx, etab, reservation_id, "annulee", maintenant).await?;
         tx.commit().await.map_err(db)?;
         self.effacer_objet_sans_registre(&r.cle_objet).await;
@@ -959,10 +970,19 @@ impl PgEnt {
         // 1. Lecture de la réservation et de l'intention d'envoi (sans verrou).
         let (moi, envoi, rsv) = {
             let (mut tx, moi) = self.espaces_debut(etab, user, role).await?;
-            let rsv = reservation_ouverte(&mut tx, etab, reservation_id).await?.ok_or_else(|| conflit("Cet envoi a expiré ou a déjà été finalisé."))?;
-            if rsv.demandeur_user_id != moi.user {
+            let a_moi: Option<i32> = sqlx::query_scalar(
+                "SELECT 1 FROM ent_espace_reservation WHERE etablissement_id = $1 AND id = $2 AND demandeur_user_id = $3",
+            )
+            .bind(etab)
+            .bind(reservation_id)
+            .bind(moi.user)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if a_moi.is_none() {
                 return Err(introuvable());
             }
+            let rsv = reservation_ouverte(&mut tx, etab, reservation_id).await?.ok_or_else(|| conflit("Cet envoi a expiré ou a déjà été finalisé."))?;
             let l = sqlx::query(
                 "SELECT espace_id, dossier_id, element_id, nom, mime_declare, commentaire
                    FROM ent_espace_envoi WHERE etablissement_id = $1 AND reservation_id = $2",

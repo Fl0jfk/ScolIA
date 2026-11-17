@@ -1069,3 +1069,37 @@ async fn et1_schema_sans_json_ni_tableau_ni_bytea_et_rls_posee() {
         assert!(etab_col && rls && force, "{t} : etablissement_id NOT NULL = {etab_col}, RLS = {rls}, FORCE = {force}");
     }
 }
+
+/// Pilote (run 342) : une annulation, une finalisation ou un « vu » sur une cible **absente de l'établissement de l'acteur**, ou qui
+/// n'est pas à lui, répond « introuvable » — jamais un 2xx « idempotent » — et ne touche aucune ligne d'un autre établissement.
+#[tokio::test]
+async fn et1_annuler_finaliser_vu_sur_cible_absente_ou_d_un_autre_etablissement() {
+    let Some((ent, cast)) = labo_espaces().await else { return };
+    let (etab, prof, cpe) = (cast.etablissement_id, &cast.prof, &cast.cpe);
+    let role = prof.role.as_str();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let (etab_b, prof_b) = (autre.etablissement_id, &autre.prof);
+    let role_b = prof_b.role.as_str();
+    collegue(&ent, etab_b, prof_b.user_id).await;
+    collegue(&ent, etab, cpe.user_id).await;
+    let espace = espace_neuf(&ent, etab, prof.user_id, role).await;
+    let ReponseDepot::Autorise(a) = ent.espaces_demander_depot(etab, prof.user_id, role, espace, demande("x.pdf", 1024), t0()).await.unwrap() else { panic!() };
+    // Un acteur de B, avec l'identifiant d'une réservation de A : introuvable ; la ligne de A est intacte.
+    assert!(introuvable(ent.espaces_annuler_depot(etab_b, prof_b.user_id, role_b, a.reservation_id, t0()).await));
+    assert!(introuvable(ent.espaces_finaliser_depot(etab_b, prof_b.user_id, role_b, a.reservation_id, t0()).await));
+    // Un autre acteur du même établissement : introuvable aussi (la réservation n'est pas à lui).
+    assert!(introuvable(ent.espaces_annuler_depot(etab, cpe.user_id, cpe.role.as_str(), a.reservation_id, t0()).await));
+    assert!(introuvable(ent.espaces_finaliser_depot(etab, cpe.user_id, cpe.role.as_str(), a.reservation_id, t0()).await));
+    // Un identifiant inconnu : introuvable.
+    assert!(introuvable(ent.espaces_annuler_depot(etab, prof.user_id, role, Uuid::new_v4(), t0()).await));
+    assert!(introuvable(ent.espaces_finaliser_depot(etab, prof.user_id, role, Uuid::new_v4(), t0()).await));
+    assert_eq!(occupation(&ent, etab, espace).await, (0, 1024), "la réservation de A n'a pas été touchée");
+    // Le demandeur annule : succès ; une seconde annulation de SA réservation est un succès (idempotent), pas une 404.
+    ent.espaces_annuler_depot(etab, prof.user_id, role, a.reservation_id, t0()).await.unwrap();
+    ent.espaces_annuler_depot(etab, prof.user_id, role, a.reservation_id, t0()).await.unwrap();
+    assert_eq!(occupation(&ent, etab, espace).await, (0, 0));
+    // « Vu » avec un identifiant qui n'est pas à moi : introuvable.
+    assert!(introuvable(ent.espaces_marquer_vu(etab, prof.user_id, role, Some(Uuid::new_v4()), None, t0()).await));
+    assert!(introuvable(ent.espaces_marquer_vu(etab, prof.user_id, role, None, Some(Uuid::new_v4()), t0()).await));
+    assert!(introuvable(ent.espaces_marquer_vu(etab_b, prof_b.user_id, role_b, Some(espace), None, t0()).await));
+}

@@ -78,6 +78,9 @@ pub const FOURNISSEURS: &[Fournisseur] = &[
     f("sante", "34", &["sante"]),
     f("comptes", "1", &["identite_acces"]),
     f("documents", "7", &["documents"]),
+    // Socle 32 (espaces de travail) : fichiers et métadonnées dont la personne est propriétaire ou déposante, ses appartenances
+    // (membre ajouté) et les partages reçus ; sans le contenu des fichiers (pièces par référence) ; assemblage au lot G3.
+    f("espaces", "32", &["espaces"]),
     f("conformite", "27", &["conformite"]),
 ];
 

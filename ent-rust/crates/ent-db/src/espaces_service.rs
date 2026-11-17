@@ -918,6 +918,35 @@ impl PgEnt {
         .await
         .map_err(db)?
         .rows_affected();
+        // Un identifiant fourni qui ne désigne rien de **à moi** : « introuvable » (jamais un 200 sur une cible absente).
+        if let Some(e) = espace_id {
+            let existe: Option<i32> = sqlx::query_scalar(
+                "SELECT 1 FROM ent_espace_membre_ajoute WHERE etablissement_id = $1 AND personne_id = $2 AND espace_id = $3 LIMIT 1",
+            )
+            .bind(etab)
+            .bind(moi.personne)
+            .bind(e)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if existe.is_none() {
+                return Err(introuvable());
+            }
+        }
+        if let Some(p) = partage_id {
+            let existe: Option<i32> = sqlx::query_scalar(
+                "SELECT 1 FROM ent_espace_partage WHERE etablissement_id = $1 AND destinataire_personne_id = $2 AND id = $3",
+            )
+            .bind(etab)
+            .bind(moi.personne)
+            .bind(p)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if existe.is_none() {
+                return Err(introuvable());
+            }
+        }
         tx.commit().await.map_err(db)?;
         Ok((a + b) as i64)
     }
