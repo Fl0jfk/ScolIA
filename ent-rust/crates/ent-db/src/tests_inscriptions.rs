@@ -352,8 +352,7 @@ async fn parcours_famille_de_bout_en_bout() {
         .await
         .is_err());
     ent.deposer_reel(etab, &jeton, dossier.id, "livret")
-        .await
-        .unwrap();
+        .await;
     ent.decider_piece_for_actor(
         etab,
         a,
@@ -405,8 +404,7 @@ async fn parcours_famille_de_bout_en_bout() {
         .await
         .is_err());
     ent.deposer_reel(etab, &jeton, dossier.id, "livret")
-        .await
-        .unwrap();
+        .await;
     ent.decider_piece_for_actor(
         etab,
         a,
@@ -624,8 +622,7 @@ async fn iban_masque_et_nouveau_mandat() {
     let (d, dr) = dir(&b);
     for code in ["livret"] {
         ent.deposer_reel(b.etablissement_id, &jeton, dossier.id, code)
-            .await
-            .unwrap();
+            .await;
         ent.decider_piece_for_actor(
             b.etablissement_id,
             d,
@@ -1087,8 +1084,7 @@ async fn reactions_idempotentes() {
         .unwrap();
     let (d, dr) = dir(&c);
     ent.deposer_reel(etab, &jeton, dossier.id, "livret")
-        .await
-        .unwrap();
+        .await;
     ent.decider_piece_for_actor(
         etab,
         d,
@@ -1508,8 +1504,7 @@ async fn isolation_etablissements() {
     // Classe d'un autre établissement refusée à la validation.
     let (da, dar) = dir(&a);
     ent.deposer_reel(a.etablissement_id, &jeton, dossier.id, "livret")
-        .await
-        .unwrap();
+        .await;
     ent.decider_piece_for_actor(
         a.etablissement_id,
         da,
@@ -1647,8 +1642,7 @@ pub(crate) async fn dossier_admis(
     .unwrap();
     for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
         ent.deposer_reel(etab, &jeton, dossier.id, &p.code)
-            .await
-            .unwrap();
+            .await;
         ent.decider_piece_for_actor(
             etab,
             a,
@@ -2105,7 +2099,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
         .unwrap();
     let (a, ar) = adm(&c);
     for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
-        ent.deposer_reel(etab, &jeton, dossier.id, &p.code).await.unwrap();
+        ent.deposer_reel(etab, &jeton, dossier.id, &p.code).await;
         ent.decider_piece_for_actor(etab, a, ar, dossier.id, &p.code, &PieceDecisionBody { statut: "acceptee".into(), motif: None }).await.unwrap();
     }
     ent.decider_for_actor(etab, d, dr, dossier.id, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();

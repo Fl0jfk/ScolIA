@@ -33,7 +33,7 @@ use ent_types::inscriptions::*;
 use ent_types::inscriptions_pieces::*;
 use uuid::Uuid;
 
-use super::tests_inscriptions::{adm, campagne, campagne_ouverte, courriels_vers, dir, formulaire, labo, second_parent, verifier};
+use super::tests_inscriptions::{adm, campagne, courriels_vers, dir, formulaire, labo, second_parent, verifier};
 use super::*;
 
 // ───────────────────────── Doublures et fichiers de test ─────────────────────────
