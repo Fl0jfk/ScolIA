@@ -425,9 +425,9 @@ async fn t_regle_un_titulaire_code_sms_et_pieces() {
         .await
         .unwrap();
     assert_eq!(empreinte.len(), 64);
-    // Les mots trop longs sont tranchés par la mise en page : on compare sans espaces ni sauts de ligne.
-    let texte: String = ent_pdf::releve::texte(&signe).split_whitespace().collect();
-    assert!(texte.contains(&empreinte), "empreinte complète imprimée sur la page de signatures : {}", texte.chars().take(600).collect::<String>());
+    // La page de signatures est écrite en clair (polices standard) : l'empreinte complète y figure d'un seul tenant.
+    let texte = String::from_utf8_lossy(&signe).into_owned();
+    assert!(texte.contains(&empreinte), "empreinte complète imprimée sur la page de signatures");
     assert!(texte.contains("code_sms"));
     // Aucune ligne de la preuve ne porte le numéro complet du téléphone.
     assert!(!texte.contains("0612345678"));
@@ -519,9 +519,14 @@ async fn t_mineur_ne_signe_pas_seul_majeur_si() {
     assert_eq!(vue.signataires.iter().filter(|s| s.role == "eleve").count(), 1);
     assert_eq!(vue.signataires.iter().filter(|s| s.role == "titulaire").count(), 1);
     // Majeur : signe seul, ses parents ne sont pas sollicités.
-    let majeur = w.eleve_ne_le("Grand", "Emma", NaiveDate::from_ymd_opt(2000, 1, 15).unwrap()).await;
+    let majeur = w.eleve("Grand", "Emma").await;
     w.lier(majeur, &w.lily, true).await;
     let doc2 = w.document(majeur, None).await;
+    w.preparer(
+        "UPDATE ent_eleve SET date_naissance = DATE '2000-01-15' WHERE etablissement_id = $1 AND id = $2",
+        &[w.m.etab, majeur],
+    )
+    .await;
     let c2 = w.lancer(&w.adm(), doc2.document_id, true, vec![]).await.expect("majeur");
     let v2 = w.ent.circuit_for_actor(&w.adm(), c2.circuit_id).await.unwrap();
     assert_eq!(v2.signataires.len(), 1);

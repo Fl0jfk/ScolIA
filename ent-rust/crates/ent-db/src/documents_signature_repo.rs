@@ -866,7 +866,12 @@ impl PgEnt {
             let modes: Vec<ModeSignature> = match (&s.modes, s.choix_par) {
                 (Some(m), _) => m.clone(),
                 (None, ChoixPar::Emetteur) => vec![defaut],
-                (None, ChoixPar::Signataire) => menu_eff.iter().map(|c| c.mode).collect(),
+                (None, ChoixPar::Signataire) => menu_eff
+                    .iter()
+                    .map(|c| c.mode)
+                    // Un externe n'a pas de compte : jamais de passkey par défaut.
+                    .filter(|m| s.role != RoleSignataire::Externe || *m != ModeSignature::Passkey)
+                    .collect(),
             };
             if modes.is_empty() || modes.len() > 4 {
                 return Err(refus(RefusMetier::Invalide, "1 à 4 modes par signataire"));
