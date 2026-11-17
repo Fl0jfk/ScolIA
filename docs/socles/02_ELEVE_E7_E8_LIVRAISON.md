@@ -59,3 +59,9 @@ Local, PostgreSQL 16, `--test-threads=1`, Rust **1.99.0** :
 - `cargo +1.99.0 metadata --locked` : racine et `web/` OK ; aucune dépendance nouvelle ;
 - aucun test ignoré, aucun test à l'horloge réelle (instants passés aux commandes `*_a`, mesures datées de janvier 2026, pastilles datées recalculées à un jour explicite) ; jamais `cargo fmt --all`.
 - Les tests modifiés d'autres lots : aucun (la route photo héritée garde son comportement pour le personnel ; la famille propose désormais).
+
+## 6. Réponses du pilote (2026-11-17)
+- (a) **Oui** : `photo`, `email_eleve` et `mobile_eleve` entrent au catalogue E5 — lot suivant (avec E9).
+- (b) **Oui** à une pastille neutre « protocole » pour la vie scolaire : elle signale qu'un protocole existe et qu'il faut s'adresser à l'infirmerie, sans aucun contenu de santé — lot suivant.
+- (c) **Oui** à un lot dédié pour ELV-44 et ELV-46 ; plage de migrations réservée au lancement du lot.
+- Écart 6 : la pastille `interne` devra être visible de la vie scolaire (CPE) et de l'accueil (information d'organisation) ; PAI reste réservé à `sante.lire`. **Non fait dans ce lot** : à appliquer seulement si la revue de sécurité indépendante ne demande rien d'autre, sinon avec ses retours.
