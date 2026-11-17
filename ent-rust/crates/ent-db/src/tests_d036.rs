@@ -280,9 +280,12 @@ async fn rejeu_644_648_avec_document_v1_garde_la_contrainte_v1() {
         crate::migrate::rejouer_tout(pool).await.unwrap();
     };
     rejeu.await;
+    // Seules les contraintes CHECK (`contype = 'c'`) : depuis PostgreSQL 18 (version de la CI, `postgres:18`), les
+    // NOT NULL sont aussi enregistrées dans `pg_constraint` (`contype = 'n'`, ex. `ent_sortie_document_type_not_null`).
     let contraintes: Vec<(String,)> = sqlx::query_as(
         "SELECT conname::text FROM pg_constraint
           WHERE conrelid = 'ent_sortie_document'::regclass AND conname LIKE 'ent_sortie_document_type%'
+            AND contype = 'c'
           ORDER BY 1",
     )
     .fetch_all(pool)
