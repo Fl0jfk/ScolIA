@@ -268,8 +268,8 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
 /// Socle 1 (B1, B2) : hors de ses élèves, un professeur est refusé (notes, vie
 /// scolaire, carnet, journal, fils). Les autres personnels gardent l'établissement.
 const GESTION_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe];
-/// Personnels qui ont une fiche d'agent dans le jeu de labo : à ajuster selon le jeu (voir le test `domaine_espaces`).
-const ESPACES_PERSONNELS: &[Acteur] = &[];
+/// Les huit profils de personnel du jeu de labo (tous ont une fiche) : seuls eux reçoivent une réponse ; familles et élèves sont refusés.
+const ESPACES_PERSONNELS: &[Acteur] = &Acteur::STAFF;
 const STAFF_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe, Compta, Infirmiere, Psy];
 const STAFF: &[Acteur] = &Acteur::STAFF;
 const TOUS: &[Acteur] = &Acteur::TOUS;
