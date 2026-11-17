@@ -36,6 +36,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("acces", ".fetch_optional(self.pool())", "ent_membership : table sans RLS (lue à l'authentification)"),
     ("inscriptions", ".fetch_all(self.pool())", "ent_inscription_invitation : table sans RLS (jeton résolu avant l'établissement)"),
     ("inscriptions", ".fetch_optional(self.pool())", "ent_preinscription_verification / ent_inscription_invitation : tables sans RLS (jetons)"),
+    ("inscriptions_accords", ".fetch_optional(self.pool())", "etablissement_de_accord : ne lit que etablissement_id de la demande (lien reçu par e-mail) avant de connaître le tenant ; sous RLS stricte la requête sans tenant ne rend rien et le tenant vient de l'adresse"),
     ("inscriptions", "fermeture_en_cours(self.pool(), etab)", "l'assistant ouvre son propre contexte d'établissement"),
     ("inscriptions_modele", "fermeture_en_cours(self.pool(), etab)", "l'assistant ouvre son propre contexte d'établissement"),
     ("rencontres", "enseignants_de(self.pool()", "l'assistant ouvre son propre contexte d'établissement"),

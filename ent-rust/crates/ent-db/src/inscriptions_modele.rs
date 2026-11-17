@@ -1227,6 +1227,22 @@ impl PgEnt {
         let vers = if b.bloquer {
             "bloque_desaccord".to_string()
         } else {
+            // Un désaccord déclaré par un titulaire se lève AVEC une pièce (accord écrit, décision de justice) :
+            // par la levée de désaccord, jamais par ce raccourci.
+            let (refus,): (i64,) = sqlx::query_as(
+                "SELECT count(*) FROM ent_inscription_accord
+                  WHERE etablissement_id = $1 AND dossier_id = $2 AND reponse = 'refuse'",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if refus > 0 {
+                return Err(conflit(
+                    "un désaccord de responsable est déclaré : la levée exige une pièce (accord écrit ou décision de justice)",
+                ));
+            }
             d.etat_avant_blocage
                 .clone()
                 .filter(|_| d.etat == "bloque_desaccord")
@@ -2280,6 +2296,9 @@ impl PgEnt {
                 Self::inserer_responsable_tx(&mut tx, etab, dossier_id, rang, r, &coffre).await?;
             }
             Self::copier_pieces_tx(&mut tx, etab, b.campagne_id, dossier_id).await?;
+            // Accords des responsables (lot I4) : le déposant donne le sien par le dépôt ; sous la règle « tous les
+            // titulaires », les autres reçoivent leur demande.
+            crate::inscriptions_accords::initialiser_accords_tx(&mut tx, etab, dossier_id).await?;
             suivi_tx(
                 &mut tx,
                 etab,

@@ -38,6 +38,7 @@ pub mod fusion;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
+pub mod inscriptions_pieces;
 pub mod internat;
 pub mod palette;
 pub mod personnels;

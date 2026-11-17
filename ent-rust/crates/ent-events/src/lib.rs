@@ -377,6 +377,16 @@ pub mod types {
     pub const INSCRIPTION_DESISTEMENT: &str = "inscription.desistement";
     pub const INSCRIPTION_BLOQUE_DESACCORD: &str = "inscription.bloque_desaccord";
     pub const INSCRIPTION_BLOCAGE_LEVE: &str = "inscription.blocage_leve";
+    /// Lots I3 et I4 (socle 3) : pièces d'un dossier et accords des responsables. Charges utiles :
+    /// identifiants et codes de type de pièce seulement (jamais de nom, d'adresse ni de motif rédigé). Le moteur de
+    /// notifications du socle 8 prévient les familles qui ont un élève et des liens ; la famille d'une admission,
+    /// sans compte, est prévenue par la file d'envoi des inscriptions.
+    pub const INSCRIPTION_PIECE_DEMANDEE: &str = "inscription.piece_demandee";
+    pub const INSCRIPTION_PIECE_DEPOSEE: &str = "inscription.piece_deposee";
+    pub const INSCRIPTION_PIECE_CONTROLEE: &str = "inscription.piece_controlee";
+    pub const INSCRIPTION_PIECES_PURGEES: &str = "inscription.pieces_purgees";
+    pub const INSCRIPTION_ACCORD_DEMANDE: &str = "inscription.accord_demande";
+    pub const INSCRIPTION_ACCORD_REPONDU: &str = "inscription.accord_repondu";
     pub const INSCRIPTION_VALIDATION_ANNULEE: &str = "inscription.validation_annulee";
     pub const INSCRIPTION_SOLLICITATION_SUSPENDUE: &str = "inscription.sollicitation_suspendue";
     pub const INSCRIPTION_CAMPAGNE_MODIFIEE: &str = "inscription.campagne_modifiee";

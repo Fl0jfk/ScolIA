@@ -6,6 +6,7 @@
 //! de Draco (`eleve_tom_id`). Chaque `seed_labo_cast` crée un établissement neuf.
 
 use super::*;
+use super::tests_inscriptions_i3_i4::PiecesTest;
 use crate::inscriptions_reactions::{
     CONSOMMATEUR_ACCUEIL, CONSOMMATEUR_AFFECTATION, CONSOMMATEUR_INVITATIONS,
 };
@@ -350,9 +351,8 @@ async fn parcours_famille_de_bout_en_bout() {
         )
         .await
         .is_err());
-    ent.deposer_piece_famille(etab, &jeton, dossier.id, "livret", "livret.pdf")
-        .await
-        .unwrap();
+    ent.deposer_reel(etab, &jeton, dossier.id, "livret")
+        .await;
     ent.decider_piece_for_actor(
         etab,
         a,
@@ -403,9 +403,8 @@ async fn parcours_famille_de_bout_en_bout() {
         .relancer_for_actor(etab, a, ar, dossier.id)
         .await
         .is_err());
-    ent.deposer_piece_famille(etab, &jeton, dossier.id, "livret", "livret-v2.pdf")
-        .await
-        .unwrap();
+    ent.deposer_reel(etab, &jeton, dossier.id, "livret")
+        .await;
     ent.decider_piece_for_actor(
         etab,
         a,
@@ -622,9 +621,8 @@ async fn iban_masque_et_nouveau_mandat() {
     );
     let (d, dr) = dir(&b);
     for code in ["livret"] {
-        ent.deposer_piece_famille(b.etablissement_id, &jeton, dossier.id, code, "x.pdf")
-            .await
-            .unwrap();
+        ent.deposer_reel(b.etablissement_id, &jeton, dossier.id, code)
+            .await;
         ent.decider_piece_for_actor(
             b.etablissement_id,
             d,
@@ -830,7 +828,7 @@ async fn decision_capacite_et_droits() {
     assert!(matches!(
         ent.valider_inscription_for_actor(etab, d, dr, d1.id, &ValidationBody::default())
             .await,
-        Err(EntDbError::ConflitDossier(_))
+        Err(EntDbError::ConflitDossier(_) | EntDbError::ConflitDossierDetail(_))
     ));
     // Droits : prof, CPE, compta, parent n'accèdent pas à l'instruction.
     for (u, r) in [
@@ -1085,9 +1083,8 @@ async fn reactions_idempotentes() {
         .await
         .unwrap();
     let (d, dr) = dir(&c);
-    ent.deposer_piece_famille(etab, &jeton, dossier.id, "livret", "l.pdf")
-        .await
-        .unwrap();
+    ent.deposer_reel(etab, &jeton, dossier.id, "livret")
+        .await;
     ent.decider_piece_for_actor(
         etab,
         d,
@@ -1506,9 +1503,8 @@ async fn isolation_etablissements() {
         .all(|x| x.id != camp));
     // Classe d'un autre établissement refusée à la validation.
     let (da, dar) = dir(&a);
-    ent.deposer_piece_famille(a.etablissement_id, &jeton, dossier.id, "livret", "l.pdf")
-        .await
-        .unwrap();
+    ent.deposer_reel(a.etablissement_id, &jeton, dossier.id, "livret")
+        .await;
     ent.decider_piece_for_actor(
         a.etablissement_id,
         da,
@@ -1645,9 +1641,8 @@ pub(crate) async fn dossier_admis(
     .await
     .unwrap();
     for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
-        ent.deposer_piece_famille(etab, &jeton, dossier.id, &p.code, "p.pdf")
-            .await
-            .unwrap();
+        ent.deposer_reel(etab, &jeton, dossier.id, &p.code)
+            .await;
         ent.decider_piece_for_actor(
             etab,
             a,
@@ -2104,7 +2099,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
         .unwrap();
     let (a, ar) = adm(&c);
     for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
-        ent.deposer_piece_famille(etab, &jeton, dossier.id, &p.code, "p.pdf").await.unwrap();
+        ent.deposer_reel(etab, &jeton, dossier.id, &p.code).await;
         ent.decider_piece_for_actor(etab, a, ar, dossier.id, &p.code, &PieceDecisionBody { statut: "acceptee".into(), motif: None }).await.unwrap();
     }
     ent.decider_for_actor(etab, d, dr, dossier.id, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();

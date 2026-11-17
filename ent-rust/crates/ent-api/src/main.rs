@@ -615,6 +615,17 @@ async fn run_api() {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("purge des pièces infectées : {e}"),
                 }
+                // Socle 3 (I3) : fichiers des dossiers d'inscription non aboutis, après le délai de recours.
+                match ent
+                    .purger_pieces_non_aboutis_tache(ent_db::inscriptions_pieces::PURGE_NON_ABOUTIS_JOURS)
+                    .await
+                {
+                    Ok(b) if b.dossiers > 0 || b.echecs > 0 => {
+                        tracing::info!(?b, "pièces de dossiers d'inscription non aboutis purgées")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des pièces d'inscription : {e}"),
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             }
         })

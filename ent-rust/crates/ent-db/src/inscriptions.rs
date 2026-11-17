@@ -792,8 +792,8 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let pieces: Vec<(String, String, bool)> = sqlx::query_as(
-            "SELECT code, libelle, obligatoire FROM ent_inscription_campagne_piece
-              WHERE etablissement_id = $1 AND campagne_id = $2 ORDER BY ordre, code",
+            "SELECT code_type, libelle, bloquante FROM ent_inscription_piece_regle
+              WHERE etablissement_id = $1 AND campagne_id = $2 ORDER BY ordre, code_type",
         )
         .bind(etab)
         .bind(r.id)
@@ -946,12 +946,6 @@ impl PgEnt {
             .execute(&mut *conn)
             .await
             .map_err(db)?;
-        sqlx::query("DELETE FROM ent_inscription_campagne_piece WHERE etablissement_id = $1 AND campagne_id = $2")
-            .bind(etab)
-            .bind(id)
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
         for n in &b.niveaux {
             sqlx::query(
                 "INSERT INTO ent_inscription_campagne_niveau (campagne_id, etablissement_id, code, capacite)
@@ -965,22 +959,23 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        for (i, p) in b.pieces.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO ent_inscription_campagne_piece
-                    (campagne_id, etablissement_id, code, libelle, obligatoire, ordre)
-                 VALUES ($1,$2,$3,$4,$5,$6)",
-            )
-            .bind(id)
-            .bind(etab)
-            .bind(&p.code)
-            .bind(p.libelle.trim())
-            .bind(p.obligatoire)
-            .bind(i16::try_from(i).unwrap_or(i16::MAX))
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
-        }
+        // Pièces : le formulaire de campagne exprime code, libellé et caractère obligatoire ; ce sont des règles
+        // « au dépôt, sans condition » (lot I3). Les règles à condition, de moment ou de portée particuliers,
+        // posées par l'API des règles, ne sont jamais supprimées par ce formulaire.
+        let regles: Vec<ent_types::inscriptions_pieces::ReglePieceDto> = b
+            .pieces
+            .iter()
+            .map(|p| ent_types::inscriptions_pieces::ReglePieceDto {
+                code_type: p.code.clone(),
+                libelle: p.libelle.clone(),
+                consigne: None,
+                moment: "depot".into(),
+                bloquante: p.obligatoire,
+                portee: "dossier".into(),
+                conditions: Vec::new(),
+            })
+            .collect();
+        crate::inscriptions_pieces::ecrire_regles_tx(conn, etab, id, &regles, true).await?;
         // Les niveaux sont aussi des offres sans parcours : la capacité est tenue par l'offre.
         inscriptions_modele::synchroniser_offres_niveaux_tx(conn, etab, id, &b.niveaux, actor).await?;
         Ok(())
@@ -1305,25 +1300,14 @@ impl PgEnt {
         Ok(n)
     }
 
+    /// Pièces attendues d'un dossier : calculées depuis les règles de sa campagne (lot I3).
     pub(crate) async fn copier_pieces_tx(
         conn: &mut PgConnection,
         etab: Uuid,
-        campagne_id: Uuid,
+        _campagne_id: Uuid,
         dossier_id: Uuid,
     ) -> Result<(), EntDbError> {
-        sqlx::query(
-            "INSERT INTO ent_inscription_piece (id, etablissement_id, dossier_id, code, libelle, obligatoire)
-             SELECT gen_random_uuid(), etablissement_id, $3, code, libelle, obligatoire
-               FROM ent_inscription_campagne_piece
-              WHERE etablissement_id = $1 AND campagne_id = $2
-             ON CONFLICT (dossier_id, code) DO NOTHING",
-        )
-        .bind(etab)
-        .bind(campagne_id)
-        .bind(dossier_id)
-        .execute(conn)
-        .await
-        .map_err(db)?;
+        crate::inscriptions_pieces::appliquer_regles_tx(conn, etab, dossier_id).await?;
         Ok(())
     }
 
@@ -1474,7 +1458,7 @@ impl PgEnt {
             .collect();
         let pieces: Vec<(String, String, bool, String, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT code, libelle, obligatoire, statut, nom_fichier, motif_refus FROM ent_inscription_piece
-              WHERE etablissement_id = $1 AND dossier_id = $2 ORDER BY obligatoire DESC, code",
+              WHERE etablissement_id = $1 AND dossier_id = $2 AND applicable ORDER BY obligatoire DESC, code",
         )
         .bind(etab)
         .bind(d.id)
@@ -1575,7 +1559,9 @@ impl PgEnt {
             "SELECT d.id, d.campagne_id, d.nature, d.statut, d.eleve_nom, d.eleve_prenom, d.niveau_demande,
                     d.eleve_id, d.depose_le, d.etat, d.reference,
                     (SELECT count(*) FROM ent_inscription_piece p
-                      WHERE p.dossier_id = d.id AND p.obligatoire AND p.statut <> 'acceptee') AS manquantes
+                      WHERE p.etablissement_id = d.etablissement_id AND p.dossier_id = d.id
+                        AND p.applicable AND p.bloquante AND p.moment <> 'rentree'
+                        AND p.statut NOT IN ('acceptee', 'dispensee')) AS manquantes
                FROM ent_inscription_dossier d
               WHERE d.etablissement_id = $1 {filtre_sql}
               ORDER BY d.depose_le DESC NULLS LAST, d.eleve_nom, d.eleve_prenom
@@ -1710,6 +1696,8 @@ impl PgEnt {
         self.dossier_for_actor(etab, actor, role, id).await
     }
 
+    /// Accepter ou refuser une pièce (route historique). Depuis le lot I3, passe par le contrôle des pièces
+    /// réelles : seul un fichier reçu (sain) s'accepte ; le motif d'un refus est rendu à la famille.
     pub async fn decider_piece_for_actor(
         &self,
         etab: Uuid,
@@ -1719,56 +1707,22 @@ impl PgEnt {
         code: &str,
         b: &PieceDecisionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
-            .await?;
         let motif = opt(&b.motif);
-        match b.statut.as_str() {
-            "acceptee" => {}
-            "refusee" if motif.is_some() => {}
-            "refusee" => return Err(invalide("motif obligatoire pour refuser une pièce")),
+        let controle = match b.statut.as_str() {
+            "acceptee" => ent_types::inscriptions_pieces::ControlePieceBody {
+                decision: "accepter".into(),
+                ..Default::default()
+            },
+            "refusee" => ent_types::inscriptions_pieces::ControlePieceBody {
+                decision: "refuser".into(),
+                motif: Some("autre".into()),
+                commentaire: Some(motif.ok_or_else(|| invalide("motif obligatoire pour refuser une pièce"))?),
+                ..Default::default()
+            },
             _ => return Err(invalide("statut de pièce : acceptee ou refusee")),
-        }
-        if motif.as_deref().is_some_and(|m| m.chars().count() > 500) {
-            return Err(invalide("motif trop long"));
-        }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let d = dossier_tx(&mut tx, etab, id).await?;
-        if matches!(d.statut.as_str(), "validee" | "refuse" | "desistement") {
-            return Err(conflit("dossier clos"));
-        }
-        let n = sqlx::query(
-            "UPDATE ent_inscription_piece SET statut = $4, motif_refus = $5, maj_par = $6, maj_le = now()
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND code = $3",
-        )
-        .bind(etab)
-        .bind(id)
-        .bind(code)
-        .bind(&b.statut)
-        .bind(if b.statut == "refusee" { motif.clone() } else { None })
-        .bind(actor)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        if n.rows_affected() == 0 {
-            return Err(introuvable());
-        }
-        let texte = if b.statut == "acceptee" {
-            format!("Pièce « {code} » acceptée")
-        } else {
-            format!("Pièce « {code} » refusée : {}", motif.unwrap_or_default())
         };
-        suivi_tx(
-            &mut tx,
-            etab,
-            id,
-            "piece",
-            None,
-            Some(&texte),
-            true,
-            Some(actor),
-        )
-        .await?;
-        commit(tx).await?;
+        self.controler_piece_inscription_for_actor(etab, actor, role, id, code, &controle)
+            .await?;
         self.dossier_for_actor(etab, actor, role, id).await
     }
 
@@ -1834,7 +1788,7 @@ impl PgEnt {
         }
         let manquantes: Vec<(String,)> = sqlx::query_as(
             "SELECT libelle FROM ent_inscription_piece
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND obligatoire
+              WHERE etablissement_id = $1 AND dossier_id = $2 AND applicable AND bloquante
                 AND statut IN ('attendue', 'refusee') ORDER BY code",
         )
         .bind(etab)
@@ -2014,8 +1968,18 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 "une réinscription se valide sans décision d'admission",
             ));
         }
+        // Un dossier bloqué pour désaccord ne reçoit aucune décision (la vue historique `statut` ne change
+        // pas pendant le blocage : c'est l'état qui fait foi), et l'admission attend les accords exigés.
+        if d.etat == "bloque_desaccord" {
+            return Err(conflit(
+                "dossier bloqué : désaccord des responsables (levée avec pièce par la direction)",
+            ));
+        }
         if !decision_admise(&d.statut) || d.etat == b.decision {
             return Err(conflit("décision impossible depuis l'état actuel"));
+        }
+        if b.decision == "admis" {
+            crate::inscriptions_accords::exiger_accords_tx(&mut tx, etab, &d).await?;
         }
         let campagne = sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
@@ -2158,6 +2122,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 _ => "le dossier doit être instruit avant la validation",
             }));
         }
+        crate::inscriptions_accords::exiger_accords_tx(&mut tx, etab, &d).await?;
         let mut cur = d.clone();
         if (d.nature == "admission" && cur.etat == "admis")
             || (d.nature == "en_cours_annee" && cur.etat == "en_instruction")
@@ -2173,19 +2138,14 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             )
             .await?;
         }
-        let (manquantes,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_inscription_piece
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND obligatoire AND statut <> 'acceptee'",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
-        if manquantes > 0 {
-            return Err(conflit(
-                "dossier incomplet : pièces obligatoires non acceptées",
-            ));
+        // Pièces bloquantes (lot I3) : acceptées ou dispensées, jamais seulement « déposées ».
+        let manquantes =
+            crate::inscriptions_pieces::bloquantes_manquantes_tx(&mut tx, etab, id).await?;
+        if !manquantes.is_empty() {
+            return Err(EntDbError::ConflitDossierDetail(format!(
+                "dossier incomplet : pièces obligatoires non acceptées ({})",
+                manquantes.join(", ")
+            )));
         }
         let classe = match b.classe_id.or(d.classe_cible_id) {
             None => None,
@@ -2307,6 +2267,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Les pièces acceptées deviennent des pièces de l'élève (socle 7), sans copie d'octets (lot I3).
+        crate::inscriptions_pieces::rattacher_pieces_tx(&mut tx, etab, id, eleve_id, actor).await?;
         suivi_tx(
             &mut tx,
             etab,

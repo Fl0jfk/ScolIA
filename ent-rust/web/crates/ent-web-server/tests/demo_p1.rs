@@ -9,7 +9,7 @@
 use std::net::SocketAddr;
 
 use ent_web_api::types_inscriptions::{
-    CampagneBody, DecisionBody, NiveauCampagneDto, PieceCampagneDto, PieceDecisionBody,
+    CampagneBody, DecisionBody, NiveauCampagneDto, PieceCampagneDto,
 };
 use ent_web_api::{ApiClient, ApiError, ClientPreinscription};
 use ent_web_app::modules::inscriptions::modele::{
@@ -130,7 +130,9 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
             pieces: vec![PieceCampagneDto {
                 code: "livret".into(),
                 libelle: "Livret scolaire".into(),
-                obligatoire: true,
+                // Depuis le lot I3 du socle 3, une pièce se dépose en vrai (fichier analysé par l'antivirus, que ce
+                // serveur de test n'a pas) : la pièce reste demandée mais ne bloque pas la validation.
+                obligatoire: false,
             }],
             ..Default::default()
         })
@@ -172,10 +174,6 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
         .deposer(&corps_preinscription(camp.id, &saisie))
         .await
         .expect("dépôt");
-    famille
-        .deposer_piece(d.id, "livret", "livret.pdf")
-        .await
-        .expect("pièce");
 
     // 3. Secrétariat : instruit ; les réserves déclarées sont visibles, jamais d'adresse.
     let vu = secretariat
@@ -197,17 +195,6 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
         .reserve
         .as_ref()
         .is_some_and(|r| r.adresse_a_proteger));
-    secretariat
-        .decider_piece(
-            d.id,
-            "livret",
-            &PieceDecisionBody {
-                statut: "acceptee".into(),
-                motif: None,
-            },
-        )
-        .await
-        .expect("pièce acceptée");
     // Direction : admet (le secrétariat ne décide pas).
     let admis = DecisionBody {
         decision: "admis".into(),

@@ -185,6 +185,34 @@ pub const CATALOGUE: &[PieceTypeDecl] = &[
         D::Justice,
         "La première page et le dispositif suffisent.",
     ),
+    // Lot I3 (socle 3) : pièces propres aux inscriptions, ajoutées au catalogue fermé (§8.6 de `03_INSCRIPTIONS.md`).
+    t(
+        "accord_responsable",
+        "Accord écrit d'un responsable légal",
+        P::Eleve,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "Daté et signé, avec le nom du responsable ; une photo prise au téléphone suffit.",
+    ),
+    t(
+        "decision_orientation",
+        "Décision d'orientation",
+        P::Eleve,
+        V::Permanente,
+        C1,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "notification_affectation",
+        "Notification d'affectation",
+        P::Eleve,
+        V::Permanente,
+        C1,
+        D::Scolarite,
+        "",
+    ),
     PieceTypeDecl {
         copie_gardee: false,
         accueil_controle: true,
@@ -630,7 +658,7 @@ pub struct PieceLue {
 
 // ───────────────────────── Aides ─────────────────────────
 
-fn type_de_fichier(b: &[u8]) -> Result<TypeFichier, EntDbError> {
+pub(crate) fn type_de_fichier(b: &[u8]) -> Result<TypeFichier, EntDbError> {
     if b.starts_with(b"%PDF-") {
         Ok(TypeFichier::Pdf)
     } else if b.starts_with(&[0xff, 0xd8, 0xff]) {
@@ -706,7 +734,7 @@ async fn piece_valable(
     Ok(r.map(|x| x.0))
 }
 
-async fn decision(
+pub(crate) async fn decision(
     conn: &mut PgConnection,
     etab: Uuid,
     piece: Uuid,
@@ -796,11 +824,85 @@ pub(crate) fn systeme(etab: Uuid) -> Acteur<'static> {
     }
 }
 
+/// Contrôle de forme **à l'entrée** d'un dépôt (type réel par signature, taille, nombre) et construction de
+/// l'**original** scellé : le fichier tel quel, ou l'archive des photos reçues. Partagé par le dépôt du socle 7 et
+/// par celui des dossiers d'inscription (socle 3, lot I3).
+pub(crate) fn preparer_depot(fichiers: &[Vec<u8>]) -> Result<(Vec<u8>, &'static str), EntDbError> {
+    if fichiers.is_empty() || fichiers.len() > ent_pdf::piece::PAGES_MAX {
+        return Err(refus(
+            RefusMetier::Invalide,
+            "un PDF, ou de une à cinquante photos",
+        ));
+    }
+    let mut total = 0usize;
+    let mut types = Vec::new();
+    for f in fichiers {
+        if f.is_empty() || f.len() > FICHIER_MAX {
+            return Err(refus(
+                RefusMetier::Invalide,
+                "fichier vide ou trop volumineux (15 Mio au plus)",
+            ));
+        }
+        total += f.len();
+        types.push(type_de_fichier(f)?);
+    }
+    if total > DEPOT_MAX {
+        return Err(refus(
+            RefusMetier::Invalide,
+            "dépôt trop volumineux (45 Mio au plus)",
+        ));
+    }
+    if types.contains(&TypeFichier::Pdf) && fichiers.len() > 1 {
+        return Err(refus(
+            RefusMetier::Invalide,
+            "un seul PDF à la fois, ou plusieurs photos : pas les deux",
+        ));
+    }
+    // Original scellé : le fichier tel quel, ou l'archive des photos reçues.
+    let (original, mime) = if fichiers.len() == 1 {
+        (
+            fichiers[0].clone(),
+            match types[0] {
+                TypeFichier::Pdf => "application/pdf",
+                TypeFichier::Jpeg => "image/jpeg",
+                _ => "image/png",
+            },
+        )
+    } else {
+        let mut z = EcrivainZip::nouveau();
+        for (i, (f, t)) in fichiers.iter().zip(&types).enumerate() {
+            let ext = if *t == TypeFichier::Jpeg {
+                "jpg"
+            } else {
+                "png"
+            };
+            z.ajouter(&format!("{:03}.{ext}", i + 1), f)
+                .map_err(|_| invalide())?;
+        }
+        (z.terminer(), "application/zip")
+    };
+    Ok((original, mime))
+}
+
+
+/// Une pièce à créer en quarantaine : sujet (élève, personne, agent, dossier d'inscription), original scellé.
+pub(crate) struct DepotInsere<'a> {
+    pub id: Uuid,
+    pub type_code: &'a str,
+    pub sujet: (Option<Uuid>, Option<Uuid>, Option<Uuid>, Option<Uuid>),
+    pub demande_id: Option<Uuid>,
+    pub motif_autre: Option<&'a str>,
+    pub deposant: (Uuid, &'a str),
+    pub original: &'a [u8],
+    pub mime: &'a str,
+    pub nb_fichiers: usize,
+}
+
 // ───────────────────────── Service ─────────────────────────
 
 impl PgEnt {
     /// Le droit **de domaine** d'un type de pièce (C3 : santé, justice ; financier ; RH) en plus du droit de la fonction.
-    async fn droit_du_type(
+    pub(crate) async fn droit_du_type(
         &self,
         a: &Acteur<'_>,
         decl: &PieceTypeDecl,
@@ -1098,59 +1200,7 @@ impl PgEnt {
             }
             (false, _) => None,
         };
-        if d.fichiers.is_empty() || d.fichiers.len() > ent_pdf::piece::PAGES_MAX {
-            return Err(refus(
-                RefusMetier::Invalide,
-                "un PDF, ou de une à cinquante photos",
-            ));
-        }
-        let mut total = 0usize;
-        let mut types = Vec::new();
-        for f in &d.fichiers {
-            if f.is_empty() || f.len() > FICHIER_MAX {
-                return Err(refus(
-                    RefusMetier::Invalide,
-                    "fichier vide ou trop volumineux (15 Mio au plus)",
-                ));
-            }
-            total += f.len();
-            types.push(type_de_fichier(f)?);
-        }
-        if total > DEPOT_MAX {
-            return Err(refus(
-                RefusMetier::Invalide,
-                "dépôt trop volumineux (45 Mio au plus)",
-            ));
-        }
-        if types.contains(&TypeFichier::Pdf) && d.fichiers.len() > 1 {
-            return Err(refus(
-                RefusMetier::Invalide,
-                "un seul PDF à la fois, ou plusieurs photos : pas les deux",
-            ));
-        }
-        // Original scellé : le fichier tel quel, ou l'archive des photos reçues.
-        let (original, mime) = if d.fichiers.len() == 1 {
-            (
-                d.fichiers[0].clone(),
-                match types[0] {
-                    TypeFichier::Pdf => "application/pdf",
-                    TypeFichier::Jpeg => "image/jpeg",
-                    _ => "image/png",
-                },
-            )
-        } else {
-            let mut z = EcrivainZip::nouveau();
-            for (i, (f, t)) in d.fichiers.iter().zip(&types).enumerate() {
-                let ext = if *t == TypeFichier::Jpeg {
-                    "jpg"
-                } else {
-                    "png"
-                };
-                z.ajouter(&format!("{:03}.{ext}", i + 1), f)
-                    .map_err(|_| invalide())?;
-            }
-            (z.terminer(), "application/zip")
-        };
+        let (original, mime) = preparer_depot(&d.fichiers)?;
         let staff = Role::parse(a.role).is_some_and(|r| r.is_staff());
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
             .await
@@ -1225,51 +1275,21 @@ impl PgEnt {
             ));
         }
         let id = Uuid::new_v4();
-        let ext = match mime {
-            "application/pdf" => "pdf",
-            "image/jpeg" => "jpg",
-            "image/png" => "png",
-            _ => "zip",
-        };
-        let cle =
-            ent_object::ObjectStore::key_for(a.etablissement_id, "pieces-quarantaine", id, ext);
-        let info = self.objet_put(&cle, &original).await?;
-        crate::objets::enregistrer_objet(&mut *tx, a.etablissement_id, &info, Some(mime)).await?;
         let (e, p, g) = d.sujet.colonnes();
-        sqlx::query(
-            "INSERT INTO ent_doc_piece
-                 (id, etablissement_id, type_code, eleve_id, personne_id, agent_id, demande_id, motif_autre,
-                  deposant_user_id, deposant_role, cle_objet_original, sha256_original, taille_originale, mime_original,
-                  nb_fichiers_origine)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
-        )
-        .bind(id)
-        .bind(a.etablissement_id)
-        .bind(decl.code)
-        .bind(e)
-        .bind(p)
-        .bind(g)
-        .bind(d.demande_id)
-        .bind(&motif_autre)
-        .bind(a.user_id)
-        .bind(a.role)
-        .bind(&info.key)
-        .bind(&info.sha256)
-        .bind(info.taille as i64)
-        .bind(mime)
-        .bind(d.fichiers.len() as i32)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        decision(
+        self.inserer_depot(
             &mut tx,
             a.etablissement_id,
-            id,
-            d.demande_id,
-            "deposee",
-            None,
-            None,
-            a.user_id,
+            &DepotInsere {
+                id,
+                type_code: decl.code,
+                sujet: (e, p, g, None),
+                demande_id: d.demande_id,
+                motif_autre: motif_autre.as_deref(),
+                deposant: (a.user_id, a.role),
+                original: &original,
+                mime,
+                nb_fichiers: d.fichiers.len(),
+            },
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -1277,6 +1297,54 @@ impl PgEnt {
             piece_id: id,
             etat: "en_quarantaine".into(),
         })
+    }
+
+    /// Écrit l'original scellé au magasin (quarantaine), l'enregistre au registre des objets et crée la pièce
+    /// `en_quarantaine` (+ sa décision « déposée »). Le sujet est l'un des **quatre** : élève, personne, agent ou
+    /// dossier d'inscription (socle 3, lot I3). Les contrôles de droit et de volume sont ceux de l'appelant.
+    pub(crate) async fn inserer_depot(
+        &self,
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        d: &DepotInsere<'_>,
+    ) -> Result<(), EntDbError> {
+        let ext = match d.mime {
+            "application/pdf" => "pdf",
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            _ => "zip",
+        };
+        let cle = ent_object::ObjectStore::key_for(etab, "pieces-quarantaine", d.id, ext);
+        let info = self.objet_put(&cle, d.original).await?;
+        crate::objets::enregistrer_objet(&mut **tx, etab, &info, Some(d.mime)).await?;
+        sqlx::query(
+            "INSERT INTO ent_doc_piece
+                 (id, etablissement_id, type_code, eleve_id, personne_id, agent_id, dossier_id, demande_id, motif_autre,
+                  deposant_user_id, deposant_role, cle_objet_original, sha256_original, taille_originale, mime_original,
+                  nb_fichiers_origine)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+        )
+        .bind(d.id)
+        .bind(etab)
+        .bind(d.type_code)
+        .bind(d.sujet.0)
+        .bind(d.sujet.1)
+        .bind(d.sujet.2)
+        .bind(d.sujet.3)
+        .bind(d.demande_id)
+        .bind(d.motif_autre)
+        .bind(d.deposant.0)
+        .bind(d.deposant.1)
+        .bind(&info.key)
+        .bind(&info.sha256)
+        .bind(info.taille as i64)
+        .bind(d.mime)
+        .bind(d.nb_fichiers as i32)
+        .execute(&mut **tx)
+        .await
+        .map_err(db)?;
+        decision(tx, etab, d.id, d.demande_id, "deposee", None, None, d.deposant.0).await?;
+        Ok(())
     }
 
     /// Retire une pièce **déposée par erreur** : son déposant, tant qu'elle n'est pas contrôlée (quarantaine ou reçue).
