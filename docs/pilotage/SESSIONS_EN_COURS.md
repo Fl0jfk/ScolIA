@@ -201,3 +201,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - F3 : pas de NOT NULL (NULL = pas encore scolarisé), mais un CHECK sur les valeurs.
     - Pastille « protocole » : visible des enseignants de l'élève et du PP, pas de l'accueil. **À signaler au DPO.**
     - Pastilles d'arrivée et `modalite_particuliere` : visibles du PP et des enseignants par une portée pédagogique minimale. `majorite_proche` reste à l'administration et à la vie scolaire.
+- **17-11, 20 h 47 UTC, ronde de sécurité** :
+  - **F1-F2 bloquée depuis 18 h 39** : elle attendait un clippy lancé avec `&`, qui ne la réveille jamais. Et **rien n'était poussé** (pas de branche sur origin). Relancée, avec ordre de pousser tout de suite, de fusionner ENT, puis d'ouvrir la PR.
+  - E9 travaille (partie 2). Le pilote s'est désabonné de la PR 96 pendant ce temps : chaque push le réveillait.
+  - PostgreSQL local redémarré.
+  - Ronde suivante : 18-11, 2 h 45 UTC.
+  - **Leçon pour les prochaines consignes** : interdire `&` pour les commandes longues (utiliser run_in_background), et pousser au moins à chaque étape vérifiée.
