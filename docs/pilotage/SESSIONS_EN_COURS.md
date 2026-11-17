@@ -153,3 +153,11 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - clippy et `Cargo.lock` OK ;
   - ent-db en 1 fil : 255 tests verts, 1 en échec, le défaut ci-dessus ;
   - séparation 53 et recette_securite_3 10 verts.
+- **17-11, 9 h 20 UTC** :
+  - **Versés** : I3-I4 (ENT 58fd024c, run 348 vert) et **ET0-ET1** (ENT 5220c079, avec le job `veille-pilote`). Pour ET0-ET1, TOUTES passe à 251 et SOURCES à **60** : la fusion sans conflit laissait 59.
+  - Sessions I3-I4 et ET0-ET1 archivées.
+  - **FO2-FO3** (run 347 vert) est fusionné par-dessus dans `scratchpad/mfo` (96c287c5 : TOUTES 253, SOURCES 61, RLS +18) ; vérification locale en cours. ENT reste gelé jusqu'au run de 5220c079, qui doit commenter la PR 93.
+  - **Nouvelles sessions (règle 32 : 2)** :
+    - **E7-E8**, socle 2 (session_01KZCbFGChmpQtXNCimQ2Kic, branche ent-socle-2-code-e7e8) ;
+    - **fiabilité des tests 1** (session_01KZCbFH6UFiXqhs9drbgSKh, branche ent-fiabilite-tests-1) : `seed_labo_cast`, rejeu 644/648 (proposition au pilote avant tout code), tests AS6 et AG0.
+  - Les deux fonctionnent selon la règle 35 : pull request en brouillon en fin de lot.
