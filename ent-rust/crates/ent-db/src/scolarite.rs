@@ -245,6 +245,10 @@ pub struct BilanTacheEleves {
     pub majeurs: i64,
     pub majorites_proches: i64,
     pub marqueurs_silencieux: i64,
+    /// Versions d'identité sensibles devenues non courantes et scellées (E7, §10.4).
+    pub identites_scellees: i64,
+    /// Pastilles recalculées (E8) : celles qui dépendent de la date, pour tous les élèves.
+    pub indicateurs_recalcules: i64,
 }
 
 // ───────────────────────────── Dépôt ─────────────────────────────
@@ -1622,6 +1626,8 @@ impl PgEnt {
         if !self.autoriser_eleve(etab, acteur, role, Action::ElevesLire, eleve).await? {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : un élève protégé est invisible d'un tiers, même avec G1.
+        self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
@@ -1753,6 +1759,11 @@ impl PgEnt {
             identites_resynchronisees: self.resynchroniser_identites().await?,
             ..Default::default()
         };
+        // E7 : une version sensible devenue non courante (annoncée devenue effective, ou
+        // antérieure au lot) est scellée.
+        bilan.identites_scellees = self.sceller_identites_sensibles_anciennes().await?;
+        // E8 : les pastilles qui dépendent de la date (échéance d'un PAI, majorité…) sont recalculées.
+        bilan.indicateurs_recalcules = self.recalcul_nocturne_indicateurs().await?;
         // — Statuts dérivés —
         let changes: Vec<(Uuid, Uuid, Option<String>, String)> = crate::tenant_tx::appeler_par_etablissement(
             self.pool(),

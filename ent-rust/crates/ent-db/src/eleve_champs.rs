@@ -203,10 +203,33 @@ impl PgEnt {
         else {
             return Ok(None);
         };
-        let g = self
-            .profil_champs(etablissement_id, user_id, role)
-            .await?
-            .pour(e.id);
+        let profil = self.profil_champs(etablissement_id, user_id, role).await?;
+        let g = profil.pour(e.id);
+        // E7 (§10.5) : toute ouverture de la fiche d'un élève protégé, toute lecture de l'état civil
+        // ou des identifiants, est journalisée AVANT d'être servie ; un tiers n'arrive jamais ici
+        // (`get_eleve_for_actor` l'a déjà écarté).
+        if Role::parse(role).is_some_and(Role::is_staff) {
+            let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)")
+                .bind(etablissement_id)
+                .bind(e.id)
+                .fetch_one(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?)
+                .await?;
+            let mut lectures: Vec<(&str, &str)> = Vec::new();
+            if protege {
+                lectures.push(("fiche_protegee", "Ouverture de la fiche d'un élève protégé"));
+            }
+            if g.ouvert(GroupeChamps::EtatCivil) {
+                lectures.push(("etat_civil", "Lecture de l'état civil de l'élève"));
+            }
+            if g.ouvert(GroupeChamps::Identifiants) {
+                lectures.push(("identifiants", "Lecture des identifiants de l'élève"));
+            }
+            let tiers = protege && !profil.ouvert_partout(GroupeChamps::Sensible);
+            for (action, libelle) in lectures {
+                self.tracer_consultation(etablissement_id, user_id, role, Some(e.id), action, libelle, tiers && action == "fiche_protegee")
+                    .await?;
+            }
+        }
         Ok(Some(EleveVue::de(e, g)))
     }
 
@@ -220,8 +243,12 @@ impl PgEnt {
         eleves: Vec<Eleve>,
     ) -> Result<Vec<EleveVue>, EntDbError> {
         let profil = self.profil_champs(etablissement_id, user_id, role).await?;
+        // E7 : un élève protégé n'apparaît pas dans une liste pour un tiers.
+        let ids: Vec<Uuid> = eleves.iter().map(|e| e.id).collect();
+        let caches = self.proteges_caches(etablissement_id, role, &profil, &ids).await?;
         Ok(eleves
             .into_iter()
+            .filter(|e| !caches.contains(&e.id))
             .filter(|e| profil.voit_designation(e.id))
             .map(|e| {
                 let g = profil.pour(e.id);

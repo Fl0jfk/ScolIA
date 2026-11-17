@@ -740,6 +740,8 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : un élève protégé est invisible d'un tiers, même avec G3.
+        self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")

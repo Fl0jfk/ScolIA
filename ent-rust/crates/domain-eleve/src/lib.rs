@@ -75,6 +75,8 @@ mod edt_contrainte;
 mod absence_rh;
 mod edition_vs;
 mod lsun_export;
+mod protection;
+mod indicateur;
 /// Socle 2, lot S2-7 : règles de calcul des moyennes, exports de livrets.
 pub mod evaluation;
 
@@ -128,6 +130,18 @@ pub use identite::{
     filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,
     source_valide as source_identite_valide, ChampIdentite, DemandeVersion, ErreurIdentite,
     IdentiteVersion, ModifIdentite, NatureVersion, VersionPlanifiee,
+};
+pub use protection::{
+    decoder_prenoms, encoder_prenoms, famille_peut_proposer_coordonnee, normaliser_mesures,
+    normaliser_usages, valider_motif_confidentialite, valider_motif_coordonnee, valider_motif_levee,
+    valider_motif_photo, valider_periode_mesure, ChampScelle, ErreurProtection, MesureConfidentialite,
+    SourcePhoto, StatutPhoto, TypeCoordonneeEleve, COORDONNEES_VIVANTES_MAX_PAR_TYPE, MARQUEUR_SCELLE,
+    MOTIFS_COORDONNEE, MOTIFS_LEVEE, MOTIFS_PHOTO, MOTIF_CONFIDENTIALITE_MAX, PHOTOS_EN_ATTENTE_MAX,
+    USAGES_COORDONNEE_ELEVE,
+};
+pub use indicateur::{
+    contrat_tuile, indicateur as indicateur_catalogue, indicateurs_de_l_evenement, ContratTuile, DefIndicateur,
+    Gravite, RaisonTuile, CATALOGUE_INDICATEURS, CONTRATS_TUILES, EVENEMENTS_ECOUTES,
 };
 pub use invitation::{
     email_compte_eleve_defaut, generer_mot_de_passe_temporaire, plan_inviter_compte_eleve,

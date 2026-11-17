@@ -70,6 +70,8 @@ mod communication_s28;
 mod accords_s18;
 mod eleve_propositions;
 mod eleve_fusion;
+mod eleve_protection;
+mod eleve_synthese;
 mod sante;
 pub mod tenant;
 mod ui;

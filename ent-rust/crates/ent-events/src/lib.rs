@@ -38,6 +38,16 @@ pub mod types {
     pub const ELEVE_CAPACITE_CHANGEE: &str = "eleve.capacite_changee";
     /// Décès d'un élève (ELV-34, R-E12) : aucun détail dans la charge utile.
     pub const ELEVE_DECEDE: &str = "eleve.decede";
+    /// Confidentialité renforcée posée ou levée (ELV-15) : `pose` / `levee` et identifiant de la
+    /// mesure — **jamais** le motif ni la liste des mesures.
+    pub const ELEVE_CONFIDENTIALITE_CHANGEE: &str = "eleve.confidentialite_changee";
+    /// Consultation d'une fiche protégée par une personne sans lien direct, quand la mesure
+    /// `alerte_consultation` est posée (lot E7) : identifiant de l'élève seulement ; l'acteur est
+    /// l'auteur de l'événement.
+    pub const ELEVE_CONSULTATION_PROTEGEE: &str = "eleve.consultation_protegee";
+    /// Coordonnées propres de l'élève modifiées (ELV-17) : type, état et **noms** de champs —
+    /// jamais l'adresse ni le numéro.
+    pub const ELEVE_COORDONNEES_MODIFIEES: &str = "eleve.coordonnees_modifiees";
     pub const SCOLARITE_MOBILITE_OUVERTE: &str = "scolarite.mobilite_ouverte";
     pub const SCOLARITE_MOBILITE_FERMEE: &str = "scolarite.mobilite_fermee";
     pub const SCOLARITE_MODALITE_CHANGEE: &str = "scolarite.modalite_changee";

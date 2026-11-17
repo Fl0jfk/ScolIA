@@ -1261,6 +1261,8 @@ impl PgEnt {
             .await?
             .ok_or(domain_eleve::DomainError::NotFound)?;
         let eleve = e.eleve_id.ok_or(EntDbError::SaisieInvalide("élève inconnu"))?;
+        // E7 : la proposition d'un élève protégé n'existe pas pour un tiers.
+        self.exiger_eleve_visible(etab, d.acteur, role, eleve).await?;
         if e.statut != "en_attente" {
             return Err(EntDbError::ConflitDossier("cette proposition est déjà décidée"));
         }
@@ -1469,6 +1471,12 @@ impl PgEnt {
         .bind(limite)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
+        // E7 : les propositions d'un élève protégé n'existent pas pour un tiers.
+        let profil = self.profil_champs(etab, acteur, role).await?;
+        let ids: Vec<Uuid> = entetes.iter().filter_map(|e| e.eleve_id).collect();
+        let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
+        let entetes: Vec<EnteteProposition> =
+            entetes.into_iter().filter(|e| e.eleve_id.is_none_or(|i| !caches.contains(&i))).collect();
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let l = assembler(&mut conn, etab, entetes, true).await?;
         drop(conn);
@@ -1509,6 +1517,9 @@ impl PgEnt {
         .await?
         .ok_or(domain_eleve::DomainError::NotFound)?;
         let eleve = e.eleve_id;
+        if let Some(el) = eleve {
+            self.exiger_eleve_visible(etab, acteur, role, el).await?;
+        }
         let mut v = assembler(&mut conn, etab, vec![e], true).await?;
         drop(conn);
         self.tracer_acces_sensible(

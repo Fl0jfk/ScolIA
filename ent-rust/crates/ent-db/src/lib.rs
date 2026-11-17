@@ -267,6 +267,11 @@ pub mod param_eleve;
 pub mod propositions;
 pub mod eleve_doublons;
 pub mod eleve_fusion;
+pub mod eleve_confidentialite;
+pub mod eleve_indicateurs;
+pub mod eleve_photo;
+pub mod eleve_coordonnee;
+pub(crate) mod eleve_identite_scellee;
 pub mod scolarite;
 pub mod dossier_personnes;
 pub mod eleve_ports;
@@ -708,6 +713,10 @@ mod tests_eleve_recherche;
 mod tests_eleve_doublons;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_fusion;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_protection;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_indicateurs;
 #[cfg(test)]
 mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]

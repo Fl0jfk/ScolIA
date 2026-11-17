@@ -35,6 +35,8 @@ pub mod edt_s2;
 pub mod evaluations;
 pub mod finances;
 pub mod fusion;
+pub mod eleve_protection;
+pub mod eleve_synthese;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
