@@ -87,6 +87,9 @@ pub fn hors_extrait(t: &ClasseTable) -> Option<&'static str> {
     if matches!(t.portee, Portee::Technique) {
         return Some("état technique éphémère (sessions, défis, codes à usage unique) : sans valeur pour la personne");
     }
+    if t.domaine == "mise_en_service" {
+        return Some("transit de mise en service : résumés minimisés de la file de rapprochement, purgés avec la zone de reprise ; la personne retrouve ses données dans son dossier, pas dans la trace de reprise");
+    }
     None
 }
 

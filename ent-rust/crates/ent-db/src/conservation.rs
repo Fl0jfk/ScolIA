@@ -163,6 +163,7 @@ pub const CATALOGUE: &[Categorie] = &[
     c("edt.planning", "emploi du temps, agenda, rendez-vous", "fin d'année", Some(12), Some(12), S::Destruction, SANS_SOURCE, R, false, "10"),
     c("com.envoi", "files d'envoi, notifications, appareils", "envoi", Some(1), Some(12), S::Destruction, SANS_SOURCE, R, false, "8"),
     c("export.archive", "archives d'export", "génération", Some(0), None, S::Destruction, "PORTABILITE_EXPORTS.md §8 : 7 jours", V, false, "28"),
+    c("mes.reprise", "file de rapprochement et trace des décisions de la reprise depuis l'ancien outil", "fin de la reprise (zone vidée)", None, Some(12), S::Destruction, SANS_SOURCE, NV, false, "28"),
     c("tech.parametrage", "paramétrage et référentiels sans donnée personnelle", "vie de l'établissement", None, None, S::SuitContrat, SANS_SOURCE, R, false, "—"),
 ];
 
@@ -353,6 +354,7 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
             }
         }
         "structure_scolaire" if t.donnees_personnelles => "scol.dossier",
+        "mise_en_service" if t.donnees_personnelles => "mes.reprise",
         _ => "tech.parametrage",
     }
 }

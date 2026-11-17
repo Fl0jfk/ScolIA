@@ -282,6 +282,8 @@ pub mod reprise_rgpd;
 pub mod extrait_personne;
 pub mod registre_donnees;
 pub mod reprise;
+pub mod reprise_file;
+pub mod reprise_rapprochement;
 pub mod reprise_zone;
 mod objets;
 pub mod reprise_bytea;
@@ -542,6 +544,9 @@ mod tests_reprise_bytea;
 // Socle 28, R2 : base de test migrée seulement (pas de jeu de labo).
 #[cfg(test)]
 mod tests_reprise_r2;
+// Socle 28, R3 : rapprochement, file « à décider », décisions (PgEnt : droits côté serveur).
+#[cfg(test)]
+mod tests_reprise_r3;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;

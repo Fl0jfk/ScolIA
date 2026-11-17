@@ -354,6 +354,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2564_ms4_reprise_executions"),
     m!("2565_ms4_reprise_correspondance"),
     m!("2566_ms4_zone_reprise"),
+    // Socle 28, lot R3 (MS4 d) : rapprochement, file « à décider », décisions tracées, synonymes validés.
+    m!("2567_ms4_reprise_rapprochement"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),
