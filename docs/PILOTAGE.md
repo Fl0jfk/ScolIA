@@ -59,8 +59,8 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
     - **En fin de lot**, au moment où elle lancerait sa CI, la session ouvre une **pull request en brouillon** de sa branche vers ENT. Elle ne lance plus de CI à la main (workflow_dispatch), puisque la pull request déclenche la CI sur la branche fusionnée avec ENT. Elle n'ouvre jamais de pull request en cours de lot, car chaque envoi relancerait une CI.
     - La session envoie au pilote le numéro de la pull request. Le pilote s'y abonne (`subscribe_pr_activity`) et GitHub le réveille à la fin de chaque CI.
     - Le pilote continue de verser lui-même, après ses contrôles (règles 17, 25, 28, 34). La pull request n'est **jamais** fusionnée par GitHub : elle se ferme seule quand son contenu arrive sur ENT. Après le versement, le pilote se désabonne.
-    - Les runs d'ENT ne passent pas par une pull request : après chaque versement, le pilote programme une seule vérification ciblée, environ 60 minutes plus tard.
-    - La ronde horaire devient un filet de sécurité, **toutes les 3 heures**.
+    - Runs d'ENT : à la fin de chaque run sur ENT (push), le job `veille-pilote` de la CI écrit le résultat en commentaire sur la **pull request de veille n° 93** (branche `ent-veille-pilote`, en brouillon, **jamais fusionnée**). Le pilote y est abonné et se réveille aussitôt.
+    - La ronde n'est plus qu'un filet de sécurité, **toutes les 6 heures** (Florian) : elle vérifie seulement que rien n'est bloqué ou à l'arrêt.
 32. **Rythme : 3 sessions qui codent au plus** (Florian, 2026-11-16) : la file de la CI saturait (7 runs en attente, run d'ENT bloqué plus de 2 h).
     - **Révision du 2026-11-17** (Florian) : **2 sessions qui codent au plus**. Au rythme précédent, le quota hebdomadaire serait épuisé dans la nuit de jeudi à vendredi, alors qu'il se renouvelle le dimanche matin. Il faut une baisse d'environ un tiers. Les rondes du pilote passent à 90 minutes. On réaccélère en fin de semaine s'il reste du quota.
 
