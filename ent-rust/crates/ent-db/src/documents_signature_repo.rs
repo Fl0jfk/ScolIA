@@ -1118,8 +1118,7 @@ impl PgEnt {
         .bind(&etat)
         .execute(&mut *tx)
         .await
-        .map_err(db)
-        .map_err(|e| e)?;
+        .map_err(db)?;
         for m in modes {
             sqlx::query("INSERT INTO ent_doc_signataire_mode (etablissement_id, signataire_id, mode) VALUES ($1,$2,$3)")
                 .bind(a.etablissement_id)
