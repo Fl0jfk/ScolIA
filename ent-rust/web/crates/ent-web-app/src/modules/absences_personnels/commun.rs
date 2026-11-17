@@ -1,10 +1,12 @@
 //! Éléments communs aux écrans des absences des personnels.
 
 use ent_types::absences_personnels::AbsenceDto;
+use ent_web_api::ApiError;
 use ent_web_ui::{AccesRefuse, Badge, EnTetePage, Squelette};
 use leptos::prelude::*;
 
 use super::modele::{libelle_etat, libelle_periode, nom_agent, ton_etat};
+use super::modele_heures::Noms;
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
@@ -71,4 +73,40 @@ pub fn CarteAbsence(a: AbsenceDto, #[prop(optional)] avec_agent: bool) -> impl I
             </p>
         </li>
     }
+}
+
+/// Noms des agents de l'établissement (annuaire borné à 200). Un échec n'est pas une erreur d'écran : on
+/// affiche « Agent non listé » plutôt qu'un identifiant (le serveur reste juge de l'accès à chaque donnée).
+pub fn charger_noms() -> LocalResource<Noms> {
+    LocalResource::new(|| async {
+        match session::client().absp_annuaire().await {
+            Ok(a) => Noms::depuis_annuaire(&a),
+            Err(_) => Noms::default(),
+        }
+    })
+}
+
+/// Lance un export (CSV) et propose l'enregistrement ; un échec s'affiche dans `erreur`, jamais en silence.
+pub fn lancer_export<F>(
+    futur: F,
+    nom: &'static str,
+    erreur: RwSignal<Option<String>>,
+    ecriture: crate::noyau::ecriture::Ecriture,
+) where
+    F: std::future::Future<Output = Result<Vec<u8>, ApiError>> + 'static,
+{
+    erreur.set(None);
+    leptos::task::spawn_local(async move {
+        match futur.await {
+            Ok(octets) => {
+                match crate::noyau::telechargement::enregistrer_telechargement(
+                    nom, "text/csv", &octets,
+                ) {
+                    Ok(()) => ecriture.annonce.set(format!("Fichier {nom} enregistré.")),
+                    Err(m) => erreur.set(Some(m)),
+                }
+            }
+            Err(e) => erreur.set(Some(crate::noyau::ecriture::message_echec(e))),
+        }
+    });
 }

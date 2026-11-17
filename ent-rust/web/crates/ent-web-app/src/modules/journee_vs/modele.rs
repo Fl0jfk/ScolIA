@@ -157,6 +157,8 @@ mod tests_demi_journees {
             minutes_non_justifiees: if non_justifiee { minutes } else { 0 },
             comptee,
             non_justifiee,
+            raison: String::new(),
+            explication: String::new(),
         }
     }
 

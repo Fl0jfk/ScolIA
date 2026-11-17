@@ -120,6 +120,9 @@ pub struct DecompteMoisDto {
     pub mois: NaiveDate,
     pub seuil_signalement: i32,
     pub eleves: Vec<DecompteEleveDto>,
+    /// Le mois est arrêté (AS4) : chiffres figés, corrections postérieures listées à part.
+    #[serde(default)]
+    pub arrete: bool,
 }
 
 /// Règle d'assiduité de l'établissement (hypothèses de travail paramétrables).
@@ -150,4 +153,10 @@ pub struct DemiJourneeDto {
     /// La demi-journée compte (seuil de minutes atteint).
     pub comptee: bool,
     pub non_justifiee: bool,
+    /// Pourquoi la demi-journée compte ou non (liste fermée du serveur, AS4).
+    #[serde(default)]
+    pub raison: String,
+    /// Phrase tirée des seuls champs codés (jamais le motif ni la note interne).
+    #[serde(default)]
+    pub explication: String,
 }

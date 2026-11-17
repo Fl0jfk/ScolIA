@@ -29,6 +29,10 @@ pub fn routes() -> Router<AppState> {
             get(edt_reference).put(definir_edt_reference),
         )
         .route(
+            "/personnels/absences/parametres",
+            get(parametres).put(definir_parametres),
+        )
+        .route(
             "/personnels/absences/impacts/{impact_id}/sans-objet",
             post(sans_objet),
         )
@@ -98,6 +102,26 @@ async fn definir_edt_reference(
 ) -> Res<Json<EdtReferenceDto>> {
     s.ent
         .definir_edt_reference_for_actor(session.etablissement_id, session.user_id, &session.role, b.actif)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn parametres(State(s): State<AppState>, session: EntSession) -> Res<Json<ParametresAbsencesDto>> {
+    s.ent
+        .parametres_absences_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn definir_parametres(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(b): Json<ModifierParametresAbsencesBody>,
+) -> Res<Json<ParametresAbsencesDto>> {
+    s.ent
+        .definir_parametres_absences_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
         .await
         .map(Json)
         .map_err(map_db)

@@ -94,6 +94,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
                     <Route path=path!("journee") view=modules::journee_vs::PageJourneeVs/>
                     <Route path=path!("assiduite") view=modules::assiduite_vs::PageAssiduite/>
+                    <Route path=path!("assiduite/eleves/:id") view=modules::assiduite_vs::dossier::PageDossierAssiduite/>
                     <Route path=path!("assiduite/accueil") view=modules::assiduite_vs::accueil::PageAccueilEleve/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
                     <Route path=path!("personnel/absences") view=modules::absences_personnels::PageMesAbsences/>
@@ -103,6 +104,10 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("personnel/signaler-absence") view=modules::absences_personnels::PageSignalerAbsence/>
                     <Route path=path!("personnel/ce-matin") view=modules::absences_personnels::PageCeMatin/>
                     <Route path=path!("personnel/remplacements") view=modules::absences_personnels::PageMesRemplacements/>
+                    <Route path=path!("personnel/mes-heures") view=modules::absences_personnels::PageMesHeures/>
+                    <Route path=path!("personnel/etats-heures") view=modules::absences_personnels::PageEtatsHeures/>
+                    <Route path=path!("personnel/rcd") view=modules::absences_personnels::PageRcd/>
+                    <Route path=path!("personnel/parametrage-absences") view=modules::absences_personnels::PageParametrageAbsences/>
                     <Route path=path!("accompagnement") view=modules::accompagnement::PageAccompagnement/>
                     <Route path=path!("accompagnement/eleves/:id") view=modules::accompagnement::PageAccompagnementEleve/>
                     <Route path=path!("amenagements") view=modules::amenagements::PageAmenagements/>
@@ -143,7 +148,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("rendez-vous") view=modules::rendez_vous::PageRendezVous/>
                     <Route path=path!("formulaires") view=modules::formulaires::PageFormulaires/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
-                    <Route path=path!("signalements") view=modules::discipline_vs::PageSignalements/>
+                    <Route path=path!("signalements") view=modules::assiduite_vs::signalements::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>
                     <Route path=path!("evaluations/grille") view=modules::evaluations::PageGrille/>
                     <Route path=path!("evaluations/classes/:id") view=modules::evaluations::PageVueClasse/>

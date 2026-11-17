@@ -17,6 +17,7 @@ mod transport;
 
 // Services par domaine (méthodes de `ApiClient`).
 mod absences_personnels;
+mod absences_personnels_hrcd;
 mod afaire;
 mod agenda;
 mod appel;
@@ -53,6 +54,7 @@ mod voyages;
 mod voyages_series;
 
 pub use absences_personnels::ActionDecision;
+pub use absences_personnels_hrcd::SuiteRemontee;
 pub use assiduite::FiltreEpisodesApi;
 pub use cahier::depot_fichier;
 pub use communication::{

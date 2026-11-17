@@ -17,6 +17,7 @@ pub mod garde;
 pub mod inspection;
 pub mod jeu_fictif;
 pub mod perimetre;
+pub mod rapprochement;
 pub mod s3;
 pub mod schema;
 pub mod simulation;

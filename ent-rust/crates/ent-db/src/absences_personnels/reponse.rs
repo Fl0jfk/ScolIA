@@ -40,11 +40,12 @@ pub const SERVICE_FIN: (u32, u32) = (20, 0);
 /// fixe aucun seuil, celui-ci est une valeur par défaut documentée dans `15_ABSENCES_A4BIS.md`) : au moins
 /// `SEUIL_SANS_REPONSE_MIN` demandes **restées sans réponse** (expirées) sur l'année, **et** au moins la moitié des
 /// demandes traitées. Un refus, même sans motif, est une réponse : il ne compte pas ici. Jamais un chiffre affiché.
-pub const SEUIL_SANS_REPONSE_MIN: i64 = 3;
+pub const SEUIL_SANS_REPONSE_MIN: i64 = super::impact::SEUIL_SANS_REPONSE_DEFAUT as i64;
 
-/// `expirees` : demandes restées sans réponse ; `traitees` : acceptées, désignées, refusées ou expirées.
-pub fn repond_rarement(expirees: i64, traitees: i64) -> bool {
-    expirees >= SEUIL_SANS_REPONSE_MIN && expirees * 2 >= traitees
+/// `expirees` : demandes restées sans réponse ; `traitees` : acceptées, désignées, refusées ou expirées ;
+/// `seuil` : celui de l'établissement (A11f, migration 2315), `SEUIL_SANS_REPONSE_MIN` tant qu'il n'a rien réglé.
+pub fn repond_rarement(expirees: i64, traitees: i64, seuil: i64) -> bool {
+    expirees >= seuil && expirees * 2 >= traitees
 }
 
 const REFUS_CODES: &[&str] = &["absent", "autre_service", "delai", "autre"];
@@ -265,6 +266,7 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // (demandes sans suite, proposition) : le compte sert au seul tri et ne sort jamais.
         let mut sortie: Vec<(i64, PropositionDto)> = Vec::new();
+        let seuil = super::impact::seuil_sans_reponse_tx(&mut tx, etab).await?;
         for c in candidats {
             let Some(agent) = agent_du_user_tx(&mut tx, etab, c.user_id).await? else { continue };
             if agent == absence_agent {
@@ -304,7 +306,7 @@ impl PgEnt {
                 meme_discipline: c.competent,
                 seances_ce_jour: c.seances_ce_jour as u32,
                 remplacements_faits: faits as u32,
-                repond_rarement: repond_rarement(expirees, traitees),
+                repond_rarement: repond_rarement(expirees, traitees, seuil),
             }));
         }
         sortie.sort_by(|(sa, a), (sb, b)| {
@@ -1157,10 +1159,11 @@ mod tests_purs {
 
     #[test]
     fn la_mention_repond_rarement_a_un_seuil_et_ne_compte_pas_les_refus() {
-        assert!(!repond_rarement(2, 2), "deux demandes sans réponse : sous le seuil");
-        assert!(repond_rarement(3, 6));
-        assert!(!repond_rarement(3, 8), "moins de la moitié des demandes traitées");
-        assert!(!repond_rarement(0, 20));
+        assert!(!repond_rarement(2, 2, 3), "deux demandes sans réponse : sous le seuil");
+        assert!(repond_rarement(3, 6, 3));
+        assert!(!repond_rarement(3, 8, 3), "moins de la moitié des demandes traitées");
+        assert!(!repond_rarement(0, 20, 3));
+        assert!(!repond_rarement(3, 6, 4) && repond_rarement(3, 6, 2), "le seuil de l'établissement décide");
     }
 
     #[test]

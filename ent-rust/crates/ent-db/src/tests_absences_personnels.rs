@@ -3909,7 +3909,11 @@ async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
     assert_eq!((r.etat.as_str(), r.semaine), ("preparee", x.lundi));
     let maths: Vec<&LigneRemonteeRcdDto> = r.lignes.iter().filter(|l| l.discipline_code == "mathématiques").collect();
     assert!(!maths.is_empty(), "{:?}", r.lignes);
-    assert!(maths.iter().all(|l| l.niveau_code == "4EME" && l.categorie_nationale == "convenance_personnelle"), "{maths:?}");
+    // Une seule absente dans ce regroupement (moins de 3 agents) : la catégorie de motif est masquée, jamais l'effectif.
+    assert!(
+        maths.iter().all(|l| l.niveau_code == "4EME" && l.categorie_nationale == "non_detaille" && l.effectif.is_none()),
+        "{maths:?}"
+    );
     let remplace = maths.iter().find(|l| l.mode_continuite == "remplacement").expect("séance remplacée");
     assert_eq!((remplace.heures_absence, remplace.heures_remplacees), (1.0, 1.0));
     let sans = maths.iter().find(|l| l.mode_continuite == "aucune").expect("séance sans réponse");
@@ -3919,7 +3923,7 @@ async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
     assert!(r.lignes.iter().all(|l| l.heures_prevues >= 0.0));
     // Aucune personne, aucune nature fine, nulle part.
     let json = serde_json::to_string(&r).unwrap();
-    for interdit in [ag2.to_string(), ag_absent.to_string(), x.prof.to_string(), x.prof2.to_string(), abs.to_string(), "Nom prof".to_string(), "a15-prof".to_string(), "nature_code".to_string(), "\"convenance\"".to_string()] {
+    for interdit in [ag2.to_string(), ag_absent.to_string(), x.prof.to_string(), x.prof2.to_string(), abs.to_string(), "Nom prof".to_string(), "a15-prof".to_string(), "nature_code".to_string(), "\"convenance\"".to_string(), "convenance_personnelle".to_string()] {
         assert!(!json.contains(&interdit), "« {interdit} » dans la remontée : {json}");
     }
     let colonnes: Vec<String> = sqlx::query_scalar(
@@ -4215,7 +4219,7 @@ async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
     let c = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "duree_erronee".into(), note: Some("1 h 30 et non 2 h".into()) }).await.unwrap();
     assert_eq!(c.etat, "contestee");
     // Validation : les contestées restent ; la figeure est refusée tant que tout n'est pas réglé.
-    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap();
+    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None, employeur: None }).await.unwrap();
     assert_eq!((b.validees, b.contestees_restantes), (1, 1));
     let figer = |employeur: &'static str, mois| {
         let ent = &x.ent;
@@ -4240,12 +4244,12 @@ async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
     .unwrap();
     let e = x.ent.corriger_heure_for_actor(x.etab, x.dir, "direction", propre, &CorrigerHeureBody { duree_minutes: 45, raison_code: "autre".into(), note: None }).await.unwrap_err();
     assert!(est_refus(&e, crate::service::RefusMetier::Interdit), "{e:?}");
-    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap();
+    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None, employeur: None }).await.unwrap();
     assert_eq!((b.validees, b.laissees_a_un_autre), (0, 1), "la direction ne valide pas ses propres heures");
     let k = x.ent.corriger_heure_for_actor(x.etab, x.dir, "direction", h1.id, &CorrigerHeureBody { duree_minutes: 90, raison_code: "duree_erronee".into(), note: None }).await.unwrap();
     assert_eq!((k.duree_minutes, k.etat.as_str()), (90, "validee"));
     // Les heures du valideur sont validées par le secrétariat… qui n'a pas le droit : la direction attend un autre.
-    let e = x.ent.valider_heures_for_actor(x.etab, x.sec, "administratif", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap_err();
+    let e = x.ent.valider_heures_for_actor(x.etab, x.sec, "administratif", &ValiderHeuresBody { mois: m2, agent_id: None, employeur: None }).await.unwrap_err();
     assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
     sqlx::query("UPDATE ent_absp_heure SET etat = 'validee' WHERE etablissement_id = $1 AND id = $2").bind(x.etab).bind(propre).execute(x.ent.pool()).await.unwrap();
     // Cloisonnement par employeur : l'OGEC ne voit pas l'État.
@@ -4320,7 +4324,7 @@ async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
     assert_eq!(regul_avant, 0, "rien n'est écrit sur l'état déjà exporté");
     // L'état SUIVANT porte la régularisation, une seule fois, rattachée à la ligne d'origine.
     x.saisie(ag3, "vacation", 45, m1 + Duration::days(2)).await;
-    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None }).await.unwrap();
+    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None, employeur: None }).await.unwrap();
     let e2 = x.ent.figer_etat_for_actor(x.etab, x.sec, "administratif", &FigerEtatBody { mois: m1, employeur: "etat".into() }).await.unwrap();
     assert_eq!(e2.lignes.len(), 2, "{:?}", e2.lignes);
     let l_regul = e2.lignes.iter().find(|l| l.regularisation_de_id.is_some()).expect("ligne de régularisation");
@@ -4364,7 +4368,7 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
     // Une heure de l'OGEC (engagement antérieur au jour) : mission Pacte, 2 h, validée.
     let h = x.saisie(ag, "mission_pacte", 120, m1 + Duration::days(4)).await;
     assert_eq!(h.employeur, "ogec", "seul l'engagement de l'OGEC couvre ce jour");
-    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None }).await.unwrap();
+    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None, employeur: None }).await.unwrap();
     // Une absence « convenance » de l'OGEC, un jour ouvré du mois passé.
     let jour_ouvre = {
         use chrono::Datelike;
@@ -5697,6 +5701,40 @@ async fn a4bis_absence_ecourtee_et_prolongee() {
     let s3b = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i3b, ag3).await.unwrap();
     x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3b.id).await.unwrap();
     assert_eq!(x.etat_impact(i3b).await, "remplace");
+}
+
+
+/// A11f : le seuil de l'établissement décide de la mention « répond rarement » (appariée à trois demandes sans
+/// réponse) ; changer le seuil la fait apparaître ou disparaître ; refus pour qui n'a pas le droit `parametrer`.
+#[tokio::test]
+async fn a11f_le_seuil_de_l_etablissement_fait_apparaitre_ou_disparaitre_la_mention() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    for _ in 0..3 {
+        let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+        sqlx::query("UPDATE ent_absp_sollicitation SET expire_le = now() - interval '1 minute' WHERE id = $1")
+            .bind(s.id)
+            .execute(x.ent.pool())
+            .await
+            .unwrap();
+        x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
+    }
+    async fn mention(x: &Cadre, impact: Uuid, ag: Uuid) -> bool {
+        let v = x.ent.propositions_impact_for_actor(x.etab, x.dir, "direction", impact).await.unwrap();
+        v.iter().find(|p| p.agent_id == ag).expect("proposé").repond_rarement
+    }
+    let b = |v: i16| ModifierParametresAbsencesBody { seuil_sans_reponse_min: v };
+    assert!(mention(&x, impact, ag2).await, "seuil d'origine (3) : trois demandes sans réponse");
+    x.ent.definir_parametres_absences_for_actor(x.etab, x.dir, "direction", &b(4)).await.unwrap();
+    assert!(!mention(&x, impact, ag2).await, "seuil 4 : la mention disparaît");
+    x.ent.definir_parametres_absences_for_actor(x.etab, x.admin, "admin", &b(2)).await.unwrap();
+    assert!(mention(&x, impact, ag2).await, "seuil 2 : elle revient");
+    for (u, r) in [(x.prof2, "prof"), (x.cpe, "cpe"), (x.sec, "administratif"), (x.accueil, "accueil")] {
+        let e = x.ent.definir_parametres_absences_for_actor(x.etab, u, r, &b(20)).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    assert!(mention(&x, impact, ag2).await, "un refus ne change rien");
 }
 
 /// Décision de Florian (2026-11-16) : la raison chiffrée « N demandes sans suite » devient une mention neutre et non

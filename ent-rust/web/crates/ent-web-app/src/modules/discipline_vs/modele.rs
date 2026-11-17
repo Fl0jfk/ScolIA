@@ -8,7 +8,7 @@
 //! dossier, soumise à procédure et à effacement). Deux sections, deux libellés, deux listes.
 
 use chrono::{Duration, NaiveDate};
-use ent_types::discipline::{DonnerPunitionBody, ProcedureDto, SignalementDto, TypeVsDto};
+use ent_types::discipline::{DonnerPunitionBody, ProcedureDto, TypeVsDto};
 use ent_web_ui::TonEtat;
 use uuid::Uuid;
 
@@ -274,52 +274,6 @@ pub fn composer_decision(texte: &str, jour: &str) -> Result<(String, NaiveDate),
     }
 }
 
-// ───────────────────────────── Signalements d'assiduité ─────────────────────────────
-
-/// « 2026-11 » (champ `month`) ou « 2026-11-17 » → premier jour du mois.
-pub fn lire_mois(texte: &str) -> Option<NaiveDate> {
-    let t = texte.trim();
-    let (annee, reste) = t.split_once('-')?;
-    let mois = reste.split('-').next()?;
-    NaiveDate::from_ymd_opt(annee.parse().ok()?, mois.parse().ok()?, 1)
-}
-
-pub fn libelle_statut_signalement(statut: &str) -> &'static str {
-    match statut {
-        "propose" => "Proposé",
-        "valide" => "Validé",
-        "refuse" => "Refusé",
-        "emis" => "Émis",
-        _ => "Statut inconnu",
-    }
-}
-
-pub fn ton_statut_signalement(statut: &str) -> TonEtat {
-    match statut {
-        "propose" => TonEtat::Avertissement,
-        "valide" => TonEtat::Info,
-        "emis" => TonEtat::Ok,
-        _ => TonEtat::Neutre,
-    }
-}
-
-/// Transitions proposées : proposé → valider / refuser ; validé → émettre.
-pub fn decisions_signalement(statut: &str) -> Vec<(&'static str, &'static str)> {
-    match statut {
-        "propose" => vec![("valider", "Valider"), ("refuser", "Refuser")],
-        "valide" => vec![("emettre", "Émettre le signalement")],
-        _ => Vec::new(),
-    }
-}
-
-/// Résumé « n demi-journées pour un seuil de s ».
-pub fn resume_signalement(s: &SignalementDto) -> String {
-    format!(
-        "{} demi-journée(s) non justifiée(s) pour un seuil de {}",
-        s.demi_journees, s.seuil
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,30 +445,5 @@ mod tests {
             composer_decision("ok", "n'importe quoi").unwrap_err()[0].0,
             "dec-jour"
         );
-    }
-
-    #[test]
-    fn mois_et_signalements() {
-        assert_eq!(lire_mois("2026-11"), Some(d("2026-11-01")));
-        assert_eq!(lire_mois("2026-11-17"), Some(d("2026-11-01")));
-        assert_eq!(lire_mois("2026-13"), None);
-        assert_eq!(lire_mois("novembre"), None);
-        assert_eq!(decisions_signalement("propose").len(), 2);
-        assert_eq!(decisions_signalement("valide")[0].0, "emettre");
-        assert!(
-            decisions_signalement("emis").is_empty() && decisions_signalement("refuse").is_empty()
-        );
-        assert_eq!(libelle_statut_signalement("emis"), "Émis");
-        assert_eq!(ton_statut_signalement("valide"), TonEtat::Info);
-        let s = SignalementDto {
-            id: Uuid::nil(),
-            eleve_id: Uuid::nil(),
-            mois: d("2026-11-01"),
-            demi_journees: 5,
-            seuil: 4,
-            statut: "propose".into(),
-            dossier: serde_json::Value::Null,
-        };
-        assert!(resume_signalement(&s).starts_with("5 demi-journée"));
     }
 }
