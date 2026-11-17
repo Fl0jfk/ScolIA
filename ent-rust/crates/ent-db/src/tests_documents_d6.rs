@@ -425,7 +425,8 @@ async fn t_regle_un_titulaire_code_sms_et_pieces() {
         .await
         .unwrap();
     assert_eq!(empreinte.len(), 64);
-    let texte = ent_pdf::releve::texte(&signe);
+    // Les mots trop longs sont tranchés par la mise en page : on compare sans espaces ni sauts de ligne.
+    let texte: String = ent_pdf::releve::texte(&signe).split_whitespace().collect();
     assert!(texte.contains(&empreinte), "empreinte complète imprimée sur la page de signatures");
     assert!(texte.contains("code_sms"));
     // Aucune ligne de la preuve ne porte le numéro complet du téléphone.
