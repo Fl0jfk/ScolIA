@@ -182,3 +182,11 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **D-067** : chrono sera remplacé par jiff, avec sqlx 0.9, dans une fenêtre de gel après la démo de décembre.
   - **Nouvelle session : 24 F1-F2** (session_01KZCbFDKq4niafRav3K4WSm, branche ent-socle-24-code-f1f2), préalable de l'argent des voyages (V2).
   - **Sessions qui codent** : E7-E8 (correctifs de la revue) et F1-F2.
+- **17-11, 16 h 30 UTC : E7-E8 versé.**
+  - ENT 47a5be1e, fusion faite par le pilote dans une copie neuve, sans conflit.
+  - Compteurs : SOURCES 63, NOMS_SOURCES 63, TOUTES 253 inchangé, RLS +6. Migrations 298 et 299 ajoutées, la plage 290-299 est épuisée. Aucun `#[ignore]`.
+  - Base de confiance : le code est identique à `refs/pull/95/merge` (da33127b), déjà testé sur la base 79b41ca3 (run 361 vert). Seules 4 lignes de YAML diffèrent.
+  - La vérification locale a dépassé sa limite de temps pendant les tests ent-db lancés un par un. Aucun échec n'a été constaté ; le run d'ENT fait foi (règle 29).
+  - Le job `veille-pilote-pr` signale désormais un run remplacé (« ignorer »).
+  - Désabonnement de la PR 95, session E7-E8 archivée.
+  - **Session qui code : F1-F2.** Une place est libre (règle 32).
