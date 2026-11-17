@@ -105,11 +105,83 @@ pub fn lire_reponse(
     Ok(jeton.to_vec())
 }
 
+/// **M6** : l'adresse du service ne doit jamais viser le réseau interne (SSRF). HTTPS seul, aucune identité dans
+/// l'adresse, et **toutes** les adresses IP obtenues par la résolution DNS doivent être publiques (ni bouclage, ni
+/// privée, ni lien local, ni CGNAT, ni multicast, ni non spécifiée). La vérification se refait à chaque envoi.
+pub fn adresse_publique(url: &str) -> Result<(), String> {
+    use std::net::{IpAddr, ToSocketAddrs};
+    let reste = url.strip_prefix("https://").ok_or("HTTPS exigé")?;
+    let autorite = reste.split(['/', '?', '#']).next().unwrap_or("");
+    if autorite.is_empty() || autorite.contains('@') || autorite.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("adresse invalide".into());
+    }
+    let (hote, port) = if let Some(v6) = autorite.strip_prefix('[') {
+        let (h, apres) = v6.split_once(']').ok_or("adresse invalide")?;
+        (h.to_string(), apres.strip_prefix(':').map(str::to_string))
+    } else {
+        match autorite.rsplit_once(':') {
+            Some((h, p)) if !h.contains(':') => (h.to_string(), Some(p.to_string())),
+            _ => (autorite.to_string(), None),
+        }
+    };
+    let port: u16 = match port {
+        Some(p) => p.parse().map_err(|_| "port invalide")?,
+        None => 443,
+    };
+    let ips: Vec<IpAddr> = match hote.parse::<IpAddr>() {
+        Ok(ip) => vec![ip],
+        Err(_) => (hote.as_str(), port)
+            .to_socket_addrs()
+            .map_err(|_| "résolution DNS impossible")?
+            .map(|a| a.ip())
+            .collect(),
+    };
+    if ips.is_empty() {
+        return Err("aucune adresse".into());
+    }
+    if let Some(ip) = ips.iter().find(|ip| !ip_publique(ip)) {
+        return Err(format!("adresse non publique refusée ({ip})"));
+    }
+    Ok(())
+}
+
+fn ip_publique(ip: &std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_loopback()
+                || v.is_private()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || v.is_broadcast()
+                || v.is_multicast()
+                || v.is_documentation()
+                || (o[0] == 100 && (64..=127).contains(&o[1]))
+                || o[0] == 0
+                || o[0] >= 240)
+        }
+        IpAddr::V6(v) => {
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return ip_publique(&IpAddr::V4(v4));
+            }
+            let s = v.segments();
+            !(v.is_loopback()
+                || v.is_unspecified()
+                || v.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80)
+        }
+    }
+}
+
 /// Client HTTP : un service RFC 3161 (adresse, identifiants facultatifs).
 #[derive(Debug, Clone)]
 pub struct ClientRfc3161 {
     url: String,
     basic: Option<String>,
+    /// Les tests (faux serveur local en HTTP) désactivent la garde réseau ; jamais en production.
+    garde_reseau: bool,
 }
 
 impl ClientRfc3161 {
@@ -124,13 +196,26 @@ impl ClientRfc3161 {
         Self {
             url: url.to_string(),
             basic,
+            garde_reseau: true,
         }
+    }
+
+    /// Sans la garde d'adresse (HTTPS public seulement) : **réservé aux tests** avec un faux serveur local.
+    #[doc(hidden)]
+    pub fn sans_garde_reseau(mut self) -> Self {
+        self.garde_reseau = false;
+        self
     }
 
     /// Demande un jeton pour l'empreinte ; `nonce` vient de l'appelant (aléatoire).
     pub fn horodater(&self, empreinte: &[u8; 32], nonce: [u8; 8]) -> Result<Vec<u8>, ErreurRfc3161> {
+        if self.garde_reseau {
+            adresse_publique(&self.url).map_err(ErreurRfc3161::Indisponible)?;
+        }
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            // Aucune redirection : une redirection pourrait mener vers le réseau interne.
+            .max_redirects(0)
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_global(Some(Duration::from_secs(20)))
             .build();
@@ -210,6 +295,38 @@ mod tests {
     }
 
     #[test]
+    fn adresses_privees_refusees_publiques_admises() {
+        for u in [
+            "http://tsa.exemple/",
+            "https://127.0.0.1/",
+            "https://10.1.2.3/tsr",
+            "https://192.168.0.5:8443/",
+            "https://172.16.0.1/",
+            "https://169.254.169.254/latest",
+            "https://100.64.0.1/",
+            "https://0.0.0.0/",
+            "https://[::1]/",
+            "https://[fe80::1]/",
+            "https://[fd00::1]/",
+            "https://[::ffff:127.0.0.1]/",
+            "https://user@93.184.216.34/",
+            "https://",
+            "https://localhost/",
+        ] {
+            assert!(adresse_publique(u).is_err(), "{u} devrait être refusée");
+        }
+        for u in ["https://93.184.216.34/tsr", "https://[2606:2800:220:1:248:1893:25c8:1946]:8443/x"] {
+            assert!(adresse_publique(u).is_ok(), "{u} devrait être admise");
+        }
+    }
+
+    #[test]
+    fn client_refuse_une_adresse_privee_sans_rien_envoyer() {
+        let c = ClientRfc3161::new("https://127.0.0.1:1/tsa", None, None);
+        assert!(matches!(c.horodater(&H, N), Err(ErreurRfc3161::Indisponible(m)) if m.contains("non publique")));
+    }
+
+    #[test]
     fn client_http_contre_un_faux_serveur() {
         let ecoute = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = ecoute.local_addr().unwrap().port();
@@ -228,7 +345,7 @@ mod tests {
             s.write_all(tete.as_bytes()).unwrap();
             s.write_all(&corps).unwrap();
         });
-        let c = ClientRfc3161::new(&format!("http://127.0.0.1:{port}/tsa"), Some("u"), Some("p"));
+        let c = ClientRfc3161::new(&format!("http://127.0.0.1:{port}/tsa"), Some("u"), Some("p")).sans_garde_reseau();
         let jeton = c.horodater(&H, N).expect("jeton");
         assert!(contient(&jeton, &H));
         fil.join().unwrap();

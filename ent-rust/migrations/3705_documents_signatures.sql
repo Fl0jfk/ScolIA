@@ -237,7 +237,8 @@ BEGIN
        OR NEW.externe_contact_scelle IS DISTINCT FROM OLD.externe_contact_scelle
        OR NEW.choix_par IS DISTINCT FROM OLD.choix_par
        OR NEW.lien_jeton_sha256 IS DISTINCT FROM OLD.lien_jeton_sha256
-       OR NEW.lien_expire_le IS DISTINCT FROM OLD.lien_expire_le
+       OR (NEW.lien_expire_le IS DISTINCT FROM OLD.lien_expire_le
+           AND (OLD.lien_expire_le IS NULL OR NEW.lien_expire_le IS NULL OR NEW.lien_expire_le < OLD.lien_expire_le))
        OR NEW.cree_le IS DISTINCT FROM OLD.cree_le THEN
         RAISE EXCEPTION 'ent_doc_signataire : identité du signataire immuable (le remplacer par un autre)' USING ERRCODE = '23001';
     END IF;
@@ -479,7 +480,10 @@ CREATE TABLE IF NOT EXISTS ent_doc_horodatage (
     circuit_id UUID NOT NULL,
     empreinte_horodatee TEXT NOT NULL CHECK (empreinte_horodatee ~ '^[0-9a-f]{64}$'),
     mode TEXT NOT NULL CHECK (mode IN ('mutualise', 'propre')),
-    etat TEXT NOT NULL DEFAULT 'en_attente' CHECK (etat IN ('en_attente', 'obtenu', 'echec')),
+    -- `recu_non_verifie` : un blob a été reçu du service ; ScolIA n'en valide PAS la signature CMS (aucune brique libre
+    -- auditée retenue) : il n'est donc jamais présenté comme un horodatage vérifié.
+    etat TEXT NOT NULL DEFAULT 'en_attente' CHECK (etat IN ('en_attente', 'en_cours', 'recu_non_verifie', 'echec')),
+    en_cours_le TIMESTAMPTZ,
     jeton_hex TEXT CHECK (jeton_hex IS NULL OR length(jeton_hex) <= 80000),
     instant_jeton TIMESTAMPTZ,
     tentatives SMALLINT NOT NULL DEFAULT 0 CHECK (tentatives BETWEEN 0 AND 20),
@@ -488,7 +492,7 @@ CREATE TABLE IF NOT EXISTS ent_doc_horodatage (
     obtenu_le TIMESTAMPTZ,
     CONSTRAINT ent_doc_horodatage_circuit_cfk FOREIGN KEY (etablissement_id, circuit_id)
         REFERENCES ent_doc_circuit (etablissement_id, id) ON DELETE RESTRICT,
-    CONSTRAINT ent_doc_horodatage_obtenu_chk CHECK ((etat = 'obtenu') = (jeton_hex IS NOT NULL AND obtenu_le IS NOT NULL))
+    CONSTRAINT ent_doc_horodatage_obtenu_chk CHECK ((etat = 'recu_non_verifie') = (jeton_hex IS NOT NULL AND obtenu_le IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ent_doc_horodatage_circuit_uq ON ent_doc_horodatage (circuit_id);
 CREATE INDEX IF NOT EXISTS ent_doc_horodatage_releve_idx ON ent_doc_horodatage (etablissement_id, demande_le DESC);
@@ -507,8 +511,8 @@ BEGIN
        OR NEW.demande_le IS DISTINCT FROM OLD.demande_le THEN
         RAISE EXCEPTION 'ent_doc_horodatage : identité de la demande immuable' USING ERRCODE = '23001';
     END IF;
-    IF OLD.etat = 'obtenu' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN
-        RAISE EXCEPTION 'ent_doc_horodatage : jeton obtenu, plus aucune modification' USING ERRCODE = '23001';
+    IF OLD.etat = 'recu_non_verifie' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN
+        RAISE EXCEPTION 'ent_doc_horodatage : jeton reçu, plus aucune modification' USING ERRCODE = '23001';
     END IF;
     RETURN NEW;
 END

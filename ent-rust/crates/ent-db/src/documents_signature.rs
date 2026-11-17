@@ -202,8 +202,12 @@ pub struct NatureSignature {
     pub modes_defaut: &'static [ModeSignature],
     /// Parmi les possibles, ceux qu'on **signale** comme faibles pour cette nature.
     pub modes_faibles: &'static [ModeSignature],
-    /// Horodatage qualifié par défaut (désactivé tant qu'aucun service n'est branché).
+    /// Horodatage qualifié par défaut (désactivé tant qu'aucun service n'est branché **et que la validation du jeton n'est
+    /// pas faite** : `false` partout pour l'instant, voir le rapport du lot D6).
     pub horodatage_defaut: bool,
+    /// La tablette **sans confirmation** (niveau G0, signature simple) est-elle admise ? `false` par défaut : un agent
+    /// seul ne signe jamais à la place d'une famille (E3).
+    pub g0_admis: bool,
     /// Échéance par défaut, en jours à partir du lancement.
     pub echeance_jours: i64,
 }
@@ -224,6 +228,7 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_defaut: &[Passkey, CodeSms, Guichet, Papier],
         modes_faibles: &[],
         horodatage_defaut: false,
+        g0_admis: true,
         echeance_jours: 30,
     },
     // Finalisation du dossier d'inscription : horodatée par défaut (décision de Florian, 16-11).
@@ -236,7 +241,8 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_possibles: &[Passkey, CodeSms, Guichet, Papier],
         modes_defaut: &[Passkey, CodeSms, Guichet, Papier],
         modes_faibles: &[CodeSms],
-        horodatage_defaut: true,
+        horodatage_defaut: false,
+        g0_admis: false,
         echeance_jours: 30,
     },
     // Convocation disciplinaire : remise en main propre contre signature ; le simple code SMS n'y suffit jamais.
@@ -249,7 +255,8 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_possibles: &[Guichet, Papier, Passkey],
         modes_defaut: &[Guichet, Papier, Passkey],
         modes_faibles: &[Passkey],
-        horodatage_defaut: true,
+        horodatage_defaut: false,
+        g0_admis: false,
         echeance_jours: 10,
     },
     // Convention de stage : l'élève cosigne ; le tuteur choisit lui-même son mode.
@@ -263,6 +270,7 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_defaut: &[Passkey, CodeSms, Papier],
         modes_faibles: &[CodeSms],
         horodatage_defaut: false,
+        g0_admis: false,
         echeance_jours: 21,
     },
     // Autorisation courante (sortie, voyage) : un responsable suffit.
@@ -276,6 +284,7 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_defaut: &[CodeSms, Passkey, Papier],
         modes_faibles: &[],
         horodatage_defaut: false,
+        g0_admis: false,
         echeance_jours: 14,
     },
     // Contrat de travail : signature avancée recommandée (CDD) ; le code SMS est bloqué.
@@ -289,9 +298,16 @@ pub const NATURES_SIGNATURE: &[NatureSignature] = &[
         modes_defaut: &[Passkey, Guichet, Papier],
         modes_faibles: &[],
         horodatage_defaut: false,
+        g0_admis: false,
         echeance_jours: 15,
     },
 ];
+
+/// La tablette sans confirmation (G0) n'est admise que si la nature le déclare **et** que le code SMS n'y est ni
+/// bloqué ni signalé faible : sinon la confirmation par code est obligatoire (E3).
+pub fn g0_autorise(n: &NatureSignature) -> bool {
+    n.g0_admis && n.modes_possibles.contains(&ModeSignature::CodeSms) && !n.modes_faibles.contains(&ModeSignature::CodeSms)
+}
 
 pub fn nature_signature(code: &str) -> Option<&'static NatureSignature> {
     NATURES_SIGNATURE.iter().find(|n| n.code == code)
@@ -688,9 +704,22 @@ mod tests {
     }
 
     #[test]
-    fn horodatage_par_defaut_convocations_et_inscriptions_seulement() {
-        let oui: Vec<_> = NATURES_SIGNATURE.iter().filter(|n| n.horodatage_defaut).map(|n| n.code).collect();
-        assert_eq!(oui, vec!["inscriptions.finalisation_dossier", "discipline.convocation"]);
+    fn horodatage_desactive_par_defaut_tant_que_le_jeton_n_est_pas_valide() {
+        // Décision de revue (E1) : aucune nature n'est horodatée par défaut tant que la validation CMS du jeton n'existe pas.
+        assert!(NATURES_SIGNATURE.iter().all(|n| !n.horodatage_defaut));
+    }
+
+    #[test]
+    fn la_tablette_sans_confirmation_n_est_jamais_admise_ou_le_sms_est_faible() {
+        for n in NATURES_SIGNATURE {
+            if g0_autorise(n) {
+                assert!(n.modes_possibles.contains(&CodeSms) && !n.modes_faibles.contains(&CodeSms), "{}", n.code);
+            }
+        }
+        assert!(!g0_autorise(nature_signature("discipline.convocation").unwrap()));
+        assert!(!g0_autorise(nature_signature("inscriptions.finalisation_dossier").unwrap()));
+        assert!(!g0_autorise(nature_signature("rh.contrat_travail").unwrap()));
+        assert!(g0_autorise(nature_signature("inscriptions.attestation_inscription").unwrap()));
     }
 
     #[test]

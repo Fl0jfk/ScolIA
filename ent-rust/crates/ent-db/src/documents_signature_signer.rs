@@ -37,8 +37,14 @@ const DEFI_PASSKEY_MIN: i64 = 5;
 const CODE_MIN: i64 = 10;
 const CODE_ESSAIS_MAX: i16 = 5;
 const CODES_PAR_HEURE: i64 = 3;
+/// Plafond **cumulé** d'échecs de code par signataire (tous codes confondus), puis blocage et alerte (M2).
+const CODE_ECHECS_CUMULES_MAX: i64 = 10;
 const PAPIER_MAX_OCTETS: usize = 15 * 1024 * 1024;
 const TRACE_MAX_OCTETS: usize = 300 * 1024;
+
+pub const EVT_SIGNE_SANS_CONFIRMATION: &str = "documents.signe_sans_confirmation";
+pub const EVT_HORODATAGE_ECHEC: &str = "documents.horodatage_echec";
+pub const EVT_SIGNATURE_BLOQUEE: &str = "documents.signature_bloquee";
 
 pub type FutureEnvoi<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
@@ -408,13 +414,31 @@ async fn circuit_complet(
     circuit_id: Uuid,
     regle: &str,
 ) -> Result<bool, EntDbError> {
+    let jour = jour_etab(conn, etab).await?;
+    // M1 : un élève mineur au circuit exige au moins un titulaire **signé**, quelle que soit la règle.
+    let naissances: Vec<(Option<chrono::NaiveDate>,)> = sqlx::query_as(
+        "SELECT e.date_naissance FROM ent_doc_signataire s
+           JOIN ent_eleve e ON e.etablissement_id = s.etablissement_id AND e.id = s.eleve_id
+          WHERE s.etablissement_id = $1 AND s.circuit_id = $2 AND s.role = 'eleve' AND s.etat <> 'remplace'",
+    )
+    .bind(etab)
+    .bind(circuit_id)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mineur = naissances
+        .iter()
+        .any(|(n,)| !n.is_some_and(|n| crate::documents_natures::est_majeur(n, jour)));
     let r = sqlx::query(
-        "SELECT count(*) FILTER (WHERE role <> 'titulaire' AND requis AND etat NOT IN ('signe', 'retire', 'remplace')) AS autres,
-                count(*) FILTER (WHERE role = 'titulaire' AND etat NOT IN ('signe', 'retire', 'remplace')) AS tit_restants,
-                count(*) FILTER (WHERE role = 'titulaire' AND etat = 'signe') AS tit_signes,
-                count(*) FILTER (WHERE role = 'titulaire' AND etat <> 'remplace') AS tit_total,
-                count(*) FILTER (WHERE etat = 'signe') AS signes
-           FROM ent_doc_signataire WHERE etablissement_id = $1 AND circuit_id = $2",
+        "SELECT count(*) FILTER (WHERE s.role <> 'titulaire' AND s.requis AND s.etat NOT IN ('signe', 'retire', 'remplace')) AS autres,
+                count(*) FILTER (WHERE s.role = 'titulaire' AND s.etat IN ('attendu', 'invite', 'papier_depose', 'signe')) AS tit_actifs,
+                -- G0 (tablette sans confirmation) ne satisfait jamais seul la règle des titulaires (E3).
+                count(*) FILTER (WHERE s.role = 'titulaire' AND s.etat = 'signe' AND g.niveau <> 'G0') AS tit_signes,
+                count(*) FILTER (WHERE s.role = 'titulaire' AND s.etat <> 'remplace') AS tit_total,
+                count(*) FILTER (WHERE s.etat = 'signe') AS signes
+           FROM ent_doc_signataire s
+           LEFT JOIN ent_doc_signature g ON g.etablissement_id = s.etablissement_id AND g.signataire_id = s.id
+          WHERE s.etablissement_id = $1 AND s.circuit_id = $2",
     )
     .bind(etab)
     .bind(circuit_id)
@@ -422,16 +446,26 @@ async fn circuit_complet(
     .await
     .map_err(db)?;
     let autres: i64 = r.get("autres");
-    let restants: i64 = r.get("tit_restants");
+    let actifs: i64 = r.get("tit_actifs");
     let signes_t: i64 = r.get("tit_signes");
     let total_t: i64 = r.get("tit_total");
     let signes: i64 = r.get("signes");
-    let tit_ok = match regle {
-        "tous" => restants == 0 && total_t > 0,
-        "un" => signes_t >= 1,
-        _ => true,
+    let tit_ok = if total_t == 0 {
+        // E2 : un circuit sans titulaire (élève majeur seul, agents, externes) n'attend aucun titulaire.
+        !mineur
+    } else {
+        match regle {
+            "tous" => actifs > 0 && signes_t == actifs,
+            "un" => signes_t >= 1,
+            _ => !mineur || signes_t >= 1,
+        }
     };
     Ok(signes >= 1 && autres == 0 && tit_ok)
+}
+
+/// Comparaison en temps constant de deux empreintes hexadécimales (F1).
+fn egal_en_temps_constant(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn credential_en_texte(c: &PublicKeyCredential) -> Result<(String, String, String, String), EntDbError> {
@@ -449,6 +483,14 @@ fn credential_en_texte(c: &PublicKeyCredential) -> Result<(String, String, Strin
 }
 
 impl PgEnt {
+    /// E4 : droit `action` sur le sujet du document auquel le signataire appartient.
+    async fn exiger_sur_signataire(&self, a: &Acteur<'_>, action: Action, signataire_id: Uuid) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let eleve = eleve_du_signataire(&mut tx, a.etablissement_id, signataire_id).await;
+        tx.commit().await.map_err(db)?;
+        self.exiger_sur_sujet(a, action, eleve?).await
+    }
+
     // ─────────────── Passkey (S2) ───────────────
 
     /// Démarre une signature par passkey : défi WebAuthn tiré par le serveur et **lié** à l'empreinte de la version, à
@@ -676,6 +718,7 @@ impl PgEnt {
         signataire_id: Uuid,
         code: &str,
         guichet_agent: Option<Uuid>,
+        alertes: &mut Vec<MetierEvent>,
     ) -> Result<Option<(String, Option<String>)>, EntDbError> {
         let d = sqlx::query(
             "SELECT signataire_id, code_sha256, canal_masque, consomme_le, tentatives, agent_user_id, demande_par,
@@ -690,6 +733,21 @@ impl PgEnt {
         .ok_or_else(introuvable)?;
         let sid: Uuid = d.get("signataire_id");
         let consomme: Option<DateTime<Utc>> = d.get("consomme_le");
+        let (cumul,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(sum(tentatives), 0)::bigint FROM ent_doc_defi
+              WHERE etablissement_id = $1 AND signataire_id = $2 AND methode = 'code_sms'",
+        )
+        .bind(a.etablissement_id)
+        .bind(signataire_id)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if cumul >= CODE_ECHECS_CUMULES_MAX {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "trop d'échecs de code pour ce signataire : signature bloquée, l'émetteur a été prévenu",
+            ));
+        }
         let tentatives: i16 = d.get("tentatives");
         let vivant: bool = d.get("vivant");
         let agent: Option<Uuid> = d.get("agent_user_id");
@@ -702,13 +760,39 @@ impl PgEnt {
         }
         let attendu: String = d.get("code_sha256");
         let canal: String = d.get("canal_masque");
-        if attendu != empreinte_code(defi_id, code.trim()) {
+        if !egal_en_temps_constant(&attendu, &empreinte_code(defi_id, code.trim())) {
             sqlx::query("UPDATE ent_doc_defi SET tentatives = tentatives + 1 WHERE etablissement_id = $1 AND id = $2")
                 .bind(a.etablissement_id)
                 .bind(defi_id)
                 .execute(&mut *conn)
                 .await
                 .map_err(db)?;
+            if cumul + 1 >= CODE_ECHECS_CUMULES_MAX {
+                // Seuil atteint : alerte à l'émetteur (événement sans contenu) et trace au journal.
+                let (doc, eleve): (Uuid, Option<Uuid>) = sqlx::query_as(
+                    "SELECT c.document_id, d.eleve_id FROM ent_doc_circuit c
+                       JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+                      WHERE c.etablissement_id = $1 AND c.id = (SELECT circuit_id FROM ent_doc_defi WHERE etablissement_id = $1 AND id = $2)",
+                )
+                .bind(a.etablissement_id)
+                .bind(defi_id)
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(db)?;
+                journaliser(conn, a, Some(doc), None, "signature_bloquee", (None, None), Some(&signataire_id.to_string()), Some("trop d'échecs de code"))
+                    .await?;
+                alertes.push(
+                    publier(
+                        conn,
+                        a,
+                        EVT_SIGNATURE_BLOQUEE,
+                        doc,
+                        eleve,
+                        json!({ "signataire_id": signataire_id, "raison": "echecs_de_code" }),
+                    )
+                    .await?,
+                );
+            }
             return Ok(None);
         }
         sqlx::query("UPDATE ent_doc_defi SET consomme_le = now() WHERE etablissement_id = $1 AND id = $2")
@@ -732,9 +816,11 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let p = preparer(&mut tx, a, signataire_id, ModeSignature::CodeSms, "invite").await?;
         exiger_le_signataire(self, &mut tx, a, signataire_id, &p).await?;
-        let Some((canal, lien)) = Self::verifier_code_tx(&mut tx, a, defi_id, signataire_id, code, None).await? else {
+        let mut alertes = Vec::new();
+        let Some((canal, lien)) = Self::verifier_code_tx(&mut tx, a, defi_id, signataire_id, code, None, &mut alertes).await? else {
             // L'essai raté est compté et VALIDÉ, puis on refuse.
             tx.commit().await.map_err(db)?;
+            self.diffuser_apres_commit(&alertes);
             return Err(refus(RefusMetier::Conflit, "code incorrect"));
         };
         let pr = Preuves {
@@ -821,8 +907,10 @@ impl PgEnt {
         let a = Acteur { etablissement_id: etab, user_id: Uuid::nil(), role: "externe" };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = preparer(&mut tx, &a, sid, ModeSignature::CodeSms, "invite").await?;
-        let Some((canal, lien)) = Self::verifier_code_tx(&mut tx, &a, defi_id, sid, code, Some(a.user_id)).await? else {
+        let mut alertes = Vec::new();
+        let Some((canal, lien)) = Self::verifier_code_tx(&mut tx, &a, defi_id, sid, code, Some(a.user_id), &mut alertes).await? else {
             tx.commit().await.map_err(db)?;
+            self.diffuser_apres_commit(&alertes);
             return Err(refus(RefusMetier::Conflit, "code incorrect"));
         };
         let pr = Preuves { defi_id: Some(defi_id), lien, canal_masque: Some(canal), ..Default::default() };
@@ -850,7 +938,7 @@ impl PgEnt {
         port: &dyn EnvoiCodeSignature,
         signataire_id: Uuid,
     ) -> Result<DefiCode, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesConstater).await?;
+        self.exiger_sur_signataire(a, Action::DocumentsSignaturesConstater, signataire_id).await?;
         self.creer_defi_code(a, port, signataire_id, ModeSignature::Guichet, true).await
     }
 
@@ -863,7 +951,7 @@ impl PgEnt {
         ctx: &ContexteSignature<'_>,
         c: ConstatGuichet,
     ) -> Result<SignatureFaite, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesConstater).await?;
+        self.exiger_sur_signataire(a, Action::DocumentsSignaturesConstater, c.signataire_id).await?;
         let identite = c.identite_vue.trim().to_string();
         if !["carte_identite", "passeport", "titre_sejour", "permis", "carte_professionnelle", "autre"]
             .contains(&identite.as_str())
@@ -891,15 +979,27 @@ impl PgEnt {
         }
         let (niveau, confirmation, defi, lien) = match &c.confirmation {
             Some((defi_id, code)) => {
+                let mut alertes = Vec::new();
                 let Some((_, lien)) =
-                    Self::verifier_code_tx(&mut tx, a, *defi_id, c.signataire_id, code, Some(a.user_id)).await?
+                    Self::verifier_code_tx(&mut tx, a, *defi_id, c.signataire_id, code, Some(a.user_id), &mut alertes).await?
                 else {
                     tx.commit().await.map_err(db)?;
+                    self.diffuser_apres_commit(&alertes);
                     return Err(refus(RefusMetier::Conflit, "code de confirmation incorrect"));
                 };
                 (Niveau::G, "code", Some(*defi_id), lien)
             }
-            None => (Niveau::G0, "aucune", None, None),
+            None => {
+                // E3 : la tablette sans confirmation n'est admise que si la nature le déclare et que le SMS n'y est ni
+                // bloqué ni faible ; sinon un agent seul ne signe jamais à la place de la personne.
+                if !g0_autorise(p.nature) {
+                    return Err(refus(
+                        RefusMetier::Conflit,
+                        "la confirmation par code est obligatoire au guichet pour cette nature de document",
+                    ));
+                }
+                (Niveau::G0, "aucune", None, None)
+            }
         };
         if let Some((cle, info)) = &trace_cle {
             crate::objets::enregistrer_objet(&mut *tx, a.etablissement_id, info, Some("image/png")).await?;
@@ -927,6 +1027,32 @@ impl PgEnt {
             pr,
         )
         .await?;
+        let mut evts = evts;
+        if niveau == Niveau::G0 {
+            // Événement distinct : le personnel voit les signatures simples sans confirmation.
+            evts.push(
+                publier(
+                    &mut tx,
+                    a,
+                    EVT_SIGNE_SANS_CONFIRMATION,
+                    p.circuit.document_id,
+                    p.eleve_id,
+                    json!({ "circuit_id": p.circuit.id, "signataire_id": c.signataire_id, "nature": p.circuit.nature_code }),
+                )
+                .await?,
+            );
+            journaliser(
+                &mut tx,
+                a,
+                Some(p.circuit.document_id),
+                None,
+                "signature_sans_confirmation",
+                (None, None),
+                Some(&sid.to_string()),
+                None,
+            )
+            .await?;
+        }
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evts);
         if complet {
@@ -949,8 +1075,8 @@ impl PgEnt {
         signataire_id: Uuid,
         octets: &[u8],
     ) -> Result<(), EntDbError> {
-        if self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await.is_err() {
-            self.exiger_action_documents(a, Action::DocumentsSignaturesConstater).await?;
+        if self.exiger_sur_signataire(a, Action::DocumentsSignaturesGerer, signataire_id).await.is_err() {
+            self.exiger_sur_signataire(a, Action::DocumentsSignaturesConstater, signataire_id).await?;
         }
         if octets.is_empty() || octets.len() > PAPIER_MAX_OCTETS {
             return Err(refus(RefusMetier::Invalide, "scan vide ou trop volumineux (15 Mio au plus)"));
@@ -996,7 +1122,7 @@ impl PgEnt {
 
     /// Lit le scan déposé pour le contrôle (personnel qui gère les signatures seulement ; consultation journalisée).
     pub async fn lire_papier_for_actor(&self, a: &Acteur<'_>, signataire_id: Uuid) -> Result<Vec<u8>, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
+        self.exiger_sur_signataire(a, Action::DocumentsSignaturesGerer, signataire_id).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let r: Option<(Option<String>, Uuid)> = sqlx::query_as(
             "SELECT s.papier_cle_objet, c.document_id FROM ent_doc_signataire s
@@ -1024,7 +1150,7 @@ impl PgEnt {
         signataire_id: Uuid,
         decision: DecisionPapier,
     ) -> Result<Option<SignatureFaite>, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
+        self.exiger_sur_signataire(a, Action::DocumentsSignaturesGerer, signataire_id).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let p = preparer(&mut tx, a, signataire_id, ModeSignature::Papier, "papier_depose").await?;
         if compte_du_signataire(&mut tx, a.etablissement_id, signataire_id).await? == Some(a.user_id) {
@@ -1126,6 +1252,9 @@ impl PgEnt {
             return Err(introuvable());
         }
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, false).await?;
+        if !signataire_en_droit(&mut tx, a.etablissement_id, signataire_id).await? {
+            return Err(introuvable());
+        }
         let (cle, sha): (String, String) = sqlx::query_as(
             "SELECT cle_objet, empreinte_sha256 FROM ent_doc_version WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1163,9 +1292,10 @@ impl PgEnt {
         circuit_id: Uuid,
         piece: PieceCircuit,
     ) -> Result<Vec<u8>, EntDbError> {
-        let gere = self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await.is_ok();
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, false).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        let gere = self.doc_peut_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         if !gere && !est_signataire_du_circuit(&mut tx, a, circuit_id).await? {
             return Err(introuvable());
         }
@@ -1212,9 +1342,10 @@ impl PgEnt {
 
     /// Recalcule la chaîne, les liens de défi et l'empreinte de la version d'un circuit ; écrit le résultat au journal.
     pub async fn verifier_signatures_for_actor(&self, a: &Acteur<'_>, circuit_id: Uuid) -> Result<RapportVerification, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, false).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         let lignes = sqlx::query(
             "SELECT g.signataire_id, g.version_id, g.rang_chaine, g.empreinte_signee, g.methode, g.niveau, g.intention_sha256,
                     g.horodatage_serveur, g.lien_sha256, g.precedent_sha256, g.entree_sha256, g.defi_id
@@ -1399,6 +1530,12 @@ impl PgEnt {
         lignes_page.push(format!("Tête de la chaîne des signatures : {tete}"));
         lignes_page.push("La vérification se fait sur la page publique de vérification, avec le code imprimé sur le document ou en y déposant ce PDF.".to_string());
         let pdf_signe = ent_pdf::ajouter_page_signatures(&original, "Signatures électroniques", &lignes_page).ok();
+        // M8 : jamais de « complet » silencieux sans PDF signé : le dossier de preuve le dit explicitement.
+        let mention_pdf_signe = if pdf_signe.is_some() {
+            None
+        } else {
+            Some("PDF signé non produit : la structure de ce document ne permet pas d'y ajouter la page de signatures ; la preuve repose sur ce dossier et sur l'empreinte de la version.")
+        };
         let (mut cle_signe, mut sha_signe) = (None, None);
         if let Some(pdf) = &pdf_signe {
             let scelle = ctx.moteur.cachet.sceller(etab, pdf).map_err(|_| {
@@ -1429,11 +1566,14 @@ impl PgEnt {
             d.paragraphe(b);
         }
         d.filet();
+        if let Some(m) = mention_pdf_signe {
+            d.paragraphe(m);
+        }
         d.paragraphe(&format!("Tête de la chaîne (chaque entrée scelle la précédente) : {tete}"));
         d.paragraphe(&format!(
             "Horodatage qualifié : {}",
             if circuit.horodater {
-                "demandé pour cette nature de document (jeton RFC 3161 conservé séparément)"
+                "prévu pour cette nature de document ; si le service en renvoie un, le jeton RFC 3161 est conservé séparément à l'état « reçu, non vérifié » : ScolIA n'en valide pas la signature, il ne vaut donc pas, à ce stade, horodatage qualifié vérifié"
             } else {
                 "non demandé pour cette nature de document"
             }
@@ -1517,8 +1657,16 @@ impl PgEnt {
 
     // ─────────────── Horodatage qualifié (RFC 3161) ───────────────
 
-    /// Demande le jeton d'horodatage d'un circuit complet, si un service est branché et actif. Sans service ou en cas
-    /// d'échec, la demande reste « en attente » (réessai : [`PgEnt::horodater_en_attente`]). `Ok(true)` si obtenu.
+    /// Demande le jeton d'horodatage d'un circuit complet, si un service est branché et actif.
+    ///
+    /// * la demande passe à `en_cours` **avant** l'appel réseau (un second appel simultané ne repart pas : un jeton se
+    ///   facture) ; une demande `en_cours` depuis plus de dix minutes (arrêt en plein appel) est reprise ;
+    /// * le jeton reçu est conservé **tel quel**, état `recu_non_verifie` : ScolIA n'en valide pas la signature CMS
+    ///   (aucune brique libre auditée retenue, E1) ; il n'est donc jamais présenté comme vérifié ;
+    /// * sans service ou en cas d'échec, la demande retourne `en_attente` ; après cinq échecs (ou un refus du service)
+    ///   elle passe `echec`, avec **alerte** (journal et événement) et reprise possible (`relancer_horodatage_for_actor`).
+    ///
+    /// `Ok(true)` si un jeton a été reçu.
     pub async fn horodater_circuit(
         &self,
         etab: Uuid,
@@ -1526,61 +1674,68 @@ impl PgEnt {
         fournisseur: &dyn FournisseurHorodatage,
     ) -> Result<bool, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let h: Option<(Uuid, String, String, i16)> = sqlx::query_as(
-            "SELECT id, empreinte_horodatee, mode, tentatives FROM ent_doc_horodatage
-              WHERE etablissement_id = $1 AND circuit_id = $2 AND etat = 'en_attente' FOR UPDATE",
+        let svc = sqlx::query(
+            "SELECT mode, url, identifiant, secret_scelle FROM ent_doc_horodatage_service
+              WHERE etablissement_id = $1 AND actif",
+        )
+        .bind(etab)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let Some(svc) = svc else {
+            tx.commit().await.map_err(db)?;
+            return Ok(false);
+        };
+        let reclame: Option<(Uuid, String, String, i16)> = sqlx::query_as(
+            "UPDATE ent_doc_horodatage SET etat = 'en_cours', en_cours_le = now()
+              WHERE etablissement_id = $1 AND circuit_id = $2
+                AND (etat = 'en_attente' OR (etat = 'en_cours' AND en_cours_le < now() - interval '10 minutes'))
+          RETURNING id, empreinte_horodatee, mode, tentatives",
         )
         .bind(etab)
         .bind(circuit_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((id, empreinte, mode, tentatives)) = h else {
+        let Some((id, empreinte, mode, tentatives)) = reclame else {
             tx.commit().await.map_err(db)?;
             return Ok(false);
         };
         let mode_h = ModeHorodatage::parse(&mode).ok_or_else(invalide)?;
-        let svc = sqlx::query(
-            "SELECT url, identifiant, secret_scelle FROM ent_doc_horodatage_service WHERE etablissement_id = $1 AND actif",
-        )
-        .bind(etab)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let config = match (&svc, mode_h) {
-            (Some(r), ModeHorodatage::Propre) => {
-                let secret: Option<String> = r.get("secret_scelle");
-                let secret = ChampsSensibles::depuis_env()
-                    .ouvrir_opt("ent_doc_horodatage_service", "secret_scelle", etab, secret)
-                    .map_err(EntDbError::Domain)?;
-                Some(ConfigServiceHorodatage {
-                    url: r.get::<Option<String>, _>("url").unwrap_or_default(),
-                    identifiant: r.get("identifiant"),
-                    secret,
-                })
-            }
-            _ => None,
+        let config = if mode_h == ModeHorodatage::Propre {
+            let secret: Option<String> = svc.get("secret_scelle");
+            let secret = ChampsSensibles::depuis_env()
+                .ouvrir_opt("ent_doc_horodatage_service", "secret_scelle", etab, secret)
+                .map_err(EntDbError::Domain)?;
+            Some(ConfigServiceHorodatage {
+                url: svc.get::<Option<String>, _>("url").unwrap_or_default(),
+                identifiant: svc.get("identifiant"),
+                secret,
+            })
+        } else {
+            None
         };
+        // La réclamation est validée AVANT l'appel réseau.
         tx.commit().await.map_err(db)?;
-        if svc.is_none() {
-            return Ok(false);
-        }
-        let Some(service) = fournisseur.service(etab, mode_h, config.as_ref()) else {
-            return Ok(false);
+        let service = fournisseur.service(etab, mode_h, config.as_ref());
+        let resultat = match service {
+            None => Err(ErreurHorodatage::Indisponible("aucun service d'horodatage disponible".into())),
+            Some(service) => {
+                let mut brut = [0u8; 32];
+                for (i, o) in brut.iter_mut().enumerate() {
+                    *o = u8::from_str_radix(&empreinte[2 * i..2 * i + 2], 16).map_err(|_| invalide())?;
+                }
+                tokio::task::spawn_blocking(move || service.horodater(&brut))
+                    .await
+                    .map_err(|_| refus(RefusMetier::Conflit, "tâche d'horodatage interrompue"))?
+            }
         };
-        let mut brut = [0u8; 32];
-        for (i, o) in brut.iter_mut().enumerate() {
-            *o = u8::from_str_radix(&empreinte[2 * i..2 * i + 2], 16).map_err(|_| invalide())?;
-        }
-        let resultat = tokio::task::spawn_blocking(move || service.horodater(&brut))
-            .await
-            .map_err(|_| refus(RefusMetier::Conflit, "tâche d'horodatage interrompue"))?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let ok = match resultat {
+        let (ok, evts) = match resultat {
             Ok(jeton) => {
                 sqlx::query(
-                    "UPDATE ent_doc_horodatage SET etat = 'obtenu', jeton_hex = $3, obtenu_le = now(), tentatives = $4
-                      WHERE etablissement_id = $1 AND id = $2 AND etat = 'en_attente'",
+                    "UPDATE ent_doc_horodatage SET etat = 'recu_non_verifie', jeton_hex = $3, obtenu_le = now(), tentatives = $4
+                      WHERE etablissement_id = $1 AND id = $2 AND etat = 'en_cours'",
                 )
                 .bind(etab)
                 .bind(id)
@@ -1589,14 +1744,14 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                true
+                (true, Vec::new())
             }
             Err(e) => {
                 let msg: String = e.to_string().chars().take(300).collect();
                 let definitif = tentatives + 1 >= 5 || matches!(e, ErreurHorodatage::Refuse(_));
                 sqlx::query(
                     "UPDATE ent_doc_horodatage SET etat = $3, derniere_erreur = $4, tentatives = $5
-                      WHERE etablissement_id = $1 AND id = $2 AND etat = 'en_attente'",
+                      WHERE etablissement_id = $1 AND id = $2 AND etat = 'en_cours'",
                 )
                 .bind(etab)
                 .bind(id)
@@ -1606,14 +1761,67 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                false
+                let mut evts = Vec::new();
+                if definitif {
+                    // Alerte : journal et événement (sans contenu), l'établissement le voit au relevé.
+                    let (doc, eleve): (Uuid, Option<Uuid>) = sqlx::query_as(
+                        "SELECT c.document_id, d.eleve_id FROM ent_doc_circuit c
+                           JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+                          WHERE c.etablissement_id = $1 AND c.id = $2",
+                    )
+                    .bind(etab)
+                    .bind(circuit_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    let systeme = Acteur { etablissement_id: etab, user_id: Uuid::nil(), role: "systeme" };
+                    journaliser(&mut tx, &systeme, Some(doc), None, "horodatage_en_echec", (None, Some("echec")), Some(&circuit_id.to_string()), None)
+                        .await?;
+                    evts.push(
+                        publier(
+                            &mut tx,
+                            &systeme,
+                            EVT_HORODATAGE_ECHEC,
+                            doc,
+                            eleve,
+                            json!({ "circuit_id": circuit_id }),
+                        )
+                        .await?,
+                    );
+                }
+                (false, evts)
             }
         };
         tx.commit().await.map_err(db)?;
+        self.diffuser_apres_commit(&evts);
         Ok(ok)
     }
 
-    /// Tâche de fond : réessaie les horodatages en attente d'un établissement ; rend le nombre de jetons obtenus.
+    /// Remet en attente un horodatage en `echec` (reprise après correction du service) : `documents.signatures.gerer`
+    /// sur le sujet du document.
+    pub async fn relancer_horodatage_for_actor(&self, a: &Acteur<'_>, circuit_id: Uuid) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
+        let n = sqlx::query(
+            "UPDATE ent_doc_horodatage SET etat = 'en_attente', tentatives = 0, derniere_erreur = NULL
+              WHERE etablissement_id = $1 AND circuit_id = $2 AND etat = 'echec'",
+        )
+        .bind(a.etablissement_id)
+        .bind(circuit_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?
+        .rows_affected();
+        if n == 0 {
+            return Err(refus(RefusMetier::Conflit, "aucun horodatage en échec pour ce circuit"));
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(())
+    }
+
+    /// Tâche de fond : réessaie les horodatages en attente (ou restés `en_cours` trop longtemps) d'un établissement ;
+    /// rend le nombre de jetons reçus.
     pub async fn horodater_en_attente(
         &self,
         etab: Uuid,
@@ -1622,7 +1830,9 @@ impl PgEnt {
     ) -> Result<usize, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ids: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT circuit_id FROM ent_doc_horodatage WHERE etablissement_id = $1 AND etat = 'en_attente'
+            "SELECT circuit_id FROM ent_doc_horodatage
+              WHERE etablissement_id = $1
+                AND (etat = 'en_attente' OR (etat = 'en_cours' AND en_cours_le < now() - interval '10 minutes'))
               ORDER BY demande_le LIMIT $2",
         )
         .bind(etab)

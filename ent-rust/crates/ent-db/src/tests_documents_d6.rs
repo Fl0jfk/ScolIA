@@ -277,8 +277,12 @@ impl W {
     /// Un document réellement émis (moteur PDF maison, cachet de test) puis, si besoin, rangé sous une autre nature
     /// déclarée à la signature (les natures des autres socles n'existent pas encore côté émission : D8).
     async fn document(&self, eleve: Uuid, nature: Option<&str>) -> DocumentEmis {
-        let (r, c) = (RenduPdfAttestation, Cachet);
-        let m = Moteur { rendu: &r, cachet: &c, url_verification: "https://test.scolia.fr/verifier" };
+        self.document_avec(&RenduPdfAttestation, eleve, nature).await
+    }
+
+    async fn document_avec(&self, rendu: &dyn RenduDocument, eleve: Uuid, nature: Option<&str>) -> DocumentEmis {
+        let c = Cachet;
+        let m = Moteur { rendu, cachet: &c, url_verification: "https://test.scolia.fr/verifier" };
         let e = self.ent.emettre_attestation_inscription_for_actor(&self.adm(), eleve, &m).await.expect("document émis");
         if let Some(n) = nature {
             self.preparer(
@@ -478,7 +482,7 @@ async fn t_regle_tous_et_horodatage() {
     w.lier(eleve, &w.tom, true).await;
     let doc = w.document(eleve, Some("inscriptions.finalisation_dossier")).await;
     let c = w.lancer(&w.adm(), doc.document_id, true, vec![]).await.unwrap();
-    assert!(c.horodater, "la finalisation d'inscription est horodatée par défaut");
+    assert!(!c.horodater, "aucune nature n'est horodatée par défaut tant que le jeton n'est pas validé (E1)");
     let s_lily = w.signataire_de(c.circuit_id, w.lily.personne).await;
     let s_tom = w.signataire_de(c.circuit_id, w.tom.personne).await;
     let f1 = w.signer_par_code(&sms, &w.parent(&w.lily), s_lily).await.unwrap();
@@ -822,17 +826,22 @@ async fn t_guichet_confirmation_ou_simple() {
     assert!(est_refus(&r, RefusMetier::Conflit), "{r:?}");
     let f = w.ent.constater_guichet_for_actor(&adm, &w.ctx(&h), constat(s_lily, Some((d.defi_id, bon)))).await.expect("niveau G");
     assert_eq!(f.niveau, Niveau::G);
-    // Tom : tablette sans confirmation → signature simple, affichée comme telle (G0).
-    let f2 = w.ent.constater_guichet_for_actor(&adm, &w.ctx(&h), constat(s_tom, None)).await.expect("niveau G0");
-    assert_eq!(f2.niveau, Niveau::G0);
-    assert!(f2.avertissement.unwrap().contains("simple"));
+    // E3 : tablette SANS confirmation refusée sur la convocation (le SMS y est bloqué : un agent seul ne signe jamais).
+    let r = w.ent.constater_guichet_for_actor(&adm, &w.ctx(&h), constat(s_tom, None)).await.unwrap_err();
+    assert!(est_refus(&r, RefusMetier::Conflit), "{r:?}");
+    assert_eq!(w.nombre("SELECT count(*) FROM ent_doc_signature WHERE etablissement_id = $1 AND niveau = 'G0'").await, 0);
+    // Tom confirme par code : niveau G ; la règle « tous » est satisfaite.
+    let d2 = w.ent.demarrer_confirmation_guichet_for_actor(&adm, &sms, s_tom).await.unwrap();
+    let f2 = w.ent.constater_guichet_for_actor(&adm, &w.ctx(&h), constat(s_tom, Some((d2.defi_id, sms.dernier_code())))).await.expect("niveau G");
+    assert_eq!(f2.niveau, Niveau::G);
     assert!(f2.circuit_complet, "règle « tous » satisfaite");
     // La preuve garde l'agent, le type de pièce vu (jamais une copie) et le tracé scellé.
     let (agent, vue, trace): (Uuid, String, Option<String>) = sqlx::query_as(
         "SELECT constate_par_user_id, identite_vue, trace_cle_objet FROM ent_doc_signature
-          WHERE etablissement_id = $1 AND niveau = 'G'",
+          WHERE etablissement_id = $1 AND niveau = 'G' AND signataire_id = $2",
     )
     .bind(w.m.etab)
+    .bind(s_lily)
     .fetch_one(w.ent.pool_verif())
     .await
     .unwrap();
@@ -909,7 +918,7 @@ async fn t_menu_bloque_signale_et_reglable() {
     assert_eq!(v.menu[0].mode, ModeSignature::Guichet);
     assert!(v.menu[0].defaut);
     assert!(v.menu.iter().all(|c| c.mode != ModeSignature::CodeSms));
-    assert!(v.horodatage_actif);
+    assert!(!v.horodatage_actif, "horodatage désactivé par défaut");
     // Un menu qui contient un mode bloqué est refusé.
     let r = w
         .ent
@@ -986,10 +995,26 @@ async fn t_horodatage_port_releve_et_reprise() {
             &dir,
             ModeHorodatage::Propre,
             true,
-            Some(ConfigServiceHorodatage { url: "https://tsa.exemple/tsr".into(), identifiant: Some("compte".into()), secret: None }),
+            Some(ConfigServiceHorodatage { url: "https://93.184.216.34/tsr".into(), identifiant: Some("compte".into()), secret: None }),
         )
         .await
         .unwrap();
+    // M6 : adresses privées, de bouclage, de lien local refusées (jamais le réseau interne).
+    for url in ["https://10.0.0.5/tsr", "https://169.254.169.254/", "https://127.0.0.1:8443/", "https://[::1]/x", "https://localhost/tsr"] {
+        let r = w
+            .ent
+            .parametrer_service_horodatage_for_actor(
+                &dir,
+                ModeHorodatage::Propre,
+                true,
+                Some(ConfigServiceHorodatage { url: url.into(), identifiant: None, secret: None }),
+            )
+            .await
+            .unwrap_err();
+        assert!(est_refus(&r, RefusMetier::Invalide), "{url} : {r:?}");
+    }
+    // L'horodatage est un réglage explicite de la nature (désactivé par défaut).
+    w.ent.parametrer_signature_nature_for_actor(&dir, "inscriptions.finalisation_dossier", None, Some(true)).await.unwrap();
     let faux = FauxTsa { appels: Arc::new(AtomicUsize::new(0)), echecs: Arc::new(AtomicUsize::new(1)) };
     let eleve = w.eleve("Perrin", "Alix").await;
     w.lier(eleve, &w.lily, true).await;
@@ -1014,16 +1039,66 @@ async fn t_horodatage_port_releve_et_reprise() {
     assert_eq!(w.ent.horodater_en_attente(w.m.etab, &faux, 10).await.unwrap(), 1);
     assert_eq!(releve_du_jour(&w).await, ReleveHorodatage { mutualise_obtenus: 0, propre_obtenus: 1, en_attente: 0, echecs: 0 });
     assert_eq!(faux.appels.load(Ordering::SeqCst), 2);
+    // E1 : un blob reçu n'est JAMAIS présenté comme vérifié (le jeton de test est bidon et contient pourtant l'empreinte).
+    let (etat_final,): (String,) = sqlx::query_as("SELECT etat FROM ent_doc_horodatage WHERE etablissement_id = $1 AND circuit_id = $2")
+        .bind(w.m.etab)
+        .bind(c.circuit_id)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(etat_final, "recu_non_verifie");
     // Un jeton obtenu ne bouge plus (trigger) ; une seconde reprise n'appelle plus le service.
     assert_eq!(w.ent.horodater_en_attente(w.m.etab, &faux, 10).await.unwrap(), 0);
     assert_eq!(faux.appels.load(Ordering::SeqCst), 2);
-    let r = sqlx::query("UPDATE ent_doc_horodatage SET etat = 'echec', jeton_hex = NULL, obtenu_le = NULL WHERE etablissement_id = $1")
+    let r = sqlx::query("UPDATE ent_doc_horodatage SET etat = 'echec', jeton_hex = NULL, obtenu_le = NULL WHERE etablissement_id = $1 AND etat = 'recu_non_verifie'")
         .bind(w.m.etab)
         .execute(w.ent.pool_verif())
         .await;
     assert!(r.is_err());
     // Relevé réservé à la direction (modèles.parametrer).
     assert!(w.ent.releve_horodatage_for_actor(&w.adm(), w.jour, w.jour).await.is_err());
+    // M7 : une demande « en cours » n'est pas rappelée (pas de double appel facturable) ; reprise après dix minutes.
+    let eleve3 = w.eleve("Perrin", "Zia").await;
+    w.lier(eleve3, &w.lily, true).await;
+    let doc3 = w.document(eleve3, Some("inscriptions.finalisation_dossier")).await;
+    let c3 = w.lancer(&w.adm(), doc3.document_id, true, vec![]).await.unwrap();
+    let s3 = w.signataire_de(c3.circuit_id, w.lily.personne).await;
+    let d3 = w.ent.demander_code_signature_for_actor(&lily, &sms, s3).await.unwrap();
+    let faux3 = FauxTsa { appels: Arc::new(AtomicUsize::new(0)), echecs: Arc::new(AtomicUsize::new(100)) };
+    w.ent.signer_code_for_actor(&lily, &w.ctx(&faux3), d3.defi_id, s3, &sms.dernier_code()).await.unwrap();
+    assert_eq!(faux3.appels.load(Ordering::SeqCst), 1);
+    w.preparer(
+        "UPDATE ent_doc_horodatage SET etat = 'en_cours', en_cours_le = now() WHERE etablissement_id = $1 AND circuit_id = $2",
+        &[w.m.etab, c3.circuit_id],
+    )
+    .await;
+    assert!(!w.ent.horodater_circuit(w.m.etab, c3.circuit_id, &faux3).await.unwrap());
+    assert_eq!(faux3.appels.load(Ordering::SeqCst), 1, "aucun second appel pendant qu'un appel est en cours");
+    w.preparer(
+        "UPDATE ent_doc_horodatage SET en_cours_le = now() - interval '11 minutes' WHERE etablissement_id = $1 AND circuit_id = $2",
+        &[w.m.etab, c3.circuit_id],
+    )
+    .await;
+    // Reprise de l'appel resté en cours, puis échecs répétés : `echec`, alerte au journal, reprise possible.
+    for _ in 0..6 {
+        let _ = w.ent.horodater_circuit(w.m.etab, c3.circuit_id, &faux3).await.unwrap();
+    }
+    let (etat3, tent): (String, i16) = sqlx::query_as("SELECT etat, tentatives FROM ent_doc_horodatage WHERE etablissement_id = $1 AND circuit_id = $2")
+        .bind(w.m.etab)
+        .bind(c3.circuit_id)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!((etat3.as_str(), tent), ("echec", 5));
+    assert_eq!(
+        w.nombre("SELECT count(*) FROM ent_doc_journal WHERE etablissement_id = $1 AND action = 'horodatage_en_echec'").await,
+        1,
+        "alerte sur échec définitif"
+    );
+    assert!(w.ent.releve_horodatage_for_actor(&dir, w.jour - chrono::Duration::days(1), w.jour + chrono::Duration::days(1)).await.unwrap().echecs >= 1);
+    faux3.echecs.store(0, Ordering::SeqCst);
+    w.ent.relancer_horodatage_for_actor(&w.adm(), c3.circuit_id).await.expect("reprise possible");
+    assert!(w.ent.horodater_circuit(w.m.etab, c3.circuit_id, &faux3).await.unwrap());
     // Nature non horodatée (autorisation) : aucun jeton demandé même service actif.
     let eleve2 = w.eleve("Perrin", "Noa").await;
     w.lier(eleve2, &w.lily, true).await;
@@ -1349,4 +1424,217 @@ async fn t_separation_entre_etablissements() {
     // La vérification publique de B ne reconnaît pas le PDF signé de A.
     let signe = w.ent.lire_piece_circuit_for_actor(&w.adm(), c.circuit_id, PieceCircuit::PdfSigne).await.unwrap();
     assert_eq!(w.ent.verifier_par_depot(mb.etab, &signe).await.unwrap(), crate::documents_natures::ReponseDepot::Different);
+}
+
+// ───────────────────────── Revue de sécurité (E2, E3, E4, M1, M2, M5, M8) ─────────────────────────
+
+fn pdf_de_scan() -> Vec<u8> {
+    let mut d = ent_pdf::Document::new(ent_pdf::Meta::default());
+    d.titre("Scan");
+    d.octets()
+}
+
+#[tokio::test]
+async fn t_majeur_seul_circuit_complet_de_bout_en_bout() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let h = HorodatageAucun;
+    let majeur = w.eleve("Grand", "Lola").await;
+    w.lier(majeur, &w.lily, true).await;
+    let doc = w.document(majeur, None).await;
+    w.preparer(
+        "UPDATE ent_eleve SET date_naissance = DATE '2000-01-15' WHERE etablissement_id = $1 AND id = $2",
+        &[w.m.etab, majeur],
+    )
+    .await;
+    let c = w.lancer(&w.adm(), doc.document_id, true, vec![]).await.expect("majeur seul");
+    let v = w.ent.circuit_for_actor(&w.adm(), c.circuit_id).await.unwrap();
+    assert_eq!(v.signataires.len(), 1);
+    let s = v.signataires[0].id;
+    // Il signe sur papier (l'élève n'a ici ni compte ni téléphone) : le circuit se TERMINE sans titulaire.
+    w.ent.deposer_papier_for_actor(&w.adm(), s, &pdf_de_scan()).await.unwrap();
+    let f = w.ent.controler_papier_for_actor(&w.adm(), &w.ctx(&h), s, DecisionPapier::Valider).await.unwrap().unwrap();
+    assert!(f.circuit_complet, "E2 : aucun titulaire à attendre pour un majeur seul");
+    assert_eq!(w.etat_circuit(c.circuit_id).await, "complet");
+    let signe = w.ent.lire_piece_circuit_for_actor(&w.adm(), c.circuit_id, PieceCircuit::PdfSigne).await.unwrap();
+    let preuve = w.ent.lire_piece_circuit_for_actor(&w.adm(), c.circuit_id, PieceCircuit::Preuve).await.unwrap();
+    assert!(signe.starts_with(b"%PDF-") && preuve.starts_with(b"%PDF-"));
+    assert!(w.ent.verifier_signatures_for_actor(&w.adm(), c.circuit_id).await.unwrap().chaine_valide);
+}
+
+#[tokio::test]
+async fn t_tablette_sans_confirmation_ne_satisfait_jamais_seule_la_regle() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let h = HorodatageAucun;
+    let eleve = w.eleve("Roche", "Tao").await;
+    w.lier(eleve, &w.lily, true).await;
+    // Attestation d'inscription : la nature admet G0 (SMS non faible).
+    let doc = w.document(eleve, None).await;
+    let mut s = SignataireDemande::personne(RoleSignataire::Titulaire, w.lily.personne);
+    s.modes = Some(vec![ModeSignature::Guichet]);
+    s.choix_par = ChoixPar::Emetteur;
+    let c = w.lancer(&w.adm(), doc.document_id, false, vec![s]).await.unwrap();
+    let sid = w.signataire_de(c.circuit_id, w.lily.personne).await;
+    let f = w
+        .ent
+        .constater_guichet_for_actor(
+            &w.adm(),
+            &w.ctx(&h),
+            ConstatGuichet { signataire_id: sid, identite_vue: "carte_identite".into(), trace: None, confirmation: None },
+        )
+        .await
+        .expect("G0 admis sur cette nature");
+    assert_eq!(f.niveau, Niveau::G0);
+    assert!(!f.circuit_complet, "E3 : G0 ne satisfait jamais seul la règle des titulaires");
+    assert_eq!(w.etat_circuit(c.circuit_id).await, "ouvert");
+    // Distinct dans le journal (et l'événement `documents.signe_sans_confirmation`).
+    assert_eq!(
+        w.nombre("SELECT count(*) FROM ent_doc_journal WHERE etablissement_id = $1 AND action = 'signature_sans_confirmation'").await,
+        1
+    );
+    // Sur une nature qui bloque ou signale le SMS, la confirmation est obligatoire (voir la convocation).
+}
+
+#[tokio::test]
+async fn t_mineur_exige_un_titulaire_signe_et_titulaires_en_droit() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let h = HorodatageAucun;
+    let eleve = w.eleve("Noel", "Axel").await;
+    w.lier(eleve, &w.lily, true).await;
+    let doc = w.document(eleve, Some("stages.convention_stage")).await;
+    // Un titulaire désigné sans lien avec cet élève est refusé ; un autre élève comme signataire aussi.
+    let r = w
+        .lancer(&w.adm(), doc.document_id, false, vec![SignataireDemande::personne(RoleSignataire::Titulaire, w.tom.personne), SignataireDemande::eleve(eleve)])
+        .await
+        .unwrap_err();
+    assert!(est_refus(&r, RefusMetier::Conflit), "{r:?}");
+    let autre = w.eleve("Noel", "Bea").await;
+    let r = w
+        .lancer(&w.adm(), doc.document_id, false, vec![SignataireDemande::personne(RoleSignataire::Titulaire, w.lily.personne), SignataireDemande::eleve(autre)])
+        .await
+        .unwrap_err();
+    assert!(est_refus(&r, RefusMetier::Invalide), "{r:?}");
+    // Circuit valable (parallèle) : l'élève mineur signe d'abord sur papier ; sans titulaire signé, le circuit reste ouvert.
+    let c = w
+        .ent
+        .lancer_circuit_for_actor(
+            &w.adm(),
+            DemandeCircuit { document_id: doc.document_id, ordre: Some(Ordre::Parallele), echeance: None, titulaires_de_l_eleve: true, signataires: vec![] },
+        )
+        .await
+        .unwrap();
+    let v = w.ent.circuit_for_actor(&w.adm(), c.circuit_id).await.unwrap();
+    let s_eleve = v.signataires.iter().find(|s| s.role == "eleve").unwrap().id;
+    let s_tit = v.signataires.iter().find(|s| s.role == "titulaire").unwrap().id;
+    w.ent.deposer_papier_for_actor(&w.adm(), s_eleve, &pdf_de_scan()).await.unwrap();
+    let f = w.ent.controler_papier_for_actor(&w.adm(), &w.ctx(&h), s_eleve, DecisionPapier::Valider).await.unwrap().unwrap();
+    assert!(!f.circuit_complet, "M1 : un mineur ne termine jamais seul un circuit");
+    w.ent.deposer_papier_for_actor(&w.adm(), s_tit, &pdf_de_scan()).await.unwrap();
+    let f = w.ent.controler_papier_for_actor(&w.adm(), &w.ctx(&h), s_tit, DecisionPapier::Valider).await.unwrap().unwrap();
+    assert!(f.circuit_complet);
+}
+
+#[tokio::test]
+async fn t_plafond_cumule_d_echecs_de_code() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let sms = Sms::default();
+    let h = HorodatageAucun;
+    let eleve = w.eleve("Vidal", "Eli").await;
+    w.lier(eleve, &w.lily, true).await;
+    let doc = w.document(eleve, None).await;
+    let c = w.lancer(&w.adm(), doc.document_id, true, vec![]).await.unwrap();
+    let s = w.signataire_de(c.circuit_id, w.lily.personne).await;
+    let lily = w.parent(&w.lily);
+    // Deux codes, cinq échecs chacun : le plafond cumulé (10) bloque, même avec un bon code.
+    for _ in 0..2 {
+        let d = w.ent.demander_code_signature_for_actor(&lily, &sms, s).await.unwrap();
+        let bon = sms.dernier_code();
+        let mauvais = if bon == "000000" { "000001" } else { "000000" };
+        for _ in 0..5 {
+            let _ = w.ent.signer_code_for_actor(&lily, &w.ctx(&h), d.defi_id, s, mauvais).await;
+        }
+    }
+    let d3 = w.ent.demander_code_signature_for_actor(&lily, &sms, s).await.unwrap();
+    let r = w.ent.signer_code_for_actor(&lily, &w.ctx(&h), d3.defi_id, s, &sms.dernier_code()).await.unwrap_err();
+    assert!(est_refus(&r, RefusMetier::Conflit), "signature bloquée : {r:?}");
+    assert_eq!(w.nombre("SELECT count(*) FROM ent_doc_journal WHERE etablissement_id = $1 AND action = 'signature_bloquee'").await, 1, "alerte à l'émetteur");
+    assert_eq!(w.etat_circuit(c.circuit_id).await, "ouvert");
+}
+
+#[tokio::test]
+async fn t_lien_suspendu_ferme_les_lectures_du_titulaire_et_page_non_produite_est_dite() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let sms = Sms::default();
+    let eleve = w.eleve("Meyer", "Ida").await;
+    w.lier(eleve, &w.lily, true).await;
+    w.lier(eleve, &w.tom, true).await;
+    // M8 : un original que la mise à jour incrémentale ne sait pas compléter : le circuit se complète, SANS PDF signé,
+    // et le dossier de preuve existe (la mention est écrite dans le dossier).
+    let doc = w.document_avec(&RenduFaux, eleve, None).await;
+    let c = w.lancer(&w.adm(), doc.document_id, true, vec![]).await.unwrap();
+    let s_lily = w.signataire_de(c.circuit_id, w.lily.personne).await;
+    let s_tom = w.signataire_de(c.circuit_id, w.tom.personne).await;
+    // M5 : le lien de Tom est suspendu : lecture de la version, du circuit et (plus tard) du dossier refusées.
+    w.suspendre(eleve, &w.tom).await;
+    assert!(w.ent.lire_version_a_signer_for_actor(&w.parent(&w.tom), s_tom).await.is_err());
+    assert!(w.ent.circuit_for_actor(&w.parent(&w.tom), c.circuit_id).await.is_err());
+    w.signer_par_code(&sms, &w.parent(&w.lily), s_lily).await.unwrap();
+    assert_eq!(w.etat_circuit(c.circuit_id).await, "complet");
+    let (signe, preuve): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT pdf_signe_sha256, preuve_sha256 FROM ent_doc_circuit WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.m.etab)
+    .bind(c.circuit_id)
+    .fetch_one(w.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(signe.is_none() && preuve.is_some());
+    assert!(w.ent.lire_piece_circuit_for_actor(&w.parent(&w.tom), c.circuit_id, PieceCircuit::Preuve).await.is_err(), "lien suspendu : plus d'accès");
+    assert!(w.ent.lire_piece_circuit_for_actor(&w.parent(&w.lily), c.circuit_id, PieceCircuit::Preuve).await.is_ok());
+}
+
+#[tokio::test]
+async fn t_droits_hors_perimetre_sur_toutes_les_voies() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let sms = Sms::default();
+    let h = HorodatageAucun;
+    let eleve = w.eleve("Brun", "Eva").await;
+    w.lier(eleve, &w.lily, true).await;
+    let doc = w.document(eleve, None).await;
+    let mut p = SignataireDemande::personne(RoleSignataire::Titulaire, w.lily.personne);
+    p.modes = Some(vec![ModeSignature::Papier]);
+    p.choix_par = ChoixPar::Emetteur;
+    let c = w.lancer(&w.adm(), doc.document_id, false, vec![p]).await.unwrap();
+    let s = w.signataire_de(c.circuit_id, w.lily.personne).await;
+    w.ent.deposer_papier_for_actor(&w.adm(), s, &pdf_de_scan()).await.unwrap();
+    // Un professeur (aucun droit de signature sur ce document) est refusé partout : suivre, lire, vérifier, contrôler, constater.
+    let prof = w.prof();
+    assert!(w.ent.circuit_for_actor(&prof, c.circuit_id).await.is_err());
+    assert!(w.ent.circuits_du_document_for_actor(&prof, doc.document_id).await.is_err());
+    assert!(w.ent.verifier_signatures_for_actor(&prof, c.circuit_id).await.is_err());
+    assert!(w.ent.lire_papier_for_actor(&prof, s).await.is_err());
+    assert!(w.ent.deposer_papier_for_actor(&prof, s, &pdf_de_scan()).await.is_err());
+    assert!(w.ent.controler_papier_for_actor(&prof, &w.ctx(&h), s, DecisionPapier::Valider).await.is_err());
+    assert!(w.ent.demarrer_confirmation_guichet_for_actor(&prof, &sms, s).await.is_err());
+    assert!(w.ent
+        .constater_guichet_for_actor(&prof, &w.ctx(&h), ConstatGuichet { signataire_id: s, identite_vue: "carte_identite".into(), trace: None, confirmation: None })
+        .await
+        .is_err());
+    assert!(w.ent.annuler_circuit_for_actor(&prof, c.circuit_id, "tentative").await.is_err());
+    assert!(w.ent.relancer_horodatage_for_actor(&prof, c.circuit_id).await.is_err());
+    w.ent.controler_papier_for_actor(&w.adm(), &w.ctx(&h), s, DecisionPapier::Valider).await.unwrap();
+    for piece in [PieceCircuit::PdfSigne, PieceCircuit::Preuve] {
+        assert!(w.ent.lire_piece_circuit_for_actor(&prof, c.circuit_id, piece).await.is_err());
+    }
 }

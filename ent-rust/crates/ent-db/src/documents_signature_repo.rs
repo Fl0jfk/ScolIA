@@ -192,6 +192,7 @@ pub enum PieceCircuit {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleveHorodatage {
+    /// Jetons **reçus** du service (état « reçu, non vérifié »), par mode.
     pub mutualise_obtenus: i64,
     pub propre_obtenus: i64,
     pub en_attente: i64,
@@ -506,6 +507,61 @@ pub(crate) async fn clore_circuit(
 
 pub(crate) type MetierEventLie = ent_events::MetierEvent;
 
+/// E4 : le droit s'exerce **sur le sujet du document** (portée de l'élève), comme le reste du module, et non
+/// seulement « quelque part dans l'établissement ». Rend `introuvable` si le circuit n'existe pas ici.
+pub(crate) async fn eleve_du_circuit(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    circuit_id: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    let r: Option<(Option<Uuid>,)> = sqlx::query_as(
+        "SELECT d.eleve_id FROM ent_doc_circuit c
+           JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+          WHERE c.etablissement_id = $1 AND c.id = $2",
+    )
+    .bind(etab)
+    .bind(circuit_id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    Ok(r.ok_or_else(introuvable)?.0)
+}
+
+pub(crate) async fn eleve_du_signataire(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    signataire_id: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    let r: Option<(Option<Uuid>,)> = sqlx::query_as(
+        "SELECT d.eleve_id FROM ent_doc_signataire s
+           JOIN ent_doc_circuit c ON c.etablissement_id = s.etablissement_id AND c.id = s.circuit_id
+           JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+          WHERE s.etablissement_id = $1 AND s.id = $2",
+    )
+    .bind(etab)
+    .bind(signataire_id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    Ok(r.ok_or_else(introuvable)?.0)
+}
+
+impl PgEnt {
+    /// Droit `action` sur le sujet (élève) du document, ou refus.
+    pub(crate) async fn exiger_sur_sujet(
+        &self,
+        a: &Acteur<'_>,
+        action: Action,
+        eleve_id: Option<Uuid>,
+    ) -> Result<(), EntDbError> {
+        if self.doc_peut_sur_sujet(a, action, eleve_id).await? {
+            Ok(())
+        } else {
+            Err(interdit())
+        }
+    }
+}
+
 /// Appelé dans la transaction d'un changement du document : une **nouvelle version** rend le circuit ouvert
 /// `obsolete` (D27), l'**annulation** du document le clôt `annule`. Le motif porte le fait.
 pub(crate) async fn clore_circuits_du_document_tx(
@@ -650,6 +706,14 @@ impl PgEnt {
                 if !c.url.starts_with("https://") || c.url.len() > 300 {
                     return Err(refus(RefusMetier::Invalide, "adresse du service d'horodatage : HTTPS exigé"));
                 }
+                // M6 : jamais le réseau interne (résolution DNS comprise).
+                let a_verifier = c.url.clone();
+                let verdict = tokio::task::spawn_blocking(move || ent_object::rfc3161::adresse_publique(&a_verifier))
+                    .await
+                    .map_err(|_| refus(RefusMetier::Conflit, "vérification de l'adresse interrompue"))?;
+                if verdict.is_err() {
+                    return Err(refus(RefusMetier::Invalide, "adresse du service d'horodatage : adresse publique exigée"));
+                }
                 (Some(c.url), c.identifiant, c.secret)
             }
             (ModeHorodatage::Propre, None) => {
@@ -711,9 +775,9 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let r = sqlx::query(
-            "SELECT count(*) FILTER (WHERE etat = 'obtenu' AND mode = 'mutualise') AS mutu,
-                    count(*) FILTER (WHERE etat = 'obtenu' AND mode = 'propre') AS propre,
-                    count(*) FILTER (WHERE etat = 'en_attente') AS attente,
+            "SELECT count(*) FILTER (WHERE etat = 'recu_non_verifie' AND mode = 'mutualise') AS mutu,
+                    count(*) FILTER (WHERE etat = 'recu_non_verifie' AND mode = 'propre') AS propre,
+                    count(*) FILTER (WHERE etat IN ('en_attente', 'en_cours')) AS attente,
                     count(*) FILTER (WHERE etat = 'echec') AS echec
                FROM ent_doc_horodatage
               WHERE etablissement_id = $1
@@ -738,17 +802,23 @@ impl PgEnt {
 
     /// **Lance un circuit** sur la version courante d'un document émis (DCT-59). Droit `documents.signatures.gerer`.
     pub async fn lancer_circuit_for_actor(&self, a: &Acteur<'_>, d: DemandeCircuit) -> Result<CircuitLance, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
-        self.lancer_circuit_service(a, d).await
+        self.lancer_interne(a, d, true).await
     }
 
     /// Entrée **des modules** (voyages, stages, inscriptions, discipline, RH…) : ils ont déjà contrôlé leur propre
     /// droit métier ; la brique contrôle le reste (document émis, nature déclarée, menu, signataires, mineurs).
     /// Ne s'appelle jamais depuis une route sans contrôle de droit propre du module.
     pub async fn lancer_circuit_service(&self, a: &Acteur<'_>, d: DemandeCircuit) -> Result<CircuitLance, EntDbError> {
+        self.lancer_interne(a, d, false).await
+    }
+
+    async fn lancer_interne(&self, a: &Acteur<'_>, d: DemandeCircuit, controle_droit: bool) -> Result<CircuitLance, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let l = r_doc(&mut tx, a.etablissement_id, d.document_id).await?;
+        if controle_droit {
+            self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, l.eleve_id).await?;
+        }
         let n = nature_signature(&l.nature_code)
             .ok_or_else(|| refus(RefusMetier::Invalide, "cette nature de document ne se signe pas"))?;
         if l.etat != "emis" || l.version_id.is_none() {
@@ -808,6 +878,25 @@ impl PgEnt {
             return Err(refus(RefusMetier::Invalide, "un circuit compte de 1 à 20 signataires"));
         }
 
+        // M1 : les titulaires désignés sont titulaires **en droit de cet élève** ; l'élève signataire est celui du document.
+        for s in &tous {
+            match s.role {
+                RoleSignataire::Titulaire => {
+                    let (Some(p), Some(e)) = (s.personne_id, l.eleve_id) else {
+                        return Err(refus(RefusMetier::Invalide, "un titulaire se désigne par sa personne, pour l'élève du document"));
+                    };
+                    if !titulaire_en_droit(&mut tx, a.etablissement_id, p, e, jour).await? {
+                        return Err(refus(RefusMetier::Conflit, "cette personne n'est pas titulaire en droit de l'élève du document"));
+                    }
+                }
+                RoleSignataire::Eleve => {
+                    if s.eleve_id != l.eleve_id || l.eleve_id.is_none() {
+                        return Err(refus(RefusMetier::Invalide, "l'élève signataire doit être l'élève du document"));
+                    }
+                }
+                _ => {}
+            }
+        }
         // Un mineur ne signe jamais seul : s'il figure au circuit, au moins un titulaire doit figurer aussi (RP1-10).
         for s in &tous {
             if s.role == RoleSignataire::Eleve {
@@ -1005,10 +1094,11 @@ impl PgEnt {
 
     /// Annule un circuit ouvert (DCT-73) : motif obligatoire, signataires retirés.
     pub async fn annuler_circuit_for_actor(&self, a: &Acteur<'_>, circuit_id: Uuid, motif: &str) -> Result<(), EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
         let motif = texte(motif, 3, 500)?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, true).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         if c.etat != "ouvert" {
             return Err(refus(RefusMetier::Conflit, "circuit déjà clos"));
         }
@@ -1025,10 +1115,11 @@ impl PgEnt {
         circuit_id: Uuid,
         nouvelle_echeance: NaiveDate,
     ) -> Result<(), EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, true).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         if c.etat != "ouvert" {
             return Err(refus(RefusMetier::Conflit, "circuit déjà clos"));
         }
@@ -1042,6 +1133,18 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        // Les liens des signataires externes suivent l'échéance (jamais raccourcis : garde de la base).
+        sqlx::query(
+            "UPDATE ent_doc_signataire SET lien_expire_le = GREATEST(lien_expire_le, ($3::date + 1)::timestamptz)
+              WHERE etablissement_id = $1 AND circuit_id = $2 AND role = 'externe' AND lien_expire_le IS NOT NULL
+                AND etat IN ('attendu', 'invite', 'papier_depose')",
+        )
+        .bind(a.etablissement_id)
+        .bind(circuit_id)
+        .bind(nouvelle_echeance)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         journaliser(
             &mut tx,
             a,
@@ -1065,7 +1168,6 @@ impl PgEnt {
         nouveau: SignataireDemande,
         motif: &str,
     ) -> Result<Uuid, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
         let motif = texte(motif, 3, 500)?;
         if nouveau.role == RoleSignataire::Externe {
             return Err(refus(RefusMetier::Invalide, "remplacement d'un externe : lancer un nouveau circuit"));
@@ -1082,6 +1184,8 @@ impl PgEnt {
         .map_err(db)?;
         let (circuit_id, rang, role, libelle, etat, requis, choix) = ancien.ok_or_else(introuvable)?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, true).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         if c.etat != "ouvert" || !matches!(etat.as_str(), "attendu" | "invite" | "papier_depose") {
             return Err(refus(RefusMetier::Conflit, "ce signataire ne peut plus être remplacé"));
         }
@@ -1270,9 +1374,10 @@ impl PgEnt {
 
     /// Un circuit et ses signataires : le personnel (`gerer`) ou l'un de ses signataires.
     pub async fn circuit_for_actor(&self, a: &Acteur<'_>, circuit_id: Uuid) -> Result<VueCircuit, EntDbError> {
-        let gere = self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await.is_ok();
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let c = charger_circuit(&mut tx, a.etablissement_id, circuit_id, false).await?;
+        let eleve = eleve_du_circuit(&mut tx, a.etablissement_id, circuit_id).await?;
+        let gere = self.doc_peut_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         if !gere && !est_signataire_du_circuit(&mut tx, a, circuit_id).await? {
             return Err(introuvable());
         }
@@ -1283,8 +1388,20 @@ impl PgEnt {
 
     /// Suivi des circuits d'un document (DCT-62).
     pub async fn circuits_du_document_for_actor(&self, a: &Acteur<'_>, document_id: Uuid) -> Result<Vec<VueCircuit>, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let eleve: Option<(Option<Uuid>,)> =
+            sqlx::query_as("SELECT eleve_id FROM ent_doc_document WHERE etablissement_id = $1 AND id = $2")
+                .bind(a.etablissement_id)
+                .bind(document_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
+        let Some((eleve,)) = eleve else {
+            // Document d'un autre établissement ou inexistant : rien à suivre, rien à révéler.
+            self.exiger_action_documents(a, Action::DocumentsSignaturesGerer).await?;
+            return Ok(Vec::new());
+        };
+        self.exiger_sur_sujet(a, Action::DocumentsSignaturesGerer, eleve).await?;
         let ids: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_doc_circuit WHERE etablissement_id = $1 AND document_id = $2 ORDER BY lance_le DESC",
         )
@@ -1408,24 +1525,60 @@ async fn r_doc(conn: &mut PgConnection, etab: Uuid, document_id: Uuid) -> Result
     })
 }
 
+/// M5 : un signataire titulaire n'agit (lit, signe) que tant que son lien lui en donne le droit, au jour de
+/// l'établissement ; les autres rôles n'ont pas de lien à relire.
+pub(crate) async fn signataire_en_droit(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    signataire_id: Uuid,
+) -> Result<bool, EntDbError> {
+    let jour = jour_etab(conn, etab).await?;
+    let (ok,): (bool,) = sqlx::query_as(
+        "SELECT COALESCE((SELECT s.role <> 'titulaire' OR EXISTS (
+                    SELECT 1 FROM ent_eleve_lien l
+                      JOIN ent_doc_circuit c ON c.etablissement_id = s.etablissement_id AND c.id = s.circuit_id
+                      JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+                     WHERE l.etablissement_id = s.etablissement_id AND l.personne_id = s.personne_id AND l.eleve_id = d.eleve_id
+                       AND l.autorite_parentale AND l.suspendu_le IS NULL
+                       AND (l.date_debut IS NULL OR l.date_debut <= $3) AND (l.date_fin IS NULL OR l.date_fin >= $3))
+                   FROM ent_doc_signataire s WHERE s.etablissement_id = $1 AND s.id = $2), false)",
+    )
+    .bind(etab)
+    .bind(signataire_id)
+    .bind(jour)
+    .fetch_one(conn)
+    .await
+    .map_err(db)?;
+    Ok(ok)
+}
+
 pub(crate) async fn est_signataire_du_circuit(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     circuit_id: Uuid,
 ) -> Result<bool, EntDbError> {
+    let jour = jour_etab(conn, a.etablissement_id).await?;
     let (ok,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (
             SELECT 1 FROM ent_doc_signataire s
+              JOIN ent_doc_circuit c ON c.etablissement_id = s.etablissement_id AND c.id = s.circuit_id
+              JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
               LEFT JOIN ent_personne p ON p.etablissement_id = s.etablissement_id AND p.id = s.personne_id
               LEFT JOIN ent_agent ag ON ag.etablissement_id = s.etablissement_id AND ag.id = s.agent_id
               LEFT JOIN ent_personne ap ON ap.etablissement_id = ag.etablissement_id AND ap.id = ag.personne_id
               LEFT JOIN ent_eleve_compte ec ON ec.etablissement_id = s.etablissement_id AND ec.eleve_id = s.eleve_id
              WHERE s.etablissement_id = $1 AND s.circuit_id = $2
-               AND COALESCE(p.user_id, ap.user_id, ec.user_id) = $3)",
+               AND COALESCE(p.user_id, ap.user_id, ec.user_id) = $3
+               AND (s.role <> 'titulaire' OR EXISTS (
+                    SELECT 1 FROM ent_eleve_lien l
+                     WHERE l.etablissement_id = s.etablissement_id AND l.personne_id = s.personne_id AND l.eleve_id = d.eleve_id
+                       AND l.autorite_parentale AND l.suspendu_le IS NULL
+                       AND (l.date_debut IS NULL OR l.date_debut <= $4) AND (l.date_fin IS NULL OR l.date_fin >= $4))))",
     )
     .bind(a.etablissement_id)
     .bind(circuit_id)
     .bind(a.user_id)
+    .bind(jour)
     .fetch_one(conn)
     .await
     .map_err(db)?;
