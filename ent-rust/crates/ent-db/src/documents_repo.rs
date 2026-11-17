@@ -1276,8 +1276,22 @@ impl PgEnt {
             json!({ "nature": n.code, "sensibilite": n.sensibilite.code(), "version": nouvelle }),
         )
         .await?;
+        // Lot D6 : un document signé est immuable ; la nouvelle version clôt le circuit en cours (obsolète) et
+        // demandera de nouvelles signatures.
+        let mut evts = vec![ev];
+        evts.extend(
+            crate::documents_signature_repo::clore_circuits_du_document_tx(
+                &mut tx,
+                a,
+                doc.id,
+                "obsolete",
+                "nouvelle version du document : nouvelle signature nécessaire",
+                doc.eleve_id,
+            )
+            .await?,
+        );
         tx.commit().await.map_err(db)?;
-        self.diffuser_apres_commit(&[ev]);
+        self.diffuser_apres_commit(&evts);
         Ok(DocumentEmis {
             document_id: doc.id,
             version_id,
@@ -1365,8 +1379,20 @@ impl PgEnt {
             json!({ "nature": doc.nature_code, "sensibilite": doc.sensibilite }),
         )
         .await?;
+        let mut evts = vec![ev];
+        evts.extend(
+            crate::documents_signature_repo::clore_circuits_du_document_tx(
+                &mut tx,
+                a,
+                doc.id,
+                "annule",
+                "document annulé",
+                doc.eleve_id,
+            )
+            .await?,
+        );
         tx.commit().await.map_err(db)?;
-        self.diffuser_apres_commit(&[ev]);
+        self.diffuser_apres_commit(&evts);
         Ok(())
     }
 

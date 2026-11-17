@@ -158,10 +158,10 @@ pub const TRAITEMENTS_BASE: &[TraitementBase] = &[
     TraitementBase {
         code: "documents",
         libelle: "Documents, certificats et attestations",
-        finalite: "Émettre, conserver et mettre à disposition les documents officiels (certificats, attestations, relevés) et leurs exemplaires.",
+        finalite: "Émettre, conserver et mettre à disposition les documents officiels (certificats, attestations, relevés) et leurs exemplaires ; faire signer ces documents (circuits, preuve chaînée, dossier de preuve) et en garder la preuve.",
         personnes: &["élèves", "responsables légaux", "personnels"],
         domaines: &["documents"],
-        lecture: &[DocumentsLire, DocumentsRegistreLire, DocumentsEmettre],
+        lecture: &[DocumentsLire, DocumentsRegistreLire, DocumentsEmettre, DocumentsSignaturesGerer],
         module: None,
     },
     TraitementBase {

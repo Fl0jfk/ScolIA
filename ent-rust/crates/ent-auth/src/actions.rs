@@ -482,6 +482,10 @@ pub enum Action {
     DocumentsPiecesDemander,
     /// Contrôler une pièce déposée : accepter, refuser avec motif, déclarer sans objet (D5).
     DocumentsPiecesControler,
+    /// Socle 7, lot D6 : lancer, suivre, relancer, annuler un circuit de signature ; valider un papier signé.
+    DocumentsSignaturesGerer,
+    /// Socle 7, lot D6 : constater une signature au guichet (agent identifié, identité vue, confirmation).
+    DocumentsSignaturesConstater,
     // ── Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`18_FORMULAIRES.md` §23.1) ──
     /// Lire les **verdicts** d'accord (peut / ne peut pas / en attente) des élèves de sa portée, sans motif
     /// ni décideur (R-FC39). Portées : établissement, mes classes, périmètre, désignés.
@@ -598,7 +602,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 244] = [
+    pub const TOUTES: [Action; 246] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -850,6 +854,8 @@ impl Action {
         Action::DocumentsClasser,
         Action::DocumentsPiecesDemander,
         Action::DocumentsPiecesControler,
+        Action::DocumentsSignaturesGerer,
+        Action::DocumentsSignaturesConstater,
         // Socle 16, lots M3 et M4 (en fin de catalogue).
         Action::MessagerieBoitesGerer,
         Action::MessagerieBoiteTraiter,
@@ -1073,6 +1079,8 @@ impl Action {
             Self::DocumentsClasser => "documents.classer",
             Self::DocumentsPiecesDemander => "documents.pieces.demander",
             Self::DocumentsPiecesControler => "documents.pieces.controler",
+            Self::DocumentsSignaturesGerer => "documents.signatures.gerer",
+            Self::DocumentsSignaturesConstater => "documents.signatures.constater",
             Self::AutorisationsLire => "autorisations.lire",
             Self::AutorisationsGerer => "autorisations.gerer",
             Self::AutorisationsParametrer => "autorisations.parametrer",
@@ -1325,6 +1333,8 @@ impl Action {
             Self::DocumentsClasser => "Retirer ou rendre une mise à disposition de document (coffre), avec motif",
             Self::DocumentsPiecesDemander => "Demander, relancer ou annuler une pièce justificative ; voir ce qui manque à un dossier",
             Self::DocumentsPiecesControler => "Contrôler les pièces déposées : accepter, refuser avec motif, déclarer sans objet",
+            Self::DocumentsSignaturesGerer => "Lancer, suivre, relancer ou annuler un circuit de signature ; valider un papier signé",
+            Self::DocumentsSignaturesConstater => "Constater une signature au guichet (agent identifié, identité vue, confirmation)",
             Self::AutorisationsLire => "Lire les verdicts d'accord (peut / ne peut pas / en attente) des élèves de sa portée",
             Self::AutorisationsGerer => "Lire les décisions, preuves et désaccords ; corriger ou annuler une saisie",
             Self::AutorisationsParametrer => "Activer les objets d'accord, rédiger et publier les versions de texte et leurs usages",
@@ -1601,6 +1611,8 @@ impl Action {
             | Self::DocumentsClasser
             | Self::DocumentsPiecesDemander
             | Self::DocumentsPiecesControler
+            | Self::DocumentsSignaturesGerer
+            | Self::DocumentsSignaturesConstater
             | Self::AutorisationsGerer
             | Self::AutorisationsParametrer => &[Portee::Etablissement],
             | Self::ConformiteLire
@@ -2579,6 +2591,13 @@ fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
         Role::Administratif | Role::Direction | Role::Compta | Role::Infirmerie | Role::Accueil
     ) {
         d.push(etab(DocumentsPiecesControler));
+    }
+    // Lot D6 : lancer et suivre les circuits (secrétariat, vie scolaire, direction) ; constater au guichet (accueil compris).
+    if matches!(role, Role::Administratif | Role::Cpe | Role::Direction) {
+        d.push(etab(DocumentsSignaturesGerer));
+    }
+    if matches!(role, Role::Administratif | Role::Cpe | Role::Direction | Role::Accueil) {
+        d.push(etab(DocumentsSignaturesConstater));
     }
 }
 

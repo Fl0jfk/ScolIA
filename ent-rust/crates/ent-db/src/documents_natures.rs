@@ -167,6 +167,17 @@ pub enum ReponseDepot {
         emis_le: NaiveDate,
         etat: EtatVerifie,
     },
+    /// Lot D6 : le fichier déposé est le **PDF signé** (ou le dossier de preuve) d'un circuit complet. Aucun nom de
+    /// signataire n'est jamais rendu : seulement le nombre de signatures et le jour de la complétion.
+    IdentiqueSigne {
+        emetteur: String,
+        emis_le: NaiveDate,
+        etat: EtatVerifie,
+        nb_signatures: i64,
+        complet_le: NaiveDate,
+        /// Le dossier de preuve (et non le PDF signé) a été déposé.
+        dossier_de_preuve: bool,
+    },
     Different,
 }
 
@@ -658,8 +669,59 @@ impl PgEnt {
         let Some((document_id, etat_doc, num, courante, emis_le, annule_le, emetteur, _mode)) =
             ligne
         else {
+            // Lot D6 : le fichier est peut-être un PDF signé ou un dossier de preuve.
+            let signe = sqlx::query(
+                "SELECT d.id, d.etat, v.numero_version, d.version_courante,
+                        ent_aujourdhui_etab(v.etablissement_id, v.emise_le) AS emis_le,
+                        CASE WHEN d.annule_le IS NULL THEN NULL ELSE ent_aujourdhui_etab(d.etablissement_id, d.annule_le) END AS annule_le,
+                        e.raison_sociale, c.id AS circuit_id,
+                        ent_aujourdhui_etab(c.etablissement_id, c.clos_le) AS complet_le, (c.preuve_sha256 = $2) AS preuve
+                   FROM ent_doc_circuit c
+                   JOIN ent_doc_version v ON v.etablissement_id = c.etablissement_id AND v.id = c.version_id
+                   JOIN ent_doc_document d ON d.etablissement_id = c.etablissement_id AND d.id = c.document_id
+                   JOIN ent_doc_entite e ON e.etablissement_id = d.etablissement_id AND e.id = d.entite_id
+                  WHERE c.etablissement_id = $1 AND c.etat = 'complet' AND d.verification_publique <> 'aucune'
+                    AND (c.pdf_signe_sha256 = $2 OR c.preuve_sha256 = $2)
+                  LIMIT 1",
+            )
+            .bind(etab)
+            .bind(&sha)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            let Some(r) = signe else {
+                tx.commit().await.map_err(db)?;
+                return Ok(ReponseDepot::Different);
+            };
+            use sqlx::Row;
+            let circuit_id: Uuid = r.get("circuit_id");
+            let (nb,): (i64,) = sqlx::query_as(
+                "SELECT count(*) FROM ent_doc_signature WHERE etablissement_id = $1 AND circuit_id = $2",
+            )
+            .bind(etab)
+            .bind(circuit_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            let etat = etat_verifie(
+                &mut tx,
+                etab,
+                r.get("id"),
+                &r.get::<String, _>("etat"),
+                r.get("numero_version"),
+                r.get("version_courante"),
+                r.get("annule_le"),
+            )
+            .await?;
             tx.commit().await.map_err(db)?;
-            return Ok(ReponseDepot::Different);
+            return Ok(ReponseDepot::IdentiqueSigne {
+                emetteur: r.get("raison_sociale"),
+                emis_le: r.get("emis_le"),
+                etat,
+                nb_signatures: nb,
+                complet_le: r.get("complet_le"),
+                dossier_de_preuve: r.get("preuve"),
+            });
         };
         let etat = etat_verifie(
             &mut tx,

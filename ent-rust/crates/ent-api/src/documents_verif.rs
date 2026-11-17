@@ -121,6 +121,18 @@ async fn verifier_depot(
     drop(octets);
     Ok(publique(match rep {
         ReponseDepot::Different => json!({ "resultat": "different" }),
+        ReponseDepot::IdentiqueSigne {
+            emetteur,
+            emis_le,
+            etat: e,
+            nb_signatures,
+            complet_le,
+            dossier_de_preuve,
+        } => json!({
+            "resultat": if dossier_de_preuve { "identique_dossier_de_preuve" } else { "identique_signe" },
+            "emetteur": emetteur, "emis_le": emis_le.to_string(), "etat": etat(&e),
+            "nb_signatures": nb_signatures, "complet_le": complet_le.to_string(),
+        }),
         ReponseDepot::Identique {
             emetteur,
             emis_le,

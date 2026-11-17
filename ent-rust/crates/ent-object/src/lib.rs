@@ -22,6 +22,7 @@
 pub mod clamav;
 pub mod presign;
 pub mod provider;
+pub mod rfc3161;
 pub mod s3;
 pub mod upload;
 

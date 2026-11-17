@@ -66,6 +66,10 @@ pub mod documents_pieces_taches;
 /// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
 pub mod documents_pdf;
 pub mod documents_repo;
+/// Socle 7, lot D6 : brique de signature (modes, preuve chaînée, parapheur, horodatage RFC 3161).
+pub mod documents_signature;
+pub mod documents_signature_repo;
+pub mod documents_signature_signer;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -665,6 +669,8 @@ mod tests_documents_d3;
 mod tests_documents_d4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

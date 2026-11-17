@@ -20,6 +20,8 @@ pub mod inflate;
 mod jpeg;
 mod normalise;
 pub mod piece;
+mod signatures;
+pub use signatures::{ajouter_page_signatures, ErreurSignatures};
 mod piece_flux;
 mod qr;
 pub mod releve;
