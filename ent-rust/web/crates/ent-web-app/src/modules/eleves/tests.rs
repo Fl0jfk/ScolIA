@@ -149,7 +149,7 @@ fn une_pastille_se_lit_en_toutes_lettres_valeur_comprise() {
     );
     assert_eq!(
         phrase_pastille(&pastille("pai", "alerte", None, Some(jour(2027, 6, 30)))),
-        &format!("Interne, jusqu'au {}", date_fr(jour(2027, 6, 30)))
+        format!("Interne, jusqu'au {}", date_fr(jour(2027, 6, 30)))
     );
     assert_eq!(teinte_gravite("alerte"), "mal");
     assert_eq!(teinte_gravite("attention"), "avert");
