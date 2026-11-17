@@ -546,6 +546,27 @@ pub struct EdtReferenceDto {
     pub pose_par_user_id: Option<Uuid>,
 }
 
+/// Seuil réglable de la mention « répond rarement aux sollicitations » (A11f, ABP-262) : nombre de demandes
+/// restées sans réponse sur douze mois au-delà duquel la mention est posée (avec la moitié des demandes
+/// traitées). La mention n'est jamais montrée au professeur concerné (R-AP2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParametresAbsencesDto {
+    /// Valeur en vigueur pour l'établissement (1 à 20).
+    pub seuil_sans_reponse_min: i16,
+    /// Valeur d'origine, appliquée tant que l'établissement n'a rien réglé.
+    pub seuil_sans_reponse_defaut: i16,
+    /// Vrai si l'établissement a réglé sa propre valeur.
+    pub regle: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modifie_le: Option<DateTime<Utc>>,
+}
+
+/// Règle le seuil de la mention (direction, droit `parametrer`) : de 1 à 20.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModifierParametresAbsencesBody {
+    pub seuil_sans_reponse_min: i16,
+}
+
 /// Bilan d'un recalcul d'impacts (tâche planifiée, ABP-151).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BilanImpactDto {
@@ -889,13 +910,17 @@ pub struct LigneRemonteeRcdDto {
     pub discipline_code: String,
     pub niveau_code: String,
     /// Catégorie nationale du motif (`raison_sante` · `evenement_familial` · `formation` · `institutionnel` ·
-    /// `convenance_personnelle` · `en_attente_de_motif`).
+    /// `convenance_personnelle` · `en_attente_de_motif` · `non_detaille` si l'effectif est trop faible).
     pub categorie_nationale: String,
     /// `remplacement` · `autre_cours` · `deplacement` · `continuite` · `annulation` · `suppleance` · `aucune`.
     pub mode_continuite: String,
     pub heures_prevues: f64,
     pub heures_absence: f64,
     pub heures_remplacees: f64,
+    /// Agents distincts du regroupement, **seulement s'ils sont au moins 3** ; absent sous le seuil (affiché « < 3 »)
+    /// et la catégorie est alors `non_detaille` (masquage des petits effectifs, S-1512, à confirmer avec le DPO).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effectif: Option<i16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1023,6 +1048,10 @@ pub struct ValiderHeuresBody {
     pub mois: NaiveDate,
     #[serde(default)]
     pub agent_id: Option<Uuid>,
+    /// `etat` · `ogec` : limite la validation à un employeur (l'écran n'en montre qu'un à la fois). Absent : tout le
+    /// périmètre du valideur.
+    #[serde(default)]
+    pub employeur: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

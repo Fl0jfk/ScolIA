@@ -886,7 +886,7 @@ impl PgEnt {
         role: &str,
         body: &SaisirHeureBody,
     ) -> Result<HeureDto, EntDbError> {
-        self.exiger_heures_valider(etab, actor, role).await?;
+        let r = self.exiger_heures_valider(etab, actor, role).await?;
         let nature = *NATURES_HEURE
             .iter()
             .find(|n| **n == body.nature)
@@ -905,6 +905,11 @@ impl PgEnt {
             .await
             .map_err(db)?;
         if !existe {
+            return Err(introuvable());
+        }
+        // Périmètre d'employeur : on ne saisit pas l'heure d'un agent d'un employeur hors de son cercle (§23.3).
+        let employeur = employeur_agent(&mut tx, etab, body.agent_id, body.le).await?;
+        if !employeurs_permis(r).contains(&employeur) {
             return Err(introuvable());
         }
         let h = self
@@ -945,13 +950,14 @@ impl PgEnt {
         let ids: Vec<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT id, agent_id FROM ent_absp_heure
               WHERE etablissement_id = $1 AND mois = $2 AND employeur = ANY($3) AND etat = 'constatee'
-                AND ($4::uuid IS NULL OR agent_id = $4)
+                AND ($4::uuid IS NULL OR agent_id = $4) AND ($5::text IS NULL OR employeur = $5)
               ORDER BY le, cree_le FOR UPDATE",
         )
         .bind(etab)
         .bind(mois)
         .bind(&permis)
         .bind(body.agent_id)
+        .bind(&body.employeur)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

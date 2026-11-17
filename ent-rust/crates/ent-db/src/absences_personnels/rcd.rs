@@ -126,6 +126,15 @@ pub fn position(valeur: f64, mediane: f64) -> &'static str {
     }
 }
 
+/// **Masquage des petits effectifs** (S-1512, « seuil de masquage des indicateurs », défaut 5 dans la conception ;
+/// **3 retenu sur décision du pilote, à confirmer avec le DPO**). Si moins de `SEUIL_PETIT_EFFECTIF` agents distincts
+/// forment un regroupement (discipline, niveau, catégorie de motif), la catégorie de motif est remplacée par
+/// `CATEGORIE_NON_DETAILLEE` et l'effectif n'est pas communiqué (« < 3 ») : une catégorie ne doit jamais pouvoir
+/// désigner une personne (ex. la seule professeure de latin en 6ᵉ).
+pub const SEUIL_PETIT_EFFECTIF: i64 = 3;
+/// Catégorie portée par une ligne masquée (« non détaillé (effectif trop faible) »).
+pub const CATEGORIE_NON_DETAILLEE: &str = "non_detaille";
+
 /// Une ligne brute de remontée (avant ventilation des heures prévues).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LigneBrute {
@@ -135,6 +144,8 @@ pub struct LigneBrute {
     pub mode: String,
     pub absence: f64,
     pub remplacees: f64,
+    /// Agents distincts du regroupement (discipline, niveau, catégorie) : sert au masquage, jamais communiqué sous le seuil.
+    pub effectif: i64,
 }
 
 /// Arrondi à un chiffre décimal (colonnes `NUMERIC(7,1)`).
@@ -146,9 +157,31 @@ pub fn arrondi1(x: f64) -> f64 {
 /// portées **une seule fois** (sur la première ligne du couple, dans l'ordre catégorie puis mode) pour que la somme
 /// des lignes reste exacte ; les autres lignes du couple portent 0. Les lignes sont triées et sans personne.
 pub fn lignes_remontee(
-    mut brutes: Vec<LigneBrute>,
+    brutes: Vec<LigneBrute>,
     prevues: &std::collections::HashMap<(String, String), f64>,
 ) -> Vec<LigneRemonteeRcdDto> {
+    // Masquage des petits effectifs, puis fusion des lignes devenues identiques (sommes des heures).
+    let mut fusion: Vec<LigneBrute> = Vec::new();
+    for mut b in brutes {
+        if b.effectif < SEUIL_PETIT_EFFECTIF {
+            b.categorie = CATEGORIE_NON_DETAILLEE.to_string();
+            b.effectif = 0;
+        }
+        match fusion
+            .iter_mut()
+            .find(|x| (&x.discipline, &x.niveau, &x.categorie, &x.mode) == (&b.discipline, &b.niveau, &b.categorie, &b.mode))
+        {
+            Some(x) => {
+                x.absence += b.absence;
+                x.remplacees += b.remplacees;
+                if b.categorie != CATEGORIE_NON_DETAILLEE {
+                    x.effectif = x.effectif.max(b.effectif);
+                }
+            }
+            None => fusion.push(b),
+        }
+    }
+    let mut brutes = fusion;
     brutes.sort_by(|a, b| {
         (&a.discipline, &a.niveau, &a.categorie, &a.mode).cmp(&(&b.discipline, &b.niveau, &b.categorie, &b.mode))
     });
@@ -166,6 +199,8 @@ pub fn lignes_remontee(
                 heures_prevues: arrondi1(p),
                 heures_absence: arrondi1(b.absence),
                 heures_remplacees: arrondi1(b.remplacees),
+                // Sous le seuil : jamais de chiffre (l'écran dit « < 3 »).
+                effectif: (b.effectif >= SEUIL_PETIT_EFFECTIF).then_some(b.effectif as i16),
             }
         })
         .collect()
@@ -184,16 +219,17 @@ pub fn cellule_csv(s: &str) -> String {
 /// Tableau équivalent de la remontée (Q-AP3) : une ligne par (discipline, niveau, catégorie, mode), aucune personne.
 pub fn csv_remontee(r: &RemonteeRcdDto) -> String {
     let mut s = String::from(
-        "semaine,discipline,niveau,categorie_nationale,mode_continuite,heures_prevues,heures_absence,heures_remplacees\n",
+        "semaine,discipline,niveau,categorie_nationale,mode_continuite,effectif,heures_prevues,heures_absence,heures_remplacees\n",
     );
     for l in &r.lignes {
         s.push_str(&format!(
-            "{},{},{},{},{},{:.1},{:.1},{:.1}\n",
+            "{},{},{},{},{},{},{:.1},{:.1},{:.1}\n",
             r.semaine,
             cellule_csv(&l.discipline_code),
             cellule_csv(&l.niveau_code),
             l.categorie_nationale,
             l.mode_continuite,
+            l.effectif.map_or("<3".to_string(), |e| e.to_string()),
             l.heures_prevues,
             l.heures_absence,
             l.heures_remplacees
@@ -1151,6 +1187,29 @@ impl PgEnt {
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
+        // Agents distincts par (discipline, niveau, catégorie) : base du masquage des petits effectifs (S-1512).
+        let effectifs: Vec<(String, String, String, i64)> = sqlx::query_as(
+            "SELECT lower(btrim(sc.matiere_libelle)), COALESCE(NULLIF(btrim(cl.niveau), ''), 'inconnu'),
+                    COALESCE(n.categorie_nationale,
+                             CASE WHEN a.cause = 'service' THEN 'institutionnel' ELSE 'en_attente_de_motif' END),
+                    count(DISTINCT a.agent_id)
+               FROM ent_absp_impact i
+               JOIN ent_absp_absence a ON a.etablissement_id = i.etablissement_id AND a.id = i.absence_id
+               JOIN ent_edt_seance sc ON sc.etablissement_id = i.etablissement_id AND sc.id = i.seance_id
+               LEFT JOIN ent_classe cl ON cl.id = sc.classe_id
+               LEFT JOIN ent_absp_nature n ON n.id = a.nature_id
+              WHERE i.etablissement_id = $1 AND i.type = 'seance' AND sc.jour >= $2 AND sc.jour < $2 + 7
+                AND a.etat NOT IN ('annulee', 'refusee', 'signalee') AND i.etat <> 'sans_objet'
+                AND (a.fin - a.debut) <= interval '14 days'
+              GROUP BY 1, 2, 3",
+        )
+        .bind(etab)
+        .bind(semaine)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        let effectifs: std::collections::HashMap<(String, String, String), i64> =
+            effectifs.into_iter().map(|(d, n, c, e)| ((d, n, c), e)).collect();
         let prevues: Vec<(String, String, f64)> = sqlx::query_as(
             "SELECT lower(btrim(sc.matiere_libelle)), COALESCE(NULLIF(btrim(cl.niveau), ''), 'inconnu'),
                     sum(EXTRACT(EPOCH FROM (sc.heure_fin - sc.heure_debut)) / 3600.0)::float8
@@ -1172,6 +1231,7 @@ impl PgEnt {
         let brutes = lignes
             .into_iter()
             .map(|(d, n, c, m, h, r)| LigneBrute {
+                effectif: effectifs.get(&(d.clone(), n.clone(), c.clone())).copied().unwrap_or(0),
                 discipline: borne(&d, 40, "inconnue"),
                 niveau: borne(&n, 20, "inconnu"),
                 categorie: c,
@@ -1240,8 +1300,8 @@ impl PgEnt {
             sqlx::query(
                 "INSERT INTO ent_absp_rcd_remontee_ligne
                    (id, etablissement_id, remontee_id, discipline_code, niveau_code, categorie_nationale, mode_continuite,
-                    heures_prevues, heures_absence, heures_remplacees)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                    heures_prevues, heures_absence, heures_remplacees, effectif)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             )
             .bind(Uuid::new_v4())
             .bind(etab)
@@ -1253,6 +1313,7 @@ impl PgEnt {
             .bind(l.heures_prevues)
             .bind(l.heures_absence)
             .bind(l.heures_remplacees)
+            .bind(l.effectif)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
@@ -1524,9 +1585,9 @@ async fn remontee_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Re
     .await
     .map_err(db)?
     .ok_or_else(introuvable)?;
-    let lignes: Vec<(String, String, String, String, f64, f64, f64)> = sqlx::query_as(
+    let lignes: Vec<(String, String, String, String, f64, f64, f64, Option<i16>)> = sqlx::query_as(
         "SELECT discipline_code, niveau_code, categorie_nationale, mode_continuite, heures_prevues::float8,
-                heures_absence::float8, heures_remplacees::float8
+                heures_absence::float8, heures_remplacees::float8, effectif
            FROM ent_absp_rcd_remontee_ligne WHERE etablissement_id = $1 AND remontee_id = $2
           ORDER BY discipline_code, niveau_code, categorie_nationale, mode_continuite",
     )
@@ -1544,7 +1605,8 @@ async fn remontee_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Re
         transmise_le,
         lignes: lignes
             .into_iter()
-            .map(|(d, n, c, m, p, a, r)| LigneRemonteeRcdDto {
+            .map(|(d, n, c, m, p, a, r, e)| LigneRemonteeRcdDto {
+                effectif: e,
                 discipline_code: d,
                 niveau_code: n,
                 categorie_nationale: c,
@@ -1625,6 +1687,7 @@ mod tests {
             mode: m.into(),
             absence: a,
             remplacees: 0.0,
+            effectif: 5,
         };
         let l = lignes_remontee(
             vec![b("raison_sante", "aucune", 2.0), b("formation", "remplacement", 3.0), b("formation", "aucune", 1.0)],
@@ -1634,6 +1697,40 @@ mod tests {
         assert_eq!(l[0].categorie_nationale, "formation", "tri stable par catégorie puis mode");
         assert_eq!(l[0].heures_prevues, 12.0);
         assert_eq!(l.iter().map(|x| x.heures_absence).sum::<f64>(), 6.0);
+    }
+
+    #[test]
+    fn un_petit_effectif_ne_laisse_voir_aucune_categorie_de_motif() {
+        // Une seule professeure de latin en 6e (effectif 1) : sa catégorie de motif ne sort jamais ; trois profs de
+        // maths en 4e : la catégorie reste détaillée, avec son effectif.
+        let b = |d: &str, n: &str, c: &str, m: &str, e: i64| LigneBrute {
+            discipline: d.into(),
+            niveau: n.into(),
+            categorie: c.into(),
+            mode: m.into(),
+            absence: 2.0,
+            remplacees: 1.0,
+            effectif: e,
+        };
+        let l = lignes_remontee(
+            vec![
+                b("latin", "6e", "raison_sante", "aucune", 1),
+                b("latin", "6e", "formation", "aucune", 2),
+                b("maths", "4e", "raison_sante", "remplacement", 3),
+            ],
+            &HashMap::new(),
+        );
+        let latin: Vec<_> = l.iter().filter(|x| x.discipline_code == "latin").collect();
+        assert_eq!(latin.len(), 1, "les deux lignes masquées sont fusionnées : {l:?}");
+        assert_eq!(latin[0].categorie_nationale, CATEGORIE_NON_DETAILLEE);
+        assert_eq!(latin[0].effectif, None, "« < 3 » : jamais le chiffre");
+        assert_eq!(latin[0].heures_absence, 4.0, "les heures restent comptées");
+        let json = serde_json::to_string(&latin).unwrap();
+        for interdit in ["raison_sante", "formation", "sante"] {
+            assert!(!json.contains(interdit), "{interdit} : {json}");
+        }
+        let maths = l.iter().find(|x| x.discipline_code == "maths").unwrap();
+        assert_eq!((maths.categorie_nationale.as_str(), maths.effectif), ("raison_sante", Some(3)));
     }
 
     #[test]
@@ -1657,11 +1754,12 @@ mod tests {
                 heures_prevues: 12.0,
                 heures_absence: 2.0,
                 heures_remplacees: 0.0,
+                effectif: Some(4),
             }],
         };
         let c = csv_remontee(&r);
-        assert!(c.starts_with("semaine,discipline,niveau,categorie_nationale,mode_continuite,"));
-        assert!(c.contains("2027-11-08,'=cmd,4e,formation,aucune,12.0,2.0,0.0"), "{c}");
+        assert!(c.starts_with("semaine,discipline,niveau,categorie_nationale,mode_continuite,effectif,"));
+        assert!(c.contains("2027-11-08,'=cmd,4e,formation,aucune,4,12.0,2.0,0.0"), "{c}");
         assert!(!c.contains(&Uuid::nil().to_string()), "aucun identifiant dans le tableau");
     }
 }

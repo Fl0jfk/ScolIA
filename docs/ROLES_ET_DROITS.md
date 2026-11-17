@@ -155,6 +155,7 @@ Douze actions `voyages.*` (portée établissement seulement), pour les sorties e
 | `voyages.budget_valider` | Admin, Compta | valider le budget (le contenu du budget est le lot V0b) |
 | `voyages.prestataires` | Admin, Direction, Administratif, Compta | demandes de devis et courriers aux prestataires (envois : lot V0c) |
 | `voyages.reprise` | Admin, Direction | reprise des séjours de Next.js : import, rapprochement, tableau de bascule, bascule (lot V0d) ; la restauration et le journal de voyage n'ont pas d'action propre (porteur, `voyages.modifier`), la boîte de restauration et la dérogation demandent `voyages.autoriser` |
+| `reprise.decider` | Direction, Administratif (secrétariat) | voir la file « à décider » de la reprise depuis Next.js (fiches de l'export et fiches ScolIA côte à côte, **résumés minimisés**) et décider les rapprochements incertains : rattacher, créer, ignorer, décider en lot (cas forts sans contradiction), annuler (tant que la reprise n'est pas appliquée), retirer une équivalence de libellé (lot R3, socle 28). Établissement entier ; jamais Admin, enseignants, comptabilité, familles ni élèves |
 
 Un retrait pour raison financière n'est jamais décidé par le porteur ni par le secrétariat : décision motivée de la direction seulement (R-SV19).
 
