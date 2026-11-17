@@ -797,6 +797,8 @@ impl PgEnt {
     /// Élèves de `ids` à **exclure d'un export ou d'un trombinoscope imprimé** : mesure
     /// `hors_trombinoscope_exporte` en vigueur. À appeler par tout export nominatif (E11), quel que
     /// soit le droit de l'exportateur.
+    // Interne à ent-db : l'export (E11) le rappellera avec un contrôle d'acteur ; en attendant, seuls les tests l'appellent.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn eleves_hors_export(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
         if ids.is_empty() {
             return Ok(Vec::new());

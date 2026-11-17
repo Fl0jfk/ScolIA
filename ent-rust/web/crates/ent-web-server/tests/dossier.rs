@@ -77,7 +77,7 @@ async fn page_fiche_rendue_par_le_serveur() {
     let Some(base) = demarrer().await else { return };
     let http = reqwest::Client::new();
     let r = http
-        .get(format!("{base}/web/eleves/{}", Uuid::nil()))
+        .get(format!("{base}/web/eleves/{}/dossier", Uuid::nil()))
         .send()
         .await
         .unwrap();
