@@ -161,3 +161,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - **E7-E8**, socle 2 (session_01KZCbFGChmpQtXNCimQ2Kic, branche ent-socle-2-code-e7e8) ;
     - **fiabilité des tests 1** (session_01KZCbFH6UFiXqhs9drbgSKh, branche ent-fiabilite-tests-1) : `seed_labo_cast`, rejeu 644/648 (proposition au pilote avant tout code), tests AS6 et AG0.
   - Les deux fonctionnent selon la règle 35 : pull request en brouillon en fin de lot.
+- **17-11, 10 h 30 UTC** :
+  - **Le réveil par la PR 93 fonctionne** : le commentaire du run 349 (vert sur 5220c079) est arrivé seul.
+  - **FO2-FO3 versé** : ENT 96c287c5, TOUTES 253, SOURCES 61, RLS +18. Session archivée.
+  - Le run d'ENT suivant sera signalé sur la PR 93.
+  - Fiabilité : l'option A est validée pour le rejeu 644/648 (garde factice dans `rejouer_tout`, code de test seulement), avec une table des gardes de rejeu et un test.
