@@ -128,3 +128,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - en parallèle, ils paniquent dans `seed_labo_cast` (`tests_rls_stricte.rs:60`) avec `Domain(Infrastructure)` ou `Domain(Reessayer)` ; ils passent avec `--test-threads=1`.
   - À traiter dans un petit lot de fiabilité : réessai sur conflit de sérialisation dans la préparation du jeu d'essai.
 - ET0-ET1 : clippy complet sur sa branche, 4 avertissements, tous dans ses lignes, corrigés ; le pilote recompte à la fusion.
+- **17-11, 5 h 30 UTC, deux runs rouges, renvoyés aux sessions** :
+  - **ET0-ET1 (run 342)** :
+    - la matrice de cloisonnement trouve 26 cas de 204 sur `DELETE /espaces/depots/{id}` avec un identifiant de l'établissement B (fuite réelle ou 204 « idempotent », à établir) ;
+    - 12 tables `ent_espace*` sans fournisseur d'extrait RGPD (R-RG14).
+  - **I3-I4 (run 343)** : `inscriptions_pieces.rs` absent de SOURCES ; la route publique `POST /accords/{id}/consulter` est déclarée mais ne correspond pas au chemin monté. Le frontend est vert.
+  - Les tests de garde ont fait leur travail : ce sont des invariants, pas des tests instables.
