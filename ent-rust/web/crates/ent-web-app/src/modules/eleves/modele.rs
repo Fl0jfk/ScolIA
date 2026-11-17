@@ -427,10 +427,10 @@ pub fn lignes_identite(v: &IdentiteVersionDto) -> Vec<LigneIdentite> {
 
 /// La version courante : la plus récente dont l'effet est atteint (un changement daté d'un jour futur
 /// n'est pas encore l'état civil), sans version qui l'ait remplacée.
-pub fn version_courante<'a>(
-    versions: &'a [IdentiteVersionDto],
+pub fn version_courante(
+    versions: &[IdentiteVersionDto],
     jour: NaiveDate,
-) -> Option<&'a IdentiteVersionDto> {
+) -> Option<&IdentiteVersionDto> {
     versions
         .iter()
         .filter(|v| v.effet_du <= jour && v.remplacee_par.is_none())
@@ -440,7 +440,7 @@ pub fn version_courante<'a>(
 /// Versions de la frise, la plus récente d'abord (effet puis enregistrement).
 pub fn frise(versions: &[IdentiteVersionDto]) -> Vec<&IdentiteVersionDto> {
     let mut v: Vec<&IdentiteVersionDto> = versions.iter().collect();
-    v.sort_by(|a, b| (b.effet_du, b.enregistre_le).cmp(&(a.effet_du, a.enregistre_le)));
+    v.sort_by_key(|x| std::cmp::Reverse((x.effet_du, x.enregistre_le)));
     v
 }
 
@@ -500,7 +500,7 @@ pub struct EtapeFrise {
 /// Frise complète, la plus récente d'abord : chaque étape se compare à la **précédente dans le temps**.
 pub fn etapes_frise(versions: &[IdentiteVersionDto]) -> Vec<EtapeFrise> {
     let mut chrono: Vec<&IdentiteVersionDto> = versions.iter().collect();
-    chrono.sort_by(|a, b| (a.effet_du, a.enregistre_le).cmp(&(b.effet_du, b.enregistre_le)));
+    chrono.sort_by_key(|x| (x.effet_du, x.enregistre_le));
     let mut etapes: Vec<EtapeFrise> = chrono
         .iter()
         .enumerate()
