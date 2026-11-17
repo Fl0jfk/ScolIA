@@ -44,6 +44,12 @@ pub const FILES_ABSENCES_PERSONNEL: &str = "/web/personnel/instruction-absences"
 pub const CE_MATIN: &str = "/web/personnel/ce-matin";
 pub const SIGNALER_ABSENCE: &str = "/web/personnel/signaler-absence";
 pub const MES_REMPLACEMENTS: &str = "/web/personnel/remplacements";
+/// Heures, remplacement de courte durée et paramétrage (socle 15, A11d à A11f). « Mes heures » et le volontariat
+/// se rejoignent par « Mes remplacements » ; seuls les écrans de gestion ont une entrée de menu, selon le moteur.
+pub const MES_HEURES: &str = "/web/personnel/mes-heures";
+pub const ETATS_HEURES: &str = "/web/personnel/etats-heures";
+pub const RCD: &str = "/web/personnel/rcd";
+pub const PARAMETRAGE_ABSENCES: &str = "/web/personnel/parametrage-absences";
 pub const CAHIER: &str = "/web/cahier";
 /// Lot C6 : reports proposés, élèves en continuité.
 pub const CONTINUITE: &str = "/web/cahier/continuite";
@@ -274,6 +280,24 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
         || moteur.a("personnels.absences.lire_nature")
     {
         v.push(entree("Remplacements du jour", CE_MATIN, NomIcone::Horloge));
+    }
+    // Heures, états, remplacement de courte durée, paramétrage (A11d à A11f) : selon le moteur de droits.
+    if ["valider", "lire", "exporter", "signer"]
+        .iter()
+        .any(|a| moteur.a(&format!("personnels.heures.{a}")))
+        || moteur.a("personnels.paie.absences")
+    {
+        v.push(entree("Heures et états", ETATS_HEURES, NomIcone::Horloge));
+    }
+    if moteur.a("personnels.rcd.gerer") || moteur.a("personnels.rcd.remontee") {
+        v.push(entree("Plan de remplacement", RCD, NomIcone::Ecole));
+    }
+    if moteur.a("personnels.absences.parametrer") {
+        v.push(entree(
+            "Réglages des absences",
+            PARAMETRAGE_ABSENCES,
+            NomIcone::Passkey,
+        ));
     }
     // Communication (S2-8) : la famille réserve ses rendez-vous et signe ses formulaires (un
     // élève majeur signe lui-même) ; l'enseignant voit ses rendez-vous ; le personnel gère
@@ -652,6 +676,53 @@ mod tests {
             MES_ABSENCES_PERSONNEL,
             SIGNALER_ABSENCE
         ));
+    }
+
+    #[test]
+    fn heures_rcd_et_reglages_suivent_les_droits_du_moteur() {
+        // Aucune entrée sans droit du moteur (les rôles de base n'en voient aucune).
+        for role in [
+            "prof",
+            "cpe",
+            "administratif",
+            "compta",
+            "accueil",
+            "direction",
+        ] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            for a in [ETATS_HEURES, RCD, PARAMETRAGE_ABSENCES] {
+                assert!(!v.contains(&a.to_string()), "{role} {a}");
+            }
+        }
+        let a = |action: &str| {
+            adresses(
+                droits_du_role("administratif"),
+                &DroitsMoteur::new(vec![droit(action, "etablissement")]),
+            )
+        };
+        for action in [
+            "personnels.heures.valider",
+            "personnels.heures.lire",
+            "personnels.heures.exporter",
+            "personnels.heures.signer",
+            "personnels.paie.absences",
+        ] {
+            assert!(a(action).contains(&ETATS_HEURES.to_string()), "{action}");
+        }
+        assert!(a("personnels.rcd.gerer").contains(&RCD.to_string()));
+        assert!(a("personnels.rcd.remontee").contains(&RCD.to_string()));
+        assert!(a("personnels.absences.parametrer").contains(&PARAMETRAGE_ABSENCES.to_string()));
+        assert!(!a("personnels.rcd.gerer").contains(&ETATS_HEURES.to_string()));
+        // Chemins disjoints : « lien_actif » compare par préfixe.
+        for (x, y) in [
+            (ETATS_HEURES, MES_HEURES),
+            (RCD, MES_HEURES),
+            (MES_REMPLACEMENTS, MES_HEURES),
+            (PARAMETRAGE_ABSENCES, RCD),
+        ] {
+            assert!(!ent_web_ui::lien_actif(x, y), "{x} / {y}");
+            assert!(!ent_web_ui::lien_actif(y, x), "{y} / {x}");
+        }
     }
 
     #[test]

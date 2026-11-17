@@ -7,7 +7,7 @@
 
 use ent_types::absences_personnels::SollicitationDto;
 use ent_web_api::ApiError;
-use ent_web_ui::{Badge, Bouton, EtatVide, Selection, Squelette, Taille, Variante};
+use ent_web_ui::{Badge, Bouton, EtatVide, LienBouton, Selection, Squelette, Taille, Variante};
 use leptos::prelude::*;
 use leptos_meta::Title;
 use uuid::Uuid;
@@ -46,6 +46,11 @@ fn Contenu() -> impl IntoView {
     });
     view! {
         <RetourEcriture ecriture=ecriture/>
+        // Mes heures (A11d) et le volontariat RCD (A11e) : sans entrée de menu pour tout le personnel.
+        <p class="absp-barre">
+            <LienBouton href="/web/personnel/mes-heures" variante=Variante::Secondaire>"Mes heures"</LienBouton>
+            <LienBouton href="/web/personnel/rcd" variante=Variante::Secondaire>"Plan de remplacement et volontariat"</LienBouton>
+        </p>
         {move || match liste.get() {
             None => view! { <Squelette lignes=3 libelle="Chargement de vos demandes…"/> }.into_any(),
             Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| liste.refetch())/> }.into_any(),

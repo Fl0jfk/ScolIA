@@ -754,6 +754,13 @@ Correctifs urgents de l'existant, **implémentés et testés** (migration 520, t
 
 Limites connues : le circuit est en code (la table de règles du §32.6 et le vote du conseil d'administration arrivent en V1 et V8) ; la précondition « devis signé » est activée en V0c ; la plage de migrations est 640–659 (600–619 abandonnée) ; `42_SORTIES_VOYAGES.md` est une copie de la conception (`ent-mc0hoe`) avec un §33 ajouté.
 
+## Socle 15 — lots A11d, A11e, A11f « écrans » (2026-11-16, branche `ent-socle-15-code-a11def`, base `origin/ENT`) — PARTIEL
+
+**Implémenté et testé en local ; pas validé par Florian ; pas prêt pilote.** Rapport : `docs/socles/15_ABSENCES_A11_DEF.md` (captures et parcours dans `docs/socles/15_ABSENCES_A11_DEF_captures/`).
+- **Écrans.** Mes heures (attester, contester) ; heures du mois, saisie sans séance, validation, correction, état mensuel (figer, signer, exporter), régularisation, paie de l'OGEC, DSN (A11d) ; plan RCD versionné, volontaires et compteurs, remontée hebdomadaire sans nom (A11e) ; seuil de la mention « répond rarement », EDT de référence, circuit de validation (A11f).
+- **Backend ajouté (strict nécessaire).** Migration 2315 (colonnes du seuil dans `ent_absp_param`), `GET/PUT /personnels/absences/parametres`, seuil lu par les propositions (`repond_rarement`), `ValiderHeuresBody.employeur` (la validation ne déborde plus sur l'autre employeur), saisie d'heure limitée au périmètre d'employeur. Aucune action ajoutée (`personnels.absences.parametrer` existait).
+- **Non fait / limites.** Voir le rapport §2 et §7.
+
 ## Socle 15 — lots A11a, A11b, A11c « écrans » (2026-11-16, branche `ent-socle-15-code-a11`, base `origin/ENT`) — PARTIEL
 
 **Implémenté et testé en local ; pas validé par Florian ; pas prêt pilote.** Aucune migration, aucune route, aucune action backend : les écrans réutilisent les routes `/personnels/absences/*` des lots A0 à A9. Rapport : `docs/socles/15_ABSENCES_A11_ABC.md` (captures et script de parcours dans `docs/socles/15_ABSENCES_A11_captures/`).
