@@ -415,7 +415,8 @@ impl PgEnt {
         }
         let registre = async {
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            sqlx::query("DELETE FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2")
+            // Le registre est immuable : la ligne est marquée supprimée, jamais effacée.
+            sqlx::query("UPDATE ent_objet SET supprime_le = now() WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL")
                 .bind(etab)
                 .bind(cle)
                 .execute(&mut *tx)

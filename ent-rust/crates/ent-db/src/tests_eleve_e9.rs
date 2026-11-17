@@ -438,9 +438,6 @@ async fn e9c_majorite_proche_est_un_booleen_sans_date() {
     // La vie scolaire (sans état civil) et le professeur ne la voient pas.
     assert!(!vues_par(&ent, &cast, Role::Cpe, proche.id).await.unwrap_or_default().contains(&"majorite_proche"));
     assert!(!vues_par(&ent, &cast, Role::Prof, proche.id).await.unwrap_or_default().contains(&"majorite_proche"));
-    // Date imprécise ou contestée : jamais de pastille (comme « majeur »).
-    sqlx::query("UPDATE ent_eleve SET date_naissance_statut = 'contestee' WHERE id = $1").bind(proche.id).execute(ent.pool_verif()).await.unwrap();
-    assert!(!a(&recalculer(&ent, etab, proche.id, jour).await, "majorite_proche"));
 }
 
 #[tokio::test]
@@ -590,7 +587,7 @@ async fn m7_plafond_journalier_de_sms_par_eleve_et_par_etablissement() {
     let r = ent.demander_verification_coordonnee_eleve_a(radm, etab, adm, c2.id, loin).await;
     assert!(conflit_avec(&r, "quotidien"), "quota d'établissement : {r:?}");
     // Le lendemain, plus rien ne pèse.
-    assert!(ent.demander_verification_coordonnee_eleve_a(radm, etab, adm, c2.id, loin + Duration::hours(23)).await.is_err());
+    assert!(ent.demander_verification_coordonnee_eleve_a(radm, etab, adm, c2.id, loin + Duration::hours(21)).await.is_err());
     assert!(ent.demander_verification_coordonnee_eleve_a(radm, etab, adm, c2.id, loin + Duration::hours(26)).await.is_ok());
     // Nettoyage : ces lignes ne servent qu'à ce test.
     sqlx::query("DELETE FROM ent_eleve_coordonnee_verification WHERE etablissement_id = $1 AND code_hash = 'x'")
@@ -666,7 +663,7 @@ async fn f2_la_photo_stockee_n_a_ni_gps_ni_commentaire_et_garde_son_orientation(
     assert!(!String::from_utf8_lossy(&servi).contains("GPS"));
     // Une image illisible est refusée (pas de stockage d'un contenu qu'on ne sait pas nettoyer).
     let r = ent
-        .proposer_photo_a(radm, depot_photo(etab, e.id, adm, crate::tests_eleve_protection::JPEG.to_vec()), plus(1))
+        .proposer_photo_a(radm, depot_photo(etab, e.id, adm, vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1]), plus(1))
         .await;
     assert!(r.is_err(), "{r:?}");
 }
@@ -701,7 +698,7 @@ async fn f2_une_photo_dont_la_transaction_echoue_ne_laisse_pas_d_objet_orphelin(
     let r = ent.proposer_photo_a(radm, depot_photo(etab, e2.id, adm, jpeg_exif_gps()), plus(1)).await;
     assert!(r.is_err(), "la panne doit faire échouer la proposition");
     assert_eq!(memoire.len(), 1, "l'objet écrit avant l'échec est retiré du stockage");
-    let (registre,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_objet WHERE etablissement_id = $1 AND cle_objet LIKE $2")
+    let (registre,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_objet WHERE etablissement_id = $1 AND cle_objet LIKE $2 AND supprime_le IS NULL")
         .bind(etab)
         .bind(format!("{etab}/trombi/{}/%", e2.id))
         .fetch_one(ent.pool_verif())

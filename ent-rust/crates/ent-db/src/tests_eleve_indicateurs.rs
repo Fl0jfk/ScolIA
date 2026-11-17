@@ -59,7 +59,9 @@ async fn distribuer(ent: &PgEnt, etab: Uuid) {
 
 /// Codes des pastilles de la projection (lecture directe, sans droit : la vérité de la base).
 async fn projection(ent: &PgEnt, eleve: Uuid) -> Vec<String> {
-    sqlx::query_scalar("SELECT code FROM ent_eleve_indicateur WHERE eleve_id = $1 ORDER BY code")
+    // Les pastilles d'arrivée dépendent de la date d'entrée (le jour réel du test) : elles ont leurs
+    // propres tests (`tests_eleve_e9`) et ne brouillent pas ceux-ci.
+    sqlx::query_scalar("SELECT code FROM ent_eleve_indicateur WHERE eleve_id = $1 AND code NOT IN ('nouvel_arrivant', 'arrive_en_cours_annee') ORDER BY code")
         .bind(eleve)
         .fetch_all(ent.pool_verif())
         .await
@@ -195,7 +197,7 @@ async fn interne_pai_et_sans_ine_suivent_les_evenements() {
     };
     ent.enregistrer_pai_for_actor(Role::Infirmerie.as_str(), pai(true), None).await.unwrap();
     distribuer(&ent, etab).await;
-    assert_eq!(projection(&ent, e.id).await, ["interne", "pai_actif"]);
+    assert_eq!(projection(&ent, e.id).await, ["interne", "pai_actif", "protocole"]);
     ent.enregistrer_pai_for_actor(Role::Infirmerie.as_str(), pai(false), None).await.unwrap();
     distribuer(&ent, etab).await;
     assert_eq!(projection(&ent, e.id).await, ["interne"]);
@@ -403,9 +405,9 @@ async fn pastilles_dependant_du_temps_a_un_jour_explicite() {
     .await
     .unwrap();
     ent.reconstruire_indicateurs(etab, None, Some(jour(2026, 2, 27))).await.unwrap();
-    assert_eq!(projection(&ent, e.id).await, ["pai_actif", "sans_ine"], "veille de la majorité");
+    assert_eq!(projection(&ent, e.id).await, ["majorite_proche", "pai_actif", "protocole", "sans_ine"], "veille de la majorité");
     ent.reconstruire_indicateurs(etab, None, Some(jour(2026, 2, 28))).await.unwrap();
-    assert_eq!(projection(&ent, e.id).await, ["majeur", "pai_actif", "sans_ine"], "majeur le 28 février 2026");
+    assert_eq!(projection(&ent, e.id).await, ["majeur", "pai_actif", "protocole", "sans_ine"], "majeur le 28 février 2026");
     ent.reconstruire_indicateurs(etab, None, Some(jour(2026, 7, 1))).await.unwrap();
     assert_eq!(projection(&ent, e.id).await, ["majeur", "sans_ine"], "PAI échu le 30 juin");
     // Idempotence : un second passage ne change rien.

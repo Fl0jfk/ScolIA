@@ -695,7 +695,12 @@ async fn interne_visible_de_la_vie_scolaire_et_de_l_accueil_sans_rien_ouvrir_d_a
     // Vie scolaire (CPE) et accueil : `interne`, rien d'autre.
     for (u, role) in [(user(&cast, Role::Cpe).0, Role::Cpe.as_str()), (accueil, Role::Accueil.as_str())] {
         let s = ent.synthese_eleve_pour_acteur(role, etab, u, e.id).await.unwrap_or_else(|x| panic!("{role} : {x:?}"));
-        assert_eq!(codes(&s), ["interne"], "{role} : seulement `interne`");
+        // `interne` ; plus les faits d'organisation que la tuile « scolarité » porte (arrivée, protocole
+        // pour la vie scolaire) : jamais le PAI ni rien d'une autre tuile.
+        let c = codes(&s);
+        assert!(c.contains(&"interne"), "{role} : {c:?}");
+        assert!(c.iter().all(|x| ["interne", "nouvel_arrivant", "arrive_en_cours_annee", "protocole"].contains(x)), "{role} : {c:?}");
+        assert!(!c.contains(&"pai_actif"), "{role} : le PAI reste fermé");
         for t in &s.tuiles {
             let ouverte = matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible);
             assert_eq!(ouverte, t.domaine == "scolarite", "{role} : tuile {}", t.domaine);
