@@ -229,9 +229,13 @@ fn migrations_des_espaces_sans_json_ni_tableau_ni_bytea_et_avec_rls() {
         let sql = std::fs::read_to_string(dir.join(format!("{n}.sql"))).unwrap_or_else(|e| panic!("{n} : {e}"));
         let code: String = sql.lines().map(|l| l.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n").to_ascii_lowercase();
         for interdit in ["jsonb", " json", "bytea", "[]", "array["] {
-            // `ARRAY[` n'est admis que dans l'appel `ent_rls_poser(ARRAY[…])`.
+            // `ARRAY[` n'est admis que dans l'appel `ent_rls_poser(ARRAY[…])` ; `'[]'` n'est admis que comme bornes de `daterange`.
             let occurrences = code.matches(interdit).count();
-            let tolere = if interdit == "array[" { code.matches("ent_rls_poser(array[").count() } else { 0 };
+            let tolere = match interdit {
+                "array[" => code.matches("ent_rls_poser(array[").count(),
+                "[]" => code.matches("'[]'").count(),
+                _ => 0,
+            };
             assert_eq!(occurrences, tolere, "{n} : `{interdit}` interdit (D-036)");
         }
         let tables: Vec<String> = code
