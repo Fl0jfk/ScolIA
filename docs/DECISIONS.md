@@ -570,7 +570,7 @@ Toute idée du carnet (`docs/idees/CARNET_IDEES.md`) suit le circuit : **carnet 
 - jiff-sqlx 1.0.0 et 0.2.x exigent **sqlx 0.9**. Pour sqlx 0.8, il n'existe que jiff-sqlx 0.1.1 (mars 2025, jiff 0.2).
 - Nous sommes sur sqlx 0.8.6 (mai 2025), alors que sqlx 0.9.0 est sorti le 2026-05-21.
 
-**Recommandation du pilote, à confirmer par Florian** :
+**Recommandation du pilote, confirmée par Florian le 2026-11-17 (« go sur jiff ») après explication du rôle d'une bibliothèque de dates** :
 - Faire **en même temps** jiff 1.0, jiff-sqlx 1.0 et sqlx 0.9, pour ne pas migrer deux fois.
 - Fuseaux horaires : base de fuseaux embarquée (jiff-tzdb), pour un Europe/Paris identique sur le serveur, en CI et dans le navigateur (WASM).
 - Fenêtre : **après la démo de début décembre** (D-034), vers le 7 décembre. jiff 1.0 aura alors plus de trois semaines, ce qui évite d'adopter une 1.0 de deux jours. On ne fait pas une migration de 684 fichiers juste avant la démo.
