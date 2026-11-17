@@ -140,7 +140,7 @@ async fn interne_pai_et_sans_ine_suivent_les_evenements() {
     assert_eq!(projection(&ent, e.id).await, ["sans_ine"]);
 
     // INE ajouté : la pastille disparaît (événement `eleve.identifiant_change`).
-    let ine = format!("1234{}", &Uuid::new_v4().simple().to_string()[..7].replace(|c: char| !c.is_ascii_digit(), "5"));
+    let ine = format!("1234{}", Uuid::new_v4().simple().to_string()[..7].replace(|c: char| !c.is_ascii_digit(), "5"));
     ent.ajouter_identifiant(
         Role::Administratif.as_str(),
         AjoutIdentifiant {

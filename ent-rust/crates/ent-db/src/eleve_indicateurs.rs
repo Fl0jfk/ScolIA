@@ -231,7 +231,7 @@ impl PgEnt {
             .into_iter()
             .filter_map(|l| {
                 let def = indicateur_catalogue(&l.code)?;
-                a_le_droit(def.actions_requises).then(|| PastilleVue {
+                a_le_droit(def.actions_requises).then_some(PastilleVue {
                     code: def.code,
                     domaine: def.domaine,
                     libelle: def.libelle,
