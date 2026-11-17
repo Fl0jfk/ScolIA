@@ -47,6 +47,22 @@ Branche `ent-socle-24-code-f1f2` (partie de `origin/ENT`, fusionnée avec E7-E8 
 4. **Non livré** : gel au décès (FAC-209 / CF-10) ; intégration « à faire » (`afaire`) des tâches ; l'accueil au guichet n'est couvert que par le test de modèle de droits.
 5. Aucune dépendance ajoutée ; dates en `chrono` minimal, aucun nouvel utilitaire de date.
 
+## 4 bis. Ce que l'Administratif (secrétariat) peut et ne peut plus faire
+
+| Geste | Avant F1 | Après F1 |
+|---|---|---|
+| Consulter le solde, les échéances et les documents **d'une famille présente** | oui (liste complète) | **oui, via le guichet** (un compte à la fois, identité tracée) |
+| Lister toutes les factures / tous les comptes | oui | **non** (R-F23) |
+| Encaisser un règlement | non (F0, FD-27) | non (inchangé : droit `facturation.gerer`/comptabilité) |
+| Remettre un reçu / une quittance | non (routes sous `facturation.lire`) | **non — non couvert par le guichet** |
+| Désigner les payeurs, créer un organisme, prises en charge (`engagements`) | non | oui |
+| Émettre, avoir, paramétrer, exporter, journal, reprise | non | non |
+
+**Lacune explicite** : le guichet est en consultation seule. « Encaisser au comptoir et remettre un reçu » reste à la comptabilité ; si le secrétariat doit le faire, il faut une action dédiée (par exemple `facturation.encaisser_guichet` limitée aux espèces et chèques, avec reçu) — à décider par Florian, à prévoir avant la bascule de février.
+
+## 4 ter. Préalables explicites (écart 3)
+Le **gel au décès (FAC-209 / CF-10) doit passer avant toute relance automatique en production**. Recalcul des brouillons avant F4 ; intégration « à faire » des tâches.
+
 ## 5. Vérifications (locales)
 
 Formatage (2 commandes du job « Formatage »), clippy 1.99.0 sans avertissement (workspace, `--features ent-api/labo,ent-lab/labo`, `-p ent-types`), tests : `tests_finances`, `tests_finances_f2` (23 scénarios : CF-01, 02, 03, 16, 17, 74, 75, 82, 83, 84, FD-15, MIG-4/CF-09, journal, alias, droits fins, guichet, isolation), RLS, conservation, extrait de la personne, registre, rôles, fusion, `isolation_sql_statique`, gardes R-F1, `separation`, `recette_securite_3`, golden historique, `recette_finances_f0`.
