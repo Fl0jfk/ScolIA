@@ -20,7 +20,7 @@ use crate::facturation_payeurs::{
     PropositionDesignation, CATEGORIES_DESIGNATION,
 };
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
-use crate::finances::{aujourd_hui, compte_tx, conflit, db, introuvable, invalide, publier, texte};
+use crate::finances::{aujourd_hui, compte_tx, conflit, db, introuvable, invalide, publier_finance, texte};
 use crate::outbox::Causalite;
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 
@@ -589,7 +589,7 @@ impl PgEnt {
                 .detail("compte d'organisme payeur créé"),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_COMPTE_CREE,
@@ -632,7 +632,7 @@ impl PgEnt {
             )),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_REPRISE_COMPTES,
@@ -1016,7 +1016,7 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                publier(
+                publier_finance(
                     &mut tx,
                     etab,
                     types::FACTURATION_COMPTE_CREE,
@@ -1052,7 +1052,7 @@ impl PgEnt {
                 .detail(&format!("à compter du {} : acceptation de l'élève attendue", b.date_effet)),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_CHANGEMENT_PAYEUR_APPLIQUE,
@@ -1212,7 +1212,7 @@ impl PgEnt {
                 .detail(&format!("du {} au {}", b.du, b.au)),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_PRISE_EN_CHARGE,

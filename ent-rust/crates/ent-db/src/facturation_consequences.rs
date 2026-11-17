@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances::{
-    conflit, db, inserer_avoirs, inserer_lignes, introuvable, lignes_existantes, publier, AvoirAFaire,
+    conflit, db, inserer_avoirs, inserer_lignes, introuvable, lignes_existantes, publier_finance, AvoirAFaire,
     LigneAFacturer,
 };
 use crate::outbox::Causalite;
@@ -269,7 +269,7 @@ pub(crate) async fn decider_tx(
             )),
     )
     .await?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FACTURATION_CHANGEMENT_PAYEUR_APPLIQUE,

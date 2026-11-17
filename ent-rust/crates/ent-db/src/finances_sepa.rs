@@ -38,7 +38,7 @@ use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances::{
     aujourd_hui, conflit, db, echeances_couvertes, euros, facture_row,
     comptes_payeurs, introuvable, invalide, mode_paiement, notifier_payeurs, opt_texte, paliers_tx,
-    params_tx, poser_mode, prochain_numero, publier, verrou_foyer, FactureRow,
+    params_tx, poser_mode, prochain_numero, publier_finance, verrou_foyer, FactureRow,
     SELECT_FACTURE,
 };
 use crate::finances_calcul::{self as calcul, Ecriture};
@@ -77,7 +77,7 @@ pub(crate) async fn solder_si_paye(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FAC_FACTURE_SOLDEE,
@@ -327,7 +327,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_PRENOTIFICATION,
@@ -562,7 +562,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_PRENOTIFICATION,
@@ -604,7 +604,7 @@ impl PgEnt {
                     )),
             )
             .await?;
-            publier(
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_PRELEVEMENT,
@@ -765,7 +765,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_EXPORT,
@@ -852,7 +852,7 @@ impl PgEnt {
                     .detail(&format!("{} prélèvements constatés exécutés (date {})", rapport.executes, b.date_execution)),
             )
             .await?;
-            publier(
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_EXECUTE,
@@ -975,7 +975,7 @@ impl PgEnt {
                 db(e)
             }
         })?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_REJET,
@@ -1172,7 +1172,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_REGLEMENT,
@@ -1286,7 +1286,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
             if r.rows_affected() == 1 {
-                publier(
+                publier_finance(
                     &mut tx,
                     etab,
                     types::FAC_RELANCE_PROPOSEE,
@@ -1383,7 +1383,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
             let numero = facture_row(&mut tx, etab, facture).await?.numero;
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_RAPPEL_ENVOYE,
@@ -1420,7 +1420,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            publier(
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_RELANCE_ANNULEE,
@@ -1659,7 +1659,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_EXPORT_COMPTABLE,

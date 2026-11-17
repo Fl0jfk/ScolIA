@@ -32,7 +32,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
-use crate::finances::{conflit, db, introuvable, invalide, nb_mois_entre, publier};
+use crate::finances::{conflit, db, introuvable, invalide, nb_mois_entre, publier_finance};
 use crate::finances_calcul as calcul;
 use crate::outbox::Causalite;
 use crate::service::EntDbError;
@@ -685,7 +685,7 @@ pub(crate) async fn ouvrir_tache(
     .map_err(db)?;
     let creee = r.rows_affected() == 1;
     if creee {
-        publier(
+        publier_finance(
             conn,
             etab,
             types::FACTURATION_TACHE_PAYEUR,
@@ -1113,7 +1113,7 @@ pub(crate) async fn activer_groupe_tx(
             )),
     )
     .await?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FACTURATION_CONSEQUENCES_PROPOSEES,

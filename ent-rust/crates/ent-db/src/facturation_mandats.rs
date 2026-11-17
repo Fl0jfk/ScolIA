@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::champs_chiffres::ChampsSensibles;
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
-use crate::finances::{db, publier};
+use crate::finances::{db, publier_finance};
 use crate::outbox::Causalite;
 use crate::service::EntDbError;
 
@@ -82,7 +82,7 @@ pub(crate) async fn creer_mandat_signe_tx(
         .detail(&format!("mandat signé par la famille ({source})")),
     )
     .await?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FAC_SEPA_MANDAT,

@@ -106,7 +106,8 @@ pub(crate) fn opt_texte(s: &Option<String>, max: usize) -> Option<String> {
         .map(|t| t.chars().take(max).collect())
 }
 
-/// Publication dans la transaction du fait (outbox S2-0).
+/// Publication dans la transaction du fait (outbox S2-0), **sans transformation** : helper partagé avec
+/// d'autres domaines (demandes, internat) dont les charges et les noms d'événements restent inchangés.
 pub(crate) async fn publier(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -122,18 +123,44 @@ pub(crate) async fn publier(
         .publier_avec(
             MetierEventDraft {
                 etablissement_id: etab,
-                // F1 : nom canonique `facturation.*` (alias `fac.*` lisible) et charge sans
-                // montant, nom ni IBAN (R-F25), quel que soit l'appelant.
-                type_name: ent_events::canonique_facturation(type_name).to_string(),
+                type_name: type_name.to_string(),
                 aggregate,
                 aggregate_id,
                 eleve_id,
-                payload: crate::facturation_service::payload_neutre(payload),
+                payload,
                 actor_user_id: actor.map(|a| a.to_string()),
             },
             causalite,
         )
         .await?)
+}
+
+/// Publication d'un événement **financier** (F1) : nom canonique `facturation.*` (alias `fac.*` / `fin.*`
+/// lisible) et charge neutre — liste noire et liste blanche de clés, sans montant, nom ni IBAN (R-F25). Réservé
+/// aux événements de finances ; les autres domaines passent par [`publier`], inchangé.
+pub(crate) async fn publier_finance(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    type_name: &str,
+    aggregate: AggregateKind,
+    aggregate_id: Uuid,
+    eleve_id: Option<Uuid>,
+    payload: Value,
+    actor: Option<Uuid>,
+    causalite: Causalite,
+) -> Result<ent_events::MetierEvent, EntDbError> {
+    publier(
+        conn,
+        etab,
+        ent_events::canonique_facturation(type_name),
+        aggregate,
+        aggregate_id,
+        eleve_id,
+        crate::facturation_service::payload_neutre(payload),
+        actor,
+        causalite,
+    )
+    .await
 }
 
 /// Numéro suivant d'une série continue (factures, avoirs, exports).
@@ -449,7 +476,7 @@ async fn piece_brouillon(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FAC_FACTURE_CREEE,
@@ -539,7 +566,7 @@ pub(crate) async fn inserer_lignes(
         }
         recalculer_total(conn, etab, facture).await?;
         if creees > 0 {
-            publier(
+            publier_finance(
                 conn,
                 etab,
                 types::FAC_LIGNE_AJOUTEE,
@@ -769,7 +796,7 @@ pub(crate) async fn inserer_avoirs(
         }
         recalculer_total(conn, etab, avoir).await?;
         if creees > 0 {
-            publier(
+            publier_finance(
                 conn,
                 etab,
                 types::FAC_LIGNE_AJOUTEE,
@@ -2099,7 +2126,7 @@ impl PgEnt {
         .map_err(db)?;
         if crediteur_change {
             // Événement + alerte à la direction (IBAN toujours masqué).
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FIN_CREDITEUR_MODIFIE,
@@ -2196,7 +2223,7 @@ impl PgEnt {
             ),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_PARAMETRES_MODIFIES,
@@ -2336,7 +2363,7 @@ impl PgEnt {
                 .detail(&format!("article {code}")),
         )
         .await?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FACTURATION_ARTICLE_ENREGISTRE,
@@ -2425,7 +2452,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_TARIF_DEFINI,
@@ -2656,7 +2683,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_REMISE_APPLIQUEE,
@@ -2916,7 +2943,7 @@ impl PgEnt {
             drop(tx);
             return Ok(rapport);
         }
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_GENERATION_ANNUELLE,
@@ -3415,7 +3442,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::ELEVE_REGIME_CHANGED,
@@ -3469,7 +3496,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::ELEVE_SORTIE,
@@ -3677,7 +3704,7 @@ pub(crate) async fn emettre_piece_tx(
             .await
             .map_err(db)?;
         }
-        let evt = publier(
+        let evt = publier_finance(
             conn,
             etab,
             types::FAC_FACTURE_EMISE,
@@ -3732,7 +3759,7 @@ pub(crate) async fn emettre_piece_tx(
             .await
             .map_err(db)?;
         }
-        let evt = publier(
+        let evt = publier_finance(
             conn,
             etab,
             types::FAC_AVOIR_EMIS,
