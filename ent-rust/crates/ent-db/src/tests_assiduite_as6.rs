@@ -558,7 +558,17 @@ async fn as6_eleve_exclu_de_cours_non_arrive_alerte_a_dix_minutes() {
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
     ent.exclure_du_cours_for_actor(etab, a.id, lea, cast.prof.user_id, "prof", "web").await.unwrap();
-    let t0 = Utc::now();
+    // Instant fixé (règle 33) : l'exclusion « maintenant » + 11 minutes franchirait minuit entre 23 h 49 et
+    // minuit (heure de l'établissement) et changerait de jour ; l'exclusion est donc datée à 10 h, le même jour.
+    let t0 = instant(&ent, &cast, jour, 10, 0).await;
+    sqlx::query("UPDATE ent_appel_ligne SET exclusion_cours_le = $4 WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3")
+        .bind(etab)
+        .bind(a.id)
+        .bind(lea)
+        .bind(t0)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
     // 5 minutes plus tard : pas d'alerte.
     let b = ent.verifier_jour_systeme(etab, t0 + Duration::minutes(5)).await.unwrap();
     assert_eq!(b.alertes_non_arrivee, 0);

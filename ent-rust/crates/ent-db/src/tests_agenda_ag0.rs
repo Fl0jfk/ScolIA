@@ -37,6 +37,17 @@ pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     })
     .await;
     reset(&ent, cast.etablissement_id).await;
+    // Déterminisme : aucune heure calme (deux heures égales = pas de plage) ni jour calme, quelle que soit l'heure
+    // réelle d'exécution (`notifier_rdv` décide de la remise à l'heure réelle ; la plage calme par défaut,
+    // 20 h 30–7 h, et le dimanche différeraient les avis la nuit et le week-end). Même réglage que le lot N1.
+    sqlx::query(
+        "INSERT INTO ent_ntf_parametre (etablissement_id, calme_debut, calme_fin, jours_calmes_masque)
+         VALUES ($1, TIME '00:00', TIME '00:00', 0) ON CONFLICT (etablissement_id) DO NOTHING",
+    )
+    .bind(cast.etablissement_id)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
     Some((ent, cast))
 }
 
