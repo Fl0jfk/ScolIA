@@ -190,3 +190,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Le job `veille-pilote-pr` signale désormais un run remplacé (« ignorer »).
   - Désabonnement de la PR 95, session E7-E8 archivée.
   - **Session qui code : F1-F2.** Une place est libre (règle 32).
+- **17-11, 18 h 25 UTC** :
+  - **Run 362 vert** sur 47a5be1e : E7-E8 validé sur ENT, signalé automatiquement sur la PR 93.
+  - **Nouvelle session : socle 2 E9** (session_01KZCbFFb88g8sg1K1KdSSfw, branche ent-socle-2-code-e9). Partie 1, suites d'E7-E8 : catalogue E5, pastille « protocole », pastilles R-E9, M7, F2 à F5. Partie 2 : écrans E9a et E9b pour la démo. **Plage de migrations réservée : 3200-3219.**
+  - Session F1-F2 relancée : elle s'était déconnectée vers 15 h 07 UTC.
+  - **Sessions qui codent : F1-F2 et E9** (2 sur 2).
