@@ -558,3 +558,27 @@ Des revues complètes de sécurité et de qualité (failles, cloisonnement, droi
 
 ## D-066 — Circuit d'une idée : passe de réflexion du pilote avant les personas (Florian, 2026-11-15 ; complète D-021)
 Toute idée du carnet (`docs/idees/CARNET_IDEES.md`) suit le circuit : **carnet → passe de réflexion du pilote → passe personas → conception → code**. La **passe de réflexion du pilote** précède toujours les personas ; pour chaque idée, elle établit : ce que l'idée implique (socles, données, droits, préalables) ; cas limites et risques (RGPD, sécurité, erreurs, abus, effets pervers) ; enrichissements qui la rendraient remarquable et liens avec les autres idées et modules ; coût (code, dépendances, exploitation : IA, SMS…) ; questions à poser à Florian et décisions prises par défaut (D-031). Elle est écrite à la suite de l'idée dans le carnet (« Passe de réflexion du pilote »), puis les personas travaillent sur cette version étoffée.
+
+## D-067 — Remplacer chrono par jiff, avec sqlx 0.9, dans une fenêtre de gel (Florian, 2026-11-17)
+**Contexte** : l'alerte RUSTSEC-2026-0543, publiée le 2026-11-17, déclare chrono non maintenu. Ce n'est pas une faille, mais chrono est utilisé dans 684 fichiers (1 397 lignes, dont 141 fichiers web), et vingt fichiers de plus à chaque lot. Florian : plus on attend, plus le changement coûte. Une exception datée est posée dans les deux `deny.toml` en attendant.
+
+**Décision** : chrono est remplacé par **jiff** (choix de Florian), en un seul lot pendant une **fenêtre de gel** : aucune autre session ne code pendant la migration, sinon les conflits toucheraient toutes les branches.
+
+**Faits vérifiés le 2026-11-17 sur crates.io** :
+- jiff est sous licence MIT ou Unlicense, d'Andrew Gallant (BurntSushi), projet très actif.
+- jiff 1.0.0 est sorti le **2026-11-15**, avant lui 0.2.46.
+- jiff-sqlx 1.0.0 et 0.2.x exigent **sqlx 0.9**. Pour sqlx 0.8, il n'existe que jiff-sqlx 0.1.1 (mars 2025, jiff 0.2).
+- Nous sommes sur sqlx 0.8.6 (mai 2025), alors que sqlx 0.9.0 est sorti le 2026-05-21.
+
+**Recommandation du pilote, à confirmer par Florian** :
+- Faire **en même temps** jiff 1.0, jiff-sqlx 1.0 et sqlx 0.9, pour ne pas migrer deux fois.
+- Fuseaux horaires : base de fuseaux embarquée (jiff-tzdb), pour un Europe/Paris identique sur le serveur, en CI et dans le navigateur (WASM).
+- Fenêtre : **après la démo de début décembre** (D-034), vers le 7 décembre. jiff 1.0 aura alors plus de trois semaines, ce qui évite d'adopter une 1.0 de deux jours. On ne fait pas une migration de 684 fichiers juste avant la démo.
+
+**Garde-fous du lot** :
+- Format JSON des dates strictement identique dans l'API (test de non-régression des sérialisations), pour les écrans et les applis mobiles.
+- Aucun test retiré.
+- Le lot commence par une étude des ruptures de sqlx 0.9.
+- L'exception RUSTSEC-2026-0543 est retirée à la fin du lot.
+
+**Entre-temps** : rien ne change. La date de revue de l'exception est portée au lot de migration.
