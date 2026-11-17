@@ -591,6 +591,7 @@ dependencies = [
  "ent-oidc",
  "ent-pdf",
  "ent-push",
+ "ent-reprise",
  "ent-sms",
  "ent-types",
  "serde",

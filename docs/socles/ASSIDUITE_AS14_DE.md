@@ -25,7 +25,7 @@ Accès : onglet « Dossier d'un élève » de `/web/assiduite` (recherche par no
 ### Transverse
 - `ent-types` : `DemiJourneeDto.raison` / `explication`, `DecompteMoisDto.arrete` (`serde(default)`), `ContactDto`, `CourrierDto`, `RectificationDto`, `RequalifierEpisodeBody`. `ent-web-api` : `requalifier_episode`, `contacts_eleve`, `courriers_eleve`, `rectifications_mois`, `rectification_vue`.
 - Modèle pur testé en natif : `dossier_modele.rs` (année scolaire, regroupement par mois, seuil, requalification, chronologie, libellés, dossier de signalement), `signalements.rs`.
-- `FRONTEND_LEPTOS.md` §16 ; CSS (`asd-mois`, `asd-chrono`…). Les signalements quittent `discipline_vs` (un module ne dépend pas d'un autre).
+- `FRONTEND_LEPTOS.md` §17 ; CSS (`asd-mois`, `asd-chrono`…). Les signalements quittent `discipline_vs` (un module ne dépend pas d'un autre).
 
 ## 2. Ce qui n'est pas fait, et ce que ScolIA ne fait pas encore (à ne pas masquer)
 **Signalement (AS9, backend non fait : rien n'est inventé)** : (1) dossier annuel d'événements (entretiens, commission, référent, engagements) ; (2) validation avec ré-authentification (passkey) : un clic de confirmation aujourd'hui ; (3) export PDF/CSV par profil académique ; (4) trace de la transmission (date, outil, personne) : « Noter comme transmis » n'enregistre que l'état ; (5) profils académiques et niveaux (persistance, âge du niveau pénal). Aussi : délégation de la validation (AS-229).

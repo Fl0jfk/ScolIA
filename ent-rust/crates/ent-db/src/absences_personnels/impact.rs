@@ -275,8 +275,25 @@ impl PgEnt {
             if vues.contains(seance) {
                 continue;
             }
+            // Plus de séance touchée (absence annulée ou écourtée, plage retirée) : une demande encore **ouverte**
+            // n'a plus d'objet. Elle est close (cause « absence_annulee »), le remplaçant ne peut plus l'accepter ;
+            // un remplacement **déjà appliqué** n'est jamais levé ici (§8.3 : « proposé », pas levé seul).
+            let closes = sqlx::query(
+                "UPDATE ent_absp_sollicitation SET etat = 'annulee', annulee_cause = 'absence_annulee', repondue_le = now()
+                  WHERE etablissement_id = $1 AND impact_id = $2 AND etat = 'envoyee'",
+            )
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?
+            .rows_affected();
+            if closes > 0 {
+                journal(conn, etab, absence_id, "sollicitation_close_sans_objet", Some("impact"), Some(etat.as_str()), None, actor).await?;
+            }
             let (a_reponse,): (bool,) = sqlx::query_as(
-                "SELECT EXISTS (SELECT 1 FROM ent_absp_reponse WHERE etablissement_id = $1 AND impact_id = $2)",
+                "SELECT EXISTS (SELECT 1 FROM ent_absp_reponse WHERE etablissement_id = $1 AND impact_id = $2)
+                    OR EXISTS (SELECT 1 FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND impact_id = $2)",
             )
             .bind(etab)
             .bind(id)

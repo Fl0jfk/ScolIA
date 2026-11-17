@@ -18,6 +18,7 @@ mod assiduite_as4;
 mod assiduite_as5;
 mod assiduite_as14;
 mod assiduite_as6;
+mod assiduite_tableau;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -280,6 +281,8 @@ pub mod registre_rgpd;
 pub mod reprise_rgpd;
 pub mod extrait_personne;
 pub mod registre_donnees;
+pub mod reprise;
+pub mod reprise_zone;
 mod objets;
 pub mod reprise_bytea;
 mod tva_repo;
@@ -351,6 +354,10 @@ pub use assiduite_as6::{
     niveau_de, types_as6, AlerteAsd, BilanVerification, ConsommateurVerification, EntreeFile, FileDuMatin,
     PrevenirMaintenant, ResultatALaPlace, ResultatPrevenir, VigilanceAsd, CLOTURES_ALERTE, CONSOMMATEUR_VERIFICATION,
     RAISONS_A_LA_PLACE, RAISONS_PREVENIR,
+};
+pub use assiduite_tableau::{
+    heure_bascule_defaut, heure_bascule_valide, preference_valide, ConfigTableau, ExcluDuJour, ExclusDuJour,
+    PreferencePanneau, HEURE_BASCULE_DEFAUT, PANNEAUX_TABLEAU,
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
@@ -530,6 +537,9 @@ mod tests_rls_stricte;
 mod tests_objets;
 #[cfg(all(test, feature = "labo"))]
 mod tests_reprise_bytea;
+// Socle 28, R2 : base de test migrée seulement (pas de jeu de labo).
+#[cfg(test)]
+mod tests_reprise_r2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;
@@ -615,6 +625,8 @@ mod tests_assiduite_as4;
 mod tests_assiduite_as5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_tableau;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

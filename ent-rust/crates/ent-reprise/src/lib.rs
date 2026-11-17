@@ -9,13 +9,18 @@
 
 pub mod anonymisation;
 pub mod copy;
+pub mod correspondance;
+pub mod decodage;
 pub mod dump;
 pub mod empreintes;
 pub mod garde;
 pub mod inspection;
 pub mod jeu_fictif;
+pub mod perimetre;
 pub mod s3;
 pub mod schema;
+pub mod simulation;
+pub mod zone;
 
 /// Erreur de l'outil : message lisible en français, **jamais** une valeur de donnée.
 #[derive(Debug)]

@@ -263,7 +263,7 @@ fn tables_visees(sql: &str) -> Vec<String> {
     }
     let mut out = Vec::new();
     for w in mots.windows(2) {
-        if matches!(w[0].as_str(), "from" | "update" | "join") && w[1].starts_with("ent_") {
+        if matches!(w[0].as_str(), "from" | "update" | "join") && (w[1].starts_with("ent_") || w[1].starts_with("rep_")) {
             out.push(w[1].clone());
         }
     }

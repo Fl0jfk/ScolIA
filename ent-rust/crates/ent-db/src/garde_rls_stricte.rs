@@ -17,6 +17,7 @@ const FICHIERS_SANS_CONTEXTE: &[(&str, &str)] = &[
     ("etablissement_repo", "racine des établissements et domaines (D-012) : lue avant de connaître l'établissement"),
     ("outbox", "distributeur d'événements : ent_outbox et ent_metier_event sans RLS ; contexte posé par événement dans `traiter_par`"),
     ("event_store", "journal d'événements ent_metier_event : sans RLS (lu par le distributeur transverse)"),
+    ("reprise_zone", "zone de reprise `reprise.*` : tables de TRANSIT hors RLS et hors établissement, sans lien avec le métier, filtrées par `_execution_id` et `_etablissement_cible` (socle 28, R2) ; rôle de l'outil de reprise"),
     ("tenant_tx", "la mécanique de contexte elle-même"),
     ("registre_donnees", "catalogue statique + neutralisation à la restauration (opération propriétaire hors application)"),
     ("migrate", "migrations : rôle propriétaire"),
