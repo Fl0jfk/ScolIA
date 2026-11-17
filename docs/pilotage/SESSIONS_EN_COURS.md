@@ -106,3 +106,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - Sessions AS14d-e et R3 archivées.
 - **En cours** : I3-I4 inscriptions (session_01KZCbFDMxJdQeKxgX5ocnqC) ; ET0-ET1 espace documents (session_01KZCbFFPfJhEX29KdHDHSAU) ; D6 signature (session_01KZCbFEZLhjkmJP3TYTjKWE, run vert sur c8315e70), en attente de la revue de sécurité avant fusion (règle 28).
 - R3 laisse trois questions de conception (§8 de `docs/socles/R3_RAPPROCHEMENT.md` sur sa branche) : à relire par le pilote.
+- **Revue de sécurité de D6 (17-11)** : aucun défaut critique. 4 élevés renvoyés à la session :
+  - E1 : jeton d'horodatage non validé cryptographiquement ;
+  - E2 : un circuit « élève majeur seul » ne se termine jamais ;
+  - E3 : au guichet, un agent seul peut signer en G0 à la place d'un parent ;
+  - E4 : droits non bornés au sujet du document.
+  Moyens à corriger dans le même lot : M1, M2, M5, M6, M7, M8. Suite : M3, M4, M9, M10. Pas de versement avant correction.
