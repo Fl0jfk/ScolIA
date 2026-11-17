@@ -1449,6 +1449,29 @@ impl PgEnt {
     }
 }
 
+async fn prise_en_charge_dto(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<PriseEnChargeDto, EntDbError> {
+    let r: (Uuid, Uuid, Uuid, String, NaiveDate, NaiveDate, Vec<String>, Option<i64>, String) = sqlx::query_as(
+        "SELECT id, compte_id, eleve_id, reference, du, au, categories, plafond_centimes, statut
+           FROM ent_fin_prise_en_charge WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(PriseEnChargeDto {
+        id: r.0,
+        compte_id: r.1,
+        eleve_id: r.2,
+        reference: r.3,
+        du: r.4,
+        au: r.5,
+        categories: r.6,
+        plafond_centimes: r.7,
+        statut: r.8,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1488,27 +1511,4 @@ mod tests {
         assert_eq!(categorie_de_designation("internat"), "internat");
         assert!(NATURES_PIECE.contains(&"jugement"));
     }
-}
-
-async fn prise_en_charge_dto(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<PriseEnChargeDto, EntDbError> {
-    let r: (Uuid, Uuid, Uuid, String, NaiveDate, NaiveDate, Vec<String>, Option<i64>, String) = sqlx::query_as(
-        "SELECT id, compte_id, eleve_id, reference, du, au, categories, plafond_centimes, statut
-           FROM ent_fin_prise_en_charge WHERE etablissement_id = $1 AND id = $2",
-    )
-    .bind(etab)
-    .bind(id)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(db)?;
-    Ok(PriseEnChargeDto {
-        id: r.0,
-        compte_id: r.1,
-        eleve_id: r.2,
-        reference: r.3,
-        du: r.4,
-        au: r.5,
-        categories: r.6,
-        plafond_centimes: r.7,
-        statut: r.8,
-    })
 }
