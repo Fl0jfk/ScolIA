@@ -100,3 +100,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 2. Socle 12 AS5 (avis regroupés, démenti notifié) — après N0a/N0b du socle 8.
 3. Socle 8 N0b (justesse : infirmerie, décès, droits du lien, fuseau, codage SMS).
 4. Socle 15 A6 et suivants ; N1-3 (HSE, reprographie) après N1-2.
+
+## État au 2026-11-17, vers 2 h UTC (règle 32 : 3 sessions au plus)
+- **Versé sur ENT 143dfa9c** (avance rapide depuis c622d696) : A11d-f (écrans absences du personnel, « répond rarement »), AS14d-e (dossier d'assiduité, signalement), R3 (rapprochement de reprise). Contrôles locaux : clippy backend et web sans avertissement, web-app 554, ent-db en 1 fil 66, séparation 52, deux `Cargo.lock` en `--locked`, aucun `#[ignore]`, migrations 2315 et 2567 ajoutées seulement. ENT gelé jusqu'au verdict de son run (règle 29).
+- Sessions AS14d-e et R3 archivées.
+- **En cours** : I3-I4 inscriptions (session_01KZCbFDMxJdQeKxgX5ocnqC) ; ET0-ET1 espace documents (session_01KZCbFFPfJhEX29KdHDHSAU) ; D6 signature (session_01KZCbFEZLhjkmJP3TYTjKWE, run vert sur c8315e70), en attente de la revue de sécurité avant fusion (règle 28).
+- R3 laisse trois questions de conception (§8 de `docs/socles/R3_RAPPROCHEMENT.md` sur sa branche) : à relire par le pilote.
