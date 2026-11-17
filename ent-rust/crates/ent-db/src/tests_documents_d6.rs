@@ -176,6 +176,16 @@ impl W {
     }
 
     async fn mobile(&self, personne: Uuid, tel: &str) {
+        // Le labo donne déjà un téléphone principal à ces personnes : on le clôt (la base garde l'historique).
+        sqlx::query(
+            "UPDATE ent_personne_coordonnee SET au = now() WHERE etablissement_id = $1 AND personne_id = $2
+                AND au IS NULL AND type IN ('mobile', 'fixe', 'professionnel')",
+        )
+        .bind(self.m.etab)
+        .bind(personne)
+        .execute(self.ent.pool_verif())
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO ent_personne_coordonnee (id, etablissement_id, personne_id, type, valeur, principal, source)
              VALUES ($1, $2, $3, 'mobile', $4, true, 'saisie')",
