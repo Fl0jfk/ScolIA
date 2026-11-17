@@ -407,8 +407,7 @@ async fn l_identite_est_minimisee_et_l_historique_reserve() {
         .await
         .expect("historique");
     assert!(!versions.is_empty());
-    let courante =
-        version_courante(&versions, ent_db::jour_paris()).expect("version courante");
+    let courante = version_courante(&versions, ent_db::jour_paris()).expect("version courante");
     assert_eq!(courante.nom_naissance.to_lowercase(), f.nom.to_lowercase());
     let etapes = etapes_frise(&versions);
     assert_eq!(etapes.len(), versions.len());
