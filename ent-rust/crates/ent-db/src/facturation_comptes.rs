@@ -51,7 +51,7 @@ pub fn siret_valide(s: &str) -> bool {
             }
         })
         .sum();
-    somme % 10 == 0
+    somme.is_multiple_of(10)
 }
 
 /// Une prise en charge est-elle à renouveler (échéance dans les 30 jours) ou échue ? `jour` est un
@@ -267,7 +267,7 @@ impl PgEnt {
             return Err(invalide("nom : 3 à 80 caractères"));
         }
         let mut tx = self.fin_tx(etab).await?;
-        let modele = format!("%{}%", motif.replace('%', "").replace('_', ""));
+        let modele = format!("%{}%", motif.replace(['%', '_'], ""));
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT id, libelle_facturation FROM ent_fin_compte
               WHERE etablissement_id = $1 AND etat = 'actif' AND libelle_facturation ILIKE $2

@@ -436,7 +436,7 @@ impl Distributeur {
         // F1 (socle 24) : les types financiers sont aussi écoutés sous leur alias (`fac.*` ↔
         // `facturation.*`) pendant la transition ; aucun doublon d'index pour un même consommateur.
         for t in c.types() {
-            for equivalent in ent_events::equivalents_facturation(*t) {
+            for equivalent in ent_events::equivalents_facturation(t) {
                 let v = self.par_type.entry(equivalent).or_default();
                 if !v.contains(&idx) {
                     v.push(idx);
@@ -792,7 +792,7 @@ impl Distributeur {
         let types: Vec<String> = c
             .types()
             .iter()
-            .flat_map(|t| ent_events::equivalents_facturation(*t))
+            .flat_map(|t| ent_events::equivalents_facturation(t))
             .map(str::to_string)
             .collect();
         let mut tx = self.pool.begin().await?;
