@@ -1756,7 +1756,11 @@ async fn e1_aucune_date_ne_sort_pour_les_pastilles_booleennes_apres_un_vrai_reca
         let (u, r) = user(&cast, role);
         let s = ent.synthese_eleve_pour_acteur(r, etab, u, harry).await.unwrap_or_else(|e| panic!("{r} : {e:?}"));
         let dump = format!("{s:?}");
-        for date in [debut_modalite, debut_pai] {
+        // La date de début du PAI est LÉGITIME pour qui lit la santé (pastille `pai_actif`, domaine santé) ;
+        // pour tous les autres, ni elle ni la date de la modalité ne figurent nulle part dans la synthèse.
+        let voit_la_sante = s.pastilles.iter().any(|p| p.code == "pai_actif");
+        let interdites: Vec<NaiveDate> = if voit_la_sante { vec![debut_modalite] } else { vec![debut_modalite, debut_pai] };
+        for date in interdites {
             for forme in [date.to_string(), date.format("%d/%m/%Y").to_string()] {
                 assert!(!dump.contains(&forme), "{r} : la date {forme} ne doit pas figurer dans la synthèse");
             }

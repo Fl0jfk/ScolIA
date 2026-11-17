@@ -184,7 +184,7 @@ mod tests {
     fn orientation(jpeg: &[u8]) -> Option<u8> {
         let p = jpeg.windows(6).position(|w| w == b"Exif\0\0")?;
         let tiff = &jpeg[p + 6..];
-        (tiff[10..12] == [0x01, 0x12]).then(|| tiff[18])
+        (tiff[10..12] == [0x01, 0x12]).then(|| tiff[19])
     }
 
     /// JPEG minimal (niveaux de gris 1×1) portant un EXIF avec GPS, un commentaire et une miniature.
