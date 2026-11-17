@@ -419,6 +419,7 @@ fn traitements_du_public(public: &str) -> &'static [&'static str] {
         ],
         "personnels" => &[
             "personnels",
+            "espaces_documents",
             "reprise_mise_en_service",
             "comptes_securite",
             "communication",

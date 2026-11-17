@@ -525,3 +525,25 @@ jobs:
         run: cargo test --locked -p ent-web-session --features ent-api/labo -- --test-threads=1
       - name: Taille des fichiers envoyés au navigateur
         run: ls -l target/site/pkg
+
+  # Règle 35 (PILOTAGE.md) : à la fin d'un run sur ENT (push), écrire le résultat sur la pull request
+  # de veille n° 93 (jamais fusionnée), à laquelle la session pilote est abonnée : elle se réveille
+  # sans ronde à l'aveugle. Jeton automatique du run, aucun secret ; seul droit : commenter.
+  veille-pilote:
+    name: Veille du pilote (commentaire sur la PR 93)
+    if: always() && github.ref == 'refs/heads/ENT' && github.event_name == 'push'
+    needs: [formatage, audits, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Commenter le résultat du run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }}"
+        run: |
+          verdict=vert
+          case "$RESULTATS" in *failure*|*cancelled*) verdict=rouge;; esac
+          gh pr comment 93 --body "Run ENT n° ${{ github.run_number }} (id ${{ github.run_id }}) sur \`${GITHUB_SHA::8}\` : **${verdict}** — ${RESULTATS}"

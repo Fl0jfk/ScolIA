@@ -86,7 +86,7 @@ pub const SANS_SOURCE: &str = "aucune source, choix de minimisation";
 
 /// Version du catalogue : une nouvelle version est proposée à l'établissement comme
 /// changement, jamais appliquée seule (§8.2 point 4).
-pub const VERSION_CATALOGUE: &str = "2026-11-14-g1";
+pub const VERSION_CATALOGUE: &str = "2026-11-17-et0";
 
 #[allow(clippy::too_many_arguments)]
 const fn c(
@@ -152,6 +152,7 @@ pub const CATALOGUE: &[Categorie] = &[
     c("rh.absence", "absences, arrêts, remplacements des personnels", "fin d'année", None, None, S::AutreSocle, "référentiel CNIL de la gestion du personnel", NV, false, "15"),
     c("rh.candidat", "candidatures non retenues", "dernier contact", None, Some(24), S::Destruction, "CNIL", V, false, "6"),
     c("sante.dossier", "santé, PAI, infirmerie, psychologue (module désactivé)", "règles du socle 34", None, None, S::AutreSocle, "socle 34 (désactivé tant que l'hébergement HDS n'est pas obtenu)", NV, false, "34"),
+    c("esp.espace", "espaces de travail des personnels : fichiers, versions, partages, journal", "départ du personnel", None, Some(3), S::Destruction, SANS_SOURCE, NV, false, "32"),
     c("doc.document", "documents, certificats et attestations émis", "émission", None, None, S::AutreSocle, "socle 7 (documents) : durées à fixer avec l'établissement", R, false, "7"),
     c("rgpd.gouvernance", "gouvernance de la conformité : DPO, règles de conservation, journal des décisions", "remplacement", None, Some(60), S::Destruction, SANS_SOURCE, R, false, "27"),
     c("rgpd.demande", "demandes de droits et réponses", "clôture", None, Some(60), S::Destruction, "prescription", NV, false, "27"),
@@ -328,6 +329,7 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
         }
         "conformite" => "rgpd.gouvernance",
         "documents" => "doc.document",
+        "espaces" => "esp.espace",
         "vie_scolaire" => "disc.sanction",
         "messagerie" => "msg.conversation",
         "communication_technique" => "com.envoi",

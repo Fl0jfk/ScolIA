@@ -515,6 +515,9 @@ pub enum AggregateKind {
     /// Document émis du socle 7 (brique `documents`) : émission, remplacement, annulation, ouverture. Charge utile :
     /// identifiants, nature et sensibilité seulement, jamais de titre ni de contenu.
     Documents,
+    /// Espace de travail du socle 32 (lots ET0–ET1) : création, membres, éléments, versions, corbeille, partages.
+    /// Charge utile : identifiants et codes seulement, jamais un nom de fichier ni de dossier (E14).
+    Espace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

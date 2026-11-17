@@ -62,6 +62,18 @@ pub enum TypeFichier {
     Odt,
     Ods,
     Odp,
+    /// Archive ZIP générique (espaces de personnels seulement ; jamais décompressée côté serveur, R-ET22).
+    Zip,
+    /// Audio MP3 (espaces, lu par le navigateur, sans transcodage).
+    Mp3,
+    /// Audio OGG (Vorbis, Opus).
+    Ogg,
+    /// Audio M4A (conteneur MPEG-4, marque `M4A `).
+    M4a,
+    /// Vidéo MP4 (H.264, AV1…), sans transcodage.
+    Mp4,
+    /// Vidéo WebM (VP9, AV1), sans transcodage.
+    Webm,
 }
 
 impl TypeFichier {
@@ -81,6 +93,12 @@ impl TypeFichier {
             Self::Odt => "application/vnd.oasis.opendocument.text",
             Self::Ods => "application/vnd.oasis.opendocument.spreadsheet",
             Self::Odp => "application/vnd.oasis.opendocument.presentation",
+            Self::Zip => "application/zip",
+            Self::Mp3 => "audio/mpeg",
+            Self::Ogg => "audio/ogg",
+            Self::M4a => "audio/mp4",
+            Self::Mp4 => "video/mp4",
+            Self::Webm => "video/webm",
         }
     }
 
@@ -99,6 +117,12 @@ impl TypeFichier {
             Self::Odt => "odt",
             Self::Ods => "ods",
             Self::Odp => "odp",
+            Self::Zip => "zip",
+            Self::Mp3 => "mp3",
+            Self::Ogg => "ogg",
+            Self::M4a => "m4a",
+            Self::Mp4 => "mp4",
+            Self::Webm => "webm",
         }
     }
 
@@ -117,6 +141,12 @@ impl TypeFichier {
             Self::Odt => &["odt"],
             Self::Ods => &["ods"],
             Self::Odp => &["odp"],
+            Self::Zip => &["zip"],
+            Self::Mp3 => &["mp3"],
+            Self::Ogg => &["ogg", "oga", "opus"],
+            Self::M4a => &["m4a"],
+            Self::Mp4 => &["mp4", "m4v"],
+            Self::Webm => &["webm"],
         }
     }
 
@@ -147,6 +177,12 @@ impl TypeFichier {
                     Self::Odt,
                     Self::Ods,
                     Self::Odp,
+                    Self::Zip,
+                    Self::Mp3,
+                    Self::Ogg,
+                    Self::M4a,
+                    Self::Mp4,
+                    Self::Webm,
                 ]
                 .into_iter()
                 .find(|t| t.mime() == m)
@@ -170,6 +206,9 @@ pub enum UsageFichier {
     PieceCahier,
     /// Copie rendue par un élève, ou copie annotée renvoyée par le professeur (S2-6).
     Copie,
+    /// Fichier déposé dans un espace de travail (socle 32, lot ET0 ; `32_BUREAUTIQUE.md` §12.1) : formats
+    /// bureautiques, images, texte, audio et vidéo courts lus par le navigateur, archives ZIP des personnels.
+    Espace,
 }
 
 const TOUS_DOCUMENTS: &[TypeFichier] = &[
@@ -187,9 +226,55 @@ const TOUS_DOCUMENTS: &[TypeFichier] = &[
     TypeFichier::Odp,
 ];
 
+/// Formats admis dans un espace (§12.1) : documents, audio et vidéo sans transcodage, archives ZIP.
+/// Les anciens formats OLE (DOC, XLS, PPT) ne sont **pas** admis ici : leurs macros ne sont pas vérifiables sans le
+/// moteur de conversion isolé (lot ET5a) ; `detecter` les refuse (`TypeInconnu`).
+const TOUS_ESPACE: &[TypeFichier] = &[
+    TypeFichier::Pdf,
+    TypeFichier::Png,
+    TypeFichier::Jpeg,
+    TypeFichier::Gif,
+    TypeFichier::Webp,
+    TypeFichier::Texte,
+    TypeFichier::Docx,
+    TypeFichier::Xlsx,
+    TypeFichier::Pptx,
+    TypeFichier::Odt,
+    TypeFichier::Ods,
+    TypeFichier::Odp,
+    TypeFichier::Zip,
+    TypeFichier::Mp3,
+    TypeFichier::Ogg,
+    TypeFichier::M4a,
+    TypeFichier::Mp4,
+    TypeFichier::Webm,
+];
+
+/// Formats d'un espace **avec élèves** (R-ET22) : les archives ZIP y sont refusées.
+pub const ESPACE_AVEC_ELEVES: &[TypeFichier] = &[
+    TypeFichier::Pdf,
+    TypeFichier::Png,
+    TypeFichier::Jpeg,
+    TypeFichier::Gif,
+    TypeFichier::Webp,
+    TypeFichier::Texte,
+    TypeFichier::Docx,
+    TypeFichier::Xlsx,
+    TypeFichier::Pptx,
+    TypeFichier::Odt,
+    TypeFichier::Ods,
+    TypeFichier::Odp,
+    TypeFichier::Mp3,
+    TypeFichier::Ogg,
+    TypeFichier::M4a,
+    TypeFichier::Mp4,
+    TypeFichier::Webm,
+];
+
 impl UsageFichier {
     pub fn autorises(self) -> &'static [TypeFichier] {
         match self {
+            Self::Espace => TOUS_ESPACE,
             Self::Document | Self::PieceMessage | Self::PieceCahier | Self::Copie => TOUS_DOCUMENTS,
             Self::PiecePai => &[TypeFichier::Pdf, TypeFichier::Png, TypeFichier::Jpeg],
             Self::Photo => &[TypeFichier::Png, TypeFichier::Jpeg, TypeFichier::Webp],
@@ -204,6 +289,7 @@ impl UsageFichier {
             Self::Photo => "photo",
             Self::PieceCahier => "ressource du cahier de textes",
             Self::Copie => "copie d'élève",
+            Self::Espace => "fichier d'espace",
         }
     }
 
@@ -215,6 +301,7 @@ impl UsageFichier {
             Self::Photo => "ENT_UPLOAD_MAX_PHOTO",
             Self::PieceCahier => "ENT_UPLOAD_MAX_CAHIER",
             Self::Copie => "ENT_UPLOAD_MAX_COPIE",
+            Self::Espace => "ENT_UPLOAD_MAX_ESPACE",
         }
     }
 
@@ -226,6 +313,8 @@ impl UsageFichier {
             Self::Photo => 5 * MIB,
             // Stockés dans le magasin d'objets (pas en base) : même plafond que les documents.
             Self::PieceCahier | Self::Copie => 10 * MIB,
+            // Envoi direct vers le magasin (taille signée, quota réservé) : plafond d'`ent-object` (32 §28.1 point 7).
+            Self::Espace => PLAFOND_MAX_OCTETS,
         }
     }
 }
@@ -360,6 +449,7 @@ pub struct TaillesMax {
     pub photo: usize,
     pub piece_cahier: usize,
     pub copie: usize,
+    pub espace: usize,
 }
 
 impl Default for TaillesMax {
@@ -371,6 +461,7 @@ impl Default for TaillesMax {
             photo: UsageFichier::Photo.defaut_octets(),
             piece_cahier: UsageFichier::PieceCahier.defaut_octets(),
             copie: UsageFichier::Copie.defaut_octets(),
+            espace: UsageFichier::Espace.defaut_octets(),
         }
     }
 }
@@ -396,6 +487,7 @@ impl TaillesMax {
             photo: lire(UsageFichier::Photo),
             piece_cahier: lire(UsageFichier::PieceCahier),
             copie: lire(UsageFichier::Copie),
+            espace: lire(UsageFichier::Espace),
         }
     }
 
@@ -407,6 +499,7 @@ impl TaillesMax {
             UsageFichier::Photo => self.photo,
             UsageFichier::PieceCahier => self.piece_cahier,
             UsageFichier::Copie => self.copie,
+            UsageFichier::Espace => self.espace,
         }
     }
 }
@@ -503,7 +596,18 @@ impl PolitiqueFichiers {
             return Err(ErreurFichier::TropGros { max });
         }
         controler_nom(nom)?;
-        let t = detecter(octets)?;
+        let t = match detecter(octets) {
+            // Archive ZIP sans partie bureautique reconnue : admise dans un espace seulement (jamais décompressée ;
+            // chemins et programmes déjà contrôlés par `detecter_zip`), refusée partout ailleurs comme avant.
+            Err(ErreurFichier::TypeInconnu)
+                if usage == UsageFichier::Espace
+                    && octets.starts_with(b"PK\x03\x04")
+                    && lire_zip(octets).is_some() =>
+            {
+                TypeFichier::Zip
+            }
+            autre => autre?,
+        };
         if !usage.autorises().contains(&t) {
             return Err(ErreurFichier::TypeNonAutorise {
                 type_detecte: t.mime(),
@@ -633,6 +737,9 @@ pub fn detecter(b: &[u8]) -> Result<TypeFichier, ErreurFichier> {
     if b.starts_with(b"PK\x03\x04") {
         return detecter_zip(b);
     }
+    if let Some(t) = detecter_media(b) {
+        return Ok(t);
+    }
     if b.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
         // Ancien format OLE (.doc/.xls/.ppt) : macros fréquentes, non géré.
         return Err(ErreurFichier::TypeInconnu);
@@ -641,6 +748,33 @@ pub fn detecter(b: &[u8]) -> Result<TypeFichier, ErreurFichier> {
         return Ok(TypeFichier::Texte);
     }
     Err(ErreurFichier::TypeInconnu)
+}
+
+/// Audio et vidéo reconnus par leur signature (aucun décodage) : MP3 (étiquette ID3 ou synchro de trame), OGG, WebM
+/// (EBML), conteneur MPEG-4 (marque `M4A ` = audio, marques vidéo courantes = MP4). Une marque inconnue (HEIC, QuickTime…)
+/// n'est pas reconnue.
+fn detecter_media(b: &[u8]) -> Option<TypeFichier> {
+    if b.starts_with(b"ID3") && b.len() >= 10 && matches!(b[3], 2..=4) {
+        return Some(TypeFichier::Mp3);
+    }
+    // Synchro de trame MPEG audio : 11 bits à 1, version et couche valides.
+    if b.len() >= 4 && b[0] == 0xFF && (b[1] & 0xE0) == 0xE0 && (b[1] & 0x18) != 0x08 && (b[1] & 0x06) != 0x00 {
+        return Some(TypeFichier::Mp3);
+    }
+    if b.starts_with(b"OggS") {
+        return Some(TypeFichier::Ogg);
+    }
+    if b.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return Some(TypeFichier::Webm);
+    }
+    if b.len() >= 12 && &b[4..8] == b"ftyp" {
+        return match &b[8..12] {
+            b"M4A " | b"M4B " => Some(TypeFichier::M4a),
+            b"isom" | b"iso2" | b"mp41" | b"mp42" | b"avc1" | b"dash" | b"MSNV" | b"M4V " => Some(TypeFichier::Mp4),
+            _ => None,
+        };
+    }
+    None
 }
 
 fn signature_executable(b: &[u8]) -> Option<&'static str> {
@@ -1246,5 +1380,69 @@ pub(crate) mod tests {
         assert_eq!(t.photo, KIB);
         assert_eq!(t.piece_message, PLAFOND_MAX_OCTETS);
         assert_eq!(t.piece_pai, 256 * KIB);
+    }
+
+    // ── Socle 32, lot ET0 : usage « espace » (§12.1) ──
+
+    #[test]
+    fn espace_admet_zip_audio_video_et_refuse_ole_et_actifs() {
+        let p = pol();
+        let ok = |nom: &str, o: &[u8]| p.valider(UsageFichier::Espace, nom, None, o).map(|v| v.type_fichier);
+        // Archive ZIP : admise dans un espace, refusée pour un document de dossier (comme avant).
+        let z = zip(&[("a.txt", b"bonjour")]);
+        assert_eq!(ok("lot.zip", &z), Ok(TypeFichier::Zip));
+        assert_eq!(
+            p.valider(UsageFichier::Document, "lot.zip", None, &z),
+            Err(ErreurFichier::TypeInconnu)
+        );
+        // Une archive à chemins piégés ou contenant un programme reste refusée.
+        assert!(matches!(ok("x.zip", &zip(&[("../e.txt", b"x")])), Err(ErreurFichier::FichierActif(_))));
+        assert!(matches!(ok("x.zip", &zip(&[("a/setup.exe", b"x")])), Err(ErreurFichier::FichierActif(_))));
+        // Audio et vidéo reconnus par signature.
+        assert_eq!(ok("a.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00reste"), Ok(TypeFichier::Mp3));
+        assert_eq!(ok("a.mp3", &[0xFF, 0xFB, 0x90, 0x00, 1, 2, 3]), Ok(TypeFichier::Mp3));
+        assert_eq!(ok("a.ogg", b"OggS\x00\x02reste"), Ok(TypeFichier::Ogg));
+        assert_eq!(ok("a.webm", &[0x1A, 0x45, 0xDF, 0xA3, 1, 2, 3]), Ok(TypeFichier::Webm));
+        assert_eq!(ok("a.m4a", b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00"), Ok(TypeFichier::M4a));
+        assert_eq!(ok("a.mp4", b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00"), Ok(TypeFichier::Mp4));
+        // Marque inconnue (QuickTime, HEIC) : refusée.
+        assert_eq!(ok("a.mov", b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00"), Err(ErreurFichier::TypeInconnu));
+        // Un CSV qui commence par « ID3 » reste du texte (l'étiquette ID3 exige une version binaire).
+        assert_eq!(ok("notes.csv", b"ID3,nom,note\n1,Ada,15\n"), Ok(TypeFichier::Texte));
+        // Anciens formats OLE : non admis (macros non vérifiables sans le moteur isolé, lot ET5a).
+        assert_eq!(
+            ok("vieux.doc", &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]),
+            Err(ErreurFichier::TypeInconnu)
+        );
+        // Macros, HTML, SVG, scripts : refusés partout.
+        assert!(matches!(ok("page.pdf", b"<html></html>"), Err(ErreurFichier::FichierActif(_))));
+        assert!(matches!(ok("script.pdf", b"#!/bin/sh\necho"), Err(ErreurFichier::FichierActif(_))));
+        // Type déclaré incohérent : refusé.
+        assert!(matches!(
+            p.valider(UsageFichier::Espace, "a.mp3", Some("application/pdf"), &[0xFF, 0xFB, 0x90, 0x00, 1]),
+            Err(ErreurFichier::TypeDeclareIncoherent { .. })
+        ));
+    }
+
+    #[test]
+    fn espace_refuse_les_archives_dans_un_espace_avec_eleves() {
+        // R-ET22 : la liste des formats d'un espace avec élèves ne contient pas l'archive ZIP.
+        assert!(UsageFichier::Espace.autorises().contains(&TypeFichier::Zip));
+        assert!(!ESPACE_AVEC_ELEVES.contains(&TypeFichier::Zip));
+        assert!(ESPACE_AVEC_ELEVES.contains(&TypeFichier::Pdf));
+    }
+
+    #[test]
+    fn espace_plafond_64_mio_et_reglage_borne() {
+        assert_eq!(TaillesMax::default().espace, 64 * MIB);
+        let t = TaillesMax::depuis(|k| (k == "ENT_UPLOAD_MAX_ESPACE").then(|| "999999999m".to_string()));
+        assert_eq!(t.pour(UsageFichier::Espace), PLAFOND_MAX_OCTETS);
+        let p = PolitiqueFichiers::nouvelle(TaillesMax { espace: 64, ..TaillesMax::default() });
+        let mut gros = PDF.to_vec();
+        gros.resize(65, b' ');
+        assert_eq!(
+            p.valider(UsageFichier::Espace, "a.pdf", None, &gros),
+            Err(ErreurFichier::TropGros { max: 64 })
+        );
     }
 }

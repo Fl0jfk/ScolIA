@@ -57,6 +57,16 @@ pub enum Action {
     VoyagesPrestataires,
     /// Socle 42, lot V0d : reprise des séjours de Next.js (zone de reprise, tableau de bascule, bascule). Administrateur et direction.
     VoyagesReprise,
+    // ── Socle 32, lots ET0–ET1 : espaces de travail (`32_BUREAUTIQUE.md` §20.1) ──
+    /// Utiliser son espace personnel et les espaces dont on est membre, et voir ce qui est partagé avec soi.
+    /// Les rôles d'espace (animateur, contributeur, lecteur) restent vérifiés par le service pour chaque espace.
+    EspacesUtiliser,
+    /// Créer un espace libre entre personnels (sans élève, sans ancrage).
+    EspacesCreer,
+    /// Partager un de ses éléments ou dossiers avec des personnes nommées de l'établissement (jamais de lien public).
+    EspacesPartager,
+    /// Consulter le journal des espaces de l'établissement (direction) : jamais les espaces personnels ni le contenu.
+    EspacesJournalLire,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -606,7 +616,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 247] = [
+    pub const TOUTES: [Action; 251] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -871,6 +881,11 @@ impl Action {
         Action::AutorisationsParametrer,
         // Socle 42, lot V0d (en fin de catalogue : le catalogue historique est repéré par position).
         Action::VoyagesReprise,
+        // Socle 32, lots ET0–ET1 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::EspacesUtiliser,
+        Action::EspacesCreer,
+        Action::EspacesPartager,
+        Action::EspacesJournalLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -897,6 +912,10 @@ impl Action {
             Self::VoyagesPorteur => "voyages.porteur",
             Self::VoyagesPrestataires => "voyages.prestataires",
             Self::VoyagesReprise => "voyages.reprise",
+            Self::EspacesUtiliser => "espaces.utiliser",
+            Self::EspacesCreer => "espaces.creer",
+            Self::EspacesPartager => "espaces.partager",
+            Self::EspacesJournalLire => "espaces.journal.lire",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -1150,6 +1169,10 @@ impl Action {
             Self::VoyagesPorteur => "Attribuer ou transférer le porteur d'une sortie",
             Self::VoyagesPrestataires => "Demander des devis et écrire aux prestataires d'une sortie dont on n'est pas le porteur",
             Self::VoyagesReprise => "Reprendre les séjours de Next.js : zone de reprise, tableau et bascule (administrateur, direction)",
+            Self::EspacesUtiliser => "Utiliser son espace personnel et les espaces dont on est membre (fichiers, dossiers, versions, corbeille)",
+            Self::EspacesCreer => "Créer un espace libre entre personnels de l'établissement",
+            Self::EspacesPartager => "Partager un élément ou un dossier avec des personnes nommées de l'établissement",
+            Self::EspacesJournalLire => "Consulter le journal des espaces de l'établissement (sans le contenu ni les espaces personnels)",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -1464,6 +1487,10 @@ impl Action {
             | Self::VoyagesPorteur
             | Self::VoyagesPrestataires
             | Self::VoyagesReprise
+            | Self::EspacesUtiliser
+            | Self::EspacesCreer
+            | Self::EspacesPartager
+            | Self::EspacesJournalLire
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -1777,6 +1804,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_05_structure(role, &mut d);
     socle_8_notifications(role, &mut d);
     socle_16_messagerie(role, &mut d);
+    socle_32_espaces(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2611,6 +2639,22 @@ fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if matches!(role, Role::Administratif | Role::Cpe | Role::Direction | Role::Accueil) {
         d.push(etab(DocumentsSignaturesConstater));
+    }
+}
+
+/// Socle 32, lots ET0–ET1 : espaces de travail (`32_BUREAUTIQUE.md` §20.1). Les personnels utilisent leur espace
+/// personnel, créent des espaces libres entre collègues et partagent nominativement ; la direction lit le journal
+/// (jamais le contenu ni les espaces personnels). Les familles et les élèves n'ont aucun droit en ET1 : l'espace
+/// personnel et les espaces avec élèves arrivent avec les lots ET2 et suivants (membres calculés, protection du collectif).
+/// Bloc isolé : un autre socle n'y touche pas (règle 21 du pilotage).
+fn socle_32_espaces(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    d.push(etab(EspacesUtiliser));
+    d.push(etab(EspacesCreer));
+    d.push(etab(EspacesPartager));
+    if role == Role::Direction {
+        d.push(etab(EspacesJournalLire));
     }
 }
 
@@ -3797,6 +3841,32 @@ mod oracle_a1 {
         for x in [DocumentsEmettre, DocumentsAnnuler, DocumentsRegistreLire, DocumentsModelesParametrer,
                   DocumentsRestreintsLire, DocumentsFinancierLire, DocumentsPersonnelsLire] {
             assert!(x.code().starts_with("documents."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+
+    /// Socle 32, lots ET0–ET1 : les personnels utilisent, créent et partagent ; seule la direction lit le journal ;
+    /// les familles et les élèves n'ont rien (le modèle par défaut est vide pour eux).
+    #[test]
+    fn espaces_et1_droits_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, p)| *y == x && *p == Portee::Etablissement);
+        for r in [
+            Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+            Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel,
+        ] {
+            for x in [EspacesUtiliser, EspacesCreer, EspacesPartager] {
+                assert!(a(r, x), "{r:?} {}", x.code());
+            }
+            assert_eq!(a(r, EspacesJournalLire), r == Role::Direction, "{r:?} journal");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            for x in [EspacesUtiliser, EspacesCreer, EspacesPartager, EspacesJournalLire] {
+                assert!(!a(r, x), "{r:?} {}", x.code());
+            }
+        }
+        for x in [EspacesUtiliser, EspacesCreer, EspacesPartager, EspacesJournalLire] {
             assert_eq!(Action::parse(x.code()), Some(x));
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
