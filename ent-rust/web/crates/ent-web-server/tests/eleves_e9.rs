@@ -553,3 +553,40 @@ async fn un_eleve_protege_est_absent_pour_un_tiers_dans_la_liste_la_fiche_et_la_
     );
     assert!(secretariat.eleve_fiche(cible.id).await.is_ok());
 }
+
+/// Chaque domaine du contrat des tuiles d'E8 est traité par l'écran (destination ou texte propre) et chaque
+/// pastille du catalogue a une gravité que l'écran sait teinter : une tuile ou une pastille ajoutée à E8
+/// sans décision côté écran fait échouer ce test.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn le_contrat_d_e8_est_entierement_traite_par_l_ecran() {
+    use ent_web_app::modules::eleves::modele::{corps_tuile_sans_ecran, teinte_gravite};
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let secretariat = personnel(&base, &l, "administratif").await;
+    let cat = secretariat
+        .get_json("/eleves/pastilles/catalogue")
+        .await
+        .expect("catalogue");
+    let tuiles = cat["tuiles"].as_array().expect("tuiles");
+    assert!(
+        tuiles.iter().any(|t| t["domaine"] == "classe"),
+        "la tuile « vie de classe » est au contrat"
+    );
+    for t in tuiles {
+        let d = t["domaine"].as_str().unwrap();
+        if destination_tuile(d, Uuid::nil()) == Destination::Aucune {
+            assert!(
+                !corps_tuile_sans_ecran(d).starts_with("Cette section n'a pas encore"),
+                "domaine {d} : ni écran ni texte propre"
+            );
+        }
+    }
+    for p in cat["indicateurs"].as_array().expect("indicateurs") {
+        assert!(["mal", "avert", "info"].contains(&teinte_gravite(p["gravite"].as_str().unwrap())));
+        assert!(
+            tuiles.iter().any(|t| t["domaine"] == p["domaine"]),
+            "pastille {} sans tuile",
+            p["code"]
+        );
+    }
+}

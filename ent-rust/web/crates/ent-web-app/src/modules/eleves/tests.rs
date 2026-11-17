@@ -7,6 +7,13 @@ use ent_types::eleve_synthese::{PastilleDto, TuileDto};
 use ent_types::identite::IdentiteVersionDto;
 use uuid::Uuid;
 
+/// Identifiants distincts (`Uuid::new_v4` n'existe pas dans le navigateur : FRONTEND_LEPTOS §17).
+fn identifiant() -> Uuid {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(1);
+    Uuid::from_u128(u128::from(N.fetch_add(1, Ordering::Relaxed)))
+}
+
 fn jour(a: i32, m: u32, j: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(a, m, j).unwrap()
 }
@@ -224,30 +231,6 @@ fn chaque_tuile_du_contrat_a_une_destination_connue_et_jamais_un_lien_mort() {
     assert!(!corps_tuile_sans_ecran("scolarite").is_empty());
 }
 
-/// Chaque domaine du catalogue d'E8 est connu de l'écran (une tuile ajoutée à E8 sans décision ici
-/// ferait échouer ce test : on décide de sa destination ou de son texte).
-#[test]
-fn les_domaines_du_contrat_d_e8_sont_tous_traites() {
-    for c in domain_eleve::CONTRATS_TUILES {
-        let d = destination_tuile(c.domaine, Uuid::nil());
-        if d == Destination::Aucune {
-            assert!(
-                !corps_tuile_sans_ecran(c.domaine).starts_with("Cette section n'a pas encore"),
-                "domaine {} : ni écran ni texte propre",
-                c.domaine
-            );
-        }
-    }
-    // Et chaque pastille du catalogue a une gravité que l'écran sait teinter.
-    for p in domain_eleve::CATALOGUE_INDICATEURS {
-        assert!(
-            ["mal", "avert", "info"].contains(&teinte_gravite(p.gravite.code())),
-            "{}",
-            p.code
-        );
-    }
-}
-
 #[test]
 fn une_tuile_visible_sans_pastille_ni_ecran_est_reperee() {
     let t = |domaine: &str, n: usize| TuileDto {
@@ -271,7 +254,7 @@ fn une_tuile_visible_sans_pastille_ni_ecran_est_reperee() {
 
 fn version(effet: NaiveDate, nature: &str, nom: &str, prenoms: &[&str]) -> IdentiteVersionDto {
     IdentiteVersionDto {
-        id: Uuid::new_v4(),
+        id: identifiant(),
         nom_naissance: nom.into(),
         nom_usage: None,
         prenoms: prenoms.iter().map(|p| (*p).to_string()).collect(),
@@ -360,7 +343,7 @@ fn les_lignes_d_identite_n_affichent_que_ce_que_la_version_contient() {
 fn la_version_courante_ignore_l_avenir_et_ce_qui_a_ete_corrige() {
     let ancienne = version(jour(2020, 9, 1), "creation", "Martin", &["Léa"]);
     let mut corrigee = version(jour(2021, 9, 1), "correction", "Marten", &["Léa"]);
-    corrigee.remplacee_par = Some(Uuid::new_v4());
+    corrigee.remplacee_par = Some(identifiant());
     let bonne = version(jour(2021, 9, 2), "correction", "Martin", &["Léa"]);
     let future = version(
         jour(2030, 1, 1),
@@ -387,7 +370,7 @@ fn la_frise_compare_chaque_version_a_la_precedente_dans_le_temps() {
     let a = version(jour(2020, 9, 1), "creation", "Martin", &["Léa"]);
     let mut b = version(jour(2022, 9, 1), "correction", "Martin", &["Léa", "Rose"]);
     b.motif = Some("d'après l'acte de naissance".into());
-    b.piece_document_id = Some(Uuid::new_v4());
+    b.piece_document_id = Some(identifiant());
     let mut c = version(
         jour(2024, 9, 1),
         "changement_etat_civil",
