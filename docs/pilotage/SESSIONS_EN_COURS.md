@@ -166,3 +166,13 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **FO2-FO3 versé** : ENT 96c287c5, TOUTES 253, SOURCES 61, RLS +18. Session archivée.
   - Le run d'ENT suivant sera signalé sur la PR 93.
   - Fiabilité : l'option A est validée pour le rejeu 644/648 (garde factice dans `rejouer_tout`, code de test seulement), avec une table des gardes de rejeu et un test.
+- **Revue de sécurité E7-E8 (PR 95), 17-11 vers 12 h 10 UTC** : 2 critiques et 6 élevés, tous renvoyés à la session ; pas de versement avant correction.
+  - C1 : le journal de l'élève n'applique pas la garde « protégé ».
+  - C2 : `/eleves/sans-compte` et l'invitation de compte exposent un élève protégé.
+  - E1 : `/consultations` répond 200 au lieu de 404.
+  - E2 : la pastille `majeur` laisse déduire la date de naissance.
+  - E3 : la liste des élèves sans photo est toujours vide (`status` au lieu de `statut`), et son test passe à vide.
+  - E5 : le conflit d'intérêts n'est pas contrôlé sur les photos et les coordonnées.
+  - E6 : d'autres routes `/eleves/{id}/*` n'ont pas la garde (`fiche-urgence`, `pai-complet`), d'où un test paramétré demandé.
+  - **E4, le pilote contredit la revue** : la portée pédagogique reste « non tiers », sinon un élève protégé disparaîtrait de l'appel de ses professeurs. En contrepartie, `masquer_photo` et `adresse_protegee` sont appliquées, et l'alerte de consultation est alignée.
+  - Corrigés dans le même lot : M1, M2, M3, M4, M5, M6 et F1.
