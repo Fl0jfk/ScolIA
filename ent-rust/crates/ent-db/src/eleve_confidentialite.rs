@@ -696,6 +696,19 @@ impl PgEnt {
                 .await?
                 .ouvert_partout(GroupeChamps::Sensible);
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // Une consultation d'un élève absent de cet établissement (identifiant d'un autre
+        // établissement ou inexistant) ne laisse aucune trace : le journal de l'établissement ne
+        // doit contenir aucune ligne qui désigne un élève d'ailleurs.
+        if let Some(e) = eleve {
+            let existe: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)")
+                .bind(etab)
+                .bind(e)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !existe {
+                return Ok(());
+            }
+        }
         journaliser_tx(&mut tx, etab, eleve, acteur, "consultation", action, libelle, role, maintenant)
             .await
             .inspect_err(|e| {
