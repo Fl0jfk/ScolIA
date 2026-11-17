@@ -223,3 +223,13 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Écart « payeur dans deux foyers » accepté.
   - **Lacune pour Florian avant février** : l'Administratif n'a jamais pu encaisser ni remettre un reçu au guichet (F0, FD-27). Piste : une action `facturation.encaisser_guichet`.
   - Le commit de rapport reste local à la session ; il sera poussé avec les correctifs de la revue.
+- **17-11, 22 h 05 UTC, revue de sécurité de F1-F2 (PR 97)** : aucun critique, 4 élevés, 10 moyens et 8 faibles, renvoyés à la session ; désabonnement de la PR pendant les correctifs.
+  - **E1** : un parent séparé lit la demande de répartition de l'autre, commentaire compris.
+  - **E2, décision du pilote** : une prise en charge non active bloque la facturation à l'organisme (CF-83).
+  - **E3, décision du pilote** : guichet déclaratif, avec quota par agent (30 par jour), recherche exacte et aucun compte_id hors ouverture journalisée.
+  - **E4** : la garde R-F1 était aveugle sur `service.rs`.
+  - **M4** : une pièce de répartition exige un document de l'établissement. La règle à deux personnes n'est pas retenue pour l'instant.
+  - **Pour Florian** :
+    - le guichet du secrétariat (R-F23) ;
+    - l'encaissement au guichet ;
+    - la règle à deux personnes pour les désignations sur pièce.
