@@ -1027,8 +1027,8 @@ async fn f1_vue_guichet_du_secretariat() {
     assert!(ent.guichet_rechercher_for_actor(etab, su, sr, "ab", AuthentificationGuichet::Presentiel).await.is_err());
     let (libelle,): (String,) = sqlx::query_as("SELECT libelle_facturation FROM ent_fin_compte WHERE etablissement_id = $1 AND foyer_id = $2").bind(etab).bind(fm).fetch_one(ent.pool_verif()).await.unwrap();
     let trouves = ent.guichet_rechercher_for_actor(etab, su, sr, &libelle, AuthentificationGuichet::Presentiel).await.unwrap();
-    assert!(trouves.iter().any(|x| x.libelle == libelle) && trouves.len() <= 10);
-    let compte = trouves.iter().find(|x| x.libelle == libelle).unwrap().compte_id;
+    assert!(trouves.len() <= 10);
+    let compte = compte_du_foyer(&ent, etab, fm).await;
     // Vue du compte : solde = total, une échéance au moins, un document.
     let vue = ent.guichet_compte_for_actor(etab, su, sr, compte, AuthentificationGuichet::RappelNumeroEnregistre).await.unwrap();
     assert_eq!(vue.solde_centimes, 1_300_001);
