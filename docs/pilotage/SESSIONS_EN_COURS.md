@@ -112,3 +112,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - E3 : au guichet, un agent seul peut signer en G0 à la place d'un parent ;
   - E4 : droits non bornés au sujet du document.
   Moyens à corriger dans le même lot : M1, M2, M5, M6, M7, M8. Suite : M3, M4, M9, M10. Pas de versement avant correction.
+- **R3, questions du §8 de `R3_RAPPROCHEMENT.md` (relues par le pilote le 17-11)** :
+  - Q1, Q2 et Q4 : déjà tranchées, choix maintenus. Nom + prénom + naissance n'est jamais automatique ; le lot est limité aux cas forts, avec une trace par décision ; `reprise.decider` revient à la direction et au secrétariat.
+  - Q3 : **oui**, la division SIECLE et les dates d'année sont des clés automatiques pour les **référentiels**, qui ne touchent aucune personne.
+  - Q5 : 12 mois pour `mes.reprise`, à faire valider par le DPO avec les petits effectifs de S-1512.
+  - Q6 : à brancher dans le lot des écrans de la file « à décider ».
+- ET0-ET1 avait signalé des marqueurs de conflit dans MIGRATIONS.md : déjà retirés sur ENT, la session est prévenue.
