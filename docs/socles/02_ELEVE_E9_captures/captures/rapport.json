@@ -28,7 +28,7 @@
     "OK  axe liste 375 px : 0 violation(s) ",
     "OK  375 px fiche : débordement 0px",
     "OK  axe fiche 375 px : 0 violation(s) ",
-    "ÉCHEC erreurs console / page : 2 console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche | console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
+    "OK  erreurs console / page : 0 "
   ],
   "axe": [
     {
@@ -85,11 +85,6 @@
       ]
     }
   ],
-  "erreurs": [
-    "console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche",
-    "console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
-  ],
-  "echecs": [
-    "erreurs console / page : 2 console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/dossier/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746/fiche | console Failed to load resource: the server responded with a status of 404 (Not Found) http://127.0.0.1:8090/web/api/eleves/a266f390-fbfb-4cf2-92e9-fc58f87ca746"
-  ]
+  "erreurs": [],
+  "echecs": []
 }
