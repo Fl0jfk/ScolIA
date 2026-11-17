@@ -510,6 +510,11 @@ pub enum Action {
     /// Activer les objets du catalogue, rédiger et publier les versions de texte et leurs usages. Établissement
     /// seulement.
     AutorisationsParametrer,
+    /// Socle 18, lot FO2 : créer, rédiger et publier un formulaire à l'audience de sa portée (établissement, mes classes).
+    /// Un formulaire à large audience attend une validation (`formulaires.valider`).
+    FormulairesCreer,
+    /// Socle 18, lot FO2 : valider un formulaire à large audience (quatre yeux, jamais par son propre auteur). Établissement seulement.
+    FormulairesValider,
     /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
     ConformiteLire,
     /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
@@ -616,7 +621,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 251] = [
+    pub const TOUTES: [Action; 253] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -879,6 +884,8 @@ impl Action {
         Action::AutorisationsLire,
         Action::AutorisationsGerer,
         Action::AutorisationsParametrer,
+        Action::FormulairesCreer,
+        Action::FormulairesValider,
         // Socle 42, lot V0d (en fin de catalogue : le catalogue historique est repéré par position).
         Action::VoyagesReprise,
         // Socle 32, lots ET0–ET1 (en fin de catalogue : le catalogue historique est repéré par position).
@@ -1109,6 +1116,8 @@ impl Action {
             Self::AutorisationsLire => "autorisations.lire",
             Self::AutorisationsGerer => "autorisations.gerer",
             Self::AutorisationsParametrer => "autorisations.parametrer",
+            Self::FormulairesCreer => "formulaires.creer",
+            Self::FormulairesValider => "formulaires.valider",
             Self::ConformiteLire => "conformite.lire",
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
@@ -1368,6 +1377,8 @@ impl Action {
             Self::AutorisationsLire => "Lire les verdicts d'accord (peut / ne peut pas / en attente) des élèves de sa portée",
             Self::AutorisationsGerer => "Lire les décisions, preuves et désaccords ; corriger ou annuler une saisie",
             Self::AutorisationsParametrer => "Activer les objets d'accord, rédiger et publier les versions de texte et leurs usages",
+            Self::FormulairesCreer => "Créer, rédiger et publier un formulaire pour l'audience de sa portée",
+            Self::FormulairesValider => "Valider un formulaire à large audience avant sa publication (jamais le sien)",
             Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
@@ -1649,7 +1660,8 @@ impl Action {
             | Self::DocumentsSignaturesGerer
             | Self::DocumentsSignaturesConstater
             | Self::AutorisationsGerer
-            | Self::AutorisationsParametrer => &[Portee::Etablissement],
+            | Self::AutorisationsParametrer
+            | Self::FormulairesValider => &[Portee::Etablissement],
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
@@ -2669,14 +2681,23 @@ fn socle_18_formulaires(role: Role, d: &mut Vec<(Action, Portee)>) {
             d.push(etab(AutorisationsLire));
             d.push(etab(AutorisationsGerer));
             d.push(etab(AutorisationsParametrer));
+            d.push(etab(FormulairesCreer));
+            d.push(etab(FormulairesValider));
         }
         Role::Administratif => {
             d.push(etab(AutorisationsLire));
             d.push(etab(AutorisationsGerer));
+            d.push(etab(FormulairesCreer));
         }
-        Role::Cpe => d.push(etab(AutorisationsLire)),
-        // Professeurs : verdicts de leurs classes seulement.
-        Role::Prof => d.push((AutorisationsLire, Portee::MesClasses)),
+        Role::Cpe => {
+            d.push(etab(AutorisationsLire));
+            d.push(etab(FormulairesCreer));
+        }
+        // Professeurs : verdicts de leurs classes seulement ; formulaires pour leurs classes seulement (PP, PRF).
+        Role::Prof => {
+            d.push((AutorisationsLire, Portee::MesClasses));
+            d.push((FormulairesCreer, Portee::MesClasses));
+        }
         _ => {}
     }
 }
@@ -2700,6 +2721,16 @@ mod tests {
         assert!(!tout(Role::Cpe, AutorisationsGerer));
         assert!(a(Role::Prof, AutorisationsLire, Portee::MesClasses));
         assert!(!a(Role::Prof, AutorisationsLire, Portee::Etablissement), "un professeur ne lit que sa classe");
+        // FO2 : créer un formulaire (portée), valider (direction seule, jamais l'administratif ni le professeur).
+        assert!(a(Role::Direction, FormulairesCreer, Portee::Etablissement));
+        assert!(a(Role::Direction, FormulairesValider, Portee::Etablissement));
+        assert!(a(Role::Administratif, FormulairesCreer, Portee::Etablissement));
+        assert!(a(Role::Cpe, FormulairesCreer, Portee::Etablissement));
+        assert!(a(Role::Prof, FormulairesCreer, Portee::MesClasses));
+        assert!(!a(Role::Prof, FormulairesCreer, Portee::Etablissement), "un professeur ne cible que ses classes");
+        for r in [Role::Administratif, Role::Cpe, Role::Prof, Role::Parent, Role::Eleve] {
+            assert!(!tout(r, FormulairesValider), "{r:?} ne valide pas un formulaire");
+        }
         for r in [Role::Parent, Role::Eleve, Role::Infirmerie, Role::Compta, Role::Psy, Role::Accueil, Role::Personnel, Role::Admin] {
             for x in [AutorisationsLire, AutorisationsGerer, AutorisationsParametrer] {
                 assert!(!tout(r, x), "{r:?} n'a aucun droit d'accord par défaut ({x:?})");

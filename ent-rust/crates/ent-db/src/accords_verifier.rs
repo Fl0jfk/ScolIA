@@ -52,10 +52,11 @@ pub(crate) struct ObjetLigne {
     pub evenement_fin: Option<chrono::DateTime<Utc>>,
     pub sujet_type: String,
     pub actif: bool,
+    pub desaccord_objet: Option<String>,
 }
 
 pub(crate) const COLONNES_OBJET: &str = "id, code, libelle, nature, regle, avis_eleve_des_ans, droit_lien_code, preuve_min, \
-    validite, valide_jusqu_au, evenement_fin, sujet_type, actif";
+    validite, valide_jusqu_au, evenement_fin, sujet_type, actif, desaccord_objet";
 
 pub(crate) async fn objet_par_code(
     conn: &mut PgConnection,
@@ -378,12 +379,17 @@ impl PgEnt {
             accorde: bool,
             canal: String,
             decide_le: chrono::DateTime<Utc>,
+            /// La signature qui prouvait la décision porte sur un circuit annulé ou rendu obsolète : plus une preuve.
+            preuve_perimee: bool,
         }
         let lignes: Vec<Ligne> = sqlx::query_as(
             "SELECT DISTINCT ON (COALESCE(x.sujet_eleve_id, x.sujet_personne_id), x.decideur_user_id)
                     COALESCE(x.sujet_eleve_id, x.sujet_personne_id) AS sujet, x.decideur_user_id, x.qualite,
-                    u.accorde, x.canal, x.decide_le
+                    u.accorde, x.canal, x.decide_le,
+                    COALESCE(c.etat IN ('annule', 'obsolete'), false) AS preuve_perimee
                FROM ent_acc_decision x
+               LEFT JOIN ent_acc_preuve p ON p.etablissement_id = x.etablissement_id AND p.decision_id = x.id
+               LEFT JOIN ent_doc_circuit c ON c.etablissement_id = p.etablissement_id AND c.id = p.circuit_id
                JOIN ent_acc_decision_usage u ON u.decision_id = x.id AND u.etablissement_id = x.etablissement_id
                JOIN ent_acc_usage us ON us.id = u.usage_id AND us.etablissement_id = u.etablissement_id
               WHERE x.etablissement_id = $1 AND x.objet_id = $2
@@ -442,6 +448,24 @@ impl PgEnt {
         .bind(objet.id)
         .bind(&tous_ids)
         .bind(usage_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?
+        .into_iter()
+        .map(|(i,)| i)
+        .collect();
+
+        // Désaccords ouverts qui visent cet objet (famille de l'objet, « général », ou l'objet lui-même).
+        let desaccords_ouverts: HashSet<Uuid> = sqlx::query_as::<_, (Uuid,)>(
+            "SELECT DISTINCT sujet_eleve_id FROM ent_acc_desaccord
+              WHERE etablissement_id = $1 AND sujet_eleve_id = ANY($2) AND leve_le IS NULL
+                AND ((objet_acc_id IS NULL AND (objet = $3 OR (objet = 'general' AND $3::text IS NOT NULL)))
+                     OR objet_acc_id = $4)",
+        )
+        .bind(etab)
+        .bind(&eleves)
+        .bind(&objet.desaccord_objet)
+        .bind(objet.id)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?
@@ -510,12 +534,12 @@ impl PgEnt {
                     qualite: l.qualite.as_str(),
                     accorde: l.accorde,
                     expiree,
-                    sans_preuve: l.canal == "reprise_sans_preuve",
+                    sans_preuve: l.canal == "reprise_sans_preuve" || l.preuve_perimee,
                 });
             }
             let entree = EntreeVerdict {
                 nature: &objet.nature,
-                regle: &objet.regle,
+                regle: regle_effective(&objet.regle, &objet.code, objet.desaccord_objet.as_deref(), &objet.sujet_type),
                 avis_des_ans: objet.avis_eleve_des_ans,
                 age_eleve: age,
                 usage_mission,
@@ -526,7 +550,14 @@ impl PgEnt {
                 a_renouveler: ont_decide.contains(&id) && !ont_decide_usage.contains(&id),
                 decisions,
             };
-            sortie.push(VerdictSujet { sujet: *s, verdict: calculer_verdict(&entree), raison: None });
+            let mut verdict = calculer_verdict(&entree);
+            // Un désaccord déclaré encore ouvert (socle 4) rend l'accord inutilisable : « désaccord », jamais « autorisé ».
+            if desaccords_ouverts.contains(&id)
+                && matches!(verdict, Verdict::Autorise | Verdict::EnAttente | Verdict::ARenouveler | Verdict::Expire)
+            {
+                verdict = Verdict::Desaccord;
+            }
+            sortie.push(VerdictSujet { sujet: *s, verdict, raison: None });
         }
         Ok(sortie)
     }

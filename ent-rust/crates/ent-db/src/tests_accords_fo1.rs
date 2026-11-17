@@ -21,6 +21,8 @@ const DIR: &str = "direction";
 
 /// Repart d'un état propre : les accords sont en ajout seul, la purge volontaire est le seul moyen de les vider.
 async fn vider_accords(ent: &PgEnt, etab: Uuid) {
+    // Les formulaires, réponses, désaccords et preuves des lots FO2 et FO3 référencent les objets : ils partent d'abord.
+    crate::tests_formulaires_fo2::vider_fo23(ent, etab).await;
     let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
     for t in [
@@ -54,6 +56,7 @@ fn objet_propre(code: &str, nature: &str, regle: &str, droit: Option<&str>, usag
         valide_jusqu_au: None,
         evenement_fin: None,
         sujet_type: "eleve".into(),
+        desaccord_objet: None,
         usages: usages.iter().map(|u| usage(u)).collect(),
         texte: "Texte d'accord de test".into(),
     }
