@@ -23,10 +23,13 @@ pub struct PastilleDto {
     /// Valeur courte (régime, type de mobilité…), quand la pastille en porte une.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valeur_code: Option<String>,
-    /// Échéance (fin d'un PAI, retour de mobilité, date de majorité…).
+    /// Échéance (fin d'un PAI, retour de mobilité…). **Jamais** pour les pastilles qui ne livrent que le
+    /// fait (vie de classe, majorité, protection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valeur_date: Option<NaiveDate>,
-    pub du: NaiveDate,
+    /// Depuis quand ; absent pour les pastilles qui ne livrent que le fait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub du: Option<NaiveDate>,
 }
 
 /// Une tuile de la grille « Synthèse ».
@@ -35,11 +38,14 @@ pub struct TuileDto {
     pub domaine: String,
     pub libelle: String,
     pub rang: u8,
-    pub lien: String,
+    /// Absent quand la tuile est masquée (aucun chemin vers un écran fermé).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lien: Option<String>,
     /// `visible` ou `masquee`.
     pub etat: String,
-    /// Présente seulement si la tuile est masquée : `droit_manquant`, `hors_portee`,
-    /// `reserve_au_personnel`.
+    /// Présente seulement si la tuile est masquée : toujours `droit_manquant` (le serveur ne détaille pas
+    /// pourquoi, pour ne rien laisser déduire des droits d'autrui). Les autres valeurs restent lisibles
+    /// par compatibilité.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raison: Option<String>,
     /// Vide si la tuile est masquée.

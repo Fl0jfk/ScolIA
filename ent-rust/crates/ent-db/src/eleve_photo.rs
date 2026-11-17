@@ -746,7 +746,7 @@ impl PgEnt {
     }
 
     /// Élèves de `ids` qui ont refusé la photo administrative (silhouette dans les listes).
-    pub async fn eleves_refus_photo(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
+    pub(crate) async fn eleves_refus_photo(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -797,7 +797,7 @@ impl PgEnt {
     /// Élèves de `ids` à **exclure d'un export ou d'un trombinoscope imprimé** : mesure
     /// `hors_trombinoscope_exporte` en vigueur. À appeler par tout export nominatif (E11), quel que
     /// soit le droit de l'exportateur.
-    pub async fn eleves_hors_export(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
+    pub(crate) async fn eleves_hors_export(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }

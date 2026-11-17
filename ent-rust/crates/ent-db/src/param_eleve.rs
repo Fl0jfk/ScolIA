@@ -116,7 +116,8 @@ pub(crate) async fn exiger_saisie_famille_tx(
         None => ReglageChamp::defaut_pour(def),
     };
     if r.saisie_famille == SaisieFamille::Non {
-        return Err(EntDbError::Forbidden);
+        // 404 et non 403 : la famille ne doit pas apprendre quel réglage l'établissement a posé.
+        return Err(domain_eleve::DomainError::NotFound.into());
     }
     Ok(())
 }

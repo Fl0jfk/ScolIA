@@ -11,7 +11,7 @@
 //! * **PNG** : seuls les blocs d'image et de rendu (`IHDR`, `PLTE`, `tRNS`, `IDAT`, `IEND`, `gAMA`,
 //!   `cHRM`, `sRGB`, `sBIT`, `bKGD`, `pHYs`) sont gardés ; `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME`,
 //!   `iCCP` et tout bloc inconnu sont jetés.
-//! * **WebP** : les blocs `EXIF`, `XMP ` et `ICCP` sont retirés, les drapeaux du bloc `VP8X` et la
+//! * **WebP** : liste blanche (`VP8X`, `VP8 `, `VP8L`, `ALPH`, `ANIM`, `ANMF`) ; `EXIF`, `XMP `, `ICCP` et tout bloc inconnu sont retirés, les drapeaux du bloc `VP8X` et la
 //!   taille de l'enveloppe RIFF sont corrigés.
 
 use ent_pdf::piece::jpeg_nettoye;
@@ -134,8 +134,9 @@ fn webp(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
         if suivant > corps.len() + (lg & 1) {
             return Err("photo illisible");
         }
+        // Liste BLANCHE : seuls les blocs qui servent à l'affichage sont repris ; tout autre (EXIF, XMP, ICCP,
+        // et tout bloc inconnu qui pourrait porter des métadonnées) disparaît.
         match &genre {
-            b"EXIF" | b"XMP " | b"ICCP" => {}
             b"VP8X" => {
                 let mut v = bloc.to_vec();
                 if v.len() < 9 {
@@ -148,7 +149,8 @@ fn webp(octets: &[u8]) -> Result<Vec<u8>, &'static str> {
                 image = true;
                 blocs.extend_from_slice(bloc);
             }
-            _ => blocs.extend_from_slice(bloc),
+            b"ALPH" | b"ANIM" => blocs.extend_from_slice(bloc),
+            _ => {}
         }
         i = suivant;
     }

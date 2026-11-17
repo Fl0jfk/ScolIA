@@ -23,7 +23,9 @@ use uuid::Uuid;
 const MDP: &str = "DevLocalPass1!";
 
 async fn demarrer() -> Option<String> {
-    let Ok(url) = std::env::var("ENT_DATABASE_URL") else {
+    // Sans base : ignoré en local, mais ÉCHEC si `ENT_EXIGER_BASE` (ou `CI`) est posé : un test vert sans avoir
+    // rien vérifié donne une fausse assurance (convention des autres tests sur base).
+    let Some(url) = ent_db::url_base_de_test() else {
         eprintln!("SKIP : ENT_DATABASE_URL absent (sourcer scripts/env.sh)");
         return None;
     };
@@ -490,13 +492,14 @@ async fn un_eleve_protege_est_absent_pour_un_tiers_dans_la_liste_la_fiche_et_la_
             introuvable(&c.eleve_synthese(cible.id).await),
             "{nom} : synthèse"
         );
+        // 404 EXACT (jamais 403) : la couche HTTP écarte le protégé avant tout contrôle de droit.
         assert!(
-            introuvable(&c.eleve_historique_identite(cible.id).await)
-                || interdit(&c.eleve_historique_identite(cible.id).await)
+            introuvable(&c.eleve_historique_identite(cible.id).await),
+            "{nom} : historique"
         );
         assert!(
-            introuvable(&c.eleve_identifiants(cible.id).await)
-                || interdit(&c.eleve_identifiants(cible.id).await)
+            introuvable(&c.eleve_identifiants(cible.id).await),
+            "{nom} : identifiants"
         );
     }
     // Contrôle positif : la direction (G6) le voit et sa fiche le dit.
@@ -534,8 +537,8 @@ async fn un_eleve_protege_est_absent_pour_un_tiers_dans_la_liste_la_fiche_et_la_
         .unwrap()
         .total;
     assert!(
-        s_dir_total >= s_tiers_total,
-        "le total d'un tiers ne compte pas l'élève protégé"
+        s_dir_total == s_tiers_total + 1,
+        "le total d'un tiers ne compte pas l'élève protégé ({s_dir_total} / {s_tiers_total})"
     );
     // Levée : l'élève redevient visible du secrétariat.
     direction
@@ -591,4 +594,90 @@ async fn le_contrat_d_e8_est_entierement_traite_par_l_ecran() {
             p["code"]
         );
     }
+}
+
+// ───────────────────────── vie de classe : enseignant, accueil, aucune date ─────────────────────────
+
+/// Module santé ouvert, PAI réel de Harry (infirmière) et modalité (secrétariat) : le jeu d'essai des tests de la
+/// revue de sécurité (aucun cas « à vide »).
+async fn preparer_pai_et_modalite(base: &str, l: &Labo, harry: Uuid) {
+    let direction = personnel(base, l, "direction").await;
+    let infirmiere = personnel(base, l, "infirmerie").await;
+    let secretariat = personnel(base, l, "administratif").await;
+    direction.definir_module_sante(true).await.expect("module santé");
+    let debut = chrono::Utc::now().date_naive() - chrono::Duration::days(30);
+    let corps = ent_types::sante::EnregistrerPaiBody {
+        motif: "allergie sévère".into(),
+        mesures_accueil: "trousse d'urgence".into(),
+        protocole_urgence: "appeler le 15".into(),
+        note_interne: String::new(),
+        date_debut: debut,
+        date_fin: None,
+        actif: true,
+        date_revision: None,
+        trousse_urgence: true,
+        trousse_lieu: "infirmerie".into(),
+        trousse_peremption: None,
+    };
+    infirmiere.enregistrer_pai(harry, &corps).await.expect("PAI de Harry");
+    let _ = secretariat
+        .post_json(
+            &format!("/eleves/{harry}/modalites"),
+            serde_json::json!({"code": "ulis", "du": (chrono::Utc::now().date_naive() - chrono::Duration::days(12)).to_string()}),
+        )
+        .await;
+}
+
+/// Attend (au plus 25 s) que la projection asynchrone des pastilles porte `code` pour ce lecteur.
+async fn attendre_pastille(c: &ApiClient, eleve: Uuid, code: &str) -> serde_json::Value {
+    for _ in 0..50 {
+        let j = c.get_json(&format!("/eleves/{eleve}/synthese")).await.expect("synthèse");
+        if j["pastilles"].as_array().is_some_and(|p| p.iter().any(|x| x["code"] == code)) {
+            return j;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    panic!("la pastille {code} n'est jamais apparue");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_tuile_vie_de_classe_s_ouvre_a_l_enseignant_pas_a_l_accueil_et_ne_livre_aucune_date() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let harry = l.eleve("Harry").expect("Harry").id;
+    preparer_pai_et_modalite(&base, &l, harry).await;
+    let prof = personnel(&base, &l, "prof").await;
+    let accueil = inscrire(&base, l.etablissement_id, "accueil").await;
+
+    // Enseignant de l'élève : tuile « classe » visible, protocole et modalité (booléens), aucune date.
+    let j = attendre_pastille(&prof, harry, "protocole").await;
+    let j = if j["pastilles"].as_array().unwrap().iter().any(|x| x["code"] == "modalite_particuliere") {
+        j
+    } else {
+        attendre_pastille(&prof, harry, "modalite_particuliere").await
+    };
+    let tuile = |j: &serde_json::Value, d: &str| j["tuiles"].as_array().unwrap().iter().find(|t| t["domaine"] == d).cloned().unwrap();
+    assert_eq!(tuile(&j, "classe")["etat"], "visible", "tuile « vie de classe » ouverte à l'enseignant");
+    let dump = j.to_string();
+    for p in j["pastilles"].as_array().unwrap() {
+        if p["domaine"] == "classe" {
+            assert!(p.get("du").is_none() && p.get("valeur_date").is_none() && p.get("valeur_code").is_none(), "booléen sans date : {p}");
+        }
+    }
+    let annee = chrono::Utc::now().format("%Y-").to_string();
+    assert!(!dump.contains(&annee), "aucune date de l'année en cours dans la synthèse de l'enseignant : {dump}");
+    assert!(!j["pastilles"].as_array().unwrap().iter().any(|x| x["code"] == "pai_actif"), "le PAI reste fermé à l'enseignant");
+    assert!(!j["pastilles"].as_array().unwrap().iter().any(|x| x["code"] == "majorite_proche"));
+    // Les tuiles masquées n'ont ni lien ni raison détaillée.
+    for t in j["tuiles"].as_array().unwrap().iter().filter(|t| t["etat"] == "masquee") {
+        assert!(t.get("lien").is_none(), "tuile masquée sans lien : {t}");
+        assert_eq!(t["raison"], "droit_manquant", "une seule raison : {t}");
+    }
+
+    // Accueil (lit « maintenant », sans contraintes) : la tuile « classe » est fermée, ni protocole ni PAI.
+    if let Ok(ja) = accueil.get_json(&format!("/eleves/{harry}/synthese")).await {
+        assert_eq!(tuile(&ja, "classe")["etat"], "masquee");
+        assert!(!ja["pastilles"].as_array().unwrap().iter().any(|x| x["code"] == "protocole" || x["code"] == "pai_actif"));
+    }
+    assert!(interdit(&accueil.eleves_liste(&filtre("")).await) || accueil.eleves_liste(&filtre("")).await.is_ok());
 }

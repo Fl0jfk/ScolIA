@@ -10,12 +10,18 @@
 --    l'insertion ; pas de NOT NULL, voir plus bas).
 -- 3. F5 : validation des contraintes NOT VALID de 298 (et du statut), après assainissement.
 
+-- Premier passage : la pastille « protocole » n'est pas encore au catalogue. La reprise des statuts, le
+-- recalcul de la projection et la validation des contraintes ne se font QUE ce jour-là (garde idempotente :
+-- un rejeu de la migration ne recalcule pas tous les établissements). Drapeau local à la transaction.
+SELECT set_config('ent.e9_premier_passage',
+                  (NOT EXISTS (SELECT 1 FROM ent_catalogue_indicateur WHERE code = 'protocole'))::text, true);
+
 -- ───────────────────────── 1. Catalogue des pastilles ─────────────────────────
 INSERT INTO ent_catalogue_indicateur (code, domaine, libelle, icone, gravite, actions_requises, depend_du_temps) VALUES
     ('protocole', 'classe', 'Protocole : voir l''infirmerie', 'croix', 'attention', ARRAY['contraintes.lire']::TEXT[], true),
     ('nouvel_arrivant', 'classe', 'Nouvel arrivant', 'etoile', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true),
     ('arrive_en_cours_annee', 'classe', 'Arrivé en cours d''année', 'fleche', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true),
-    ('majorite_proche', 'classe', 'Majorité dans moins de 30 jours', 'calendrier', 'attention', ARRAY['eleves.etat_civil.lire', 'eleves.badge.gerer']::TEXT[], true),
+    ('majorite_proche', 'classe', 'Majorité dans moins de 30 jours', 'calendrier', 'attention', ARRAY['eleves.etat_civil.lire']::TEXT[], true),
     ('modalite_particuliere', 'classe', 'Modalité de scolarisation particulière', 'reglage', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true)
 ON CONFLICT (code) DO UPDATE SET
     domaine = EXCLUDED.domaine, libelle = EXCLUDED.libelle, icone = EXCLUDED.icone,
@@ -146,30 +152,18 @@ LANGUAGE sql STABLE AS $$
                     HAVING count(*) > 0) m ON true
 $$;
 
--- Les nouvelles pastilles sont calculées pour les élèves existants (par établissement, sous son
--- contexte de cloisonnement). Idempotent.
-DO $$
-DECLARE etab UUID;
-BEGIN
-    FOR etab IN SELECT DISTINCT etablissement_id FROM ent_eleve LOOP
-        PERFORM set_config('app.etablissement_id', etab::text, true);
-        PERFORM ent_eleve_indicateurs_recalculer(
-            etab, NULL,
-            ARRAY['protocole', 'nouvel_arrivant', 'arrive_en_cours_annee', 'majorite_proche', 'modalite_particuliere']::TEXT[],
-            NULL, NULL);
-    END LOOP;
-    PERFORM set_config('app.etablissement_id', '', true);
-END $$;
-
 -- ───────────────────────── 2. F3 : ent_eleve.statut jamais NULL ─────────────────────────
--- Reprise : le statut des lignes encore NULL est dérivé de leurs scolarisations (même fonction que
--- la projection ; sans scolarisation : « a_venir »).
+-- Reprise (premier passage, AVANT le recalcul des pastilles : un élève sorti ne garde pas `sans_ine`) : le
+-- statut des lignes encore NULL est dérivé de leurs scolarisations (même fonction que la projection ; sans
+-- scolarisation : « a_venir »).
 DO $$
 BEGIN
-    PERFORM set_config('ent.scolarite_projection', 'on', true);
-    UPDATE ent_eleve e SET statut = ent_eleve_statut_a(e.etablissement_id, e.id, ent_jour_etablissement(e.etablissement_id))
-     WHERE e.statut IS NULL;
-    PERFORM set_config('ent.scolarite_projection', 'off', true);
+    IF coalesce(current_setting('ent.e9_premier_passage', true), 'false') = 'true' THEN
+        PERFORM set_config('ent.scolarite_projection', 'on', true);
+        UPDATE ent_eleve e SET statut = ent_eleve_statut_a(e.etablissement_id, e.id, ent_jour_etablissement(e.etablissement_id))
+         WHERE e.statut IS NULL;
+        PERFORM set_config('ent.scolarite_projection', 'off', true);
+    END IF;
 END $$;
 
 -- À l'insertion (ou à une mise à jour qui l'effacerait), le statut est dérivé, jamais laissé NULL.
@@ -190,30 +184,42 @@ CREATE TRIGGER ent_eleve_statut_rempli
     FOR EACH ROW EXECUTE FUNCTION ent_eleve_statut_rempli();
 
 -- Sens de NULL : `statut` est un cache dérivé des scolarisations ; NULL = « aucune scolarisation encore » (ligne
--- reprise), jamais « actif ». Les lecteurs le traitent comme « à venir ». NOT NULL n'est PAS posée : la reprise d'anciennes données (`ent_eleve_scolarisation_reprendre`) et ses
--- tests insèrent volontairement des lignes sans statut, hors déclencheurs. En fonctionnement normal le
--- déclencheur ci-dessus ne laisse plus aucune ligne NULL (écart noté au rapport de livraison).
+-- reprise), jamais « actif ». Les lecteurs le traitent comme « à venir ». NOT NULL n'est PAS posée : la reprise
+-- d'anciennes données (`ent_eleve_scolarisation_reprendre`) et ses tests insèrent volontairement des lignes
+-- sans statut, hors déclencheurs. En fonctionnement normal, le déclencheur ci-dessus n'en laisse aucune.
+
+-- Recalcul COMPLET de la projection (premier passage, après la reprise des statuts), par établissement et sous
+-- son contexte de cloisonnement : les cinq nouvelles pastilles, et toute pastille que le statut repris change.
+DO $$
+DECLARE etab UUID;
+BEGIN
+    IF coalesce(current_setting('ent.e9_premier_passage', true), 'false') = 'true' THEN
+        FOR etab IN SELECT DISTINCT etablissement_id FROM ent_eleve LOOP
+            PERFORM set_config('app.etablissement_id', etab::text, true);
+            PERFORM ent_eleve_indicateurs_recalculer(etab, NULL, NULL, NULL, NULL);
+        END LOOP;
+        PERFORM set_config('app.etablissement_id', '', true);
+    END IF;
+END $$;
 
 -- ───────────────────────── 3. F5 : contraintes NOT VALID ─────────────────────────
--- Assainissement MINIMAL et sûr avant validation : un code de levée inconnu devient « autre ». Aucune
--- autre valeur n'est inventée (auteur de levée, motif scellé, mesures) : si des lignes restent
--- hors règle, la contrainte reste NOT VALID (elle protège les écritures à venir) et un avertissement
--- le dit ; la validation se rejoue à la migration suivante.
+-- Validation au premier passage, SANS réécrire la table d'audit (aucune ligne de
+-- `ent_eleve_confidentialite` n'est modifiée ici : une mesure est immuable). Si des lignes sont hors règle, la
+-- contrainte reste NOT VALID (elle protège les écritures à venir) ; le démarrage le signale par un journal
+-- d'erreur qui nomme la contrainte (`migrate::signaler_contraintes_non_validees`), jamais un simple avertissement
+-- de migration.
 DO $$
 BEGIN
-    ALTER TABLE ent_eleve_confidentialite DISABLE TRIGGER ent_eleve_confidentialite_garde;
-    UPDATE ent_eleve_confidentialite SET leve_motif_code = 'autre'
-     WHERE leve_motif_code IS NOT NULL
-       AND leve_motif_code NOT IN ('fin_de_mesure', 'decision_levee', 'erreur_de_saisie', 'changement_de_mesure', 'autre');
-    ALTER TABLE ent_eleve_confidentialite ENABLE TRIGGER ent_eleve_confidentialite_garde;
-    BEGIN
-        ALTER TABLE ent_eleve_confidentialite VALIDATE CONSTRAINT ent_eleve_confidentialite_regles_chk;
-    EXCEPTION WHEN check_violation THEN
-        RAISE WARNING 'ent_eleve_confidentialite_regles_chk : lignes hors règle, contrainte laissée NOT VALID';
-    END;
-    BEGIN
-        ALTER TABLE ent_eleve VALIDATE CONSTRAINT ent_eleve_statut_chk;
-    EXCEPTION WHEN check_violation THEN
-        RAISE WARNING 'ent_eleve_statut_chk : lignes hors règle, contrainte laissée NOT VALID';
-    END;
+    IF coalesce(current_setting('ent.e9_premier_passage', true), 'false') = 'true' THEN
+        BEGIN
+            ALTER TABLE ent_eleve_confidentialite VALIDATE CONSTRAINT ent_eleve_confidentialite_regles_chk;
+        EXCEPTION WHEN check_violation THEN
+            RAISE WARNING 'ent_eleve_confidentialite_regles_chk : lignes hors règle, contrainte laissée NOT VALID';
+        END;
+        BEGIN
+            ALTER TABLE ent_eleve VALIDATE CONSTRAINT ent_eleve_statut_chk;
+        EXCEPTION WHEN check_violation THEN
+            RAISE WARNING 'ent_eleve_statut_chk : lignes hors règle, contrainte laissée NOT VALID';
+        END;
+    END IF;
 END $$;

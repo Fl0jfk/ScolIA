@@ -700,7 +700,7 @@ async fn interne_visible_de_la_vie_scolaire_et_de_l_accueil_sans_rien_ouvrir_d_a
         let c = codes(&s);
         assert!(c.contains(&"interne"), "{role} : {c:?}");
         assert!(
-            c.iter().all(|x| ["interne", "nouvel_arrivant", "arrive_en_cours_annee", "protocole", "modalite_particuliere", "majorite_proche"].contains(x)),
+            c.iter().all(|x| ["interne", "nouvel_arrivant", "arrive_en_cours_annee", "protocole", "modalite_particuliere"].contains(x)),
             "{role} : {c:?}"
         );
         if role == Role::Accueil.as_str() {

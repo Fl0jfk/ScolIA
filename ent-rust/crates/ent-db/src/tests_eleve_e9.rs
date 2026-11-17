@@ -268,7 +268,7 @@ async fn e9a_photo_email_et_mobile_entrent_au_catalogue_et_ferment_la_saisie_fam
     ent.parametrer_champ(radmin, etab, admin, ferme("photo"))
         .await
         .unwrap();
-    assert!(forbidden(
+    assert!(absent(
         &ent.proposer_photo_a(rparent, d.clone(), plus(2)).await
     ));
     d.acteur = adm;
@@ -287,7 +287,7 @@ async fn e9a_photo_email_et_mobile_entrent_au_catalogue_et_ferment_la_saisie_fam
     ent.parametrer_champ(radmin, etab, admin, ferme("email_eleve"))
         .await
         .unwrap();
-    assert!(forbidden(
+    assert!(absent(
         &ent.ajouter_coordonnee_eleve_a(rparent, mail("ferme"), plus(3))
             .await
     ));
@@ -307,7 +307,7 @@ async fn e9a_photo_email_et_mobile_entrent_au_catalogue_et_ferment_la_saisie_fam
         valeur: "06 12 34 56 72".into(),
         ..mobile
     };
-    assert!(forbidden(
+    assert!(absent(
         &ent.ajouter_coordonnee_eleve_a(rparent, mobile2, plus(4))
             .await
     ));
@@ -392,7 +392,7 @@ async fn e9b_protocole_signale_l_infirmerie_a_la_vie_scolaire_sans_rien_de_sante
         ("classe", None, None),
         "ni nature, ni échéance"
     );
-    assert_eq!(p.du, jour, "pas même la date de début du PAI");
+    assert_eq!(p.du, None, "pas même la date de début du PAI (booléen de la vie de classe : aucune date)");
     let rendu = format!("{s:?}");
     for mot in [
         "allergie",
@@ -682,16 +682,14 @@ async fn e9c_majorite_proche_est_un_booleen_sans_date() {
         .iter()
         .find(|p| p.code == "majorite_proche")
         .expect("visible de la direction");
-    assert_eq!(
-        (p.valeur_code.clone(), p.valeur_date, p.du),
-        (None, None, jour)
-    );
+    assert_eq!((p.valeur_code.clone(), p.valeur_date, p.du), (None, None, None));
     assert!(
         !format!("{s:?}").contains(&naissance_pour(10).to_string()),
         "la date de naissance ne fuit pas"
     );
-    // L'administration et la vie scolaire la voient (booléen).
-    assert!(vues_par(&ent, &cast, Role::Cpe, proche.id)
+    // M2 (décision du pilote) : réservée aux détenteurs de `eleves.etat_civil.lire` : la vie scolaire ne la voit
+    // pas (la fenêtre de 30 jours, suivie jour après jour, laisserait déduire la naissance).
+    assert!(!vues_par(&ent, &cast, Role::Cpe, proche.id)
         .await
         .unwrap()
         .contains(&"majorite_proche"));
@@ -1664,7 +1662,7 @@ async fn e9d_l_enseignant_de_l_eleve_voit_les_pastilles_d_organisation_et_pas_le
     assert!(!v.contains(&"pai_actif"), "le PAI reste réservé à sante.lire : {v:?}");
     // Aucune valeur ni date dans ce qu'il reçoit.
     let s = ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await.unwrap();
-    assert!(s.pastilles.iter().filter(|p| p.domaine == "classe").all(|p| p.valeur_code.is_none() && p.valeur_date.is_none()));
+    assert!(s.pastilles.iter().filter(|p| p.domaine == "classe").all(|p| p.valeur_code.is_none() && p.valeur_date.is_none() && p.du.is_none()));
     // Règle unique : chaque pastille visible a sa tuile ouverte.
     for p in &s.pastilles {
         let t = s.tuiles.iter().find(|t| t.domaine == p.domaine).unwrap();
@@ -1723,4 +1721,309 @@ async fn proteger_harry(ent: &PgEnt, cast: &LaboCast, rdir: &str, dir: Uuid, ele
 
 async fn codes_vus_par(ent: &PgEnt, etab: Uuid, role: &str, u: Uuid, e: Uuid) -> Result<Vec<&'static str>, EntDbError> {
     ent.synthese_eleve_pour_acteur(role, etab, u, e).await.map(|s| s.pastilles.iter().map(|p| p.code).collect())
+}
+
+// ───────────────────────── revue de sécurité : correctifs E1, M1 à M6, F1 à F4 ─────────────────────────
+
+/// E1 : une projection **recalculée pour de vrai** (modalité et PAI réels, calcul SQL) ne laisse sortir AUCUNE
+/// date dans la synthèse d'un enseignant ni d'aucun autre lecteur pour les pastilles qui ne livrent que le fait.
+#[tokio::test]
+async fn e1_aucune_date_ne_sort_pour_les_pastilles_booleennes_apres_un_vrai_recalcul() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    ent.activer_module_sante_test(etab).await;
+    let (adm, radm) = user(&cast, Role::Administratif);
+    let (inf, rinf) = user(&cast, Role::Infirmerie);
+    let harry = cast.eleve_lea_id;
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    let debut_modalite = jour - Duration::days(9);
+    let debut_pai = jour - Duration::days(17);
+    ent.enregistrer_modalite(radm, etab, harry, CodeModalite::Ulis, debut_modalite, None, None, adm).await.unwrap();
+    ent.enregistrer_pai_for_actor(rinf, pai(etab, harry, inf, debut_pai), None).await.unwrap();
+    distribuer(&ent, etab).await;
+    ent.reconstruire_indicateurs(etab, None, Some(jour)).await.unwrap();
+    // Contrôle positif : la projection porte bien des dates (sinon le test passerait à vide).
+    let (du_modalite,): (NaiveDate,) =
+        sqlx::query_as("SELECT du FROM ent_eleve_indicateur WHERE eleve_id = $1 AND code = 'modalite_particuliere'")
+            .bind(harry)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(du_modalite, debut_modalite, "la projection garde la date");
+    let sans_date = |code: &str, domaine: &str| domaine == "classe" || matches!(code, "majeur" | "confidentialite_renforcee");
+    let mut vus = 0;
+    for role in [Role::Prof, Role::Cpe, Role::Administratif, Role::Direction, Role::Infirmerie] {
+        let (u, r) = user(&cast, role);
+        let s = ent.synthese_eleve_pour_acteur(r, etab, u, harry).await.unwrap_or_else(|e| panic!("{r} : {e:?}"));
+        let dump = format!("{s:?}");
+        for date in [debut_modalite, debut_pai] {
+            for forme in [date.to_string(), date.format("%d/%m/%Y").to_string()] {
+                assert!(!dump.contains(&forme), "{r} : la date {forme} ne doit pas figurer dans la synthèse");
+            }
+        }
+        for p in s.pastilles.iter().filter(|p| sans_date(p.code, p.domaine)) {
+            vus += 1;
+            assert!(p.du.is_none() && p.valeur_date.is_none(), "{r} : {} porte une date", p.code);
+        }
+        for t in s.tuiles.iter().filter(|t| !matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible)) {
+            assert!(t.lien.is_none() && t.pastilles.is_empty(), "{r} : tuile masquée {} sans lien ni contenu", t.domaine);
+            assert_eq!(t.etat, crate::eleve_indicateurs::EtatTuile::Masquee(domain_eleve::RaisonTuile::DroitManquant), "F4 : une seule raison");
+        }
+    }
+    assert!(vus >= 5, "le test n'est pas vide : {vus} pastilles booléennes examinées");
+    let prof = user(&cast, Role::Prof);
+    let pv = codes_vus_par(&ent, etab, prof.1, prof.0, harry).await.unwrap();
+    assert!(pv.contains(&"modalite_particuliere") && pv.contains(&"protocole"), "{pv:?}");
+    // Nettoyage : la modalité se termine, le PAI est désactivé.
+    let (mid,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_eleve_modalite WHERE eleve_id = $1 AND au IS NULL")
+        .bind(harry)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    ent.terminer_modalite(radm, etab, harry, mid, jour, adm).await.unwrap();
+    let mut off = pai(etab, harry, inf, debut_pai);
+    off.actif = false;
+    ent.enregistrer_pai_for_actor(rinf, off, None).await.unwrap();
+}
+
+/// M1 : la synthèse d'un élève protégé ouverte par un non-tiers sans G6 est tracée (et alerte si la mesure le
+/// demande) ; la direction (G6) n'est pas tracée.
+#[tokio::test]
+async fn m1_la_synthese_d_un_eleve_protege_est_tracee_pour_un_non_g6() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    let (dir, rdir) = user(&cast, Role::Direction);
+    let (prof, rprof) = user(&cast, Role::Prof);
+    let harry = cast.eleve_lea_id;
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    ent.poser_confidentialite_a(
+        rdir,
+        PoserConfidentialite {
+            etablissement_id: etab,
+            eleve_id: harry,
+            motif: "Mesure de protection".into(),
+            mesures: vec!["alerte_consultation".into()],
+            du: Some(jour - Duration::days(1)),
+            au: None,
+            acteur: dir,
+        },
+        t0(),
+    )
+    .await
+    .unwrap();
+    let compte = |ent: &PgEnt| {
+        let p = ent.pool_verif().clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'consultation' AND action = 'synthese_protegee'",
+            )
+            .bind(harry)
+            .fetch_one(&p)
+            .await
+            .unwrap()
+        }
+    };
+    let alertes = |ent: &PgEnt| {
+        let p = ent.pool_verif().clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ent_metier_event WHERE eleve_id = $1 AND type = 'eleve.consultation_protegee'")
+                .bind(harry)
+                .fetch_one(&p)
+                .await
+                .unwrap()
+        }
+    };
+    let (avant, alertes_avant) = (compte(&ent).await, alertes(&ent).await);
+    ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await.unwrap();
+    assert_eq!(compte(&ent).await, avant + 1, "la synthèse d'un protégé par un non-G6 est tracée");
+    assert!(alertes(&ent).await > alertes_avant, "et alerte (mesure `alerte_consultation`)");
+    ent.synthese_eleve_pour_acteur(rdir, etab, dir, harry).await.unwrap();
+    assert_eq!(compte(&ent).await, avant + 1, "G6 n'est pas tracée comme un non-G6");
+    ent.lever_confidentialite_a(rdir, etab, dir, harry, "fin_de_mesure", t0()).await.unwrap();
+    // Un élève non protégé n'est pas tracé.
+    ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await.unwrap();
+    assert_eq!(compte(&ent).await, avant + 1);
+}
+
+/// M2 : `majorite_proche` (pastille, liste, compteur) réservée aux détenteurs de l'état civil.
+#[tokio::test]
+async fn m2_majorite_proche_est_reservee_a_l_etat_civil_dans_la_synthese_les_listes_et_les_compteurs() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    let e = eleve_le(&ent, etab, "Majorite", jour + Duration::days(10) - Duration::days(365 * 18 + 4), None).await;
+    ent.reconstruire_indicateurs(etab, None, Some(jour)).await.unwrap();
+    for (role, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Administratif, true), (Role::Cpe, false)] {
+        let (u, r) = user(&cast, role);
+        let liste = ent.eleves_par_pastille_pour_acteur(r, etab, u, "majorite_proche", 5000).await;
+        let compteurs = ent.compteurs_pastilles_pour_acteur(r, etab, u).await.unwrap();
+        assert_eq!(compteurs.iter().any(|(c, _)| *c == "majorite_proche"), attendu, "{r} : compteur");
+        assert_eq!(liste.is_ok(), attendu, "{r} : liste {liste:?}");
+        if attendu {
+            let _ = liste;
+        }
+    }
+    assert!(!vues_par(&ent, &cast, Role::Cpe, e.id).await.unwrap().contains(&"majorite_proche"));
+}
+
+/// M3 : une seule règle (`pastille_permise`) pour la synthèse, les listes et les compteurs : pour chaque rôle et
+/// chaque pastille du catalogue, « compteur présent » ⇔ « liste ouverte », et une pastille listée est visible
+/// dans la synthèse d'un élève qui la porte (la pastille suit sa tuile).
+#[tokio::test]
+async fn m3_la_synthese_les_listes_et_les_compteurs_appliquent_la_meme_regle() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    ent.activer_module_sante_test(etab).await;
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    let e = eleve(&ent, etab, "Regle").await;
+    for d in domain_eleve::CATALOGUE_INDICATEURS {
+        sqlx::query(
+            "INSERT INTO ent_eleve_indicateur (etablissement_id, eleve_id, code, du) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (etablissement_id, eleve_id, code) DO NOTHING",
+        )
+        .bind(etab)
+        .bind(e.id)
+        .bind(d.code)
+        .bind(jour)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    let accueil = crate::tests_messagerie_m1::nouvel_utilisateur(&ent, etab, "accueil", "Accueil").await;
+    let mut roles: Vec<(Uuid, &'static str)> = [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Prof, Role::Infirmerie]
+        .into_iter()
+        .map(|r| user(&cast, r))
+        .collect();
+    roles.push((accueil, Role::Accueil.as_str()));
+    for (u, r) in roles {
+        let compteurs: Vec<&str> = match ent.compteurs_pastilles_pour_acteur(r, etab, u).await {
+            Ok(c) => c.into_iter().map(|(c, _)| c).collect(),
+            Err(_) => Vec::new(),
+        };
+        let synthese = ent.synthese_eleve_pour_acteur(r, etab, u, e.id).await.ok();
+        for d in domain_eleve::CATALOGUE_INDICATEURS {
+            let liste = ent.eleves_par_pastille_pour_acteur(r, etab, u, d.code, 5000).await;
+            assert_eq!(liste.is_ok(), compteurs.contains(&d.code), "{r} / {} : liste et compteur doivent s'accorder ({liste:?})", d.code);
+            if let (Ok(l), Some(s)) = (&liste, &synthese) {
+                assert!(l.contains(&e.id), "{r} / {}", d.code);
+                if d.code != "protocole" {
+                    // (« protocole » est masquée quand `pai_actif` est visible : un fait, une pastille.)
+                    assert!(s.pastilles.iter().any(|p| p.code == d.code), "{r} : {} listée mais invisible dans la synthèse", d.code);
+                }
+            }
+            // Jamais une liste pour une pastille dont la tuile est fermée à l'établissement.
+            if liste.is_ok() {
+                let t = domain_eleve::contrat_tuile(d.domaine).unwrap();
+                let ok = ent.eleves_par_pastille_pour_acteur(r, etab, u, d.code, 1).await.is_ok();
+                assert!(ok && !t.actions_requises.is_empty());
+            }
+        }
+    }
+    // Accueil : ni liste ni compteur du protocole, ni de tuile « vie de classe ».
+    assert!(forbidden(&ent.eleves_par_pastille_pour_acteur(Role::Accueil.as_str(), etab, accueil, "protocole", 10).await));
+    // Enseignant : pas de liste d'établissement (sa portée n'est pas l'établissement).
+    let (prof, rprof) = user(&cast, Role::Prof);
+    assert!(forbidden(&ent.eleves_par_pastille_pour_acteur(rprof, etab, prof, "protocole", 10).await));
+    assert!(ent.compteurs_pastilles_pour_acteur(rprof, etab, prof).await.map(|c| c.is_empty()).unwrap_or(true));
+}
+
+/// M4 : la migration 3200 ne recalcule pas tous les établissements à chaque rejeu (garde du premier passage).
+#[tokio::test]
+async fn m4_le_rejeu_de_la_migration_ne_recalcule_pas_la_projection() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    let e = eleve(&ent, etab, "Rejeu").await;
+    ent.reconstruire_indicateurs(etab, None, None).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_eleve_indicateur WHERE eleve_id = $1").bind(e.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert!(n > 0);
+    sqlx::query("DELETE FROM ent_eleve_indicateur WHERE eleve_id = $1").bind(e.id).execute(ent.pool_verif()).await.unwrap();
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap();
+    let apres: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_eleve_indicateur WHERE eleve_id = $1").bind(e.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(apres, 0, "un rejeu ne reconstruit pas la projection (premier passage seulement)");
+}
+
+/// M5 : les contraintes de 298 et du statut sont validées sur la base de test, et le signal de démarrage est vide.
+#[tokio::test]
+async fn m5_aucune_contrainte_attendue_n_est_restee_non_validee() {
+    let Some((ent, _cast)) = labo().await else { return };
+    let lignes: Vec<(String, bool)> = sqlx::query_as("SELECT conname::text, convalidated FROM pg_constraint WHERE conname = ANY($1)")
+        .bind(&crate::migrate::CONTRAINTES_A_VALIDER[..])
+        .fetch_all(ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(lignes.len(), crate::migrate::CONTRAINTES_A_VALIDER.len(), "{lignes:?}");
+    assert!(lignes.iter().all(|(_, v)| *v), "{lignes:?}");
+    assert!(crate::migrate::contraintes_non_validees(ent.pool_verif()).await.unwrap().is_empty());
+}
+
+/// M6 : indicatifs autorisés, plafond de 2 par jour pour un mobile créé par un compte élève, et verrou : des
+/// demandes simultanées ne dépassent pas le plafond.
+#[tokio::test]
+async fn m6_sms_liste_blanche_plafond_eleve_et_demandes_simultanees() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    let (adm, radm) = user(&cast, Role::Administratif);
+    let e = eleve(&ent, etab, "Sms6").await;
+    let nouveau = |valeur: &str| AjouterCoordonneeEleve {
+        etablissement_id: etab,
+        eleve_id: e.id,
+        acteur: adm,
+        type_: "mobile".into(),
+        valeur: valeur.into(),
+        usages: vec![],
+    };
+    // Liste blanche : pays hors France / Union européenne refusés, autres admis.
+    for refuse in ["+212 6 12 34 56 78", "+1 202 555 0143", "+44 7911 123456", "+86 138 0013 8000"] {
+        let r = ent.ajouter_coordonnee_eleve_a(radm, nouveau(refuse), t0()).await;
+        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{refuse} : {r:?}");
+    }
+    let suffixe = format!("{:08}", e.id.as_u128() % 100_000_000);
+    let de = ent.ajouter_coordonnee_eleve_a(radm, nouveau(&format!("+49 151 {}", &suffixe[..8])), t0()).await;
+    assert!(de.is_ok(), "un mobile allemand est admis : {de:?}");
+    // Plafond d'un mobile créé par le COMPTE de l'élève : 2 par jour, même sous 4 demandes simultanées.
+    let compte = crate::tests_messagerie_m1::nouvel_utilisateur(&ent, etab, "eleve", "Elève").await;
+    sqlx::query("INSERT INTO ent_eleve_compte (etablissement_id, eleve_id, user_id) VALUES ($1, $2, $3)")
+        .bind(etab)
+        .bind(e.id)
+        .bind(compte)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let n = format!("+33 6 {} {} {} {}", &suffixe[0..2], &suffixe[2..4], &suffixe[4..6], &suffixe[6..8]);
+    let c = ent
+        .ajouter_coordonnee_eleve_a(
+            Role::Eleve.as_str(),
+            AjouterCoordonneeEleve { acteur: compte, valeur: n, ..nouveau("") },
+            t0(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(c.source, "eleve");
+    let r = Role::Eleve.as_str();
+    let (a, b, c2, d) = tokio::join!(
+        ent.demander_verification_coordonnee_eleve_a(r, etab, compte, c.id, plus(1)),
+        ent.demander_verification_coordonnee_eleve_a(r, etab, compte, c.id, plus(2)),
+        ent.demander_verification_coordonnee_eleve_a(r, etab, compte, c.id, plus(3)),
+        ent.demander_verification_coordonnee_eleve_a(r, etab, compte, c.id, plus(4)),
+    );
+    let reussies = [&a, &b, &c2, &d].iter().filter(|x| x.is_ok()).count();
+    assert_eq!(reussies, 2, "2 SMS au plus par jour pour un mobile créé par l'élève, sous concurrence aussi : {a:?} {b:?} {c2:?} {d:?}");
+    let (envoyes,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_coordonnee_verification WHERE coordonnee_id = $1")
+        .bind(c.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(envoyes, 2);
+}
+
+/// F4 : la famille ne devine pas le réglage de l'établissement : 404 (déjà couvert par `e9a_*`), et une tuile
+/// masquée n'a ni lien ni raison détaillée (couvert par `e1_*`). Ici : les lecteurs du refus de photo et des
+/// exclusions d'export ne sont plus publics.
+#[test]
+fn f3_les_lecteurs_de_refus_et_d_export_ne_sont_pas_publics() {
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/eleve_photo.rs")).unwrap();
+    for f in ["eleves_refus_photo", "eleves_hors_export"] {
+        assert!(src.contains(&format!("pub(crate) async fn {f}")), "{f} doit rester interne à ent-db (pas de contrôle d'acteur)");
+        assert!(!src.contains(&format!("pub async fn {f}")), "{f} ne doit pas être public");
+    }
 }

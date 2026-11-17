@@ -133,7 +133,7 @@ fn pastille(
         gravite: gravite.into(),
         valeur_code: valeur.map(str::to_string),
         valeur_date: date,
-        du: jour(2026, 9, 1),
+        du: Some(jour(2026, 9, 1)),
     }
 }
 
@@ -237,7 +237,7 @@ fn une_tuile_visible_sans_pastille_ni_ecran_est_reperee() {
         domaine: domaine.into(),
         libelle: "X".into(),
         rang: 1,
-        lien: "/x".into(),
+        lien: Some("/x".into()),
         etat: "visible".into(),
         raison: None,
         pastilles: (0..n)

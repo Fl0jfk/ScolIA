@@ -201,14 +201,16 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         depend_du_temps: true,
         module_sante: false,
     },
-    // Un booléen : jamais la date de majorité (elle livrerait la date de naissance).
+    // Un booléen : jamais la date de majorité (elle livrerait la date de naissance). Pastille, liste et
+    // compteur sont réservés aux détenteurs de `eleves.etat_civil.lire` : la fenêtre de 30 jours,
+    // suivie jour après jour dans une liste, laisserait déduire la date de naissance (revue de sécurité M2).
     DefIndicateur {
         code: "majorite_proche",
         domaine: "classe",
         libelle: "Majorité dans moins de 30 jours",
         icone: "calendrier",
         gravite: Gravite::Attention,
-        actions_requises: &["eleves.etat_civil.lire", "eleves.badge.gerer"],
+        actions_requises: &["eleves.etat_civil.lire"],
         evenements: &["eleve.identity_changed", "eleve.capacite_changee"],
         depend_du_temps: true,
         module_sante: false,

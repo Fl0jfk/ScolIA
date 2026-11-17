@@ -106,7 +106,8 @@ pub struct PastilleVue {
     pub gravite: Gravite,
     pub valeur_code: Option<String>,
     pub valeur_date: Option<NaiveDate>,
-    pub du: NaiveDate,
+    /// Depuis quand ; **absent** (`None`) pour les pastilles qui ne livrent que le fait (voir `sans_date`).
+    pub du: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +122,8 @@ pub struct TuileVue {
     pub domaine: &'static str,
     pub libelle: &'static str,
     pub rang: u8,
-    pub lien: String,
+    /// Absent quand la tuile est masquée.
+    pub lien: Option<String>,
     pub etat: EtatTuile,
     /// Pastilles de ce domaine que l'acteur a le droit de voir (vide si la tuile est masquée).
     pub pastilles: Vec<PastilleVue>,
@@ -135,14 +137,32 @@ pub struct SyntheseEleve {
     pub tuiles: Vec<TuileVue>,
 }
 
-/// Pastilles qui ne livrent que le fait, jamais une date qui laisserait deviner la naissance.
-const SANS_DATE: [&str; 2] = ["majeur", "majorite_proche"];
+/// Pastilles qui ne livrent que le FAIT, jamais une date : toute la tuile « vie de classe » (arrivée,
+/// protocole, modalité : une date d'entrée ou de début est un renseignement que le lecteur n'a pas à
+/// avoir), la majorité (elle laisserait deviner la naissance) et la protection (fin prévue de la mesure).
+/// La date reste dans la projection et dans les tables sources, jamais dans la réponse.
+fn sans_date(def: &DefIndicateur) -> bool {
+    def.domaine == "classe" || matches!(def.code, "majeur" | "majorite_proche" | "confidentialite_renforcee")
+}
+
+/// UNE seule décision de visibilité d'une pastille, pour la synthèse (actions détenues **sur l'élève**),
+/// les listes de travail et les compteurs (actions détenues **sur l'établissement**) : la tuile du domaine
+/// est ouverte, le module santé est actif quand le fait en vient, et une action de la pastille est détenue.
+pub(crate) fn pastille_permise(def: &DefIndicateur, a_action: &dyn Fn(&str) -> bool, sante_active: bool) -> bool {
+    let tuile_ouverte = contrat_tuile(def.domaine).is_some_and(|c| tuile_permise(c, a_action, sante_active));
+    let module_ok = !(def.domaine == "sante" || def.module_sante) || sante_active;
+    tuile_ouverte && module_ok && def.actions_requises.iter().any(|a| a_action(a))
+}
+
+/// Une tuile est ouverte si une de ses actions est détenue (et le module santé actif pour la santé).
+pub(crate) fn tuile_permise(c: &ContratTuile, a_action: &dyn Fn(&str) -> bool, sante_active: bool) -> bool {
+    (c.domaine != "sante" || sante_active) && c.actions_requises.iter().any(|a| a_action(a))
+}
 
 /// Pour un code d'action : détenu sur cet élève, détenu quelque part (portée).
 #[derive(Debug, Clone, Copy, Default)]
 struct DroitAction {
     sur_eleve: bool,
-    ailleurs: bool,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -185,7 +205,7 @@ impl PgEnt {
             };
             let ailleurs = droits.iter().any(|d| accorde(d.action, action));
             let sur_eleve = ailleurs && self.autoriser_eleve(etab, acteur, role, action, eleve).await?;
-            out.insert(code, DroitAction { sur_eleve, ailleurs });
+            out.insert(code, DroitAction { sur_eleve });
         }
         Ok(out)
     }
@@ -223,6 +243,13 @@ impl PgEnt {
         if existe.is_none() {
             return Err(DomainError::NotFound.into());
         }
+        // M1 : un élève protégé ouvert par un non-tiers sans G6 (portée pédagogique d'E4) est tracé, et
+        // l'alerte de la mesure part (décidée dans `tracer_consultation`).
+        let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)")
+            .bind(etab)
+            .bind(eleve)
+            .fetch_one(&mut *tx)
+            .await?;
         let lignes: Vec<LigneProjection> = sqlx::query_as(
             "SELECT code, valeur_code, valeur_date, du FROM ent_eleve_indicateur
               WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY code",
@@ -232,35 +259,34 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
+        if protege
+            && !self
+                .profil_champs(etab, acteur, role)
+                .await?
+                .pour(eleve)
+                .ouvert(domain_eleve::GroupeChamps::Sensible)
+        {
+            self.tracer_consultation(etab, acteur, role, Some(eleve), "synthese_protegee", "Synthèse d'une fiche protégée", false)
+                .await?;
+        }
         let droits = self.droits_du_contrat(etab, acteur, role, eleve).await?;
-        let a_le_droit = |actions: &[&str]| actions.iter().any(|a| droits.get(a).is_some_and(|d| d.sur_eleve));
+        let sur_eleve = |a: &str| droits.get(a).is_some_and(|d| d.sur_eleve);
         // M6 : sans le module santé activé, aucune pastille ni tuile de santé.
         let sante_active = self.module_sante_actif(etab).await?;
-        let jour = self.aujourdhui_etablissement(etab).await?;
-        // Règle générale : une pastille n'est visible que si la tuile de son domaine l'est (un
-        // droit sur l'action de la pastille ne suffit pas si la tuile du domaine reste fermée).
-        let tuile_ouverte = |domaine: &str| {
-            (domaine != "sante" || sante_active)
-                && contrat_tuile(domaine).is_some_and(|c| a_le_droit(c.actions_requises))
-        };
-        // Un fait qui vient du module santé (PAI, protocole) n'existe pas sans ce module, même quand
-        // la pastille s'affiche dans une autre tuile (M6).
-        let module_ouvert = |def: &DefIndicateur| !def.module_sante || sante_active;
+        // Règle unique (`pastille_permise`) : la pastille suit sa tuile, le module santé, puis son droit.
         let mut pastilles: Vec<PastilleVue> = lignes
             .into_iter()
             .filter_map(|l| {
                 let def = indicateur_catalogue(&l.code)?;
-                (a_le_droit(def.actions_requises) && tuile_ouverte(def.domaine) && module_ouvert(def)).then_some(PastilleVue {
+                pastille_permise(def, &sur_eleve, sante_active).then_some(PastilleVue {
                     code: def.code,
                     domaine: def.domaine,
                     libelle: def.libelle,
                     icone: def.icone,
                     gravite: def.gravite,
                     valeur_code: l.valeur_code,
-                    // `majeur` et `majorite_proche` ne publient que le fait : ni la date de majorité
-                    // ni son début ne doivent laisser deviner la date de naissance exacte.
-                    valeur_date: if SANS_DATE.contains(&def.code) { None } else { l.valeur_date },
-                    du: if SANS_DATE.contains(&def.code) { jour } else { l.du },
+                    valeur_date: if sans_date(def) { None } else { l.valeur_date },
+                    du: if sans_date(def) { None } else { Some(l.du) },
                 })
             })
             .collect();
@@ -272,14 +298,10 @@ impl PgEnt {
         let mut tuiles: Vec<TuileVue> = CONTRATS_TUILES
             .iter()
             .map(|c: &ContratTuile| {
-                let etat = if c.domaine == "sante" && !sante_active {
-                    EtatTuile::Masquee(RaisonTuile::DroitManquant)
-                } else if a_le_droit(c.actions_requises) {
+                // Une tuile masquée ne détaille pas POURQUOI (rien à déduire des droits d'autrui) : une
+                // seule raison, `droit_manquant`, et pas de lien.
+                let etat = if tuile_permise(c, &sur_eleve, sante_active) {
                     EtatTuile::Visible
-                } else if c.actions_requises.iter().any(|a| droits.get(a).is_some_and(|d| d.ailleurs)) {
-                    EtatTuile::Masquee(RaisonTuile::HorsPortee)
-                } else if c.personnel_seul {
-                    EtatTuile::Masquee(RaisonTuile::ReserveAuPersonnel)
                 } else {
                     EtatTuile::Masquee(RaisonTuile::DroitManquant)
                 };
@@ -288,7 +310,7 @@ impl PgEnt {
                     domaine: c.domaine,
                     libelle: c.libelle,
                     rang: c.rang,
-                    lien: c.lien.replace("{eleve}", &eleve.to_string()),
+                    lien: (etat == EtatTuile::Visible).then(|| c.lien.replace("{eleve}", &eleve.to_string())),
                     pastilles: if visible {
                         pastilles.iter().filter(|p| p.domaine == c.domaine).cloned().collect()
                     } else {
@@ -330,12 +352,14 @@ impl PgEnt {
         limite: i64,
     ) -> Result<Vec<Uuid>, EntDbError> {
         let def = indicateur_catalogue(code).ok_or(EntDbError::SaisieInvalide("pastille inconnue"))?;
-        if !self.a_une_action_etablissement(etab, acteur, role, def.actions_requises).await? {
+        if !Role::parse(role).is_some_and(Role::is_staff) {
             return Err(EntDbError::Forbidden);
         }
-        // M6 : une liste de santé exige le module santé de l'établissement.
-        if def.domaine == "sante" || def.module_sante {
-            self.exiger_module_sante(etab).await?;
+        // Même décision que la synthèse (`pastille_permise`), sur l'établissement entier.
+        let detenues = self.actions_etablissement_du_contrat(etab, acteur, role).await?;
+        let sante_active = self.module_sante_actif(etab).await?;
+        if !pastille_permise(def, &|a| detenues.contains(a), sante_active) {
+            return Err(EntDbError::Forbidden);
         }
         let profil = self.profil_champs(etab, acteur, role).await?;
         // Les protégés sont écartés en SQL AVANT la limite (pas de place laissée par un absent).
@@ -371,12 +395,10 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let mut out = Vec::new();
+        let detenues = self.actions_etablissement_du_contrat(etab, acteur, role).await?;
+        let sante_active = self.module_sante_actif(etab).await?;
         for def in CATALOGUE_INDICATEURS {
-            if !self.a_une_action_etablissement(etab, acteur, role, def.actions_requises).await? {
-                continue;
-            }
-            // M6 : les compteurs d'un fait de santé n'existent pas sans le module santé.
-            if (def.domaine == "sante" || def.module_sante) && !self.module_sante_actif(etab).await? {
+            if !pastille_permise(def, &|a| detenues.contains(a), sante_active) {
                 continue;
             }
             let (n,): (i64,) = sqlx::query_as(
@@ -394,22 +416,22 @@ impl PgEnt {
         Ok(out)
     }
 
-    /// L'acteur détient-il l'une de ces actions sur l'établissement entier ?
-    async fn a_une_action_etablissement(
+    /// Actions du contrat (pastilles et tuiles) que l'acteur détient sur l'établissement entier.
+    async fn actions_etablissement_du_contrat(
         &self,
         etab: Uuid,
         acteur: Uuid,
         role: &str,
-        actions: &[&str],
-    ) -> Result<bool, EntDbError> {
-        for code in actions {
+    ) -> Result<std::collections::HashSet<&'static str>, EntDbError> {
+        let mut out = std::collections::HashSet::new();
+        for code in actions_du_contrat() {
             if let Some(a) = Action::parse(code) {
                 if self.a_action_etablissement(etab, acteur, role, a).await? {
-                    return Ok(true);
+                    out.insert(code);
                 }
             }
         }
-        Ok(false)
+        Ok(out)
     }
 
     /// Reconstruit la projection d'un établissement depuis les tables sources (reprise après un
