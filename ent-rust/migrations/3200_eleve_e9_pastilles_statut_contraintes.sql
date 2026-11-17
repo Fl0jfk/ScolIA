@@ -12,11 +12,11 @@
 
 -- ───────────────────────── 1. Catalogue des pastilles ─────────────────────────
 INSERT INTO ent_catalogue_indicateur (code, domaine, libelle, icone, gravite, actions_requises, depend_du_temps) VALUES
-    ('protocole', 'scolarite', 'Protocole : voir l''infirmerie', 'croix', 'attention', ARRAY['contraintes.lire']::TEXT[], true),
-    ('nouvel_arrivant', 'scolarite', 'Nouvel arrivant', 'etoile', 'information', ARRAY['eleves.lire', 'internat.gerer', 'edt.maintenant_lire']::TEXT[], true),
-    ('arrive_en_cours_annee', 'scolarite', 'Arrivé en cours d''année', 'fleche', 'information', ARRAY['eleves.lire', 'internat.gerer', 'edt.maintenant_lire']::TEXT[], true),
-    ('majorite_proche', 'identite', 'Majorité dans moins de 30 jours', 'calendrier', 'attention', ARRAY['eleves.etat_civil.lire']::TEXT[], true),
-    ('modalite_particuliere', 'scolarite', 'Modalité de scolarisation particulière', 'reglage', 'information', ARRAY['eleves.lire']::TEXT[], true)
+    ('protocole', 'classe', 'Protocole : voir l''infirmerie', 'croix', 'attention', ARRAY['contraintes.lire']::TEXT[], true),
+    ('nouvel_arrivant', 'classe', 'Nouvel arrivant', 'etoile', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true),
+    ('arrive_en_cours_annee', 'classe', 'Arrivé en cours d''année', 'fleche', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true),
+    ('majorite_proche', 'classe', 'Majorité dans moins de 30 jours', 'calendrier', 'attention', ARRAY['eleves.etat_civil.lire', 'eleves.badge.gerer']::TEXT[], true),
+    ('modalite_particuliere', 'classe', 'Modalité de scolarisation particulière', 'reglage', 'information', ARRAY['eleves.lire', 'contraintes.lire']::TEXT[], true)
 ON CONFLICT (code) DO UPDATE SET
     domaine = EXCLUDED.domaine, libelle = EXCLUDED.libelle, icone = EXCLUDED.icone,
     gravite = EXCLUDED.gravite, actions_requises = EXCLUDED.actions_requises,
@@ -35,7 +35,8 @@ LANGUAGE sql STABLE AS $$
           FROM ent_eleve e
          WHERE e.etablissement_id = p_etab AND e.fusionne_dans IS NULL AND (p_eleve IS NULL OR e.id = p_eleve)
     ),
-    scolarises AS (SELECT * FROM e WHERE e.statut IN ('scolarise', 'a_venir')),
+    -- NULL = aucune scolarisation encore (ligne reprise) : traité comme « à venir », jamais comme « actif ».
+    scolarises AS (SELECT * FROM e WHERE coalesce(e.statut, 'a_venir') IN ('scolarise', 'a_venir')),
     -- scolarisation en cours (la plus récente) : base de « nouvel arrivant » et « en cours d'année »
     en_cours AS (
         SELECT DISTINCT ON (s.eleve_id) s.eleve_id, s.date_entree, s.motif_entree
@@ -188,7 +189,8 @@ CREATE TRIGGER ent_eleve_statut_rempli
     BEFORE INSERT OR UPDATE OF statut ON ent_eleve
     FOR EACH ROW EXECUTE FUNCTION ent_eleve_statut_rempli();
 
--- NOT NULL n'est PAS posée : la reprise d'anciennes données (`ent_eleve_scolarisation_reprendre`) et ses
+-- Sens de NULL : `statut` est un cache dérivé des scolarisations ; NULL = « aucune scolarisation encore » (ligne
+-- reprise), jamais « actif ». Les lecteurs le traitent comme « à venir ». NOT NULL n'est PAS posée : la reprise d'anciennes données (`ent_eleve_scolarisation_reprendre`) et ses
 -- tests insèrent volontairement des lignes sans statut, hors déclencheurs. En fonctionnement normal le
 -- déclencheur ci-dessus ne laisse plus aucune ligne NULL (écart noté au rapport de livraison).
 

@@ -144,7 +144,7 @@ fn les_onglets_se_retrouvent_par_leur_code_et_un_code_inconnu_retombe_sur_la_syn
 #[test]
 fn chaque_tuile_du_contrat_a_une_destination_connue_et_jamais_un_lien_mort() {
     let eleve = Uuid::nil();
-    for domaine in ["identite", "identifiants", "scolarite", "sante", "protection"] {
+    for domaine in ["identite", "identifiants", "scolarite", "classe", "sante", "protection"] {
         match destination_tuile(domaine, eleve) {
             Destination::Onglet(_) | Destination::Aucune => {}
             Destination::Page(p) => assert!(p.starts_with("/web/infirmerie/eleves/"), "{domaine} → {p}"),

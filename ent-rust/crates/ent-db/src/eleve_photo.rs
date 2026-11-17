@@ -779,7 +779,7 @@ impl PgEnt {
         let l: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT e.id FROM ent_eleve e
               WHERE e.etablissement_id = $1 AND e.fusionne_dans IS NULL
-                AND coalesce(e.statut, 'scolarise') IN ('scolarise', 'a_venir')
+                AND coalesce(e.statut, 'a_venir') IN ('scolarise', 'a_venir')
                 AND e.photo_id IS NULL
                 AND ($3 OR NOT ent_eleve_confidentiel(e.etablissement_id, e.id))
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_photo_refus r

@@ -699,11 +699,19 @@ async fn interne_visible_de_la_vie_scolaire_et_de_l_accueil_sans_rien_ouvrir_d_a
         // pour la vie scolaire) : jamais le PAI ni rien d'une autre tuile.
         let c = codes(&s);
         assert!(c.contains(&"interne"), "{role} : {c:?}");
-        assert!(c.iter().all(|x| ["interne", "nouvel_arrivant", "arrive_en_cours_annee", "protocole"].contains(x)), "{role} : {c:?}");
+        assert!(
+            c.iter().all(|x| ["interne", "nouvel_arrivant", "arrive_en_cours_annee", "protocole", "modalite_particuliere", "majorite_proche"].contains(x)),
+            "{role} : {c:?}"
+        );
+        if role == Role::Accueil.as_str() {
+            assert_eq!(c, ["interne"], "accueil : seulement `interne`");
+        }
         assert!(!c.contains(&"pai_actif"), "{role} : le PAI reste fermé");
         for t in &s.tuiles {
             let ouverte = matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible);
-            assert_eq!(ouverte, t.domaine == "scolarite", "{role} : tuile {}", t.domaine);
+            // Accueil : seulement « scolarité » ; vie scolaire : « scolarité » et « vie de classe » (contraintes.lire).
+            let attendue = t.domaine == "scolarite" || (role == Role::Cpe.as_str() && t.domaine == "classe");
+            assert_eq!(ouverte, attendue, "{role} : tuile {}", t.domaine);
         }
         let l = ent.eleves_par_pastille_pour_acteur(role, etab, u, "interne", 100).await.unwrap();
         assert!(l.contains(&e.id), "{role} : liste des internes");

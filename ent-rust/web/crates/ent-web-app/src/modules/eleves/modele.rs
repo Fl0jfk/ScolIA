@@ -226,6 +226,7 @@ pub fn libelle_ouverture(domaine: &str) -> &'static str {
 pub fn corps_tuile_sans_ecran(domaine: &str) -> &'static str {
     match domaine {
         "scolarite" => "Le parcours de scolarité (entrées, sorties, classes, régime) arrive prochainement dans cette fiche.",
+        "classe" => "Ces repères préviennent sans rien détailler (aucun motif, aucune date). Pour un protocole, voir l'infirmerie.",
         "protection" => "Mesure de confidentialité en vigueur. Sa gestion se fait depuis l'écran de la direction.",
         _ => "Cette section n'a pas encore d'écran dans la fiche.",
     }

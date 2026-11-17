@@ -1626,3 +1626,96 @@ async fn e9a_liste_filtre_pagine_et_respecte_les_droits() {
             .await
     ));
 }
+
+// ───────────────────────── enseignants : pastilles d'organisation, jamais de santé ─────────────────────────
+
+/// Décision du pilote : l'enseignant de l'élève (et son professeur principal) voit `protocole`,
+/// `nouvel_arrivant`, `arrive_en_cours_annee` et `modalite_particuliere` (booléens, sans détail) ; jamais
+/// `majorite_proche` ni le PAI ; un enseignant sans lien avec l'élève ne voit rien (fiche absente) ; un
+/// élève protégé reste protégé ; la règle « une pastille suit sa tuile » reste unique.
+#[tokio::test]
+async fn e9d_l_enseignant_de_l_eleve_voit_les_pastilles_d_organisation_et_pas_les_autres() {
+    let Some((ent, cast)) = labo().await else { return };
+    let etab = cast.etablissement_id;
+    ent.activer_module_sante_test(etab).await;
+    let (prof, rprof) = user(&cast, Role::Prof);
+    let (dir, rdir) = user(&cast, Role::Direction);
+    let harry = cast.eleve_lea_id; // élève de la classe du professeur du labo
+    let jour = ent.jour_etablissement(etab).await.unwrap();
+    let codes_prof = ["protocole", "nouvel_arrivant", "arrive_en_cours_annee", "modalite_particuliere", "majorite_proche", "pai_actif"];
+    for c in codes_prof {
+        sqlx::query(
+            "INSERT INTO ent_eleve_indicateur (etablissement_id, eleve_id, code, du) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (etablissement_id, eleve_id, code) DO NOTHING",
+        )
+        .bind(etab)
+        .bind(harry)
+        .bind(c)
+        .bind(jour)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    let v = codes_vus_par(&ent, etab, rprof, prof, harry).await.expect("le professeur de la classe voit la fiche");
+    for attendu in ["protocole", "nouvel_arrivant", "arrive_en_cours_annee", "modalite_particuliere"] {
+        assert!(v.contains(&attendu), "l'enseignant doit voir {attendu} : {v:?}");
+    }
+    assert!(!v.contains(&"majorite_proche"), "la majorité reste à l'administration et à la vie scolaire : {v:?}");
+    assert!(!v.contains(&"pai_actif"), "le PAI reste réservé à sante.lire : {v:?}");
+    // Aucune valeur ni date dans ce qu'il reçoit.
+    let s = ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await.unwrap();
+    assert!(s.pastilles.iter().filter(|p| p.domaine == "classe").all(|p| p.valeur_code.is_none() && p.valeur_date.is_none()));
+    // Règle unique : chaque pastille visible a sa tuile ouverte.
+    for p in &s.pastilles {
+        let t = s.tuiles.iter().find(|t| t.domaine == p.domaine).unwrap();
+        assert!(matches!(t.etat, crate::eleve_indicateurs::EtatTuile::Visible), "{}", p.code);
+    }
+    // Sans module santé, le protocole disparaît aussi pour l'enseignant (M6).
+    let (admin, radmin) = user(&cast, Role::Admin);
+    ent.definir_module_sante(etab, admin, radmin, false).await.unwrap();
+    let v = codes_vus_par(&ent, etab, rprof, prof, harry).await.unwrap();
+    assert!(!v.contains(&"protocole"), "{v:?}");
+    ent.definir_module_sante(etab, admin, radmin, true).await.unwrap();
+
+    // Un enseignant sans lien avec l'élève : la fiche n'existe pas pour lui, donc aucune pastille.
+    let sans_lien = eleve(&ent, etab, "SansLien").await;
+    ent.reconstruire_indicateurs(etab, None, Some(jour)).await.unwrap();
+    assert!(absent(&ent.synthese_eleve_pour_acteur(rprof, etab, prof, sans_lien.id).await));
+    let l = ent.eleves_par_pastille_pour_acteur(rprof, etab, prof, "protocole", 100).await;
+    assert!(forbidden(&l) || l.is_ok_and(|v| !v.contains(&sans_lien.id)), "pas de liste de travail pour un enseignant");
+
+    // Élève protégé : la direction (G6) le voit, l'enseignant de sa classe non (hors portée G6 / fiche absente).
+    proteger_harry(&ent, &cast, rdir, dir, harry, jour).await;
+    assert!(absent(&ent.synthese_eleve_pour_acteur(rprof, etab, prof, harry).await), "un protégé reste protégé de son enseignant");
+    ent.lever_confidentialite_a(rdir, etab, dir, harry, "fin_de_mesure", t0()).await.unwrap();
+    for c in codes_prof {
+        sqlx::query("DELETE FROM ent_eleve_indicateur WHERE eleve_id = $1 AND code = $2")
+            .bind(harry)
+            .bind(c)
+            .execute(ent.pool_verif())
+            .await
+            .unwrap();
+    }
+}
+
+async fn proteger_harry(ent: &PgEnt, cast: &LaboCast, rdir: &str, dir: Uuid, eleve: Uuid, jour: NaiveDate) {
+    ent.poser_confidentialite_a(
+        rdir,
+        PoserConfidentialite {
+            etablissement_id: cast.etablissement_id,
+            eleve_id: eleve,
+            motif: "Mesure de protection".into(),
+            mesures: vec![],
+            du: Some(jour - Duration::days(1)),
+            au: None,
+            acteur: dir,
+        },
+        t0(),
+    )
+    .await
+    .unwrap();
+}
+
+async fn codes_vus_par(ent: &PgEnt, etab: Uuid, role: &str, u: Uuid, e: Uuid) -> Result<Vec<&'static str>, EntDbError> {
+    ent.synthese_eleve_pour_acteur(role, etab, u, e).await.map(|s| s.pastilles.iter().map(|p| p.code).collect())
+}

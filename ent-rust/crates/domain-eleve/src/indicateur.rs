@@ -170,7 +170,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
     // Le PAI lui-même reste réservé à `sante.lire`.
     DefIndicateur {
         code: "protocole",
-        domaine: "scolarite",
+        domaine: "classe",
         libelle: "Protocole : voir l'infirmerie",
         icone: "croix",
         gravite: Gravite::Attention,
@@ -181,22 +181,22 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
     },
     DefIndicateur {
         code: "nouvel_arrivant",
-        domaine: "scolarite",
+        domaine: "classe",
         libelle: "Nouvel arrivant",
         icone: "etoile",
         gravite: Gravite::Information,
-        actions_requises: &["eleves.lire", "internat.gerer", "edt.maintenant_lire"],
+        actions_requises: &["eleves.lire", "contraintes.lire"],
         evenements: &[],
         depend_du_temps: true,
         module_sante: false,
     },
     DefIndicateur {
         code: "arrive_en_cours_annee",
-        domaine: "scolarite",
+        domaine: "classe",
         libelle: "Arrivé en cours d'année",
         icone: "fleche",
         gravite: Gravite::Information,
-        actions_requises: &["eleves.lire", "internat.gerer", "edt.maintenant_lire"],
+        actions_requises: &["eleves.lire", "contraintes.lire"],
         evenements: &[],
         depend_du_temps: true,
         module_sante: false,
@@ -204,11 +204,11 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
     // Un booléen : jamais la date de majorité (elle livrerait la date de naissance).
     DefIndicateur {
         code: "majorite_proche",
-        domaine: "identite",
+        domaine: "classe",
         libelle: "Majorité dans moins de 30 jours",
         icone: "calendrier",
         gravite: Gravite::Attention,
-        actions_requises: &["eleves.etat_civil.lire"],
+        actions_requises: &["eleves.etat_civil.lire", "eleves.badge.gerer"],
         evenements: &["eleve.identity_changed", "eleve.capacite_changee"],
         depend_du_temps: true,
         module_sante: false,
@@ -216,11 +216,11 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
     // Sans détail : la nature de la modalité (ULIS, CNED…) reste dans la scolarité.
     DefIndicateur {
         code: "modalite_particuliere",
-        domaine: "scolarite",
+        domaine: "classe",
         libelle: "Modalité de scolarisation particulière",
         icone: "reglage",
         gravite: Gravite::Information,
-        actions_requises: &["eleves.lire"],
+        actions_requises: &["eleves.lire", "contraintes.lire"],
         evenements: &["scolarite.modalite_changee"],
         depend_du_temps: true,
         module_sante: false,
@@ -332,6 +332,19 @@ pub const CONTRATS_TUILES: &[ContratTuile] = &[
         personnel_seul: false,
         rang: 30,
     },
+    // Vie de classe (E9, décision du pilote 2026-11-17) : ce qu'il faut savoir pour accueillir l'élève
+    // en classe ou en sortie — un protocole existe (renvoi vers l'infirmerie), arrivée récente,
+    // modalité de scolarisation : des BOOLÉENS sans motif ni détail. S'ouvre à qui a `contraintes.lire`
+    // sur l'élève : administration, vie scolaire, infirmerie, et l'enseignant de l'élève (sa portée), pas
+    // l'accueil. Une seule règle de visibilité : la pastille suit sa tuile.
+    ContratTuile {
+        domaine: "classe",
+        libelle: "Vie de classe",
+        actions_requises: &["eleves.lire", "contraintes.lire"],
+        lien: "/web/eleves/{eleve}",
+        personnel_seul: true,
+        rang: 35,
+    },
     ContratTuile {
         domaine: "sante",
         libelle: "Santé",
@@ -418,7 +431,7 @@ mod tests {
     fn la_pastille_protocole_est_neutre_et_n_ouvre_pas_la_sante() {
         let p = indicateur("protocole").unwrap();
         assert!(!p.actions_requises.contains(&"sante.lire"), "le PAI reste réservé à sante.lire");
-        assert_eq!(p.domaine, "scolarite", "elle s'affiche dans la tuile de la scolarité, pas dans celle de la santé");
+        assert_eq!(p.domaine, "classe", "elle s'affiche dans la tuile « vie de classe », pas dans celle de la santé");
         assert!(p.module_sante, "sans module santé, pas de pastille");
         assert!(p.libelle.contains("infirmerie"));
         for mot in ["PAI", "allerg", "asthme", "diab", "épilep", "traitement"] {
