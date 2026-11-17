@@ -1,0 +1,189 @@
+{
+  "etapes": [
+    "heure saisie par la direction (etat), le 2026-10-22",
+    "axe mes heures : 0 violation(s) ",
+    "clavier mes heures : tout atteint",
+    "axe mes heures : contester (dialogue) : 0 violation(s) ",
+    "axe heures du mois : 0 violation(s) ",
+    "clavier heures du mois : tout atteint",
+    "axe corriger (dialogue) : 0 violation(s) ",
+    "saisie : natures proposées Heure supplémentaire effective | Mission Pacte | Vacation | Service non fait (retenue à signaler)",
+    "axe saisir une heure (dialogue) : 0 violation(s) ",
+    "axe état mensuel (à figer) : 0 violation(s) ",
+    "axe état mensuel (signé) : 0 violation(s) ",
+    "export CSV : 4 ligne(s), nom etat-heures.csv",
+    "axe régulariser (dialogue) : 0 violation(s) ",
+    "après régularisation : ",
+    "axe paie de l'OGEC : 0 violation(s) ",
+    "axe DSN : 0 violation(s) ",
+    "axe plan RCD : créer (dialogue) : 0 violation(s) ",
+    "axe plan RCD (brouillon) : 0 violation(s) ",
+    "rcd professeur : sections plan, engagement",
+    "axe engagement (dialogue) : 0 violation(s) ",
+    "axe mon compteur RCD : 0 violation(s) ",
+    "axe vivier RCD : 0 violation(s) ",
+    "axe remontée RCD (préparée) : 0 violation(s) ",
+    "export remontée : 2 ligne(s)",
+    "axe remontée : laisser partir (dialogue) : 0 violation(s) ",
+    "axe réglages : 0 violation(s) ",
+    "clavier réglages : tout atteint",
+    "axe ajouter une règle (dialogue) : 0 violation(s) ",
+    "375 px mes-heures : débordement 0px",
+    "375 px etats-heures : débordement 0px",
+    "375 px etat-mensuel : débordement 0px",
+    "375 px rcd-plan : débordement 0px",
+    "375 px rcd-remontee : débordement 0px",
+    "375 px reglages : débordement 0px"
+  ],
+  "axe": [
+    {
+      "page": "mes heures",
+      "violations": []
+    },
+    {
+      "page": "mes heures : contester (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "heures du mois",
+      "violations": []
+    },
+    {
+      "page": "corriger (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "saisir une heure (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "état mensuel (à figer)",
+      "violations": []
+    },
+    {
+      "page": "état mensuel (signé)",
+      "violations": []
+    },
+    {
+      "page": "régulariser (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "paie de l'OGEC",
+      "violations": []
+    },
+    {
+      "page": "DSN",
+      "violations": []
+    },
+    {
+      "page": "plan RCD : créer (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "plan RCD (brouillon)",
+      "violations": []
+    },
+    {
+      "page": "engagement (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "mon compteur RCD",
+      "violations": []
+    },
+    {
+      "page": "vivier RCD",
+      "violations": []
+    },
+    {
+      "page": "remontée RCD (préparée)",
+      "violations": []
+    },
+    {
+      "page": "remontée : laisser partir (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "réglages",
+      "violations": []
+    },
+    {
+      "page": "ajouter une règle (dialogue)",
+      "violations": []
+    }
+  ],
+  "mobile": [
+    {
+      "page": "mes-heures",
+      "debordement_px": 0
+    },
+    {
+      "page": "etats-heures",
+      "debordement_px": 0
+    },
+    {
+      "page": "etat-mensuel",
+      "debordement_px": 0
+    },
+    {
+      "page": "rcd-plan",
+      "debordement_px": 0
+    },
+    {
+      "page": "rcd-remontee",
+      "debordement_px": 0
+    },
+    {
+      "page": "reglages",
+      "debordement_px": 0
+    }
+  ],
+  "clavier": [
+    {
+      "page": "mes heures",
+      "atteints": [
+        "Contester l'heure"
+      ],
+      "manquants": []
+    },
+    {
+      "page": "heures du mois",
+      "atteints": [
+        "Saisir une heure sans séance",
+        "Régler la contestation"
+      ],
+      "manquants": []
+    },
+    {
+      "page": "saisie : natures proposées",
+      "natures": [
+        "Heure supplémentaire effective",
+        "Mission Pacte",
+        "Vacation",
+        "Service non fait (retenue à signaler)"
+      ]
+    },
+    {
+      "page": "rcd (professeur) : sections",
+      "sections": [
+        "plan",
+        "engagement"
+      ]
+    },
+    {
+      "page": "réglages",
+      "atteints": [
+        "Seuil",
+        "Enregistrer le seuil"
+      ],
+      "manquants": []
+    }
+  ],
+  "erreurs": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+}

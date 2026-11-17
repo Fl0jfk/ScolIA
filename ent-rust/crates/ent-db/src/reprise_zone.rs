@@ -386,8 +386,16 @@ pub async fn executer_simulation(
         let zone = charger_zone(pool, etab, execution.id, &decodage).await?;
         verifier_zone(pool, etab, execution.id, &zone).await?;
         let existantes = reprise::correspondances(pool, etab).await?;
-        let simulation =
-            ent_reprise::simulation::simuler(&etab.to_string(), &decodage, &existantes);
+        // Rapprochement (R3) : instantané de ScolIA (lecture seule, filtre d'établissement) ; le jour de référence est
+        // celui de l'instant **fourni** aux options, jamais l'horloge du serveur.
+        let cible = crate::reprise_rapprochement::charger_cible(pool, etab).await?;
+        let simulation = ent_reprise::simulation::simuler_avec_rapprochement(
+            &etab.to_string(),
+            &decodage,
+            &existantes,
+            &cible,
+            options.maintenant.date_naive(),
+        );
         let json = serde_json::to_string(&(&decodage.rapport, &simulation))
             .map_err(|e| ErreurReprise::Refus(e.to_string()))?;
         let rapport_empreinte = format!("{:x}", Sha256::digest(json.as_bytes()));

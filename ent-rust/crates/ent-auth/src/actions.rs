@@ -470,6 +470,10 @@ pub enum Action {
     DemandesIndicateursLire,
     /// Lancer la reprise des demandes de l'ancienne application.
     DemandesReprise,
+    // ── Socle 28, lot R3 : file « à décider » de la reprise depuis Next.js ──
+    /// Voir la file « à décider » de la reprise et décider les rapprochements incertains (rattacher, créer, ignorer,
+    /// annuler, valider une équivalence de libellé). Secrétariat et direction (`reprise.decider`).
+    RepriseDecider,
     // ── Socle 7, lot D2 : documents émis, registre, domaines restreints (`07_DOCUMENTS.md` §18) ──
     /// Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne.
     DocumentsEmettre,
@@ -608,7 +612,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 248] = [
+    pub const TOUTES: [Action; 249] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -787,6 +791,7 @@ impl Action {
         Action::DemandesJournalLire,
         Action::DemandesIndicateursLire,
         Action::DemandesReprise,
+        Action::RepriseDecider,
         // Socle 27 (RGPD, conservation), lot G1.
         Action::ConformiteLire,
         Action::ConformiteGerer,
@@ -1082,6 +1087,7 @@ impl Action {
             Self::DemandesJournalLire => "demandes.journal.lire",
             Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
             Self::DemandesReprise => "demandes.reprise",
+            Self::RepriseDecider => "reprise.decider",
             Self::DocumentsEmettre => "documents.emettre",
             Self::DocumentsAnnuler => "documents.annuler",
             Self::DocumentsRegistreLire => "documents.registre.lire",
@@ -1338,6 +1344,7 @@ impl Action {
             Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
             Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
             Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
+            Self::RepriseDecider => "Décider les rapprochements incertains de la reprise depuis Next.js : rattacher, créer, ignorer, annuler (secrétariat, direction)",
             Self::DocumentsEmettre => "Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne",
             Self::DocumentsAnnuler => "Annuler un document émis par erreur (motif obligatoire, journalisé)",
             Self::DocumentsRegistreLire => "Lire le registre des documents émis et le journal de leurs consultations",
@@ -1618,6 +1625,7 @@ impl Action {
             | Self::DemandesJournalLire
             | Self::DemandesIndicateursLire
             | Self::DemandesReprise
+            | Self::RepriseDecider
             | Self::DocumentsEmettre
             | Self::DocumentsAnnuler
             | Self::DocumentsRegistreLire
@@ -2567,6 +2575,11 @@ fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if role == Role::Admin {
         d.push(etab(DemandesReprise));
+    }
+    // Socle 28, lot R3 : la file « à décider » de la reprise montre des fiches d'élèves, de responsables et de personnels
+    // côte à côte : secrétariat et direction seulement (moindre privilège ; jamais un enseignant ni la comptabilité).
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(RepriseDecider));
     }
 }
 
@@ -3701,6 +3714,21 @@ mod oracle_a1 {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
         assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("demandes.")).count(), 16);
+    }
+
+    /// Socle 28, lot R3 : `reprise.decider` est réservée à la direction et au secrétariat, à l'échelle de l'établissement.
+    #[test]
+    fn reprise_decider_direction_et_secretariat_seulement() {
+        let a = |r: Role| modele_par_defaut(r).iter().any(|(y, _)| *y == Action::RepriseDecider);
+        for (r, attendu) in [
+            (Role::Direction, true), (Role::Administratif, true), (Role::Admin, false), (Role::Compta, false),
+            (Role::Prof, false), (Role::Cpe, false), (Role::Accueil, false), (Role::Infirmerie, false),
+            (Role::Psy, false), (Role::Personnel, false), (Role::Parent, false), (Role::Eleve, false),
+        ] {
+            assert_eq!(a(r), attendu, "{r:?} reprise.decider");
+        }
+        assert_eq!(Action::parse("reprise.decider"), Some(Action::RepriseDecider));
+        assert_eq!(Action::RepriseDecider.portees_admises(), &[Portee::Etablissement]);
     }
 
     /// Socle 42, lot V0d : `voyages.reprise` (reprise de Next.js) est réservée à l'administrateur et à la direction.
