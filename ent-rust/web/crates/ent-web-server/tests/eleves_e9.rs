@@ -509,11 +509,13 @@ async fn un_eleve_protege_est_absent_pour_un_tiers_dans_la_liste_la_fiche_et_la_
         .eleve_synthese(cible.id)
         .await
         .expect("synthèse G6");
+    // La pastille est recalculée par le consommateur de l'outbox (asynchrone) : on vérifie ici la tuile
+    // « confidentialité », ouverte à G6 seulement (le recalcul est couvert côté `ent-db`).
     assert!(
-        s.pastilles
+        s.tuiles
             .iter()
-            .any(|p| p.code == "confidentialite_renforcee"),
-        "la pastille de protection est visible de G6 seulement"
+            .any(|t| t.domaine == "protection" && t.etat == "visible"),
+        "la tuile de protection est visible de G6"
     );
     let s_tiers_total = cpe
         .eleves_liste(&FiltreListeEleves {
