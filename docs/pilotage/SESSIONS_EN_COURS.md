@@ -134,3 +134,13 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - 12 tables `ent_espace*` sans fournisseur d'extrait RGPD (R-RG14).
   - **I3-I4 (run 343)** : `inscriptions_pieces.rs` absent de SOURCES ; la route publique `POST /accords/{id}/consulter` est déclarée mais ne correspond pas au chemin monté. Le frontend est vert.
   - Les tests de garde ont fait leur travail : ce sont des invariants, pas des tests instables.
+- **17-11, 6 h 20 UTC** :
+  - ET0-ET1 corrigé (run 346, 474c283f). Le 204 inter-établissements était « idempotent » : aucune ligne de B touchée, la RLS masquait la ligne. La route répond désormais 404. Un fournisseur d'extrait RGPD a été ajouté.
+  - I3-I4 corrigé (run 345, b1a73ef3), fusionné par le pilote sur ENT dans `scratchpad/mi3` : RLS +5, SOURCES 59. La vérification locale est relancée après un arrêt du PostgreSQL local vers 3 h 54.
+  - **FO2-FO3 livré** (run 347, 08e2b0ba) : TOUTES +2, RLS +18, SOURCES +1, migrations 2364-2367. Réponses du pilote :
+    - un refus après accord bloque la sortie concernée seulement ;
+    - une décision de justice impose la règle `tous` par élève (lot du socle 4, à venir) ;
+    - `autorisations.gerer` lie un document à une version d'accord ;
+    - le seuil des 200 compte les élèves ;
+    - G confirmé et P contrôlé sont retenus comme preuve, jamais G0.
+  - **Ordre de versement** : I3-I4, puis ET0-ET1, puis FO2-FO3. ET et FO ajoutent chacun des actions à TOUTES et une source à SOURCES : recalculer à chaque fusion.
