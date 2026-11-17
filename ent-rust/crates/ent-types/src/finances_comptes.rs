@@ -46,6 +46,13 @@ pub enum AuthentificationGuichet {
     RappelNumeroEnregistre,
 }
 
+/// Quota quotidien d'actions au guichet par agent (E3) : 1 à 1 000, 30 par défaut.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuotaGuichetBody {
+    pub par_jour: i32,
+}
+
 /// Résultat minimal d'une recherche au guichet (aucune adresse, aucun solde).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuichetPayeurDto {
@@ -220,6 +227,14 @@ pub struct DemandeRepartitionBody {
     pub eleve_id: Uuid,
     pub categorie: String,
     pub commentaire: Option<String>,
+}
+
+/// Accusé de réception d'une demande de répartition (E1) : l'identifiant de **sa propre** demande et son
+/// statut ; jamais la tâche du secrétariat ni le commentaire d'un autre payeur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccuseDemandeDto {
+    pub id: Uuid,
+    pub statut: String,
 }
 
 // ---------------------------------------------------------------------------

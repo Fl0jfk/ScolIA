@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS ent_fin_prise_en_charge (
     au DATE NOT NULL,
     categories TEXT[] NOT NULL CHECK (cardinality(categories) BETWEEN 1 AND 8),
     -- Plafond en montant (centimes entiers) ; NULL = sans plafond. Jamais de flottant.
-    plafond_centimes BIGINT CHECK (plafond_centimes IS NULL OR plafond_centimes > 0),
+    plafond_centimes BIGINT CHECK (plafond_centimes IS NULL OR (plafond_centimes > 0 AND plafond_centimes <= 1000000000)),
     statut TEXT NOT NULL DEFAULT 'active' CHECK (statut IN ('active', 'echue', 'annulee')),
     cree_par UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -182,7 +182,8 @@ CREATE TABLE IF NOT EXISTS ent_fin_tache (
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     nature TEXT NOT NULL CHECK (nature IN (
         'payeur_manquant', 'repartition_incomplete', 'demande_repartition', 'designation_a_accepter',
-        'prise_en_charge_a_renouveler', 'part_non_couverte', 'compte_a_verifier', 'ligne_sans_periode')),
+        'prise_en_charge_a_renouveler', 'part_non_couverte', 'compte_a_verifier', 'ligne_sans_periode',
+        'guichet_quota')),
     eleve_id UUID,
     compte_id UUID,
     categorie TEXT,
@@ -536,3 +537,9 @@ BEGIN
     END LOOP;
 END
 $$;
+
+-- Revue de sécurité (E3) : quota quotidien d'actions au guichet par agent, paramétrable par l'établissement
+-- (30 par défaut). Au-delà : refus, alerte à la direction (tâche `guichet_quota`), journal.
+ALTER TABLE ent_fin_parametres
+    ADD COLUMN IF NOT EXISTS guichet_quota_jour INTEGER NOT NULL DEFAULT 30
+        CHECK (guichet_quota_jour BETWEEN 1 AND 1000);

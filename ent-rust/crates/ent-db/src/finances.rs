@@ -913,40 +913,67 @@ struct TarifRow {
     montant_annuel_centimes: i64,
 }
 
-/// Plafond restant d'une prise en charge d'organisme pour un compte, un élève et une période : somme
-/// des plafonds actifs moins ce qui est déjà facturé au compte pour les catégories couvertes. `None` :
-/// aucune prise en charge plafonnée. Centimes entiers.
-async fn plafond_restant_foyer(
+/// Prise en charge active d'un organisme qui couvre une date et une catégorie (E2, CF-83).
+#[derive(Clone, Debug)]
+pub(crate) struct PriseCouvrante {
+    pub id: Uuid,
+    pub plafond: Option<i64>,
+    pub categories: Vec<String>,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+}
+
+/// Verrou du foyer (M2, M3) : pris **avant** toute lecture du restant ou des lignes existantes, pour que deux
+/// générations concurrentes ne dépassent pas un plafond ni ne doublent une ligne. Levé à la fin de la transaction.
+pub(crate) async fn verrouiller_foyer(conn: &mut PgConnection, etab: Uuid, foyer: Uuid) -> Result<(), EntDbError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(format!("fin-foyer:{etab}:{foyer}"))
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Prises en charge **actives** d'un compte d'organisme pour cet élève, couvrant `jour` et la catégorie
+/// (ou `toutes`). Vide : l'organisme n'est pas facturé (E2).
+pub(crate) async fn prises_couvrantes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    compte: Uuid,
+    categorie: &str,
+    jour: NaiveDate,
+) -> Result<Vec<PriseCouvrante>, EntDbError> {
+    let rows: Vec<(Uuid, Option<i64>, Vec<String>, NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT id, plafond_centimes, categories, du, au FROM ent_fin_prise_en_charge
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND compte_id = $3 AND statut = 'active'
+            AND du <= $4 AND au >= $4 AND (categories && ARRAY[$5, 'toutes']::text[])
+          ORDER BY du, id",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .bind(compte)
+    .bind(jour)
+    .bind(categorie)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| PriseCouvrante { id: r.0, plafond: r.1, categories: r.2, du: r.3, au: r.4 })
+        .collect())
+}
+
+/// Restant d'**une** prise en charge (M2) : son plafond moins ce qui est déjà facturé au compte pour **ses**
+/// catégories et **sa** période ; jamais additionné aux autres prises. Arithmétique contrôlée.
+async fn restant_prise(
     conn: &mut PgConnection,
     etab: Uuid,
     eleve: Uuid,
     foyer: Uuid,
-    periode: (NaiveDate, NaiveDate),
-) -> Result<Option<(i64, Vec<String>)>, EntDbError> {
-    let prises: Vec<(i64, Vec<String>, NaiveDate, NaiveDate)> = sqlx::query_as(
-        "SELECT p.plafond_centimes, p.categories, p.du, p.au
-           FROM ent_fin_prise_en_charge p
-           JOIN ent_fin_compte c ON c.etablissement_id = p.etablissement_id AND c.id = p.compte_id
-          WHERE p.etablissement_id = $1 AND p.eleve_id = $2 AND c.foyer_id = $3 AND p.statut = 'active'
-            AND p.plafond_centimes IS NOT NULL AND p.du <= $5 AND p.au >= $4",
-    )
-    .bind(etab)
-    .bind(eleve)
-    .bind(foyer)
-    .bind(periode.0)
-    .bind(periode.1)
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(db)?;
-    if prises.is_empty() {
-        return Ok(None);
-    }
-    let plafond: i64 = prises.iter().map(|p| p.0).sum();
-    let mut categories: Vec<String> = prises.iter().flat_map(|p| p.1.clone()).collect();
-    categories.sort();
-    categories.dedup();
-    let du = prises.iter().map(|p| p.2).min().unwrap_or(periode.0);
-    let au = prises.iter().map(|p| p.3).max().unwrap_or(periode.1);
+    p: &PriseCouvrante,
+) -> Result<i64, EntDbError> {
+    let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
     let (facture,): (i64,) = sqlx::query_as(
         "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes), 0)::BIGINT
            FROM ent_fac_ligne l
@@ -959,14 +986,14 @@ async fn plafond_restant_foyer(
     .bind(etab)
     .bind(eleve)
     .bind(foyer)
-    .bind(du)
-    .bind(au)
-    .bind(categories.iter().any(|c| c == "toutes"))
-    .bind(&categories)
+    .bind(p.du)
+    .bind(p.au)
+    .bind(p.categories.iter().any(|c| c == "toutes"))
+    .bind(&p.categories)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
-    Ok(Some(((plafond - facture.max(0)).max(0), categories)))
+    Ok(plafond.checked_sub(facture.max(0)).unwrap_or(0).max(0))
 }
 
 /// Calcule les lignes annuelles d'un élève (sans écrire).
@@ -1101,14 +1128,9 @@ pub(crate) async fn lignes_annuelles(
         rangs.insert(*foyer, rang_fratrie(conn, etab, *foyer, eleve_id).await?);
     }
 
-    // F2 (CF-82) : plafond restant d'une prise en charge d'organisme, par foyer (compte), pour cet élève
-    // et cette période ; consommé au fil des lignes de cette génération.
-    let mut plafonds: HashMap<Uuid, (i64, Vec<String>)> = HashMap::new();
-    for foyer in &tous_foyers {
-        if let Some(p) = plafond_restant_foyer(conn, etab, eleve_id, *foyer, periode).await? {
-            plafonds.insert(*foyer, p);
-        }
-    }
+    // F2 (CF-82, CF-83, E2) : restant de chaque prise en charge, consommé au fil des lignes de cette génération.
+    let mut restants: HashMap<Uuid, i64> = HashMap::new();
+    let mut verrouilles: Vec<Uuid> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
     for (art_id, art_libelle, art_categorie) in &articles {
@@ -1144,21 +1166,63 @@ pub(crate) async fn lignes_annuelles(
                 .find(|x| x.0 == *foyer)
                 .map(|x| x.1)
                 .unwrap_or(0);
-            // Plafond d'une prise en charge : ce qui dépasse n'est jamais reporté sur la famille sans
-            // décision (CF-82, CF-83) : il va au payeur suivant (rang 2) désigné, sinon à une tâche.
+            // Organisme payeur (E2, CF-83) : une part portée par un compte `organisme` exige une prise en charge
+            // **active** qui couvre la date et la catégorie ; sinon l'organisme n'est pas facturé et une tâche
+            // `part_non_couverte` est ouverte (échue, annulée ou hors période = blocage). Le plafond de chaque
+            // prise est celui de **cette** prise (M2) ; ce qui dépasse va au payeur suivant (rang 2), sinon tâche.
             let cat_des = categorie_de_designation(art_categorie);
             let mut part = part;
             let mut non_couvert = 0;
-            if let Some((restant, cats)) = plafonds.get_mut(foyer) {
-                if cats.iter().any(|c| c == "toutes" || c == cat_des) {
-                    let permis = part.min((*restant).max(0));
-                    non_couvert = part - permis;
-                    *restant -= permis;
-                    part = permis;
+            let mut sans_prise = false;
+            let est_organisme = parts_par_cat
+                .get(cat_des)
+                .and_then(|v| v.iter().find(|p| p.foyer_id == *foyer && p.rang == 1))
+                .filter(|p| p.type_debiteur == "organisme");
+            if let Some(po) = est_organisme {
+                if !verrouilles.contains(foyer) {
+                    verrouiller_foyer(conn, etab, *foyer).await?;
+                    verrouilles.push(*foyer);
+                }
+                let prises = prises_couvrantes(conn, etab, eleve_id, po.compte_id, cat_des, periode.0).await?;
+                if prises.is_empty() {
+                    sans_prise = true;
+                    non_couvert = part;
+                    part = 0;
+                } else {
+                    let mut a_placer = part;
+                    let mut place = 0_i64;
+                    for pr in &prises {
+                        if a_placer == 0 {
+                            break;
+                        }
+                        let restant = match restants.get(&pr.id) {
+                            Some(r) => *r,
+                            None => restant_prise(conn, etab, eleve_id, *foyer, pr).await?,
+                        };
+                        let pris = a_placer.min(restant.max(0));
+                        restants.insert(pr.id, if restant == i64::MAX { restant } else { restant - pris });
+                        place = place.checked_add(pris).ok_or_else(|| invalide("montant hors limites"))?;
+                        a_placer -= pris;
+                    }
+                    non_couvert = part - place;
+                    part = place;
                 }
             }
             let base_cle = format!("{prefixe}:{eleve_id}:{art_id}");
-            if non_couvert > 0 {
+            if sans_prise {
+                crate::facturation_payeurs::ouvrir_tache(
+                    conn,
+                    etab,
+                    "part_non_couverte",
+                    Some(eleve_id),
+                    est_organisme.map(|p| p.compte_id),
+                    Some(cat_des),
+                    periode.0,
+                    "organisme désigné sans prise en charge active couvrant cette catégorie et cette date : l'organisme n'est pas facturé",
+                    None,
+                )
+                .await?;
+            } else if non_couvert > 0 {
                 let suivants: Vec<(Uuid, i64)> = parts_par_cat
                     .get(cat_des)
                     .map(|v| v.iter().filter(|p| p.rang == 2).map(|p| (p.foyer_id, p.part_bps)).collect())

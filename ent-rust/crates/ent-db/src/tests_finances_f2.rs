@@ -524,8 +524,7 @@ async fn cf_75_demande_d_un_seul_parent_cree_une_tache() {
     let t = ent.demander_repartition_for_actor(etab, c.parent_lea.user_id, "parent", &DemandeRepartitionBody {
         eleve_id: el, categorie: "toutes".into(), commentaire: Some("je ne peux plus payer seule".into()),
     }).await.unwrap();
-    assert_eq!(t.nature, "demande_repartition");
-    assert_eq!(t.eleve_id, Some(el));
+    assert_eq!(t.statut, "ouverte");
     assert_eq!(taches_ouvertes(&ent, etab, "demande_repartition", el).await, 1);
     // Rien n'a changé : le port lit toujours les liens.
     let mut tx = ent.pool_verif().begin().await.unwrap();
@@ -1093,4 +1092,34 @@ async fn payeur_personne_f2(ent: &PgEnt, etab: Uuid, eleve: Uuid, foyer: Uuid, p
         .bind(p).bind(etab).execute(ent.pool_verif()).await.unwrap();
     sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien, est_payeur, part_paiement) VALUES ($1,$2,$3,$4,$5,'pere',true,$6)")
         .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(p).bind(foyer).bind(part).execute(ent.pool_verif()).await.unwrap();
+}
+
+/// E1 : deux parents séparés, même élève, même catégorie : chacun a **sa** demande ; B ne reçoit ni l'id ni le
+/// commentaire de A ; le secrétariat voit les deux.
+#[tokio::test]
+async fn e1_demande_de_repartition_ne_fuit_pas_entre_parents() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let el = eleve(&ent, etab, "Yanis", d(2018, 3, 1), "externe").await;
+    let (fm, fp) = (foyer(&ent, etab, "Foyer E1 M").await, foyer(&ent, etab, "Foyer E1 P").await);
+    payeur_compte(&ent, etab, el, c.parent_lea.user_id, fm, 50).await;
+    payeur_compte(&ent, etab, el, c.parent_tom.user_id, fp, 50).await;
+    compte_du_foyer(&ent, etab, fm).await;
+    compte_du_foyer(&ent, etab, fp).await;
+    let a = ent.demander_repartition_for_actor(etab, c.parent_lea.user_id, "parent", &DemandeRepartitionBody {
+        eleve_id: el, categorie: "toutes".into(), commentaire: Some("SECRET-DE-A".into()) }).await.unwrap();
+    let b = ent.demander_repartition_for_actor(etab, c.parent_tom.user_id, "parent", &DemandeRepartitionBody {
+        eleve_id: el, categorie: "toutes".into(), commentaire: Some("mot de B".into()) }).await.unwrap();
+    assert_ne!(a.id, b.id, "une demande par demandeur");
+    let json_b = serde_json::to_string(&b).unwrap();
+    assert!(!json_b.contains("SECRET-DE-A") && !json_b.contains(&a.id.to_string()));
+    // Rejeu par A : même demande, pas de doublon.
+    let a2 = ent.demander_repartition_for_actor(etab, c.parent_lea.user_id, "parent", &DemandeRepartitionBody {
+        eleve_id: el, categorie: "toutes".into(), commentaire: Some("autre texte".into()) }).await.unwrap();
+    assert_eq!(a2.id, a.id);
+    assert_eq!(taches_ouvertes(&ent, etab, "demande_repartition", el).await, 2);
+    // Le secrétariat voit les deux demandes.
+    let (u, r) = secretariat(&c);
+    let taches = ent.taches_for_actor(etab, u, r, &TachesFiltre::default()).await.unwrap();
+    assert_eq!(taches.iter().filter(|t| t.nature == "demande_repartition" && t.eleve_id == Some(el)).count(), 2);
 }

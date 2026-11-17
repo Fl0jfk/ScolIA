@@ -27,6 +27,7 @@ pub fn routes() -> Router<AppState> {
         .route("/finances/journal", get(journal))
         .route("/finances/guichet/recherche", get(guichet_recherche))
         .route("/finances/guichet/comptes/{id}", get(guichet_compte))
+        .route("/finances/guichet/quota", post(quota_guichet))
         // F2 : comptes.
         .route("/finances/comptes", get(comptes).post(creer_compte_organisme))
         .route("/finances/comptes/reprise", post(reprendre_comptes))
@@ -75,6 +76,7 @@ async fn journal(
 #[derive(Debug, Deserialize)]
 struct RechercheQuery {
     nom: String,
+    prenom: String,
     auth: AuthentificationGuichet,
 }
 
@@ -85,7 +87,20 @@ async fn guichet_recherche(
 ) -> Res<Json<Vec<GuichetPayeurDto>>> {
     Ok(Json(
         st.ent
-            .guichet_rechercher_for_actor(s.etablissement_id, s.user_id, &s.role, &q.nom, q.auth)
+            .guichet_rechercher_for_actor(s.etablissement_id, s.user_id, &s.role, &q.nom, &q.prenom, q.auth)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn quota_guichet(
+    State(st): State<AppState>,
+    s: EntSession,
+    Json(b): Json<QuotaGuichetBody>,
+) -> Res<Json<i32>> {
+    Ok(Json(
+        st.ent
+            .definir_quota_guichet_for_actor(s.etablissement_id, s.user_id, &s.role, b.par_jour)
             .await
             .map_err(map_db)?,
     ))
@@ -273,7 +288,7 @@ async fn demande_repartition(
     State(st): State<AppState>,
     s: EntSession,
     Json(b): Json<DemandeRepartitionBody>,
-) -> Res<(StatusCode, Json<TacheDto>)> {
+) -> Res<(StatusCode, Json<AccuseDemandeDto>)> {
     Ok((
         StatusCode::CREATED,
         Json(

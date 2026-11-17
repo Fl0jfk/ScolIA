@@ -63,10 +63,48 @@ fn fichiers_de_production() -> Vec<PathBuf> {
     v
 }
 
-/// Source sans commentaires de ligne ni modules de tests (`#[cfg(test)]` jusqu'à la fin).
+/// Retire les éléments `#[cfg(test)]` (modules, fonctions, `use`) **et seulement eux** : le code de production
+/// qui suit un bloc de tests (E4) reste analysé. L'élément visé va de l'attribut jusqu'à son `;` ou à
+/// l'accolade fermante qui équilibre son `{`.
+fn sans_blocs_de_tests(src: &str) -> String {
+    let mut out = String::new();
+    let mut reste = src;
+    while let Some(i) = reste.find("#[cfg(test)]") {
+        out.push_str(&reste[..i]);
+        let apres = &reste[i + "#[cfg(test)]".len()..];
+        // Premier `{` ou `;` après l'attribut (les attributs et le `mod nom` n'en contiennent pas).
+        let Some(j) = apres.find(['{', ';']) else {
+            reste = "";
+            break;
+        };
+        if apres.as_bytes()[j] == b';' {
+            reste = &apres[j + 1..];
+            continue;
+        }
+        let mut profondeur = 0_i32;
+        let mut fin = apres.len();
+        for (k, c) in apres[j..].char_indices() {
+            match c {
+                '{' => profondeur += 1,
+                '}' => {
+                    profondeur -= 1;
+                    if profondeur == 0 {
+                        fin = j + k + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        reste = &apres[fin..];
+    }
+    out.push_str(reste);
+    out
+}
+
+/// Source sans commentaires de ligne ni blocs de tests.
 fn code_de_production(src: &str) -> String {
-    let coupe = src.find("#[cfg(test)]").unwrap_or(src.len());
-    src[..coupe]
+    sans_blocs_de_tests(src)
         .lines()
         .map(|l| match l.find("//") {
             Some(i) if l[..i].trim().is_empty() => "",
@@ -278,4 +316,33 @@ fn les_outils_generiques_sont_tous_utiles_et_la_fusion_ne_touche_pas_aux_finance
             );
         }
     }
+}
+
+/// E4 — test de la garde elle-même : un `#[cfg(test)]` au **milieu** d'un fichier ne masque pas le code de
+/// production qui le suit ; le bloc de tests, lui, est ignoré.
+#[test]
+fn la_garde_analyse_le_code_apres_un_bloc_de_tests() {
+    let faux = r#"
+fn avant() { sqlx::query("SELECT 1"); }
+
+#[cfg(test)]
+mod tests {
+    fn dans_les_tests() { sqlx::query("INSERT INTO ent_fac_facture (id) VALUES ($1)"); }
+}
+
+fn apres() { sqlx::query("UPDATE ent_fin_compte SET etat = 'x'"); }
+"#;
+    let code = code_de_production(faux);
+    let e = ecritures(&code);
+    assert!(
+        e.iter().any(|(v, t)| *v == "UPDATE" && t == "ent_fin_compte"),
+        "l'écriture située après le bloc de tests doit être vue : {e:?}"
+    );
+    assert!(
+        !e.iter().any(|(_, t)| t == "ent_fac_facture"),
+        "l'écriture située dans le bloc de tests est ignorée : {e:?}"
+    );
+    // Un `#[cfg(test)]` sur un `use` (terminé par `;`) ne coupe rien non plus.
+    let avec_use = "#[cfg(test)]\nuse x::y;\nfn f() { sqlx::query(\"DELETE FROM ent_fin_tache\"); }";
+    assert!(ecritures(&code_de_production(avec_use)).iter().any(|(_, t)| t == "ent_fin_tache"));
 }

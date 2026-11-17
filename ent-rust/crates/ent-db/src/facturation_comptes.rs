@@ -22,7 +22,7 @@ use crate::facturation_payeurs::{
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances::{aujourd_hui, compte_tx, conflit, db, introuvable, invalide, publier, texte};
 use crate::outbox::Causalite;
-use crate::service::{EntDbError, PgEnt};
+use crate::service::{EntDbError, PgEnt, RefusMetier};
 
 // ---------------------------------------------------------------------------
 // Fonctions pures
@@ -251,30 +251,121 @@ impl PgEnt {
 
     // -- F1 : vue guichet (R-F37) --------------------------------------------
 
-    /// Cherche le payeur présent par son nom : au moins 3 caractères, 10 résultats au plus, aucune
-    /// adresse ni aucun solde. La recherche est journalisée (le texte cherché ne l'est pas).
+    /// Quota quotidien d'actions au guichet par agent (E3) : recherches et ouvertures de comptes confondues,
+    /// jour de Paris. Au-delà : refus, ligne de journal et alerte à la direction (tâche `guichet_quota`,
+    /// une seule ouverte par agent) — l'alerte est validée même si la demande est refusée.
+    async fn controler_quota_guichet(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<(), EntDbError> {
+        let mut tx = self.fin_tx(etab).await?;
+        let (quota,): (i32,) = sqlx::query_as(
+            "SELECT COALESCE((SELECT guichet_quota_jour FROM ent_fin_parametres WHERE etablissement_id = $1), 30)",
+        )
+        .bind(etab)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (utilise,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_fin_journal
+              WHERE etablissement_id = $1 AND acteur_user_id = $2
+                AND action IN ('guichet.rechercher', 'guichet.consulter')
+                AND le >= (date_trunc('day', now() AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')",
+        )
+        .bind(etab)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if utilise < i64::from(quota) {
+            return Ok(());
+        }
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Guichet, "guichet.quota_depasse", "compte")
+                .detail(&format!("quota quotidien de {quota} atteint")),
+        )
+        .await?;
+        ouvrir_tache(
+            &mut tx,
+            etab,
+            "guichet_quota",
+            None,
+            None,
+            Some(&format!("u:{actor}")),
+            aujourd_hui(),
+            &format!("un agent a atteint le quota quotidien d'actions au guichet ({quota}) : vérifier l'usage"),
+            Some(actor),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Err(EntDbError::Refus(
+            RefusMetier::Interdit,
+            "quota quotidien du guichet atteint : la direction est alertée",
+        ))
+    }
+
+    /// Règle le quota quotidien d'actions au guichet de l'établissement (1 à 1 000 ; 30 par défaut).
+    pub async fn definir_quota_guichet_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        par_jour: i32,
+    ) -> Result<i32, EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationParametrer).await?;
+        if !(1..=1000).contains(&par_jour) {
+            return Err(invalide("quota : 1 à 1000 actions par jour"));
+        }
+        let mut tx = self.fin_tx(etab).await?;
+        sqlx::query(
+            "INSERT INTO ent_fin_parametres (etablissement_id, guichet_quota_jour) VALUES ($1, $2)
+             ON CONFLICT (etablissement_id) DO UPDATE SET guichet_quota_jour = EXCLUDED.guichet_quota_jour",
+        )
+        .bind(etab)
+        .bind(par_jour)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "guichet.quota_regle", "parametres")
+                .detail(&format!("{par_jour} par jour")),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(par_jour)
+    }
+
+    /// Cherche le payeur présent par ses **nom et prénom complets** (correspondance exacte, sans
+    /// casse) : 5 résultats au plus, aucune adresse ni aucun solde. Soumise au quota du guichet et
+    /// journalisée (le texte cherché ne l'est pas). Une recherche partielle est refusée (E3).
     pub async fn guichet_rechercher_for_actor(
         &self,
         etab: Uuid,
         actor: Uuid,
         role: &str,
         nom: &str,
+        prenom: &str,
         _auth: AuthentificationGuichet,
     ) -> Result<Vec<GuichetPayeurDto>, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationGuichet).await?;
-        let motif = nom.trim();
-        if motif.chars().count() < 3 || motif.chars().count() > 80 {
-            return Err(invalide("nom : 3 à 80 caractères"));
+        let (nom, prenom) = (nom.trim(), prenom.trim());
+        let valide = |t: &str| t.chars().count() >= 2 && t.chars().count() <= 80 && !t.contains(['%', '_']);
+        if !valide(nom) || !valide(prenom) {
+            return Err(invalide("nom et prénom complets exigés"));
         }
+        self.controler_quota_guichet(etab, actor, role).await?;
         let mut tx = self.fin_tx(etab).await?;
-        let modele = format!("%{}%", motif.replace(['%', '_'], ""));
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, libelle_facturation FROM ent_fin_compte
-              WHERE etablissement_id = $1 AND etat = 'actif' AND libelle_facturation ILIKE $2
-              ORDER BY libelle_facturation, id LIMIT 10",
+            "SELECT DISTINCT c.id, c.libelle_facturation FROM ent_fin_compte c
+               JOIN ent_eleve_lien l ON l.etablissement_id = c.etablissement_id AND l.foyer_id = c.foyer_id
+                                    AND l.est_payeur AND l.suspendu_le IS NULL
+               JOIN ent_personne p ON p.etablissement_id = l.etablissement_id AND p.id = l.personne_id
+              WHERE c.etablissement_id = $1 AND c.etat = 'actif'
+                AND lower(p.nom) = lower($2) AND lower(p.prenom) = lower($3)
+              ORDER BY c.libelle_facturation, c.id LIMIT 5",
         )
         .bind(etab)
-        .bind(modele)
+        .bind(nom)
+        .bind(prenom)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
@@ -303,6 +394,7 @@ impl PgEnt {
         auth: AuthentificationGuichet,
     ) -> Result<GuichetCompteDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationGuichet).await?;
+        self.controler_quota_guichet(etab, actor, role).await?;
         let mut tx = self.fin_tx(etab).await?;
         let c = compte_row(&mut tx, etab, compte).await?;
         let vue: CompteFoyerDto = compte_tx(&mut tx, etab, c.foyer_id, false).await?;
@@ -687,27 +779,33 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
         b: &DemandeRepartitionBody,
-    ) -> Result<TacheDto, EntDbError> {
+    ) -> Result<AccuseDemandeDto, EntDbError> {
         categorie_valide(&b.categorie)?;
         let mut tx = self.fin_tx(etab).await?;
         let mes = comptes_du_user(&mut tx, etab, actor).await?;
-        let a_acces: bool = if mes.is_empty() {
-            false
+        // Le compte du demandeur : celui des payeurs de l'élève qui lui appartient (une demande par demandeur).
+        let mon_compte: Option<Uuid> = if mes.is_empty() {
+            None
         } else {
             let lus = payeurs::payeurs_a(&mut tx, etab, b.eleve_id, &b.categorie, aujourd_hui(), false).await?;
-            lus.parts.iter().any(|p| mes.iter().any(|m| m.0 == p.compte_id))
+            lus.parts
+                .iter()
+                .find(|p| mes.iter().any(|m| m.0 == p.compte_id))
+                .map(|p| p.compte_id)
         };
-        if !a_acces {
+        let Some(mon_compte) = mon_compte else {
             // Même réponse pour un élève inconnu, d'un autre établissement ou sans lien de paiement.
             return Err(introuvable());
-        }
+        };
         let commentaire = b.commentaire.as_deref().unwrap_or("").trim().chars().take(200).collect::<String>();
+        // E1 : la tâche porte le compte du demandeur (clé d'idempotence par demandeur) ; la réponse à la
+        // famille est un accusé neutre, jamais la tâche ni le commentaire d'un autre parent.
         ouvrir_tache(
             &mut tx,
             etab,
             "demande_repartition",
             Some(b.eleve_id),
-            None,
+            Some(mon_compte),
             Some(&b.categorie),
             aujourd_hui(),
             &format!("demande d'un payeur : changement de répartition ({commentaire}) ; rien ne change sans acceptation ou pièce"),
@@ -716,12 +814,28 @@ impl PgEnt {
         .await?;
         journaliser_tx(
             &mut tx,
-            &Acte::new(etab, Some(actor), role, Chemin::Famille, "repartition.demander", "tache").eleve(b.eleve_id),
+            &Acte::new(etab, Some(actor), role, Chemin::Famille, "repartition.demander", "tache")
+                .eleve(b.eleve_id)
+                .compte(mon_compte),
         )
         .await?;
-        let t = tache_ouverte(&mut tx, etab, "demande_repartition", b.eleve_id, &b.categorie).await?;
+        let accuse: Option<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, statut FROM ent_fin_tache
+              WHERE etablissement_id = $1 AND nature = 'demande_repartition' AND eleve_id = $2
+                AND categorie = $3 AND compte_id = $4 AND statut = 'ouverte'
+              ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(etab)
+        .bind(b.eleve_id)
+        .bind(&b.categorie)
+        .bind(mon_compte)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
         tx.commit().await.map_err(db)?;
-        t.ok_or_else(introuvable)
+        accuse
+            .map(|(id, statut)| AccuseDemandeDto { id, statut })
+            .ok_or_else(introuvable)
     }
 
     /// FAC-253, CF-84 : le payeur passe des parents à l'**élève majeur** à sa demande. L'élève doit être
@@ -1232,38 +1346,6 @@ impl PgEnt {
         tx.commit().await.map_err(db)?;
         Ok(out)
     }
-}
-
-async fn tache_ouverte(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    nature: &str,
-    eleve: Uuid,
-    categorie: &str,
-) -> Result<Option<TacheDto>, EntDbError> {
-    let r: Option<(Uuid, String, Option<Uuid>, Option<Uuid>, Option<String>, NaiveDate, Option<String>, String)> =
-        sqlx::query_as(
-            "SELECT id, nature, eleve_id, compte_id, categorie, depuis, detail, statut FROM ent_fin_tache
-              WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND categorie = $4 AND statut = 'ouverte'
-              ORDER BY created_at DESC LIMIT 1",
-        )
-        .bind(etab)
-        .bind(nature)
-        .bind(eleve)
-        .bind(categorie)
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(db)?;
-    Ok(r.map(|r| TacheDto {
-        id: r.0,
-        nature: r.1,
-        eleve_id: r.2,
-        compte_id: r.3,
-        categorie: r.4,
-        depuis: r.5,
-        detail: r.6,
-        statut: r.7,
-    }))
 }
 
 #[cfg(test)]
