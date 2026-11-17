@@ -564,4 +564,5 @@ pub fn libelle_consultation(action: &str) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "tests.rs"]
 mod tests;
