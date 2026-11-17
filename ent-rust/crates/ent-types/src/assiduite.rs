@@ -468,6 +468,7 @@ pub struct RectificationDto {
     pub touche_signalement: bool,
     pub cree_le: DateTime<Utc>,
     pub vue_par: Option<Uuid>,
+}
 
 // ─── Tableau de bord de la vie scolaire (AS6 + AS14b-bis) ──────────────────────────────────────
 
