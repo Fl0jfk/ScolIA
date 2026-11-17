@@ -323,6 +323,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2361_acc_objets_catalogue_usages"),
     m!("2362_acc_versions_decisions"),
     m!("2363_acc_journal"),
+    // Lots FO2 et FO3 : formulaires (2364), cibles et soumissions (2365), désaccords et objets par source (2366).
+    m!("2364_frm_formulaires"),
+    m!("2365_frm_cibles_soumissions"),
+    m!("2366_acc_desaccords_sources"),
     m!("2380_agenda_ag0_rencontres"),
     m!("2381_agenda_evenement"),
     m!("2386_agenda_reservation_lieu"),
@@ -428,6 +432,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2641_esp_espaces_membres"),
     m!("2642_esp_dossiers_elements_versions"),
     m!("2643_esp_partages_journal"),
+    // Socle 18, lot FO3 (2367) : dossier de preuve par la brique de signature (tables du socle 7, 3705) ; appliquée après
+    // elles, numéro sous 3808 donc `MIGRATION_TAG` inchangé (règle 28).
+    m!("2367_acc_dossier_preuve"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

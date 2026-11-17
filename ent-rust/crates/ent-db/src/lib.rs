@@ -89,6 +89,10 @@ pub mod campagnes;
 pub mod formulaires;
 pub mod accords;
 mod accords_service;
+pub mod accords_fo3;
+pub mod frm_moteur;
+mod frm_service;
+pub mod frm_reponse;
 mod accords_verifier;
 pub mod notifications;
 pub mod ntf;
@@ -169,6 +173,10 @@ mod tests_communication;
 mod tests_formulaires_fo0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_accords_fo1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_formulaires_fo2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_accords_fo3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
 #[cfg(all(test, feature = "labo"))]
