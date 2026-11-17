@@ -176,3 +176,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - E6 : d'autres routes `/eleves/{id}/*` n'ont pas la garde (`fiche-urgence`, `pai-complet`), d'où un test paramétré demandé.
   - **E4, le pilote contredit la revue** : la portée pédagogique reste « non tiers », sinon un élève protégé disparaîtrait de l'appel de ses professeurs. En contrepartie, `masquer_photo` et `adresse_protegee` sont appliquées, et l'alerte de consultation est alignée.
   - Corrigés dans le même lot : M1, M2, M3, M4, M5, M6 et F1.
+- **17-11, 13 h UTC** :
+  - **Fiabilité versée** : ENT 13e4c4b0 par avance rapide, après la CI verte de la PR 94 (run 354). Elle apporte l'exception RUSTSEC-2026-0543 dans les deux deny.toml. Session archivée, désabonnement de la PR 94.
+  - **Trou constaté dans la règle 35** : une CI **verte** sur une PR de lot n'a réveillé personne, puisque GitHub ne signale que les échecs. Correctif préparé, `scratchpad/veille_pr_job.yml` : le job `veille-pilote-pr` commente le résultat sur la PR elle-même. Il sera versé sur ENT juste après le verdict du run de 13e4c4b0.
+  - **D-067** : chrono sera remplacé par jiff, avec sqlx 0.9, dans une fenêtre de gel après la démo de décembre.
+  - **Nouvelle session : 24 F1-F2** (session_01KZCbFDKq4niafRav3K4WSm, branche ent-socle-24-code-f1f2), préalable de l'argent des voyages (V2).
+  - **Sessions qui codent** : E7-E8 (correctifs de la revue) et F1-F2.
