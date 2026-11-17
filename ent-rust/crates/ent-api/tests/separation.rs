@@ -374,6 +374,57 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 "/eleves/fusions/00000000-0000-0000-0000-000000000001/annuler", None),
             ecrire_sur_b("non-doublon-sur-B", "POST", "/eleves/doublons/non-doublon",
                 Some(r#"{"eleve_a":"{eleve}","eleve_b":"00000000-0000-0000-0000-000000000001","motif_code":"jumeaux"}"#)),
+            // Socle 2 (E7) : confidentialité renforcée (G6 : Admin, Direction), journal de consultation
+            // (`audit.lire`), photos (`eleves.photo.gerer`), coordonnées propres de l'élève. Toute
+            // écriture qui désigne un élève, une photo ou une coordonnée d'un autre établissement
+            // échoue sans rien révéler ; la lecture d'un élève protégé par un tiers est testée à part
+            // (`eleve_protege_invisible_d_un_tiers`).
+            lire("confidentialite-proteges", "/eleves/confidentialite", &[Admin, Direction], &[]),
+            lire("confidentialite-eleve", "/eleves/{eleve}/confidentialite", &[Admin, Direction], &[Admin, Direction]),
+            lire("consultations-eleve", "/eleves/{eleve}/consultations", &[Admin, Direction, Administratif],
+                &[Admin, Direction, Administratif]),
+            lire("photos-eleve", "/eleves/{eleve}/photos", &[Admin, Direction, Administratif, Cpe],
+                &[Admin, Direction, Administratif, Cpe]),
+            lire("photos-a-valider", "/eleves/photos/a-valider", &[Admin, Direction, Administratif, Cpe], &[]),
+            lire("photos-manquantes", "/eleves/photos/manquantes", &[Admin, Direction, Administratif, Cpe], &[]),
+            lire("coordonnees-eleve", "/eleves/{eleve}/coordonnees",
+                &[Admin, Direction, Administratif, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif]),
+            ecrire_sur_b("confidentialite-pose-sur-B", "POST", "/eleves/{eleve}/confidentialite",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("confidentialite-modification-sur-B", "PUT", "/eleves/{eleve}/confidentialite",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("confidentialite-levee-sur-B", "POST", "/eleves/{eleve}/confidentialite/lever",
+                Some(r#"{"motif_code":"fin_de_mesure"}"#)),
+            ecrire_sur_b("photo-depot-sur-B", "POST", "/eleves/{eleve}/photos",
+                Some(r#"{"mime_type":"image/jpeg","contenu_base64":"/9j/4AAQSkZJRgAB"}"#)),
+            ecrire_sur_b("photo-validation-sur-B", "POST",
+                "/eleves/photos/00000000-0000-0000-0000-000000000001/valider", None),
+            ecrire_sur_b("photo-rejet-sur-B", "POST",
+                "/eleves/photos/00000000-0000-0000-0000-000000000001/rejeter", Some(r#"{"motif_code":"illisible"}"#)),
+            ecrire_sur_b("photo-retrait-sur-B", "POST",
+                "/eleves/photos/00000000-0000-0000-0000-000000000001/retirer", Some(r#"{"motif_code":"autre"}"#)),
+            ecrire_sur_b("photo-refus-sur-B", "POST", "/eleves/{eleve}/photo/refus", None),
+            ecrire_sur_b("photo-refus-levee-sur-B", "DELETE", "/eleves/{eleve}/photo/refus", None),
+            ecrire_sur_b("coordonnee-ajout-sur-B", "POST", "/eleves/{eleve}/coordonnees",
+                Some(r#"{"type":"email","valeur":"separation@exemple.test"}"#)),
+            ecrire_sur_b("coordonnee-decision-sur-B", "POST",
+                "/eleves/coordonnees/00000000-0000-0000-0000-000000000001/decision", Some(r#"{"accepter":true}"#)),
+            ecrire_sur_b("coordonnee-retrait-sur-B", "POST",
+                "/eleves/coordonnees/00000000-0000-0000-0000-000000000001/retirer", Some(r#"{"motif_code":"autre"}"#)),
+            ecrire_sur_b("coordonnee-usages-sur-B", "POST",
+                "/eleves/coordonnees/00000000-0000-0000-0000-000000000001/usages", Some(r#"{"usages":["notifications"]}"#)),
+            ecrire_sur_b("coordonnee-verification-sur-B", "POST",
+                "/eleves/coordonnees/00000000-0000-0000-0000-000000000001/verification", None),
+            ecrire_sur_b("coordonnee-verifier-sur-B", "POST",
+                "/eleves/coordonnees/00000000-0000-0000-0000-000000000001/verifier", Some(r#"{"code":"123456"}"#)),
+            // Socle 2 (E8) : pastilles et synthèse de la fiche (personnel ; chaque pastille filtrée par
+            // l'action de son domaine, sur l'élève).
+            lire("synthese-eleve", "/eleves/{eleve}/synthese", STAFF, STAFF_HORS_PROF),
+            lire("pastilles-eleve", "/eleves/{eleve}/pastilles", STAFF, STAFF_HORS_PROF),
+            lire("pastilles-compteurs", "/eleves/pastilles", STAFF, &[]),
+            lire("pastilles-catalogue", "/eleves/pastilles/catalogue", STAFF, &[]),
+            lire("pastilles-liste", "/eleves/pastilles/sans_ine", &[Admin, Direction, Administratif], &[]),
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
             // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
             // Démo P1 n° 3 : le responsable légal (lien actif) lit la scolarité de SON enfant,
@@ -1698,6 +1749,85 @@ fn l1_documents_legitimes_se_telechargent_avec_leur_contenu_exact() {
             assert!(f.est_refus(), "la direction de B lit un document de A");
         }
     });
+}
+
+/// E6 (revue de sécurité) : sur un élève sous confidentialité renforcée, TOUTES les routes
+/// `/eleves/{id}/…` répondent 404 (jamais 403) à un membre du personnel sans G6 ni lien direct,
+/// quelle que soit la méthode et même si son rôle n'a pas le droit habituel ; la direction (G6)
+/// l'atteint, et la mesure levée, tout redevient normal.
+#[test]
+fn e6_toute_route_eleve_est_introuvable_pour_un_tiers_sur_un_eleve_protege() {
+    let Some(m) = monde() else { return };
+    let routes: Vec<routes_src::RouteDecl> = routes_src::routes()
+        .into_iter()
+        .filter(|r| r.chemin.starts_with("/eleves/{") && !r.chemin.starts_with("/eleves/{}"))
+        .collect();
+    assert!(routes.len() > 100, "inventaire des routes /eleves/{{id}} incomplet : {}", routes.len());
+    let tiers = [Administratif, Cpe, Compta, Infirmiere, Psy];
+    let echecs = rt().block_on(async {
+        let dir = m.jeton(Direction).to_string();
+        let cree = m
+            .appel(
+                "POST",
+                "/eleves",
+                Some(&dir),
+                Some(&json!({"nom": format!("Garde{}", Uuid::new_v4().simple()), "prenom": "Eva", "classe": "6A"})),
+            )
+            .await;
+        assert!(cree.est_succes(), "création de l'élève d'essai : {} {}", cree.statut, cree.texte);
+        let id = cree.json["id"].as_str().expect("id").to_string();
+        let instancie = |gabarit: &str| {
+            let d = gabarit.find('{').unwrap();
+            let f = gabarit[d..].find('}').unwrap() + d;
+            format!("{}{}{}", &gabarit[..d], id, routes_src::instancier(&gabarit[f + 1..]))
+        };
+        // Contrôle positif : avant la mesure, le tiers atteint la fiche (200).
+        let avant = m.appel("GET", &format!("/eleves/{id}"), Some(m.jeton(Administratif)), None).await;
+        assert!(avant.est_succes(), "avant la mesure : {}", avant.statut);
+        let pose = m
+            .appel(
+                "POST",
+                &format!("/eleves/{id}/confidentialite"),
+                Some(&dir),
+                Some(&json!({"motif": "Mesure de protection", "mesures": []})),
+            )
+            .await;
+        assert!(pose.est_succes(), "pose de la mesure : {} {}", pose.statut, pose.texte);
+        let mut echecs = Vec::new();
+        for r in &routes {
+            let chemin = instancie(&r.chemin);
+            let corps = matches!(r.methode, "POST" | "PUT" | "PATCH").then(|| json!({}));
+            for a in tiers {
+                let rep = m.appel(r.methode, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                if rep.statut.as_u16() != 404 {
+                    echecs.push(format!("{a:?} {} {} → {}", r.methode, r.chemin, rep.statut.as_u16()));
+                }
+            }
+        }
+        // La direction (G6) l'atteint toujours.
+        let g6 = m.appel("GET", &format!("/eleves/{id}"), Some(&dir), None).await;
+        if !g6.est_succes() {
+            echecs.push(format!("direction (G6) : GET /eleves/{{id}} → {}", g6.statut));
+        }
+        // Mesure levée : le tiers revoit la fiche.
+        let lever = m
+            .appel(
+                "POST",
+                &format!("/eleves/{id}/confidentialite/lever"),
+                Some(&dir),
+                Some(&json!({"motif_code": "fin_de_mesure"})),
+            )
+            .await;
+        assert!(lever.est_succes(), "levée : {} {}", lever.statut, lever.texte);
+        let apres = m.appel("GET", &format!("/eleves/{id}"), Some(m.jeton(Administratif)), None).await;
+        if !apres.est_succes() {
+            echecs.push(format!("après la levée : {}", apres.statut));
+        }
+        echecs
+    });
+    CAS_EXECUTES.fetch_add(routes.len() * tiers.len(), Ordering::Relaxed);
+    eprintln!("[separation] élève protégé : {} routes × {} tiers, {} écart(s)", routes.len(), tiers.len(), echecs.len());
+    assert!(echecs.is_empty(), "routes /eleves/{{id}}/… qui ne répondent pas 404 à un tiers :\n{}", echecs.join("\n"));
 }
 
 #[test]

@@ -57,6 +57,10 @@ pub const CHAMPS_CHIFFRES: &[(&str, &[&str])] = &[
     // Socle 4, lot A0 bis : adresse à protéger parquée, référence de la pièce de protection.
     ("ent_adresse_protegee", &["adresse"]),
     ("ent_personne_reserve", &["ne_pas_solliciter_ref"]),
+    // Socle 2, lot E7 : motif d'une confidentialité renforcée, valeurs des versions d'identité sensibles
+    // non courantes (une ligne scellée par champ).
+    ("ent_eleve_confidentialite", &["motif_scelle"]),
+    ("ent_eleve_identite_scellee", &["valeur_scellee"]),
     ("ent_personne_version", &["valeurs_anterieures"]),
     (
         "ent_inscription_responsable",

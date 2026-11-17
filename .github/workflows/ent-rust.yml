@@ -568,5 +568,8 @@ jobs:
           RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }}"
         run: |
           verdict=vert
-          case "$RESULTATS" in *failure*) verdict=rouge;; *cancelled*) verdict="annulé (remplacé par un commit plus récent)";; esac
+          case "$RESULTATS" in *failure*) verdict=rouge;; *cancelled*) verdict=annulé;; esac
+          # Un run remplacé par un push plus récent finit en « failure » sur le job de synthèse : on le dit.
+          actuel=$(gh pr view "$PR" --json headRefOid -q .headRefOid || echo inconnu)
+          if [ "$actuel" != "$TETE" ]; then verdict="remplacé par ${actuel::8} (ignorer)"; fi
           gh pr comment "$PR" --body "Run n° ${{ github.run_number }} (id ${{ github.run_id }}) sur \`${TETE::8}\` : **${verdict}** — ${RESULTATS}"

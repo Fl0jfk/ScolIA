@@ -1261,6 +1261,8 @@ impl PgEnt {
             .await?
             .ok_or(domain_eleve::DomainError::NotFound)?;
         let eleve = e.eleve_id.ok_or(EntDbError::SaisieInvalide("élève inconnu"))?;
+        // E7 : la proposition d'un élève protégé n'existe pas pour un tiers.
+        self.exiger_eleve_visible(etab, d.acteur, role, eleve).await?;
         if e.statut != "en_attente" {
             return Err(EntDbError::ConflitDossier("cette proposition est déjà décidée"));
         }
@@ -1447,6 +1449,12 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let limite = f.limite.unwrap_or(50).clamp(1, 200);
+        // E7 : les propositions d'un élève protégé n'existent pas pour qui n'a pas G6 (filtre SQL
+        // avant la limite).
+        let voit_proteges = self
+            .profil_champs(etab, acteur, role)
+            .await?
+            .ouvert_partout(domain_eleve::GroupeChamps::Sensible);
         let entetes = sqlx::query_as::<_, EnteteProposition>(&format!(
             "SELECT {COLONNES} FROM ent_eleve_proposition p
              WHERE etablissement_id = $1
@@ -1457,6 +1465,7 @@ impl PgEnt {
                                                  WHERE c.etablissement_id = p.etablissement_id
                                                    AND c.proposition_id = p.id AND c.champ = $5))
                AND ($6::timestamptz IS NULL OR cree_le < $6)
+               AND ($8 OR p.eleve_id IS NULL OR NOT ent_eleve_confidentiel(p.etablissement_id, p.eleve_id))
              ORDER BY cree_le DESC, id
              LIMIT $7"
         ))
@@ -1467,19 +1476,20 @@ impl PgEnt {
         .bind(&f.champ)
         .bind(f.avant)
         .bind(limite)
+        .bind(voit_proteges)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let l = assembler(&mut conn, etab, entetes, true).await?;
         drop(conn);
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             f.eleve_id,
             "propositions",
-            "consultation",
             "Consultation des propositions de modification",
+            false,
         )
         .await?;
         Ok(l)
@@ -1509,16 +1519,19 @@ impl PgEnt {
         .await?
         .ok_or(domain_eleve::DomainError::NotFound)?;
         let eleve = e.eleve_id;
+        if let Some(el) = eleve {
+            self.exiger_eleve_visible(etab, acteur, role, el).await?;
+        }
         let mut v = assembler(&mut conn, etab, vec![e], true).await?;
         drop(conn);
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             eleve,
-            "propositions",
-            "consultation",
+            "proposition",
             "Consultation d'une proposition de modification",
+            false,
         )
         .await?;
         Ok(v.remove(0))

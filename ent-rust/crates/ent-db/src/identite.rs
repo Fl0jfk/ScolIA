@@ -112,6 +112,20 @@ const COLONNES: &str = "id, etablissement_id, eleve_id, nom_naissance, nom_usage
     remplace_version_id, remplacee_par, motif, piece_document_id, source, source_ref,
     sensible, enregistre_le, enregistre_par";
 
+/// Rend leurs valeurs aux versions scellées (E7, §10.4) : le code de l'identité manipule toujours
+/// des valeurs en clair, c'est la base qui n'en garde plus pour une version sensible dépassée.
+async fn descelle_une(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    v: Option<IdentiteVersion>,
+) -> Result<Option<IdentiteVersion>, sqlx::Error> {
+    let Some(v) = v else { return Ok(None) };
+    let mut un = [v];
+    crate::eleve_identite_scellee::desceller_versions(conn, etab, &mut un).await?;
+    let [v] = un;
+    Ok(Some(v))
+}
+
 /// Accès aux versions d'identité (toutes les requêtes portent `etablissement_id`).
 pub struct PgIdentiteRepo;
 
@@ -143,13 +157,14 @@ impl PgIdentiteRepo {
             "SELECT {COLONNES} FROM ent_eleve_identite
              WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3"
         );
-        Ok(sqlx::query_as::<_, VersionRow>(&sql)
+        let v = sqlx::query_as::<_, VersionRow>(&sql)
             .bind(etab)
             .bind(eleve)
             .bind(version)
             .fetch_optional(&mut *conn)
             .await?
-            .map(VersionRow::en_version))
+            .map(VersionRow::en_version);
+        descelle_une(conn, etab, v).await
     }
 
     /// Version en vigueur (non remplacée, effective) à une date.
@@ -164,13 +179,14 @@ impl PgIdentiteRepo {
              WHERE etablissement_id = $1 AND eleve_id = $2 AND remplacee_par IS NULL AND effet_du <= $3
              ORDER BY effet_du DESC, enregistre_le DESC, id LIMIT 1"
         );
-        Ok(sqlx::query_as::<_, VersionRow>(&sql)
+        let v = sqlx::query_as::<_, VersionRow>(&sql)
             .bind(etab)
             .bind(eleve)
             .bind(jour)
             .fetch_optional(&mut *conn)
             .await?
-            .map(VersionRow::en_version))
+            .map(VersionRow::en_version);
+        descelle_une(conn, etab, v).await
     }
 
     /// Plus ancienne version en vigueur (base d'un changement antérieur à toute version).
@@ -184,12 +200,13 @@ impl PgIdentiteRepo {
              WHERE etablissement_id = $1 AND eleve_id = $2 AND remplacee_par IS NULL
              ORDER BY effet_du, enregistre_le, id LIMIT 1"
         );
-        Ok(sqlx::query_as::<_, VersionRow>(&sql)
+        let v = sqlx::query_as::<_, VersionRow>(&sql)
             .bind(etab)
             .bind(eleve)
             .fetch_optional(&mut *conn)
             .await?
-            .map(VersionRow::en_version))
+            .map(VersionRow::en_version);
+        descelle_une(conn, etab, v).await
     }
 
     pub(crate) async fn dates_en_vigueur(
@@ -287,14 +304,16 @@ impl PgIdentiteRepo {
              WHERE etablissement_id = $1 AND eleve_id = $2
              ORDER BY effet_du DESC, enregistre_le DESC, id"
         );
-        Ok(sqlx::query_as::<_, VersionRow>(&sql)
+        let mut versions: Vec<IdentiteVersion> = sqlx::query_as::<_, VersionRow>(&sql)
             .bind(etab)
             .bind(eleve)
             .fetch_all(&mut *conn)
             .await?
             .into_iter()
             .map(VersionRow::en_version)
-            .collect())
+            .collect();
+        crate::eleve_identite_scellee::desceller_versions(conn, etab, &mut versions).await?;
+        Ok(versions)
     }
 
     /// La pièce est-elle un document administratif ou familial de CET élève dans CET
@@ -631,6 +650,9 @@ impl PgEnt {
         .bind(acteur)
         .execute(&mut **tx)
         .await?;
+        // E7 (§10.4) : les versions sensibles devenues non courantes sont scellées dans la même
+        // transaction (la nouvelle version a pu rendre l'ancienne non courante).
+        Self::sceller_versions_sensibles_tx(tx, etab, eleve).await?;
         Ok(ResultatIdentite { version: v, champs })
     }
 
@@ -650,6 +672,8 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        // E7 : un élève protégé est invisible d'un tiers, même avec G5.
+        self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         let voit_sensible = self
             .autoriser_eleve(etab, acteur, role, Action::ElevesConfidentielGerer, eleve)
             .await?;
@@ -659,18 +683,18 @@ impl PgEnt {
         if versions.is_empty() {
             return Err(DomainError::NotFound.into());
         }
-        self.tracer_acces_sensible(
+        self.tracer_consultation(
             etab,
             acteur,
             role,
             Some(eleve),
-            "identite",
             if voit_sensible {
-                "historique_complet"
+                "identite_historique_complet"
             } else {
-                "historique"
+                "identite_historique"
             },
             "Consultation de l'historique d'identité",
+            false,
         )
         .await?;
         Ok(filtrer_historique_identite(versions, voit_sensible))

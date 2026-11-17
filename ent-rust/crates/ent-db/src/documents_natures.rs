@@ -181,7 +181,7 @@ pub enum ReponseDepot {
     Different,
 }
 
-/// (nom de naissance, nom d'usage, prénoms, rang du prénom usuel, prénom d'usage, naissance, précision).
+/// (nom de naissance, nom d'usage, prénoms, rang du prénom usuel, prénom d'usage, naissance, précision, identifiant de version).
 type LigneIdentite = (
     String,
     Option<String>,
@@ -190,6 +190,7 @@ type LigneIdentite = (
     Option<String>,
     Option<NaiveDate>,
     Option<String>,
+    Uuid,
 );
 /// (version, document, nature, mode, état, n° de version, version courante, empreinte, émise le, annulé le, émetteur).
 type LigneVerification = (
@@ -281,7 +282,7 @@ impl PgEnt {
     ) -> Result<DonneesAttestation, EntDbError> {
         let ident: Option<LigneIdentite> =
             sqlx::query_as(
-                "SELECT nom_naissance, nom_usage, prenoms, rang_prenom_usuel, prenom_usage, date_naissance, date_naissance_precision
+                "SELECT nom_naissance, nom_usage, prenoms, rang_prenom_usuel, prenom_usage, date_naissance, date_naissance_precision, id
                    FROM ent_eleve_identite
                   WHERE etablissement_id = $1 AND eleve_id = $2 AND remplacee_par IS NULL AND effet_du <= $3
                   ORDER BY effet_du DESC LIMIT 1",
@@ -292,8 +293,18 @@ impl PgEnt {
             .fetch_optional(&mut *conn)
             .await
             .map_err(db)?;
-        let (nom_n, nom_u, prenoms, rang, prenom_u, naissance, precision) =
+        let (mut nom_n, mut nom_u, mut prenoms, mut rang, mut prenom_u, naissance, precision, version_id) =
             ident.ok_or_else(introuvable)?;
+        // Socle 2, E7 : une version sensible dépassée est scellée ; une attestation d'une période
+        // passée est un usage légitime de l'état civil d'alors, on rend ses valeurs.
+        if nom_n == domain_eleve::MARQUEUR_SCELLE {
+            let v = crate::eleve_identite_scellee::desceller_identite_courte(&mut *conn, etab, version_id).await?;
+            nom_n = v.get("nom_naissance").cloned().unwrap_or(nom_n);
+            nom_u = v.get("nom_usage").cloned();
+            prenoms = v.get("prenoms").map(|p| domain_eleve::decoder_prenoms(p)).unwrap_or(prenoms);
+            rang = v.get("rang_prenom_usuel").and_then(|r| r.parse().ok()).unwrap_or(rang);
+            prenom_u = v.get("prenom_usage").cloned();
+        }
         let naissance = match (naissance, precision.as_deref()) {
             (Some(d), Some("jour") | None) => d,
             _ => {

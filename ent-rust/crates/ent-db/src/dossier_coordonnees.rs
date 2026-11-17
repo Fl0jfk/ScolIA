@@ -1506,7 +1506,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 }
 
 /// Code à six chiffres (aléatoire du système, via un UUID v4).
-fn code_six_chiffres() -> String {
+pub(crate) fn code_six_chiffres() -> String {
     let b = Uuid::new_v4().into_bytes();
     let n = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) % 1_000_000;
     format!("{n:06}")
@@ -1514,7 +1514,7 @@ fn code_six_chiffres() -> String {
 
 /// Empreinte HMAC-SHA-256 du code sous le secret serveur : un code à six chiffres n'a que 10⁶
 /// valeurs, une base volée ne doit pas permettre de le retrouver (fail-closed sans secret).
-fn empreinte_verification(id: Uuid, code: &str) -> Result<String, EntDbError> {
+pub(crate) fn empreinte_verification(id: Uuid, code: &str) -> Result<String, EntDbError> {
     let secret = ent_auth::SecretBox::from_env()?;
     Ok(secret.hmac_hex("coordonnee-verification-v1", format!("{id}:{}", code.trim()).as_bytes())?)
 }

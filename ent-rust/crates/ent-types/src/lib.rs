@@ -32,6 +32,8 @@ pub mod discipline;
 pub mod dossier;
 pub mod edt;
 pub mod edt_s2;
+pub mod eleve_protection;
+pub mod eleve_synthese;
 pub mod evaluations;
 pub mod finances;
 pub mod fusion;
