@@ -630,7 +630,7 @@ fn f0_fd11_compte_crediteur_n3_chiffre_et_alerte() {
             "FD-11 : IBAN du créancier stocké en clair"
         );
         let (nb_evt,): (i64,) = sqlx::query_as(
-            "SELECT count(*)::bigint FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'fin.crediteur_modifie'
+            "SELECT count(*)::bigint FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'facturation.crediteur_modifie'
                AND payload::text NOT LIKE '%20041010050500013%'",
         )
         .bind(m.a.objets.etab)
@@ -696,15 +696,19 @@ fn f0_fd16_consommation_negative_refusee() {
 
 // ───────────────────────── FD-27 : droits par défaut du secrétariat ─────────────────────────
 
-/// L'Administratif consulte (facturation.lire) mais ne crée, n'émet, n'encaisse ni
-/// ne gère les bourses par défaut.
+/// F1 (R-F23) : l'Administratif n'a plus `facturation.lire` (plus de liste de tous les comptes) ; il a la
+/// vue guichet d'un compte à la fois. Il ne crée, n'émet, n'encaisse ni ne gère les bourses par défaut.
 #[test]
 fn f0_fd27_secretariat_lecture_seule_par_defaut() {
     let Some(m) = monde() else { return };
     rt().block_on(async {
         let adm = m.jeton(Administratif).to_string();
         let lecture = m.appel("GET", "/facturation/factures", Some(&adm), None).await;
-        assert!(lecture.est_succes(), "l'Administratif doit pouvoir consulter ({})", lecture.statut);
+        assert_eq!(lecture.statut.as_u16(), 403, "F1 : pas de liste de tous les comptes pour le secrétariat ({})", lecture.statut);
+        let guichet = m
+            .appel("GET", "/finances/guichet/recherche?nom=Martin&auth=presentiel", Some(&adm), None)
+            .await;
+        assert!(guichet.est_succes(), "F1 : le secrétariat a la vue guichet ({})", guichet.statut);
         let ecriture = m
             .appel(
                 "POST",
