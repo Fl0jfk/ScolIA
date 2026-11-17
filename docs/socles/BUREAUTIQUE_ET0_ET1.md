@@ -108,4 +108,7 @@ R-ET1 (membres lus à la date, jamais recopiés : ajoutés datés ; le calcul d'
 
 ## 9. Vérifications
 
-Voir la fin de ce fichier (renseignée à la livraison) : clippy 1.99.0 (0 nouvel avertissement), tests locaux, fusion d'`origin/ENT`, SHA et numéro de run de la CI.
+- **Base** : `origin/ENT` **143dfa9c** fusionné (compteurs recalculés : `TOUTES` 245 + 4 = **249**, compte RLS d'ENT + **16**, `SOURCES` 59, `MIGRATION_TAG` inchangé) ; `cd ent-rust/web && cargo metadata --locked` : OK (aucune dépendance ajoutée).
+- **Clippy 1.99.0** (`--workspace --tests --features ent-db/labo`) : **0 avertissement** dans les lignes du lot (4 relevés puis corrigés) ; aucun `#[allow]` ajouté sauf `clippy::type_complexity` et `too_many_arguments` de portée fichier ou fonction (requêtes à tuples, commandes à nombreux paramètres), comme les lots voisins ; aucun `#[ignore]`.
+- **Tests locaux** (PostgreSQL 16, `--test-threads 1`, base neuve) : `ent-object` 57 + `ent-auth` 79 verts ; `ent-db` : tests du lot (ET0 9, ET1 15, gardes 6, purs 9) + registre des tables, registre RGPD, RLS, neutralisation, tag de migration : **78 verts** ; `isolation_sql_statique` et `jour_utc_interdit` verts ; matrice de séparation `domaine_espaces` verte (8 profils de personnel reçoivent une réponse, familles et élèves sont refusés ; inventaire des routes vert). Aucun test ne dépend de l'heure réelle ni du S3 réel.
+- **CI** : une seule, sur la tête de la branche (SHA et numéro de run dans le message au pilote).
