@@ -207,3 +207,14 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - PostgreSQL local redémarré.
   - Ronde suivante : 18-11, 2 h 45 UTC.
   - **Leçon pour les prochaines consignes** : interdire `&` pour les commandes longues (utiliser run_in_background), et pousser au moins à chaque étape vérifiée.
+- **17-11, 21 h 40 UTC, revue de sécurité d'E9 (PR 96, bc1e0cbe)** : aucun critique, 1 élevé et 7 moyens, renvoyés à la session ; pas de versement avant correction.
+  - **E1** : les dates des pastilles booléennes (date d'entrée, début de modalité) partent au navigateur, et le test passait à vide.
+  - **M1** : synthèse d'un élève protégé ni tracée ni alertée.
+  - **M2, décision du pilote** : `majorite_proche` est réservée à `etat_civil.lire`, car sa fenêtre de 30 jours laisse déduire la naissance.
+  - **M3** : la règle « une pastille suit sa tuile » doit valoir aussi pour les listes et les compteurs.
+  - **M4** : ordre reprise et recalcul dans la migration 3200 ; recalcul à chaque démarrage.
+  - **M5** : validation silencieuse des contraintes NOT VALID.
+  - **M6** : SMS de vérification (verrou, liste blanche de pays, plafond pour un compte élève).
+  - **M7** : tests faibles.
+  - F1, F3 et F4 dans le lot ; F2 pour plus tard.
+  - Désabonnement de la PR 96 pendant les correctifs. **À signaler au DPO** : `protocole` est visible aussi de la direction et du secrétariat.
