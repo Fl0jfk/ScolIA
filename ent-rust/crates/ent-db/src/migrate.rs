@@ -410,6 +410,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 12, lot AS14b-bis (2254, 2255) : réglage de l'heure de bascule et disposition du tableau de bord ; sous 3808.
     m!("2254_assiduite_as14b_bis_reglage_bascule"),
     m!("2255_assiduite_as14b_bis_preference"),
+    // Socle 3, lots I3 et I4 (plage 310–329) : règles de pièces, fichier des pièces (sujet « dossier » du socle 7,
+    // d'où l'ordre APRÈS 3704), accords des responsables. Sous 3808 : `MIGRATION_TAG` est inchangé.
+    m!("310_inscription_piece_regle"),
+    m!("311_inscription_piece_fichier"),
+    m!("312_inscription_accord"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

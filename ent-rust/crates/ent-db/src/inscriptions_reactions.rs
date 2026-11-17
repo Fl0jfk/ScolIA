@@ -122,9 +122,11 @@ pub async fn expedier_envois(
     // route laisse les lignes se représenter plus tard, sans jamais bloquer ni rejouer le lot
     // entier (avant : un échec au 40ᵉ message annulait la transaction et renvoyait les 39 premiers).
     let mut tx = pool.begin().await?;
-    let lot: Vec<(Uuid, Uuid, Option<Uuid>, String, String, String, String, i32)> =
+    #[allow(clippy::type_complexity)] // une ligne de file : colonnes lues telles quelles, sans type métier à nommer
+    let lot: Vec<(Uuid, Uuid, Option<Uuid>, String, String, String, String, i32, Option<Uuid>)> =
         sqlx::query_as(
-            "SELECT id, etablissement_id, invitation_id, kind, destinataire, sujet, corps, tentatives
+            "SELECT id, etablissement_id, invitation_id, kind, destinataire, sujet, corps, tentatives,
+                    accord_demande_id
                FROM ent_inscription_envoi
               WHERE statut = 'a_envoyer' AND prochain_essai <= now()
                 AND (invitation_id IS NULL OR EXISTS (
@@ -133,6 +135,12 @@ pub async fn expedier_envois(
                          AND i.etablissement_id = ent_inscription_envoi.etablissement_id
                          AND i.statut IN ('a_envoyer', 'non_envoyee', 'envoyee')
                          AND i.expire_le > now()))
+                -- Une demande d'accord annulée, répondue ou expirée ne part plus (ni son code).
+                AND (accord_demande_id IS NULL OR EXISTS (
+                      SELECT 1 FROM ent_inscription_accord_demande ad
+                       WHERE ad.id = ent_inscription_envoi.accord_demande_id
+                         AND ad.etablissement_id = ent_inscription_envoi.etablissement_id
+                         AND ad.etat = 'envoyee' AND ad.expire_le > now()))
               ORDER BY prochain_essai, created_at LIMIT $1
               FOR UPDATE SKIP LOCKED",
         )
@@ -154,8 +162,35 @@ pub async fn expedier_envois(
     }
     tx.commit().await?;
     let mut traites = 0;
-    for (id, etab, invitation_id, kind, to, sujet, corps, tentatives) in lot {
+    for (id, etab, invitation_id, kind, to, sujet, corps, tentatives, accord_demande) in lot {
         let corps = match (kind.as_str(), invitation_id) {
+            ("accord", _) => match accord_demande {
+                Some(dm) => crate::inscriptions_accords::jeton_accord(dm).map(|j| {
+                    corps.replace(
+                        "{LIEN}",
+                        &format!("{}/web/accord?d={dm}&t={j}", base_publique().trim_end_matches('/')),
+                    )
+                }),
+                None => Err("demande d'accord absente".to_string()),
+            },
+            ("accord_code", _) => match accord_demande {
+                Some(dm) => {
+                    // Le code de l'envoi en cours : celui du compteur de la demande (jamais stocké).
+                    let compteur: Result<i16, String> = sqlx::query_scalar(
+                        "SELECT code_compteur FROM ent_inscription_accord_demande
+                          WHERE id = $1 AND etablissement_id = $2",
+                    )
+                    .bind(dm)
+                    .bind(etab)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| e.to_string());
+                    compteur
+                        .and_then(|c| crate::inscriptions_accords::code_accord(dm, c))
+                        .map(|code| corps.replace("{CODE}", &code))
+                }
+                None => Err("demande d'accord absente".to_string()),
+            },
             ("invitation", Some(inv)) => jeton_invitation(inv).map(|j| {
                 corps.replace(
                     "{LIEN}",

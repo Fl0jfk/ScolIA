@@ -1060,6 +1060,41 @@ fn domaine_inscriptions_i2() {
     jouer("inscriptions I2 (listes, objets de B)", &specs_domaine_inscriptions_i2());
 }
 
+/// Lots I3 et I4 (socle 3) : règles de pièces, pièces d'un dossier, dépôt, contrôle, lecture du fichier, accords,
+/// désaccord, levée avec pièce. Toutes les routes à identifiant visent un objet de B avec la session de A :
+/// jamais un 2xx, et aucune ne confirme qu'un objet existe chez l'autre établissement.
+fn specs_domaine_inscriptions_i3_i4() -> Vec<Spec> {
+    vec![
+        ecrire_sur_b("regles-pieces-de-B", "GET", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/pieces-regles", None),
+        ecrire_sur_b("regles-pieces-modifiees-sur-B", "PUT", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/pieces-regles",
+            Some(r#"{"regles":[]}"#)),
+        ecrire_sur_b("pieces-attendues-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/pieces-attendues", None),
+        ecrire_sur_b("depot-guichet-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/pieces/livret_famille/fichiers",
+            Some(r#"{"fichiers":["JVBERi0xLjQK"]}"#)),
+        ecrire_sur_b("controle-piece-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/pieces/livret_famille/controle",
+            Some(r#"{"decision":"accepter"}"#)),
+        ecrire_sur_b("reutilisation-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/pieces/livret_famille/reutiliser",
+            Some(r#"{"source_dossier_id":"00000000-0000-0000-0000-0000000000b3"}"#)),
+        ecrire_sur_b("fichier-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/pieces/livret_famille/fichier", None),
+        ecrire_sur_b("accords-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords", None),
+        ecrire_sur_b("demande-accords-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords/demander",
+            Some(r#"{"rangs":[]}"#)),
+        ecrire_sur_b("accord-papier-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords/papier",
+            Some(r#"{"rang":2,"reponse":"donne","piece_code":"accord_responsable"}"#)),
+        ecrire_sur_b("desaccord-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords/desaccord",
+            Some(r#"{"rang":2,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("dispense-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords/dispenser",
+            Some(r#"{"rang":2,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("levee-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/accords/lever",
+            Some(r#"{"rang":2,"issue":"accord_ecrit","piece_code":"accord_responsable","motif":"essai de séparation"}"#)),
+    ]
+}
+
+#[test]
+fn domaine_inscriptions_i3_i4() {
+    jouer("inscriptions I3 et I4 (pièces et accords de B)", &specs_domaine_inscriptions_i3_i4());
+}
+
 // ───────────────────────── Invariants transverses ─────────────────────────
 
 /// Routes publiques : la **seule** liste d'exceptions à « sans session ⇒ 401 ».
@@ -1102,6 +1137,11 @@ const PUBLIQUES: &[(&str, &str)] = &[
     // Invitation du second responsable (S2-3) : le jeton reçu par e-mail fait foi.
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
+    // Accords des responsables sans compte (socle 3, I4) : le jeton du lien (dérivé d'un secret serveur, jamais stocké)
+    // et le code reçu par e-mail font foi ; réponses identiques pour tout lien refusé ; débit limité.
+    ("POST", "/accords/{id}/consulter"),
+    ("POST", "/accords/{id}/code"),
+    ("POST", "/accords/{id}/repondre"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     // Vérification publique des documents (socle 7, D3) : le code (60 bits) ou l'empreinte du fichier fait foi ;
     // l'établissement vient de l'adresse, réponses identiques pour inconnu et autre établissement.

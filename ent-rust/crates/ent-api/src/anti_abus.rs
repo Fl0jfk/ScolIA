@@ -165,6 +165,11 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some(Quota::new(10, 900)),
             Some("jeton"),
         ),
+        // Accords des responsables sans compte (socle 3, I4) : lien à usage unique + code à six chiffres ; le jeton
+        // du lien est l'identifiant du seau, le code est de plus limité par demande (cinq essais, en base).
+        "/accords/{id}/consulter" => r("ACCORD_CONSULTER", Some(Quota::new(30, 900)), Some(Quota::new(20, 900)), Some("jeton")),
+        "/accords/{id}/code" => r("ACCORD_CODE", Some(Quota::new(10, 900)), Some(Quota::new(5, 900)), Some("jeton")),
+        "/accords/{id}/repondre" => r("ACCORD_REPONDRE", Some(Quota::new(20, 900)), Some(Quota::new(10, 900)), Some("jeton")),
         "/auth/oidc/{slug}/start" => r("OIDC_START", Some(Quota::new(30, 300)), None, None),
         // Vérification publique des documents (socle 7, D3) : un code de 60 bits ne se devine pas, mais la page est
         // publique ; seau par IP (le dépôt de fichier, plus lourd, est plus strict).

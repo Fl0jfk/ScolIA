@@ -28,6 +28,7 @@ pub mod http_garde;
 mod ical;
 mod finances;
 mod inscriptions;
+mod inscriptions_pieces;
 mod documents_verif;
 mod internat;
 pub mod obs;

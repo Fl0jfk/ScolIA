@@ -262,6 +262,9 @@ pub mod eleve_ports;
 pub mod inscriptions;
 pub mod inscriptions_etats;
 pub mod inscriptions_modele;
+pub mod inscriptions_pieces;
+pub mod documents_pieces_dossier;
+pub mod inscriptions_accords;
 pub mod inscriptions_reactions;
 pub mod imports;
 // Finances reliées (socle 2, lot S2-9).
@@ -631,6 +634,8 @@ mod tests_assiduite_tableau;
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i3_i4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
