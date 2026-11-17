@@ -123,3 +123,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **D6 versé sur ENT 5142dc98** par avance rapide, après le run 341 vert sur le même SHA ; le run 344 d'ENT, en double, a été annulé (règle 29) ; session D6 archivée ;
   - ET0-ET1 (run 342) et I3-I4 (run 343) ont pour consigne de ne pas refusionner : le pilote fusionnera lui-même par-dessus D6, avec recalcul des compteurs ;
   - nouvelle session **FO2-FO3** (session_01KZCbFEWbVMqQfnFtCffXCP, branche ent-socle-18-code-fo23, migrations 2364 et suivantes).
+- **Test instable connu** (signalé par I3-I4, présent sur ENT, non causé par le lot) :
+  - `tests_inscriptions_i2::i2_references_uniques_sous_concurrence`, et une fois `i2_retrait_et_desistement_de_la_famille` ;
+  - en parallèle, ils paniquent dans `seed_labo_cast` (`tests_rls_stricte.rs:60`) avec `Domain(Infrastructure)` ou `Domain(Reessayer)` ; ils passent avec `--test-threads=1`.
+  - À traiter dans un petit lot de fiabilité : réessai sur conflit de sérialisation dans la préparation du jeu d'essai.
+- ET0-ET1 : clippy complet sur sa branche, 4 avertissements, tous dans ses lignes, corrigés ; le pilote recompte à la fusion.
