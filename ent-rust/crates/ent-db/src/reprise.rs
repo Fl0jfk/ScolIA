@@ -205,7 +205,7 @@ pub async fn enregistrer_trace(
         .execute(&mut *tx)
         .await?;
     }
-    crate::reprise_rapprochement::ecrire_file(&mut *tx, etab, exec, &simulation.file).await?;
+    crate::reprise_rapprochement::ecrire_file(&mut tx, etab, exec, &simulation.file).await?;
     sqlx::query(
         "UPDATE rep_execution SET etat = 'terminee', fin_le = now(), rapport_empreinte = $3,
                 duree_s = GREATEST(0, EXTRACT(EPOCH FROM (now() - debut_le))::int)
@@ -389,7 +389,7 @@ pub async fn noter_zone_videe(
     .execute(&mut *tx)
     .await?;
     // Les résumés minimisés de la file « à décider » partent avec la zone (MSE-179).
-    crate::reprise_rapprochement::purger_resumes(&mut *tx, etab, exec).await?;
+    crate::reprise_rapprochement::purger_resumes(&mut tx, etab, exec).await?;
     tx.commit().await?;
     Ok(())
 }
