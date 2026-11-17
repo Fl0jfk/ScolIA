@@ -1005,15 +1005,10 @@ async fn t_horodatage_port_releve_et_reprise() {
         .await
         .unwrap();
     assert_eq!(etat, "en_attente");
-    let releve = |w: &W| {
-        let (du, au) = (w.jour - chrono::Duration::days(1), w.jour + chrono::Duration::days(1));
-        let dir = w.dir();
-        async move { w.ent.releve_horodatage_for_actor(&dir, du, au).await.unwrap() }
-    };
-    assert_eq!(releve(&w).await, ReleveHorodatage { mutualise_obtenus: 0, propre_obtenus: 0, en_attente: 1, echecs: 0 });
+    assert_eq!(releve_du_jour(&w).await, ReleveHorodatage { mutualise_obtenus: 0, propre_obtenus: 0, en_attente: 1, echecs: 0 });
     // Reprise (tâche de fond) : le jeton est obtenu, le relevé compte un jeton « propre ».
     assert_eq!(w.ent.horodater_en_attente(w.m.etab, &faux, 10).await.unwrap(), 1);
-    assert_eq!(releve(&w).await, ReleveHorodatage { mutualise_obtenus: 0, propre_obtenus: 1, en_attente: 0, echecs: 0 });
+    assert_eq!(releve_du_jour(&w).await, ReleveHorodatage { mutualise_obtenus: 0, propre_obtenus: 1, en_attente: 0, echecs: 0 });
     assert_eq!(faux.appels.load(Ordering::SeqCst), 2);
     // Un jeton obtenu ne bouge plus (trigger) ; une seconde reprise n'appelle plus le service.
     assert_eq!(w.ent.horodater_en_attente(w.m.etab, &faux, 10).await.unwrap(), 0);
@@ -1031,6 +1026,11 @@ async fn t_horodatage_port_releve_et_reprise() {
     let doc2 = w.document(eleve2, Some("voyages.autorisation_parentale")).await;
     let c2 = w.lancer(&w.adm(), doc2.document_id, true, vec![]).await.unwrap();
     assert!(!c2.horodater);
+}
+
+async fn releve_du_jour(w: &W) -> ReleveHorodatage {
+    let (du, au) = (w.jour - chrono::Duration::days(1), w.jour + chrono::Duration::days(1));
+    w.ent.releve_horodatage_for_actor(&w.dir(), du, au).await.unwrap()
 }
 
 // ───────────────────────── Parapheur et externe ─────────────────────────
