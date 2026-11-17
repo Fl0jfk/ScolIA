@@ -3937,6 +3937,7 @@ async fn explorer_facturation(
             cast.etablissement_id,
             emise.id,
             Role::Compta.as_str(),
+            cast.compta.user_id,
             vec![d1, d2, d3],
         )
         .await
@@ -4624,6 +4625,7 @@ UNKNOWN-E2E;999;settled;\n",
     let echs = ent
         .poser_echeancier_for_actor(
             Role::Compta.as_str(),
+            cast.compta.user_id,
             domain_eleve::PoserEcheancier {
                 etablissement_id: cast.etablissement_id,
                 facture_id: emise_rap.id,

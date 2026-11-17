@@ -27,6 +27,7 @@ mod dto;
 pub mod http_garde;
 mod ical;
 mod finances;
+mod finances_comptes;
 mod inscriptions;
 mod inscriptions_pieces;
 mod documents_verif;

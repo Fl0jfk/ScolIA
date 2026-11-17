@@ -899,6 +899,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
+    let r = r.merge(crate::finances_comptes::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
     // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
@@ -11862,6 +11863,7 @@ async fn poser_echeancier(
         .ent
         .poser_echeancier_for_actor(
             &session.role,
+            session.user_id,
             PoserEcheancier {
                 etablissement_id: session.etablissement_id,
                 facture_id: id,
@@ -11894,6 +11896,7 @@ async fn poser_echeancier_parts(
             session.etablissement_id,
             id,
             &session.role,
+            session.user_id,
             body.dates,
         )
         .await

@@ -10,8 +10,9 @@
 //! * Tables du socle 3 : préfixes `ent_inscription_`, `ent_preinscription_`, `ent_import_`,
 //!   `ent_mandat_sepa_demande`.
 //! * `EXCEPTIONS_AUTRES_SOCLES` : écritures **connues** vers d'autres domaines (comptes du socle 1,
-//!   notifications du socle 8, mandats et IBAN du socle 25), **nominatives et justifiées**, à
-//!   retirer par les lots qui portent ces commandes (I7 pour les finances). Une exception qui ne
+//!   notifications du socle 8), **nominatives et justifiées**, à retirer par les lots qui portent ces
+//!   commandes. Les finances n'y figurent plus : depuis le lot F1 du socle 24, le mandat SEPA signé
+//!   est une **commande du service de facturation** (`facturation_mandats::creer_mandat_signe_tx`). Une exception qui ne
 //!   sert plus fait échouer le test (la liste ne pourrit pas) ; une nouvelle écriture hors socle 3
 //!   aussi, tant qu'elle n'est pas portée par une commande.
 //! * Une table dynamique (`INSERT INTO {…}`) est refusée : la garde ne peut pas la vérifier.
@@ -34,8 +35,6 @@ const EXCEPTIONS_AUTRES_SOCLES: &[(&str, &str)] = &[
     ("ent_profil_personnel", "socle 1 : profil du compte créé à l'acceptation d'invitation (idem)"),
     ("ent_identite_journal", "socle 1 : journal d'identité du compte (idem)"),
     ("ent_notification", "socle 8 : notification d'accueil in-app, remplacée par la file d'envoi du socle 8"),
-    ("ent_fac_sepa_mandat", "socle 25 (finances) : mandat SEPA signé à la validation (commande facturation, lot I7)"),
-    ("ent_foyer_iban_histo", "socle 25 (finances) : historique d'IBAN du foyer, créé avec le mandat (lot I7) — ce n'est pas la table `ent_foyer` du socle 4"),
 ];
 
 fn racine() -> PathBuf {
@@ -230,6 +229,8 @@ fn les_commandes_attendues_sont_appelees() {
         "dossier_personnes::integrer_declaration_tx",
         "dossier_personnes::rattacher_compte_tx",
         "dossier_personnes::confirmer_liens_attente_tx",
+        // F1 : le mandat signé est une commande du service de facturation, pas une écriture d'ici.
+        "facturation_mandats::creer_mandat_signe_tx",
     ] {
         assert!(ins.contains(appel), "inscriptions.rs n'appelle plus {appel}");
     }

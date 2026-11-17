@@ -211,6 +211,47 @@ pub mod types {
     pub const FAC_RELANCE_PROPOSEE: &str = "fac.relance_proposee";
     pub const FAC_RELANCE_ANNULEE: &str = "fac.relance_annulee";
     pub const FAC_EXPORT_COMPTABLE: &str = "fac.export_comptable";
+    // ── Socle 24, lot F1 : événements canoniques `facturation.*` (R-F25 : aucun montant, aucun
+    // nom, aucun IBAN dans la charge ; les identifiants seulement). Les anciens `fac.*` et
+    // `fin.*` ci-dessus restent **lisibles** par alias (`alias_facturation`, `equivalents`) pendant
+    // la transition : un consommateur déclaré sur l'un reçoit l'autre. ──
+    pub const FACTURATION_BROUILLON_CREE: &str = "facturation.brouillon_cree";
+    pub const FACTURATION_PIECE_EMISE: &str = "facturation.piece_emise";
+    pub const FACTURATION_ENCAISSEMENT_ENREGISTRE: &str = "facturation.encaissement_enregistre";
+    pub const FACTURATION_PIECE_SOLDEE: &str = "facturation.piece_soldee";
+    pub const FACTURATION_ECHEANCIER_POSE: &str = "facturation.echeancier_pose";
+    pub const FACTURATION_QUITTANCE_EMISE: &str = "facturation.quittance_emise";
+    pub const FACTURATION_MANDAT_MODIFIE: &str = "facturation.mandat_modifie";
+    pub const FACTURATION_PRELEVEMENT_PREPARE: &str = "facturation.prelevement_prepare";
+    pub const FACTURATION_PRELEVEMENTS_EXPORTES: &str = "facturation.prelevements_exportes";
+    pub const FACTURATION_PRELEVEMENT_EXECUTE: &str = "facturation.prelevement_execute";
+    pub const FACTURATION_PRELEVEMENT_REJETE: &str = "facturation.prelevement_rejete";
+    pub const FACTURATION_RAPPEL_ENVOYE: &str = "facturation.rappel_envoye";
+    pub const FACTURATION_CREDITEUR_MODIFIE: &str = "facturation.crediteur_modifie";
+    pub const FACTURATION_TARIF_DEFINI: &str = "facturation.tarif_defini";
+    pub const FACTURATION_REDUCTION_ACCORDEE: &str = "facturation.reduction_accordee";
+    pub const FACTURATION_GENERATION_ANNUELLE: &str = "facturation.generation_annuelle";
+    pub const FACTURATION_LIGNE_AJOUTEE: &str = "facturation.ligne_ajoutee";
+    pub const FACTURATION_AVOIR_EMIS: &str = "facturation.avoir_emis";
+    pub const FACTURATION_PRENOTIFICATION_EMISE: &str = "facturation.prenotification_emise";
+    pub const FACTURATION_REGLEMENT_ENREGISTRE: &str = "facturation.reglement_enregistre";
+    pub const FACTURATION_RELANCE_PROPOSEE: &str = "facturation.relance_proposee";
+    pub const FACTURATION_RELANCE_ANNULEE: &str = "facturation.relance_annulee";
+    pub const FACTURATION_EXPORT_COMPTABLE: &str = "facturation.export_comptable";
+    pub const FACTURATION_PARAMETRES_MODIFIES: &str = "facturation.parametres_modifies";
+    pub const FACTURATION_ARTICLE_ENREGISTRE: &str = "facturation.article_enregistre";
+    pub const FACTURATION_BAREME_BOURSE_POSE: &str = "facturation.bareme_bourse_pose";
+    pub const FACTURATION_ECHEANCIER_TYPE_POSE: &str = "facturation.echeancier_type_pose";
+    pub const FACTURATION_MODE_PAIEMENT_MODIFIE: &str = "facturation.mode_paiement_modifie";
+    // Lot F2 : comptes débiteurs et payeurs.
+    pub const FACTURATION_COMPTE_CREE: &str = "facturation.compte_cree";
+    pub const FACTURATION_COMPTE_MODIFIE: &str = "facturation.compte_modifie";
+    pub const FACTURATION_REPRISE_COMPTES: &str = "facturation.reprise_comptes";
+    pub const FACTURATION_CONSEQUENCES_PROPOSEES: &str = "facturation.consequences_proposees";
+    pub const FACTURATION_CHANGEMENT_PAYEUR_APPLIQUE: &str = "facturation.changement_payeur_applique";
+    pub const FACTURATION_TACHE_PAYEUR: &str = "facturation.tache_payeur";
+    pub const FACTURATION_PRISE_EN_CHARGE: &str = "facturation.prise_en_charge";
+    pub const FACTURATION_GEL: &str = "facturation.gel";
     pub const INFIRMERIE_PASSAGE: &str = "infirmerie.passage";
     pub const INFIRMERIE_FICHE_SANTE: &str = "infirmerie.fiche_sante";
     pub const INFIRMERIE_FICHE_SANTE_PDF: &str = "infirmerie.fiche_sante_pdf";
@@ -431,6 +472,61 @@ pub mod types {
     pub const DEMANDE_REPRO_PRETE: &str = "demande.repro_prete";
     pub const DEMANDE_REPRO_RAPPEL: &str = "demande.repro_rappel";
 }
+
+/// Socle 24, lot F1 : correspondance (ancien nom, nom canonique) des événements financiers.
+/// Les nouveaux événements sont écrits sous le nom canonique `facturation.*` ; les anciens noms
+/// `fac.*` / `fin.*` restent **lisibles** : un consommateur déclaré sur l'un reçoit l'autre
+/// (voir `ent_db::outbox`, `Distributeur::enregistrer`).
+pub const ALIAS_FACTURATION: &[(&str, &str)] = &[
+    ("fac.facture_creee", types::FACTURATION_BROUILLON_CREE),
+    ("fac.facture_emise", types::FACTURATION_PIECE_EMISE),
+    ("fac.encaissement", types::FACTURATION_ENCAISSEMENT_ENREGISTRE),
+    ("fac.facture_soldee", types::FACTURATION_PIECE_SOLDEE),
+    ("fac.echeancier_pose", types::FACTURATION_ECHEANCIER_POSE),
+    ("fac.quittance_emise", types::FACTURATION_QUITTANCE_EMISE),
+    ("fac.sepa_mandat", types::FACTURATION_MANDAT_MODIFIE),
+    ("fac.sepa_prelevement", types::FACTURATION_PRELEVEMENT_PREPARE),
+    ("fac.sepa_export", types::FACTURATION_PRELEVEMENTS_EXPORTES),
+    ("fac.sepa_execute", types::FACTURATION_PRELEVEMENT_EXECUTE),
+    ("fac.sepa_rejet", types::FACTURATION_PRELEVEMENT_REJETE),
+    ("fac.rappel_envoye", types::FACTURATION_RAPPEL_ENVOYE),
+    ("fin.crediteur_modifie", types::FACTURATION_CREDITEUR_MODIFIE),
+    ("fac.tarif_defini", types::FACTURATION_TARIF_DEFINI),
+    ("fac.remise_appliquee", types::FACTURATION_REDUCTION_ACCORDEE),
+    ("fac.generation_annuelle", types::FACTURATION_GENERATION_ANNUELLE),
+    ("fac.ligne_ajoutee", types::FACTURATION_LIGNE_AJOUTEE),
+    ("fac.avoir_emis", types::FACTURATION_AVOIR_EMIS),
+    ("fac.sepa_prenotification", types::FACTURATION_PRENOTIFICATION_EMISE),
+    ("fac.reglement", types::FACTURATION_REGLEMENT_ENREGISTRE),
+    ("fac.relance_proposee", types::FACTURATION_RELANCE_PROPOSEE),
+    ("fac.relance_annulee", types::FACTURATION_RELANCE_ANNULEE),
+    ("fac.export_comptable", types::FACTURATION_EXPORT_COMPTABLE),
+];
+
+/// Nom canonique d'un type financier : l'ancien nom `fac.*` / `fin.*` donne le nom
+/// `facturation.*` ; tout autre type est rendu tel quel.
+pub fn canonique_facturation(type_name: &str) -> &str {
+    ALIAS_FACTURATION
+        .iter()
+        .find(|(ancien, _)| *ancien == type_name)
+        .map(|(_, canon)| *canon)
+        .unwrap_or(type_name)
+}
+
+/// Le type et son alias (ancien ou canonique) : ce qu'un consommateur doit écouter pour ne perdre
+/// aucun événement pendant la transition. Un type sans alias n'a qu'un élément.
+pub fn equivalents_facturation(type_name: &str) -> Vec<&str> {
+    let mut v = vec![type_name];
+    for (ancien, canon) in ALIAS_FACTURATION {
+        if *ancien == type_name {
+            v.push(canon);
+        } else if *canon == type_name {
+            v.push(ancien);
+        }
+    }
+    v
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -704,5 +800,29 @@ mod tests {
             })
             .expect_err("must fail");
         assert_eq!(err, EventBusError::MissingEtablissement);
+    }
+
+    /// F1 : l'alias `fac.*` ↔ `facturation.*` est une bijection sans doublon, et le nom canonique
+    /// suit toujours le motif `facturation.<mot>` (aucun montant ni nom dans un type).
+    #[test]
+    fn alias_facturation_bijectif_et_canonique() {
+        let mut anciens = std::collections::BTreeSet::new();
+        let mut canons = std::collections::BTreeSet::new();
+        for (ancien, canon) in ALIAS_FACTURATION {
+            assert!(ancien.starts_with("fac.") || ancien.starts_with("fin."), "{ancien}");
+            assert!(canon.starts_with("facturation."), "{canon}");
+            assert!(anciens.insert(*ancien), "ancien en double : {ancien}");
+            assert!(canons.insert(*canon), "canonique en double : {canon}");
+            assert_eq!(canonique_facturation(ancien), *canon);
+            assert_eq!(canonique_facturation(canon), *canon);
+            assert_eq!(equivalents_facturation(ancien), vec![*ancien, *canon]);
+            assert_eq!(equivalents_facturation(canon), vec![*canon, *ancien]);
+        }
+        // Un type sans alias n'a qu'un élément.
+        assert_eq!(equivalents_facturation(types::ELEVE_CREATED), vec![types::ELEVE_CREATED]);
+        assert_eq!(
+            equivalents_facturation(types::FACTURATION_GEL),
+            vec![types::FACTURATION_GEL]
+        );
     }
 }

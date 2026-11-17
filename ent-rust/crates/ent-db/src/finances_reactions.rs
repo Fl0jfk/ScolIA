@@ -29,6 +29,8 @@ const TYPES: &[&str] = &[
     types::ELEVE_REGIME_CHANGED,
     types::ELEVE_SORTIE,
     types::ELEVE_ABSENCE_JUSTIFIED,
+    // F2 : le dossier (socle 4) redéfinit les payeurs → répartition datée de la facturation.
+    types::FOYER_PAYEUR_DEFINI,
 ];
 
 pub fn consommateurs_finances() -> Vec<Arc<dyn Consommateur>> {
@@ -92,6 +94,23 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
             finances::facturer_sortie(tx, etab, eleve, d, e.id, None, causalite)
                 .await
                 .map_err(err)?;
+        }
+        types::FOYER_PAYEUR_DEFINI => {
+            let Some(eleve) = e.eleve_id else {
+                return Ok(());
+            };
+            let Some(acteur) = e.actor_user_id.as_deref().and_then(|a| Uuid::parse_str(a).ok()) else {
+                return Ok(());
+            };
+            crate::facturation_payeurs::miroir_dossier_tx(
+                tx,
+                etab,
+                eleve,
+                crate::finances::date_paris(e.created_at),
+                acteur,
+            )
+            .await
+            .map_err(err)?;
         }
         types::ELEVE_ABSENCE_JUSTIFIED => {
             let absence: Uuid = e.aggregate_id;
