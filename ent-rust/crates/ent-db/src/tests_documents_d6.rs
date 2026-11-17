@@ -264,19 +264,6 @@ impl W {
         tx.commit().await.unwrap();
     }
 
-    async fn fixer_naissance(&self, eleve: Uuid, naissance: NaiveDate) {
-        let mut tx = self.ent.pool_verif().begin().await.unwrap();
-        sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
-        sqlx::query("UPDATE ent_eleve SET date_naissance = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(self.m.etab)
-            .bind(eleve)
-            .bind(naissance)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        tx.commit().await.unwrap();
-    }
-
     /// Un document réellement émis (moteur PDF maison, cachet de test) puis, si besoin, rangé sous une autre nature
     /// déclarée à la signature (les natures des autres socles n'existent pas encore côté émission : D8).
     async fn document(&self, eleve: Uuid, nature: Option<&str>) -> DocumentEmis {
