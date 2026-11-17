@@ -893,6 +893,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::communication_s28::routes());
     // Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`accords_s18.rs`).
     let r = r.merge(crate::accords_s18::routes());
+    // Socle 18, lots FO2–FO3 : nouveau moteur de formulaires (`/frm`), désaccords, dossier de preuve (`formulaires_s18.rs`).
+    let r = r.merge(crate::formulaires_s18::routes());
     // Agenda : événements, séries, audience, vue calculée (socle 19, lot AG1 : `agenda.rs`).
     let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).

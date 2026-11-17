@@ -30,7 +30,7 @@ use sqlx::PgConnection;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use uuid::Uuid;
 
-fn introuvable() -> EntDbError {
+pub(crate) fn introuvable() -> EntDbError {
     EntDbError::Domain(domain_eleve::DomainError::NotFound)
 }
 
@@ -39,7 +39,7 @@ fn code_valide(c: &str) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut PgConnection,
     etab: Uuid,
     acte: &str,
@@ -72,7 +72,7 @@ async fn journaliser(
     Ok(())
 }
 
-async fn publier_evt(
+pub(crate) async fn publier_evt(
     tx: &mut crate::tenant_tx::TenantTx<'_>,
     etab: Uuid,
     type_name: &str,
@@ -95,8 +95,25 @@ async fn publier_evt(
         .id)
 }
 
+/// Preuve demandée à une décision : un port générique (adapteur de test, brique absente) ou une **signature D6** déjà faite
+/// (socle 7) que la décision retient et dont elle garde le lien.
+pub(crate) enum Preuve<'a> {
+    Port(&'a dyn PortSignature),
+    D6(Uuid),
+}
+
+/// Ce que la vérification d'une signature D6 a établi.
+pub(crate) struct PreuveRetenue {
+    pub signature_id: Uuid,
+    pub circuit_id: Uuid,
+    pub niveau: String,
+    pub methode: String,
+    /// Canal de la décision (`passkey`, `code`, `guichet`, `papier`).
+    pub canal: &'static str,
+}
+
 /// Empreinte d'une version : objet, numéro, texte et usages couverts (triés), longueurs encodées.
-fn empreinte_version(objet_code: &str, numero: i32, texte: &str, usages: &BTreeSet<String>) -> String {
+pub(crate) fn empreinte_version(objet_code: &str, numero: i32, texte: &str, usages: &BTreeSet<String>) -> String {
     let n = numero.to_string();
     let u = usages.iter().cloned().collect::<Vec<_>>().join(",");
     empreinte_encodee(&[objet_code, &n, texte, &u])
@@ -309,6 +326,15 @@ impl PgEnt {
         if n.nature == "information" && n.regle == "tous" {
             return invalide("une information ne se refuse pas : règle `tous` interdite");
         }
+        if n.desaccord_objet.as_deref().is_some_and(|d| !["image", "sortie", "general"].contains(&d)) {
+            return invalide("famille de désaccord inconnue (image, sortie ou general)");
+        }
+        // FD-17 : l'image d'un élève exige l'accord de tous les titulaires, jamais « un seul accord suffit ».
+        if n.sujet_type == "eleve" && objet_exige_tous(&n.code, n.desaccord_objet.as_deref()) && n.regle != "tous" {
+            return Err(EntDbError::ConflitDossier(
+                "le droit à l'image exige la règle `tous` : l'accord de chaque titulaire de l'autorité parentale",
+            ));
+        }
         if n.usages.is_empty() || n.usages.len() > 30 {
             return invalide("au moins un usage (30 au plus)");
         }
@@ -347,8 +373,8 @@ impl PgEnt {
         sqlx::query(
             "INSERT INTO ent_acc_objet
                 (id, etablissement_id, code, libelle, nature, regle, avis_eleve_des_ans, droit_lien_code, preuve_min, validite,
-                 valide_jusqu_au, evenement_fin, sujet_type, catalogue_code, cree_par)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+                 valide_jusqu_au, evenement_fin, sujet_type, catalogue_code, cree_par, desaccord_objet)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
         )
         .bind(id)
         .bind(etab)
@@ -365,6 +391,7 @@ impl PgEnt {
         .bind(&n.sujet_type)
         .bind(cat.as_ref().map(|_| n.code.clone()))
         .bind(acteur)
+        .bind(&n.desaccord_objet)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -416,7 +443,7 @@ impl PgEnt {
         self.accords_objet(etab, &n.code).await
     }
 
-    async fn accords_objet(&self, etab: Uuid, code: &str) -> Result<ObjetAccord, EntDbError> {
+    pub(crate) async fn accords_objet(&self, etab: Uuid, code: &str) -> Result<ObjetAccord, EntDbError> {
         let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query_as(&OBJET_VUE_SQL.replace("{FILTRE}", "o.code = $2"))
             .bind(etab)
@@ -928,7 +955,7 @@ impl PgEnt {
     // -----------------------------------------------------------------------
 
     /// Qualité sous laquelle `user` décide pour le sujet, ou `None` (indiscernable d'un inconnu).
-    async fn qualite_decideur(
+    pub(crate) async fn qualite_decideur(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
@@ -1092,6 +1119,25 @@ impl PgEnt {
         signature: &dyn PortSignature,
         retrait: bool,
     ) -> Result<MaDecision, EntDbError> {
+        let tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let (tx, m) = self.decider_dans_tx(tx, etab, user, d, Preuve::Port(signature), retrait, None).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(m)
+    }
+
+    /// Cœur d'une décision, **dans la transaction de l'appelant** (réponse à un formulaire : les décisions et la soumission
+    /// s'écrivent ensemble ou pas du tout). Rend la transaction, que l'appelant valide.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn decider_dans_tx(
+        &self,
+        mut tx: TenantTx<'static>,
+        etab: Uuid,
+        user: Uuid,
+        d: DecisionSaisie,
+        preuve_demandee: Preuve<'_>,
+        retrait: bool,
+        soumission_id: Option<Uuid>,
+    ) -> Result<(TenantTx<'static>, MaDecision), EntDbError> {
         if d.usages.is_empty() || d.usages.len() > 40 {
             return Err(EntDbError::SaisieInvalide("au moins un usage (40 au plus)"));
         }
@@ -1099,7 +1145,6 @@ impl PgEnt {
         if d.usages.iter().any(|u| !code_valide(&u.code) || !vus.insert(u.code.clone())) {
             return Err(EntDbError::SaisieInvalide("usage invalide ou en double"));
         }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let o = objet_par_code(&mut tx, etab, &d.objet_code).await?.ok_or_else(introuvable)?;
         if !o.actif {
             return Err(EntDbError::ConflitDossier("cet accord n'est plus demandé"));
@@ -1169,14 +1214,16 @@ impl PgEnt {
         let changes: Vec<&(Uuid, &str, bool)> = choix.iter().filter(|(id, _, acc)| dernieres.get(id) != Some(acc)).collect();
         let usages_sortie: Vec<(String, bool)> = choix.iter().map(|(_, c, a)| (c.to_string(), *a)).collect();
         if changes.is_empty() {
-            tx.commit().await.map_err(db)?;
-            return Ok(MaDecision {
-                decision_id: Uuid::nil(),
-                decision: "inchangee".to_string(),
-                qualite: qualite.to_string(),
-                version: numero,
-                usages: usages_sortie,
-            });
+            return Ok((
+                tx,
+                MaDecision {
+                    decision_id: Uuid::nil(),
+                    decision: "inchangee".to_string(),
+                    qualite: qualite.to_string(),
+                    version: numero,
+                    usages: usages_sortie,
+                },
+            ));
         }
         // Valeur de la décision : `retire` (tout ce qui change était accordé), `refuse` (rien d'accordé), sinon `accorde`.
         let tout_faux = changes.iter().all(|(_, _, a)| !*a);
@@ -1189,20 +1236,33 @@ impl PgEnt {
             "accorde"
         };
         // Preuve (socle 7) : demandée pour un don, jamais pour un retrait (R-FC15). S2 sans brique : refus (pas de simulation).
-        let preuve = if decision == "retire" || o.preuve_min == "S0" {
-            None
+        let (preuve, preuve_d6): (Option<Uuid>, Option<PreuveRetenue>) = if decision == "retire" || o.preuve_min == "S0" {
+            (None, None)
         } else {
-            signature
-                .signer(DemandeSignature {
-                    etablissement_id: etab,
-                    objet_code: &o.code,
-                    version_numero: numero,
-                    empreinte_version: &empreinte_v,
-                    decideur_user_id: user,
-                    qualite,
-                    niveau: &o.preuve_min,
-                })
-                .await?
+            match preuve_demandee {
+                Preuve::Port(signature) => (
+                    signature
+                        .signer(DemandeSignature {
+                            etablissement_id: etab,
+                            objet_code: &o.code,
+                            version_numero: numero,
+                            empreinte_version: &empreinte_v,
+                            decideur_user_id: user,
+                            qualite,
+                            niveau: &o.preuve_min,
+                        })
+                        .await?,
+                    None,
+                ),
+                // Un refus ne demande aucune signature (il protège) : seule une décision qui accorde doit être prouvée.
+                Preuve::D6(_) if decision == "refuse" => (None, None),
+                Preuve::D6(signature_id) => {
+                    let r = self
+                        .verifier_signature_d6(&mut tx, etab, user, sujet, &o.code, o.id, version_id, &o.preuve_min, signature_id)
+                        .await?;
+                    (Some(signature_id), Some(r))
+                }
+            }
         };
         let maintenant = Utc::now();
         let id = Uuid::new_v4();
@@ -1216,8 +1276,8 @@ impl PgEnt {
         sqlx::query(
             "INSERT INTO ent_acc_decision
                 (id, etablissement_id, objet_id, version_id, sujet_eleve_id, sujet_personne_id, decideur_user_id, qualite,
-                 decision, canal, preuve_signature_id, decide_le, empreinte)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'en_ligne',$10,$11,$12)",
+                 decision, canal, preuve_signature_id, decide_le, empreinte, formulaire_soumission_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
         .bind(id)
         .bind(etab)
@@ -1228,12 +1288,29 @@ impl PgEnt {
         .bind(user)
         .bind(qualite)
         .bind(decision)
+        .bind(preuve_d6.as_ref().map_or("en_ligne", |p| p.canal))
         .bind(preuve)
         .bind(maintenant)
         .bind(empreinte_encodee(&refs))
+        .bind(soumission_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        if let Some(p) = &preuve_d6 {
+            sqlx::query(
+                "INSERT INTO ent_acc_preuve (decision_id, etablissement_id, signature_id, circuit_id, niveau, methode)
+                 VALUES ($1,$2,$3,$4,$5,$6)",
+            )
+            .bind(id)
+            .bind(etab)
+            .bind(p.signature_id)
+            .bind(p.circuit_id)
+            .bind(&p.niveau)
+            .bind(&p.methode)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         for (usage_id, _, accorde) in changes.iter().map(|c| **c) {
             sqlx::query(
                 "INSERT INTO ent_acc_decision_usage (etablissement_id, decision_id, usage_id, accorde) VALUES ($1,$2,$3,$4)",
@@ -1297,10 +1374,16 @@ impl PgEnt {
             if autres.is_some() {
                 publier_evt(&mut tx, etab, evenements::DESACCORD, o.id, eleve_sujet, user, json!({ "objet_id": o.id }))
                     .await?;
+                // FO3 : le désaccord est **remonté** au dossier de l'élève (socle 4) pour l'image et la sortie : il bloque
+                // alors tous les objets de la famille jusqu'à sa levée (pièce et motif).
+                if let (Some(eleve), Some(famille)) = (eleve_sujet, o.desaccord_objet.as_deref()) {
+                    if famille == "image" || famille == "sortie" {
+                        self.ouvrir_desaccord(&mut tx, etab, eleve, famille, Some(o.id), "accord", user).await?;
+                    }
+                }
             }
         }
-        tx.commit().await.map_err(db)?;
-        Ok(MaDecision { decision_id: id, decision: decision.to_string(), qualite: qualite.to_string(), version: numero, usages: usages_sortie })
+        Ok((tx, MaDecision { decision_id: id, decision: decision.to_string(), qualite: qualite.to_string(), version: numero, usages: usages_sortie }))
     }
 
     // -----------------------------------------------------------------------

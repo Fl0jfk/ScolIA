@@ -43,6 +43,9 @@ pub mod evenements {
     pub const RETIRE: &str = "autorisations.retire";
     pub const ETAT_MODIFIE: &str = "autorisations.etat_modifie";
     pub const DESACCORD: &str = "autorisations.desaccord";
+    /// Désaccord déclaré, publié pour le socle 4 (`eleve.desaccord_declare`, `04_ADMINISTRATIF.md` §983).
+    pub const DESACCORD_DECLARE: &str = "eleve.desaccord_declare";
+    pub const DESACCORD_LEVE: &str = "eleve.desaccord_leve";
 }
 
 /// Verdict du port `verifier` (§5.2). Codes stables ; jamais de booléen par défaut vrai.
@@ -237,6 +240,28 @@ pub fn usage_d_image(objet_code: &str, usage_code: &str) -> bool {
         && usage_code != "interne_personnels"
 }
 
+/// Objets dont le catalogue exige l'accord de **tous** les titulaires (FD-17 : « un seul accord suffit toujours » est faux
+/// pour l'image, la voix, la mention nominative, l'enregistrement d'un cours et le voyage à l'étranger).
+pub const OBJETS_EXIGEANT_TOUS: [&str; 5] =
+    ["droit_image", "voix", "mention_nominative", "enregistrement_visio", "voyage_etranger"];
+
+/// Un objet exige la règle `tous` s'il est du catalogue ci-dessus **ou** s'il porte sur l'image d'un élève (famille de
+/// désaccord `image`, y compris un objet propre à l'établissement).
+pub fn objet_exige_tous(code: &str, desaccord_objet: Option<&str>) -> bool {
+    OBJETS_EXIGEANT_TOUS.contains(&code) || desaccord_objet == Some("image")
+}
+
+/// Règle **effective** du calcul : un objet qui exige `tous` ne se calcule jamais avec `un`, même si une ligne ancienne (reprise,
+/// objet créé avant la correction) porte encore `un` en base. Défense en profondeur : la création et le relèvement de règle
+/// refusent déjà cet état.
+pub fn regle_effective<'a>(regle: &'a str, code: &str, desaccord_objet: Option<&str>, sujet_type: &str) -> &'a str {
+    if sujet_type == "eleve" && regle == "un" && objet_exige_tous(code, desaccord_objet) {
+        "tous"
+    } else {
+        regle
+    }
+}
+
 /// Validité à une date : `true` si la décision prise à `decide_le` n'est plus valable le `jour`.
 pub fn decision_expiree(
     validite: &str,
@@ -391,6 +416,9 @@ pub struct NouvelObjet {
     /// Fin de l'événement (validité `evenement`) : au-delà, les accords expirent et un retrait devient une demande.
     pub evenement_fin: Option<DateTime<Utc>>,
     pub sujet_type: String,
+    /// Famille de désaccord du socle 4 (`image`, `sortie`, `general`) : un objet d'**image** exige la règle `tous` (FD-17).
+    #[serde(default)]
+    pub desaccord_objet: Option<String>,
     pub usages: Vec<NouvelUsage>,
     pub texte: String,
 }
