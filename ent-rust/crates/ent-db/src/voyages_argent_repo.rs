@@ -1550,7 +1550,19 @@ async fn collective_participant(conn: &mut PgConnection, a: &Acteur<'_>, s: &Sor
     .map_err(db)?;
     for compte in comptes {
         let paye = paye_net(conn, etab, s.id, participant, compte).await?;
-        if paye > 0 {
+        // Un payeur déjà couvert par un avoir proposé ou retenu (désistement) n'en reçoit pas un second.
+        let couvert: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_sortie_avoir_propose
+                             WHERE etablissement_id = $1 AND participant_id = $2 AND compte_id = $3
+                               AND statut IN ('propose', 'retenu'))",
+        )
+        .bind(etab)
+        .bind(participant)
+        .bind(compte)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if paye > 0 && !couvert {
             let cle = format!("collective:{participant}:{compte}");
             inserer_avoir(conn, etab, s.id, participant, compte, CasAvoir::AnnulationCollective, &cle, paye, 0).await?;
         }

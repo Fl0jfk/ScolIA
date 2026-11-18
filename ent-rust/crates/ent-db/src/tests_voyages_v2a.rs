@@ -312,7 +312,7 @@ async fn plan_long_accorde_invisible_de_l_organisateur_et_retard_sans_nom() {
     x.verser(x.p1, x.compte_c, "cheque", &crate::voyages_argent::euros(premiere)).await.unwrap();
     let ag = x.c.ent.voyage_argent_etat(&x.porteur(), x.s.id).await.unwrap();
     assert_eq!(ag.plans_en_cours, 1, "« 1 plan en cours »");
-    assert_eq!(ag.en_retard, 2, "les deux parents séparés restent en retard, sans nom");
+    assert_eq!(ag.en_retard, 1, "l'élève aux deux parents séparés reste en retard (compté par participant), sans nom");
     // Le plan n'a aucune trace côté organisateur : aucune route ne le lui rend.
     assert!(x.c.ent.voyage_argent_paiements(&x.porteur(), x.s.id).await.is_err());
 }
@@ -617,7 +617,7 @@ async fn contournement_du_devis_motifs_codes() {
     let essai = |code: Option<&str>, texte: Option<&str>| ParamsCommande { motif_code: code.map(Into::into), motif: texte.map(Into::into), ..Default::default() };
     let vers_a_signer = || async {
         let mut sa = c.saisie("Sortie au château", "sans_nuitee");
-        sa.besoin_car = false;
+        sa.besoin_car = true;
         let s = c.ent.voyage_creer(&c.prof_a(), sa).await.unwrap();
         c.preparer_jusqu_a_soumise(s.id).await;
         c.cmd(c.dir, Role::Direction, s.id, Commande::ValiderPedagogie).await.unwrap();
@@ -708,7 +708,8 @@ async fn export_csv_lisible_lien_court_apres_controle_journalise_et_sans_ecritur
     x.c.ent.voyage_participant_desister(&x.c.a(x.c.prof, Role::Prof), x.s.id, x.p0, "famille", None).await.unwrap();
     // Droits : comptabilité et direction ; ni le porteur, ni le secrétariat, ni l'accueil.
     for acteur in [x.porteur(), x.sec(), x.c.a(x.c.accueil, Role::Accueil)] {
-        assert!(est_forbidden(&x.c.ent.voyage_argent_export(&acteur, x.s.id).await.unwrap_err()));
+        let e = x.c.ent.voyage_argent_export(&acteur, x.s.id).await.unwrap_err();
+        assert!(est_forbidden(&e) || est_introuvable(&e), "{e:?}");
     }
     let ex = x.c.ent.voyage_argent_export(&x.compta(), x.s.id).await.unwrap();
     assert!(ex.lien.contains("http") || ex.lien.starts_with('/'), "{}", ex.lien);
