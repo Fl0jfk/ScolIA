@@ -467,15 +467,15 @@ async fn di_16_nuits_a_cheval_sur_minuit_et_changements_d_heure() {
     assert_eq!(ancre(NaiveDate::from_ymd_opt(2026, 10, 25).unwrap()).await, utc(2026, 10, 25, 21, 0));
 
     // Un appel ouvert à 00 h 30 (heure de Paris) le dimanche 29 appartient à la nuit du samedi 28.
-    for (instant, attendue) in [
-        (utc(2026, 3, 28, 23, 30), nuit_dst()),                                // 00 h 30 CET
-        (utc(2026, 3, 29, 1, 30), nuit_dst()),                                 // 03 h 30 CEST, après le saut
-        (utc(2026, 3, 29, 9, 59), nuit_dst()),                                 // 11 h 59 CEST
-        (utc(2026, 3, 29, 10, 0), NaiveDate::from_ymd_opt(2026, 3, 29).unwrap()), // midi CEST : nouvelle nuit
+    for (instant, attendue, type_appel) in [
+        (utc(2026, 3, 28, 23, 30), nuit_dst(), "ronde"),                                 // 00 h 30 CET
+        (utc(2026, 3, 29, 1, 30), nuit_dst(), "soir"),                                   // 03 h 30 CEST, après le saut
+        (utc(2026, 3, 29, 9, 59), nuit_dst(), "matin"),                                  // 11 h 59 CEST
+        (utc(2026, 3, 29, 10, 0), NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(), "ronde"), // midi CEST : nouvelle nuit
     ] {
         let t: NaiveDate = sqlx::query_scalar("SELECT ent_nuit_etab($1, $2)").bind(b.etab).bind(instant).fetch_one(pool).await.unwrap();
         assert_eq!(t, attendue, "{instant}");
-        let ouverture = AppelOuvertureDto { nuit: None, ..ouverture("ronde", "zone", Some(b.zone_a)) };
+        let ouverture = AppelOuvertureDto { nuit: None, ..ouverture(type_appel, "zone", Some(b.zone_a)) };
         let r = b.ent.ouvrir_appel_a(b.etab, b.cpe, CPE, &ouverture, instant).await.unwrap();
         assert_eq!(r.appel.nuit, attendue, "nuit par défaut de {instant}");
         // Chaque nuit n'a qu'une ronde par périmètre : on passe au créneau suivant.
@@ -1055,17 +1055,19 @@ async fn di_01_perimetre_verifie_au_serveur() {
     let Some(b) = banc().await else { return };
     let pool = b.ent.pool_verif();
     // Deux classes du jeu de labo ; les élèves de la zone A sont dans la classe 1, ceux de B dans la classe 2.
-    let annee: Uuid = sqlx::query_scalar("SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 LIMIT 1").bind(b.etab).fetch_one(pool).await.unwrap();
+    let (annee, debut_annee): (Uuid, NaiveDate) =
+        sqlx::query_as("SELECT id, date_debut FROM ent_annee_scolaire WHERE etablissement_id = $1 LIMIT 1").bind(b.etab).fetch_one(pool).await.unwrap();
     let classes: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 ORDER BY code LIMIT 2").bind(b.etab).fetch_all(pool).await.unwrap();
     assert_eq!(classes.len(), 2);
     for (i, e) in b.a.iter().chain(b.b.iter()).enumerate() {
         let classe = if i < b.a.len() { classes[0] } else { classes[1] };
-        sqlx::query("INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut) VALUES ($1,$2,$3,$4,$5,'2025-09-01')")
+        sqlx::query("INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut) VALUES ($1,$2,$3,$4,$5,$6)")
             .bind(Uuid::new_v4())
             .bind(b.etab)
             .bind(annee)
             .bind(e)
             .bind(classe)
+            .bind(debut_annee)
             .execute(pool)
             .await
             .unwrap();
