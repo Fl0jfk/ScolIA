@@ -1428,12 +1428,10 @@ mod tests {
 
     #[test]
     fn hostile_aa_sur_une_page() {
-        let src = format!(
-            "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+        let src = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
              3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /AA << /O << /S /JavaScript /JS (app.alert(1)) >> >> >>\nendobj\n\
              trailer\n<< /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"
-        )
-        .into_bytes();
+        .as_bytes().to_vec();
         let d = desarmer_pdf(&src).unwrap();
         assert!(d.neutralises.iter().any(|n| n == "AA"));
         doit_etre_sur(&src);
@@ -1446,7 +1444,7 @@ mod tests {
         src.extend_from_slice(
             b"5 0 obj\n<< /S /Launch /F (cmd.exe) >>\nendobj\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Root 1 0 R /Prev 0 >>\nstartxref\n0\n%%EOF\n",
         );
-        assert_eq!(trouver(&src, b"%%EOF", 0).map(|p| trouver(&src, b"%%EOF", p + 1)).flatten().is_some(), true);
+        assert!(trouver(&src, b"%%EOF", 0).and_then(|p| trouver(&src, b"%%EOF", p + 1)).is_some());
         let d = desarmer_pdf(&src).unwrap();
         assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
         assert!(d.neutralises.iter().any(|n| n == "Launch"));
