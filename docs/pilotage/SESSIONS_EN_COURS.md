@@ -289,3 +289,6 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Règle 25 respectée. Désabonnement de la PR 98, session archivée. ENT est gelé jusqu'au verdict du run.
   - **Suites de V2a** : les passages quotidiens (alertes d'acomptes, purge des exports à 30 jours) ne sont pas encore branchés sur un planificateur. À faire avant toute mise en service.
   - **Session qui code : CI frontend (PR 99).** Une place est libre.
+- **18-11, 8 h UTC, CI frontend (PR 99)** : le job frontend passe de 78 min 29 à 28 min 51 (run 399 vert, runners gratuits).
+  - Relecture du pilote : `entetes_securite` et `droits_parite` tournaient **sans labo** sur ENT ; l'archive unique les compile avec labo. Le lot doit garder une étape sans labo et prouver l'égalité du nombre de tests avant et après.
+  - Pas de versement avant ces deux points et la fusion d'ENT 19058b4d.
