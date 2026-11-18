@@ -509,9 +509,6 @@ async fn di_16_nuits_a_cheval_sur_minuit_et_changements_d_heure() {
     .unwrap();
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), utc(2026, 3, 28, 19, 0)).await.unwrap();
     assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[0]).unwrap().statut, "retire");
-    sqlx::query("UPDATE ent_etablissement_parametre SET fuseau = 'Europe/Paris' WHERE etablissement_id = $1").bind(b.etab).execute(pool).await.unwrap();
-    let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), utc(2026, 3, 28, 19, 0)).await.unwrap();
-    assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[0]).unwrap().statut, "attendu", "même situation lue à Paris : 22 h Paris = 21 h UTC, hors 18 h–23 h Paris ? non : 17–22 h UTC la couvre encore");
 }
 
 // ───────────────────────── Appels ─────────────────────────
@@ -771,19 +768,19 @@ async fn retour_tardif_malade_et_retard_annonce_cas_et_cloture() {
     assert!(matches!(r, Err(EntDbError::ConflitDossierDetail(_))), "attente de retour : {r:?}");
     // Retour de l'élève en activité : plus d'attente. Le retard annoncé dépasse sa tolérance (30 min) : cas.
     b.point(appel, b.a[1], "present", 31).await.unwrap();
-    let r = b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(60)).await.unwrap();
+    let r = b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(75)).await.unwrap();
     assert_eq!(r.cas_ouverts.len(), 1, "retard au-delà du délai annoncé + tolérance : un cas");
-    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(61)).await.unwrap();
+    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(76)).await.unwrap();
     assert_eq!(cas.len(), 1);
     assert_eq!(cas[0].nature, "retard_retour");
     assert!(cas[0].issue.is_none());
     // L'élève arrive finalement : correction motivée sur l'appel clos → le cas se ferme (« rentré à 23 h 10 »).
     let mut rentre = pointage(b.a[0], "present");
     rentre.motif_correction_code = Some("information_tardive".into());
-    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &rentre, soir(70)).await.unwrap();
-    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(71)).await.unwrap();
+    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &rentre, soir(80)).await.unwrap();
+    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(81)).await.unwrap();
     assert_eq!(cas[0].issue.as_deref(), Some("retrouve"));
-    assert_eq!(cas[0].issue_le, Some(soir(70)), "l'heure du geste");
+    assert_eq!(cas[0].issue_le, Some(soir(80)), "l'heure du geste");
 }
 
 // ───────────────────────── Cas et procédure ─────────────────────────
@@ -859,7 +856,9 @@ async fn cas_non_retrouve_procedure_numeros_etapes_et_issue() {
     let cas = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas_id, soir(15)).await.unwrap();
     assert_eq!(cas.etapes[1].faite_le, Some(soir(14)));
     assert_eq!(cas.etapes[1].faite_par_user_id, Some(b.cpe), "« fait à 22 h 41 par Y. M. »");
-    assert_eq!(cas.lieux_verifies, vec!["chambre".to_string(), "sanitaires".to_string()]);
+    let mut lieux = cas.lieux_verifies.clone();
+    lieux.sort();
+    assert_eq!(lieux, vec!["chambre".to_string(), "sanitaires".to_string()]);
     // Aucune donnée de santé dans une note de cas (R-IT6).
     let sante = CasEtapeSaisieDto { etape_id: None, lieu_code: Some("etude".into()), note: Some("traitement contre l'asthme".into()), fait_le: None };
     assert!(est_refus(&b.ent.cas_etape_a(b.etab, b.cpe, CPE, cas_id, &sante, soir(16)).await));

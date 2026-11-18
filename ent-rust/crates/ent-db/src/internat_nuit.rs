@@ -1513,6 +1513,13 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         appel_tx(&mut tx, etab, appel_id, "").await?;
+        if let Some(set) = &portee {
+            // R-IT30 : l'historique d'un appel qui déborde de la portée n'est pas lisible.
+            let figes = attendu_fige_tx(&mut tx, etab, appel_id).await?;
+            if figes.iter().any(|l| !set.contains(&l.eleve_id)) {
+                return Err(EntDbError::Forbidden);
+            }
+        }
         #[allow(clippy::type_complexity)]
         let rows: Vec<(Uuid, Uuid, String, String, DateTime<Utc>, DateTime<Utc>, Uuid, Option<String>, Option<String>)> =
             sqlx::query_as(
