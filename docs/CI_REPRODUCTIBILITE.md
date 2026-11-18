@@ -133,7 +133,7 @@ cargo deny check && cargo audit
 
 | Job | Contenu | Durée (run 399) |
 |---|---|---|
-| `frontend-lint` | `ent-types` wasm32, Clippy `-D warnings` (4 commandes, inchangées), tests unitaires | 11 min 02 |
+| `frontend-lint` | `ent-types` wasm32, Clippy `-D warnings` (4 commandes, inchangées), tests unitaires, **en-têtes de sécurité et parité des droits SANS la feature labo** (configuration de production, comme avant) | 11 min 02 (16 min 36 avec l'étape sans labo, run 402) |
 | `frontend-build-wasm` | `cargo leptos build --release --precompress --frontend-only` ; contrôle de taille (`ls -l target/site/pkg`) + présence des `.wasm.br` / `.wasm.gz` | 8 min 35 |
 | `frontend-build-serveur` | `cargo leptos build --release --server-only` | 21 min 50 |
 | `frontend-archive` | une seule compilation des binaires de test (`-p ent-web-server -p ent-web-session --features ent-web-server/labo,ent-api/labo`), archive nextest, inventaire, tests de documentation | 20 min 58 |
@@ -168,3 +168,32 @@ Les jobs de synthèse (`backend`, `veille-pilote`, `veille-pilote-pr`) n'ont pas
 
 ### Échec d'essai (consigné)
 Premier essai (run 398) : les options `--lib-only` / `--bin-only` n'existent pas dans cargo-leptos 0.3.11 (noms réels : `--frontend-only` / `--server-only`, vérifiés dans les sources de la version épinglée). Corrigé dans le commit suivant ; aucun retour en arrière.
+
+### Contrôles demandés par le pilote (run 402, commit 4c77bf8, vert)
+
+**1. Configuration de production conservée.** `entetes_securite` et `droits_parite` tournent toujours **sans** la feature labo, dans `frontend-lint` (`cargo test --locked -p ent-web-server --test entetes_securite --test droits_parite`, 8 min 40 : la compilation de test sans labo). Ils tournent aussi dans l'archive avec labo (ils n'utilisent ni base ni la feature) : une exécution de plus, aucune de moins.
+
+**2. Inventaire : même nombre de tests avant et après.** Le job de synthèse `frontend` vérifie désormais que chaque test listé par l'archive est exécuté une seule fois et passe (même contrôle que le backend ; tableau dans le résumé du job).
+
+| Étape | Run 396 (avant, `cargo test`) | Run 402 (après) |
+|---|---|---|
+| En-têtes + parité des droits, **sans labo** | 24 (3 + 21) | 24, dans `frontend-lint` |
+| `ent-web-server` avec labo, tous binaires | 116 (= 92 + les 24 ci-dessus, recompilés avec labo) | 92 + 24 = 116 |
+| `ent-web-session` avec labo | 13 | 13 (`session_cookie`) |
+| **Tests distincts exécutés avec labo** | 116 + 13 = **129** | **129 listés, 129 exécutés, 0 manquant, 0 doublon, 0 échec** (6 journaux) |
+| Tests exécutés au total (sans labo + avec labo) | 24 + 116 + 13 = **153** | 24 + 129 = **153** |
+| Tests unitaires (ui, api, app) | 623 | 623 (inchangés, `frontend-lint`) |
+
+L'écart apparent 153 → 129 n'est pas une perte : en 396, les deux fichiers sans labo (24 tests) étaient comptés une seconde fois dans la ligne « serveur avec labo » (116), puisque `cargo test -p ent-web-server --features labo` lance tous les binaires du paquet. Détail par binaire : voir le résumé « Couverture des tests du frontend » du job `frontend`.
+
+### Durées du run 402 et effet de la file d'attente des runners
+| Job | Durée |
+|---|---|
+| frontend-lint | 16 min 36 |
+| frontend-build-serveur | 18 min 33 |
+| frontend-build-wasm | 9 min 38 |
+| frontend-archive | 13 min 05 |
+| frontend-tests (6 tranches) | 2 min 41 à 7 min 21 d'exécution |
+| **De bout en bout** | **34 min 50** |
+
+Les tranches de tests ont été créées à 13 min 27 mais n'ont démarré qu'entre 27 min 22 et 30 min 31 : **14 min d'attente de runner**. Le plan gratuit limite le nombre de jobs simultanés ; au même moment, les 20 tranches du backend occupent les places. Le chemin de calcul réel du frontend est donc d'environ 21 min (archive 13 min 27 + tranche la plus longue 7 min 21) ; le reste est de la file d'attente, qui varie d'un run à l'autre (run 399 : 28 min 51, sans attente notable). **Marge faible sur le critère 35 min quand le backend tourne en même temps** ; les leviers sans dépense seraient de réduire le chemin critique de compilation (archive, build serveur) plutôt que le nombre de tranches.
