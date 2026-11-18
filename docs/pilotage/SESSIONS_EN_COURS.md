@@ -384,3 +384,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Migrations 488-490. ELF supprimé.
   - Désabonnement de la PR 101, session archivée. ENT est gelé jusqu'au verdict.
   - **À reprendre** : pièce jointe sur son propre message différé (consigne F1 erronée du pilote).
+- **18-11, 16 h 47 UTC** :
+  - **Run 417 vert** sur 86f03b82 : la messagerie est validée.
+  - **Nouvelle session : socle 21 V1-V2** (branche ent-socle-21-code-v1v2, migrations 461-479) : modèle des évaluations, reprise, moteur de calcul des moyennes, et document « règles comme Charlemagne » avec les questions pour Florian (idée I-032).
+  - **Sessions qui codent : I2 et V1-V2.** La visite guidée est en cours ; elle ne code pas.
