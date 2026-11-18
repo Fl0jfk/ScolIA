@@ -1530,7 +1530,7 @@ async fn titulaire(b: &Banc, eleve: Uuid, nom: &str, garde: Option<&str>) -> Uui
         .bind(Uuid::new_v4())
         .bind(b.etab)
         .bind(p)
-        .bind(format!("06{}", &p.simple().to_string()[..8].chars().map(|c| (c as u8 % 10).to_string()).collect::<String>()))
+        .bind(format!("06{}", p.simple().to_string()[..8].chars().map(|c| (c as u8 % 10).to_string()).collect::<String>()))
         .execute(pool)
         .await
         .unwrap();
