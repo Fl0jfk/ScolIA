@@ -57,7 +57,8 @@ async fn lit(ent: &PgEnt, etab: Uuid, user: Uuid, role: Role, fil: Uuid) -> bool
         .await
     {
         Ok(_) => true,
-        Err(EntDbError::Forbidden) => false,
+        // M2 : un tiers reçoit le même 404 qu'un fil absent (et non plus un 403).
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable)) => false,
         Err(e) => panic!("lecture du fil {fil} : {e:?}"),
     }
 }
@@ -93,7 +94,7 @@ async fn ecrit(ent: &PgEnt, etab: Uuid, user: Uuid, role: Role, fil: Uuid) -> bo
 }
 
 /// Interdiction de communication en cours visant le responsable `parent` pour `eleve`.
-async fn poser_interdiction(
+pub(crate) async fn poser_interdiction(
     ent: &PgEnt,
     etab: Uuid,
     eleve: Uuid,

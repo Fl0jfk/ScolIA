@@ -154,7 +154,8 @@ pub(crate) async fn ouvrir_un(
 pub(crate) async fn lit(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, fil: Uuid) -> bool {
     match ent.list_messages_for_actor(etab, user, role(r), fil).await {
         Ok(_) => true,
-        Err(EntDbError::Forbidden) => false,
+        // M2 : un tiers reçoit le même 404 qu'un fil absent (et non plus un 403).
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable)) => false,
         Err(e) => panic!("lecture du fil {fil} : {e:?}"),
     }
 }
@@ -1060,12 +1061,14 @@ async fn m1_nj_36_nj_29_la_piece_d_un_fil_non_lisible_est_refusee() {
                 message_id: fil_lily.message.id,
                 nom: "ordonnance.pdf".into(),
                 mime_type: "application/pdf".into(),
-                contenu: b"%PDF-1.4 secret".to_vec(),
+                // M5 : un vrai PDF (l'analyse désarme, elle ne tolère pas un faux en-tête tronqué).
+                contenu: crate::tests_messagerie_m5::PDF_REEL.to_vec(),
                 actor_user_id: dir,
             },
         )
         .await
         .expect("pièce jointe");
+    crate::tests_messagerie_m5::lever_quarantaine(&ent, etab).await;
     // Témoin : Lily (participante) télécharge sa pièce.
     assert!(
         ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), meta.id)
@@ -1074,11 +1077,12 @@ async fn m1_nj_36_nj_29_la_piece_d_un_fil_non_lisible_est_refusee() {
         "témoin : Lily"
     );
     // Attaque : James (autre foyer, même élève) ne télécharge ni ne demande de lien court.
+    // M5 : 404 uniforme (la pièce d'un autre foyer n'existe pas pour James), plus un 403 qui révélerait son existence.
     assert!(
         matches!(
             ent.telecharger_piece_for_actor(etab, james, role(Role::Parent), meta.id)
                 .await,
-            Err(EntDbError::Forbidden)
+            Err(EntDbError::Domain(DomainError::MsgPieceIntrouvable))
         ),
         "NJ-36 : la pièce d'un autre foyer"
     );
@@ -1091,22 +1095,21 @@ async fn m1_nj_36_nj_29_la_piece_d_un_fil_non_lisible_est_refusee() {
                 message_id: fil_lily.message.id,
                 nom: "x.pdf".into(),
                 mime_type: "application/pdf".into(),
-                contenu: b"%PDF-1.4".to_vec(),
+                contenu: crate::tests_messagerie_m5::PDF_REEL.to_vec(),
                 actor_user_id: james,
             },
         )
         .await;
     assert!(
-        matches!(r, Err(EntDbError::Forbidden)),
-        "NJ-29 : attachement par un non-participant"
+        matches!(r, Err(EntDbError::Domain(DomainError::NotFound))),
+        "NJ-29 : attachement par un non-participant (404 uniforme, M5)"
     );
     // La clé d'une pièce est dérivée du serveur : `{établissement}/messages/{pièce}.…`, jamais fournie.
-    assert!(crate::service::msg_storage_key_is_owned(
-        &piece_factice(meta.id, etab, fil_lily.fil.id, fil_lily.message.id),
-        &format!("{etab}/messages/{}.pdf", meta.id)
-    ));
-    assert!(!crate::service::msg_storage_key_is_owned(
-        &piece_factice(meta.id, etab, fil_lily.fil.id, fil_lily.message.id),
+    assert!(crate::service::object_key_is_owned(etab, "messages", meta.id, &format!("{etab}/messages/{}.pdf", meta.id)));
+    assert!(!crate::service::object_key_is_owned(
+        etab,
+        "messages",
+        meta.id,
         &format!("{etab}/messages-autre/{}.pdf", meta.id)
     ));
 }
@@ -1178,19 +1181,3 @@ async fn m1_nj_59_un_parent_ne_voit_pas_les_participants_ni_l_existence_d_un_aut
     let _ = DomainError::NotFound;
 }
 
-fn piece_factice(id: Uuid, etab: Uuid, fil: Uuid, message: Uuid) -> domain_eleve::MsgPiece {
-    domain_eleve::MsgPiece {
-        id,
-        etablissement_id: etab,
-        fil_id: fil,
-        message_id: message,
-        nom: "o.pdf".into(),
-        mime_type: "application/pdf".into(),
-        taille_octets: 0,
-        contenu: Vec::new(),
-        storage_key: None,
-        sha256: None,
-        created_by_user_id: Uuid::nil(),
-        created_at: chrono::Utc::now(),
-    }
-}

@@ -757,20 +757,28 @@ fn rp1_c11_parent_separe_ne_lit_pas_le_fil_de_l_autre_parent() {
             "le fil de Lily est listé pour James : {}",
             liste.texte
         );
-        let g = s
-            .appel(
-                "GET",
-                &format!("/messages/fils/{fil}"),
-                Some(&jeton_james),
-                None,
-            )
-            .await;
-        assert!(
-            g.est_refus(),
-            "James lit le fil de Lily : {} {}",
-            g.statut,
-            g.texte
-        );
+        // M2 : 404 uniforme sur TOUTES les routes de lecture d'un fil. Un tiers ne distingue pas un fil existant
+        // (celui de Lily) d'un fil inexistant : même statut exact, même corps. Témoin : Lily lit son fil.
+        let temoin = s.req("GET", &format!("/messages/fils/{fil}"), Some("Lily Potter"), None).await;
+        assert_eq!(temoin.statut, StatusCode::OK, "témoin : Lily lit son fil : {}", temoin.texte);
+        let inconnu = Uuid::new_v4();
+        for suffixe in ["", "/cartes", "/lecture"] {
+            let existant = s
+                .appel("GET", &format!("/messages/fils/{fil}{suffixe}"), Some(&jeton_james), None)
+                .await;
+            let absent = s
+                .appel("GET", &format!("/messages/fils/{inconnu}{suffixe}"), Some(&jeton_james), None)
+                .await;
+            assert_eq!(
+                existant.statut,
+                StatusCode::NOT_FOUND,
+                "James lit le fil de Lily (« {suffixe} ») : {} {}",
+                existant.statut,
+                existant.texte
+            );
+            assert_eq!(existant.statut, absent.statut, "même statut qu'un fil absent (« {suffixe} »)");
+            assert_eq!(existant.texte, absent.texte, "même corps qu'un fil absent (« {suffixe} »)");
+        }
     });
 }
 
@@ -1181,7 +1189,11 @@ fn rp1_c11_bis_documents_famille_cloisonnes_par_foyer() {
         let g = s
             .appel("GET", &format!("/messages/fils/{fil}"), Some(&jeton_james), None)
             .await;
-        assert!(g.est_refus(), "James lit la relance de Lily : {}", g.statut);
+        assert_eq!(g.statut, StatusCode::NOT_FOUND, "James lit la relance de Lily : {}", g.statut);
+        let inconnu = s
+            .appel("GET", &format!("/messages/fils/{}", Uuid::new_v4()), Some(&jeton_james), None)
+            .await;
+        assert_eq!(g.texte, inconnu.texte, "même corps qu'un fil absent");
         let chez_lily = s
             .req("GET", &format!("/eleves/{harry}/documents"), Some("Lily Potter"), None)
             .await;

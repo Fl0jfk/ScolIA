@@ -308,8 +308,10 @@ impl UsageFichier {
     fn defaut_octets(self) -> usize {
         match self {
             Self::Document => 10 * MIB,
-            // Contenu stocké en base (P0) : plafond historique conservé.
-            Self::PieceMessage | Self::PiecePai => 256 * KIB,
+            // Pièce de messagerie (M5) : stockée dans le magasin d'objets, 20 Mio comme la conception (§12).
+            Self::PieceMessage => 20 * MIB,
+            // Contenu du PAI encore stocké en base : plafond historique conservé.
+            Self::PiecePai => 256 * KIB,
             Self::Photo => 5 * MIB,
             // Stockés dans le magasin d'objets (pas en base) : même plafond que les documents.
             Self::PieceCahier | Self::Copie => 10 * MIB,
@@ -813,17 +815,40 @@ fn sans_bom_ni_blancs(b: &[u8]) -> &[u8] {
     s
 }
 
-/// Jeton PDF présent en clair, suivi d'un caractère de délimitation (évite `/JSON`).
+/// Nom PDF (`/Nom`) présent dans le fichier, **`#xx` décodés** (`/J#61vaScript` = `/JavaScript`), égal à `jeton`
+/// (sans le `/`). Un nom plus long (`/JSON`) n'est pas le nom cherché.
 fn pdf_a_jeton(b: &[u8], jeton: &[u8]) -> bool {
+    let delim = |c: u8| {
+        c.is_ascii_whitespace()
+            || c == 0
+            || matches!(c, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
+    };
     let mut i = 0;
-    while i + jeton.len() <= b.len() {
-        if &b[i..i + jeton.len()] == jeton {
-            let suite = b.get(i + jeton.len()).copied();
-            if !matches!(suite, Some(c) if c.is_ascii_alphanumeric()) {
-                return true;
-            }
+    while i < b.len() {
+        if b[i] != b'/' {
+            i += 1;
+            continue;
         }
-        i += 1;
+        let mut j = i + 1;
+        let mut nom: Vec<u8> = Vec::new();
+        while j < b.len() && !delim(b[j]) {
+            if b[j] == b'#' && j + 2 < b.len() {
+                let v = std::str::from_utf8(&b[j + 1..j + 3])
+                    .ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok());
+                if let Some(v) = v {
+                    nom.push(v);
+                    j += 3;
+                    continue;
+                }
+            }
+            nom.push(b[j]);
+            j += 1;
+        }
+        if nom == jeton {
+            return true;
+        }
+        i = j.max(i + 1);
     }
     false
 }
@@ -832,10 +857,10 @@ fn pdf_a_jeton(b: &[u8], jeton: &[u8]) -> bool {
 /// un flux compressé n'est pas détecté ici (voir limites dans `docs/SECURITY.md`) ; le
 /// service des fichiers impose en plus CSP `sandbox` et `nosniff`.
 fn pdf_actif(b: &[u8]) -> Option<&'static str> {
-    if pdf_a_jeton(b, b"/JavaScript") || pdf_a_jeton(b, b"/JS") {
+    if pdf_a_jeton(b, b"JavaScript") || pdf_a_jeton(b, b"JS") {
         return Some("PDF avec JavaScript");
     }
-    if pdf_a_jeton(b, b"/Launch") {
+    if pdf_a_jeton(b, b"Launch") {
         return Some("PDF avec lancement de programme");
     }
     None
@@ -983,17 +1008,142 @@ fn detecter_zip(b: &[u8]) -> Result<TypeFichier, ErreurFichier> {
     }
     // OOXML : [Content_Types].xml + partie principale.
     if a("[Content_Types].xml") {
-        if a("word/document.xml") {
-            return Ok(TypeFichier::Docx);
-        }
-        if a("xl/workbook.xml") {
-            return Ok(TypeFichier::Xlsx);
-        }
-        if a("ppt/presentation.xml") {
-            return Ok(TypeFichier::Pptx);
-        }
+        let t = if a("word/document.xml") {
+            TypeFichier::Docx
+        } else if a("xl/workbook.xml") {
+            TypeFichier::Xlsx
+        } else if a("ppt/presentation.xml") {
+            TypeFichier::Pptx
+        } else {
+            return Err(ErreurFichier::TypeInconnu);
+        };
+        inspecter_ooxml(b, &entrees)?;
+        return Ok(t);
     }
     Err(ErreurFichier::TypeInconnu)
+}
+
+// ---- OOXML : inspection du contenu actif (M7) ----
+
+/// Plafond décompressé d'une partie XML inspectée, et du total : au-delà, le document n'est pas inspectable.
+const OOXML_PLAFOND_PARTIE: usize = 8 * 1024 * 1024;
+const OOXML_PLAFOND_TOTAL: usize = 32 * 1024 * 1024;
+
+/// Octets d'une partie du ZIP (stockée ou « deflate »), bornés par `plafond`.
+fn partie_zip(b: &[u8], e: &EntreeZip, plafond: usize) -> Option<Vec<u8>> {
+    let o = e.offset_local as usize;
+    if b.get(o..o + 4)? != b"PK\x03\x04" {
+        return None;
+    }
+    let nl = u16le(b, o + 26)? as usize;
+    let xl = u16le(b, o + 28)? as usize;
+    let debut = o.checked_add(30)?.checked_add(nl)?.checked_add(xl)?;
+    let fin = debut.checked_add(e.taille_comprimee as usize)?;
+    let donnees = b.get(debut..fin)?;
+    match e.methode {
+        0 if donnees.len() <= plafond => Some(donnees.to_vec()),
+        8 => ent_pdf::inflate::deflate_brut(donnees, plafond).ok().map(|(v, _)| v),
+        _ => None,
+    }
+}
+
+const ACTIF: fn(&'static str) -> ErreurFichier = ErreurFichier::FichierActif;
+
+/// Refuse un document OOXML qui porte du contenu actif ou distant, **sous quelque nom que ce soit** : types
+/// macro-activés, projet VBA, objets OLE et ActiveX, `embeddings`, DDE, modèle distant (`attachedTemplate` externe),
+/// feuilles macro Excel 4. Les noms de parties, `[Content_Types].xml`, les relations et le XML des parties de contenu
+/// sont examinés. Une partie qu'on ne peut pas lire ou qui dépasse les plafonds fait refuser le document
+/// (pessimiste : on ne sert pas ce qu'on n'a pas pu inspecter).
+fn inspecter_ooxml(b: &[u8], entrees: &[EntreeZip]) -> Result<(), ErreurFichier> {
+    let non_inspectable = ErreurFichier::FichierActif("document non inspectable (partie illisible ou trop volumineuse)");
+    // 1. Noms de parties.
+    for e in entrees {
+        let n = e.nom.to_ascii_lowercase();
+        if n.contains("vbaproject")
+            || n.contains("vbadata")
+            || n.contains("oleobject")
+            || n.contains("/embeddings/")
+            || n.starts_with("embeddings/")
+            || n.contains("macrosheets/")
+            || n.contains("/activex")
+            || n.ends_with(".ole")
+        {
+            return Err(ACTIF("document avec macros, objet incorporé ou contrôle actif"));
+        }
+    }
+    // 2. Contenu des parties qui décrivent la structure, et du XML de contenu (DDE, champs exécutables).
+    let mut total = 0usize;
+    for e in entrees {
+        let n = e.nom.to_ascii_lowercase();
+        let est_types = n == "[content_types].xml";
+        let est_rels = n.ends_with(".rels");
+        let est_contenu = n.ends_with(".xml")
+            && (n.starts_with("word/") || n.starts_with("xl/externallinks/") || n.starts_with("ppt/") || n.starts_with("xl/"));
+        if !(est_types || est_rels || est_contenu) {
+            continue;
+        }
+        let Some(octets) = partie_zip(b, e, OOXML_PLAFOND_PARTIE) else {
+            return Err(non_inspectable);
+        };
+        total += octets.len();
+        if total > OOXML_PLAFOND_TOTAL {
+            return Err(non_inspectable);
+        }
+        let texte = String::from_utf8_lossy(&octets).to_ascii_lowercase();
+        if est_types {
+            for m in ["macroenabled", "vbaproject", "activex", "oleobject", "ms-office.vbadata", "macrosheet"] {
+                if texte.contains(m) {
+                    return Err(ACTIF("document de type macro-activé ou à objet incorporé"));
+                }
+            }
+        }
+        if est_rels {
+            for balise in texte.split("<relationship ").skip(1) {
+                let balise = balise.split('>').next().unwrap_or("");
+                let externe = balise.contains("targetmode=\"external\"") || balise.contains("targetmode='external'");
+                // `/relationships/package` (paquet incorporé) et `/relationships/control` : suffixe exact du type, car
+                // l'espace de noms standard `…/package/2006/relationships/…` contient lui aussi « /package ».
+                for m in [
+                    "vbaproject",
+                    "oleobject",
+                    "activex",
+                    "macrosheet",
+                    "/relationships/package\"",
+                    "/relationships/package'",
+                    "/relationships/control\"",
+                    "/relationships/control'",
+                ] {
+                    if balise.contains(m) {
+                        return Err(ACTIF("document avec macros, objet incorporé ou contrôle actif"));
+                    }
+                }
+                if externe
+                    && ["attachedtemplate", "frame", "subdocument", "externallink", "oleobject", "/relationships/image", "/relationships/control"]
+                        .iter()
+                        .any(|m| balise.contains(m))
+                {
+                    return Err(ACTIF("document qui charge un modèle ou une ressource distante"));
+                }
+            }
+        }
+        if est_contenu {
+            let dde = texte.contains("ddeauto")
+                || texte.contains("ddelink")
+                || texte.contains("olelink")
+                || texte.contains("macrobutton")
+                || texte
+                    .match_indices("dde")
+                    .any(|(i, _)| {
+                        let avant = texte[..i].chars().next_back();
+                        let apres = texte[i + 3..].chars().next();
+                        !avant.is_some_and(char::is_alphanumeric) && apres.is_some_and(|c| c == ' ' || c == '"' || c == '\'')
+                    });
+            if dde {
+                return Err(ACTIF("document avec liaison DDE ou champ exécutable"));
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1151,6 +1301,14 @@ pub(crate) mod tests {
             detecter(launch),
             Err(ErreurFichier::FichierActif(_))
         ));
+        // Noms écrits en `#xx` (E1).
+        for t in [
+            &b"%PDF-1.4\n1 0 obj << /S /J#61vaScript >> endobj"[..],
+            b"%PDF-1.4\n1 0 obj << /#4AS (x) >> endobj",
+            b"%PDF-1.4\n1 0 obj << /S /#4C#61unch >> endobj",
+        ] {
+            assert!(matches!(detecter(t), Err(ErreurFichier::FichierActif(_))));
+        }
         assert_eq!(
             detecter(b"%PDF-1.4\n<< /Type /JSONish >>"),
             Ok(TypeFichier::Pdf)
@@ -1444,5 +1602,149 @@ pub(crate) mod tests {
             p.valider(UsageFichier::Espace, "a.pdf", None, &gros),
             Err(ErreurFichier::TropGros { max: 64 })
         );
+    }
+    // ── M7 : OOXML, fichiers construits pour l'occasion ──
+
+    /// Comme [`zip`], avec la méthode « deflate » (blocs stockés) : les parties XML sont à décompresser.
+    fn zip_deflate(entrees: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut cd = Vec::new();
+        for (nom, data) in entrees {
+            let mut d = vec![1u8];
+            d.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            d.extend_from_slice(&(!(data.len() as u16)).to_le_bytes());
+            d.extend_from_slice(data);
+            let off = out.len() as u32;
+            out.extend_from_slice(b"PK\x03\x04");
+            out.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&(d.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(nom.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(nom.as_bytes());
+            out.extend_from_slice(&d);
+            cd.extend_from_slice(b"PK\x01\x02");
+            cd.extend_from_slice(&[20, 0, 20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+            cd.extend_from_slice(&0u32.to_le_bytes());
+            cd.extend_from_slice(&(d.len() as u32).to_le_bytes());
+            cd.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            cd.extend_from_slice(&(nom.len() as u16).to_le_bytes());
+            cd.extend_from_slice(&[0; 12]);
+            cd.extend_from_slice(&off.to_le_bytes());
+            cd.extend_from_slice(nom.as_bytes());
+        }
+        let cd_off = out.len() as u32;
+        out.extend_from_slice(&cd);
+        out.extend_from_slice(b"PK\x05\x06");
+        out.extend_from_slice(&[0, 0, 0, 0]);
+        out.extend_from_slice(&(entrees.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(entrees.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(cd.len() as u32).to_le_bytes());
+        out.extend_from_slice(&cd_off.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    const TYPES_PROPRES: &[u8] = b"<Types><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>";
+    const RELS_PROPRES: &[u8] = b"<Relationships><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>";
+    const DOC_PROPRE: &[u8] = b"<w:document><w:body><w:p><w:r><w:t>Bonjour</w:t></w:r></w:p></w:body></w:document>";
+
+    fn docx_avec(types: &[u8], rels: &[u8], doc: &[u8], en_plus: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut e: Vec<(&str, &[u8])> = vec![
+            ("[Content_Types].xml", types),
+            ("_rels/.rels", RELS_PROPRES),
+            ("word/document.xml", doc),
+            ("word/_rels/document.xml.rels", rels),
+        ];
+        e.extend_from_slice(en_plus);
+        zip_deflate(&e)
+    }
+
+    fn refuse(b: &[u8]) -> bool {
+        matches!(detecter(b), Err(ErreurFichier::FichierActif(_)))
+    }
+
+    #[test]
+    fn ooxml_propre_est_accepte_et_les_parties_deflate_sont_lues() {
+        assert_eq!(detecter(&docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[])), Ok(TypeFichier::Docx));
+        // Un lien hypertexte externe n'est pas un modèle distant.
+        let rels = b"<Relationships><Relationship Id=\"r2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"https://exemple.fr\" TargetMode=\"External\"/></Relationships>";
+        assert_eq!(detecter(&docx_avec(TYPES_PROPRES, rels, DOC_PROPRE, &[])), Ok(TypeFichier::Docx));
+    }
+
+    #[test]
+    fn ooxml_types_macro_actives_refuses() {
+        for t in [
+            "application/vnd.ms-word.document.macroEnabled.main+xml",
+            "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+            "application/vnd.ms-office.vbaProject",
+            "application/vnd.ms-office.activeX+xml",
+            "application/vnd.openxmlformats-officedocument.oleObject",
+        ] {
+            let types = format!("<Types><Override PartName=\"/word/x\" ContentType=\"{t}\"/></Types>");
+            assert!(refuse(&docx_avec(types.as_bytes(), RELS_PROPRES, DOC_PROPRE, &[])), "{t}");
+        }
+    }
+
+    #[test]
+    fn ooxml_vba_sous_tout_nom_refuse() {
+        // Le projet VBA nommé autrement : c'est la relation qui le désigne.
+        let rels = b"<Relationships><Relationship Id=\"r9\" Type=\"http://schemas.microsoft.com/office/2006/relationships/vbaProject\" Target=\"donnees.bin\"/></Relationships>";
+        assert!(refuse(&docx_avec(TYPES_PROPRES, rels, DOC_PROPRE, &[("word/donnees.bin", b"\xD0\xCF\x11\xE0")])));
+        // Et sous son nom habituel, quelle que soit la casse ou le dossier.
+        assert!(refuse(&docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[("word/VBAProject.BIN", b"x")])));
+        assert!(refuse(&docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[("custom/monvbaproject.bin", b"x")])));
+    }
+
+    #[test]
+    fn ooxml_ole_embeddings_et_activex_refuses() {
+        let rels = b"<Relationships><Relationship Id=\"r3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject\" Target=\"embeddings/o.bin\"/></Relationships>";
+        assert!(refuse(&docx_avec(TYPES_PROPRES, rels, DOC_PROPRE, &[])));
+        assert!(refuse(&docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[("word/embeddings/objet1.bin", b"x")])));
+        assert!(refuse(&docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[("word/activeX/activeX1.xml", b"<ax/>")])));
+        let rels_pkg = b"<Relationships><Relationship Id=\"r4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/package\" Target=\"e.docx\"/></Relationships>";
+        assert!(refuse(&docx_avec(TYPES_PROPRES, rels_pkg, DOC_PROPRE, &[])));
+    }
+
+    #[test]
+    fn ooxml_dde_et_champs_executables_refuses() {
+        for corps in [
+            "<w:p><w:r><w:instrText> DDEAUTO c:\\\\windows\\\\system32\\\\cmd.exe \"/k calc\" </w:instrText></w:r></w:p>",
+            "<w:fldSimple w:instr=\" DDE \\\"cmd\\\" \\\"/c calc\\\" \"/>",
+            "<w:instrText>MACROBUTTON AutoOpen cliquez</w:instrText>",
+        ] {
+            let doc = format!("<w:document><w:body>{corps}</w:body></w:document>");
+            assert!(refuse(&docx_avec(TYPES_PROPRES, RELS_PROPRES, doc.as_bytes(), &[])), "{corps}");
+        }
+        // Excel : liaison DDE ou OLE dans un classeur externe, et feuille macro Excel 4.
+        let xl = |part: (&'static str, &'static [u8])| {
+            zip_deflate(&[("[Content_Types].xml", TYPES_PROPRES), ("xl/workbook.xml", b"<workbook/>"), part])
+        };
+        assert!(refuse(&xl(("xl/externalLinks/externalLink1.xml", b"<externalLink><ddeLink ddeService=\"cmd\"/></externalLink>"))));
+        assert!(refuse(&xl(("xl/macrosheets/sheet1.xml", b"<macrosheet/>"))));
+        assert_eq!(detecter(&xl(("xl/worksheets/sheet1.xml", b"<worksheet/>"))), Ok(TypeFichier::Xlsx));
+    }
+
+    #[test]
+    fn ooxml_modele_distant_refuse() {
+        for cible in ["https://exemple.fr/modele.dotm", "file:///C:/Users/x/Normal.dotm", "\\\\serveur\\partage\\modele.dotm"] {
+            let rels = format!(
+                "<Relationships><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate\" Target=\"{cible}\" TargetMode=\"External\"/></Relationships>"
+            );
+            let d = docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[("word/_rels/settings.xml.rels", rels.as_bytes())]);
+            assert!(refuse(&d), "{cible}");
+        }
+    }
+
+    #[test]
+    fn ooxml_partie_illisible_est_refusee_par_precaution() {
+        // Une partie « deflate » corrompue : on ne sert pas ce qu'on n'a pas pu inspecter.
+        let mut d = docx_avec(TYPES_PROPRES, RELS_PROPRES, DOC_PROPRE, &[]);
+        // Corrompt la longueur complémentaire du premier bloc stocké (4 octets après l'en-tête local + nom).
+        let nom = "[Content_Types].xml".len();
+        let o = 30 + nom + 1;
+        d[o + 2] ^= 0xFF;
+        assert!(refuse(&d));
     }
 }

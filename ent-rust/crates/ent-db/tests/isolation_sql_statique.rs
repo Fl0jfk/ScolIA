@@ -288,6 +288,7 @@ fn toute_requete_sur_table_a_etablissement_filtre_par_etablissement() {
     fichiers.sort();
     let mut manques = Vec::new();
     let mut verifies = 0usize;
+    let mut par_fichier: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let mut exemptes = BTreeSet::new();
     for f in &fichiers {
         let nom = f.file_name().unwrap().to_string_lossy().to_string();
@@ -305,6 +306,7 @@ fn toute_requete_sur_table_a_etablissement_filtre_par_etablissement() {
                 continue;
             }
             verifies += 1;
+            *par_fichier.entry(nom.clone()).or_default() += 1;
             if lit.to_ascii_lowercase().contains("etablissement_id") {
                 continue;
             }
@@ -331,6 +333,13 @@ fn toute_requete_sur_table_a_etablissement_filtre_par_etablissement() {
         tables.len(),
         exemptes.len()
     );
+    // M6 : les fichiers de la messagerie M5 (pièces) et M6 (lecture, avis) sont réellement couverts par la garde.
+    for f in ["msg_m5.rs", "msg_m6.rs", "msg_repo.rs"] {
+        assert!(
+            par_fichier.get(f).copied().unwrap_or(0) > 0,
+            "{f} n'est pas couvert par la garde d'isolation statique"
+        );
+    }
     // Une exception inutilisée est périmée : on la retire (pas de dette silencieuse).
     let perimees: Vec<_> = EXCEPTIONS
         .iter()

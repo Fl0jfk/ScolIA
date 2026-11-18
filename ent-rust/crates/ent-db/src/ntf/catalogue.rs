@@ -420,6 +420,146 @@ pub const ABSENCE_INQUIETANTE: NatureAvisDecl = NatureAvisDecl {
     brique_u3_autorisee: true,
 };
 
+
+// ───────────────────── Messagerie, lot M6 (`16_MESSAGERIE.md` §23, R-M15, R-M16) ─────────────────────
+//
+// Les natures de la messagerie sont déclarées ici, **avec des enveloppes neutres** : aucune variable, donc ni sujet, ni
+// contenu, ni nom d'auteur, ni nom d'élève dans le titre, le corps, le SMS ou l'objet d'un courriel (R-M16 : « Nouveau
+// message de l'établissement » au plus). Les destinataires sont les **participants** du fil (pas les liens de l'élève) :
+// leur résolution est faite par la messagerie (`msg_m6.rs`) et chaîne la remise du socle 8 ; `aviser` n'est pas appelé
+// pour ces natures (extension « destinataires explicites » du lot N11, voir `docs/socles/16_MESSAGERIE_M5_M6_LIVRAISON.md`).
+// Restent à déclarer avec leur lot : `messagerie.mot_a_signer` (M7), `messagerie.signalement` et `messagerie.restriction`
+// (M10), `publications.nouvelle` (M15).
+
+/// Un nouveau message dans un fil dont le compte est participant nommé (regroupé par fil, une relance au plus).
+pub const MESSAGERIE_NOUVEAU_MESSAGE: NatureAvisDecl = NatureAvisDecl {
+    code: "messagerie.nouveau_message",
+    version: 1,
+    brique: "messagerie",
+    categorie: Categorie::Messagerie,
+    sujet: TypeSujet::Eleve,
+    eleve_destinataire: EleveDest::Jamais,
+    droit_requis: DroitRequis::Lien,
+    urgence: Urgence::U1,
+    sensibilite: Sensibilite::C2,
+    plancher: Plancher::InApp,
+    canaux_defaut: &[Canal::InApp, Canal::Push],
+    escalade: None,
+    delai_confirmation_min: None,
+    regroupement: Regroupement::ParObjet,
+    gabarit: Gabarit {
+        id: "messagerie.nouveau_message",
+        titre: "Nouveau message",
+        corps: "Un nouveau message vous attend dans la messagerie ScolIA. Connectez-vous pour le lire.",
+        sms: "ScolIA : un nouveau message vous attend. Connectez-vous pour le lire.",
+        variables: &[],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: false,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: false,
+};
+
+/// Un nouveau message dans une boîte de service : aux membres (ENT), à l'astreinte si l'urgence est déterministe.
+/// Personnel seulement ; une boîte C3 ne laisse **jamais** l'élève sujet dans l'avis.
+pub const MESSAGERIE_NOUVEAU_MESSAGE_BOITE: NatureAvisDecl = NatureAvisDecl {
+    code: "messagerie.nouveau_message_boite",
+    version: 1,
+    brique: "messagerie",
+    categorie: Categorie::Messagerie,
+    sujet: TypeSujet::Etablissement,
+    eleve_destinataire: EleveDest::Jamais,
+    droit_requis: DroitRequis::Lien,
+    urgence: Urgence::U1,
+    sensibilite: Sensibilite::C2,
+    plancher: Plancher::InApp,
+    canaux_defaut: &[Canal::InApp, Canal::Push],
+    escalade: None,
+    delai_confirmation_min: None,
+    regroupement: Regroupement::ParObjet,
+    gabarit: Gabarit {
+        id: "messagerie.nouveau_message_boite",
+        titre: "Nouveau message",
+        corps: "Un message attend dans une boîte de service de la messagerie.",
+        sms: "ScolIA : un message attend dans une boîte de service.",
+        variables: &[],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: false,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: false,
+};
+
+/// « L'établissement attend votre réponse » : à la famille, quand la boîte passe « en attente de la famille ».
+pub const MESSAGERIE_REPONSE_ATTENDUE: NatureAvisDecl = NatureAvisDecl {
+    code: "messagerie.reponse_attendue",
+    version: 1,
+    brique: "messagerie",
+    categorie: Categorie::Messagerie,
+    sujet: TypeSujet::Eleve,
+    eleve_destinataire: EleveDest::Jamais,
+    droit_requis: DroitRequis::Lien,
+    urgence: Urgence::U1,
+    sensibilite: Sensibilite::C2,
+    plancher: Plancher::InApp,
+    canaux_defaut: &[Canal::InApp, Canal::Push],
+    escalade: None,
+    delai_confirmation_min: None,
+    regroupement: Regroupement::ParObjet,
+    gabarit: Gabarit {
+        id: "messagerie.reponse_attendue",
+        titre: "Réponse attendue",
+        corps: "L'établissement attend votre réponse dans la messagerie ScolIA.",
+        sms: "ScolIA : l'établissement attend votre réponse. Connectez-vous pour la donner.",
+        variables: &[],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: false,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: false,
+};
+
+/// Une personne a rejoint la conversation (information, U0) : aux participants famille, sans le nom de qui rejoint.
+pub const MESSAGERIE_PARTICIPANT_AJOUTE: NatureAvisDecl = NatureAvisDecl {
+    code: "messagerie.participant_ajoute",
+    version: 1,
+    brique: "messagerie",
+    categorie: Categorie::Messagerie,
+    sujet: TypeSujet::Eleve,
+    eleve_destinataire: EleveDest::Jamais,
+    droit_requis: DroitRequis::Lien,
+    urgence: Urgence::U0,
+    sensibilite: Sensibilite::C1,
+    plancher: Plancher::InApp,
+    canaux_defaut: &[Canal::InApp],
+    escalade: None,
+    delai_confirmation_min: None,
+    regroupement: Regroupement::ParObjet,
+    gabarit: Gabarit {
+        id: "messagerie.participant_ajoute",
+        titre: "Nouveau participant",
+        corps: "Une personne de l'établissement a rejoint une de vos conversations.",
+        sms: "ScolIA : une conversation a un nouveau participant.",
+        variables: &[],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: false,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: false,
+};
+
 /// Toutes les natures déclarées (l'assemblage les vérifie).
 pub const NATURES: &[&NatureAvisDecl] = &[
     &ABSENCE_CONSTATEE,
@@ -436,6 +576,11 @@ pub const NATURES: &[&NatureAvisDecl] = &[
     &CONFLIT_HORS_LIGNE,
     // Socle 12, lot AS6 : « prévenir maintenant ».
     &ABSENCE_INQUIETANTE,
+    // Messagerie, lot M6 (§23) : enveloppes neutres, destinataires = participants du fil.
+    &MESSAGERIE_NOUVEAU_MESSAGE,
+    &MESSAGERIE_NOUVEAU_MESSAGE_BOITE,
+    &MESSAGERIE_REPONSE_ATTENDUE,
+    &MESSAGERIE_PARTICIPANT_AJOUTE,
 ];
 
 fn jour_de(evt: &EvenementVu<'_>, cle: &str) -> Vec<Param> {

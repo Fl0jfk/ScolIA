@@ -1358,6 +1358,8 @@ impl PgEnt {
             return Err(EntDbError::ConflitDossier("état de traitement incompatible"));
         }
         tx.commit().await?;
+        // M6 (§23) : `messagerie.reponse_attendue`, enveloppe neutre du gabarit déclaré au socle 8 (au mieux).
+        self.avertir_reponse_attendue(etab, fil).await;
         Ok(())
     }
 

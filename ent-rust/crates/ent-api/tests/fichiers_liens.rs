@@ -398,6 +398,34 @@ fn piece_message_droits_identiques() {
             .await;
         assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte);
         let piece = uuid_de(&r.json["id"]);
+        // M5 : la pièce naît en quarantaine, jamais servie avant l'analyse (R-M31). Un participant l'apprend (409, « en
+        // cours d'analyse ») ; qui n'a pas le droit de lire le fil reçoit un 404 uniforme (aucun indice).
+        assert_eq!(r.json["etat"], "en_quarantaine");
+        assert_eq!(r.json["libelle_etat"], "pièce en cours d'analyse");
+        let n = parite_des_droits(m, &format!("/messages/pieces/{piece}"), &format!("/messages/pieces/{piece}/lien")).await;
+        assert_eq!(n, 0, "rien n'est servi en quarantaine");
+        for a in [Direction, Parent] {
+            for (methode, chemin) in [("GET", format!("/messages/pieces/{piece}")), ("POST", format!("/messages/pieces/{piece}/lien"))] {
+                let r = m.appel(methode, &chemin, Some(m.jeton(a)), None).await;
+                assert_eq!(r.statut, StatusCode::CONFLICT, "{a:?} {chemin} : {}", r.texte);
+            }
+        }
+        for a in [ParentAutreFoyer, ParentSansDrapeaux] {
+            let r = m.appel("POST", &format!("/messages/pieces/{piece}/lien"), Some(m.jeton(a)), None).await;
+            assert_eq!(r.statut, StatusCode::NOT_FOUND, "{a:?} : {}", r.statut);
+        }
+        // Sortie de quarantaine : la tâche de fond du serveur (le serveur de test ne la lance pas) avec un antivirus sain.
+        struct AvSain;
+        impl ent_db::upload::AnalyseurAntivirus for AvSain {
+            fn nom(&self) -> &'static str {
+                "test"
+            }
+            fn analyser(&self, _: &ent_db::upload::ContexteAnalyse<'_>) -> ent_db::upload::VerdictAnalyse {
+                ent_db::upload::VerdictAnalyse::Sain
+            }
+        }
+        let bilan = m.ent.analyser_pieces_messagerie_tache(std::sync::Arc::new(AvSain), 200).await.unwrap();
+        assert!(bilan.saines >= 1, "{bilan:?}");
         let n = parite_des_droits(m, &format!("/messages/pieces/{piece}"), &format!("/messages/pieces/{piece}/lien")).await;
         assert!(n >= 2, "{n}");
         for a in [ParentAutreFoyer, ParentSansDrapeaux] {

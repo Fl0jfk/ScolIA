@@ -171,7 +171,8 @@ async fn ouvrir_un(
 async fn lit(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, fil: Uuid) -> bool {
     match ent.list_messages_for_actor(etab, user, role(r), fil).await {
         Ok(_) => true,
-        Err(EntDbError::Forbidden) => false,
+        // M2 : un tiers reçoit le même 404 qu'un fil absent (et non plus un 403).
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable)) => false,
         Err(e) => panic!("lecture du fil {fil} : {e:?}"),
     }
 }
@@ -817,7 +818,7 @@ async fn m0b_d26_un_aed_avec_le_droit_traite_les_messages_des_familles() {
     assert!(lit(&ent, etab, cast.cpe.user_id, Role::Cpe, fil.id).await);
     // L'AED, sans le droit : ni lecture ni liste (il n'a même pas `messagerie.eleve`).
     let r = ent.list_messages_for_actor(etab, yanis, role(Role::Personnel), fil.id).await;
-    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    assert!(matches!(r, Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable))), "404 uniforme : {r:?}");
     // Rôle D-017 « AED vie scolaire » : messagerie sur tout l'établissement + fils réservés.
     let r = ent
         .creer_role_for_actor(
@@ -1182,7 +1183,7 @@ async fn m0b_d16_piece_au_dela_de_256_kio_refusee_en_413_meme_si_le_reglage_est_
     };
     let etab = cast.etablissement_id;
     let (dir, harry) = (cast.direction.user_id, cast.eleve_lea_id);
-    // Réglage d'exploitation relevé à 1 Mio (ENT_UPLOAD_MAX_MESSAGE) : la colonne reste à 256 Kio.
+    // Réglage d'exploitation abaissé à 1 Mio (ENT_UPLOAD_MAX_MESSAGE) : il borne la pièce sous le plafond de 20 Mio (M5).
     ent.installer_politique_fichiers(ent_object::upload::PolitiqueFichiers::nouvelle(
         ent_object::upload::TaillesMax {
             piece_message: 1024 * 1024,
@@ -1199,8 +1200,8 @@ async fn m0b_d16_piece_au_dela_de_256_kio_refusee_en_413_meme_si_le_reglage_est_
     };
     // Témoin : une pièce de 100 Kio passe.
     attacher(&ent, etab, message, dir, pdf(100 * 1024)).await.expect("témoin : pièce de 100 Kio");
-    // 300 Kio : refus de taille (HTTP 413), jamais une erreur de base (HTTP 500).
-    match attacher(&ent, etab, message, dir, pdf(300 * 1024)).await {
+    // 2 Mio : refus de taille (HTTP 413), jamais une erreur de base (HTTP 500).
+    match attacher(&ent, etab, message, dir, pdf(2 * 1024 * 1024)).await {
         Err(EntDbError::Fichier(e)) => assert!(e.est_taille(), "{e:?}"),
         autre => panic!("D16 : attendu un refus de taille, obtenu {autre:?}"),
     }
@@ -1660,7 +1661,8 @@ async fn m0b_d24_piece_d_un_message_differe_introuvable_pour_la_famille() {
         )
         .await
         .unwrap();
-    // Témoin : remis, la famille télécharge.
+    // Témoin : remis et analysé (M5 : rien n'est servi avant la sortie de quarantaine), la famille télécharge.
+    crate::tests_messagerie_m5::lever_quarantaine(&ent, etab).await;
     let p: MsgPiece = ent
         .telecharger_piece_for_actor(etab, lily, role(Role::Parent), piece.id)
         .await

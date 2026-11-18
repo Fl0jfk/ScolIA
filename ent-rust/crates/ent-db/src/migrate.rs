@@ -450,6 +450,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
     // `MIGRATION_TAG` inchangé (règle 28).
     m!("3200_eleve_e9_pastilles_statut_contraintes"),
+    // Messagerie, lots M5 et M6 (plage 488–493 du repli 480–499) : 488 référence `ent_doc_document` (socle 7, 3701) et
+    // modifie `ent_msg_piece` (038, 601) ; appliquées donc APRÈS 3701. Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
+    m!("488_msg_m5_pieces"),
+    m!("489_msg_m6_lecture"),
+    // Correctifs de la revue de sécurité de M5-M6 (490 : annulation d'un message différé, journal d'ouverture des liens).
+    m!("490_msg_correctifs_revue"),
     // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
     m!("3201_jour_etablissement_unique"),
 ];

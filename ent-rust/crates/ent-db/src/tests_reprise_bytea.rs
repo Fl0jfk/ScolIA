@@ -183,11 +183,15 @@ async fn nb_objets(ent: &PgEnt, etab: Uuid) -> i64 {
         .unwrap()
 }
 
+/// Lit l'**original scellé** d'une pièce de messagerie dans le magasin (M5 : le téléchargement ne sert plus que le
+/// fichier analysé ; ce test-ci vérifie la reprise, donc l'objet repris — l'analyse a ses propres tests, M5).
 async fn lire_msg(ent: &PgEnt, m: &Monde, id: Uuid) -> Vec<u8> {
-    ent.telecharger_piece_for_actor(m.etab, m.direction, Role::Direction.as_str(), id)
+    let cle: String = sqlx::query_scalar("SELECT storage_key FROM ent_msg_piece WHERE id = $1")
+        .bind(id)
+        .fetch_one(ent.pool())
         .await
-        .expect("lecture pièce")
-        .contenu
+        .expect("clé d'objet de la pièce");
+    ent.lire_objet(m.etab, &cle).await.expect("lecture pièce")
 }
 
 async fn lire_pai(ent: &PgEnt, m: &Monde, id: Uuid) -> Vec<u8> {
@@ -302,8 +306,12 @@ async fn lecture_prefere_l_objet_et_retombe_sur_bytea_pour_l_historique() {
     let original = octets(3, 200);
     let hm = hist_msg(&ent, &m, "histo.pdf", &original).await;
     let hp = hist_pai(&ent, &m, "histo-sante.pdf", &original).await;
-    // Historique non repris : servi depuis le BYTEA.
-    assert_eq!(lire_msg(&ent, &m, hm).await, original);
+    // Historique non repris : le PAI est servi depuis le BYTEA ; la messagerie (M5) ne sert jamais un BYTEA, ni
+    // une pièce non analysée : refusée tant qu'elle n'est pas reprise puis analysée.
+    assert!(ent
+        .telecharger_piece_for_actor(m.etab, m.direction, Role::Direction.as_str(), hm)
+        .await
+        .is_err());
     assert_eq!(lire_pai(&ent, &m, hp).await, original);
 
     // Copie vérifiée SANS vidage : l'objet existe ; on altère le BYTEA pour prouver que la lecture

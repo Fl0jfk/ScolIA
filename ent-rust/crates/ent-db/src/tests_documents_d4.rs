@@ -81,17 +81,17 @@ fn config(etab: Uuid) -> ConfigDistribution {
 
 // ───────────────────────── Le monde de test ─────────────────────────
 
-struct W {
-    ent: PgEnt,
-    cast: LaboCast,
-    m: Monde,
-    lily: ActeurTest,
-    tom: ActeurTest,
-    jour: NaiveDate,
+pub(crate) struct W {
+    pub(crate) ent: PgEnt,
+    pub(crate) cast: LaboCast,
+    pub(crate) m: Monde,
+    pub(crate) lily: ActeurTest,
+    pub(crate) tom: ActeurTest,
+    pub(crate) jour: NaiveDate,
 }
 
 impl W {
-    async fn nouveau() -> Option<W> {
+    pub(crate) async fn nouveau() -> Option<W> {
         let (ent, cast) = labo().await?;
         let m = monde(&ent, &cast).await;
         let lily = fiche(&ent, m.etab, cast.parent_lea.user_id, "parent", false).await;
@@ -111,17 +111,17 @@ impl W {
         })
     }
 
-    fn acteur(&self, user: Uuid, role: &'static str) -> Acteur<'static> {
+    pub(crate) fn acteur(&self, user: Uuid, role: &'static str) -> Acteur<'static> {
         Acteur {
             etablissement_id: self.m.etab,
             user_id: user,
             role,
         }
     }
-    fn dir(&self) -> Acteur<'static> {
+    pub(crate) fn dir(&self) -> Acteur<'static> {
         self.acteur(self.cast.direction.user_id, "direction")
     }
-    fn adm(&self) -> Acteur<'static> {
+    pub(crate) fn adm(&self) -> Acteur<'static> {
         self.acteur(self.cast.administratif.user_id, "administratif")
     }
     fn prof(&self) -> Acteur<'static> {
@@ -132,7 +132,7 @@ impl W {
     }
 
     /// Un élève mineur (né en 2012), scolarisé depuis 60 jours, niveau « 4e ».
-    async fn eleve(&self, nom: &str, prenom: &str) -> Uuid {
+    pub(crate) async fn eleve(&self, nom: &str, prenom: &str) -> Uuid {
         self.eleve_ne_le(nom, prenom, NaiveDate::from_ymd_opt(2012, 3, 10).unwrap())
             .await
     }
@@ -166,7 +166,7 @@ impl W {
         id
     }
 
-    async fn lier(&self, eleve: Uuid, p: &ActeurTest, autorite: bool) {
+    pub(crate) async fn lier(&self, eleve: Uuid, p: &ActeurTest, autorite: bool) {
         sqlx::query(
             "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, lien, autorite_parentale)
              VALUES ($1, $2, $3, $4, $5, 'parent', $6)",
@@ -197,7 +197,7 @@ impl W {
         .unwrap();
     }
 
-    async fn certificat(&self, eleve: Uuid) -> DocumentEmis {
+    pub(crate) async fn certificat(&self, eleve: Uuid) -> DocumentEmis {
         self.ent
             .emettre_certificat_scolarite_for_actor(&self.adm(), eleve, &moteur(&Rendu, &Cachet))
             .await
@@ -269,7 +269,7 @@ impl W {
         n
     }
 
-    async fn coffre(&self, a: &Acteur<'_>) -> Vec<LigneCoffre> {
+    pub(crate) async fn coffre(&self, a: &Acteur<'_>) -> Vec<LigneCoffre> {
         self.ent
             .coffre_for_actor(a, &FiltreCoffre::default())
             .await

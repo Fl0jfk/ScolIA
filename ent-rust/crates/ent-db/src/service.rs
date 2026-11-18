@@ -129,7 +129,7 @@ use domain_eleve::{
     EcheanceVue, EdtCalendrierAb, EdtException, EdtExceptionKind, EdtSemaineAb, EleveInvitation,
     FicheSante, Encaissement, EncaisserFacture, EntretienPsy, ExporterOgec, Facture, FactureLigne,
     FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele,
-    MsgPiece, MsgPieceMeta, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
+    MsgPieceMeta, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
     PoserEcheancier, PoserEdtException, PrelevementSepa, Quittance, RappelCanal, RappelFacture,
     RdvPsy, RepondreFil, UpsertDossierPsy, UpsertFicheSante, NATURE_CANTINE_BADGE,
     appliquer_modele, creneau_actif_semaine, plan_archiver_fil, plan_changer_statut_rdv_psy,
@@ -601,10 +601,6 @@ pub fn photo_storage_key_is_owned(eleve: &Eleve, key: &str) -> bool {
         && is_simple_segment(ext)
 }
 
-/// Pièce de messagerie : `{etab}/messages/{piece.id}.{ext}` uniquement.
-pub fn msg_storage_key_is_owned(piece: &MsgPiece, key: &str) -> bool {
-    object_key_is_owned(piece.etablissement_id, "messages", piece.id, key)
-}
 
 /// Pièce PAI : `{etab}/pai/{piece.id}.{ext}` uniquement.
 pub fn pai_storage_key_is_owned(piece: &PaiPiece, key: &str) -> bool {
@@ -748,9 +744,9 @@ pub struct PgEnt {
     bank_repo: BankRepo,
     bank: BankConnector,
     objects: ObjectStore,
-    presigner: Presigner,
+    pub(crate) presigner: Presigner,
     /// D2 : politique des fichiers déposés (signatures, tailles, antivirus).
-    uploads: PolitiqueFichiers,
+    pub(crate) uploads: PolitiqueFichiers,
     auth: PgAuthRepo,
     passkeys: PgPasskeyRepo,
     passkey_engine: Option<PasskeyEngine>,
@@ -17812,6 +17808,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         };
         // D-017 : « messagerie.eleve » et sa portée (professeur : ses classes).
         if parsed.is_staff() {
+            // E7 (F4) : un élève protégé est absent pour un personnel tiers (ni G6 ni lien direct) : ni fil, ni pièce,
+            // ni carte, ni état de lecture.
+            if self.eleve_cache_au_tiers(etablissement_id, actor_user_id, role, eleve_id).await? {
+                return Ok(false);
+            }
             return self
                 .autoriser_eleve(etablissement_id, actor_user_id, role, Action::MessagerieEleve, eleve_id)
                 .await;
@@ -18399,6 +18400,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         participant_ajoute: bool,
         role: &str,
     ) -> Result<(), EntDbError> {
+        let eleve_evt = self.eleve_pour_evenement(fil).await?;
         let cote = match Role::parse(role) {
             Some(Role::Parent) => "famille",
             Some(Role::Eleve) => "eleve",
@@ -18410,7 +18412,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 type_name: types::MESSAGERIE_MESSAGE_ENVOYE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: msg.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: eleve_evt,
                 payload: json!({ "message_id": msg.id, "cote_auteur": cote }),
                 actor_user_id: Some(msg.auteur_user_id.to_string()),
             })
@@ -18422,7 +18424,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MESSAGERIE_PARTICIPANT_AJOUTE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: msg.fil_id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "compte": msg.auteur_user_id, "raison": "a_ecrit" }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })
@@ -18479,6 +18481,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_fil(cmd.etablissement_id, cmd.fil_id)
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
+        let eleve_evt = self.eleve_pour_evenement(&fil).await?;
         let can = self
             .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
             .await?;
@@ -18527,7 +18530,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MSG_FIL_ARCHIVE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: fil.id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "archive": false, "cause": "reponse" }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })
@@ -18539,7 +18542,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 type_name: types::MSG_ENVOYE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: msg.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: eleve_evt,
                 payload: json!({
                     "message_id": msg.id,
                     "auteur_user_id": msg.auteur_user_id,
@@ -18554,7 +18557,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MSG_DEROGATION_PLAGE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: msg.fil_id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "message_id": msg.id, "motif_caracteres": motif.len() }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })
@@ -18642,13 +18645,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
-        if !self
+        let Some(cles) = self
             .messages
             .annuler_message_differe(etablissement_id, message_id, actor_user_id)
             .await?
-        {
+        else {
             return Err(EntDbError::ConflitDossier("message déjà remis ou introuvable"));
-        }
+        };
+        // Les pièces d'un message jamais remis n'ont plus d'objet à garder : on détruit l'original et le fichier servi.
+        self.detruire_objets_messagerie(etablissement_id, &cles).await;
         // L'avis différé, s'il était planifié, n'a plus d'objet.
         let mut txw = TenantTx::begin(&self.pool, etablissement_id).await?;
         sqlx::query(
@@ -18895,7 +18900,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
             .await?;
         if !can {
-            return Err(EntDbError::Forbidden);
+            // M2 (404 uniforme) : un tiers ne distingue pas un fil existant d'un fil absent.
+            return Err(DomainError::MsgFilIntrouvable.into());
         }
         let msgs = self
             .messages
@@ -18917,19 +18923,26 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             },
         )?;
         let inserted = self.messages.upsert_accuses(&nouveaux).await?;
+        // M6 (R-M19) : « lu jusqu'à » par participant. Seule une participation active le pose ; une supervision ou un
+        // compte hors participation ne pose rien. Au mieux : la lecture du fil ne dépend jamais de cet avis.
+        if let Err(e) = self
+            .poser_lu_jusqua(etablissement_id, actor_user_id, fil_id, &msgs, None)
+            .await
+        {
+            tracing::error!(canal = "messagerie", fil = %fil_id, error = %e, "« lu jusqu'à » non posé");
+        }
         if inserted > 0 {
+            // R-M22 : ni lecteur dans la charge utile ; fil C3 : ni élève ni acteur (M1).
+            let c3 = self.fil_est_c3(etablissement_id, fil_id).await?;
             self.events
                 .publish(MetierEventDraft {
                     etablissement_id,
                     type_name: types::MSG_ACCUSE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: fil_id,
-                    eleve_id: Some(fil.eleve_id),
-                    payload: json!({
-                        "lecteur_user_id": actor_user_id,
-                        "nb_nouveaux": inserted,
-                    }),
-                    actor_user_id: Some(actor_user_id.to_string()),
+                    eleve_id: if c3 { None } else { Some(fil.eleve_id) },
+                    payload: json!({ "nb_nouveaux": inserted }),
+                    actor_user_id: if c3 { None } else { Some(actor_user_id.to_string()) },
                 })
                 .await?;
         }
@@ -18945,10 +18958,24 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok((fil, lues))
     }
 
+    /// Dépose une pièce jointe (M5) : validation de forme, original **scellé** dans le magasin d'objets, état
+    /// `en_quarantaine` (jamais servie avant l'analyse). Voir [`Self::attacher_piece_nature_for_actor`].
     pub async fn attacher_piece_for_actor(
         &self,
         role: &str,
         cmd: AttacherPiece,
+    ) -> Result<MsgPieceMeta, EntDbError> {
+        self.attacher_piece_nature_for_actor(role, cmd, None).await
+    }
+
+    /// Comme [`Self::attacher_piece_for_actor`], avec la **nature documentaire** que l'appelant déclare pour le fichier
+    /// (CM-60) : un personnel qui déclare une nature du coffre (bulletin, certificat, compte rendu…) est refusé, il
+    /// joint une **carte document** du socle 7 (R-M33) dont les droits sont relus à la lecture.
+    pub async fn attacher_piece_nature_for_actor(
+        &self,
+        role: &str,
+        cmd: AttacherPiece,
+        nature_declaree: Option<&str>,
     ) -> Result<MsgPieceMeta, EntDbError> {
         let msg = self
             .messages
@@ -18959,12 +18986,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .messages
             .get_fil(cmd.etablissement_id, msg.fil_id)
             .await?
-            .ok_or(DomainError::MsgFilIntrouvable)?;
+            .ok_or(DomainError::NotFound)?;
         let can = self
             .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
             .await?;
         if !can {
-            return Err(EntDbError::Forbidden);
+            // M5 : 404 uniforme, comme pour un message inexistant (aucun indice sur le fil d'un autre).
+            return Err(DomainError::NotFound.into());
+        }
+        if nature_declaree.is_some_and(|n| !n.trim().is_empty()) && crate::msg_m5::est_personnel(role) {
+            return Err(EntDbError::Refus(
+                RefusMetier::Interdit,
+                "un document du coffre se joint par carte document, jamais par fichier",
+            ));
         }
         // M2 (§8.3) : l'établissement peut fermer les pièces jointes des familles et des élèves.
         if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve))
@@ -18972,8 +19006,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
-        // D16 (M0b) : la taille réelle est bornée par le `CHECK` de la colonne (256 Kio), même si
-        // `ENT_UPLOAD_MAX_MESSAGE` est réglée plus haut : refus clair (413), jamais une erreur 500.
+        // D16 (M5) : 20 Mio par pièce (stockage objet), borné aussi par `ENT_UPLOAD_MAX_MESSAGE` et par le `CHECK`.
         if cmd.contenu.len() > MSG_PIECE_MAX_OCTETS {
             return Err(EntDbError::Fichier(ErreurFichier::TropGros {
                 max: MSG_PIECE_MAX_OCTETS,
@@ -18987,7 +19020,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::SaisieInvalide("5 pièces jointes au plus par message"));
         }
-        // D2 : signature binaire + liste blanche + nom assaini.
+        // D2 : signature binaire + liste blanche + nom assaini (exécutables, archives, macros, SVG actif : refusés).
         let mut cmd = cmd;
         let valide = self
             .uploads
@@ -18996,8 +19029,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd.nom = valide.nom;
         cmd.mime_type = valide.mime.to_string();
         let mut piece = plan_attacher_piece(&msg, cmd)?;
-        // Le fichier va dans le magasin d'objets (clé opaque, empreinte vérifiée), jamais en
-        // BYTEA : un échec de stockage remonte et aucune ligne n'est créée.
+        // L'original va dans le magasin d'objets (clé opaque, empreinte vérifiée), jamais en BYTEA : un échec de
+        // stockage remonte et aucune ligne n'est créée. La ligne naît `en_quarantaine` (R-M31).
         let key = ObjectStore::key_for(piece.etablissement_id, "messages", piece.id, valide.extension);
         let info = self
             .stocker_objet(piece.etablissement_id, &key, Some(valide.mime), &piece.contenu)
@@ -19005,18 +19038,39 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         piece.storage_key = Some(key);
         piece.sha256 = Some(info.sha256);
         piece.contenu = Vec::new();
-        self.messages.insert_piece(&piece).await?;
+        match self.messages.insert_piece(&piece, MSG_PIECES_MAX_PAR_MESSAGE).await {
+            Ok(crate::msg_repo::InsertionPiece::Inseree) => {}
+            refus => {
+                // Rien n'est gardé : l'objet déjà écrit est détruit (pas d'orphelin).
+                if let Some(k) = piece.storage_key.clone() {
+                    self.detruire_objets_messagerie(piece.etablissement_id, &[k]).await;
+                }
+                return Err(match refus? {
+                    crate::msg_repo::InsertionPiece::Plein => {
+                        EntDbError::SaisieInvalide("5 pièces jointes au plus par message")
+                    }
+                    crate::msg_repo::InsertionPiece::MessageRetire => {
+                        EntDbError::Refus(RefusMetier::Conflit, "message retiré : aucune pièce ne peut y être jointe")
+                    }
+                    _ => EntDbError::Refus(
+                        RefusMetier::Conflit,
+                        "message différé : aucune pièce ne peut y être jointe avant sa remise",
+                    ),
+                });
+            }
+        }
+        let c3 = self.fil_est_c3(piece.etablissement_id, piece.fil_id).await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: piece.etablissement_id,
                 type_name: types::MSG_PIECE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: piece.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: if c3 { None } else { Some(fil.eleve_id) },
+                // M5 (R-M14) : ni le nom du fichier ni son contenu dans un événement immuable.
                 payload: json!({
                     "piece_id": piece.id,
                     "message_id": piece.message_id,
-                    "nom": piece.nom,
                     "taille_octets": piece.taille_octets,
                 }),
                 actor_user_id: Some(piece.created_by_user_id.to_string()),
@@ -19025,64 +19079,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(MsgPieceMeta::from(&piece))
     }
 
-    /// Pièce de messagerie telle qu'en base (sans relire l'objet), après contrôle d'accès au fil.
-    async fn piece_message_autorisee_sans_contenu(
-        &self,
-        etablissement_id: Uuid,
-        actor_user_id: Uuid,
-        role: &str,
-        piece_id: Uuid,
-    ) -> Result<MsgPiece, EntDbError> {
-        let piece = self
-            .messages
-            .get_piece(etablissement_id, piece_id)
-            .await?
-            .ok_or(DomainError::MsgPieceIntrouvable)?;
-        let fil = self
-            .messages
-            .get_fil(etablissement_id, piece.fil_id)
-            .await?
-            .ok_or(DomainError::MsgFilIntrouvable)?;
-        let can = self
-            .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
-            .await?;
-        if !can {
-            return Err(EntDbError::Forbidden);
-        }
-        // M0b (D24) : la pièce d'un message encore différé n'existe pas pour les autres.
-        if !self
-            .messages
-            .message_remis_pour(etablissement_id, piece.message_id, actor_user_id)
-            .await?
-        {
-            return Err(DomainError::MsgPieceIntrouvable.into());
-        }
-        Ok(piece)
-    }
-
-    pub async fn telecharger_piece_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        actor_user_id: Uuid,
-        role: &str,
-        piece_id: Uuid,
-    ) -> Result<MsgPiece, EntDbError> {
-        let mut piece = self
-            .piece_message_autorisee_sans_contenu(etablissement_id, actor_user_id, role, piece_id)
-            .await?;
-        // L'objet est préféré ; le BYTEA ne sert que pour l'historique non encore repris.
-        if let Some(key) = piece.storage_key.clone() {
-            if !msg_storage_key_is_owned(&piece, &key) {
-                return Err(EntDbError::FichierAbsent);
-            }
-            piece.contenu = self
-                .lire_objet_empreinte(etablissement_id, &key, piece.sha256.as_deref())
-                .await?;
-        } else if piece.contenu.is_empty() {
-            return Err(EntDbError::FichierAbsent);
-        }
-        Ok(piece)
-    }
 
     // ───────────── Liens courts d'accès aux fichiers (URL pré-signées) ─────────────
     //
@@ -19090,7 +19086,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     // téléchargement correspondant (fonctions partagées ci-dessus) ; le client ne
     // fournit jamais de clé de stockage.
 
-    fn emettre_lien(
+    pub(crate) fn emettre_lien(
         &self,
         key: &str,
         user_id: Uuid,
@@ -19121,6 +19117,39 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             url: link.url,
             expires_at: link.expires_at,
         })
+    }
+
+    /// Lien **servi par l'application** (jamais une URL SigV4 directe, même en mode S3), de **60 s au plus** quelle que
+    /// soit `ENT_OBJECT_LINK_TTL_SECS` : pièces de messagerie (M8).
+    pub(crate) fn emettre_lien_application_borne(
+        &self,
+        key: &str,
+        user_id: Uuid,
+        etablissement_id: Uuid,
+        disposition: Disposition,
+        filename: &str,
+        mime: &str,
+        ttl_max_secs: u64,
+    ) -> Result<LienFichier, EntDbError> {
+        let link = self
+            .presigner
+            .issue_application(
+                &LinkSpec {
+                    key: key.to_string(),
+                    user_id,
+                    etablissement_id,
+                    disposition,
+                    filename: filename.to_string(),
+                    mime: mime.to_string(),
+                },
+                ent_object::presign::now_unix(),
+                ttl_max_secs,
+            )
+            .map_err(|e| match e {
+                PresignError::Disabled => EntDbError::LiensIndisponibles,
+                _ => EntDbError::FichierAbsent,
+            })?;
+        Ok(LienFichier { url: link.url, expires_at: link.expires_at })
     }
 
     /// Copie dans le magasin d'objets un contenu stocké en base (pièces de messagerie,
@@ -19256,57 +19285,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             "consultation",
             "lien_pai_piece",
             "Lien court vers une pièce du PAI",
-        )
-        .await?;
-        Ok(lien)
-    }
-
-    /// Lien court vers une pièce jointe de messagerie (mêmes droits que le téléchargement).
-    /// Le contenu, stocké en base, est recopié dans le magasin d'objets (idempotent).
-    pub async fn lien_piece_message_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        actor_user_id: Uuid,
-        role: &str,
-        piece_id: Uuid,
-    ) -> Result<LienFichier, EntDbError> {
-        if !self.presigner.is_enabled() {
-            return Err(EntDbError::LiensIndisponibles);
-        }
-        let piece = self
-            .piece_message_autorisee_sans_contenu(etablissement_id, actor_user_id, role, piece_id)
-            .await?;
-        let key = match piece.storage_key.as_deref() {
-            Some(k) if msg_storage_key_is_owned(&piece, k) => k.to_string(),
-            Some(_) => return Err(EntDbError::FichierAbsent),
-            // Pièce historique encore en base : recopiée sous la clé de reprise (idempotent).
-            None if !piece.contenu.is_empty() => {
-                let k = cle_reprise(piece.etablissement_id, "messages", piece.id, &piece.nom);
-                self.refleter_dans_magasin(piece.etablissement_id, &k, &piece.mime_type, &piece.contenu)
-                    .await?;
-                k
-            }
-            None => return Err(EntDbError::FichierAbsent),
-        };
-        if !self.objet_existe(&key).await? {
-            return Err(EntDbError::FichierAbsent);
-        }
-        let lien = self.emettre_lien(
-            &key,
-            actor_user_id,
-            etablissement_id,
-            Disposition::Attachment,
-            &piece.nom,
-            &piece.mime_type,
-        )?;
-        self.tracer_acces_sensible(
-            etablissement_id,
-            actor_user_id,
-            role,
-            None,
-            "telechargement",
-            "lien_piece_message",
-            &format!("Lien court vers la pièce jointe {piece_id}"),
         )
         .await?;
         Ok(lien)

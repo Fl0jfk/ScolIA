@@ -618,6 +618,10 @@ pub struct Presigner {
     backend: Backend,
     ttl_secs: u64,
     public_base: Option<String>,
+    /// Signataire de jetons liés à l'utilisateur, servis par `GET /fichiers/{jeton}` de l'application, même en mode S3
+    /// (clé `ENT_OBJECT_SIGNING_KEY`). Sert aux données qui ne doivent **jamais** sortir par une URL SigV4 directe
+    /// (pièces de messagerie, M8).
+    app: Option<LocalSigner>,
 }
 
 impl fmt::Debug for Presigner {
@@ -652,6 +656,7 @@ impl Presigner {
             backend: Backend::Disabled,
             ttl_secs: DEFAULT_TTL_SECS,
             public_base: None,
+            app: None,
         }
     }
 
@@ -666,6 +671,7 @@ impl Presigner {
             }),
             ttl_secs: clamp_ttl(ttl_secs),
             public_base: None,
+            app: None,
         })
     }
 
@@ -675,7 +681,17 @@ impl Presigner {
             backend: Backend::S3(cfg),
             ttl_secs: clamp_ttl(ttl_secs),
             public_base: None,
+            app: None,
         }
+    }
+
+    /// Mode S3 **avec** un signataire d'application (secret ≥ 32 octets) : les données sensibles passent alors par
+    /// `GET /fichiers/{jeton}` et non par une URL SigV4 directe.
+    pub fn avec_signataire_application(mut self, secret: &[u8]) -> Self {
+        if secret.len() >= MIN_SIGNING_KEY_LEN {
+            self.app = Some(LocalSigner { secret: secret.to_vec() });
+        }
+        self
     }
 
     pub fn with_public_base(mut self, base: Option<&str>) -> Self {
@@ -715,7 +731,13 @@ impl Presigner {
                     virtual_host,
                 );
                 match cfg {
-                    Ok(c) => Self::s3(c, ttl),
+                    Ok(c) => {
+                        let p = Self::s3(c, ttl).with_public_base(base.as_deref());
+                        match get("ENT_OBJECT_SIGNING_KEY") {
+                            Some(k) => p.avec_signataire_application(k.as_bytes()),
+                            None => p,
+                        }
+                    }
                     Err(_) => Self::disabled(),
                 }
             }
@@ -754,6 +776,55 @@ impl Presigner {
 
     pub fn ttl_secs(&self) -> u64 {
         self.ttl_secs
+    }
+
+    fn signataire(&self) -> Option<&LocalSigner> {
+        match &self.backend {
+            Backend::Local(l) => Some(l),
+            _ => self.app.as_ref(),
+        }
+    }
+
+    /// Un lien servi par l'application (`GET /fichiers/{jeton}`, lié à l'utilisateur) peut-il être émis ?
+    pub fn peut_servir_par_application(&self) -> bool {
+        self.signataire().is_some()
+    }
+
+    /// Émet un lien **servi par l'application** (jamais une URL SigV4 directe, même en mode S3), de durée **plafonnée**
+    /// à `ttl_max_secs` quelle que soit `ENT_OBJECT_LINK_TTL_SECS` (M8 : 60 s pour les pièces de messagerie). Fail-closed :
+    /// sans signataire d'application, aucune émission.
+    pub fn issue_application(
+        &self,
+        spec: &LinkSpec,
+        now: i64,
+        ttl_max_secs: u64,
+    ) -> Result<PresignedLink, PresignError> {
+        let Some(l) = self.signataire() else {
+            return Err(PresignError::Disabled);
+        };
+        if !key_belongs_to_etab(&spec.key, spec.etablissement_id) {
+            return Err(PresignError::InvalidParam);
+        }
+        let filename = sanitize_filename(&spec.filename);
+        let mime = sanitize_mime(&spec.mime);
+        let disposition = effective_disposition(spec.disposition, &mime, &filename);
+        let ttl = self.ttl_secs.min(ttl_max_secs).clamp(1, MAX_TTL_SECS);
+        let expires_at = now + ttl as i64;
+        let token = l.sign(&SignedClaims {
+            key: spec.key.clone(),
+            expires_at,
+            user_id: spec.user_id,
+            etablissement_id: spec.etablissement_id,
+            disposition,
+            filename,
+            mime,
+        });
+        let path = format!("/fichiers/{token}");
+        let url = match &self.public_base {
+            Some(b) => format!("{b}{path}"),
+            None => path,
+        };
+        Ok(PresignedLink { url, expires_at })
     }
 
     /// Émet un lien. La clé doit être sûre et appartenir à l'établissement du destinataire.
@@ -808,7 +879,7 @@ impl Presigner {
     /// Vérifie un jeton local (signature, expiration, clé sûre). Sans état, sans I/O.
     /// La disposition renvoyée est re-durcie.
     pub fn verify_local(&self, token: &str, now: i64) -> Result<SignedClaims, PresignError> {
-        let Backend::Local(l) = &self.backend else {
+        let Some(l) = self.signataire() else {
             return Err(PresignError::Disabled);
         };
         let mut c = l.verify(token, now)?;

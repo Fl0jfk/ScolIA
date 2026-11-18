@@ -192,6 +192,10 @@ pub mod types {
     pub const MESSAGERIE_MESSAGE_RETIRE: &str = "messagerie.message_retire";
     pub const MESSAGERIE_FILS_FUSIONNES: &str = "messagerie.fils_fusionnes";
     pub const MESSAGERIE_FIL_SCINDE: &str = "messagerie.fil_scinde";
+    // Lots M5 (pièces) et M6 (lecture) : charges sans contenu, sans sujet, sans nom (R-M14, R-M16).
+    pub const MESSAGERIE_PIECE_ANALYSEE: &str = "messagerie.piece_analysee";
+    pub const MESSAGERIE_CARTE_INSEREE: &str = "messagerie.carte_inseree";
+    pub const MESSAGERIE_LU_JUSQUA: &str = "messagerie.lu_jusqua";
     pub const ANNONCE_APERCU: &str = "annonce.apercu";
     pub const ANNONCE_RETIREE: &str = "annonce.retiree";
     pub const LIEN_VERIFIE: &str = "lien.verifie";

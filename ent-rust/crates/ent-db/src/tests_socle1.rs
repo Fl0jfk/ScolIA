@@ -162,7 +162,8 @@ async fn socle1_messagerie_prof_limitee_a_ses_eleves_et_a_ses_fils() {
     assert!(boite.iter().all(|f| f.eleve_id != draco));
     assert!(matches!(
         ent.list_messages_for_actor(etab, rogue, prof, fil_draco.id).await,
-        Err(EntDbError::Forbidden)
+        // M2 : 404 uniforme (même réponse qu'un fil absent), et non plus un 403.
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable))
     ));
     let r = ent
         .ouvrir_fil_for_actor(

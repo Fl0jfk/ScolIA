@@ -7,6 +7,16 @@ use sqlx::PgPool;
 use crate::tenant_tx::TenantTx;
 use uuid::Uuid;
 
+/// Issue d'un dépôt de pièce sous verrou (F1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertionPiece {
+    Inseree,
+    /// La limite de pièces par message est atteinte.
+    Plein,
+    MessageRetire,
+    MessageDiffere,
+}
+
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
 /// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
 ///
@@ -1011,13 +1021,45 @@ impl PgMsgRepo {
 
     /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets (clé + empreinte).
     /// Plus aucune écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
-    pub async fn insert_piece(&self, piece: &MsgPiece) -> Result<(), DomainError> {
+    /// Insère une pièce **sous verrou** du message (F1) : le message est verrouillé (`FOR UPDATE`), puis la limite de
+    /// `max` pièces et l'état du message (ni retiré, ni différé) sont contrôlés dans la même transaction que
+    /// l'insertion : deux dépôts simultanés ne dépassent pas la limite.
+    pub async fn insert_piece(&self, piece: &MsgPiece, max: i64) -> Result<InsertionPiece, DomainError> {
         let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
             return Err(DomainError::MsgPieceInvalide);
         };
         let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id)
             .await
             .map_err(map_sqlx)?;
+        let etat: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false)
+               FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(piece.etablissement_id)
+        .bind(piece.message_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let Some((retire, differe)) = etat else {
+            return Err(DomainError::NotFound);
+        };
+        if retire {
+            return Ok(InsertionPiece::MessageRetire);
+        }
+        if differe {
+            return Ok(InsertionPiece::MessageDiffere);
+        }
+        let (nb,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2",
+        )
+        .bind(piece.etablissement_id)
+        .bind(piece.message_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if nb >= max {
+            return Ok(InsertionPiece::Plein);
+        }
         sqlx::query(
             r#"
             INSERT INTO ent_msg_piece (
@@ -1041,7 +1083,7 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
+        Ok(InsertionPiece::Inseree)
     }
 
     pub async fn list_pieces_meta_fil(
@@ -1052,7 +1094,7 @@ impl PgMsgRepo {
         let rows = sqlx::query_as::<_, PieceMetaRow>(
             r#"
             SELECT id, message_id, nom, mime_type, taille_octets,
-                   created_by_user_id, created_at
+                   created_by_user_id, created_at, etat
             FROM ent_msg_piece
             WHERE etablissement_id = $1 AND fil_id = $2
             ORDER BY created_at ASC
@@ -1064,32 +1106,6 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PieceMetaRow::into_meta).collect())
-    }
-
-    pub async fn get_piece(
-        &self,
-        etablissement_id: Uuid,
-        piece_id: Uuid,
-    ) -> Result<Option<MsgPiece>, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id)
-            .await
-            .map_err(map_sqlx)?;
-        let row = sqlx::query_as::<_, PieceRow>(
-            r#"
-            SELECT id, etablissement_id, fil_id, message_id, nom, mime_type,
-                   taille_octets, COALESCE(contenu, '\x'::bytea) AS contenu,
-                   storage_key, sha256, created_by_user_id, created_at
-            FROM ent_msg_piece
-            WHERE etablissement_id = $1 AND id = $2
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(piece_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.map(PieceRow::into_piece))
     }
 
     /// Liens communicants de l'élève groupés par foyer (`None` = lien sans foyer) : un fil du
@@ -1130,13 +1146,19 @@ impl PgMsgRepo {
     }
 
     /// Supprime un message dont la remise est encore à venir (R-M48), s'il est de `auteur`.
-    /// `false` si le message est déjà remis, d'un autre auteur ou absent.
+    /// `None` si le message est déjà remis, d'un autre auteur ou absent ; sinon les clés d'objets des pièces supprimées
+    /// (original et fichier servi) : l'appelant détruit les objets **après** le commit.
+    ///
+    /// Tout se passe dans **une** transaction. Les cartes « document » et le journal d'accès aux pièces sont en ajout
+    /// seul : la suppression n'est permise que par l'exception bornée du déclencheur (réglage local
+    /// `ent.msg_annulation` = ce message, jamais remis, migration 490). Un message jamais remis n'a pas de lecteur : ses
+    /// cartes, accès et lectures disparaissent avec lui.
     pub async fn annuler_message_differe(
         &self,
         etablissement_id: Uuid,
         message_id: Uuid,
         auteur: Uuid,
-    ) -> Result<bool, DomainError> {
+    ) -> Result<Option<Vec<String>>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let ok: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_msg
@@ -1150,18 +1172,41 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         if ok.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
-        for table in ["ent_msg_piece", "ent_msg_accuse"] {
-            sqlx::query(&format!(
-                "DELETE FROM {table} WHERE etablissement_id = $1 AND message_id = $2"
-            ))
+        sqlx::query("SELECT set_config('ent.msg_annulation', $1, true)")
+            .bind(message_id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        for requete in [
+            "DELETE FROM ent_msg_carte_document WHERE etablissement_id = $1 AND message_id = $2",
+            "DELETE FROM ent_msg_piece_acces WHERE etablissement_id = $1
+               AND piece_id IN (SELECT id FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2)",
+            "DELETE FROM ent_msg_lecture WHERE etablissement_id = $1 AND lu_jusqua_message_id = $2",
+        ] {
+            sqlx::query(requete)
+                .bind(etablissement_id)
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx)?;
+        }
+        let cles: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+            "DELETE FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2
+             RETURNING storage_key, cle_objet_servi",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query("DELETE FROM ent_msg_accuse WHERE etablissement_id = $1 AND message_id = $2")
             .bind(etablissement_id)
             .bind(message_id)
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx)?;
-        }
         sqlx::query("DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2")
             .bind(etablissement_id)
             .bind(message_id)
@@ -1169,7 +1214,7 @@ impl PgMsgRepo {
             .await
             .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(true)
+        Ok(Some(cles.into_iter().flat_map(|(a, b)| [a, b]).flatten().collect()))
     }
 
     pub async fn count_pieces_message(
@@ -1348,6 +1393,7 @@ struct PieceMetaRow {
     taille_octets: i32,
     created_by_user_id: Uuid,
     created_at: DateTime<Utc>,
+    etat: String,
 }
 
 impl PieceMetaRow {
@@ -1360,41 +1406,7 @@ impl PieceMetaRow {
             taille_octets: self.taille_octets,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        }
-    }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct PieceRow {
-    id: Uuid,
-    etablissement_id: Uuid,
-    fil_id: Uuid,
-    message_id: Uuid,
-    nom: String,
-    mime_type: String,
-    taille_octets: i32,
-    contenu: Vec<u8>,
-    storage_key: Option<String>,
-    sha256: Option<String>,
-    created_by_user_id: Uuid,
-    created_at: DateTime<Utc>,
-}
-
-impl PieceRow {
-    fn into_piece(self) -> MsgPiece {
-        MsgPiece {
-            id: self.id,
-            etablissement_id: self.etablissement_id,
-            fil_id: self.fil_id,
-            message_id: self.message_id,
-            nom: self.nom,
-            mime_type: self.mime_type,
-            taille_octets: self.taille_octets,
-            contenu: self.contenu,
-            storage_key: self.storage_key,
-            sha256: self.sha256,
-            created_by_user_id: self.created_by_user_id,
-            created_at: self.created_at,
+            etat: self.etat,
         }
     }
 }

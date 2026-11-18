@@ -739,6 +739,12 @@ pub fn router() -> Router<AppState> {
         )
         .route("/messages/pieces/{id}", get(telecharger_piece))
         .route("/messages/pieces/{id}/lien", post(lien_piece_message))
+        // M5 : cartes « document » (R-M33) ; M6 : lecture, prise en charge et disponibilité (§13).
+        .route("/messages/{id}/cartes/document", post(joindre_carte_document))
+        .route("/messages/fils/{id}/cartes", get(cartes_du_fil))
+        .route("/messages/cartes/{id}/document", get(ouvrir_carte_document))
+        .route("/messages/fils/{id}/lecture", get(lecture_du_fil))
+        .route("/messages/fils/{id}/lu", post(marquer_fil_lu))
         .route(
             "/reinscription/campagne",
             get(get_campagne).post(ouvrir_campagne),
@@ -1933,6 +1939,18 @@ async fn servir_fichier_signe(
     if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
         return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
     }
+    // M8 : pièce de messagerie : les droits sont relus à l'ouverture (un participant retiré reçoit 404) et
+    // l'ouverture est journalisée.
+    state
+        .ent
+        .controler_ouverture_piece_message(
+            claims.etablissement_id,
+            session.user_id,
+            &session.role,
+            &claims.key,
+        )
+        .await
+        .map_err(map_db)?;
     // Lecture contrôlée : empreinte et taille comparées à celles de la base.
     let bytes = state
         .ent
@@ -10401,7 +10419,7 @@ async fn attacher_piece(
         .map_err(|_| (StatusCode::BAD_REQUEST, "contenu_base64 invalide".into()))?;
     let meta = state
         .ent
-        .attacher_piece_for_actor(
+        .attacher_piece_nature_for_actor(
             &session.role,
             AttacherPiece {
                 etablissement_id: session.etablissement_id,
@@ -10411,10 +10429,89 @@ async fn attacher_piece(
                 contenu,
                 actor_user_id: session.user_id,
             },
+            body.nature.as_deref(),
         )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(MsgPieceDto::from(&meta))))
+}
+
+/// Joint un document du coffre à un message : jamais le fichier, seulement une carte dont le droit **du lecteur** est
+/// relu à chaque lecture (R-M33).
+async fn joindre_carte_document(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<crate::dto::CarteDocumentBody>,
+) -> Result<(StatusCode, Json<ent_db::CarteDocument>), (StatusCode, String)> {
+    let c = state
+        .ent
+        .joindre_carte_document_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            body.document_id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(c)))
+}
+
+async fn cartes_du_fil(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ent_db::CarteDocument>>, (StatusCode, String)> {
+    let v = state
+        .ent
+        .cartes_du_fil_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v))
+}
+
+/// Ouvre le document d'une carte avec les droits du lecteur (socle 7 : trace et accusé de première ouverture).
+async fn ouvrir_carte_document(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Response, (StatusCode, String)> {
+    let d = state
+        .ent
+        .ouvrir_carte_document_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    attachment_response_dyn(d.octets, &d.nom, d.mime)
+}
+
+/// État de lecture, prise en charge et disponibilité d'un fil, tels que ce compte les voit (famille : sans heure).
+async fn lecture_du_fil(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ent_db::VueLecture>, (StatusCode, String)> {
+    let v = state
+        .ent
+        .lecture_du_fil_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v))
+}
+
+async fn marquer_fil_lu(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    body: Option<Json<crate::dto::MarquerLuBody>>,
+) -> Result<Json<crate::dto::MarquerLuDto>, (StatusCode, String)> {
+    let jusqua = body.and_then(|Json(b)| b.jusqua_message_id);
+    let pose = state
+        .ent
+        .marquer_lu_for_actor(session.etablissement_id, session.user_id, &session.role, id, jusqua)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(crate::dto::MarquerLuDto { pose }))
 }
 
 async fn telecharger_piece(
