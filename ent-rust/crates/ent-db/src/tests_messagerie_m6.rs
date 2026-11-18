@@ -263,7 +263,7 @@ async fn m6_disponibilite_horaires_de_la_boite() {
     let (vs, _) = boite(&ent, etab, dir, "vie_scolaire", &[cpe]).await;
     let o = ouvrir_boite(&ent, etab, lily, Role::Parent, vs, harry, "Horaires").await;
     // Sans horaire déclaré : aucune promesse de délai (R-M26).
-    let sans = ent.lecture_du_fil_a(etab, lily, role(Role::Parent), o.fil_id, Utc::now()).await.unwrap();
+    let sans = ent.lecture_du_fil_a(etab, lily, role(Role::Parent), o.fil_id, Utc.with_ymd_and_hms(2030, 4, 3, 10, 0, 0).unwrap()).await.unwrap();
     assert!(sans.disponibilite.is_none());
     let h = |j| HoraireSaisie {
         jour_iso: j,
