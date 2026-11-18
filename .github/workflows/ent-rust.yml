@@ -489,6 +489,10 @@ jobs:
           cargo clippy --locked -p ent-web-app --lib --target wasm32-unknown-unknown --features hydrate -- -D warnings
       - name: Tests unitaires (design system, client API, modèle d'appel)
         run: cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr
+      - name: En-têtes de sécurité et parité des droits SANS la feature labo (configuration de production, sans base ni backend)
+        # Même commande que l'ancien job unique : l'archive des tests est compilée AVEC labo, cette étape garde
+        # la vérification de la CSP à nonce et de la parité des droits dans la configuration réelle.
+        run: cargo test --locked -p ent-web-server --test entetes_securite --test droits_parite
 
   # Build de production du WebAssembly (profil wasm-release, wasm-opt, précompression) : seule vérification
   # du paquet envoyé au navigateur. Indépendant du serveur natif (compilé dans frontend-build-serveur).
@@ -667,8 +671,54 @@ jobs:
     needs: [portee, frontend-lint, frontend-build-wasm, frontend-build-serveur, frontend-archive, frontend-tests]
     if: always() && needs.portee.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - uses: actions/download-artifact@v4
+        if: always() && needs.frontend-archive.result == 'success'
+        with:
+          pattern: "{inventaire-frontend,execution-frontend-*}"
+          path: ${{ runner.temp }}/resultats
+      - name: Aucun test du frontend ne disparaît (tout test listé est exécuté, une seule fois)
+        if: always() && needs.frontend-archive.result == 'success'
+        run: |
+          python3 -I - "$RUNNER_TEMP/resultats" <<'PY'
+          import re, sys, glob, collections, os
+          racine = sys.argv[1]
+          def lire(c):
+              with open(c, encoding="utf8") as f:
+                  return [l.strip() for l in f if l.strip()]
+          listes = lire(f"{racine}/inventaire-frontend/liste.txt")
+          motif = re.compile(r"^\s*(PASS|FAIL|FLAKY \d+/\d+|TIMEOUT|SIG\w+|LEAK|EXECFAIL)\s+\[[^\]]*\]\s+(?:\(\s*\d+/\d+\)\s+)?(\S+)\s+(\S+)\s*$")
+          vus = collections.Counter(); echecs = []
+          fichiers = sorted(glob.glob(f"{racine}/execution-frontend-*/*.log"))
+          for fic in fichiers:
+              deja = set()
+              for l in lire(fic):
+                  m = motif.match(l)
+                  if m:
+                      cle = f"{m.group(2)} {m.group(3)}"
+                      if cle in deja: continue
+                      deja.add(cle); vus[cle] += 1
+                      if not m.group(1).startswith(("PASS", "FLAKY")): echecs.append(cle)
+          par = collections.OrderedDict()
+          for k in sorted(listes):
+              b = k.split(" ", 1)[0]
+              par.setdefault(b, [0, 0])[0] += 1
+              if k in vus: par[b][1] += 1
+          manquants = sorted(set(listes) - set(vus)); inconnus = sorted(set(vus) - set(listes))
+          doubles = sorted(k for k, n in vus.items() if n > 1)
+          tab = "| binaire de test | listés | exécutés |\n|---|---|---|\n" + "\n".join(f"| {b} | {n[0]} | {n[1]} |" for b, n in par.items())
+          tot = f"TOTAL : {len(listes)} listés, {sum(vus.values())} exécutés, {len(fichiers)} journaux, {len(manquants)} manquants, {len(doubles)} doublons, {len(echecs)} échecs"
+          print(tab); print(tot)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf8") as f:
+              f.write("### Couverture des tests du frontend\n\n" + tab + "\n\n" + tot + "\n")
+          ok = fichiers and not (manquants or inconnus or doubles or echecs)
+          for t, lot in (("NON EXÉCUTÉS", manquants), ("EXÉCUTÉS SANS ÊTRE LISTÉS", inconnus), ("EXÉCUTÉS PLUSIEURS FOIS", doubles), ("EN ÉCHEC", echecs)):
+              if lot:
+                  print(f"::error::frontend — {t} ({len(lot)}) :")
+                  for k in lot[:50]: print("   ", k)
+          sys.exit(0 if ok else 1)
+          PY
       - run: |
           echo "lint=${{ needs.frontend-lint.result }} wasm=${{ needs.frontend-build-wasm.result }} serveur=${{ needs.frontend-build-serveur.result }} archive=${{ needs.frontend-archive.result }} tests=${{ needs.frontend-tests.result }}"
           for r in "${{ needs.frontend-lint.result }}" "${{ needs.frontend-build-wasm.result }}" "${{ needs.frontend-build-serveur.result }}" "${{ needs.frontend-archive.result }}" "${{ needs.frontend-tests.result }}"; do
