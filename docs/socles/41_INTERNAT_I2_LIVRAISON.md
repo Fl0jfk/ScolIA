@@ -27,7 +27,7 @@ RLS `tests_rls.rs` : base ENT + **13**. Registre des données : +13 tables class
 
 - `ent-db` `tests_internat_i2` : **18 verts** (attendu, fermeture du calendrier, nuits à cheval sur minuit, changements d'heure de mars et octobre 2026, établissement de La Réunion, cycle complet avec PDF, concurrence, un seul appel par périmètre, R-IT14 service et base, conflit, retard et malade, cas, procédure versionnée, transmission, rappels, droits, périmètre R-IT30, isolation entre établissements, élève protégé, journal).
 - Tests d'`ent-db` touchés ou partagés rejoués : RLS, registre, conservation, RGPD, rôles, fusion, `tests_internat` (I0/I1) ; `ent-auth` 64 ; `domain-eleve` 301 ; gardes `jour_utc_interdit` et `isolation_sql_statique` ; `ent-api` `tests_internat` 3 (dont un nouveau parcours HTTP).
-- `cargo fmt -p ent-types --check` et fmt du frontend : propres. Clippy 1.99 `-D warnings` : voir §6.
+- `cargo fmt -p ent-types --check` et fmt du frontend : propres. Clippy 1.99 `-D warnings` : les trois commandes de la CI propres (workspace ; workspace avec `ent-api/labo,ent-lab/labo` ; `-p ent-types`).
 
 ## 5. Écarts et questions
 
@@ -44,4 +44,4 @@ RLS `tests_rls.rs` : base ENT + **13**. Registre des données : +13 tables class
 
 ## 6. Qualité
 
-Voir le dernier commit pour le résultat de clippy (rapporté dans la PR).
+0 nouvel avertissement (rustc et clippy, tests et labo compris) dans les lignes ajoutées. `origin/ENT` n'avait pas avancé (bcdc2e02) : fusion vide, compteurs inchangés. Non rejoué en local : la suite complète d'`ent-db` (≈ 3 h), la RLS stricte et le frontend, laissés à la CI de la PR ; `ent-rust/web/Cargo.lock` non touché.
