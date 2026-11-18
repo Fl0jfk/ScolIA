@@ -115,8 +115,11 @@ async fn regler_heure_locale(base: &str, direction: &Compte, heure: i32) {
 }
 
 /// Prochain jour ouvré (lundi à vendredi) à partir de demain : dans la fenêtre du tableau (veille à +14 jours).
+/// Premier jour ouvré **après demain** (Paris) : toujours dans le futur pour l'établissement, même quand
+/// `regler_heure_locale` le place jusqu'à UTC+14, où le jour local a déjà un jour d'avance sur Paris (entre 22 h
+/// et minuit UTC, « demain » à Paris serait « aujourd'hui » localement et ses séances du matin déjà passées).
 fn jour_ouvre() -> NaiveDate {
-    let mut j = ent_db::jour_paris() + Duration::days(1);
+    let mut j = ent_db::jour_paris() + Duration::days(2);
     while j.weekday().number_from_monday() > 5 {
         j += Duration::days(1);
     }
