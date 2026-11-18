@@ -266,3 +266,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - M6 : sans entité de facturation, l'organisateur ne collecte pas ;
     - F7 : export conservé 30 jours ;
     - F8 : compteurs masqués sous 3 payeurs.
+- **18-11, 5 h 10 UTC, E9 (PR 96)** :
+  - Le run de 809c1e38 n'a **aucun test en échec**. Seul le job Frontend a été coupé à 75 minutes, alors qu'il en prenait déjà 74 sur ENT au run 391.
+  - **ENT 7c368f0c** : délai du job frontend porté à 95 minutes (YAML seulement). Puis fusion d'ENT dans E9 (71cd4b2e) pour relancer la CI.
+  - **À faire, lot CI dédié** : accélérer le job frontend (build release de 27 minutes, tests contre le backend de 18 minutes, session de 9 minutes), avec un budget de 0 €.
