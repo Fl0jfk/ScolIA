@@ -455,6 +455,20 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("490_msg_correctifs_revue"),
     // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
     m!("3201_jour_etablissement_unique"),
+    // Socle 21 (évaluations), lot V1 « modèle et reprise » (plage 461–479 ; 460 = V0) : règles de calcul, évaluations,
+    // résultats (historique en ajout seul, aucune suppression), états de période (machine d'états), appréciations,
+    // demandes, enseignements externes, reprise M2 et vues de compatibilité. Elles référencent `ent_cours` (341),
+    // `ent_periodisation_pour_classe` (335), `ent_jour_etablissement` (3201) et `ent_rls_poser` (580) : appliquées en
+    // dernier. Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28). 469 exécute la reprise (une fois par établissement).
+    m!("461_eva_v1_reglages_coefficients"),
+    m!("462_eva_v1_evaluations"),
+    m!("463_eva_v1_periodes"),
+    m!("464_eva_v1_resultats"),
+    m!("465_eva_v1_appreciations"),
+    m!("466_eva_v1_demandes_externes"),
+    m!("467_eva_v1_reprise"),
+    m!("468_eva_v1_vues_compat"),
+    m!("469_eva_v1_reprise_executee"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
