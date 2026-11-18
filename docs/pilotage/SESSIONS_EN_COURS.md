@@ -344,3 +344,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - **`executable.elf`** : binaire compilé hors du dépôt, à supprimer.
   - La session d'origine est archivée, puisqu'elle refuse les consignes par message. **Nouvelle session « M5-M6 correctifs »** (session_01KZCbFGLHwHYsVuH8T37M3b) sur la même branche, toutes les consignes dans son lancement.
   - Désabonnement de la PR 101 en attendant la nouvelle tête.
+- **18-11, 12 h 35 UTC : ENT 7e0131c8, migration 3201.**
+  - `ent_jour_etablissement` lit d'abord le réglage officiel du fuseau, ce qui supprime les deux jours différents pour un établissement d'outre-mer.
+  - Le test `fuseau_jour_meme_autour_de_minuit` (V2a) était rouge de 11 h à minuit UTC (runs 407 et 408).
+  - 18 tests de fuseau verts en local à 12 h 30 UTC.
+  - Fusionnée dans ent-suites-18-11. ENT est gelé jusqu'au verdict.
