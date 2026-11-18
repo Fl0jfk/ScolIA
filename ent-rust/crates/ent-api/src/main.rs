@@ -160,6 +160,8 @@ ent-api reprise-pieces [options]
   --table <messagerie|pai|toutes>   (défaut : toutes)
   --lot <n>                 taille d'un lot (défaut 50)
   --limite <n>              s'arrêter proprement après n pièces
+  --analyser                après la reprise, analyser les pièces de messagerie en quarantaine (antivirus
+                            `CLAMAV_ADDR`, désarmement et normalisation : lot M5) ; sans démon, elles y restent
 Code de sortie : 0 tout repris / simulation sans échec ; 1 erreur ; 2 au moins une pièce en échec.
 Les journaux et le rapport ne contiennent ni nom de fichier ni clé d'objet.
 ";
@@ -168,6 +170,7 @@ async fn reprise_pieces(args: &[String]) -> i32 {
     use ent_db::reprise_bytea::{OptionsReprise, TablePiece};
     let mut options = OptionsReprise::default();
     let mut etab: Option<uuid::Uuid> = None;
+    let mut analyser = false;
     let mut tables: Vec<TablePiece> = TablePiece::TOUTES.to_vec();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -175,6 +178,7 @@ async fn reprise_pieces(args: &[String]) -> i32 {
         match a.as_str() {
             "--simulation" => options.simulation = true,
             "--sauvegarde-verifiee" => options.vider = true,
+            "--analyser" => analyser = true,
             "--etablissement" => match valeur().and_then(|v| uuid::Uuid::parse_str(&v).ok()) {
                 Some(u) => etab = Some(u),
                 None => return erreur_reprise("--etablissement attend un UUID"),
@@ -221,6 +225,27 @@ async fn reprise_pieces(args: &[String]) -> i32 {
     for r in &rapports {
         println!("{}", r.resume());
         echecs += r.en_echec.len();
+    }
+    // M5 : analyse a posteriori des pièces de messagerie (jamais en simulation, jamais sans antivirus).
+    if analyser && !options.simulation && tables.contains(&TablePiece::Messagerie) {
+        let Some(av) = ent_db::documents_pieces_taches::antivirus_depuis_env() else {
+            return erreur_reprise("--analyser exige CLAMAV_ADDR (fermé par défaut : sans antivirus, rien ne sort de quarantaine)");
+        };
+        let bilan = match etab {
+            Some(e) => ent.analyser_pieces_messagerie_etablissement(e, av, 500).await,
+            None => ent.analyser_pieces_messagerie_tache(av, 500).await,
+        };
+        match bilan {
+            Ok(b) => println!(
+                "Analyse des pièces de messagerie : {} saine(s), {} infectée(s), {} refusée(s), {} en quarantaine{}",
+                b.saines,
+                b.infectees,
+                b.rejetees,
+                b.en_quarantaine,
+                if b.antivirus_indisponible { " (antivirus indisponible : passe interrompue)" } else { "" }
+            ),
+            Err(e) => return erreur_reprise(&format!("analyse impossible : {e}")),
+        }
     }
     let restantes: u64 = rapports.iter().map(|r| r.restantes).sum();
     println!(
@@ -592,6 +617,17 @@ async fn run_api() {
                     }
                     Ok(_) => {}
                     Err(e) => tracing::warn!("analyse des pièces : {e}"),
+                }
+                // Messagerie (M5) : mêmes règles — pièces jointes en quarantaine, antivirus puis normalisation.
+                match ent.analyser_pieces_messagerie_tache(av.clone(), 20).await {
+                    Ok(b) if b.antivirus_indisponible => {
+                        tracing::warn!("antivirus indisponible : pièces de messagerie maintenues en quarantaine")
+                    }
+                    Ok(b) if b != Default::default() => {
+                        tracing::info!(analyses = ?b, "pièces de messagerie analysées")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("analyse des pièces de messagerie : {e}"),
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }

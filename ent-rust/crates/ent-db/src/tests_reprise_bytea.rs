@@ -183,11 +183,15 @@ async fn nb_objets(ent: &PgEnt, etab: Uuid) -> i64 {
         .unwrap()
 }
 
+/// Lit l'**original scellé** d'une pièce de messagerie dans le magasin (M5 : le téléchargement ne sert plus que le
+/// fichier analysé ; ce test-ci vérifie la reprise, donc l'objet repris — l'analyse a ses propres tests, M5).
 async fn lire_msg(ent: &PgEnt, m: &Monde, id: Uuid) -> Vec<u8> {
-    ent.telecharger_piece_for_actor(m.etab, m.direction, Role::Direction.as_str(), id)
+    let cle: String = sqlx::query_scalar("SELECT storage_key FROM ent_msg_piece WHERE id = $1")
+        .bind(id)
+        .fetch_one(ent.pool())
         .await
-        .expect("lecture pièce")
-        .contenu
+        .expect("clé d'objet de la pièce");
+    ent.lire_objet(m.etab, &cle).await.expect("lecture pièce")
 }
 
 async fn lire_pai(ent: &PgEnt, m: &Monde, id: Uuid) -> Vec<u8> {

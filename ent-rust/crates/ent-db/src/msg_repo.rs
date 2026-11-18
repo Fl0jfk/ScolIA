@@ -1052,7 +1052,7 @@ impl PgMsgRepo {
         let rows = sqlx::query_as::<_, PieceMetaRow>(
             r#"
             SELECT id, message_id, nom, mime_type, taille_octets,
-                   created_by_user_id, created_at
+                   created_by_user_id, created_at, etat
             FROM ent_msg_piece
             WHERE etablissement_id = $1 AND fil_id = $2
             ORDER BY created_at ASC
@@ -1064,32 +1064,6 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PieceMetaRow::into_meta).collect())
-    }
-
-    pub async fn get_piece(
-        &self,
-        etablissement_id: Uuid,
-        piece_id: Uuid,
-    ) -> Result<Option<MsgPiece>, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id)
-            .await
-            .map_err(map_sqlx)?;
-        let row = sqlx::query_as::<_, PieceRow>(
-            r#"
-            SELECT id, etablissement_id, fil_id, message_id, nom, mime_type,
-                   taille_octets, COALESCE(contenu, '\x'::bytea) AS contenu,
-                   storage_key, sha256, created_by_user_id, created_at
-            FROM ent_msg_piece
-            WHERE etablissement_id = $1 AND id = $2
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(piece_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.map(PieceRow::into_piece))
     }
 
     /// Liens communicants de l'élève groupés par foyer (`None` = lien sans foyer) : un fil du
@@ -1348,6 +1322,7 @@ struct PieceMetaRow {
     taille_octets: i32,
     created_by_user_id: Uuid,
     created_at: DateTime<Utc>,
+    etat: String,
 }
 
 impl PieceMetaRow {
@@ -1360,41 +1335,7 @@ impl PieceMetaRow {
             taille_octets: self.taille_octets,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        }
-    }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct PieceRow {
-    id: Uuid,
-    etablissement_id: Uuid,
-    fil_id: Uuid,
-    message_id: Uuid,
-    nom: String,
-    mime_type: String,
-    taille_octets: i32,
-    contenu: Vec<u8>,
-    storage_key: Option<String>,
-    sha256: Option<String>,
-    created_by_user_id: Uuid,
-    created_at: DateTime<Utc>,
-}
-
-impl PieceRow {
-    fn into_piece(self) -> MsgPiece {
-        MsgPiece {
-            id: self.id,
-            etablissement_id: self.etablissement_id,
-            fil_id: self.fil_id,
-            message_id: self.message_id,
-            nom: self.nom,
-            mime_type: self.mime_type,
-            taille_octets: self.taille_octets,
-            contenu: self.contenu,
-            storage_key: self.storage_key,
-            sha256: self.sha256,
-            created_by_user_id: self.created_by_user_id,
-            created_at: self.created_at,
+            etat: self.etat,
         }
     }
 }

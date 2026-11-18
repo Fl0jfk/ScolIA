@@ -308,8 +308,10 @@ impl UsageFichier {
     fn defaut_octets(self) -> usize {
         match self {
             Self::Document => 10 * MIB,
-            // Contenu stocké en base (P0) : plafond historique conservé.
-            Self::PieceMessage | Self::PiecePai => 256 * KIB,
+            // Pièce de messagerie (M5) : stockée dans le magasin d'objets, 20 Mio comme la conception (§12).
+            Self::PieceMessage => 20 * MIB,
+            // Contenu du PAI encore stocké en base : plafond historique conservé.
+            Self::PiecePai => 256 * KIB,
             Self::Photo => 5 * MIB,
             // Stockés dans le magasin d'objets (pas en base) : même plafond que les documents.
             Self::PieceCahier | Self::Copie => 10 * MIB,

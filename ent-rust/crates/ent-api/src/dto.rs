@@ -1195,6 +1195,21 @@ pub struct MsgPieceDto {
     pub mime_type: String,
     pub taille_octets: i32,
     pub created_at: String,
+    /// M5 : `en_quarantaine`, `saine`, `infectee` ou `rejetee` (seule une pièce `saine` se télécharge).
+    pub etat: String,
+    /// Texte à afficher à la place du lien quand la pièce n'est pas servie (CM-58) ; absent si elle l'est.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub libelle_etat: Option<&'static str>,
+}
+
+/// Libellé d'une pièce qui n'est pas servie : jamais le motif de l'analyse ni le nom de la menace.
+pub fn libelle_etat_piece(etat: &str) -> Option<&'static str> {
+    match etat {
+        "saine" => None,
+        "infectee" => Some("pièce refusée (sécurité)"),
+        "rejetee" => Some("pièce refusée (format non pris en charge)"),
+        _ => Some("pièce en cours d'analyse"),
+    }
 }
 
 impl From<&domain_eleve::MsgPieceMeta> for MsgPieceDto {
@@ -1206,6 +1221,8 @@ impl From<&domain_eleve::MsgPieceMeta> for MsgPieceDto {
             mime_type: p.mime_type.clone(),
             taille_octets: p.taille_octets,
             created_at: p.created_at.to_rfc3339(),
+            etat: p.etat.clone(),
+            libelle_etat: libelle_etat_piece(&p.etat),
         }
     }
 }
@@ -1214,8 +1231,31 @@ impl From<&domain_eleve::MsgPieceMeta> for MsgPieceDto {
 pub struct AttacherPieceBody {
     pub nom: String,
     pub mime_type: String,
-    /// Contenu encodé base64 (max 256 Ko décodé).
+    /// Contenu encodé base64 (20 Mio au plus décodé, M5 ; borné aussi par `ENT_UPLOAD_MAX_MESSAGE`).
     pub contenu_base64: String,
+    /// Nature documentaire déclarée par l'appelant (CM-60) : un personnel qui déclare une nature du coffre est refusé
+    /// (il joint une carte document). Facultative.
+    #[serde(default)]
+    pub nature: Option<String>,
+}
+
+/// Joindre un document du coffre (socle 7) à un message, par carte (R-M33).
+#[derive(Debug, Deserialize)]
+pub struct CarteDocumentBody {
+    pub document_id: Uuid,
+}
+
+/// Marquer un fil lu (M6) : jusqu'à un message, ou jusqu'au dernier.
+#[derive(Debug, Default, Deserialize)]
+pub struct MarquerLuBody {
+    #[serde(default)]
+    pub jusqua_message_id: Option<Uuid>,
+}
+
+/// Résultat de « marquer lu » : `pose` est faux quand aucune participation active n'a avancé (R-M19).
+#[derive(Debug, Serialize)]
+pub struct MarquerLuDto {
+    pub pose: bool,
 }
 
 #[derive(Debug, Serialize)]

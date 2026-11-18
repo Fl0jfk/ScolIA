@@ -174,6 +174,9 @@ pub struct Etab {
 
 pub struct Monde {
     pub routeur: axum::Router,
+    /// Le service **du serveur** (même magasin d'objets en mémoire) : pour lancer, dans un test, la tâche de fond qui
+    /// sort les pièces de quarantaine (messagerie M5, socle 7 D5b), que le serveur de test ne lance pas.
+    pub ent: std::sync::Arc<ent_db::PgEnt>,
     pub a: Etab,
     pub b: Etab,
 }
@@ -392,9 +395,11 @@ impl Monde {
         let (state, _bind) = ent_api::boot_from_env()
             .await
             .unwrap_or_else(|e| panic!("démarrage ent-api : {e}"));
+        let ent = state.ent.clone();
         let routeur = ent_api::app(state);
         let mut monde = Monde {
             routeur,
+            ent,
             a: Etab::vide(),
             b: Etab::vide(),
         };

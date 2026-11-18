@@ -12,11 +12,11 @@ use domain_eleve::RepondreFil;
 use ent_auth::Role;
 use uuid::Uuid;
 
-fn jour() -> chrono::NaiveDate {
+pub(crate) fn jour() -> chrono::NaiveDate {
     domain_eleve::horloge::jour_paris()
 }
 
-async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+pub(crate) async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     let (p,): (Option<Uuid>,) = sqlx::query_as("SELECT ent_msg_personne_du_compte($1, $2)")
         .bind(etab)
         .bind(user)
@@ -98,7 +98,7 @@ async fn mission(
 
 /// Une boîte du catalogue, avec un type de mission rattaché ; rend `(boîte, type de mission)`. Les membres
 /// reçoivent une mission depuis 30 jours.
-async fn boite(ent: &PgEnt, etab: Uuid, dir: Uuid, code: &str, membres: &[Uuid]) -> (Uuid, Uuid) {
+pub(crate) async fn boite(ent: &PgEnt, etab: Uuid, dir: Uuid, code: &str, membres: &[Uuid]) -> (Uuid, Uuid) {
     let b = ent
         .creer_boite_for_actor(
             etab,
@@ -119,7 +119,7 @@ async fn boite(ent: &PgEnt, etab: Uuid, dir: Uuid, code: &str, membres: &[Uuid])
     (b.id, t)
 }
 
-async fn ouvrir_boite(
+pub(crate) async fn ouvrir_boite(
     ent: &PgEnt,
     etab: Uuid,
     user: Uuid,
@@ -133,7 +133,7 @@ async fn ouvrir_boite(
         .expect("ouverture vers la boîte")
 }
 
-fn rep(etab: Uuid, user: Uuid, fil: Uuid, corps: &str) -> RepondreFil {
+pub(crate) fn rep(etab: Uuid, user: Uuid, fil: Uuid, corps: &str) -> RepondreFil {
     RepondreFil { etablissement_id: etab, fil_id: fil, corps: corps.into(), actor_user_id: user }
 }
 

@@ -140,6 +140,16 @@ pub use msg_m4::{
     ApercuLot, BrouillonSaisie, BrouillonVu, ModeleVu, PorteeModele, BROUILLONS_MAX, CORRECTION_MINUTES,
     LOT_MAX_FILS, PROGRAMMATION_JOURS, RETRAIT_MINUTES,
 };
+mod msg_m5;
+mod msg_m6;
+pub use msg_m6::{
+    disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
+    PlageOuverture, PriseEnCharge, VueLecture, NON_LU_APRES_JOURS,
+};
+pub use msg_m5::{
+    cle_servie_est_a_moi, png_nettoye, BilanAnalysePieces, CarteDocument, IssueAnalyse, RapportRepriseM5,
+    CARTES_MAX_PAR_MESSAGE, ESPACE_SERVI,
+};
 mod note_repo;
 pub mod cahier;
 pub mod cahier_c2;
@@ -195,6 +205,10 @@ mod tests_messagerie_m2;
 mod tests_messagerie_m3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m6;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;

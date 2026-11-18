@@ -9,9 +9,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Taille max d'une PJ messagerie (P0 local) : égale au `CHECK` de la colonne `taille_octets`
-/// (migration 038). Un réglage supérieur (`ENT_UPLOAD_MAX_MESSAGE`) ne la dépasse jamais.
-pub const MSG_PIECE_MAX_OCTETS: usize = 256 * 1024;
+/// Taille max d'une PJ messagerie (M5, §12 point 3) : 20 Mio, égale au `CHECK` de la colonne `taille_octets`
+/// (migration 488 ; le plafond historique de 256 Kio tenait au stockage en base). Un réglage supérieur
+/// (`ENT_UPLOAD_MAX_MESSAGE`) ne la dépasse jamais.
+pub const MSG_PIECE_MAX_OCTETS: usize = 20 * 1024 * 1024;
 /// Longueurs maximales (R-M44, M0b D17) : sujet 200 caractères, message 20 000, 5 pièces.
 pub const MSG_SUJET_MAX_CARACTERES: usize = 200;
 pub const MSG_CORPS_MAX_CARACTERES: usize = 20_000;
@@ -169,6 +170,14 @@ pub struct MsgPiece {
     pub sha256: Option<String>,
     pub created_by_user_id: Uuid,
     pub created_at: DateTime<Utc>,
+    /// M5 : `en_quarantaine` (à la création), `saine`, `infectee` ou `rejetee`. Seule une pièce `saine` est servie.
+    #[serde(default = "etat_piece_defaut")]
+    pub etat: String,
+}
+
+/// État d'une pièce qui vient d'être déposée : en quarantaine, jamais servie avant l'analyse (R-M31).
+pub fn etat_piece_defaut() -> String {
+    "en_quarantaine".to_string()
 }
 
 /// Métadonnées PJ sans bytes (listes / UI).
@@ -181,6 +190,9 @@ pub struct MsgPieceMeta {
     pub taille_octets: i32,
     pub created_by_user_id: Uuid,
     pub created_at: DateTime<Utc>,
+    /// M5 : voir [`MsgPiece::etat`].
+    #[serde(default = "etat_piece_defaut")]
+    pub etat: String,
 }
 
 impl From<&MsgPiece> for MsgPieceMeta {
@@ -193,6 +205,7 @@ impl From<&MsgPiece> for MsgPieceMeta {
             taille_octets: p.taille_octets,
             created_by_user_id: p.created_by_user_id,
             created_at: p.created_at,
+            etat: p.etat.clone(),
         }
     }
 }
@@ -368,6 +381,7 @@ pub fn plan_attacher_piece(msg: &Message, cmd: AttacherPiece) -> Result<MsgPiece
         sha256: None,
         created_by_user_id: cmd.actor_user_id,
         created_at: Utc::now(),
+        etat: etat_piece_defaut(),
     })
 }
 

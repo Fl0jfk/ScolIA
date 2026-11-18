@@ -33,6 +33,14 @@ const FICHIERS_SQL_MESSAGERIE: &[(&str, &str)] = &[
         "msg_m4.rs",
         "écrire mieux M4 : lots, modèles à portée, brouillons, correction, retrait, fusion et scission, tous bornés à l'auteur ou à `peut_lire_fil`",
     ),
+    (
+        "msg_m5.rs",
+        "pièces M5 : chaque lecture passe par `actor_can_access_fil` (404 uniforme) ; l'analyse et la reprise sont des opérations de fond bornées par établissement",
+    ),
+    (
+        "msg_m6.rs",
+        "lecture et avis M6 : chaque lecture par identifiant passe d'abord par `actor_can_access_fil` ; « lu jusqu'à » ne s'écrit que pour une participation active",
+    ),
     ("registre_donnees.rs", "catalogue statique des tables"),
     ("migrate.rs", "migrations (rôle propriétaire)"),
     ("pra.rs", "sauvegarde / restauration (rôle propriétaire)"),
@@ -57,7 +65,6 @@ const PAR_IDENTIFIANT: &[&str] = &[
     "list_messages",
     "list_accuses_fil",
     "list_pieces_meta_fil",
-    "get_piece",
     "get_message",
     "message_remis_pour",
     "count_pieces_message",
