@@ -15,6 +15,34 @@ use uuid::Uuid;
 use crate::droits_ctx::accorde;
 use crate::service::{EntDbError, PgEnt};
 
+/// Plafond de la recherche qui alimente la liste des élèves (E9a) : au-delà, on affine.
+pub const LISTE_PLAFOND: i64 = 2000;
+
+/// Filtres de la liste des élèves (E9a).
+#[derive(Debug, Clone, Default)]
+pub struct FiltreListeEleves<'a> {
+    pub q: &'a str,
+    pub classe: Option<&'a str>,
+    /// `actif`, `preinscrit` ou `sorti`.
+    pub statut: Option<&'a str>,
+    pub pastille: Option<&'a str>,
+    pub limite: i64,
+    pub decalage: i64,
+}
+
+/// Une page de la liste des élèves.
+#[derive(Debug, Clone)]
+pub struct ListeEleves {
+    pub eleves: Vec<EleveVue>,
+    pub total: i64,
+    pub decalage: i64,
+    pub limite: i64,
+    pub tronque: bool,
+    /// Le lecteur voit tout l'annuaire de l'établissement (sinon : un périmètre, ex. ses classes).
+    pub portee_etendue: bool,
+    pub classes: Vec<String>,
+}
+
 fn action_du_groupe(g: GroupeChamps) -> Action {
     Action::parse(g.action()).expect("action de groupe présente au catalogue")
 }
@@ -187,6 +215,73 @@ impl PgEnt {
                 EleveVue::de(e, g)
             })
             .collect())
+    }
+
+    /// Liste des élèves pour l'écran « Élèves » (lot E9a) : l'annuaire de l'acteur (même garde,
+    /// même portée, mêmes protégés écartés que la recherche), filtré puis paginé. Les filtres
+    /// ne donnent aucun oracle : ils portent sur ce que l'acteur voit déjà.
+    ///
+    /// * `pastille` : liste de travail d'une pastille (droits de la pastille exigés, protégés
+    ///   écartés avant la limite) ; une pastille inconnue ou non permise refuse la requête.
+    /// * La recherche est plafonnée (`LISTE_PLAFOND`) : au-delà, `tronque` invite à affiner.
+    pub async fn lister_eleves_pour_acteur(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        f: &FiltreListeEleves<'_>,
+    ) -> Result<ListeEleves, EntDbError> {
+        // La liste est réservée au personnel (les familles passent par le portail, lien par lien).
+        if !Role::parse(role).is_some_and(Role::is_staff) {
+            return Err(EntDbError::Forbidden);
+        }
+        if let Some(s) = f.statut {
+            if !["actif", "preinscrit", "sorti"].contains(&s) {
+                return Err(EntDbError::SaisieInvalide("statut inconnu"));
+            }
+        }
+        let profil = self.profil_champs(etablissement_id, user_id, role).await?;
+        let etendue = matches!(profil.portee(GroupeChamps::Designation), PorteeGroupe::Tout);
+        let tout = self
+            .search_eleves_pour_acteur(etablissement_id, user_id, role, f.q, LISTE_PLAFOND)
+            .await?;
+        let tronque = i64::try_from(tout.len()).unwrap_or(i64::MAX) >= LISTE_PLAFOND;
+        let de_la_pastille: Option<HashSet<Uuid>> = match f.pastille {
+            Some(code) => Some(
+                self.eleves_par_pastille_pour_acteur(role, etablissement_id, user_id, code, 5000)
+                    .await?
+                    .into_iter()
+                    .collect(),
+            ),
+            None => None,
+        };
+        let retenus: Vec<EleveVue> = tout
+            .into_iter()
+            .filter(|v| de_la_pastille.as_ref().is_none_or(|ids| ids.contains(&v.eleve.id)))
+            .collect();
+        let mut classes: Vec<String> = retenus
+            .iter()
+            .filter_map(|v| v.eleve.classe.clone())
+            .filter(|c| !c.trim().is_empty())
+            .collect();
+        classes.sort();
+        classes.dedup();
+        let filtres: Vec<EleveVue> = retenus
+            .into_iter()
+            .filter(|v| {
+                f.classe.is_none_or(|c| v.eleve.classe.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(c)))
+                    && f.statut.is_none_or(|s| v.eleve.status.as_str() == s)
+            })
+            .collect();
+        let total = i64::try_from(filtres.len()).unwrap_or(i64::MAX);
+        let limite = f.limite.clamp(1, 100);
+        let decalage = f.decalage.max(0);
+        let page = filtres
+            .into_iter()
+            .skip(usize::try_from(decalage).unwrap_or(usize::MAX))
+            .take(usize::try_from(limite).unwrap_or(100))
+            .collect();
+        Ok(ListeEleves { eleves: page, total, decalage, limite, tronque, portee_etendue: etendue, classes })
     }
 
     /// Un élève pour un acteur, minimisé (annuaire requis, puis groupes).

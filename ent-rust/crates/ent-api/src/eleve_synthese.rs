@@ -24,6 +24,7 @@ type Res<T> = Result<T, (StatusCode, String)>;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/eleves/liste", get(liste))
         .route("/eleves/pastilles", get(compteurs))
         .route("/eleves/pastilles/catalogue", get(catalogue))
         .route("/eleves/pastilles/{code}", get(liste_par_pastille))
@@ -74,6 +75,60 @@ fn synthese_dto(s: &SyntheseEleve) -> dto::SyntheseDto {
             })
             .collect(),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ListeQuery {
+    q: Option<String>,
+    classe: Option<String>,
+    statut: Option<String>,
+    pastille: Option<String>,
+    limite: Option<i64>,
+    decalage: Option<i64>,
+}
+
+/// `GET /eleves/liste` — une page de la liste des élèves (lot E9a). Même annuaire, même portée et mêmes
+/// protégés écartés que `GET /eleves/search` ; les filtres ne portent que sur ce que le lecteur voit.
+async fn liste(State(state): State<AppState>, session: EntSession, Query(q): Query<ListeQuery>) -> Res<Json<dto::EleveListeDto>> {
+    session.require_staff()?;
+    let vide = |s: &Option<String>| s.as_deref().map(str::trim).filter(|x| !x.is_empty()).map(str::to_string);
+    let (classe, statut, pastille) = (vide(&q.classe), vide(&q.statut), vide(&q.pastille));
+    let l = state
+        .ent
+        .lister_eleves_pour_acteur(
+            &session.role,
+            session.etablissement_id,
+            session.user_id,
+            &ent_db::FiltreListeEleves {
+                q: q.q.as_deref().unwrap_or("").trim(),
+                classe: classe.as_deref(),
+                statut: statut.as_deref(),
+                pastille: pastille.as_deref(),
+                limite: q.limite.unwrap_or(50),
+                decalage: q.decalage.unwrap_or(0),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(dto::EleveListeDto {
+        eleves: l
+            .eleves
+            .iter()
+            .map(|v| dto::EleveLigneDto {
+                id: v.eleve.id,
+                prenom: v.eleve.prenom.clone(),
+                nom: v.eleve.nom.clone(),
+                classe: v.eleve.classe.clone(),
+                statut: v.eleve.status.as_str().to_string(),
+            })
+            .collect(),
+        total: l.total,
+        decalage: l.decalage,
+        limite: l.limite,
+        tronque: l.tronque,
+        portee: if l.portee_etendue { "etablissement" } else { "perimetre" }.to_string(),
+        classes: l.classes,
+    }))
 }
 
 /// `GET /eleves/{id}/synthese` — pastilles visibles et tuiles par domaine.
@@ -170,4 +225,88 @@ async fn liste_par_pastille(
         .await
         .map_err(map_db)?;
     Ok(Json(dto::ElevesPastilleDto { code, eleves }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dto::EleveDto;
+    use chrono::NaiveDate;
+    use domain_eleve::MasqueChamps;
+
+    /// Le JSON que sert `GET /eleves/{id}` se relit tel quel dans le type partagé du frontend
+    /// (`EleveFicheDto`) : les deux formes ne dérivent pas, y compris les masquages expliqués.
+    #[test]
+    fn le_json_de_l_eleve_se_relit_dans_le_type_partage_du_frontend() {
+        let id = Uuid::new_v4();
+        let serveur = EleveDto {
+            id,
+            etablissement_id: Uuid::new_v4(),
+            nom: "Martin".into(),
+            prenom: "Léa".into(),
+            ine: None,
+            sexe: Some("F".into()),
+            date_naissance: NaiveDate::from_ymd_opt(2012, 3, 14),
+            numero_badge: None,
+            redoublant: None,
+            status: "actif".into(),
+            classe: Some("6A".into()),
+            regime: None,
+            mef: None,
+            site: None,
+            date_entree: None,
+            date_sortie: None,
+            motif_sortie: None,
+            masques: vec![
+                MasqueChamps {
+                    groupe: "identifiants",
+                    raison: "droit_manquant",
+                    action: Some("eleves.identifiants.lire"),
+                    message: "Identifiants non ouverts".into(),
+                },
+                MasqueChamps { groupe: "sensible", raison: "reserve_au_personnel", action: None, message: "Réservé".into() },
+            ],
+        };
+        let json = serde_json::to_value(&serveur).unwrap();
+        let client: ent_types::eleve_synthese::EleveFicheDto = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!((client.id, client.nom.as_str(), client.prenom.as_str()), (id, "Martin", "Léa"));
+        assert_eq!(client.classe.as_deref(), Some("6A"));
+        assert_eq!(client.status, "actif");
+        assert_eq!(client.redoublant, None, "donnée non communiquée, pas un faux « non »");
+        assert_eq!(client.masques.len(), 2);
+        assert_eq!(client.masques[0].action.as_deref(), Some("eleves.identifiants.lire"));
+        assert_eq!(client.masques[1].action, None);
+        // Aller-retour : rien n'est perdu ni inventé pour les champs que le client reprend.
+        let retour = serde_json::to_value(&client).unwrap();
+        for cle in ["id", "nom", "prenom", "sexe", "date_naissance", "status", "classe"] {
+            assert_eq!(retour.get(cle), json.get(cle), "{cle}");
+        }
+    }
+
+    #[test]
+    fn la_liste_se_relit_et_ne_porte_que_la_designation() {
+        let l = dto::EleveListeDto {
+            eleves: vec![dto::EleveLigneDto {
+                id: Uuid::new_v4(),
+                prenom: "Léa".into(),
+                nom: "Martin".into(),
+                classe: Some("6A".into()),
+                statut: "actif".into(),
+            }],
+            total: 1,
+            decalage: 0,
+            limite: 50,
+            tronque: false,
+            portee: "etablissement".into(),
+            classes: vec!["6A".into()],
+        };
+        let v = serde_json::to_value(&l).unwrap();
+        let ligne = v["eleves"][0].as_object().unwrap();
+        // Ni date, ni identifiant national, ni photo : seulement ce qu'une ligne de liste montre.
+        let mut cles: Vec<_> = ligne.keys().cloned().collect();
+        cles.sort();
+        assert_eq!(cles, ["classe", "id", "nom", "prenom", "statut"]);
+        let relu: dto::EleveListeDto = serde_json::from_value(v).unwrap();
+        assert_eq!(relu, l);
+    }
 }

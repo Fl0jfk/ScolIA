@@ -332,6 +332,10 @@ pub enum TypeValeur {
     Code,
     /// Identifiant externe du système donné.
     Identifiant(SystemeIdentifiant),
+    /// Image (photo d'identité) : jamais une valeur JSON, le fichier a son propre circuit (ELV-16).
+    Fichier,
+    /// Coordonnée propre de l'élève (e-mail, mobile) : circuit propre, vérifiée par un code (ELV-17).
+    Coordonnee,
 }
 
 /// Définition d'un champ du catalogue (du logiciel, identique pour tous).
@@ -446,6 +450,44 @@ pub const CATALOGUE: &[DefChamp] = &[
         famille_max: SaisieFamille::Non,
         piece_famille: false,
         sources_foi: FOI_ONDE,
+        usage: false,
+    },
+    // ── Lot E9 (décision du pilote 2026-11-17, réponse (a) d'E7-E8) : photo et coordonnées propres
+    // entrent au catalogue. Elles se RÈGLENT ici (visible, saisie famille, obligatoire à…) mais ne se
+    // PROPOSENT PAS par la file des propositions d'identité : chacune a son circuit (photo : proposer,
+    // valider ; coordonnée : proposer, décider, vérifier par code), la cible n'est donc pas
+    // « applicable » et un dépôt par la file est refusé. La source qui fait foi reste l'établissement.
+    DefChamp {
+        code: "photo",
+        libelle: "Photo d'identité",
+        cible: CibleProposition::Photo,
+        type_valeur: TypeValeur::Fichier,
+        sensible: false,
+        famille_max: SaisieFamille::Proposer,
+        piece_famille: false,
+        sources_foi: FOI_AUCUNE,
+        usage: false,
+    },
+    DefChamp {
+        code: "email_eleve",
+        libelle: "Adresse e-mail de l'élève",
+        cible: CibleProposition::Coordonnee,
+        type_valeur: TypeValeur::Coordonnee,
+        sensible: false,
+        famille_max: SaisieFamille::Proposer,
+        piece_famille: false,
+        sources_foi: FOI_AUCUNE,
+        usage: false,
+    },
+    DefChamp {
+        code: "mobile_eleve",
+        libelle: "Numéro de mobile de l'élève",
+        cible: CibleProposition::Coordonnee,
+        type_valeur: TypeValeur::Coordonnee,
+        sensible: false,
+        famille_max: SaisieFamille::Proposer,
+        piece_famille: false,
+        sources_foi: FOI_AUCUNE,
         usage: false,
     },
 ];
@@ -575,6 +617,17 @@ pub struct ReglageChamp {
 impl ReglageChamp {
     /// Valeur par défaut d'un champ non réglé : un établissement existant ne change pas de
     /// comportement tant qu'il n'a rien réglé.
+    /// Réglage par défaut d'un champ du catalogue. Photo et coordonnées propres (cible sans file
+    /// de propositions) gardent le comportement d'avant le réglage : la famille PROPOSE, la
+    /// décision humaine restant obligatoire ; l'établissement peut le fermer par une ligne.
+    pub fn defaut_pour(def: &DefChamp) -> Self {
+        let mut r = Self::defaut();
+        if !def.cible.applicable() {
+            r.saisie_famille = SaisieFamille::Proposer;
+        }
+        r
+    }
+
     pub fn defaut() -> Self {
         Self {
             visible: true,
@@ -1056,6 +1109,31 @@ mod tests {
         assert!(valider_reglage(nom, &r).is_err());
         assert!(verifier_depot(nom, &r, Deposant::Famille).is_err());
         assert!(verifier_depot(nom, &r, Deposant::Personnel).is_err());
+    }
+
+    /// Lot E9 (a) : photo et coordonnées propres se règlent au catalogue sans entrer dans la file
+    /// des propositions d'identité (leur cible n'est pas applicable : dépôt refusé).
+    #[test]
+    fn photo_et_coordonnees_propres_sont_au_catalogue_sans_etre_proposables_par_la_file() {
+        for (code, cible) in [
+            ("photo", CibleProposition::Photo),
+            ("email_eleve", CibleProposition::Coordonnee),
+            ("mobile_eleve", CibleProposition::Coordonnee),
+        ] {
+            let d = champ(code).unwrap_or_else(|| panic!("{code} absent du catalogue"));
+            assert_eq!(d.cible, cible);
+            assert!(!d.cible.applicable(), "{code} ne passe pas par la file des propositions");
+            assert!(!d.sensible && !d.usage);
+            for p in ProfilEtablissement::PROPOSES {
+                let r = reglage_profil(p, code).unwrap();
+                valider_reglage(d, &r).unwrap();
+                // La famille peut proposer (réglage par défaut) mais l'établissement reste l'autorité.
+                assert_eq!(r.source_qui_fait_foi, SourceFoi::Scolia);
+                assert_eq!(r.saisie_famille, SaisieFamille::Proposer);
+            }
+            // Jamais de règle automatique : ces champs n'ont pas de flux machine.
+            assert!(regles_auto_profil(ProfilEtablissement::Public).iter().all(|(c, _)| *c != code));
+        }
     }
 
     #[test]

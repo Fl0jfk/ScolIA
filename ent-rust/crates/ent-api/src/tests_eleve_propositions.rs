@@ -114,7 +114,13 @@ async fn e5_parcours_http_parametrage_signalement_et_decision() {
     let (s, v) = appel(&app, "GET", "/eleves/parametrage", &admin, None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(v["profil"].is_null());
-    assert_eq!(v["champs"].as_array().unwrap().len(), 13);
+    let champs = v["champs"].as_array().unwrap();
+    assert_eq!(champs.len(), 16);
+    // Lot E9 (a) : photo et coordonnées propres de l'élève entrent au catalogue E5 (13 champs d'identité + 3).
+    let codes: Vec<&str> = champs.iter().filter_map(|c| c["code"].as_str()).collect();
+    for nouveau in ["photo", "email_eleve", "mobile_eleve"] {
+        assert!(codes.contains(&nouveau), "{nouveau} absent du catalogue : {codes:?}");
+    }
     assert_eq!(v["profils_proposes"].as_array().unwrap().len(), 5);
     for (jeton, nom) in [(&adm, "administratif"), (&prof, "prof"), (&parent, "parent")] {
         let (s, _) = appel(&app, "GET", "/eleves/parametrage", jeton, None).await;

@@ -1,0 +1,60 @@
+/* Écrans « Élèves » (socle 2, E9a et E9b). Jetons de ui.css uniquement ; téléphone d'abord (375 px) :
+   une colonne, tableau en cartes empilées sous 40 rem. Fichier séparé : une ligne d'import dans ent-web.css. */
+.eleves-outils { display: grid; gap: var(--esp-3); margin-bottom: var(--esp-4); min-width: 0; }
+.eleves-outils__recherche { display: grid; gap: var(--esp-1); min-width: 0; }
+.eleves-outils__selecteurs { display: flex; flex-wrap: wrap; align-items: end; gap: var(--esp-3); }
+.eleves-outils__selecteurs .ui-champ { flex: 1 1 11rem; max-width: 20rem; }
+.eleves-aide { margin: 0; font-size: var(--taille-s); color: var(--c-attenue); }
+.eleves-aide kbd { padding: 0 var(--esp-1); border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon-pastille); background: var(--c-surface-2); font: inherit; font-size: var(--taille-xs); }
+.eleves-pastilles { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.eleves-compteur { font-size: var(--taille-s); color: var(--c-attenue); font-variant-numeric: tabular-nums; }
+.eleves-portee { margin: var(--esp-3) 0 0; font-size: var(--taille-s); color: var(--c-attenue); }
+.eleves-nom { display: flex; align-items: center; gap: var(--esp-3); font-weight: var(--graisse-forte); }
+.eleves-nom a { color: var(--c-encre); text-decoration: none; min-height: var(--cible-compacte); display: inline-flex; align-items: center; }
+.eleves-nom a:hover { text-decoration: underline; }
+.eleves-tableau--occupe { opacity: 0.6; transition: opacity var(--duree); }
+.eleves-pagination { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--esp-2); padding: var(--esp-3) var(--esp-4); }
+
+/* Fiche hub. */
+.fiche-entete { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--esp-3) var(--esp-4); align-items: center; margin: var(--esp-3) 0 var(--esp-4); padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon-tuile); box-shadow: var(--ombre-1); min-width: 0; }
+.fiche-photo { width: 96px; height: 96px; border-radius: var(--rayon); overflow: hidden; background: var(--c-remplissage); display: grid; place-items: center; }
+.fiche-photo__image { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fiche-photo__initiales { transform: scale(1.6); }
+.fiche-entete__texte { min-width: 0; display: grid; gap: var(--esp-2); }
+.fiche-entete__nom { margin: 0; font-size: var(--taille-titre); overflow-wrap: anywhere; }
+.fiche-entete__ligne { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2) var(--esp-3); color: var(--c-attenue); }
+.fiche-entete__actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.fiche-pastilles { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.fiche-tuile__masquee { margin: 0 0 var(--esp-2); }
+.fiche-liste { margin: 0; display: grid; gap: var(--esp-2); }
+.fiche-liste__ligne { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); gap: var(--esp-3); padding: var(--esp-2) 0; border-bottom: 1px solid var(--c-ligne); }
+.fiche-liste__ligne:last-child { border-bottom: 0; }
+.fiche-liste dt { color: var(--c-attenue); font-size: var(--taille-s); }
+.fiche-liste dd { margin: 0; overflow-wrap: anywhere; }
+.fiche-masques { margin-top: var(--esp-3); }
+.fiche-masques ul { margin: 0; padding-left: var(--esp-5); }
+.fiche-identifiants, .fiche-consultations { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-2); }
+.fiche-identifiants li, .fiche-consultations li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2) var(--esp-3); padding: var(--esp-2) 0; border-bottom: 1px solid var(--c-ligne); }
+.fiche-identifiants__systeme { color: var(--c-attenue); font-size: var(--taille-s); min-width: 6rem; }
+.fiche-identifiants__valeur { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fiche-frise { list-style: none; margin: 0; padding: 0 0 0 var(--esp-4); border-left: 2px solid var(--c-ligne-forte); display: grid; gap: var(--esp-4); }
+.fiche-frise__etape { position: relative; display: grid; gap: var(--esp-1); }
+.fiche-frise__etape::before { content: ""; position: absolute; left: calc(-1 * var(--esp-4) - 6px); top: 0.55em; width: 10px; height: 10px; border-radius: 50%; background: var(--c-acc); box-shadow: 0 0 0 3px var(--c-surface); }
+.fiche-frise__etape p { margin: 0; }
+.fiche-frise__titre { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2) var(--esp-3); font-weight: var(--graisse-forte); }
+.fiche-frise__meta { font-size: var(--taille-s); color: var(--c-attenue); }
+
+@media (min-width: 40rem) {
+  .fiche-entete { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fiche-entete__actions { grid-column: auto; flex-direction: column; align-items: stretch; }
+}
+
+/* Téléphone : le tableau devient des cartes empilées ; l'en-tête reste lisible par lecteur d'écran. */
+@media (max-width: 40rem) {
+  .eleves-tableau thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .eleves-tableau, .eleves-tableau tbody, .eleves-tableau tr, .eleves-tableau th, .eleves-tableau td { display: block; width: 100%; }
+  .eleves-tableau tr { padding: var(--esp-3) var(--esp-4); border-bottom: 1px solid var(--c-ligne); }
+  .eleves-tableau th, .eleves-tableau td { padding: var(--esp-1) 0; border: 0; }
+  .eleves-tableau td::before { content: attr(data-label) " : "; color: var(--c-attenue); font-size: var(--taille-s); }
+  .fiche-liste__ligne { grid-template-columns: minmax(0, 1fr); gap: var(--esp-1); }
+}

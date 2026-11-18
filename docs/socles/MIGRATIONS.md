@@ -50,6 +50,7 @@ Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTI
 
 | 330–331 | socle 5 S0 (garde-fous d'état et de cohérence, archive des affectations) et S1 (cours : membres individuels, `ent_public_cours_jour`) ; 332–339 restent réservées au socle 5 (S2 et suivants) | `ent-socle-structure-s0-s1` | fait (S0 et S1) |
 | 370 | D-022 (créneau rattaché à un groupe) — **pris sans réservation, empiète sur la plage du socle 6 (350–369) : 370–374 sont désormais réservés à D-022 et D-022 bis, et le socle 6 reste 350–369** | `ent-d022-portee-groupes`, `ent-d022-bis-enseignements` | fait / en cours |
+| 3200–3219 | socle 2 élève, lot E9 (règle « 3000 + 100 × socle » ; la plage 290–299 étant épuisée), attribuée par le pilote le 2026-11-17 | `ent-socle-2-code-e9` | **3200** `eleve_e9_pastilles_statut_contraintes` écrite (pastilles R-E9, statut jamais NULL, contraintes de 298 validées) ; 3201–3219 libres ; `MIGRATION_TAG` inchangé = `3808_ntf_gels_liens_a_prevenir` (plus haute) |
 | 3700–3799 | socle 7 documents, pièces et signatures (conception : `07_DOCUMENTS.md` §23), **si la règle « 3000 + 100 × socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée** ; 3700–3712 attribuées, 3713–3789 réserve, 3790–3799 retrait des anciennes tables. La consigne de la session indiquait 4000–4099, qui reviendrait au socle 10 (Q-D1). **Consommées (lot D2, `ent-socle-7-code-d2`)** : **3700** identité, entités et paramétrage des natures (6 tables), **3701** documents, versions, données figées, exemplaires (4), **3702** compteurs (1), **3703** mises à disposition, consultations, journal (3) ; +14 au compte RLS de `tests_rls.rs`, registre des tables domaine `documents` ; aucune exception D-036 ; 3704–3712 restent attribuées à D5–D15 | `ent-socle-documents-conception` (conception), `ent-socle-7-code-d2` (code) | 3700–3703 **consommées** (code, non versées sur ENT) |
 | 380–399 | socle 7, **repli** si Q-B2 n'est pas adoptée (380–392 attribuées, 399 retrait) | `ent-socle-documents-conception` (conception seulement) | réservé |
 
@@ -371,6 +372,10 @@ Plage imposée **2360–2379** ; 2360–2363 prises (FO0, FO1). Écrites : **236
 
 ## Mise à jour du 2026-11-17 (socle 2, lots E7 et E8, `ent-socle-2-code-e7e8`)
 Plage **290–299 épuisée** : **298** `eleve_protection_photo_coordonnees` (photos, refus de photo, coordonnées propres et leur vérification, valeurs d'identité scellées, gardes de `ent_eleve_confidentialite`, RLS) ; **299** `eleve_indicateurs` (catalogue du logiciel, projection des pastilles, fonctions de calcul, RLS). `MIGRATION_TAG` inchangé. Détail : `02_ELEVE_E7_E8_LIVRAISON.md`.
+
+
+## Mise à jour du 2026-11-17 (socle 2, lot E9, `ent-socle-2-code-e9`)
+Plage **3200–3219** attribuée par le pilote (règle « 3000 + 100 × socle ») : **3200** `eleve_e9_pastilles_statut_contraintes` (cinq pastilles du catalogue R-E9, fonction de calcul remplacée sans toucher 299, `ent_eleve.statut` jamais NULL, contraintes NOT VALID de 298 validées après assainissement). Placée en **fin de tableau** `MIGRATIONS` (elle remplace une fonction de 299 et lit des tables de plusieurs socles) ; numéro sous 3808 : `MIGRATION_TAG` **inchangé**. Aucune migration déjà versée modifiée.
 
 ## Mise à jour du 2026-11-17 (finances, lots F1 et F2, `ent-socle-24-code-f1f2`)
 Plage **520–539** du socle 24 (voir F0) : **521** `finances_f1_journal` et **522** `finances_f2_comptes_payeurs` consommées ; 523–539 restent réservées (F3 et suivants ; F14–F16 : 531–533). Aucune migration existante modifiée. Insérées dans `migrate.rs` après 520 (ordre croissant), aucun doublon ; `MIGRATION_TAG` inchangé (la plus haute du répertoire reste 3808).

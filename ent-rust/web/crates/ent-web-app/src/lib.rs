@@ -115,7 +115,9 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("infirmerie") view=modules::infirmerie::PageInfirmerie/>
                     <Route path=path!("infirmerie/eleves/:id") view=modules::infirmerie::PageInfirmerieEleve/>
                     <Route path=path!("infirmerie/eleves/:id/urgence") view=modules::infirmerie::PageFicheUrgence/>
-                    <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
+                    <Route path=path!("eleves") view=modules::eleves::PageListeEleves/>
+                    <Route path=path!("eleves/:id") view=PageEleve/>
+                    <Route path=path!("eleves/:id/dossier") view=modules::dossier::PageFicheEleve/>
                     <Route path=path!("inscriptions") view=modules::inscriptions::PageInscriptions/>
                     <Route path=path!("reinscription") view=modules::inscriptions::PageReinscription/>
                     <Route path=path!("cahier") view=modules::cahier::PageCahier/>
@@ -171,6 +173,25 @@ pub fn App() -> impl IntoView {
             </Routes>
             <ent_web_ui::ZoneNotifications/>
         </Router>
+    }
+}
+
+/// `/web/eleves/:id` : le personnel ouvre la fiche hub (E9b) ; les familles et les élèves gardent le
+/// dossier (leur lien, leurs droits), que le serveur seul décide.
+#[component]
+fn PageEleve() -> impl IntoView {
+    let droits = noyau::coquille::use_droits();
+    let session = noyau::session::use_session();
+    move || {
+        // Tant que la session n'a pas répondu, on ne sait pas qui regarde : aucune page ni requête.
+        if session.moi.get().is_none() {
+            return view! { <ent_web_ui::Squelette lignes=6 libelle="Chargement…"/> }.into_any();
+        }
+        if droits.get().personnel {
+            modules::eleves::PageFicheHub().into_any()
+        } else {
+            modules::dossier::PageFicheEleve().into_any()
+        }
     }
 }
 

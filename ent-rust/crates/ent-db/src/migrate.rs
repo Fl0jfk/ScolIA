@@ -443,6 +443,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 18, lot FO3 (2367) : dossier de preuve par la brique de signature (tables du socle 7, 3705) ; appliquée après
     // elles, numéro sous 3808 donc `MIGRATION_TAG` inchangé (règle 28).
     m!("2367_acc_dossier_preuve"),
+    // Socle 2, lot E9 (plage 3200–3219) : pastilles R-E9, statut jamais NULL (F3), contraintes validées (F5). Appliquée
+    // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
+    // `MIGRATION_TAG` inchangé (règle 28).
+    m!("3200_eleve_e9_pastilles_statut_contraintes"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -465,6 +469,11 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
         .await?;
 
     let result = apply_all(pool).await;
+    if result.is_ok() {
+        // Un signal visible, pas un simple avertissement de migration : une contrainte que la reprise n'a pas pu
+        // valider reste NOT VALID tant que les données ne sont pas corrigées.
+        let _ = contraintes_non_validees(pool).await;
+    }
 
     let unlock = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(ENT_MIGRATE_LOCK)
@@ -474,6 +483,26 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
     result?;
     unlock?;
     Ok(())
+}
+
+/// Contraintes dont la validation est attendue (posées NOT VALID par une migration, validées après reprise).
+pub const CONTRAINTES_A_VALIDER: [&str; 2] = ["ent_eleve_confidentialite_regles_chk", "ent_eleve_statut_chk"];
+
+/// Noms des contraintes de `CONTRAINTES_A_VALIDER` qui sont encore NOT VALID ; chacune est **journalisée en
+/// erreur** (au démarrage) avec son nom : les écritures futures sont contrôlées, mais des lignes existantes
+/// restent hors règle et demandent une correction.
+pub async fn contraintes_non_validees(pool: &PgPool) -> Result<Vec<String>, MigrateError> {
+    let noms: Vec<(String,)> = sqlx::query_as(
+        "SELECT conname::text FROM pg_constraint WHERE NOT convalidated AND conname = ANY($1) ORDER BY conname",
+    )
+    .bind(&CONTRAINTES_A_VALIDER[..])
+    .fetch_all(pool)
+    .await?;
+    let noms: Vec<String> = noms.into_iter().map(|(n,)| n).collect();
+    for n in &noms {
+        tracing::error!(contrainte = %n, "contrainte NOT VALID : des lignes existantes sont hors règle, à corriger puis à valider");
+    }
+    Ok(noms)
 }
 
 /// Registre des migrations appliquées : `(nom, empreinte SHA-256 du fichier, date)`. Créé par le lanceur

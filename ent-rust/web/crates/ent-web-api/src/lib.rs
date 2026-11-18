@@ -39,6 +39,7 @@ mod dossier;
 mod droits_moteur;
 mod edt;
 mod edt_s2;
+mod eleves;
 mod evaluations;
 mod finances;
 mod inscriptions;
@@ -66,7 +67,12 @@ pub use droits_moteur::DroitEffectif;
 pub use edt_s2::{
     chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
 };
+pub use eleves::{adresse_photo_eleve, FiltreListeEleves};
 pub use ent_types::assiduite as assiduite_types;
+pub use ent_types::eleve_protection::ConsultationDto;
+pub use ent_types::eleve_synthese as eleve_synthese_types;
+pub use ent_types::identifiants::IdentifiantDto;
+pub use ent_types::identite::IdentiteVersionDto;
 pub use ent_types::sante::{
     AeshDto, AffecterAeshBody, AmenagementDto, AmenagementsEleveDto, CatalogueSanteDto,
     CloturePassageBody, ContraintePublieeDto, ContraintesEleveDto, DefinirAmenagementBody,

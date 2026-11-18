@@ -320,6 +320,10 @@ impl PgEnt {
             // Une famille ne gère plus la photo d'un majeur ou d'un émancipé : elle n'a plus rien à y voir.
             return Err(DomainError::NotFound.into());
         }
+        if qualite == QualiteActeur::Famille {
+            // Réglage « photo » du catalogue (E9) : l'établissement peut fermer la proposition par la famille.
+            crate::param_eleve::exiger_saisie_famille_tx(&mut tx, etab, "photo").await?;
+        }
         if Self::refus_ouvert_tx(&mut tx, etab, eleve).await? {
             return Err(EntDbError::ConflitDossier(
                 "la photo administrative est refusée : lever le refus avant d'en proposer une",
@@ -336,42 +340,94 @@ impl PgEnt {
         if en_attente >= PHOTOS_EN_ATTENTE_MAX {
             return Err(EntDbError::ConflitDossier("trop de photos en attente : en décider d'abord"));
         }
+        // F2 : l'objet est réécrit SANS métadonnées (EXIF, GPS, commentaires), pixels intacts.
+        let propre = crate::photo_nettoyage::sans_metadonnees(valide.mime, &cmd.octets)
+            .map_err(EntDbError::SaisieInvalide)?;
         // Objet immuable : une nouvelle photo = un nouvel objet `{etab}/trombi/{eleve}/{uuid}.{ext}`.
         let id = Uuid::new_v4();
         let cle = format!("{etab}/trombi/{eleve}/{id}.{}", ent_object::sanitize_ext(&ext));
-        self.stocker_objet(etab, &cle, Some(valide.mime), &cmd.octets).await?;
-        sqlx::query(
-            "INSERT INTO ent_eleve_photo (id, etablissement_id, eleve_id, object_key, mime, taille_octets,
-                                          prise_le, source, statut, propose_par, propose_le)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'proposee', $9, $10)",
-        )
-        .bind(id)
-        .bind(etab)
-        .bind(eleve)
-        .bind(&cle)
-        .bind(valide.mime)
-        .bind(i32::try_from(cmd.octets.len()).map_err(|_| EntDbError::SaisieInvalide("photo trop volumineuse"))?)
-        .bind(cmd.prise_le)
-        .bind(source.code())
-        .bind(acteur)
-        .bind(maintenant)
-        .execute(&mut *tx)
-        .await?;
-        let mut statut = StatutPhoto::Proposee;
-        if qualite == QualiteActeur::Personnel && cmd.valider_aussitot && !source.exige_validation() {
-            Self::valider_tx(&mut tx, etab, eleve, id, acteur, maintenant).await?;
-            statut = StatutPhoto::Validee;
-        }
-        journaliser_tx(&mut tx, etab, Some(eleve), acteur, "eleve_photo", "photo_proposee", "Photo proposée", role, maintenant)
+        self.stocker_objet(etab, &cle, Some(valide.mime), &propre).await?;
+        // F2 : si la transaction échoue APRÈS l'écriture de l'objet, l'objet n'est référencé par rien :
+        // il est retiré (sauf si la ligne existe, cas d'un commit dont la réponse s'est perdue).
+        let suite = async {
+            sqlx::query(
+                "INSERT INTO ent_eleve_photo (id, etablissement_id, eleve_id, object_key, mime, taille_octets,
+                                              prise_le, source, statut, propose_par, propose_le)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'proposee', $9, $10)",
+            )
+            .bind(id)
+            .bind(etab)
+            .bind(eleve)
+            .bind(&cle)
+            .bind(valide.mime)
+            .bind(i32::try_from(propre.len()).map_err(|_| EntDbError::SaisieInvalide("photo trop volumineuse"))?)
+            .bind(cmd.prise_le)
+            .bind(source.code())
+            .bind(acteur)
+            .bind(maintenant)
+            .execute(&mut *tx)
             .await?;
-        if statut == StatutPhoto::Validee {
-            journaliser_tx(&mut tx, etab, Some(eleve), acteur, "eleve_photo", "photo_validee", "Photo validée", role, maintenant)
+            let mut statut = StatutPhoto::Proposee;
+            if qualite == QualiteActeur::Personnel && cmd.valider_aussitot && !source.exige_validation() {
+                Self::valider_tx(&mut tx, etab, eleve, id, acteur, maintenant).await?;
+                statut = StatutPhoto::Validee;
+            }
+            journaliser_tx(&mut tx, etab, Some(eleve), acteur, "eleve_photo", "photo_proposee", "Photo proposée", role, maintenant)
                 .await?;
+            if statut == StatutPhoto::Validee {
+                journaliser_tx(&mut tx, etab, Some(eleve), acteur, "eleve_photo", "photo_validee", "Photo validée", role, maintenant)
+                    .await?;
+            }
+            Self::publier_photo_tx(&mut tx, etab, eleve, acteur, id, statut.code()).await?;
+            let vue = Self::photo_tx(&mut tx, etab, id).await?;
+            tx.commit().await?;
+            Ok::<PhotoVue, EntDbError>(vue)
         }
-        Self::publier_photo_tx(&mut tx, etab, eleve, acteur, id, statut.code()).await?;
-        let vue = Self::photo_tx(&mut tx, etab, id).await?;
-        tx.commit().await?;
-        Ok(vue)
+        .await;
+        match suite {
+            Ok(vue) => Ok(vue),
+            Err(e) => {
+                self.retirer_objet_orphelin(etab, id, &cle).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// F2 : retire l'objet d'une photo dont l'enregistrement a échoué. Au mieux : une erreur ici est
+    /// journalisée, jamais substituée à l'erreur d'origine. Si la ligne de la photo existe (commit dont
+    /// la réponse s'est perdue), l'objet est conservé.
+    async fn retirer_objet_orphelin(&self, etab: Uuid, photo: Uuid, cle: &str) {
+        let existe = async {
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_eleve_photo WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(photo)
+                .fetch_one(&mut *tx)
+                .await?;
+            Ok::<bool, EntDbError>(n > 0)
+        }
+        .await;
+        if existe.unwrap_or(true) {
+            return;
+        }
+        if let Err(e) = self.objet_supprimer(cle).await {
+            tracing::warn!(erreur = %e, "photo orpheline non retirée du stockage");
+        }
+        let registre = async {
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            // Le registre est immuable : la ligne est marquée supprimée, jamais effacée.
+            sqlx::query("UPDATE ent_objet SET supprime_le = now() WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL")
+                .bind(etab)
+                .bind(cle)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            Ok::<(), EntDbError>(())
+        }
+        .await;
+        if let Err(e) = registre {
+            tracing::warn!(erreur = %e, "photo orpheline : ligne du registre des objets conservée");
+        }
     }
 
     async fn photo_tx(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<PhotoVue, EntDbError> {
@@ -690,7 +746,7 @@ impl PgEnt {
     }
 
     /// Élèves de `ids` qui ont refusé la photo administrative (silhouette dans les listes).
-    pub async fn eleves_refus_photo(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
+    pub(crate) async fn eleves_refus_photo(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -723,7 +779,7 @@ impl PgEnt {
         let l: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT e.id FROM ent_eleve e
               WHERE e.etablissement_id = $1 AND e.fusionne_dans IS NULL
-                AND coalesce(e.statut, 'scolarise') IN ('scolarise', 'a_venir')
+                AND coalesce(e.statut, 'a_venir') IN ('scolarise', 'a_venir')
                 AND e.photo_id IS NULL
                 AND ($3 OR NOT ent_eleve_confidentiel(e.etablissement_id, e.id))
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_photo_refus r
@@ -733,26 +789,6 @@ impl PgEnt {
         .bind(etab)
         .bind(limite.clamp(1, 2000))
         .bind(voit_proteges)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await?;
-        Ok(l.into_iter().map(|(id,)| id).collect())
-    }
-
-    /// Élèves de `ids` à **exclure d'un export ou d'un trombinoscope imprimé** : mesure
-    /// `hors_trombinoscope_exporte` en vigueur. À appeler par tout export nominatif (E11), quel que
-    /// soit le droit de l'exportateur.
-    pub async fn eleves_hors_export(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let l: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT DISTINCT c.eleve_id FROM ent_eleve_confidentialite c
-              WHERE c.etablissement_id = $1 AND c.eleve_id = ANY($2) AND c.leve_le IS NULL
-                AND 'hors_trombinoscope_exporte' = ANY(c.mesures)
-                AND c.du <= ent_jour_etablissement($1) AND (c.au IS NULL OR c.au > ent_jour_etablissement($1))",
-        )
-        .bind(etab)
-        .bind(ids)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         Ok(l.into_iter().map(|(id,)| id).collect())

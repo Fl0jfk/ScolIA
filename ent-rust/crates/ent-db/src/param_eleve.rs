@@ -103,6 +103,41 @@ pub(crate) async fn reglages_tx(
     lignes.into_iter().map(lire_ligne).collect()
 }
 
+/// Lot E9 (a) : la famille ne propose pas un champ (photo, e-mail ou mobile de l'élève) que
+/// l'établissement lui a fermé. Sans ligne, le défaut du catalogue s'applique (la famille propose).
+pub(crate) async fn exiger_saisie_famille_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    champ: &str,
+) -> Result<(), EntDbError> {
+    let def = champ_catalogue(champ).ok_or(EntDbError::SaisieInvalide("champ inconnu du catalogue"))?;
+    let r = match reglage_champ_ligne_tx(conn, etab, champ).await? {
+        Some(r) => r,
+        None => ReglageChamp::defaut_pour(def),
+    };
+    if r.saisie_famille == SaisieFamille::Non {
+        // 404 et non 403 : la famille ne doit pas apprendre quel réglage l'établissement a posé.
+        return Err(domain_eleve::DomainError::NotFound.into());
+    }
+    Ok(())
+}
+
+async fn reglage_champ_ligne_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    champ: &str,
+) -> Result<Option<ReglageChamp>, EntDbError> {
+    let l: Option<LigneReglage> = sqlx::query_as(&format!(
+        "SELECT {COLONNES_REGLAGE} FROM ent_param_eleve_champ
+         WHERE etablissement_id = $1 AND champ = $2"
+    ))
+    .bind(etab)
+    .bind(champ)
+    .fetch_optional(&mut *conn)
+    .await?;
+    l.map(|l| lire_ligne(l).map(|x| x.1)).transpose()
+}
+
 /// Réglage effectif d'un champ : la ligne de l'établissement, sinon le défaut du catalogue.
 pub(crate) async fn reglage_champ_tx(
     conn: &mut PgConnection,
@@ -119,7 +154,7 @@ pub(crate) async fn reglage_champ_tx(
     .await?;
     match l {
         Some(l) => Ok(lire_ligne(l)?.1),
-        None => Ok(ReglageChamp::defaut()),
+        None => Ok(champ_catalogue(champ).map_or_else(ReglageChamp::defaut, ReglageChamp::defaut_pour)),
     }
 }
 
@@ -209,7 +244,7 @@ impl PgEnt {
                 code: d.code,
                 libelle: d.libelle,
                 regle: reglages.contains_key(d.code),
-                reglage: reglages.get(d.code).cloned().unwrap_or_else(ReglageChamp::defaut),
+                reglage: reglages.get(d.code).cloned().unwrap_or_else(|| ReglageChamp::defaut_pour(d)),
                 regles_auto: regles
                     .iter()
                     .filter(|(c, _)| c == d.code)

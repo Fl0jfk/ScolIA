@@ -52,6 +52,9 @@ pub struct DefIndicateur {
     pub evenements: &'static [&'static str],
     /// La pastille dépend de la date (échéance d'un PAI, majorité…) : recalculée aussi la nuit.
     pub depend_du_temps: bool,
+    /// Le fait vient du module santé : sans ce module activé, la pastille n'existe pas (M6), même
+    /// si son domaine d'affichage est la scolarité (pastille neutre « protocole »).
+    pub module_sante: bool,
 }
 
 /// Événements qui touchent à l'état de scolarité ou à l'existence même de la fiche : toute
@@ -82,6 +85,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.lire", "internat.gerer", "edt.maintenant_lire"],
         evenements: &["eleve.regime_changed"],
         depend_du_temps: true,
+        module_sante: false,
     },
     DefIndicateur {
         code: "pai_actif",
@@ -92,6 +96,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["sante.lire"],
         evenements: &["infirmerie.pai", "infirmerie.pai_signe"],
         depend_du_temps: true,
+        module_sante: true,
     },
     DefIndicateur {
         code: "sans_ine",
@@ -102,6 +107,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.identifiants.lire"],
         evenements: &["eleve.identifiant_change"],
         depend_du_temps: false,
+        module_sante: false,
     },
     DefIndicateur {
         code: "ine_conteste",
@@ -112,6 +118,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.identifiants.lire"],
         evenements: &["eleve.identifiant_change"],
         depend_du_temps: false,
+        module_sante: false,
     },
     DefIndicateur {
         code: "confidentialite_renforcee",
@@ -122,6 +129,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.confidentiel.gerer"],
         evenements: &["eleve.confidentialite_changee"],
         depend_du_temps: true,
+        module_sante: false,
     },
     DefIndicateur {
         code: "majeur",
@@ -132,6 +140,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.lire"],
         evenements: &["eleve.majeur", "eleve.identity_changed", "eleve.capacite_changee"],
         depend_du_temps: true,
+        module_sante: false,
     },
     DefIndicateur {
         code: "en_mobilite",
@@ -142,6 +151,7 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.lire"],
         evenements: &["scolarite.mobilite_ouverte", "scolarite.mobilite_fermee"],
         depend_du_temps: true,
+        module_sante: false,
     },
     DefIndicateur {
         code: "redoublant",
@@ -152,6 +162,70 @@ pub const CATALOGUE_INDICATEURS: &[DefIndicateur] = &[
         actions_requises: &["eleves.lire"],
         evenements: &["eleve.scolarite_annee_enregistree"],
         depend_du_temps: false,
+        module_sante: false,
+    },
+    // ── Lot E9 (R-E9, décisions du pilote 2026-11-17) ──
+    // Pastille NEUTRE pour la vie scolaire : elle dit qu'un protocole existe et qu'il faut
+    // s'adresser à l'infirmerie, sans aucun contenu de santé (ni nature, ni échéance, ni date).
+    // Le PAI lui-même reste réservé à `sante.lire`.
+    DefIndicateur {
+        code: "protocole",
+        domaine: "classe",
+        libelle: "Protocole : voir l'infirmerie",
+        icone: "croix",
+        gravite: Gravite::Attention,
+        actions_requises: &["contraintes.lire"],
+        evenements: &["infirmerie.pai", "infirmerie.pai_signe"],
+        depend_du_temps: true,
+        module_sante: true,
+    },
+    DefIndicateur {
+        code: "nouvel_arrivant",
+        domaine: "classe",
+        libelle: "Nouvel arrivant",
+        icone: "etoile",
+        gravite: Gravite::Information,
+        actions_requises: &["eleves.lire", "contraintes.lire"],
+        evenements: &[],
+        depend_du_temps: true,
+        module_sante: false,
+    },
+    DefIndicateur {
+        code: "arrive_en_cours_annee",
+        domaine: "classe",
+        libelle: "Arrivé en cours d'année",
+        icone: "fleche",
+        gravite: Gravite::Information,
+        actions_requises: &["eleves.lire", "contraintes.lire"],
+        evenements: &[],
+        depend_du_temps: true,
+        module_sante: false,
+    },
+    // Un booléen : jamais la date de majorité (elle livrerait la date de naissance). Pastille, liste et
+    // compteur sont réservés aux détenteurs de `eleves.etat_civil.lire` : la fenêtre de 30 jours,
+    // suivie jour après jour dans une liste, laisserait déduire la date de naissance (revue de sécurité M2).
+    DefIndicateur {
+        code: "majorite_proche",
+        domaine: "classe",
+        libelle: "Majorité dans moins de 30 jours",
+        icone: "calendrier",
+        gravite: Gravite::Attention,
+        actions_requises: &["eleves.etat_civil.lire"],
+        evenements: &["eleve.identity_changed", "eleve.capacite_changee"],
+        depend_du_temps: true,
+        module_sante: false,
+    },
+    // Sans détail : la nature de la modalité (ULIS, CNED…) reste dans la scolarité.
+    DefIndicateur {
+        code: "modalite_particuliere",
+        domaine: "classe",
+        libelle: "Modalité de scolarisation particulière",
+        icone: "reglage",
+        gravite: Gravite::Information,
+        actions_requises: &["eleves.lire", "contraintes.lire"],
+        evenements: &["scolarite.modalite_changee"],
+        depend_du_temps: true,
+        module_sante: false,
     },
 ];
 
@@ -177,6 +251,7 @@ pub const EVENEMENTS_ECOUTES: &[&str] = &[
     "scolarite.mobilite_ouverte",
     "scolarite.mobilite_fermee",
     "eleve.scolarite_annee_enregistree",
+    "scolarite.modalite_changee",
 ];
 
 pub fn indicateur(code: &str) -> Option<&'static DefIndicateur> {
@@ -259,6 +334,19 @@ pub const CONTRATS_TUILES: &[ContratTuile] = &[
         personnel_seul: false,
         rang: 30,
     },
+    // Vie de classe (E9, décision du pilote 2026-11-17) : ce qu'il faut savoir pour accueillir l'élève
+    // en classe ou en sortie — un protocole existe (renvoi vers l'infirmerie), arrivée récente,
+    // modalité de scolarisation : des BOOLÉENS sans motif ni détail. S'ouvre à qui a `contraintes.lire`
+    // sur l'élève : administration, vie scolaire, infirmerie, et l'enseignant de l'élève (sa portée), pas
+    // l'accueil. Une seule règle de visibilité : la pastille suit sa tuile.
+    ContratTuile {
+        domaine: "classe",
+        libelle: "Vie de classe",
+        actions_requises: &["eleves.lire", "contraintes.lire"],
+        lien: "/web/eleves/{eleve}",
+        personnel_seul: true,
+        rang: 35,
+    },
     ContratTuile {
         domaine: "sante",
         libelle: "Santé",
@@ -326,9 +414,32 @@ mod tests {
         assert!(codes("eleve.sortie").contains(&"sans_ine"));
         assert!(codes("eleve.sortie").contains(&"interne"));
         assert!(codes("eleve.fusionne").contains(&"pai_actif"));
-        assert_eq!(codes("infirmerie.pai"), ["pai_actif"]);
+        assert_eq!(codes("infirmerie.pai"), ["pai_actif", "protocole"]);
         assert_eq!(codes("eleve.regime_changed"), ["interne"]);
+        assert_eq!(codes("scolarite.modalite_changee"), ["modalite_particuliere"]);
         assert!(codes("eleve.inconnu").is_empty());
+    }
+
+    #[test]
+    fn les_pastilles_r_e9_sont_au_catalogue() {
+        for code in ["protocole", "nouvel_arrivant", "arrive_en_cours_annee", "majorite_proche", "modalite_particuliere"] {
+            assert!(indicateur(code).is_some(), "{code} absente du catalogue");
+        }
+    }
+
+    /// La pastille neutre « protocole » ne dit rien de la santé : ni le droit de santé, ni un
+    /// libellé de santé ; elle renvoie vers l'infirmerie et suit le module santé.
+    #[test]
+    fn la_pastille_protocole_est_neutre_et_n_ouvre_pas_la_sante() {
+        let p = indicateur("protocole").unwrap();
+        assert!(!p.actions_requises.contains(&"sante.lire"), "le PAI reste réservé à sante.lire");
+        assert_eq!(p.domaine, "classe", "elle s'affiche dans la tuile « vie de classe », pas dans celle de la santé");
+        assert!(p.module_sante, "sans module santé, pas de pastille");
+        assert!(p.libelle.contains("infirmerie"));
+        for mot in ["PAI", "allerg", "asthme", "diab", "épilep", "traitement"] {
+            assert!(!p.libelle.contains(mot), "le libellé ne doit rien révéler : {mot}");
+        }
+        assert!(indicateur("pai_actif").unwrap().module_sante);
     }
 
     #[test]

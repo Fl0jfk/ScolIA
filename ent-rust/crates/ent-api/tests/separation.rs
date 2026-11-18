@@ -433,6 +433,9 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
             lire("synthese-eleve", "/eleves/{eleve}/synthese", STAFF, STAFF_HORS_PROF),
             lire("pastilles-eleve", "/eleves/{eleve}/pastilles", STAFF, STAFF_HORS_PROF),
             lire("pastilles-compteurs", "/eleves/pastilles", STAFF, &[]),
+            // Socle 2 (E9a) : la liste des élèves (annuaire du lecteur, filtrée avant la pagination).
+            lire("eleves-liste", "/eleves/liste", STAFF, &[]),
+            lire("eleves-liste-filtree", "/eleves/liste?q=a&classe=6A&statut=actif&limite=5", STAFF, &[]),
             lire("pastilles-catalogue", "/eleves/pastilles/catalogue", STAFF, &[]),
             lire("pastilles-liste", "/eleves/pastilles/sans_ine", &[Admin, Direction, Administratif], &[]),
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
