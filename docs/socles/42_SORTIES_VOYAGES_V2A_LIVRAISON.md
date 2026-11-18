@@ -32,7 +32,7 @@ Tant que D-034 garde la comptabilité dans Charlemagne, ScolIA **décide** la pa
 
 **Droits** (`ent-auth`) : `voyages.argent` (comptabilité, direction, administrateur) et `voyages.remise` (secrétariat : reçoit les bordereaux et pointe leurs lignes, sans voir la liste des paiements). `Action::TOUTES` 269 → **271**.
 
-**Isolation** : toutes les requêtes portent `etablissement_id` ; clés étrangères composites ; RLS forcée sur les 13 tables nouvelles ; un identifiant d'un autre établissement répond « introuvable » (testé pour la sortie, le prestataire, la famille, l'export).
+**Isolation** : toutes les requêtes portent `etablissement_id` ; clés étrangères composites ; RLS forcée sur les 14 tables nouvelles ; un identifiant d'un autre établissement répond « introuvable » (testé pour la sortie, le prestataire, la famille, l'export).
 
 **Outbox** : aucun montant ni nom. Seuls deux événements sont publiés (`voyages.bordereau_signale`, `voyages.acompte_echeance`) avec des identifiants et un code ; ils passent par `publier` du 42 avec une charge minimale écrite en dur (pas de liste de clés libre). Aucun événement de versement ni de part. Test sur les charges réelles.
 
@@ -41,12 +41,12 @@ Tant que D-034 garde la comptabilité dans Charlemagne, ScolIA **décide** la pa
 | Compteur | Valeur |
 |---|---|
 | `Action::TOUTES` | **271** (269 + `voyages.argent`, `voyages.remise`, en fin de catalogue ; test de position des droits fins ajusté) |
-| Tables avec RLS (`tests_rls.rs`) | base ENT **+ 13** (650 : 6, 651 : 7) |
-| Registre des données | **+ 13** tables, domaine `sorties_voyages` |
+| Tables avec RLS (`tests_rls.rs`) | base ENT **+ 14** (650 : 6, 651 : 8) |
+| Registre des données | **+ 14** tables, domaine `sorties_voyages` |
 | `SOURCES` / `NOMS_SOURCES` (séparation) | **65** (64 + `voyages_argent.rs`) |
 | Routes | **+ 22** (`ent-api/src/voyages_argent.rs`) |
 | Migrations | **650, 651, 652** (653–659 réservées) ; `MIGRATION_TAG` inchangé (3808) |
-| `VERSION_CATALOGUE` (conservation) | **inchangée** : aucune catégorie nouvelle ; durées à faire valider par le DPO (écart 6) |
+| `VERSION_CATALOGUE` (conservation) | **`2026-11-18-v2a`** : catégorie `sor.export_argent` (30 jours) ; les autres tables restent en `sor.sortie` ; durées à faire valider par le DPO (écart 6) |
 
 ## 3. Vérifications (locales, base PostgreSQL 16 jetable démarrée, `ENT_EXIGER_BASE=1` exporté)
 
@@ -74,3 +74,31 @@ Parts via le port du 24 (deux parents séparés 250/250, un payeur 500, un sans 
 11. **Espace famille** : route prête, **aucun écran** (Leptos non traité). VOY-273 : frais saisis par la comptabilité seule (pas par l'organisateur).
 12. **Format d'export** : colonnes choisies sans voir la saisie de Charlemagne (`[NV]`) ; à ajuster sur un exemple réel.
 13. Aucune dépendance ajoutée ; aucune migration versée modifiée ; Next.js, base et secrets de production : **non touchés**.
+
+## 6. Correctifs de la revue de sécurité indépendante (PR 98, d1e0c928)
+
+Aucun critique. Un test par correctif dans `tests_voyages_v2a.rs`. Compteurs après fusion d'`origin/ENT` (71cd4b2e, E9 : ni source, ni action, ni table RLS) : TOUTES **271**, SOURCES **65**, RLS **+14**, `MIGRATION_TAG` inchangé.
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| E1 | DTO distinct `LignePaiementResponsable` (ni `echeances`, ni `nb_echeances`, ni `plan_long` ; « plan en cours » replié sur « à jour »), choisi par `voyages.argent` côté serveur (`PaiementsVue`) | `nominatif_ouvert_…` (JSON complet après ouverture) |
+| M1 | verrou consultatif de la sortie **avant** tout `FOR UPDATE`, partout (argent, désistement, inscription, commande, révision de budget) | `m1_concurrence_…` (double pointage, double annulation, désistement + pointage + synchronisation, délai de 90 s) |
+| M2, M7 | plus aucune écriture sur une lecture ; parts calculées sur événement (inscription, prix figé, baisse, hausse décidée, désistement) ou par la comptabilité ; `payeurs_a(…, creer_comptes = false)` ; premier jour = inscription ou prix figé, le plus tardif | `m2_m7_…` |
+| M3 | consultations de bordereaux, de frais et des bordereaux en attente journalisées (`sortie_id` nullable, portée `frais`) | `m3_…` |
+| M4 | chaque ligne est marquée **reçue ou manquante** à la remise (`ent_sortie_bordereau_reception`) ; une ligne manquante ne se pointe pas ; le nombre et le total reçus viennent des lignes cochées | `bordereau_de_cheques_…` |
+| M5 | annulation d'un versement → avoirs proposés et retenus « **à revoir** » ; décision bornée par le **net courant** ; retenir plus que le proposé exige un motif codé | `m5_…` |
+| M6 | sans entité de facturation, la collecte est **refusée** et l'erreur dit quoi configurer | `m6_…` |
+| M8 | `voyages.prix_fige` et `voyages.budget_version_validee` ne publient plus aucun montant | `m8_…` |
+| F1 | un désistement n'échoue plus si un avoir est déjà retenu (message neutre côté frais) | `f1_f2_…` |
+| F2 | l'écart humain est mémorisé (pas de relance) ; un écart automatique est « signé système » (`decision_auto`, sans auteur) | `f1_f2_…` |
+| F3 | les gardes comparent **toute la ligne** (`to_jsonb`), hors colonnes de décision | `f3_f4_…` |
+| F4 | ligne de bordereau de la même sortie ; nombre et total recontrôlés à chaque ligne ; versement de ligne rapproché du participant et du montant ; commande de la même sortie ; `CHECK` bas sur `date_valeur` | `f3_f4_…` (le contrôle « commande de la même sortie » est un déclencheur **non testé** faute de commande de test à ce stade) |
+| F5 | **vérifié, non modifié** : le rôle applicatif (mode strict) n'est ni propriétaire, ni superutilisateur, ni contournement de la RLS, déjà éprouvé par `tests_rls` (`rls_politiques_presentes_et_forcees`, `role_applicatif_ne_peut_pas_desactiver_le_trigger_du_journal`) ; les 14 tables du lot sont en RLS forcée (`base_…`). Le pool du labo local est superutilisateur : un test de ce lot sur ce pool n'a pas de sens | `tests_rls` |
+| F6 | destinataires des avis : modèle par défaut **et** rôles attribués actifs portant l'action (même règle que `droits_effectifs`, en SQL car le consommateur n'a pas `PgEnt`) | `voyages_reactions` (unitaire) |
+| F7 | export conservé **30 jours** (catégorie `sor.export_argent`), puis objet détruit et date de purge inscrite (balayage à chaque export et job `voyages_argent_exports_purger_tous`, non planifié) ; objet balayé si la validation échoue ; CSV limité aux comptes de la sortie | `f7_…` |
+| F8 | sous 3 payants, l'état agrégé de l'organisateur est masqué (`masque`) ; la comptabilité voit tout | `f8_…` |
+| Tests demandés | fuseau autour de minuit (Pacific/Auckland, America/Cayenne) ; TRUNCATE avec le code `42501` ; ajout seul de **toutes** les tables d'écritures, journal des accès compris ; concurrence ; `est_conflit_detail` retiré | `fuseau_…`, `ajout_seul_…`, `m1_…` |
+
+**Vérifications après correctifs (locales, base démarrée, `ENT_EXIGER_BASE=1`)** : tests V2a (41 avec F5 retiré = 40), « voyages » complets, registre, RLS, conservation, gardes statiques, `ent-auth`, séparation, recette sécurité, golden finances ; **clippy 1.99.0** sur les trois commandes de la CI (`--workspace`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`) ; compteurs revérifiés après fusion d'`origin/ENT`.
+
+**Limites** : la suite complète d'`ent-db` n'a pas été rejouée localement (limite de temps et de mémoire de la session) ; la CI fait foi. Sur le point 4 des écarts : les parts ne sont plus calculées par une lecture ; une sortie dont le prix était déjà figé avant ce lot attend une synchronisation explicite (`POST …/argent/synchroniser`).
