@@ -86,11 +86,36 @@ async fn eleve(api: &ApiClient, nom: &str, prenom: &str) -> EleveTrouve {
         .unwrap_or_else(|| panic!("élève de labo {prenom} {nom}"))
 }
 
+/// Refus : 403 (geste interdit à ce rôle) ou 404 (un tiers n'apprend même pas que le fil existe, M2 de la revue
+/// M5-M6 ; le 404 exact par route est vérifié côté backend par le test paramétré).
 fn refus<T: std::fmt::Debug>(r: &Result<T, ApiError>) -> bool {
-    matches!(r, Err(ApiError::Interdit(_)))
+    matches!(r, Err(ApiError::Interdit(_) | ApiError::Introuvable(_)))
 }
 
-const PDF: &[u8] = b"%PDF-1.4\n% piece jointe de test\n";
+/// Vrai PDF propre (fixture de la messagerie) : depuis M5, une pièce passe par la quarantaine et le désarmement.
+const PDF: &[u8] =
+    include_bytes!("../../../../crates/ent-db/fixtures/messagerie/certificat_medical.pdf");
+
+/// Antivirus de test : la tâche de fond du serveur (non lancée par le serveur de test) sort les pièces de quarantaine.
+struct AvSain;
+impl ent_db::upload::AnalyseurAntivirus for AvSain {
+    fn nom(&self) -> &'static str {
+        "test"
+    }
+    fn analyser(&self, _: &ent_db::upload::ContexteAnalyse<'_>) -> ent_db::upload::VerdictAnalyse {
+        ent_db::upload::VerdictAnalyse::Sain
+    }
+}
+
+async fn sortir_de_quarantaine() {
+    let url = std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL");
+    let ent = ent_db::PgEnt::connect(&url).await.expect("connexion base");
+    let bilan = ent
+        .analyser_pieces_messagerie_tache(std::sync::Arc::new(AvSain), 500)
+        .await
+        .expect("analyse des pièces");
+    assert!(bilan.saines >= 1, "{bilan:?}");
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn professeur_famille_professeur() {
@@ -136,6 +161,7 @@ async fn professeur_famille_professeur() {
     assert_eq!(lu.messages.len(), 1);
     assert_eq!(lu.messages[0].pieces.len(), 1);
     assert!(lu.messages[0].auteur_label.is_some(), "auteur nommé");
+    sortir_de_quarantaine().await;
     let octets = lily
         .telecharger_piece(lu.messages[0].pieces[0].id)
         .await
