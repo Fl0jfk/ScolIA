@@ -413,3 +413,18 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - statistique d'évaluation qui compte une note hors barème.
   - **Décisions du pilote** : seuil des statistiques familles avec un plancher de 3 et 5 par défaut ; arrêt automatique par le planificateur ; brouillon d'appréciation « jeté » au lieu d'être supprimé.
   - Nouvelle session « 21 V1-V2 correctifs » (session_01KZCbFHHQpstfZ79WMkr2aY), avec toutes les consignes dans le lancement ; session d'origine archivée ; désabonnement de la PR 103.
+- **18-11, 20 h 46 UTC, ronde : I2 (PR 102)** : la session avait fini à 15 h 25 sans pouvoir écrire au pilote ; CI rouge (inventaire des routes : `internat_nuit.rs` absent de SOURCES).
+  - Le pilote a fusionné ENT 86f03b82, résolu le compteur RLS (+3 M5-M6, +13 I2), porté SOURCES/NOMS_SOURCES à 66 : tête **2bf45cea** poussée. Seul échec local : le démarrage du labo quand deux binaires de test partagent la base ; vert relancé seul.
+  - **Revue de sécurité I2** : aucun critique, 3 élevés, 9 moyens, 9 faibles.
+    - **E1** (vérifié par le pilote) : hébergé hors rythme avec retrait → `retire` sans motif → CHECK violé → l'appel ne s'ouvre plus.
+    - **E2** : pas de garde TRUNCATE, INSERT tardif dans la liste figée, transitions d'appel non bornées, `reprise` contourne la garde des faits.
+    - **E3** (vérifié) : numéros donnés au surveillant sans filtrer interdictions de contact ni adresses protégées. **Décision du pilote : élève protégé → aucun numéro.**
+    - Moyens : santé en clair (vue, PDF, événements), transmission du matin incomplète et non rectifiable, a posteriori sans borne (→ 48 h), conflit mesuré sur l'heure client, O(N²) à l'ouverture. M4 (aucun destinataire réel) et M5 (pas de périmètre par aile) : hors lot, **bloquent le « prêt pilote »**.
+  - Nouvelle session « I2 correctifs » (session_01KZCbFF5q1Wjz9FDW9aHsiN), toutes consignes dans le lancement ; session d'origine archivée.
+- **18-11, 21 h 07 UTC, 21 V1-V2 correctifs (PR 103)** : tête **88778ee2**. Faits : E1-E4, M1-M10, F1, F3-F6, F9-F11, F13 ; migration 470 nouvelle ; RLS +31. Réabonnement à la PR 103, CI attendue.
+  - Décisions du pilote sur ses questions :
+    1. Motif de correction par colonne remise à NULL : accepté. Retirer le DML au rôle applicatif (rôle « écrivain » distinct) est une décision d'architecture transverse (évaluations, internat, finances) : **à concevoir plus tard**, pas dans ce lot.
+    2. M9 : le secrétariat lit la grille de notes (portée établissement) — accepté, c'est lui qui édite les bulletins, comme dans Charlemagne.
+    3. M5 : `ent_note_v` masque les évaluations non publiées — accepté.
+    4. Restent pour V3 : F2, F7 (rapport faux en reprise concurrente), F8 (corrections postérieures à la reprise non recopiées, **confirmé**), F12 (débordement : erreur sur toute la moyenne au lieu de la matière).
+  - **Sessions qui codent : 21 V1-V2 correctifs (CI) et I2 correctifs** (2 sur 2).
