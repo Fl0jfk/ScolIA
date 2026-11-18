@@ -374,3 +374,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **18-11, 15 h 15 UTC, D-068 précisée par Florian** : **priorité à l'ENT complet**. Les modules du Next.js sont des compléments, à reprendre après étude. Bascule à la rentrée 2027, démo possiblement en juin.
   - **File des prochains lots** : 21 (évaluations et notes), 20 (cahier), 23 (bulletins), 13 (discipline), 17 (annonces), 29 (portails), 11 (mobile), 22 (compétences), 33 (visio).
   - L'internat I2 et les correctifs de la messagerie vont au bout de leur lot en cours.
+- **18-11, 15 h 15 UTC, demande de Florian** : **voir** l'ENT pour juger lui-même de son épaisseur, domaine par domaine.
+  - **Session « visite guidée »** (session_01KZCbFF2mTDvrWiDijFXHzJ, branche ent-visite-guidee) : captures de tous les écrans Leptos, rôle par rôle, actions métier jouées sur le labo fictif, plus un rapport honnête des manques. Aucun code applicatif.
+  - À la livraison, le pilote publie une page privée de visite pour Florian.
+  - **Sessions actives** : I2 (code), visite guidée (captures). M5-M6 attend le dernier push du pilote.
