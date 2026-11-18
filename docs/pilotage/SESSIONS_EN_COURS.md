@@ -365,3 +365,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Nouvelle session : internat I2 « La nuit »** (branche ent-socle-41-code-i2, migrations 2824-2825). Le message de lancement contient toutes les consignes : PILOTAGE et conception lus sur ent-mc0hoe.
   - **Constat** : `41_INTERNAT.md` n'est pas sur ENT (seulement sur ent-mc0hoe). La session le copiera dans sa branche.
   - **Sessions qui codent : M5-M6 correctifs et I2** (2 sur 2).
+- **18-11, 14 h UTC, M5-M6 correctifs (PR 101, 4fe86b72)** : E1, M1 à M8, F1 à F5 et F9 corrigés ; ELF supprimé ; migration 490 (488 et 489 intactes). Le pilote s'est réabonné.
+  - **Vrai défaut trouvé par le test F4** : un administratif sans G6 lisait le fil d'un élève protégé. Corrigé.
+  - E1 est pessimiste : un nom actif cité dans un texte PDF fait refuser la pièce (un test existant inversé, choix assumé).
+  - **Erreur de consigne du pilote (F1)** : il interdit d'ajouter une pièce à un message **différé**. Or un auteur doit pouvoir joindre une pièce à son propre message programmé avant l'envoi. **À rouvrir dans un lot suivant** : autoriser l'auteur sur son message différé, refuser seulement sur un message retiré ou déjà remis.
+  - Pour plus tard : F3 (rotation des pixels, faute de décodeur JPEG), F6, F7, F8 et F10.
