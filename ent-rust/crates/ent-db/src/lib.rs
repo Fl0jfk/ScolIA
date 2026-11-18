@@ -85,7 +85,7 @@ pub mod module_sante;
 mod tests_evaluations;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v0;
-#[cfg(test)]
+#[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;

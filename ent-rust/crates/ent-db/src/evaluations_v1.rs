@@ -21,10 +21,11 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 use domain_eleve::evaluation_moteur::{
-    moyenne_generale, moyenne_matiere, valider_saisie, ArrondiRegle, CoefSousMatiere, Comptage, EntreeCalcul,
-    ErreurSaisieMoteur, EtapesArrondi, EvalCalcul, MatiereMoyenne, MedianePaire, MethodeAnnuelle,
-    MethodeSousMatieres, ModeArrondi, MoyenneCalculee, PonderationGenerale, PonderationNotes, Precision, Rat,
-    ReglesMoteur, StatutCalcul, TraitementBonus, TraitementNonRendu,
+    moyenne_generale, moyenne_matiere, valider_saisie, ArrondiRegle, CoefSousMatiere, Comptage,
+    EntreeCalcul, ErreurSaisieMoteur, EtapesArrondi, EvalCalcul, MatiereMoyenne, MedianePaire,
+    MethodeAnnuelle, MethodeSousMatieres, ModeArrondi, MoyenneCalculee, PonderationGenerale,
+    PonderationNotes, Precision, Rat, ReglesMoteur, StatutCalcul, TraitementBonus,
+    TraitementNonRendu,
 };
 use ent_auth::Action;
 use ent_events::{AggregateKind, MetierEventDraft};
@@ -64,7 +65,12 @@ pub struct ReglesEtablissement {
 
 impl Default for ReglesEtablissement {
     fn default() -> Self {
-        Self { regles: ReglesMoteur::default(), pas_saisie_m: 10, version: 0, figees: false }
+        Self {
+            regles: ReglesMoteur::default(),
+            pas_saisie_m: 10,
+            version: 0,
+            figees: false,
+        }
     }
 }
 
@@ -86,7 +92,10 @@ fn bonus_depuis_colonnes(code: &str, seuil_m: Option<i64>) -> TraitementBonus {
 
 fn etape(precision: Option<String>, mode: &str) -> Option<ArrondiRegle> {
     let p = Precision::parse(precision.as_deref()?)?;
-    Some(ArrondiRegle::new(p, ModeArrondi::parse(mode).unwrap_or_default()))
+    Some(ArrondiRegle::new(
+        p,
+        ModeArrondi::parse(mode).unwrap_or_default(),
+    ))
 }
 
 fn serie_ponderation(p: PonderationNotes) -> &'static str {
@@ -126,14 +135,21 @@ fn depuis_ligne(r: &sqlx::postgres::PgRow) -> Result<ReglesEtablissement, sqlx::
             _ => MethodeAnnuelle::MoyenneDesPeriodes,
         },
         arrondis: EtapesArrondi {
-            note_ramenee: etape(o("arrondi_note_ramenee_precision")?, &t("arrondi_note_ramenee_mode")?),
-            moyenne_sous_matiere: etape(o("arrondi_sous_matiere_precision")?, &t("arrondi_sous_matiere_mode")?),
+            note_ramenee: etape(
+                o("arrondi_note_ramenee_precision")?,
+                &t("arrondi_note_ramenee_mode")?,
+            ),
+            moyenne_sous_matiere: etape(
+                o("arrondi_sous_matiere_precision")?,
+                &t("arrondi_sous_matiere_mode")?,
+            ),
             moyenne_matiere: etape(o("arrondi_matiere_precision")?, &t("arrondi_matiere_mode")?),
             moyenne_periode: etape(o("arrondi_periode_precision")?, &t("arrondi_periode_mode")?),
         },
         affichage: ArrondiRegle::new(arrondi_precision, arrondi_mode),
         plafonner_a_l_echelle: r.try_get::<bool, _>("plafonner_echelle")?,
-        seuil_effectif_stats: usize::try_from(r.try_get::<i16, _>("seuil_effectif_stats")?).unwrap_or(5),
+        seuil_effectif_stats: usize::try_from(r.try_get::<i16, _>("seuil_effectif_stats")?)
+            .unwrap_or(5),
         mediane: match t("mediane_paire")?.as_str() {
             "inferieure" => MedianePaire::Inferieure,
             "superieure" => MedianePaire::Superieure,
@@ -148,7 +164,8 @@ fn depuis_ligne(r: &sqlx::postgres::PgRow) -> Result<ReglesEtablissement, sqlx::
     })
 }
 
-const SELECT_REGLES: &str = "SELECT (echelle * 1000)::bigint AS echelle_m, (pas_saisie * 1000)::bigint AS pas_saisie_m,
+const SELECT_REGLES: &str =
+    "SELECT (echelle * 1000)::bigint AS echelle_m, (pas_saisie * 1000)::bigint AS pas_saisie_m,
         arrondi_precision, arrondi_mode,
         arrondi_note_ramenee_precision, arrondi_note_ramenee_mode,
         arrondi_sous_matiere_precision, arrondi_sous_matiere_mode,
@@ -306,10 +323,14 @@ pub struct ResultatPublie {
 
 fn erreur_saisie(e: ErreurSaisieMoteur) -> &'static str {
     match e {
-        ErreurSaisieMoteur::Incoherent => "un statut non numérique ne porte pas de valeur, une note en porte une",
+        ErreurSaisieMoteur::Incoherent => {
+            "un statut non numérique ne porte pas de valeur, une note en porte une"
+        }
         ErreurSaisieMoteur::Negative => "une note ne peut pas être négative",
         ErreurSaisieMoteur::HorsBareme => "note au-dessus du barème : vérifiez le barème",
-        ErreurSaisieMoteur::HorsPas => "la note n'est pas un multiple du pas de saisie de l'établissement",
+        ErreurSaisieMoteur::HorsPas => {
+            "la note n'est pas un multiple du pas de saisie de l'établissement"
+        }
         ErreurSaisieMoteur::StatutNonSaisissable => "ce statut se calcule, il ne se saisit pas",
         ErreurSaisieMoteur::Bareme => "barème invalide",
     }
@@ -323,7 +344,11 @@ impl PgEnt {
     // ───────────────────────── Règles de calcul ─────────────────────────
 
     /// Règles d'une année (défauts recommandés si l'établissement n'en a posé aucune).
-    pub async fn eva_v1_regles(&self, etab: Uuid, annee_id: Uuid) -> Result<ReglesEtablissement, EntDbError> {
+    pub async fn eva_v1_regles(
+        &self,
+        etab: Uuid,
+        annee_id: Uuid,
+    ) -> Result<ReglesEtablissement, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = regles_tx(&mut tx, etab, annee_id).await?;
         tx.commit().await.map_err(db)?;
@@ -342,7 +367,10 @@ impl PgEnt {
         pas_saisie_m: i64,
     ) -> Result<ReglesEtablissement, EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         if regles.echelle_m <= 0 || pas_saisie_m <= 0 || pas_saisie_m > 1000 {
@@ -484,7 +512,10 @@ impl PgEnt {
                 periode_id: l.try_get("periode_id").map_err(db)?,
                 etat: l.try_get("etat").map_err(db)?,
                 date_arret_effective: l.try_get("date_arret_effective").map_err(db)?,
-                saisie_ouverte: l.try_get::<Option<bool>, _>("saisie_ouverte").map_err(db)?.unwrap_or(false),
+                saisie_ouverte: l
+                    .try_get::<Option<bool>, _>("saisie_ouverte")
+                    .map_err(db)?
+                    .unwrap_or(false),
                 rattrapage_autorise: l.try_get("rattrapage_autorise").map_err(db)?,
             });
         }
@@ -515,8 +546,11 @@ impl PgEnt {
         body: &EcrireResultat,
     ) -> Result<ResultatEcrit, EntDbError> {
         Self::exiger_staff(role)?;
-        self.exiger_eleve_visible(etab, acteur, role, body.eleve_id).await?;
-        let peut_corriger = self.a_action_etablissement(etab, acteur, role, Action::NotesCorriger).await?;
+        self.exiger_eleve_visible(etab, acteur, role, body.eleve_id)
+            .await?;
+        let peut_corriger = self
+            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
             "SELECT cours_id, (bareme * 1000)::bigint AS bareme_m, hors_bareme_autorise, etat, mode, annee_id
@@ -603,7 +637,12 @@ impl PgEnt {
         };
         tx.publier(MetierEventDraft {
             etablissement_id: etab,
-            type_name: if ecrit.correction { types_v1::CORRIGEE } else { types_v1::RESULTATS_SAISIS }.to_string(),
+            type_name: if ecrit.correction {
+                types_v1::CORRIGEE
+            } else {
+                types_v1::RESULTATS_SAISIS
+            }
+            .to_string(),
             aggregate: AggregateKind::Devoir,
             aggregate_id: body.evaluation_id,
             eleve_id: Some(body.eleve_id),
@@ -625,17 +664,22 @@ impl PgEnt {
         resultat_id: Uuid,
     ) -> Result<Vec<LigneHistoriqueResultat>, EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::NotesCorriger).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let eleve: Uuid = sqlx::query_scalar("SELECT eleve_id FROM eva_resultat WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(resultat_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?
-            .ok_or(domain_eleve::DomainError::NotFound)?;
+        let eleve: Uuid = sqlx::query_scalar(
+            "SELECT eleve_id FROM eva_resultat WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(resultat_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or(domain_eleve::DomainError::NotFound)?;
         let lignes = sqlx::query(
             "SELECT version, statut_avant, (valeur_avant * 1000)::bigint AS valeur_avant_m, statut_apres,
                     (valeur_apres * 1000)::bigint AS valeur_apres_m, correction, motif, source, auteur
@@ -686,10 +730,21 @@ impl PgEnt {
         date_arret: Option<NaiveDate>,
     ) -> Result<(), EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
-        if !["ouverte", "notes_arretees", "appreciations_closes", "conseil_tenu", "close"].contains(&cible) {
+        if ![
+            "ouverte",
+            "notes_arretees",
+            "appreciations_closes",
+            "conseil_tenu",
+            "close",
+        ]
+        .contains(&cible)
+        {
             return Err(refus("état de période inconnu"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -726,15 +781,32 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if avant != cible {
-            let recul = ["ouverte", "notes_arretees", "appreciations_closes", "conseil_tenu", "close"]
+            let recul = [
+                "ouverte",
+                "notes_arretees",
+                "appreciations_closes",
+                "conseil_tenu",
+                "close",
+            ]
+            .iter()
+            .position(|e| *e == cible)
+                < [
+                    "ouverte",
+                    "notes_arretees",
+                    "appreciations_closes",
+                    "conseil_tenu",
+                    "close",
+                ]
                 .iter()
-                .position(|e| *e == cible)
-                < ["ouverte", "notes_arretees", "appreciations_closes", "conseil_tenu", "close"]
-                    .iter()
-                    .position(|e| *e == avant);
+                .position(|e| *e == avant);
             tx.publier(MetierEventDraft {
                 etablissement_id: etab,
-                type_name: if recul { types_v1::PERIODE_ROUVERTE } else { types_v1::NOTES_ARRETEES }.to_string(),
+                type_name: if recul {
+                    types_v1::PERIODE_ROUVERTE
+                } else {
+                    types_v1::NOTES_ARRETEES
+                }
+                .to_string(),
                 aggregate: AggregateKind::NotePeriode,
                 aggregate_id: periode_id,
                 eleve_id: None,
@@ -759,10 +831,14 @@ impl PgEnt {
         motif: &str,
     ) -> Result<(), EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::NotesCorriger).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
-        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO eva_rattrapage_autorise (evaluation_id, eleve_id, etablissement_id, jusqu_au, motif, par)
@@ -794,7 +870,10 @@ impl PgEnt {
         role: &str,
     ) -> Result<RapportReprise, EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -827,7 +906,10 @@ impl PgEnt {
         execution_id: Option<Uuid>,
     ) -> Result<Option<RapportReprise>, EntDbError> {
         Self::exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -878,10 +960,14 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<ResultatPublie>, EntDbError> {
-        if !self.actor_can_read_notes(etab, acteur, role, eleve_id).await? {
+        if !self
+            .actor_can_read_notes(etab, acteur, role, eleve_id)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
-        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes = sqlx::query(
             "SELECT evaluation_id, titre, statut, (valeur * 1000)::bigint AS valeur_m, (bareme * 1000)::bigint AS bareme_m
@@ -914,8 +1000,17 @@ impl PgEnt {
 // Fonctions de transaction
 // ---------------------------------------------------------------------------
 
-async fn regles_tx(tx: &mut TenantTx<'_>, etab: Uuid, annee_id: Uuid) -> Result<ReglesEtablissement, EntDbError> {
-    let ligne = sqlx::query(SELECT_REGLES).bind(etab).bind(annee_id).fetch_optional(&mut **tx).await.map_err(db)?;
+async fn regles_tx(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    annee_id: Uuid,
+) -> Result<ReglesEtablissement, EntDbError> {
+    let ligne = sqlx::query(SELECT_REGLES)
+        .bind(etab)
+        .bind(annee_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db)?;
     match ligne {
         Some(l) => depuis_ligne(&l).map_err(db),
         None => Ok(ReglesEtablissement::default()),
@@ -949,7 +1044,11 @@ async fn periode_eleve_tx(
     .map_err(db)
 }
 
-async fn rapport_tx(tx: &mut TenantTx<'_>, etab: Uuid, exec: Uuid) -> Result<RapportReprise, EntDbError> {
+async fn rapport_tx(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    exec: Uuid,
+) -> Result<RapportReprise, EntDbError> {
     let comptes = sqlx::query(
         "SELECT objet, lues, creees, inchangees, refusees, ignorees, ecarts FROM eva_reprise_compte
           WHERE etablissement_id = $1 AND execution_id = $2 ORDER BY objet",
@@ -1054,17 +1153,21 @@ async fn moyennes_tx(
             titre: l.try_get("titre").map_err(db)?,
             bareme_m: l.try_get("bareme_m").map_err(db)?,
             coef_m: l.try_get("coef_m").map_err(db)?,
-            comptage: Comptage::parse(&l.try_get::<String, _>("comptage").map_err(db)?).unwrap_or_default(),
+            comptage: Comptage::parse(&l.try_get::<String, _>("comptage").map_err(db)?)
+                .unwrap_or_default(),
             hors_bareme_autorise: l.try_get("hors_bareme_autorise").map_err(db)?,
             sous_matiere_id: l.try_get("sous_matiere_id").map_err(db)?,
             cours_id: l.try_get("cours_id").map_err(db)?,
             annulee: l.try_get::<String, _>("etat").map_err(db)? == "annulee",
         };
-        par_matiere.entry(matiere.unwrap_or(Uuid::nil())).or_default().push(EntreeCalcul {
-            evaluation,
-            statut,
-            valeur_m: l.try_get("valeur_m").map_err(db)?,
-        });
+        par_matiere
+            .entry(matiere.unwrap_or(Uuid::nil()))
+            .or_default()
+            .push(EntreeCalcul {
+                evaluation,
+                statut,
+                valeur_m: l.try_get("valeur_m").map_err(db)?,
+            });
     }
 
     // Coefficients de sous-matière de l'année.
@@ -1079,37 +1182,49 @@ async fn moyennes_tx(
     .map_err(db)?
     .iter()
     .map(|r| {
-        Ok(CoefSousMatiere { sous_matiere_id: Some(r.try_get("matiere_id")?), coef_m: r.try_get("coef_m")? })
+        Ok(CoefSousMatiere {
+            sous_matiere_id: Some(r.try_get("matiere_id")?),
+            coef_m: r.try_get("coef_m")?,
+        })
     })
     .collect::<Result<_, sqlx::Error>>()
     .map_err(db)?;
 
     // Classe de l'élève en fin de période : cible des coefficients de matière.
-    let classe: Option<Uuid> = sqlx::query_scalar(
-        "SELECT classe_id FROM eva_periode_eleve_jour($1, $2, $3)",
-    )
-    .bind(etab)
-    .bind(eleve_id)
-    .bind(date_fin)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(db)?;
+    let classe: Option<Uuid> =
+        sqlx::query_scalar("SELECT classe_id FROM eva_periode_eleve_jour($1, $2, $3)")
+            .bind(etab)
+            .bind(eleve_id)
+            .bind(date_fin)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db)?;
 
     let mut matieres = Vec::new();
     let mut pour_generale = Vec::new();
     for (matiere_id, entrees) in &par_matiere {
         let moyenne = moyenne_matiere(entrees, &coefs_sm, &regles).map_err(erreur_calcul)?;
-        let (coef_m, hors) = coefficient_matiere_tx(tx, etab, annee_id, *matiere_id, classe, date_fin).await?;
+        let (coef_m, hors) =
+            coefficient_matiere_tx(tx, etab, annee_id, *matiere_id, classe, date_fin).await?;
         pour_generale.push(MatiereMoyenne {
             matiere_id: *matiere_id,
             moyenne: moyenne.exacte,
             coef_m,
             hors_moyenne_generale: hors,
         });
-        matieres.push(MatiereCalculee { matiere_id: *matiere_id, moyenne, coef_m, hors_moyenne_generale: hors });
+        matieres.push(MatiereCalculee {
+            matiere_id: *matiere_id,
+            moyenne,
+            coef_m,
+            hors_moyenne_generale: hors,
+        });
     }
     let generale = moyenne_generale(&pour_generale, &regles).map_err(erreur_calcul)?;
-    Ok(MoyennesEleve { matieres, generale, regles })
+    Ok(MoyennesEleve {
+        matieres,
+        generale,
+        regles,
+    })
 }
 
 /// Coefficient de la matière pour la classe à la date : la cible la plus précise gagne
@@ -1146,7 +1261,10 @@ async fn coefficient_matiere_tx(
     .await
     .map_err(db)?;
     match l {
-        Some(l) => Ok((l.try_get("coef_m").map_err(db)?, l.try_get("hors_moyenne_generale").map_err(db)?)),
+        Some(l) => Ok((
+            l.try_get("coef_m").map_err(db)?,
+            l.try_get("hors_moyenne_generale").map_err(db)?,
+        )),
         None => Ok((1000, false)),
     }
 }
