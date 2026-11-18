@@ -38,8 +38,39 @@ Tant que D-034 garde la comptabilité dans Charlemagne, ScolIA **décide** la pa
 
 ## 2. Compteurs (règle 28)
 
-À recalculer après chaque fusion d'`origin/ENT` ; valeurs au moment de la livraison : voir le §4.
+| Compteur | Valeur |
+|---|---|
+| `Action::TOUTES` | **271** (269 + `voyages.argent`, `voyages.remise`, en fin de catalogue ; test de position des droits fins ajusté) |
+| Tables avec RLS (`tests_rls.rs`) | base ENT **+ 13** (650 : 6, 651 : 7) |
+| Registre des données | **+ 13** tables, domaine `sorties_voyages` |
+| `SOURCES` / `NOMS_SOURCES` (séparation) | **65** (64 + `voyages_argent.rs`) |
+| Routes | **+ 22** (`ent-api/src/voyages_argent.rs`) |
+| Migrations | **650, 651, 652** (653–659 réservées) ; `MIGRATION_TAG` inchangé (3808) |
+| `VERSION_CATALOGUE` (conservation) | **inchangée** : aucune catégorie nouvelle ; durées à faire valider par le DPO (écart 6) |
 
-## 3. Non fait, écarts, hypothèses (à valider)
+## 3. Vérifications (locales, base PostgreSQL 16 jetable démarrée, `ENT_EXIGER_BASE=1` exporté)
 
-Voir le §5 « Écarts et questions ».
+- `ent-db` : **28** tests V2a (`tests_voyages_v2a`, calcul pur et avis compris) ; **171** tests « voyages » (V0a à V2a) ; registre, RLS, conservation, finances, rôles (**219** + rejeu) ; gardes `jour_utc_interdit`, `isolation_sql_statique`, `garde_finances_ecritures`, `garde_inscriptions_ecritures` ;
+- `ent-auth` : 64 ; `ent-api` : séparation 56, recette sécurité 10, golden finances 1, routes voyages 4 ;
+- clippy en trois commandes de la CI : verts (**toolchain locale 1.97**, la CI utilise 1.99 : à confirmer par la CI) ; formatage (deux commandes) ; `--locked` sur les deux `Cargo.lock`.
+- **Non fait localement** : la suite complète d'`ent-db` (interrompue par la limite de temps d'une session, remplacée par des tranches ciblées) ; la CI GitHub (20 tranches) fait foi.
+
+## 4. Cas couverts par les tests V2a
+
+Parts via le port du 24 (deux parents séparés 250/250, un payeur 500, un sans payeur « à définir ») ; état agrégé sans nom ; nominatif refusé au porteur, journalisé ; versements (bornes, moyens, dépassement, annulation inverse motivée, une seule annulation) ; plan long invisible ; bordereau (total, doublon, écart, retard, remise unique, pointage, public interdit, réglage) ; acomptes (statuts, alerte une fois, prestataire d'un autre établissement) ; avoirs (avant/après engagement, motif légitime, frais réels, décision, baisse de prix, annulation collective sans doublon) ; CV-81 ; NX-07 ; famille (parents séparés) ; ouverture nominative ; export CSV (BOM, injection de formule, journal) ; contraintes de la base (ajout seul, bornes, somme du bordereau) ; outbox sans montant ni nom.
+
+## 5. Écarts, hypothèses et questions
+
+1. **Part familles = prix annoncé figé** (pas la part de la version validée brute) : une hausse non décidée par la direction n'est donc jamais due. *À confirmer.*
+2. **Changement de payeur après calcul** : les parts ne sont pas recalculées (comme CF-03 du 24 : la comptabilité décide). Un prix qui change garde les mêmes payeurs.
+3. **Organisme payeur avec plafond (rang 2)** : ignoré en mode suivi (seuls les payeurs de rang 1 portent la part).
+4. **Frais réels** : le montant saisi est la part **non remboursée** restant due ; une assurance ou un prestataire qui rembourse se traduit par une annulation de frais. *À valider avec la comptabilité.* « Après engagement » = une commande envoyée **ou** un frais réel saisi.
+5. **Motifs légitimes** retenus pour l'avoir total : `sante` et `famille` ; « décision de l'établissement » et « financier » (retrait) donnent un avoir total ; le reste suit l'engagement. *Règle à relire avec un juriste (Q-V6).*
+6. **Conservation (RGPD)** : durées des 13 tables non fixées ; 10 ans proposé pour versements, parts, avoirs (pièces comptables), 24 mois pour les accès. *À soumettre au DPO.*
+7. **Ordonnanceur** : le passage quotidien des alertes d'acomptes existe (`voyages_acomptes_alertes_traiter_tous`) mais **n'est branché sur aucun planificateur**, comme les rappels du lot V0b ; déclenchable à la main (`POST /voyages/argent/acomptes/alertes`).
+8. **Charges d'événements préexistantes (V0b)** : `voyages.prix_fige` et `voyages.budget_version_validee` portent `montant_centimes` dans l'outbox. **Non modifié** (hors périmètre, risque pour des consommateurs) ; à traiter par un correctif dédié. Les événements du lot n'en portent aucun.
+9. **Liste d'attente / « changement de nom »** (VOY-286) : le lot propose l'avoir au départ ; le report automatique des versements sur l'élève qui prend la place n'est **pas** fait (la comptabilité retient l'avoir ou le reporte).
+10. **Régisseur** : le rôle n'existe pas dans le modèle ; la règle « public : l'organisateur ne collecte pas » s'applique, la saisie des fonds par le régisseur reste via `voyages.argent` / `voyages.remise`. *Question : qui est le régisseur dans l'ENT ?*
+11. **Espace famille** : route prête, **aucun écran** (Leptos non traité). VOY-273 : frais saisis par la comptabilité seule (pas par l'organisateur).
+12. **Format d'export** : colonnes choisies sans voir la saisie de Charlemagne (`[NV]`) ; à ajuster sur un exemple réel.
+13. Aucune dépendance ajoutée ; aucune migration versée modifiée ; Next.js, base et secrets de production : **non touchés**.
