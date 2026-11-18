@@ -404,6 +404,9 @@ pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
 pub mod messagerie_m0b;
 pub mod voyages;
+pub mod voyages_argent;
+pub mod voyages_argent_flux;
+pub mod voyages_argent_repo;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
 pub mod voyages_pdf;
@@ -754,6 +757,8 @@ mod tests_voyages_v0b;
 mod tests_voyages_v0d;
 #[cfg(test)]
 mod tests_voyages_v1;
+#[cfg(test)]
+mod tests_voyages_v2a;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

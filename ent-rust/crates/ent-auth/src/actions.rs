@@ -57,6 +57,10 @@ pub enum Action {
     VoyagesPrestataires,
     /// Socle 42, lot V0d : reprise des séjours de Next.js (zone de reprise, tableau de bascule, bascule). Administrateur et direction.
     VoyagesReprise,
+    /// Socle 42, lot V2a : argent des sorties en mode suivi (parts nominatives, versements, plans, avoirs proposés, acomptes fournisseurs, export). Comptabilité, direction, administrateur.
+    VoyagesArgent,
+    /// Socle 42, lot V2a : recevoir un bordereau de chèques de l'organisateur et pointer ses lignes (secrétariat). Ne donne pas la liste nominative des paiements.
+    VoyagesRemise,
     // ── Socle 32, lots ET0–ET1 : espaces de travail (`32_BUREAUTIQUE.md` §20.1) ──
     /// Utiliser son espace personnel et les espaces dont on est membre, et voir ce qui est partagé avec soi.
     /// Les rôles d'espace (animateur, contributeur, lecteur) restent vérifiés par le service pour chaque espace.
@@ -654,7 +658,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 269] = [
+    pub const TOUTES: [Action; 271] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -943,6 +947,9 @@ impl Action {
         Action::FacturationJournal,
         Action::FacturationReprise,
         Action::FacturationPublier,
+        // Socle 42, lot V2a (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::VoyagesArgent,
+        Action::VoyagesRemise,
     ];
 
     pub fn code(self) -> &'static str {
@@ -969,6 +976,8 @@ impl Action {
             Self::VoyagesPorteur => "voyages.porteur",
             Self::VoyagesPrestataires => "voyages.prestataires",
             Self::VoyagesReprise => "voyages.reprise",
+            Self::VoyagesArgent => "voyages.argent",
+            Self::VoyagesRemise => "voyages.remise",
             Self::EspacesUtiliser => "espaces.utiliser",
             Self::EspacesCreer => "espaces.creer",
             Self::EspacesPartager => "espaces.partager",
@@ -1244,6 +1253,8 @@ impl Action {
             Self::VoyagesPorteur => "Attribuer ou transférer le porteur d'une sortie",
             Self::VoyagesPrestataires => "Demander des devis et écrire aux prestataires d'une sortie dont on n'est pas le porteur",
             Self::VoyagesReprise => "Reprendre les séjours de Next.js : zone de reprise, tableau et bascule (administrateur, direction)",
+            Self::VoyagesArgent => "Suivre l'argent des sorties en mode suivi : parts, versements, plans de paiement, avoirs proposés, acomptes fournisseurs, export comptable",
+            Self::VoyagesRemise => "Recevoir les bordereaux de chèques collectés par un organisateur et pointer leurs lignes",
             Self::EspacesUtiliser => "Utiliser son espace personnel et les espaces dont on est membre (fichiers, dossiers, versions, corbeille)",
             Self::EspacesCreer => "Créer un espace libre entre personnels de l'établissement",
             Self::EspacesPartager => "Partager un élément ou un dossier avec des personnes nommées de l'établissement",
@@ -1582,6 +1593,8 @@ impl Action {
             | Self::VoyagesPorteur
             | Self::VoyagesPrestataires
             | Self::VoyagesReprise
+            | Self::VoyagesArgent
+            | Self::VoyagesRemise
             | Self::EspacesUtiliser
             | Self::EspacesCreer
             | Self::EspacesPartager
@@ -2683,6 +2696,14 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
     // Lot V0d : la reprise voit des séjours entiers et leurs participants : administrateur et direction seuls.
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(VoyagesReprise));
+    }
+    // Lot V2a (mode suivi, R-SV44) : l'argent nominatif est réservé à la comptabilité et à la direction ; le secrétariat
+    // reçoit les bordereaux de chèques et pointe leurs lignes, sans voir la liste des paiements de la sortie.
+    if matches!(role, Role::Admin | Role::Direction | Role::Compta) {
+        d.push(etab(VoyagesArgent));
+    }
+    if matches!(role, Role::Administratif) {
+        d.push(etab(VoyagesRemise));
     }
 }
 
@@ -3936,6 +3957,25 @@ mod oracle_a1 {
         }
         assert_eq!(Action::parse("voyages.reprise"), Some(Action::VoyagesReprise));
         assert_eq!(Action::VoyagesReprise.portees_admises(), &[Portee::Etablissement]);
+    }
+
+    /// Socle 42, lot V2a : l'argent nominatif des sorties (`voyages.argent`) est réservé à la comptabilité, à la
+    /// direction et à l'administrateur ; le secrétariat n'a que la réception des bordereaux (`voyages.remise`) ;
+    /// ni un professeur, ni l'accueil, ni une famille, ni un élève n'ont l'un ou l'autre par rôle.
+    #[test]
+    fn voyages_v2a_argent_compta_direction_remise_secretariat() {
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [
+            Role::Admin, Role::Direction, Role::Administratif, Role::Compta, Role::Prof, Role::Cpe,
+            Role::Accueil, Role::Infirmerie, Role::Psy, Role::Parent, Role::Eleve,
+        ] {
+            assert_eq!(a(r, Action::VoyagesArgent), matches!(r, Role::Admin | Role::Direction | Role::Compta), "{r:?} voyages.argent");
+            assert_eq!(a(r, Action::VoyagesRemise), matches!(r, Role::Administratif), "{r:?} voyages.remise");
+        }
+        assert_eq!(Action::parse("voyages.argent"), Some(Action::VoyagesArgent));
+        assert_eq!(Action::parse("voyages.remise"), Some(Action::VoyagesRemise));
+        assert_eq!(Action::VoyagesArgent.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(Action::VoyagesRemise.portees_admises(), &[Portee::Etablissement]);
     }
 
     #[test]

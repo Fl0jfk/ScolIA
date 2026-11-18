@@ -856,6 +856,9 @@ pub fn router() -> Router<AppState> {
 
     // Socle 42, lot V1 : exigences, autorisations, relances, ordres de mission, liste nominative (`voyages_v1.rs`).
     let r = r.merge(crate::voyages_v1::routes());
+
+    // Socle 42, lot V2a : l'argent des sorties en mode suivi, sans facture (`voyages_argent.rs`).
+    let r = r.merge(crate::voyages_argent::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::cahier_c3::routes());
     let r = r.merge(crate::cahier_c4::routes());

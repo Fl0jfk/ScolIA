@@ -1095,7 +1095,7 @@ async fn aligner_prix(
         DecisionPrix::Fige => ("prix_fige", None),
         DecisionPrix::Baisse => (
             "prix_baisse",
-            Some("avoirs à proposer aux payeurs (socle 24, lot V2)"),
+            Some("avoirs proposés aux payeurs ayant versé (mode suivi, lot V2a)"),
         ),
         _ => ("prix_hausse_decidee", Some("nouvel avis aux familles à proposer")),
     };
@@ -1112,6 +1112,10 @@ async fn aligner_prix(
         },
     )
     .await?;
+    // Mode suivi (V2a) : une baisse recalcule les parts et PROPOSE un avoir du trop-versé à chaque payeur ayant versé.
+    if decision == DecisionPrix::Baisse {
+        crate::voyages_argent_repo::synchroniser(conn, a, s).await?;
+    }
     let ev = publier(
         conn,
         a,

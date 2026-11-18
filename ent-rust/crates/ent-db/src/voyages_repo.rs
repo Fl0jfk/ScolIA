@@ -65,6 +65,31 @@ pub(crate) fn texte_opt(v: Option<&str>, max: usize) -> Result<Option<String>, E
     }
 }
 
+/// Motif codé du contournement du devis (NX-07, §32.5). Retourne `(code, texte conservé)`.
+///
+/// * `transport_en_commun`, `a_pied`, `vehicule_etablissement` : aucune justification supplémentaire ; le texte
+///   conservé est le libellé du code, complété du texte saisi s'il y en a un ;
+/// * `autre` : un texte est obligatoire ;
+/// * pas de code : un texte seul vaut `autre` (comme avant le lot V2a).
+pub(crate) fn contournement_motif(code: Option<&str>, texte_saisi: Option<&str>) -> Result<(&'static str, String), EntDbError> {
+    let t = texte_opt(texte_saisi, 1000)?;
+    let (code, libelle): (&'static str, &str) = match code.map(str::trim).filter(|c| !c.is_empty()) {
+        Some("transport_en_commun") => ("transport_en_commun", "Transport en commun"),
+        Some("a_pied") => ("a_pied", "À pied"),
+        Some("vehicule_etablissement") => ("vehicule_etablissement", "Véhicule de l'établissement"),
+        Some("autre") | None => ("autre", ""),
+        Some(_) => return Err(refus(RefusMetier::Invalide, "Motif de contournement inconnu.")),
+    };
+    if code == "autre" {
+        let t = t.ok_or_else(|| refus(RefusMetier::Invalide, "Un motif est obligatoire."))?;
+        return Ok((code, t));
+    }
+    Ok((code, match t {
+        Some(x) => format!("{libelle} — {x}"),
+        None => libelle.to_string(),
+    }))
+}
+
 // ───────────────────────── Types ─────────────────────────
 
 /// Saisie d'une sortie (création, et remplacement des champs du projet à la modification).
@@ -336,6 +361,11 @@ pub struct ParamsCommande {
     pub version: Option<i32>,
     #[serde(default)]
     pub motif: Option<String>,
+    /// `passer-finances` sans devis signé (NX-07) : motif **codé** (`transport_en_commun`, `a_pied`,
+    /// `vehicule_etablissement`, `autre`). Les trois premiers ne demandent aucune justification ; `autre` exige un
+    /// texte. Sans code, un texte seul vaut `autre` (compatibilité).
+    #[serde(default)]
+    pub motif_code: Option<String>,
     /// Étape visée (réouverture).
     #[serde(default)]
     pub vers: Option<String>,
@@ -1673,6 +1703,7 @@ impl PgEnt {
         let mut motif_decision = s.motif_decision.clone();
         let mut liste = (s.liste_confirmee_le, s.liste_confirmee_par_user_id);
         let mut contournement = s.contournement_devis_motif.clone();
+        let mut contournement_code: Option<&'static str> = None;
         let mut besoin_car = s.besoin_car;
         let mut extra: Vec<MetierEvent> = Vec::new();
         let mut signature_faite = false;
@@ -1780,7 +1811,9 @@ impl PgEnt {
                     if !acces.a(Action::VoyagesAutoriser) {
                         return Err(interdit());
                     }
-                    contournement = Some(motif_requis(&motif)?);
+                    let (code, libelle) = contournement_motif(p.motif_code.as_deref(), motif.as_deref())?;
+                    contournement_code = Some(code);
+                    contournement = Some(libelle);
                 } else {
                     if !acces.gere(Action::VoyagesModifier) {
                         return Err(interdit());
@@ -1897,6 +1930,7 @@ impl PgEnt {
         let maj = sqlx::query_as::<_, SortieLigne>(
             "UPDATE ent_sortie SET etat=$3, etat_retour=$4, motif_decision=$5, liste_confirmee_le=$6,
                     liste_confirmee_par_user_id=$7, contournement_devis_motif=$8, besoin_car=$9,
+                    contournement_devis_code = COALESCE($10, contournement_devis_code),
                     version = version + 1, modifie_le = now()
               WHERE id = $1 AND etablissement_id = $2
               RETURNING *",
@@ -1910,6 +1944,7 @@ impl PgEnt {
         .bind(liste.1)
         .bind(&contournement)
         .bind(besoin_car)
+        .bind(contournement_code)
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
@@ -2467,6 +2502,12 @@ impl PgEnt {
         let actuel = actuel.ok_or_else(introuvable)?;
         if matches!(actuel.as_str(), "desiste" | "retire") {
             return Err(conflit());
+        }
+        // Mode suivi (V2a, VOY-286) : le participant est encore payant ; ses parts sont calculées si besoin et un
+        // avoir est PROPOSÉ à chaque payeur ayant versé (jamais une écriture comptable). Refusé si un avoir a déjà
+        // été retenu pour lui.
+        if crate::voyages_argent_repo::ETATS_PAYANTS.contains(&actuel.as_str()) {
+            crate::voyages_argent_repo::avant_depart_participant(&mut t, a, &s, participant_id, vers, motif_code).await?;
         }
         sqlx::query(
             "UPDATE ent_sortie_participant SET etat = $2, rang_attente = NULL, modifie_le = now() WHERE id = $1 AND etablissement_id = $3",
