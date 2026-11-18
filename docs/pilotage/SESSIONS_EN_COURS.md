@@ -403,3 +403,13 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - manifeste de module dès la conception.
     - Questions ouvertes : la paye est-elle des états d'heures ou une paye complète ? « Pédagogie » ou « Notes » ?
   - Session archivée.
+- **18-11, 18 h 45 UTC, revue de 21 V1-V2 (PR 103)** : aucun critique, mais 4 élevés, 10 moyens et 13 faibles. Le moteur est conforme sur T1 à T13.
+  - **E1** : TRUNCATE non bloqué.
+  - **E2** : historique contournable par `SET ent.eva_reprise` ou par `source='reprise'`.
+  - **E3** : gel des règles absent si aucune ligne de règles.
+  - **E4** : rattrapage sans échéance.
+  - **2 erreurs de calcul** :
+    - élève sorti avant la fin de période : coefficients ignorés, 10,00 au lieu de 11,00 ;
+    - statistique d'évaluation qui compte une note hors barème.
+  - **Décisions du pilote** : seuil des statistiques familles avec un plancher de 3 et 5 par défaut ; arrêt automatique par le planificateur ; brouillon d'appréciation « jeté » au lieu d'être supprimé.
+  - Nouvelle session « 21 V1-V2 correctifs » (session_01KZCbFHHQpstfZ79WMkr2aY), avec toutes les consignes dans le lancement ; session d'origine archivée ; désabonnement de la PR 103.
