@@ -238,3 +238,10 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - Puis une **régression** : le nettoyage PNG refuse le PNG de `fichiers_depot` (« photo illisible »). Renvoyée à la session.
   - **F1-F2 (PR 97, 3ac1ce18)** : la liste blanche globale des clés d'événements (M7) casse le module Demandes (`t_nj86`, `t_nj91`). Renvoyée avec la consigne : liste blanche par type d'événement des finances seulement, l'existant inchangé.
   - Le pilote est désabonné des deux PR en attendant les têtes corrigées.
+- **18-11, 1 h 36 UTC : F1-F2 versé.**
+  - ENT 015bc4f6, par **avance rapide** (règle 30). L'arbre est identique à `refs/pull/97/merge`, que le run 389 a testé et trouvé vert.
+  - Compteurs : TOUTES 269, SOURCES 64, RLS +8, migrations 521-522.
+  - Règle 25 respectée : aucune ancienne migration modifiée, aucun `#[ignore]`, POINT_QUOTIDIEN et PILOTAGE non touchés.
+  - Désabonnement de la PR 97, session archivée. ENT est gelé jusqu'au verdict du run (PR 93).
+  - **E9 (PR 96, ed50c8f3)** : la tranche 12 est rouge (le catalogue E5 compte 16 champs au lieu de 13, effet attendu). Les autres échecs seront relevés en fin de run, pour un push unique avec la fusion d'ENT 015bc4f6.
+  - **Une place est libre** (règle 32). Pas de nouveau lot avant le verdict d'ENT.
