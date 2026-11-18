@@ -349,3 +349,14 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Le test `fuseau_jour_meme_autour_de_minuit` (V2a) était rouge de 11 h à minuit UTC (runs 407 et 408).
   - 18 tests de fuseau verts en local à 12 h 30 UTC.
   - Fusionnée dans ent-suites-18-11. ENT est gelé jusqu'au verdict.
+- **18-11, 13 h 16 UTC : Suites versées.**
+  - ENT bcdc2e02, par avance rapide. L'arbre est identique à `refs/pull/100/merge`, testé vert au run 411.
+  - Contenu :
+    - planificateur des passages de V2a (alertes d'acomptes, purge des exports à 30 jours) ;
+    - jour de l'établissement pour le quota du guichet ;
+    - liste blanche des finances par type d'événement ;
+    - balayage des photos et exports orphelins, avec ceinture `photo_key` ;
+    - `health-cmd -d`.
+  - Aucune migration. Désabonnement de la PR 100, session archivée.
+  - Run 410 vert sur 7e0131c8 (3201) à 13 h UTC.
+  - **Session qui code : M5-M6 correctifs.** Une place est libre.
