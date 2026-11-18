@@ -330,3 +330,17 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **ENT c65c41e6** : lettre 0.11.24 dans les deux Cargo.lock (email-encoding 0.4.3), ent-mail compile.
   - Fusionnée dans ent-suites-18-11 ; M5-M6 prévenue.
   - ENT est gelé jusqu'au verdict.
+- **18-11, 12 h UTC, M5-M6 (PR 101)** :
+  - **Revue de sécurité** : aucun critique, 1 élevé, 8 moyens et 10 faibles.
+    - **E1** : désarmement des PDF contournable (commentaires `%`, faux `stream`, noms `#xx`), donc un PDF actif peut être servi.
+    - **M1** : `eleve_id` dans les événements C3.
+    - **M2** : 403 sur un fil existant au lieu de 404.
+    - **M3** : avis sans relecture des droits.
+    - **M4** : annulation d'un message différé cassée.
+    - **M5** : pas de purge des originaux infectés.
+    - **M6** : garde statique incomplète.
+    - **M7** : détection des macros OOXML par nom seulement.
+    - **M8** : liens pré-signés (journal d'ouverture, durée, mode S3).
+    - **`executable.elf`** : binaire compilé hors du dépôt, à supprimer.
+  - La session d'origine est archivée, puisqu'elle refuse les consignes par message. **Nouvelle session « M5-M6 correctifs »** (session_01KZCbFGLHwHYsVuH8T37M3b) sur la même branche, toutes les consignes dans son lancement.
+  - Désabonnement de la PR 101 en attendant la nouvelle tête.
