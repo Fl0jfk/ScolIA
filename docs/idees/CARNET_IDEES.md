@@ -151,3 +151,11 @@ Long fil de messages ou demande complexe d'une famille : résumé en trois ligne
 Argument commercial : l'établissement envoie ses exports ; ScolIA reprend élèves, familles, notes, absences, factures ; rapport de comparaison avant bascule (comptages, échantillons, écarts) ; outil rejouable (méthode du socle 28, R0–R3). Socles : 28, 9.
 
 **Écartée le 15 nov.** : bourse d'échange entre familles (manuels, tenues).
+
+## I-032 — Doublon de contrôle avec Charlemagne, mené par Florian sur place (Florian, 2026-11-18)
+**Idée** : Florian, sur place et peu chargé côté administratif, saisit dans ScolIA les notes de vrais élèves, mises par de vrais professeurs. Il vérifie que les moyennes, les bulletins et les affichages (web et applications) donnent **les mêmes résultats que Charlemagne**, et que chacun voit bien ce qu'il doit voir.
+**Avis du pilote** : excellente preuve, la meilleure possible avant la rentrée. Trois conditions :
+- **Données réelles hors de notre chaîne de développement** : jamais dans les sessions cloud, la CI ni les bases de test. Elles vivent sur une instance dédiée (le poste de Florian ou une instance Scaleway séparée, chiffrée, accès restreint), avec une base légale vérifiée par le DPO (test du futur outil de l'établissement, minimisation, durée bornée, effacement à la fin).
+- **Un outil de comparaison à livrer** (socles 21 et 23) : il importe un export Charlemagne (notes, coefficients, moyennes, appréciations d'une période), le confronte aux calculs de ScolIA et produit un rapport d'écarts, élève par élève et matière par matière, avec la cause probable (arrondi, coefficient, note non comptée, absence…). Florian n'a ainsi pas à comparer à la main.
+- **Les règles de calcul de Charlemagne** (arrondis, coefficients, notes bonus, absences, sous-matières, moyenne de groupe) sont à documenter dès la conception du socle 21. C'est ce qui fera la différence entre « presque pareil » et « pareil ».
+**Statut** : retenue. À intégrer à la conception des socles 21 et 23 (lot « comparaison avec Charlemagne »).
