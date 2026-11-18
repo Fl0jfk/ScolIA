@@ -138,6 +138,9 @@ pub struct BilanAnalysePieces {
     pub infectees: u64,
     pub rejetees: u64,
     pub a_reprendre: u64,
+    /// Pièces dont l'analyse a échoué (stockage indisponible, objet absent) : laissées en quarantaine, réessayées à
+    /// la passe suivante ; une pièce en échec ne bloque jamais les autres.
+    pub en_echec: u64,
     /// La passe s'est arrêtée parce que l'antivirus ne répondait pas.
     pub antivirus_indisponible: bool,
 }
@@ -563,7 +566,16 @@ impl PgEnt {
         let mut bilan = BilanAnalysePieces::default();
         let mut indisponibles = 0usize;
         for (id,) in ids {
-            match self.analyser_piece_message(etab, id, antivirus.clone()).await? {
+            let issue = match self.analyser_piece_message(etab, id, antivirus.clone()).await {
+                Ok(i) => i,
+                Err(e) => {
+                    // Ni nom ni clé dans le journal : l'identifiant de la pièce et la cause seulement.
+                    tracing::warn!(piece = %id, error = %e, "analyse d'une pièce de messagerie en échec");
+                    bilan.en_echec += 1;
+                    continue;
+                }
+            };
+            match issue {
                 IssueAnalyse::Saine => {
                     bilan.saines += 1;
                     indisponibles = 0;
@@ -608,6 +620,7 @@ impl PgEnt {
             total.infectees += b.infectees;
             total.rejetees += b.rejetees;
             total.a_reprendre += b.a_reprendre;
+            total.en_echec += b.en_echec;
             if b.antivirus_indisponible {
                 total.antivirus_indisponible = true;
                 break;
