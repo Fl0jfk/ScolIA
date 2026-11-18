@@ -4118,10 +4118,13 @@ mod f1_droits_fins {
             assert!(fins.contains(&c), "{c} manque");
             assert!(Action::parse(c).is_some(), "{c} ne se relit pas");
         }
-        // Les 16 nouveaux sont à la fin du catalogue (le catalogue historique est repéré par position).
+        // Les 16 nouveaux suivent le catalogue historique (repéré par position) ; les 2 droits du socle 42 (lot V2a,
+        // `voyages.argent` et `voyages.remise`) sont ajoutés après eux.
         let n = Action::TOUTES.len();
-        assert_eq!(Action::TOUTES[n - 16], Action::FacturationGuichet);
-        assert_eq!(Action::TOUTES[n - 1], Action::FacturationPublier);
+        assert_eq!(Action::TOUTES[n - 18], Action::FacturationGuichet);
+        assert_eq!(Action::TOUTES[n - 3], Action::FacturationPublier);
+        assert_eq!(Action::TOUTES[n - 2], Action::VoyagesArgent);
+        assert_eq!(Action::TOUTES[n - 1], Action::VoyagesRemise);
     }
 
     /// R-F37 : le secrétariat n'a que la vue guichet et les engagements ; l'accueil que la vue guichet.
