@@ -241,7 +241,7 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
         "du": (nuit - Duration::days(2)).to_string(), "dimanche": true, "lundi": true, "mardi": true,
         "mercredi": true, "jeudi": true, "vendredi": true, "samedi": true
     }))).await;
-    assert_eq!(st, StatusCode::OK, "{r}");
+    assert_eq!(st, StatusCode::CREATED, "{r}");
 
     // Hors équipe d'internat : 403 partout (professeur, comptabilité).
     for (c, nom) in [(&prof, "prof"), (&compta, "compta")] {
