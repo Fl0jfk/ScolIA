@@ -224,7 +224,9 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
     let prof = inscrire(&app, etab, "prof").await;
     let compta = inscrire(&app, etab, "compta").await;
     let garcon = eleve_interne(&ent, etab, "M").await;
-    let nuit = ent.nuit_courante_internat(etab).await.unwrap();
+    // Nuit passée FIXE (règle 33 : aucune dépendance à l'heure réelle) ; la transmission du matin (M3) exige une nuit
+    // terminée, et les appels d'une nuit passée sont des saisies a posteriori (le CPE a le droit de valider).
+    let nuit = chrono::NaiveDate::from_ymd_opt(2026, 3, 28).unwrap();
 
     let (st, g) = appel(&app, "POST", "/internat/chambres", Some(&cpe.jeton), Some(json!({
         "batiment": "A", "etage": 1, "code": format!("N{}", &Uuid::new_v4().simple().to_string()[..5]),
@@ -248,7 +250,7 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
         for (m, uri, corps) in [
             ("GET", format!("/internat/nuits/{nuit}/attendu"), None),
             ("GET", format!("/internat/appels?nuit={nuit}"), None),
-            ("POST", "/internat/appels".to_string(), Some(json!({"type_appel": "soir", "perimetre": "internat"}))),
+            ("POST", "/internat/appels".to_string(), Some(json!({"type_appel": "soir", "perimetre": "internat", "nuit": nuit.to_string()}))),
             ("GET", format!("/internat/cas?nuit={nuit}"), None),
             ("GET", "/internat/procedure".to_string(), None),
             ("GET", format!("/internat/nuits/{nuit}/effectif"), None),
@@ -262,13 +264,13 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
     let (st, att) = appel(&app, "GET", &format!("/internat/nuits/{nuit}/attendu"), Some(&cpe.jeton), None).await;
     assert_eq!(st, StatusCode::OK, "{att}");
     assert_eq!(att["lignes"].as_array().map(Vec::len), Some(1));
-    let (st, vue) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "internat"}))).await;
+    let (st, vue) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "internat", "nuit": nuit.to_string()}))).await;
     assert_eq!(st, StatusCode::CREATED, "{vue}");
     let id = vue["appel"]["id"].as_str().unwrap().to_string();
     // Deuxième ouverture du même appel : 409 (R-IT31). Périmètre incohérent : 4xx.
-    let (st, _) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "internat"}))).await;
+    let (st, _) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "internat", "nuit": nuit.to_string()}))).await;
     assert_eq!(st, StatusCode::CONFLICT);
-    let (st, _) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "zone"}))).await;
+    let (st, _) = appel(&app, "POST", "/internat/appels", Some(&cpe.jeton), Some(json!({"type_appel": "soir", "perimetre": "zone", "nuit": nuit.to_string()}))).await;
     assert!(st.is_client_error());
     // Clôture avant pointage : 409 ; pointage ; clôture ; validation U1 ; correction sans motif : 422.
     let (st, _) = appel(&app, "POST", &format!("/internat/appels/{id}/cloture"), Some(&cpe.jeton), None).await;
