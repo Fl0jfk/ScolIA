@@ -979,6 +979,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_bordereau", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_bordereau_ligne", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_bordereau_remise", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_bordereau_reception", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_budget_ligne", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_budget_version", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_campagne", "sorties_voyages", Portee::Etablissement),

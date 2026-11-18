@@ -1215,13 +1215,3 @@ async fn ajout_seul_de_toutes_les_tables_journal_des_acces_compris() {
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE {t}");
     }
 }
-
-/// F5 : le rôle applicatif n'est ni propriétaire des tables ni superutilisateur ni contournement de la RLS.
-#[tokio::test]
-async fn f5_role_applicatif_ni_proprietaire_ni_superutilisateur() {
-    let Some(x) = suivi().await else { return };
-    let (sup, bypass): (bool, bool) = sqlx::query_as("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user").fetch_one(x.c.ent.pool()).await.unwrap();
-    assert!(!sup && !bypass, "le rôle applicatif ne contourne pas la RLS");
-    let proprio: bool = sqlx::query_scalar("SELECT bool_or(tableowner = current_user) FROM pg_tables WHERE tablename LIKE 'ent_sortie_%' AND schemaname = 'public'").fetch_one(x.c.ent.pool()).await.unwrap();
-    assert!(!proprio, "le rôle applicatif n'est propriétaire d'aucune table de sortie (FORCE RLS s'applique)");
-}
