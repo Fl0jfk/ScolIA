@@ -222,10 +222,37 @@ impl PgEnt {
         msgs: &[Message],
         jusqua: Option<Uuid>,
     ) -> Result<bool, EntDbError> {
+        // M4 : « un auteur n'accuse pas ses messages » et un message encore différé n'est pas « lu » : ni l'un ni
+        // l'autre ne peut devenir la cible du pointeur (une annulation ultérieure ne doit rien laisser derrière elle).
+        let differes: Vec<Uuid> = {
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            let v = sqlx::query_scalar(
+                "SELECT id FROM ent_msg WHERE etablissement_id = $1 AND fil_id = $2 AND remise_prevue_le > now()",
+            )
+            .bind(etab)
+            .bind(fil)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            v
+        };
+        let eligibles: Vec<&Message> = msgs
+            .iter()
+            .filter(|m| m.auteur_user_id != user && !differes.contains(&m.id))
+            .collect();
         let cible = match jusqua {
-            Some(id) => msgs.iter().find(|m| m.id == id).ok_or(EntDbError::SaisieInvalide("message inconnu dans ce fil"))?,
-            None => match msgs.iter().max_by_key(|m| (m.created_at, m.id)) {
-                Some(m) => m,
+            Some(id) => {
+                if !msgs.iter().any(|m| m.id == id) {
+                    return Err(EntDbError::SaisieInvalide("message inconnu dans ce fil"));
+                }
+                match eligibles.iter().find(|m| m.id == id) {
+                    Some(m) => *m,
+                    None => return Ok(false),
+                }
+            }
+            None => match eligibles.iter().max_by_key(|m| (m.created_at, m.id)) {
+                Some(m) => *m,
                 None => return Ok(false),
             },
         };
@@ -255,7 +282,8 @@ impl PgEnt {
                  ON CONFLICT (fil_id, participant_id) DO UPDATE
                     SET lu_jusqua_message_id = EXCLUDED.lu_jusqua_message_id,
                         lu_jusqua_message_le = EXCLUDED.lu_jusqua_message_le,
-                        lu_par_personne_id = EXCLUDED.lu_par_personne_id,
+                        -- F2 : « lu par » n'est posé qu'à la première lecture (il ne change plus ensuite).
+                        lu_par_personne_id = COALESCE(ent_msg_lecture.lu_par_personne_id, EXCLUDED.lu_par_personne_id),
                         maj_le = now()
                   WHERE EXCLUDED.lu_jusqua_message_le > ent_msg_lecture.lu_jusqua_message_le",
             )
@@ -527,15 +555,25 @@ impl PgEnt {
             .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
-            let eleve: Option<(Uuid,)> =
-                sqlx::query_as("SELECT eleve_id FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2")
-                    .bind(etab)
-                    .bind(fil)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(db)?;
+            let eleve: Option<(Uuid, String)> = sqlx::query_as(
+                "SELECT eleve_id, sensibilite FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(fil)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            // M3 : fil C3, jamais l'élève dans l'avis (motif de M3).
+            let eleve_avis = eleve.as_ref().and_then(|(e, s)| (s != "C3").then_some(*e));
             let g = MESSAGERIE_REPONSE_ATTENDUE.gabarit;
             for (user,) in familles {
+                // M3 : le droit de CHAQUE destinataire est relu avant l'envoi (lien communicant, interdiction de
+                // communication, retrait) ; sans droit, rien n'est envoyé.
+                if let Some((e, _)) = &eleve {
+                    if self.foyers.lien_communicant(etab, user, *e).await?.is_none() {
+                        continue;
+                    }
+                }
                 crate::notifications::notifier_personne(
                     &mut tx,
                     crate::notifications::EnvoiAPlanifier {
@@ -545,7 +583,7 @@ impl PgEnt {
                         kind: "messagerie_famille",
                         titre: g.titre,
                         corps: g.corps,
-                        eleve_id: eleve.map(|e| e.0),
+                        eleve_id: eleve_avis,
                         notification_id: None,
                         source_type: "systeme",
                         source_id: fil,

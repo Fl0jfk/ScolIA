@@ -1104,13 +1104,19 @@ impl PgMsgRepo {
     }
 
     /// Supprime un message dont la remise est encore à venir (R-M48), s'il est de `auteur`.
-    /// `false` si le message est déjà remis, d'un autre auteur ou absent.
+    /// `None` si le message est déjà remis, d'un autre auteur ou absent ; sinon les clés d'objets des pièces supprimées
+    /// (original et fichier servi) : l'appelant détruit les objets **après** le commit.
+    ///
+    /// Tout se passe dans **une** transaction. Les cartes « document » et le journal d'accès aux pièces sont en ajout
+    /// seul : la suppression n'est permise que par l'exception bornée du déclencheur (réglage local
+    /// `ent.msg_annulation` = ce message, jamais remis, migration 490). Un message jamais remis n'a pas de lecteur : ses
+    /// cartes, accès et lectures disparaissent avec lui.
     pub async fn annuler_message_differe(
         &self,
         etablissement_id: Uuid,
         message_id: Uuid,
         auteur: Uuid,
-    ) -> Result<bool, DomainError> {
+    ) -> Result<Option<Vec<String>>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let ok: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_msg
@@ -1124,18 +1130,41 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         if ok.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
-        for table in ["ent_msg_piece", "ent_msg_accuse"] {
-            sqlx::query(&format!(
-                "DELETE FROM {table} WHERE etablissement_id = $1 AND message_id = $2"
-            ))
+        sqlx::query("SELECT set_config('ent.msg_annulation', $1, true)")
+            .bind(message_id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        for requete in [
+            "DELETE FROM ent_msg_carte_document WHERE etablissement_id = $1 AND message_id = $2",
+            "DELETE FROM ent_msg_piece_acces WHERE etablissement_id = $1
+               AND piece_id IN (SELECT id FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2)",
+            "DELETE FROM ent_msg_lecture WHERE etablissement_id = $1 AND lu_jusqua_message_id = $2",
+        ] {
+            sqlx::query(requete)
+                .bind(etablissement_id)
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx)?;
+        }
+        let cles: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+            "DELETE FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2
+             RETURNING storage_key, cle_objet_servi",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query("DELETE FROM ent_msg_accuse WHERE etablissement_id = $1 AND message_id = $2")
             .bind(etablissement_id)
             .bind(message_id)
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx)?;
-        }
         sqlx::query("DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2")
             .bind(etablissement_id)
             .bind(message_id)
@@ -1143,7 +1172,7 @@ impl PgMsgRepo {
             .await
             .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(true)
+        Ok(Some(cles.into_iter().flat_map(|(a, b)| [a, b]).flatten().collect()))
     }
 
     pub async fn count_pieces_message(

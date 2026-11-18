@@ -18638,13 +18638,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
-        if !self
+        let Some(cles) = self
             .messages
             .annuler_message_differe(etablissement_id, message_id, actor_user_id)
             .await?
-        {
+        else {
             return Err(EntDbError::ConflitDossier("message déjà remis ou introuvable"));
-        }
+        };
+        // Les pièces d'un message jamais remis n'ont plus d'objet à garder : on détruit l'original et le fichier servi.
+        self.detruire_objets_messagerie(etablissement_id, &cles).await;
         // L'avis différé, s'il était planifié, n'a plus d'objet.
         let mut txw = TenantTx::begin(&self.pool, etablissement_id).await?;
         sqlx::query(
@@ -18891,7 +18893,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
             .await?;
         if !can {
-            return Err(EntDbError::Forbidden);
+            // M2 (404 uniforme) : un tiers ne distingue pas un fil existant d'un fil absent.
+            return Err(DomainError::MsgFilIntrouvable.into());
         }
         let msgs = self
             .messages
@@ -18922,18 +18925,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             tracing::error!(canal = "messagerie", fil = %fil_id, error = %e, "« lu jusqu'à » non posé");
         }
         if inserted > 0 {
+            // R-M22 : ni lecteur dans la charge utile ; fil C3 : ni élève ni acteur (M1).
+            let c3 = self.fil_est_c3(etablissement_id, fil_id).await?;
             self.events
                 .publish(MetierEventDraft {
                     etablissement_id,
                     type_name: types::MSG_ACCUSE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: fil_id,
-                    eleve_id: Some(fil.eleve_id),
-                    payload: json!({
-                        "lecteur_user_id": actor_user_id,
-                        "nb_nouveaux": inserted,
-                    }),
-                    actor_user_id: Some(actor_user_id.to_string()),
+                    eleve_id: if c3 { None } else { Some(fil.eleve_id) },
+                    payload: json!({ "nb_nouveaux": inserted }),
+                    actor_user_id: if c3 { None } else { Some(actor_user_id.to_string()) },
                 })
                 .await?;
         }
@@ -19030,13 +19032,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         piece.sha256 = Some(info.sha256);
         piece.contenu = Vec::new();
         self.messages.insert_piece(&piece).await?;
+        let c3 = self.fil_est_c3(piece.etablissement_id, piece.fil_id).await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: piece.etablissement_id,
                 type_name: types::MSG_PIECE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: piece.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: if c3 { None } else { Some(fil.eleve_id) },
                 // M5 (R-M14) : ni le nom du fichier ni son contenu dans un événement immuable.
                 payload: json!({
                     "piece_id": piece.id,

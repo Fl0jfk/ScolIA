@@ -86,7 +86,7 @@ pub const SANS_SOURCE: &str = "aucune source, choix de minimisation";
 
 /// Version du catalogue : une nouvelle version est proposée à l'établissement comme
 /// changement, jamais appliquée seule (§8.2 point 4).
-pub const VERSION_CATALOGUE: &str = "2026-11-18-v2a";
+pub const VERSION_CATALOGUE: &str = "2026-11-18-v2b";
 
 #[allow(clippy::too_many_arguments)]
 const fn c(
@@ -142,6 +142,7 @@ pub const CATALOGUE: &[Categorie] = &[
     c("fin.bourse", "dossiers individuels de bourse", "fin d'année", None, Some(24), S::Destruction, INSTR_2005, V, false, "24"),
     c("fin.iban", "coordonnées bancaires, mandats, prélèvements", "fin du mandat", None, Some(13), S::Destruction, "règles SEPA (13 mois après le dernier prélèvement)", NV, false, "25"),
     c("msg.conversation", "messagerie", "dernier message", Some(12), Some(12), S::Destruction, SANS_SOURCE, NV, false, "16"),
+    c("msg.piece_refusee", "originaux des pièces jointes refusées de la messagerie (infectées : 7 jours ; rejetées : 30 jours, réglables)", "analyse", None, Some(1), S::Destruction, SANS_SOURCE, NV, false, "16"),
     c("cdt.contenu", "cahier de textes", "fin d'année", Some(24), Some(60), S::Destruction, "SDET 2024, annexe opérationnelle", V, false, "14"),
     c("eva.note", "notes hors bulletin, devoirs, évaluations", "fin d'année", Some(12), Some(12), S::Destruction, SANS_SOURCE, NV, false, "2"),
     c("acc.trace", "traces d'accès (consultations)", "consultation", Some(12), None, S::Destruction, "délibération CNIL 2021-122", V, false, "27"),

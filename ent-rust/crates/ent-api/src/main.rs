@@ -651,6 +651,15 @@ async fn run_api() {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("purge des pièces infectées : {e}"),
                 }
+                // Messagerie (M5) : originaux des pièces refusées (infectées 7 jours, rejetées 30 jours par défaut).
+                let (j_inf, j_rej) = ent_db::retention_pieces_msg_depuis_env();
+                match ent.purger_pieces_messagerie_refusees_tache(j_inf, j_rej).await {
+                    Ok(b) if b.purges > 0 || b.echecs > 0 => {
+                        tracing::info!(?b, "originaux de pièces de messagerie refusées purgés")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des pièces de messagerie refusées : {e}"),
+                }
                 // Socle 3 (I3) : fichiers des dossiers d'inscription non aboutis, après le délai de recours.
                 match ent
                     .purger_pieces_non_aboutis_tache(ent_db::inscriptions_pieces::PURGE_NON_ABOUTIS_JOURS)

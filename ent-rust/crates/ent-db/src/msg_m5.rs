@@ -145,6 +145,35 @@ pub struct BilanAnalysePieces {
     pub antivirus_indisponible: bool,
 }
 
+/// Durée de conservation de l'original d'une pièce de messagerie **infectée** (catégorie `msg.piece_refusee`).
+pub const RETENTION_MSG_INFECTEES_JOURS: i64 = 7;
+/// Durée de conservation de l'original d'une pièce de messagerie **rejetée** (forme, protégée, active).
+pub const RETENTION_MSG_REJETEES_JOURS: i64 = 30;
+
+fn jours_depuis_env(nom: &str, defaut: i64) -> i64 {
+    std::env::var(nom)
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|j| (0..=365).contains(j))
+        .unwrap_or(defaut)
+}
+
+/// `(infectées, rejetées)` : `ENT_MSG_PIECES_INFECTEES_RETENTION_JOURS` et `ENT_MSG_PIECES_REJETEES_RETENTION_JOURS`
+/// (0 à 365 jours), sinon 7 et 30 jours.
+pub fn retention_pieces_msg_depuis_env() -> (i64, i64) {
+    (
+        jours_depuis_env("ENT_MSG_PIECES_INFECTEES_RETENTION_JOURS", RETENTION_MSG_INFECTEES_JOURS),
+        jours_depuis_env("ENT_MSG_PIECES_REJETEES_RETENTION_JOURS", RETENTION_MSG_REJETEES_JOURS),
+    )
+}
+
+/// Bilan de la purge des pièces de messagerie refusées.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BilanPurgeMsg {
+    pub purges: usize,
+    pub echecs: usize,
+}
+
 /// Rapport de la reprise des pièces historiques et de leur analyse a posteriori (§26).
 #[derive(Debug, Clone)]
 pub struct RapportRepriseM5 {
@@ -612,9 +641,18 @@ impl PgEnt {
         .await?;
         let mut total = BilanAnalysePieces::default();
         for (etab,) in etabs {
-            let b = self
+            // F9 : une erreur chez un établissement n'interrompt pas la passe pour les autres.
+            let b = match self
                 .analyser_pieces_messagerie_etablissement(etab, antivirus.clone(), limite)
-                .await?;
+                .await
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!(etablissement = %etab, error = %e, "analyse des pièces de messagerie en échec pour un établissement");
+                    total.en_echec += 1;
+                    continue;
+                }
+            };
             total.saines += b.saines;
             total.en_quarantaine += b.en_quarantaine;
             total.infectees += b.infectees;
@@ -662,6 +700,103 @@ impl PgEnt {
         Ok(RapportRepriseM5 { reprise, analyse, restent_en_quarantaine: restent })
     }
 
+    // ───────────────────────── Purge des pièces refusées (M5) ─────────────────────────
+
+    /// Une passe de la purge des originaux de pièces **refusées** de la messagerie, pour tous les établissements :
+    /// `infectee` après `jours_infectees` jours, `rejetee` après `jours_rejetees` jours (catégorie de conservation
+    /// `msg.piece_refusee`, réglable par `ENT_MSG_PIECES_INFECTEES_RETENTION_JOURS` et
+    /// `ENT_MSG_PIECES_REJETEES_RETENTION_JOURS`). Une erreur chez un établissement n'arrête pas les autres.
+    pub async fn purger_pieces_messagerie_refusees_tache(
+        &self,
+        jours_infectees: i64,
+        jours_rejetees: i64,
+    ) -> Result<BilanPurgeMsg, EntDbError> {
+        let etabs: Vec<(Uuid,)> = lire_par_etablissement(
+            self.pool(),
+            ContexteSysteme::JobPlanifie("pieces_messagerie_purge"),
+            "SELECT DISTINCT p.etablissement_id FROM ent_msg_piece p
+               JOIN ent_objet o ON o.etablissement_id = p.etablissement_id AND o.cle_objet = p.storage_key
+              WHERE p.etat IN ('infectee', 'rejetee') AND o.supprime_le IS NULL",
+        )
+        .await?;
+        let mut bilan = BilanPurgeMsg::default();
+        for (etab,) in etabs {
+            match self
+                .purger_pieces_messagerie_refusees(etab, jours_infectees, jours_rejetees)
+                .await
+            {
+                Ok(b) => {
+                    bilan.purges += b.purges;
+                    bilan.echecs += b.echecs;
+                }
+                Err(e) => {
+                    tracing::warn!(etablissement = %etab, error = %e, "purge des pièces de messagerie refusées en échec");
+                    bilan.echecs += 1;
+                }
+            }
+        }
+        Ok(bilan)
+    }
+
+    /// Détruit les originaux des pièces refusées d'un établissement dont l'analyse est assez ancienne. L'objet est
+    /// détruit au magasin **avant** d'être marqué supprimé au registre (une panne entre les deux se rattrape à la passe
+    /// suivante : suppression idempotente). Un objet encore référencé par une autre pièce (jumeaux d'un fil dédoublé)
+    /// n'est jamais détruit.
+    pub async fn purger_pieces_messagerie_refusees(
+        &self,
+        etab: Uuid,
+        jours_infectees: i64,
+        jours_rejetees: i64,
+    ) -> Result<BilanPurgeMsg, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let a_purger: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT p.id, p.storage_key, p.etat
+               FROM ent_msg_piece p
+               JOIN ent_objet o ON o.etablissement_id = p.etablissement_id AND o.cle_objet = p.storage_key
+              WHERE p.etablissement_id = $1 AND o.supprime_le IS NULL
+                AND ((p.etat = 'infectee' AND coalesce(p.analysee_le, p.derniere_analyse_le) <= now() - make_interval(days => $2::int))
+                  OR (p.etat = 'rejetee'  AND coalesce(p.analysee_le, p.derniere_analyse_le) <= now() - make_interval(days => $3::int)))
+                AND NOT EXISTS (SELECT 1 FROM ent_msg_piece q
+                                 WHERE q.etablissement_id = p.etablissement_id AND q.id <> p.id
+                                   AND (q.storage_key = p.storage_key OR q.cle_objet_servi = p.storage_key)
+                                   AND q.etat NOT IN ('infectee', 'rejetee'))
+              ORDER BY coalesce(p.analysee_le, p.derniere_analyse_le), p.id
+              LIMIT 200",
+        )
+        .bind(etab)
+        .bind(jours_infectees.clamp(0, 3650) as i32)
+        .bind(jours_rejetees.clamp(0, 3650) as i32)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        let mut bilan = BilanPurgeMsg::default();
+        for (piece_id, cle, etat) in a_purger {
+            if let Err(e) = self.objet_supprimer(&cle).await {
+                // Ni la clé ni aucun nom dans le journal d'exploitation : l'identifiant de la pièce suffit.
+                tracing::warn!(piece = %piece_id, erreur = %e, "purge d'une pièce de messagerie refusée : destruction impossible");
+                bilan.echecs += 1;
+                continue;
+            }
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            let r = sqlx::query(
+                "UPDATE ent_objet SET supprime_le = now()
+                  WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL",
+            )
+            .bind(etab)
+            .bind(&cle)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            if r.rows_affected() == 1 {
+                tracing::info!(piece = %piece_id, etat = %etat, "original d'une pièce de messagerie refusée détruit");
+                bilan.purges += 1;
+            }
+        }
+        Ok(bilan)
+    }
+
     // ───────────────────────── Carte « document » (R-M33) ─────────────────────────
 
     /// Le droit **de ce lecteur** sur un document du socle 7, **sans effet de bord** (ni trace, ni accusé, ni octet
@@ -700,6 +835,66 @@ impl PgEnt {
             .doc_peut_sur_sujet(a, domaine.action_lecture(), eleve)
             .await?
             .then_some(titre))
+    }
+
+    /// Détruit des objets de messagerie au magasin **puis** les marque supprimés au registre (`ent_objet`). Au mieux :
+    /// un échec est journalisé (sans clé ni nom), l'objet reste alors au registre « non supprimé » et la purge
+    /// périodique le reprendra. Un objet référencé par une autre pièce n'est jamais détruit.
+    pub(crate) async fn detruire_objets_messagerie(&self, etab: Uuid, cles: &[String]) {
+        for cle in cles {
+            let encore: Result<(i64,), sqlx::Error> = async {
+                let mut tx = TenantTx::begin(self.pool(), etab).await?;
+                let r = sqlx::query_as(
+                    "SELECT count(*) FROM ent_msg_piece
+                      WHERE etablissement_id = $1 AND (storage_key = $2 OR cle_objet_servi = $2)",
+                )
+                .bind(etab)
+                .bind(cle)
+                .fetch_one(&mut *tx)
+                .await;
+                tx.commit().await?;
+                r
+            }
+            .await;
+            if !matches!(encore, Ok((0,))) {
+                continue;
+            }
+            if let Err(e) = self.objet_supprimer(cle).await {
+                tracing::warn!(erreur = %e, "pièce de messagerie : destruction de l'objet impossible");
+                continue;
+            }
+            let r: Result<(), sqlx::Error> = async {
+                let mut tx = TenantTx::begin(self.pool(), etab).await?;
+                sqlx::query(
+                    "UPDATE ent_objet SET supprime_le = now()
+                      WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL",
+                )
+                .bind(etab)
+                .bind(cle)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await
+            }
+            .await;
+            if let Err(e) = r {
+                tracing::warn!(erreur = %e, "pièce de messagerie : objet détruit mais registre non mis à jour");
+            }
+        }
+    }
+
+    /// Le fil est-il celui d'une boîte **C3** (infirmerie, psychologue, assistante sociale) ? Aucun événement d'un tel
+    /// fil ne porte l'élève ni un lecteur (M1, R-M14, R-M22).
+    pub(crate) async fn fil_est_c3(&self, etab: Uuid, fil_id: Uuid) -> Result<bool, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let r: Option<(String,)> = sqlx::query_as(
+            "SELECT sensibilite FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(fil_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(r.is_some_and(|(s,)| s == "C3"))
     }
 
     /// Joint un **document du coffre** à un message par carte (CM-60) : jamais le fichier. L'auteur du message doit
@@ -755,13 +950,15 @@ impl PgEnt {
             return Err(EntDbError::ConflitDossier("ce document est déjà joint à ce message"));
         }
         tx.commit().await.map_err(db)?;
+        let c3 = self.fil_est_c3(etab, msg.fil_id).await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: etab,
                 type_name: types::MESSAGERIE_CARTE_INSEREE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: msg.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                // Fil C3 : jamais l'élève (motif de M3).
+                eleve_id: if c3 { None } else { Some(fil.eleve_id) },
                 // Socle propriétaire et objet : jamais le titre ni la nature du document (R-M14).
                 payload: json!({ "message_id": message_id, "socle": "documents", "objet_id": document_id }),
                 actor_user_id: Some(user.to_string()),

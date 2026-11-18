@@ -607,8 +607,6 @@ fn blanc(b: u8) -> bool {
 pub(crate) struct FluxPdf {
     pub debut: usize,
     pub fin: usize,
-    /// `/Length` direct, et `endstream` présent exactement à cet endroit : tout lecteur voit la même chose.
-    pub verifie: bool,
     /// Filtres déclarés (noms décodés).
     pub filtres: Vec<String>,
 }
@@ -770,7 +768,6 @@ pub(crate) fn analyser(b: &[u8]) -> AnalysePdf {
                         continue;
                     }
                     let mut fin = None;
-                    let mut verifie = false;
                     if let Some(l) = longueur {
                         if let Some(e) = d.checked_add(l).filter(|e| *e <= n) {
                             let mut k = e;
@@ -781,8 +778,8 @@ pub(crate) fn analyser(b: &[u8]) -> AnalysePdf {
                                 k += 1;
                             }
                             if b[k.min(n)..].starts_with(b"endstream") {
+                                // `/Length` direct et `endstream` exactement là : tout lecteur voit la même chose.
                                 fin = Some(e);
-                                verifie = true;
                             }
                         }
                     }
@@ -790,7 +787,6 @@ pub(crate) fn analyser(b: &[u8]) -> AnalysePdf {
                     a.flux.push(FluxPdf {
                         debut: d,
                         fin,
-                        verifie,
                         filtres: std::mem::take(&mut filtres),
                     });
                     longueur = None;
