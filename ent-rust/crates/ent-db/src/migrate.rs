@@ -447,6 +447,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
     // `MIGRATION_TAG` inchangé (règle 28).
     m!("3200_eleve_e9_pastilles_statut_contraintes"),
+    // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
+    m!("3201_jour_etablissement_unique"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
