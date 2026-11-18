@@ -278,3 +278,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - correctifs de la revue de sécurité.
   - Migration 3200. Règle 25 respectée. Désabonnement de la PR 96, session archivée. ENT est gelé jusqu'au verdict du run.
   - **Session qui code : V2a** (correctifs de la revue). Une place est libre.
+- **18-11, 7 h 25 UTC** :
+  - **Run 396 vert** sur 71cd4b2e : E9 validé sur ENT.
+  - **Nouvelle session : CI frontend rapide** (branche ent-ci-frontend-rapide). Objectif : moins de 35 minutes au lieu de 74, sans rien retirer et à 0 €.
+  - **Sessions qui codent : V2a (PR 98, CI en cours) et CI frontend** (2 sur 2).
