@@ -250,3 +250,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Le test `a4_cap31_deux_acceptations_simultanees_qui_se_chevauchent` est soupçonné instable : rouge sur la PR 96 au run 390, hors du lot ; à surveiller.
   - **Nouvelle session : socle 42 V2a**, suivi de l'argent des voyages en mode suivi, sans facturation (session_01KZCbFHYShjJTocQqT3Aqxe, branche ent-socle-42-code-v2a). **Migrations 650-659.** Consignes durcies : pas de `&`, push à chaque étape vérifiée, commandes exactes de la CI, fixtures réalistes.
   - **Sessions qui codent : E9 et V2a** (2 sur 2).
+- **18-11, 3 h 47 UTC, E9 (PR 96, 809c1e38)** : push unique (ENT 015bc4f6 fusionné, 16 champs E5, vraies images). Le pilote s'est réabonné.
+  - **Aveu de la session** : ses vérifications précédentes avaient tourné **sans base** (Postgres arrêté), donc à vide. Elle les a refaites avec la base.
+  - **Leçon pour les consignes** : exiger `ENT_EXIGER_BASE=1` et `pg_isready` avant toute série de tests locale.
+  - Deux tests de reprise R3 sont fragiles en parallèle (ils comptent des lignes globales), à surveiller.
