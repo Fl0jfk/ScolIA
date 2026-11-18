@@ -938,6 +938,10 @@ impl Action {
         Action::EspacesPartager,
         Action::EspacesJournalLire,
         // Socle 24, lot F1 (en fin de catalogue : le catalogue historique est repéré par position).
+        // Socle 41, lot I2 (après le catalogue historique, avant les droits fins de facturation).
+        Action::InternatLire,
+        Action::InternatAppel,
+        Action::InternatAppelValider,
         Action::FacturationGuichet,
         Action::FacturationEmettre,
         Action::FacturationAvoirs,
@@ -957,9 +961,6 @@ impl Action {
         // Socle 42, lot V2a (en fin de catalogue : le catalogue historique est repéré par position).
         Action::VoyagesArgent,
         Action::VoyagesRemise,
-        Action::InternatLire,
-        Action::InternatAppel,
-        Action::InternatAppelValider,
     ];
 
     pub fn code(self) -> &'static str {

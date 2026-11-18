@@ -237,9 +237,9 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
     }))).await;
     assert_eq!(st, StatusCode::CREATED, "{aff}");
     let sejour = aff["sejour_id"].as_str().unwrap().to_string();
-    let jours = json!({"dimanche": true, "lundi": true, "mardi": true, "mercredi": true, "jeudi": true, "vendredi": true, "samedi": true});
     let (st, r) = appel(&app, "POST", &format!("/internat/sejours/{sejour}/rythmes"), Some(&cpe.jeton), Some(json!({
-        "du": (nuit - Duration::days(2)).to_string(), "jours": jours
+        "du": (nuit - Duration::days(2)).to_string(), "dimanche": true, "lundi": true, "mardi": true,
+        "mercredi": true, "jeudi": true, "vendredi": true, "samedi": true
     }))).await;
     assert_eq!(st, StatusCode::OK, "{r}");
 
