@@ -298,3 +298,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Total identique : 153 tests avant, 153 après.
   - Bout en bout : 34 min 50, dont 14 min de file d'attente des runners ; environ 21 min de calcul.
   - **Versement par avance rapide après le verdict du run 400 d'ENT** (V2a, règle 29).
+- **18-11, 8 h 53 UTC** :
+  - **Run 400 vert** sur 19058b4d : V2a validé sur ENT.
+  - **CI frontend versée** : ENT e5ddda1e, par avance rapide. Le code de la CI est celui de 4c77bf8, testé vert au run 402 ; le commit suivant ne touche que la documentation.
+  - Le job frontend passe de 78 min à environ 21 min de calcul ; 153 tests, avec contrôle de couverture. Session archivée.
+  - **Aucune session ne code.** Deux places sont libres ; ENT est gelé jusqu'au verdict de son run (le premier avec la nouvelle CI frontend).
