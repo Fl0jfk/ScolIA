@@ -282,3 +282,10 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Run 396 vert** sur 71cd4b2e : E9 validé sur ENT.
   - **Nouvelle session : CI frontend rapide** (branche ent-ci-frontend-rapide). Objectif : moins de 35 minutes au lieu de 74, sans rien retirer et à 0 €.
   - **Sessions qui codent : V2a (PR 98, CI en cours) et CI frontend** (2 sur 2).
+- **18-11, 7 h 52 UTC : V2a versé.**
+  - ENT 19058b4d, par avance rapide. L'arbre est identique à `refs/pull/98/merge`, testé vert au run 397.
+  - Contenu : suivi de l'argent des voyages en mode suivi, avec les correctifs de la revue de sécurité (E1, M1 à M8).
+  - Migrations 650-652. TOUTES 271, SOURCES 65, RLS +14.
+  - Règle 25 respectée. Désabonnement de la PR 98, session archivée. ENT est gelé jusqu'au verdict du run.
+  - **Suites de V2a** : les passages quotidiens (alertes d'acomptes, purge des exports à 30 jours) ne sont pas encore branchés sur un planificateur. À faire avant toute mise en service.
+  - **Session qui code : CI frontend (PR 99).** Une place est libre.
