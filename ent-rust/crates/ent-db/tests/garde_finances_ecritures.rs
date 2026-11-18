@@ -169,7 +169,6 @@ fn ecritures(code: &str) -> Vec<(&'static str, String)> {
 const OUTILS_GENERIQUES: &[(&str, &str)] = &[
     ("champs_chiffres.rs", "rechiffrement des colonnes scellées par le registre des champs (rotation de clé) : ne change aucune valeur métier, comprend les mandats et l'historique d'IBAN"),
     ("eleve_fusion.rs", "fusion d'élèves par le registre TABLES_ELEVE : aucune table financière n'y est déplacée (vérifié ci-dessous), les pièces restent sur la fiche facturée"),
-    ("msg_repo.rs", "suppression de pièces jointes de messagerie, tables fixes du socle 16"),
     ("personnels_fiche.rs", "mises à jour de dates et de références sur les tables du socle 6"),
     ("registre_donnees.rs", "purge et neutralisation d'un établissement par le registre des tables (PRA, restauration) sous `ent.purge_etablissement`"),
     ("reprise_bytea.rs", "reprise des fichiers hors base (BYTEA vers objet) sur les tables à fichiers du registre"),
