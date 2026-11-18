@@ -1101,13 +1101,24 @@ fn inspecter_ooxml(b: &[u8], entrees: &[EntreeZip]) -> Result<(), ErreurFichier>
             for balise in texte.split("<relationship ").skip(1) {
                 let balise = balise.split('>').next().unwrap_or("");
                 let externe = balise.contains("targetmode=\"external\"") || balise.contains("targetmode='external'");
-                for m in ["vbaproject", "oleobject", "/package", "activex", "/control", "macrosheet"] {
+                // `/relationships/package` (paquet incorporé) et `/relationships/control` : suffixe exact du type, car
+                // l'espace de noms standard `…/package/2006/relationships/…` contient lui aussi « /package ».
+                for m in [
+                    "vbaproject",
+                    "oleobject",
+                    "activex",
+                    "macrosheet",
+                    "/relationships/package\"",
+                    "/relationships/package'",
+                    "/relationships/control\"",
+                    "/relationships/control'",
+                ] {
                     if balise.contains(m) {
                         return Err(ACTIF("document avec macros, objet incorporé ou contrôle actif"));
                     }
                 }
                 if externe
-                    && ["attachedtemplate", "frame", "subdocument", "externallink", "oleobject", "/image", "/control"]
+                    && ["attachedtemplate", "frame", "subdocument", "externallink", "oleobject", "/relationships/image", "/relationships/control"]
                         .iter()
                         .any(|m| balise.contains(m))
                 {

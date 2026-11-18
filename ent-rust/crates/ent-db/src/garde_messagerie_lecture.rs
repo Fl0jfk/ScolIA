@@ -72,6 +72,8 @@ const PAR_IDENTIFIANT: &[&str] = &[
     "list_fils_eleve",
     "list_fils_eleves",
     "annuler_message_differe",
+    // Dépôt d'une pièce sous verrou du message : l'appelant a déjà passé `actor_can_access_fil` (F1).
+    "insert_piece",
     "peut_ecrire_fil",
     "compter_participants",
     "personnels_a_prevenir",

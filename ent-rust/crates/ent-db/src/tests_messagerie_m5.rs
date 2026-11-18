@@ -78,6 +78,19 @@ impl AnalyseurAntivirus for AvTest {
     }
 }
 
+/// F3 : ni position, ni fabricant, ni date : au plus un segment EXIF **minimal** (36 octets, la seule balise
+/// d'orientation), qui garde la photo à l'endroit.
+fn exif_minimal(c: &[u8]) {
+    assert!(!contient(c, b"GPS") && !contient(c, b"Fabrican"), "EXIF (dont la position GPS) retiré");
+    for (i, w) in c.windows(6).enumerate() {
+        if w == b"Exif\0\0" {
+            // Marqueur APP1 (2 octets) + longueur 0x0022 juste avant l'identifiant.
+            assert_eq!(&c[i - 4..i - 2], &[0xff, 0xe1]);
+            assert_eq!(u16::from_be_bytes([c[i - 2], c[i - 1]]), 0x22, "segment EXIF minimal");
+        }
+    }
+}
+
 fn contient(haystack: &[u8], aiguille: &[u8]) -> bool {
     haystack.windows(aiguille.len()).any(|w| w == aiguille)
 }
@@ -247,7 +260,7 @@ async fn m5_photo_sans_gps_png_sans_texte() {
     assert_eq!(lever_quarantaine(&ent, etab).await.saines, 2);
     let p = ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), photo.id).await.unwrap();
     assert!(p.contenu.starts_with(&[0xff, 0xd8]), "toujours un JPEG");
-    assert!(!contient(&p.contenu, b"Exif"), "EXIF (dont la position GPS) retiré");
+    exif_minimal(&p.contenu);
     assert_eq!(p.mime_type, "image/jpeg");
     let c = ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), capture.id).await.unwrap();
     assert!(c.contenu.starts_with(&[0x89, b'P', b'N', b'G']), "toujours un PNG");
@@ -694,7 +707,7 @@ async fn m5_reprise_bytea_rejouable_avec_rapport() {
     assert_eq!(etat_piece(&ent, mal).await, "rejetee");
     // Servies depuis le stockage objet, normalisées.
     let p = ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), jpg).await.unwrap();
-    assert!(!contient(&p.contenu, b"Exif"), "l'ancienne photo perd son EXIF à la reprise");
+    exif_minimal(&p.contenu);
     assert!(ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), pdf).await.is_ok());
     assert!(ent.telecharger_piece_for_actor(etab, lily, role(Role::Parent), mal).await.is_err());
 

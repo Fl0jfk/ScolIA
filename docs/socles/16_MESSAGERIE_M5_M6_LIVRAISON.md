@@ -52,11 +52,11 @@ Niveau : **implémenté et testé en local, non validé par Florian, non prêt p
 Recalculés : tables avec RLS **+3** (`tests_rls.rs`, registre +3) ; `Action::TOUTES` inchangé (aucune action nouvelle) ; routes +5 (inventaire lu dans `routes.rs`) ; `MIGRATION_TAG` inchangé (3808, la plus haute du répertoire).
 
 ## Écarts et choses à ne pas présenter comme faites
-1. **Gardes E7-E8 (élève mineur protégé)** : les routes de pièces passent par `actor_can_access_fil`, qui appelle l'autorisation du socle 2, mais **aucun test dédié** n'a été écrit pour un élève protégé.
+1. ~~Gardes E7-E8~~ **Corrigé** (revue de sécurité, F4) : `actor_can_access_msg_fil` cache désormais le fil d'un élève protégé à un personnel tiers ; test `corr_f4_…`.
 2. **Avis par `aviser` non branchés** : le socle 8 résout les destinataires par les liens de l'élève, la messagerie par les participants du fil. Les natures sont déclarées (lint vert), mais l'émission passe par `notifier_personne` avec le texte du gabarit. Il faut une extension « destinataires explicites » du socle 8 (lot N11). `participant_ajoute` et `nouveau_message*` ne sont pas émises par ce chemin (les chemins existants, déjà neutres, restent en place).
 3. Natures du §23 **non déclarées** ici : `mot_a_signer` (M7), `signalement` et `restriction` (M10), `publications.nouvelle` (M15).
 4. **HEIC non pris en charge** (CM-57 le prévoit converti) : le moteur de conversion du socle 7 ne lit que JPEG et PNG ; le HEIC est refusé à l'entrée (conversion côté appli).
-5. **403 conservé sur la lecture du fil** (`list_messages_for_actor`, M1) : seuls les pièces, les cartes et les nouvelles routes répondent 404 uniforme. Étendre au fil casserait de nombreux tests M0a à M3 ; à décider.
+5. ~~403 conservé~~ **Corrigé** (M2 : 404 uniforme partout). Ancien état : 403 conservé sur la lecture du fil (`list_messages_for_actor`, M1) : seuls les pièces, les cartes et les nouvelles routes répondent 404 uniforme. Étendre au fil casserait de nombreux tests M0a à M3 ; à décider.
 6. **Un message peut recevoir une pièce de n'importe quel participant du fil** (pas seulement de son auteur) : comportement antérieur conservé, à resserrer.
 7. Pas d'accusé « refus » côté destinataire : R-M19 ne prévoit aucun réglage de refus ; interprété comme « une lecture qui n'est pas celle d'un destinataire ne pose rien ». S-145 reste écarté.
 8. Libellé de lecture « Prénom X. » et non « Mme B. » (aucune civilité en base).
@@ -71,3 +71,32 @@ Recalculés : tables avec RLS **+3** (`tests_rls.rs`, registre +3) ; `Action::TO
 
 ## Incident de méthode
 Une première compilation a été lancée avec `&` (interdit), arrêtée aussitôt et relancée avec `run_in_background` ; aucune autre.
+
+## Revue de sécurité : correctifs (branche `ent-socle-16-code-m5m6`)
+Niveau : **implémenté et testé en local, non validé par Florian, non prêt pilote.** Migration **490** `msg_correctifs_revue` (plage 490–493 ; 488 et 489 **non modifiées**, un déclencheur remplacé par une migration neuve est plus propre). Un seul chemin de lien : voir `docs/SECURITY.md` (liens de messagerie).
+
+| Point | Correctif | Fichier(s) | Test(s) |
+|---|---|---|---|
+| **E1** (élevé) | Découpage lexical du PDF (commentaires `%`, chaînes `(…)` imbriquées, chaînes hexadécimales, noms `#xx` décodés, `stream` reconnu comme jeton et validé par `/Length`) ; **seconde passe indépendante et pessimiste, active en release** (`verification_finale` : tout le fichier, `#xx` décodés, 10 noms actifs refusés, flux à filtre inconnu refusé) ; `pdf_actif` décode les `#xx` ; le `debug_assert!` circulaire disparaît | `ent-pdf/src/piece.rs`, `ent-object/src/upload.rs` | `hostile_noms_en_diese_xx`, `hostile_commentaire_parenthese_n_avale_pas_la_suite`, `hostile_faux_stream_dans_chaine_ou_commentaire`, `hostile_chaine_hexadecimale_et_imbriquee`, `hostile_aa_sur_une_page`, `hostile_pdf_incremental_deux_eof`, `hostile_open_action_dans_un_objet_compresse`, `hostile_faux_flux_longueur_mensongere_cache_un_objet`, `hostile_flux_au_filtre_inconnu_refuse`, `seconde_passe_refuse_un_nom_actif_residuel`, `pdf_actif_refuse_mais_pas_json` |
+| **M1** | Fil C3 : plus d'`eleve_id` ni de lecteur dans `msg.piece`, `msg.accuse` (sans `lecteur_user_id`, R-M22), `messagerie.carte_inseree`, **ni** `msg.envoye` / `messagerie.message_envoye` (trouvés par le test) | `msg_m5.rs` (`fil_est_c3`, `eleve_pour_evenement`), `service.rs` | `corr_m1_fil_c3_aucun_evenement_ne_porte_l_eleve_ni_un_lecteur` |
+| **M2** | 404 uniforme : `list_messages_for_actor` renvoie `MsgFilIntrouvable` comme un fil absent ; `cartes`, `lecture`, `lu` l'avaient déjà. Assertions adaptées (404 exact, jamais affaiblies) | `service.rs`, `tests_messagerie_m0a/m0b/m1`, `tests_socle1` | `corr_m2_404_uniforme_…` (4 routes × 2 tiers, même erreur exacte), HTTP : `recette_personas_1` (statut 404 et corps identique à un fil absent, 3 routes) |
+| **M3** | Avis `reponse_attendue` : `lien_communicant` (interdictions) relu pour chaque destinataire ; `eleve_id: None` sur fil C3 | `msg_m6.rs` | `corr_m3_…` |
+| **M4** | Annulation d'un message différé : cartes, accès, lectures, pièces supprimés dans la même transaction (exception **bornée** du déclencheur, migration 490), objets détruits et marqués au registre ; le pointeur « lu jusqu'à » exclut messages différés et propres messages | `msg_repo.rs`, `msg_m5.rs`, `msg_m6.rs`, migration 490 | `corr_m4_annulation_…`, `corr_m4_pointeur_exclut_ses_propres_messages` |
+| **M5** | Purge des originaux des pièces `infectee` (7 j) et `rejetee` (30 j) : `ENT_MSG_PIECES_INFECTEES_RETENTION_JOURS` / `…_REJETEES_…`, catégorie de conservation `msg.piece_refusee` (catalogue 2026-11-18-v2b), objet détruit puis marqué au registre, branchée sur l'ordonnanceur horaire | `msg_m5.rs`, `conservation.rs`, `ent-api/src/main.rs` | `corr_m5_purge_…` |
+| **M6** | `TABLES_CONTENU` + 3 tables ; une citation en commentaire ne vaut plus appel du contrôle ; la garde d'isolation exige que `msg_m5.rs`, `msg_m6.rs`, `msg_repo.rs` soient réellement couverts | `garde_messagerie_lecture.rs`, `tests/isolation_sql_statique.rs` | `un_controle_cite_en_commentaire_ne_vaut_pas_appel`, `isolation_sql_statique` |
+| **M7** | OOXML : types macro-activés, `vbaProject` sous tout nom (noms de parties, types, relations), `oleObject`, `embeddings`, ActiveX, feuilles macro Excel 4, DDE / `MACROBUTTON`, `attachedTemplate` externe ; partie illisible ou trop volumineuse refusée. Dépendance **interne** `ent-object → ent-pdf` (inflate maison, aucune dépendance externe ; les deux `Cargo.lock` mis à jour d'une ligne) | `ent-object/src/upload.rs` | `ooxml_*` (7 tests, fichiers construits) |
+| **M8** | Liens de messagerie : 60 s au plus quelle que soit `ENT_OBJECT_LINK_TTL_SECS` ; en mode S3, jamais d'URL SigV4 (lien servi par l'application, signé par `ENT_OBJECT_SIGNING_KEY`) ; ouverture journalisée (`via = 'ouverture'`) et droits relus (participant retiré : 404) | `presign.rs`, `msg_m5.rs`, `routes.rs` (`servir_fichier_signe`), migration 490 | `corr_m8_…` |
+| **F1** | Limite de 5 pièces sous verrou du message ; refus sur message retiré ou différé ; l'objet déposé est détruit en cas de refus | `msg_repo.rs`, `service.rs` | `corr_f1_…` (8 dépôts simultanés → 5) |
+| **F2** | `lu_par_personne_id` conservé à la première lecture | `msg_m6.rs` | `corr_f2_…` |
+| **F3** | **Écart assumé** : pas de rotation des pixels (il n'y a pas de décodeur JPEG, D-062 ; une rotation sans perte demanderait de transformer les coefficients DCT). Même méthode que la photo d'élève (E9) : EXIF et GPS retirés, **seul l'orientation est conservée** dans un segment minimal : la photo s'affiche à l'endroit | `msg_m5.rs` (réutilise `photo_nettoyage`) | `corr_f3_…` |
+| **F4** | Tests E7-E8 : pièces, cartes, lecture, avis. **Le test a révélé un défaut réel** : un administratif sans G6 lisait le fil d'un élève protégé ; corrigé dans `actor_can_access_msg_fil` | `service.rs` | `corr_f4_…` |
+| **F5** | Carte ouverte : type et nom selon la signature réelle des octets et le titre du document | `msg_m5.rs`, `routes.rs` | `corr_f5_…` |
+| **F9** | Une erreur sur un établissement n'interrompt pas la passe d'analyse ni la purge | `msg_m5.rs` | `corr_f9_…` |
+| Fixture ELF | `executable.elf` supprimé (binaire invérifiable) ; constante de quelques octets `\x7fELF…` construite dans le test | `fixtures/messagerie/`, `tests_messagerie_m5.rs` | `m5_cm59_…` |
+
+### Pour plus tard (non traités, par consigne)
+F6 (N+1 des cartes : un contrôle de droit par carte), F7 (mémoire : pièces et originaux lus en entier), F8 (orphelins d'une analyse concurrente : objet servi écrit puis ligne non passée à `saine`), F10 (ClamAV joint en TCP clair).
+
+### Points à connaître
+- La seconde passe PDF est **pessimiste** : un nom actif cité dans un texte ou un commentaire du PDF (`(voir /JavaScript)`) fait refuser la pièce (un test existant a été inversé en conséquence) ; les flux compressés par un filtre connu ne sont pas lus (seuls les noms longs y sont cherchés bruts). Un flux dont le filtre est inconnu est refusé.
+- Le refus du dépôt sur un message **différé** (F1, consigne) signifie qu'une pièce se joint avant la programmation ; à confirmer avec Florian côté usage.
