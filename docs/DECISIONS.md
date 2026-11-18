@@ -582,3 +582,26 @@ Toute idée du carnet (`docs/idees/CARNET_IDEES.md`) suit le circuit : **carnet 
 - L'exception RUSTSEC-2026-0543 est retirée à la fin du lot.
 
 **Entre-temps** : rien ne change. La date de revue de l'exception est portée au lot de migration.
+
+## D-068 — Bascule repoussée à la fin de l'année scolaire ; février = démo complète de A à Z (Florian, 2026-11-18 ; remplace le calendrier de D-057)
+**Décision** : plus de bascule aux vacances d'hiver. Le Next.js reste en production jusqu'à la fin de l'année scolaire 2026-2027. La **bascule a lieu l'été 2027**, pour une rentrée de septembre sur ScolIA, avec des données neuves ou presque. **Février 2027 = une démo qui fonctionne de A à Z**, sur données de démonstration, et non une mise en production.
+**Raisons (Florian)** :
+- une bascule en cours d'année tombe au milieu de chantiers vivants (stages, voyages, campagnes) ;
+- repartir à la rentrée évite la reprise d'une année entamée ;
+- mieux vaut tout finir en juin que bousculer les chantiers pour février.
+
+**Avis du pilote** : d'accord. Le calcul de charge rendait février tenable de justesse, au prix d'un recentrage sur les seuls modules utilisés. Ce n'est plus nécessaire : on garde la méthode socle par socle (D-021), avec l'exigence « masterclass ».
+
+**Réserves notées (à suivre)** :
+1. **Le Next.js vit quatre mois de plus en production** : les correctifs de failles critiques et élevées du chantier D-053 deviennent plus importants, pas moins.
+2. **La rentrée se prépare au printemps** (réinscriptions, préinscriptions, fiches de rentrée, répartition des classes, EDT) : il faut décider si la campagne de rentrée 2027 se fait dans ScolIA (une partie en service dès avril-mai) ou dans le Next.js (reprise de ses résultats en été). Question ouverte, Q-D068-1.
+3. **« Données vierges » n'est pas « aucune reprise »** : il faudra quand même l'import SIECLE et STS de la rentrée, les familles, les comptes, et des archives en lecture seule du Next.js (documents, certificats vérifiables par QR, voyages en cours). L'outil de reprise (socle 28) reste utile, mais moins urgent.
+
+**Conséquences** :
+- la démo de début décembre reste un jalon intermédiaire ;
+- la démo de février devient le jalon dur : tous les modules du Next.js en usage, de bout en bout, avec leurs écrans ;
+- le gel du 7 février devient un gel de démo ;
+- PLAN_BASCULE_FEVRIER.md doit être revu en plan « démo de février et bascule de l'été » ;
+- D-063 (Rust devient `main`) s'applique à la bascule de l'été ;
+- la fenêtre jiff (D-067) reste vers le 7 décembre.
+
