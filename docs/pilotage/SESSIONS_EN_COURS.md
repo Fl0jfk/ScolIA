@@ -245,3 +245,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Désabonnement de la PR 97, session archivée. ENT est gelé jusqu'au verdict du run (PR 93).
   - **E9 (PR 96, ed50c8f3)** : la tranche 12 est rouge (le catalogue E5 compte 16 champs au lieu de 13, effet attendu). Les autres échecs seront relevés en fin de run, pour un push unique avec la fusion d'ENT 015bc4f6.
   - **Une place est libre** (règle 32). Pas de nouveau lot avant le verdict d'ENT.
+- **18-11, 2 h 50 UTC** :
+  - **Run 391 vert** sur 015bc4f6 : F1-F2 validé sur ENT.
+  - Le test `a4_cap31_deux_acceptations_simultanees_qui_se_chevauchent` est soupçonné instable : rouge sur la PR 96 au run 390, hors du lot ; à surveiller.
+  - **Nouvelle session : socle 42 V2a**, suivi de l'argent des voyages en mode suivi, sans facturation (session_01KZCbFHYShjJTocQqT3Aqxe, branche ent-socle-42-code-v2a). **Migrations 650-659.** Consignes durcies : pas de `&`, push à chaque étape vérifiée, commandes exactes de la CI, fixtures réalistes.
+  - **Sessions qui codent : E9 et V2a** (2 sur 2).
