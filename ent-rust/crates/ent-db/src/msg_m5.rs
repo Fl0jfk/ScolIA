@@ -871,6 +871,11 @@ impl PgEnt {
             .then_some(titre))
     }
 
+    /// L'élève à porter par un événement du fil : jamais pour un fil C3.
+    pub(crate) async fn eleve_pour_evenement(&self, fil: &domain_eleve::MsgFil) -> Result<Option<Uuid>, EntDbError> {
+        Ok(if self.fil_est_c3(fil.etablissement_id, fil.id).await? { None } else { Some(fil.eleve_id) })
+    }
+
     /// Détruit des objets de messagerie au magasin **puis** les marque supprimés au registre (`ent_objet`). Au mieux :
     /// un échec est journalisé (sans clé ni nom), l'objet reste alors au registre « non supprimé » et la purge
     /// périodique le reprendra. Un objet référencé par une autre pièce n'est jamais détruit.

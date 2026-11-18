@@ -17808,6 +17808,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         };
         // D-017 : « messagerie.eleve » et sa portée (professeur : ses classes).
         if parsed.is_staff() {
+            // E7 (F4) : un élève protégé est absent pour un personnel tiers (ni G6 ni lien direct) : ni fil, ni pièce,
+            // ni carte, ni état de lecture.
+            if self.eleve_cache_au_tiers(etablissement_id, actor_user_id, role, eleve_id).await? {
+                return Ok(false);
+            }
             return self
                 .autoriser_eleve(etablissement_id, actor_user_id, role, Action::MessagerieEleve, eleve_id)
                 .await;
@@ -18395,6 +18400,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         participant_ajoute: bool,
         role: &str,
     ) -> Result<(), EntDbError> {
+        let eleve_evt = self.eleve_pour_evenement(fil).await?;
         let cote = match Role::parse(role) {
             Some(Role::Parent) => "famille",
             Some(Role::Eleve) => "eleve",
@@ -18406,7 +18412,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 type_name: types::MESSAGERIE_MESSAGE_ENVOYE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: msg.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: eleve_evt,
                 payload: json!({ "message_id": msg.id, "cote_auteur": cote }),
                 actor_user_id: Some(msg.auteur_user_id.to_string()),
             })
@@ -18418,7 +18424,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MESSAGERIE_PARTICIPANT_AJOUTE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: msg.fil_id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "compte": msg.auteur_user_id, "raison": "a_ecrit" }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })
@@ -18475,6 +18481,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_fil(cmd.etablissement_id, cmd.fil_id)
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
+        let eleve_evt = self.eleve_pour_evenement(&fil).await?;
         let can = self
             .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
             .await?;
@@ -18523,7 +18530,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MSG_FIL_ARCHIVE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: fil.id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "archive": false, "cause": "reponse" }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })
@@ -18535,7 +18542,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 type_name: types::MSG_ENVOYE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: msg.fil_id,
-                eleve_id: Some(fil.eleve_id),
+                eleve_id: eleve_evt,
                 payload: json!({
                     "message_id": msg.id,
                     "auteur_user_id": msg.auteur_user_id,
@@ -18550,7 +18557,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     type_name: types::MSG_DEROGATION_PLAGE.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: msg.fil_id,
-                    eleve_id: Some(fil.eleve_id),
+                    eleve_id: eleve_evt,
                     payload: json!({ "message_id": msg.id, "motif_caracteres": motif.len() }),
                     actor_user_id: Some(msg.auteur_user_id.to_string()),
                 })

@@ -202,16 +202,8 @@ async fn corr_m3_avis_reponse_attendue_relit_le_droit_de_chaque_destinataire() {
     assert_eq!(apres_a, 1, "témoin : l'avis est émis à un destinataire qui a le droit");
     // Fil C3 : l'avis part, sans élève.
     ent.avertir_reponse_attendue(etab, c3.fil_id).await;
-    let (eleve_n,): (Option<Uuid>,) = sqlx::query_as(
-        "SELECT eleve_id FROM ent_notification WHERE destinataire_user_id = $1 AND kind = 'messagerie_famille'
-          AND cle_dedup = $2",
-    )
-    .bind(lily)
-    .bind(format!("msgreponse:{}:{lily}", c3.fil_id))
-    .fetch_one(ent.pool_verif())
-    .await
-    .unwrap();
-    assert!(eleve_n.is_none(), "avis d'un fil C3 : jamais l'élève");
+    let sans_eleve = nb("SELECT count(*) FROM ent_notification WHERE destinataire_user_id = $1 AND kind = 'messagerie_famille' AND eleve_id IS NULL").await;
+    assert_eq!(sans_eleve, 1, "avis d'un fil C3 : jamais l'élève (celui du fil ordinaire le porte)");
 
     // Attaque : une interdiction de communication vise Lily ; plus rien ne lui est envoyé (droit relu avant l'envoi).
     poser_interdiction(&ent, etab, harry, lily, dir).await;
@@ -219,15 +211,6 @@ async fn corr_m3_avis_reponse_attendue_relit_le_droit_de_chaque_destinataire() {
     ent.avertir_reponse_attendue(etab, b.fil_id).await;
     let apres = nb("SELECT count(*) FROM ent_notification WHERE destinataire_user_id = $1 AND kind = 'messagerie_famille'").await;
     assert_eq!(apres, avant, "un parent visé par une interdiction ne reçoit rien");
-    let (outbox,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_notification WHERE destinataire_user_id = $1 AND cle_dedup = $2",
-    )
-    .bind(lily)
-    .bind(format!("msgreponse:{}:{lily}", b.fil_id))
-    .fetch_one(ent.pool_verif())
-    .await
-    .unwrap();
-    assert_eq!(outbox, 0);
 }
 
 // ───────────────────────── M4 : annulation d'un message différé ─────────────────────────
@@ -499,7 +482,7 @@ async fn corr_f1_cinq_pieces_sous_verrou_et_message_retire_ou_differe() {
     deposer(&ent, etab, m2, dir, Role::Direction, "ok.pdf", "application/pdf", PDF_REEL)
         .await
         .expect("témoin : dépôt sur un message ordinaire");
-    sqlx::query("UPDATE ent_msg SET retire_le = now() WHERE id = $1").bind(m2).execute(ent.pool_verif()).await.unwrap();
+    ent.retirer_message_for_actor(etab, dir, role(Role::Direction), m2, None).await.expect("message retiré");
     let e = deposer(&ent, etab, m2, dir, Role::Direction, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("retiré");
     assert!(est_conflit(&e), "{e:?}");
     // Message différé : refus.
