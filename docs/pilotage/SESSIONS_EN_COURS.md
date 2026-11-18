@@ -233,3 +233,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - le guichet du secrétariat (R-F23) ;
     - l'encaissement au guichet ;
     - la règle à deux personnes pour les désignations sur pièce.
+- **17-11, 23 h 30 à 18-11, 0 h 20 UTC, CI des deux lots** :
+  - **E9 (PR 96)** : corrigés `eleves_hors_export` mort et le jour UTC dans les tests (règle 33) ; le formatage a été poussé par le pilote (1554c94e).
+    - Puis une **régression** : le nettoyage PNG refuse le PNG de `fichiers_depot` (« photo illisible »). Renvoyée à la session.
+  - **F1-F2 (PR 97, 3ac1ce18)** : la liste blanche globale des clés d'événements (M7) casse le module Demandes (`t_nj86`, `t_nj91`). Renvoyée avec la consigne : liste blanche par type d'événement des finances seulement, l'existant inchangé.
+  - Le pilote est désabonné des deux PR en attendant les têtes corrigées.
