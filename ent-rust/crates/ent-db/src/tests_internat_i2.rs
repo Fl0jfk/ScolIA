@@ -1864,37 +1864,43 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
     let Some(b) = banc().await else { return };
     let pool = b.ent.pool_verif();
     let sortie = Uuid::new_v4();
-    let inserted = sqlx::query(
-        "INSERT INTO ent_sortie (id, etablissement_id, etat, debut, fin) VALUES ($1,$2,'en_cours',$3,$4)",
+    let annee: Uuid = sqlx::query_scalar("SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 LIMIT 1").bind(b.etab).fetch_one(pool).await.unwrap();
+    let porteur: Uuid = sqlx::query_scalar("SELECT id FROM ent_personne WHERE etablissement_id = $1 ORDER BY id LIMIT 1").bind(b.etab).fetch_one(pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ent_sortie (id, etablissement_id, annee_id, reference, titre, nature, forme, destination, debut, fin, etat, porteur_personne_id) \
+         VALUES ($1,$2,$3,$4,'Séjour test','obligatoire','voyage','france',$5,$6,'en_cours',$7)",
     )
     .bind(sortie)
     .bind(b.etab)
+    .bind(annee)
+    .bind(format!("SM9-{}", alea()))
     .bind(utc(2026, 3, 28, 12, 0))
     .bind(utc(2026, 3, 30, 12, 0))
+    .bind(porteur)
     .execute(pool)
-    .await;
-    if let Err(e) = inserted {
-        panic!("ent_sortie : colonnes obligatoires à renseigner dans ce test : {e}");
-    }
+    .await
+    .unwrap();
+    let eleves: Vec<Uuid> = b.a.iter().chain(b.b.iter()).copied().collect();
     let etats = ["inscrit", "pret", "parti", "liste_attente", "bloque", "rentre"];
     for (i, etat) in etats.iter().enumerate() {
         sqlx::query("INSERT INTO ent_sortie_participant (id, etablissement_id, sortie_id, eleve_id, etat, rang_attente) VALUES ($1,$2,$3,$4,$5, CASE WHEN $5 = 'liste_attente' THEN 1 END)")
             .bind(Uuid::new_v4())
             .bind(b.etab)
             .bind(sortie)
-            .bind(b.a[i])
+            .bind(eleves[i])
             .bind(etat)
             .execute(pool)
             .await
             .unwrap();
     }
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
-    let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == b.a[i]).unwrap().statut.clone();
+    let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == eleves[i]).unwrap().statut.clone();
     assert_eq!(statut(0), "attendu", "inscrit : autorisation non confirmée, dort à l'internat");
     assert_eq!(statut(1), "retire", "prêt : autorisation complète");
     assert_eq!(statut(2), "retire", "parti : départ effectif");
     assert_eq!(statut(3), "attendu", "liste d'attente");
     assert_eq!(statut(4), "attendu", "bloqué");
+    assert_eq!(statut(5), "attendu", "rentré");
 }
 
 // ───────────── L1, L6 : bornes ─────────────
