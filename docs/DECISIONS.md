@@ -606,3 +606,13 @@ Toute idée du carnet (`docs/idees/CARNET_IDEES.md`) suit le circuit : **carnet 
 - La démo de début décembre reste un point d'étape.
 - PLAN_BASCULE_FEVRIER.md n'est plus un plan de bascule. Il devient la liste des fonctions du Next.js à reprendre comme compléments, après étude.
 - D-063 (le Rust devient `main`) s'applique à la rentrée 2027.
+
+**Précisions de Florian (2026-11-18, suite), qui corrigent la lecture du pilote** :
+- **Les modules du Next.js font partie de l'ENT.** Ce ne sont pas des « compléments » à part, mais des domaines secondaires par rapport au cœur. Chacun est épaissi et **lié à tout le reste**. Exemple : la partie comptable des voyages n'est qu'un début qui marche mal. Elle doit être enrichie et branchée au reste de l'ENT, pas refondue de A à Z.
+- **L'échéance compte moins que la preuve qu'on va au bout.** Florian veut des preuves régulières et vérifiables de l'avancée. Une démo « masterclass » de l'ENT en février lui convient très bien, sans mise en production.
+- **La bascule se fait à la rentrée 2027, voire un peu avant** (fin d'année, stages de juin). La transition se fait l'été.
+- **Rien n'est lâché avant d'être de très haut niveau.** Aujourd'hui, tout est encore trop mince.
+- **Fiches de rentrée, répartition des classes et réinscriptions n'existent pas dans le Next.js** : c'est de la création pure, sans reprise. La question Q-D068-1 devient : la campagne du printemps 2027 se fait-elle déjà dans ScolIA (première mise en service ciblée), sur papier, ou dans Charlemagne ? À trancher vers mars, selon le niveau atteint.
+- **Notes et bulletins (Q-D068-2, tranchée)** : ScolIA fait **tout ce que fait Charlemagne, « comme de l'officiel »** : notes, moyennes, bulletins, conseils de classe, livrets, documents officiels. Il n'est simplement **pas encore branché sur les échanges académiques** (SIECLE, LSU, remontées), qui viendront avec la démarche éditeur (F-06, D-031).
+- **Conséquence pour le pilote** : tenir un **tableau de maturité par socle**, mis à jour chaque semaine dans le point quotidien. Il indique la profondeur réelle de chaque socle : lots conçus, versés, écrans, testés, recettés par les personas, part du plan de lots déjà faite. C'est la preuve d'avancée attendue. Chaque socle est mené au bout de son plan, écrans compris, avant d'être dit « fait ».
+
