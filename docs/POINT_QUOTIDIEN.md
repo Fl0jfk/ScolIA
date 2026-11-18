@@ -6,6 +6,95 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-18 (mercredi soir, 18 h 45 Paris) — point du jour
+
+**Décision structurante du jour (D-068, Florian)** : la bascule n'a plus lieu en février. Elle se fera **à la rentrée 2027**, voire un peu avant.
+- La **priorité est l'ENT complet**, à épaissir domaine par domaine au plus haut niveau.
+- Les modules du Next.js font partie de l'ENT. Ils sont secondaires, mais doivent être épaissis et reliés à tout le reste.
+- Ce qui compte, ce sont des **preuves** qu'on va au bout, plus que des échéances. Une démo « masterclass » peut n'arriver qu'en juin.
+- **Notes et bulletins** : ScolIA fait tout « comme de l'officiel », sans branchement aux échanges académiques.
+- Florian comparera lui-même ScolIA à Charlemagne sur de vrais élèves (I-032).
+
+**Sur ENT (validé par la CI)**, ENT = 86f03b82 (run 417 vert) :
+- Socle 24 **F1-F2** (finances) : service financier unique, comptes des familles, payeurs (parents séparés), organismes. Six élevés de la revue de sécurité corrigés.
+- Socle 2 **E9** : suites de la confidentialité de l'élève (pastilles « vie de classe » et « protocole », catalogue des champs à 16) ; **premiers écrans de l'élève** (liste et recherche, fiche avec synthèse) pour la démo.
+- Socle 42 **V2a** : suivi de l'argent des voyages (part des familles, versements, bordereaux de chèques, acomptes fournisseurs, export comptable), sans facturation.
+- **CI** : le job des écrans passe de **78 min à environ 21 min de calcul**, avec les mêmes 153 tests et un contrôle de couverture.
+- **Suites techniques** : planificateur quotidien (acomptes, purge des exports), guichet calé sur le jour de l'établissement, liste blanche des événements financiers, balayage des photos orphelines, journaux de la CI sans bruit.
+- **Faille corrigée** : `lettre` 0.11.24 (RUSTSEC-2026-0565, e-mail).
+- **Défaut corrigé** : un seul « jour de l'établissement » (migration 3201) ; l'outre-mer avait deux dates selon le module.
+- Socle 16 **M5-M6** (messagerie) : pièces jointes avec quarantaine et antivirus, PDF désarmés strictement, accusés de lecture, avis neutres, liens de 60 s journalisés. La revue avait trouvé un PDF actif possible et un administratif qui lisait les messages d'un élève protégé : corrigés.
+
+**Prêt mais pas encore sur ENT** : rien.
+
+**En cours** :
+- Socle 41 **I2** : la nuit à l'internat (appels, clôture, procédure, transmission du matin).
+- Socle 21 **V1-V2** : modèle des évaluations et **moteur de calcul des moyennes**, avec un document « règles comme Charlemagne » et les questions à poser à Florian.
+- **Visite guidée** : captures de tous les écrans, rôle par rôle, pour que Florian juge lui-même de l'épaisseur.
+
+**Prochains, dans l'ordre D-068** :
+- 21 (évaluations, suite) ;
+- 20 (cahier) ;
+- 23 (bulletins et conseils) ;
+- 13 (discipline) ;
+- 17 (annonces) ;
+- 29 (portails, « Aujourd'hui ») ;
+- 11 (applications mobiles, pas commencées) ;
+- 22 (compétences) ;
+- 33 (visio).
+
+**Tableau de maturité, première version** : estimation du pilote, à recaler avec la visite guidée et l'avis de Florian. « Plan » = part approximative du plan de lots versée.
+
+| Domaine | Plan versé | Écrans | Commentaire |
+|---|---|---|---|
+| 1 Sécurité et comptes | élevé | oui | passkeys et SSO ; reste l'invitation en masse |
+| 2 Élève | environ la moitié | liste et fiche | E10 mobile, E11 exports, écrans E9c à E9f |
+| 3 Inscriptions | environ un tiers | anciens | I5 et suivants |
+| 4 Dossier administratif | environ un tiers | anciens | |
+| 5 Structure | élevé | partiels | S12, S13 |
+| 7 Documents et signature | environ la moitié | non | D6 fait ; D7 et suivants |
+| 8 Notifications | faible | non | |
+| 10 Emploi du temps | environ un tiers | partiels | EDT réel (T10) |
+| 11 Applications mobiles | **nul** | — | à démarrer |
+| 12 Assiduité | environ la moitié | oui (appel, vie scolaire, famille) | |
+| 13 Discipline | **faible** | anciens | |
+| 15 Absences des personnels | élevé | oui | A10 reprise |
+| 16 Messagerie | environ un tiers | partiels | M9, M10, M12… ; pièce sur message programmé |
+| 18 Formulaires | environ un tiers | partiels | |
+| 19 Agenda et salles | environ un tiers | oui | |
+| 20 Cahier de textes | environ la moitié | partiels | |
+| 21 Évaluations et notes | **faible** (V0 seul) | non | V1-V2 en cours |
+| 22, 23 Compétences, bulletins | **nul** | — | |
+| 24 Finances | faible | non | F1-F2 faits |
+| 27 RGPD | environ un tiers | non | |
+| 28 Reprise | environ un tiers | non | |
+| 29 Portails | faible | partiels | |
+| 32 Espaces des personnels | faible | non | |
+| 41 Internat | faible | non | I2 en cours |
+| 42 Voyages | environ un tiers | partiels | V2a fait ; V3 et suivants |
+
+**Décisions attendues de Florian** :
+- Aucune urgente.
+- Après la visite guidée, son avis domaine par domaine (« à quel pourcentage de ce que j'attends »).
+- Plus tard :
+  - les règles de calcul de Charlemagne (questions du document du socle 21) ;
+  - les trois points finances du 17-11 (guichet, encaissement au comptoir, validation à deux personnes) ;
+  - l'ordre de la file du matin.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) :
+- Rien de nécessaire bientôt.
+- Avec D-068, l'export anonymisé du Next.js perd son urgence (prévu après le 4 décembre).
+- Les **exports Charlemagne de notes** (F-04) prennent de la valeur pour le doublon I-032, mais seulement quand l'outil de comparaison existera.
+- Plus tard : SIECLE et STS (F-05, F-07), démarche éditeur (F-06).
+
+**Ce qui a coincé** :
+- **Sessions qui refusent les consignes envoyées par message** (règle 1) : le pilote fait lui-même les petites corrections de dernière minute, et met désormais tout dans le message de lancement.
+- **Les sessions lancées depuis ENT ne voyaient pas PILOTAGE.md complet**, resté sur la branche du pilote : corrigé dans les consignes.
+- **Tests faibles ou faux révélés par les correctifs** : images de test tronquées, compteur de champs figé, attente d'un 403 au lieu d'un 404. Corrigés sans rien assouplir.
+- **Test dépendant de l'heure** : il a révélé un vrai défaut, deux jours différents pour l'outre-mer.
+- **Disque plein** sur la machine du pilote : nettoyé.
+- **Une erreur de consigne du pilote** : interdire une pièce jointe sur un message programmé. À reprendre.
+
 ## 2026-11-17 (mardi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT (validé par la CI)** — dernière tête verte : 79b41ca3 (run 359) :
