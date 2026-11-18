@@ -378,3 +378,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Session « visite guidée »** (session_01KZCbFF2mTDvrWiDijFXHzJ, branche ent-visite-guidee) : captures de tous les écrans Leptos, rôle par rôle, actions métier jouées sur le labo fictif, plus un rapport honnête des manques. Aucun code applicatif.
   - À la livraison, le pilote publie une page privée de visite pour Florian.
   - **Sessions actives** : I2 (code), visite guidée (captures). M5-M6 attend le dernier push du pilote.
+- **18-11, 16 h 08 UTC : messagerie M5-M6 versée.**
+  - ENT 86f03b82, par avance rapide. L'arbre est identique à `refs/pull/101/merge`, testé vert au run 416.
+  - Contenu : pièces jointes avec quarantaine et antivirus, désarmement PDF pessimiste, accusés de lecture, avis neutres, liens de 60 s journalisés, et tous les correctifs de la revue.
+  - Migrations 488-490. ELF supprimé.
+  - Désabonnement de la PR 101, session archivée. ENT est gelé jusqu'au verdict.
+  - **À reprendre** : pièce jointe sur son propre message différé (consigne F1 erronée du pilote).
