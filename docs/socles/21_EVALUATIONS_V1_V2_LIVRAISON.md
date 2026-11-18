@@ -153,3 +153,10 @@ V3 (grille et saisie : routes, écrans, renommage des vues, M3) → V4 (absences
 - **M5.** `ent_note_v` ne rend plus les notes d'une évaluation non publiée : un ancien lecteur qui affichait au professeur ses propres notes non publiées via cette vue doit passer par la nouvelle route (V3).
 - **F10.** Le point n'étant pas détaillé dans la consigne, il a été traité comme « le commentaire de 464 décrit un mécanisme qui n'existe plus ».
 - **À noter pour plus tard (non traités)** : **F2** (arrondi d'étape a en points cumulés : l'étape « note ramenée » n'a pas de sens dans cette pondération), **F7**, **F8** et **F12** : leur texte ne figure pas dans la consigne reçue.
+
+### 8.3 Vérifications avant push (commandes de la CI, toolchain 1.99.0, `--locked`)
+- Les deux `cargo fmt … --check` par paquets (web, `ent-types`) : propres ; les fichiers du lot passés à `rustfmt`.
+- `cargo clippy` en trois commandes (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`) `-D warnings` : **0**.
+- `ent-db` (labo) : `tests_evaluations_v1` + `_revue` **34 verts en mode normal et en RLS stricte** (un fil) ; `migrate::`, `registre_donnees::`, `tests_rls::`, `tests_evaluations`, `tests_evaluations_v0`, `passages_quotidiens`, `tests_voyages_v2a` verts ; `garde_finances_ecritures`, `garde_inscriptions_ecritures`, `isolation_sql_statique`, `jour_utc_interdit` verts ; `domain-eleve` **376** verts ; `ent-api` (`tests_evaluations_v0`, `separation`, `la_variable…`) verts ; web `ent-web-server --features labo --test evaluations` **2 verts** ; `cd ent-rust/web && cargo metadata --locked` : OK.
+- Sous `ENT_EXIGER_BASE=1` sans `ENT_DATABASE_URL`, les tests sur base **échouent** (vérifié) ; sans la variable, ils sont ignorés.
+- **Non lancé ici** : la suite complète d'`ent-db` et les 12 tranches de RLS stricte (CI de la pull request). `origin/ENT` n'a pas avancé (86f03b82) : fusion sans effet.
