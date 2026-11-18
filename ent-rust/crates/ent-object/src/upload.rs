@@ -815,17 +815,40 @@ fn sans_bom_ni_blancs(b: &[u8]) -> &[u8] {
     s
 }
 
-/// Jeton PDF présent en clair, suivi d'un caractère de délimitation (évite `/JSON`).
+/// Nom PDF (`/Nom`) présent dans le fichier, **`#xx` décodés** (`/J#61vaScript` = `/JavaScript`), égal à `jeton`
+/// (sans le `/`). Un nom plus long (`/JSON`) n'est pas le nom cherché.
 fn pdf_a_jeton(b: &[u8], jeton: &[u8]) -> bool {
+    let delim = |c: u8| {
+        c.is_ascii_whitespace()
+            || c == 0
+            || matches!(c, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
+    };
     let mut i = 0;
-    while i + jeton.len() <= b.len() {
-        if &b[i..i + jeton.len()] == jeton {
-            let suite = b.get(i + jeton.len()).copied();
-            if !matches!(suite, Some(c) if c.is_ascii_alphanumeric()) {
-                return true;
-            }
+    while i < b.len() {
+        if b[i] != b'/' {
+            i += 1;
+            continue;
         }
-        i += 1;
+        let mut j = i + 1;
+        let mut nom: Vec<u8> = Vec::new();
+        while j < b.len() && !delim(b[j]) {
+            if b[j] == b'#' && j + 2 < b.len() {
+                let v = std::str::from_utf8(&b[j + 1..j + 3])
+                    .ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok());
+                if let Some(v) = v {
+                    nom.push(v);
+                    j += 3;
+                    continue;
+                }
+            }
+            nom.push(b[j]);
+            j += 1;
+        }
+        if nom == jeton {
+            return true;
+        }
+        i = j.max(i + 1);
     }
     false
 }
@@ -834,10 +857,10 @@ fn pdf_a_jeton(b: &[u8], jeton: &[u8]) -> bool {
 /// un flux compressé n'est pas détecté ici (voir limites dans `docs/SECURITY.md`) ; le
 /// service des fichiers impose en plus CSP `sandbox` et `nosniff`.
 fn pdf_actif(b: &[u8]) -> Option<&'static str> {
-    if pdf_a_jeton(b, b"/JavaScript") || pdf_a_jeton(b, b"/JS") {
+    if pdf_a_jeton(b, b"JavaScript") || pdf_a_jeton(b, b"JS") {
         return Some("PDF avec JavaScript");
     }
-    if pdf_a_jeton(b, b"/Launch") {
+    if pdf_a_jeton(b, b"Launch") {
         return Some("PDF avec lancement de programme");
     }
     None
@@ -1153,6 +1176,14 @@ pub(crate) mod tests {
             detecter(launch),
             Err(ErreurFichier::FichierActif(_))
         ));
+        // Noms écrits en `#xx` (E1).
+        for t in [
+            &b"%PDF-1.4\n1 0 obj << /S /J#61vaScript >> endobj"[..],
+            b"%PDF-1.4\n1 0 obj << /#4AS (x) >> endobj",
+            b"%PDF-1.4\n1 0 obj << /S /#4C#61unch >> endobj",
+        ] {
+            assert!(matches!(detecter(t), Err(ErreurFichier::FichierActif(_))));
+        }
         assert_eq!(
             detecter(b"%PDF-1.4\n<< /Type /JSONish >>"),
             Ok(TypeFichier::Pdf)

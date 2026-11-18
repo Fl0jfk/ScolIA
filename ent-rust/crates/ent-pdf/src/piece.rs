@@ -577,32 +577,234 @@ fn nom_decode(brut: &[u8]) -> String {
     String::from_utf8_lossy(&o).into_owned()
 }
 
+/// Filtres de flux connus et sans danger en eux-mêmes (le contenu reste opaque). Tout autre filtre
+/// (`Crypt`, inconnu, mal écrit) fait refuser la pièce à la seconde passe.
+const FILTRES_CONNUS: &[&str] = &[
+    "FlateDecode",
+    "Fl",
+    "DCTDecode",
+    "DCT",
+    "JPXDecode",
+    "CCITTFaxDecode",
+    "CCF",
+    "JBIG2Decode",
+    "LZWDecode",
+    "LZW",
+    "ASCII85Decode",
+    "A85",
+    "ASCIIHexDecode",
+    "AHx",
+    "RunLengthDecode",
+    "RL",
+];
+
+fn blanc(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 0x0c | 0)
+}
+
+/// Un flux repéré par l'analyse lexicale.
+#[derive(Debug, Clone)]
+pub(crate) struct FluxPdf {
+    pub debut: usize,
+    pub fin: usize,
+    /// `/Length` direct, et `endstream` présent exactement à cet endroit : tout lecteur voit la même chose.
+    pub verifie: bool,
+    /// Filtres déclarés (noms décodés).
+    pub filtres: Vec<String>,
+}
+
+impl FluxPdf {
+    /// Contenu compressé, par un filtre connu : on ne le lit pas, mais on le sait opaque.
+    pub fn opaque(&self) -> bool {
+        !self.filtres.is_empty() && self.filtres.iter().all(|f| FILTRES_CONNUS.contains(&f.as_str()))
+    }
+    pub fn filtre_inconnu(&self) -> bool {
+        self.filtres.iter().any(|f| !FILTRES_CONNUS.contains(&f.as_str()))
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct AnalysePdf {
+    /// Jetons `/Nom` hors flux (début, fin, nom décodé).
+    pub noms: Vec<(usize, usize, String)>,
+    pub flux: Vec<FluxPdf>,
+}
+
+fn saute_chaine(b: &[u8], mut i: usize) -> usize {
+    // `b[i] == '('` : parenthèses imbriquées et échappements (`\(`, `\)`, `\\`).
+    let mut prof = 0i32;
+    while i < b.len() {
+        match b[i] {
+            b'\\' => i += 1,
+            b'(' => prof += 1,
+            b')' => {
+                prof -= 1;
+                if prof == 0 {
+                    return i + 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    b.len()
+}
+
+/// Découpage lexical d'un PDF : commentaires `%`, chaînes littérales et hexadécimales, noms `#xx`
+/// décodés, flux (`stream` reconnu comme **jeton**, jamais dans une chaîne ni un commentaire).
+pub(crate) fn analyser(b: &[u8]) -> AnalysePdf {
+    let mut a = AnalysePdf::default();
+    let n = b.len();
+    let mut i = 0;
+    let mut longueur: Option<usize> = None;
+    let mut etat_len = 0u8; // 1 : attend l'entier, 2 : génération éventuelle, 3 : attend `R`
+    let mut filtres: Vec<String> = Vec::new();
+    let mut mode_filtre = 0u8; // 1 : un nom, 2 : tableau
+    while i < n {
+        let c = b[i];
+        if blanc(c) {
+            i += 1;
+            continue;
+        }
+        match c {
+            b'%' => {
+                while i < n && b[i] != b'\n' && b[i] != b'\r' {
+                    i += 1;
+                }
+            }
+            b'(' => {
+                i = saute_chaine(b, i);
+                etat_len = 0;
+                if mode_filtre == 1 {
+                    mode_filtre = 0;
+                }
+            }
+            b'<' => {
+                if b.get(i + 1) == Some(&b'<') {
+                    i += 2;
+                } else {
+                    while i < n && b[i] != b'>' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                etat_len = 0;
+                if mode_filtre == 1 {
+                    mode_filtre = 0;
+                }
+            }
+            b'>' | b')' | b'{' | b'}' => {
+                i += 1;
+                etat_len = 0;
+            }
+            b'[' => {
+                i += 1;
+                etat_len = 0;
+                if mode_filtre == 1 {
+                    mode_filtre = 2;
+                }
+            }
+            b']' => {
+                i += 1;
+                etat_len = 0;
+                if mode_filtre == 2 {
+                    mode_filtre = 0;
+                }
+            }
+            b'/' => {
+                let mut j = i + 1;
+                while j < n && !delimiteur(b[j]) && !blanc(b[j]) {
+                    j += 1;
+                }
+                let nom = nom_decode(&b[i + 1..j]);
+                etat_len = u8::from(nom == "Length");
+                if nom == "Filter" {
+                    mode_filtre = 1;
+                } else if mode_filtre == 1 {
+                    filtres.push(nom.clone());
+                    mode_filtre = 0;
+                } else if mode_filtre == 2 {
+                    filtres.push(nom.clone());
+                }
+                a.noms.push((i, j, nom));
+                i = j;
+            }
+            _ => {
+                let mut j = i;
+                while j < n && !delimiteur(b[j]) && !blanc(b[j]) {
+                    j += 1;
+                }
+                if j == i {
+                    j = i + 1;
+                }
+                let t = &b[i..j];
+                if mode_filtre == 1 {
+                    mode_filtre = 0;
+                }
+                let chiffres = !t.is_empty() && t.iter().all(u8::is_ascii_digit);
+                if etat_len == 1 && chiffres {
+                    longueur = std::str::from_utf8(t).ok().and_then(|s| s.parse().ok());
+                    etat_len = 2;
+                } else if etat_len == 2 && chiffres {
+                    etat_len = 3;
+                } else if etat_len == 3 && t == b"R" {
+                    longueur = None;
+                    etat_len = 0;
+                } else {
+                    etat_len = 0;
+                }
+                i = j;
+                if t == b"obj" || t == b"endobj" {
+                    longueur = None;
+                    filtres.clear();
+                    mode_filtre = 0;
+                } else if t == b"stream" {
+                    let mut d = j;
+                    if b.get(d) == Some(&b'\r') {
+                        d += 1;
+                    }
+                    if b.get(d) == Some(&b'\n') {
+                        d += 1;
+                    } else if d == j {
+                        // `stream` non suivi d'une fin de ligne : un mot, pas un flux.
+                        continue;
+                    }
+                    let mut fin = None;
+                    let mut verifie = false;
+                    if let Some(l) = longueur {
+                        if let Some(e) = d.checked_add(l).filter(|e| *e <= n) {
+                            let mut k = e;
+                            if b.get(k) == Some(&b'\r') {
+                                k += 1;
+                            }
+                            if b.get(k) == Some(&b'\n') {
+                                k += 1;
+                            }
+                            if b[k.min(n)..].starts_with(b"endstream") {
+                                fin = Some(e);
+                                verifie = true;
+                            }
+                        }
+                    }
+                    let fin = fin.unwrap_or_else(|| trouver(b, b"endstream", d).unwrap_or(n));
+                    a.flux.push(FluxPdf {
+                        debut: d,
+                        fin,
+                        verifie,
+                        filtres: std::mem::take(&mut filtres),
+                    });
+                    longueur = None;
+                    i = fin;
+                }
+            }
+        }
+    }
+    a
+}
+
 /// Régions « flux binaire » : de `stream` + fin de ligne jusqu'à `endstream`. On n'y touche jamais.
 pub(crate) fn regions_flux(b: &[u8]) -> Vec<(usize, usize)> {
-    let mut r = Vec::new();
-    let mut i = 0;
-    while let Some(p) = trouver(b, b"stream", i) {
-        // `endstream` contient `stream` : on ne démarre pas une région sur lui.
-        if p >= 3 && &b[p - 3..p] == b"end" {
-            i = p + 6;
-            continue;
-        }
-        let mut d = p + 6;
-        if b.get(d) == Some(&b'\r') {
-            d += 1;
-        }
-        if b.get(d) == Some(&b'\n') {
-            d += 1;
-        } else if d == p + 6 {
-            // `stream` non suivi d'une fin de ligne : un mot de texte, pas un flux.
-            i = p + 6;
-            continue;
-        }
-        let fin = trouver(b, b"endstream", d).unwrap_or(b.len());
-        r.push((d, fin));
-        i = fin;
-    }
-    r
+    analyser(b).flux.iter().map(|f| (f.debut, f.fin)).collect()
 }
 
 pub(crate) fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize> {
@@ -617,50 +819,77 @@ pub(crate) fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize>
 
 /// Les jetons `/Nom` hors flux, avec leur position : `(début, fin, nom décodé)`.
 pub(crate) fn noms_hors_flux(b: &[u8]) -> Vec<(usize, usize, String)> {
-    let flux = regions_flux(b);
-    let mut sortie = Vec::new();
+    analyser(b).noms
+}
+
+/// Noms qui, présents après désarmement, font **refuser** la pièce (seconde passe).
+const NOMS_INTERDITS_FINAUX: &[&str] = &[
+    "JavaScript",
+    "JS",
+    "OpenAction",
+    "AA",
+    "Launch",
+    "SubmitForm",
+    "ImportData",
+    "RichMedia",
+    "EmbeddedFile",
+    "XFA",
+];
+
+/// Seconde passe, **indépendante et pessimiste** (active en release) : parcourt tout le fichier octet par
+/// octet, sans tenir compte des chaînes, commentaires ni de la structure, décode les `#xx` et refuse
+/// si un nom actif subsiste. Seuls les flux compressés par un filtre connu et dont la longueur est
+/// cohérente sont ignorés (mais on y cherche les noms longs bruts). Un flux à filtre inconnu est refusé.
+pub(crate) fn verification_finale(b: &[u8]) -> Result<(), ErreurPiece> {
+    let refus = ErreurPiece::PdfRefuse;
+    let a = analyser(b);
+    for f in &a.flux {
+        if f.filtre_inconnu() {
+            return Err(refus(
+                "PDF à flux d'un filtre inconnu, non inspectable : prenez une photo ou imprimez-le en PDF simple",
+            ));
+        }
+    }
+    let opaques: Vec<(usize, usize)> = a
+        .flux
+        .iter()
+        .filter(|f| f.opaque())
+        .map(|f| (f.debut, f.fin))
+        .collect();
+    let mut k = 0;
     let mut i = 0;
-    let mut r = 0;
     while i < b.len() {
-        while r < flux.len() && flux[r].1 <= i {
-            r += 1;
+        while k < opaques.len() && opaques[k].1 <= i {
+            k += 1;
         }
-        if r < flux.len() && i >= flux[r].0 {
-            i = flux[r].1;
-            continue;
-        }
-        if b[i] == b'(' {
-            // Chaîne littérale : on saute (parenthèses imbriquées et échappements).
-            let mut prof = 0i32;
-            while i < b.len() {
-                match b[i] {
-                    b'\\' => i += 1,
-                    b'(' => prof += 1,
-                    b')' => {
-                        prof -= 1;
-                        if prof == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
+        if k < opaques.len() && i >= opaques[k].0 {
+            let (d, f) = opaques[k];
+            for nom in NOMS_INTERDITS_FINAUX.iter().filter(|n| n.len() > 3) {
+                let mut cherche = Vec::with_capacity(nom.len() + 1);
+                cherche.push(b'/');
+                cherche.extend_from_slice(nom.as_bytes());
+                if trouver(&b[..f], &cherche, d).is_some() {
+                    return Err(refus("PDF à contenu actif dissimulé dans un flux"));
                 }
-                i += 1;
             }
-            i += 1;
+            i = f;
             continue;
         }
         if b[i] == b'/' {
             let mut j = i + 1;
-            while j < b.len() && !delimiteur(b[j]) {
+            while j < b.len() && !delimiteur(b[j]) && !blanc(b[j]) {
                 j += 1;
             }
-            sortie.push((i, j, nom_decode(&b[i + 1..j])));
-            i = j;
+            let nom = nom_decode(&b[i + 1..j]);
+            if NOMS_INTERDITS_FINAUX.contains(&nom.as_str()) {
+                return Err(refus("PDF à contenu actif non neutralisé"));
+            }
+            i = j.max(i + 1);
             continue;
         }
         i += 1;
     }
-    sortie
+    Ok(())
 }
 
 /// PDF désarmé, noms neutralisés (sans doublon, ordre d'apparition) et nombre de pages.
@@ -740,10 +969,8 @@ fn desarmer_simple(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
     if nb_pages == 0 {
         return Err(refus("PDF sans page"));
     }
-    // Contrôle de sortie : rien d'actif ne subsiste.
-    debug_assert!(noms_hors_flux(&sortie)
-        .iter()
-        .all(|(_, _, n)| !NOMS_ACTIFS.contains(&n.as_str())));
+    // Contrôle de sortie : seconde passe indépendante et pessimiste, active en release.
+    verification_finale(&sortie)?;
     Ok(PdfDesarme {
         octets: sortie,
         neutralises,
@@ -1067,7 +1294,7 @@ mod tests {
             b"6 0 obj\n<< /S /#4Aava#53cript /J#53 (this.exportDataObject\\(\\)) >>\nendobj\n",
         );
         v.extend_from_slice(b"7 0 obj\n<< /Type /Annot /Subtype /Link /A << /S /URI /URI (http://evil.example/) >> /A2 << /S /Launch /F (cmd.exe) >> >>\nendobj\n");
-        v.extend_from_slice(b"8 0 obj\n<< /Type /EmbeddedFile /Length 11 >>\nstream\n/JavaScript!\nendstream\nendobj\n");
+        v.extend_from_slice(b"8 0 obj\n<< /Type /EmbeddedFile /Length 11 >>\nstream\nbonjour tous\nendstream\nendobj\n");
         v.extend_from_slice(b"trailer\n<< /Root 1 0 R >>\nstartxref\n0\n%%EOF\n");
         v
     }
@@ -1095,7 +1322,7 @@ mod tests {
         // Rien d'actif ne subsiste, même écrit avec des échappements `#xx`.
         let apres = String::from_utf8_lossy(&d.octets).to_string();
         // (Hors du flux binaire, que l'on ne touche jamais.)
-        let hors_flux = apres.replace("stream\n/JavaScript!\nendstream", "");
+        let hors_flux = apres.replace("stream\nbonjour tous\nendstream", "");
         for interdit in [
             "/JavaScript",
             "/JS ",
@@ -1111,8 +1338,8 @@ mod tests {
         }
         // Mêmes longueurs : la table xref reste exacte.
         assert_eq!(d.octets.len(), src.len());
-        // Le contenu d'un flux binaire n'est jamais touché (même s'il contient un nom actif).
-        assert!(apres.contains("stream\n/JavaScript!\nendstream"));
+        // Le contenu d'un flux binaire n'est jamais touché (un flux qui contiendrait un nom actif est refusé : voir les tests hostiles).
+        assert!(apres.contains("stream\nbonjour tous\nendstream"));
         // Structure conservée.
         assert!(
             d.octets.starts_with(b"%PDF-1.4")
@@ -1123,6 +1350,167 @@ mod tests {
         let encore = desarmer_pdf(&d.octets).unwrap();
         assert!(encore.neutralises.is_empty());
         assert_eq!(encore.octets, d.octets);
+    }
+
+    // ── PDF hostiles écrits à la main (E1) : chacun est refusé ou désarmé, jamais servi tel quel ──
+
+    fn pdf_min(catalogue: &str, extra: &str) -> Vec<u8> {
+        format!(
+            "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalogue} >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n{extra}\
+             trailer\n<< /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"
+        )
+        .into_bytes()
+    }
+
+    /// Ni refusé ni désarmé de façon incomplète : la sortie ne contient aucun nom actif, même décodé.
+    fn doit_etre_sur(src: &[u8]) {
+        match desarmer_pdf(src) {
+            Ok(d) => {
+                assert!(
+                    verification_finale(&d.octets).is_ok(),
+                    "la seconde passe doit accepter la sortie"
+                );
+                let a = String::from_utf8_lossy(&d.octets).to_string();
+                for interdit in ["/OpenAction", "/JavaScript", "/AA", "/Launch", "/J#61v", "/Open#41"] {
+                    assert!(!a.contains(interdit), "{interdit} subsiste");
+                }
+            }
+            Err(ErreurPiece::PdfRefuse(_)) => {}
+            Err(e) => panic!("erreur inattendue : {e:?}"),
+        }
+    }
+
+    #[test]
+    fn hostile_noms_en_diese_xx() {
+        let src = pdf_min(
+            "/Open#41ction 5 0 R /#41A << /O 5 0 R >>",
+            "5 0 obj\n<< /S /J#61vaScript /#4AS (x) /Lau#6Ech /Submit#46orm >>\nendobj\n",
+        );
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+        assert!(d.neutralises.iter().any(|n| n == "JavaScript"));
+        assert!(d.neutralises.iter().any(|n| n == "AA"));
+        doit_etre_sur(&src);
+    }
+
+    #[test]
+    fn hostile_commentaire_parenthese_n_avale_pas_la_suite() {
+        // Un `(` dans un commentaire ne doit pas ouvrir une chaîne qui cache `/OpenAction`.
+        let src = pdf_min("", "% voici ( une parenthèse\n6 0 obj\n<< /OpenAction 5 0 R >>\nendobj\n");
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+        doit_etre_sur(&src);
+        // Même chose avec un `stream` dans un commentaire.
+        let src = pdf_min("", "% stream\n6 0 obj\n<< /OpenAction 5 0 R >>\nendobj\n");
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+    }
+
+    #[test]
+    fn hostile_faux_stream_dans_chaine_ou_commentaire() {
+        let src = pdf_min(
+            "",
+            "6 0 obj\n<< /T (le mot stream\nsuivi d'une ligne) >>\nendobj\n7 0 obj\n<< /OpenAction 5 0 R /S /JavaScript >>\nendobj\n8 0 obj\n<< /T (endstream) >>\nendobj\n",
+        );
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+        assert!(d.neutralises.iter().any(|n| n == "JavaScript"));
+        doit_etre_sur(&src);
+    }
+
+    #[test]
+    fn hostile_chaine_hexadecimale_et_imbriquee() {
+        let src = pdf_min(
+            "",
+            "6 0 obj\n<< /A <28> /B (a (b \\) c) d) /OpenAction 5 0 R >>\nendobj\n",
+        );
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+    }
+
+    #[test]
+    fn hostile_aa_sur_une_page() {
+        let src = format!(
+            "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /AA << /O << /S /JavaScript /JS (app.alert(1)) >> >> >>\nendobj\n\
+             trailer\n<< /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"
+        )
+        .into_bytes();
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "AA"));
+        doit_etre_sur(&src);
+    }
+
+    #[test]
+    fn hostile_pdf_incremental_deux_eof() {
+        let mut src = pdf_min("/OpenAction 5 0 R", "");
+        // Mise à jour incrémentale : une seconde révision, avec un autre objet actif.
+        src.extend_from_slice(
+            b"5 0 obj\n<< /S /Launch /F (cmd.exe) >>\nendobj\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Root 1 0 R /Prev 0 >>\nstartxref\n0\n%%EOF\n",
+        );
+        assert_eq!(trouver(&src, b"%%EOF", 0).map(|p| trouver(&src, b"%%EOF", p + 1)).flatten().is_some(), true);
+        let d = desarmer_pdf(&src).unwrap();
+        assert!(d.neutralises.iter().any(|n| n == "OpenAction"));
+        assert!(d.neutralises.iter().any(|n| n == "Launch"));
+        doit_etre_sur(&src);
+    }
+
+    #[test]
+    fn hostile_open_action_dans_un_objet_compresse() {
+        use crate::inflate::fixtures::zlib_stocke;
+        // Flux d'objets : l'objet 1 (catalogue) porte `/OpenAction`, caché dans un flux Flate.
+        let o1 = "<< /Type /Catalog /Pages 2 0 R /Open#41ction << /S /JavaScript /JS (x) >> >>";
+        let o2 = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+        let o3 = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>";
+        let entete = format!("1 0 2 {} 3 {} ", o1.len() + 1, o1.len() + o2.len() + 2);
+        let corps = format!("{entete}{o1} {o2} {o3}");
+        let z = zlib_stocke(corps.as_bytes());
+        let mut src = b"%PDF-1.5\n".to_vec();
+        src.extend_from_slice(
+            format!(
+                "4 0 obj\n<< /Type /ObjStm /N 3 /First {} /Filter /FlateDecode /Length {} >>\nstream\n",
+                entete.len(),
+                z.len()
+            )
+            .as_bytes(),
+        );
+        src.extend_from_slice(&z);
+        src.extend_from_slice(
+            b"\nendstream\nendobj\n5 0 obj\n<< /Type /XRef /Size 6 /W [1 2 1] /Root 1 0 R /Length 0 >>\nstream\n\nendstream\nendobj\nstartxref\n0\n%%EOF\n",
+        );
+        // Soit refusé (non inspectable), soit reconstruit puis désarmé : jamais servi avec `/OpenAction`.
+        doit_etre_sur(&src);
+    }
+
+    #[test]
+    fn hostile_faux_flux_longueur_mensongere_cache_un_objet() {
+        // /Length 3 : un lecteur qui s'y fie lit ensuite l'objet suivant, que la recherche d'`endstream` masque.
+        let src = pdf_min(
+            "",
+            "6 0 obj\n<< /Length 3 >>\nstream\nabc\n7 0 obj\n<< /OpenAction 5 0 R >>\nendobj\nendstream\nendobj\n",
+        );
+        assert!(
+            matches!(desarmer_pdf(&src), Err(ErreurPiece::PdfRefuse(_))),
+            "une longueur incohérente avec un nom actif dans le flux est refusée"
+        );
+    }
+
+    #[test]
+    fn hostile_flux_au_filtre_inconnu_refuse() {
+        let src = pdf_min(
+            "",
+            "6 0 obj\n<< /Filter /Cr#79pt /Length 3 >>\nstream\nabc\nendstream\nendobj\n",
+        );
+        assert!(matches!(desarmer_pdf(&src), Err(ErreurPiece::PdfRefuse(_))));
+    }
+
+    #[test]
+    fn seconde_passe_refuse_un_nom_actif_residuel() {
+        let src = pdf_min("/#4Fpen#41ction 5 0 R", "");
+        assert!(verification_finale(&src).is_err());
+        assert!(verification_finale(&pdf_min("", "")).is_ok());
     }
 
     #[test]
@@ -1159,12 +1547,16 @@ mod tests {
             ),
             "sans fin"
         );
-        // Un nom actif dans une chaîne ou un commentaire de texte n'est pas un nom : pas de refus ni de neutralisation.
+        // Un nom actif dans une chaîne ou un commentaire n'est pas neutralisé (ce n'est pas un nom) ; mais la
+        // seconde passe est pessimiste et indépendante du découpage : elle refuse la pièce plutôt que de risquer
+        // qu'une erreur de découpage cache un vrai nom (E1).
         let texte = String::from_utf8_lossy(&pdf_piege())
             .replace("(http://evil.example/)", "(voir /JavaScript ici)")
             .into_bytes();
-        let d = desarmer_pdf(&texte).unwrap();
-        assert!(String::from_utf8_lossy(&d.octets).contains("(voir /JavaScript ici)"));
+        assert!(matches!(
+            desarmer_pdf(&texte),
+            Err(ErreurPiece::PdfRefuse(_))
+        ));
     }
 
     #[test]
