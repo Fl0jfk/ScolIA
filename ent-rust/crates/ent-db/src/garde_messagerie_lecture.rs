@@ -164,7 +164,49 @@ const TABLES_CONTENU: &[&str] = &[
     "ent_msg_participant",
     "ent_msg_fil_eleve",
     "ent_msg_version",
+    // M5 et M6 : journal d'accès aux pièces, « lu jusqu'à », cartes « document ».
+    "ent_msg_piece_acces",
+    "ent_msg_lecture",
+    "ent_msg_carte_document",
 ];
+
+/// Le texte d'une fonction **sans ses commentaires** (`//`, `///`, `/* … */`) : un nom de contrôle cité dans un
+/// commentaire ne vaut pas appel (M6).
+fn sans_commentaires(corps: &str) -> String {
+    let mut sans_bloc = String::with_capacity(corps.len());
+    let mut reste = corps;
+    while let Some(d) = reste.find("/*") {
+        sans_bloc.push_str(&reste[..d]);
+        match reste[d + 2..].find("*/") {
+            Some(f) => reste = &reste[d + 2 + f + 2..],
+            None => {
+                reste = "";
+                break;
+            }
+        }
+    }
+    sans_bloc.push_str(reste);
+    sans_bloc
+        .lines()
+        .map(|l| {
+            // Un `//` dans un littéral de chaîne (URL) est conservé : on ne coupe qu'au premier `//` hors guillemets.
+            let mut en_chaine = false;
+            let b = l.as_bytes();
+            let mut i = 0;
+            while i < b.len() {
+                match b[i] {
+                    b'\\' if en_chaine => i += 1,
+                    b'"' => en_chaine = !en_chaine,
+                    b'/' if !en_chaine && b.get(i + 1) == Some(&b'/') => return &l[..i],
+                    _ => {}
+                }
+                i += 1;
+            }
+            l
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 fn mots(texte: &str) -> Vec<&str> {
     texte
@@ -290,7 +332,7 @@ fn toute_lecture_par_identifiant_passe_par_le_controle_de_lecture() {
         let src = std::fs::read_to_string(&f).unwrap();
         let src = src.split("\n#[cfg(test)]").next().unwrap_or("");
         for (nom_fn, corps) in fonctions(src) {
-            let compact: String = corps.chars().filter(|c| !c.is_whitespace()).collect();
+            let compact: String = sans_commentaires(&corps).chars().filter(|c| !c.is_whitespace()).collect();
             let lit_par_id = PAR_IDENTIFIANT
                 .iter()
                 // « peut_ecrire_fil » et « personnels_a_prevenir » sont eux-mêmes des contrôles ou des
@@ -305,7 +347,9 @@ fn toute_lecture_par_identifiant_passe_par_le_controle_de_lecture() {
             if !lit_par_id {
                 continue;
             }
-            if CONTROLES_LECTURE.iter().any(|c| corps.contains(c)) {
+            // M6 : le contrôle doit être **appelé**, pas seulement cité (commentaire, texte).
+            let code = sans_commentaires(&corps);
+            if CONTROLES_LECTURE.iter().any(|c| code.contains(c)) {
                 continue;
             }
             if EXCEPTIONS_SERVICE.iter().any(|(e, _)| *e == nom_fn) {
@@ -352,4 +396,16 @@ mod outils {
             vec!["a", "b"]
         );
     }
+}
+
+#[test]
+fn un_controle_cite_en_commentaire_ne_vaut_pas_appel() {
+    let corps = "fn lire() {\n    // actor_can_access_fil(...) viendra plus tard\n    /* peut_lire_fil */\n    let x = 1;\n}\n";
+    let code = sans_commentaires(corps);
+    assert!(!code.contains("actor_can_access_fil") && !code.contains("peut_lire_fil"));
+    let vrai = "fn lire() {\n    self.actor_can_access_fil(a).await?; // contrôle\n}\n";
+    assert!(sans_commentaires(vrai).contains("actor_can_access_fil"));
+    // Un `//` dans une chaîne n'avale pas la suite de la ligne.
+    let url = "let u = \"https://x\"; self.peut_lire_fil();";
+    assert!(sans_commentaires(url).contains("peut_lire_fil"));
 }

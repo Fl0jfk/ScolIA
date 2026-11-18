@@ -53,6 +53,9 @@ fn introuvable() -> EntDbError {
     EntDbError::Domain(DomainError::MsgPieceIntrouvable)
 }
 
+/// Durée maximale d'un lien vers une pièce de messagerie, quelle que soit `ENT_OBJECT_LINK_TTL_SECS` (M8).
+pub const DUREE_LIEN_PIECE_SECS: u64 = 60;
+
 /// Clé d'un fichier servi : `{établissement}/messages-servis/{uuid}.{ext}` (jamais le nom du fichier).
 pub fn cle_servie_est_a_moi(etab: Uuid, cle: &str) -> bool {
     let prefixe = format!("{etab}/{ESPACE_SERVI}/");
@@ -352,7 +355,36 @@ impl PgEnt {
         })
     }
 
-    /// Lien pré-signé (60 s, `Content-Disposition: attachment`) vers le fichier **servi** d'une pièce saine, émis
+    /// **Ouverture** d'un lien (`GET /fichiers/{jeton}`) vers un fichier servi de messagerie : les droits sont **relus**
+    /// à cet instant (un participant retiré entre-temps reçoit 404) et l'ouverture est journalisée à côté de
+    /// l'émission. Une clé qui n'est pas celle d'un fichier servi de messagerie n'est pas concernée (`Ok(false)`).
+    pub async fn controler_ouverture_piece_message(
+        &self,
+        etab: Uuid,
+        user: Uuid,
+        role: &str,
+        cle: &str,
+    ) -> Result<bool, EntDbError> {
+        if !cle_servie_est_a_moi(etab, cle) {
+            return Ok(false);
+        }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_msg_piece WHERE etablissement_id = $1 AND cle_objet_servi = $2 LIMIT 1",
+        )
+        .bind(etab)
+        .bind(cle)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        let piece_id = id.ok_or_else(introuvable)?;
+        let p = self.piece_a_servir(etab, user, role, piece_id).await?;
+        self.journaliser_acces_piece(etab, user, &p, "ouverture").await?;
+        Ok(true)
+    }
+
+    /// Lien (60 s au plus, `Content-Disposition: attachment`) vers le fichier **servi** d'une pièce saine, émis
     /// seulement après le contrôle ci-dessus. Journalisé (C2 : trace d'accès sensible du socle 1, en plus de la ligne
     /// de la brique). Le client ne fournit jamais de clé de stockage.
     pub async fn lien_piece_message_for_actor(
@@ -362,20 +394,23 @@ impl PgEnt {
         role: &str,
         piece_id: Uuid,
     ) -> Result<LienFichier, EntDbError> {
-        if !self.presigner_actif() {
+        // M8 : jamais d'URL SigV4 directe pour la messagerie, même en mode S3 : le lien passe par le point de
+        // téléchargement de l'application (jeton lié à l'utilisateur, relu à l'ouverture), 60 s au plus.
+        if !self.presigner().peut_servir_par_application() {
             return Err(EntDbError::LiensIndisponibles);
         }
         let p = self.piece_a_servir(etab, actor_user_id, role, piece_id).await?;
         if !self.objet_existe(&p.cle).await? {
             return Err(EntDbError::FichierAbsent);
         }
-        let lien = self.emettre_lien(
+        let lien = self.emettre_lien_application_borne(
             &p.cle,
             actor_user_id,
             etab,
             Disposition::Attachment,
             &p.nom,
             &p.mime,
+            DUREE_LIEN_PIECE_SECS,
         )?;
         self.journaliser_acces_piece(etab, actor_user_id, &p, "lien").await?;
         self.tracer_acces_sensible(

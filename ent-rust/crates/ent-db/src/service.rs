@@ -19096,6 +19096,39 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         })
     }
 
+    /// Lien **servi par l'application** (jamais une URL SigV4 directe, même en mode S3), de **60 s au plus** quelle que
+    /// soit `ENT_OBJECT_LINK_TTL_SECS` : pièces de messagerie (M8).
+    pub(crate) fn emettre_lien_application_borne(
+        &self,
+        key: &str,
+        user_id: Uuid,
+        etablissement_id: Uuid,
+        disposition: Disposition,
+        filename: &str,
+        mime: &str,
+        ttl_max_secs: u64,
+    ) -> Result<LienFichier, EntDbError> {
+        let link = self
+            .presigner
+            .issue_application(
+                &LinkSpec {
+                    key: key.to_string(),
+                    user_id,
+                    etablissement_id,
+                    disposition,
+                    filename: filename.to_string(),
+                    mime: mime.to_string(),
+                },
+                ent_object::presign::now_unix(),
+                ttl_max_secs,
+            )
+            .map_err(|e| match e {
+                PresignError::Disabled => EntDbError::LiensIndisponibles,
+                _ => EntDbError::FichierAbsent,
+            })?;
+        Ok(LienFichier { url: link.url, expires_at: link.expires_at })
+    }
+
     /// Copie dans le magasin d'objets un contenu stocké en base (pièces de messagerie,
     /// pièces PAI historiques) pour pouvoir le servir par lien court. Idempotent.
     async fn refleter_dans_magasin(

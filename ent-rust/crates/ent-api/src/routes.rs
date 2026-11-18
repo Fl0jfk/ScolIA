@@ -1939,6 +1939,18 @@ async fn servir_fichier_signe(
     if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
         return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
     }
+    // M8 : pièce de messagerie : les droits sont relus à l'ouverture (un participant retiré reçoit 404) et
+    // l'ouverture est journalisée.
+    state
+        .ent
+        .controler_ouverture_piece_message(
+            claims.etablissement_id,
+            session.user_id,
+            &session.role,
+            &claims.key,
+        )
+        .await
+        .map_err(map_db)?;
     // Lecture contrôlée : empreinte et taille comparées à celles de la base.
     let bytes = state
         .ent

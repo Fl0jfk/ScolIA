@@ -8,6 +8,8 @@ description = "Stockage objet : S3-compatible (SigV4) en production, disque/mém
 
 [dependencies]
 base64 = "0.22"
+# Inflate brut maison (sans dépendance externe) : lecture bornée des parties XML d'un document OOXML (M7).
+ent-pdf = { path = "../ent-pdf" }
 hmac = "0.12"
 sha2 = "0.10"
 thiserror = { workspace = true }
