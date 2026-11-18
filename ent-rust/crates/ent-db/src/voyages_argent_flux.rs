@@ -695,8 +695,21 @@ impl PgEnt {
     /// Passage d'alerte pour UN établissement : les acomptes à payer bientôt ou en retard, **pas encore signalés**,
     /// le sont (une seule fois) à la comptabilité. Idempotent ; retourne le nombre d'alertes émises.
     pub async fn voyages_acomptes_alertes_traiter(&self, etab: Uuid) -> Result<usize, EntDbError> {
+        self.voyages_acomptes_alertes_traiter_au(etab, None).await
+    }
+
+    /// Même passage pour un jour donné (planificateur et tests : aucune heure réelle) ; `None` : le jour de
+    /// l'établissement.
+    pub async fn voyages_acomptes_alertes_traiter_au(
+        &self,
+        etab: Uuid,
+        jour: Option<NaiveDate>,
+    ) -> Result<usize, EntDbError> {
         let mut t = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let jour = jour_etab(&mut t, etab).await?;
+        let jour = match jour {
+            Some(j) => j,
+            None => jour_etab(&mut t, etab).await?,
+        };
         let fenetre = i64::from(reglages(&mut t, etab).await?.alerte_acompte_jours);
         let rows: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, sortie_id, echeance FROM ent_sortie_acompte_fournisseur

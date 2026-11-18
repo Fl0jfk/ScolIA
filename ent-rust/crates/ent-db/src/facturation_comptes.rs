@@ -266,9 +266,21 @@ impl PgEnt {
     // -- F1 : vue guichet (R-F37) --------------------------------------------
 
     /// Quota quotidien d'actions au guichet par agent (E3) : recherches et ouvertures de comptes confondues,
-    /// jour de Paris. Au-delà : refus, ligne de journal et alerte à la direction (tâche `guichet_quota`,
+    /// compté dans **le jour de l'établissement** (`ent_aujourdhui_etab`, son fuseau), jamais le jour de Paris ni
+    /// le jour UTC. Au-delà : refus, ligne de journal et alerte à la direction (tâche `guichet_quota`,
     /// une seule ouverte par agent) — l'alerte est validée même si la demande est refusée.
     async fn controler_quota_guichet(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<(), EntDbError> {
+        self.controler_quota_guichet_a(etab, actor, role, chrono::Utc::now()).await
+    }
+
+    /// Même contrôle à un instant donné (les tests de fuseau ne dépendent pas de l'heure réelle).
+    pub(crate) async fn controler_quota_guichet_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        maintenant: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), EntDbError> {
         let mut tx = self.fin_tx(etab).await?;
         let (quota,): (i32,) = sqlx::query_as(
             "SELECT COALESCE((SELECT guichet_quota_jour FROM ent_fin_parametres WHERE etablissement_id = $1), 30)",
@@ -277,14 +289,18 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        let (utilise,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_fin_journal
+        // La borne de 26 h (un jour dure au plus 25 h) garde l'index ; le jour exact est celui de l'établissement.
+        let (utilise, jour): (i64, chrono::NaiveDate) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE ent_aujourdhui_etab($1, le) = ent_aujourdhui_etab($1, $3)),
+                    ent_aujourdhui_etab($1, $3)
+               FROM ent_fin_journal
               WHERE etablissement_id = $1 AND acteur_user_id = $2
                 AND action IN ('guichet.rechercher', 'guichet.consulter')
-                AND le >= (date_trunc('day', now() AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')",
+                AND le >= $3 - interval '26 hours'",
         )
         .bind(etab)
         .bind(actor)
+        .bind(maintenant)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
@@ -304,7 +320,7 @@ impl PgEnt {
             None,
             None,
             Some(&format!("u:{actor}")),
-            aujourd_hui(),
+            jour,
             &format!("un agent a atteint le quota quotidien d'actions au guichet ({quota}) : vérifier l'usage"),
             Some(actor),
         )

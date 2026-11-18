@@ -136,7 +136,7 @@ pub(crate) async fn publier(
 }
 
 /// Publication d'un événement **financier** (F1) : nom canonique `facturation.*` (alias `fac.*` / `fin.*`
-/// lisible) et charge neutre — liste noire et liste blanche de clés, sans montant, nom ni IBAN (R-F25). Réservé
+/// lisible) et charge neutre — liste noire et liste blanche **propre au type** (`CLES_PAR_TYPE`), sans montant, nom ni IBAN (R-F25). Réservé
 /// aux événements de finances ; les autres domaines passent par [`publier`], inchangé.
 pub(crate) async fn publier_finance(
     conn: &mut PgConnection,
@@ -156,7 +156,7 @@ pub(crate) async fn publier_finance(
         aggregate,
         aggregate_id,
         eleve_id,
-        crate::facturation_service::payload_neutre(payload),
+        crate::facturation_service::payload_neutre_pour(type_name, payload),
         actor,
         causalite,
     )

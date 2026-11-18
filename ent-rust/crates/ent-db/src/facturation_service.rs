@@ -225,36 +225,78 @@ pub fn cle_interdite(cle: &str) -> bool {
         || c == "empreinte"
 }
 
-/// **Liste blanche** (revue M7) : seules les clés suivantes voyagent dans la charge d'un événement financier —
-/// des identifiants (`id`, `*_id`, `*_ids`), des codes, des dates et des compteurs. Tout le reste est retiré
-/// (restes à payer, cumuls, valeurs avant/après, empreintes…), même sous un nom qu'aucune règle ne prévoyait.
-const CLES_AUTORISEES: &[&str] = &[
-    "numero", "quittance_numero", "statut", "moyen", "categorie", "nature", "nb", "code", "palier", "rang",
-    "source", "sens", "type", "type_piece", "format", "kind", "mode", "canal", "origine", "annee_scolaire",
-    "date_effet", "date_execution", "date", "jour", "debut", "fin", "ics_change", "nom_change", "a_verifier",
-    "eleve_majeur", "crediteur_modifie", "ancien", "nouveau", // régimes (codes), lus par la réaction au changement de régime
-     "motif_rejet", "suite", "avis_demi_journee", "prevenue",
-    // Conteneurs : leur contenu est filtré par la même liste.
-    "lignes", "echeances", "factures", "pieces", "avoirs", "comptes", "designations", "lettrage", "ecritures",
-    "propositions", "prelevements",
+/// **Liste blanche par type d'événement** (revue M7, puis suite du lot F1-F2) : pour chaque type canonique
+/// (`facturation.*`, `fin.*` rendu canonique, et les deux événements `eleve.*` que le service des finances
+/// publie), la liste **exacte** des clés qui peuvent voyager — identifiants, codes, dates, compteurs. Tout le
+/// reste est retiré, même sous un nom qu'aucune règle ne prévoyait (restes à payer, cumuls, valeurs avant/après,
+/// empreintes…), et une clé autorisée pour un type ne l'est pas pour un autre. Un type **absent** de la table est
+/// fermé : sa charge est vide (ajouter la ligne ici en publiant un nouveau type).
+///
+/// Les clés des objets imbriqués (`lignes: [{ ligne_id }]`) sont filtrées par la liste du même type.
+pub const CLES_PAR_TYPE: &[(&str, &[&str])] = &[
+    ("facturation.brouillon_cree", &["foyer_id", "type_piece", "origine", "annee_scolaire", "numero", "lignes"]),
+    ("facturation.ligne_ajoutee", &["foyer_id", "lignes", "origine", "type_piece", "facture_origine_id"]),
+    ("facturation.piece_emise", &["facture_id", "foyer_id", "numero", "echeances"]),
+    ("facturation.avoir_emis", &["avoir_id", "facture_id", "foyer_id", "numero"]),
+    ("facturation.echeancier_pose", &["numero", "nb", "mode"]),
+    ("facturation.encaissement_enregistre", &["encaissement_id", "moyen", "quittance_id", "quittance_numero"]),
+    ("facturation.quittance_emise", &["quittance_id", "numero", "encaissement_id"]),
+    ("facturation.piece_soldee", &["facture_id", "foyer_id", "lettrage", "numero"]),
+    ("facturation.mandat_modifie", &["foyer_id", "statut", "prelevements_annules", "prelevements_deja_exportes"]),
+    ("facturation.prelevement_prepare", &["prelevement_id", "date_execution", "end_to_end_id", "prelevements"]),
+    ("facturation.prelevements_exportes", &["date_execution", "debut", "fin", "nb", "format"]),
+    ("facturation.prelevement_execute", &["prelevement_id", "encaissement_id", "quittance_id", "date_execution", "nb"]),
+    (
+        "facturation.prelevement_rejete",
+        &["prelevement_id", "facture_id", "foyer_id", "statut", "motif_rejet", "code", "suite", "frais_facture_id"],
+    ),
+    (
+        "facturation.rappel_envoye",
+        &["rappel_id", "echeance_id", "kind", "canal", "fil_id", "relance_id", "facture_id", "foyer_id", "palier"],
+    ),
+    ("facturation.prenotification_emise", &["foyer_id", "date_execution", "prelevements"]),
+    ("facturation.reglement_enregistre", &["reglement_id", "foyer_id", "moyen"]),
+    ("facturation.relance_proposee", &["relance_id", "facture_id", "foyer_id", "palier"]),
+    ("facturation.relance_annulee", &["relance_id", "facture_id", "palier"]),
+    ("facturation.export_comptable", &["export_id", "numero", "debut", "fin", "ecritures"]),
+    ("facturation.crediteur_modifie", &["ics_change", "nom_change"]),
+    ("facturation.parametres_modifies", &["crediteur_modifie"]),
+    ("facturation.article_enregistre", &["article_id"]),
+    ("facturation.tarif_defini", &["tarif_id", "annee_scolaire", "article_id"]),
+    ("facturation.reduction_accordee", &["reduction_id"]),
+    ("facturation.generation_annuelle", &["annee_scolaire", "lignes", "factures"]),
+    ("facturation.consequences_proposees", &["groupe_id", "categorie", "date_effet", "propositions"]),
+    ("facturation.tache_payeur", &["nature", "categorie", "compte_id"]),
+    // Événements d'élève que le service des finances publie par le même chemin (lus par `finances_reactions`).
+    ("eleve.regime_changed", &["eleve_id", "ancien", "nouveau", "date_effet"]),
+    ("eleve.sortie", &["eleve_id", "date"]),
 ];
 
-pub fn cle_autorisee(cle: &str) -> bool {
-    cle == "id" || cle.ends_with("_id") || cle.ends_with("_ids") || CLES_AUTORISEES.contains(&cle)
+/// Clés autorisées pour un type (nom canonique ou ancien nom `fac.*` / `fin.*`) ; `None` : type inconnu, fermé.
+pub fn cles_du_type(type_name: &str) -> Option<&'static [&'static str]> {
+    let canon = ent_events::canonique_facturation(type_name);
+    CLES_PAR_TYPE.iter().find(|(t, _)| *t == canon).map(|(_, c)| *c)
 }
 
 /// Retire de la charge d'un événement financier tout ce que R-F25 interdit : récursif. Deux filtres :
-/// la liste noire [`cle_interdite`] (montants, noms, coordonnées) **et** la liste blanche
-/// [`cle_autorisee`] (identifiants, codes, dates, compteurs).
-pub fn payload_neutre(v: Value) -> Value {
+/// la liste noire [`cle_interdite`] (montants, noms, coordonnées) **et** la liste blanche **du type**
+/// ([`CLES_PAR_TYPE`]). Un type inconnu donne une charge vide.
+pub fn payload_neutre_pour(type_name: &str, v: Value) -> Value {
+    let Some(cles) = cles_du_type(type_name) else {
+        return Value::Object(Default::default());
+    };
+    filtrer(cles, v)
+}
+
+fn filtrer(cles: &[&str], v: Value) -> Value {
     match v {
         Value::Object(o) => Value::Object(
             o.into_iter()
-                .filter(|(k, _)| !cle_interdite(k) && cle_autorisee(k))
-                .map(|(k, x)| (k, payload_neutre(x)))
+                .filter(|(k, _)| !cle_interdite(k) && cles.contains(&k.as_str()))
+                .map(|(k, x)| (k, filtrer(cles, x)))
                 .collect(),
         ),
-        Value::Array(a) => Value::Array(a.into_iter().map(payload_neutre).collect()),
+        Value::Array(a) => Value::Array(a.into_iter().map(|x| filtrer(cles, x)).collect()),
         autre => autre,
     }
 }
@@ -266,23 +308,103 @@ mod tests {
 
     #[test]
     fn payload_neutre_retire_montants_noms_et_coordonnees() {
-        let v = payload_neutre(json!({
-            "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001",
-            "total_centimes": 5500, "montant_du_centimes": 1, "iban_avant": "FR76…",
-            "rum": "SCOLIA1", "libelle": "Cantine", "titulaire": "M. X", "nb": 3,
-            "date_execution": "2030-01-01", "reference": "CHQ-1",
-            "lignes": [{ "montant_centimes": 1, "ligne_id": "c", "nom": "Y", "ok": true }],
-            "deja_plus_ce": 4850, "reste": 12, "iban_masque": "FR76 ••• 1234", "ancien": "demi_pension", "nouveau": "externe", "restant": 5,
-        }));
-        assert_eq!(
-            v,
+        let v = payload_neutre_pour(
+            "facturation.piece_emise",
             json!({
-                "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001", "nb": 3,
-                "date_execution": "2030-01-01",
-                "lignes": [{ "ligne_id": "c" }],
-                "ancien": "demi_pension", "nouveau": "externe",
-            })
+                "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001",
+                "total_centimes": 5500, "montant_du_centimes": 1, "iban_avant": "FR76…",
+                "rum": "SCOLIA1", "libelle": "Cantine", "titulaire": "M. X", "echeances": 3,
+                "reference": "CHQ-1", "deja_plus_ce": 4850, "reste": 12, "iban_masque": "FR76 ••• 1234", "restant": 5,
+            }),
         );
+        assert_eq!(v, json!({ "facture_id": "a", "foyer_id": "b", "numero": "F2030-000001", "echeances": 3 }));
+    }
+
+    #[test]
+    fn la_liste_blanche_est_propre_a_chaque_type() {
+        // Une clé permise pour un type est retirée d'un autre : `echeances` appartient à la pièce émise, pas au règlement.
+        let charge = json!({ "foyer_id": "b", "moyen": "cheque", "echeances": 3, "palier": 2, "ancien": "x" });
+        assert_eq!(
+            payload_neutre_pour("facturation.reglement_enregistre", charge.clone()),
+            json!({ "foyer_id": "b", "moyen": "cheque" })
+        );
+        assert_eq!(
+            payload_neutre_pour("facturation.relance_proposee", charge.clone()),
+            json!({ "foyer_id": "b", "palier": 2 })
+        );
+        // Les identifiants d'un type ne passent pas dans un autre non plus (plus de règle « `*_id` partout »).
+        assert_eq!(
+            payload_neutre_pour("facturation.article_enregistre", json!({ "article_id": "a", "facture_id": "b", "foyer_id": "c" })),
+            json!({ "article_id": "a" })
+        );
+        // Imbriqué : filtré par la liste du même type.
+        assert_eq!(
+            payload_neutre_pour(
+                "facturation.generation_annuelle",
+                json!({ "lignes": [{ "lignes": 1, "nom": "Y", "montant_centimes": 3 }], "annee_scolaire": "2030-2031" })
+            ),
+            json!({ "lignes": [{ "lignes": 1 }], "annee_scolaire": "2030-2031" })
+        );
+    }
+
+    #[test]
+    fn un_ancien_nom_donne_la_liste_du_nom_canonique() {
+        assert_eq!(cles_du_type("fac.reglement"), cles_du_type("facturation.reglement_enregistre"));
+        assert!(cles_du_type("fac.reglement").is_some());
+        assert_eq!(cles_du_type("fin.crediteur_modifie"), cles_du_type("facturation.crediteur_modifie"));
+    }
+
+    #[test]
+    fn un_type_inconnu_est_ferme() {
+        assert_eq!(payload_neutre_pour("facturation.type_invente", json!({ "id": "a", "foyer_id": "b" })), json!({}));
+    }
+
+    #[test]
+    fn la_table_ne_contient_aucune_cle_interdite_ni_doublon() {
+        let mut vus = std::collections::BTreeSet::new();
+        for (t, cles) in CLES_PAR_TYPE {
+            assert!(vus.insert(*t), "type en double : {t}");
+            assert_eq!(ent_events::canonique_facturation(t), *t, "nom non canonique : {t}");
+            assert!(t.starts_with("facturation.") || t.starts_with("eleve."), "{t}");
+            for c in *cles {
+                assert!(!cle_interdite(c), "clé interdite dans la liste de {t} : {c}");
+            }
+        }
+    }
+
+    /// Garde de complétude : chaque type publié par `publier_finance` ou `payload_neutre_pour` a sa ligne dans
+    /// [`CLES_PAR_TYPE`] (sinon sa charge serait vide en silence). Les constantes sont lues dans le source.
+    #[test]
+    fn chaque_type_publie_a_sa_liste_blanche() {
+        let constantes = include_str!("../../ent-events/src/lib.rs");
+        let valeur = |nom: &str| -> String {
+            let motif = format!("pub const {nom}: &str = \"");
+            let i = constantes.find(&motif).unwrap_or_else(|| panic!("constante inconnue : {nom}")) + motif.len();
+            constantes[i..i + constantes[i..].find('"').unwrap()].to_string()
+        };
+        let sources = [
+            include_str!("finances.rs"),
+            include_str!("finances_sepa.rs"),
+            include_str!("facturation_payeurs.rs"),
+            include_str!("service.rs"),
+        ];
+        let mut vus = 0;
+        for src in sources {
+            for (i, _) in src.match_indices("publier_finance(").chain(src.match_indices("payload_neutre_pour(")) {
+                let fin = (i + 400).min(src.len());
+                let fin = (fin..=src.len()).find(|k| src.is_char_boundary(*k)).unwrap();
+                let fenetre = &src[i..fin];
+                let Some(j) = fenetre.find("types::") else { continue };
+                let nom: String = fenetre[j + 7..].chars().take_while(|c| c.is_ascii_uppercase() || *c == '_' || c.is_ascii_digit()).collect();
+                if nom.is_empty() {
+                    continue;
+                }
+                let v = valeur(&nom);
+                assert!(cles_du_type(&v).is_some(), "type publié sans liste blanche : {v} ({nom})");
+                vus += 1;
+            }
+        }
+        assert!(vus >= 28, "le scan ne trouve plus les publications ({vus})");
     }
 
     #[test]

@@ -49,6 +49,24 @@ pub(crate) async fn enregistrer_objet<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
+/// Marque l'objet supprimé au registre (le registre est immuable : `supprime_le` est la seule colonne qui change,
+/// une seule fois). Idempotent.
+pub(crate) async fn marquer_objet_supprime<'e, E: PgExecutor<'e>>(
+    ex: E,
+    etablissement_id: Uuid,
+    cle: &str,
+) -> Result<(), EntDbError> {
+    sqlx::query(
+        "UPDATE ent_objet SET supprime_le = now()
+          WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL",
+    )
+    .bind(etablissement_id)
+    .bind(cle)
+    .execute(ex)
+    .await?;
+    Ok(())
+}
+
 /// Exécute un appel de stockage (client S3 **synchrone**, 60 s × 3 tentatives) sur le pool
 /// des tâches bloquantes de Tokio : un S3 lent ne fige plus les fils qui servent l'API (R-06).
 pub(crate) async fn hors_runtime<T, F>(store: &ent_object::ObjectStore, f: F) -> Result<T, EntDbError>

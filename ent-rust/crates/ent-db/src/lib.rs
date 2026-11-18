@@ -278,6 +278,7 @@ pub mod eleve_fusion;
 pub mod eleve_confidentialite;
 pub mod eleve_indicateurs;
 pub mod eleve_photo;
+pub mod passages_quotidiens;
 pub mod photo_nettoyage;
 pub mod eleve_coordonnee;
 pub(crate) mod eleve_identite_scellee;
