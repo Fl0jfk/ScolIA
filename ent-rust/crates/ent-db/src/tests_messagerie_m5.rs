@@ -712,3 +712,82 @@ async fn m5_reprise_bytea_rejouable_avec_rapport() {
         .unwrap();
     assert_eq!(objets, objets2, "idempotente : aucun objet de plus");
 }
+
+// ───────────────────────── Carte « document » (R-M33, CM-60) ─────────────────────────
+
+#[tokio::test]
+async fn m5_cm60_carte_document_droits_relus() {
+    use crate::tests_documents_d4::W;
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let etab = w.m.etab;
+    let (dir, lily, tom) = (w.cast.direction.user_id, w.cast.parent_lea.user_id, w.cast.parent_tom.user_id);
+    // Un élève, sa famille (Lily) et un certificat de scolarité émis dans son coffre.
+    let eleve = w.eleve("Henry", "Maël").await;
+    w.lier(eleve, &w.lily, true).await;
+    let doc = w.certificat(eleve).await;
+    let fils = ouvrir(&w.ent, etab, Role::Direction, dir, eleve, "Certificat").await;
+    let (fil, msg) = (fils[0].fil.id, fils[0].message.id);
+
+    // CM-60 : un personnel ne joint pas un document du coffre en fichier ; il joint une carte.
+    let e = w
+        .ent
+        .attacher_piece_nature_for_actor(
+            role(Role::Direction),
+            AttacherPiece {
+                etablissement_id: etab,
+                message_id: msg,
+                nom: "certificat.pdf".into(),
+                mime_type: "application/pdf".into(),
+                contenu: PDF_REEL.to_vec(),
+                actor_user_id: dir,
+            },
+            Some("eleve.certificat_scolarite"),
+        )
+        .await
+        .expect_err("nature du coffre refusée en fichier");
+    assert!(matches!(e, EntDbError::Refus(crate::service::RefusMetier::Interdit, _)), "{e:?}");
+    // Un tiers ne joint rien (404) ; un participant qui n'est pas l'auteur du message non plus (403).
+    let e = w.ent.joindre_carte_document_for_actor(etab, tom, role(Role::Parent), msg, doc.document_id).await.expect_err("tiers");
+    assert!(est_introuvable(&e), "{e:?}");
+    let e = w.ent.joindre_carte_document_for_actor(etab, lily, role(Role::Parent), msg, doc.document_id).await.expect_err("pas l'auteur");
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+
+    // Témoin : l'auteur (qui peut lire le document) joint la carte ; un document inexistant : même 404.
+    let carte = w
+        .ent
+        .joindre_carte_document_for_actor(etab, dir, role(Role::Direction), msg, doc.document_id)
+        .await
+        .expect("carte jointe");
+    assert!(carte.lisible);
+    let e = w.ent.joindre_carte_document_for_actor(etab, dir, role(Role::Direction), msg, Uuid::new_v4()).await.expect_err("inconnu");
+    assert!(est_introuvable(&e), "{e:?}");
+
+    // Lily lit la carte avec **ses** droits (le document est dans son coffre) ; le titre n'est donné qu'à qui peut lire.
+    let vue = w.ent.cartes_du_fil_for_actor(etab, lily, role(Role::Parent), fil).await.unwrap();
+    assert_eq!(vue.len(), 1);
+    assert!(vue[0].lisible && vue[0].titre.is_some());
+    assert!(w.ent.ouvrir_carte_document_for_actor(etab, lily, role(Role::Parent), carte.id).await.is_ok(), "ouverture : témoin");
+    // Un tiers n'a pas accès au fil (404) ni à la carte.
+    assert!(est_introuvable(&w.ent.cartes_du_fil_for_actor(etab, tom, role(Role::Parent), fil).await.unwrap_err()));
+    assert!(est_introuvable(&w.ent.ouvrir_carte_document_for_actor(etab, tom, role(Role::Parent), carte.id).await.unwrap_err()));
+
+    // Le droit de Lily est relu **à la lecture** : le document quitte son coffre (retrait de la mise à disposition),
+    // la carte devient « document non disponible » sans titre, et ne s'ouvre plus.
+    sqlx::query("UPDATE ent_eleve_lien SET autorite_parentale = false WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(etab)
+        .bind(eleve)
+        .execute(w.ent.pool_verif())
+        .await
+        .unwrap();
+    let vue = w.ent.cartes_du_fil_for_actor(etab, lily, role(Role::Parent), fil).await;
+    match vue {
+        Ok(v) => {
+            assert!(!v[0].lisible && v[0].titre.is_none(), "droit retiré : plus de titre ni d'accès");
+            assert!(w.ent.ouvrir_carte_document_for_actor(etab, lily, role(Role::Parent), carte.id).await.is_err());
+        }
+        // Le fil lui-même peut se fermer avec le droit : 404 uniforme, tout aussi correct.
+        Err(e) => assert!(est_introuvable(&e), "{e:?}"),
+    }
+}
