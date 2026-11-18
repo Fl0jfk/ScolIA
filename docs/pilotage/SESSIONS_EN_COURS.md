@@ -360,3 +360,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Aucune migration. Désabonnement de la PR 100, session archivée.
   - Run 410 vert sur 7e0131c8 (3201) à 13 h UTC.
   - **Session qui code : M5-M6 correctifs.** Une place est libre.
+- **18-11, 13 h 55 UTC** :
+  - **Run 412 vert** sur bcdc2e02 : les suites sont validées.
+  - **Nouvelle session : internat I2 « La nuit »** (branche ent-socle-41-code-i2, migrations 2824-2825). Le message de lancement contient toutes les consignes : PILOTAGE et conception lus sur ent-mc0hoe.
+  - **Constat** : `41_INTERNAT.md` n'est pas sur ENT (seulement sur ent-mc0hoe). La session le copiera dans sa branche.
+  - **Sessions qui codent : M5-M6 correctifs et I2** (2 sur 2).
