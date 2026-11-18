@@ -583,25 +583,26 @@ Toute idée du carnet (`docs/idees/CARNET_IDEES.md`) suit le circuit : **carnet 
 
 **Entre-temps** : rien ne change. La date de revue de l'exception est portée au lot de migration.
 
-## D-068 — Bascule repoussée à la fin de l'année scolaire ; février = démo complète de A à Z (Florian, 2026-11-18 ; remplace le calendrier de D-057)
-**Décision** : plus de bascule aux vacances d'hiver. Le Next.js reste en production jusqu'à la fin de l'année scolaire 2026-2027. La **bascule a lieu l'été 2027**, pour une rentrée de septembre sur ScolIA, avec des données neuves ou presque. **Février 2027 = une démo qui fonctionne de A à Z**, sur données de démonstration, et non une mise en production.
-**Raisons (Florian)** :
-- une bascule en cours d'année tombe au milieu de chantiers vivants (stages, voyages, campagnes) ;
-- repartir à la rentrée évite la reprise d'une année entamée ;
-- mieux vaut tout finir en juin que bousculer les chantiers pour février.
+## D-068 — Bascule à la rentrée 2027 ; priorité à l'ENT complet, modules du Next.js ensuite (Florian, 2026-11-18 ; remplace le calendrier de D-057)
+**Décision** :
+- **Plus de bascule en cours d'année.** Le Next.js reste en production jusqu'à la fin de l'année scolaire 2026-2027 (stages, réservations de salles et campagnes en cours).
+- **La bascule a lieu à la rentrée 2027** (fin août, début septembre). Tout le monde est inscrit dans la base, et chacun réinitialise ses accès une dernière fois (« cette fois, c'est la bonne »).
+- **La priorité première est l'ENT complet.** On continue d'épaissir le cœur, socle par socle, avec l'exigence « masterclass » (D-021).
+- **Les modules du Next.js** (voyages, stages, salles, demandes, internat…) **sont des compléments.** Ils seront repris après une étude sérieuse : faire mieux que l'existant, les accorder à l'ENT, et repenser ce qui doit l'être, la comptabilité notamment. Ils ne passent pas avant le cœur.
+- **Pas de jalon ferme en février.** L'objectif est une démo au niveau d'un vrai ENT, de A à Z. **Si elle n'est prête qu'en juin, c'est très bien.** L'été sert à la transition : compléments, exports Charlemagne, import de la rentrée.
+- But : présenter l'ENT à l'établissement comme une surprise réussie, plutôt que subir une migration ratée en cours d'année.
 
-**Avis du pilote** : d'accord. Le calcul de charge rendait février tenable de justesse, au prix d'un recentrage sur les seuls modules utilisés. Ce n'est plus nécessaire : on garde la méthode socle par socle (D-021), avec l'exigence « masterclass ».
+**Avis du pilote** : d'accord. Je retire ma proposition du 18-11 de recentrer sur les écrans des seuls modules du Next.js.
 
-**Réserves notées (à suivre)** :
-1. **Le Next.js vit quatre mois de plus en production** : les correctifs de failles critiques et élevées du chantier D-053 deviennent plus importants, pas moins.
-2. **La rentrée se prépare au printemps** (réinscriptions, préinscriptions, fiches de rentrée, répartition des classes, EDT) : il faut décider si la campagne de rentrée 2027 se fait dans ScolIA (une partie en service dès avril-mai) ou dans le Next.js (reprise de ses résultats en été). Question ouverte, Q-D068-1.
-3. **« Données vierges » n'est pas « aucune reprise »** : il faudra quand même l'import SIECLE et STS de la rentrée, les familles, les comptes, et des archives en lecture seule du Next.js (documents, certificats vérifiables par QR, voyages en cours). L'outil de reprise (socle 28) reste utile, mais moins urgent.
+**Réserves (à suivre)** :
+1. **Le Next.js vit plusieurs mois de plus en production.** Les correctifs des failles critiques et élevées (chantier D-053) deviennent plus importants.
+2. **La rentrée se prépare au printemps** : réinscriptions, préinscriptions, fiches de rentrée, répartition des classes, EDT. Il faut décider si la campagne de rentrée 2027 se fait dans le Next.js (résultats repris l'été) ou déjà dans ScolIA. Question ouverte Q-D068-1. Le pilote recommande le Next.js, pour rester cohérent avec « pas de migration en cours d'année ».
+3. **« Données vierges » ne veut pas dire « aucune reprise ».** Il faudra quand même l'import SIECLE et STS de la rentrée, les familles et les comptes. Il faudra aussi des archives en lecture seule du Next.js : certificats vérifiables par QR, fiches de dialogue, conventions de stage signées.
+4. **Notes et bulletins** : D-034 laisse Charlemagne officiel. Un ENT complet à la rentrée suppose de trancher si ScolIA porte les notes et les bulletins dès septembre 2027. Question ouverte Q-D068-2.
 
 **Conséquences** :
-- la démo de début décembre reste un jalon intermédiaire ;
-- la démo de février devient le jalon dur : tous les modules du Next.js en usage, de bout en bout, avec leurs écrans ;
-- le gel du 7 février devient un gel de démo ;
-- PLAN_BASCULE_FEVRIER.md doit être revu en plan « démo de février et bascule de l'été » ;
-- D-063 (Rust devient `main`) s'applique à la bascule de l'été ;
-- la fenêtre jiff (D-067) reste vers le 7 décembre.
-
+- La file des sessions donne la priorité aux socles du cœur encore minces : 21 (évaluations et notes), 20 (fin du cahier de textes), 23 (bulletins et conseils), 13 (discipline), 17 (annonces), 29 (portails et « Aujourd'hui »), 11 (applications mobiles, obligatoires selon D-003), 22 (compétences), 33 (visio).
+- Les lots des modules du Next.js déjà commencés (internat I2, messagerie, voyages) sont menés au bout de leur lot en cours. Les lots suivants attendent leur tour.
+- La démo de début décembre reste un point d'étape.
+- PLAN_BASCULE_FEVRIER.md n'est plus un plan de bascule. Il devient la liste des fonctions du Next.js à reprendre comme compléments, après étude.
+- D-063 (le Rust devient `main`) s'applique à la rentrée 2027.

@@ -371,3 +371,6 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Erreur de consigne du pilote (F1)** : il interdit d'ajouter une pièce à un message **différé**. Or un auteur doit pouvoir joindre une pièce à son propre message programmé avant l'envoi. **À rouvrir dans un lot suivant** : autoriser l'auteur sur son message différé, refuser seulement sur un message retiré ou déjà remis.
   - Pour plus tard : F3 (rotation des pixels, faute de décodeur JPEG), F6, F7, F8 et F10.
 - **18-11, 15 h UTC, D-068 (Florian)** : la bascule est repoussée à l'été 2027 ; **février = démo complète de A à Z**. On garde la méthode socle par socle, sans recentrer sur les seuls modules du Next.js. Les réserves sont dans DECISIONS.md : correctifs D-053 du Next.js plus importants, campagne de rentrée au printemps (Q-D068-1), import SIECLE et archives toujours nécessaires.
+- **18-11, 15 h 15 UTC, D-068 précisée par Florian** : **priorité à l'ENT complet**. Les modules du Next.js sont des compléments, à reprendre après étude. Bascule à la rentrée 2027, démo possiblement en juin.
+  - **File des prochains lots** : 21 (évaluations et notes), 20 (cahier), 23 (bulletins), 13 (discipline), 17 (annonces), 29 (portails), 11 (mobile), 22 (compétences), 33 (visio).
+  - L'internat I2 et les correctifs de la messagerie vont au bout de leur lot en cours.

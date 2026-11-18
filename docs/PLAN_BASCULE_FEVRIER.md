@@ -10,7 +10,7 @@ Légende : **[F]** fait vérifié · **[H]** hypothèse · **[R]** recommandatio
 
 > **Mise à jour du 15 novembre (D-064)** : pas de seconde production. La bascule remplace le Next.js sur l'infrastructure Scaleway existante ; les lignes F-08, INF1 « conteneur et base séparés » et RK-6 sont caduques. Le DPO n'est plus une condition (PB-11, RK-5). Date : février, ou décembre si prêt. E-mail sortant : **Scaleway TEM**, déjà en place (Q-PB3 tranchée le 15 novembre).
 
-> **Mise à jour du 18 novembre (D-068)** : **la bascule n'a plus lieu en février.** Elle est repoussée à **l'été 2027** (rentrée de septembre sur ScolIA). **Février 2027 = démo complète de A à Z.** Ce plan sert désormais de liste des fonctions à couvrir pour la démo ; les dates de versement et la répétition de Noël sont à relire dans ce sens. Question ouverte Q-D068-1 : la campagne de rentrée 2027 (printemps) se fait-elle dans ScolIA ou dans le Next.js ?
+> **Mise à jour du 18 novembre (D-068)** : **plus de bascule en février.** La bascule a lieu à la **rentrée 2027**. **Priorité à l'ENT complet** ; les modules du Next.js sont des compléments à reprendre après étude. La démo au niveau d'un vrai ENT peut n'arriver qu'en juin. Ce document ne sert plus que de liste des fonctions du Next.js à reprendre. Ses dates et son calcul de charge sont caducs.
 
 ## 0. Résumé
 
