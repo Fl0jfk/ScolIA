@@ -458,7 +458,9 @@ jobs:
     needs: portee
     if: needs.portee.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # 74 min mesurées sur ENT (run 391) : la limite de 75 min coupait le job dès l'ajout de tests (PR 96).
+    # Accélération (build release, tests contre le backend) à traiter dans un lot dédié.
+    timeout-minutes: 95
     services:
       postgres:
         image: postgres:18
