@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS ent_sortie_bordereau_ligne (
     participant_id UUID NOT NULL,
     numero_cheque TEXT NOT NULL CHECK (length(btrim(numero_cheque)) BETWEEN 1 AND 30),
     montant_centimes BIGINT NOT NULL CHECK (montant_centimes BETWEEN 1 AND 10000000),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_sortie_bordereau_ligne_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_sortie_bordereau_ligne_bordereau_fk FOREIGN KEY (etablissement_id, bordereau_id)
         REFERENCES ent_sortie_bordereau (etablissement_id, id),
