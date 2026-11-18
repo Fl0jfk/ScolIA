@@ -27,7 +27,7 @@ fn est_introuvable(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable | domain_eleve::DomainError::NotFound))
 }
 
-async fn pointeurs(ent: &PgEnt, fil: Uuid) -> Vec<(Uuid, Option<Uuid>)> {
+pub(crate) async fn pointeurs(ent: &PgEnt, fil: Uuid) -> Vec<(Uuid, Option<Uuid>)> {
     sqlx::query_as(
         "SELECT lu_jusqua_message_id, lu_par_personne_id FROM ent_msg_lecture WHERE fil_id = $1 ORDER BY premiere_lecture_le",
     )
@@ -37,7 +37,7 @@ async fn pointeurs(ent: &PgEnt, fil: Uuid) -> Vec<(Uuid, Option<Uuid>)> {
     .unwrap()
 }
 
-async fn cree_le(ent: &PgEnt, message: Uuid) -> chrono::DateTime<Utc> {
+pub(crate) async fn cree_le(ent: &PgEnt, message: Uuid) -> chrono::DateTime<Utc> {
     sqlx::query_scalar("SELECT created_at FROM ent_msg WHERE id = $1")
         .bind(message)
         .fetch_one(ent.pool())
@@ -45,7 +45,7 @@ async fn cree_le(ent: &PgEnt, message: Uuid) -> chrono::DateTime<Utc> {
         .unwrap()
 }
 
-async fn dernier_message(ent: &PgEnt, etab: Uuid, fil: Uuid, user: Uuid) -> domain_eleve::Message {
+pub(crate) async fn dernier_message(ent: &PgEnt, etab: Uuid, fil: Uuid, user: Uuid) -> domain_eleve::Message {
     ent.messages
         .list_messages(etab, fil, user)
         .await

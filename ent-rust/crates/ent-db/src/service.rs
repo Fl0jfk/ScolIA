@@ -19031,7 +19031,27 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         piece.storage_key = Some(key);
         piece.sha256 = Some(info.sha256);
         piece.contenu = Vec::new();
-        self.messages.insert_piece(&piece).await?;
+        match self.messages.insert_piece(&piece, MSG_PIECES_MAX_PAR_MESSAGE).await {
+            Ok(crate::msg_repo::InsertionPiece::Inseree) => {}
+            refus => {
+                // Rien n'est gardé : l'objet déjà écrit est détruit (pas d'orphelin).
+                if let Some(k) = piece.storage_key.clone() {
+                    self.detruire_objets_messagerie(piece.etablissement_id, &[k]).await;
+                }
+                return Err(match refus? {
+                    crate::msg_repo::InsertionPiece::Plein => {
+                        EntDbError::SaisieInvalide("5 pièces jointes au plus par message")
+                    }
+                    crate::msg_repo::InsertionPiece::MessageRetire => {
+                        EntDbError::Refus(RefusMetier::Conflit, "message retiré : aucune pièce ne peut y être jointe")
+                    }
+                    _ => EntDbError::Refus(
+                        RefusMetier::Conflit,
+                        "message différé : aucune pièce ne peut y être jointe avant sa remise",
+                    ),
+                });
+            }
+        }
         let c3 = self.fil_est_c3(piece.etablissement_id, piece.fil_id).await?;
         self.events
             .publish(MetierEventDraft {
@@ -19052,10 +19072,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(MsgPieceMeta::from(&piece))
     }
 
-    /// Le service de liens est-il configuré ? (M5 : le contrôle précède toute émission.)
-    pub(crate) fn presigner_actif(&self) -> bool {
-        self.presigner.is_enabled()
-    }
 
     // ───────────── Liens courts d'accès aux fichiers (URL pré-signées) ─────────────
     //

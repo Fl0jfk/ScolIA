@@ -154,7 +154,8 @@ pub(crate) async fn ouvrir_un(
 pub(crate) async fn lit(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, fil: Uuid) -> bool {
     match ent.list_messages_for_actor(etab, user, role(r), fil).await {
         Ok(_) => true,
-        Err(EntDbError::Forbidden) => false,
+        // M2 : un tiers reçoit le même 404 qu'un fil absent (et non plus un 403).
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable)) => false,
         Err(e) => panic!("lecture du fil {fil} : {e:?}"),
     }
 }

@@ -2,8 +2,7 @@
 """Génère les fichiers réels des tests de la messagerie (lots M5 et M6).
 
 Chaque fichier est produit par une vraie bibliothèque (reportlab, pypdf, Pillow, python-docx), pas écrit à la main
-octet par octet, sauf un cas signalé : le DOCX « à macro » (un vrai DOCX auquel on ajoute `vbaProject.bin`). L'exécutable ELF est
-compilé par gcc (voir la fin du script). Rejouable : `python3 generer.py` dans ce dossier.
+octet par octet, sauf un cas signalé : le DOCX « à macro » (un vrai DOCX auquel on ajoute `vbaProject.bin`). Rejouable : `python3 generer.py` dans ce dossier.
 Aucune donnée réelle : noms et textes de fiction.
 """
 import io, struct, zipfile
@@ -80,6 +79,5 @@ open("note.txt", "w", encoding="utf-8").write("Rendez-vous lundi à 8 h devant l
 with zipfile.ZipFile("archive.zip", "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("a.txt", "contenu")
 
-# Exécutable ELF réel (refusé à l'entrée), compilé hors de ce script :
-#   gcc -static -nostdlib -Os -s -Wl,--build-id=none -o executable.elf t.c
-# avec `void _start(void){ __asm__ volatile("mov $60,%eax; mov $42,%edi; syscall"); }` (exit(42) : il s'exécute).
+# (Plus d'exécutable en fixture : un binaire compilé hors du dépôt est invérifiable. Les tests construisent une
+# constante de quelques octets à en-tête `\x7fELF…` ; la détection se fait par signature.)

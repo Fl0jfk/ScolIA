@@ -509,12 +509,11 @@ impl PgEnt {
                     return self.conclure_piece(etab, piece_id, "rejetee", &motif).await;
                 }
             },
-            TypeFichier::Jpeg => match ent_pdf::piece::jpeg_nettoye(&original) {
-                Ok(j) => (j.octets, valide.mime, valide.extension),
-                Err(e) => {
-                    let motif: String = e.to_string().chars().take(200).collect();
-                    return self.conclure_piece(etab, piece_id, "rejetee", &motif).await;
-                }
+            // F3 : sans EXIF ni GPS, mais l'**orientation** est gardée sous la forme d'un segment minimal (la seule balise
+            // d'orientation) : la photo s'affiche à l'endroit, sans décodage ni réencodage des pixels (D-062, comme E9).
+            TypeFichier::Jpeg => match crate::photo_nettoyage::sans_metadonnees("image/jpeg", &original) {
+                Ok(j) => (j, valide.mime, valide.extension),
+                Err(m) => return self.conclure_piece(etab, piece_id, "rejetee", m).await,
             },
             TypeFichier::Png => match png_nettoye(&original) {
                 Ok(o) => (o, valide.mime, valide.extension),
@@ -1055,7 +1054,7 @@ impl PgEnt {
         user: Uuid,
         role: &str,
         carte_id: Uuid,
-    ) -> Result<crate::documents_repo::DocumentLu, EntDbError> {
+    ) -> Result<CarteOuverte, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let c: Option<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT fil_id, document_id FROM ent_msg_carte_document WHERE etablissement_id = $1 AND id = $2",
@@ -1070,12 +1069,36 @@ impl PgEnt {
         // Le lecteur doit toujours lire le fil (un participant retiré n'ouvre plus rien) …
         let cartes = self.cartes_du_fil_for_actor(etab, user, role, fil_id).await?;
         // … et la carte doit être servie (message ni retiré ni différé) et lisible par lui.
-        if !cartes.iter().any(|x| x.id == carte_id && x.lisible) {
+        let Some(carte) = cartes.iter().find(|x| x.id == carte_id && x.lisible) else {
             return Err(introuvable());
-        }
+        };
+        let titre = carte.titre.clone().unwrap_or_default();
         let acteur = Acteur { etablissement_id: etab, user_id: user, role };
-        self.lire_document_for_actor(&acteur, document_id, None).await
+        let d = self.lire_document_for_actor(&acteur, document_id, None).await?;
+        // F5 : type et nom selon le document **réel** (signature des octets), jamais un PDF supposé.
+        let (mime, ext) = match detecter_type(&d.octets) {
+            Some(t) => (t.mime(), t.extension()),
+            None => ("application/octet-stream", "bin"),
+        };
+        let base: String = titre
+            .chars()
+            .map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_') { c } else { '_' })
+            .collect::<String>()
+            .trim()
+            .chars()
+            .take(80)
+            .collect();
+        let base = if base.is_empty() { "document".to_string() } else { base };
+        Ok(CarteOuverte { nom: format!("{base}.{ext}"), mime, octets: d.octets })
     }
+}
+
+/// Document ouvert par une carte : octets, type et nom **réels** (F5).
+#[derive(Debug, Clone)]
+pub struct CarteOuverte {
+    pub octets: Vec<u8>,
+    pub nom: String,
+    pub mime: &'static str,
 }
 
 /// Carte « document » d'un fil, vue par un lecteur.

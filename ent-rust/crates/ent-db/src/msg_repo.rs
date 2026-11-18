@@ -7,6 +7,16 @@ use sqlx::PgPool;
 use crate::tenant_tx::TenantTx;
 use uuid::Uuid;
 
+/// Issue d'un dépôt de pièce sous verrou (F1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertionPiece {
+    Inseree,
+    /// La limite de pièces par message est atteinte.
+    Plein,
+    MessageRetire,
+    MessageDiffere,
+}
+
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
 /// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
 ///
@@ -1011,13 +1021,45 @@ impl PgMsgRepo {
 
     /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets (clé + empreinte).
     /// Plus aucune écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
-    pub async fn insert_piece(&self, piece: &MsgPiece) -> Result<(), DomainError> {
+    /// Insère une pièce **sous verrou** du message (F1) : le message est verrouillé (`FOR UPDATE`), puis la limite de
+    /// `max` pièces et l'état du message (ni retiré, ni différé) sont contrôlés dans la même transaction que
+    /// l'insertion : deux dépôts simultanés ne dépassent pas la limite.
+    pub async fn insert_piece(&self, piece: &MsgPiece, max: i64) -> Result<InsertionPiece, DomainError> {
         let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
             return Err(DomainError::MsgPieceInvalide);
         };
         let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id)
             .await
             .map_err(map_sqlx)?;
+        let etat: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false)
+               FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(piece.etablissement_id)
+        .bind(piece.message_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let Some((retire, differe)) = etat else {
+            return Err(DomainError::NotFound);
+        };
+        if retire {
+            return Ok(InsertionPiece::MessageRetire);
+        }
+        if differe {
+            return Ok(InsertionPiece::MessageDiffere);
+        }
+        let (nb,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2",
+        )
+        .bind(piece.etablissement_id)
+        .bind(piece.message_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if nb >= max {
+            return Ok(InsertionPiece::Plein);
+        }
         sqlx::query(
             r#"
             INSERT INTO ent_msg_piece (
@@ -1041,7 +1083,7 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
+        Ok(InsertionPiece::Inseree)
     }
 
     pub async fn list_pieces_meta_fil(

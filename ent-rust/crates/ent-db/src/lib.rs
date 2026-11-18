@@ -147,7 +147,7 @@ pub use msg_m6::{
     PlageOuverture, PriseEnCharge, VueLecture, NON_LU_APRES_JOURS,
 };
 pub use msg_m5::{
-    cle_servie_est_a_moi, png_nettoye, retention_pieces_msg_depuis_env, BilanAnalysePieces, BilanPurgeMsg, CarteDocument,
+    cle_servie_est_a_moi, png_nettoye, retention_pieces_msg_depuis_env, BilanAnalysePieces, BilanPurgeMsg, CarteDocument, CarteOuverte,
     IssueAnalyse, RapportRepriseM5, CARTES_MAX_PAR_MESSAGE, ESPACE_SERVI, RETENTION_MSG_INFECTEES_JOURS,
     RETENTION_MSG_REJETEES_JOURS,
 };
@@ -210,6 +210,8 @@ mod tests_messagerie_m4;
 mod tests_messagerie_m5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_corr;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;

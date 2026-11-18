@@ -171,7 +171,8 @@ async fn ouvrir_un(
 async fn lit(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, fil: Uuid) -> bool {
     match ent.list_messages_for_actor(etab, user, role(r), fil).await {
         Ok(_) => true,
-        Err(EntDbError::Forbidden) => false,
+        // M2 : un tiers reçoit le même 404 qu'un fil absent (et non plus un 403).
+        Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable)) => false,
         Err(e) => panic!("lecture du fil {fil} : {e:?}"),
     }
 }
@@ -817,7 +818,7 @@ async fn m0b_d26_un_aed_avec_le_droit_traite_les_messages_des_familles() {
     assert!(lit(&ent, etab, cast.cpe.user_id, Role::Cpe, fil.id).await);
     // L'AED, sans le droit : ni lecture ni liste (il n'a même pas `messagerie.eleve`).
     let r = ent.list_messages_for_actor(etab, yanis, role(Role::Personnel), fil.id).await;
-    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    assert!(matches!(r, Err(EntDbError::Domain(domain_eleve::DomainError::MsgFilIntrouvable))), "404 uniforme : {r:?}");
     // Rôle D-017 « AED vie scolaire » : messagerie sur tout l'établissement + fils réservés.
     let r = ent
         .creer_role_for_actor(

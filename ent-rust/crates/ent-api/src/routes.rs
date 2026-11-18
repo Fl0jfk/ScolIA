@@ -10482,7 +10482,7 @@ async fn ouvrir_carte_document(
         .ouvrir_carte_document_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?;
-    attachment_response_dyn(d.octets, "document.pdf", "application/pdf")
+    attachment_response_dyn(d.octets, &d.nom, d.mime)
 }
 
 /// État de lecture, prise en charge et disponibilité d'un fil, tels que ce compte les voit (famille : sans heure).

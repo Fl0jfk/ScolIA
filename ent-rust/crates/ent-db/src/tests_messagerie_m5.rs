@@ -42,10 +42,12 @@ pub(crate) const LETTRE_DOCX: &[u8] = include_bytes!("../fixtures/messagerie/let
 pub(crate) const LETTRE_MACRO: &[u8] = include_bytes!("../fixtures/messagerie/lettre_macro.docx");
 pub(crate) const NOTE_TXT: &[u8] = include_bytes!("../fixtures/messagerie/note.txt");
 pub(crate) const ARCHIVE_ZIP: &[u8] = include_bytes!("../fixtures/messagerie/archive.zip");
-pub(crate) const EXECUTABLE: &[u8] = include_bytes!("../fixtures/messagerie/executable.elf");
+/// En-tête ELF construit ici (64 bits, x86-64, exécutable) : quelques octets suffisent, la détection est par signature.
+/// Aucun binaire compilé hors du dépôt (invérifiable).
+pub(crate) const EXECUTABLE: &[u8] = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00\x01\x00\x00\x00\x78\x00\x40\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00";
 
 /// Chaîne de test EICAR (inoffensive, reconnue par tous les antivirus).
-const EICAR: &[u8] = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+pub(crate) const EICAR: &[u8] = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 
 /// Antivirus de test : reconnaît EICAR comme le vrai, et peut être « arrêté » (démon injoignable).
 pub(crate) struct AvTest {
@@ -113,7 +115,7 @@ pub(crate) async fn lever_quarantaine(ent: &PgEnt, etab: Uuid) -> BilanAnalysePi
         .expect("analyse des pièces")
 }
 
-async fn etat_piece(ent: &PgEnt, piece: Uuid) -> String {
+pub(crate) async fn etat_piece(ent: &PgEnt, piece: Uuid) -> String {
     sqlx::query_scalar("SELECT etat FROM ent_msg_piece WHERE id = $1")
         .bind(piece)
         .fetch_one(ent.pool())
@@ -121,7 +123,7 @@ async fn etat_piece(ent: &PgEnt, piece: Uuid) -> String {
         .unwrap()
 }
 
-async fn nb_acces(ent: &PgEnt, etab: Uuid, piece: Uuid, via: &str) -> i64 {
+pub(crate) async fn nb_acces(ent: &PgEnt, etab: Uuid, piece: Uuid, via: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM ent_msg_piece_acces WHERE etablissement_id = $1 AND piece_id = $2 AND via = $3",
     )
@@ -134,7 +136,7 @@ async fn nb_acces(ent: &PgEnt, etab: Uuid, piece: Uuid, via: &str) -> i64 {
 }
 
 /// Un fil ouvert par la direction vers la famille de Léa ; rend (fil de Lily, message).
-async fn fil_de_lily(ent: &PgEnt, cast: &LaboCast, sujet: &str) -> (Uuid, Uuid) {
+pub(crate) async fn fil_de_lily(ent: &PgEnt, cast: &LaboCast, sujet: &str) -> (Uuid, Uuid) {
     let fils = ouvrir(
         ent,
         cast.etablissement_id,
@@ -151,14 +153,14 @@ async fn fil_de_lily(ent: &PgEnt, cast: &LaboCast, sujet: &str) -> (Uuid, Uuid) 
     (f.fil.id, f.message.id)
 }
 
-fn est_introuvable(e: &EntDbError) -> bool {
+pub(crate) fn est_introuvable(e: &EntDbError) -> bool {
     matches!(
         e,
         EntDbError::Domain(DomainError::MsgPieceIntrouvable | DomainError::NotFound | DomainError::MsgFilIntrouvable)
     )
 }
 
-fn est_conflit(e: &EntDbError) -> bool {
+pub(crate) fn est_conflit(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _))
 }
 
