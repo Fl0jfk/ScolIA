@@ -956,7 +956,7 @@ async fn valider_brouillon(
         a,
         "voyages.budget_version_validee",
         s.id,
-        json!({ "numero": numero, "part_familles_centimes": part }),
+        json!({ "numero": numero }),
     )
     .await?;
     let mut v = v;
@@ -1095,7 +1095,7 @@ async fn aligner_prix(
         DecisionPrix::Fige => ("prix_fige", None),
         DecisionPrix::Baisse => (
             "prix_baisse",
-            Some("avoirs à proposer aux payeurs (socle 24, lot V2)"),
+            Some("avoirs proposés aux payeurs ayant versé (mode suivi, lot V2a)"),
         ),
         _ => ("prix_hausse_decidee", Some("nouvel avis aux familles à proposer")),
     };
@@ -1112,12 +1112,16 @@ async fn aligner_prix(
         },
     )
     .await?;
+    // Mode suivi (V2a, M2) : le prix figé, une baisse ou une hausse décidée sont des événements qui calculent les parts ;
+    // une baisse PROPOSE un avoir du trop-versé à chaque payeur ayant versé.
+    crate::voyages_argent_repo::synchroniser(conn, a, s).await?;
     let ev = publier(
         conn,
         a,
         "voyages.prix_fige",
         s.id,
-        json!({ "montant_centimes": part, "cause": cause, "rang": rang }),
+        // M8 : aucun montant dans l'outbox : identifiants, rang et cause seulement.
+        json!({ "cause": cause, "rang": rang }),
     )
     .await?;
     Ok((decision, Some(ev)))
@@ -1151,6 +1155,7 @@ impl PgEnt {
         rev: i32,
     ) -> Result<BudgetVue, EntDbError> {
         let mut t = tx(self, a).await?;
+        crate::voyages_argent_repo::verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.a(Action::VoyagesBudgetValider) {
             return Err(interdit());

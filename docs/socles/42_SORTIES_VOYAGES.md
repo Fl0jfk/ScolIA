@@ -2354,3 +2354,26 @@ VD-16 (contacts de parents et INE envoyés à un prestataire : liste fermée, va
 2. **Socle 18** : à son arrivée, il consomme `voyages.campagne_ouverte` et appelle `voyages_autorisation_decision_recue` ; la distribution du lien de signature aux titulaires **sans compte** attend le socle 8, lot N6.
 3. **Non fait** : répartition des chambres (VOY-272), pièces de l'agence (VOY-269), AESH (VOY-274), compte bénévole (VOY-275), information des parents payeurs d'un majeur (VOY-278), calendrier au transporteur ; **signature S2** des ordres de mission ; **écrans Leptos** ; ordonnanceur des relances.
 4. **Non testé** : navigateur, SMTP réel, export réel de Next.js ; **pas prêt pilote** avant relecture de Florian.
+
+## 34. Lot V2a « suivi de l'argent » : état d'implémentation (2026-11-18, branche `ent-socle-42-code-v2a`)
+
+> **Statut : implémenté et testé en local, non validé par Florian, non prêt pilote, non prêt production.** Rapport complet, écarts et questions : `docs/socles/42_SORTIES_VOYAGES_V2A_LIVRAISON.md`. Migrations 650 à 652.
+
+**Principe (R-SV44, D-034)** : ScolIA décide la part des familles (prix annoncé figé, R-SV15), la répartit entre les payeurs par le **port du socle 24/4** (`payeurs_a`, catégorie « voyages », aucune logique de répartition recopiée), pointe les versements, propose des avoirs et exporte. Il n'émet **aucune facture, aucun avis de prélèvement, aucun avoir comptable** ; aucune table `ent_fac_*` ou `ent_fin_*` n'est écrite par le lot.
+
+| Action | Où | Droit |
+|---|---|---|
+| VOY-222 état agrégé (nombres, aucun nom) | `GET /voyages/{id}/argent` | porteur, comptabilité, direction, secrétariat (`voyages.lire`) |
+| Liste nominative des paiements, journalisée (VOY-223) | `GET …/argent/paiements`, `POST/DELETE …/argent/nominatif` | `voyages.argent` (comptabilité, direction, administrateur) ; le **porteur** seulement si la direction ouvre l'accès, avec motif |
+| VOY-267 pointer un versement, annuler par écriture inverse motivée | `POST …/argent/versements`, `…/{vid}/annulation` | `voyages.argent` |
+| Plan de paiement standard (≤ 3) ou long (4 à 10, motif) | `POST …/argent/plans` | `voyages.argent` ; **jamais visible de l'organisateur** |
+| VOY-266 bordereau de chèques, remise le jour même, écart signalé | `…/argent/bordereaux…` | saisie : le **porteur** ; remise et pointage : `voyages.remise` (secrétariat) ou `voyages.argent` |
+| VOY-270 acomptes fournisseurs, alerte une seule fois | `…/argent/acomptes…`, `POST /voyages/argent/acomptes/alertes` | `voyages.argent` |
+| VOY-273 frais réels, avoirs proposés, décision de la comptabilité, annulation collective | `…/argent/frais-reels…`, `…/argent/avoirs…` | `voyages.argent` |
+| VOY-268 export CSV, lien court après contrôle, journalisé | `POST …/argent/export` | `voyages.argent` |
+| Espace famille : sa part et ses versements | `GET …/argent/mes-versements` | parent ou élève payeur du compte |
+| NX-07 contournement du devis, motifs codés | `passer-finances` avec `motif_code` | direction |
+| CV-81 sortie obligatoire : part 0 imposée | calcul des parts, pointage refusé | — |
+| VOY-286 départ en cours de préparation : avoir proposé | branché sur le désistement et le retrait | — |
+
+**Droits ajoutés** : `voyages.argent` (comptabilité, direction, administrateur) et `voyages.remise` (secrétariat : reçoit les bordereaux et pointe leurs lignes, sans voir la liste des paiements). `Action::TOUTES` 269 → 271.

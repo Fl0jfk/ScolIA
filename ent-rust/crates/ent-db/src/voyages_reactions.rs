@@ -15,6 +15,8 @@
 //! | `voyages.refusee` | `voyages_refusee` | porteur |
 //! | `voyages.autorisee` | `voyages_validee` | porteur |
 //! | `voyages.rappel_organisateur` | `voyages_rappel_organisateur` | porteur |
+//! | `voyages.acompte_echeance` | `voyages_acompte_echeance` | comptabilité, direction (`voyages.argent`) |
+//! | `voyages.bordereau_signale` | `voyages_bordereau_signale` | comptabilité, direction (`voyages.argent`) |
 
 use chrono::Utc;
 use ent_auth::{modele_par_defaut, Action, Portee, Role};
@@ -37,6 +39,8 @@ const TYPES_VOYAGES: &[&str] = &[
     "voyages.refusee",
     "voyages.autorisee",
     "voyages.rappel_organisateur",
+    "voyages.acompte_echeance",
+    "voyages.bordereau_signale",
 ];
 
 enum Cible {
@@ -125,6 +129,28 @@ fn message_pour(type_name: &str, payload: &serde_json::Value, titre_sortie: &str
                 corps: message_rappel(code).to_string(),
             }
         }
+        // V2a (mode suivi) : jamais un montant ni un nom dans l'avis, seulement le titre de la sortie.
+        "voyages.acompte_echeance" => {
+            let en_retard = payload.get("code").and_then(|v| v.as_str()) == Some("en_retard");
+            Message {
+                nature: "voyages_acompte_echeance",
+                cible: Cible::Action(Action::VoyagesArgent),
+                titre: if en_retard { "Acompte fournisseur en retard".into() } else { "Acompte fournisseur à payer bientôt".into() },
+                corps: format!("Un acompte de « {titre_sortie} » {} : ouvrez l'échéancier des fournisseurs.", if en_retard { "est en retard" } else { "arrive à échéance" }),
+            }
+        }
+        "voyages.bordereau_signale" => {
+            let ecart = payload.get("code").and_then(|v| v.as_str()) == Some("ecart");
+            Message {
+                nature: "voyages_bordereau_signale",
+                cible: Cible::Action(Action::VoyagesArgent),
+                titre: if ecart { "Écart sur un bordereau de chèques".into() } else { "Bordereau de chèques remis en retard".into() },
+                corps: format!(
+                    "Le bordereau de chèques de « {titre_sortie} » {} : ouvrez les bordereaux de la sortie.",
+                    if ecart { "ne correspond pas à la remise" } else { "n'a pas été remis le jour même" }
+                ),
+            }
+        }
         _ => return None,
     })
 }
@@ -155,12 +181,23 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
         Cible::Porteur => porteur_user.into_iter().collect(),
         Cible::Action(action) => {
             let roles: Vec<String> = roles_avec_action(action).into_iter().map(String::from).collect();
+            // F6 : mêmes destinataires que `droits_effectifs` : les profils dont le modèle par défaut porte l'action,
+            // PLUS les rôles attribués (actifs ce jour, dans le fuseau de l'établissement) qui la portent à l'échelle
+            // de l'établissement ; toujours membres de l'établissement.
             sqlx::query_scalar(
-                "SELECT user_id FROM ent_membership
-                  WHERE etablissement_id = $1 AND role = ANY($2) ORDER BY user_id",
+                "SELECT DISTINCT m.user_id FROM ent_membership m
+                  WHERE m.etablissement_id = $1
+                    AND (m.role = ANY($2)
+                         OR EXISTS (SELECT 1 FROM ent_role_attribution a
+                                      JOIN ent_role_droit d ON d.role_id = a.role_id AND d.etablissement_id = a.etablissement_id
+                                     WHERE a.etablissement_id = m.etablissement_id AND a.user_id = m.user_id
+                                       AND a.clos_le IS NULL AND d.action = $3 AND d.portee = 'etablissement'
+                                       AND a.debut <= ent_aujourdhui_etab($1) AND (a.fin IS NULL OR a.fin >= ent_aujourdhui_etab($1))))
+                  ORDER BY m.user_id",
             )
             .bind(etab)
             .bind(&roles)
+            .bind(action.code())
             .fetch_all(&mut *tx)
             .await
             .map_err(|x| x.to_string())?
@@ -248,6 +285,11 @@ mod tests {
         let m = message_pour("voyages.rappel_organisateur", &json!({ "code": "effectif" }), "Rome").unwrap();
         assert_eq!(m.corps, message_rappel("effectif"));
         assert!(message_pour("voyages.inconnue", &json!({}), "x").is_none());
+        // V2a : avis à la comptabilité et à la direction, sans montant ni nom.
+        let m = message_pour("voyages.acompte_echeance", &json!({ "code": "en_retard", "montant_centimes": 99900 }), "Rome").unwrap();
+        assert!(matches!(m.cible, Cible::Action(Action::VoyagesArgent)) && !m.corps.contains("999") && m.corps.contains("en retard"));
+        let m = message_pour("voyages.bordereau_signale", &json!({ "code": "ecart" }), "Rome").unwrap();
+        assert!(matches!(m.cible, Cible::Action(Action::VoyagesArgent)) && m.corps.contains("ne correspond pas"));
     }
 
     #[test]
