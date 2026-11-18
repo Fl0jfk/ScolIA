@@ -127,7 +127,16 @@ async function ouvrir(cle, largeur = 1280) {
   await settle(page);
   return { ctx, page };
 }
-async function settle(page, ms = 700) { await page.waitForLoadState('networkidle').catch(() => {}); await page.waitForTimeout(ms); }
+async function settle(page, ms = 700) {
+  await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(ms);
+  // Écrans lents : on attend la fin d'un « Chargement… » (25 s au plus) avant de photographier.
+  for (let i = 0; i < 25; i++) {
+    const charge = await page.evaluate(() => /Chargement (de|des|du|d')/.test((document.querySelector('main') ?? document.body).innerText)).catch(() => false);
+    if (!charge) break;
+    await page.waitForTimeout(1000);
+  }
+}
 
 const compteurs = {};
 async function photo(page, cle, nom, { mobile = false } = {}) {
@@ -179,6 +188,7 @@ async function visiter(page, cle, chemin, nom, { mobile = true, motif } = {}) {
   ecran.signaux = [
     ...(PAS_DISPO.test(lu.texte) ? ['message « pas encore disponible »'] : []),
     ...(lu.alertes.length ? [`alerte : ${lu.alertes[0]}`] : []),
+    ...(/Chargement (de|des|du|d')/.test(lu.texte) ? ['reste en « Chargement… » après 25 s'] : []),
     ...(lu.longueur < 120 ? ['écran presque vide'] : []),
     ...(redirige ? [`redirigé vers ${url.pathname}`] : []),
     ...page.errs.slice(0, 2),

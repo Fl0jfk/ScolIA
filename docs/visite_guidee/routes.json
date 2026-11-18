@@ -1,0 +1,239 @@
+{
+ "01-eleve": {
+  "total": 219,
+  "sans_ecran": 169,
+  "exemples": [
+   "/classes/{}/autorisations",
+   "/dossier/eleves/{}/interdictions",
+   "/dossier/interdictions/{}/lever",
+   "/dossier/eleves/{}/conflit-interet",
+   "/dossier/conflits-interet",
+   "/dossier/conflits-interet/{}/lever",
+   "/dossier/eleves/{}/personne-eleve",
+   "/dossier/liens/{}"
+  ]
+ },
+ "02-inscriptions": {
+  "total": 74,
+  "sans_ecran": 49,
+  "exemples": [
+   "/scolarite/eleves/{}/regime",
+   "/scolarite/eleves/{}/sortie",
+   "/inscriptions/campagnes/{}",
+   "/inscriptions/campagnes/{}/offres",
+   "/inscriptions/campagnes/{}/statut",
+   "/inscriptions/campagnes/{}/prolonger",
+   "/inscriptions/offres/{}",
+   "/inscriptions/fermetures"
+  ]
+ },
+ "03-assiduite": {
+  "total": 137,
+  "sans_ecran": 71,
+  "exemples": [
+   "/assiduite/profils-academiques",
+   "/assiduite/motifs",
+   "/assiduite/motifs/{}",
+   "/assiduite/motifs/{}/versions",
+   "/assiduite/regles",
+   "/assiduite/regle-en-vigueur",
+   "/assiduite/activites-appelees",
+   "/appels/activites"
+  ]
+ },
+ "04-absences-personnels": {
+  "total": 186,
+  "sans_ecran": 148,
+  "exemples": [
+   "/personnels/absences/signalements",
+   "/personnels/absences/natures",
+   "/personnels/absences/moi",
+   "/personnels/absences/organisation",
+   "/personnels/absences/a-valider",
+   "/personnels/absences/non-remplacees",
+   "/personnels/absences/{}",
+   "/personnels/absences/{}/historique"
+  ]
+ },
+ "05-edt": {
+  "total": 51,
+  "sans_ecran": 36,
+  "exemples": [
+   "/edt/modifications",
+   "/edt/modifications/{}",
+   "/edt/corrections-passe",
+   "/edt/lots/apercu",
+   "/edt/lots",
+   "/edt/lots/{}",
+   "/edt/greve/candidats",
+   "/edt/greve"
+  ]
+ },
+ "06-cahier": {
+  "total": 97,
+  "sans_ecran": 30,
+  "exemples": [
+   "/cahier/travaux/{}/historique",
+   "/cahier/travaux/{}/pieces",
+   "/cahier/contenus/{}/pieces",
+   "/cahier/pieces/{}",
+   "/cahier/travaux/{}/retrait",
+   "/cahier/visas",
+   "/cahier/reprise",
+   "/cahier/c2/entrees/{}"
+  ]
+ },
+ "07-evaluations": {
+  "total": 37,
+  "sans_ecran": 14,
+  "exemples": [
+   "/evaluations/periodes/{}/journal",
+   "/evaluations/regles",
+   "/evaluations/coefficients",
+   "/evaluations/devoirs/{}/corriger",
+   "/evaluations/bilans-cycle",
+   "/evaluations/bilans-cycle/{}/valider",
+   "/evaluations/eleves/{}/bilans-cycle",
+   "/competences"
+  ]
+ },
+ "08-messagerie": {
+  "total": 19,
+  "sans_ecran": 9,
+  "exemples": [
+   "/annonces/{}/confirmer",
+   "/annonces/{}/retirer",
+   "/messages/fils/{}/desarchiver",
+   "/messages/non-traites",
+   "/messages/{}/annuler",
+   "/messagerie/reglage",
+   "/messagerie/liens-a-verifier",
+   "/messagerie/liens/{}/verification"
+  ]
+ },
+ "09-agenda": {
+  "total": 74,
+  "sans_ecran": 50,
+  "exemples": [
+   "/agenda/classes/{}",
+   "/agenda/types",
+   "/agenda/series",
+   "/agenda/evenements/{}/dupliquer",
+   "/agenda/evenements/{}/historique",
+   "/agenda/lieux/{}/regle",
+   "/agenda/reservations/{}/decision",
+   "/agenda/disponibilites"
+  ]
+ },
+ "10-voyages": {
+  "total": 146,
+  "sans_ecran": 119,
+  "exemples": [
+   "/entreprises",
+   "/conventions-stage",
+   "/conventions-stage/{}/statut",
+   "/stages/dispositifs",
+   "/stages/dispositifs/{}",
+   "/stages/parametres",
+   "/stages/organismes/{}",
+   "/stages/organismes/{}/etat"
+  ]
+ },
+ "11-demandes": {
+  "total": 34,
+  "sans_ecran": 4,
+  "exemples": [
+   "/afaire/rapprochement",
+   "/demandes/{}",
+   "/docs-a-signer/{}/signer",
+   "/docs-a-signer/{}/annuler"
+  ]
+ },
+ "12-formulaires": {
+  "total": 66,
+  "sans_ecran": 54,
+  "exemples": [
+   "/accords/catalogue",
+   "/accords/objets",
+   "/accords/objets/{}/activer",
+   "/accords/objets/{}/desactiver",
+   "/accords/objets/{}/usages",
+   "/accords/objets/{}/versions",
+   "/accords/objets/{}/versions/publier",
+   "/accords/objets/{}/versions/{}/relire"
+  ]
+ },
+ "13-finances": {
+  "total": 86,
+  "sans_ecran": 66,
+  "exemples": [
+   "/finances/articles/{}",
+   "/finances/tarifs/{}",
+   "/finances/reductions",
+   "/finances/reductions/{}/eleves",
+   "/finances/bourses/baremes",
+   "/finances/echeancier-type",
+   "/finances/consommations",
+   "/finances/foyers/{}/mode-paiement"
+  ]
+ },
+ "14-sante-accompagnement": {
+  "total": 20,
+  "sans_ecran": 6,
+  "exemples": [
+   "/infirmerie/passages",
+   "/pai/pieces/{}",
+   "/pai/pieces/{}/lien",
+   "/psy/entretiens",
+   "/psy/rdvs",
+   "/psy/rdvs/{}/statut"
+  ]
+ },
+ "15-administration": {
+  "total": 231,
+  "sans_ecran": 164,
+  "exemples": [
+   "/imports/{}",
+   "/imports/{}/annuler",
+   "/imports/lignes/{}/traiter",
+   "/auth/casquettes",
+   "/auth/casquette",
+   "/referentiel/classes/{}/affectations",
+   "/referentiel/groupes/{}/membres",
+   "/referentiel/groupes/{}/membres/{}"
+  ]
+ },
+ "16-internat": {
+  "total": 14,
+  "sans_ecran": 14,
+  "exemples": [
+   "/internat/zones",
+   "/internat/zones/{}",
+   "/internat/chambres",
+   "/internat/chambres/{}/lits",
+   "/internat/lits/{}/neutralisation",
+   "/internat/eleves/{}/sejours",
+   "/internat/eleves/{}/sejours/synchroniser",
+   "/internat/sejours/{}/rythmes"
+  ]
+ },
+ "17-documents": {
+  "total": 13,
+  "sans_ecran": 13,
+  "exemples": [
+   "/verifier/{}",
+   "/verifier",
+   "/documents/{}/fichier",
+   "/documents/{}/lien",
+   "/fichiers/{}",
+   "/documents/{}/grants",
+   "/documents/grants/pending",
+   "/documents/grants/{}/decider"
+  ]
+ },
+ "99-autre": {
+  "total": 1,
+  "sans_ecran": 0,
+  "exemples": []
+ }
+}
