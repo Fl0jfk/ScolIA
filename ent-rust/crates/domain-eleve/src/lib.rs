@@ -79,6 +79,7 @@ mod protection;
 mod indicateur;
 /// Socle 2, lot S2-7 : règles de calcul des moyennes, exports de livrets.
 pub mod evaluation;
+pub mod evaluation_moteur;
 
 pub use absence::{
     annee_scolaire_de, corps_alerte_seuil, debut_annee_scolaire, module_absences_voit_absent,
