@@ -1056,10 +1056,43 @@ async fn droits_refuses_hors_equipe_habilitee() {
 async fn di_01_perimetre_verifie_au_serveur() {
     let Some(b) = banc().await else { return };
     let pool = b.ent.pool_verif();
-    // Deux classes du jeu de labo ; les élèves de la zone A sont dans la classe 1, ceux de B dans la classe 2.
-    let (annee, debut_annee): (Uuid, NaiveDate) =
-        sqlx::query_as("SELECT id, date_debut FROM ent_annee_scolaire WHERE etablissement_id = $1 LIMIT 1").bind(b.etab).fetch_one(pool).await.unwrap();
-    let classes: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 ORDER BY code LIMIT 2").bind(b.etab).fetch_all(pool).await.unwrap();
+    // L'année qui couvre la nuit testée (créée au besoin, comme dans le banc) et deux classes **de cette année**, créées
+    // pour le test : le jeu de labo place ses classes dans l'année courante (2026-2027), et une affectation doit rester
+    // dans l'année de sa classe (garde 330). Les élèves de la zone A vont dans la classe 1, ceux de B dans la classe 2.
+    let existante: Option<(Uuid, NaiveDate)> = sqlx::query_as(
+        "SELECT id, date_debut FROM ent_annee_scolaire WHERE etablissement_id = $1 AND date_debut <= $2 AND date_fin > $2 ORDER BY date_debut, id LIMIT 1",
+    )
+    .bind(b.etab)
+    .bind(nuit_dst())
+    .fetch_optional(pool)
+    .await
+    .unwrap();
+    let (annee, debut_annee) = match existante {
+        Some(a) => a,
+        None => {
+            let id = Uuid::new_v4();
+            sqlx::query("INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin) VALUES ($1,$2,'2025-2026','2025-09-01','2026-08-31')")
+                .bind(id)
+                .bind(b.etab)
+                .execute(pool)
+                .await
+                .unwrap();
+            (id, NaiveDate::from_ymd_opt(2025, 9, 1).unwrap())
+        }
+    };
+    let mut classes: Vec<Uuid> = Vec::new();
+    for code in ["DI01A", "DI01B"] {
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_classe (id, etablissement_id, annee_id, code, libelle, niveau) VALUES ($1,$2,$3,$4,$4,'5e')")
+            .bind(id)
+            .bind(b.etab)
+            .bind(annee)
+            .bind(code)
+            .execute(pool)
+            .await
+            .unwrap();
+        classes.push(id);
+    }
     assert_eq!(classes.len(), 2);
     for (i, e) in b.a.iter().chain(b.b.iter()).enumerate() {
         let classe = if i < b.a.len() { classes[0] } else { classes[1] };

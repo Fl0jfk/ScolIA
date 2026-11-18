@@ -161,15 +161,26 @@ async fn tableau_meme_heure_d_exclusion_dans_le_bandeau_et_le_panneau() {
         .id;
     let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
     ent.exclure_du_cours_for_actor(etab, a.id, lea, cast.prof.user_id, "prof", "web").await.unwrap();
-    // L'exclusion date de 25 minutes ; l'alerte, elle, naît maintenant.
-    sqlx::query("UPDATE ent_appel_ligne SET exclusion_cours_le = now() - interval '25 minutes' WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3")
+    // « Maintenant » : midi, heure de l'établissement, le jour du test — jamais l'heure réelle, sinon entre minuit
+    // local et minuit UTC l'exclusion « d'il y a 25 minutes » tombe la veille du jour local (run 426 : -1414 min).
+    let maintenant: chrono::DateTime<Utc> = sqlx::query_scalar(
+        "SELECT ($1::date + time '12:00') AT TIME ZONE coalesce(\
+           (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $2), 'Europe/Paris')",
+    )
+    .bind(jour)
+    .bind(etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    // L'exclusion date de 25 minutes ; l'alerte, elle, naît « maintenant ».
+    sqlx::query("UPDATE ent_appel_ligne SET exclusion_cours_le = $4 - interval '25 minutes' WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3")
         .bind(etab)
         .bind(a.id)
         .bind(lea)
+        .bind(maintenant)
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    let maintenant = Utc::now();
     ent.verifier_jour_systeme(etab, maintenant).await.unwrap();
 
     let file = ent.file_du_matin_for_actor(etab, cast.cpe.user_id, "cpe", None, maintenant).await.unwrap();
