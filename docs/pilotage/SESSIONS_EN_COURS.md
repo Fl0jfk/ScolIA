@@ -388,3 +388,18 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Run 417 vert** sur 86f03b82 : la messagerie est validée.
   - **Nouvelle session : socle 21 V1-V2** (branche ent-socle-21-code-v1v2, migrations 461-479) : modèle des évaluations, reprise, moteur de calcul des moyennes, et document « règles comme Charlemagne » avec les questions pour Florian (idée I-032).
   - **Sessions qui codent : I2 et V1-V2.** La visite guidée est en cours ; elle ne code pas.
+- **18-11, 18 h 35 UTC, visite guidée livrée** (branche ent-visite-guidee, sans PR) : 723 captures, 368 écrans, 15 profils, 43 actions.
+  - Page privée pour Florian : https://claude.ai/artifact/LiScMW2JW545xCk8wKAG5P (411 captures en 1280 px, manques par domaine).
+  - **Défauts constatés, à corriger** :
+    - demande d'une famille, « Page introuvable » ;
+    - grille de notes impossible à ouvrir (« service sans matière ») ;
+    - erreurs 403 pour l'infirmerie, l'accompagnement, la santé côté parent, la discipline (CPE), et la comptabilité sur ses propres écrans ;
+    - travail à faire de l'élève resté en chargement ;
+    - messagerie absente du menu de 5 profils.
+  - **Structure demandée par Florian** :
+    - barre de gauche par domaines et sous-domaines, même coquille pour tout le personnel ;
+    - signaux serveur sur tous les domaines ;
+    - « un module, un propriétaire, plusieurs surfaces » ;
+    - manifeste de module dès la conception.
+    - Questions ouvertes : la paye est-elle des états d'heures ou une paye complète ? « Pédagogie » ou « Notes » ?
+  - Session archivée.
