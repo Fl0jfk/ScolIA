@@ -270,3 +270,11 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - Le run de 809c1e38 n'a **aucun test en échec**. Seul le job Frontend a été coupé à 75 minutes, alors qu'il en prenait déjà 74 sur ENT au run 391.
   - **ENT 7c368f0c** : délai du job frontend porté à 95 minutes (YAML seulement). Puis fusion d'ENT dans E9 (71cd4b2e) pour relancer la CI.
   - **À faire, lot CI dédié** : accélérer le job frontend (build release de 27 minutes, tests contre le backend de 18 minutes, session de 9 minutes), avec un budget de 0 €.
+- **18-11, 6 h 05 UTC : E9 versé.**
+  - ENT 71cd4b2e, par avance rapide. L'arbre est identique à `refs/pull/96/merge`, testé vert au run 395, frontend compris.
+  - Contenu :
+    - suites d'E7-E8 : catalogue E5 (photo, e-mail, mobile), pastilles « vie de classe » et « protocole », M7, F2 à F5 ;
+    - écrans E9a (liste et recherche) et E9b (fiche hub) pour la démo ;
+    - correctifs de la revue de sécurité.
+  - Migration 3200. Règle 25 respectée. Désabonnement de la PR 96, session archivée. ENT est gelé jusqu'au verdict du run.
+  - **Session qui code : V2a** (correctifs de la revue). Une place est libre.
