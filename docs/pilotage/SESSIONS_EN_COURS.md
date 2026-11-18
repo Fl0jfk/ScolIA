@@ -321,3 +321,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - `health-cmd` avec `-d`.
   - **Constat** : les sessions lancées depuis ENT ne voient pas PILOTAGE.md complet (il est sur ent-mc0hoe ; sur ENT, seules les règles 1 à 9). **Les consignes doivent désormais dire `git show origin/ent-mc0hoe:docs/PILOTAGE.md`.**
   - Course `recette_securite_3::rs3_02` en local, préexistante sur ENT ; elle n'affecte pas la CI (nextest).
+- **18-11, 11 h 25 UTC, Suites (PR 100)** :
+  - La session refuse les compléments transmis par message : sa règle 1 exige que les consignes figurent au lancement.
+  - Le pilote les a faits lui-même (efb77db4) : ceinture `ent_eleve.photo_key` avec son test (18 tests verts en local, base démarrée) et `health-cmd -d ent_ci_test` sur les 4 services.
+  - **Leçon** : mettre dans le message de lancement toute consigne connue à l'avance. Une correction de dernière minute se fait par le pilote.
