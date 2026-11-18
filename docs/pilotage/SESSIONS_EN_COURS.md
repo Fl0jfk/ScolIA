@@ -254,3 +254,15 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Aveu de la session** : ses vérifications précédentes avaient tourné **sans base** (Postgres arrêté), donc à vide. Elle les a refaites avec la base.
   - **Leçon pour les consignes** : exiger `ENT_EXIGER_BASE=1` et `pg_isready` avant toute série de tests locale.
   - Deux tests de reprise R3 sont fragiles en parallèle (ils comptent des lignes globales), à surveiller.
+- **18-11, 5 h 15 UTC, revue de sécurité de V2a (PR 98, d1e0c928)** : aucun critique, 1 élevé et 8 moyens, renvoyés à la session ; désabonnement de la PR pendant les correctifs.
+  - **E1** : l'organisateur voyait l'échéancier long dès l'ouverture du nominatif.
+  - **M1** : ordre des verrous.
+  - **M2 et M7** : des lectures créaient des comptes du socle 24, et l'échéancier était ancré sur la première consultation.
+  - **M3** : accès nominatifs non journalisés.
+  - **M4** : un chèque manquant pouvait être pointé.
+  - **M5** : un avoir survivait à un chèque impayé.
+  - **M8** : montants retirés de l'outbox de V0b.
+  - **Décisions du pilote** :
+    - M6 : sans entité de facturation, l'organisateur ne collecte pas ;
+    - F7 : export conservé 30 jours ;
+    - F8 : compteurs masqués sous 3 payeurs.
