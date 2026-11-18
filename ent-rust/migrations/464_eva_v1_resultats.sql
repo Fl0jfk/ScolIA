@@ -24,9 +24,8 @@ CREATE TABLE IF NOT EXISTS eva_resultat (
     rattrapage_le DATE,
     source TEXT NOT NULL DEFAULT 'saisie'
         CHECK (source IN ('saisie', 'appel', 'dispense', 'import', 'hors_ligne', 'reprise')),
-    -- Motif de la dernière écriture, obligatoire pour une correction après l'arrêt ; remis à NULL à
-    -- l'écriture suivante qui n'en porte pas (il ne survit jamais à son écriture).
-    dernier_motif TEXT,
+    -- La dernière écriture était une correction après l'arrêt (son motif est dans l'historique : le
+    -- motif est transmis par la variable de transaction `ent.eva_motif` et ne survit pas à l'écriture).
     derniere_ecriture_correction BOOLEAN NOT NULL DEFAULT false,
     version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
     saisi_par UUID,
@@ -34,7 +33,6 @@ CREATE TABLE IF NOT EXISTS eva_resultat (
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT eva_resultat_valeur_chk CHECK ((statut = 'note') = (valeur IS NOT NULL)),
     CONSTRAINT eva_resultat_rattrapage_chk CHECK (rattrapage_le IS NULL OR statut IN ('absent', 'a_rattraper', 'non_rendu')),
-    CONSTRAINT eva_resultat_motif_chk CHECK (dernier_motif IS NULL OR length(btrim(dernier_motif)) >= 3),
     CONSTRAINT eva_resultat_eval_fk FOREIGN KEY (evaluation_id, etablissement_id)
         REFERENCES eva_evaluation (id, etablissement_id),
     CONSTRAINT eva_resultat_eleve_fk FOREIGN KEY (eleve_id, etablissement_id)
@@ -77,6 +75,7 @@ DECLARE
     ev RECORD;
     per RECORD;
     v_corr boolean := false;
+    v_motif text := nullif(btrim(coalesce(current_setting('ent.eva_motif', true), '')), '');
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'eva_resultat : suppression physique interdite, remplacer la valeur ou annuler (D7, R-V6)'
@@ -92,10 +91,6 @@ BEGIN
     IF TG_OP = 'UPDATE' AND (NEW.evaluation_id IS DISTINCT FROM OLD.evaluation_id
                              OR NEW.eleve_id IS DISTINCT FROM OLD.eleve_id) THEN
         RAISE EXCEPTION 'eva_resultat : l''évaluation et l''élève ne changent pas' USING ERRCODE = '23514';
-    END IF;
-    -- Le motif ne survit pas à son écriture : un motif inchangé est un motif périmé.
-    IF TG_OP = 'UPDATE' AND NEW.dernier_motif IS NOT DISTINCT FROM OLD.dernier_motif THEN
-        NEW.dernier_motif := NULL;
     END IF;
     IF ev.mode <> 'note' THEN
         RAISE EXCEPTION 'eva_resultat : évaluation de positionnement, pas de résultat chiffré (socle 22)' USING ERRCODE = '23514';
@@ -119,7 +114,7 @@ BEGIN
                             WHERE r.etablissement_id = NEW.etablissement_id
                               AND r.evaluation_id = NEW.evaluation_id AND r.eleve_id = NEW.eleve_id) THEN
             -- Après l'arrêt : seulement une correction motivée (la direction), jamais une saisie ordinaire.
-            IF NEW.dernier_motif IS NULL OR length(btrim(NEW.dernier_motif)) < 3 THEN
+            IF v_motif IS NULL OR length(v_motif) < 3 THEN
                 RAISE EXCEPTION 'eva_resultat : notes arrêtées pour cet élève, correction motivée requise (R-V10)'
                     USING ERRCODE = '23514';
             END IF;
@@ -160,7 +155,8 @@ BEGIN
         gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.evaluation_id, NEW.eleve_id, NEW.version,
         CASE WHEN TG_OP = 'UPDATE' THEN OLD.statut END, CASE WHEN TG_OP = 'UPDATE' THEN OLD.valeur END,
         NEW.statut, NEW.valeur, NEW.derniere_ecriture_correction,
-        NEW.dernier_motif, NEW.source, NEW.saisi_par);
+        nullif(btrim(coalesce(current_setting('ent.eva_motif', true), '')), ''),
+        NEW.source, NEW.saisi_par);
     RETURN NULL;
 END
 $$;

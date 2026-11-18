@@ -40,6 +40,8 @@ mod afaire_service;
 mod afaire_sources;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
 pub mod evaluations;
+/// Socle 21, lot V1 : tables `eva_*`, règles de calcul, résultats historisés, états de période, reprise M2.
+pub mod evaluations_v1;
 mod evaluations_bulletin;
 mod enseignements;
 pub mod cours;
@@ -83,6 +85,8 @@ pub mod module_sante;
 mod tests_evaluations;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v0;
+#[cfg(test)]
+mod tests_evaluations_v1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;
 pub mod campagnes;

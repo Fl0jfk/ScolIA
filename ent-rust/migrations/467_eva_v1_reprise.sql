@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS eva_reprise_compte (
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     objet TEXT NOT NULL CHECK (objet IN
-        ('devoir', 'note', 'note_sans_devoir', 'correction', 'appreciation', 'periode')),
+        ('reglage', 'coefficient', 'devoir', 'note', 'note_sans_devoir', 'correction', 'appreciation', 'periode')),
     lues INTEGER NOT NULL DEFAULT 0 CHECK (lues >= 0),
     creees INTEGER NOT NULL DEFAULT 0 CHECK (creees >= 0),
     inchangees INTEGER NOT NULL DEFAULT 0 CHECK (inchangees >= 0),
@@ -98,6 +98,11 @@ DECLARE
     c_cor int[] := ARRAY[0, 0, 0, 0, 0, 0];
     c_app int[] := ARRAY[0, 0, 0, 0, 0, 0];
     c_per int[] := ARRAY[0, 0, 0, 0, 0, 0];
+    c_reg int[] := ARRAY[0, 0, 0, 0, 0, 0];
+    c_coe int[] := ARRAY[0, 0, 0, 0, 0, 0];
+    r RECORD;
+    y RECORD;
+    cf RECORD;
     d RECORD;
     n RECORD;
     a RECORD;
@@ -127,11 +132,64 @@ BEGIN
     PERFORM set_config('ent.eva_reprise', 'oui', true);
     INSERT INTO eva_reprise_execution (id, etablissement_id, origine) VALUES (v_exec, p_etab, p_origine);
 
+    -- ── Règles de calcul : une ligne par année (l'ancienne table `ent_eva_regle` n'en a pas) ──
+    -- `absent_compte_zero` n'est jamais repris : une absence n'est jamais un zéro (R-V5).
+    FOR r IN SELECT * FROM ent_eva_regle WHERE etablissement_id = p_etab LOOP
+        FOR y IN SELECT ya.id FROM ent_annee_scolaire ya WHERE ya.etablissement_id = p_etab ORDER BY ya.date_debut LOOP
+            c_reg[1] := c_reg[1] + 1;
+            IF EXISTS (SELECT 1 FROM eva_reglage g WHERE g.etablissement_id = p_etab AND g.annee_id = y.id) THEN
+                c_reg[3] := c_reg[3] + 1;
+                CONTINUE;
+            END IF;
+            BEGIN
+                INSERT INTO eva_reglage (id, etablissement_id, annee_id, arrondi_precision, modifie_par)
+                VALUES (gen_random_uuid(), p_etab, y.id,
+                        CASE WHEN r.arrondi IN ('centieme', 'dixieme', 'demi_point') THEN r.arrondi ELSE 'centieme' END,
+                        r.updated_by_user_id);
+                c_reg[2] := c_reg[2] + 1;
+            EXCEPTION WHEN OTHERS THEN
+                PERFORM eva_reprise_noter(v_exec, p_etab, 'reglage', y.id, 'refusee', 'erreur_sql', SQLSTATE);
+                c_reg[4] := c_reg[4] + 1;
+            END;
+        END LOOP;
+    END LOOP;
+
+    -- ── Coefficients de matière (par classe), valables dès le début de l'année de la classe ──
+    FOR cf IN
+        SELECT cm.id, cm.classe_id, cm.matiere_id, cm.coef, cm.updated_by_user_id, kl.annee_id, ya.date_debut
+          FROM ent_eva_coef_matiere cm
+          JOIN ent_classe kl ON kl.id = cm.classe_id AND kl.etablissement_id = cm.etablissement_id
+          JOIN ent_annee_scolaire ya ON ya.id = kl.annee_id AND ya.etablissement_id = kl.etablissement_id
+         WHERE cm.etablissement_id = p_etab
+         ORDER BY cm.id
+    LOOP
+        c_coe[1] := c_coe[1] + 1;
+        IF EXISTS (SELECT 1 FROM eva_coefficient_matiere x WHERE x.etablissement_id = p_etab
+                    AND x.annee_id = cf.annee_id AND x.classe_id = cf.classe_id AND x.matiere_id = cf.matiere_id) THEN
+            c_coe[3] := c_coe[3] + 1;
+            CONTINUE;
+        END IF;
+        BEGIN
+            v_coef := eva_dec3(cf.coef);
+            IF v_coef IS NULL OR v_coef < 0 OR v_coef > 100 THEN
+                PERFORM eva_reprise_noter(v_exec, p_etab, 'coefficient', cf.id, 'refusee', 'coefficient_invalide');
+                c_coe[4] := c_coe[4] + 1;
+                CONTINUE;
+            END IF;
+            INSERT INTO eva_coefficient_matiere (id, etablissement_id, annee_id, matiere_id, classe_id, coef, valable_du, cree_par)
+            VALUES (cf.id, p_etab, cf.annee_id, cf.matiere_id, cf.classe_id, v_coef, cf.date_debut, cf.updated_by_user_id);
+            c_coe[2] := c_coe[2] + 1;
+        EXCEPTION WHEN OTHERS THEN
+            PERFORM eva_reprise_noter(v_exec, p_etab, 'coefficient', cf.id, 'refusee', 'erreur_sql', SQLSTATE);
+            c_coe[4] := c_coe[4] + 1;
+        END;
+    END LOOP;
+
     -- ── Évaluations ───────────────────────────────────────────────────────────────
     FOR d IN
-        SELECT dv.*, np.periode_id AS periode_ref
+        SELECT dv.*, nper.periode_id AS periode_ref
           FROM ent_devoir dv
-          LEFT JOIN ent_note_periode np ON np.id = dv.periode_id AND np.etablissement_id = dv.etablissement_id
+          LEFT JOIN ent_note_periode nper ON nper.id = dv.periode_id AND nper.etablissement_id = dv.etablissement_id
          WHERE dv.etablissement_id = p_etab
          ORDER BY dv.created_at, dv.id
     LOOP
@@ -187,7 +245,7 @@ BEGIN
                 v_classe := CASE WHEN d.groupe_id IS NULL THEN d.classe_id END;
                 v_groupe := d.groupe_id;
                 SELECT COALESCE((SELECT g.annee_id FROM ent_groupe g WHERE g.id = v_groupe AND g.etablissement_id = p_etab),
-                                (SELECT cl2.annee_id FROM ent_classe cl2 WHERE cl2.id = v_classe AND cl2.etablissement_id = p_etab))
+                                (SELECT kc.annee_id FROM ent_classe kc WHERE kc.id = v_classe AND kc.etablissement_id = p_etab))
                   INTO v_annee;
                 IF v_annee IS NULL THEN
                     PERFORM eva_reprise_noter(v_exec, p_etab, 'devoir', d.id, 'refusee', 'annee_introuvable');
@@ -199,8 +257,8 @@ BEGIN
                 INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, matiere_id, classe_id, groupe_id,
                                        ouvert_le, source, a_verifier)
                 SELECT v_cours, p_etab, v_annee, COALESCE(NULLIF(btrim(v_libelle), ''), 'Reprise des notes'),
-                       d.matiere_id, v_classe, v_groupe, LEAST(d.date_devoir, y.date_debut), 'reprise', true
-                  FROM ent_annee_scolaire y WHERE y.id = v_annee AND y.etablissement_id = p_etab;
+                       d.matiere_id, v_classe, v_groupe, LEAST(d.date_devoir, an.date_debut), 'reprise', true
+                  FROM ent_annee_scolaire an WHERE an.id = v_annee AND an.etablissement_id = p_etab;
                 PERFORM eva_reprise_noter(v_exec, p_etab, 'devoir', d.id, 'ecart', 'cours_reprise_cree',
                                           'cours créé pour la reprise, à vérifier par la gestion');
                 c_dev[6] := c_dev[6] + 1;
@@ -247,9 +305,9 @@ BEGIN
         IF EXISTS (SELECT 1 FROM eva_resultat WHERE id = n.id AND etablissement_id = p_etab) THEN
             c_not[3] := c_not[3] + 1;
             -- Dérive : l'ancien écrivain a modifié la note depuis la reprise (listée, jamais corrigée seule).
-            IF EXISTS (SELECT 1 FROM eva_resultat r WHERE r.id = n.id AND r.etablissement_id = p_etab
-                        AND (r.statut IS DISTINCT FROM n.statut
-                             OR r.valeur IS DISTINCT FROM (CASE WHEN n.statut = 'note' THEN eva_dec3(n.valeur) END))) THEN
+            IF EXISTS (SELECT 1 FROM eva_resultat rs WHERE rs.id = n.id AND rs.etablissement_id = p_etab
+                        AND (rs.statut IS DISTINCT FROM n.statut
+                             OR rs.valeur IS DISTINCT FROM (CASE WHEN n.statut = 'note' THEN eva_dec3(n.valeur) END))) THEN
                 PERFORM eva_reprise_noter(v_exec, p_etab, 'note', n.id, 'ecart', 'derive_depuis_la_reprise');
                 c_not[6] := c_not[6] + 1;
             END IF;
@@ -334,9 +392,9 @@ BEGIN
 
     -- ── Appréciations ─────────────────────────────────────────────────────────────────
     FOR a IN
-        SELECT ap.*, np.periode_id AS periode_ref, np.date_debut AS np_debut, np.date_fin AS np_fin
+        SELECT ap.*, nper.periode_id AS periode_ref, nper.date_debut AS np_debut, nper.date_fin AS np_fin
           FROM ent_note_appreciation ap
-          LEFT JOIN ent_note_periode np ON np.id = ap.periode_id AND np.etablissement_id = ap.etablissement_id
+          LEFT JOIN ent_note_periode nper ON nper.id = ap.periode_id AND nper.etablissement_id = ap.etablissement_id
          WHERE ap.etablissement_id = p_etab
          ORDER BY ap.created_at, ap.id
     LOOP
@@ -460,7 +518,9 @@ BEGIN
     END LOOP;
 
     INSERT INTO eva_reprise_compte (execution_id, etablissement_id, objet, lues, creees, inchangees, refusees, ignorees, ecarts)
-    VALUES (v_exec, p_etab, 'devoir', c_dev[1], c_dev[2], c_dev[3], c_dev[4], c_dev[5], c_dev[6]),
+    VALUES (v_exec, p_etab, 'reglage', c_reg[1], c_reg[2], c_reg[3], c_reg[4], c_reg[5], c_reg[6]),
+           (v_exec, p_etab, 'coefficient', c_coe[1], c_coe[2], c_coe[3], c_coe[4], c_coe[5], c_coe[6]),
+           (v_exec, p_etab, 'devoir', c_dev[1], c_dev[2], c_dev[3], c_dev[4], c_dev[5], c_dev[6]),
            (v_exec, p_etab, 'note', c_not[1], c_not[2], c_not[3], c_not[4], c_not[5], c_not[6]),
            (v_exec, p_etab, 'note_sans_devoir', c_nsd[1], c_nsd[2], c_nsd[3], c_nsd[4], c_nsd[5], c_nsd[6]),
            (v_exec, p_etab, 'correction', c_cor[1], c_cor[2], c_cor[3], c_cor[4], c_cor[5], c_cor[6]),
@@ -482,6 +542,8 @@ DECLARE
 BEGIN
     FOR e IN
         SELECT etablissement_id FROM ent_devoir
+        UNION SELECT etablissement_id FROM ent_eva_regle
+        UNION SELECT etablissement_id FROM ent_eva_coef_matiere
         UNION SELECT etablissement_id FROM ent_note
         UNION SELECT etablissement_id FROM ent_note_periode
         UNION SELECT etablissement_id FROM ent_note_appreciation
