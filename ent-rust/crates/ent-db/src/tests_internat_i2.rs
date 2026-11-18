@@ -211,9 +211,9 @@ async fn banc() -> Option<Banc> {
     };
     for (i, (chambre, quantite)) in [(b.chambre_a, 4usize), (b.chambre_b, 2usize)].into_iter().enumerate() {
         let lits = b.ent.lister_lits_internat_for_actor(etab, cpe, CPE, chambre).await.unwrap();
-        for k in 0..quantite {
+        for lit in lits.iter().take(quantite) {
             let e = eleve_fixe(&b.ent, etab, if i == 0 { "Théo" } else { "Noé" }).await;
-            heberger(&b, e, chambre, Some(lits[k].id)).await;
+            heberger(&b, e, chambre, Some(lit.id)).await;
             if i == 0 {
                 b.a.push(e);
             } else {
