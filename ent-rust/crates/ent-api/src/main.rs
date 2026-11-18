@@ -484,14 +484,14 @@ async fn run_api() {
     // Suites du 18 novembre : passages quotidiens des voyages (alertes d'échéance des acomptes fournisseurs, purge
     // à 30 jours des exports CSV de l'argent) et balayage borné des objets orphelins (photos d'élèves, exports),
     // sur le MÊME planificateur : idempotent, lancé toutes les heures car « le jour » dépend du fuseau de chaque
-    // établissement. Désactivable (`ENT_TACHES_VOYAGES_OBJETS=0`).
+    // établissement ; y passe aussi l'arrêt automatique des notes des périodes (socle 21, M8). Désactivable (`ENT_TACHES_VOYAGES_OBJETS=0`).
     let taches_voyages_objets = taches_voyages_objets_actives().then(|| {
         let ent = state.ent.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
             loop {
                 match ent.passages_quotidiens(None).await {
-                    Ok(b) if b.acomptes_alertes + b.exports_purges + b.photos_orphelines + b.exports_orphelins + b.erreurs > 0 => {
+                    Ok(b) if b.acomptes_alertes + b.exports_purges + b.photos_orphelines + b.exports_orphelins + b.periodes_arretees + b.erreurs > 0 => {
                         tracing::info!(?b, "passages quotidiens des voyages et balayage des objets")
                     }
                     Ok(_) => {}

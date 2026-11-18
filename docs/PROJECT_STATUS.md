@@ -3,6 +3,15 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lots V1 « modèle et reprise » et V2 « moteur de calcul étendu » (2026-11-18, branche `ent-socle-21-code-v1v2`, base `origin/ENT` 86f03b82) — PARTIEL
+
+**Implémenté + testé en local (modes normal et RLS stricte) ; CI sur la pull request en brouillon ; non validé par Florian ; non prêt pilote.** Décision D-068 / idée I-032 : « comme de l'officiel », comparaison avec Charlemagne.
+- **V2** : moteur de calcul étendu pur (`domain-eleve/src/evaluation_moteur.rs`, 71 tests) : neuf statuts, comptages, sous-matières, matière multi-cours, générale, annuelle (deux méthodes), statistiques (médiane, seuil de 5), explication de chaque moyenne, arrondis à étapes réglables ; **règles paramétrables par établissement** (`ReglesMoteur`) ; aucune absence convertie en zéro.
+- **V1** : migrations **461–470** (31 tables `eva_*`, après correctifs de la revue indépendante du 2026-11-18 : voir `21_EVALUATIONS_V1_V2_LIVRAISON.md` §8, RLS, clés composites, aucune colonne JSON), machine d'états de période en base, période par élève (R-V29), historique en ajout seul, aucune suppression physique, journal des corrections, instantanés immuables, **reprise M2 idempotente avec rapport**, vues de compatibilité `…_v` ; couche `ent-db/src/evaluations_v1.rs` ; 34 tests sur base (16 d'origine + 18 des correctifs) dont le **test d'or** (moyennes identiques avant et après la reprise).
+- **Documents** : `docs/socles/21_REGLES_CALCUL_CHARLEMAGNE.md` (règles, hypothèses [H], questions à Florian, cas-tests), `21_EVALUATIONS_V1_V2_LIVRAISON.md`, `MIGRATIONS.md`, `21_EVALUATIONS.md` §30.
+- **Limites** : aucune route, aucun écran, aucun écrivain basculé (M3 = V3 à V8) ; tables V4, V14, IA non créées ; formules de bonus et « compte si améliore » proposées, non décidées.
+
+
 ## Socle 32 — lots ET0 et ET1 : espace documents des personnels (2026-11-17, branche `ent-socle-32-code-et01`, base `origin/ENT` c622d696)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`, `ENT_ENV=test`) ; CI : une seule, sur la tête de la branche ; non validé par Florian, pas prêt pilote ; M19 reste en production (la reprise des fichiers est ET14, non faite).** Rapport, parité NX32-01 à NX32-20, défauts ND32-01 à ND32-18 fermés avec leurs tests, écarts : `docs/socles/BUREAUTIQUE_ET0_ET1.md`. Migrations **2640** à **2643** (16 tables, sans JSON ni tableau ni BYTEA, RLS posée) ; `MIGRATION_TAG` inchangé.
 - **ET0 (noyau)** : usage de dépôt `Espace` (liste blanche §12.1 : documents, images, texte, audio et vidéo par signature, ZIP des personnels ; OLE refusé) ; **URL d'envoi à taille signée** (SigV4 `content-length` signé, jeton local lié à la taille) ; **quota réservé atomiquement** (compteur verrouillé, 15 minutes) ; réconciliation de la taille réelle et de l'empreinte ; **analyse fermée par défaut** (un fichier non analysé est invisible).

@@ -5,7 +5,10 @@
 //!    `sor.export_argent`, F7) ;
 //! 3. **balayage des objets orphelins** : un objet écrit au magasin et inscrit au registre (`ent_objet`) mais
 //!    jamais référencé par sa ligne métier parce que le processus s'est arrêté entre l'écriture et le commit
-//!    (photos d'élèves, F2 d'E9 ; exports de l'argent des voyages, F7).
+//!    (photos d'élèves, F2 d'E9 ; exports de l'argent des voyages, F7) ;
+//! 4. **arrêt automatique des notes** à la date d'arrêt de la période (socle 21, `arret_auto`, M8) : chaque classe
+//!    encore ouverte passe en `notes_arretees` avec l'origine `auto`, au jour de l'établissement, une seule fois
+//!    (une classe rouverte par la direction n'est jamais ré-arrêtée).
 //!
 //! Même modèle que `tache_nocturne_eleves` : **idempotent**, lancé toutes les heures (le jour dépend du fuseau de
 //! chaque établissement), désactivable par `ENT_TACHES_VOYAGES_OBJETS=0`, un échec sur un établissement ne bloque
@@ -83,6 +86,8 @@ pub struct BilanPassagesQuotidiens {
     pub photos_orphelines: usize,
     /// Objets d'export orphelins balayés.
     pub exports_orphelins: usize,
+    /// Classes dont les notes ont été arrêtées automatiquement à la date d'arrêt de la période (socle 21, M8).
+    pub periodes_arretees: usize,
     /// Étapes en échec (journalisées ; l'étape suivante et l'établissement suivant sont traités).
     pub erreurs: usize,
 }
@@ -93,6 +98,7 @@ impl BilanPassagesQuotidiens {
         self.exports_purges += autre.exports_purges;
         self.photos_orphelines += autre.photos_orphelines;
         self.exports_orphelins += autre.exports_orphelins;
+        self.periodes_arretees += autre.periodes_arretees;
         self.erreurs += autre.erreurs;
     }
 }
@@ -127,6 +133,14 @@ impl PgEnt {
             Err(e) => {
                 b.erreurs += 1;
                 tracing::warn!(%etab, erreur = %e, "passage quotidien : purge des exports en échec");
+            }
+        }
+        // Arrêt automatique des notes à la date d'arrêt (réglage `arret_auto`), au jour de l'établissement.
+        match self.eva_v1_arret_auto_au(etab, jour).await {
+            Ok(n) => b.periodes_arretees += n,
+            Err(e) => {
+                b.erreurs += 1;
+                tracing::warn!(%etab, erreur = %e, "passage quotidien : arrêt automatique des notes en échec");
             }
         }
         for (famille, compteur) in [(&PHOTOS, &mut b.photos_orphelines), (&EXPORTS_ARGENT, &mut b.exports_orphelins)] {

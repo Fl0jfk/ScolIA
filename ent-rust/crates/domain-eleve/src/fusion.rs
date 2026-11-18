@@ -236,6 +236,16 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_travail_remise", &["id"]),
     d("ent_voeu_inscription", &["id"]),
     d("ent_vs_commission_dossier", &["id"]),
+    r("eva_appreciation", &["id"], "appréciation versionnée du socle 21 : élève immuable (déclencheur de 465) ; les appréciations restent sur la fiche où elles ont été saisies (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_consultation", &["id"], "journal en ajout seul des consultations de résultats : trace de qui a regardé, reste sur la fiche consultée"),
+    r("eva_enseignement_externe", &["id"], "enseignement suivi hors de l'établissement (socle 21) : déclaré pour cette fiche, il suit ses résultats externes, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_evaluation_restriction", &["evaluation_id", "eleve_id"], "public restreint d'une évaluation : cohérent avec les résultats de la fiche, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_instantane_ligne", &["id"], "ligne d'un instantané de période figé (socle 21) : document gelé, jamais réécrit"),
+    r("eva_moyenne_statut", &["id"], "statut de moyenne (non évalué, dispensé…) attaché aux résultats de la fiche, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_rattrapage_autorise", &["id"], "autorisation de rattrapage versionnée, liée aux résultats de la fiche, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_resultat", &["id"], "résultat d'évaluation du socle 21 : élève immuable (déclencheur de 464), historique en ajout seul ; les résultats restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_resultat_externe", &["id"], "résultat obtenu hors de l'établissement : déclaré pour cette fiche, les résultats restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    r("eva_resultat_historique", &["id"], "historique en ajout seul des corrections de résultats : trace, reste sur la fiche d'origine"),
 ];
 
 /// Domaine métier d'une table, pour l'aperçu (libellé que le lecteur comprend, pas le nom
@@ -259,6 +269,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_sortie", "Sorties"),
         ("ent_afaire", "Démarches à faire"),
         ("ent_note", "Évaluations"),
+        ("eva_", "Évaluations"),
         ("ent_competence", "Évaluations"),
         ("ent_bulletin", "Évaluations"),
         ("ent_bilan", "Évaluations"),
