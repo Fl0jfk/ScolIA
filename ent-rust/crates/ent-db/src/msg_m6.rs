@@ -273,15 +273,14 @@ impl PgEnt {
         }
         tx.commit().await.map_err(db)?;
         if avance {
-            let eleve = self.messages.get_fil(etab, fil).await?.map(|f| f.eleve_id);
             self.events
                 .publish(MetierEventDraft {
                     etablissement_id: etab,
                     type_name: types::MESSAGERIE_LU_JUSQUA.to_string(),
                     aggregate: AggregateKind::MsgFil,
                     aggregate_id: fil,
-                    eleve_id: eleve,
-                    // R-M14 : le fil et le message, jamais le contenu, le sujet, ni qui a lu.
+                    // Jamais l'élève (une boîte C3 ne laisse aucune identité dans un événement) ni qui a lu (R-M14, R-M22).
+                    eleve_id: None,
                     payload: json!({ "message_id": cible.id }),
                     actor_user_id: None,
                 })

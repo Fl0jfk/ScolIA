@@ -306,8 +306,12 @@ async fn lecture_prefere_l_objet_et_retombe_sur_bytea_pour_l_historique() {
     let original = octets(3, 200);
     let hm = hist_msg(&ent, &m, "histo.pdf", &original).await;
     let hp = hist_pai(&ent, &m, "histo-sante.pdf", &original).await;
-    // Historique non repris : servi depuis le BYTEA.
-    assert_eq!(lire_msg(&ent, &m, hm).await, original);
+    // Historique non repris : le PAI est servi depuis le BYTEA ; la messagerie (M5) ne sert jamais un BYTEA, ni
+    // une pièce non analysée : refusée tant qu'elle n'est pas reprise puis analysée.
+    assert!(ent
+        .telecharger_piece_for_actor(m.etab, m.direction, Role::Direction.as_str(), hm)
+        .await
+        .is_err());
     assert_eq!(lire_pai(&ent, &m, hp).await, original);
 
     // Copie vérifiée SANS vidage : l'objet existe ; on altère le BYTEA pour prouver que la lecture

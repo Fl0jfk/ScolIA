@@ -526,14 +526,14 @@ impl PgEnt {
         fil_id: Uuid,
         etat: &str,
     ) -> Result<(), EntDbError> {
-        let fil = self.messages.get_fil(etab, fil_id).await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: etab,
                 type_name: types::MESSAGERIE_PIECE_ANALYSEE.to_string(),
                 aggregate: AggregateKind::MsgFil,
                 aggregate_id: fil_id,
-                eleve_id: fil.map(|f| f.eleve_id),
+                // Jamais l'élève : le fil peut être une boîte C3 (R-M11).
+                eleve_id: None,
                 payload: json!({ "piece_id": piece_id, "etat": etat }),
                 actor_user_id: None,
             })
