@@ -35,6 +35,8 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
+use crate::facturation_payeurs::{categorie_de_designation, payeurs_pour_facturer, PartPayeur};
+use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances_calcul::{self as calcul, Calendrier, TarifCandidat};
 use crate::outbox::{Causalite, Publier};
 use crate::pg_err::map_sqlx;
@@ -104,7 +106,8 @@ pub(crate) fn opt_texte(s: &Option<String>, max: usize) -> Option<String> {
         .map(|t| t.chars().take(max).collect())
 }
 
-/// Publication dans la transaction du fait (outbox S2-0).
+/// Publication dans la transaction du fait (outbox S2-0), **sans transformation** : helper partagé avec
+/// d'autres domaines (demandes, internat) dont les charges et les noms d'événements restent inchangés.
 pub(crate) async fn publier(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -130,6 +133,34 @@ pub(crate) async fn publier(
             causalite,
         )
         .await?)
+}
+
+/// Publication d'un événement **financier** (F1) : nom canonique `facturation.*` (alias `fac.*` / `fin.*`
+/// lisible) et charge neutre — liste noire et liste blanche de clés, sans montant, nom ni IBAN (R-F25). Réservé
+/// aux événements de finances ; les autres domaines passent par [`publier`], inchangé.
+pub(crate) async fn publier_finance(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    type_name: &str,
+    aggregate: AggregateKind,
+    aggregate_id: Uuid,
+    eleve_id: Option<Uuid>,
+    payload: Value,
+    actor: Option<Uuid>,
+    causalite: Causalite,
+) -> Result<ent_events::MetierEvent, EntDbError> {
+    publier(
+        conn,
+        etab,
+        ent_events::canonique_facturation(type_name),
+        aggregate,
+        aggregate_id,
+        eleve_id,
+        crate::facturation_service::payload_neutre(payload),
+        actor,
+        causalite,
+    )
+    .await
 }
 
 /// Numéro suivant d'une série continue (factures, avoirs, exports).
@@ -445,7 +476,7 @@ async fn piece_brouillon(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FAC_FACTURE_CREEE,
@@ -535,7 +566,7 @@ pub(crate) async fn inserer_lignes(
         }
         recalculer_total(conn, etab, facture).await?;
         if creees > 0 {
-            publier(
+            publier_finance(
                 conn,
                 etab,
                 types::FAC_LIGNE_AJOUTEE,
@@ -547,6 +578,18 @@ pub(crate) async fn inserer_lignes(
                 causalite,
             )
             .await?;
+            if actor.is_none() {
+                // Automatisme (consommateur d'événement) : la commande humaine journalise son propre geste.
+                journaliser_tx(
+                    conn,
+                    &Acte::systeme(etab, Chemin::Systeme, "lignes.facturer_auto", "facture")
+                        .objet(facture)
+                        .foyer(foyer)
+                        .montant(montant)
+                        .detail(&format!("{creees} lignes créées (origine {origine})")),
+                )
+                .await?;
+            }
         }
         res.creees += creees;
         res.montant += montant;
@@ -585,6 +628,22 @@ const SELECT_LIGNE_EXISTANTE: &str = "SELECT l.id, l.facture_id, f.foyer_id, l.c
    JOIN ent_fac_facture f ON f.id = l.facture_id AND f.etablissement_id = l.etablissement_id
    LEFT JOIN ent_fin_article ar ON ar.id = l.article_id AND ar.etablissement_id = l.etablissement_id";
 
+/// Lignes existantes par identifiant (base des avoirs d'un changement de payeur, F2).
+pub(crate) async fn lignes_existantes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    ids: &[Uuid],
+) -> Result<Vec<LigneExistante>, EntDbError> {
+    sqlx::query_as::<_, LigneExistante>(&format!(
+        "{SELECT_LIGNE_EXISTANTE} WHERE l.etablissement_id = $1 AND l.id = ANY($2) ORDER BY l.id"
+    ))
+    .bind(etab)
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)
+}
+
 pub(crate) async fn lignes_eleve_annee(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -605,7 +664,7 @@ pub(crate) async fn lignes_eleve_annee(
     .map_err(db)
 }
 
-fn nb_mois_entre(a: NaiveDate, b: NaiveDate) -> i64 {
+pub(crate) fn nb_mois_entre(a: NaiveDate, b: NaiveDate) -> i64 {
     (b.year() - a.year()) as i64 * 12 + b.month() as i64 - a.month() as i64 + 1
 }
 
@@ -737,7 +796,7 @@ pub(crate) async fn inserer_avoirs(
         }
         recalculer_total(conn, etab, avoir).await?;
         if creees > 0 {
-            publier(
+            publier_finance(
                 conn,
                 etab,
                 types::FAC_LIGNE_AJOUTEE,
@@ -749,6 +808,16 @@ pub(crate) async fn inserer_avoirs(
                 causalite,
             )
             .await?;
+            if actor.is_none() {
+                journaliser_tx(
+                    conn,
+                    &Acte::systeme(etab, Chemin::Systeme, "avoirs.facturer_auto", "avoir")
+                        .objet(avoir)
+                        .foyer(foyer)
+                        .detail(&format!("{creees} lignes d'avoir créées sur la pièce {facture}")),
+                )
+                .await?;
+            }
         }
         res.creees += creees;
         if !res.factures.contains(&avoir) {
@@ -792,8 +861,10 @@ pub(crate) async fn eleve_facturable(
     }))
 }
 
-/// Foyers payeurs d'un élève et leurs parts (S2-1). Liens suspendus exclus.
-pub(crate) async fn payeurs(
+/// Foyers payeurs d'un élève et leurs parts (S2-1), lus sur les **liens** actuels. Liens suspendus exclus.
+/// F2 : ce n'est plus que l'adaptateur du port `payeurs` (MIG-5) ; la facturation lit par
+/// `facturation_payeurs::payeurs_a`.
+pub(crate) async fn payeurs_liens(
     conn: &mut PgConnection,
     etab: Uuid,
     eleve: Uuid,
@@ -825,6 +896,8 @@ pub(crate) async fn payeurs(
             x.1 = 1;
         }
     }
+    // Un lien payeur sans part, à côté de payeurs qui en ont : il ne paie rien (pas de ligne à zéro).
+    out.retain(|x| x.1 > 0);
     Ok(out)
 }
 
@@ -867,6 +940,89 @@ struct TarifRow {
     montant_annuel_centimes: i64,
 }
 
+/// Prise en charge active d'un organisme qui couvre une date et une catégorie (E2, CF-83).
+#[derive(Clone, Debug)]
+pub(crate) struct PriseCouvrante {
+    pub id: Uuid,
+    pub plafond: Option<i64>,
+    pub categories: Vec<String>,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+}
+
+/// Verrou du foyer (M2, M3) : pris **avant** toute lecture du restant ou des lignes existantes, pour que deux
+/// générations concurrentes ne dépassent pas un plafond ni ne doublent une ligne. Levé à la fin de la transaction.
+pub(crate) async fn verrouiller_foyer(conn: &mut PgConnection, etab: Uuid, foyer: Uuid) -> Result<(), EntDbError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(format!("fin-foyer:{etab}:{foyer}"))
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Prises en charge **actives** d'un compte d'organisme pour cet élève, couvrant `jour` et la catégorie
+/// (ou `toutes`). Vide : l'organisme n'est pas facturé (E2).
+pub(crate) async fn prises_couvrantes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    compte: Uuid,
+    categorie: &str,
+    jour: NaiveDate,
+) -> Result<Vec<PriseCouvrante>, EntDbError> {
+    let rows: Vec<(Uuid, Option<i64>, Vec<String>, NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT id, plafond_centimes, categories, du, au FROM ent_fin_prise_en_charge
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND compte_id = $3 AND statut = 'active'
+            AND du <= $4 AND au >= $4 AND (categories && ARRAY[$5, 'toutes']::text[])
+          ORDER BY du, id",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .bind(compte)
+    .bind(jour)
+    .bind(categorie)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| PriseCouvrante { id: r.0, plafond: r.1, categories: r.2, du: r.3, au: r.4 })
+        .collect())
+}
+
+/// Restant d'**une** prise en charge (M2) : son plafond moins ce qui est déjà facturé au compte pour **ses**
+/// catégories et **sa** période ; jamais additionné aux autres prises. Arithmétique contrôlée.
+async fn restant_prise(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    foyer: Uuid,
+    p: &PriseCouvrante,
+) -> Result<i64, EntDbError> {
+    let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
+    let (facture,): (i64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes), 0)::BIGINT
+           FROM ent_fac_ligne l
+           JOIN ent_fac_facture f ON f.etablissement_id = l.etablissement_id AND f.id = l.facture_id
+           LEFT JOIN ent_fin_article ar ON ar.etablissement_id = l.etablissement_id AND ar.id = l.article_id
+          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND f.foyer_id = $3 AND f.type_piece = 'facture'
+            AND l.ligne_origine_id IS NULL AND l.periode_debut >= $4 AND l.periode_debut <= $5
+            AND ($6 OR COALESCE(ar.categorie, l.categorie) = ANY($7))",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .bind(foyer)
+    .bind(p.du)
+    .bind(p.au)
+    .bind(p.categories.iter().any(|c| c == "toutes"))
+    .bind(&p.categories)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(plafond.checked_sub(facture.max(0)).unwrap_or(0).max(0))
+}
+
 /// Calcule les lignes annuelles d'un élève (sans écrire).
 ///
 /// * `depuis` : date d'entrée (prorata au mois, mois commencé dû) ;
@@ -894,12 +1050,6 @@ pub(crate) async fn lignes_annuelles(
     let regime = regime_force
         .map(|r| calcul::regime_normalise(Some(r)))
         .unwrap_or(eleve.regime.clone());
-    let parts = payeurs(conn, etab, eleve_id).await?;
-    if parts.is_empty() {
-        return Ok(Err(
-            "aucun foyer payeur défini (dossier élève, payeurs)".into()
-        ));
-    }
     let mois_dus = match depuis {
         None => cal.nb_mois,
         Some(d) => cal.mois_dus_depuis(d),
@@ -913,7 +1063,6 @@ pub(crate) async fn lignes_annuelles(
         cal.dernier_jour(),
     );
     let nom = format!("{} {}", eleve.prenom, eleve.nom);
-
     let candidats: Vec<TarifCandidat> = sqlx::query_as::<_, TarifRow>(
         "SELECT t.id, t.article_id, t.niveau, t.regime, t.qf_min_centimes, t.qf_max_centimes,
                 t.montant_annuel_centimes
@@ -945,13 +1094,42 @@ pub(crate) async fn lignes_annuelles(
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
+    // F2 (R-F4) : payeurs lus par le port **à la date de la prestation** et **par catégorie** ; une
+    // catégorie qui n'a pas 100 % de payeurs n'est pas facturée et ouvre une tâche « payeur manquant »
+    // (FAC-210) : jamais « au responsable 1 ».
+    let mut parts_par_cat: BTreeMap<String, Vec<PartPayeur>> = BTreeMap::new();
+    for (_, _, art_categorie) in &articles {
+        if !calcul::categorie_due(art_categorie, &regime) {
+            continue;
+        }
+        if categories.is_some_and(|c| !c.contains(&art_categorie.as_str())) {
+            continue;
+        }
+        let cat_des = categorie_de_designation(art_categorie).to_string();
+        if parts_par_cat.contains_key(&cat_des) {
+            continue;
+        }
+        let lus = payeurs_pour_facturer(conn, etab, eleve_id, &cat_des, periode.0).await?;
+        parts_par_cat.insert(cat_des, lus.map(|l| l.parts).unwrap_or_default());
+    }
+    if !parts_par_cat.is_empty() && parts_par_cat.values().all(|v| v.is_empty()) {
+        return Ok(Err(
+            "aucun foyer payeur défini (dossier élève, payeurs)".into()
+        ));
+    }
+    let mut tous_foyers: Vec<Uuid> = parts_par_cat
+        .values()
+        .flat_map(|v| v.iter().map(|p| p.foyer_id))
+        .collect();
+    tous_foyers.sort();
+    tous_foyers.dedup();
     let qf: HashMap<Uuid, i64> = sqlx::query_as::<_, (Uuid, i64)>(
         "SELECT foyer_id, quotient_centimes FROM ent_foyer_quotient
           WHERE etablissement_id = $1 AND annee_scolaire = $2 AND foyer_id = ANY($3)",
     )
     .bind(etab)
     .bind(annee)
-    .bind(parts.iter().map(|p| p.0).collect::<Vec<_>>())
+    .bind(&tous_foyers)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?
@@ -973,10 +1151,13 @@ pub(crate) async fn lignes_annuelles(
         .await
         .map_err(db)?;
     let mut rangs: HashMap<Uuid, i64> = HashMap::new();
-    for (foyer, _) in &parts {
+    for foyer in &tous_foyers {
         rangs.insert(*foyer, rang_fratrie(conn, etab, *foyer, eleve_id).await?);
     }
 
+    // F2 (CF-82, CF-83, E2) : restant de chaque prise en charge, consommé au fil des lignes de cette génération.
+    let mut restants: HashMap<Uuid, i64> = HashMap::new();
+    let mut verrouilles: Vec<Uuid> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
     for (art_id, art_libelle, art_categorie) in &articles {
@@ -987,7 +1168,14 @@ pub(crate) async fn lignes_annuelles(
             continue;
         }
         // Montant par foyer (le quotient peut différer d'un foyer à l'autre) :
-        // chaque foyer paie sa part, au centime près (plus fort reste).
+        // chaque foyer paie sa part, au centime près (plus fort reste). Parts de la catégorie (F2).
+        let parts: Vec<(Uuid, i64)> = parts_par_cat
+            .get(categorie_de_designation(art_categorie))
+            .map(|v| v.iter().filter(|p| p.rang == 1).map(|p| (p.foyer_id, p.part_bps)).collect())
+            .unwrap_or_default();
+        if parts.is_empty() {
+            continue;
+        }
         for (foyer, _) in &parts {
             let Some(t) = calcul::choisir_tarif(
                 &candidats,
@@ -1005,10 +1193,102 @@ pub(crate) async fn lignes_annuelles(
                 .find(|x| x.0 == *foyer)
                 .map(|x| x.1)
                 .unwrap_or(0);
+            // Organisme payeur (E2, CF-83) : une part portée par un compte `organisme` exige une prise en charge
+            // **active** qui couvre la date et la catégorie ; sinon l'organisme n'est pas facturé et une tâche
+            // `part_non_couverte` est ouverte (échue, annulée ou hors période = blocage). Le plafond de chaque
+            // prise est celui de **cette** prise (M2) ; ce qui dépasse va au payeur suivant (rang 2), sinon tâche.
+            let cat_des = categorie_de_designation(art_categorie);
+            let mut part = part;
+            let mut non_couvert = 0;
+            let mut sans_prise = false;
+            let est_organisme = parts_par_cat
+                .get(cat_des)
+                .and_then(|v| v.iter().find(|p| p.foyer_id == *foyer && p.rang == 1))
+                .filter(|p| p.type_debiteur == "organisme");
+            if let Some(po) = est_organisme {
+                if !verrouilles.contains(foyer) {
+                    verrouiller_foyer(conn, etab, *foyer).await?;
+                    verrouilles.push(*foyer);
+                }
+                let prises = prises_couvrantes(conn, etab, eleve_id, po.compte_id, cat_des, periode.0).await?;
+                if prises.is_empty() {
+                    sans_prise = true;
+                    non_couvert = part;
+                    part = 0;
+                } else {
+                    let mut a_placer = part;
+                    let mut place = 0_i64;
+                    for pr in &prises {
+                        if a_placer == 0 {
+                            break;
+                        }
+                        let restant = match restants.get(&pr.id) {
+                            Some(r) => *r,
+                            None => restant_prise(conn, etab, eleve_id, *foyer, pr).await?,
+                        };
+                        let pris = a_placer.min(restant.max(0));
+                        restants.insert(pr.id, if restant == i64::MAX { restant } else { restant - pris });
+                        place = place.checked_add(pris).ok_or_else(|| invalide("montant hors limites"))?;
+                        a_placer -= pris;
+                    }
+                    non_couvert = part - place;
+                    part = place;
+                }
+            }
+            let base_cle = format!("{prefixe}:{eleve_id}:{art_id}");
+            if sans_prise {
+                crate::facturation_payeurs::ouvrir_tache(
+                    conn,
+                    etab,
+                    "part_non_couverte",
+                    Some(eleve_id),
+                    est_organisme.map(|p| p.compte_id),
+                    Some(cat_des),
+                    periode.0,
+                    "organisme désigné sans prise en charge active couvrant cette catégorie et cette date : l'organisme n'est pas facturé",
+                    None,
+                )
+                .await?;
+            } else if non_couvert > 0 {
+                let suivants: Vec<(Uuid, i64)> = parts_par_cat
+                    .get(cat_des)
+                    .map(|v| v.iter().filter(|p| p.rang == 2).map(|p| (p.foyer_id, p.part_bps)).collect())
+                    .unwrap_or_default();
+                if suivants.is_empty() {
+                    crate::facturation_payeurs::ouvrir_tache(
+                        conn,
+                        etab,
+                        "part_non_couverte",
+                        Some(eleve_id),
+                        None,
+                        Some(cat_des),
+                        periode.0,
+                        "la prise en charge de l'organisme est épuisée et aucun payeur suivant n'est désigné : la part non couverte n'est facturée à personne sans décision",
+                        None,
+                    )
+                    .await?;
+                } else {
+                    for (foyer2, montant) in calcul::repartir(non_couvert, &suivants) {
+                        if montant == 0 {
+                            continue;
+                        }
+                        lignes.push(LigneAFacturer {
+                            foyer_id: foyer2,
+                            eleve_id: Some(eleve_id),
+                            article_id: Some(*art_id),
+                            categorie: art_categorie.clone(),
+                            libelle: format!("{art_libelle} — {nom} ({annee}) — part non couverte par la prise en charge"),
+                            quantite: 1,
+                            unitaire: montant,
+                            source_cle: format!("{base_cle}:suivant:{foyer}:{foyer2}"),
+                            periode: Some(periode),
+                        });
+                    }
+                }
+            }
             if part == 0 {
                 continue;
             }
-            let base_cle = format!("{prefixe}:{eleve_id}:{art_id}");
             lignes.push(LigneAFacturer {
                 foyer_id: *foyer,
                 eleve_id: Some(eleve_id),
@@ -1081,9 +1361,15 @@ pub(crate) async fn lignes_annuelles(
         {
             *plafond.entry(l.foyer_id).or_insert(0) += l.unitaire * i64::from(l.quantite);
         }
+        // Parts de la bourse : celles de la restauration, à défaut de l'internat, à défaut de `toutes`.
+        let parts_bourse: Vec<(Uuid, i64)> = ["restauration", "internat", "toutes"]
+            .iter()
+            .find_map(|c| parts_par_cat.get(*c).filter(|v| !v.is_empty()))
+            .map(|v| v.iter().filter(|p| p.rang == 1).map(|p| (p.foyer_id, p.part_bps)).collect())
+            .unwrap_or_default();
         for (bourse_id, libelle, annuel) in bourses {
             let du = calcul::prorata(annuel, mois_dus, cal.nb_mois);
-            for (foyer, part) in calcul::repartir(du, &parts) {
+            for (foyer, part) in calcul::repartir(du, &parts_bourse) {
                 let reste = plafond.entry(foyer).or_insert(0);
                 let part = part.min((*reste).max(0));
                 if part == 0 {
@@ -1705,7 +1991,7 @@ impl PgEnt {
         role: &str,
         b: &ParametresFinancesBody,
     ) -> Result<ParametresFinancesDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationParametrer)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         let mut p = params_tx(&mut tx, etab).await?;
@@ -1840,7 +2126,7 @@ impl PgEnt {
         .map_err(db)?;
         if crediteur_change {
             // Événement + alerte à la direction (IBAN toujours masqué).
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FIN_CREDITEUR_MODIFIE,
@@ -1926,6 +2212,29 @@ impl PgEnt {
             }
         }
         let paliers = paliers_tx(&mut tx, etab).await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "parametres.modifier", "parametres").detail(
+                if crediteur_change {
+                    "paramètres de facturation modifiés, dont le compte créancier (valeurs non journalisées)"
+                } else {
+                    "paramètres de facturation modifiés"
+                },
+            ),
+        )
+        .await?;
+        publier_finance(
+            &mut tx,
+            etab,
+            types::FACTURATION_PARAMETRES_MODIFIES,
+            AggregateKind::Facture,
+            etab,
+            None,
+            json!({ "crediteur_modifie": crediteur_change }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(params_dto(&p, paliers))
     }
@@ -1971,7 +2280,7 @@ impl PgEnt {
         id: Option<Uuid>,
         b: &ArticleBody,
     ) -> Result<ArticleDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let code = texte(&b.code, 30, "code d'article obligatoire (30 caractères)")?;
         if !code
@@ -2047,6 +2356,25 @@ impl PgEnt {
                 id
             }
         };
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "article.enregistrer", "article")
+                .objet(id)
+                .detail(&format!("article {code}")),
+        )
+        .await?;
+        publier_finance(
+            &mut tx,
+            etab,
+            types::FACTURATION_ARTICLE_ENREGISTRE,
+            AggregateKind::Facture,
+            id,
+            None,
+            json!({ "article_id": id }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(ArticleDto {
             id,
@@ -2080,7 +2408,7 @@ impl PgEnt {
         role: &str,
         b: &TarifBody,
     ) -> Result<TarifDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let annee = annee_valide(&b.annee_scolaire)?;
         let regime = opt_texte(&b.regime, 20);
@@ -2124,7 +2452,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_TARIF_DEFINI,
@@ -2135,6 +2463,14 @@ impl PgEnt {
                     "montant_annuel_centimes": b.montant_annuel_centimes }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "tarif.definir", "tarif")
+                .objet(id)
+                .montant(b.montant_annuel_centimes)
+                .detail(&format!("tarif annuel de l'année {annee}")),
         )
         .await?;
         let dto = tarifs_tx(&mut tx, etab, None, Some(id))
@@ -2152,7 +2488,7 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<(), EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         // Désactivation : les lignes déjà facturées restent liées à leur article.
@@ -2167,6 +2503,11 @@ impl PgEnt {
         if r.rows_affected() == 0 {
             return Err(introuvable());
         }
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "tarif.desactiver", "tarif").objet(id),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -2226,7 +2567,7 @@ impl PgEnt {
         role: &str,
         b: &ReductionBody,
     ) -> Result<ReductionDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let annee = annee_valide(&b.annee_scolaire)?;
         let code = texte(&b.code, 30, "code obligatoire (30 caractères)")?;
@@ -2283,6 +2624,13 @@ impl PgEnt {
                 db(e)
             }
         })?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "reduction.creer", "reduction")
+                .objet(id)
+                .detail(&format!("réduction {code} ({})", b.nature)),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(ReductionDto {
             id,
@@ -2305,7 +2653,7 @@ impl PgEnt {
         reduction: Uuid,
         eleve: Uuid,
     ) -> Result<(), EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationReductions)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         let r: Option<(String,)> = sqlx::query_as(
@@ -2335,7 +2683,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_REMISE_APPLIQUEE,
@@ -2345,6 +2693,13 @@ impl PgEnt {
             json!({ "reduction_id": reduction }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "reduction.accorder", "reduction")
+                .objet(reduction)
+                .eleve(eleve),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -2433,6 +2788,14 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "bareme_bourse.poser", "bareme")
+                .objet(id)
+                .montant(b.montant_annuel_centimes)
+                .detail(&format!("échelon {echelon}")),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(BaremeBourseDto {
             id,
@@ -2469,7 +2832,7 @@ impl PgEnt {
         role: &str,
         b: &EcheancierTypeDto,
     ) -> Result<EcheancierTypeDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationParametrer)
             .await?;
         let annee = annee_valide(&b.annee_scolaire)?;
         if b.dates.len() > 24 {
@@ -2501,6 +2864,12 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "echeancier_type.poser", "echeancier_type")
+                .detail(&format!("calendrier type de l'année {annee} : {} échéances", b.dates.len())),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(EcheancierTypeDto {
             annee_scolaire: annee,
@@ -2574,7 +2943,7 @@ impl PgEnt {
             drop(tx);
             return Ok(rapport);
         }
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_GENERATION_ANNUELLE,
@@ -2584,6 +2953,17 @@ impl PgEnt {
             json!({ "annee_scolaire": annee, "lignes": total.creees, "factures": total.factures.len() }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "generation.annuelle", "generation")
+                .montant(total.montant)
+                .detail(&format!(
+                    "année {annee} : {} lignes créées, {} pièces touchées",
+                    total.creees,
+                    total.factures.len()
+                )),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -2628,10 +3008,24 @@ impl PgEnt {
         eleve_facturable(&mut tx, etab, b.eleve_id)
             .await?
             .ok_or_else(introuvable)?;
-        let parts = payeurs(&mut tx, etab, b.eleve_id).await?;
-        if parts.is_empty() {
-            return Err(conflit("aucun foyer payeur défini pour cet élève"));
-        }
+        // F2 (R-F4) : le payeur de la catégorie à la date de la prestation, jamais « le responsable 1 ».
+        let date_prestation = b.periode_debut.unwrap_or_else(aujourd_hui);
+        let Some(lus) = payeurs_pour_facturer(
+            &mut tx,
+            etab,
+            b.eleve_id,
+            categorie_de_designation(&categorie),
+            date_prestation,
+        )
+        .await?
+        else {
+            // La tâche « payeur manquant » est conservée (on valide la transaction avant de refuser).
+            tx.commit().await.map_err(db)?;
+            return Err(conflit(
+                "aucun payeur défini pour cette catégorie à cette date (tâche ouverte pour le secrétariat)",
+            ));
+        };
+        let parts: Vec<(Uuid, i64)> = lus.rang1().map(|p| (p.foyer_id, p.part_bps)).collect();
         let total = b.montant_unitaire_centimes * b.quantite as i64;
         let p = params_tx(&mut tx, etab).await?;
         let annee = annee_de(&p, b.periode_debut.unwrap_or_else(aujourd_hui));
@@ -2659,6 +3053,14 @@ impl PgEnt {
             lignes,
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "consommation.facturer", "consommation")
+                .eleve(b.eleve_id)
+                .montant(total)
+                .detail(&format!("source {source}")),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -2723,7 +3125,7 @@ impl PgEnt {
         role: &str,
         b: &EmissionBody,
     ) -> Result<RapportEmissionDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationEmettre)
             .await?;
         if b.factures.is_empty() || b.factures.len() > 500 {
             return Err(invalide("entre 1 et 500 pièces à émettre"));
@@ -2777,6 +3179,7 @@ impl PgEnt {
                 &f,
                 today,
                 Some(actor),
+                role,
                 Causalite::default(),
             )
             .await?;
@@ -2798,7 +3201,7 @@ impl PgEnt {
         facture_id: Uuid,
         b: &AvoirBody,
     ) -> Result<FactureDetailDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationAvoirs)
             .await?;
         let motif = texte(&b.motif, 160, "motif d'avoir obligatoire (160 caractères)")?;
         let mut tx = self.fin_tx(etab).await?;
@@ -2879,6 +3282,15 @@ impl PgEnt {
         .await?;
         let avoir_id = *r.factures.first().ok_or_else(introuvable)?;
         let d = detail_tx(&mut tx, etab, avoir_id).await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "avoir.creer", "avoir")
+                .objet(avoir_id)
+                .foyer(f.foyer_id)
+                .motif(&motif)
+                .detail("avoir en brouillon sur une pièce émise (à émettre)"),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(d)
     }
@@ -2926,6 +3338,14 @@ impl PgEnt {
         )
         .await?;
         let c = compte_tx(&mut tx, etab, foyer, true).await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "mode_paiement.modifier", "compte")
+                .foyer(foyer)
+                .detail(&format!("mode de paiement : {}", b.mode))
+                .motif(b.motif.as_deref().unwrap_or("")),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(c)
     }
@@ -2947,8 +3367,15 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        // F2 (FD-15) : un élève majeur payeur voit le compte de sa fiche « personne ».
+        let mut foyers: Vec<Uuid> = foyers.into_iter().map(|f| f.0).collect();
+        foyers.extend(
+            crate::facturation_comptes::foyers_eleve_majeur_payeur(&mut tx, etab, user).await?,
+        );
+        foyers.sort();
+        foyers.dedup();
         let mut comptes = Vec::new();
-        for (f,) in foyers {
+        for f in foyers {
             comptes.push(compte_tx(&mut tx, etab, f, false).await?);
         }
         tx.commit().await.map_err(db)?;
@@ -3015,7 +3442,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::ELEVE_REGIME_CHANGED,
@@ -3069,7 +3496,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::ELEVE_SORTIE,
@@ -3210,6 +3637,7 @@ pub(crate) async fn emettre_piece_tx(
     f: &FactureRow,
     today: NaiveDate,
     actor: Option<Uuid>,
+    casquette: &str,
     causalite: Causalite,
 ) -> Result<String, EntDbError> {
     let (prefixe, cle) = if f.type_piece == "avoir" {
@@ -3276,7 +3704,7 @@ pub(crate) async fn emettre_piece_tx(
             .await
             .map_err(db)?;
         }
-        let evt = publier(
+        let evt = publier_finance(
             conn,
             etab,
             types::FAC_FACTURE_EMISE,
@@ -3331,7 +3759,7 @@ pub(crate) async fn emettre_piece_tx(
             .await
             .map_err(db)?;
         }
-        let evt = publier(
+        let evt = publier_finance(
             conn,
             etab,
             types::FAC_AVOIR_EMIS,
@@ -3358,6 +3786,31 @@ pub(crate) async fn emettre_piece_tx(
         )
         .await?;
     }
+    let (action, objet) = if f.type_piece == "avoir" {
+        ("avoir.emettre", "avoir")
+    } else {
+        ("facture.emettre", "facture")
+    };
+    let mut acte = Acte::new(
+        etab,
+        actor,
+        casquette,
+        Chemin::Finances,
+        action,
+        objet,
+    )
+    .objet(f.id)
+    .foyer(f.foyer_id)
+    .montant(f.total_centimes)
+    .detail(&format!("pièce {numero}"));
+    if casquette == "systeme" {
+        acte = Acte::systeme(etab, Chemin::Systeme, action, objet)
+            .objet(f.id)
+            .foyer(f.foyer_id)
+            .montant(f.total_centimes)
+            .detail(&format!("pièce {numero}"));
+    }
+    journaliser_tx(conn, &acte).await?;
     Ok(numero)
 }
 

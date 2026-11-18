@@ -260,6 +260,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("487_msg_m4_ecrire_mieux"),
     m!("500_objet_registre"),
     m!("520_finances_f0_immuabilite"),
+    // Socle 24, lot F1 (plage de repli 520–539) : journal financier en ajout seul.
+    m!("521_finances_f1_journal"),
+    // Lot F2 : comptes débiteurs, désignations datées, prises en charge, tâches, reprise MIG-4. Référence
+    // `ent_personne` (120, 260), `ent_foyer` (007, 260), `ent_eleve` (482) : placée après eux, avant les lots RLS 58x.
+    m!("522_finances_f2_comptes_payeurs"),
     m!("560_delegation_droits_normalises"),
     m!("561_inscription_resolution"),
     m!("562_inscription_scolarite_actuelle"),

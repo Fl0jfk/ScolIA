@@ -67,6 +67,39 @@ pub enum Action {
     EspacesPartager,
     /// Consulter le journal des espaces de l'établissement (direction) : jamais les espaces personnels ni le contenu.
     EspacesJournalLire,
+    // ── Socle 24, lot F1 : droits fins de la facturation (§19.1). ──
+    /// Vue guichet : le payeur présent ou authentifié, son solde, ses échéances, ses documents ; aucune navigation entre comptes, aucun tableau d'impayés (socle 24, R-F37).
+    FacturationGuichet,
+    /// Émettre factures et avoirs (confirmation renforcée, socle 24).
+    FacturationEmettre,
+    /// Créer des avoirs et corriger des pièces émises (socle 24).
+    FacturationAvoirs,
+    /// Accorder un échéancier dérogatoire après émission (socle 24).
+    FacturationEcheanciers,
+    /// Accorder ou retirer des réductions (socle 24).
+    FacturationReductions,
+    /// Gérer articles, tarifs et définitions de réductions (socle 24).
+    FacturationTarifs,
+    /// Enregistrer le vote et corriger une grille votée (socle 24, R-F23).
+    FacturationVoter,
+    /// Simuler des tarifs et comparer des scénarios (socle 24).
+    FacturationSimuler,
+    /// Paramètres, identité émettrice, séries de numérotation (socle 24).
+    FacturationParametrer,
+    /// Comptes débiteurs, acceptation et pièce de répartition, prises en charge, transfert vers l'élève majeur (socle 24).
+    FacturationEngagements,
+    /// Clôturer une période comptable ; la réouverture est réservée à la direction (socle 24).
+    FacturationCloturer,
+    /// Écritures de ventes et exports comptables (socle 24).
+    FacturationExporter,
+    /// Tableaux agrégés pour la direction et le trésorier (socle 24).
+    FacturationPilotage,
+    /// Journal financier en ajout seul : qui, quoi, quand (socle 24, R-F27).
+    FacturationJournal,
+    /// Reprise de soldes et double tenue avec l'ancien logiciel (socle 24).
+    FacturationReprise,
+    /// Publier la grille des tarifs (socle 24).
+    FacturationPublier,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -621,7 +654,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 253] = [
+    pub const TOUTES: [Action; 269] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -893,6 +926,23 @@ impl Action {
         Action::EspacesCreer,
         Action::EspacesPartager,
         Action::EspacesJournalLire,
+        // Socle 24, lot F1 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::FacturationGuichet,
+        Action::FacturationEmettre,
+        Action::FacturationAvoirs,
+        Action::FacturationEcheanciers,
+        Action::FacturationReductions,
+        Action::FacturationTarifs,
+        Action::FacturationVoter,
+        Action::FacturationSimuler,
+        Action::FacturationParametrer,
+        Action::FacturationEngagements,
+        Action::FacturationCloturer,
+        Action::FacturationExporter,
+        Action::FacturationPilotage,
+        Action::FacturationJournal,
+        Action::FacturationReprise,
+        Action::FacturationPublier,
     ];
 
     pub fn code(self) -> &'static str {
@@ -923,6 +973,22 @@ impl Action {
             Self::EspacesCreer => "espaces.creer",
             Self::EspacesPartager => "espaces.partager",
             Self::EspacesJournalLire => "espaces.journal.lire",
+            Self::FacturationGuichet => "facturation.guichet",
+            Self::FacturationEmettre => "facturation.emettre",
+            Self::FacturationAvoirs => "facturation.avoirs",
+            Self::FacturationEcheanciers => "facturation.echeanciers",
+            Self::FacturationReductions => "facturation.reductions",
+            Self::FacturationTarifs => "facturation.tarifs",
+            Self::FacturationVoter => "facturation.voter",
+            Self::FacturationSimuler => "facturation.simuler",
+            Self::FacturationParametrer => "facturation.parametrer",
+            Self::FacturationEngagements => "facturation.engagements",
+            Self::FacturationCloturer => "facturation.cloturer",
+            Self::FacturationExporter => "facturation.exporter",
+            Self::FacturationPilotage => "facturation.pilotage",
+            Self::FacturationJournal => "facturation.journal",
+            Self::FacturationReprise => "facturation.reprise",
+            Self::FacturationPublier => "facturation.publier",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -1182,6 +1248,22 @@ impl Action {
             Self::EspacesCreer => "Créer un espace libre entre personnels de l'établissement",
             Self::EspacesPartager => "Partager un élément ou un dossier avec des personnes nommées de l'établissement",
             Self::EspacesJournalLire => "Consulter le journal des espaces de l'établissement (sans le contenu ni les espaces personnels)",
+            Self::FacturationGuichet => "Facturation : vue guichet du payeur présent ou authentifié (solde, échéances, documents)",
+            Self::FacturationEmettre => "Facturation : émettre les pièces (★)",
+            Self::FacturationAvoirs => "Facturation : avoirs et corrections (★)",
+            Self::FacturationEcheanciers => "Facturation : échéanciers dérogatoires",
+            Self::FacturationReductions => "Facturation : accorder ou retirer des réductions",
+            Self::FacturationTarifs => "Facturation : articles, grilles, réductions (brouillon)",
+            Self::FacturationVoter => "Facturation : enregistrer le vote d'une grille (★)",
+            Self::FacturationSimuler => "Facturation : simulateur de tarifs",
+            Self::FacturationParametrer => "Facturation : paramètres, identité émettrice, séries (★)",
+            Self::FacturationEngagements => "Facturation : comptes débiteurs, payeurs, engagements",
+            Self::FacturationCloturer => "Facturation : clôturer une période (★)",
+            Self::FacturationExporter => "Facturation : exports et écritures comptables (★)",
+            Self::FacturationPilotage => "Facturation : tableaux de pilotage agrégés",
+            Self::FacturationJournal => "Facturation : journal des actions financières",
+            Self::FacturationReprise => "Facturation : reprise et double tenue",
+            Self::FacturationPublier => "Facturation : publier la grille publique",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -1433,6 +1515,8 @@ impl Action {
     pub fn accordee_par(self) -> &'static [Action] {
         match self {
             Self::FacturationLire => &[Self::FacturationGerer],
+            // F1 : lire tous les comptes inclut la vue guichet d'un compte.
+            Self::FacturationGuichet => &[Self::FacturationLire, Self::FacturationGerer],
             // Socle 12 : faire l'appel de tout l'établissement inclut faire celui de ses séances.
             Self::AppelFaire => &[Self::AppelFaireTout],
             Self::AbsencesProposerQualification => &[Self::AbsencesQualifier],
@@ -1502,6 +1586,22 @@ impl Action {
             | Self::EspacesCreer
             | Self::EspacesPartager
             | Self::EspacesJournalLire
+            | Self::FacturationGuichet
+            | Self::FacturationEmettre
+            | Self::FacturationAvoirs
+            | Self::FacturationEcheanciers
+            | Self::FacturationReductions
+            | Self::FacturationTarifs
+            | Self::FacturationVoter
+            | Self::FacturationSimuler
+            | Self::FacturationParametrer
+            | Self::FacturationEngagements
+            | Self::FacturationCloturer
+            | Self::FacturationExporter
+            | Self::FacturationPilotage
+            | Self::FacturationJournal
+            | Self::FacturationReprise
+            | Self::FacturationPublier
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -1817,6 +1917,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_8_notifications(role, &mut d);
     socle_16_messagerie(role, &mut d);
     socle_32_espaces(role, &mut d);
+    socle_24_finances(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2017,7 +2118,8 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     let direction_admin = matches!(role, Role::Admin | Role::Direction | Role::Administratif);
     if direction_admin || role == Role::Compta {
         // F0 (FD-27) : facturation.gerer et bourses.gerer ne vont plus à l'Administratif ;
-        // facturation.lire lui reste (consultation du compte du payeur présent).
+        // F1 (R-F37) : facturation.lire non plus — le secrétariat passe en vue guichet
+        // (`facturation.guichet`, voir `socle_24_finances`) : le payeur présent, jamais tous les comptes.
         if role.can_manage_facturation() {
             d.push(etab(FacturationGerer));
         }
@@ -2191,6 +2293,46 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
 /// Socle 10 (emploi du temps), lot T3 : modifier le réel (règle 21 du pilotage : une fonction par socle).
 /// Le professeur n'a aucun de ces droits : il demande (T13), il ne modifie pas ; le motif interne n'est lu que
 /// par la direction et le secrétariat.
+/// Socle 24, lot F1 (§19.1) : droits fins de la facturation. Les profils qui détenaient
+/// `facturation.gerer` (Admin, Direction, Compta) reçoivent les droits fins qui reprennent ce
+/// que `gerer` permettait (aucune régression) ; la **séparation des tâches** vient des
+/// profils sans `gerer` : le secrétariat n'a que la vue guichet et les engagements, l'accueil
+/// que la vue guichet (sans documents). Voter, pilotage, journal et publication : direction
+/// (la comptabilité ne vote pas ses propres tarifs, R-F23).
+fn socle_24_finances(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if role.can_guichet_facturation() {
+        d.push(etab(FacturationGuichet));
+    }
+    if role.can_manage_facturation() {
+        for a in [
+            FacturationEmettre,
+            FacturationAvoirs,
+            FacturationEcheanciers,
+            FacturationReductions,
+            FacturationTarifs,
+            FacturationSimuler,
+            FacturationParametrer,
+            FacturationEngagements,
+            FacturationCloturer,
+            FacturationExporter,
+            FacturationReprise,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [FacturationVoter, FacturationPilotage, FacturationJournal, FacturationPublier] {
+            d.push(etab(a));
+        }
+    }
+    // Secrétariat : enregistre les engagements et les désignations (socle 4), sans toucher aux pièces.
+    if role == Role::Administratif {
+        d.push(etab(FacturationEngagements));
+    }
+}
+
 fn socle_10_edt(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);
@@ -3480,7 +3622,8 @@ mod oracle_a1 {
             "appel.verifier@etablissement",
             "audit.lire@etablissement",
             // F0 (FD-27) : « bourses.gerer » et « facturation.gerer » retirés par défaut du
-            // secrétariat (séparation des tâches) ; « facturation.lire » est conservé.
+            // secrétariat (séparation des tâches) ; F1 (R-F37) : « facturation.lire » aussi, remplacé
+            // par la vue guichet (« facturation.guichet », hors matrice historique).
             "cahier.lire@etablissement",
             "conseils.gerer@etablissement",
             "docs_a_signer.publier@etablissement",
@@ -3491,7 +3634,6 @@ mod oracle_a1 {
             "dossier.lire@etablissement",
             "edt.gerer@etablissement",
             "eleves.gerer@etablissement",
-            "facturation.lire@etablissement",
             "imports.appliquer@etablissement",
             "incidents.declarer@etablissement",
             "inscriptions.gerer@etablissement",
@@ -3900,6 +4042,91 @@ mod oracle_a1 {
         for x in [EspacesUtiliser, EspacesCreer, EspacesPartager, EspacesJournalLire] {
             assert_eq!(Action::parse(x.code()), Some(x));
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+}
+
+/// Socle 24, lot F1 : droits fins de la facturation (§19.1) et modèles de rôles par défaut.
+#[cfg(test)]
+mod f1_droits_fins {
+    use super::*;
+
+    fn droits(r: Role) -> Vec<&'static str> {
+        modele_par_defaut(r)
+            .into_iter()
+            .map(|(a, _)| a.code())
+            .filter(|c| c.starts_with("facturation.") || *c == "bourses.gerer")
+            .collect()
+    }
+
+    #[test]
+    fn seize_droits_fins_en_fin_de_catalogue_sans_doublon() {
+        let fins: Vec<&str> = Action::TOUTES
+            .iter()
+            .map(|a| a.code())
+            .filter(|c| c.starts_with("facturation."))
+            .collect();
+        // 2 historiques (lire, gerer) + 16 droits fins (guichet, emettre, avoirs, echeanciers, reductions, tarifs,
+        // voter, simuler, parametrer, engagements, cloturer, exporter, pilotage, journal, reprise, publier).
+        assert_eq!(fins.len(), 18, "{fins:?}");
+        for c in [
+            "facturation.guichet", "facturation.emettre", "facturation.avoirs", "facturation.echeanciers",
+            "facturation.reductions", "facturation.tarifs", "facturation.voter", "facturation.simuler",
+            "facturation.parametrer", "facturation.engagements", "facturation.cloturer", "facturation.exporter",
+            "facturation.pilotage", "facturation.journal", "facturation.reprise", "facturation.publier",
+        ] {
+            assert!(fins.contains(&c), "{c} manque");
+            assert!(Action::parse(c).is_some(), "{c} ne se relit pas");
+        }
+        // Les 16 nouveaux sont à la fin du catalogue (le catalogue historique est repéré par position).
+        let n = Action::TOUTES.len();
+        assert_eq!(Action::TOUTES[n - 16], Action::FacturationGuichet);
+        assert_eq!(Action::TOUTES[n - 1], Action::FacturationPublier);
+    }
+
+    /// R-F37 : le secrétariat n'a que la vue guichet et les engagements ; l'accueil que la vue guichet.
+    #[test]
+    fn secretariat_en_vue_guichet_accueil_sans_engagements() {
+        assert_eq!(droits(Role::Administratif), vec!["facturation.guichet", "facturation.engagements"]);
+        assert_eq!(droits(Role::Accueil), vec!["facturation.guichet"]);
+        for r in [Role::Cpe, Role::Prof, Role::Infirmerie, Role::Psy, Role::Personnel, Role::Parent, Role::Eleve] {
+            assert!(droits(r).is_empty(), "{r:?} n'a aucun droit financier par défaut : {:?}", droits(r));
+        }
+    }
+
+    /// R-F23 : la comptabilité ne vote pas ses tarifs, ne lit pas le journal ni le pilotage ; la
+    /// direction et l'administrateur gardent tout ce que `facturation.gerer` leur donnait.
+    #[test]
+    fn compta_n_a_ni_vote_ni_journal_ni_pilotage_direction_a_tout() {
+        let compta = droits(Role::Compta);
+        for c in ["facturation.gerer", "facturation.lire", "facturation.emettre", "facturation.avoirs", "facturation.engagements", "facturation.reprise", "bourses.gerer"] {
+            assert!(compta.contains(&c), "Compta : {c} manque");
+        }
+        for c in ["facturation.voter", "facturation.journal", "facturation.pilotage", "facturation.publier"] {
+            assert!(!compta.contains(&c), "Compta ne doit pas avoir {c}");
+        }
+        for r in [Role::Admin, Role::Direction] {
+            let d = droits(r);
+            for a in Action::TOUTES.iter().filter(|a| a.code().starts_with("facturation.")) {
+                assert!(d.contains(&a.code()), "{r:?} : {} manque", a.code());
+            }
+        }
+    }
+
+    /// Lire tous les comptes inclut la vue guichet ; rien d'autre n'est accordé par `lire`.
+    #[test]
+    fn lire_et_gerer_incluent_le_guichet_pas_l_emission() {
+        assert!(Action::FacturationGuichet.accordee_par().contains(&Action::FacturationLire));
+        assert!(Action::FacturationGuichet.accordee_par().contains(&Action::FacturationGerer));
+        assert!(Action::FacturationEmettre.accordee_par().is_empty(), "émettre ne s'obtient jamais par gerer (R-F23)");
+        assert!(Action::FacturationAvoirs.accordee_par().is_empty());
+        assert!(Action::FacturationJournal.accordee_par().is_empty());
+    }
+
+    #[test]
+    fn portees_des_droits_financiers_etablissement_seulement() {
+        for a in Action::TOUTES.iter().filter(|a| a.code().starts_with("facturation.")) {
+            assert_eq!(a.portees_admises(), &[Portee::Etablissement], "{}", a.code());
         }
     }
 }

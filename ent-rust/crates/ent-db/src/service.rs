@@ -30,6 +30,7 @@ use crate::continuum_repo::PgContinuumRepo;
 use crate::document_repo::PgDocumentRepo;
 use crate::motif_repo::{AbsenceMotif, PgMotifRepo};
 use crate::fac_repo::PgFacRepo;
+use crate::facturation_service::{Acte, Chemin};
 use crate::infirmerie_repo::PgInfirmerieRepo;
 use crate::psy_repo::PgPsyRepo;
 use crate::msg_repo::{PgMsgRepo, PorteeFil};
@@ -14853,7 +14854,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: saved.etablissement_id,
-                type_name: types::QUOTIENT_FOYER.to_string(),
+                type_name: types::FACTURATION_QUOTIENT_DEFINI.to_string(),
                 aggregate: AggregateKind::Quotient,
                 aggregate_id: saved.id,
                 eleve_id: None,
@@ -14909,7 +14910,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: planned.etablissement_id,
-                type_name: types::TAUX_TVA.to_string(),
+                type_name: types::FACTURATION_TAUX_TVA_DEFINI.to_string(),
                 aggregate: AggregateKind::Tva,
                 aggregate_id: planned.id,
                 eleve_id: None,
@@ -19528,6 +19529,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .filter(|l| l.est_payeur)
             .filter_map(|l| l.foyer_id)
             .collect();
+        // F2 (FD-15) : un élève majeur payeur retrouve le compte de sa fiche « personne ».
+        {
+            let mut tx = TenantTx::begin(self.pool(), etablissement_id)
+                .await
+                .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("service", e)))?;
+            ids.extend(
+                crate::facturation_comptes::foyers_eleve_majeur_payeur(&mut tx, etablissement_id, parent_user_id)
+                    .await?,
+            );
+        }
         ids.sort();
         ids.dedup();
         Ok(ids)
@@ -19546,8 +19557,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if Self::role_can_lire_facturation(role) {
             return Ok(true);
         }
-        if parsed == Role::Parent {
-            // Parents ne voient que les factures émises / soldées de leurs foyers.
+        if matches!(parsed, Role::Parent | Role::Eleve) {
+            // Parents (et élève majeur payeur, FD-15) ne voient que les factures émises / soldées de leurs foyers.
             if facture.statut == FactureStatut::Brouillon {
                 return Ok(false);
             }
@@ -19562,9 +19573,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: CreerFacture,
     ) -> Result<(Facture, Vec<FactureLigne>), EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(cmd.etablissement_id, cmd.actor_user_id, role, Action::FacturationGerer)
+            .await?;
         if !self
             .facturation
             .foyer_exists(cmd.etablissement_id, cmd.foyer_id)
@@ -19572,6 +19582,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(DomainError::NotFound.into());
         }
+        let cmd_actor = cmd.actor_user_id;
         let (facture, lignes) = plan_creer_facture(cmd)?;
         // Une ligne ne peut viser qu'un élève de l'établissement (C6, D-013).
         for l in &lignes {
@@ -19582,22 +19593,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     .ok_or(DomainError::NotFound)?;
             }
         }
+        let acte = Acte::new(
+            facture.etablissement_id,
+            Some(cmd_actor),
+            role,
+            Chemin::Historique,
+            "facture.creer",
+            "facture",
+        )
+        .objet(facture.id)
+        .foyer(facture.foyer_id)
+        .montant(facture.total_centimes)
+        .detail("brouillon créé (chemin historique)");
         self.facturation
-            .insert_facture(&facture, &lignes)
+            .insert_facture(&facture, &lignes, &acte)
             .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: facture.etablissement_id,
-                type_name: types::FAC_FACTURE_CREEE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_FACTURE_CREEE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "foyer_id": facture.foyer_id,
                     "numero": facture.numero,
                     "total_centimes": facture.total_centimes,
                     "lignes": lignes.len(),
-                }),
+                })),
                 actor_user_id: facture.created_by_user_id.map(|u| u.to_string()),
             })
             .await?;
@@ -19611,9 +19634,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         role: &str,
     ) -> Result<Facture, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationEmettre)
+            .await?;
         let current = self
             .facturation
             .get_facture(etablissement_id, facture_id)
@@ -19622,19 +19644,33 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let mut emise = plan_emettre_facture(&current)?;
         // F0 (FD-05, R-F3) : le numéro définitif est attribué ici, par le serveur,
         // dans la série continue de l'établissement.
-        emise.numero = self.facturation.update_facture_emise(&emise).await?;
+        let acte = Acte::new(
+            emise.etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "facture.emettre",
+            "facture",
+        )
+        .objet(emise.id)
+        .foyer(emise.foyer_id)
+        .montant(emise.total_centimes);
+        emise.numero = self
+            .facturation
+            .update_facture_emise(&emise, &acte)
+            .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: emise.etablissement_id,
-                type_name: types::FAC_FACTURE_EMISE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_FACTURE_EMISE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: emise.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "foyer_id": emise.foyer_id,
                     "numero": emise.numero,
                     "total_centimes": emise.total_centimes,
-                }),
+                })),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
@@ -19682,8 +19718,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .list_factures_etab(etablissement_id, 80)
                 .await?);
         }
-        if parsed == Role::Parent {
+        if matches!(parsed, Role::Parent | Role::Eleve) {
             let foyers = self.foyer_ids_parent(etablissement_id, actor_user_id).await?;
+            if parsed == Role::Eleve && foyers.is_empty() {
+                // Un élève qui n'est pas payeur n'a aucune route financière (R-F8, FD-15).
+                return Err(EntDbError::Forbidden);
+            }
             return Ok(self
                 .facturation
                 .list_factures_foyers(etablissement_id, &foyers, true)
@@ -19794,8 +19834,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             // Staff : via détail facture ; listing global = tous foyers non exposé ici.
             return Err(EntDbError::Forbidden);
         }
-        if parsed == Role::Parent {
+        if matches!(parsed, Role::Parent | Role::Eleve) {
             let foyers = self.foyer_ids_parent(etablissement_id, actor_user_id).await?;
+            if parsed == Role::Eleve && foyers.is_empty() {
+                // Un élève qui n'est pas payeur n'a aucune route financière (R-F8, FD-15).
+                return Err(EntDbError::Forbidden);
+            }
             return Ok(self
                 .facturation
                 .list_quittances_foyers(etablissement_id, &foyers)
@@ -19833,11 +19877,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn poser_echeancier_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: PoserEcheancier,
     ) -> Result<Vec<Echeance>, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(cmd.etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let facture = self
             .facturation
             .get_facture(cmd.etablissement_id, cmd.facture_id)
@@ -19857,21 +19901,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         let bourse = total_deductions_lignes(&lignes);
         ventiler_bourse_sur_echeances(&mut echeances, bourse)?;
-        self.facturation.insert_echeances(&echeances).await?;
+        let acte = Acte::new(
+            facture.etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "echeancier.poser",
+            "facture",
+        )
+        .objet(facture.id)
+        .foyer(facture.foyer_id)
+        .detail(&format!("{} échéances (libre)", echeances.len()));
+        self.facturation
+            .insert_echeances(&echeances, &acte)
+            .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: facture.etablissement_id,
-                type_name: types::FAC_ECHEANCIER_POSE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_ECHEANCIER_POSE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "numero": facture.numero,
                     "nb": echeances.len(),
                     "total_centimes": facture.total_centimes,
                     "bourse_ventilee_centimes": bourse,
-                }),
-                actor_user_id: None,
+                })),
+                actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
         Ok(echeances)
@@ -19882,11 +19939,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         etablissement_id: Uuid,
         facture_id: Uuid,
         role: &str,
+        actor_user_id: Uuid,
         dates: Vec<NaiveDate>,
     ) -> Result<Vec<Echeance>, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let facture = self
             .facturation
             .get_facture(etablissement_id, facture_id)
@@ -19906,21 +19963,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         let bourse = total_deductions_lignes(&lignes);
         ventiler_bourse_sur_echeances(&mut echeances, bourse)?;
-        self.facturation.insert_echeances(&echeances).await?;
+        let acte = Acte::new(
+            etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "echeancier.poser",
+            "facture",
+        )
+        .objet(facture.id)
+        .foyer(facture.foyer_id)
+        .detail(&format!("{} échéances (parts égales)", echeances.len()));
+        self.facturation
+            .insert_echeances(&echeances, &acte)
+            .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: facture.etablissement_id,
-                type_name: types::FAC_ECHEANCIER_POSE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_ECHEANCIER_POSE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "numero": facture.numero,
                     "nb": echeances.len(),
                     "mode": "parts_egales",
                     "bourse_ventilee_centimes": bourse,
-                }),
-                actor_user_id: None,
+                })),
+                actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
         Ok(echeances)
@@ -19931,13 +20001,22 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: EncaisserFacture,
     ) -> Result<(Encaissement, Facture, Quittance), EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(cmd.etablissement_id, cmd.actor_user_id, role, Action::FacturationGerer)
+            .await?;
         // F0 (FD-04/06/07) : un seul chemin d'encaissement, atomique et verrouillé
         // (foyer + facture), qui compte l'encaissé réel et les avoirs, pas les
         // prélèvements ouverts ; encaissement, imputation et quittance ensemble.
-        let (enc, facture, quittance, deja) = self.facturation.encaisser_atomique(cmd).await?;
+        let acte = Acte::new(
+            cmd.etablissement_id,
+            Some(cmd.actor_user_id),
+            role,
+            Chemin::Historique,
+            "facture.encaisser",
+            "encaissement",
+        )
+        .objet(cmd.facture_id)
+        .montant(cmd.montant_centimes);
+        let (enc, facture, quittance, deja) = self.facturation.encaisser_atomique(cmd, &acte).await?;
         self.effets_encaissement(&enc, &facture, &quittance, deja)
             .await?;
         Ok((enc, facture, quittance))
@@ -19955,11 +20034,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: enc.etablissement_id,
-                type_name: types::FAC_ENCAISSEMENT.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_ENCAISSEMENT).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: enc.facture_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "encaissement_id": enc.id,
                     "montant_centimes": enc.montant_centimes,
                     "moyen": enc.moyen.as_str(),
@@ -19970,23 +20049,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     ),
                     "quittance_id": quittance.id,
                     "quittance_numero": quittance.numero,
-                }),
+                })),
                 actor_user_id: enc.created_by_user_id.map(|u| u.to_string()),
             })
             .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: quittance.etablissement_id,
-                type_name: types::FAC_QUITTANCE_EMISE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_QUITTANCE_EMISE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: quittance.facture_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "quittance_id": quittance.id,
                     "numero": quittance.numero,
                     "montant_centimes": quittance.montant_centimes,
                     "encaissement_id": quittance.encaissement_id,
-                }),
+                })),
                 actor_user_id: quittance.created_by_user_id.map(|u| u.to_string()),
             })
             .await?;
@@ -19994,14 +20073,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             self.events
                 .publish(MetierEventDraft {
                     etablissement_id: facture.etablissement_id,
-                    type_name: types::FAC_FACTURE_SOLDEE.to_string(),
+                    type_name: ent_events::canonique_facturation(types::FAC_FACTURE_SOLDEE).to_string(),
                     aggregate: AggregateKind::Facture,
                     aggregate_id: facture.id,
                     eleve_id: None,
-                    payload: json!({
+                    payload: crate::facturation_service::payload_neutre(json!({
                         "numero": facture.numero,
                         "total_centimes": facture.total_centimes,
-                    }),
+                    })),
                     actor_user_id: enc.created_by_user_id.map(|u| u.to_string()),
                 })
                 .await?;
@@ -20049,9 +20128,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: ExporterOgec,
     ) -> Result<Vec<u8>, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        let actor = cmd
+            .actor_user_id
+            .as_deref()
+            .and_then(|a| Uuid::parse_str(a).ok())
+            .ok_or(EntDbError::Forbidden)?;
+        self.fin_exiger(cmd.etablissement_id, actor, role, Action::FacturationExporter)
+            .await?;
         plan_exporter_ogec(&cmd)?;
         let lignes = self
             .facturation
@@ -20067,9 +20150,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd: CreerMandatSepa,
     ) -> Result<MandatSepa, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if Self::role_can_manage_facturation(role) {
-            // staff factu
-        } else if matches!(parsed, Role::Parent) {
+        if self
+            .a_action_etablissement(
+                cmd.etablissement_id,
+                actor_user_id,
+                role,
+                Action::FacturationGerer,
+            )
+            .await?
+        {
+            // personnel de facturation
+        } else if matches!(parsed, Role::Parent | Role::Eleve) {
             let foyers = self
                 .foyer_ids_parent(cmd.etablissement_id, actor_user_id)
                 .await?;
@@ -20098,7 +20189,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let mut cmd = cmd;
         cmd.rum = domain_eleve::generer_rum();
         let mandat = plan_creer_mandat_sepa(cmd)?;
-        self.facturation.insert_sepa_mandat(&mandat).await?;
+        let acte = Acte::new(
+            mandat.etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "mandat.creer",
+            "mandat",
+        )
+        .objet(mandat.id)
+        .foyer(mandat.foyer_id)
+        .detail("mandat créé (coordonnées bancaires non journalisées)");
+        self.facturation.insert_sepa_mandat(&mandat, &acte).await?;
         let histo = IbanHisto {
             id: Uuid::new_v4(),
             etablissement_id: mandat.etablissement_id,
@@ -20114,22 +20216,22 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: mandat.etablissement_id,
-                type_name: types::FAC_SEPA_MANDAT.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_MANDAT).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: mandat.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "foyer_id": mandat.foyer_id,
                     "rum": mandat.rum,
                     "statut": mandat.statut.as_str(),
-                }),
+                })),
                 actor_user_id: mandat.created_by_user_id.map(|u| u.to_string()),
             })
             .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: histo.etablissement_id,
-                type_name: types::IBAN_HISTO.to_string(),
+                type_name: types::FACTURATION_IBAN_HISTORISE.to_string(),
                 aggregate: AggregateKind::IbanHisto,
                 aggregate_id: histo.id,
                 eleve_id: None,
@@ -20156,7 +20258,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if Self::role_can_lire_facturation(role) {
             // ok
-        } else if matches!(parsed, Role::Parent) {
+        } else if matches!(parsed, Role::Parent | Role::Eleve) {
             let foyers = self
                 .foyer_ids_parent(etablissement_id, actor_user_id)
                 .await?;
@@ -20212,9 +20314,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_sepa_mandat(etablissement_id, mandat_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        if Self::role_can_manage_facturation(role) {
-            // ok
-        } else if matches!(parsed, Role::Parent) {
+        if self
+            .a_action_etablissement(
+                etablissement_id,
+                actor_user_id,
+                role,
+                Action::FacturationGerer,
+            )
+            .await?
+        {
+            // personnel de facturation
+        } else if matches!(parsed, Role::Parent | Role::Eleve) {
             let foyers = self
                 .foyer_ids_parent(etablissement_id, actor_user_id)
                 .await?;
@@ -20225,29 +20335,49 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let revoke = plan_revoquer_mandat(&current)?;
+        let acte = Acte::new(
+            etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "mandat.revoquer",
+            "mandat",
+        )
+        .objet(revoke.id)
+        .foyer(revoke.foyer_id);
         self.facturation
-            .update_sepa_mandat_statut(&revoke)
+            .update_sepa_mandat_statut(&revoke, &acte)
             .await?;
         // F0 (FD-10, R-P9) : la révocation annule les prélèvements encore prévus ;
         // ceux déjà exportés sont signalés pour traitement humain.
         let (annules, deja_exportes) = self
             .facturation
-            .annuler_prelevements_prevus_mandat(etablissement_id, mandat_id)
+            .annuler_prelevements_prevus_mandat(
+                etablissement_id,
+                mandat_id,
+                &Acte {
+                    action: "prelevements.annuler_mandat_revoque".into(),
+                    objet_type: "prelevement".into(),
+                    objet_id: None,
+                    detail: Some("prélèvements prévus annulés par la révocation du mandat".into()),
+                    ..acte.clone()
+                },
+            )
             .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: revoke.etablissement_id,
-                type_name: types::FAC_SEPA_MANDAT.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_MANDAT).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: revoke.id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "foyer_id": revoke.foyer_id,
                     "rum": revoke.rum,
                     "statut": revoke.statut.as_str(),
                     "prelevements_annules": annules,
                     "prelevements_deja_exportes": deja_exportes,
-                }),
+                })),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
@@ -20259,9 +20389,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: PlanifierPrelevement,
     ) -> Result<PrelevementSepa, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(cmd.etablissement_id, cmd.actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let facture = self
             .facturation
             .get_facture(cmd.etablissement_id, cmd.facture_id)
@@ -20308,7 +20437,21 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .sum_prelevements_ouverts(cmd.etablissement_id, cmd.facture_id)
             .await?;
         let prev = plan_planifier_prelevement(&facture, &mandat, deja, ouvert, cmd)?;
-        self.facturation.insert_sepa_prelevement(&prev).await?;
+        let acte = Acte::new(
+            prev.etablissement_id,
+            Some(prev.created_by_user_id.unwrap_or_default()),
+            role,
+            Chemin::Historique,
+            "prelevement.planifier",
+            "prelevement",
+        )
+        .objet(prev.id)
+        .foyer(facture.foyer_id)
+        .montant(prev.montant_centimes)
+        .detail(&format!("prélèvement par pièce, exécution le {}", prev.date_execution));
+        self.facturation
+            .insert_sepa_prelevement(&prev, &acte)
+            .await?;
         if let Err(e) = self
             .prenotifier_prelevement_historique(
                 prev.etablissement_id,
@@ -20318,23 +20461,31 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await
         {
             self.facturation
-                .annuler_prelevement_prevu(prev.etablissement_id, prev.id)
+                .annuler_prelevement_prevu(
+                    prev.etablissement_id,
+                    prev.id,
+                    &Acte {
+                        action: "prelevement.annuler".into(),
+                        detail: Some("annulé : pré-notification impossible".into()),
+                        ..acte.clone()
+                    },
+                )
                 .await?;
             return Err(e);
         }
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: prev.etablissement_id,
-                type_name: types::FAC_SEPA_PRELEVEMENT.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_PRELEVEMENT).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: prev.facture_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "prelevement_id": prev.id,
                     "montant_centimes": prev.montant_centimes,
                     "date_execution": prev.date_execution,
                     "end_to_end_id": prev.end_to_end_id,
-                }),
+                })),
                 actor_user_id: prev.created_by_user_id.map(|u| u.to_string()),
             })
             .await?;
@@ -20357,9 +20508,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         format: &str,
     ) -> Result<(Vec<u8>, &'static str), EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         if fin < debut || (fin - debut).num_days() > 366 {
             return Err(DomainError::SepaPrelevementInvalide.into());
         }
@@ -20411,24 +20561,36 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
 
         for ligne in &lignes {
             let marked = plan_marquer_exporte(&ligne.prelevement)?;
+            let acte = Acte::new(
+                etablissement_id,
+                Some(actor_user_id),
+                role,
+                Chemin::Historique,
+                "prelevement.exporter",
+                "prelevement",
+            )
+            .objet(marked.id)
+            .foyer(marked.foyer_id)
+            .montant(marked.montant_centimes)
+            .detail(&format!("export {content_kind}"));
             self.facturation
-                .update_sepa_prelevement(&marked)
+                .update_sepa_prelevement(&marked, &acte)
                 .await?;
         }
 
         self.events
             .publish(MetierEventDraft {
                 etablissement_id,
-                type_name: types::FAC_SEPA_EXPORT.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_EXPORT).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: etablissement_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "debut": debut,
                     "fin": fin,
                     "nb": lignes.len(),
                     "format": content_kind,
-                }),
+                })),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
@@ -20443,30 +20605,41 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         motif: &str,
         actor_user_id: Uuid,
     ) -> Result<PrelevementSepa, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let current = self
             .facturation
             .get_sepa_prelevement(etablissement_id, prelevement_id)
             .await?
             .ok_or(DomainError::NotFound)?;
         let rejected = plan_rejeter_prelevement(&current, motif)?;
+        let acte = Acte::new(
+            etablissement_id,
+            Some(actor_user_id),
+            role,
+            Chemin::Historique,
+            "prelevement.rejeter",
+            "prelevement",
+        )
+        .objet(rejected.id)
+        .foyer(rejected.foyer_id)
+        .montant(rejected.montant_centimes)
+        .detail("prélèvement rejeté (motif au dossier du prélèvement)");
         self.facturation
-            .update_sepa_prelevement(&rejected)
+            .update_sepa_prelevement(&rejected, &acte)
             .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id,
-                type_name: types::FAC_SEPA_REJET.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_REJET).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: rejected.facture_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "prelevement_id": rejected.id,
                     "statut": rejected.statut.as_str(),
                     "motif_rejet": rejected.motif_rejet,
-                }),
+                })),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
@@ -20482,9 +20655,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         csv: &str,
     ) -> Result<BankRapprochementSummary, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         if !self.bank.is_ready() {
             return Err(EntDbError::Forbidden);
         }
@@ -20668,12 +20840,24 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         ),
         EntDbError,
     > {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let (executed, effet) = self
             .facturation
-            .executer_sepa_atomique(etablissement_id, prelevement_id, actor_user_id)
+            .executer_sepa_atomique(
+                etablissement_id,
+                prelevement_id,
+                actor_user_id,
+                &Acte::new(
+                    etablissement_id,
+                    Some(actor_user_id),
+                    role,
+                    Chemin::Historique,
+                    "prelevement.executer",
+                    "prelevement",
+                )
+                .objet(prelevement_id),
+            )
             .await?;
         let Some((enc, facture, quittance)) = effet else {
             return Ok((executed, None));
@@ -20689,16 +20873,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.events
             .publish(MetierEventDraft {
                 etablissement_id,
-                type_name: types::FAC_SEPA_EXECUTE.to_string(),
+                type_name: ent_events::canonique_facturation(types::FAC_SEPA_EXECUTE).to_string(),
                 aggregate: AggregateKind::Facture,
                 aggregate_id: executed.facture_id,
                 eleve_id: None,
-                payload: json!({
+                payload: crate::facturation_service::payload_neutre(json!({
                     "prelevement_id": executed.id,
                     "encaissement_id": enc.id,
                     "quittance_id": quittance.id,
                     "montant_centimes": executed.montant_centimes,
-                }),
+                })),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
@@ -20713,9 +20897,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         today: NaiveDate,
     ) -> Result<Vec<RappelFacture>, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.fin_exiger(etablissement_id, actor_user_id, role, Action::FacturationGerer)
+            .await?;
         let factures = self
             .facturation
             .list_factures_emises(etablissement_id, 200)
@@ -20737,7 +20920,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             for cand in candidats {
                 let mut rappel =
                     plan_creer_rappel(&cand, RappelCanal::Interne, actor_user_id, None)?;
-                let inserted = self.facturation.insert_rappel(&rappel).await?;
+                let acte = Acte::new(
+                    etablissement_id,
+                    Some(actor_user_id),
+                    role,
+                    Chemin::Historique,
+                    "rappel.envoyer",
+                    "rappel",
+                )
+                .objet(rappel.id)
+                .foyer(cand.foyer_id)
+                .detail("rappel d'échéance sur une pièce historique");
+                let inserted = self.facturation.insert_rappel(&rappel, &acte).await?;
                 if !inserted {
                     continue;
                 }
@@ -20786,17 +20980,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 self.events
                     .publish(MetierEventDraft {
                         etablissement_id,
-                        type_name: types::FAC_RAPPEL_ENVOYE.to_string(),
+                        type_name: ent_events::canonique_facturation(types::FAC_RAPPEL_ENVOYE).to_string(),
                         aggregate: AggregateKind::Facture,
                         aggregate_id: rappel.facture_id,
                         eleve_id,
-                        payload: json!({
+                        payload: crate::facturation_service::payload_neutre(json!({
                             "rappel_id": rappel.id,
                             "echeance_id": rappel.echeance_id,
                             "kind": rappel.kind.as_str(),
                             "canal": rappel.canal.as_str(),
                             "fil_id": rappel.fil_id,
-                        }),
+                        })),
                         actor_user_id: Some(actor_user_id.to_string()),
                     })
                     .await?;

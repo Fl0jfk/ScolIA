@@ -3455,7 +3455,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             "INS-{}",
             demande_id.simple().to_string()[..16].to_uppercase()
         );
-        let m = plan_creer_mandat_sepa(CreerMandatSepa {
+        let mut m = plan_creer_mandat_sepa(CreerMandatSepa {
             etablissement_id: etab,
             foyer_id: foyer,
             rum,
@@ -3466,40 +3466,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             actor_user_id: v.user_id.unwrap_or_default(),
         })
         .map_err(|_| invalide("coordonnées bancaires invalides"))?;
-        sqlx::query(
-            "INSERT INTO ent_fac_sepa_mandat (id, etablissement_id, foyer_id, rum, iban, bic, titulaire,
-                                              statut, signe_at, created_by_user_id, created_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,'actif',$8,$9, now())",
-        )
-        .bind(m.id)
-        .bind(etab)
-        .bind(foyer)
-        .bind(&m.rum)
-        .bind(champs.sceller(T_MANDAT, "iban", m.id, &m.iban)?)
-        .bind(champs.sceller_opt(T_MANDAT, "bic", m.id, m.bic.as_deref())?)
-        .bind(champs.sceller(T_MANDAT, "titulaire", m.id, &m.titulaire)?)
-        .bind(m.signe_at)
-        .bind(v.user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        let h = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO ent_foyer_iban_histo (id, etablissement_id, foyer_id, iban, bic, titulaire, mandat_id,
-                                               created_by_user_id, created_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())",
-        )
-        .bind(h)
-        .bind(etab)
-        .bind(foyer)
-        .bind(champs.sceller("ent_foyer_iban_histo", "iban", h, &m.iban)?)
-        .bind(champs.sceller_opt("ent_foyer_iban_histo", "bic", h, m.bic.as_deref())?)
-        .bind(champs.sceller("ent_foyer_iban_histo", "titulaire", h, &m.titulaire)?)
-        .bind(m.id)
-        .bind(v.user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
+        m.created_by_user_id = v.user_id;
+        // F1 (R-F1) : le mandat et l'historique d'IBAN sont écrits par le service de facturation
+        // (commande), plus par ce module ; événement et journal inclus, dans cette transaction.
+        crate::facturation_mandats::creer_mandat_signe_tx(&mut tx, &champs, &m, "inscription").await?;
         sqlx::query(
             "UPDATE ent_mandat_sepa_demande SET statut = 'signe', mandat_id = $2, signe_le = now() WHERE id = $1 AND etablissement_id = $3",
         )
@@ -3509,17 +3479,6 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
-            &mut tx,
-            etab,
-            types::FAC_SEPA_MANDAT,
-            AggregateKind::Facture,
-            m.id,
-            None,
-            json!({ "foyer_id": foyer, "mandat_id": m.id, "source": "inscription" }),
-            v.user_id,
-        )
-        .await?;
         commit(tx).await?;
         self.demande_mandat_dto(etab, id)
             .await?

@@ -148,6 +148,10 @@ pub struct Objets {
     pub fil_autre: Option<Uuid>, // fil lié à Draco
     pub facture: Option<Uuid>,   // facture du foyer de Harry
     pub facture_autre: Option<Uuid>,
+    /// Socle 24 : compte d'organisme, groupe de désignation et tâche de l'établissement (créés par le seed).
+    pub compte: Option<Uuid>,
+    pub groupe: Option<Uuid>,
+    pub tache: Option<Uuid>,
     pub absence: Option<Uuid>,
     pub absence_autre: Option<Uuid>,
     pub matiere: Option<Uuid>,
@@ -287,6 +291,9 @@ impl Monde {
             doc_sante: if autre { None } else { e.doc_sante },
             fil: if autre { e.fil_autre } else { e.fil },
             facture: if autre { e.facture_autre } else { e.facture },
+            compte: e.compte,
+            groupe: e.groupe,
+            tache: e.tache,
             absence: if autre { e.absence_autre } else { e.absence },
             matiere: e.matiere,
             cours: e.cours,
@@ -318,6 +325,9 @@ pub struct CibleObjets {
     pub doc_sante: Option<Uuid>,
     pub fil: Option<Uuid>,
     pub facture: Option<Uuid>,
+    pub compte: Option<Uuid>,
+    pub groupe: Option<Uuid>,
+    pub tache: Option<Uuid>,
     pub absence: Option<Uuid>,
     pub matiere: Option<Uuid>,
     pub cours: Option<Uuid>,
@@ -337,6 +347,9 @@ impl CibleObjets {
             ("{doc_sante}", self.doc_sante),
             ("{fil}", self.fil),
             ("{facture}", self.facture),
+            ("{compte}", self.compte),
+            ("{groupe}", self.groupe),
+            ("{tache}", self.tache),
             ("{absence}", self.absence),
             ("{matiere}", self.matiere),
             ("{cours}", self.cours),
@@ -598,6 +611,49 @@ impl Monde {
 
         let mat = liste(&self.appel("GET", "/matieres", Some(dir), None).await);
         o.matiere = mat.first().and_then(id_de);
+
+        // Socle 24 : un compte d'organisme avec prise en charge, une désignation effective (jugement + document),
+        // une désignation en attente (donc une tâche) : de vrais identifiants de compte, de groupe et de tâche.
+        let org = self
+            .appel("POST", "/finances/comptes", Some(dir), Some(&json!({ "libelle": "Organisme de séparation" })))
+            .await;
+        o.compte = id_de(&org.json);
+        if let (Some(c), Some(doc)) = (o.compte, o.doc) {
+            for e in [o.eleve, o.eleve_autre] {
+                self.appel(
+                    "POST",
+                    "/finances/prises-en-charge",
+                    Some(dir),
+                    Some(&json!({ "compte_id": c, "eleve_id": e, "reference": "SEP", "du": "2030-09-01",
+                                  "au": "2031-06-30", "categories": ["toutes"] })),
+                )
+                .await;
+            }
+            let g = self
+                .appel(
+                    "POST",
+                    &format!("/finances/eleves/{}/designations", o.eleve),
+                    Some(dir),
+                    Some(&json!({ "categorie": "toutes", "parts": [{ "compte_id": c, "part_bps": 10000 }],
+                                  "date_effet": "2030-09-01",
+                                  "piece": { "nature": "jugement", "reference": "SEP", "document_id": doc } })),
+                )
+                .await;
+            o.groupe = g.json["groupe_id"].as_str().and_then(|x| Uuid::parse_str(x).ok());
+            self.appel(
+                "POST",
+                &format!("/finances/eleves/{}/designations", o.eleve_autre),
+                Some(dir),
+                Some(&json!({ "categorie": "toutes", "parts": [{ "compte_id": c, "part_bps": 10000 }],
+                              "date_effet": "2030-09-01" })),
+            )
+            .await;
+        }
+        let taches = liste(&self.appel("GET", "/finances/taches", Some(dir), None).await);
+        o.tache = taches.first().and_then(id_de);
+        for i in [o.compte, o.groupe, o.tache].into_iter().flatten() {
+            o.tous_ids.insert(i.to_string());
+        }
 
         for v in docs
             .iter()

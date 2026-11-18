@@ -227,10 +227,16 @@ impl Role {
         matches!(self, Self::Admin | Self::Direction | Self::Compta)
     }
 
-    /// Consulter la facturation (`facturation.lire`). Le secrétariat l'a par défaut ;
-    /// la vue « guichet » restreinte au payeur présent arrive au lot F1 (R-F37).
+    /// Consulter la facturation (`facturation.lire`) : tous les comptes. **F1 (R-F37)** : le
+    /// secrétariat ne l'a plus par défaut ; il passe en **vue guichet** ([`Role::can_guichet_facturation`]) :
+    /// le payeur présent ou authentifié, jamais une navigation entre comptes. Reste attribuable par rôle (D-017).
     pub fn can_lire_facturation(self) -> bool {
-        self.can_manage_facturation() || self == Self::Administratif
+        self.can_manage_facturation()
+    }
+
+    /// Vue guichet (`facturation.guichet`, F1, R-F37) : secrétariat et accueil (l'accueil sans documents).
+    pub fn can_guichet_facturation(self) -> bool {
+        self.can_lire_facturation() || matches!(self, Self::Administratif | Self::Accueil)
     }
 
     /// Ouvrir campagne réinscription / montée rapide (préparation rentrée).

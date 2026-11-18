@@ -36,6 +36,7 @@ pub mod eleve_protection;
 pub mod eleve_synthese;
 pub mod evaluations;
 pub mod finances;
+pub mod finances_comptes;
 pub mod fusion;
 pub mod identifiants;
 pub mod identite;

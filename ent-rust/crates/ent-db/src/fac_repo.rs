@@ -6,6 +6,7 @@ use domain_eleve::{
     Quittance, RappelCanal, RappelFacture, RappelKind, SepaLigneExport,
 };
 use crate::champs_chiffres::ChampsSensibles;
+use crate::facturation_service::Acte;
 use crate::tenant_tx::TenantTx;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -50,6 +51,7 @@ impl PgFacRepo {
         &self,
         facture: &Facture,
         lignes: &[FactureLigne],
+        acte: &Acte,
     ) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, facture.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
@@ -98,6 +100,7 @@ impl PgFacRepo {
             .await
             .map_err(map_sqlx)?;
         }
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -106,7 +109,7 @@ impl PgFacRepo {
     /// définitif dans la série continue de l'établissement (même compteur que le
     /// chemin `/finances` : `facture-AAAA`, `F2026-000042`), dans la transaction de
     /// l'émission. Renvoie le numéro attribué.
-    pub async fn update_facture_emise(&self, facture: &Facture) -> Result<String, DomainError> {
+    pub async fn update_facture_emise(&self, facture: &Facture, acte: &Acte) -> Result<String, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, facture.etablissement_id).await.map_err(map_sqlx)?;
         let annee = crate::finances::aujourd_hui().format("%Y").to_string();
         let (n,): (i64,) = sqlx::query_as(
@@ -140,6 +143,9 @@ impl PgFacRepo {
             // la série reste sans trou.
             return Err(DomainError::FactureDejaEmise);
         }
+        let mut acte = acte.clone();
+        acte.detail = Some(format!("pièce {numero}"));
+        crate::facturation_service::journaliser_domain_tx(&mut tx, &acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(numero)
     }
@@ -187,7 +193,7 @@ impl PgFacRepo {
         Ok(row.0)
     }
 
-    pub async fn insert_echeances(&self, echeances: &[Echeance]) -> Result<(), DomainError> {
+    pub async fn insert_echeances(&self, echeances: &[Echeance], acte: &Acte) -> Result<(), DomainError> {
         let Some(premiere) = echeances.first() else {
             return Ok(());
         };
@@ -216,6 +222,7 @@ impl PgFacRepo {
             .await
             .map_err(map_sqlx)?;
         }
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -543,7 +550,7 @@ impl PgFacRepo {
         Ok(row.0)
     }
 
-    pub async fn insert_sepa_mandat(&self, m: &MandatSepa) -> Result<(), DomainError> {
+    pub async fn insert_sepa_mandat(&self, m: &MandatSepa, acte: &Acte) -> Result<(), DomainError> {
         // D3 : IBAN, BIC et titulaire chiffrés (AAD = table + colonne + id du mandat).
         let iban = self.champs.sceller(T_MANDAT, "iban", m.id, &m.iban)?;
         let bic = self.champs.sceller_opt(T_MANDAT, "bic", m.id, m.bic.as_deref())?;
@@ -571,6 +578,7 @@ impl PgFacRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -649,7 +657,7 @@ impl PgFacRepo {
             .collect()
     }
 
-    pub async fn update_sepa_mandat_statut(&self, m: &MandatSepa) -> Result<(), DomainError> {
+    pub async fn update_sepa_mandat_statut(&self, m: &MandatSepa, acte: &Acte) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
@@ -668,11 +676,12 @@ impl PgFacRepo {
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
-    pub async fn insert_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
+    pub async fn insert_sepa_prelevement(&self, p: &PrelevementSepa, acte: &Acte) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
@@ -698,6 +707,7 @@ impl PgFacRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -898,7 +908,7 @@ impl PgFacRepo {
         Ok(r.map(|r| r.0 == "manuel").unwrap_or(false))
     }
 
-    pub async fn update_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
+    pub async fn update_sepa_prelevement(&self, p: &PrelevementSepa, acte: &Acte) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
@@ -938,6 +948,7 @@ impl PgFacRepo {
                 DomainError::NotFound
             });
         }
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -955,6 +966,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         prelevement_id: Uuid,
         actor_user_id: Uuid,
+        acte: &Acte,
     ) -> Result<(PrelevementSepa, Option<(Encaissement, Facture, Quittance)>), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PrelevementRow>(
@@ -1143,6 +1155,7 @@ impl PgFacRepo {
         if n == 0 {
             return Err(DomainError::SepaPrelevementInvalide);
         }
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok((executed, Some((enc, facture_maj, quittance))))
     }
@@ -1154,6 +1167,7 @@ impl PgFacRepo {
         &self,
         etablissement_id: Uuid,
         mandat_id: Uuid,
+        acte: &Acte,
     ) -> Result<(u64, u64), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let annules = sqlx::query(
@@ -1175,6 +1189,7 @@ impl PgFacRepo {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok((annules, deja_exportes as u64))
     }
@@ -1204,6 +1219,7 @@ impl PgFacRepo {
         &self,
         etablissement_id: Uuid,
         prelevement_id: Uuid,
+        acte: &Acte,
     ) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
@@ -1215,6 +1231,7 @@ impl PgFacRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -1261,6 +1278,7 @@ impl PgFacRepo {
     pub async fn encaisser_atomique(
         &self,
         cmd: domain_eleve::EncaisserFacture,
+        acte: &Acte,
     ) -> Result<(Encaissement, Facture, Quittance, i64), DomainError> {
         let etab = cmd.etablissement_id;
         let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(map_sqlx)?;
@@ -1426,6 +1444,7 @@ impl PgFacRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok((enc, facture_maj, quittance, regle))
     }
@@ -1483,7 +1502,7 @@ impl PgFacRepo {
     }
 
     /// `true` si insert effectué, `false` si déjà rappelé (conflit unique).
-    pub async fn insert_rappel(&self, r: &RappelFacture) -> Result<bool, DomainError> {
+    pub async fn insert_rappel(&self, r: &RappelFacture, acte: &Acte) -> Result<bool, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
@@ -1509,6 +1528,7 @@ impl PgFacRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        crate::facturation_service::journaliser_domain_tx(&mut tx, acte).await?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(res.rows_affected() > 0)
     }

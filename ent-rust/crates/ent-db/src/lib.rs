@@ -293,6 +293,11 @@ pub mod inscriptions_accords;
 pub mod inscriptions_reactions;
 pub mod imports;
 // Finances reliées (socle 2, lot S2-9).
+pub mod facturation_comptes;
+mod facturation_consequences;
+pub mod facturation_payeurs;
+pub mod facturation_service;
+mod facturation_mandats;
 pub mod finances;
 pub mod finances_calcul;
 pub mod finances_reactions;
@@ -678,6 +683,8 @@ mod tests_inscriptions_i3_i4;
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
+#[cfg(all(test, feature = "labo"))]
+mod tests_finances_f2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sante;
 #[cfg(all(test, feature = "labo"))]

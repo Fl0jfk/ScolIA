@@ -1,0 +1,684 @@
+{
+  "creer": {
+    "json": {
+      "echeances": [],
+      "encaisse_centimes": 0,
+      "encaissements": [],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": null,
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<provisoire>",
+        "soldee_at": null,
+        "statut": "brouillon",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [],
+      "reste_centimes": 5500
+    },
+    "statut": 201
+  },
+  "creer_refuse_prof": 403,
+  "detail_brouillon": {
+    "json": {
+      "echeances": [],
+      "encaisse_centimes": 0,
+      "encaissements": [],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": null,
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<provisoire>",
+        "soldee_at": null,
+        "statut": "brouillon",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [],
+      "reste_centimes": 5500
+    },
+    "statut": 200
+  },
+  "detail_brouillon_parent": 403,
+  "detail_emise_autre_foyer": 403,
+  "detail_emise_parent": {
+    "json": {
+      "echeances": [],
+      "encaisse_centimes": 0,
+      "encaissements": [],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": "<ts>",
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<numero>",
+        "soldee_at": null,
+        "statut": "emise",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [],
+      "reste_centimes": 5500
+    },
+    "statut": 200
+  },
+  "detail_inconnu": 404,
+  "echeancier": {
+    "json": {
+      "echeances": [
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-01-05",
+          "id": "<uuid:4>",
+          "libelle": "Acompte",
+          "montant_brut_centimes": 3000,
+          "montant_centimes": 3000,
+          "rang": 1
+        },
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-02-05",
+          "id": "<uuid:5>",
+          "libelle": "Solde",
+          "montant_brut_centimes": 2500,
+          "montant_centimes": 2500,
+          "rang": 2
+        }
+      ],
+      "encaisse_centimes": 0,
+      "encaissements": [],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": "<ts>",
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<numero>",
+        "soldee_at": null,
+        "statut": "emise",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [],
+      "reste_centimes": 5500
+    },
+    "statut": 201
+  },
+  "echeancier_parts": {
+    "json": {
+      "echeances": [
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-03-05",
+          "id": "<uuid:10>",
+          "libelle": "Échéance 1",
+          "montant_brut_centimes": 1001,
+          "montant_centimes": 1001,
+          "rang": 1
+        },
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-04-05",
+          "id": "<uuid:11>",
+          "libelle": "Échéance 2",
+          "montant_brut_centimes": 1000,
+          "montant_centimes": 1000,
+          "rang": 2
+        },
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-05-05",
+          "id": "<uuid:12>",
+          "libelle": "Échéance 3",
+          "montant_brut_centimes": 1000,
+          "montant_centimes": 1000,
+          "rang": 3
+        }
+      ],
+      "encaisse_centimes": 0,
+      "encaissements": [],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": "<ts>",
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:13>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<numero>",
+        "soldee_at": null,
+        "statut": "emise",
+        "total_centimes": 3001
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:14>",
+          "libelle": "Fournitures",
+          "montant_unitaire_centimes": 3001,
+          "quantite": 1,
+          "total_centimes": 3001
+        }
+      ],
+      "prelevements": [],
+      "quittances": [],
+      "reste_centimes": 3001
+    },
+    "statut": 201
+  },
+  "echeancier_second": 400,
+  "emettre": {
+    "json": {
+      "annee_scolaire": null,
+      "created_at": "<ts>",
+      "emise_at": "<ts>",
+      "foyer_id": "<uuid:0>",
+      "id": "<uuid:1>",
+      "libelle": "Scénario d'or F1",
+      "nature": null,
+      "numero": "<numero>",
+      "soldee_at": null,
+      "statut": "emise",
+      "total_centimes": 5500
+    },
+    "statut": 200
+  },
+  "emettre_deux_fois": 400,
+  "emettre_inconnu": 404,
+  "encaisser_depassement": 400,
+  "encaisser_inconnu": 404,
+  "encaisser_partiel": {
+    "json": {
+      "echeances": [
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 1000,
+          "couverture": "a_venir",
+          "date_echeance": "2030-01-05",
+          "id": "<uuid:4>",
+          "libelle": "Acompte",
+          "montant_brut_centimes": 3000,
+          "montant_centimes": 3000,
+          "rang": 1
+        },
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 0,
+          "couverture": "a_venir",
+          "date_echeance": "2030-02-05",
+          "id": "<uuid:5>",
+          "libelle": "Solde",
+          "montant_brut_centimes": 2500,
+          "montant_centimes": 2500,
+          "rang": 2
+        }
+      ],
+      "encaisse_centimes": 1000,
+      "encaissements": [
+        {
+          "encaisse_at": "<ts>",
+          "id": "<uuid:6>",
+          "montant_centimes": 1000,
+          "moyen": "especes",
+          "reference": null
+        }
+      ],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": "<ts>",
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<numero>",
+        "soldee_at": null,
+        "statut": "emise",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [
+        {
+          "emise_at": "<ts>",
+          "encaissement_id": "<uuid:6>",
+          "facture_id": "<uuid:1>",
+          "id": "<uuid:7>",
+          "montant_centimes": 1000,
+          "moyen": "especes",
+          "numero": "Q-F2026-000006-01"
+        }
+      ],
+      "reste_centimes": 4500
+    },
+    "statut": 201
+  },
+  "encaisser_solde": {
+    "json": {
+      "echeances": [
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 3000,
+          "couverture": "payee",
+          "date_echeance": "2030-01-05",
+          "id": "<uuid:4>",
+          "libelle": "Acompte",
+          "montant_brut_centimes": 3000,
+          "montant_centimes": 3000,
+          "rang": 1
+        },
+        {
+          "bourse_centimes": 0,
+          "couvert_centimes": 2500,
+          "couverture": "payee",
+          "date_echeance": "2030-02-05",
+          "id": "<uuid:5>",
+          "libelle": "Solde",
+          "montant_brut_centimes": 2500,
+          "montant_centimes": 2500,
+          "rang": 2
+        }
+      ],
+      "encaisse_centimes": 5500,
+      "encaissements": [
+        {
+          "encaisse_at": "<ts>",
+          "id": "<uuid:6>",
+          "montant_centimes": 1000,
+          "moyen": "especes",
+          "reference": null
+        },
+        {
+          "encaisse_at": "<ts>",
+          "id": "<uuid:8>",
+          "montant_centimes": 4500,
+          "moyen": "virement",
+          "reference": "VIR-1"
+        }
+      ],
+      "facture": {
+        "annee_scolaire": null,
+        "created_at": "<ts>",
+        "emise_at": "<ts>",
+        "foyer_id": "<uuid:0>",
+        "id": "<uuid:1>",
+        "libelle": "Scénario d'or F1",
+        "nature": null,
+        "numero": "<numero>",
+        "soldee_at": "<ts>",
+        "statut": "soldee",
+        "total_centimes": 5500
+      },
+      "lignes": [
+        {
+          "eleve_id": null,
+          "id": "<uuid:2>",
+          "libelle": "Cantine novembre",
+          "montant_unitaire_centimes": 1250,
+          "quantite": 2,
+          "total_centimes": 2500
+        },
+        {
+          "eleve_id": null,
+          "id": "<uuid:3>",
+          "libelle": "Sortie scolaire",
+          "montant_unitaire_centimes": 3000,
+          "quantite": 1,
+          "total_centimes": 3000
+        }
+      ],
+      "prelevements": [],
+      "quittances": [
+        {
+          "emise_at": "<ts>",
+          "encaissement_id": "<uuid:6>",
+          "facture_id": "<uuid:1>",
+          "id": "<uuid:7>",
+          "montant_centimes": 1000,
+          "moyen": "especes",
+          "numero": "Q-F2026-000006-01"
+        },
+        {
+          "emise_at": "<ts>",
+          "encaissement_id": "<uuid:8>",
+          "facture_id": "<uuid:1>",
+          "id": "<uuid:9>",
+          "montant_centimes": 4500,
+          "moyen": "virement",
+          "numero": "Q-F2026-000006-02"
+        }
+      ],
+      "reste_centimes": 0
+    },
+    "statut": 201
+  },
+  "executer": {
+    "json": {
+      "date_execution": "2030-06-05",
+      "encaissement_id": "<uuid:20>",
+      "end_to_end_id": "<e2e>",
+      "facture_id": "<uuid:16>",
+      "foyer_id": "<uuid:0>",
+      "id": "<uuid:17>",
+      "mandat_id": "<uuid:15>",
+      "montant_centimes": 1000,
+      "motif_rejet": null,
+      "statut": "execute"
+    },
+    "statut": 200
+  },
+  "executer_deux_fois": 200,
+  "export_ogec": {
+    "debut": "",
+    "non_vide": true,
+    "statut": 200
+  },
+  "export_sepa": {
+    "debut": "",
+    "non_vide": true,
+    "statut": 200
+  },
+  "famille": {
+    "cles": [
+      "annee_scolaire",
+      "created_at",
+      "emise_at",
+      "encaisse_centimes",
+      "foyer_id",
+      "id",
+      "libelle",
+      "nature",
+      "numero",
+      "reste_centimes",
+      "soldee_at",
+      "statut",
+      "total_centimes"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "famille_quittances": {
+    "cles": [
+      "emise_at",
+      "encaissement_id",
+      "facture_id",
+      "id",
+      "montant_centimes",
+      "moyen",
+      "numero"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "liste_direction": {
+    "cles": [
+      "annee_scolaire",
+      "created_at",
+      "emise_at",
+      "foyer_id",
+      "id",
+      "libelle",
+      "nature",
+      "numero",
+      "soldee_at",
+      "statut",
+      "total_centimes"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "liste_parent_refusee": 403,
+  "mandat_creer": {
+    "json": {
+      "bic": "AGRIFRPP",
+      "foyer_id": "<uuid:0>",
+      "iban": "FR76 •••• 0189",
+      "id": "<uuid:15>",
+      "rum": "<ref>",
+      "signe_at": "<ts>",
+      "statut": "actif",
+      "titulaire": "Scénario d'or"
+    },
+    "statut": 201
+  },
+  "mandat_revoquer": {
+    "json": {
+      "bic": "AGRIFRPP",
+      "foyer_id": "<uuid:0>",
+      "iban": "FR76 •••• 0189",
+      "id": "<uuid:15>",
+      "rum": "<ref>",
+      "signe_at": "<ts>",
+      "statut": "revoke",
+      "titulaire": "Scénario d'or"
+    },
+    "statut": 200
+  },
+  "mandats_liste": {
+    "cles": [
+      "bic",
+      "foyer_id",
+      "iban",
+      "id",
+      "rum",
+      "signe_at",
+      "statut",
+      "titulaire"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "mandats_parent": {
+    "cles": [
+      "bic",
+      "foyer_id",
+      "iban",
+      "id",
+      "rum",
+      "signe_at",
+      "statut",
+      "titulaire"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "mandats_prof": 403,
+  "pdf": {
+    "debut": "%PDF-",
+    "non_vide": true,
+    "statut": 200
+  },
+  "prelever_0": {
+    "json": {
+      "date_execution": "2030-06-05",
+      "encaissement_id": null,
+      "end_to_end_id": "<e2e>",
+      "facture_id": "<uuid:16>",
+      "foyer_id": "<uuid:0>",
+      "id": "<uuid:17>",
+      "mandat_id": "<uuid:15>",
+      "montant_centimes": 1000,
+      "motif_rejet": null,
+      "statut": "prevu"
+    },
+    "statut": 201
+  },
+  "prelever_1": {
+    "json": {
+      "date_execution": "2030-06-05",
+      "encaissement_id": null,
+      "end_to_end_id": "<e2e>",
+      "facture_id": "<uuid:18>",
+      "foyer_id": "<uuid:0>",
+      "id": "<uuid:19>",
+      "mandat_id": "<uuid:15>",
+      "montant_centimes": 1500,
+      "motif_rejet": null,
+      "statut": "prevu"
+    },
+    "statut": 201
+  },
+  "prelever_facture_a_echeances": 400,
+  "quittance": {
+    "json": {
+      "emise_at": "<ts>",
+      "encaissement_id": "<uuid:6>",
+      "facture_id": "<uuid:1>",
+      "id": "<uuid:7>",
+      "montant_centimes": 1000,
+      "moyen": "especes",
+      "numero": "Q-F2026-000006-01"
+    },
+    "statut": 200
+  },
+  "quittance_pdf": {
+    "debut": "%PDF-",
+    "non_vide": true,
+    "statut": 200
+  },
+  "rappels": {
+    "cles": [
+      "canal",
+      "corps",
+      "echeance_id",
+      "envoye_at",
+      "facture_id",
+      "fil_id",
+      "foyer_id",
+      "id",
+      "kind"
+    ],
+    "non_vide": true,
+    "statut": 200
+  },
+  "rappels_lancer": 201,
+  "rapprocher_vide": 403,
+  "rejeter": {
+    "json": {
+      "date_execution": "2030-06-05",
+      "encaissement_id": null,
+      "end_to_end_id": "<e2e>",
+      "facture_id": "<uuid:18>",
+      "foyer_id": "<uuid:0>",
+      "id": "<uuid:19>",
+      "mandat_id": "<uuid:15>",
+      "montant_centimes": 1500,
+      "motif_rejet": "AC04",
+      "statut": "rejete"
+    },
+    "statut": 200
+  }
+}

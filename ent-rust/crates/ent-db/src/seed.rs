@@ -2938,6 +2938,7 @@ impl PgEnt {
                 let _ = self
                     .poser_echeancier_for_actor(
                         role_compta,
+                        compta.user_id,
                         PoserEcheancier {
                             etablissement_id: etab,
                             facture_id: facture_harry_2_id,

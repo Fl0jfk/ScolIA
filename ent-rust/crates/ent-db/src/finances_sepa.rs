@@ -34,10 +34,11 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
+use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances::{
     aujourd_hui, conflit, db, echeances_couvertes, euros, facture_row,
     comptes_payeurs, introuvable, invalide, mode_paiement, notifier_payeurs, opt_texte, paliers_tx,
-    params_tx, poser_mode, prochain_numero, publier, verrou_foyer, FactureRow,
+    params_tx, poser_mode, prochain_numero, publier_finance, verrou_foyer, FactureRow,
     SELECT_FACTURE,
 };
 use crate::finances_calcul::{self as calcul, Ecriture};
@@ -76,7 +77,7 @@ pub(crate) async fn solder_si_paye(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    publier(
+    publier_finance(
         conn,
         etab,
         types::FAC_FACTURE_SOLDEE,
@@ -86,6 +87,14 @@ pub(crate) async fn solder_si_paye(
         json!({ "facture_id": facture, "foyer_id": f.foyer_id, "lettrage": code }),
         None,
         Causalite::default(),
+    )
+    .await?;
+    journaliser_tx(
+        conn,
+        &Acte::systeme(etab, Chemin::Systeme, "facture.solder", "facture")
+            .objet(facture)
+            .foyer(f.foyer_id)
+            .detail(&format!("pièce soldée, lettrage {code}")),
     )
     .await?;
     Ok(Some(code))
@@ -318,7 +327,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_PRENOTIFICATION,
@@ -553,7 +562,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_PRENOTIFICATION,
@@ -585,7 +594,17 @@ impl PgEnt {
             rapport.montant_centimes += total;
         }
         if rapport.prelevements_crees > 0 {
-            publier(
+            journaliser_tx(
+                &mut tx,
+                &Acte::new(etab, Some(actor), role, Chemin::Finances, "prelevements.preparer", "prelevement")
+                    .montant(rapport.montant_centimes)
+                    .detail(&format!(
+                        "{} prélèvements préparés pour le {}, {} pré-notifications",
+                        rapport.prelevements_crees, b.date_execution, rapport.prenotifications
+                    )),
+            )
+            .await?;
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_PRELEVEMENT,
@@ -746,7 +765,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_EXPORT,
@@ -757,6 +776,13 @@ impl PgEnt {
                     "montant_centimes": rows.iter().map(|r| r.montant_centimes).sum::<i64>() }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "prelevements.exporter", "prelevement")
+                .montant(rows.iter().map(|r| r.montant_centimes).sum::<i64>())
+                .detail(&format!("export {nature} de {} prélèvements (exécution le {})", ids.len(), b.date_execution)),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -819,7 +845,14 @@ impl PgEnt {
             rapport.montant_centimes += montant;
         }
         if rapport.executes > 0 {
-            publier(
+            journaliser_tx(
+                &mut tx,
+                &Acte::new(etab, Some(actor), role, Chemin::Finances, "prelevements.executer", "prelevement")
+                    .montant(rapport.montant_centimes)
+                    .detail(&format!("{} prélèvements constatés exécutés (date {})", rapport.executes, b.date_execution)),
+            )
+            .await?;
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_SEPA_EXECUTE,
@@ -942,7 +975,7 @@ impl PgEnt {
                 db(e)
             }
         })?;
-        let evt = publier(
+        let evt = publier_finance(
             &mut tx,
             etab,
             types::FAC_SEPA_REJET,
@@ -974,6 +1007,15 @@ impl PgEnt {
         )
         .await?;
         let foyer_nom = facture_row(&mut tx, etab, facture).await?.libelle_foyer();
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "prelevement.rejeter", "prelevement")
+                .objet(prelevement)
+                .foyer(foyer)
+                .montant(montant)
+                .detail(&format!("rejet {code}")),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(RejetDto {
             id,
@@ -1130,7 +1172,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_REGLEMENT,
@@ -1141,6 +1183,15 @@ impl PgEnt {
                     "moyen": b.moyen, "impute_centimes": b.montant_centimes - restant }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "reglement.enregistrer", "reglement")
+                .objet(id)
+                .foyer(b.foyer_id)
+                .montant(b.montant_centimes)
+                .detail(&format!("règlement {} imputé sur les plus anciennes pièces", b.moyen)),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -1235,7 +1286,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
             if r.rows_affected() == 1 {
-                publier(
+                publier_finance(
                     &mut tx,
                     etab,
                     types::FAC_RELANCE_PROPOSEE,
@@ -1256,6 +1307,14 @@ impl PgEnt {
             .into_iter()
             .filter(|r| nouvelles.contains(&r.id))
             .collect();
+        if !nouvelles.is_empty() {
+            journaliser_tx(
+                &mut tx,
+                &Acte::new(etab, Some(actor), role, Chemin::Finances, "relances.proposer", "relance")
+                    .detail(&format!("{} relances proposées (aucun envoi sans confirmation humaine)", nouvelles.len())),
+            )
+            .await?;
+        }
         tx.commit().await.map_err(db)?;
         Ok(RapportRelancesDto { proposees })
     }
@@ -1324,7 +1383,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
             let numero = facture_row(&mut tx, etab, facture).await?.numero;
-            let evt = publier(
+            let evt = publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_RAPPEL_ENVOYE,
@@ -1361,7 +1420,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            publier(
+            publier_finance(
                 &mut tx,
                 etab,
                 types::FAC_RELANCE_ANNULEE,
@@ -1379,6 +1438,21 @@ impl PgEnt {
             .into_iter()
             .find(|r| r.id == id)
             .ok_or_else(introuvable)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(
+                etab,
+                Some(actor),
+                role,
+                Chemin::Finances,
+                if confirmer { "relance.confirmer" } else { "relance.annuler" },
+                "relance",
+            )
+            .objet(id)
+            .foyer(foyer)
+            .detail(&format!("palier {palier}")),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(r)
     }
@@ -1392,7 +1466,7 @@ impl PgEnt {
         role: &str,
         b: &ExportComptableBody,
     ) -> Result<ExportComptableDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::FacturationGerer)
+        self.fin_exiger(etab, actor, role, Action::FacturationExporter)
             .await?;
         if b.fin < b.debut || (b.fin - b.debut).num_days() > 366 {
             return Err(invalide("période : un an au plus, fin après début"));
@@ -1585,7 +1659,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        publier(
+        publier_finance(
             &mut tx,
             etab,
             types::FAC_EXPORT_COMPTABLE,
@@ -1596,6 +1670,13 @@ impl PgEnt {
                     "ecritures": ecritures.len(), "empreinte": empreinte }),
             Some(actor),
             Causalite::default(),
+        )
+        .await?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(etab, Some(actor), role, Chemin::Finances, "export_comptable.produire", "export")
+                .objet(id)
+                .detail(&format!("{} écritures du {} au {}", ecritures.len(), b.debut, b.fin)),
         )
         .await?;
         tx.commit().await.map_err(db)?;

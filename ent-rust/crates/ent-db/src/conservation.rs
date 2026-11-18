@@ -86,7 +86,7 @@ pub const SANS_SOURCE: &str = "aucune source, choix de minimisation";
 
 /// Version du catalogue : une nouvelle version est proposée à l'établissement comme
 /// changement, jamais appliquée seule (§8.2 point 4).
-pub const VERSION_CATALOGUE: &str = "2026-11-17-et0";
+pub const VERSION_CATALOGUE: &str = "2026-11-17-f2";
 
 #[allow(clippy::too_many_arguments)]
 const fn c(
@@ -138,6 +138,7 @@ pub const CATALOGUE: &[Categorie] = &[
     c("adm.personne", "responsables, foyers, coordonnées, consentements", "fin de scolarité de l'élève", None, None, S::Destruction, SANS_SOURCE, R, false, "4"),
     c("adm.coordonnee_retiree", "coordonnées remplacées", "remplacement", None, Some(12), S::Destruction, SANS_SOURCE, R, false, "4"),
     c("fin.piece", "factures, quittances, pièces comptables", "clôture de l'exercice", Some(12), Some(120), S::Destruction, "code de commerce L123-22 (privé) ; instruction de 2005 (public)", V, false, "24"),
+    c("fin.tache", "tâches de travail financières (payeur manquant, prise en charge à renouveler, demande de répartition)", "résolution de la tâche", None, Some(24), S::Destruction, SANS_SOURCE, R, false, "24"),
     c("fin.bourse", "dossiers individuels de bourse", "fin d'année", None, Some(24), S::Destruction, INSTR_2005, V, false, "24"),
     c("fin.iban", "coordonnées bancaires, mandats, prélèvements", "fin du mandat", None, Some(13), S::Destruction, "règles SEPA (13 mois après le dernier prélèvement)", NV, false, "25"),
     c("msg.conversation", "messagerie", "dernier message", Some(12), Some(12), S::Destruction, SANS_SOURCE, NV, false, "16"),
@@ -272,6 +273,8 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
                 "fin.iban"
             } else if has("bourse") {
                 "fin.bourse"
+            } else if has("tache") {
+                "fin.tache"
             } else {
                 "fin.piece"
             }
