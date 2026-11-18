@@ -315,3 +315,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
       - export après le commit ;
       - `health-cmd` de PostgreSQL avec `-d`.
   - **Question de Florian** sur les journaux PostgreSQL de la CI : les « database ent_ci does not exist » viennent du contrôle de santé (`pg_isready` sans `-d`), corrigé dans le lot Suites. Les ERROR sont des refus voulus par les tests négatifs (ajout seul, RLS, contraintes).
+- **18-11, 11 h UTC, Suites (PR 100, 8b04b95c)** : cinq points traités sans migration ; relu par le pilote.
+  - Demandé en plus :
+    - ceinture `ent_eleve.photo_key` dans le balayage des photos ;
+    - `health-cmd` avec `-d`.
+  - **Constat** : les sessions lancées depuis ENT ne voient pas PILOTAGE.md complet (il est sur ent-mc0hoe ; sur ENT, seules les règles 1 à 9). **Les consignes doivent désormais dire `git show origin/ent-mc0hoe:docs/PILOTAGE.md`.**
+  - Course `recette_securite_3::rs3_02` en local, préexistante sur ENT ; elle n'affecte pas la CI (nextest).
