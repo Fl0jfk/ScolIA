@@ -15,6 +15,7 @@ const rel = (f) => `2026-11/${f}`;
 const existe = (f) => fs.existsSync(dir + f);
 const mobile = (f) => { const m = f.match(/^(.*\/)([a-z-]+)-(\d+)-(.*)\.png$/); if (!m) return null; const g = `${m[1]}${m[2]}-${String(+m[3] + 1).padStart(2, '0')}-${m[4]}-375.png`; return existe(g) ? g : null; };
 const doms = [...new Set([...R.ecrans.map((e) => e.domaine), ...R.actions.map((a) => a.domaine), ...Object.keys(routes)])].filter((d) => d !== '99-autre').sort();
+for (const a of R.actions) for (const k of C.corrections ?? []) if (a.description.includes(k.contient)) { a.statut = k.statut; a.detail = k.detail; }
 const bruit = /^\d+ résultats?\.?$/;
 let md = '';
 const ecransUniques = (d) => { const m = new Map(); for (const e of R.ecrans.filter((x) => x.domaine === d)) { const k = e.chemin.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, ':id'); (m.get(k) ?? m.set(k, []).get(k)).push(e); } return m; };

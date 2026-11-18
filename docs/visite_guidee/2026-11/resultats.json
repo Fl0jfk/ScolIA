@@ -7867,6 +7867,630 @@
    "lignes": 58,
    "erreurs": [],
    "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web",
+   "nom": "accueil",
+   "domaine": "00-accueil",
+   "capture": "00-accueil/prof-principal-01-accueil.png",
+   "redirige": null,
+   "ms": 4495,
+   "titre": "Bonjour",
+   "texte": "Rechercher ou agir (Ctrl K) Mercredi 18 novembre Bonjour Voici votre journée. Journée terminée Toutes vos séances du jour sont passées. Voir la semaine Ma journée 1 appel à faire 09:00 5A · Transfiguration appel à faire · salle 1er étage Emploi du temps Messages 26 conversations non lues Ouvrir la messagerie À la une Aucune annonce pour le moment",
+   "longueur": 348,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/recherche",
+   "nom": "Recherche",
+   "domaine": "00-accueil",
+   "capture": "00-accueil/prof-principal-03-recherche.png",
+   "redirige": null,
+   "ms": 4291,
+   "titre": "Recherche",
+   "texte": "Rechercher ou agir (Ctrl K) Recherche Élèves de votre portée, responsables, personnels, classes et salles. Rechercher Au moins deux caractères ; accents et majuscules sans importance. Rechercher",
+   "longueur": 194,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Rechercher"
+   ],
+   "champs": 2,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/eleves",
+   "nom": "Élèves",
+   "domaine": "01-eleve",
+   "capture": "01-eleve/prof-principal-05-eleves.png",
+   "redirige": null,
+   "ms": 4578,
+   "titre": "Élèves",
+   "texte": "Rechercher ou agir (Ctrl K) Établissement Élèves Retrouvez un élève, puis ouvrez sa fiche. Vous ne voyez que ce que vos droits permettent. 3 élèves Rechercher un élève Appuyez sur / pour chercher. Les accents et les petites fautes de frappe sont tolérés. Classe Toutes les classes 5A Statut Tous les statuts Scolarisés Préinscrits Sortis 3 élèves Liste des élèves Élève Classe Statut CC Cho CHANG 5A Scolarisé DM Draco MALEFOY 5A Scolarisé RW Ron WEASLEY 5A Scolarisé Page précédente Page suivante Vous voyez les élèves de votre périmètre (par exemple vos classes), pas tout l'établissement.",
+   "longueur": 591,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Page précédente",
+    "Page suivante"
+   ],
+   "champs": 4,
+   "alertes": [],
+   "lignes": 44,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/demandes",
+   "nom": "Faire une demande",
+   "domaine": "11-demandes",
+   "capture": "11-demandes/prof-principal-07-faire-une-demande.png",
+   "redirige": null,
+   "ms": 4317,
+   "titre": "Faire une demande",
+   "texte": "Rechercher ou agir (Ctrl K) Faire une demande Écrire à l'établissement : décrivez votre besoin, il arrive au bon service. Je veux signaler une situation grave : en cas de danger, appelez les secours (3018, 119, 15, 17). Que voulez-vous demander ? Décrivez en quelques mots (par exemple « attestation », « panne », « mot de passe ») Aucune démarche ne correspond Essayez un autre mot, ou videz la recherche. Ces démarches se font ailleurs Déclarer une absence ou demander une autorisation d'absence Réserver une salle Emprunter du matériel Proposer une sortie ou un voyage",
+   "longueur": 571,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 2,
+   "alertes": [
+    "Je veux signaler une situation grave : en cas de danger, appelez les secours (3018, 119, 15, 17)."
+   ],
+   "lignes": 44,
+   "erreurs": [],
+   "signaux": [
+    "alerte : Je veux signaler une situation grave : en cas de danger, appelez les secours (3018, 119, 15, 17)."
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/demandes/mes",
+   "nom": "Mes demandes",
+   "domaine": "11-demandes",
+   "capture": "11-demandes/prof-principal-09-mes-demandes.png",
+   "redirige": null,
+   "ms": 4132,
+   "titre": "Mes demandes",
+   "texte": "Rechercher ou agir (Ctrl K) Mes demandes Où en est chacune de vos demandes. Faire une demande Aucune demande Vos demandes apparaîtront ici dès que vous en aurez envoyé une.",
+   "longueur": 172,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/demandes/file",
+   "nom": "Ma file",
+   "domaine": "11-demandes",
+   "capture": "11-demandes/prof-principal-11-ma-file.png",
+   "redirige": null,
+   "ms": 6696,
+   "titre": "Ma file",
+   "texte": "Rechercher ou agir (Ctrl K) Ma file Les demandes adressées à vos services, les plus anciennes d'abord. Rien à traiter Aucune demande n'attend votre service.",
+   "longueur": 156,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/demandes/hse",
+   "nom": "Heures supplémentaires",
+   "domaine": "11-demandes",
+   "capture": "11-demandes/prof-principal-13-heures-supplementaires.png",
+   "redirige": null,
+   "ms": 8156,
+   "titre": "Heures supplémentaires (HSE)",
+   "texte": "Rechercher ou agir (Ctrl K) Heures supplémentaires (HSE) Comptées en heures ; la direction valide. Demander des HSE Heures déjà faites ou prévues. Le volume se compte en heures et en quarts d'heure. Motif* (obligatoire) Soutien Atelier Accompagnement d'une sortie Stage de réussite Préparation d'un concours Tutorat Autre Objet (par exemple « Soutien brevet blanc »)* (obligatoire) Heures* (obligatoire) Minutes 0 min 15 min 30 min 45 min Du* (obligatoire) Au* (obligatoire) Ces heures sont déjà faites Envoyer la demande Mes HSE Aucune demande d'HSE",
+   "longueur": 550,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Envoyer la demande"
+   ],
+   "champs": 8,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ],
+   "signaux": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/demandes/copies",
+   "nom": "Copies",
+   "domaine": "11-demandes",
+   "capture": "11-demandes/prof-principal-15-copies.png",
+   "redirige": null,
+   "ms": 4214,
+   "titre": "Copies (reprographie)",
+   "texte": "Rechercher ou agir (Ctrl K) Copies (reprographie) Vos demandes de copies et la file d'impression de votre site. Le dépôt de fichiers à imprimer arrive avec le coffre de documents : en attendant, déposez votre demande au secrétariat. Mes copies Aucune demande de copies File d'impression de mon site Rien à imprimer",
+   "longueur": 314,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [
+    "Le dépôt de fichiers à imprimer arrive avec le coffre de documents : en attendant, déposez votre demande au secrétariat."
+   ],
+   "lignes": 40,
+   "erreurs": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ],
+   "signaux": [
+    "alerte : Le dépôt de fichiers à imprimer arrive avec le coffre de documents : en attendant, déposez votre demande au secrétariat.",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/mon-agenda",
+   "nom": "Mon agenda",
+   "domaine": "09-agenda",
+   "capture": "09-agenda/prof-principal-17-mon-agenda.png",
+   "redirige": null,
+   "ms": 4259,
+   "titre": "Mon agenda",
+   "texte": "Rechercher ou agir (Ctrl K) Agenda Mon agenda Vos réunions, rendez-vous, cours et fermetures de la semaine. Semaine du 16 au 22 novembre Aujourd'hui Semaine du 16 au 22 novembre Réserver une salle Nouvel événement Afficher Événements et réunions Rendez-vous Mes cours Semaine de l'établissement Fermetures Échéances Agendas partagés Sources non affichées : échéance (pas encore branchée (travaux du cahier de textes, échéances de l'établissement)) ; agenda partagé (pas encore branchée (agendas partagés entre personnes)). Lundi 16 novembre Rien de prévu. Mardi 17 novembre Rien de prévu. Mercredi 18",
+   "longueur": 809,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Aujourd'hui",
+    "Nouvel événement",
+    "Créer le brouillon"
+   ],
+   "champs": 16,
+   "alertes": [
+    "Sources non affichées : échéance (pas encore branchée (travaux du cahier de textes, échéances de l'établissement)) ; agenda partagé (pas encore branchée (agenda"
+   ],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": [
+    "message « pas encore disponible »",
+    "alerte : Sources non affichées : échéance (pas encore branchée (travaux du cahier de textes, échéances de l'établissement)) ; agenda partagé (pas encore branchée (agenda"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/emploi-du-temps",
+   "nom": "Emploi du temps",
+   "domaine": "05-edt",
+   "capture": "05-edt/prof-principal-19-emploi-du-temps.png",
+   "redirige": null,
+   "ms": 4307,
+   "titre": "Semaine du 16 au 20 novembre",
+   "texte": "Rechercher ou agir (Ctrl K) Emploi du temps Semaine du 16 au 20 novembre Cette semaine Lundi 16 novembre Aucun cours Mardi 17 novembre Aucun cours Mercredi 18 novembre Aujourd'hui 09:00 – 10:00 Transfiguration 5A · Salle 1er étage Faire l'appel Jeudi 19 novembre Aucun cours Vendredi 20 novembre Aucun cours",
+   "longueur": 307,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/edt/semaine",
+   "nom": "EDT de la semaine",
+   "domaine": "05-edt",
+   "capture": "05-edt/prof-principal-21-edt-de-la-semaine.png",
+   "redirige": null,
+   "ms": 4390,
+   "titre": "Emploi du temps de la semaine",
+   "texte": "Rechercher ou agir (Ctrl K) Emploi du temps Emploi du temps de la semaine Cours de la semaine, avec les annulations, remplacements et déplacements. Afficher Mon emploi du temps Une classe Une salle Un membre du personnel Semaine du 16 au 20 novembre : aucun changement. Aujourd'hui Semaine du 16 au 20 novembre Lundi 16 novembre Aucun cours Mardi 17 novembre Aucun cours Mercredi 18 novembre Aujourd'hui 1 cours 09:00 – 10:00 Transfiguration 5A · Salle 1er étage Jeudi 19 novembre Aucun cours Vendredi 20 novembre Aucun cours",
+   "longueur": 525,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Aujourd'hui"
+   ],
+   "champs": 2,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/appel",
+   "nom": "Appel",
+   "domaine": "03-assiduite",
+   "capture": "03-assiduite/prof-principal-23-appel.png",
+   "redirige": null,
+   "ms": 4193,
+   "titre": "Faire l'appel",
+   "texte": "Rechercher ou agir (Ctrl K) Aujourd'hui › Appel Faire l'appel Mercredi 18 novembre Date de l'appel Choisissez une séance 09:00 – 10:00 5A · Transfiguration Salle 1er étage · 3 élèves Terminé",
+   "longueur": 190,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 2,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/cahier",
+   "nom": "Cahier de textes",
+   "domaine": "06-cahier",
+   "capture": "06-cahier/prof-principal-25-cahier-de-textes.png",
+   "redirige": null,
+   "ms": 4465,
+   "titre": "Semaine du Lundi 16 novembre au Dimanche 22 novembre",
+   "texte": "Rechercher ou agir (Ctrl K) Cahier de textes Semaine du Lundi 16 novembre au Dimanche 22 novembre Cahier du cours Charge des classes Cette semaine 1 séance à renseigner. Mercredi 18 novembre 09:00 – 10:00 · Transfiguration · 5A À renseigner Transfiguration · 5A · 3 élèves Renseigner la séance Donner un travail Travail à venir par classe Classe 5A Transfiguration — Devoir maison Transfiguration 5A (audit lot C) À faire Pour le Lundi 23 novembre Supprimer",
+   "longueur": 457,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Supprimer",
+    "Annuler",
+    "Supprimer"
+   ],
+   "champs": 10,
+   "alertes": [],
+   "lignes": 42,
+   "erreurs": [],
+   "signaux": [
+    "message « pas encore disponible »"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/cahier/continuite",
+   "nom": "Continuité",
+   "domaine": "06-cahier",
+   "capture": "06-cahier/prof-principal-27-continuite.png",
+   "redirige": null,
+   "ms": 4110,
+   "titre": "Continuité",
+   "texte": "Rechercher ou agir (Ctrl K) Cahier de textes Continuité Séances annulées, élèves en continuité à distance : rien ne disparaît, rien n'est avancé sans votre accord. Vos séances annulées Rien à reporter Aucune séance annulée n'a de contenu ou de travail à reporter. Élèves en continuité Aucune continuité Aucun élève n'est en continuité à distance.",
+   "longueur": 346,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/mes-classes",
+   "nom": "Mes classes",
+   "domaine": "01-eleve",
+   "capture": "01-eleve/prof-principal-29-mes-classes.png",
+   "redirige": null,
+   "ms": 4232,
+   "titre": "Mes classes",
+   "texte": "Rechercher ou agir (Ctrl K) Enseignement Mes classes Les classes où vous avez un service d'enseignement. 5A 5e · 3 élèves Emploi du temps Faire l'appel",
+   "longueur": 151,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/discipline",
+   "nom": "Discipline",
+   "domaine": "03-assiduite",
+   "capture": "03-assiduite/prof-principal-31-discipline.png",
+   "redirige": null,
+   "ms": 4123,
+   "titre": "Punitions et sanctions",
+   "texte": "Rechercher ou agir (Ctrl K) Vie scolaire Punitions et sanctions Les punitions (mesures éducatives) et les sanctions (disciplinaires, au dossier) sont distinctes. Élève concerné Rechercher un élève (nom, prénom ou classe) Rechercher",
+   "longueur": 231,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Rechercher"
+   ],
+   "champs": 2,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/evaluations",
+   "nom": "Évaluations",
+   "domaine": "07-evaluations",
+   "capture": "07-evaluations/prof-principal-33-evaluations.png",
+   "redirige": null,
+   "ms": 4388,
+   "titre": "Évaluations",
+   "texte": "Rechercher ou agir (Ctrl K) Pédagogie Évaluations Notes, appréciations, conseils de classe et bulletins. Période Choisir… Trimestre 0 (démo) (Fermée) Trimestre 1 (Ouverte) Ouverte du 01/09/2026 au 20/12/2026 Mes enseignements Transfiguration · 5A · 3 élèves Ouvrir la grille Autres grilles de l'établissement Conseils de classe Aucun conseil Aucun conseil planifié pour vos classes. Planifier un conseil",
+   "longueur": 403,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 7,
+   "alertes": [],
+   "lignes": 41,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/amenagements",
+   "nom": "Aménagements",
+   "domaine": "14-sante-accompagnement",
+   "capture": "14-sante-accompagnement/prof-principal-35-amenagements.png",
+   "redirige": null,
+   "ms": 4281,
+   "titre": "Aménagements et contraintes",
+   "texte": "Rechercher ou agir (Ctrl K) Élèves Aménagements et contraintes Ce que vous devez savoir pour accueillir chaque élève. Aucune information médicale n'est affichée ici. Mes élèves aménagés Accès refusé Votre profil ne permet pas d'accéder à ces informations. Contraintes — Enseignants Accès refusé Votre profil ne permet pas d'accéder à ces informations.",
+   "longueur": 351,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ],
+   "signaux": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/delegations",
+   "nom": "Délégations",
+   "domaine": "04-absences-personnels",
+   "capture": "04-absences-personnels/prof-principal-37-delegations.png",
+   "redirige": null,
+   "ms": 4225,
+   "titre": "Délégations de droits",
+   "texte": "Rechercher ou agir (Ctrl K) Administration Délégations de droits Des droits confiés à une personne pour une durée limitée. Mes délégations Aucune délégation reçue Personne ne vous a confié de droits supplémentaires.",
+   "longueur": 215,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/personnel/absences",
+   "nom": "Mes absences",
+   "domaine": "04-absences-personnels",
+   "capture": "04-absences-personnels/prof-principal-39-mes-absences.png",
+   "redirige": null,
+   "ms": 4298,
+   "titre": "Mes absences",
+   "texte": "Rechercher ou agir (Ctrl K) Mes absences Vos absences déclarées, leur état et ce qui reste à faire. Déclarer une absence Aucune absence déclarée Quand vous serez absent, déclarez-le ici : la direction et l'organisation des remplacements en sont informées sans connaître votre motif.",
+   "longueur": 282,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/personnel/remplacements",
+   "nom": "Mes remplacements",
+   "domaine": "04-absences-personnels",
+   "capture": "04-absences-personnels/prof-principal-41-mes-remplacements.png",
+   "redirige": null,
+   "ms": 19833,
+   "titre": "Mes remplacements",
+   "texte": "Rechercher ou agir (Ctrl K) Mes remplacements Chargement…",
+   "longueur": 57,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 10,
+   "erreurs": [],
+   "signaux": [
+    "écran presque vide"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/rendez-vous",
+   "nom": "Rendez-vous",
+   "domaine": "09-agenda",
+   "capture": "09-agenda/prof-principal-43-rendez-vous.png",
+   "redirige": null,
+   "ms": 22662,
+   "titre": "Rendez-vous avec les enseignants",
+   "texte": "Rechercher ou agir (Ctrl K) Agenda Rendez-vous avec les enseignants Réservez un créneau pour votre enfant lors des rencontres parents-professeurs. Rencontres ouvertes Aucune rencontre ouverte Vous serez prévenu dès qu'une rencontre est ouverte pour la classe de votre enfant.",
+   "longueur": 275,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/voyages",
+   "nom": "Sorties",
+   "domaine": "10-voyages",
+   "capture": "10-voyages/prof-principal-45-sorties.png",
+   "redirige": null,
+   "ms": 4199,
+   "titre": "Sorties et voyages",
+   "texte": "Rechercher ou agir (Ctrl K) Vie de l'établissement Sorties et voyages Projets, validations, élèves et encadrants d'un même endroit. Nouvelle sortie Nouvelle série hebdomadaire Rechercher Titre, lieu ou porteur. État Tous les états Brouillon Soumise à la direction À compléter En préparation Budget à valider À autoriser Ouverte Prête Annulée Mes sorties seulement À venir seulement Aucune sortie Aucune sortie ne correspond à ces critères.",
+   "longueur": 439,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 5,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ],
+   "signaux": [
+    "message « pas encore disponible »",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/messages",
+   "nom": "Messages",
+   "domaine": "08-messagerie",
+   "capture": "08-messagerie/prof-principal-47-messages.png",
+   "redirige": null,
+   "ms": 4275,
+   "titre": "Messages",
+   "texte": "Rechercher ou agir (Ctrl K) Messagerie Messages Vos conversations avec l'établissement. Actualiser Nouveau message Rechercher une conversation Afficher Toutes Non lues Archivées 26 conversations Carnet de liaison — AUDIT CO-A: Ron (famille) Ron Weasley 18:21 1 message non lu Carnet de liaison — AUDIT CM-A: Draco (famille) Draco Malefoy 18:21 1 message non lu Carnet de liaison — AUDIT CL-A: Cho (famille) Cho Chang 18:21 1 message non lu Carnet de liaison — AUDIT CJ-A: Ron (famille) Ron Weasley 18:21 1 message non lu Carnet de liaison — AUDIT CH-A: Ron (famille) Ron Weasley 18:21 1 message non l",
+   "longueur": 2488,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Actualiser"
+   ],
+   "champs": 5,
+   "alertes": [],
+   "lignes": 66,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/securite",
+   "nom": "Compte",
+   "domaine": "15-administration",
+   "capture": "15-administration/prof-principal-49-compte.png",
+   "redirige": null,
+   "ms": 4331,
+   "titre": "Sécurité du compte",
+   "texte": "Rechercher ou agir (Ctrl K) Sécurité du compte prof2-606a4b51@ent.lab Niveau de cette session Ouverte avec : Mot de passe Navigateur web Vous vous êtes identifié avec votre mot de passe seul. Une passkey renforce la protection de votre compte. Aucune passkey n'est enregistrée sur votre compte (facultative pour votre rôle). Mes passkeys Une passkey remplace le mot de passe : vous validez avec l'empreinte, le visage ou le code de votre appareil. Aucune passkey enregistrée Ajoutez-en une ci-dessous pour renforcer la protection de votre compte. Ajouter une passkey Nom de l'appareil Facultatif. Par",
+   "longueur": 1512,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Ajouter une passkey",
+    "Annuler",
+    "Supprimer la passkey",
+    "Déconnecter",
+    "Déconnecter",
+    "Annuler",
+    "Déconnecter l'appareil"
+   ],
+   "champs": 4,
+   "alertes": [
+    "C'est votre dernière passkey : la connexion se fera par mot de passe seul."
+   ],
+   "lignes": 43,
+   "erreurs": [],
+   "signaux": [
+    "alerte : C'est votre dernière passkey : la connexion se fera par mot de passe seul."
+   ]
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/notifications",
+   "nom": "Notifications",
+   "domaine": "15-administration",
+   "capture": "15-administration/prof-principal-51-notifications.png",
+   "redirige": null,
+   "ms": 27456,
+   "titre": "Mes notifications",
+   "texte": "Rechercher ou agir (Ctrl K) Compte Mes notifications Choisissez comment être prévenu. Les notifications dans l'ENT sont toujours actives. Canaux utilisés en plus de l'ENT E-mail Notification sur mobile SMS (désactivé tant que vous ne l'avez pas choisi) Regrouper les messages courants en un résumé chaque matin (e-mail et mobile) Respecter des heures calmes (heure de Paris) Enregistrer Derniers envois Aucun envoi Aucune notification n'a encore été envoyée par e-mail, SMS ou mobile.",
+   "longueur": 484,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)",
+    "Enregistrer"
+   ],
+   "champs": 6,
+   "alertes": [],
+   "lignes": 40,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/classes/c936e765-ce93-4806-a55c-689d246b82f8",
+   "nom": "fiche classe 4B (professeur principal)",
+   "domaine": "01-eleve",
+   "capture": "01-eleve/prof-principal-53-fiche-classe-4b-professeur-principal.png",
+   "redirige": null,
+   "ms": 27147,
+   "titre": "4B",
+   "texte": "Rechercher ou agir (Ctrl K) Aujourd'hui › Classes › 4B 4B 4e · 3 élèves Emploi du temps Élèves Aucun élève affecté Aucun élève n'est affecté à cette classe aujourd'hui. Enseignements Services d'enseignement de la classe Matière Enseignant Rôle Potions Severus Rogue",
+   "longueur": 265,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 42,
+   "erreurs": [],
+   "signaux": []
+  },
+  {
+   "role": "prof_principal",
+   "chemin": "/web/evaluations/classes/c936e765-ce93-4806-a55c-689d246b82f8",
+   "nom": "évaluations de la classe 4B",
+   "domaine": "07-evaluations",
+   "capture": "07-evaluations/prof-principal-54-evaluations-de-la-classe-4b.png",
+   "redirige": null,
+   "ms": 27583,
+   "titre": "Moyennes de la classe · ScolIA",
+   "texte": "Rechercher ou agir (Ctrl K) Classe introuvable Ouvrez la classe depuis la page Évaluations.",
+   "longueur": 91,
+   "boutons": [
+    "Rechercher ou agir (Ctrl K)"
+   ],
+   "champs": 1,
+   "alertes": [],
+   "lignes": 25,
+   "erreurs": [],
+   "signaux": [
+    "écran presque vide"
+   ]
   }
  ],
  "actions": [
@@ -8422,24 +9046,22 @@
    "erreurs": []
   }
  ],
- "erreurs": [
-  "prof_principal: page.waitForURL: Timeout 60000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================"
- ],
+ "erreurs": [],
  "captures": {
-  "00-accueil": 74,
-  "01-eleve": 53,
-  "11-demandes": 71,
-  "09-agenda": 30,
-  "05-edt": 42,
-  "03-assiduite": 83,
-  "06-cahier": 30,
-  "15-administration": 28,
-  "07-evaluations": 22,
-  "14-sante-accompagnement": 35,
-  "04-absences-personnels": 108,
+  "00-accueil": 78,
+  "01-eleve": 58,
+  "11-demandes": 81,
+  "09-agenda": 34,
+  "05-edt": 46,
+  "03-assiduite": 87,
+  "06-cahier": 34,
+  "15-administration": 32,
+  "07-evaluations": 25,
+  "14-sante-accompagnement": 37,
+  "04-absences-personnels": 114,
   "12-formulaires": 23,
-  "10-voyages": 32,
-  "08-messagerie": 8,
+  "10-voyages": 34,
+  "08-messagerie": 10,
   "02-inscriptions": 15,
   "13-finances": 15
  },
@@ -9874,6 +10496,112 @@
    [
     "/web/direction/roles",
     "Rôles et droits"
+   ],
+   [
+    "/web/securite",
+    "Compte"
+   ],
+   [
+    "/web/notifications",
+    "Notifications"
+   ]
+  ],
+  "prof_principal": [
+   [
+    "/web",
+    "Aujourd'hui"
+   ],
+   [
+    "/web/recherche",
+    "Recherche"
+   ],
+   [
+    "/web/eleves",
+    "Élèves"
+   ],
+   [
+    "/web/demandes",
+    "Faire une demande"
+   ],
+   [
+    "/web/demandes/mes",
+    "Mes demandes"
+   ],
+   [
+    "/web/demandes/file",
+    "Ma file"
+   ],
+   [
+    "/web/demandes/hse",
+    "Heures supplémentaires"
+   ],
+   [
+    "/web/demandes/copies",
+    "Copies"
+   ],
+   [
+    "/web/mon-agenda",
+    "Mon agenda"
+   ],
+   [
+    "/web/emploi-du-temps",
+    "Emploi du temps"
+   ],
+   [
+    "/web/edt/semaine",
+    "EDT de la semaine"
+   ],
+   [
+    "/web/appel",
+    "Appel"
+   ],
+   [
+    "/web/cahier",
+    "Cahier de textes"
+   ],
+   [
+    "/web/cahier/continuite",
+    "Continuité"
+   ],
+   [
+    "/web/mes-classes",
+    "Mes classes"
+   ],
+   [
+    "/web/discipline",
+    "Discipline"
+   ],
+   [
+    "/web/evaluations",
+    "Évaluations"
+   ],
+   [
+    "/web/amenagements",
+    "Aménagements"
+   ],
+   [
+    "/web/delegations",
+    "Délégations"
+   ],
+   [
+    "/web/personnel/absences",
+    "Mes absences"
+   ],
+   [
+    "/web/personnel/remplacements",
+    "Mes remplacements"
+   ],
+   [
+    "/web/rendez-vous",
+    "Rendez-vous"
+   ],
+   [
+    "/web/voyages",
+    "Sorties"
+   ],
+   [
+    "/web/messages",
+    "Messages"
    ],
    [
     "/web/securite",

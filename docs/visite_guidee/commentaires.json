@@ -1,0 +1,244 @@
+{
+ "intro": [
+  "Ce document décrit **ce que l'ENT Leptos fait aujourd'hui**, tel qu'un utilisateur le voit : tous les écrans accessibles à chacun des 15 profils de labo, avec les vraies actions métier jouées dans le navigateur (Chromium) sur des données fictives. Rien n'est corrigé : un écran qui plante, un refus ou un message « pas encore disponible » est consigné tel quel. **Aucun pourcentage** : c'est Florian qui juge.",
+  "**Conditions.** Base PostgreSQL locale de test (`ENT_EXIGER_BASE=1`), serveur `ent-web-server` compilé avec la feature `labo` (`cargo leptos build`, profil de développement, donc plus lent qu'en production : ne pas lire les temps de chargement comme une mesure), établissement de labo fictif créé par `/labo/bootstrap`. Données de départ du labo + une seule écriture hors API : le lien entre un compte et l'élève majeur (l'invitation d'élève renvoie 503 « messagerie non configurée » en labo). Les séances datées du cahier de textes ont été générées par l'API d'administration (`POST /referentiel/annees/{id}/seances`).",
+  "**Profils visités** : direction, secrétariat (administratif), CPE / vie scolaire, accueil, professeur, professeur principal, infirmerie, comptabilité, psychologue, personnel (AED / agent), parent (un enfant), parent (deux enfants), élève mineur, élève majeur, administrateur. Il n'existe pas, dans le labo, de profil « prof principal » distinct : on a désigné un professeur comme principal de la 4B (`PUT /referentiel/classes/{id}/professeur-principal`) et on a regardé ce qui change.",
+  "**Fiabilité des signaux ⚠.** Le script repère automatiquement les écrans presque vides, les messages « pas encore disponible », les alertes, les refus du serveur (403) et les écrans restés en « Chargement… ». Ce sont des indices : chaque signal est relu à la main dans « Absent ou visiblement mince ». Les pages ne sont photographiées qu'une fois le chargement terminé (25 s au plus)."
+ ],
+ "retours": [
+  "**Design** : correct, classique, minimaliste (constat de Florian). **Barre de gauche** : trop d'entrées, à plat. À structurer en domaines et sous-domaines, avec la **même coquille pour tout le personnel** : seules les entrées visibles changent selon les droits (pas de « version vie scolaire » ni « version administratif »). **Signaux** (compteurs de choses à traiter) à prévoir sur tous les domaines, comme dans la version Next.js mais mieux faits ; le mécanisme doit exister avant d'ajouter d'autres modules.",
+  "**Gros domaines proposés par Florian** : administratif, notes, vie scolaire, comptabilité, paye, peut-être emploi du temps ; puis « services » (réservation de salles, voyages…) et « établissement » (communication, paramètres généraux). **Un module a un seul propriétaire mais plusieurs surfaces** : le module Absences existe en propre, et les absences se voient aussi dans la fiche élève (raccourci), dans Aujourd'hui, etc. Chaque module doit déclarer dès sa conception : domaine, écrans, surfaces, signaux, actions à portée de l'IA, notifications.",
+  "**Position de cette session** (à trancher par le pilote et Florian, non appliquée ici) : faire la structure maintenant plutôt qu'à la fin, en deux temps : (1) un squelette décidé en conception (carte des domaines, règle « une entrée = un domaine + un droit », une source serveur unique de signaux), (2) migration des écrans au fil de l'eau, une ligne par module. Détail dans la réponse faite à Florian pendant la session ; questions ouvertes : « paye » = préparation (états d'heures) ou paye complète ? « Pédagogie » (notes + cahier de textes) ou « Notes » seul ?",
+  "**Constats chiffrés de la visite qui appuient ce retour** : la barre compte 48 entrées pour la direction, 44 pour l'administrateur, 37 pour le secrétariat, 33 pour la CPE, 26 pour un professeur, 16 à 19 pour les familles et élèves. Le seul signal est le compteur de la messagerie. Autres constats de cohérence : le **professeur principal a exactement le même menu que le professeur** ; l'**élève majeur a le même menu que l'élève mineur** ; le parent à deux enfants a le même menu que le parent à un enfant ; la **psychologue n'a aucun écran propre** (son menu est celui de l'infirmerie sans « Infirmerie »)."
+ ],
+ "domaines": {
+  "00-accueil": {
+   "roles": [
+    "Tous : page « Aujourd'hui » (journée, messages non lus, annonces). Professeur : séances du jour avec appel à faire. Parent : journée de l'enfant, « À faire », sortie à venir, dernières notes (affichées à la demande).",
+    "Direction, CPE, secrétariat, administrateur : « Mes files », « Supervision des files », « Recherche » (palette « Rechercher ou agir », Ctrl K, jouée : elle propose des actions comme « Faire l'appel », « Donner une punition », « Préparer une sortie »).",
+    "Familles et élèves : « À faire » (liste unique de ce que la famille doit faire)."
+   ],
+   "manques": [
+    "**Aujourd'hui est presque vide** pour l'infirmerie, la psychologue, la comptabilité et le personnel (« Voici votre journée. À la une : Aucune annonce »), sans carte de travail à faire ni signal.",
+    "Aucun compteur de tâches (absences à traiter, justificatifs en attente, demandes en file) ni sur Aujourd'hui ni dans la barre, hormis les messages non lus.",
+    "Les familles n'ont pas de « Messages » dans leur page d'accueil au-delà du compteur ; l'accueil parent contient « Les notes s'affichent à votre demande »."
+   ],
+   "synthese": "Page d'accueil par rôle présente ; pas de signaux ; vide pour 4 profils"
+  },
+  "01-eleve": {
+   "roles": [
+    "Direction, secrétariat, CPE, accueil, infirmerie, comptabilité, psychologue, personnel, professeurs : liste « Élèves » (recherche tolérante aux fautes, filtres : sans INE, majeur, redoublant, nouvel arrivant, arrivé en cours d'année), fiche élève (section Synthèse, tuiles avec raison de masquage), dossier administratif, liste et fiche de classe, « Mes classes » (professeur). Le serveur limite la liste au périmètre du profil.",
+    "Joué : recherche « Granger » puis ouverture de la fiche, puis du dossier (direction)."
+   ],
+   "manques": [
+    "Aucune action de **modification de la fiche** jouable depuis un écran existant : changement de classe, de régime, sortie, fusion de doublons, protection d'un élève, contacts. Ces fonctions existent côté serveur (119 routes `eleves/*` sans écran).",
+    "Pas de création d'élève ni d'import (Siècle, Pronote, fichier) à l'écran.",
+    "La fiche affiche la synthèse et des tuiles ; **le raccourci « absences » vers le module d'assiduité** (principe « un module, plusieurs surfaces ») n'a pas été vérifié comme tuile cliquable."
+   ],
+   "synthese": "Annuaire, fiche, dossier, classes ; aucune écriture sur la fiche"
+  },
+  "02-inscriptions": {
+   "roles": [
+    "Direction, secrétariat : écran « Inscriptions » (campagnes d'admission et de réinscription, instruction des dossiers). Joué : création d'une campagne d'admission « Admissions 2027-2028 » (6e, 5e).",
+    "Parent, élève majeur : « Réinscription » (aucune campagne ouverte : « L'établissement ouvrira la campagne en temps voulu »). Pré-inscription publique : écran existant (`/web/preinscription`), non joué (accès sans compte)."
+   ],
+   "manques": [
+    "Après création de la campagne, l'écran ne confirme pas par un message : à vérifier sur la capture.",
+    "Pas d'écran d'**instruction d'un dossier** joué (pas de dossier candidat dans le labo) ; la réinscription côté famille est vide faute de campagne publiée.",
+    "26 routes d'inscription et 10 de réinscription n'ont pas d'écran (pièces, décisions, imports de dossiers)."
+   ],
+   "synthese": "Campagnes créables ; instruction non jouée ; côté famille vide"
+  },
+  "03-assiduite": {
+   "roles": [
+    "Professeur : **appel** complet jouable (séance d'un autre jour, présent / absent / retard avec minutes, « Appel fait » avec confirmation, **correction après validation**, historique par élève).",
+    "Parent : **déclarer une absence à l'avance**, **donner le motif** d'une absence relevée (motif + précision, envoi à la vie scolaire).",
+    "CPE / vie scolaire, direction, secrétariat : « Vie scolaire » (absences du jour, filtres, **examiner**, **accepter ou refuser le justificatif**, annuler l'absence d'un élève présent), « Journée », « Assiduité » et dossier d'assiduité d'un élève, « Accueil : élève », « Signalements », « Discipline » (punitions et sanctions).",
+    "Élèves : « Absences » (même écran famille, élève mineur et majeur identiques)."
+   ],
+   "manques": [
+    "**Discipline** : la recherche d'élève s'ouvre mais l'ouverture du dossier par la CPE a été **refusée par le serveur** (« Accès refusé : votre profil ne permet pas d'accéder à ces informations ») : aucune punition ni sanction n'a pu être donnée dans cette visite (à vérifier : droit du profil CPE de labo ou défaut).",
+    "**Signalements** : « fonctions à venir (lot AS9) » : rien n'est transmis, l'écran dit lui-même ce qui manque.",
+    "Vie scolaire : « le serveur ne fournit pas encore de liste des retards du jour ».",
+    "Accueil de l'établissement : l'écran « Accueil : élève » existe ; l'**appel du matin / retards à l'accueil / remise d'un élève** n'ont pas été jouables faute d'élève en situation.",
+    "71 routes sur 137 sans écran (qualification, requalification, décompte, vérification, familles…)."
+   ],
+   "synthese": "Appel, déclaration famille, décision CPE jouables ; discipline refusée ; signalements « à venir »"
+  },
+  "04-absences-personnels": {
+   "roles": [
+    "Professeur : **déclarer une absence** (aujourd'hui, demain ou dates, journée ou heures, nature, pièce jointe), « Mes absences », « Mes remplacements », « Mes heures ». Joué : déclaration d'absence pour demain.",
+    "Direction, secrétariat, administrateur, comptabilité : « Absences à instruire » (files à valider / à traiter / échéances / séances à couvrir), « Remplacements du jour », « Plan de remplacement », « Heures et états mensuels », « Remplacement de courte durée », « Réglages des absences » ; « Délégations de droits » pour tous.",
+    "Accueil et AED : « Signaler une absence » (signalement par un tiers)."
+   ],
+   "manques": [
+    "La file d'instruction de la direction affichait **0 à valider** après la déclaration du professeur : à vérifier (validation automatique ou absence non transmise).",
+    "Plusieurs écrans ne s'ouvrent pas pour la comptabilité (403 sur l'instruction et les états d'heures alors que le menu les propose).",
+    "La **paye** n'est pas un écran : seuls les états d'heures et les exports existent ; grèves, rattrapages, pièces, impact : 145 routes sans écran sur 180."
+   ],
+   "synthese": "Déclaration et files présentes ; instruction non jouée de bout en bout ; paye absente"
+  },
+  "05-edt": {
+   "roles": [
+    "Familles, élèves : « Emploi du temps », « Changements d'EDT ». Professeurs, CPE, direction : « Emploi du temps » (semaine), « EDT de la semaine » (vue établissement), remplacements.",
+    "Tous les personnels : « EDT de la semaine »."
+   ],
+   "manques": [
+    "Aucun écran de **construction ou de modification** de l'emploi du temps (import, publication, changement de salle ou de créneau) : l'emploi du temps du labo arrive par l'API ; 36 routes `edt/*` sans écran.",
+    "Chargement lent en développement (plus de 7 s pour la CPE) ; les captures attendent la fin du chargement."
+   ],
+   "synthese": "Consultation seulement ; aucune édition à l'écran"
+  },
+  "06-cahier": {
+   "roles": [
+    "Professeur : cahier du cours, **donner du travail** (jouée : travail « Exercices de potions » publié pour le 24-11, durée, mode de rendu, usage de l'IA), charge de travail des classes, continuité, adaptations, AESH.",
+    "Élève, parent : « Travail à faire » (agenda), « Mon cahier » (jouée : le travail publié apparaît en semaine suivante, avec les évaluations annoncées)."
+   ],
+   "manques": [
+    "Le cahier du professeur indique que les **séances datées sont générées par l'administration** : sans elles (génération faite ici par l'API), aucune consigne ne peut être donnée.",
+    "**« Travail à faire » (`/web/agenda`) reste en « Chargement… »** pour l'élève mineur et vide pour l'élève majeur ; « Mon cahier » du parent s'est aussi vu en chargement : à rejouer, mais l'écran n'a pas abouti pendant la visite.",
+    "Rendu de copies / suivi des rendus : écrans présents (`cahier/rendu`, `suivi`), non joués faute de rendu."
+   ],
+   "synthese": "Travail donné et vu côté élève ; écran agenda élève en chargement"
+  },
+  "07-evaluations": {
+   "roles": [
+    "Professeur : « Évaluations » (périodes, mes enseignements, conseils de classe, bulletins), vue de classe, évaluations d'un élève.",
+    "Parent, élève : « Évaluations » (consultation)."
+   ],
+   "manques": [
+    "**La grille de saisie des notes n'a pas pu s'ouvrir** : « Action refusée : valeur invalide : service sans matière du référentiel » (le service du professeur de labo n'a pas de matière dans le référentiel). Aucune note n'a donc été saisie dans cette visite : c'est le cœur du domaine.",
+    "La vue de classe (4B) s'ouvre presque vide (moyennes sans notes).",
+    "Bulletins, conseils de classe : écrans présents, non joués (pas de notes)."
+   ],
+   "synthese": "Écrans présents ; saisie de notes non jouable sur le jeu de labo"
+  },
+  "08-messagerie": {
+   "roles": [
+    "Tous (sauf accueil, personnel, psychologue, infirmerie et comptabilité, dont le menu **n'a pas d'entrée Messages**) : boîte de réception, recherche, filtre non lus, **nouveau message** (objet, texte, pièce jointe, relire puis envoyer). Joué : parent écrit à l'établissement ; le secrétariat ouvre la conversation."
+   ],
+   "manques": [
+    "La **réponse** d'un professeur ou du secrétariat n'a pas été jouée (ouverture seulement).",
+    "Cinq profils de personnel n'ont pas la messagerie dans le menu.",
+    "Pas de signal par domaine : compteur global seulement."
+   ],
+   "synthese": "Envoi famille jouable ; réponse non jouée ; absente du menu de 5 profils"
+  },
+  "09-agenda": {
+   "roles": [
+    "Personnel et familles : « Mon agenda » (semaine, sources à cocher, **nouvel événement** : joué, brouillon « Réunion équipe 4B »). Direction : « Rencontres parents-professeurs » (**création jouée**), réservation de salles (« Salles »). Parents : « Rendez-vous » avec les enseignants."
+   ],
+   "manques": [
+    "Mon agenda annonce lui-même « **Sources non affichées : échéance, agenda partagé (pas encore branchées)** ».",
+    "L'événement créé reste en brouillon : la **publication** n'a pas été jouée.",
+    "Réservation de salle : formulaire présent, non joué (aucune réservation créée).",
+    "Rendez-vous des parents : écran en attente des rencontres ouvertes."
+   ],
+   "synthese": "Événements et rencontres créables ; sources non branchées"
+  },
+  "10-voyages": {
+   "roles": [
+    "Tous les personnels : « Sorties » (liste filtrée par état, de brouillon à prête, recherche). Direction : **créer une sortie** (jouée : brouillon « Sortie au musée de la magie »), nouvelle série hebdomadaire. Familles et élèves : « Sorties ».",
+    "Tous voient les compteurs « à valider / budgets à valider / à autoriser / ouvertes / prêtes »."
+   ],
+   "manques": [
+    "Le **circuit de validation** (soumettre, valider, autoriser, ouvrir, budget, argent des sorties) n'a pas été joué : l'écran de fiche existe, les actions suivantes n'ont pas été enchaînées.",
+    "Stages et conventions : aucun écran (14 routes).",
+    "119 routes de `voyages/*` sur 146 n'ont pas d'écran (achats, argent, remises de chèques, V0d, V1)."
+   ],
+   "synthese": "Création de sortie jouable ; circuit de validation et argent sans écran"
+  },
+  "11-demandes": {
+   "roles": [
+    "Tous : « Faire une demande » (porte unique, recherche libre, types : certificat de scolarité, justifier une absence, changer de régime, exeat, aménagement d'examen, rendez-vous), « Mes demandes ». Personnel : « Ma file », « Heures supplémentaires (HSE) », « Copies ».",
+    "Secrétariat : file de traitement ouverte."
+   ],
+   "manques": [
+    "**Le clic sur un type de demande (ex. « Certificat de scolarité ») mène à « Page introuvable »** : la route de la demande n'existe pas dans l'application (seules `demandes`, `mes`, `file`, `hse`, `copies` sont déclarées). Aucune demande n'a pu être faite par la famille.",
+    "« Copies » : « le dépôt de fichiers arrive avec le coffre de documents » : écran sans dépôt.",
+    "HSE et files : plusieurs profils reçoivent des 403 au chargement."
+   ],
+   "synthese": "Porte d'entrée présente mais **la demande elle-même mène à une page introuvable**"
+  },
+  "12-formulaires": {
+   "roles": [
+    "Direction : « Formulaires et consentements » (**création d'un brouillon jouée**), qui a répondu, « Campagnes d'information » (**aperçu des destinataires joué**, canaux e-mail / mobile / SMS avec plafond). Parents, élèves : « Formulaires » (consentements à signer, décisions datées modifiables)."
+   ],
+   "manques": [
+    "Brouillon créé mais **non publié** : aucun parent n'a donc eu de formulaire à signer ; l'envoi réel d'une campagne (confirmation humaine) n'a pas été joué.",
+    "Documents à signer, accords, e-mails et SMS : 54 routes sans écran."
+   ],
+   "synthese": "Brouillons et aperçus jouables ; publication et signature non jouées"
+  },
+  "13-finances": {
+   "roles": [
+    "Comptabilité : « Comptabilité » (factures par état, prélèvements, relances, tarifs, export comptable, génération annuelle) : **tous les onglets ouverts**. Parents : « Factures et paiements » par foyer (reste à payer)."
+   ],
+   "manques": [
+    "Aucune facture dans le labo : **génération, émission, prélèvement, relance, export** non joués ; écrans vides de données.",
+    "Famille : « Le paiement en ligne n'est pas encore proposé ».",
+    "Bourses, restauration, tarifs de consommation, TVA, comptes débiteurs, clôture : 66 routes sans écran."
+   ],
+   "synthese": "Onglets présents, aucune opération jouée ; paiement en ligne absent"
+  },
+  "14-sante-accompagnement": {
+   "roles": [
+    "Infirmerie : « Infirmerie » (passages du jour, PAI à réviser, dossier de santé, fiche d'urgence), « Aménagements ». Direction, CPE : « Accompagnement » (PAP, PPS, PPRE, ULIS, AESH), dossier d'accompagnement d'un élève. Parent : « Santé de mon enfant »."
+   ],
+   "manques": [
+    "**Infirmerie** : l'infirmière de labo reçoit « **Accès refusé** » en cherchant un élève ; la liste des passages affiche « **Date invalide. Choisissez un jour valide** » pour le jour courant. Aucun passage n'a pu être enregistré.",
+    "**Accompagnement** : la liste des dispositifs à réviser répond « Accès refusé » à la direction ; **Santé de mon enfant** répond « Accès refusé » au parent.",
+    "Psychologue : aucun écran (dossiers, entretiens, rendez-vous, courrier d'orientation existent côté serveur)."
+   ],
+   "synthese": "Écrans présents mais refus de droits sur le jeu de labo ; psychologue sans écran"
+  },
+  "15-administration": {
+   "roles": [
+    "Direction, secrétariat, administrateur : « Référentiel » (années et bascule, sites, niveaux, MEF, classes, groupes, périodes, calendrier, grille horaire), « Rôles et droits » (**création d'un rôle « Professeur de théâtre » jouée**), politique de sécurité, protections, recherches bloquées.",
+    "Tous : « Compte » (sécurité : passkey, enrôlement, récupération) et « Notifications » (préférences)."
+   ],
+   "manques": [
+    "Pas d'écran de gestion des **comptes utilisateurs** (créer un personnel, activer, réinitialiser) ni d'**attribution** d'un rôle à une personne dans le parcours joué.",
+    "Pas d'écran d'import / export, de **journal d'audit**, de sauvegarde / restauration, de paramètres généraux de l'établissement (identité, horaires, communications).",
+    "Message de sécurité permanent : « C'est votre dernière passkey » (mot de passe seul accepté en labo)."
+   ],
+   "synthese": "Référentiel et rôles présents ; comptes, imports, audit sans écran"
+  },
+  "16-internat": {
+   "roles": [
+    "Aucun écran."
+   ],
+   "manques": [
+    "Le module d'internat n'a aucun écran : tout est côté serveur."
+   ],
+   "synthese": "Aucun écran"
+  },
+  "17-documents": {
+   "roles": [
+    "Aucun écran."
+   ],
+   "manques": [
+    "Aucun coffre de documents à l'écran (« arrive avec le coffre de documents » sur l'écran Copies) : dépôt, lecture, demandes d'accès existent côté serveur."
+   ],
+   "synthese": "Aucun écran"
+  }
+ },
+ "backend": {
+  "16-internat": "Domaine entièrement côté serveur.",
+  "17-documents": "Domaine entièrement côté serveur.",
+  "10-voyages": "La part visible est la création et la liste ; le circuit de validation, l'argent et les achats de sorties n'ont pas d'écran.",
+  "04-absences-personnels": "Les routes `personnels/*` comptent aussi les missions et dossiers RH, au-delà des absences."
+ },
+ "fin": [
+  "## Méthode et limites\n\n- **Comptage « backend sans écran »** : les chemins `.route(\"…\")` de `ent-api` sont comparés aux chemins écrits dans `ent-web-api` (client des écrans Leptos). Une route sans équivalent est comptée « sans écran » ; elle peut être utilisée par l'ancienne interface JavaScript, les applications mobiles ou des tâches internes. C'est donc un **majorant** ; les ordres de grandeur sont fiables, les chiffres exacts non. Domaines regroupés par premier segment de la route.",
+  "- **Actions** : « OK » signifie que le script a pu jouer l'action ; le texte renvoyé par l'écran est cité. Les ouvertures d'écran ou d'onglet comptent comme actions de consultation. Plusieurs actions décisives n'ont pas pu être jouées (voir les lignes « refusé par le serveur » et les « Absent ou mince »).\n- **Rejouer** : `node docs/visite_guidee/parcours.mjs <base> <dossier>` (serveur de labo lancé, Playwright installé ; `PHASE=visite` ou `PHASE=actions`, `SCENARIO=a,b`, `INSPECT=rôle@/chemin` pour décrire un écran), puis `python3 compresser.py <dossier>` et `node rapport.mjs`. Chaque lancement crée un nouvel établissement de labo.\n- Le rôle « professeur principal » a été rejoué séparément après un délai de connexion ; ses captures viennent d'un second établissement de labo (même jeu).",
+  "## À retenir pour la conception (sans pourcentage)\n\n1. Les domaines les plus **épais côté écran** : vie scolaire (appel, absences, discipline), absences des personnels, cahier de textes, voyages (création), messagerie.\n2. Les domaines **épais côté serveur mais minces à l'écran** : élèves (119 routes sans écran), voyages (119), absences des personnels (145), finances (66), formulaires (54), emploi du temps (36), agenda (50).\n3. Les domaines **sans écran** : internat, documents, stages, psychologue.\n4. **Défauts rencontrés** (non corrigés) : demande → page introuvable ; grille de notes impossible à ouvrir sur le jeu de labo ; refus de droits à l'infirmerie, à l'accompagnement, à la santé de l'enfant et à la discipline ; « Travail à faire » de l'élève en chargement ; « Date invalide » à l'infirmerie ; menu proposant des écrans refusés (403) pour plusieurs profils ; messagerie absente du menu de cinq profils.\n5. Pour la structure de navigation et les signaux, voir « Retours de Florian » plus haut."
+ ],
+ "corrections": [
+  {
+   "contient": "Certificat de scolarité",
+   "statut": "page introuvable",
+   "detail": "le clic sur le type de demande ouvre « Page introuvable »"
+  }
+ ]
+}
