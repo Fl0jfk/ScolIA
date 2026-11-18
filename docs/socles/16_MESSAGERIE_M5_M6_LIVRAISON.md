@@ -19,7 +19,7 @@ Niveau : **implémenté et testé en local, non validé par Florian, non prêt p
 | URL pré-signée de 60 s, émise après contrôle des droits ; expirée refusée ; lien vers le fichier **servi** ; chaque lien et chaque téléchargement journalisés (`ent_msg_piece_acces`, ajout seul, ni nom ni clé) | `lien_piece_message_for_actor` | `m5_url_60_secondes_expiree_refusee_et_journal` |
 | Participant retiré : plus rien ; tiers : **404 uniforme** (même réponse qu'une pièce inexistante) ; pièce d'un message retiré conservée, plus servie (R-M32) | `piece_a_servir` | `m5_participant_retire_et_tiers`, `m5_r_m32_message_retire` |
 | Reprise des `BYTEA` : idempotente, rejouable, simulation, rapport ; analyse a posteriori (état `saine` après analyse, §26) ; option `ent-api reprise-pieces --analyser` | `reprendre_et_analyser_pieces_messagerie` (réutilise `reprise_bytea.rs`) | `m5_reprise_bytea_rejouable_avec_rapport` |
-| Carte « document » : jointe par renvoi, jamais en fichier ; droit **du lecteur** relu à chaque lecture ; ouverture avec les droits du lecteur (trace du socle 7) ; un personnel qui déclare une nature du coffre est refusé (CM-60) | `joindre_carte_document_for_actor`, `cartes_du_fil_for_actor`, `ouvrir_carte_document_for_actor` | **voir « Écarts » : test d'intégration non écrit** |
+| Carte « document » : jointe par renvoi, jamais en fichier ; droit **du lecteur** relu à chaque lecture ; ouverture avec les droits du lecteur (trace du socle 7) ; un personnel qui déclare une nature du coffre est refusé (CM-60) | `joindre_carte_document_for_actor`, `cartes_du_fil_for_actor`, `ouvrir_carte_document_for_actor` | `m5_cm60_carte_document_droits_relus` |
 | Isolation entre établissements dans toutes les requêtes | tout | `m5_isolation_entre_etablissements`, `isolation_sql_statique` |
 
 ### M6 — lecture et avis
@@ -44,7 +44,7 @@ Niveau : **implémenté et testé en local, non validé par Florian, non prêt p
 - `cargo fmt` : `ent-types` et les cinq paquets web (`--check`) ; **jamais `--all`**.
 - clippy **1.99** `-D warnings` : workspace, workspace `--features ent-api/labo,ent-lab/labo`, puis `-p ent-types` : **0 erreur, 0 nouvel avertissement** dans les lignes ajoutées (rapport par règle 31). Puis `ent-db --features ent-db/labo` après fusion d'ENT.
 - Tous les `--locked`. `web/Cargo.lock` : `cargo +1.99.0 metadata --locked` vert ; lettre 0.11.24 dans les deux verrous.
-- ent-db, feature `labo`, base démarrée : suite messagerie M0a à M6, gardes (`garde_messagerie_lecture`), registre des données, RLS, reprise des `BYTEA`, ntf, documents D5 : **un seul échec observé en plus des corrigés, `tests_rls_lots::lot_eleves_responsables` (« tuple concurrently updated », concurrence de migration sur la base partagée, sans rapport avec le lot) ; à relancer seul**. `jour_utc_interdit` et `isolation_sql_statique` verts.
+- ent-db, feature `labo`, base démarrée, **passe finale : 227 réussis, 0 échec** (messagerie M0a à M6, gardes, registre, RLS, reprise des `BYTEA`, ntf, documents D4 et D5). Un échec transitoire `tests_rls_lots::lot_eleves_responsables` (« tuple concurrently updated », concurrence de migrations sur la base partagée) n'est pas revenu. `jour_utc_interdit` et `isolation_sql_statique` verts. Clippy `ent-db` (labo) revérifié après la fusion d'ENT.
 - ent-api (labo) : `fichiers_liens` 10/10, `fichiers_depot` 7/7, `separation` 56/56.
 - Aucun test à l'heure réelle ni au jour UTC (instants fixes, règle 33).
 
@@ -52,23 +52,22 @@ Niveau : **implémenté et testé en local, non validé par Florian, non prêt p
 Recalculés : tables avec RLS **+3** (`tests_rls.rs`, registre +3) ; `Action::TOUTES` inchangé (aucune action nouvelle) ; routes +5 (inventaire lu dans `routes.rs`) ; `MIGRATION_TAG` inchangé (3808, la plus haute du répertoire).
 
 ## Écarts et choses à ne pas présenter comme faites
-1. **Test d'intégration de la carte « document » non écrit** : le code existe (R-M33, droit relu à la lecture, CM-60) mais n'est couvert que par la compilation. À faire avant de la déclarer testée.
-2. **Gardes E7-E8 (élève mineur protégé)** : les routes de pièces passent par `actor_can_access_fil`, qui appelle l'autorisation du socle 2, mais **aucun test dédié** n'a été écrit pour un élève protégé.
-3. **Avis par `aviser` non branchés** : le socle 8 résout les destinataires par les liens de l'élève, la messagerie par les participants du fil. Les natures sont déclarées (lint vert), mais l'émission passe par `notifier_personne` avec le texte du gabarit. Il faut une extension « destinataires explicites » du socle 8 (lot N11). `participant_ajoute` et `nouveau_message*` ne sont pas émises par ce chemin (les chemins existants, déjà neutres, restent en place).
-4. Natures du §23 **non déclarées** ici : `mot_a_signer` (M7), `signalement` et `restriction` (M10), `publications.nouvelle` (M15).
-5. **HEIC non pris en charge** (CM-57 le prévoit converti) : le moteur de conversion du socle 7 ne lit que JPEG et PNG ; le HEIC est refusé à l'entrée (conversion côté appli).
-6. **403 conservé sur la lecture du fil** (`list_messages_for_actor`, M1) : seuls les pièces, les cartes et les nouvelles routes répondent 404 uniforme. Étendre au fil casserait de nombreux tests M0a à M3 ; à décider.
-7. **Un message peut recevoir une pièce de n'importe quel participant du fil** (pas seulement de son auteur) : comportement antérieur conservé, à resserrer.
-8. Pas d'accusé « refus » côté destinataire : R-M19 ne prévoit aucun réglage de refus ; interprété comme « une lecture qui n'est pas celle d'un destinataire ne pose rien ». S-145 reste écarté.
-9. Libellé de lecture « Prénom X. » et non « Mme B. » (aucune civilité en base).
-10. PNG/WebP/GIF : seuls JPEG et PNG sont nettoyés de leurs métadonnées ; GIF et WebP sont servis tels quels après l'antivirus.
-11. **Aucun écran Leptos** : carte « document », états de pièce, « lu par », prise en charge et disponibilité sont exposés par l'API seulement.
-12. **Sans démon antivirus, aucune pièce ne sort de quarantaine** (fermé par défaut), y compris les pièces historiques reprises.
+1. **Gardes E7-E8 (élève mineur protégé)** : les routes de pièces passent par `actor_can_access_fil`, qui appelle l'autorisation du socle 2, mais **aucun test dédié** n'a été écrit pour un élève protégé.
+2. **Avis par `aviser` non branchés** : le socle 8 résout les destinataires par les liens de l'élève, la messagerie par les participants du fil. Les natures sont déclarées (lint vert), mais l'émission passe par `notifier_personne` avec le texte du gabarit. Il faut une extension « destinataires explicites » du socle 8 (lot N11). `participant_ajoute` et `nouveau_message*` ne sont pas émises par ce chemin (les chemins existants, déjà neutres, restent en place).
+3. Natures du §23 **non déclarées** ici : `mot_a_signer` (M7), `signalement` et `restriction` (M10), `publications.nouvelle` (M15).
+4. **HEIC non pris en charge** (CM-57 le prévoit converti) : le moteur de conversion du socle 7 ne lit que JPEG et PNG ; le HEIC est refusé à l'entrée (conversion côté appli).
+5. **403 conservé sur la lecture du fil** (`list_messages_for_actor`, M1) : seuls les pièces, les cartes et les nouvelles routes répondent 404 uniforme. Étendre au fil casserait de nombreux tests M0a à M3 ; à décider.
+6. **Un message peut recevoir une pièce de n'importe quel participant du fil** (pas seulement de son auteur) : comportement antérieur conservé, à resserrer.
+7. Pas d'accusé « refus » côté destinataire : R-M19 ne prévoit aucun réglage de refus ; interprété comme « une lecture qui n'est pas celle d'un destinataire ne pose rien ». S-145 reste écarté.
+8. Libellé de lecture « Prénom X. » et non « Mme B. » (aucune civilité en base).
+9. PNG/WebP/GIF : seuls JPEG et PNG sont nettoyés de leurs métadonnées ; GIF et WebP sont servis tels quels après l'antivirus.
+10. **Aucun écran Leptos** : carte « document », états de pièce, « lu par », prise en charge et disponibilité sont exposés par l'API seulement.
+11. **Sans démon antivirus, aucune pièce ne sort de quarantaine** (fermé par défaut), y compris les pièces historiques reprises.
 
 ## Questions au pilote
 - Q-M15 (moteur antivirus) : le client `clamd` du socle 7 est réutilisé sans nouvelle dépendance ; le déploiement du démon reste à décider.
-- Faut-il étendre le 404 uniforme à la lecture du fil (écart 6) et resserrer l'attachement (écart 7) dans un lot dédié ?
-- Veux-tu l'extension « destinataires explicites » du socle 8 avant M7 (écart 3) ?
+- Faut-il étendre le 404 uniforme à la lecture du fil (écart 5) et resserrer l'attachement (écart 6) dans un lot dédié ?
+- Veux-tu l'extension « destinataires explicites » du socle 8 avant M7 (écart 2) ?
 
 ## Incident de méthode
 Une première compilation a été lancée avec `&` (interdit), arrêtée aussitôt et relancée avec `run_in_background` ; aucune autre.
