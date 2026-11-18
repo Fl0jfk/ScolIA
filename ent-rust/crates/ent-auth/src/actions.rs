@@ -703,9 +703,6 @@ impl Action {
         Action::RepasGerer,
         Action::RepasScanner,
         Action::InternatGerer,
-        Action::InternatLire,
-        Action::InternatAppel,
-        Action::InternatAppelValider,
         Action::SortiesGerer,
         Action::SortiesControler,
         Action::ElevesGerer,
@@ -960,6 +957,9 @@ impl Action {
         // Socle 42, lot V2a (en fin de catalogue : le catalogue historique est repéré par position).
         Action::VoyagesArgent,
         Action::VoyagesRemise,
+        Action::InternatLire,
+        Action::InternatAppel,
+        Action::InternatAppelValider,
     ];
 
     pub fn code(self) -> &'static str {

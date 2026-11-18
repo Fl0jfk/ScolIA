@@ -180,7 +180,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_inscription_resolution", &["id"]),
     d("ent_inscription_suivi", &["id"]),
     d("ent_internat_affectation", &["id"]),
-    r("ent_internat_appel_attendu", &["eleve_id"], "liste figée d'un appel de nuit (ajout seul) : ce qu'on croyait à l'heure de l'appel, elle reste sur la fiche pour laquelle elle a été figée"),
+    r("ent_internat_appel_attendu", &["appel_id", "eleve_id"], "liste figée d'un appel de nuit (ajout seul) : ce qu'on croyait à l'heure de l'appel, elle reste sur la fiche pour laquelle elle a été figée"),
     r("ent_internat_cas", &["eleve_id"], "cas de nuit (non retrouvé, retour tardif) : procédure, étapes et issue datées, jamais supprimés, ils restent sur la fiche concernée"),
     r("ent_internat_derogation", &["id"], "dérogation de la direction en ajout seul : décision datée qui reste sur la fiche pour laquelle elle a été prise"),
     r("ent_internat_lecture_sensible", &["eleve_id"], "journal des lectures sensibles de l'internat en ajout seul : trace d'accès, elle reste sur la fiche lue"),

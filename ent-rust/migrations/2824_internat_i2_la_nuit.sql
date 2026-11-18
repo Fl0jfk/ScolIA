@@ -433,6 +433,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_procedure_etape (
     libelle TEXT NOT NULL CHECK (char_length(btrim(libelle)) BETWEEN 1 AND 200),
     delai_minutes SMALLINT NOT NULL CHECK (delai_minutes BETWEEN 0 AND 720),
     appelle TEXT NOT NULL CHECK (appelle IN ('astreinte', 'titulaires', 'direction', 'secours', 'aucun')),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_internat_procedure_etape_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_internat_procedure_etape_rang_uq UNIQUE (etablissement_id, procedure_version_id, rang),
     CONSTRAINT ent_internat_procedure_etape_version_cfk FOREIGN KEY (etablissement_id, procedure_version_id)
