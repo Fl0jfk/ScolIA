@@ -525,7 +525,7 @@ jobs:
           tar xzf binaryen.tar.gz
           echo "${{ runner.temp }}/binaryen-version_123/bin" >> "$GITHUB_PATH"
       - name: Build Leptos du WebAssembly (release, fichiers précompressés)
-        run: cargo leptos build --release --precompress --lib-only
+        run: cargo leptos build --release --precompress --frontend-only
       - name: Taille des fichiers envoyés au navigateur
         run: |
           ls -l target/site/pkg
@@ -560,7 +560,7 @@ jobs:
         with:
           tool: cargo-leptos@0.3.11,wasm-bindgen-cli@0.2.130
       - name: Build Leptos du serveur (release)
-        run: cargo leptos build --release --bin-only
+        run: cargo leptos build --release --server-only
 
   # Compile UNE fois les binaires de test (une seule configuration de features : labo), en archive nextest.
   frontend-archive:
