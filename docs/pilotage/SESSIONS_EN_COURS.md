@@ -303,3 +303,15 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **CI frontend versée** : ENT e5ddda1e, par avance rapide. Le code de la CI est celui de 4c77bf8, testé vert au run 402 ; le commit suivant ne touche que la documentation.
   - Le job frontend passe de 78 min à environ 21 min de calcul ; 153 tests, avec contrôle de couverture. Session archivée.
   - **Aucune session ne code.** Deux places sont libres ; ENT est gelé jusqu'au verdict de son run (le premier avec la nouvelle CI frontend).
+- **18-11, 9 h 32 UTC** :
+  - **Run 404 vert** sur e5ddda1e, le premier avec la nouvelle CI frontend (37 min au total).
+  - **Deux sessions lancées** :
+    - **M5-M6** (session_01KZCbFGaKnJBZ6QwnB598ss, ent-socle-16-code-m5m6, migrations 488-493) : pièces jointes, lecture et avis de la messagerie.
+    - **Suites** (session_01KZCbFDETMvmH4TgjZecXQF, ent-suites-18-11, migrations 653-659) :
+      - planificateur des passages de V2a ;
+      - jour de l'établissement pour le quota du guichet ;
+      - liste blanche par type d'événement des finances ;
+      - balayage des photos orphelines ;
+      - export après le commit ;
+      - `health-cmd` de PostgreSQL avec `-d`.
+  - **Question de Florian** sur les journaux PostgreSQL de la CI : les « database ent_ci does not exist » viennent du contrôle de santé (`pg_isready` sans `-d`), corrigé dans le lot Suites. Les ERROR sont des refus voulus par les tests négatifs (ajout seul, RLS, contraintes).
