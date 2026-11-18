@@ -325,3 +325,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - La session refuse les compléments transmis par message : sa règle 1 exige que les consignes figurent au lancement.
   - Le pilote les a faits lui-même (efb77db4) : ceinture `ent_eleve.photo_key` avec son test (18 tests verts en local, base démarrée) et `health-cmd -d ent_ci_test` sur les 4 services.
   - **Leçon** : mettre dans le message de lancement toute consigne connue à l'avance. Une correction de dernière minute se fait par le pilote.
+- **18-11, 11 h 35 UTC, faille RUSTSEC-2026-0565** (`lettre` 0.11.23 : une réponse SMTP sans borne peut épuiser la mémoire ; le risque vient de STARTTLS et des serveurs non fiables).
+  - Repérée sur le job Audits de la PR 100.
+  - **ENT c65c41e6** : lettre 0.11.24 dans les deux Cargo.lock (email-encoding 0.4.3), ent-mail compile.
+  - Fusionnée dans ent-suites-18-11 ; M5-M6 prévenue.
+  - ENT est gelé jusqu'au verdict.
