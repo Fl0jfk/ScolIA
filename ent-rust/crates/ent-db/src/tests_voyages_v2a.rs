@@ -890,7 +890,7 @@ async fn m1_concurrence_double_pointage_double_annulation_sans_interblocage() {
     )
     .await
     .expect("aucun interblocage");
-    for e in [fin.0.err(), fin.1.err().map(|e| e), fin.2.err()].into_iter().flatten() {
+    for e in [fin.0.err(), fin.1.err(), fin.2.err()].into_iter().flatten() {
         let t = format!("{e:?}");
         assert!(!t.contains("deadlock") && !t.contains("40P01") && !t.contains("Db("), "{t}");
     }
