@@ -308,6 +308,22 @@ pub mod types {
     /// Effet d'un changement de régime sur l'hébergement : affectation close, avis au responsable.
     pub const INTERNAT_REGIME_EFFET: &str = "internat.regime_effet";
     pub const INTERNAT_PARAMETRES: &str = "internat.parametres";
+    // Socle 41, lot I2 (la nuit). Charges NEUTRES : identifiants, dates, codes et compteurs ; jamais
+    // de nom, de motif en clair ni de donnée de santé (R-IT6).
+    pub const INTERNAT_NUIT_EXCEPTIONNELLE: &str = "internat.nuit_exceptionnelle";
+    pub const INTERNAT_ATTENDU_MODIFIE: &str = "internat.attendu_modifie";
+    pub const INTERNAT_APPEL_OUVERT: &str = "internat.appel_ouvert";
+    pub const INTERNAT_APPEL_CLOS: &str = "internat.appel_clos";
+    pub const INTERNAT_APPEL_VALIDE: &str = "internat.appel_valide";
+    pub const INTERNAT_APPEL_CORRIGE: &str = "internat.appel_corrige";
+    pub const INTERNAT_APPEL_EN_RETARD: &str = "internat.appel_en_retard";
+    pub const INTERNAT_PRESENCE_POINTEE: &str = "internat.presence_pointee";
+    pub const INTERNAT_CAS_OUVERT: &str = "internat.cas_ouvert";
+    pub const INTERNAT_CAS_ETAPE: &str = "internat.cas_etape";
+    pub const INTERNAT_CAS_CLOS: &str = "internat.cas_clos";
+    pub const INTERNAT_ABSENCE_NUIT: &str = "internat.absence_nuit";
+    pub const INTERNAT_TRANSMISSION: &str = "internat.transmission";
+    pub const INTERNAT_EFFECTIF_REPAS: &str = "internat.effectif_repas";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";

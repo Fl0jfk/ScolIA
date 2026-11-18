@@ -43,6 +43,7 @@ pub mod identite;
 pub mod inscriptions;
 pub mod inscriptions_pieces;
 pub mod internat;
+pub mod internat_nuit;
 pub mod palette;
 pub mod personnels;
 pub mod personnels_delegations;

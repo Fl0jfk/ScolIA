@@ -162,6 +162,13 @@ pub enum Action {
     RepasScanner,
     /// Gérer l'internat (chambres, affectations, présence, suivis).
     InternatGerer,
+    /// Socle 41, lot I2 : lire l'attendu, les appels, les cas et l'effectif de nuit (portée : tout
+    /// l'internat ou les élèves désignés, par exemple une formation, R-IT30).
+    InternatLire,
+    /// Socle 41, lot I2 : ouvrir un appel de nuit et pointer les élèves de son périmètre.
+    InternatAppel,
+    /// Socle 41, lot I2 : clore et valider un appel, le corriger après validation, tenir un cas.
+    InternatAppelValider,
     /// Gérer les sorties (règles, autorisations, demandes exceptionnelles).
     SortiesGerer,
     /// Contrôler les sorties au portail (scan de badge).
@@ -658,7 +665,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 271] = [
+    pub const TOUTES: [Action; 274] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -696,6 +703,9 @@ impl Action {
         Action::RepasGerer,
         Action::RepasScanner,
         Action::InternatGerer,
+        Action::InternatLire,
+        Action::InternatAppel,
+        Action::InternatAppelValider,
         Action::SortiesGerer,
         Action::SortiesControler,
         Action::ElevesGerer,
@@ -1026,6 +1036,9 @@ impl Action {
             Self::RepasGerer => "repas.gerer",
             Self::RepasScanner => "repas.scanner",
             Self::InternatGerer => "internat.gerer",
+            Self::InternatLire => "internat.lire",
+            Self::InternatAppel => "internat.appel",
+            Self::InternatAppelValider => "internat.appel.valider",
             Self::SortiesGerer => "sorties.gerer",
             Self::SortiesControler => "sorties.controler",
             Self::ElevesGerer => "eleves.gerer",
@@ -1303,6 +1316,9 @@ impl Action {
             Self::RepasGerer => "Paramétrer la restauration (activités, grilles, menus)",
             Self::RepasScanner => "Scanner les badges de cantine",
             Self::InternatGerer => "Gérer l'internat (chambres, présence, suivis)",
+            Self::InternatLire => "Lire l'attendu, les appels et les cas de nuit de l'internat",
+            Self::InternatAppel => "Ouvrir un appel de nuit et pointer les internes de son périmètre",
+            Self::InternatAppelValider => "Clore, valider et corriger un appel de nuit ; tenir un cas",
             Self::SortiesGerer => "Gérer les sorties (règles, autorisations, demandes)",
             Self::SortiesControler => "Contrôler les sorties au portail",
             Self::ElevesGerer => "Gérer les élèves, foyers, liens et comptes",
@@ -1632,6 +1648,11 @@ impl Action {
             | Self::MatieresGerer
             | Self::ConseilsGerer
             | Self::DocsSignerPublier => &[Portee::Etablissement],
+            // Socle 41, lot I2 (R-IT30) : une direction de formation (collège, lycée) lit et valide
+            // seulement ses élèves : portée « désignés » (classes de la formation) en plus de l'établissement.
+            Self::InternatLire | Self::InternatAppel | Self::InternatAppelValider => {
+                &[Portee::Etablissement, Portee::Designes]
+            }
             // E1 : lectures d'identité par groupe, 4 portées (comme `_` ci-dessous) ;
             // les écritures et la gouvernance sont d'établissement entier.
             Self::ElevesAnnuaire
@@ -1919,6 +1940,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_12_assiduite(role, &mut d);
     socle_29_afaire(role, &mut d);
     socle_42_voyages(role, &mut d);
+    socle_41_internat(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
     socle_06_personnels(role, &mut d);
@@ -2661,6 +2683,19 @@ fn socle_8_notifications(role: Role, d: &mut Vec<(Action, Portee)>) {
 }
 
 /// Socle 42 (sorties et voyages), lot V0a. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Socle 41, lot I2 (`41_INTERNAT.md` §21.1) : la nuit. Le surveillant d'internat, le responsable
+/// d'internat et la direction d'une formation sont des rôles paramétrables (D-017) bâtis sur ces
+/// actions ; le modèle par défaut ne les donne qu'à l'administration, à la direction et au CPE.
+/// Professeur, infirmerie, psychologue et comptabilité n'ont AUCUN de ces droits (corrige RI-03).
+fn socle_41_internat(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        for a in [InternatLire, InternatAppel, InternatAppelValider] {
+            d.push((a, Portee::Etablissement));
+        }
+    }
+}
+
 fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);

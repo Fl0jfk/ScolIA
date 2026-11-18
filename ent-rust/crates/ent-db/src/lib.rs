@@ -201,7 +201,9 @@ mod repas_repo;
 mod sanction_repo;
 mod tenant_tx;
 mod sortie_repo;
+mod internat_cas;
 mod internat_hebergement;
+mod internat_nuit;
 mod internat_reactions;
 mod internat_repo;
 mod dispense_vs_repo;
@@ -723,6 +725,8 @@ mod tests_documents_d5;
 mod tests_documents_d6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]

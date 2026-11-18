@@ -384,6 +384,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2821_internat_i0_regime_parametres"),
     m!("2822_internat_i1_zones_chambres_lits"),
     m!("2823_internat_i1_sejours_affectations"),
+    // Socle 41, lot I2 (la nuit) : attendu calculé, appels, cas et procédures, transmission, rappels,
+    // journal des lectures. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2824_internat_i2_la_nuit"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),

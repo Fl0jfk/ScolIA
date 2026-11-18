@@ -377,6 +377,21 @@ async fn run_api() {
             }
         });
     }
+    // Socle 41 (I2) : rappel d'un appel de nuit non validé à l'heure limite (une seule fois par niveau :
+    // surveillant, puis CPE d'astreinte). Chaque minute ; idempotent, la base garantit l'unicité.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.internat_rappels_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(rappels = n, "rappels d'appel de nuit"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("rappels d'appel de nuit : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {
