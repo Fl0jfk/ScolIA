@@ -466,6 +466,27 @@ async fn run_api() {
         })
     });
 
+    // Suites du 18 novembre : passages quotidiens des voyages (alertes d'échéance des acomptes fournisseurs, purge
+    // à 30 jours des exports CSV de l'argent) et balayage borné des objets orphelins (photos d'élèves, exports),
+    // sur le MÊME planificateur : idempotent, lancé toutes les heures car « le jour » dépend du fuseau de chaque
+    // établissement. Désactivable (`ENT_TACHES_VOYAGES_OBJETS=0`).
+    let taches_voyages_objets = taches_voyages_objets_actives().then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            loop {
+                match ent.passages_quotidiens(None).await {
+                    Ok(b) if b.acomptes_alertes + b.exports_purges + b.photos_orphelines + b.exports_orphelins + b.erreurs > 0 => {
+                        tracing::info!(?b, "passages quotidiens des voyages et balayage des objets")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("passages quotidiens des voyages et balayage des objets : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
     // Socle 29 (P2) : rapprochement de l'index des tâches (reprise initiale, appels non faits,
     // réparation des événements perdus). Idempotent, toutes les 10 minutes ; l'affichage ne dépend
     // jamais de lui (revérification à la lecture, R-PO3). Désactivable (`ENT_AFAIRE_RAPPROCHEMENT=0`).
@@ -719,6 +740,9 @@ async fn run_api() {
     if let Some(t) = taches_eleves {
         t.abort();
     }
+    if let Some(t) = taches_voyages_objets {
+        t.abort();
+    }
     if let Some(t) = rapprochement_afaire {
         t.abort();
     }
@@ -769,6 +793,15 @@ fn notifications_actives() -> bool {
     )
 }
 
+/// Passages quotidiens des voyages et balayage des objets : actifs sauf `ENT_TACHES_VOYAGES_OBJETS=0|false|non|off`.
+fn taches_voyages_objets_actives() -> bool {
+    !valeur_desactivante(&std::env::var("ENT_TACHES_VOYAGES_OBJETS").unwrap_or_default())
+}
+
+fn valeur_desactivante(v: &str) -> bool {
+    matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "non" | "off")
+}
+
 fn taches_eleves_actives() -> bool {
     !matches!(
         std::env::var("ENT_TACHES_ELEVES")
@@ -816,4 +849,20 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("signal d'arrêt reçu — fermeture gracieuse…");
+}
+
+#[cfg(test)]
+mod tests_planificateur {
+    use super::valeur_desactivante;
+
+    /// Les passages quotidiens des voyages se désactivent par la variable d'environnement, comme les autres tâches.
+    #[test]
+    fn la_variable_desactive_les_passages_quotidiens() {
+        for v in ["0", "false", "NON", " off "] {
+            assert!(valeur_desactivante(v), "{v}");
+        }
+        for v in ["", "1", "true", "oui"] {
+            assert!(!valeur_desactivante(v), "{v}");
+        }
+    }
 }

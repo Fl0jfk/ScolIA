@@ -453,6 +453,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("489_msg_m6_lecture"),
     // Correctifs de la revue de sécurité de M5-M6 (490 : annulation d'un message différé, journal d'ouverture des liens).
     m!("490_msg_correctifs_revue"),
+    // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
+    m!("3201_jour_etablissement_unique"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

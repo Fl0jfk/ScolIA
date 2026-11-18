@@ -19593,7 +19593,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_FACTURE_CREEE, json!({
                     "foyer_id": facture.foyer_id,
                     "numero": facture.numero,
                     "total_centimes": facture.total_centimes,
@@ -19644,7 +19644,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: emise.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_FACTURE_EMISE, json!({
                     "foyer_id": emise.foyer_id,
                     "numero": emise.numero,
                     "total_centimes": emise.total_centimes,
@@ -19900,7 +19900,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_ECHEANCIER_POSE, json!({
                     "numero": facture.numero,
                     "nb": echeances.len(),
                     "total_centimes": facture.total_centimes,
@@ -19962,7 +19962,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: facture.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_ECHEANCIER_POSE, json!({
                     "numero": facture.numero,
                     "nb": echeances.len(),
                     "mode": "parts_egales",
@@ -20016,7 +20016,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: enc.facture_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_ENCAISSEMENT, json!({
                     "encaissement_id": enc.id,
                     "montant_centimes": enc.montant_centimes,
                     "moyen": enc.moyen.as_str(),
@@ -20038,7 +20038,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: quittance.facture_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_QUITTANCE_EMISE, json!({
                     "quittance_id": quittance.id,
                     "numero": quittance.numero,
                     "montant_centimes": quittance.montant_centimes,
@@ -20055,7 +20055,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     aggregate: AggregateKind::Facture,
                     aggregate_id: facture.id,
                     eleve_id: None,
-                    payload: crate::facturation_service::payload_neutre(json!({
+                    payload: crate::facturation_service::payload_neutre_pour(types::FAC_FACTURE_SOLDEE, json!({
                         "numero": facture.numero,
                         "total_centimes": facture.total_centimes,
                     })),
@@ -20198,7 +20198,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: mandat.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_MANDAT, json!({
                     "foyer_id": mandat.foyer_id,
                     "rum": mandat.rum,
                     "statut": mandat.statut.as_str(),
@@ -20349,7 +20349,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: revoke.id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_MANDAT, json!({
                     "foyer_id": revoke.foyer_id,
                     "rum": revoke.rum,
                     "statut": revoke.statut.as_str(),
@@ -20458,7 +20458,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: prev.facture_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_PRELEVEMENT, json!({
                     "prelevement_id": prev.id,
                     "montant_centimes": prev.montant_centimes,
                     "date_execution": prev.date_execution,
@@ -20563,7 +20563,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: etablissement_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_EXPORT, json!({
                     "debut": debut,
                     "fin": fin,
                     "nb": lignes.len(),
@@ -20613,7 +20613,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: rejected.facture_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_REJET, json!({
                     "prelevement_id": rejected.id,
                     "statut": rejected.statut.as_str(),
                     "motif_rejet": rejected.motif_rejet,
@@ -20855,7 +20855,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Facture,
                 aggregate_id: executed.facture_id,
                 eleve_id: None,
-                payload: crate::facturation_service::payload_neutre(json!({
+                payload: crate::facturation_service::payload_neutre_pour(types::FAC_SEPA_EXECUTE, json!({
                     "prelevement_id": executed.id,
                     "encaissement_id": enc.id,
                     "quittance_id": quittance.id,
@@ -20962,7 +20962,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         aggregate: AggregateKind::Facture,
                         aggregate_id: rappel.facture_id,
                         eleve_id,
-                        payload: crate::facturation_service::payload_neutre(json!({
+                        payload: crate::facturation_service::payload_neutre_pour(types::FAC_RAPPEL_ENVOYE, json!({
                             "rappel_id": rappel.id,
                             "echeance_id": rappel.echeance_id,
                             "kind": rappel.kind.as_str(),

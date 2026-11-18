@@ -1489,3 +1489,58 @@ fn f7_repartition_bornee_a_huit_payeurs() {
     let huit: Vec<(Uuid, i64, i16)> = (0..8).map(|i| (Uuid::new_v4(), if i == 0 { 3_000 } else { 1_000 }, 1)).collect();
     assert!(payeurs::valider_repartition(&huit).is_ok());
 }
+
+/// Suite F1-F2 : le quota du guichet se compte dans **le jour de l'établissement** (son fuseau), jamais dans le jour
+/// de Paris ni le jour UTC. Aucune heure réelle : les lignes du journal sont posées à des instants fixes et le
+/// contrôle est appelé à un instant donné, autour de minuit local.
+#[tokio::test]
+async fn quota_du_guichet_compte_le_jour_de_l_etablissement_autour_de_minuit() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (du, dr) = direction(&c);
+    let (su, sr) = secretariat(&c);
+    assert_eq!(ent.definir_quota_guichet_for_actor(etab, du, dr, 2).await.unwrap(), 2);
+    let instant = |s: &str| chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc);
+    let poser = |le: &'static str, n: usize| {
+        let (ent, etab, su) = (&ent, etab, su);
+        async move {
+            for _ in 0..n {
+                sqlx::query(
+                    "INSERT INTO ent_fin_journal (id, etablissement_id, le, acteur_user_id, casquette, chemin, action, objet_type)
+                     VALUES ($1, $2, $3::timestamptz, $4, 'administratif', 'guichet', 'guichet.consulter', 'compte')",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(le)
+                .bind(su)
+                .execute(ent.pool_verif())
+                .await
+                .unwrap();
+            }
+        }
+    };
+    let refuse = |r: Result<(), EntDbError>| matches!(r, Err(EntDbError::Refus(_, _)));
+
+    // Auckland (UTC+12 en juin). Deux consultations à 23 h 30 le 14 (11 h 30 UTC ; 13 h 30 à Paris).
+    ent.definir_fuseau_etablissement_for_actor(etab, du, dr, "Pacific/Auckland").await.expect("fuseau");
+    poser("2026-06-14T11:30:00Z", 2).await;
+    // Même jour local (23 h 45 le 14) : quota atteint.
+    assert!(refuse(ent.controler_quota_guichet_a(etab, su, sr, instant("2026-06-14T11:45:00Z")).await));
+    // 0 h 30 le 15 à Auckland (12 h 30 UTC, toujours le 14 à Paris) : nouveau jour de l'établissement, compteur à zéro.
+    ent.controler_quota_guichet_a(etab, su, sr, instant("2026-06-14T12:30:00Z")).await.expect("nouveau jour local");
+    // Deux consultations à 9 h 30 le 15 à Auckland (21 h 30 UTC le 14 : 23 h 30 à Paris, la veille du jour de Paris suivant).
+    poser("2026-06-14T21:30:00Z", 2).await;
+    // 10 h 30 le 15 à Auckland = 0 h 30 le 15 à Paris : jour de Paris nouveau, jour de l'établissement identique → refus.
+    assert!(refuse(ent.controler_quota_guichet_a(etab, su, sr, instant("2026-06-14T22:30:00Z")).await));
+
+    // Cayenne (UTC−3). Deux consultations à 23 h 30 le 19 (02 h 30 UTC le 20 ; 04 h 30 à Paris le 20).
+    ent.definir_fuseau_etablissement_for_actor(etab, du, dr, "America/Cayenne").await.expect("fuseau");
+    poser("2026-06-20T02:30:00Z", 2).await;
+    assert!(refuse(ent.controler_quota_guichet_a(etab, su, sr, instant("2026-06-20T02:50:00Z")).await));
+    // 0 h 30 le 20 à Cayenne (03 h 30 UTC, 05 h 30 à Paris : même jour de Paris que les lignes) : nouveau jour local.
+    ent.controler_quota_guichet_a(etab, su, sr, instant("2026-06-20T03:30:00Z")).await.expect("nouveau jour à Cayenne");
+
+    // Les lignes d'un autre agent ne comptent pas.
+    let (autre, ar) = (c.direction.user_id, Role::Direction.as_str());
+    ent.controler_quota_guichet_a(etab, autre, ar, instant("2026-06-20T02:50:00Z")).await.expect("autre agent");
+}

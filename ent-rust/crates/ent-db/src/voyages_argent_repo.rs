@@ -1567,11 +1567,25 @@ impl PgEnt {
 
     /// Détruit les fichiers d'export de plus de 30 jours d'un établissement (objet supprimé, date de purge inscrite).
     pub(crate) async fn exports_purger_tx(&self, conn: &mut PgConnection, etab: Uuid) -> Result<usize, EntDbError> {
+        self.exports_purger_au_tx(conn, etab, None).await
+    }
+
+    /// Même purge pour un jour donné (`None` : le jour de l'établissement). L'âge se compte en **jours de
+    /// l'établissement** : un export créé le jour J est détruit à partir du jour J + 30.
+    pub(crate) async fn exports_purger_au_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        jour: Option<NaiveDate>,
+    ) -> Result<usize, EntDbError> {
         let vieux: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT id, cle_objet FROM ent_sortie_argent_export
-              WHERE etablissement_id = $1 AND purge_le IS NULL AND cree_le < now() - interval '30 days' ORDER BY cree_le",
+              WHERE etablissement_id = $1 AND purge_le IS NULL
+                AND ent_aujourdhui_etab($1, cree_le) + 30 <= COALESCE($2::date, ent_aujourdhui_etab($1, now()))
+              ORDER BY cree_le",
         )
         .bind(etab)
+        .bind(jour)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
@@ -1583,14 +1597,20 @@ impl PgEnt {
                 .execute(&mut *conn)
                 .await
                 .map_err(db)?;
+            crate::objets::marquer_objet_supprime(&mut *conn, etab, cle).await?;
         }
         Ok(vieux.len())
     }
 
     /// Passage de purge d'un établissement (catégorie de conservation `sor.export_argent`, 30 jours).
     pub async fn voyages_argent_exports_purger(&self, etab: Uuid) -> Result<usize, EntDbError> {
+        self.voyages_argent_exports_purger_au(etab, None).await
+    }
+
+    /// Même passage pour un jour donné (planificateur et tests : aucune heure réelle).
+    pub async fn voyages_argent_exports_purger_au(&self, etab: Uuid, jour: Option<NaiveDate>) -> Result<usize, EntDbError> {
         let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let n = self.exports_purger_tx(&mut t, etab).await?;
+        let n = self.exports_purger_au_tx(&mut t, etab, jour).await?;
         t.commit().await.map_err(db)?;
         Ok(n)
     }
@@ -1632,48 +1652,86 @@ impl PgEnt {
         let octets = csv.texte.into_bytes();
         let eid = Uuid::new_v4();
         let cle = ObjectStore::key_for(a.etablissement_id, "voyages-argent", eid, "csv");
-        let cle_objet = cle.clone();
-        let info = self.objet_put(&cle, &octets).await?;
-        crate::objets::enregistrer_objet(&mut *t, a.etablissement_id, &info, Some("text/csv")).await?;
-        sqlx::query(
-            "INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(eid)
-        .bind(a.etablissement_id)
-        .bind(s.id)
-        .bind(nb as i32)
-        .bind(&cle)
-        .bind(&info.sha256)
-        .bind(a.user_id)
-        .execute(&mut *t)
-        .await
-        .map_err(db)?;
-        self.acces_nominatif(&mut t, a, Some(s.id), "export", nb).await?;
-        let lien = self
-            .presigner()
-            .issue(
-                &LinkSpec {
-                    key: cle,
-                    user_id: a.user_id,
-                    etablissement_id: a.etablissement_id,
-                    disposition: Disposition::Attachment,
-                    filename: format!("{}-suivi-argent.csv", s.reference),
-                    mime: "text/csv".to_string(),
-                },
-                ent_object::presign::now_unix(),
+        // F7 : l'objet est écrit ET inscrit au registre des objets dans sa propre transaction, validée **avant** celle du
+        // geste. Si le processus s'arrête ensuite (avant le commit de l'export), l'objet est connu du registre sans
+        // ligne d'export : le balayage des objets orphelins (`balayer_objets_orphelins`, passage quotidien, délai de
+        // grâce) le détruit. Sans cette inscription, un objet écrit puis jamais référencé serait introuvable.
+        let info = self.stocker_objet(a.etablissement_id, &cle, Some("text/csv"), &octets).await?;
+        let suite = async {
+            sqlx::query(
+                "INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)",
             )
-            .map_err(|e| match e {
-                PresignError::Disabled => EntDbError::LiensIndisponibles,
-                _ => EntDbError::FichierAbsent,
-            })?;
-        // F7 : l'objet est déjà au magasin ; si la validation échoue, il est balayé tout de suite (jamais d'orphelin).
-        if let Err(e) = t.commit().await {
-            let _ = self.objet_supprimer(&cle_objet).await;
-            return Err(db(e));
+            .bind(eid)
+            .bind(a.etablissement_id)
+            .bind(s.id)
+            .bind(nb as i32)
+            .bind(&cle)
+            .bind(&info.sha256)
+            .bind(a.user_id)
+            .execute(&mut *t)
+            .await
+            .map_err(db)?;
+            self.acces_nominatif(&mut t, a, Some(s.id), "export", nb).await?;
+            let lien = self
+                .presigner()
+                .issue(
+                    &LinkSpec {
+                        key: cle.clone(),
+                        user_id: a.user_id,
+                        etablissement_id: a.etablissement_id,
+                        disposition: Disposition::Attachment,
+                        filename: format!("{}-suivi-argent.csv", s.reference),
+                        mime: "text/csv".to_string(),
+                    },
+                    ent_object::presign::now_unix(),
+                )
+                .map_err(|e| match e {
+                    PresignError::Disabled => EntDbError::LiensIndisponibles,
+                    _ => EntDbError::FichierAbsent,
+                })?;
+            t.commit().await.map_err(db)?;
+            Ok::<_, EntDbError>(lien)
         }
+        .await;
+        // Toute erreur après l'écriture de l'objet le retire tout de suite (sauf si la ligne d'export existe : commit
+        // dont la réponse s'est perdue) ; ce qui échappe encore (arrêt du processus) est balayé plus tard.
+        let lien = match suite {
+            Ok(l) => l,
+            Err(e) => {
+                self.retirer_export_orphelin(a.etablissement_id, eid, &cle).await;
+                return Err(e);
+            }
+        };
         let LienFichier { url, expires_at } = LienFichier { url: lien.url, expires_at: lien.expires_at };
         Ok(ExportFait { lien: url, expire_a: expires_at, nb_lignes: nb, sha256: info.sha256 })
+    }
+
+    /// Retire l'objet d'un export dont l'enregistrement a échoué. Au mieux : une erreur est journalisée, jamais
+    /// substituée à l'erreur d'origine ; le balayage quotidien reprend ce qui reste.
+    async fn retirer_export_orphelin(&self, etab: Uuid, export: Uuid, cle: &str) {
+        let r = async {
+            let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_sortie_argent_export WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etab)
+            .bind(export)
+            .fetch_one(&mut *t)
+            .await
+            .map_err(db)?;
+            if existe {
+                return Ok::<(), EntDbError>(());
+            }
+            self.objet_supprimer(cle).await?;
+            crate::objets::marquer_objet_supprime(&mut *t, etab, cle).await?;
+            t.commit().await.map_err(db)?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = r {
+            tracing::warn!(erreur = %e, "export de l'argent des voyages : objet orphelin non retiré (balayage quotidien)");
+        }
     }
 }
 

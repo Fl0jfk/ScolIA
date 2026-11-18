@@ -1215,3 +1215,177 @@ async fn ajout_seul_de_toutes_les_tables_journal_des_acces_compris() {
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE {t}");
     }
 }
+
+// ───────────────────────── Suites du 18 novembre : passages quotidiens ─────────────────────────
+//
+// Aucune heure réelle : `passages_quotidiens_etablissement` prend le jour à utiliser, les dates de création des
+// objets et des exports sont posées à des instants fixes.
+
+fn jfixe(a: i32, m: u32, j: u32) -> chrono::NaiveDate {
+    chrono::NaiveDate::from_ymd_opt(a, m, j).unwrap()
+}
+
+/// Écrit un objet au magasin et l'inscrit au registre à une date de création donnée (comme le ferait `stocker_objet`
+/// un jour passé).
+async fn objet_inscrit(x: &Suivi, cle: &str, cree_le: &str) {
+    let info = x.c.ent.objet_put(cle, b"contenu").await.unwrap();
+    sqlx::query("INSERT INTO ent_objet (id, etablissement_id, cle_objet, taille, sha256, mime, cree_le) VALUES ($1,$2,$3,$4,$5,'image/jpeg',$6::timestamptz)")
+        .bind(Uuid::new_v4()).bind(x.c.etab).bind(cle).bind(info.taille as i64).bind(&info.sha256).bind(cree_le)
+        .execute(x.c.ent.pool_verif()).await.unwrap();
+}
+
+async fn objet_marque(x: &Suivi, cle: &str) -> bool {
+    sqlx::query_scalar("SELECT supprime_le IS NOT NULL FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2")
+        .bind(x.c.etab).bind(cle).fetch_one(x.c.ent.pool_verif()).await.unwrap()
+}
+
+/// Les alertes d'acomptes et la purge des exports se déclenchent au **jour donné**, une seule fois, et le passage
+/// est idempotent.
+#[tokio::test]
+async fn passage_quotidien_alertes_d_acomptes_et_purge_des_exports_au_jour_donne() {
+    let Some(x) = suivi().await else { return };
+    let presta = x.c.ent.prestataire_creer(&x.sec(), PrestataireSaisie {
+        raison_sociale: format!("Cars Passage {}", Uuid::new_v4().simple()), siren: None, telephone: None,
+        categories: vec!["transporteur".into()], adresses: vec![format!("cars-{}@exemple-test.fr", Uuid::new_v4().simple())], version: None, actif: None,
+    }).await.unwrap();
+    let j0 = x.c.jour_etab().await;
+    let acompte = |libelle: &str, echeance| AcompteSaisie { prestataire_id: presta.id, commande_id: None, libelle: libelle.into(), montant: "100".into(), echeance };
+    x.c.ent.voyage_acompte_creer(&x.compta(), x.s.id, acompte("En retard", j0 - Duration::days(2))).await.unwrap();
+    x.c.ent.voyage_acompte_creer(&x.compta(), x.s.id, acompte("Bientôt", j0 + Duration::days(5))).await.unwrap();
+    x.c.ent.voyage_acompte_creer(&x.dir(), x.s.id, acompte("Loin", j0 + Duration::days(60))).await.unwrap();
+    let ent = &x.c.ent;
+    let etab = x.c.etab;
+    // Un mois avant : rien n'est dans la fenêtre de 14 jours.
+    let b = ent.passages_quotidiens_etablissement(etab, Some(j0 - Duration::days(30))).await;
+    assert_eq!((b.acomptes_alertes, b.erreurs), (0, 0), "{b:?}");
+    // Le jour J : l'acompte en retard et celui de la fenêtre, une seule fois.
+    let b = ent.passages_quotidiens_etablissement(etab, Some(j0)).await;
+    assert_eq!((b.acomptes_alertes, b.erreurs), (2, 0), "{b:?}");
+    let b = ent.passages_quotidiens_etablissement(etab, Some(j0)).await;
+    assert_eq!(b.acomptes_alertes, 0, "idempotent : {b:?}");
+    // Plus tard, le lointain entre dans la fenêtre.
+    let b = ent.passages_quotidiens_etablissement(etab, Some(j0 + Duration::days(50))).await;
+    assert_eq!(b.acomptes_alertes, 1, "{b:?}");
+    let avis: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = 'voyages.acompte_echeance'")
+        .bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(avis, 3, "un avis par acompte, jamais deux");
+
+    // Purge des exports : créé le 1er janvier (midi UTC, Paris), détruit à partir du 31 janvier (30 jours), pas avant.
+    let eid = Uuid::new_v4();
+    let cle = ObjectStore::key_for(etab, "voyages-argent", eid, "csv");
+    objet_inscrit(&x, &cle, "2026-01-01T12:00:00Z").await;
+    let sha: String = sqlx::query_scalar("SELECT sha256 FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2").bind(etab).bind(&cle).fetch_one(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id, cree_le) VALUES ($1,$2,$3,0,$4,$5,$6,'2026-01-01T12:00:00Z')")
+        .bind(eid).bind(etab).bind(x.s.id).bind(&cle).bind(&sha).bind(x.c.compta).execute(ent.pool_verif()).await.unwrap();
+    let b = ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 1, 30))).await;
+    assert_eq!((b.exports_purges, b.exports_orphelins, b.erreurs), (0, 0, 0), "29 jours : conservé, et jamais balayé car référencé : {b:?}");
+    assert!(ent.objet_existe(&cle).await.unwrap());
+    let b = ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 1, 31))).await;
+    assert_eq!((b.exports_purges, b.exports_orphelins, b.erreurs), (1, 0, 0), "30 jours : détruit : {b:?}");
+    assert!(!ent.objet_existe(&cle).await.unwrap());
+    assert!(objet_marque(&x, &cle).await, "le registre des objets porte la suppression");
+    let purge: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT purge_le FROM ent_sortie_argent_export WHERE id = $1").bind(eid).fetch_one(ent.pool_verif()).await.unwrap();
+    assert!(purge.is_some());
+    let b = ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 3, 1))).await;
+    assert_eq!((b.exports_purges, b.exports_orphelins), (0, 0), "idempotent : {b:?}");
+}
+
+/// Balayage des objets orphelins : photos et exports inscrits au registre mais jamais référencés, passé le délai de
+/// grâce ; jamais un objet récent, référencé, d'une forme historique ou d'une autre famille.
+#[tokio::test]
+async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
+    let Some(x) = suivi().await else { return };
+    let (etab, eleve) = (x.c.etab, x.c.eleves[0]);
+    let photo = |u: Uuid| format!("{etab}/trombi/{eleve}/{u}.jpg");
+    let (orpheline, reference, recente) = (photo(Uuid::new_v4()), photo(Uuid::new_v4()), photo(Uuid::new_v4()));
+    // Référencée par la seule fiche (`ent_eleve.photo_key`, chemin de reprise) : ceinture, jamais balayée.
+    let par_la_fiche = photo(Uuid::new_v4());
+    let historique = format!("{etab}/trombi/{eleve}.jpg");
+    let autre_famille = format!("{etab}/documents/{}.pdf", Uuid::new_v4());
+    let export_orphelin = ObjectStore::key_for(etab, "voyages-argent", Uuid::new_v4(), "csv");
+    let export_reference_id = Uuid::new_v4();
+    let export_reference = ObjectStore::key_for(etab, "voyages-argent", export_reference_id, "csv");
+    for (cle, quand) in [
+        (&orpheline, "2026-02-01T12:00:00Z"), (&reference, "2026-02-01T12:00:00Z"), (&recente, "2026-02-10T12:00:00Z"),
+        (&par_la_fiche, "2026-02-01T12:00:00Z"),
+        (&historique, "2026-02-01T12:00:00Z"), (&autre_famille, "2026-02-01T12:00:00Z"),
+        (&export_orphelin, "2026-02-01T12:00:00Z"), (&export_reference, "2026-02-01T12:00:00Z"),
+    ] {
+        objet_inscrit(&x, cle, quand).await;
+    }
+    sqlx::query("INSERT INTO ent_eleve_photo (id, etablissement_id, eleve_id, object_key, mime, taille_octets, source, statut) VALUES ($1,$2,$3,$4,'image/jpeg',7,'etablissement','proposee')")
+        .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(&reference).execute(x.c.ent.pool_verif()).await.unwrap();
+    sqlx::query("UPDATE ent_eleve SET photo_key = $3 WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab).bind(eleve).bind(&par_la_fiche).execute(x.c.ent.pool_verif()).await.unwrap();
+    let sha: String = sqlx::query_scalar("SELECT sha256 FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2").bind(etab).bind(&export_reference).fetch_one(x.c.ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id, cree_le) VALUES ($1,$2,$3,0,$4,$5,$6,'2026-02-01T12:00:00Z')")
+        .bind(export_reference_id).bind(etab).bind(x.s.id).bind(&export_reference).bind(&sha).bind(x.c.compta).execute(x.c.ent.pool_verif()).await.unwrap();
+
+    // Le 11 : l'orpheline et l'export orphelin (10 jours) partent ; la récente (1 jour) reste, dans le délai de grâce.
+    let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 2, 11))).await;
+    assert_eq!((b.photos_orphelines, b.exports_orphelins, b.erreurs), (1, 1, 0), "{b:?}");
+    for (cle, parti) in [
+        (&orpheline, true), (&export_orphelin, true), (&recente, false), (&reference, false), (&export_reference, false),
+        (&par_la_fiche, false),
+        (&historique, false), (&autre_famille, false),
+    ] {
+        assert_eq!(!x.c.ent.objet_existe(cle).await.unwrap(), parti, "{cle}");
+        assert_eq!(objet_marque(&x, cle).await, parti, "registre : {cle}");
+    }
+    // Idempotent.
+    let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 2, 11))).await;
+    assert_eq!((b.photos_orphelines, b.exports_orphelins), (0, 0), "{b:?}");
+    // Le 12 : le délai de grâce de la récente est écoulé (créée le 10, deux jours) ; rien d'autre ne bouge.
+    let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 2, 12))).await;
+    assert_eq!((b.photos_orphelines, b.exports_orphelins, b.erreurs), (1, 0, 0), "{b:?}");
+    assert!(!x.c.ent.objet_existe(&recente).await.unwrap());
+    for cle in [&reference, &export_reference, &historique, &autre_famille, &par_la_fiche] {
+        assert!(x.c.ent.objet_existe(cle).await.unwrap(), "jamais touché : {cle}");
+    }
+}
+
+/// Le balayage est borné : au plus `LOT_BALAYAGE` objets par famille et par passage, le reste au passage suivant.
+#[tokio::test]
+async fn balayage_des_objets_orphelins_est_borne() {
+    let Some(x) = suivi().await else { return };
+    let (etab, eleve) = (x.c.etab, x.c.eleves[1]);
+    let total = crate::passages_quotidiens::LOT_BALAYAGE as usize + 5;
+    let mut cles = Vec::new();
+    for _ in 0..total {
+        let cle = format!("{etab}/trombi/{eleve}/{}.jpg", Uuid::new_v4());
+        objet_inscrit(&x, &cle, "2026-03-01T12:00:00Z").await;
+        cles.push(cle);
+    }
+    let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 3, 20))).await;
+    assert_eq!((b.photos_orphelines, b.erreurs), (crate::passages_quotidiens::LOT_BALAYAGE as usize, 0), "{b:?}");
+    let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 3, 20))).await;
+    assert_eq!(b.photos_orphelines, 5, "le reste au passage suivant : {b:?}");
+    for cle in &cles {
+        assert!(objet_marque(&x, cle).await);
+    }
+}
+
+/// F7 (suite) : l'export écrit son objet **et** l'inscrit au registre avant la transaction du geste ; une fois
+/// l'export validé, l'objet est référencé et le balayage ne le touche jamais, même longtemps après.
+#[tokio::test]
+async fn export_argent_objet_inscrit_puis_reference_jamais_balaye() {
+    let Some(mut x) = suivi().await else { return };
+    x.c.ent.installer_presigner(Presigner::local(b"cle-de-test-v2a-0123456789abcdef!!", 60).unwrap());
+    x.sync().await;
+    x.verser(x.p1, x.compte_c, "cheque", "50").await.unwrap();
+    x.c.ent.voyage_argent_export(&x.compta(), x.s.id).await.unwrap();
+    let (cle, purge): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT cle_objet, purge_le FROM ent_sortie_argent_export WHERE sortie_id = $1").bind(x.s.id).fetch_one(x.c.ent.pool_verif()).await.unwrap();
+    assert!(purge.is_none());
+    let inscrit: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL").bind(x.c.etab).bind(&cle).fetch_one(x.c.ent.pool_verif()).await.unwrap();
+    assert_eq!(inscrit, 1, "l'objet est inscrit au registre");
+    let j0 = x.c.jour_etab().await;
+    // Dans 10 jours : le délai de grâce est passé, mais l'export est référencé : intact.
+    let b = x.c.ent.passages_quotidiens_etablissement(x.c.etab, Some(j0 + Duration::days(10))).await;
+    assert_eq!((b.exports_orphelins, b.exports_purges, b.erreurs), (0, 0, 0), "{b:?}");
+    assert!(x.c.ent.objet_existe(&cle).await.unwrap());
+    // Dans 31 jours : la conservation de 30 jours l'emporte (purge, pas balayage).
+    let b = x.c.ent.passages_quotidiens_etablissement(x.c.etab, Some(j0 + Duration::days(31))).await;
+    assert_eq!((b.exports_purges, b.exports_orphelins, b.erreurs), (1, 0, 0), "{b:?}");
+    assert!(!x.c.ent.objet_existe(&cle).await.unwrap());
+    assert!(objet_marque(&x, &cle).await);
+}
