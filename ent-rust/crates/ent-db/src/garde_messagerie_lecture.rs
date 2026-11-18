@@ -83,14 +83,6 @@ const PONT_ROLES_RESERVES: &[&str] = &["fils_non_traites"];
 /// lecture, avec la raison.
 const EXCEPTIONS_SERVICE: &[(&str, &str)] = &[
     (
-        "publier_piece_analysee",
-        "événement neutre (identifiants, état) publié par l'analyse de fond, jamais renvoyé à un lecteur",
-    ),
-    (
-        "poser_lu_jusqua",
-        "appelée après `actor_can_access_fil` par `marquer_lu_for_actor` et `list_messages_for_actor` ; ne pose que pour une participation active",
-    ),
-    (
     "count_msg_non_lus_par_fils",
     "compteur sur des identifiants issus d'une liste déjà filtrée (`enrich_msg_fils`)",
 )];
