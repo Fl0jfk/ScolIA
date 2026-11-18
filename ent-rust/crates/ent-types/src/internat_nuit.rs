@@ -149,8 +149,12 @@ pub struct AppelLigneDto {
     pub marque_a: Option<DateTime<Utc>>,
     pub marque_par_user_id: Option<Uuid>,
     pub retour_attendu: Option<DateTime<Utc>>,
-    /// Deux surveillants ont pointé le même élève en sens contraire à moins d'une minute (CIT-03).
+    /// Deux surveillants ont pointé le même élève en sens contraire à moins de deux minutes de réception
+    /// (CIT-03, M8) : la fenêtre se mesure sur l'heure de réception serveur, jamais sur l'heure client.
     pub conflit: bool,
+    /// Marques contradictoires de la fenêtre (tous les faits distincts, pas seulement l'avant-dernier).
+    #[serde(default)]
+    pub marques_en_conflit: Vec<String>,
     /// Cet élève a une marque « à l'infirmerie » : renvoi vers l'infirmerie (socle 34), sans motif.
     pub renvoi_infirmerie: bool,
     pub corrige: bool,
@@ -282,6 +286,10 @@ pub struct CasVueDto {
     pub lieux_verifies: Vec<String>,
     /// Numéros des titulaires joignables (socle 4) — vide si aucun n'est autorisé.
     pub numeros_titulaires: Vec<NumeroDto>,
+    /// `true` quand aucun numéro n'est rendu parce que l'élève est protégé (E3, décision pessimiste du
+    /// pilote) : la vue indique de passer par la direction ou le CPE d'astreinte.
+    #[serde(default)]
+    pub numeros_masques: bool,
     /// Le CPE d'astreinte vient du socle 6 ; tant qu'il n'est pas branché, `false`.
     pub astreinte_branchee: bool,
 }
@@ -343,13 +351,27 @@ pub struct ProcedureDto {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TransmissionDto {
     pub nuit: NaiveDate,
+    /// Version de la transmission : 1 = matin ; n > 1 = rectificative (M3).
+    #[serde(default = "version_un")]
+    pub version: i32,
     pub transmis_le: DateTime<Utc>,
     pub nb_attendus: i32,
     pub nb_presents: i32,
     pub nb_absents: i32,
     pub nb_cas: i32,
-    /// `false` si la nuit avait déjà été transmise (la route est idempotente).
+    /// `false` si la nuit avait déjà été transmise avec les mêmes chiffres (la route est idempotente).
     pub nouvelle: bool,
+}
+
+fn version_un() -> i32 {
+    1
+}
+
+/// Corps (facultatif) de la transmission : le motif est exigé quand la transmission est rectificative.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TransmissionSaisieDto {
+    #[serde(default)]
+    pub motif_rectification: Option<String>,
 }
 
 /// Effectif de nuit pour la restauration (socle 40) : des compteurs, aucun nom.
@@ -381,5 +403,8 @@ pub struct LectureSensibleDto {
     pub objet: String,
     pub eleve_id: Option<Uuid>,
     pub appel_id: Option<Uuid>,
+    /// Élèves concernés par la lecture (attendu, appel), quand elle en concerne plusieurs.
+    #[serde(default)]
+    pub eleve_ids: Vec<Uuid>,
     pub a: DateTime<Utc>,
 }

@@ -104,6 +104,13 @@ pub(crate) const MOTIFS_RETRAIT: [&str; 8] = [
     "fermeture",
     "sante",
 ];
+/// Horizon maximal d'une nuit exceptionnelle (L1) : un an.
+pub(crate) const HORIZON_NUIT_EXCEPTIONNELLE_JOURS: i64 = 366;
+/// Durée maximale d'un retrait « santé » posé par l'infirmerie (L6) : 30 nuits, renouvelable par un
+/// nouveau retrait (chaque renouvellement est un fait daté et signé).
+pub(crate) const RETRAIT_SANTE_MAX_NUITS: i64 = 30;
+/// Au-delà de ce délai après la fin de la nuit, un appel a posteriori exige `internat.appel.valider` (M7).
+pub(crate) const APPEL_A_POSTERIORI_HEURES: i64 = 48;
 const MOTIFS_NUIT_EXCEPTIONNELLE: [&str; 6] = [
     "examen",
     "accueil_weekend",
@@ -287,6 +294,22 @@ fn ligne_de(t: LigneTuple) -> LigneAttendu {
     }
 }
 
+/// Corps de requête commun à l'ouverture d'un appel : l'attendu calculé de la nuit de l'établissement,
+/// restreint au périmètre. Les arguments sont les numéros de paramètres (`$n`) de l'instruction appelante.
+fn from_attendu_perimetre(etab: &str, nuit: &str, perimetre: &str, batiment: &str, zone: &str, liste: &str) -> String {
+    format!(
+        "FROM ent_internat_attendu_calcule({etab}::uuid, {nuit}::date) a \
+           LEFT JOIN ent_internat_chambre c ON c.etablissement_id = {etab}::uuid AND c.id = a.chambre_id \
+           LEFT JOIN ent_internat_zone z ON z.etablissement_id = {etab}::uuid AND z.id = c.zone_id \
+          WHERE {perimetre}::text = 'internat' \
+             OR ({perimetre}::text = 'batiment' AND z.batiment_id = {batiment}::uuid) \
+             OR ({perimetre}::text = 'zone' AND c.zone_id = {zone}::uuid) \
+             OR ({perimetre}::text = 'liste' AND a.chambre_id IN ( \
+                    SELECT lc.chambre_id FROM ent_internat_liste_chambre lc \
+                     WHERE lc.etablissement_id = {etab}::uuid AND lc.liste_id = {liste}::uuid))"
+    )
+}
+
 /// Attendu calculé d'une nuit pour un périmètre (`internat`, `batiment`, `zone`, `liste`).
 pub(crate) async fn attendu_perimetre_tx(
     conn: &mut PgConnection,
@@ -355,16 +378,23 @@ pub(crate) struct MarqueCourante {
     pub par_user_id: Uuid,
     pub retour_attendu: Option<DateTime<Utc>>,
     pub conflit: bool,
+    pub marques_en_conflit: Vec<String>,
     pub corrige: bool,
 }
+
+/// Fenêtre de conflit entre deux surveillants (CIT-03), mesurée sur l'heure de RÉCEPTION serveur
+/// (`recu_le`) et non sur l'heure du geste fournie par le client (M8) : un appareil à l'heure fausse ou
+/// un pointage hors ligne rejoué ne peut ni fabriquer ni cacher un conflit.
+pub(crate) const FENETRE_CONFLIT_SECONDES: i64 = 120;
 
 pub(crate) async fn marques_courantes_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     appel: Uuid,
 ) -> Result<HashMap<Uuid, MarqueCourante>, EntDbError> {
-    // Deux derniers faits de chaque élève : le plus récent est la valeur courante ; s'ils viennent
-    // de deux personnes, disent deux choses et sont proches (≤ 120 s), c'est un conflit (CIT-03).
+    // Valeur courante = fait le plus récent (à la réception). Conflit = parmi les faits reçus dans les
+    // deux minutes qui précèdent ce dernier, il en existe d'une AUTRE personne qui disent autre chose.
+    // Tous ces faits distincts sont signalés (marques contradictoires), pas seulement l'avant-dernier.
     #[allow(clippy::type_complexity)]
     let rows: Vec<(
         Uuid,
@@ -373,52 +403,45 @@ pub(crate) async fn marques_courantes_tx(
         Uuid,
         Option<DateTime<Utc>>,
         Option<String>,
-        i64,
-        Option<String>,
-        Option<Uuid>,
-        Option<DateTime<Utc>>,
+        Vec<String>,
     )> = sqlx::query_as(
-        "SELECT eleve_id, marque, a, par_user_id, retour_attendu, motif_correction_code, rang, \
-                marque_prec, par_prec, a_prec \
+        "SELECT t.eleve_id, t.marque, t.a, t.par_user_id, t.retour_attendu, t.motif_correction_code, \
+                COALESCE((SELECT array_agg(DISTINCT g.marque ORDER BY g.marque) \
+                            FROM ent_internat_presence_fait g \
+                           WHERE g.etablissement_id = $1 AND g.appel_id = $2 AND g.eleve_id = t.eleve_id \
+                             AND g.id <> t.id AND g.par_user_id <> t.par_user_id AND g.marque <> t.marque \
+                             AND g.recu_le >= t.recu_le - make_interval(secs => $3::double precision)), \
+                         ARRAY[]::text[]) \
            FROM ( \
-             SELECT f.eleve_id, f.marque, f.a, f.par_user_id, f.retour_attendu, f.motif_correction_code, \
-                    row_number() OVER w AS rang, \
-                    lead(f.marque) OVER w AS marque_prec, \
-                    lead(f.par_user_id) OVER w AS par_prec, \
-                    lead(f.a) OVER w AS a_prec \
+             SELECT DISTINCT ON (f.eleve_id) f.id, f.eleve_id, f.marque, f.a, f.recu_le, f.par_user_id, \
+                    f.retour_attendu, f.motif_correction_code \
                FROM ent_internat_presence_fait f \
               WHERE f.etablissement_id = $1 AND f.appel_id = $2 \
-             WINDOW w AS (PARTITION BY f.eleve_id ORDER BY f.recu_le DESC, f.cree_le DESC, f.id DESC) \
-           ) t WHERE rang = 1",
+              ORDER BY f.eleve_id, f.recu_le DESC, f.cree_le DESC, f.id DESC \
+           ) t",
     )
     .bind(etab)
     .bind(appel)
+    .bind(FENETRE_CONFLIT_SECONDES as f64)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
     Ok(rows
         .into_iter()
-        .map(
-            |(eleve, marque, a, par, retour, motif, _rang, marque_prec, par_prec, a_prec)| {
-                let conflit = match (marque_prec, par_prec, a_prec) {
-                    (Some(m), Some(p), Some(ap)) => {
-                        m != marque && p != par && (a - ap).num_seconds().abs() <= 120
-                    }
-                    _ => false,
-                };
-                (
-                    eleve,
-                    MarqueCourante {
-                        marque,
-                        a,
-                        par_user_id: par,
-                        retour_attendu: retour,
-                        conflit,
-                        corrige: motif.is_some(),
-                    },
-                )
-            },
-        )
+        .map(|(eleve, marque, a, par, retour, motif, en_conflit)| {
+            (
+                eleve,
+                MarqueCourante {
+                    marque,
+                    a,
+                    par_user_id: par,
+                    retour_attendu: retour,
+                    conflit: !en_conflit.is_empty(),
+                    marques_en_conflit: en_conflit,
+                    corrige: motif.is_some(),
+                },
+            )
+        })
         .collect())
 }
 
@@ -431,9 +454,25 @@ pub(crate) async fn journaliser_lecture_tx(
     appel: Option<Uuid>,
     instant: DateTime<Utc>,
 ) -> Result<(), EntDbError> {
+    journaliser_lecture_eleves_tx(conn, etab, user, objet, eleve, appel, &[], instant).await
+}
+
+/// Journal d'une lecture qui concerne plusieurs élèves (attendu, appel) : une seule ligne porte la liste
+/// des identifiants concernés (L2) ; liste vide = lecture sans élève précis.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn journaliser_lecture_eleves_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    objet: &str,
+    eleve: Option<Uuid>,
+    appel: Option<Uuid>,
+    eleves: &[Uuid],
+    instant: DateTime<Utc>,
+) -> Result<(), EntDbError> {
     sqlx::query(
-        "INSERT INTO ent_internat_lecture_sensible (id, etablissement_id, user_id, objet, eleve_id, appel_id, a) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        "INSERT INTO ent_internat_lecture_sensible (id, etablissement_id, user_id, objet, eleve_id, appel_id, eleve_ids, a) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -441,11 +480,27 @@ pub(crate) async fn journaliser_lecture_tx(
     .bind(objet)
     .bind(eleve)
     .bind(appel)
+    .bind((!eleves.is_empty()).then(|| eleves.to_vec()))
     .bind(instant)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
     Ok(())
+}
+
+/// Motif tel qu'il sort de l'internat vers une vue, un PDF ou un événement (M2) : le motif « santé » (hospitalisation,
+/// infirmerie) est réduit à un motif générique « excusé » ; la base garde le code réel (audit), jamais l'extérieur.
+pub(crate) fn motif_public(motif: &str) -> &str {
+    if motif == "sante" {
+        "excuse"
+    } else {
+        motif
+    }
+}
+
+/// Texte libre qui évoque la santé (R-IT6) : racines de `domain_eleve`, une **aide** et non une garantie.
+pub(crate) fn evoque_la_sante(texte: &str) -> bool {
+    domain_eleve::mots_de_sante_detectes(texte)
 }
 
 impl PgEnt {
@@ -520,9 +575,9 @@ impl PgEnt {
         if let Some(set) = &portee {
             lignes.retain(|l| set.contains(&l.eleve_id));
         }
-        journaliser_lecture_tx(&mut tx, etab, actor, "attendu", None, None, maintenant).await?;
-        tx.commit().await.map_err(db)?;
         let ids: Vec<Uuid> = lignes.iter().map(|l| l.eleve_id).collect();
+        journaliser_lecture_eleves_tx(&mut tx, etab, actor, "attendu", None, None, &ids, maintenant).await?;
+        tx.commit().await.map_err(db)?;
         let (proteges, caches) = self
             .masquer_proteges(etab, actor, role, &ids, "attendu de la nuit")
             .await?;
@@ -539,7 +594,7 @@ impl PgEnt {
                     chambre_code: l.chambre_code,
                     lit_numero: l.lit_numero,
                     statut: l.statut,
-                    motif_code: l.motif_code,
+                    motif_code: l.motif_code.as_deref().map(|m| motif_public(m).to_string()),
                 })
                 .collect(),
         })
@@ -585,6 +640,10 @@ impl PgEnt {
         let courante = nuit_a_tx(&mut tx, etab, maintenant).await?;
         if b.nuit < courante {
             return Err(refus("une nuit exceptionnelle ne se pose pas dans le passé"));
+        }
+        // L1 : bornée dans le futur (un an au plus) : une date absurde fausserait l'attendu et l'index.
+        if (b.nuit - courante).num_days() > HORIZON_NUIT_EXCEPTIONNELLE_JOURS {
+            return Err(refus("une nuit exceptionnelle se pose un an à l'avance au plus"));
         }
         let id = Uuid::new_v4();
         sqlx::query(
@@ -711,6 +770,11 @@ impl PgEnt {
         if b.au_nuit < b.du_nuit || (b.au_nuit - b.du_nuit).num_days() > 400 {
             return Err(refus("période de retrait invalide"));
         }
+        if source == "infirmerie" && (b.au_nuit - b.du_nuit).num_days() + 1 > RETRAIT_SANTE_MAX_NUITS {
+            return Err(refus(
+                "un retrait « santé » de l'infirmerie dure 30 nuits au plus : le renouveler par un nouveau retrait",
+            ));
+        }
         self.exiger_eleve_visible(etab, actor, role, b.eleve_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         Self::eleve_existe_tx(&mut tx, etab, b.eleve_id).await?;
@@ -739,7 +803,7 @@ impl PgEnt {
             AggregateKind::Internat,
             id,
             Some(b.eleve_id),
-            json!({ "du": b.du_nuit.to_string(), "au": b.au_nuit.to_string(), "cause": "retrait", "motif_code": b.motif_code }),
+            json!({ "du": b.du_nuit.to_string(), "au": b.au_nuit.to_string(), "cause": "retrait", "motif_code": motif_public(&b.motif_code) }),
             Some(actor),
             Causalite::default(),
         )
@@ -791,7 +855,7 @@ impl PgEnt {
             AggregateKind::Internat,
             id,
             Some(eleve),
-            json!({ "du": du.to_string(), "au": au.to_string(), "cause": "retrait_annule", "motif_code": motif }),
+            json!({ "du": du.to_string(), "au": au.to_string(), "cause": "retrait_annule", "motif_code": motif_public(&motif) }),
             Some(actor),
             Causalite::default(),
         )
@@ -923,10 +987,12 @@ impl PgEnt {
         etab: Uuid,
         actor: Uuid,
         role: &str,
+        maintenant: DateTime<Utc>,
     ) -> Result<Vec<ListeDto>, EntDbError> {
         self.nuit_portee(etab, actor, role, &[Action::InternatLire, Action::InternatAppel, Action::InternatGerer])
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        journaliser_lecture_tx(&mut tx, etab, actor, "listes", None, None, maintenant).await?;
         let listes: Vec<(Uuid, String, Option<Uuid>, bool)> = sqlx::query_as(
             "SELECT id, libelle, confie_a_user_id, actif FROM ent_internat_liste \
               WHERE etablissement_id = $1 ORDER BY libelle",
@@ -942,7 +1008,7 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        Ok(listes
+        let sortie: Vec<ListeDto> = listes
             .into_iter()
             .map(|(id, libelle, confie, actif)| ListeDto {
                 id,
@@ -951,7 +1017,9 @@ impl PgEnt {
                 confie_a_user_id: confie,
                 actif,
             })
-            .collect())
+            .collect();
+        tx.commit().await.map_err(db)?;
+        Ok(sortie)
     }
 
     // ───────────────────────── Appels ─────────────────────────
@@ -1033,33 +1101,39 @@ impl PgEnt {
         if !existe {
             return Err(DomainError::NotFound.into());
         }
-        let lignes = attendu_perimetre_tx(
-            &mut tx,
-            etab,
-            nuit,
-            &b.perimetre,
-            b.batiment_id,
-            b.zone_id,
-            b.liste_id,
-        )
-        .await?;
-        // R-IT30 : l'acteur doit couvrir TOUS les élèves du périmètre.
-        if let Some(set) = &portee {
-            if lignes.iter().any(|l| !set.contains(&l.eleve_id)) {
-                return Err(EntDbError::Forbidden);
+        // M7 : un appel a posteriori (nuit passée) se saisit dans les 48 h qui suivent la fin de la nuit ;
+        // au-delà, seul le droit de valider l'ouvre (il s'agit alors de reconstituer une nuit).
+        if nuit < courante {
+            let tardif: bool = sqlx::query_scalar(
+                "SELECT $3::timestamptz > ((($2::date + 1) + TIME '12:00') AT TIME ZONE ent_internat_fuseau($1)) \
+                        + make_interval(hours => $4::int)",
+            )
+            .bind(etab)
+            .bind(nuit)
+            .bind(maintenant)
+            .bind(APPEL_A_POSTERIORI_HEURES as i32)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if tardif {
+                self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider]).await?;
             }
         }
+        // M6 : deux requêtes ensemblistes, aucun recalcul par élève. 1) l'appel, avec son effectif attendu ;
+        // 2) sa liste figée. Les deux lisent la même fonction `ent_internat_attendu_calcule` ; un écart entre
+        // elles (retrait posé entre les deux instructions) est refusé, jamais figé de travers.
         let id = Uuid::new_v4();
-        let nb_attendus = lignes
-            .iter()
-            .filter(|l| l.statut == "attendu" || l.statut == "ajoute")
-            .count() as i32;
-        sqlx::query(
+        let nb_attendus: i32 = sqlx::query_scalar(&format!(
             "INSERT INTO ent_internat_appel \
              (id, etablissement_id, nuit, type, perimetre, batiment_id, zone_id, liste_id, a_posteriori, \
               ouvert_par_user_id, ouvert_le, nb_attendus) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-        )
+             SELECT $1::uuid, $2::uuid, $3::date, $4::text, $5::text, $6::uuid, $7::uuid, $8::uuid, $9::boolean, \
+                    $10::uuid, $11::timestamptz, \
+                    (count(*) FILTER (WHERE a.statut IN ('attendu', 'ajoute')))::int \
+               {} \
+             RETURNING nb_attendus",
+            from_attendu_perimetre("$2", "$3", "$5", "$6", "$7", "$8")
+        ))
         .bind(id)
         .bind(etab)
         .bind(nuit)
@@ -1071,8 +1145,7 @@ impl PgEnt {
         .bind(nuit < courante)
         .bind(actor)
         .bind(maintenant)
-        .bind(nb_attendus)
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             if est_unique(&e) {
@@ -1081,23 +1154,34 @@ impl PgEnt {
                 db(e)
             }
         })?;
-        for l in &lignes {
-            sqlx::query(
-                "INSERT INTO ent_internat_appel_attendu \
-                 (etablissement_id, appel_id, eleve_id, chambre_id, lit_id, statut, motif_code, calcule_le) \
-                 SELECT $1, $2, $3, a.chambre_id, a.lit_id, $4, $5, $6 \
-                   FROM ent_internat_attendu_calcule($1, $7) a WHERE a.eleve_id = $3",
-            )
-            .bind(etab)
-            .bind(id)
-            .bind(l.eleve_id)
-            .bind(&l.statut)
-            .bind(&l.motif_code)
-            .bind(maintenant)
-            .bind(nuit)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        let figes: Vec<(Uuid, String)> = sqlx::query_as(&format!(
+            "INSERT INTO ent_internat_appel_attendu \
+             (etablissement_id, appel_id, eleve_id, chambre_id, lit_id, statut, motif_code, calcule_le) \
+             SELECT $2::uuid, $1::uuid, a.eleve_id, a.chambre_id, a.lit_id, a.statut, a.motif_code, $8::timestamptz \
+               {} \
+             RETURNING eleve_id, statut",
+            from_attendu_perimetre("$2", "$3", "$4", "$5", "$6", "$7")
+        ))
+        .bind(id)
+        .bind(etab)
+        .bind(nuit)
+        .bind(&b.perimetre)
+        .bind(b.batiment_id)
+        .bind(b.zone_id)
+        .bind(b.liste_id)
+        .bind(maintenant)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        // R-IT30 : l'acteur doit couvrir TOUS les élèves du périmètre (la transaction est abandonnée sinon).
+        if let Some(set) = &portee {
+            if figes.iter().any(|(e, _)| !set.contains(e)) {
+                return Err(EntDbError::Forbidden);
+            }
+        }
+        let figes_attendus = figes.iter().filter(|(_, st)| st == "attendu" || st == "ajoute").count() as i32;
+        if figes_attendus != nb_attendus {
+            return Err(conflit("l'attendu a changé pendant l'ouverture de l'appel : recommencer"));
         }
         publier(
             &mut tx,
@@ -1125,6 +1209,7 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
         nuit: NaiveDate,
+        maintenant: DateTime<Utc>,
     ) -> Result<Vec<AppelDto>, EntDbError> {
         let portee = self
             .nuit_portee(etab, actor, role, &[Action::InternatLire, Action::InternatAppel])
@@ -1161,6 +1246,8 @@ impl PgEnt {
             }
             sortie.push(appel.dto());
         }
+        journaliser_lecture_tx(&mut tx, etab, actor, "liste_appels", None, None, maintenant).await?;
+        tx.commit().await.map_err(db)?;
         Ok(sortie)
     }
 
@@ -1208,9 +1295,9 @@ impl PgEnt {
         let figes: HashSet<Uuid> = lignes.iter().map(|l| l.eleve_id).collect();
         ecarts.extend(actuel.keys().filter(|e| !figes.contains(e)).copied());
         ecarts.sort();
-        journaliser_lecture_tx(&mut tx, etab, actor, "appel", None, Some(appel_id), maintenant).await?;
-        tx.commit().await.map_err(db)?;
         let ids: Vec<Uuid> = lignes.iter().map(|l| l.eleve_id).collect();
+        journaliser_lecture_eleves_tx(&mut tx, etab, actor, "appel", None, Some(appel_id), &ids, maintenant).await?;
+        tx.commit().await.map_err(db)?;
         let (proteges, caches) = self
             .masquer_proteges(etab, actor, role, &ids, "appel de nuit")
             .await?;
@@ -1233,12 +1320,13 @@ impl PgEnt {
                     chambre_code: l.chambre_code,
                     lit_numero: l.lit_numero,
                     statut: l.statut,
-                    motif_code: l.motif_code,
+                    motif_code: l.motif_code.as_deref().map(|m| motif_public(m).to_string()),
                     marque: m.map(|m| m.marque.clone()),
                     marque_a: m.map(|m| m.a),
                     marque_par_user_id: m.map(|m| m.par_user_id),
                     retour_attendu: m.and_then(|m| m.retour_attendu),
                     conflit: m.is_some_and(|m| m.conflit),
+                    marques_en_conflit: m.map(|m| m.marques_en_conflit.clone()).unwrap_or_default(),
                     renvoi_infirmerie: m.is_some_and(|m| m.marque == "infirmerie"),
                     corrige: m.is_some_and(|m| m.corrige),
                 }
@@ -1312,7 +1400,7 @@ impl PgEnt {
         if note.chars().count() > 500 {
             return Err(refus("note trop longue (500 caractères au plus)"));
         }
-        if !note.is_empty() && domain_eleve::mots_de_sante_detectes(note) {
+        if !note.is_empty() && evoque_la_sante(note) {
             // R-IT6 : aucune donnée de santé dans l'appel ; renvoi vers l'infirmerie.
             return Err(refus(
                 "pas de donnée de santé dans l'appel : utiliser la marque « à l'infirmerie »",
@@ -1331,6 +1419,12 @@ impl PgEnt {
         }
         if motif_texte.is_some_and(|t| t.chars().count() > 300) {
             return Err(refus("motif de correction trop long (300 caractères au plus)"));
+        }
+        if motif_texte.is_some_and(evoque_la_sante) {
+            // M1 : le texte libre du motif de correction est soumis au même contrôle que la note (R-IT6).
+            return Err(refus(
+                "pas de donnée de santé dans le motif de correction : utiliser la marque « à l'infirmerie »",
+            ));
         }
         // Heure du geste : jamais dans le futur ; et dans la nuit de l'appel (sauf saisie a posteriori).
         let a = b.a.unwrap_or(maintenant);
@@ -1408,9 +1502,15 @@ impl PgEnt {
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-        // Retour d'un élève absent : le cas ouvert se ferme (« rentré à 23 h 10 »).
+        // Retour d'un élève absent : le cas ouvert se ferme (« rentré à 23 h 10 »), selon l'endroit où il a
+        // été pointé (L4, voir `clore_cas_retour_tx`).
         if matches!(b.marque.as_str(), "present" | "vu") {
-            self.clore_cas_retour_tx(conn, etab, actor, b.eleve_id, appel.nuit, a)
+            self.clore_cas_retour_tx(conn, etab, actor, b.eleve_id, appel, &b.marque, a)
+                .await?;
+        }
+        // L5 : une correction « absent » après clôture ouvre un cas, comme la clôture le fait.
+        if correction && b.marque == "absent" && (statut == "attendu" || statut == "ajoute") {
+            self.ouvrir_cas_tx(conn, etab, actor, Some(appel.id), b.eleve_id, appel.nuit, "non_retrouve", maintenant)
                 .await?;
         }
         let marques = marques_courantes_tx(conn, etab, appel.id).await?;

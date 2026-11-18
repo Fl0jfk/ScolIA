@@ -82,16 +82,22 @@ async fn attendu(State(s): State<AppState>, se: EntSession, Path(nuit): Path<Nai
 async fn effectif(State(s): State<AppState>, se: EntSession, Path(nuit): Path<NaiveDate>) -> Res<Json<EffectifRepasDto>> {
     Ok(Json(
         s.ent
-            .effectif_repas_a(se.etablissement_id, se.user_id, &se.role, nuit)
+            .effectif_repas_a(se.etablissement_id, se.user_id, &se.role, nuit, Utc::now())
             .await
             .map_err(map_db)?,
     ))
 }
 
-async fn transmettre(State(s): State<AppState>, se: EntSession, Path(nuit): Path<NaiveDate>) -> Res<Json<TransmissionDto>> {
+async fn transmettre(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(nuit): Path<NaiveDate>,
+    corps: Option<Json<TransmissionSaisieDto>>,
+) -> Res<Json<TransmissionDto>> {
+    let motif = corps.and_then(|Json(c)| c.motif_rectification);
     Ok(Json(
         s.ent
-            .transmettre_matin_a(se.etablissement_id, se.user_id, &se.role, nuit, Utc::now())
+            .transmettre_matin_a(se.etablissement_id, se.user_id, &se.role, nuit, motif.as_deref(), Utc::now())
             .await
             .map_err(map_db)?,
     ))
@@ -140,7 +146,7 @@ async fn annuler_retrait(State(s): State<AppState>, se: EntSession, Path(id): Pa
 }
 
 async fn listes(State(s): State<AppState>, se: EntSession) -> Res<Json<Vec<ListeDto>>> {
-    Ok(Json(s.ent.lister_listes_a(se.etablissement_id, se.user_id, &se.role).await.map_err(map_db)?))
+    Ok(Json(s.ent.lister_listes_a(se.etablissement_id, se.user_id, &se.role, Utc::now()).await.map_err(map_db)?))
 }
 
 async fn creer_liste(
@@ -174,7 +180,7 @@ async fn modifier_liste(
 async fn appels(State(s): State<AppState>, se: EntSession, Query(q): Query<NuitQuery>) -> Res<Json<Vec<AppelDto>>> {
     Ok(Json(
         s.ent
-            .lister_appels_a(se.etablissement_id, se.user_id, &se.role, q.nuit)
+            .lister_appels_a(se.etablissement_id, se.user_id, &se.role, q.nuit, Utc::now())
             .await
             .map_err(map_db)?,
     ))
@@ -336,7 +342,7 @@ async fn publier_procedure(
 async fn lectures(State(s): State<AppState>, se: EntSession, Query(q): Query<LimiteQuery>) -> Res<Json<Vec<LectureSensibleDto>>> {
     Ok(Json(
         s.ent
-            .lectures_sensibles_a(se.etablissement_id, se.user_id, &se.role, q.limite.unwrap_or(100))
+            .lectures_sensibles_a(se.etablissement_id, se.user_id, &se.role, q.limite.unwrap_or(100), Utc::now())
             .await
             .map_err(map_db)?,
     ))

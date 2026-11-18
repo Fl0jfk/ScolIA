@@ -924,16 +924,19 @@ async fn transmission_du_matin_idempotente_effectif_et_evenements_neutres() {
         b.point(appel, *e, "present", 2).await.unwrap();
     }
     b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(3)).await.unwrap();
+    // M3 : appel clos mais non validé → pas de transmission ; la validation la rend possible.
+    let matin = utc(2026, 3, 29, 5, 0);
+    assert!(est_refus(&b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await), "soir non validé");
+    b.ent.valider_appel_a(b.etab, b.cpe, CPE, appel, soir(4)).await.unwrap();
     // Pas de transmission sans appel clos ; nuit future refusée.
     let ailleurs = NaiveDate::from_ymd_opt(2026, 3, 20).unwrap();
-    assert!(est_refus(&b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, ailleurs, utc(2026, 3, 29, 6, 0)).await));
-    // Le lendemain matin (07 h 00 CEST = 05 h UTC), toujours la nuit du 28.
-    let matin = utc(2026, 3, 29, 5, 0);
-    let t = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), matin).await.unwrap();
+    assert!(est_refus(&b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, ailleurs, None, utc(2026, 3, 29, 6, 0)).await));
+    // Le lendemain matin (07 h 00 CEST = 05 h UTC), toujours la nuit du 28 (jour local postérieur).
+    let t = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
     assert!(t.nouvelle);
     assert_eq!((t.nb_attendus, t.nb_presents, t.nb_absents, t.nb_cas), (6, 4, 1, 1));
     // Idempotent : une seconde transmission ne republie rien.
-    let t2 = b.ent.transmettre_matin_a(b.etab, b.dir, DIR, nuit_dst(), matin + chrono::Duration::minutes(5)).await.unwrap();
+    let t2 = b.ent.transmettre_matin_a(b.etab, b.dir, DIR, nuit_dst(), None, matin + chrono::Duration::minutes(5)).await.unwrap();
     assert!(!t2.nouvelle);
     assert_eq!(t2.transmis_le, matin);
     assert_eq!(b.evenements("internat.absence_nuit").await.len(), 1);
@@ -946,7 +949,7 @@ async fn transmission_du_matin_idempotente_effectif_et_evenements_neutres() {
     let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), matin).await.unwrap();
     assert_eq!(cas[0].transmis_le, Some(matin));
     // Effectif lu par la restauration : des compteurs, aucun nom.
-    let e = b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst()).await.unwrap();
+    let e = b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
     assert_eq!(e.diner, 6);
     // Événements neutres (R-IT6) : ni nom, ni prénom, ni texte libre, ni motif en clair.
     let noms: Vec<String> = sqlx::query_scalar("SELECT nom || ' ' || prenom FROM ent_eleve WHERE etablissement_id = $1 AND id = ANY($2)")
@@ -1024,7 +1027,7 @@ async fn droits_refuses_hors_equipe_habilitee() {
         let e = b.etab;
         assert!(est_interdit(&b.ent.attendu_nuit_a(e, user, role, cas_nuit, soir(1)).await), "{role} : attendu");
         assert!(est_interdit(&b.ent.vue_appel_a(e, user, role, appel, soir(1)).await), "{role} : vue");
-        assert!(est_interdit(&b.ent.lister_appels_a(e, user, role, cas_nuit).await), "{role} : liste");
+        assert!(est_interdit(&b.ent.lister_appels_a(e, user, role, cas_nuit, soir(0)).await), "{role} : liste");
         assert!(est_interdit(&b.ent.ouvrir_appel_a(e, user, role, &ouverture("ronde", "zone", Some(b.zone_a)), soir(1)).await), "{role} : ouvrir");
         assert!(est_interdit(&b.ent.pointer_a(e, user, role, appel, &pointage(b.a[0], "present"), soir(1)).await), "{role} : pointer");
         assert!(est_interdit(&b.ent.cloturer_appel_a(e, user, role, appel, soir(1)).await), "{role} : clôturer");
@@ -1032,8 +1035,8 @@ async fn droits_refuses_hors_equipe_habilitee() {
         assert!(est_interdit(&b.ent.pdf_appel_a(e, user, role, appel, soir(1)).await), "{role} : PDF");
         assert!(est_interdit(&b.ent.lister_cas_a(e, user, role, cas_nuit, soir(1)).await), "{role} : cas");
         assert!(est_interdit(&b.ent.lire_procedure_a(e, user, role, soir(1)).await), "{role} : procédure");
-        assert!(est_interdit(&b.ent.effectif_repas_a(e, user, role, cas_nuit).await), "{role} : effectif");
-        assert!(est_interdit(&b.ent.lectures_sensibles_a(e, user, role, 10).await), "{role} : journal des lectures");
+        assert!(est_interdit(&b.ent.effectif_repas_a(e, user, role, cas_nuit, soir(0)).await), "{role} : effectif");
+        assert!(est_interdit(&b.ent.lectures_sensibles_a(e, user, role, 10, soir(0)).await), "{role} : journal des lectures");
         assert!(
             est_interdit(&b.ent.poser_nuit_exceptionnelle_a(e, user, role, &NuitExceptionnelleSaisieDto { eleve_id: b.a[0], nuit: cas_nuit, motif_code: "examen".into() }, soir(1)).await),
             "{role} : nuit exceptionnelle"
@@ -1046,7 +1049,7 @@ async fn droits_refuses_hors_equipe_habilitee() {
     let r = b.ent.poser_retrait_a(b.etab, infirmiere.0, infirmiere.1, &retrait("sante"), soir(2)).await.unwrap();
     assert_eq!(r.source, "infirmerie");
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(3)).await.unwrap();
-    assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[1]).unwrap().motif_code.as_deref(), Some("sante"), "« absent : santé » sans détail");
+    assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[1]).unwrap().motif_code.as_deref(), Some("excuse"), "M2 : « excusé » seulement, jamais « santé » hors de l'internat");
 }
 
 #[tokio::test]
@@ -1104,7 +1107,7 @@ async fn di_01_perimetre_verifie_au_serveur() {
     assert!(est_interdit(&b.ent.cloturer_appel_a(b.etab, u, r, autre, soir(3)).await));
     assert!(est_interdit(&b.ent.pdf_appel_a(b.etab, u, r, autre, soir(3)).await));
     assert!(est_interdit(&b.ent.historique_appel_a(b.etab, u, r, autre, soir(3)).await));
-    let liste = b.ent.lister_appels_a(b.etab, u, r, nuit_dst()).await.unwrap();
+    let liste = b.ent.lister_appels_a(b.etab, u, r, nuit_dst(), soir(0)).await.unwrap();
     assert_eq!(liste.len(), 1, "l'appel de l'autre formation n'est pas listé");
     assert_eq!(liste[0].id, vue.appel.id);
     // Une pointage dans son périmètre, puis clôture et validation de son appel : permis.
@@ -1114,8 +1117,8 @@ async fn di_01_perimetre_verifie_au_serveur() {
     b.ent.cloturer_appel_a(b.etab, u, r, vue.appel.id, soir(5)).await.unwrap();
     b.ent.valider_appel_a(b.etab, u, r, vue.appel.id, soir(6)).await.unwrap();
     // La transmission couvre tout l'internat : refusée à une portée restreinte.
-    assert!(est_interdit(&b.ent.transmettre_matin_a(b.etab, u, r, nuit_dst(), utc(2026, 3, 29, 5, 0)).await));
-    assert!(est_interdit(&b.ent.effectif_repas_a(b.etab, u, r, nuit_dst()).await));
+    assert!(est_interdit(&b.ent.transmettre_matin_a(b.etab, u, r, nuit_dst(), None, utc(2026, 3, 29, 5, 0)).await));
+    assert!(est_interdit(&b.ent.effectif_repas_a(b.etab, u, r, nuit_dst(), soir(0)).await));
     // Le cas d'un élève hors de sa portée lui est fermé.
     let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(7)).await.unwrap();
     assert!(cas.is_empty());
@@ -1139,7 +1142,7 @@ async fn isolation_entre_etablissements_appels_cas_et_attendu() {
     ));
     assert!(matches!(b.ent.cloturer_appel_a(e2, cpe2, CPE, vue.appel.id, soir(2)).await, Err(EntDbError::Domain(DomainError::NotFound))));
     assert!(matches!(b.ent.pdf_appel_a(e2, cpe2, CPE, vue.appel.id, soir(2)).await, Err(EntDbError::Domain(DomainError::NotFound))));
-    assert!(b.ent.lister_appels_a(e2, cpe2, CPE, nuit_dst()).await.unwrap().is_empty());
+    assert!(b.ent.lister_appels_a(e2, cpe2, CPE, nuit_dst(), soir(0)).await.unwrap().is_empty());
     let att = b.ent.attendu_nuit_a(e2, cpe2, CPE, nuit_dst(), soir(2)).await.unwrap();
     assert!(att.lignes.iter().all(|l| !b.a.contains(&l.eleve_id) && !b.b.contains(&l.eleve_id)));
     // Retrait, nuit exceptionnelle, liste pour un élève ou une chambre d'ailleurs : NotFound.
@@ -1211,13 +1214,13 @@ async fn eleve_protege_sans_nom_pour_un_tiers_et_lectures_journalisees() {
         .unwrap();
     assert!(n >= 1, "consultation tracée");
     // Journal des lectures sensibles (R-IT38) : appel, attendu, PDF ; lisible par l'audit seulement.
-    let lectures = b.ent.lectures_sensibles_a(b.etab, b.dir, DIR, 50).await.unwrap();
+    let lectures = b.ent.lectures_sensibles_a(b.etab, b.dir, DIR, 50, soir(0)).await.unwrap();
     let objets: Vec<&str> = lectures.iter().map(|l| l.objet.as_str()).collect();
     for o in ["appel", "attendu", "appel_pdf"] {
         assert!(objets.contains(&o), "{o} absent de {objets:?}");
     }
     assert!(lectures.iter().all(|l| l.user_id == b.cpe));
-    assert!(est_interdit(&b.ent.lectures_sensibles_a(b.etab, b.cpe, CPE, 10).await), "le CPE ne lit pas le journal des lectures");
+    assert!(est_interdit(&b.ent.lectures_sensibles_a(b.etab, b.cpe, CPE, 10, soir(0)).await), "le CPE ne lit pas le journal des lectures");
     assert!(sqlx::query("DELETE FROM ent_internat_lecture_sensible").execute(b.ent.pool_verif()).await.is_err(), "ajout seul");
 }
 
@@ -1250,5 +1253,828 @@ async fn nuit_exceptionnelle_et_retrait_validations() {
     assert!(est_refus(&b.ent.creer_liste_a(b.etab, b.cpe, CPE, &lst).await));
     let inconnue = ListeSaisieDto { libelle: "Fantôme".into(), chambre_ids: vec![Uuid::new_v4()], confie_a_user_id: None };
     assert!(b.ent.creer_liste_a(b.etab, b.cpe, CPE, &inconnue).await.is_err());
-    assert_eq!(b.ent.lister_listes_a(b.etab, b.cpe, CPE).await.unwrap().len(), 1);
+    assert_eq!(b.ent.lister_listes_a(b.etab, b.cpe, CPE, soir(0)).await.unwrap().len(), 1);
+}
+
+// ───────────────────────── Correctifs de la revue de sécurité (I2-correctifs) ─────────────────────────
+//
+// Un test par constat (E1 à E3, M1 à M3, M6 à M9, L1 à L9). Rapport : `docs/socles/41_I2_CORRECTIFS.md`.
+
+fn refuse_42501<T: std::fmt::Debug>(r: &Result<T, sqlx::Error>) -> bool {
+    matches!(r, Err(sqlx::Error::Database(d)) if d.code().as_deref() == Some("42501"))
+}
+
+/// Élève hébergé hors rythme le samedi : un rythme plus récent sans samedi ni vendredi.
+async fn hors_rythme(b: &Banc, eleve: Uuid) {
+    sqlx::query(
+        "INSERT INTO ent_internat_rythme (id, etablissement_id, sejour_id, du, dimanche, lundi, mardi, mercredi, jeudi, vendredi, samedi, cree_par_user_id) \
+         SELECT $1, etablissement_id, id, '2026-02-01', true, true, true, true, true, false, false, $3 \
+           FROM ent_internat_sejour WHERE etablissement_id = $2 AND eleve_id = $4",
+    )
+    .bind(Uuid::new_v4())
+    .bind(b.etab)
+    .bind(b.cpe)
+    .bind(eleve)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+}
+
+fn retrait_nuit(eleve: Uuid, motif: &str) -> RetraitSaisieDto {
+    RetraitSaisieDto { eleve_id: eleve, du_nuit: nuit_dst(), au_nuit: nuit_dst(), motif_code: motif.into() }
+}
+
+/// E1 + M6 : un hébergé hors rythme couvert par un retrait reste « non_attendu » (sinon la contrainte
+/// `statut = 'retire' ⇔ motif` casse l'ouverture de TOUT l'appel du périmètre) ; la liste figée, posée en une
+/// requête ensembliste, reprend exactement l'attendu calculé.
+#[tokio::test]
+async fn e1_heberge_hors_rythme_avec_absence_annoncee_l_appel_s_ouvre() {
+    let Some(b) = banc().await else { return };
+    hors_rythme(&b, b.b[0]).await;
+    b.ent.poser_retrait_a(b.etab, b.cpe, CPE, &retrait_nuit(b.b[0], "absence_annoncee"), soir(0)).await.unwrap();
+    b.ent.poser_retrait_a(b.etab, b.cpe, CPE, &retrait_nuit(b.a[1], "sortie"), soir(0)).await.unwrap();
+    let attendu = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(1)).await.unwrap();
+    let ligne = |e: Uuid| attendu.lignes.iter().find(|l| l.eleve_id == e).unwrap().clone();
+    assert_eq!((ligne(b.b[0]).statut.as_str(), ligne(b.b[0]).motif_code), ("non_attendu", None), "hors rythme, retrait ou non");
+    // L'appel « internat » (tous les élèves) s'ouvre.
+    let vue = b.ouvrir("soir", "internat", None, 2).await;
+    assert_eq!(vue.lignes.len(), 6);
+    let figee = |e: Uuid| vue.lignes.iter().find(|l| l.eleve_id == e).unwrap().clone();
+    assert_eq!(figee(b.b[0]).statut, "non_attendu");
+    assert_eq!(figee(b.b[0]).motif_code, None);
+    assert_eq!((figee(b.a[1]).statut.as_str(), figee(b.a[1]).motif_code.as_deref()), ("retire", Some("sortie")));
+    // M6 : la liste figée est celle de l'attendu calculé, ligne pour ligne, et l'effectif attendu en est déduit.
+    for l in &attendu.lignes {
+        assert_eq!(figee(l.eleve_id).statut, l.statut);
+        assert_eq!(figee(l.eleve_id).chambre_code, l.chambre_code);
+        assert_eq!(figee(l.eleve_id).lit_numero, l.lit_numero);
+    }
+    assert_eq!(vue.appel.nb_attendus, 4, "6 hébergés − 1 hors rythme − 1 en sortie");
+    // Un non attendu présent se pointe « non_attendu_present ».
+    b.point(vue.appel.id, b.b[0], "non_attendu_present", 3).await.unwrap();
+    // Un appel de zone ne fige que les élèves de la zone.
+    let zone = b.ouvrir("ronde", "zone", Some(b.zone_b), 4).await;
+    assert_eq!(zone.lignes.len(), 2);
+    assert!(zone.lignes.iter().all(|l| b.b.contains(&l.eleve_id)));
+    // Une liste vide (périmètre sans élève) s'ouvre aussi, sans ligne ni division par zéro.
+    let vide = b.ent.creer_liste_a(b.etab, b.cpe, CPE, &ListeSaisieDto { libelle: "Vide".into(), chambre_ids: vec![], confie_a_user_id: None }).await.unwrap();
+    let mut o = ouverture("soir", "liste", None);
+    o.liste_id = Some(vide.id);
+    let v = b.ent.ouvrir_appel_a(b.etab, b.cpe, CPE, &o, soir(5)).await.unwrap();
+    assert_eq!((v.lignes.len(), v.appel.nb_attendus), (0, 0));
+}
+
+/// L7 : un élève sorti de l'établissement n'est plus attendu (la date de sortie est son dernier jour).
+#[tokio::test]
+async fn l7_un_eleve_sorti_n_est_plus_attendu() {
+    let Some(b) = banc().await else { return };
+    sqlx::query("UPDATE ent_eleve SET date_sortie = '2026-03-20' WHERE etablissement_id = $1 AND id = $2")
+        .bind(b.etab)
+        .bind(b.a[3])
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_eleve SET date_sortie = '2026-03-28' WHERE etablissement_id = $1 AND id = $2")
+        .bind(b.etab)
+        .bind(b.a[2])
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
+    assert!(att.lignes.iter().all(|l| l.eleve_id != b.a[3]), "sorti le 20 mars : absent de l'attendu du 28");
+    assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[2]).unwrap().statut, "attendu", "dernier jour de présence : encore attendu");
+    let lendemain = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst() + chrono::Duration::days(1), soir(0)).await.unwrap();
+    assert!(lendemain.lignes.iter().all(|l| l.eleve_id != b.a[2]), "le lendemain de sa sortie, plus attendu");
+    let vue = b.ouvrir("soir", "internat", None, 1).await;
+    assert_eq!(vue.lignes.len(), 5);
+}
+
+/// E2 — TRUNCATE refusé sur toutes les tables en ajout seul ou à garde (le déclencheur de ligne ne le voit pas),
+/// y compris `ent_internat_presence_fait` (2820) ; aucune dérogation par réglage de session, et le propriétaire
+/// seul pourrait désarmer un déclencheur (essayé avec le rôle applicatif en mode strict).
+#[tokio::test]
+async fn e2_truncate_refuse_sur_les_tables_en_ajout_seul() {
+    let Some(b) = banc().await else { return };
+    let tables = [
+        "ent_internat_appel", "ent_internat_appel_attendu", "ent_internat_cas", "ent_internat_cas_etape",
+        "ent_internat_procedure_version", "ent_internat_procedure_etape", "ent_internat_transmission",
+        "ent_internat_appel_rappel", "ent_internat_lecture_sensible", "ent_internat_retrait",
+        "ent_internat_nuit_exceptionnelle", "ent_internat_presence_fait",
+    ];
+    for t in tables {
+        let mut tx = b.ent.pool_verif().begin().await.unwrap();
+        let r = sqlx::query(&format!("TRUNCATE {t} CASCADE")).execute(&mut *tx).await;
+        assert!(refuse_42501(&r), "TRUNCATE {t} CASCADE doit échouer par le déclencheur (42501), pas par une clé étrangère : {r:?}");
+        drop(tx);
+        let mut tx = b.ent.pool_verif().begin().await.unwrap();
+        let r = sqlx::query(&format!("TRUNCATE {t}")).execute(&mut *tx).await;
+        assert!(r.is_err(), "TRUNCATE {t} refusé");
+    }
+    // Aucune dérogation de session : un SET puis un UPDATE ou un TRUNCATE échouent toujours.
+    b.ent.poser_retrait_a(b.etab, b.cpe, CPE, &retrait_nuit(b.a[0], "sortie"), soir(0)).await.unwrap();
+    let mut tx = b.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
+    let maj = sqlx::query("UPDATE ent_internat_retrait SET motif_code = 'stage' WHERE etablissement_id = $1").bind(b.etab).execute(&mut *tx).await;
+    assert!(maj.is_err(), "un SET de session ne lève pas l'ajout seul");
+    drop(tx);
+    let mut tx = b.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
+    let tr = sqlx::query("TRUNCATE ent_internat_retrait").execute(&mut *tx).await;
+    assert!(refuse_42501(&tr));
+    drop(tx);
+    // Désarmer un déclencheur est réservé au propriétaire : le rôle applicatif strict n'y arrive pas.
+    if crate::tests_rls_stricte::mode_strict_demande() {
+        let mut tx = b.ent.pool().begin().await.unwrap();
+        let r = sqlx::query("ALTER TABLE ent_internat_appel DISABLE TRIGGER ALL").execute(&mut *tx).await;
+        assert!(r.is_err(), "ALTER TABLE … DISABLE TRIGGER refusé au rôle applicatif");
+    }
+}
+
+/// E2 — la liste figée d'un appel ne se complète que dans la transaction qui CRÉE l'appel, tant qu'il est ouvert.
+#[tokio::test]
+async fn e2_liste_figee_insertion_seulement_a_la_creation_de_l_appel() {
+    let Some(b) = banc().await else { return };
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    let ajout = |eleve: Uuid, appel: Uuid| {
+        sqlx::query(
+            "INSERT INTO ent_internat_appel_attendu (etablissement_id, appel_id, eleve_id, statut) VALUES ($1,$2,$3,'attendu')",
+        )
+        .bind(b.etab)
+        .bind(appel)
+        .bind(eleve)
+    };
+    // Appel ouvert mais créé dans une transaction antérieure : refus.
+    let r = ajout(b.b[0], appel).execute(b.ent.pool_verif()).await;
+    assert!(refuse_42501(&r), "insertion après coup refusée : {r:?}");
+    // Appel clos : refus aussi.
+    for e in &b.a {
+        b.point(appel, *e, "present", 1).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(2)).await.unwrap();
+    let r = ajout(b.b[0], appel).execute(b.ent.pool_verif()).await;
+    assert!(refuse_42501(&r), "appel clos : {r:?}");
+    // Dans la transaction qui crée l'appel, l'insertion est permise.
+    let mut tx = b.ent.pool_verif().begin().await.unwrap();
+    let neuf = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_internat_appel (id, etablissement_id, nuit, type, perimetre, ouvert_par_user_id, ouvert_le, nb_attendus) \
+         VALUES ($1,$2,$3,'ronde','internat',$4,$5,1)",
+    )
+    .bind(neuf)
+    .bind(b.etab)
+    .bind(nuit_dst())
+    .bind(b.cpe)
+    .bind(soir(3))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    ajout(b.b[0], neuf).execute(&mut *tx).await.expect("même transaction, appel ouvert");
+    tx.commit().await.unwrap();
+    // Et plus ensuite.
+    let r = ajout(b.b[1], neuf).execute(b.ent.pool_verif()).await;
+    assert!(refuse_42501(&r), "la liste est close après la transaction de création : {r:?}");
+}
+
+/// E2 — seules transitions : ouvert → clos et clos → validé ; l'appel clos fige écarts, auteur et heure de clôture ;
+/// `a_posteriori` ne change jamais.
+#[tokio::test]
+async fn e2_garde_de_l_appel_transitions_et_champs_figes() {
+    let Some(b) = banc().await else { return };
+    let pool = b.ent.pool_verif();
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    let maj = |sql: &str, id: Uuid| {
+        let texte = format!("UPDATE ent_internat_appel SET {sql} WHERE id = $1");
+        async move { sqlx::query(&texte).bind(id).execute(pool).await }
+    };
+    // Ouvert : ni saut direct vers « validé », ni modification de a_posteriori.
+    let r = maj("etat = 'valide', clos_le = now(), clos_par_user_id = valide_par_user_id, valide_le = now(), valide_par_user_id = ouvert_par_user_id", appel).await;
+    assert!(refuse_42501(&r), "ouvert → validé : {r:?}");
+    let r = maj("a_posteriori = true", appel).await;
+    assert!(refuse_42501(&r), "a_posteriori figé : {r:?}");
+    let r = maj("modifie_le = now()", appel).await;
+    assert!(refuse_42501(&r), "ouvert → ouvert : seule la clôture modifie un appel ouvert : {r:?}");
+    for e in &b.a {
+        b.point(appel, *e, if *e == b.a[0] { "absent" } else { "present" }, 1).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(2)).await.unwrap();
+    // Clos : écarts, auteur et heure de clôture figés ; pas de retour à « ouvert ».
+    for (champ, sql) in [
+        ("nb_ecarts", "nb_ecarts = 0"),
+        ("clos_par_user_id", "clos_par_user_id = ouvert_par_user_id"),
+        ("clos_le", "clos_le = clos_le + interval '1 hour'"),
+        ("a_posteriori", "a_posteriori = true"),
+    ] {
+        let r = maj(sql, appel).await;
+        assert!(refuse_42501(&r), "appel clos : {champ} figé : {r:?}");
+    }
+    let r = maj("etat = 'ouvert', clos_le = NULL, clos_par_user_id = NULL", appel).await;
+    assert!(r.is_err(), "clos → ouvert refusé");
+    // La validation (clos → validé) reste possible par le service ; ensuite plus rien ne bouge.
+    b.ent.valider_appel_a(b.etab, b.cpe, CPE, appel, soir(3)).await.unwrap();
+    let r = maj("nb_ecarts = 0", appel).await;
+    assert!(r.is_err(), "appel validé : plus aucune modification");
+    let (ecarts,): (Option<i32>,) = sqlx::query_as("SELECT nb_ecarts FROM ent_internat_appel WHERE id = $1").bind(appel).fetch_one(pool).await.unwrap();
+    assert_eq!(ecarts, Some(1));
+}
+
+/// E2 — le motif « reprise » (reprise de l'existant) n'échappe à la garde que pour un fait SANS appel.
+#[tokio::test]
+async fn e2_motif_reprise_refuse_sur_un_fait_rattache_a_un_appel() {
+    let Some(b) = banc().await else { return };
+    let pool = b.ent.pool_verif();
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    let insere = |appel: Option<Uuid>, eleve: Uuid, nuit: &str| {
+        sqlx::query(
+            "INSERT INTO ent_internat_presence_fait (id, etablissement_id, eleve_id, appel_id, nuit, marque, par_user_id, a, recu_le, motif_correction_code) \
+             VALUES ($1,$2,$3,$4,$5::date,'present',$6,$7,$7,'reprise')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(appel)
+        .bind(nuit.to_string())
+        .bind(b.cpe)
+        .bind(soir(1))
+    };
+    // Sur un appel : hors périmètre ou hors nuit, « reprise » ne contourne plus la garde.
+    assert!(insere(Some(appel), b.b[0], "2026-03-28").execute(pool).await.is_err(), "élève hors de la liste figée");
+    assert!(insere(Some(appel), b.a[0], "2026-03-01").execute(pool).await.is_err(), "nuit autre que celle de l'appel");
+    assert!(insere(Some(appel), b.a[0], "2026-03-28").execute(pool).await.is_err(), "même un fait valable : « reprise » est réservé aux faits sans appel");
+    // Sans appel (reprise de l'existant) : accepté, même pour une nuit ancienne.
+    insere(None, b.a[0], "2026-03-01").execute(pool).await.expect("reprise sans appel");
+}
+
+// ───────────── E3 : numéros rendus au surveillant ─────────────
+
+async fn titulaire(b: &Banc, eleve: Uuid, nom: &str, garde: Option<&str>) -> Uuid {
+    let pool = b.ent.pool_verif();
+    let p = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom) VALUES ($1,$2,$3,'Test')")
+        .bind(p)
+        .bind(b.etab)
+        .bind(nom)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, lien, garde) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(p)
+        .bind(nom.to_lowercase())
+        .bind(garde)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ent_personne_coordonnee (id, etablissement_id, personne_id, type, valeur) VALUES ($1,$2,$3,'mobile',$4)")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(p)
+        .bind(format!("06{}", &p.simple().to_string()[..8].chars().map(|c| (c as u8 % 10).to_string()).collect::<String>()))
+        .execute(pool)
+        .await
+        .unwrap();
+    p
+}
+
+async fn interdire(b: &Banc, eleve: Uuid, personne: Option<Uuid>, objet: &str, levee: bool) {
+    sqlx::query(
+        "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, personne_libelle, objet, fondement, consigne, du, decide_par, levee_par, levee_le) \
+         VALUES ($1,$2,$3,$4,CASE WHEN $4::uuid IS NULL THEN 'Un tiers' END, ARRAY[$5]::text[], 'decision_justice','Ne pas joindre','2026-01-01',$6, \
+                 CASE WHEN $7 THEN $6 END, CASE WHEN $7 THEN '2026-02-01'::timestamptz END)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(b.etab)
+    .bind(eleve)
+    .bind(personne)
+    .bind(objet)
+    .bind(b.cpe)
+    .bind(levee)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+}
+
+/// Ouvre un appel de la zone A où seuls `absents` sont absents, le clôt : un cas par absent.
+async fn cas_des_absents(b: &Banc, absents: &[Uuid]) -> std::collections::HashMap<Uuid, Uuid> {
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    for e in &b.a {
+        b.point(appel, *e, if absents.contains(e) { "absent" } else { "present" }, 1).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(2)).await.unwrap();
+    b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(3)).await.unwrap().into_iter().map(|c| (c.eleve_id, c.id)).collect()
+}
+
+#[tokio::test]
+async fn e3_numeros_sans_personne_interdite_ni_adresse_protegee_ni_eleve_protege() {
+    let Some(b) = banc().await else { return };
+    let (a0, a1, a2, a3) = (b.a[0], b.a[1], b.a[2], b.a[3]);
+    // a0 : père sous interdiction de communication active ; a1 : interdiction LEVÉE ; a2 : mère à adresse protégée ;
+    // a3 : élève protégé (mesure de confidentialité du socle 2).
+    let (m0, p0) = (titulaire(&b, a0, "Mere0", None).await, titulaire(&b, a0, "Pere0", None).await);
+    let (m1, p1) = (titulaire(&b, a1, "Mere1", None).await, titulaire(&b, a1, "Pere1", None).await);
+    let (m2, p2) = (titulaire(&b, a2, "Mere2", None).await, titulaire(&b, a2, "Pere2", None).await);
+    let (m3, _p3) = (titulaire(&b, a3, "Mere3", None).await, titulaire(&b, a3, "Pere3", None).await);
+    interdire(&b, a0, Some(p0), "communication", false).await;
+    interdire(&b, a1, Some(p1), "communication", true).await;
+    sqlx::query("INSERT INTO ent_adresse_protegee (id, etablissement_id, personne_id, adresse, origine) VALUES ($1,$2,$3,'enc:v1:xx','saisie')")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(m2)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du) VALUES ($1,$2,$3,'enc:v1:xx',ARRAY['adresse_protegee'],'2026-01-01')")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(a3)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    let cas = cas_des_absents(&b, &[a0, a1, a2, a3]).await;
+    let personnes = |v: &CasVueDto| v.numeros_titulaires.iter().map(|n| n.personne_id).collect::<std::collections::HashSet<_>>();
+    // Interdiction active : seule la mère reste joignable.
+    let v0 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a0], soir(4)).await.unwrap();
+    assert_eq!(personnes(&v0), [m0].into(), "le père sous interdiction n'est pas rendu");
+    assert!(!v0.numeros_masques);
+    // Interdiction levée : les deux.
+    let v1 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a1], soir(4)).await.unwrap();
+    assert_eq!(personnes(&v1), [m1, p1].into(), "interdiction levée : plus d'exclusion");
+    // Adresse protégée : la personne n'est pas rendue.
+    let v2 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a2], soir(4)).await.unwrap();
+    assert_eq!(personnes(&v2), [p2].into(), "la mère à adresse protégée n'est pas rendue");
+    // Élève protégé : décision pessimiste, aucun numéro, la vue le dit.
+    let v3 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a3], soir(4)).await.unwrap();
+    assert!(v3.numeros_titulaires.is_empty());
+    assert!(v3.numeros_masques, "la vue renvoie vers la direction ou le CPE d'astreinte");
+    // Confirmation d'un retour en famille : refusée pour une personne exclue, permise pour une autre.
+    let issue = |p: Uuid| CasIssueSaisieDto { issue: "rentre_famille".into(), lieu_code: None, confirme_par_personne_id: Some(p), numero_intervention: None, note: None, a: Some(soir(5)) };
+    assert!(est_refus(&b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas[&a0], &issue(p0), soir(6)).await), "père sous interdiction");
+    assert!(est_refus(&b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas[&a2], &issue(m2), soir(6)).await), "mère à adresse protégée");
+    b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas[&a0], &issue(m0), soir(6)).await.unwrap();
+    b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas[&a1], &issue(p1), soir(6)).await.unwrap();
+    // L'adresse ne sort toujours jamais.
+    assert!(!format!("{v0:?}{v1:?}{v2:?}{v3:?}").contains("enc:v1"));
+    let _ = m3;
+}
+
+#[tokio::test]
+async fn e3_garde_alternee_et_interdiction_visant_une_personne_non_identifiee() {
+    let Some(b) = banc().await else { return };
+    let (a0, a1, a2) = (b.a[0], b.a[1], b.a[2]);
+    // Garde alternée : deux parents, l'un sous interdiction de CONTACT (autre objet que « communication »).
+    let (pa, pb) = (titulaire(&b, a0, "ParentA", Some("alternee")).await, titulaire(&b, a0, "ParentB", Some("alternee")).await);
+    interdire(&b, a0, Some(pa), "contact_eleve", false).await;
+    // Interdiction de VISITE seulement : ne concerne pas le téléphone, le parent reste joignable.
+    let (va, vb) = (titulaire(&b, a1, "VisiteA", Some("alternee")).await, titulaire(&b, a1, "VisiteB", Some("alternee")).await);
+    interdire(&b, a1, Some(va), "visite", false).await;
+    // Interdiction dont la cible n'est qu'un libellé (aucune personne identifiée) : pessimiste, aucun numéro.
+    let (_ca, _cb) = (titulaire(&b, a2, "CibleA", None).await, titulaire(&b, a2, "CibleB", None).await);
+    interdire(&b, a2, None, "communication", false).await;
+    let cas = cas_des_absents(&b, &[a0, a1, a2]).await;
+    let ids = |v: &CasVueDto| v.numeros_titulaires.iter().map(|n| n.personne_id).collect::<std::collections::HashSet<_>>();
+    let v0 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a0], soir(3)).await.unwrap();
+    assert_eq!(ids(&v0), [pb].into(), "garde alternée : le parent sous interdiction de contact est exclu, l'autre reste joignable");
+    let v1 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a1], soir(3)).await.unwrap();
+    assert_eq!(ids(&v1), [va, vb].into(), "une interdiction de visite ne retire pas le numéro");
+    let v2 = b.ent.cas_vue_a(b.etab, b.cpe, CPE, cas[&a2], soir(3)).await.unwrap();
+    assert!(v2.numeros_titulaires.is_empty() && v2.numeros_masques, "cible non identifiée : aucun numéro (pessimiste)");
+}
+
+// ───────────── M1 : santé dans les textes libres ─────────────
+
+#[tokio::test]
+async fn m1_controle_sante_sur_motif_de_correction_note_du_cas_et_motif_de_rectification() {
+    let Some(b) = banc().await else { return };
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    // Notes d'appel : racines élargies, avec ou sans accents.
+    for texte in ["a de la fièvre", "FIEVRE", "crise de nerfs", "vomissements", "migraine", "signes de dépression", "idées suicidaires", "rdv chez le psy", "suivi TDAH", "épilepsie", "diabète", "allergie"] {
+        let mut n = pointage(b.a[0], "present");
+        n.note = Some(texte.into());
+        assert!(est_refus(&b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &n, soir(1)).await), "note « {texte} » refusée");
+    }
+    let mut ok = pointage(b.a[0], "absent");
+    ok.note = Some("cherché dans les couloirs".into());
+    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &ok, soir(1)).await.unwrap();
+    for e in &b.a[1..] {
+        b.point(appel, *e, "present", 2).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(3)).await.unwrap();
+    // Motif de correction (texte libre) : même contrôle que la note.
+    let mut corr = pointage(b.a[1], "absent");
+    corr.motif_correction_code = Some("erreur_saisie".into());
+    corr.motif_correction_texte = Some("il avait de la fièvre".into());
+    assert!(est_refus(&b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &corr, soir(4)).await), "texte du motif de correction");
+    corr.motif_correction_texte = Some("erreur de lit".into());
+    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &corr, soir(4)).await.unwrap();
+    // Notes du cas : étape et issue.
+    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(5)).await.unwrap();
+    let cas_id = cas.iter().find(|c| c.eleve_id == b.a[0]).unwrap().id;
+    let etape = |n: &str| CasEtapeSaisieDto { etape_id: None, lieu_code: Some("etude".into()), note: Some(n.into()), fait_le: None };
+    assert!(est_refus(&b.ent.cas_etape_a(b.etab, b.cpe, CPE, cas_id, &etape("vomi dans la chambre"), soir(6)).await));
+    assert!(est_refus(&b.ent.cas_etape_a(b.etab, b.cpe, CPE, cas_id, &etape("fait une crise d'angoisse"), soir(6)).await));
+    let issue = |n: &str| CasIssueSaisieDto { issue: "retrouve".into(), lieu_code: Some("etude".into()), confirme_par_personne_id: None, numero_intervention: None, note: Some(n.into()), a: Some(soir(7)) };
+    assert!(est_refus(&b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas_id, &issue("en pleine dépression"), soir(8)).await));
+    b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas_id, &issue("retrouvé à l'étude"), soir(8)).await.unwrap();
+    // Motif de rectification d'une transmission.
+    let matin = utc(2026, 3, 29, 5, 0);
+    assert!(est_refus(&b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), Some("diabète"), matin).await));
+}
+
+// ───────────── M2 : « santé » jamais dite hors de l'internat ─────────────
+
+#[tokio::test]
+async fn m2_motif_sante_devient_excuse_dans_la_vue_le_pdf_et_les_evenements() {
+    let Some(b) = banc().await else { return };
+    let infirmiere = b.cast.infirmieres[0].user_id;
+    let r = b.ent.poser_retrait_a(b.etab, infirmiere, "infirmerie", &retrait_nuit(b.a[1], "sante"), soir(0)).await.unwrap();
+    // La base garde le code réel (audit) ; tout ce qui sort est générique.
+    let (motif_base,): (String,) = sqlx::query_as("SELECT motif_code FROM ent_internat_retrait WHERE id = $1").bind(r.id).fetch_one(b.ent.pool_verif()).await.unwrap();
+    assert_eq!(motif_base, "sante");
+    let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(1)).await.unwrap();
+    assert_eq!(att.lignes.iter().find(|l| l.eleve_id == b.a[1]).unwrap().motif_code.as_deref(), Some("excuse"));
+    let vue = b.ouvrir("soir", "internat", None, 2).await;
+    let l = vue.lignes.iter().find(|l| l.eleve_id == b.a[1]).unwrap();
+    assert_eq!((l.statut.as_str(), l.motif_code.as_deref()), ("retire", Some("excuse")));
+    assert_eq!(crate::internat_cas::libelle_statut("retire", l.motif_code.as_deref()), "Excusé", "ni « santé », ni parenthèses vides");
+    assert_eq!(crate::internat_cas::libelle_statut("retire", Some("sortie")), "Excusé (en sortie)");
+    let pdf = b.ent.pdf_appel_a(b.etab, b.cpe, CPE, vue.appel.id, soir(3)).await.unwrap();
+    let texte = String::from_utf8_lossy(&pdf).to_string();
+    assert!(!texte.contains("absent : sant"), "le PDF ne dit pas « absent : santé »");
+    b.ent.annuler_retrait_a(b.etab, infirmiere, "infirmerie", r.id, soir(4)).await.unwrap();
+    // Événements : pas de motif « sante » dans l'outbox, un motif générique.
+    let evts = b.evenements("internat.attendu_modifie").await;
+    assert_eq!(evts.len(), 2, "pose et annulation");
+    for e in &evts {
+        assert_eq!(e["motif_code"], "excuse", "{e}");
+        assert!(!e.to_string().contains("sante"), "{e}");
+    }
+}
+
+// ───────────── M3 : transmission du matin ─────────────
+
+#[tokio::test]
+async fn m3_transmission_conditions_rectificative_versionnee_et_petit_dejeuner_aligne() {
+    let Some(b) = banc().await else { return };
+    let soir_id = b.ouvrir("soir", "internat", None, 0).await.appel.id;
+    b.point(soir_id, b.a[0], "absent", 1).await.unwrap();
+    b.point(soir_id, b.a[1], "parti", 1).await.unwrap();
+    for e in b.a[2..].iter().chain(b.b.iter()) {
+        b.point(soir_id, *e, "present", 2).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, soir_id, soir(3)).await.unwrap();
+    b.ent.valider_appel_a(b.etab, b.cpe, CPE, soir_id, soir(4)).await.unwrap();
+    // Un autre appel de la nuit reste ouvert : pas de transmission.
+    let ext = b.ouvrir("extinction", "zone", Some(b.zone_b), 5).await.appel.id;
+    let matin = utc(2026, 3, 29, 5, 0);
+    let tente = |m: Option<&'static str>, t: DateTime<Utc>| b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), m, t);
+    assert!(est_refus(&tente(None, matin).await), "un appel de la nuit est encore ouvert");
+    for e in &b.b {
+        b.point(ext, *e, "present", 6).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, ext, soir(7)).await.unwrap();
+    // Nuit pas encore passée : le soir même (jour local = nuit), refus ; elle l'est le lendemain.
+    assert!(est_refus(&tente(None, soir(10)).await), "la nuit n'est pas strictement passée");
+    // Même formule pour la lecture de l'effectif et la transmission : 6 attendus − 1 absent − 1 parti.
+    assert_eq!(b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst(), matin).await.unwrap().petit_dejeuner, 4);
+    let v1 = tente(None, matin).await.unwrap();
+    assert!(v1.nouvelle && v1.version == 1);
+    assert_eq!((v1.nb_attendus, v1.nb_presents, v1.nb_absents), (6, 4, 1));
+    let repas_v1 = b.evenements("internat.effectif_repas").await;
+    assert_eq!(repas_v1.len(), 1);
+    assert_eq!(repas_v1[0]["petit_dejeuner"], 4);
+    // Mêmes chiffres : idempotent, aucune version de plus.
+    let encore = tente(None, matin + chrono::Duration::minutes(5)).await.unwrap();
+    assert!(!encore.nouvelle && encore.version == 1);
+    // Correction après validation : a[0] était présent. Les chiffres changent → rectificative obligatoire.
+    let mut c = pointage(b.a[0], "present");
+    c.motif_correction_code = Some("information_tardive".into());
+    b.ent.pointer_a(b.etab, b.cpe, CPE, soir_id, &c, matin + chrono::Duration::minutes(10)).await.unwrap();
+    let t = matin + chrono::Duration::minutes(20);
+    assert!(est_refus(&tente(None, t).await), "motif de rectification obligatoire");
+    assert!(est_refus(&tente(Some("   "), t).await), "motif vide");
+    let v2 = tente(Some("Élève retrouvé, pointage corrigé"), t).await.unwrap();
+    assert!(v2.nouvelle && v2.version == 2);
+    assert_eq!((v2.nb_attendus, v2.nb_presents, v2.nb_absents), (6, 5, 0));
+    // La version 1 reste lisible (ajout seul), la version 2 porte son motif.
+    let lignes: Vec<(i32, i32, Option<String>)> = sqlx::query_as(
+        "SELECT version, nb_absents, motif_rectification FROM ent_internat_transmission \
+          WHERE etablissement_id = $1 AND nuit = $2 AND nature = 'matin_vie_scolaire' ORDER BY version",
+    )
+    .bind(b.etab)
+    .bind(nuit_dst())
+    .fetch_all(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(lignes, vec![(1, 1, None), (2, 0, Some("Élève retrouvé, pointage corrigé".into()))]);
+    assert!(sqlx::query("UPDATE ent_internat_transmission SET nb_absents = 9 WHERE etablissement_id = $1").bind(b.etab).execute(b.ent.pool_verif()).await.is_err());
+    // Vers la vie scolaire : l'absence de la v1 est ANNULÉE par la v2 (seule la différence part).
+    let absences = b.evenements("internat.absence_nuit").await;
+    assert_eq!(absences.len(), 2);
+    assert_eq!(absences[1]["annulee"], true);
+    assert_eq!(absences[1]["version"], 2);
+    // Petit-déjeuner : une seule formule, 6 − 0 absent − 1 parti = 5, pour l'événement comme pour la lecture.
+    let repas = b.evenements("internat.effectif_repas").await;
+    assert_eq!(repas.len(), 2);
+    assert_eq!(repas[1]["petit_dejeuner"], 5);
+    assert_eq!(b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst(), t).await.unwrap().petit_dejeuner, 5);
+    let transmissions = b.evenements("internat.transmission").await;
+    assert_eq!(transmissions[1]["rectificative"], true);
+    // Rejouée à l'identique : plus de version.
+    assert!(!tente(Some("autre motif"), t + chrono::Duration::minutes(1)).await.unwrap().nouvelle);
+}
+
+// ───────────── M7 : appel a posteriori borné à 48 h ─────────────
+
+#[tokio::test]
+async fn m7_appel_a_posteriori_borne_a_48_heures_sauf_droit_de_valider() {
+    let Some(b) = banc().await else { return };
+    // Un rôle qui ouvre les appels mais ne les valide pas.
+    let droit = |a: Action| Droit { action: a, portee: Portee::Etablissement, cibles: vec![] };
+    let role = b
+        .ent
+        .creer_role_for_actor(
+            b.etab,
+            b.dir,
+            DIR,
+            RoleSaisie {
+                nom: format!("Surveillant {}", alea()),
+                description: None,
+                modele: None,
+                droits: vec![droit(Action::InternatLire), droit(Action::InternatAppel)],
+            },
+        )
+        .await
+        .unwrap();
+    b.ent.attribuer_role_for_actor(b.etab, b.dir, DIR, role.id, b.compta, None).await.unwrap();
+    let (u, r) = (b.compta, "compta");
+    // Fin de la nuit du 28 : 29 mars 12 h (CEST) = 10 h UTC. Limite : 31 mars 10 h UTC.
+    let dans_le_delai = utc(2026, 3, 31, 9, 0);
+    let hors_delai = utc(2026, 3, 31, 11, 0);
+    let a_ouvrir = |zone| ouverture("soir", "zone", Some(zone));
+    let v = b.ent.ouvrir_appel_a(b.etab, u, r, &a_ouvrir(b.zone_a), dans_le_delai).await.unwrap();
+    assert!(v.appel.a_posteriori, "nuit passée : saisie a posteriori");
+    assert!(est_interdit(&b.ent.ouvrir_appel_a(b.etab, u, r, &a_ouvrir(b.zone_b), hors_delai).await), "au-delà de 48 h : droit de valider exigé");
+    // Avec le droit de valider (le CPE), l'ouverture tardive est permise.
+    let v = b.ent.ouvrir_appel_a(b.etab, b.cpe, CPE, &a_ouvrir(b.zone_b), hors_delai).await.unwrap();
+    assert!(v.appel.a_posteriori);
+    // La nuit courante n'est pas concernée.
+    b.ent.ouvrir_appel_a(b.etab, u, r, &ouverture("ronde", "zone", Some(b.zone_a)), soir(0)).await.unwrap();
+}
+
+// ───────────── M8 : conflit mesuré sur la réception ─────────────
+
+#[tokio::test]
+async fn m8_conflit_mesure_sur_la_reception_et_tous_les_faits_distincts_de_la_fenetre() {
+    let Some(b) = banc().await else { return };
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    let (c, d) = ((b.cpe, CPE), (b.dir, DIR));
+    // Trois faits sur le même élève : le CPE « présent » (heure client une heure plus tôt), puis la direction
+    // « absent » deux fois de suite. Mesuré sur l'heure client, l'écart serait d'une heure et le dernier fait
+    // ne contredirait pas l'avant-dernier : conflit manqué. Sur la réception (60 s), le premier fait est dans la fenêtre.
+    let mut f1 = pointage(b.a[0], "present");
+    f1.a = Some(soir(0) - chrono::Duration::minutes(60));
+    b.ent.pointer_a(b.etab, c.0, c.1, appel, &f1, soir(1)).await.unwrap();
+    let f2 = pointage(b.a[0], "absent");
+    b.ent.pointer_a(b.etab, d.0, d.1, appel, &f2, soir(2)).await.unwrap();
+    let f3 = b.ent.pointer_a(b.etab, d.0, d.1, appel, &pointage(b.a[0], "absent"), soir(2) + chrono::Duration::seconds(30)).await.unwrap();
+    assert!(f3.conflit, "le fait du CPE, reçu moins de 120 s avant, contredit le dernier");
+    let v = b.ent.vue_appel_a(b.etab, b.cpe, CPE, appel, soir(3)).await.unwrap();
+    let l = v.lignes.iter().find(|l| l.eleve_id == b.a[0]).unwrap();
+    assert!(l.conflit);
+    assert_eq!(l.marques_en_conflit, vec!["present".to_string()], "les faits distincts de la fenêtre sont signalés");
+    // Un fait contradictoire reçu longtemps avant (hors fenêtre) ne fait pas de conflit, quelle que soit l'heure client.
+    let mut g1 = pointage(b.a[1], "present");
+    g1.a = Some(soir(5));
+    b.ent.pointer_a(b.etab, c.0, c.1, appel, &g1, soir(5)).await.unwrap();
+    let mut g2 = pointage(b.a[1], "absent");
+    g2.a = Some(soir(5)); // même heure de geste, mais reçu dix minutes plus tard
+    let r = b.ent.pointer_a(b.etab, d.0, d.1, appel, &g2, soir(15)).await.unwrap();
+    assert!(!r.conflit, "mesuré sur la réception : dix minutes d'écart, pas de conflit");
+    // Le même utilisateur qui se corrige n'est pas en conflit avec lui-même.
+    b.ent.pointer_a(b.etab, c.0, c.1, appel, &pointage(b.a[2], "present"), soir(6)).await.unwrap();
+    let r = b.ent.pointer_a(b.etab, c.0, c.1, appel, &pointage(b.a[2], "absent"), soir(6) + chrono::Duration::seconds(10)).await.unwrap();
+    assert!(!r.conflit);
+}
+
+// ───────────── M9 : sorties et séjours scolaires ─────────────
+
+#[tokio::test]
+async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
+    let Some(b) = banc().await else { return };
+    let pool = b.ent.pool_verif();
+    let sortie = Uuid::new_v4();
+    let inserted = sqlx::query(
+        "INSERT INTO ent_sortie (id, etablissement_id, etat, debut, fin) VALUES ($1,$2,'en_cours',$3,$4)",
+    )
+    .bind(sortie)
+    .bind(b.etab)
+    .bind(utc(2026, 3, 28, 12, 0))
+    .bind(utc(2026, 3, 30, 12, 0))
+    .execute(pool)
+    .await;
+    if let Err(e) = inserted {
+        panic!("ent_sortie : colonnes obligatoires à renseigner dans ce test : {e}");
+    }
+    let etats = ["inscrit", "pret", "parti", "liste_attente", "bloque", "rentre"];
+    for (i, etat) in etats.iter().enumerate() {
+        sqlx::query("INSERT INTO ent_sortie_participant (id, etablissement_id, sortie_id, eleve_id, etat, rang_attente) VALUES ($1,$2,$3,$4,$5, CASE WHEN $5 = 'liste_attente' THEN 1 END)")
+            .bind(Uuid::new_v4())
+            .bind(b.etab)
+            .bind(sortie)
+            .bind(b.a[i])
+            .bind(etat)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
+    let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == b.a[i]).unwrap().statut.clone();
+    assert_eq!(statut(0), "attendu", "inscrit : autorisation non confirmée, dort à l'internat");
+    assert_eq!(statut(1), "retire", "prêt : autorisation complète");
+    assert_eq!(statut(2), "retire", "parti : départ effectif");
+    assert_eq!(statut(3), "attendu", "liste d'attente");
+    assert_eq!(statut(4), "attendu", "bloqué");
+}
+
+// ───────────── L1, L6 : bornes ─────────────
+
+#[tokio::test]
+async fn l1_nuit_exceptionnelle_bornee_dans_le_futur() {
+    let Some(b) = banc().await else { return };
+    let saisie = |jours: i64| NuitExceptionnelleSaisieDto { eleve_id: b.a[0], nuit: nuit_dst() + chrono::Duration::days(jours), motif_code: "examen".into() };
+    assert!(est_refus(&b.ent.poser_nuit_exceptionnelle_a(b.etab, b.cpe, CPE, &saisie(400), soir(0)).await), "dans plus d'un an");
+    assert!(est_refus(&b.ent.poser_nuit_exceptionnelle_a(b.etab, b.cpe, CPE, &saisie(5000), soir(0)).await));
+    b.ent.poser_nuit_exceptionnelle_a(b.etab, b.cpe, CPE, &saisie(300), soir(0)).await.unwrap();
+}
+
+#[tokio::test]
+async fn l6_retrait_sante_de_l_infirmerie_plafonne_a_30_nuits() {
+    let Some(b) = banc().await else { return };
+    let inf = (b.cast.infirmieres[0].user_id, "infirmerie");
+    let retrait = |nuits: i64| RetraitSaisieDto { eleve_id: b.a[0], du_nuit: nuit_dst(), au_nuit: nuit_dst() + chrono::Duration::days(nuits - 1), motif_code: "sante".into() };
+    assert!(est_refus(&b.ent.poser_retrait_a(b.etab, inf.0, inf.1, &retrait(31), soir(0)).await), "31 nuits : trop");
+    b.ent.poser_retrait_a(b.etab, inf.0, inf.1, &retrait(30), soir(0)).await.unwrap();
+    // Renouvelable par un nouveau retrait (un fait de plus, daté et signé).
+    let suite = RetraitSaisieDto { eleve_id: b.a[0], du_nuit: nuit_dst() + chrono::Duration::days(30), au_nuit: nuit_dst() + chrono::Duration::days(59), motif_code: "sante".into() };
+    b.ent.poser_retrait_a(b.etab, inf.0, inf.1, &suite, soir(1)).await.unwrap();
+    // Le plafond ne vise que l'infirmerie : le CPE pose une longue absence annoncée.
+    let longue = RetraitSaisieDto { eleve_id: b.a[1], du_nuit: nuit_dst(), au_nuit: nuit_dst() + chrono::Duration::days(60), motif_code: "absence_annoncee".into() };
+    b.ent.poser_retrait_a(b.etab, b.cpe, CPE, &longue, soir(2)).await.unwrap();
+}
+
+// ───────────── L2 : journal des lectures sensibles ─────────────
+
+#[tokio::test]
+async fn l2_lectures_journalisees_avec_la_liste_des_eleves_concernes() {
+    let Some(b) = banc().await else { return };
+    let vue = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await;
+    b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(1)).await.unwrap();
+    b.ent.lister_appels_a(b.etab, b.cpe, CPE, nuit_dst(), soir(2)).await.unwrap();
+    b.ent.lire_procedure_a(b.etab, b.cpe, CPE, soir(3)).await.unwrap();
+    b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(4)).await.unwrap();
+    b.ent.lister_listes_a(b.etab, b.cpe, CPE, soir(5)).await.unwrap();
+    let journal = b.ent.lectures_sensibles_a(b.etab, b.dir, DIR, 100, soir(6)).await.unwrap();
+    for objet in ["attendu", "appel", "liste_appels", "procedure", "effectif_repas", "listes"] {
+        assert!(journal.iter().any(|l| l.objet == objet), "lecture « {objet} » journalisée : {:?}", journal.iter().map(|l| &l.objet).collect::<Vec<_>>());
+    }
+    // La lecture de l'attendu liste les élèves concernés (les six hébergés) ; celle de l'appel, les quatre de la zone.
+    let attendu = journal.iter().find(|l| l.objet == "attendu").unwrap();
+    assert_eq!(attendu.eleve_ids.len(), 6);
+    let appel = journal.iter().find(|l| l.objet == "appel").unwrap();
+    assert_eq!(appel.appel_id, Some(vue.appel.id));
+    assert_eq!(appel.eleve_ids.len(), 4);
+    assert!(appel.eleve_ids.iter().all(|e| b.a.contains(e)));
+    // La lecture du journal est elle-même journalisée.
+    let apres = b.ent.lectures_sensibles_a(b.etab, b.dir, DIR, 100, soir(7)).await.unwrap();
+    assert!(apres.iter().any(|l| l.objet == "journal" && l.user_id == b.dir));
+}
+
+// ───────────── L3 : cas clos figé ─────────────
+
+#[tokio::test]
+async fn l3_un_cas_clos_fige_lieu_confirmation_numero_et_appel() {
+    let Some(b) = banc().await else { return };
+    let pool = b.ent.pool_verif();
+    let mere = titulaire(&b, b.a[0], "MereL3", None).await;
+    let cas = cas_des_absents(&b, &[b.a[0]]).await[&b.a[0]];
+    let clos = b
+        .ent
+        .cas_issue_a(b.etab, b.cpe, CPE, cas, &CasIssueSaisieDto { issue: "rentre_famille".into(), lieu_code: Some("exterieur".into()), confirme_par_personne_id: Some(mere), numero_intervention: Some("N-1".into()), note: None, a: Some(soir(5)) }, soir(6))
+        .await
+        .unwrap();
+    assert_eq!(clos.issue.as_deref(), Some("rentre_famille"));
+    for sql in [
+        "issue_lieu_code = 'chambre'",
+        "issue_confirmee_par_personne_id = NULL",
+        "numero_intervention = 'N-2'",
+        "appel_id = NULL",
+    ] {
+        let r = sqlx::query(&format!("UPDATE ent_internat_cas SET {sql} WHERE id = $1")).bind(cas).execute(pool).await;
+        assert!(refuse_42501(&r), "{sql} : cas clos figé : {r:?}");
+    }
+    // Seule la transmission s'ajoute.
+    sqlx::query("UPDATE ent_internat_cas SET transmis_le = now() WHERE id = $1").bind(cas).execute(pool).await.unwrap();
+}
+
+// ───────────── L4, L5 : retour d'un élève et correction « absent » ─────────────
+
+#[tokio::test]
+async fn l4_le_lieu_de_retour_depend_de_l_endroit_ou_l_eleve_est_pointe() {
+    let Some(b) = banc().await else { return };
+    let pool = b.ent.pool_verif();
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    for e in &b.a {
+        b.point(appel, *e, if [b.a[0], b.a[1], b.a[3]].contains(e) { "absent" } else { "present" }, 1).await.unwrap();
+    }
+    b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(2)).await.unwrap();
+    let cas: std::collections::HashMap<Uuid, Uuid> =
+        b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(3)).await.unwrap().into_iter().map(|c| (c.eleve_id, c.id)).collect();
+    assert_eq!(cas.len(), 3);
+    // a[0] et a[1] ont changé de chambre (aile B) avant de rentrer ; a[3] dort toujours dans l'aile A.
+    for e in [b.a[0], b.a[1]] {
+        sqlx::query("UPDATE ent_internat_affectation SET chambre_id = $3, lit_id = NULL WHERE etablissement_id = $1 AND eleve_id = $2")
+            .bind(b.etab)
+            .bind(e)
+            .bind(b.chambre_b)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let retour = |e: Uuid, marque: &str, mi: u32| {
+        let mut p = pointage(e, marque);
+        p.motif_correction_code = Some("information_tardive".into());
+        let (ent, etab, cpe) = (&b.ent, b.etab, b.cpe);
+        async move { ent.pointer_a(etab, cpe, CPE, appel, &p, soir(mi)).await.unwrap() }
+    };
+    let etat = |e: Uuid| {
+        let id = cas[&e];
+        async move {
+            let r: (Option<String>, Option<String>) = sqlx::query_as("SELECT issue, issue_lieu_code FROM ent_internat_cas WHERE id = $1")
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            r
+        }
+    };
+    // « Présent » dans l'appel de l'aile A alors que son lit est dans l'aile B : le cas reste ouvert.
+    retour(b.a[1], "present", 5).await;
+    assert_eq!(etat(b.a[1]).await, (None, None), "présent hors de la zone de son lit : le cas ne se ferme pas");
+    // « Vu » dans l'appel de l'aile A, lit dans l'aile B : retrouvé ailleurs, lieu réel « autre_zone ».
+    retour(b.a[0], "vu", 6).await;
+    assert_eq!(etat(b.a[0]).await, (Some("retrouve".into()), Some("autre_zone".into())));
+    // « Vu » dans la zone de son lit : « chambre ».
+    retour(b.a[3], "vu", 7).await;
+    assert_eq!(etat(b.a[3]).await, (Some("retrouve".into()), Some("chambre".into())));
+}
+
+#[tokio::test]
+async fn l5_une_correction_absent_apres_cloture_ouvre_un_cas() {
+    let Some(b) = banc().await else { return };
+    let appel = b.ouvrir("soir", "zone", Some(b.zone_a), 0).await.appel.id;
+    for e in &b.a {
+        b.point(appel, *e, "present", 1).await.unwrap();
+    }
+    let c = b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, appel, soir(2)).await.unwrap();
+    assert!(c.cas_ouverts.is_empty());
+    let mut corr = pointage(b.a[2], "absent");
+    corr.motif_correction_code = Some("information_tardive".into());
+    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &corr, soir(3)).await.unwrap();
+    let cas = b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(4)).await.unwrap();
+    assert_eq!(cas.len(), 1, "la correction « absent » ouvre un cas, comme la clôture");
+    assert_eq!((cas[0].eleve_id, cas[0].nature.as_str()), (b.a[2], "non_retrouve"));
+    // Une seconde correction n'ouvre pas un second cas (un seul cas ouvert par élève et par nuit).
+    b.ent.pointer_a(b.etab, b.cpe, CPE, appel, &corr, soir(5)).await.unwrap();
+    assert_eq!(b.ent.lister_cas_a(b.etab, b.cpe, CPE, nuit_dst(), soir(6)).await.unwrap().len(), 1);
+}
+
+// ───────────── L9 : heure limite après minuit ─────────────
+
+#[tokio::test]
+async fn l9_heure_limite_d_appel_apres_minuit_est_celle_du_lendemain() {
+    let Some(b) = banc().await else { return };
+    // Limite 00 h 30 (après minuit) : la nuit du 28 mars se rattrape jusqu'au 29 à 00 h 30 (Paris : UTC+1 avant 2 h).
+    sqlx::query("UPDATE ent_internat_parametres SET heure_limite_appel = '00:30' WHERE etablissement_id = $1")
+        .bind(b.etab)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    let n_etab = sqlx::query("INSERT INTO ent_internat_parametres (etablissement_id, heure_limite_appel) VALUES ($1, '00:30') ON CONFLICT (etablissement_id) DO UPDATE SET heure_limite_appel = '00:30'")
+        .bind(b.etab)
+        .execute(b.ent.pool_verif())
+        .await;
+    n_etab.unwrap();
+    // 28 mars 22 h (21 h UTC) : bien avant la limite → aucun rappel (le bug rappelait aussitôt : 28 mars 00 h 30 est passé).
+    let avant = utc(2026, 3, 28, 21, 0);
+    let r = b.ent.emettre_rappels_appels_a(b.etab, avant).await.unwrap();
+    assert!(r.surveillant.is_empty() && r.cpe.is_empty(), "limite 00 h 30 : pas de rappel à 22 h");
+    // 29 mars 00 h 31 Paris (23 h 31 UTC le 28) : limite dépassée, rappel au surveillant ; au CPE 15 minutes plus tard.
+    let apres = utc(2026, 3, 28, 23, 31);
+    let r = b.ent.emettre_rappels_appels_a(b.etab, apres).await.unwrap();
+    assert_eq!(r.surveillant.len(), 1);
+    assert_eq!(r.surveillant[0].nuit, nuit_dst());
+    assert!(r.cpe.is_empty());
+    let r = b.ent.emettre_rappels_appels_a(b.etab, apres + chrono::Duration::minutes(16)).await.unwrap();
+    assert_eq!(r.cpe.len(), 1);
 }

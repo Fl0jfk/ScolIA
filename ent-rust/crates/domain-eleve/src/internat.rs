@@ -753,6 +753,12 @@ pub const SUIVI_MAX_CARACTERES: usize = 300;
 
 /// Mots de santé reconnus (R-IT6) : détection **indicative**, jamais une décision. Sert à avertir
 /// l'auteur (« pas de santé dans l'internat ») ; la santé relève du module 34.
+///
+/// C'est **une aide, pas une garantie** : une liste de racines (sans accents ; le texte est ramené en
+/// minuscules sans accents avant comparaison) ne reconnaît ni une périphrase, ni une faute de
+/// frappe, ni une abréviation. La protection réelle reste le code de motif sans texte libre, la
+/// confidentialité et la relecture humaine. Les faux positifs sont assumés (mieux vaut refuser un
+/// texte inoffensif que laisser passer un diagnostic).
 pub fn mots_de_sante_detectes(texte: &str) -> bool {
     let t: String = texte
         .to_lowercase()
@@ -781,7 +787,21 @@ pub fn mots_de_sante_detectes(texte: &str) -> bool {
         "anaphyla",
         "pathologie",
         "maladie",
+        "malade",
         "prescri",
+        "fievr",
+        "crise",
+        "vomi",
+        "migrain",
+        "depress",
+        "suicid",
+        "psy",
+        "tdah",
+        "angoiss",
+        "anxie",
+        "grippe",
+        "gastro",
+        "covid",
     ];
     RACINES.iter().any(|r| t.contains(r))
         || t.split(|c: char| !c.is_alphanumeric()).any(|m| m == "pai")
@@ -1198,7 +1218,17 @@ mod tests {
         assert!(mots_de_sante_detectes("a pris son TRAITEMENT"));
         assert!(mots_de_sante_detectes("voir le PAI"));
         assert!(mots_de_sante_detectes("crise d'épilepsie"));
+        assert!(mots_de_sante_detectes("FIÈVRE cette nuit"));
+        assert!(mots_de_sante_detectes("fievre"));
+        assert!(mots_de_sante_detectes("vomissements"));
+        assert!(mots_de_sante_detectes("migraine"));
+        assert!(mots_de_sante_detectes("signes de dépression"));
+        assert!(mots_de_sante_detectes("idées suicidaires"));
+        assert!(mots_de_sante_detectes("rdv psy"));
+        assert!(mots_de_sante_detectes("TDAH"));
+        assert!(mots_de_sante_detectes("diabète"));
         assert!(!mots_de_sante_detectes("S'est bien intégré, rangé sa chambre"));
+        assert!(!mots_de_sante_detectes("maladroit mais gentil"));
         assert!(!mots_de_sante_detectes("Il pleut, il pait calmement"));
     }
 }

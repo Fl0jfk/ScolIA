@@ -113,6 +113,9 @@ CREATE TRIGGER ent_internat_nuit_exceptionnelle_garde BEFORE UPDATE OR DELETE ON
     FOR EACH ROW EXECUTE FUNCTION ent_internat_annulable_garde();
 
 -- ───────────────────────── 3. L'attendu de la nuit (§9.1, corrige DI-11, DI-16, RI-06) ─────────────────────────
+-- Sortie / séjour scolaire (M9) : seuls les participants CONFIRMÉS sortent de l'attendu : « pret »
+-- (autorisation complète) et « parti » (départ effectif). Un simple « inscrit » (autorisation non
+-- reçue), « propose », « liste_attente » ou « bloque » dort à l'internat.
 -- Fonction unique : séjours dont le rythme contient le jour de la nuit, plus les nuits
 -- exceptionnelles ; moins les retraits (posés, situations connues du socle 12, mobilités du socle 2,
 -- séjours scolaires du socle 42, fermeture de l'internat du socle 5). Les élèves hébergés qui ne
@@ -168,7 +171,7 @@ LANGUAGE sql STABLE AS $$
           JOIN ent_sortie_participant p ON p.etablissement_id = so.etablissement_id AND p.sortie_id = so.id
           CROSS JOIN ancre
          WHERE so.etablissement_id = etab AND so.etat IN ('prete', 'en_cours')
-           AND p.etat IN ('inscrit', 'pret', 'parti')
+           AND p.etat IN ('pret', 'parti')
            AND so.debut <= ancre.t AND ancre.t < so.fin
         UNION ALL
         SELECT d.eleve_id, 'fermeture'
@@ -197,11 +200,16 @@ LANGUAGE sql STABLE AS $$
     unique_eleve AS (
         SELECT DISTINCT ON (c.eleve_id) c.eleve_id, c.origine
           FROM concerne c
+          JOIN ent_eleve el ON el.etablissement_id = etab AND el.id = c.eleve_id
+         -- L7 : un élève sorti de l'établissement n'est plus attendu (la date de sortie est son
+         -- dernier jour de présence : il compte encore la nuit de ce jour).
+         WHERE el.date_sortie IS NULL OR el.date_sortie >= nuit
          ORDER BY c.eleve_id, CASE c.origine WHEN 'attendu' THEN 1 WHEN 'ajoute' THEN 2 ELSE 3 END
     )
     SELECT u.eleve_id, h.chambre_id, h.lit_id,
-           CASE WHEN u.origine = 'non_attendu' THEN
-                    CASE WHEN rr.motif IS NOT NULL THEN 'retire' ELSE 'non_attendu' END
+           -- E1 : un hébergé hors rythme reste « non_attendu » même couvert par un retrait (sinon
+           -- « retire » sans motif viole la contrainte et l'appel ne s'ouvre plus).
+           CASE WHEN u.origine = 'non_attendu' THEN 'non_attendu'
                 WHEN rr.motif IS NOT NULL THEN 'retire'
                 ELSE u.origine END,
            CASE WHEN u.origine = 'non_attendu' THEN NULL ELSE rr.motif END
@@ -305,13 +313,23 @@ BEGIN
         RAISE EXCEPTION 'appel validé : corriger par un fait motivé (R-IT17)' USING ERRCODE = '42501';
     END IF;
     IF (OLD.id, OLD.etablissement_id, OLD.nuit, OLD.type, OLD.perimetre, OLD.batiment_id, OLD.zone_id,
-        OLD.liste_id, OLD.ouvert_par_user_id, OLD.ouvert_le, OLD.nb_attendus)
+        OLD.liste_id, OLD.ouvert_par_user_id, OLD.ouvert_le, OLD.nb_attendus, OLD.a_posteriori, OLD.cree_le)
        IS DISTINCT FROM (NEW.id, NEW.etablissement_id, NEW.nuit, NEW.type, NEW.perimetre, NEW.batiment_id,
-        NEW.zone_id, NEW.liste_id, NEW.ouvert_par_user_id, NEW.ouvert_le, NEW.nb_attendus) THEN
-        RAISE EXCEPTION 'appel : nuit, type et périmètre ne se modifient pas' USING ERRCODE = '42501';
+        NEW.zone_id, NEW.liste_id, NEW.ouvert_par_user_id, NEW.ouvert_le, NEW.nb_attendus, NEW.a_posteriori,
+        NEW.cree_le) THEN
+        RAISE EXCEPTION 'appel : nuit, type, périmètre, effectif attendu et saisie a posteriori ne se modifient pas'
+            USING ERRCODE = '42501';
     END IF;
-    IF OLD.etat = 'clos' AND NEW.etat = 'ouvert' THEN
-        RAISE EXCEPTION 'appel clos : il ne se rouvre pas, on corrige par un fait motivé' USING ERRCODE = '42501';
+    -- Seules transitions : ouvert → clos, clos → valide (E2). Aucune autre, aucun retour en arrière.
+    IF NOT ((OLD.etat = 'ouvert' AND NEW.etat = 'clos') OR (OLD.etat = 'clos' AND NEW.etat = 'valide')) THEN
+        RAISE EXCEPTION 'appel : transition % → % refusée (ouvert → clos → validé seulement)', OLD.etat, NEW.etat
+            USING ERRCODE = '42501';
+    END IF;
+    -- Un appel clos ne change plus que par sa validation : la clôture (qui, quand, combien d'écarts)
+    -- est figée.
+    IF OLD.etat = 'clos' AND (OLD.nb_ecarts, OLD.clos_par_user_id, OLD.clos_le)
+       IS DISTINCT FROM (NEW.nb_ecarts, NEW.clos_par_user_id, NEW.clos_le) THEN
+        RAISE EXCEPTION 'appel clos : écarts, auteur et heure de clôture sont figés' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
 END
@@ -353,6 +371,23 @@ BEGIN
     RAISE EXCEPTION '% est en ajout seul (% interdit)', TG_TABLE_NAME, TG_OP USING ERRCODE = '42501';
 END
 $$;
+-- Insertion permise seulement dans la transaction qui CRÉE l'appel, tant qu'il est ouvert (E2) : la
+-- liste figée ne se complète jamais après coup (sinon un élève pourrait être ajouté à un appel clos).
+CREATE OR REPLACE FUNCTION ent_internat_appel_attendu_garde() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM ent_internat_appel a
+                    WHERE a.etablissement_id = NEW.etablissement_id AND a.id = NEW.appel_id
+                      AND a.etat = 'ouvert' AND a.cree_le = transaction_timestamp()) THEN
+        RAISE EXCEPTION 'liste figée : ajout permis seulement à l''ouverture de l''appel (E2)'
+            USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS ent_internat_appel_attendu_insertion ON ent_internat_appel_attendu;
+CREATE TRIGGER ent_internat_appel_attendu_insertion BEFORE INSERT ON ent_internat_appel_attendu
+    FOR EACH ROW EXECUTE FUNCTION ent_internat_appel_attendu_garde();
 DROP TRIGGER IF EXISTS ent_internat_appel_attendu_ajout_seul ON ent_internat_appel_attendu;
 CREATE TRIGGER ent_internat_appel_attendu_ajout_seul BEFORE UPDATE OR DELETE ON ent_internat_appel_attendu
     FOR EACH ROW EXECUTE FUNCTION ent_internat_i2_ajout_seul();
@@ -383,6 +418,12 @@ DECLARE
     a RECORD;
 BEGIN
     IF NEW.motif_correction_code = 'reprise' THEN
+        -- Le motif « reprise » (reprise de l'existant, 2820) n'échappe à la garde que pour un fait SANS
+        -- appel : sur un appel il contournerait la liste figée et la nuit de l'appel (E2).
+        IF NEW.appel_id IS NOT NULL THEN
+            RAISE EXCEPTION 'le motif « reprise » ne s''applique pas à un fait rattaché à un appel'
+                USING ERRCODE = '23514';
+        END IF;
         RETURN NEW;
     END IF;
     IF NEW.appel_id IS NOT NULL THEN
@@ -492,9 +533,11 @@ BEGIN
         RAISE EXCEPTION 'ent_internat_cas : suppression interdite (R-IT3)' USING ERRCODE = '42501';
     END IF;
     IF OLD.issue IS NOT NULL AND (OLD.issue, OLD.issue_le, OLD.issue_par_user_id, OLD.eleve_id, OLD.nuit,
-                                  OLD.ouvert_le, OLD.nature)
+                                  OLD.ouvert_le, OLD.nature, OLD.issue_lieu_code,
+                                  OLD.issue_confirmee_par_personne_id, OLD.numero_intervention, OLD.appel_id)
        IS DISTINCT FROM (NEW.issue, NEW.issue_le, NEW.issue_par_user_id, NEW.eleve_id, NEW.nuit,
-                         NEW.ouvert_le, NEW.nature) THEN
+                         NEW.ouvert_le, NEW.nature, NEW.issue_lieu_code,
+                         NEW.issue_confirmee_par_personne_id, NEW.numero_intervention, NEW.appel_id) THEN
         RAISE EXCEPTION 'un cas clos ne se modifie pas (R-IT18) : seule sa transmission s''ajoute'
             USING ERRCODE = '42501';
     END IF;
@@ -534,21 +577,29 @@ CREATE TRIGGER ent_internat_cas_etape_ajout_seul BEFORE UPDATE OR DELETE ON ent_
     FOR EACH ROW EXECUTE FUNCTION ent_internat_i2_ajout_seul();
 
 -- ───────────────────────── 7. Transmission du matin et rappels ─────────────────────────
--- Transmission : une par nuit et par nature (idempotente) ; ne porte que des compteurs.
+-- Transmission : une version par nuit et par nature ; ne porte que des compteurs. La version 1 est la
+-- transmission du matin ; une correction qui change les chiffres ajoute la version n+1 (rectificative,
+-- motif obligatoire), la précédente reste lisible (M3, R-IT17).
 CREATE TABLE IF NOT EXISTS ent_internat_transmission (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     nuit DATE NOT NULL,
     nature TEXT NOT NULL CHECK (nature IN ('matin_vie_scolaire', 'effectif_restauration')),
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+    motif_rectification TEXT CHECK (motif_rectification IS NULL OR char_length(btrim(motif_rectification)) BETWEEN 1 AND 300),
     transmis_le TIMESTAMPTZ NOT NULL,
     transmis_par_user_id UUID REFERENCES ent_user (id),
     nb_attendus INTEGER NOT NULL CHECK (nb_attendus >= 0),
     nb_presents INTEGER NOT NULL CHECK (nb_presents >= 0),
     nb_absents INTEGER NOT NULL CHECK (nb_absents >= 0),
     nb_cas INTEGER NOT NULL CHECK (nb_cas >= 0),
+    -- Élèves déclarés absents dans cette version (nature « matin_vie_scolaire ») : la rectificative n'envoie
+    -- à la vie scolaire que la différence avec la version précédente.
+    eleves_absents UUID[] NOT NULL DEFAULT ARRAY[]::uuid[],
     CONSTRAINT ent_internat_transmission_etab_id_uq UNIQUE (etablissement_id, id),
-    CONSTRAINT ent_internat_transmission_uq UNIQUE (etablissement_id, nuit, nature)
+    CONSTRAINT ent_internat_transmission_uq UNIQUE (etablissement_id, nuit, nature, version),
+    CONSTRAINT ent_internat_transmission_motif_chk CHECK ((version = 1) = (motif_rectification IS NULL))
 );
 DROP TRIGGER IF EXISTS ent_internat_transmission_ajout_seul ON ent_internat_transmission;
 CREATE TRIGGER ent_internat_transmission_ajout_seul BEFORE UPDATE OR DELETE ON ent_internat_transmission
@@ -577,9 +628,12 @@ CREATE TABLE IF NOT EXISTS ent_internat_lecture_sensible (
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     user_id UUID NOT NULL REFERENCES ent_user (id),
     objet TEXT NOT NULL CHECK (objet IN (
-        'fiche_nuit', 'liaison', 'presents', 'registre', 'cas', 'appel', 'appel_pdf', 'attendu')),
+        'fiche_nuit', 'liaison', 'presents', 'registre', 'cas', 'appel', 'appel_pdf', 'attendu',
+        'liste_appels', 'procedure', 'effectif_repas', 'listes', 'journal')),
     eleve_id UUID,
     appel_id UUID,
+    -- Élèves concernés par la lecture (attendu, appel) : une ligne, la liste des identifiants (L2).
+    eleve_ids UUID[],
     a TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_internat_lecture_sensible_eleve_cfk FOREIGN KEY (etablissement_id, eleve_id)
         REFERENCES ent_eleve (etablissement_id, id)
@@ -589,6 +643,33 @@ CREATE INDEX IF NOT EXISTS ent_internat_lecture_sensible_idx
 DROP TRIGGER IF EXISTS ent_internat_lecture_sensible_ajout_seul ON ent_internat_lecture_sensible;
 CREATE TRIGGER ent_internat_lecture_sensible_ajout_seul BEFORE UPDATE OR DELETE ON ent_internat_lecture_sensible
     FOR EACH ROW EXECUTE FUNCTION ent_internat_i2_ajout_seul();
+
+-- ───────────────────────── 9. TRUNCATE interdit sur les tables en ajout seul (E2) ─────────────────────────
+-- Les déclencheurs de ligne (UPDATE / DELETE) ne se déclenchent pas sur TRUNCATE : un déclencheur de
+-- niveau instruction le refuse aussi (modèle : 2540). Couvre les tables de ce lot et
+-- `ent_internat_presence_fait` (2820, déjà versée : le déclencheur est posé ici, 2820 reste intacte).
+CREATE OR REPLACE FUNCTION ent_internat_sans_truncate() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION '% : TRUNCATE interdit (ajout seul, R-IT3)', TG_TABLE_NAME USING ERRCODE = '42501';
+END
+$$;
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'ent_internat_appel', 'ent_internat_appel_attendu', 'ent_internat_cas', 'ent_internat_cas_etape',
+        'ent_internat_procedure_version', 'ent_internat_procedure_etape', 'ent_internat_transmission',
+        'ent_internat_appel_rappel', 'ent_internat_lecture_sensible', 'ent_internat_retrait',
+        'ent_internat_nuit_exceptionnelle', 'ent_internat_presence_fait']
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_sans_truncate', t);
+        EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT '
+                       'EXECUTE FUNCTION ent_internat_sans_truncate()', t || '_sans_truncate', t);
+    END LOOP;
+END
+$$;
 
 SELECT ent_rls_poser(ARRAY[
     'ent_internat_nuit_exceptionnelle', 'ent_internat_retrait', 'ent_internat_liste',
