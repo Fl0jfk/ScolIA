@@ -37,6 +37,14 @@ w.add_js("app.alert('contenu actif');")
 with open("pdf_javascript.pdf", "wb") as f:
     w.write(f)
 
+# PDF à action d'ouverture (URI) : accepté à l'entrée, neutralisé par le désarmement.
+from pypdf.generic import DictionaryObject, NameObject, TextStringObject
+w = PdfWriter(clone_from=PdfReader("certificat_medical.pdf"))
+w._root_object[NameObject("/OpenAction")] = DictionaryObject({
+    NameObject("/S"): NameObject("/URI"), NameObject("/URI"): TextStringObject("http://exemple.invalid/suivi")})
+with open("pdf_open_action.pdf", "wb") as f:
+    w.write(f)
+
 # Photo JPEG réelle avec EXIF : orientation, appareil et position GPS (Saint-Denis de La Réunion, fiction).
 img = Image.new("RGB", (96, 64), (200, 220, 240))
 d = ImageDraw.Draw(img)

@@ -278,7 +278,7 @@ async fn m6_disponibilite_horaires_de_la_boite() {
     let d = ent.lecture_du_fil_a(etab, lily, role(Role::Parent), o.fil_id, dimanche).await.unwrap().disponibilite.unwrap();
     assert!(!d.ouverte);
     let libelle = d.libelle.expect("libellé");
-    assert!(libelle.contains("lira votre message à partir de lundi à 7 h 30"), "{libelle}");
+    assert!(libelle.contains("lira votre message à partir de demain à 7 h 30"), "{libelle}");
     // Un mercredi (3 avril 2030, 10 h UTC) : ouvert, rien à annoncer.
     let mercredi = Utc.with_ymd_and_hms(2030, 4, 3, 10, 0, 0).unwrap();
     let d = ent.lecture_du_fil_a(etab, lily, role(Role::Parent), o.fil_id, mercredi).await.unwrap().disponibilite.unwrap();
@@ -346,7 +346,7 @@ async fn m6_natures_declarees_et_aucun_contenu_dans_l_outbox() {
     }
     // Les événements M6 sont neutres : le message, jamais qui a lu (R-M22).
     let lus: Vec<String> = sqlx::query_scalar(
-        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type_name = 'messagerie.lu_jusqua'",
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'messagerie.lu_jusqua'",
     )
     .bind(etab)
     .fetch_all(ent.pool())

@@ -137,7 +137,8 @@ pub struct PriseEnCharge {
     /// `nouveau`, `pris`, `attente_famille`, `traite` (jamais `transfere` : un transfert est interne).
     pub statut: &'static str,
     pub libelle: &'static str,
-    /// Nom du membre qui s'en occupe : **membres de la boîte seulement**.
+    /// Nom du membre qui s'en occupe : **membres de la boîte seulement** (la clé est absente côté famille).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pris_par: Option<String>,
 }
 
@@ -554,7 +555,13 @@ impl PgEnt {
                         regroupable: false,
                         canaux_voulus: &["push"],
                     },
-                    Uuid::new_v4(),
+                    // Identifiant d'événement **déterministe** (fil, personne) : l'ENT ne reçoit qu'un avis par fil et par
+                    // personne, quel que soit le nombre de fois où la boîte repasse « en attente de la famille ».
+                    {
+                        use sha2::{Digest, Sha256};
+                        let h = Sha256::digest(format!("msgreponse:{fil}:{user}").as_bytes());
+                        Uuid::from_slice(&h[..16]).expect("16 octets")
+                    },
                     Utc::now(),
                 )
                 .await?;

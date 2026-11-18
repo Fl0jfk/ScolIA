@@ -35,6 +35,7 @@ use uuid::Uuid;
 pub(crate) const PDF_REEL: &[u8] = include_bytes!("../fixtures/messagerie/certificat_medical.pdf");
 pub(crate) const PDF_CHIFFRE: &[u8] = include_bytes!("../fixtures/messagerie/pdf_chiffre.pdf");
 pub(crate) const PDF_JAVASCRIPT: &[u8] = include_bytes!("../fixtures/messagerie/pdf_javascript.pdf");
+pub(crate) const PDF_OPEN_ACTION: &[u8] = include_bytes!("../fixtures/messagerie/pdf_open_action.pdf");
 pub(crate) const PHOTO_GPS: &[u8] = include_bytes!("../fixtures/messagerie/photo_gps.jpg");
 pub(crate) const CAPTURE_PNG: &[u8] = include_bytes!("../fixtures/messagerie/capture.png");
 pub(crate) const LETTRE_DOCX: &[u8] = include_bytes!("../fixtures/messagerie/lettre.docx");
@@ -170,9 +171,15 @@ async fn m5_quarantaine_puis_pdf_desarme_servi() {
     };
     let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
     let (_fil, msg) = fil_de_lily(&ent, &cast, "Certificat").await;
-    let meta = deposer(&ent, etab, msg, dir, Role::Direction, "certificat.pdf", "application/pdf", PDF_JAVASCRIPT)
+    // Un PDF à JavaScript est refusé dès l'entrée (politique de dépôt) ; un PDF à action d'ouverture est accepté puis
+    // désarmé par l'analyse.
+    let e = deposer(&ent, etab, msg, dir, Role::Direction, "js.pdf", "application/pdf", PDF_JAVASCRIPT)
         .await
-        .expect("dépôt d'un vrai PDF à contenu actif");
+        .expect_err("JavaScript refusé à l'entrée");
+    assert!(matches!(e, EntDbError::Fichier(_)), "{e:?}");
+    let meta = deposer(&ent, etab, msg, dir, Role::Direction, "certificat.pdf", "application/pdf", PDF_OPEN_ACTION)
+        .await
+        .expect("dépôt d'un vrai PDF à action d'ouverture");
     assert_eq!(meta.etat, "en_quarantaine", "toute pièce naît en quarantaine");
     // Quarantaine : rien n'est servi, ni à la famille ni à l'auteur, ni par lien ni en direct.
     for (qui, r) in [(lily, Role::Parent), (dir, Role::Direction)] {
@@ -194,9 +201,9 @@ async fn m5_quarantaine_puis_pdf_desarme_servi() {
         .telecharger_piece_for_actor(etab, lily, role(Role::Parent), meta.id)
         .await
         .expect("témoin : pièce saine");
-    assert!(contient(PDF_JAVASCRIPT, b"/JavaScript") || contient(PDF_JAVASCRIPT, b"/JS"));
-    assert!(!contient(&servie.contenu, b"/JavaScript") && !contient(&servie.contenu, b"/JS "), "JavaScript neutralisé");
-    assert_ne!(servie.contenu, PDF_JAVASCRIPT, "ce n'est pas l'original");
+    assert!(contient(PDF_OPEN_ACTION, b"/OpenAction") && contient(PDF_OPEN_ACTION, b"/URI"));
+    assert!(!contient(&servie.contenu, b"/OpenAction") && !contient(&servie.contenu, b"/URI"), "action neutralisée");
+    assert_ne!(servie.contenu, PDF_OPEN_ACTION, "ce n'est pas l'original");
     assert!(servie.contenu.starts_with(b"%PDF-"));
     assert_eq!(servie.mime_type, "application/pdf");
     assert_eq!(servie.sha256.as_deref(), Some(ent_object::sha256_hex(&servie.contenu).as_str()));
@@ -209,7 +216,7 @@ async fn m5_quarantaine_puis_pdf_desarme_servi() {
             .unwrap();
     assert_ne!(cle_orig, cle_servie);
     assert!(cle_servie.starts_with(&format!("{etab}/messages-servis/")), "clé opaque : {cle_servie}");
-    assert_eq!(ent.lire_objet(etab, &cle_orig).await.unwrap(), PDF_JAVASCRIPT, "l'original est intact");
+    assert_eq!(ent.lire_objet(etab, &cle_orig).await.unwrap(), PDF_OPEN_ACTION, "l'original est intact");
     // Rejouable : la seconde passe ne retraite rien.
     let encore = lever_quarantaine(&ent, etab).await;
     assert_eq!(encore, BilanAnalysePieces::default());
@@ -297,7 +304,7 @@ async fn m5_cm58_infectee_jamais_servie() {
     assert!(metas.iter().any(|m| m.id == mal.id && m.etat == "infectee"));
     // L'événement est neutre : identifiants et état, ni nom de fichier ni nom de menace (R-M14).
     let charge: String = sqlx::query_scalar(
-        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type_name = 'messagerie.piece_analysee'
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'messagerie.piece_analysee'
            AND payload->>'piece_id' = $2",
     )
     .bind(etab)
