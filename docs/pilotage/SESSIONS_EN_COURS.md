@@ -428,3 +428,6 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     3. M5 : `ent_note_v` masque les évaluations non publiées — accepté.
     4. Restent pour V3 : F2, F7 (rapport faux en reprise concurrente), F8 (corrections postérieures à la reprise non recopiées, **confirmé**), F12 (débordement : erreur sur toute la moyenne au lieu de la matière).
   - **Sessions qui codent : 21 V1-V2 correctifs (CI) et I2 correctifs** (2 sur 2).
+- **18-11, 21 h 45 UTC, CI 420 (PR 103) rouge** : garde du registre de fusion — 10 tables `eva_*` portent `eleve_id` sans être dans `TABLES_ELEVE`. Session de correctifs inactive : correctif du pilote **1d978c1c** (toutes en `Reste` : élève immuable par déclencheur ou ajout seul ; domaine « Évaluations »). 7 tests de fusion verts sur base neuve.
+  - **Suite V3** : rapprochement pédagogique d'une fusion (les résultats de la fiche absorbée vers l'élève conservé, par réécriture versionnée), sans quoi le conservé « perd » des notes saisies sur un doublon.
+  - Leçon : la base locale partagée entre branches fausse les tests de registre (tables d'autres lots) ; vérifier ces gardes sur une base neuve.
