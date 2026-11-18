@@ -196,7 +196,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust   # conteneur jetable, accessible au seul runner
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+          --health-cmd "pg_isready -U ent_ci -d ent_ci_test" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
       ENT_ENV: test   # gate_open fail-closed (1b5b1b47) : POST /auth/register des tests L2 exige un env non productif
@@ -252,7 +252,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+          --health-cmd "pg_isready -U ent_ci -d ent_ci_test" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
       ENT_ENV: test
@@ -298,7 +298,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+          --health-cmd "pg_isready -U ent_ci -d ent_ci_test" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
       ENT_ENV: test
@@ -632,7 +632,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+          --health-cmd "pg_isready -U ent_ci -d ent_ci_test" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
       ENT_ENV: lab

@@ -1298,6 +1298,8 @@ async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
     let (etab, eleve) = (x.c.etab, x.c.eleves[0]);
     let photo = |u: Uuid| format!("{etab}/trombi/{eleve}/{u}.jpg");
     let (orpheline, reference, recente) = (photo(Uuid::new_v4()), photo(Uuid::new_v4()), photo(Uuid::new_v4()));
+    // Référencée par la seule fiche (`ent_eleve.photo_key`, chemin de reprise) : ceinture, jamais balayée.
+    let par_la_fiche = photo(Uuid::new_v4());
     let historique = format!("{etab}/trombi/{eleve}.jpg");
     let autre_famille = format!("{etab}/documents/{}.pdf", Uuid::new_v4());
     let export_orphelin = ObjectStore::key_for(etab, "voyages-argent", Uuid::new_v4(), "csv");
@@ -1305,6 +1307,7 @@ async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
     let export_reference = ObjectStore::key_for(etab, "voyages-argent", export_reference_id, "csv");
     for (cle, quand) in [
         (&orpheline, "2026-02-01T12:00:00Z"), (&reference, "2026-02-01T12:00:00Z"), (&recente, "2026-02-10T12:00:00Z"),
+        (&par_la_fiche, "2026-02-01T12:00:00Z"),
         (&historique, "2026-02-01T12:00:00Z"), (&autre_famille, "2026-02-01T12:00:00Z"),
         (&export_orphelin, "2026-02-01T12:00:00Z"), (&export_reference, "2026-02-01T12:00:00Z"),
     ] {
@@ -1312,6 +1315,8 @@ async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
     }
     sqlx::query("INSERT INTO ent_eleve_photo (id, etablissement_id, eleve_id, object_key, mime, taille_octets, source, statut) VALUES ($1,$2,$3,$4,'image/jpeg',7,'etablissement','proposee')")
         .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(&reference).execute(x.c.ent.pool_verif()).await.unwrap();
+    sqlx::query("UPDATE ent_eleve SET photo_key = $3 WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab).bind(eleve).bind(&par_la_fiche).execute(x.c.ent.pool_verif()).await.unwrap();
     let sha: String = sqlx::query_scalar("SELECT sha256 FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2").bind(etab).bind(&export_reference).fetch_one(x.c.ent.pool_verif()).await.unwrap();
     sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id, cree_le) VALUES ($1,$2,$3,0,$4,$5,$6,'2026-02-01T12:00:00Z')")
         .bind(export_reference_id).bind(etab).bind(x.s.id).bind(&export_reference).bind(&sha).bind(x.c.compta).execute(x.c.ent.pool_verif()).await.unwrap();
@@ -1321,6 +1326,7 @@ async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
     assert_eq!((b.photos_orphelines, b.exports_orphelins, b.erreurs), (1, 1, 0), "{b:?}");
     for (cle, parti) in [
         (&orpheline, true), (&export_orphelin, true), (&recente, false), (&reference, false), (&export_reference, false),
+        (&par_la_fiche, false),
         (&historique, false), (&autre_famille, false),
     ] {
         assert_eq!(!x.c.ent.objet_existe(cle).await.unwrap(), parti, "{cle}");
@@ -1333,7 +1339,7 @@ async fn balayage_des_objets_orphelins_delai_de_grace_et_perimetre_ferme() {
     let b = x.c.ent.passages_quotidiens_etablissement(etab, Some(jfixe(2026, 2, 12))).await;
     assert_eq!((b.photos_orphelines, b.exports_orphelins, b.erreurs), (1, 0, 0), "{b:?}");
     assert!(!x.c.ent.objet_existe(&recente).await.unwrap());
-    for cle in [&reference, &export_reference, &historique, &autre_famille] {
+    for cle in [&reference, &export_reference, &historique, &autre_famille, &par_la_fiche] {
         assert!(x.c.ent.objet_existe(cle).await.unwrap(), "jamais touché : {cle}");
     }
 }

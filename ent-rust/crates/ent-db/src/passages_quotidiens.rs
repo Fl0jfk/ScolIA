@@ -55,6 +55,8 @@ const PHOTOS: Famille = Famille {
              AND ent_aujourdhui_etab($1, o.cree_le) + $3::int <= COALESCE($2::date, ent_aujourdhui_etab($1, now()))
              AND NOT EXISTS (SELECT 1 FROM ent_eleve_photo p
                               WHERE p.etablissement_id = $1 AND p.object_key = o.cle_objet)
+             AND NOT EXISTS (SELECT 1 FROM ent_eleve e
+                              WHERE e.etablissement_id = $1 AND e.photo_key = o.cle_objet)
            ORDER BY o.cree_le, o.id LIMIT $4",
 };
 
