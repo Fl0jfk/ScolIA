@@ -55,6 +55,8 @@ pub struct EtatAgrege {
     pub reste_total_centimes: i64,
     /// Sortie obligatoire : part 0 imposée, rien n'est dû (CV-81).
     pub gratuite: bool,
+    /// Effectif trop petit (moins de 3 payants) : les compteurs sont masqués pour qui n'a pas `voyages.argent` (F8).
+    pub masque: bool,
 }
 
 /// Une part (un payeur d'un participant) avec sa situation : vue **nominative**.
@@ -74,6 +76,30 @@ pub struct LignePaiement {
     pub plan_long: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub echeances: Vec<EcheanceVue>,
+}
+
+/// Ce que voit le **responsable désigné** (E1) : jamais l'échéancier, le nombre d'échéances ni le plan long ; un plan en
+/// cours est replié sur « à jour ».
+#[derive(Debug, Clone, Serialize)]
+pub struct LignePaiementResponsable {
+    pub participant_id: Uuid,
+    pub eleve_nom: String,
+    pub eleve_prenom: String,
+    pub compte_id: Uuid,
+    pub payeur: String,
+    pub part_centimes: i64,
+    pub verse_centimes: i64,
+    pub reste_centimes: i64,
+    pub retard_centimes: i64,
+    pub etat: String,
+}
+
+/// Réponse de la liste nominative : le DTO est choisi selon `voyages.argent`, jamais selon la demande.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum PaiementsVue {
+    Complet(Vec<LignePaiement>),
+    Responsable(Vec<LignePaiementResponsable>),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -232,15 +258,16 @@ pub(crate) async fn reglages(conn: &mut PgConnection, etab: Uuid) -> Result<Regl
     Ok(r.unwrap_or_default())
 }
 
-/// Régime de l'établissement (socle 24) : `public_eple` ou `prive_sous_contrat` (défaut).
-pub(crate) async fn est_public(conn: &mut PgConnection, etab: Uuid) -> Result<bool, EntDbError> {
+/// Régime de l'établissement (socle 24) : `Some(true)` public, `Some(false)` privé sous contrat, `None` si aucune entité
+/// de facturation n'est configurée (M6 : on ne devine pas).
+pub(crate) async fn regime_public(conn: &mut PgConnection, etab: Uuid) -> Result<Option<bool>, EntDbError> {
     let r: Option<String> =
         sqlx::query_scalar("SELECT regime FROM ent_fin_entite_facturation WHERE etablissement_id = $1 LIMIT 1")
             .bind(etab)
             .fetch_optional(conn)
             .await
             .map_err(db)?;
-    Ok(r.as_deref() == Some("public_eple"))
+    Ok(r.map(|x| x == "public_eple"))
 }
 
 pub(crate) fn peut_argent(acces: &Acces) -> bool {
@@ -471,7 +498,7 @@ async fn inserer_avoir(
 }
 
 /// Verrou de transaction par sortie : sérialise les écritures d'argent d'une même sortie.
-async fn verrou_sortie(conn: &mut PgConnection, sortie: Uuid) -> Result<(), EntDbError> {
+pub(crate) async fn verrou_sortie(conn: &mut PgConnection, sortie: Uuid) -> Result<(), EntDbError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('voyages_argent:' || $1::text, 0))")
         .bind(sortie)
         .execute(conn)
@@ -529,7 +556,7 @@ async fn synchroniser_participant(
     .await
     .map_err(db)?;
     let poids: Vec<(Uuid, i64)> = if precedents.is_empty() {
-        let lus = crate::facturation_payeurs::payeurs_a(conn, a.etablissement_id, eleve, "voyages", jour, true).await?;
+        let lus = crate::facturation_payeurs::payeurs_a(conn, a.etablissement_id, eleve, "voyages", jour, false).await?;
         if !lus.complete() {
             return Ok(());
         }
@@ -538,6 +565,20 @@ async fn synchroniser_participant(
         precedents.iter().map(|(c, bps, _)| (*c, i64::from(*bps))).collect()
     };
     let parts = repartir_entre_payeurs(prix, &poids);
+    // M7 : le premier jour de l'échéancier est celui de l'inscription du participant ou du prix figé (le plus tardif),
+    // jamais celui de la première consultation.
+    let jour: NaiveDate = sqlx::query_scalar(
+        "SELECT GREATEST(ent_aujourdhui_etab($1, sp.cree_le), ent_aujourdhui_etab($1, pf.fige_le))
+           FROM ent_sortie_participant sp, ent_sortie_prix_fige pf
+          WHERE sp.etablissement_id = $1 AND sp.id = $2 AND pf.etablissement_id = $1 AND pf.sortie_id = $3 AND pf.rang = $4",
+    )
+    .bind(a.etablissement_id)
+    .bind(participant)
+    .bind(s.id)
+    .bind(rang)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
     for ((compte, centimes), (_, bps)) in parts.iter().zip(poids.iter()) {
         sqlx::query(
             "INSERT INTO ent_sortie_part
@@ -635,7 +676,7 @@ pub(crate) async fn avant_depart_participant(
     synchroniser_participant(conn, a, s, participant, eleve, jour).await?;
     let engage = depenses_engagees(conn, a.etablissement_id, s.id).await?;
     let cas = cas_depart(vers, motif_code, engage);
-    proposer_avoirs_participant(conn, a, s, participant, cas, "depart").await
+    proposer_avoirs_participant(conn, a, s, participant, cas, "depart", false).await
 }
 
 /// Choix de la règle de l'avoir (§12.5, VOY-286) : santé et famille (maladie, deuil, déménagement) sont des motifs
@@ -660,6 +701,7 @@ async fn proposer_avoirs_participant(
     participant: Uuid,
     cas: CasAvoir,
     prefixe: &str,
+    strict: bool,
 ) -> Result<(), EntDbError> {
     let etab = a.etablissement_id;
     let parts: Vec<(Uuid, i32)> = sqlx::query_as(
@@ -683,7 +725,7 @@ async fn proposer_avoirs_participant(
         let ouverte: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT id, statut FROM ent_sortie_avoir_propose
               WHERE etablissement_id = $1 AND participant_id = $2 AND compte_id = $3
-                AND cle LIKE $4 AND statut IN ('propose', 'retenu') ORDER BY cree_le DESC LIMIT 1",
+                AND cle LIKE $4 AND statut IN ('propose', 'retenu', 'a_revoir') ORDER BY cree_le DESC LIMIT 1",
         )
         .bind(etab)
         .bind(participant)
@@ -694,23 +736,41 @@ async fn proposer_avoirs_participant(
         .map_err(db)?;
         if let Some((id, statut)) = &ouverte {
             if statut == "retenu" {
-                return Err(refus(
-                    RefusMetier::Conflit,
-                    "Un avoir a déjà été retenu pour ce participant : la suite se traite dans la comptabilité.",
-                ));
+                // F1 : un désistement n'échoue JAMAIS parce qu'un avoir a été retenu (message neutre côté frais réels).
+                if strict {
+                    return Err(refus(RefusMetier::Conflit, "Cet avoir a déjà été décidé : la suite se traite dans la comptabilité."));
+                }
+                continue;
             }
+            // F2 : un écartement fait par le calcul est « signé système » (aucun acteur humain).
             sqlx::query(
                 "UPDATE ent_sortie_avoir_propose
-                    SET statut = 'ecarte', decide_par_user_id = $3, decide_le = now(),
+                    SET statut = 'ecarte', decide_par_user_id = NULL, decide_le = now(), decision_auto = true,
                         decision_motif = 'remplacé par un nouveau calcul', montant_retenu_centimes = NULL
-                  WHERE etablissement_id = $1 AND id = $2 AND statut = 'propose'",
+                  WHERE etablissement_id = $1 AND id = $2 AND statut IN ('propose', 'a_revoir')",
             )
             .bind(etab)
             .bind(id)
-            .bind(a.user_id)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
+        } else {
+            // F2 : l'écart HUMAIN est mémorisé : une proposition écartée par la comptabilité n'est pas relancée.
+            let ecart_humain: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_sortie_avoir_propose
+                                 WHERE etablissement_id = $1 AND participant_id = $2 AND compte_id = $3
+                                   AND cle LIKE $4 AND statut = 'ecarte' AND NOT decision_auto)",
+            )
+            .bind(etab)
+            .bind(participant)
+            .bind(compte)
+            .bind(format!("{prefixe}:{participant}:{compte}:r%"))
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+            if ecart_humain {
+                continue;
+            }
         }
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_sortie_avoir_propose
@@ -745,8 +805,8 @@ impl PgEnt {
         if !(acces.porteur || acces.a(Action::VoyagesArgent) || acces.a(Action::VoyagesLire)) {
             return Err(introuvable());
         }
-        // Le calcul des parts est dérivé et idempotent : il est fait ici si personne ne l'a encore fait.
-        synchroniser(&mut t, a, &s).await?;
+        // M2 : une lecture n'écrit rien ; les parts sont calculées par les événements (inscription, prix figé, baisse,
+        // désistement) ou par la comptabilité (`POST …/argent/synchroniser`).
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let (lignes, etats) = calculer(&mut t, a.etablissement_id, &s, jour).await?;
         let payants = etats.values().filter(|e| ETATS_PAYANTS.contains(&e.as_str())).count() as i64;
@@ -774,6 +834,24 @@ impl PgEnt {
             verse_total_centimes: verse,
             reste_total_centimes: reste,
             gratuite: s.nature == "obligatoire",
+            masque: false,
+        };
+        let vue = if !peut_argent(&acces) && payants < 3 && !vue.gratuite {
+            EtatAgrege {
+                participants_payants: payants,
+                soldes: 0,
+                a_jour: 0,
+                plans_en_cours: 0,
+                en_retard: 0,
+                a_definir: 0,
+                du_total_centimes: 0,
+                verse_total_centimes: 0,
+                reste_total_centimes: 0,
+                gratuite: false,
+                masque: true,
+            }
+        } else {
+            vue
         };
         t.commit().await.map_err(db)?;
         Ok(vue)
@@ -799,7 +877,7 @@ impl PgEnt {
         Ok(ok)
     }
 
-    async fn acces_nominatif(&self, conn: &mut PgConnection, a: &Acteur<'_>, sortie: Uuid, portee: &str, n: usize) -> Result<(), EntDbError> {
+    pub(crate) async fn acces_nominatif(&self, conn: &mut PgConnection, a: &Acteur<'_>, sortie: Option<Uuid>, portee: &str, n: usize) -> Result<(), EntDbError> {
         sqlx::query(
             "INSERT INTO ent_sortie_argent_acces (id, etablissement_id, sortie_id, user_id, role, portee, nb_lignes)
              VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -820,12 +898,43 @@ impl PgEnt {
     /// Liste **nominative** des paiements : comptabilité, direction, ou responsable désigné par la direction.
     /// Chaque consultation est journalisée (qui, quand, combien de lignes).
     pub async fn voyage_argent_paiements(&self, a: &Acteur<'_>, id: Uuid) -> Result<Vec<LignePaiement>, EntDbError> {
+        Ok(self.lire_paiements(a, id, true).await?.0)
+    }
+
+    /// Liste nominative selon le droit : DTO complet pour `voyages.argent`, DTO réduit pour le responsable désigné (E1).
+    pub async fn voyage_argent_paiements_vue(&self, a: &Acteur<'_>, id: Uuid) -> Result<PaiementsVue, EntDbError> {
+        let (v, argent) = self.lire_paiements(a, id, false).await?;
+        if argent {
+            return Ok(PaiementsVue::Complet(v));
+        }
+        Ok(PaiementsVue::Responsable(
+            v.into_iter()
+                .map(|l| LignePaiementResponsable {
+                    participant_id: l.participant_id,
+                    eleve_nom: l.eleve_nom,
+                    eleve_prenom: l.eleve_prenom,
+                    compte_id: l.compte_id,
+                    payeur: l.payeur,
+                    part_centimes: l.part_centimes,
+                    verse_centimes: l.verse_centimes,
+                    reste_centimes: l.reste_centimes,
+                    retard_centimes: l.retard_centimes,
+                    etat: if l.etat == "plan_en_cours" { "a_jour".to_string() } else { l.etat },
+                })
+                .collect(),
+        ))
+    }
+
+    async fn lire_paiements(&self, a: &Acteur<'_>, id: Uuid, exiger_argent: bool) -> Result<(Vec<LignePaiement>, bool), EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
-        if !(peut_argent(&acces) || self.nominatif_ouvert_a(&mut t, a, &s, &acces).await?) {
+        let argent = peut_argent(&acces);
+        if exiger_argent && !argent {
             return Err(introuvable());
         }
-        synchroniser(&mut t, a, &s).await?;
+        if !(argent || self.nominatif_ouvert_a(&mut t, a, &s, &acces).await?) {
+            return Err(introuvable());
+        }
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let (lignes, _) = calculer(&mut t, a.etablissement_id, &s, jour).await?;
         let ids: Vec<Uuid> = lignes.iter().map(|l| l.part.participant_id).collect();
@@ -863,9 +972,9 @@ impl PgEnt {
             })
             .collect();
         out.sort_by(|x, y| (&x.eleve_nom, &x.eleve_prenom, &x.payeur).cmp(&(&y.eleve_nom, &y.eleve_prenom, &y.payeur)));
-        self.acces_nominatif(&mut t, a, s.id, "liste_paiements", out.len()).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", out.len()).await?;
         t.commit().await.map_err(db)?;
-        Ok(out)
+        Ok((out, argent))
     }
 
     /// Espace famille : **ma** part et **mes** versements pour une sortie. Un autre payeur du même élève
@@ -953,6 +1062,8 @@ impl PgEnt {
     /// Pointe un versement sur la part d'un payeur, **sans facture**. `voyages.argent` (comptabilité, direction).
     pub async fn voyage_versement_pointer(&self, a: &Acteur<'_>, id: Uuid, v: VersementSaisie) -> Result<VersementVue, EntDbError> {
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -966,6 +1077,8 @@ impl PgEnt {
     pub async fn voyage_versement_annuler(&self, a: &Acteur<'_>, id: Uuid, versement_id: Uuid, motif: &str) -> Result<VersementVue, EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -1019,6 +1132,19 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
+        // M5 : tout avoir proposé ou retenu pour ce couple participant/payeur repose sur un versé qui change : « à revoir ».
+        sqlx::query(
+            "UPDATE ent_sortie_avoir_propose SET statut = 'a_revoir'
+              WHERE etablissement_id = $1 AND sortie_id = $2 AND participant_id = $3 AND compte_id = $4
+                AND statut IN ('propose', 'retenu')",
+        )
+        .bind(a.etablissement_id)
+        .bind(s.id)
+        .bind(o.participant_id)
+        .bind(o.compte_id)
+        .execute(&mut *t)
+        .await
+        .map_err(db)?;
         let vue = lire_versement(&mut t, a.etablissement_id, nid).await?;
         t.commit().await.map_err(db)?;
         Ok(vue)
@@ -1039,7 +1165,7 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
-        self.acces_nominatif(&mut t, a, s.id, "liste_paiements", v.len()).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", v.len()).await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -1065,6 +1191,8 @@ impl PgEnt {
             return Err(refus(RefusMetier::Invalide, "Un plan long (plus de trois fois) s'accorde avec un motif."));
         }
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -1118,6 +1246,8 @@ impl PgEnt {
         }
         let libelle = texte(&f.libelle, 200)?;
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -1159,6 +1289,8 @@ impl PgEnt {
     pub async fn voyage_frais_annuler(&self, a: &Acteur<'_>, id: Uuid, frais_id: Uuid, motif: &str) -> Result<(), EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -1227,6 +1359,7 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "frais", v.len()).await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -1238,7 +1371,7 @@ impl PgEnt {
             return Err(introuvable());
         }
         let v = lire_avoirs(&mut t, a.etablissement_id, s.id).await?;
-        self.acces_nominatif(&mut t, a, s.id, "avoirs", v.len()).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "avoirs", v.len()).await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -1252,16 +1385,19 @@ impl PgEnt {
         avoir_id: Uuid,
         retenir: bool,
         montant_retenu: Option<&str>,
+        motif_code: Option<&str>,
         motif: &str,
     ) -> Result<AvoirVue, EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
         }
-        let (statut, propose, paye): (String, i64, i64) = sqlx::query_as(
-            "SELECT statut, montant_propose_centimes, paye_net_centimes FROM ent_sortie_avoir_propose
+        let (statut, propose, participant, compte): (String, i64, Uuid, Uuid) = sqlx::query_as(
+            "SELECT statut, montant_propose_centimes, participant_id, compte_id FROM ent_sortie_avoir_propose
               WHERE etablissement_id = $1 AND sortie_id = $2 AND id = $3 FOR UPDATE",
         )
         .bind(a.etablissement_id)
@@ -1271,16 +1407,26 @@ impl PgEnt {
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
-        if statut != "propose" {
+        if !matches!(statut.as_str(), "propose" | "a_revoir") {
             return Err(conflit());
         }
+        let code = match motif_code.map(str::trim).filter(|c| !c.is_empty()) {
+            None => None,
+            Some(c @ ("frais_non_dus" | "erreur_de_calcul" | "geste_commercial" | "autre_justifie")) => Some(c.to_string()),
+            Some(_) => return Err(invalide()),
+        };
         let retenu = if retenir {
             let m = match montant_retenu {
                 Some(x) => centimes_de_texte(x).ok_or_else(invalide)?,
                 None => propose,
             };
+            // M5 : la borne est le versé NET COURANT du couple, jamais le versé figé au moment de la proposition.
+            let paye = paye_net(&mut t, a.etablissement_id, s.id, participant, compte).await?;
             if m > paye {
-                return Err(refus(RefusMetier::Invalide, "L'avoir ne dépasse jamais ce que le payeur a versé."));
+                return Err(refus(RefusMetier::Invalide, "L'avoir ne dépasse jamais ce que le payeur a versé (net actuel)."));
+            }
+            if m > propose && code.is_none() {
+                return Err(refus(RefusMetier::Invalide, "Retenir plus que le montant proposé demande un motif codé."));
             }
             Some(m)
         } else {
@@ -1288,7 +1434,8 @@ impl PgEnt {
         };
         sqlx::query(
             "UPDATE ent_sortie_avoir_propose
-                SET statut = $3, montant_retenu_centimes = $4, decide_par_user_id = $5, decide_le = now(), decision_motif = $6
+                SET statut = $3, montant_retenu_centimes = $4, decide_par_user_id = $5, decide_le = now(), decision_motif = $6,
+                    decision_code = $7, decision_auto = false
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(a.etablissement_id)
@@ -1297,6 +1444,7 @@ impl PgEnt {
         .bind(retenu)
         .bind(a.user_id)
         .bind(&motif)
+        .bind(&code)
         .execute(&mut *t)
         .await
         .map_err(db)?;
@@ -1309,6 +1457,8 @@ impl PgEnt {
     /// Réservé aux sorties **annulées**.
     pub async fn voyage_avoirs_annulation_collective(&self, a: &Acteur<'_>, id: Uuid) -> Result<usize, EntDbError> {
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -1351,6 +1501,8 @@ impl PgEnt {
     pub async fn voyage_nominatif_ouvrir(&self, a: &Acteur<'_>, id: Uuid, motif: &str) -> Result<NominatifVue, EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.a(Action::VoyagesAutoriser) {
             return Err(interdit());
@@ -1388,6 +1540,8 @@ impl PgEnt {
 
     pub async fn voyage_nominatif_fermer(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.a(Action::VoyagesAutoriser) {
             return Err(interdit());
@@ -1409,6 +1563,53 @@ impl PgEnt {
         Ok(())
     }
 
+    // ───────────────────────── Conservation de l'export (F7) ─────────────────────────
+
+    /// Détruit les fichiers d'export de plus de 30 jours d'un établissement (objet supprimé, date de purge inscrite).
+    pub(crate) async fn exports_purger_tx(&self, conn: &mut PgConnection, etab: Uuid) -> Result<usize, EntDbError> {
+        let vieux: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, cle_objet FROM ent_sortie_argent_export
+              WHERE etablissement_id = $1 AND purge_le IS NULL AND cree_le < now() - interval '30 days' ORDER BY cree_le",
+        )
+        .bind(etab)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for (id, cle) in &vieux {
+            self.objet_supprimer(cle).await?;
+            sqlx::query("UPDATE ent_sortie_argent_export SET purge_le = now() WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(id)
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
+        }
+        Ok(vieux.len())
+    }
+
+    /// Passage de purge d'un établissement (catégorie de conservation `sor.export_argent`, 30 jours).
+    pub async fn voyages_argent_exports_purger(&self, etab: Uuid) -> Result<usize, EntDbError> {
+        let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let n = self.exports_purger_tx(&mut t, etab).await?;
+        t.commit().await.map_err(db)?;
+        Ok(n)
+    }
+
+    /// Passage de purge sur tous les établissements (une fois par jour).
+    pub async fn voyages_argent_exports_purger_tous(&self) -> Result<usize, EntDbError> {
+        let etabs = crate::tenant_tx::etablissements_systeme(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("voyages_argent_exports"),
+        )
+        .await
+        .map_err(db)?;
+        let mut n = 0;
+        for e in etabs {
+            n += self.voyages_argent_exports_purger(e).await?;
+        }
+        Ok(n)
+    }
+
     // ───────────────────────── Export vers la comptabilité (VOY-268) ─────────────────────────
 
     /// Exporte parts, versements, frais réels et avoirs proposés en CSV lisible (UTF-8 avec BOM, séparateur `;`,
@@ -1418,16 +1619,20 @@ impl PgEnt {
             return Err(EntDbError::LiensIndisponibles);
         }
         let mut t = tx(self, a).await?;
+        // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
         }
-        synchroniser(&mut t, a, &s).await?;
+        // F7 : les exports de plus de 30 jours sont détruits avant d'en écrire un nouveau.
+        self.exports_purger_tx(&mut t, a.etablissement_id).await?;
         let csv = construire_csv(&mut t, a, &s).await?;
         let nb = csv.lignes;
         let octets = csv.texte.into_bytes();
         let eid = Uuid::new_v4();
         let cle = ObjectStore::key_for(a.etablissement_id, "voyages-argent", eid, "csv");
+        let cle_objet = cle.clone();
         let info = self.objet_put(&cle, &octets).await?;
         crate::objets::enregistrer_objet(&mut *t, a.etablissement_id, &info, Some("text/csv")).await?;
         sqlx::query(
@@ -1444,7 +1649,7 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        self.acces_nominatif(&mut t, a, s.id, "export", nb).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "export", nb).await?;
         let lien = self
             .presigner()
             .issue(
@@ -1462,7 +1667,11 @@ impl PgEnt {
                 PresignError::Disabled => EntDbError::LiensIndisponibles,
                 _ => EntDbError::FichierAbsent,
             })?;
-        t.commit().await.map_err(db)?;
+        // F7 : l'objet est déjà au magasin ; si la validation échoue, il est balayé tout de suite (jamais d'orphelin).
+        if let Err(e) = t.commit().await {
+            let _ = self.objet_supprimer(&cle_objet).await;
+            return Err(db(e));
+        }
         let LienFichier { url, expires_at } = LienFichier { url: lien.url, expires_at: lien.expires_at };
         Ok(ExportFait { lien: url, expire_a: expires_at, nb_lignes: nb, sha256: info.sha256 })
     }
@@ -1535,7 +1744,7 @@ async fn recalculer_depart(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLi
         }
         autre => autre,
     };
-    proposer_avoirs_participant(conn, a, s, participant, cas, "depart").await
+    proposer_avoirs_participant(conn, a, s, participant, cas, "depart", true).await
 }
 
 async fn collective_participant(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne, participant: Uuid) -> Result<(), EntDbError> {
@@ -1554,7 +1763,7 @@ async fn collective_participant(conn: &mut PgConnection, a: &Acteur<'_>, s: &Sor
         let couvert: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_sortie_avoir_propose
                              WHERE etablissement_id = $1 AND participant_id = $2 AND compte_id = $3
-                               AND statut IN ('propose', 'retenu'))",
+                               AND statut IN ('propose', 'retenu', 'a_revoir'))",
         )
         .bind(etab)
         .bind(participant)
@@ -1688,10 +1897,16 @@ async fn construire_csv(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne
     .map_err(db)?;
     let ident: HashMap<Uuid, (String, String)> = ident.into_iter().map(|(i, n, p)| (i, (n, p))).collect();
     let nom = |p: &Uuid| ident.get(p).cloned().unwrap_or_default();
+    // F7 : seulement les comptes concernés par CETTE sortie (parts, versements, avoirs).
     let comptes: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, libelle_facturation FROM ent_fin_compte WHERE etablissement_id = $1",
+        "SELECT c.id, c.libelle_facturation FROM ent_fin_compte c
+          WHERE c.etablissement_id = $1
+            AND (EXISTS (SELECT 1 FROM ent_sortie_part p WHERE p.etablissement_id = c.etablissement_id AND p.compte_id = c.id AND p.sortie_id = $2)
+              OR EXISTS (SELECT 1 FROM ent_sortie_versement v WHERE v.etablissement_id = c.etablissement_id AND v.compte_id = c.id AND v.sortie_id = $2)
+              OR EXISTS (SELECT 1 FROM ent_sortie_avoir_propose x WHERE x.etablissement_id = c.etablissement_id AND x.compte_id = c.id AND x.sortie_id = $2))",
     )
     .bind(etab)
+    .bind(s.id)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;

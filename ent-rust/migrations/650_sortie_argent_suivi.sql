@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS ent_sortie_versement (
     -- 1 centime à 100 000 € par écriture.
     montant_centimes BIGINT NOT NULL CHECK (montant_centimes BETWEEN 1 AND 10000000),
     -- Jour de la valeur (jour de l'établissement) ; jamais dans le futur (contrôlé par le code et par la base).
-    date_valeur DATE NOT NULL,
+    date_valeur DATE NOT NULL CHECK (date_valeur >= DATE '2020-01-01'),
     reference TEXT CHECK (reference IS NULL OR length(btrim(reference)) BETWEEN 1 AND 40),
     annule_id UUID,
     motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 1 AND 500),
@@ -170,17 +170,25 @@ CREATE TABLE IF NOT EXISTS ent_sortie_avoir_propose (
     paye_net_centimes BIGINT NOT NULL CHECK (paye_net_centimes BETWEEN 0 AND 100000000000),
     frais_retenus_centimes BIGINT NOT NULL DEFAULT 0 CHECK (frais_retenus_centimes BETWEEN 0 AND 100000000000),
     montant_propose_centimes BIGINT NOT NULL CHECK (montant_propose_centimes BETWEEN 0 AND 100000000000),
-    statut TEXT NOT NULL DEFAULT 'propose' CHECK (statut IN ('propose', 'retenu', 'ecarte')),
+    -- « à revoir » : un versement a été annulé après la proposition ou la décision (M5) ; la comptabilité redécide.
+    statut TEXT NOT NULL DEFAULT 'propose' CHECK (statut IN ('propose', 'retenu', 'ecarte', 'a_revoir')),
     montant_retenu_centimes BIGINT CHECK (montant_retenu_centimes IS NULL OR montant_retenu_centimes BETWEEN 0 AND 100000000000),
     decide_par_user_id UUID,
     decide_le TIMESTAMPTZ,
     decision_motif TEXT CHECK (decision_motif IS NULL OR length(btrim(decision_motif)) BETWEEN 1 AND 500),
+    -- Motif codé obligatoire pour retenir PLUS que le montant proposé (M5).
+    decision_code TEXT CHECK (decision_code IS NULL OR decision_code IN (
+        'frais_non_dus', 'erreur_de_calcul', 'geste_commercial', 'autre_justifie')),
+    -- Écartement fait par le calcul (remplacement d'une proposition) : « signé système », sans acteur humain (F2).
+    decision_auto BOOLEAN NOT NULL DEFAULT false,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_sortie_avoir_propose_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_sortie_avoir_propose_cle_uq UNIQUE (etablissement_id, cle),
     CONSTRAINT ent_sortie_avoir_propose_borne_chk CHECK (montant_propose_centimes <= paye_net_centimes),
     CONSTRAINT ent_sortie_avoir_propose_decision_chk CHECK (
-        (statut = 'propose') = (decide_par_user_id IS NULL AND decide_le IS NULL AND montant_retenu_centimes IS NULL)),
+        statut <> 'propose' OR (decide_par_user_id IS NULL AND decide_le IS NULL AND montant_retenu_centimes IS NULL)),
+    CONSTRAINT ent_sortie_avoir_propose_decide_chk CHECK (
+        statut NOT IN ('retenu', 'ecarte') OR (decide_le IS NOT NULL AND (decide_par_user_id IS NOT NULL OR decision_auto))),
     CONSTRAINT ent_sortie_avoir_propose_retenu_chk CHECK (
         statut <> 'retenu' OR (montant_retenu_centimes IS NOT NULL AND montant_retenu_centimes <= paye_net_centimes)),
     CONSTRAINT ent_sortie_avoir_propose_sortie_fk FOREIGN KEY (etablissement_id, sortie_id)
@@ -231,6 +239,17 @@ BEGIN
     IF NEW.date_valeur > ent_aujourdhui_etab(NEW.etablissement_id) THEN
         RAISE EXCEPTION 'la date de valeur d''un versement ne peut pas être dans le futur' USING ERRCODE = '23514';
     END IF;
+    IF NEW.bordereau_ligne_id IS NOT NULL THEN
+        -- F4 : le versement pointé depuis un bordereau reprend le participant, le montant et le moyen de la ligne.
+        IF NEW.sens <> 'versement' OR NEW.moyen <> 'cheque' OR NOT EXISTS (
+            SELECT 1 FROM ent_sortie_bordereau_ligne l
+              JOIN ent_sortie_bordereau b ON b.etablissement_id = l.etablissement_id AND b.id = l.bordereau_id
+             WHERE l.etablissement_id = NEW.etablissement_id AND l.id = NEW.bordereau_ligne_id
+               AND l.participant_id = NEW.participant_id AND l.montant_centimes = NEW.montant_centimes
+               AND b.sortie_id = NEW.sortie_id) THEN
+            RAISE EXCEPTION 'le versement ne correspond pas à la ligne de bordereau' USING ERRCODE = '23514';
+        END IF;
+    END IF;
     IF NEW.sens = 'annulation' THEN
         SELECT * INTO v FROM ent_sortie_versement
          WHERE etablissement_id = NEW.etablissement_id AND id = NEW.annule_id;
@@ -269,19 +288,23 @@ DROP TRIGGER IF EXISTS ent_sortie_frais_reel_controle_tg ON ent_sortie_frais_ree
 CREATE TRIGGER ent_sortie_frais_reel_controle_tg BEFORE INSERT ON ent_sortie_frais_reel
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_frais_reel_controle();
 
--- Avoir proposé : le montant et la cause ne bougent jamais ; seule la décision de la comptabilité (une fois) est écrite.
+-- Avoir proposé : le montant et la cause ne bougent jamais. F3 : le contrôle compare TOUTE la ligne, hors les seules
+-- colonnes de décision (statut, montant retenu, auteur, date, motif, code, automatisme). Transitions permises :
+-- proposé → retenu | écarté | à revoir ; retenu → à revoir ; à revoir → retenu | écarté. Jamais de retour à « proposé ».
 CREATE OR REPLACE FUNCTION ent_sortie_avoir_propose_garde() RETURNS trigger
 LANGUAGE plpgsql AS $$
+DECLARE
+    libres TEXT[] := ARRAY['statut', 'montant_retenu_centimes', 'decide_par_user_id', 'decide_le', 'decision_motif',
+                           'decision_code', 'decision_auto'];
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'un avoir proposé ne se supprime pas' USING ERRCODE = '42501';
     END IF;
-    IF OLD.statut <> 'propose' OR NEW.statut = 'propose'
-       OR NEW.sortie_id <> OLD.sortie_id OR NEW.participant_id <> OLD.participant_id
-       OR NEW.compte_id <> OLD.compte_id OR NEW.motif_code <> OLD.motif_code OR NEW.cle <> OLD.cle
-       OR NEW.paye_net_centimes <> OLD.paye_net_centimes
-       OR NEW.frais_retenus_centimes <> OLD.frais_retenus_centimes
-       OR NEW.montant_propose_centimes <> OLD.montant_propose_centimes THEN
+    IF (to_jsonb(NEW) - libres) IS DISTINCT FROM (to_jsonb(OLD) - libres)
+       OR NEW.statut = 'propose' OR OLD.statut = 'ecarte'
+       OR NOT ((OLD.statut = 'propose' AND NEW.statut IN ('retenu', 'ecarte', 'a_revoir'))
+            OR (OLD.statut = 'retenu' AND NEW.statut = 'a_revoir')
+            OR (OLD.statut = 'a_revoir' AND NEW.statut IN ('retenu', 'ecarte'))) THEN
         RAISE EXCEPTION 'un avoir proposé ne change que par la décision de la comptabilité' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;

@@ -1673,6 +1673,8 @@ impl PgEnt {
     ) -> Result<SortieLigne, EntDbError> {
         let motif = texte_opt(p.motif.as_deref(), 2000)?;
         let mut t = tx(self, a).await?;
+        // M1 : verrou consultatif de la sortie AVANT tout FOR UPDATE (même ordre que l'argent du lot V2a).
+        crate::voyages_argent_repo::verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if let Some(v) = p.version {
             if v != s.version {
@@ -2300,6 +2302,8 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut t = tx(self, a).await?;
+        // M1 : verrou consultatif de la sortie AVANT tout FOR UPDATE (même ordre que l'argent du lot V2a).
+        crate::voyages_argent_repo::verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.gere(Action::VoyagesParticipants) {
             return Err(interdit());
@@ -2405,6 +2409,8 @@ impl PgEnt {
             t.commit().await.map_err(db)?;
             return Ok(res);
         }
+        // Mode suivi (V2a, M2) : l'inscription est un événement qui calcule la part (si le prix est figé).
+        crate::voyages_argent_repo::synchroniser(&mut t, a, &s).await?;
         let ev = rouvrir_liste(&mut t, a, &s, "participant_inscrit", res.ajoutes.len()).await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&ev);
@@ -2471,6 +2477,8 @@ impl PgEnt {
         }
         let motif_texte = texte_opt(motif_texte, 1000)?;
         let mut t = tx(self, a).await?;
+        // M1 : verrou consultatif de la sortie AVANT tout FOR UPDATE (même ordre que l'argent du lot V2a).
+        crate::voyages_argent_repo::verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.gere(Action::VoyagesParticipants) {
             return Err(interdit());

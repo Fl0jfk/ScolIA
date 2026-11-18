@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
 use ent_db::voyages_argent_repo::{
-    AvoirVue, EtatAgrege, ExportFait, FraisSaisie, FraisVue, LignePaiement, MaPart, NominatifVue, Reglages,
+    AvoirVue, EtatAgrege, ExportFait, FraisSaisie, FraisVue, MaPart, NominatifVue, PaiementsVue, Reglages,
     VersementSaisie, VersementVue,
 };
 use serde::{Deserialize, Serialize};
@@ -78,8 +78,9 @@ async fn etat(State(s): State<AppState>, session: EntSession, Path(id): Path<Uui
     Ok(Json(s.ent.voyage_argent_etat(&acteur(&session), id).await.map_err(map_db)?))
 }
 
-async fn paiements(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<LignePaiement>>> {
-    Ok(Json(s.ent.voyage_argent_paiements(&acteur(&session), id).await.map_err(map_db)?))
+/// Le DTO est choisi par le serveur selon `voyages.argent` (E1) : le responsable désigné ne reçoit jamais l'échéancier.
+async fn paiements(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<PaiementsVue>> {
+    Ok(Json(s.ent.voyage_argent_paiements_vue(&acteur(&session), id).await.map_err(map_db)?))
 }
 
 async fn famille(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<MaPart>>> {
@@ -154,8 +155,8 @@ async fn bordereau_saisir(
 
 #[derive(Deserialize)]
 struct RemiseBody {
-    nb_recus: i32,
-    total_recu: String,
+    /// Les lignes du bordereau effectivement reçues ; les autres sont « manquantes » (M4).
+    recues: Vec<Uuid>,
     #[serde(default)]
     note: Option<String>,
 }
@@ -170,7 +171,7 @@ async fn bordereau_remettre(
         StatusCode::CREATED,
         Json(
             s.ent
-                .voyage_bordereau_remettre(&acteur(&session), id, bid, b.nb_recus, &b.total_recu, b.note.as_deref())
+                .voyage_bordereau_remettre(&acteur(&session), id, bid, b.recues, b.note.as_deref())
                 .await
                 .map_err(map_db)?,
         ),
@@ -283,6 +284,9 @@ struct DecisionBody {
     decision: String,
     #[serde(default)]
     montant_retenu: Option<String>,
+    /// Obligatoire pour retenir plus que le montant proposé : `frais_non_dus`, `erreur_de_calcul`, `geste_commercial`, `autre_justifie`.
+    #[serde(default)]
+    motif_code: Option<String>,
     motif: String,
 }
 
@@ -299,7 +303,7 @@ async fn avoir_decider(
     };
     Ok(Json(
         s.ent
-            .voyage_avoir_decider(&acteur(&session), id, aid, retenir, b.montant_retenu.as_deref(), &b.motif)
+            .voyage_avoir_decider(&acteur(&session), id, aid, retenir, b.montant_retenu.as_deref(), b.motif_code.as_deref(), &b.motif)
             .await
             .map_err(map_db)?,
     ))

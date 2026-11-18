@@ -12,7 +12,7 @@
 //! * `obligatoire_…` (CV-81), `contournement_…` (NX-07), `droits_…`, `famille_…`, `export_…`, `base_…`, `outbox_…`.
 
 use super::*;
-use crate::tests_voyages_v0a::{est_conflit_detail, est_forbidden, est_introuvable, est_refus, Cadre};
+use crate::tests_voyages_v0a::{est_forbidden, est_introuvable, est_refus, Cadre};
 use crate::tests_voyages_v0d::cadre;
 use crate::voyages::Commande;
 use crate::voyages_argent_flux::{AcompteSaisie, BordereauLigneSaisie, BordereauSaisie};
@@ -22,6 +22,7 @@ use crate::voyages_repo::{ParamsCommande, SortieLigne};
 use chrono::Duration;
 use ent_auth::Role;
 use ent_object::presign::Presigner;
+use ent_object::ObjectStore;
 use uuid::Uuid;
 
 fn ligne_budget(sens: &str, poste: &str, libelle: &str, montant: &str) -> crate::voyages_budget_repo::LigneSaisie {
@@ -342,18 +343,25 @@ async fn bordereau_de_cheques_jour_meme_ecart_signale_et_pointage() {
     let bv = x.c.ent.voyage_bordereau_saisir(&prof, x.s.id, b(2, "300", vec![ligne_b(x.p0, "111", "100"), ligne_b(x.p1, "112", "200")])).await.expect("bordereau");
     assert_eq!((bv.nb_cheques, bv.total_centimes, bv.jour_collecte), (2, 30_000, x.c.jour_etab().await));
     assert!(bv.remise.is_none() && !bv.en_attente);
-    // L'organisateur ne reçoit pas son propre bordereau (il n'a pas le droit) ; le secrétariat reçoit.
-    assert!(est_forbidden(&x.c.ent.voyage_bordereau_remettre(&prof, x.s.id, bv.id, 2, "300", None).await.unwrap_err()));
-    // Un écart sans note est refusé ; avec note il est enregistré et signalé.
-    assert!(est_refus(&x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, 1, "100", None).await.unwrap_err()));
-    let r = x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, 1, "100", Some("Un chèque manquant dans l'enveloppe")).await.unwrap();
-    let rem = r.remise.unwrap();
-    assert!(rem.ecart && !rem.en_retard, "même jour, mais un écart");
-    // Remise unique.
-    assert!(matches!(x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, 2, "300", Some("bis")).await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
-    // Pointage d'une ligne : le payeur est choisi par celui qui pointe ; une ligne ne se pointe qu'une fois.
-    let lignes = x.c.ent.voyage_bordereaux(&x.sec(), x.s.id).await.unwrap().remove(0).lignes;
+    let lignes = bv.lignes.clone();
     let l0 = lignes.iter().find(|l| l.numero_cheque == "111").unwrap().id;
+    let l1 = lignes.iter().find(|l| l.numero_cheque == "112").unwrap().id;
+    // L'organisateur ne reçoit pas son propre bordereau (il n'a pas le droit) ; le secrétariat reçoit.
+    assert!(est_forbidden(&x.c.ent.voyage_bordereau_remettre(&prof, x.s.id, bv.id, vec![l0, l1], None).await.unwrap_err()));
+    // Une ligne inconnue est « introuvable » ; un chèque manquant sans note est refusé.
+    assert!(est_introuvable(&x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, vec![l0, Uuid::new_v4()], Some("x")).await.unwrap_err()));
+    assert!(est_refus(&x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, vec![l0], None).await.unwrap_err()));
+    // M4 : le secrétariat coche les chèques reçus ; l'autre est « manquant » : écart signalé, avec note.
+    let r = x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, vec![l0], Some("Un chèque manquant dans l'enveloppe")).await.unwrap();
+    let rem = r.remise.clone().unwrap();
+    assert!(rem.ecart && !rem.en_retard && rem.nb_recus == 1 && rem.total_recu_centimes == 10_000, "même jour, mais un écart");
+    assert_eq!(r.lignes.iter().find(|l| l.id == l0).unwrap().recue, Some(true));
+    assert_eq!(r.lignes.iter().find(|l| l.id == l1).unwrap().recue, Some(false));
+    // Remise unique.
+    assert!(matches!(x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, vec![l0, l1], Some("bis")).await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
+    // Une ligne manquante ne se pointe jamais.
+    assert!(est_introuvable(&x.c.ent.voyage_bordereau_ligne_pointer(&x.sec(), x.s.id, l1, x.compte_c).await.unwrap_err()));
+    // Pointage d'une ligne reçue : le payeur est choisi par celui qui pointe ; une ligne ne se pointe qu'une fois.
     let v = x.c.ent.voyage_bordereau_ligne_pointer(&x.sec(), x.s.id, l0, x.compte_a).await.unwrap();
     assert_eq!((v.moyen.as_str(), v.montant_centimes, v.reference.as_deref()), ("cheque", 10_000, Some("111")));
     assert!(matches!(x.c.ent.voyage_bordereau_ligne_pointer(&x.sec(), x.s.id, l0, x.compte_b).await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
@@ -387,7 +395,8 @@ async fn bordereau_remis_un_autre_jour_est_en_retard_et_signale_en_attente() {
     assert_eq!(attente.len(), 1, "à relancer : la collecte date d'hier");
     assert!(est_forbidden(&x.c.ent.voyages_bordereaux_en_attente(&x.porteur()).await.unwrap_err()));
     assert!(x.c.ent.voyage_bordereaux(&x.porteur(), x.s.id).await.unwrap()[0].en_attente);
-    let r = x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bid, 1, "100", None).await.unwrap();
+    let ligne: Uuid = sqlx::query_scalar("SELECT id FROM ent_sortie_bordereau_ligne WHERE bordereau_id = $1").bind(bid).fetch_one(x.c.ent.pool()).await.unwrap();
+    let r = x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bid, vec![ligne], None).await.unwrap();
     let rem = r.remise.unwrap();
     assert!(rem.en_retard && !rem.ecart, "remis un autre jour que la collecte : en retard, sans écart");
     assert!(x.c.ent.voyages_bordereaux_en_attente(&x.sec()).await.unwrap().is_empty());
@@ -517,10 +526,10 @@ async fn avoirs_proposes_au_payeur_qui_a_paye_frais_reels_et_decision_de_la_comp
     // Frais pour un participant qui n'est pas parti : refusé.
     assert!(est_refus(&x.c.ent.voyage_frais_saisir(&x.compta(), x.s.id, FraisSaisie { participant_id: x.p1, nature: "autre".into(), libelle: "x".into(), montant: "10".into() }).await.unwrap_err()));
     // Décision : retenir plus que le versé est refusé ; retenu une fois, plus de recalcul.
-    assert!(est_refus(&x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, true, Some("300"), "ok").await.unwrap_err()));
-    let d = x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, true, None, "Validé en comptabilité").await.unwrap();
+    assert!(est_refus(&x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, true, Some("300"), None, "ok").await.unwrap_err()));
+    let d = x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, true, None, None, "Validé en comptabilité").await.unwrap();
     assert_eq!((d.statut.as_str(), d.montant_retenu_centimes), ("retenu", Some(25_000)));
-    assert!(matches!(x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, false, None, "non").await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
+    assert!(matches!(x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a_ouvert.id, false, None, None, "non").await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
     assert!(est_refus(&x.c.ent.voyage_frais_saisir(&x.compta(), x.s.id, FraisSaisie { participant_id: x.p0, nature: "autre".into(), libelle: "Pénalité".into(), montant: "10".into() }).await.unwrap_err()), "avoir déjà retenu");
     // Les avoirs sont des montants proposés : aucune pièce comptable ni écriture ne naît.
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_fac_facture WHERE etablissement_id = $1").bind(x.c.etab).fetch_one(x.c.ent.pool_verif()).await.unwrap();
@@ -682,20 +691,32 @@ async fn famille_ne_voit_que_sa_part_et_ses_versements_meme_parents_separes() {
 async fn nominatif_ouvert_par_la_direction_au_seul_responsable_journalise() {
     let Some(x) = suivi().await else { return };
     x.sync().await;
-    assert!(est_introuvable(&x.c.ent.voyage_argent_paiements(&x.porteur(), x.s.id).await.unwrap_err()));
+    assert!(est_introuvable(&x.c.ent.voyage_argent_paiements_vue(&x.porteur(), x.s.id).await.unwrap_err()));
     // Seule la direction ouvre, avec un motif.
     assert!(est_forbidden(&x.c.ent.voyage_nominatif_ouvrir(&x.compta(), x.s.id, "x").await.unwrap_err()));
     assert!(est_forbidden(&x.c.ent.voyage_nominatif_ouvrir(&x.porteur(), x.s.id, "x").await.unwrap_err()));
     assert!(x.c.ent.voyage_nominatif_ouvrir(&x.dir(), x.s.id, " ").await.is_err());
     x.c.ent.voyage_nominatif_ouvrir(&x.dir(), x.s.id, "Relances des familles par le responsable").await.unwrap();
     assert!(matches!(x.c.ent.voyage_nominatif_ouvrir(&x.dir(), x.s.id, "bis").await.unwrap_err(), EntDbError::Domain(domain_eleve::DomainError::Conflit)));
+    // E1 : un plan long est accordé AVANT l'ouverture ; le responsable ne doit jamais le voir.
+    x.c.ent.voyage_plan_accorder(&x.compta(), x.s.id, x.p1, x.compte_c, 6, Some("Étalement demandé")).await.unwrap();
     // Le responsable (porteur) lit ; un autre professeur et l'accueil non ; chaque lecture est journalisée.
-    assert_eq!(x.c.ent.voyage_argent_paiements(&x.porteur(), x.s.id).await.unwrap().len(), 3);
+    let vue = x.c.ent.voyage_argent_paiements_vue(&x.porteur(), x.s.id).await.unwrap();
+    let json = serde_json::to_string(&vue).unwrap();
+    assert!(matches!(vue, crate::voyages_argent_repo::PaiementsVue::Responsable(ref v) if v.len() == 3), "{json}");
+    for interdit in ["echeances", "nb_echeances", "plan_long", "plan_en_cours", "echeance"] {
+        assert!(!json.contains(interdit), "E1 : {interdit} ne doit jamais atteindre le responsable : {json}");
+    }
+    // Comptabilité et direction gardent le DTO complet.
+    let complet = serde_json::to_string(&x.c.ent.voyage_argent_paiements_vue(&x.compta(), x.s.id).await.unwrap()).unwrap();
+    assert!(complet.contains("nb_echeances") && complet.contains("plan_long"), "{complet}");
+    // Le chemin « argent seulement » reste fermé au responsable.
+    assert!(x.c.ent.voyage_argent_paiements(&x.porteur(), x.s.id).await.is_err());
     assert!(x.c.ent.voyage_argent_paiements(&x.c.a(x.c.prof2, Role::Prof), x.s.id).await.is_err());
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_sortie_argent_acces WHERE sortie_id = $1 AND user_id = $2").bind(x.s.id).bind(x.c.prof).fetch_one(x.c.ent.pool()).await.unwrap();
-    assert_eq!(n, 1);
+    assert_eq!(n, 1, "seule la lecture du responsable est journalisée ; la lecture refusée à l'autre professeur n'écrit rien");
     x.c.ent.voyage_nominatif_fermer(&x.dir(), x.s.id).await.unwrap();
-    assert!(est_introuvable(&x.c.ent.voyage_argent_paiements(&x.porteur(), x.s.id).await.unwrap_err()), "refermé : le porteur ne voit plus rien");
+    assert!(est_introuvable(&x.c.ent.voyage_argent_paiements_vue(&x.porteur(), x.s.id).await.unwrap_err()), "refermé : le porteur ne voit plus rien");
 }
 
 #[tokio::test]
@@ -749,7 +770,7 @@ async fn base_ajout_seul_bornes_et_somme_du_bordereau() {
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "{sql}");
     }
     let r = sqlx::query("TRUNCATE ent_sortie_versement").execute(pool).await;
-    assert!(r.is_err(), "TRUNCATE refusé");
+    assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE refusé avec le code attendu");
     // Bornes : montant nul, négatif, au-delà de 100 000 € ; date de valeur future ; annulation qui ne reprend pas l'original.
     let ins = |montant: i64, date: chrono::NaiveDate| {
         let (etab, sortie, p, cpt, user) = (x.c.etab, x.s.id, x.p1, x.compte_c, x.c.compta);
@@ -776,7 +797,7 @@ async fn base_ajout_seul_bornes_et_somme_du_bordereau() {
     let r = tx.commit().await;
     assert!(r.is_err(), "bordereau sans lignes : refusé au commit");
     // Isolation : toutes les tables d'argent sont sous RLS.
-    for t in ["ent_sortie_part", "ent_sortie_plan", "ent_sortie_versement", "ent_sortie_frais_reel", "ent_sortie_avoir_propose", "ent_sortie_bordereau", "ent_sortie_bordereau_ligne", "ent_sortie_bordereau_remise", "ent_sortie_acompte_fournisseur", "ent_sortie_argent_export", "ent_sortie_nominatif_ouverture", "ent_sortie_argent_acces", "ent_sortie_argent_reglage"] {
+    for t in ["ent_sortie_part", "ent_sortie_plan", "ent_sortie_versement", "ent_sortie_frais_reel", "ent_sortie_avoir_propose", "ent_sortie_bordereau", "ent_sortie_bordereau_ligne", "ent_sortie_bordereau_remise", "ent_sortie_bordereau_reception", "ent_sortie_acompte_fournisseur", "ent_sortie_argent_export", "ent_sortie_nominatif_ouverture", "ent_sortie_argent_acces", "ent_sortie_argent_reglage"] {
         let rls: bool = sqlx::query_scalar("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE relname = $1").bind(t).fetch_one(pool).await.unwrap();
         assert!(rls, "{t} : RLS forcée");
     }
@@ -810,5 +831,397 @@ async fn outbox_sans_montant_ni_nom_pour_les_evenements_de_l_argent() {
     // Aucun événement de versement ni de part : seuls des signalements (identifiants et codes) existent.
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type LIKE 'voyages.versement%'").bind(x.c.etab).fetch_one(x.c.ent.pool_verif()).await.unwrap();
     assert_eq!(n, 0);
-    let _ = est_conflit_detail;
+}
+
+// ═════════════════════════════ Revue de sécurité : E1, M1 à M8, faibles ═════════════════════════════
+
+async fn compte_lignes(x: &Suivi, table: &str) -> i64 {
+    sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE etablissement_id = $1"))
+        .bind(x.c.etab)
+        .fetch_one(x.c.ent.pool_verif())
+        .await
+        .unwrap()
+}
+
+/// Deuxième sortie ouverte (budget validé) avec les `n` premiers élèves inscrits.
+async fn autre_sortie(c: &Cadre, titre: &str, n: usize) -> (SortieLigne, Vec<Uuid>) {
+    let s = c.voyage_a_budget(titre).await;
+    c.ent.voyage_participants_ajouter(&c.a(c.prof, Role::Prof), s.id, c.eleves[..n].to_vec()).await.unwrap();
+    let mut ps = Vec::new();
+    for e in &c.eleves[..n] {
+        ps.push(c.participant(s.id, *e).await);
+    }
+    (s, ps)
+}
+
+/// M1 : un seul ordre de verrous ; deux écritures concurrentes ne se bloquent pas et ne se doublent pas.
+#[tokio::test]
+async fn m1_concurrence_double_pointage_double_annulation_sans_interblocage() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    // Double pointage de 300 € sur une part de 500 € : un seul passe.
+    let (a, b) = tokio::join!(x.verser(x.p1, x.compte_c, "cheque", "300"), x.verser(x.p1, x.compte_c, "virement", "300"));
+    assert!(a.is_ok() ^ b.is_ok(), "un seul des deux pointages passe : {a:?} / {b:?}");
+    let refuse = if a.is_err() { a.unwrap_err() } else { b.unwrap_err() };
+    assert!(est_refus(&refuse), "{refuse:?}");
+    let net: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_sortie_versement WHERE participant_id = $1 AND sens = 'versement'").bind(x.p1).fetch_one(x.c.ent.pool()).await.unwrap();
+    assert_eq!(net, 30_000);
+    // Double annulation du même versement : une seule passe, l'autre est un conflit.
+    let v = x.verser(x.p0, x.compte_a, "cheque", "100").await.unwrap();
+    let comp = x.compta();
+    let (c1, c2) = tokio::join!(
+        x.c.ent.voyage_versement_annuler(&comp, x.s.id, v.id, "doublon A"),
+        x.c.ent.voyage_versement_annuler(&comp, x.s.id, v.id, "doublon B")
+    );
+    assert!(c1.is_ok() ^ c2.is_ok(), "{c1:?} / {c2:?}");
+    let e = if c1.is_err() { c1.unwrap_err() } else { c2.unwrap_err() };
+    assert!(matches!(e, EntDbError::Domain(domain_eleve::DomainError::Conflit)), "{e:?}");
+    // Désistement, pointage et synchronisation en même temps : aucun interblocage, aucune erreur de base.
+    let prof_a = x.c.a(x.c.prof, Role::Prof);
+    let fin = tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        async {
+            tokio::join!(
+                x.c.ent.voyage_participant_desister(&prof_a, x.s.id, x.p0, "decision_personnelle", None),
+                x.verser(x.p0, x.compte_b, "cheque", "50"),
+                x.c.ent.voyage_argent_synchroniser(&comp, x.s.id)
+            )
+        },
+    )
+    .await
+    .expect("aucun interblocage");
+    for e in [fin.0.err(), fin.1.err().map(|e| e), fin.2.err()].into_iter().flatten() {
+        let t = format!("{e:?}");
+        assert!(!t.contains("deadlock") && !t.contains("40P01") && !t.contains("Db("), "{t}");
+    }
+}
+
+/// M2 et M7 : une lecture n'écrit rien ; aucun compte n'est créé ; le premier jour suit l'inscription.
+#[tokio::test]
+async fn m2_m7_une_lecture_n_ecrit_rien_aucun_compte_cree_premier_jour_ancre() {
+    let Some(x) = suivi().await else { return };
+    // Un payeur dont le foyer n'a AUCUN compte débiteur : jamais créé par ce lot (« à définir »).
+    let (fx, ux) = (foyer(&x.c).await, crate::tests_voyages_v0a::compte(&x.c.ent, x.c.etab, "parent").await);
+    payeur(&x.c, x.c.eleves[2], ux, fx, 100).await;
+    // Le participant 1 s'est inscrit « dans trois jours » : la première échéance ne peut pas être avant.
+    sqlx::query("UPDATE ent_sortie_participant SET cree_le = now() + interval '3 days' WHERE id = $1").bind(x.p1).execute(x.c.ent.pool_verif()).await.unwrap();
+    let (parts0, comptes0) = (compte_lignes(&x, "ent_sortie_part").await, compte_lignes(&x, "ent_fin_compte").await);
+    // Lectures de l'organisateur et de la comptabilité : rien ne s'écrit.
+    let ag = x.c.ent.voyage_argent_etat(&x.porteur(), x.s.id).await.unwrap();
+    assert_eq!((ag.a_definir, ag.participants_payants), (3, 3), "aucune part n'existe avant l'événement ou la synchronisation");
+    assert!(x.c.ent.voyage_argent_paiements(&x.compta(), x.s.id).await.unwrap().is_empty());
+    x.c.ent.voyage_argent_etat(&x.compta(), x.s.id).await.unwrap();
+    assert_eq!((compte_lignes(&x, "ent_sortie_part").await, compte_lignes(&x, "ent_fin_compte").await), (parts0, comptes0), "un GET n'écrit ni part ni compte");
+    // Synchronisation explicite : le foyer sans compte reste « à définir » et n'obtient AUCUN compte.
+    x.sync().await;
+    let sans_compte: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_fin_compte WHERE etablissement_id = $1 AND foyer_id = $2").bind(x.c.etab).bind(fx).fetch_one(x.c.ent.pool_verif()).await.unwrap();
+    assert_eq!(sans_compte, 0, "payeurs_a(…, creer_comptes = false)");
+    let ag = x.c.ent.voyage_argent_etat(&x.porteur(), x.s.id).await.unwrap();
+    assert_eq!(ag.a_definir, 1);
+    // Ancrage : jour d'inscription du participant ou du prix figé, le plus tardif ; jamais la date de consultation.
+    let j1: chrono::NaiveDate = sqlx::query_scalar("SELECT jour_calcul FROM ent_sortie_part WHERE participant_id = $1 LIMIT 1").bind(x.p1).fetch_one(x.c.ent.pool()).await.unwrap();
+    let attendu: chrono::NaiveDate = sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, cree_le) FROM ent_sortie_participant WHERE id = $2").bind(x.c.etab).bind(x.p1).fetch_one(x.c.ent.pool()).await.unwrap();
+    assert_eq!(j1, attendu);
+    assert!(j1 > x.c.jour_etab().await, "inscription future : première échéance future");
+    let j0: chrono::NaiveDate = sqlx::query_scalar("SELECT jour_calcul FROM ent_sortie_part WHERE participant_id = $1 LIMIT 1").bind(x.p0).fetch_one(x.c.ent.pool()).await.unwrap();
+    assert_eq!(j0, x.c.jour_etab().await);
+}
+
+/// M3 : les consultations de bordereaux, de frais et des bordereaux en attente sont journalisées.
+#[tokio::test]
+async fn m3_consultations_de_bordereaux_et_de_frais_journalisees() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let nb = |portee: &'static str, user: Uuid| {
+        let (etab, c) = (x.c.etab, &x.c);
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ent_sortie_argent_acces WHERE etablissement_id = $1 AND portee = $2 AND user_id = $3")
+                .bind(etab).bind(portee).bind(user).fetch_one(c.ent.pool()).await.unwrap()
+        }
+    };
+    x.c.ent.voyage_bordereau_saisir(&x.porteur(), x.s.id, BordereauSaisie { nb_cheques: 1, total: "100".into(), lignes: vec![ligne_b(x.p0, "810", "100")] }).await.unwrap();
+    assert_eq!(nb("bordereaux", x.c.sec).await, 0);
+    x.c.ent.voyage_bordereaux(&x.sec(), x.s.id).await.unwrap();
+    x.c.ent.voyages_bordereaux_en_attente(&x.sec()).await.unwrap();
+    assert_eq!(nb("bordereaux", x.c.sec).await, 2, "la liste d'une sortie et la liste des bordereaux en attente");
+    x.c.ent.voyage_frais(&x.compta(), x.s.id).await.unwrap();
+    assert_eq!(nb("frais", x.c.compta).await, 1);
+    let sans_sortie: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_sortie_argent_acces WHERE etablissement_id = $1 AND sortie_id IS NULL").bind(x.c.etab).fetch_one(x.c.ent.pool()).await.unwrap();
+    assert_eq!(sans_sortie, 1, "la liste de tout l'établissement est journalisée sans sortie");
+}
+
+/// M5 : annulation d'un versement → avoirs « à revoir » ; décision bornée par le net COURANT ; motif codé au-delà du proposé.
+#[tokio::test]
+async fn m5_annulation_met_les_avoirs_a_revoir_borne_courante_et_motif_code() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let v = x.verser(x.p1, x.compte_c, "virement", "500").await.unwrap();
+    x.c.ent.voyage_participant_desister(&x.c.a(x.c.prof, Role::Prof), x.s.id, x.p1, "decision_personnelle", None).await.unwrap();
+    let a = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap().remove(0);
+    assert_eq!((a.statut.as_str(), a.montant_propose_centimes), ("propose", 50_000));
+    x.c.ent.voyage_versement_annuler(&x.compta(), x.s.id, v.id, "Virement rejeté").await.unwrap();
+    let a = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap().remove(0);
+    assert_eq!(a.statut, "a_revoir", "le versé a changé : l'avoir est à revoir");
+    // Borne = net COURANT (0 €), pas le versé d'origine (500 €).
+    let e = x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a.id, true, None, None, "ok").await.unwrap_err();
+    assert!(est_refus(&e), "{e:?}");
+    let d = x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a.id, true, Some("0"), None, "Plus rien à rendre").await.unwrap();
+    assert_eq!((d.statut.as_str(), d.montant_retenu_centimes), ("retenu", Some(0)));
+    // Un avoir RETENU repasse aussi « à revoir » quand un versement est annulé.
+    x.verser(x.p0, x.compte_a, "cheque", "250").await.unwrap();
+    let v2 = x.verser(x.p0, x.compte_b, "cheque", "10").await.unwrap();
+    x.c.ent.voyage_participant_desister(&x.c.a(x.c.prof, Role::Prof), x.s.id, x.p0, "decision_personnelle", None).await.unwrap();
+    // Retenir PLUS que le proposé : motif codé obligatoire. Frais de 100 € : A (50 %) → avoir proposé 200 €.
+    x.c.ent.voyage_frais_saisir(&x.compta(), x.s.id, FraisSaisie { participant_id: x.p0, nature: "penalite_prestataire".into(), libelle: "Pénalité".into(), montant: "100".into() }).await.unwrap();
+    let av_a = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap().into_iter().find(|y| y.compte_id == x.compte_a && y.statut == "propose").unwrap();
+    assert_eq!(av_a.montant_propose_centimes, 20_000);
+    assert!(est_refus(&x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, av_a.id, true, Some("250"), None, "plus").await.unwrap_err()));
+    assert!(x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, av_a.id, true, Some("250"), Some("fusee"), "plus").await.is_err(), "code inconnu");
+    let ok = x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, av_a.id, true, Some("250"), Some("frais_non_dus"), "Pénalité finalement non due").await.unwrap();
+    assert_eq!(ok.montant_retenu_centimes, Some(25_000));
+    let a_retenu = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap();
+    let av_b = a_retenu.iter().find(|y| y.compte_id == x.compte_b && y.statut == "propose").unwrap().clone();
+    x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, av_b.id, true, None, None, "ok").await.unwrap();
+    x.c.ent.voyage_versement_annuler(&x.compta(), x.s.id, v2.id, "Erreur de payeur").await.unwrap();
+    let apres = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap();
+    assert_eq!(apres.iter().find(|y| y.id == av_b.id).unwrap().statut, "a_revoir", "un avoir retenu repasse à revoir");
+    assert_eq!(apres.iter().find(|y| y.id == av_a.id).unwrap().statut, "retenu", "l'autre payeur n'est pas touché");
+}
+
+/// M6 : sans entité de facturation, la collecte par l'organisateur est refusée et l'erreur dit quoi configurer.
+#[tokio::test]
+async fn m6_sans_entite_de_facturation_la_collecte_est_refusee() {
+    let Some(c) = cadre().await else { return };
+    let s = c.voyage_a_budget("Voyage sans entité").await;
+    c.ent.voyage_participants_ajouter(&c.prof_a(), s.id, c.eleves.clone()).await.unwrap();
+    sqlx::query("DELETE FROM ent_fin_entite_facturation WHERE etablissement_id = $1").bind(c.etab).execute(c.ent.pool_verif()).await.unwrap();
+    let p = c.participant(s.id, c.eleves[0]).await;
+    let e = c
+        .ent
+        .voyage_bordereau_saisir(&c.prof_a(), s.id, BordereauSaisie { nb_cheques: 1, total: "50".into(), lignes: vec![ligne_b(p, "900", "50")] })
+        .await
+        .unwrap_err();
+    match e {
+        EntDbError::Refus(_, msg) => assert!(msg.contains("entité de facturation") && msg.contains("régime"), "{msg}"),
+        autre => panic!("refus attendu : {autre:?}"),
+    }
+}
+
+/// M8 : `voyages.prix_fige` et `voyages.budget_version_validee` ne publient plus aucun montant.
+#[tokio::test]
+async fn m8_charges_prix_fige_et_budget_valide_sans_montant() {
+    let Some(x) = suivi().await else { return };
+    let payloads: Vec<(String, String)> = sqlx::query_as(
+        "SELECT o.type, m.payload::text FROM ent_outbox o JOIN ent_metier_event m ON m.id = o.event_id
+          WHERE o.etablissement_id = $1 AND o.type IN ('voyages.prix_fige', 'voyages.budget_version_validee')",
+    )
+    .bind(x.c.etab)
+    .fetch_all(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(payloads.iter().any(|(t, _)| t == "voyages.prix_fige") && payloads.iter().any(|(t, _)| t == "voyages.budget_version_validee"));
+    for (t, p) in payloads {
+        for interdit in ["centimes", "montant", "50000", "150000", "part_familles"] {
+            assert!(!p.contains(interdit), "{t} : {interdit} dans {p}");
+        }
+    }
+}
+
+/// F1 et F2 : un désistement n'échoue jamais ; l'écart humain est mémorisé ; un écart automatique est « système ».
+#[tokio::test]
+async fn f1_f2_desistement_apres_decision_et_ecart_humain_memorise() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    x.verser(x.p0, x.compte_a, "cheque", "250").await.unwrap();
+    x.verser(x.p0, x.compte_b, "cheque", "100").await.unwrap();
+    let prof = x.c.a(x.c.prof, Role::Prof);
+    x.c.ent.voyage_participant_desister(&prof, x.s.id, x.p0, "decision_personnelle", None).await.unwrap();
+    let avoirs = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap();
+    let (a, b) = (avoirs.iter().find(|y| y.compte_id == x.compte_a).unwrap().clone(), avoirs.iter().find(|y| y.compte_id == x.compte_b).unwrap().clone());
+    x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, a.id, true, None, None, "Retenu").await.unwrap();
+    x.c.ent.voyage_avoir_decider(&x.compta(), x.s.id, b.id, false, None, None, "Écarté : remboursé hors ScolIA").await.unwrap();
+    // L'élève est réinscrit puis se désiste de nouveau : l'avoir déjà RETENU ne fait pas échouer le désistement (F1).
+    x.c.ent.voyage_participants_ajouter(&x.c.a(x.c.prof, Role::Prof), x.s.id, vec![x.c.eleves[0]]).await.unwrap();
+    x.c.ent.voyage_participant_desister(&prof, x.s.id, x.p0, "decision_personnelle", None).await.expect("F1 : un désistement n'échoue pas");
+    let apres = x.c.ent.voyage_avoirs(&x.compta(), x.s.id).await.unwrap();
+    assert_eq!(apres.iter().find(|y| y.id == a.id).unwrap().statut, "retenu");
+    assert!(!apres.iter().any(|y| y.compte_id == x.compte_b && y.statut == "propose"), "F2 : l'écart humain est mémorisé, B n'est pas relancé");
+    // Écart automatique : un frais recalcule l'avoir de A ; l'ancienne proposition est « signée système ».
+    let Some(y) = suivi().await else { return };
+    y.sync().await;
+    y.verser(y.p0, y.compte_a, "cheque", "250").await.unwrap();
+    y.c.ent.voyage_participant_desister(&y.c.a(y.c.prof, Role::Prof), y.s.id, y.p0, "decision_personnelle", None).await.unwrap();
+    y.c.ent.voyage_frais_saisir(&y.compta(), y.s.id, FraisSaisie { participant_id: y.p0, nature: "autre".into(), libelle: "Frais".into(), montant: "40".into() }).await.unwrap();
+    let (par, auto): (Option<Uuid>, bool) = sqlx::query_as("SELECT decide_par_user_id, decision_auto FROM ent_sortie_avoir_propose WHERE sortie_id = $1 AND statut = 'ecarte'")
+        .bind(y.s.id).fetch_one(y.c.ent.pool()).await.unwrap();
+    assert_eq!((par, auto), (None, true), "écartement automatique signé système");
+}
+
+async fn ins_versement(x: &Suivi, montant: i64, date: chrono::NaiveDate, ligne: Option<Uuid>, p: Uuid) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    sqlx::query("INSERT INTO ent_sortie_versement (id, etablissement_id, sortie_id, participant_id, compte_id, sens, moyen, montant_centimes, date_valeur, bordereau_ligne_id, saisi_par_user_id) VALUES ($1,$2,$3,$4,$5,'versement','cheque',$6,$7,$8,$9)")
+        .bind(Uuid::new_v4()).bind(x.c.etab).bind(x.s.id).bind(p).bind(x.compte_a).bind(montant).bind(date).bind(ligne).bind(x.c.compta)
+        .execute(x.c.ent.pool_verif()).await
+}
+
+/// F3 et F4 : les gardes comparent toute la ligne ; le bordereau reste cohérent ; bornes basses.
+#[tokio::test]
+async fn f3_f4_gardes_de_la_base_ligne_entiere_et_coherence_du_bordereau() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let pool = x.c.ent.pool_verif();
+    let jour = x.c.jour_etab().await;
+    // F3 : un avoir, un acompte, une ouverture nominative ne changent que par leurs colonnes de décision.
+    x.verser(x.p1, x.compte_c, "cheque", "100").await.unwrap();
+    x.c.ent.voyage_participant_desister(&x.c.a(x.c.prof, Role::Prof), x.s.id, x.p1, "sante", None).await.unwrap();
+    let r = sqlx::query("UPDATE ent_sortie_avoir_propose SET paye_net_centimes = paye_net_centimes + 1 WHERE sortie_id = $1").bind(x.s.id).execute(pool).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("42501"));
+    let r = sqlx::query("UPDATE ent_sortie_avoir_propose SET cree_le = cree_le - interval '1 day' WHERE sortie_id = $1").bind(x.s.id).execute(pool).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("42501"), "toute la ligne est comparée, pas une liste de colonnes");
+    x.c.ent.voyage_nominatif_ouvrir(&x.dir(), x.s.id, "Relances").await.unwrap();
+    let r = sqlx::query("UPDATE ent_sortie_nominatif_ouverture SET motif = 'autre' WHERE sortie_id = $1").bind(x.s.id).execute(pool).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("42501"));
+    // F4 : date plancher.
+    let ins = |montant: i64, date: chrono::NaiveDate, ligne: Option<Uuid>, p: Uuid| ins_versement(&x, montant, date, ligne, p);
+    let r = ins(100, chrono::NaiveDate::from_ymd_opt(2019, 12, 31).unwrap(), None, x.p0).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "CHECK bas sur date_valeur");
+    // F4 : une ligne vise un participant de la MÊME sortie que son bordereau.
+    let c2 = autre_sortie(&x.c, "Autre sortie", 1).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)").bind(x.c.etab.to_string()).execute(&mut *tx).await.unwrap();
+    let bid = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_sortie_bordereau (id, etablissement_id, sortie_id, jour_collecte, nb_cheques, total_centimes, saisi_par_user_id) VALUES ($1,$2,$3,$4,1,100,$5)").bind(bid).bind(x.c.etab).bind(x.s.id).bind(jour).bind(x.c.prof).execute(&mut *tx).await.unwrap();
+    let r = sqlx::query("INSERT INTO ent_sortie_bordereau_ligne (id, etablissement_id, bordereau_id, participant_id, numero_cheque, montant_centimes) VALUES ($1,$2,$3,$4,'1',100)").bind(Uuid::new_v4()).bind(x.c.etab).bind(bid).bind(c2.1[0]).execute(&mut *tx).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "participant d'une autre sortie");
+    drop(tx);
+    // F4 : le nombre et le total sont recontrôlés à CHAQUE ligne (un bordereau d'un chèque avec deux lignes échoue au commit).
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)").bind(x.c.etab.to_string()).execute(&mut *tx).await.unwrap();
+    let bid2 = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_sortie_bordereau (id, etablissement_id, sortie_id, jour_collecte, nb_cheques, total_centimes, saisi_par_user_id) VALUES ($1,$2,$3,$4,1,100,$5)").bind(bid2).bind(x.c.etab).bind(x.s.id).bind(jour).bind(x.c.prof).execute(&mut *tx).await.unwrap();
+    for n in ["a", "b"] {
+        sqlx::query("INSERT INTO ent_sortie_bordereau_ligne (id, etablissement_id, bordereau_id, participant_id, numero_cheque, montant_centimes) VALUES ($1,$2,$3,$4,$5,50)").bind(Uuid::new_v4()).bind(x.c.etab).bind(bid2).bind(x.p0).bind(n).execute(&mut *tx).await.unwrap();
+    }
+    assert!(tx.commit().await.is_err(), "deux lignes pour un chèque annoncé : refusé au commit");
+    // F4 : un versement rattaché à une ligne reprend le participant et le montant de la ligne.
+    let bv = x.c.ent.voyage_bordereau_saisir(&x.porteur(), x.s.id, BordereauSaisie { nb_cheques: 1, total: "100".into(), lignes: vec![ligne_b(x.p0, "820", "100")] }).await.unwrap();
+    let r = ins(9_999, jour, Some(bv.lignes[0].id), x.p0).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "montant différent de la ligne");
+    let r = ins(10_000, jour, Some(bv.lignes[0].id), c2.1[0]).await;
+    assert!(r.is_err(), "participant différent de la ligne");
+}
+
+/// F7 : l'export est conservé 30 jours puis détruit (objet supprimé, date de purge inscrite).
+#[tokio::test]
+async fn f7_export_purge_apres_trente_jours() {
+    let Some(x) = suivi().await else { return };
+    let eid = Uuid::new_v4();
+    let cle = ObjectStore::key_for(x.c.etab, "voyages-argent", eid, "csv");
+    let info = x.c.ent.objet_put(&cle, "type;sortie\r\n".as_bytes()).await.unwrap();
+    sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id, cree_le) VALUES ($1,$2,$3,0,$4,$5,$6, now() - interval '40 days')")
+        .bind(eid).bind(x.c.etab).bind(x.s.id).bind(&cle).bind(&info.sha256).bind(x.c.compta).execute(x.c.ent.pool_verif()).await.unwrap();
+    // Un export récent n'est pas touché.
+    let recent = Uuid::new_v4();
+    let cle2 = ObjectStore::key_for(x.c.etab, "voyages-argent", recent, "csv");
+    let info2 = x.c.ent.objet_put(&cle2, "type;sortie\r\n".as_bytes()).await.unwrap();
+    sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id) VALUES ($1,$2,$3,0,$4,$5,$6)")
+        .bind(recent).bind(x.c.etab).bind(x.s.id).bind(&cle2).bind(&info2.sha256).bind(x.c.compta).execute(x.c.ent.pool_verif()).await.unwrap();
+    assert_eq!(x.c.ent.voyages_argent_exports_purger(x.c.etab).await.unwrap(), 1);
+    assert!(!x.c.ent.objet_existe(&cle).await.unwrap(), "objet détruit");
+    assert!(x.c.ent.objet_existe(&cle2).await.unwrap(), "export récent conservé");
+    let purge: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT purge_le FROM ent_sortie_argent_export WHERE id = $1").bind(eid).fetch_one(x.c.ent.pool_verif()).await.unwrap();
+    assert!(purge.is_some());
+    assert_eq!(x.c.ent.voyages_argent_exports_purger(x.c.etab).await.unwrap(), 0, "idempotent");
+    // La catégorie de conservation existe, à un mois.
+    let cat = crate::conservation::CATALOGUE.iter().find(|c| c.code == "sor.export_argent").expect("catégorie de conservation");
+    assert_eq!(cat.intermediaire_mois, Some(1));
+}
+
+/// F8 : sous trois payeurs, l'organisateur ne reçoit que « effectif trop petit » ; la comptabilité voit tout.
+#[tokio::test]
+async fn f8_etat_agrege_masque_sous_trois_payeurs() {
+    let Some(c) = cadre().await else { return };
+    let (s, _) = autre_sortie(&c, "Petit groupe", 2).await;
+    let porteur = c.prof_a();
+    let ag = c.ent.voyage_argent_etat(&porteur, s.id).await.unwrap();
+    assert!(ag.masque && ag.en_retard == 0 && ag.a_jour == 0 && ag.a_definir == 0 && ag.du_total_centimes == 0, "{ag:?}");
+    let compta = c.ent.voyage_argent_etat(&c.a(c.compta, Role::Compta), s.id).await.unwrap();
+    assert!(!compta.masque && compta.a_definir == 2, "{compta:?}");
+    let (grande, _) = autre_sortie(&c, "Groupe de trois", 3).await;
+    assert!(!c.ent.voyage_argent_etat(&porteur, grande.id).await.unwrap().masque);
+}
+
+/// « Le jour même » se compte dans le fuseau de l'établissement, autour de minuit (Auckland et Cayenne).
+#[tokio::test]
+async fn fuseau_jour_meme_autour_de_minuit() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let jour_a = |instant: &'static str| {
+        let (etab, c) = (x.c.etab, &x.c);
+        async move {
+            sqlx::query_scalar::<_, chrono::NaiveDate>("SELECT ent_aujourdhui_etab($1, $2::timestamptz)").bind(etab).bind(instant).fetch_one(c.ent.pool()).await.unwrap()
+        }
+    };
+    let d = |a, m, j| chrono::NaiveDate::from_ymd_opt(a, m, j).unwrap();
+    // Auckland (UTC+12 en juin) : 23 h 30 le 14, puis 0 h 30 le 15 — même jour UTC.
+    x.c.ent.definir_fuseau_etablissement_for_actor(x.c.etab, x.c.dir, "direction", "Pacific/Auckland").await.expect("fuseau");
+    assert_eq!(jour_a("2026-06-14T11:30:00Z").await, d(2026, 6, 14));
+    assert_eq!(jour_a("2026-06-14T12:30:00Z").await, d(2026, 6, 15));
+    // Cayenne (UTC−3) : 23 h 30 le 13, puis 0 h 30 le 14.
+    x.c.ent.definir_fuseau_etablissement_for_actor(x.c.etab, x.c.dir, "direction", "America/Cayenne").await.expect("fuseau");
+    assert_eq!(jour_a("2026-06-14T02:30:00Z").await, d(2026, 6, 13));
+    assert_eq!(jour_a("2026-06-14T03:30:00Z").await, d(2026, 6, 14));
+    // Le jour de collecte d'un bordereau est celui de l'établissement, jamais le jour UTC.
+    let attendu: chrono::NaiveDate = sqlx::query_scalar("SELECT (now() AT TIME ZONE 'America/Cayenne')::date").fetch_one(x.c.ent.pool()).await.unwrap();
+    let bv = x.c.ent.voyage_bordereau_saisir(&x.porteur(), x.s.id, BordereauSaisie { nb_cheques: 1, total: "100".into(), lignes: vec![ligne_b(x.p0, "830", "100")] }).await.unwrap();
+    assert_eq!(bv.jour_collecte, attendu);
+    x.c.ent.definir_fuseau_etablissement_for_actor(x.c.etab, x.c.dir, "direction", "Pacific/Auckland").await.unwrap();
+    let attendu: chrono::NaiveDate = sqlx::query_scalar("SELECT (now() AT TIME ZONE 'Pacific/Auckland')::date").fetch_one(x.c.ent.pool()).await.unwrap();
+    assert_eq!(x.c.jour_etab().await, attendu);
+}
+
+/// Ajout seul : UPDATE, DELETE et TRUNCATE refusés pour toutes les tables d'écritures, journal des accès compris.
+#[tokio::test]
+async fn ajout_seul_de_toutes_les_tables_journal_des_acces_compris() {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    x.verser(x.p0, x.compte_a, "cheque", "50").await.unwrap();
+    x.c.ent.voyage_plan_accorder(&x.compta(), x.s.id, x.p1, x.compte_c, 5, Some("Étalement")).await.unwrap();
+    let bv = x.c.ent.voyage_bordereau_saisir(&x.porteur(), x.s.id, BordereauSaisie { nb_cheques: 1, total: "10".into(), lignes: vec![ligne_b(x.p0, "840", "10")] }).await.unwrap();
+    x.c.ent.voyage_bordereau_remettre(&x.sec(), x.s.id, bv.id, vec![bv.lignes[0].id], None).await.unwrap();
+    x.c.ent.voyage_participant_desister(&x.c.a(x.c.prof, Role::Prof), x.s.id, x.p1, "sante", None).await.unwrap();
+    x.c.ent.voyage_frais_saisir(&x.compta(), x.s.id, FraisSaisie { participant_id: x.p1, nature: "autre".into(), libelle: "Frais".into(), montant: "5".into() }).await.unwrap();
+    x.c.ent.voyage_argent_paiements(&x.compta(), x.s.id).await.unwrap();
+    let eid = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_sortie_argent_export (id, etablissement_id, sortie_id, nb_lignes, cle_objet, sha256, cree_par_user_id) VALUES ($1,$2,$3,0,'x/y.csv',$4,$5)")
+        .bind(eid).bind(x.c.etab).bind(x.s.id).bind("a".repeat(64)).bind(x.c.compta).execute(x.c.ent.pool_verif()).await.unwrap();
+    let pool = x.c.ent.pool_verif();
+    for t in [
+        "ent_sortie_part", "ent_sortie_plan", "ent_sortie_versement", "ent_sortie_frais_reel", "ent_sortie_bordereau",
+        "ent_sortie_bordereau_ligne", "ent_sortie_bordereau_remise", "ent_sortie_bordereau_reception", "ent_sortie_argent_export",
+        "ent_sortie_argent_acces",
+    ] {
+        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {t}")).fetch_one(pool).await.unwrap();
+        assert!(n > 0, "{t} doit contenir une ligne pour que les gardes de ligne soient éprouvées");
+        let r = sqlx::query(&format!("UPDATE {t} SET etablissement_id = etablissement_id")).execute(pool).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "UPDATE {t}");
+        let r = sqlx::query(&format!("DELETE FROM {t}")).execute(pool).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "DELETE {t}");
+        let r = sqlx::query(&format!("TRUNCATE {t} CASCADE")).execute(pool).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE {t}");
+    }
+    // Les trois tables à transitions bornées ne se suppriment pas non plus.
+    for t in ["ent_sortie_avoir_propose", "ent_sortie_nominatif_ouverture", "ent_sortie_acompte_fournisseur"] {
+        let r = sqlx::query(&format!("TRUNCATE {t} CASCADE")).execute(pool).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE {t}");
+    }
+}
+
+/// F5 : le rôle applicatif n'est ni propriétaire des tables ni superutilisateur ni contournement de la RLS.
+#[tokio::test]
+async fn f5_role_applicatif_ni_proprietaire_ni_superutilisateur() {
+    let Some(x) = suivi().await else { return };
+    let (sup, bypass): (bool, bool) = sqlx::query_as("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user").fetch_one(x.c.ent.pool()).await.unwrap();
+    assert!(!sup && !bypass, "le rôle applicatif ne contourne pas la RLS");
+    let proprio: bool = sqlx::query_scalar("SELECT bool_or(tableowner = current_user) FROM pg_tables WHERE tablename LIKE 'ent_sortie_%' AND schemaname = 'public'").fetch_one(x.c.ent.pool()).await.unwrap();
+    assert!(!proprio, "le rôle applicatif n'est propriétaire d'aucune table de sortie (FORCE RLS s'applique)");
 }

@@ -86,7 +86,7 @@ pub const SANS_SOURCE: &str = "aucune source, choix de minimisation";
 
 /// Version du catalogue : une nouvelle version est proposée à l'établissement comme
 /// changement, jamais appliquée seule (§8.2 point 4).
-pub const VERSION_CATALOGUE: &str = "2026-11-17-f2";
+pub const VERSION_CATALOGUE: &str = "2026-11-18-v2a";
 
 #[allow(clippy::too_many_arguments)]
 const fn c(
@@ -159,6 +159,7 @@ pub const CATALOGUE: &[Categorie] = &[
     c("rgpd.demande", "demandes de droits et réponses", "clôture", None, Some(60), S::Destruction, "prescription", NV, false, "27"),
     c("rgpd.violation", "registre des violations", "clôture", None, Some(60), S::Destruction, "article 33.5 du RGPD (durée non fixée par le texte)", NV, false, "27"),
     c("dem.demande", "demandes internes (matériel, HSE, reprographie)", "clôture", None, Some(12), S::Destruction, SANS_SOURCE, R, false, "43"),
+    c("sor.export_argent", "fichiers d'export du suivi de l'argent des sorties (parts, versements, avoirs proposés)", "génération du fichier", None, Some(1), S::Destruction, SANS_SOURCE, R, false, "42"),
     c("sor.sortie", "sorties, voyages, participants, prestataires", "fin de la sortie", None, Some(60), S::Destruction, SANS_SOURCE, NV, false, "42"),
     c("sta.stage", "stages, conventions, entreprises", "fin du stage", None, Some(60), S::Destruction, SANS_SOURCE, NV, false, "37"),
     c("vie.pratique", "restauration, internat, présences", "fin d'année", Some(12), Some(12), S::Destruction, SANS_SOURCE, R, false, "41"),
@@ -336,6 +337,7 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
         "vie_scolaire" => "disc.sanction",
         "messagerie" => "msg.conversation",
         "communication_technique" => "com.envoi",
+        "sorties_voyages" if n == "ent_sortie_argent_export" => "sor.export_argent",
         "sorties_voyages" => "sor.sortie",
         "stages" => "sta.stage",
         "vie_pratique" => "vie.pratique",

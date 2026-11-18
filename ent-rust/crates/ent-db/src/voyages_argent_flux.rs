@@ -23,7 +23,10 @@ use crate::ref_commun::{conflit, db, introuvable, invalide, Acteur};
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::tenant_tx::TenantTx;
 use crate::voyages_argent::{centimes_de_texte, statut_acompte, VERSEMENT_MAX};
-use crate::voyages_argent_repo::{est_public, jour_etab, peut_argent, peut_remise, pointer_tx, reglages, Reglages, VersementSaisie, VersementVue};
+use crate::voyages_argent_repo::{
+    jour_etab, peut_argent, peut_remise, pointer_tx, regime_public, reglages, verrou_sortie, Reglages, VersementSaisie,
+    VersementVue,
+};
 use crate::voyages_repo::{charger_avec_acces, interdit, publier, refus, texte, texte_opt, tx};
 
 /// États d'une sortie où un organisateur peut avoir collecté des chèques.
@@ -84,6 +87,8 @@ pub struct BordereauLigneVue {
     pub montant_centimes: i64,
     /// Un versement a-t-il été pointé pour cette ligne ?
     pub pointee: bool,
+    /// Réception à la remise : `Some(true)` reçue, `Some(false)` manquante, `None` pas encore remise (M4).
+    pub recue: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -229,15 +234,26 @@ impl PgEnt {
             return Err(refus(RefusMetier::Invalide, "Deux chèques portent le même numéro."));
         }
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.porteur {
             return Err(interdit());
         }
-        if est_public(&mut t, a.etablissement_id).await? {
-            return Err(refus(
-                RefusMetier::Interdit,
-                "Dans un établissement public, seul le régisseur manie les fonds : l'organisateur ne collecte pas.",
-            ));
+        match regime_public(&mut t, a.etablissement_id).await? {
+            // M6 : sans entité de facturation, on ne sait pas si l'établissement est public : par sécurité, refusé.
+            None => {
+                return Err(refus(
+                    RefusMetier::Interdit,
+                    "Aucune entité de facturation n'est configurée : renseignez le régime de l'établissement (privé sous contrat ou public) dans les réglages de facturation avant d'autoriser la collecte de chèques par un organisateur.",
+                ))
+            }
+            Some(true) => {
+                return Err(refus(
+                    RefusMetier::Interdit,
+                    "Dans un établissement public, seul le régisseur manie les fonds : l'organisateur ne collecte pas.",
+                ))
+            }
+            Some(false) => {}
         }
         if !reglages(&mut t, a.etablissement_id).await?.collecte_organisateur {
             return Err(refus(RefusMetier::Interdit, "Cet établissement ne confie pas la collecte de chèques aux organisateurs."));
@@ -303,29 +319,26 @@ impl PgEnt {
         Ok(vue)
     }
 
-    /// Le secrétariat (ou la comptabilité) reçoit le bordereau : nombre et total effectivement reçus. L'écart et le
-    /// retard sont calculés par la base ; s'il y en a un, la comptabilité est **prévenue** (événement sans montant).
+    /// Le secrétariat (ou la comptabilité) reçoit le bordereau en **cochant chaque chèque reçu** (M4) : les lignes
+    /// non cochées sont « manquantes ». Le nombre et le total reçus sont ceux des lignes cochées ; l'écart et le retard
+    /// sont calculés par la base ; s'il y en a un, la comptabilité est **prévenue** (événement sans montant).
     pub async fn voyage_bordereau_remettre(
         &self,
         a: &Acteur<'_>,
         id: Uuid,
         bordereau_id: Uuid,
-        nb_recus: i32,
-        total_recu: &str,
+        recues: Vec<Uuid>,
         note: Option<&str>,
     ) -> Result<BordereauVue, EntDbError> {
-        let total = centimes_de_texte(total_recu).filter(|m| *m <= 500_000_000).ok_or_else(invalide)?;
-        if !(0..=CHEQUES_MAX as i32).contains(&nb_recus) {
-            return Err(invalide());
-        }
         let note = texte_opt(note, 500)?;
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_remise(&acces) {
             return Err(interdit());
         }
-        let (saisi_par, nb, tot): (Uuid, i32, i64) = sqlx::query_as(
-            "SELECT saisi_par_user_id, nb_cheques, total_centimes FROM ent_sortie_bordereau
+        let saisi_par: Uuid = sqlx::query_scalar(
+            "SELECT saisi_par_user_id FROM ent_sortie_bordereau
               WHERE etablissement_id = $1 AND sortie_id = $2 AND id = $3 FOR UPDATE",
         )
         .bind(a.etablissement_id)
@@ -339,9 +352,31 @@ impl PgEnt {
         if saisi_par == a.user_id {
             return Err(refus(RefusMetier::Interdit, "Le bordereau est remis à une autre personne que celle qui l'a saisi."));
         }
-        let ecart = nb_recus != nb || total != tot;
+        let lignes: Vec<(Uuid, i64)> = sqlx::query_as(
+            "SELECT id, montant_centimes FROM ent_sortie_bordereau_ligne
+              WHERE etablissement_id = $1 AND bordereau_id = $2 ORDER BY id",
+        )
+        .bind(a.etablissement_id)
+        .bind(bordereau_id)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
+        let mut cochees = recues.clone();
+        cochees.sort_unstable();
+        cochees.dedup();
+        if cochees.len() != recues.len() || cochees.iter().any(|c| !lignes.iter().any(|(l, _)| l == c)) {
+            return Err(introuvable());
+        }
+        let mut total = 0i64;
+        for (l, m) in &lignes {
+            if cochees.contains(l) {
+                total = total.checked_add(*m).ok_or_else(invalide)?;
+            }
+        }
+        let nb_recus = cochees.len() as i32;
+        let ecart = nb_recus as usize != lignes.len();
         if ecart && note.is_none() {
-            return Err(refus(RefusMetier::Invalide, "Un écart entre le bordereau et la remise se documente : ajoutez une note."));
+            return Err(refus(RefusMetier::Invalide, "Un chèque manquant se documente : ajoutez une note."));
         }
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let r = sqlx::query(
@@ -363,6 +398,20 @@ impl PgEnt {
             Ok(_) => {}
             Err(sqlx::Error::Database(d)) if d.code().as_deref() == Some("23505") => return Err(conflit()),
             Err(e) => return Err(db(e)),
+        }
+        for (l, _) in &lignes {
+            sqlx::query(
+                "INSERT INTO ent_sortie_bordereau_reception (id, etablissement_id, bordereau_id, ligne_id, recue)
+                 VALUES ($1,$2,$3,$4,$5)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(a.etablissement_id)
+            .bind(bordereau_id)
+            .bind(l)
+            .bind(cochees.contains(l))
+            .execute(&mut *t)
+            .await
+            .map_err(db)?;
         }
         let vue = lire_bordereau(&mut t, a, bordereau_id, true, jour).await?;
         let mut evs: Vec<MetierEvent> = Vec::new();
@@ -395,6 +444,7 @@ impl PgEnt {
         compte_id: Uuid,
     ) -> Result<VersementVue, EntDbError> {
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_remise(&acces) {
             return Err(interdit());
@@ -404,6 +454,7 @@ impl PgEnt {
                FROM ent_sortie_bordereau_ligne l
                JOIN ent_sortie_bordereau b ON b.etablissement_id = l.etablissement_id AND b.id = l.bordereau_id
                JOIN ent_sortie_bordereau_remise r ON r.etablissement_id = b.etablissement_id AND r.bordereau_id = b.id
+               JOIN ent_sortie_bordereau_reception x ON x.etablissement_id = l.etablissement_id AND x.ligne_id = l.id AND x.recue
               WHERE l.etablissement_id = $1 AND l.id = $2 AND b.sortie_id = $3",
         )
         .bind(a.etablissement_id)
@@ -447,6 +498,7 @@ impl PgEnt {
         for b in ids {
             out.push(lire_bordereau(&mut t, a, b, true, jour).await?);
         }
+        self.acces_nominatif(&mut t, a, Some(s.id), "bordereaux", out.len()).await?;
         t.commit().await.map_err(db)?;
         Ok(out)
     }
@@ -473,6 +525,7 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
+        self.acces_nominatif(&mut t, a, None, "bordereaux", v.len()).await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -483,6 +536,7 @@ impl PgEnt {
         let montant = centimes_de_texte(&f.montant).filter(|m| *m > 0 && *m <= 100_000_000_000).ok_or_else(invalide)?;
         let libelle = texte(&f.libelle, 200)?;
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -556,6 +610,7 @@ impl PgEnt {
     ) -> Result<AcompteVue, EntDbError> {
         let reference = texte_opt(reference, 60)?;
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -612,6 +667,7 @@ impl PgEnt {
     pub async fn voyage_acompte_annuler(&self, a: &Acteur<'_>, id: Uuid, acompte_id: Uuid, motif: &str) -> Result<(), EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !peut_argent(&acces) {
             return Err(interdit());
@@ -740,7 +796,9 @@ async fn lire_bordereau(
         b.lignes = sqlx::query_as(
             "SELECT l.id, l.participant_id, e.nom AS eleve_nom, e.prenom AS eleve_prenom, l.numero_cheque, l.montant_centimes,
                     EXISTS (SELECT 1 FROM ent_sortie_versement v
-                             WHERE v.etablissement_id = l.etablissement_id AND v.bordereau_ligne_id = l.id) AS pointee
+                             WHERE v.etablissement_id = l.etablissement_id AND v.bordereau_ligne_id = l.id) AS pointee,
+                    (SELECT r.recue FROM ent_sortie_bordereau_reception r
+                      WHERE r.etablissement_id = l.etablissement_id AND r.ligne_id = l.id) AS recue
                FROM ent_sortie_bordereau_ligne l
                JOIN ent_sortie_participant sp ON sp.etablissement_id = l.etablissement_id AND sp.id = l.participant_id
                JOIN ent_eleve e ON e.etablissement_id = sp.etablissement_id AND e.id = sp.eleve_id

@@ -181,12 +181,23 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
         Cible::Porteur => porteur_user.into_iter().collect(),
         Cible::Action(action) => {
             let roles: Vec<String> = roles_avec_action(action).into_iter().map(String::from).collect();
+            // F6 : mêmes destinataires que `droits_effectifs` : les profils dont le modèle par défaut porte l'action,
+            // PLUS les rôles attribués (actifs ce jour, dans le fuseau de l'établissement) qui la portent à l'échelle
+            // de l'établissement ; toujours membres de l'établissement.
             sqlx::query_scalar(
-                "SELECT user_id FROM ent_membership
-                  WHERE etablissement_id = $1 AND role = ANY($2) ORDER BY user_id",
+                "SELECT DISTINCT m.user_id FROM ent_membership m
+                  WHERE m.etablissement_id = $1
+                    AND (m.role = ANY($2)
+                         OR EXISTS (SELECT 1 FROM ent_role_attribution a
+                                      JOIN ent_role_droit d ON d.role_id = a.role_id AND d.etablissement_id = a.etablissement_id
+                                     WHERE a.etablissement_id = m.etablissement_id AND a.user_id = m.user_id
+                                       AND a.clos_le IS NULL AND d.action = $3 AND d.portee = 'etablissement'
+                                       AND a.debut <= ent_aujourdhui_etab($1) AND (a.fin IS NULL OR a.fin >= ent_aujourdhui_etab($1))))
+                  ORDER BY m.user_id",
             )
             .bind(etab)
             .bind(&roles)
+            .bind(action.code())
             .fetch_all(&mut *tx)
             .await
             .map_err(|x| x.to_string())?

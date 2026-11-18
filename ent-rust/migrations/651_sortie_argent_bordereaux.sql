@@ -70,6 +70,24 @@ CREATE TABLE IF NOT EXISTS ent_sortie_bordereau_remise (
         REFERENCES ent_sortie_bordereau (etablissement_id, id)
 );
 
+-- Réception ligne par ligne (M4) : à la remise, chaque ligne du bordereau est marquée REÇUE ou MANQUANTE. Une ligne
+-- manquante ne se pointe jamais.
+CREATE TABLE IF NOT EXISTS ent_sortie_bordereau_reception (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    bordereau_id UUID NOT NULL,
+    ligne_id UUID NOT NULL,
+    recue BOOLEAN NOT NULL,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ent_sortie_bordereau_reception_etab_id_uq UNIQUE (etablissement_id, id),
+    CONSTRAINT ent_sortie_bordereau_reception_ligne_uq UNIQUE (ligne_id),
+    CONSTRAINT ent_sortie_bordereau_reception_bordereau_fk FOREIGN KEY (etablissement_id, bordereau_id)
+        REFERENCES ent_sortie_bordereau (etablissement_id, id),
+    CONSTRAINT ent_sortie_bordereau_reception_ligne_fk FOREIGN KEY (etablissement_id, ligne_id)
+        REFERENCES ent_sortie_bordereau_ligne (etablissement_id, id)
+);
+
 -- Le lien « une ligne de bordereau a produit ce versement » (index d'unicité posé en 650).
 DO $$
 BEGIN
@@ -129,6 +147,8 @@ CREATE TABLE IF NOT EXISTS ent_sortie_argent_export (
     sha256 TEXT NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
     cree_par_user_id UUID NOT NULL,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Le fichier est conservé 30 jours puis détruit (F7) : la ligne reste, l'objet disparaît, la date est inscrite.
+    purge_le TIMESTAMPTZ,
     CONSTRAINT ent_sortie_argent_export_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_sortie_argent_export_sortie_fk FOREIGN KEY (etablissement_id, sortie_id)
         REFERENCES ent_sortie (etablissement_id, id)
@@ -163,10 +183,11 @@ CREATE TABLE IF NOT EXISTS ent_sortie_argent_acces (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    sortie_id UUID NOT NULL,
+    -- NULL pour une consultation de tout l'établissement (bordereaux en attente).
+    sortie_id UUID,
     user_id UUID NOT NULL,
     role TEXT NOT NULL CHECK (length(role) BETWEEN 1 AND 40),
-    portee TEXT NOT NULL CHECK (portee IN ('liste_paiements', 'export', 'avoirs', 'bordereaux')),
+    portee TEXT NOT NULL CHECK (portee IN ('liste_paiements', 'export', 'avoirs', 'bordereaux', 'frais')),
     nb_lignes INTEGER NOT NULL DEFAULT 0 CHECK (nb_lignes >= 0),
     a TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_sortie_argent_acces_sortie_fk FOREIGN KEY (etablissement_id, sortie_id)
@@ -187,8 +208,31 @@ DROP TRIGGER IF EXISTS ent_sortie_bordereau_remise_immuable ON ent_sortie_border
 CREATE TRIGGER ent_sortie_bordereau_remise_immuable BEFORE UPDATE OR DELETE ON ent_sortie_bordereau_remise
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_ajout_seul();
 DROP TRIGGER IF EXISTS ent_sortie_argent_export_immuable ON ent_sortie_argent_export;
-CREATE TRIGGER ent_sortie_argent_export_immuable BEFORE UPDATE OR DELETE ON ent_sortie_argent_export
+DROP TRIGGER IF EXISTS ent_sortie_bordereau_reception_immuable ON ent_sortie_bordereau_reception;
+CREATE TRIGGER ent_sortie_bordereau_reception_immuable BEFORE UPDATE OR DELETE ON ent_sortie_bordereau_reception
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_ajout_seul();
+DROP TRIGGER IF EXISTS ent_sortie_bordereau_reception_vidage ON ent_sortie_bordereau_reception;
+CREATE TRIGGER ent_sortie_bordereau_reception_vidage BEFORE TRUNCATE ON ent_sortie_bordereau_reception
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_sortie_ajout_seul();
+DROP TRIGGER IF EXISTS ent_sortie_argent_export_vidage ON ent_sortie_argent_export;
+CREATE TRIGGER ent_sortie_argent_export_vidage BEFORE TRUNCATE ON ent_sortie_argent_export
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_sortie_ajout_seul();
+-- Export : seule la date de purge s'écrit (une fois) ; jamais de suppression.
+CREATE OR REPLACE FUNCTION ent_sortie_argent_export_garde() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    libres TEXT[] := ARRAY['purge_le'];
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.purge_le IS NOT NULL OR NEW.purge_le IS NULL
+       OR (to_jsonb(NEW) - libres) IS DISTINCT FROM (to_jsonb(OLD) - libres) THEN
+        RAISE EXCEPTION 'un export ne change que par sa purge' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS ent_sortie_argent_export_garde_tg ON ent_sortie_argent_export;
+CREATE TRIGGER ent_sortie_argent_export_garde_tg BEFORE UPDATE OR DELETE ON ent_sortie_argent_export
+    FOR EACH ROW EXECUTE FUNCTION ent_sortie_argent_export_garde();
 DROP TRIGGER IF EXISTS ent_sortie_argent_acces_immuable ON ent_sortie_argent_acces;
 CREATE TRIGGER ent_sortie_argent_acces_immuable BEFORE UPDATE OR DELETE ON ent_sortie_argent_acces
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_ajout_seul();
@@ -222,6 +266,43 @@ BEGIN
     RETURN NULL;
 END
 $$;
+-- F4 : la ligne vise un participant de la MÊME sortie que le bordereau, et la somme est recontrôlée à CHAQUE ligne.
+CREATE OR REPLACE FUNCTION ent_sortie_bordereau_ligne_controle() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM ent_sortie_bordereau b
+          JOIN ent_sortie_participant p ON p.etablissement_id = b.etablissement_id AND p.sortie_id = b.sortie_id
+         WHERE b.etablissement_id = NEW.etablissement_id AND b.id = NEW.bordereau_id AND p.id = NEW.participant_id) THEN
+        RAISE EXCEPTION 'le participant n''est pas inscrit à la sortie du bordereau' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS ent_sortie_bordereau_ligne_controle_tg ON ent_sortie_bordereau_ligne;
+CREATE TRIGGER ent_sortie_bordereau_ligne_controle_tg BEFORE INSERT ON ent_sortie_bordereau_ligne
+    FOR EACH ROW EXECUTE FUNCTION ent_sortie_bordereau_ligne_controle();
+
+CREATE OR REPLACE FUNCTION ent_sortie_bordereau_ligne_somme() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    b ent_sortie_bordereau%ROWTYPE;
+    n INTEGER;
+    s BIGINT;
+BEGIN
+    SELECT * INTO b FROM ent_sortie_bordereau WHERE etablissement_id = NEW.etablissement_id AND id = NEW.bordereau_id;
+    SELECT count(*), COALESCE(sum(montant_centimes), 0) INTO n, s
+      FROM ent_sortie_bordereau_ligne WHERE etablissement_id = NEW.etablissement_id AND bordereau_id = NEW.bordereau_id;
+    IF n <> b.nb_cheques OR s <> b.total_centimes THEN
+        RAISE EXCEPTION 'le bordereau ne correspond pas à ses lignes (nombre ou total)' USING ERRCODE = '23514';
+    END IF;
+    RETURN NULL;
+END
+$$;
+DROP TRIGGER IF EXISTS ent_sortie_bordereau_ligne_somme_tg ON ent_sortie_bordereau_ligne;
+CREATE CONSTRAINT TRIGGER ent_sortie_bordereau_ligne_somme_tg AFTER INSERT ON ent_sortie_bordereau_ligne
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ent_sortie_bordereau_ligne_somme();
+
 DROP TRIGGER IF EXISTS ent_sortie_bordereau_somme_tg ON ent_sortie_bordereau;
 CREATE CONSTRAINT TRIGGER ent_sortie_bordereau_somme_tg AFTER INSERT ON ent_sortie_bordereau
     DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ent_sortie_bordereau_somme();
@@ -254,17 +335,17 @@ CREATE TRIGGER ent_sortie_bordereau_remise_calcul_tg BEFORE INSERT ON ent_sortie
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_bordereau_remise_calcul();
 
 -- Acompte fournisseur : jamais supprimé ; seuls l'alerte (une fois), le paiement (une fois) et l'annulation motivée
--- (une fois, impossible après paiement) s'écrivent ; montant, échéance et destinataire ne bougent pas.
+-- (une fois, impossible après paiement) s'écrivent. F3 : le contrôle compare TOUTE la ligne, hors ces colonnes.
 CREATE OR REPLACE FUNCTION ent_sortie_acompte_fournisseur_garde() RETURNS trigger
 LANGUAGE plpgsql AS $$
+DECLARE
+    libres TEXT[] := ARRAY['alerte_le', 'paye_le', 'paye_centimes', 'paye_reference', 'paye_par_user_id',
+                           'annule_le', 'annule_motif'];
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'un acompte fournisseur ne se supprime pas' USING ERRCODE = '42501';
     END IF;
-    IF NEW.sortie_id <> OLD.sortie_id OR NEW.prestataire_id <> OLD.prestataire_id
-       OR NEW.commande_id IS DISTINCT FROM OLD.commande_id OR NEW.libelle <> OLD.libelle
-       OR NEW.montant_centimes <> OLD.montant_centimes OR NEW.echeance <> OLD.echeance
-       OR NEW.cree_le <> OLD.cree_le OR NEW.cree_par_user_id <> OLD.cree_par_user_id
+    IF (to_jsonb(NEW) - libres) IS DISTINCT FROM (to_jsonb(OLD) - libres)
        OR (OLD.alerte_le IS NOT NULL AND NEW.alerte_le IS DISTINCT FROM OLD.alerte_le)
        OR (OLD.paye_le IS NOT NULL AND (NEW.paye_le IS DISTINCT FROM OLD.paye_le
                                         OR NEW.paye_centimes IS DISTINCT FROM OLD.paye_centimes
@@ -278,6 +359,23 @@ BEGIN
     RETURN NEW;
 END
 $$;
+
+-- F4 : la commande d'un acompte est celle de la MÊME sortie.
+CREATE OR REPLACE FUNCTION ent_sortie_acompte_fournisseur_controle() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.commande_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM ent_sortie_commande c
+         WHERE c.etablissement_id = NEW.etablissement_id AND c.id = NEW.commande_id AND c.sortie_id = NEW.sortie_id) THEN
+        RAISE EXCEPTION 'la commande n''appartient pas à cette sortie' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS ent_sortie_acompte_fournisseur_controle_tg ON ent_sortie_acompte_fournisseur;
+CREATE TRIGGER ent_sortie_acompte_fournisseur_controle_tg BEFORE INSERT ON ent_sortie_acompte_fournisseur
+    FOR EACH ROW EXECUTE FUNCTION ent_sortie_acompte_fournisseur_controle();
+
 DROP TRIGGER IF EXISTS ent_sortie_acompte_fournisseur_garde_tg ON ent_sortie_acompte_fournisseur;
 CREATE TRIGGER ent_sortie_acompte_fournisseur_garde_tg BEFORE UPDATE OR DELETE ON ent_sortie_acompte_fournisseur
     FOR EACH ROW EXECUTE FUNCTION ent_sortie_acompte_fournisseur_garde();
@@ -285,13 +383,14 @@ DROP TRIGGER IF EXISTS ent_sortie_acompte_fournisseur_vidage ON ent_sortie_acomp
 CREATE TRIGGER ent_sortie_acompte_fournisseur_vidage BEFORE TRUNCATE ON ent_sortie_acompte_fournisseur
     FOR EACH STATEMENT EXECUTE FUNCTION ent_sortie_ajout_seul();
 
--- Ouverture nominative : seule la fermeture s'écrit (une fois) ; jamais supprimée.
+-- Ouverture nominative : seule la fermeture s'écrit (une fois) ; jamais supprimée. F3 : toute la ligne est comparée.
 CREATE OR REPLACE FUNCTION ent_sortie_nominatif_ouverture_garde() RETURNS trigger
 LANGUAGE plpgsql AS $$
+DECLARE
+    libres TEXT[] := ARRAY['ferme_le', 'ferme_par_user_id'];
 BEGIN
     IF TG_OP = 'DELETE' OR OLD.ferme_le IS NOT NULL
-       OR NEW.sortie_id <> OLD.sortie_id OR NEW.personne_id <> OLD.personne_id OR NEW.motif <> OLD.motif
-       OR NEW.ouvert_par_user_id <> OLD.ouvert_par_user_id OR NEW.ouvert_le <> OLD.ouvert_le THEN
+       OR (to_jsonb(NEW) - libres) IS DISTINCT FROM (to_jsonb(OLD) - libres) THEN
         RAISE EXCEPTION 'une ouverture nominative ne fait que se refermer' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
@@ -308,6 +407,7 @@ SELECT ent_rls_poser(ARRAY[
     'ent_sortie_bordereau',
     'ent_sortie_bordereau_ligne',
     'ent_sortie_bordereau_remise',
+    'ent_sortie_bordereau_reception',
     'ent_sortie_acompte_fournisseur',
     'ent_sortie_argent_export',
     'ent_sortie_nominatif_ouverture',
