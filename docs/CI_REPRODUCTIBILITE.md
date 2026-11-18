@@ -99,7 +99,7 @@ Points relevés :
 | `formatage` | frontend + `ent-types` (bloquant) ; backend existant (non bloquant, dette connue) |
 | `audits` | `cargo deny` (2 workspaces), `cargo audit` (2 workspaces) |
 | `backend` | Clippy (workspace ; `ent-types` en `-D warnings`), build, tests (unitaires + intégration sur PostgreSQL) |
-| `frontend` | `ent-types` en wasm32, Clippy `-D warnings` (SSR, serveur, wasm), tests unitaires, `cargo leptos build --release --precompress`, tests contre le vrai backend, taille des fichiers |
+| `frontend` | **synthèse** (nom et condition conservés ; règle 27) de cinq jobs parallèles, voir §8 |
 
 Cache : `Swatinem/rust-cache` par workspace (registre + `target/`, y compris `target/front` du WebAssembly) ; `CARGO_INCREMENTAL=0` et pas d'info de débogage en CI. Outils épinglés : `cargo-leptos` 0.3.11, `wasm-bindgen-cli` 0.2.130, `wasm-opt` version_123, `cargo-deny` 0.20.2, `cargo-audit` 0.22.2, Rust 1.99.0.
 
@@ -124,3 +124,47 @@ cargo leptos build --release --precompress
 cargo test --locked -p ent-web-server --test contre_backend -- --test-threads=1
 cargo deny check && cargo audit
 ```
+
+## 8. Frontend en jobs parallèles (lot `ent-ci-frontend-rapide`, 2026-11-18)
+
+**Résultat : 78 min 29 → 28 min 51 de bout en bout** (run 396 sur ENT → run 399 sur la PR 99, même contenu testé), sur runners `ubuntu-latest` gratuits, sans retirer ni affaiblir une vérification.
+
+### Découpage
+
+| Job | Contenu | Durée (run 399) |
+|---|---|---|
+| `frontend-lint` | `ent-types` wasm32, Clippy `-D warnings` (4 commandes, inchangées), tests unitaires | 11 min 02 |
+| `frontend-build-wasm` | `cargo leptos build --release --precompress --frontend-only` ; contrôle de taille (`ls -l target/site/pkg`) + présence des `.wasm.br` / `.wasm.gz` | 8 min 35 |
+| `frontend-build-serveur` | `cargo leptos build --release --server-only` | 21 min 50 |
+| `frontend-archive` | une seule compilation des binaires de test (`-p ent-web-server -p ent-web-session --features ent-web-server/labo,ent-api/labo`), archive nextest, inventaire, tests de documentation | 20 min 58 |
+| `frontend-tests` | 6 tranches `count:i/6`, **un fil et un PostgreSQL éphémère par tranche** | 3 à 7 min chacune (dont 1 min 30 à 4 min 40 de téléchargement de l'archive) |
+| `frontend` | synthèse : vert seulement si les cinq autres le sont ; `if: always()` et `portee` | 3 s |
+
+Les jobs de synthèse (`backend`, `veille-pilote`, `veille-pilote-pr`) n'ont pas changé : ils lisent toujours `frontend`.
+
+### Avant / après (par étape)
+
+| Étape | Run 396 (ENT, un seul job) | Run 399 (jobs parallèles) |
+|---|---|---|
+| Clippy | 6 min 06 | 7 min 38 (en parallèle) |
+| Tests unitaires | 2 min 59 | 2 min 40 |
+| Build release (front puis serveur) | 28 min 15 | wasm 8 min 13 ‖ serveur 21 min 23 |
+| En-têtes de sécurité | 9 min 22 | inclus dans les tranches |
+| Tests contre le vrai backend | 20 min 20 | tranches 1 min 32 à 3 min 37 (exécution) |
+| Session par cookie | 9 min 55 | inclus dans les tranches |
+| **Total du job / bout en bout** | **78 min 29** | **28 min 51** |
+
+### Ce que la mesure a appris
+1. **Le build release de 28 min était séquentiel par construction** : avec `--release --precompress`, cargo-leptos 0.3.11 interdit la parallélisation (`can_parallelize` faux dans `command/build.rs`) et compile le WebAssembly puis le serveur à la suite. Séparer les deux (`--frontend-only` / `--server-only`) les exécute en parallèle sur deux machines. Mêmes commandes de compilation, mêmes profils.
+2. **Les tests contre le backend étaient dominés par la recompilation** : trois étapes recompilaient `ent-api` / `ent-web-server` avec des jeux de features différents (avec / sans `labo`). Une seule compilation avec `labo` pour tout, puis exécution en tranches : l'exécution pure ne prend que 1 à 4 min par tranche.
+3. **`--test-threads=1`** : les tests partagent une base et ses données de labo. Il est conservé dans chaque tranche ; la parallélisation vient des tranches, chacune avec sa propre base, comme `tests-labo`. Aucune isolation interne n'a été changée.
+
+### Limites et points à surveiller
+- **Chemin critique** : `frontend-build-serveur` (21 min 50) et `frontend-archive` (20 min 58). Le temps total est donc fixé par la compilation de `ent-api`, pas par les tests. Sous 35 min avec de la marge, pas davantage visé ici.
+- Les entêtes de sécurité (`entetes_securite`) et `droits_parite` tournent maintenant avec la feature `labo` compilée (avant : sans). Ils n'utilisent que `routeur_web` ; ils sont verts.
+- Run 399 mesuré avec les caches `rust-cache` des nouveaux jobs **froids** (clés nouvelles) : les runs suivants devraient être plus courts ; à confirmer.
+- Le téléchargement de l'archive coûte 1 à 5 min par tranche (variable) ; 6 tranches restent un bon compromis.
+- Pistes non engagées (non nécessaires pour l'objectif) : profil CI plus léger pour l'archive de tests, cache de `wasm-opt`.
+
+### Échec d'essai (consigné)
+Premier essai (run 398) : les options `--lib-only` / `--bin-only` n'existent pas dans cargo-leptos 0.3.11 (noms réels : `--frontend-only` / `--server-only`, vérifiés dans les sources de la version épinglée). Corrigé dans le commit suivant ; aucun retour en arrière.
