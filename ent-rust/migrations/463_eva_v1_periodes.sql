@@ -113,6 +113,9 @@ BEGIN
         END IF;
         IF NEW.etat = 'ouverte' THEN
             NEW.arretee_le := NULL;
+            -- F6 : la classe n'est plus arrêtée, la date d'arrêt effective n'a plus de sens ; la date de la
+            -- période fait de nouveau foi, et un nouvel arrêt posera la sienne.
+            NEW.date_arret_effective := NULL;
         END IF;
     ELSE
         IF OLD.etat = 'ouverte' THEN
@@ -137,12 +140,15 @@ BEGIN
         VALUES (
             gen_random_uuid(), NEW.etablissement_id, NEW.periode_id, NEW.classe_id, OLD.etat, NEW.etat,
             eva_etat_rang(NEW.etat) < eva_etat_rang(OLD.etat), NEW.motif, NEW.origine, NEW.modifie_par);
-        -- Premier arrêt de la période : les règles de l'année sont figées (R-V21).
+        -- Premier arrêt de la période : les règles de l'année sont figées (R-V21). Une année sans jeu de règles
+        -- (défauts recommandés) reçoit sa ligne par défaut, puis la fige : un jeu posé plus tard naît figé.
         IF OLD.etat = 'ouverte' THEN
-            UPDATE eva_reglage r SET fige_le = COALESCE(r.fige_le, now())
+            INSERT INTO eva_reglage (id, etablissement_id, annee_id, fige_le)
+            SELECT gen_random_uuid(), p.etablissement_id, p.annee_id, now()
               FROM ent_periode p
              WHERE p.id = NEW.periode_id AND p.etablissement_id = NEW.etablissement_id
-               AND r.etablissement_id = NEW.etablissement_id AND r.annee_id = p.annee_id;
+            ON CONFLICT (etablissement_id, annee_id) DO UPDATE
+                SET fige_le = COALESCE(eva_reglage.fige_le, EXCLUDED.fige_le);
         END IF;
     END IF;
     RETURN NULL;
@@ -158,6 +164,12 @@ CREATE TRIGGER eva_periode_etat_transition AFTER UPDATE ON eva_periode_etat
 DROP TRIGGER IF EXISTS eva_transition_ajout_seul ON eva_periode_transition;
 CREATE TRIGGER eva_transition_ajout_seul BEFORE UPDATE OR DELETE ON eva_periode_transition
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_transition_vidage ON eva_periode_transition;
+CREATE TRIGGER eva_transition_vidage BEFORE TRUNCATE ON eva_periode_transition
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_periode_etat_vidage ON eva_periode_etat;
+CREATE TRIGGER eva_periode_etat_vidage BEFORE TRUNCATE ON eva_periode_etat
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- Une ligne `ouverte` pour (période, classe), créée au besoin (rejouable).
 CREATE OR REPLACE FUNCTION eva_etat_assurer(p_etab uuid, p_periode uuid, p_classe uuid) RETURNS void
@@ -168,21 +180,53 @@ LANGUAGE sql AS $$
 $$;
 
 -- ── Rattrapage autorisé après l'arrêt (R-V10) ─────────────────────────────────────
+-- JOURNALISÉ, en ajout seul : chaque autorisation est une ligne numérotée (version) ; la dernière version fait
+-- foi, et la révoquer revient à poser une date de fin passée. L'autorisation n'est valable que jusqu'à son
+-- `jusqu_au` inclus, jour de l'établissement.
 CREATE TABLE IF NOT EXISTS eva_rattrapage_autorise (
+    id UUID PRIMARY KEY,
     evaluation_id UUID NOT NULL,
     eleve_id UUID NOT NULL,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    version INTEGER NOT NULL CHECK (version >= 1),
     jusqu_au DATE NOT NULL,
     motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) >= 3),
     par UUID NOT NULL,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (evaluation_id, eleve_id),
+    CONSTRAINT eva_rattrapage_uq UNIQUE (evaluation_id, eleve_id, version),
     CONSTRAINT eva_rattrapage_eval_fk FOREIGN KEY (evaluation_id, etablissement_id)
         REFERENCES eva_evaluation (id, etablissement_id),
     CONSTRAINT eva_rattrapage_eleve_fk FOREIGN KEY (eleve_id, etablissement_id)
         REFERENCES ent_eleve (id, etablissement_id)
 );
+
+CREATE OR REPLACE FUNCTION ent_trg_eva_rattrapage_version() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.version := COALESCE((SELECT max(r.version) FROM eva_rattrapage_autorise r
+                              WHERE r.etablissement_id = NEW.etablissement_id
+                                AND r.evaluation_id = NEW.evaluation_id AND r.eleve_id = NEW.eleve_id), 0) + 1;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS eva_rattrapage_version ON eva_rattrapage_autorise;
+CREATE TRIGGER eva_rattrapage_version BEFORE INSERT ON eva_rattrapage_autorise
+    FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_rattrapage_version();
+DROP TRIGGER IF EXISTS eva_rattrapage_ajout_seul ON eva_rattrapage_autorise;
+CREATE TRIGGER eva_rattrapage_ajout_seul BEFORE UPDATE OR DELETE ON eva_rattrapage_autorise
+    FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_rattrapage_vidage ON eva_rattrapage_autorise;
+CREATE TRIGGER eva_rattrapage_vidage BEFORE TRUNCATE ON eva_rattrapage_autorise
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+
+-- Le rattrapage est-il en vigueur (dernière version, date de fin non dépassée au jour de l'établissement) ?
+CREATE OR REPLACE FUNCTION eva_rattrapage_en_vigueur(p_etab uuid, p_evaluation uuid, p_eleve uuid)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT COALESCE((SELECT r.jusqu_au >= ent_jour_etablissement(p_etab)
+                       FROM eva_rattrapage_autorise r
+                      WHERE r.etablissement_id = p_etab AND r.evaluation_id = p_evaluation AND r.eleve_id = p_eleve
+                      ORDER BY r.version DESC LIMIT 1), false)
+$$;
 
 -- ── Instantané d'arrêt (immuable) : ce que le conseil examine et ce que le bulletin imprime ──
 -- Normalisé (D-036, §21.2) : une ligne par élève et par moyenne, jamais un bloc JSON. Les moyennes sont
@@ -245,6 +289,12 @@ CREATE TRIGGER eva_instantane_immuable BEFORE UPDATE OR DELETE ON eva_instantane
 DROP TRIGGER IF EXISTS eva_instantane_ligne_immuable ON eva_instantane_ligne;
 CREATE TRIGGER eva_instantane_ligne_immuable BEFORE UPDATE OR DELETE ON eva_instantane_ligne
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_instantane_vidage ON eva_instantane;
+CREATE TRIGGER eva_instantane_vidage BEFORE TRUNCATE ON eva_instantane
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_instantane_ligne_vidage ON eva_instantane_ligne;
+CREATE TRIGGER eva_instantane_ligne_vidage BEFORE TRUNCATE ON eva_instantane_ligne
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- ── Ports « période par élève » (R-V29) ───────────────────────────────────────────
 -- Classe de rattachement d'un élève à une date (affectation de classe en cours), puis période de la
@@ -289,9 +339,9 @@ RETURNS TABLE (eleve_id uuid, classe_id uuid, periode_id uuid, etat text, date_a
                saisie_ouverte boolean, rattrapage_autorise boolean)
 LANGUAGE sql STABLE AS $$
     SELECT pu.eleve_id, pe.classe_id, pe.periode_id, pe.etat, pe.date_arret_effective,
-           (pe.etat = 'ouverte') AS saisie_ouverte,
-           EXISTS (SELECT 1 FROM eva_rattrapage_autorise r
-                    WHERE r.etablissement_id = p_etab AND r.evaluation_id = p_evaluation AND r.eleve_id = pu.eleve_id)
+           -- Sans classe ou sans période à la date : verrouillé (M8), sauf droit de correction (côté service).
+           COALESCE(pe.etat = 'ouverte', false) AS saisie_ouverte,
+           eva_rattrapage_en_vigueur(p_etab, p_evaluation, pu.eleve_id)
       FROM eva_evaluation ev
       CROSS JOIN LATERAL ent_public_cours_jour(ev.etablissement_id, ev.date_eval, ev.cours_id) pu
       LEFT JOIN LATERAL eva_periode_eleve_jour(ev.etablissement_id, pu.eleve_id, ev.date_eval) pe ON true
@@ -301,6 +351,48 @@ LANGUAGE sql STABLE AS $$
             OR EXISTS (SELECT 1 FROM eva_evaluation_restriction rr
                         WHERE rr.etablissement_id = ev.etablissement_id AND rr.evaluation_id = ev.id
                           AND rr.eleve_id = pu.eleve_id))
+$$;
+
+-- ── Arrêt automatique à la date d'arrêt (M8, `eva_reglage.arret_auto`) ─────────────
+-- Fait passer en `notes_arretees` (origine `auto`) chaque classe encore ouverte dont la date d'arrêt (effective,
+-- sinon celle de la période) est atteinte au jour de l'établissement. IDEMPOTENT. Ne ré-arrête jamais une classe
+-- que la direction a rouverte : dès qu'une transition existe pour (période, classe), la main est humaine.
+-- Rend le nombre de classes arrêtées.
+CREATE OR REPLACE FUNCTION eva_arret_auto(p_etab uuid, p_jour date DEFAULT NULL) RETURNS integer
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_jour date := COALESCE(p_jour, ent_jour_etablissement(p_etab));
+    r RECORD;
+    n integer := 0;
+BEGIN
+    FOR r IN
+        SELECT p.id AS periode_id, c.id AS classe_id,
+               COALESCE(e.date_arret_effective, p.date_arret_notes) AS date_arret
+          FROM ent_periode p
+          JOIN ent_classe c ON c.etablissement_id = p.etablissement_id AND c.annee_id = p.annee_id
+           AND ent_periodisation_pour_classe(c.etablissement_id, c.id) = p.periodisation_id
+          LEFT JOIN eva_reglage g ON g.etablissement_id = p.etablissement_id AND g.annee_id = p.annee_id
+          LEFT JOIN eva_periode_etat e ON e.etablissement_id = p.etablissement_id AND e.periode_id = p.id
+           AND e.classe_id = c.id
+         WHERE p.etablissement_id = p_etab
+           AND COALESCE(g.arret_auto, true)
+           AND COALESCE(e.etat, 'ouverte') = 'ouverte'
+           AND COALESCE(e.date_arret_effective, p.date_arret_notes) <= v_jour
+           AND NOT EXISTS (SELECT 1 FROM eva_periode_transition t
+                            WHERE t.etablissement_id = p.etablissement_id AND t.periode_id = p.id
+                              AND t.classe_id = c.id)
+         ORDER BY p.date_debut, c.id
+    LOOP
+        PERFORM eva_etat_assurer(p_etab, r.periode_id, r.classe_id);
+        UPDATE eva_periode_etat
+           SET etat = 'notes_arretees', origine = 'auto', date_arret_effective = r.date_arret,
+               motif = 'arrêt automatique à la date d''arrêt'
+         WHERE etablissement_id = p_etab AND periode_id = r.periode_id AND classe_id = r.classe_id
+           AND etat = 'ouverte';
+        n := n + 1;
+    END LOOP;
+    RETURN n;
+END
 $$;
 
 SELECT ent_rls_poser(ARRAY[

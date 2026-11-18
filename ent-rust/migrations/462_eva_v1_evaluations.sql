@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS eva_evaluation (
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+    -- Dernier auteur d'une modification des champs qui entrent dans le calcul, et son motif quand
+    -- l'évaluation portait déjà des résultats ou que la période était arrêtée (M4, journal ci-dessous).
+    modifie_par UUID,
+    motif_correction TEXT CHECK (motif_correction IS NULL OR char_length(btrim(motif_correction)) >= 3),
     CONSTRAINT eva_eval_bareme_mode_chk CHECK ((mode = 'note') = (bareme IS NOT NULL)),
     CONSTRAINT eva_eval_annulation_chk CHECK ((etat = 'annulee') = (motif_annulation IS NOT NULL AND length(btrim(motif_annulation)) >= 3)),
     CONSTRAINT eva_eval_publication_chk CHECK (publication <> 'programmee' OR publication_prevue_le IS NOT NULL),
@@ -82,12 +86,59 @@ CREATE INDEX IF NOT EXISTS eva_eval_periode_idx ON eva_evaluation (etablissement
 CREATE UNIQUE INDEX IF NOT EXISTS eva_eval_origine_uq ON eva_evaluation (etablissement_id, origine_devoir_id)
     WHERE origine_devoir_id IS NOT NULL;
 
+-- Journal des modifications d'une évaluation qui changent un calcul (ajout seul, M4).
+CREATE TABLE IF NOT EXISTS eva_evaluation_historique (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    evaluation_id UUID NOT NULL,
+    version INTEGER NOT NULL CHECK (version >= 1),
+    bareme_avant NUMERIC(7, 3),
+    bareme_apres NUMERIC(7, 3),
+    coef_avant NUMERIC(6, 3) NOT NULL,
+    coef_apres NUMERIC(6, 3) NOT NULL,
+    comptage_avant TEXT NOT NULL,
+    comptage_apres TEXT NOT NULL,
+    mode_avant TEXT NOT NULL,
+    mode_apres TEXT NOT NULL,
+    hors_bareme_avant BOOLEAN NOT NULL,
+    hors_bareme_apres BOOLEAN NOT NULL,
+    date_avant DATE NOT NULL,
+    date_apres DATE NOT NULL,
+    -- Présent quand l'évaluation portait des résultats ou que la période était arrêtée.
+    correction BOOLEAN NOT NULL,
+    motif TEXT,
+    par UUID,
+    le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT eva_eval_histo_fk FOREIGN KEY (evaluation_id, etablissement_id)
+        REFERENCES eva_evaluation (id, etablissement_id),
+    CONSTRAINT eva_eval_histo_motif_chk CHECK (NOT correction OR (motif IS NOT NULL AND length(btrim(motif)) >= 3)),
+    CONSTRAINT eva_eval_histo_uq UNIQUE (evaluation_id, version)
+);
+
 -- Une évaluation qui porte des résultats ne se supprime jamais (D7) : elle s'annule (état `annulee`).
 CREATE OR REPLACE FUNCTION ent_trg_eva_evaluation() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_cours RECORD;
+    v_calcul boolean;
+    v_figee boolean;
+    v_motif text;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'eva_evaluation : suppression physique interdite, annuler l''évaluation (R-V6)'
             USING ERRCODE = '23514';
+    END IF;
+    SELECT c.matiere_id INTO v_cours FROM ent_cours c WHERE c.id = NEW.cours_id AND c.etablissement_id = NEW.etablissement_id;
+    -- F11 : la sous-matière visée est une sous-matière de la matière du cours.
+    IF NEW.matiere_id IS NOT NULL AND NOT EXISTS (
+           SELECT 1 FROM ent_matiere m
+            WHERE m.id = NEW.matiere_id AND m.etablissement_id = NEW.etablissement_id
+              AND m.parent_id IS NOT NULL AND m.parent_id = v_cours.matiere_id) THEN
+        RAISE EXCEPTION 'eva_evaluation : la matière visée doit être une sous-matière de la matière du cours'
+            USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        RETURN NEW;
     END IF;
     -- Le cours et l'année d'une évaluation ne changent pas ; déplacer = annuler et recréer (CE-51).
     IF NEW.cours_id IS DISTINCT FROM OLD.cours_id OR NEW.annee_id IS DISTINCT FROM OLD.annee_id THEN
@@ -101,14 +152,53 @@ BEGIN
     IF OLD.publiee_le IS NOT NULL AND NEW.etat = 'brouillon' THEN
         RAISE EXCEPTION 'eva_evaluation : une évaluation publiée ne repasse pas en brouillon' USING ERRCODE = '23514';
     END IF;
+    -- M4 : barème, coefficient, comptage, mode, hors barème et date entrent dans un calcul. Dès qu'un résultat
+    -- existe ou qu'une période de son public est arrêtée, ils ne changent plus que par une correction motivée
+    -- et journalisée.
+    v_calcul := NEW.bareme IS DISTINCT FROM OLD.bareme OR NEW.coef IS DISTINCT FROM OLD.coef
+             OR NEW.comptage IS DISTINCT FROM OLD.comptage OR NEW.mode IS DISTINCT FROM OLD.mode
+             OR NEW.hors_bareme_autorise IS DISTINCT FROM OLD.hors_bareme_autorise
+             OR NEW.date_eval IS DISTINCT FROM OLD.date_eval;
+    v_motif := nullif(btrim(coalesce(NEW.motif_correction, '')), '');
+    IF v_calcul THEN
+        v_figee := EXISTS (SELECT 1 FROM eva_resultat r
+                            WHERE r.etablissement_id = OLD.etablissement_id AND r.evaluation_id = OLD.id)
+                   OR EXISTS (SELECT 1
+                                FROM ent_public_cours_jour(OLD.etablissement_id, OLD.date_eval, OLD.cours_id) pu
+                                CROSS JOIN LATERAL eva_periode_eleve_jour(OLD.etablissement_id, pu.eleve_id, OLD.date_eval) pe
+                               WHERE pe.etat <> 'ouverte');
+        IF v_figee AND (v_motif IS NULL OR length(v_motif) < 3) THEN
+            RAISE EXCEPTION 'eva_evaluation : des résultats existent ou la période est arrêtée, correction motivée requise (M4)'
+                USING ERRCODE = '23514';
+        END IF;
+        INSERT INTO eva_evaluation_historique (
+            id, etablissement_id, evaluation_id, version, bareme_avant, bareme_apres, coef_avant, coef_apres,
+            comptage_avant, comptage_apres, mode_avant, mode_apres, hors_bareme_avant, hors_bareme_apres,
+            date_avant, date_apres, correction, motif, par)
+        VALUES (gen_random_uuid(), OLD.etablissement_id, OLD.id, OLD.version + 1, OLD.bareme, NEW.bareme,
+                OLD.coef, NEW.coef, OLD.comptage, NEW.comptage, OLD.mode, NEW.mode, OLD.hors_bareme_autorise,
+                NEW.hors_bareme_autorise, OLD.date_eval, NEW.date_eval, v_figee, CASE WHEN v_figee THEN v_motif END,
+                NEW.modifie_par);
+    END IF;
+    -- Le motif ne survit pas à l'écriture : une correction suivante doit porter le sien.
+    NEW.motif_correction := NULL;
     NEW.version := OLD.version + 1;
     NEW.modifie_le := now();
     RETURN NEW;
 END
 $$;
 DROP TRIGGER IF EXISTS eva_evaluation_garde ON eva_evaluation;
-CREATE TRIGGER eva_evaluation_garde BEFORE UPDATE OR DELETE ON eva_evaluation
+CREATE TRIGGER eva_evaluation_garde BEFORE INSERT OR UPDATE OR DELETE ON eva_evaluation
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_evaluation();
+DROP TRIGGER IF EXISTS eva_evaluation_histo_ajout_seul ON eva_evaluation_historique;
+CREATE TRIGGER eva_evaluation_histo_ajout_seul BEFORE UPDATE OR DELETE ON eva_evaluation_historique
+    FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_evaluation_vidage ON eva_evaluation;
+CREATE TRIGGER eva_evaluation_vidage BEFORE TRUNCATE ON eva_evaluation
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_evaluation_histo_vidage ON eva_evaluation_historique;
+CREATE TRIGGER eva_evaluation_histo_vidage BEFORE TRUNCATE ON eva_evaluation_historique
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- Restriction de public (demi-groupe, volontaires) : seuls ces élèves sont concernés.
 CREATE TABLE IF NOT EXISTS eva_evaluation_restriction (
@@ -144,5 +234,6 @@ CREATE TABLE IF NOT EXISTS eva_bareme_item (
 );
 
 SELECT ent_rls_poser(ARRAY[
-    'eva_evaluation_commune', 'eva_evaluation', 'eva_evaluation_restriction', 'eva_bareme_item'
+    'eva_evaluation_commune', 'eva_evaluation', 'eva_evaluation_historique', 'eva_evaluation_restriction',
+    'eva_bareme_item'
 ]);

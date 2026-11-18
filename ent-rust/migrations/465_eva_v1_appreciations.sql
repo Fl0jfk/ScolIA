@@ -13,10 +13,15 @@ CREATE TABLE IF NOT EXISTS eva_appreciation (
     cours_id UUID,
     texte TEXT NOT NULL CHECK (char_length(btrim(texte)) BETWEEN 1 AND 2000),
     -- Un brouillon n'est jamais imprimé ni montré à un autre que son auteur (R-V19).
-    etat TEXT NOT NULL DEFAULT 'brouillon' CHECK (etat IN ('brouillon', 'validee')),
+    -- `jete` : un brouillon abandonné ne se supprime pas (DELETE refusé), il est écarté ; il ne compte plus pour
+    -- l'unicité et n'est jamais montré.
+    etat TEXT NOT NULL DEFAULT 'brouillon' CHECK (etat IN ('brouillon', 'validee', 'jete')),
     aide_ia BOOLEAN NOT NULL DEFAULT false,
     version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
     auteur UUID NOT NULL,
+    -- Auteur de la DERNIÈRE version (un autre professeur ou la direction peut reprendre le texte) ; le journal
+    -- garde l'éditeur de chaque version (F3).
+    modifie_par UUID,
     origine_appreciation_id UUID,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     maj_le TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -31,9 +36,9 @@ CREATE TABLE IF NOT EXISTS eva_appreciation (
 );
 -- Une appréciation de cours par (période, élève, cours) ; une seule de chaque autre type.
 CREATE UNIQUE INDEX IF NOT EXISTS eva_appreciation_cours_uq
-    ON eva_appreciation (etablissement_id, periode_id, eleve_id, type, cours_id) WHERE cours_id IS NOT NULL;
+    ON eva_appreciation (etablissement_id, periode_id, eleve_id, type, cours_id) WHERE cours_id IS NOT NULL AND etat <> 'jete';
 CREATE UNIQUE INDEX IF NOT EXISTS eva_appreciation_type_uq
-    ON eva_appreciation (etablissement_id, periode_id, eleve_id, type) WHERE cours_id IS NULL;
+    ON eva_appreciation (etablissement_id, periode_id, eleve_id, type) WHERE cours_id IS NULL AND etat <> 'jete';
 CREATE UNIQUE INDEX IF NOT EXISTS eva_appreciation_origine_uq
     ON eva_appreciation (etablissement_id, origine_appreciation_id) WHERE origine_appreciation_id IS NOT NULL;
 
@@ -46,6 +51,7 @@ CREATE TABLE IF NOT EXISTS eva_appreciation_historique (
     texte TEXT NOT NULL,
     etat TEXT NOT NULL,
     aide_ia BOOLEAN NOT NULL,
+    -- Qui a écrit CETTE version.
     auteur UUID NOT NULL,
     le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT eva_appreciation_histo_fk FOREIGN KEY (appreciation_id, etablissement_id)
@@ -56,15 +62,22 @@ CREATE TABLE IF NOT EXISTS eva_appreciation_historique (
 CREATE OR REPLACE FUNCTION ent_trg_eva_appreciation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        -- Un brouillon se jette ; une appréciation validée ne disparaît jamais (R-V6).
-        IF OLD.etat = 'validee' THEN
-            RAISE EXCEPTION 'eva_appreciation : une appréciation validée ne se supprime pas' USING ERRCODE = '23514';
-        END IF;
-        RETURN OLD;
+        -- Plus aucune suppression physique : un brouillon se jette (état `jete`), une validée ne disparaît jamais.
+        RAISE EXCEPTION 'eva_appreciation : suppression physique interdite, jeter le brouillon (état jete) (R-V6)'
+            USING ERRCODE = '23514';
     END IF;
     IF NEW.periode_id IS DISTINCT FROM OLD.periode_id OR NEW.eleve_id IS DISTINCT FROM OLD.eleve_id
        OR NEW.type IS DISTINCT FROM OLD.type OR NEW.cours_id IS DISTINCT FROM OLD.cours_id THEN
         RAISE EXCEPTION 'eva_appreciation : la clé d''une appréciation ne change pas' USING ERRCODE = '23514';
+    END IF;
+    IF OLD.etat = 'jete' THEN
+        RAISE EXCEPTION 'eva_appreciation : un brouillon jeté ne se reprend pas' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.etat = 'jete' AND OLD.etat <> 'brouillon' THEN
+        RAISE EXCEPTION 'eva_appreciation : seul un brouillon se jette' USING ERRCODE = '23514';
+    END IF;
+    IF OLD.etat = 'validee' AND NEW.etat = 'brouillon' THEN
+        RAISE EXCEPTION 'eva_appreciation : une appréciation validée ne repasse pas en brouillon' USING ERRCODE = '23514';
     END IF;
     IF NEW.texte IS NOT DISTINCT FROM OLD.texte AND NEW.etat IS NOT DISTINCT FROM OLD.etat
        AND NEW.aide_ia IS NOT DISTINCT FROM OLD.aide_ia THEN
@@ -81,8 +94,10 @@ BEGIN
     IF TG_OP = 'UPDATE' AND NEW.version = OLD.version THEN
         RETURN NULL;
     END IF;
+    -- L'éditeur de CETTE version : celui qui a écrit (modifie_par), sinon l'auteur d'origine.
     INSERT INTO eva_appreciation_historique (id, etablissement_id, appreciation_id, version, texte, etat, aide_ia, auteur)
-    VALUES (gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.version, NEW.texte, NEW.etat, NEW.aide_ia, NEW.auteur);
+    VALUES (gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.version, NEW.texte, NEW.etat, NEW.aide_ia,
+            COALESCE(NEW.modifie_par, NEW.auteur));
     RETURN NULL;
 END
 $$;
@@ -96,6 +111,12 @@ CREATE TRIGGER eva_appreciation_histo AFTER INSERT OR UPDATE ON eva_appreciation
 DROP TRIGGER IF EXISTS eva_appreciation_histo_ajout_seul ON eva_appreciation_historique;
 CREATE TRIGGER eva_appreciation_histo_ajout_seul BEFORE UPDATE OR DELETE ON eva_appreciation_historique
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_appreciation_vidage ON eva_appreciation;
+CREATE TRIGGER eva_appreciation_vidage BEFORE TRUNCATE ON eva_appreciation
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_appreciation_histo_vidage ON eva_appreciation_historique;
+CREATE TRIGGER eva_appreciation_histo_vidage BEFORE TRUNCATE ON eva_appreciation_historique
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- Banque de phrases du professeur : rangée par (personne, établissement) ; aucun texte d'un
 -- établissement n'est lu dans un autre sans geste de la personne (R-V35, D-013).

@@ -13,17 +13,32 @@
 --   * `publication_explicite` vaut toujours vrai et `publie_le` porte la publication (une évaluation
 --     historique « publique à la création » a `publie_le` = sa création) : la règle ancienne
 --     « visible si pas explicite, ou publié » reste exacte ;
---   * `ent_note_periode_v.statut` rend le statut le MOINS avancé des classes de la période.
+--   * `ent_note_periode_v.statut` rend le statut le MOINS avancé de TOUTES les classes de la période (classe sans
+--     état = ouverte) ; `appreciations_closes` le distingue ;
+--   * `ent_note_v` ne rend que les évaluations publiées ; `ent_note_appreciation_v` ne rend que les appréciations
+--     validées dont la période a clos les appréciations pour la classe de l'élève.
 
-CREATE OR REPLACE VIEW ent_note_periode_v WITH (security_invoker = true) AS
+-- Statut de la période : le MOINS avancé de TOUTES les classes de sa périodisation. Une classe qui n'a pas encore de
+-- ligne d'état compte `ouverte` (COALESCE) : une classe jamais arrêtée garde la période ouverte (M5). Sans classe
+-- (période d'une année sans classe), l'ancien statut fait foi. `appreciations_closes` : toutes les classes ont au
+-- moins clos les appréciations.
+-- (Les colonnes s'ajoutent en fin de liste : `CREATE OR REPLACE VIEW` n'autorise que cela.)
+DROP VIEW IF EXISTS ent_note_periode_v;
+CREATE VIEW ent_note_periode_v WITH (security_invoker = true) AS
 SELECT np.id, np.etablissement_id, np.code, np.libelle, np.date_debut, np.date_fin,
-       COALESCE(ag.statut, np.statut) AS statut, np.created_at, np.periode_id
+       COALESCE(CASE ag.rang_min WHEN 0 THEN 'ouverte' WHEN 1 THEN 'partielle_appreciations' ELSE 'fermee' END,
+                np.statut) AS statut,
+       np.created_at, np.periode_id,
+       COALESCE(ag.rang_min >= 2, np.statut = 'fermee') AS appreciations_closes
   FROM ent_note_periode np
+  LEFT JOIN ent_periode p ON p.id = np.periode_id AND p.etablissement_id = np.etablissement_id
   LEFT JOIN LATERAL (
-        SELECT CASE min(eva_etat_rang(e.etat))
-                    WHEN 0 THEN 'ouverte' WHEN 1 THEN 'partielle_appreciations' ELSE 'fermee' END AS statut
-          FROM eva_periode_etat e
-         WHERE e.etablissement_id = np.etablissement_id AND e.periode_id = np.periode_id) ag ON true;
+        SELECT min(COALESCE(eva_etat_rang(e.etat), 0)) AS rang_min
+          FROM ent_classe c
+          LEFT JOIN eva_periode_etat e
+            ON e.etablissement_id = c.etablissement_id AND e.periode_id = p.id AND e.classe_id = c.id
+         WHERE c.etablissement_id = np.etablissement_id AND c.annee_id = p.annee_id
+           AND ent_periodisation_pour_classe(c.etablissement_id, c.id) = p.periodisation_id) ag ON true;
 
 CREATE OR REPLACE VIEW ent_devoir_v WITH (security_invoker = true) AS
 SELECT ev.id, ev.etablissement_id,
@@ -70,7 +85,9 @@ SELECT r.id, r.etablissement_id, r.eleve_id, co.matiere_id,
   FROM eva_resultat r
   JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
   JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
- WHERE ev.mode = 'note' AND ev.etat = 'ouverte';
+ WHERE ev.mode = 'note' AND ev.etat = 'ouverte'
+   -- Publication intégrée à la vue (M5) : un ancien lecteur ne voit jamais une note non publiée.
+   AND ev.publiee_le IS NOT NULL;
 
 CREATE OR REPLACE VIEW ent_note_appreciation_v WITH (security_invoker = true) AS
 SELECT ap.id, ap.etablissement_id,
@@ -84,5 +101,10 @@ SELECT ap.id, ap.etablissement_id,
        ap.cree_le AS created_at,
        ap.maj_le AS updated_at
   FROM eva_appreciation ap
+  JOIN ent_periode p ON p.id = ap.periode_id AND p.etablissement_id = ap.etablissement_id
   LEFT JOIN ent_cours co ON co.id = ap.cours_id AND co.etablissement_id = ap.etablissement_id
- WHERE ap.etat = 'validee' AND ap.type IN ('cours', 'generale');
+ WHERE ap.etat = 'validee' AND ap.type IN ('cours', 'generale')
+   -- Une appréciation n'est montrée qu'une fois les appréciations closes pour la classe de l'élève (état de la
+   -- période) : validée par le professeur ne veut pas dire publiée (M5).
+   AND EXISTS (SELECT 1 FROM eva_periode_eleve_jour(ap.etablissement_id, ap.eleve_id, p.date_fin) pe
+                WHERE pe.periode_id = ap.periode_id AND eva_etat_rang(pe.etat) >= 2);

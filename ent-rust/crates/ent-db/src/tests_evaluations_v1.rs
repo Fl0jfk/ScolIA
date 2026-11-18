@@ -12,36 +12,36 @@ use domain_eleve::CreateEleve;
 use sqlx::Row;
 use uuid::Uuid;
 
-fn d(a: i32, m: u32, j: u32) -> NaiveDate {
+pub(crate) fn d(a: i32, m: u32, j: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(a, m, j).unwrap()
 }
 
-const PROF: &str = "prof";
-const DIR: &str = "direction";
+pub(crate) const PROF: &str = "prof";
+pub(crate) const DIR: &str = "direction";
 
-struct W {
-    etab: Uuid,
-    annee: Uuid,
+pub(crate) struct W {
+    pub(crate) etab: Uuid,
+    pub(crate) annee: Uuid,
     /// T1 : 2031-09-01 → 2031-12-20, arrêt des notes le 2031-12-05 (périodisation par défaut).
-    t1: Uuid,
+    pub(crate) t1: Uuid,
     /// T2 : 2031-12-21 → 2032-03-31.
-    t2: Uuid,
-    classe_a: Uuid,
-    classe_d: Uuid,
-    maths: Uuid,
-    francais: Uuid,
+    pub(crate) t2: Uuid,
+    pub(crate) classe_a: Uuid,
+    pub(crate) classe_d: Uuid,
+    pub(crate) maths: Uuid,
+    pub(crate) francais: Uuid,
     /// Cours de maths de la classe A, tenu par le professeur du labo.
-    cours_maths: Uuid,
+    pub(crate) cours_maths: Uuid,
     /// Cours de français de la classe A, tenu par un autre professeur.
-    cours_fr: Uuid,
-    prof: Uuid,
-    direction: Uuid,
+    pub(crate) cours_fr: Uuid,
+    pub(crate) prof: Uuid,
+    pub(crate) direction: Uuid,
     /// Élèves de la classe A (trois), puis de la classe D (deux).
-    eleves_a: Vec<Uuid>,
-    eleves_d: Vec<Uuid>,
+    pub(crate) eleves_a: Vec<Uuid>,
+    pub(crate) eleves_d: Vec<Uuid>,
 }
 
-async fn exec(ent: &PgEnt, sql: &str, binds: Vec<Bind>) {
+pub(crate) async fn exec(ent: &PgEnt, sql: &str, binds: Vec<Bind>) {
     let mut q = sqlx::query(sql);
     for b in binds {
         q = match b {
@@ -55,23 +55,23 @@ async fn exec(ent: &PgEnt, sql: &str, binds: Vec<Bind>) {
         .unwrap_or_else(|e| panic!("{sql} : {e}"));
 }
 
-enum Bind {
+pub(crate) enum Bind {
     U(Uuid),
     T(String),
     D(NaiveDate),
 }
 
-fn u(x: Uuid) -> Bind {
+pub(crate) fn u(x: Uuid) -> Bind {
     Bind::U(x)
 }
-fn t(x: &str) -> Bind {
+pub(crate) fn t(x: &str) -> Bind {
     Bind::T(x.to_string())
 }
-fn dt(x: NaiveDate) -> Bind {
+pub(crate) fn dt(x: NaiveDate) -> Bind {
     Bind::D(x)
 }
 
-async fn creer_eleve(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
+pub(crate) async fn creer_eleve(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
     ent.create_eleve(CreateEleve {
         etablissement_id: etab,
         nom: nom.into(),
@@ -95,7 +95,7 @@ async fn creer_eleve(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
     .id
 }
 
-async fn affecter(
+pub(crate) async fn affecter(
     ent: &PgEnt,
     w_etab: Uuid,
     annee: Uuid,
@@ -112,7 +112,7 @@ async fn affecter(
     .await;
 }
 
-async fn monde_v1(ent: &PgEnt, cast: &LaboCast) -> W {
+pub(crate) async fn monde_v1(ent: &PgEnt, cast: &LaboCast) -> W {
     let etab = cast.etablissement_id;
     let annee = Uuid::new_v4();
     exec(
@@ -241,7 +241,7 @@ async fn monde_v1(ent: &PgEnt, cast: &LaboCast) -> W {
 
 /// Insère une évaluation (le service de création est celui du lot V3 : ici, le fait en base).
 #[allow(clippy::too_many_arguments)]
-async fn evaluation(
+pub(crate) async fn evaluation(
     ent: &PgEnt,
     w: &W,
     cours: Uuid,
@@ -276,7 +276,7 @@ async fn evaluation(
     id
 }
 
-fn note(ev: Uuid, eleve: Uuid, valeur_m: i64) -> EcrireResultat {
+pub(crate) fn note(ev: Uuid, eleve: Uuid, valeur_m: i64) -> EcrireResultat {
     EcrireResultat {
         evaluation_id: ev,
         eleve_id: eleve,
@@ -288,7 +288,7 @@ fn note(ev: Uuid, eleve: Uuid, valeur_m: i64) -> EcrireResultat {
     }
 }
 
-fn statut(ev: Uuid, eleve: Uuid, s: StatutCalcul) -> EcrireResultat {
+pub(crate) fn statut(ev: Uuid, eleve: Uuid, s: StatutCalcul) -> EcrireResultat {
     EcrireResultat {
         evaluation_id: ev,
         eleve_id: eleve,
@@ -300,7 +300,7 @@ fn statut(ev: Uuid, eleve: Uuid, s: StatutCalcul) -> EcrireResultat {
     }
 }
 
-async fn arreter(ent: &PgEnt, w: &W, periode: Uuid, classe: Uuid) {
+pub(crate) async fn arreter(ent: &PgEnt, w: &W, periode: Uuid, classe: Uuid) {
     ent.eva_v1_changer_etat_periode_for_actor(
         w.etab,
         w.direction,
@@ -688,6 +688,15 @@ async fn apres_l_arret_seule_la_direction_corrige_avec_un_motif_et_le_journal_le
         .eva_v1_ecrire_resultat_for_actor(w.etab, w.prof, PROF, &note(ev, a, 9_960))
         .await
         .unwrap();
+    // `b` est « à rattraper » avant l'arrêt de la période.
+    ent.eva_v1_ecrire_resultat_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        &statut(ev, b, StatutCalcul::ARattraper),
+    )
+    .await
+    .unwrap();
     arreter(&ent, &w, w.t1, w.classe_a).await;
     // Le professeur ne saisit plus (R-V10) ; la direction non plus sans motif.
     assert!(matches!(
@@ -730,14 +739,7 @@ async fn apres_l_arret_seule_la_direction_corrige_avec_un_motif_et_le_journal_le
         (h[1].valeur_avant_m, h[1].valeur_apres_m, h[1].auteur),
         (Some(9_960), Some(10_040), Some(w.direction))
     );
-    // Rattrapage autorisé (R-V10) : le professeur peut noter un élève absent, sans motif.
-    exec(
-        &ent,
-        "INSERT INTO eva_resultat (id, etablissement_id, evaluation_id, eleve_id, statut, source, saisi_par)
-         VALUES ($1, $2, $3, $4, 'a_rattraper', 'reprise', $5)",
-        vec![u(Uuid::new_v4()), u(w.etab), u(ev), u(b), u(w.prof)],
-    )
-    .await;
+    // Rattrapage autorisé (R-V10) : le professeur peut noter un élève à rattraper, sans motif.
     assert!(matches!(
         ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.prof, PROF, &note(ev, b, 11_000))
             .await,
@@ -749,7 +751,7 @@ async fn apres_l_arret_seule_la_direction_corrige_avec_un_motif_et_le_journal_le
         DIR,
         ev,
         b,
-        d(2031, 12, 12),
+        d(2099, 12, 12),
         "absent justifié",
     )
     .await
@@ -767,7 +769,7 @@ async fn apres_l_arret_seule_la_direction_corrige_avec_un_motif_et_le_journal_le
             PROF,
             ev,
             w.eleves_a[2],
-            d(2031, 12, 12),
+            d(2099, 12, 12),
             "moi-même"
         )
         .await,
@@ -2147,7 +2149,44 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
             .await
             .unwrap();
     assert_eq!(statut_vue, "partielle_appreciations");
-    // Appréciation : texte et matière.
+    let (cloturees,): (bool,) =
+        sqlx::query_as("SELECT appreciations_closes FROM ent_note_periode_v WHERE id = $1")
+            .bind(anc.note_periode)
+            .fetch_one(p)
+            .await
+            .unwrap();
+    assert!(!cloturees, "notes arrêtées seulement : appréciations pas closes");
+    // Appréciation (M5) : validée, mais non montrée tant que l'état de la période ne clôt pas les appréciations.
+    let (cachees,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_note_appreciation_v WHERE etablissement_id = $1 AND eleve_id = $2",
+    )
+    .bind(w.etab)
+    .bind(w.eleves_a[0])
+    .fetch_one(p)
+    .await
+    .unwrap();
+    assert_eq!(cachees, 0, "appréciation validée mais période pas close : cachée");
+    for classe in [w.classe_a, w.classe_d] {
+        ent.eva_v1_changer_etat_periode_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            w.t1,
+            classe,
+            "appreciations_closes",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+    let (statut_vue,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_note_periode_v WHERE id = $1")
+            .bind(anc.note_periode)
+            .fetch_one(p)
+            .await
+            .unwrap();
+    assert_eq!(statut_vue, "fermee");
     let (texte, matiere): (String, Option<Uuid>) =
         sqlx::query_as("SELECT texte, matiere_id FROM ent_note_appreciation_v WHERE etablissement_id = $1 AND eleve_id = $2")
             .bind(w.etab)
@@ -2156,6 +2195,24 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
             .await
             .unwrap();
     assert_eq!((texte.as_str(), matiere), ("Bon trimestre.", Some(w.maths)));
+    // Publication intégrée à `ent_note_v` (M5) : une évaluation dépubliée disparaît de la vue.
+    let (avant,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+        .bind(w.etab)
+        .fetch_one(p)
+        .await
+        .unwrap();
+    exec(
+        &ent,
+        "UPDATE eva_evaluation SET publiee_le = NULL WHERE id = $1",
+        vec![u(anc.devoirs[0])],
+    )
+    .await;
+    let (apres,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+        .bind(w.etab)
+        .fetch_one(p)
+        .await
+        .unwrap();
+    assert!(apres < avant, "les notes d'une évaluation non publiée ne sont plus dans la vue");
     // Les vues sont en lecture seule.
     assert!(
         sqlx::query("DELETE FROM ent_note_v WHERE etablissement_id = $1")

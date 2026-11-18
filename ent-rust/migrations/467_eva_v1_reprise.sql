@@ -67,6 +67,9 @@ CREATE INDEX IF NOT EXISTS eva_reprise_ligne_idx ON eva_reprise_ligne (etablisse
 DROP TRIGGER IF EXISTS eva_reprise_execution_pas_de_suppression ON eva_reprise_execution;
 CREATE TRIGGER eva_reprise_execution_pas_de_suppression BEFORE DELETE ON eva_reprise_execution
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_pas_de_suppression();
+DROP TRIGGER IF EXISTS eva_reprise_ligne_vidage ON eva_reprise_ligne;
+CREATE TRIGGER eva_reprise_ligne_vidage BEFORE TRUNCATE ON eva_reprise_ligne
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 DROP TRIGGER IF EXISTS eva_reprise_ligne_ajout_seul ON eva_reprise_ligne;
 CREATE TRIGGER eva_reprise_ligne_ajout_seul BEFORE UPDATE OR DELETE ON eva_reprise_ligne
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
@@ -87,8 +90,13 @@ CREATE OR REPLACE FUNCTION eva_dec3(x double precision) RETURNS numeric LANGUAGE
 $$;
 
 -- La reprise d'un établissement. Rend l'identifiant de l'exécution.
+-- SECURITY DEFINER (propriétaire des tables) : c'est la SEULE porte d'écriture de `source = 'reprise'` et du
+-- journal reconstitué. Elle désactive, le temps de sa transaction, les gardes du résultat et du coefficient
+-- (comme `ent_fin_purger_etablissement`, 522) : aucune variable de session ne joue ce rôle. Le contexte
+-- d'établissement posé par l'appelant reste obligatoire (la RLS s'applique au propriétaire : FORCE) et
+-- l'appel hors de ce contexte est refusé.
 CREATE OR REPLACE FUNCTION eva_reprendre_existant(p_etab uuid, p_origine text DEFAULT 'manuel') RETURNS uuid
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
     v_exec uuid := gen_random_uuid();
     -- compteurs : lues, creees, inchangees, refusees, ignorees, ecarts
@@ -129,7 +137,12 @@ DECLARE
     v_date_arret date;
     v_libelle text;
 BEGIN
-    PERFORM set_config('ent.eva_reprise', 'oui', true);
+    IF ent_rls_etablissement() IS NOT NULL AND ent_rls_etablissement() <> p_etab THEN
+        RAISE EXCEPTION 'eva_reprendre_existant : établissement hors du contexte' USING ERRCODE = '42501';
+    END IF;
+    ALTER TABLE eva_resultat DISABLE TRIGGER eva_resultat_garde;
+    ALTER TABLE eva_resultat DISABLE TRIGGER eva_resultat_histo;
+    ALTER TABLE eva_coefficient_matiere DISABLE TRIGGER eva_coef_matiere_garde;
     INSERT INTO eva_reprise_execution (id, etablissement_id, origine) VALUES (v_exec, p_etab, p_origine);
 
     -- ── Règles de calcul : une ligne par année (l'ancienne table `ent_eva_regle` n'en a pas) ──
@@ -425,6 +438,18 @@ BEGIN
                      WHERE c.matiere_id = a.matiere_id
                      ORDER BY c.ouvert_le DESC, c.id LIMIT 1;
                 END IF;
+                -- Les cours « de reprise » ne sont pas dans les publics (470) : on les cherche ici directement.
+                IF v_cours IS NULL THEN
+                    SELECT c.id INTO v_cours
+                      FROM ent_cours c
+                      JOIN ent_affectation af ON af.etablissement_id = c.etablissement_id AND af.annee_id = c.annee_id
+                       AND ((c.classe_id IS NOT NULL AND af.classe_id = c.classe_id)
+                         OR (c.groupe_id IS NOT NULL AND af.groupe_id = c.groupe_id))
+                     WHERE c.etablissement_id = p_etab AND c.matiere_id = a.matiere_id
+                       AND c.source = 'reprise' AND c.a_verifier AND af.eleve_id = a.eleve_id
+                       AND af.date_debut <= a.np_fin AND (af.date_fin IS NULL OR af.date_fin >= a.np_debut)
+                     ORDER BY c.ouvert_le DESC, c.id LIMIT 1;
+                END IF;
                 IF v_cours IS NULL THEN
                     PERFORM eva_reprise_noter(v_exec, p_etab, 'appreciation', a.id, 'refusee', 'cours_introuvable',
                                               'aucun cours de cette matière pour l''élève sur la période');
@@ -527,15 +552,19 @@ BEGIN
            (v_exec, p_etab, 'appreciation', c_app[1], c_app[2], c_app[3], c_app[4], c_app[5], c_app[6]),
            (v_exec, p_etab, 'periode', c_per[1], c_per[2], c_per[3], c_per[4], c_per[5], c_per[6]);
     UPDATE eva_reprise_execution SET terminee_le = now() WHERE id = v_exec AND etablissement_id = p_etab;
-    PERFORM set_config('ent.eva_reprise', 'non', true);
+    ALTER TABLE eva_resultat ENABLE TRIGGER eva_resultat_garde;
+    ALTER TABLE eva_resultat ENABLE TRIGGER eva_resultat_histo;
+    ALTER TABLE eva_coefficient_matiere ENABLE TRIGGER eva_coef_matiere_garde;
     RETURN v_exec;
 END
 $$;
 
+-- (Les ordres ENABLE ci-dessus sont dans la même transaction : une erreur annule aussi la désactivation.)
 -- Au démarrage : seuls les établissements qui n'ont encore AUCUNE exécution sont repris (les migrations
 -- sont rejouées à chaque démarrage : le rapport ne se répète pas). Les reprises suivantes sont des
 -- demandes explicites (`eva_reprendre_existant(établissement, 'manuel')`).
-CREATE OR REPLACE FUNCTION eva_reprendre_tout() RETURNS integer LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION eva_reprendre_tout() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public AS $$
 DECLARE
     e uuid;
     n integer := 0;

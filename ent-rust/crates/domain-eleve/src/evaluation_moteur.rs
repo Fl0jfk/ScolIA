@@ -555,6 +555,9 @@ pub struct EntreeCalcul {
 }
 
 impl EntreeCalcul {
+    /// Note saisie en `f64` : **réservé aux tests** (la production passe des millièmes entiers, jamais un
+    /// flottant, F13).
+    #[cfg(test)]
     pub fn note(evaluation: EvalCalcul, valeur: f64) -> Self {
         Self {
             evaluation,
@@ -687,10 +690,19 @@ pub struct ReglesMoteur {
     pub affichage: ArrondiRegle,
     /// Une moyenne ne dépasse jamais l'échelle (après bonus).
     pub plafonner_a_l_echelle: bool,
-    /// Effectif minimal d'élèves notés pour montrer une statistique à une famille.
+    /// Effectif minimal d'élèves notés pour montrer une statistique à une famille (plancher dur : voir
+    /// [`SEUIL_STATS_PLANCHER`]).
     pub seuil_effectif_stats: usize,
     pub mediane: MedianePaire,
+    /// Montrer des statistiques de classe aux familles et aux élèves.
+    pub stats_familles: bool,
+    /// Montrer aussi la médiane aux familles.
+    pub mediane_familles: bool,
 }
+
+/// Effectif minimal **absolu** (en base comme ici) : en dessous, la moyenne et les extrêmes d'un groupe
+/// révèlent les notes des autres élèves. Aucun réglage ne descend sous ce plancher (R-V12).
+pub const SEUIL_STATS_PLANCHER: usize = 3;
 
 impl Default for ReglesMoteur {
     /// Les règles recommandées par la conception : exactes, expliquées, sans arrondi
@@ -709,6 +721,8 @@ impl Default for ReglesMoteur {
             plafonner_a_l_echelle: true,
             seuil_effectif_stats: 5,
             mediane: MedianePaire::MoyenneDesDeux,
+            stats_familles: true,
+            mediane_familles: false,
         }
     }
 }
@@ -755,6 +769,8 @@ pub enum RaisonNonComptee {
     NonRetenueCarElleBaisse,
     /// Bonus ignoré par le réglage de l'établissement.
     BonusIgnore,
+    /// Bonus sans base : aucune autre évaluation ne compte, il n'y a rien à majorer (F1).
+    BonusSansBase,
     CoefficientNul,
     /// Donnée incohérente (barème nul, valeur au-delà du barème, note sans valeur) : jamais
     /// transformée en note.
@@ -776,6 +792,7 @@ impl RaisonNonComptee {
             Self::NeComptePas => "ne compte pas (évaluation diagnostique ou d'entraînement)",
             Self::NonRetenueCarElleBaisse => "non retenue : elle ferait baisser la moyenne",
             Self::BonusIgnore => "bonus non pris en compte par l'établissement",
+            Self::BonusSansBase => "bonus non compté : aucune autre évaluation à majorer",
             Self::CoefficientNul => "coefficient nul",
             Self::DonneeInvalide => "donnée incohérente, ignorée",
         }
@@ -905,6 +922,9 @@ pub struct MoyenneCalculee {
     pub ajout_bonus: Option<Rat>,
     /// Plafonnée à l'échelle.
     pub plafonnee: bool,
+    /// Ce que le calcul n'a pas pu établir et qu'il dit plutôt que de le taire (par exemple un coefficient de
+    /// matière introuvable) : repris tel quel par l'explication, jamais remplacé en silence par une valeur.
+    pub avertissements: Vec<String>,
 }
 
 impl MoyenneCalculee {
@@ -917,6 +937,7 @@ impl MoyenneCalculee {
             composantes: Vec::new(),
             ajout_bonus: None,
             plafonnee: false,
+            avertissements: Vec::new(),
         }
     }
 
@@ -956,6 +977,7 @@ impl MoyenneCalculee {
                 if c.compte { "" } else { " — non comptée" }
             ));
         }
+        out.extend(self.avertissements.iter().cloned());
         match self.affichee_m {
             Some(m) => out.push(format!(
                 "Moyenne : {} sur {}",
@@ -1210,6 +1232,7 @@ pub fn moyenne_cours(
     res.lignes = lignes.into_iter().flatten().collect();
 
     let mut moyenne = courante;
+    let bonus_idx: Vec<usize> = bonus.iter().map(|b| b.idx).collect();
     if let (Some(m), TraitementBonus::PointsAuDessusDe { seuil_m }) = (moyenne, regles.bonus) {
         if !bonus.is_empty() {
             let seuil = Rat::milliemes(seuil_m);
@@ -1226,6 +1249,14 @@ pub fn moyenne_cours(
                 let ajout = points.diviser(den)?;
                 res.ajout_bonus = Some(ajout);
                 moyenne = Some(m.ajouter(ajout)?);
+            }
+        }
+    }
+    // F1 : un bonus sans base n'a rien majoré : sa ligne ne se dit pas « comptée ».
+    if res.ajout_bonus.is_none() {
+        for idx in bonus_idx {
+            if let Some(l) = res.lignes.iter_mut().find(|l| l.evaluation_id == entrees[idx].evaluation.id) {
+                l.effet = Effet::NonComptee(RaisonNonComptee::BonusSansBase);
             }
         }
     }
@@ -1492,10 +1523,53 @@ impl Statistiques {
         })
     }
 
-    /// Les statistiques qu'on peut montrer à une famille ou à un élève : `None` sous le seuil
-    /// d'effectif (R-V12 : un groupe de trois élèves révèle sinon les notes des autres).
-    pub fn pour_famille(&self, regles: &ReglesMoteur) -> Option<&Statistiques> {
-        (self.effectif >= regles.seuil_effectif_stats.max(1)).then_some(self)
+    /// Les statistiques qu'on peut montrer à une famille ou à un élève : `None` si le réglage les coupe, ou
+    /// sous le seuil d'effectif (R-V12 : un groupe de trois élèves révèle sinon les notes des autres ; le
+    /// seuil ne descend jamais sous [`SEUIL_STATS_PLANCHER`]). C'est le **seul** moyen d'obtenir un
+    /// [`StatistiquesFamille`] : la médiane n'y figure que si l'établissement l'a choisie.
+    pub fn pour_famille(&self, regles: &ReglesMoteur) -> Option<StatistiquesFamille> {
+        if !regles.stats_familles
+            || self.effectif < regles.seuil_effectif_stats.max(SEUIL_STATS_PLANCHER)
+        {
+            return None;
+        }
+        Some(StatistiquesFamille {
+            effectif: self.effectif,
+            moyenne: self.moyenne,
+            min: self.min,
+            max: self.max,
+            mediane: regles.mediane_familles.then_some(self.mediane),
+        })
+    }
+}
+
+/// Statistiques destinées à une famille ou à un élève : ne se construit **que** par
+/// [`Statistiques::pour_famille`] (champs privés), donc jamais sous le seuil ni contre les réglages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatistiquesFamille {
+    effectif: usize,
+    moyenne: Rat,
+    min: Rat,
+    max: Rat,
+    mediane: Option<Rat>,
+}
+
+impl StatistiquesFamille {
+    pub fn effectif(&self) -> usize {
+        self.effectif
+    }
+    pub fn moyenne(&self) -> Rat {
+        self.moyenne
+    }
+    pub fn min(&self) -> Rat {
+        self.min
+    }
+    pub fn max(&self) -> Rat {
+        self.max
+    }
+    /// `None` si l'établissement ne montre pas la médiane aux familles.
+    pub fn mediane(&self) -> Option<Rat> {
+        self.mediane
     }
 }
 
@@ -1546,31 +1620,29 @@ pub fn statistiques(
     }))
 }
 
-/// Statistiques **d'une évaluation** : sur les notes ramenées à l'échelle des élèves notés.
-/// Les statuts non comptés (absent, dispensé…) n'entrent pas ; le comptage de l'évaluation
-/// (« ne compte pas ») ne change pas la statistique de l'évaluation elle-même.
+/// Statistiques **d'une évaluation**, sur les notes ramenées à l'échelle des élèves notés. Chaque résultat
+/// passe par le **même** `classer` que la moyenne : barème, hors barème non autorisé, évaluation annulée,
+/// non rendu (compté 0 ou exclu selon le réglage) — une note de 23 sur 20 sans autorisation n'entre donc
+/// ni dans la moyenne ni dans le maximum. Le comptage de l'évaluation (« ne compte pas », bonus, « si
+/// améliore ») et son coefficient ne changent pas la statistique de l'évaluation elle-même.
 pub fn statistiques_evaluation(
+    evaluation: &EvalCalcul,
     resultats: &[(StatutCalcul, Option<i64>)],
-    bareme_m: i64,
     regles: &ReglesMoteur,
 ) -> Result<Option<Statistiques>, ErreurCalcul> {
     regles.controle()?;
-    if bareme_m <= 0 {
-        return Ok(None);
-    }
-    let bareme = Rat::milliemes(bareme_m);
+    let mut neutre = evaluation.clone();
+    neutre.comptage = Comptage::Normal;
+    neutre.coef_m = 1000;
     let mut notes = Vec::new();
-    for (statut, valeur) in resultats {
-        if let (StatutCalcul::Note, Some(v)) = (statut, valeur) {
-            if *v >= 0 {
-                let mut r = Rat::milliemes(*v)
-                    .multiplier(regles.echelle())?
-                    .diviser(bareme)?;
-                if let Some(a) = regles.arrondis.note_ramenee {
-                    r = a.appliquer(r)?;
-                }
-                notes.push(r);
-            }
+    for (statut, valeur_m) in resultats {
+        let entree = EntreeCalcul {
+            evaluation: neutre.clone(),
+            statut: *statut,
+            valeur_m: *valeur_m,
+        };
+        if let Classement::Compte { ramenee, .. } = classer(&entree, regles)? {
+            notes.push(ramenee);
         }
     }
     statistiques(&notes, regles)

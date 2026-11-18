@@ -1234,13 +1234,48 @@ fn seuil_de_confidentialite_cinq_eleves() {
     }
     let v: Vec<Rat> = (0..5).map(|i| Rat::entier(10 + i)).collect();
     let s = statistiques(&v, &r).unwrap().unwrap();
-    assert!(s.pour_famille(&r).is_some());
-    // Le seuil est un réglage, mais jamais inférieur à 1 effectif.
+    let f = s.pour_famille(&r).expect("5 élèves : visibles");
+    assert_eq!(f.effectif(), 5);
     let mut strict = defaut();
     strict.seuil_effectif_stats = 10;
     assert!(s.pour_famille(&strict).is_none());
-    strict.seuil_effectif_stats = 0;
-    assert!(s.pour_famille(&strict).is_some());
+}
+
+/// M6 : plancher dur de 3, quel que soit le réglage ; un réglage à 0 ou 1 ne montre pas un groupe de 2.
+#[test]
+fn le_seuil_des_statistiques_familles_ne_descend_jamais_sous_trois() {
+    let mut r = defaut();
+    for seuil in [0usize, 1, 2, 3] {
+        r.seuil_effectif_stats = seuil;
+        let deux = statistiques(&[Rat::entier(8), Rat::entier(12)], &r).unwrap().unwrap();
+        assert!(deux.pour_famille(&r).is_none(), "seuil {seuil} : 2 élèves masqués");
+        let trois = statistiques(&[Rat::entier(8), Rat::entier(12), Rat::entier(10)], &r)
+            .unwrap()
+            .unwrap();
+        assert!(trois.pour_famille(&r).is_some(), "seuil {seuil} : 3 élèves visibles");
+    }
+}
+
+/// M6 : réglages `stats_familles` et `mediane_familles` respectés ; cas min = max.
+#[test]
+fn statistiques_familles_respectent_les_reglages_et_le_cas_min_egal_max() {
+    let mut r = defaut();
+    let tous_egaux: Vec<Rat> = (0..5).map(|_| Rat::entier(10)).collect();
+    let s = statistiques(&tous_egaux, &r).unwrap().unwrap();
+    assert_eq!((s.min, s.max, s.moyenne, s.mediane), (Rat::entier(10), Rat::entier(10), Rat::entier(10), Rat::entier(10)));
+    let f = s.pour_famille(&r).expect("min = max, effectif suffisant : affichable");
+    assert_eq!((f.min(), f.max(), f.moyenne()), (Rat::entier(10), Rat::entier(10), Rat::entier(10)));
+    // La médiane n'est pas montrée par défaut.
+    assert_eq!(f.mediane(), None);
+    r.mediane_familles = true;
+    assert_eq!(s.pour_famille(&r).unwrap().mediane(), Some(Rat::entier(10)));
+    // Le réglage peut couper toute statistique.
+    r.stats_familles = false;
+    assert!(s.pour_famille(&r).is_none());
+    // Même min = max, un groupe sous le plancher reste masqué.
+    r.stats_familles = true;
+    let deux = statistiques(&[Rat::entier(10), Rat::entier(10)], &r).unwrap().unwrap();
+    assert!(deux.pour_famille(&r).is_none());
 }
 
 #[test]
@@ -1263,22 +1298,68 @@ fn statistiques_d_une_evaluation_ecartent_les_statuts() {
         (StatutCalcul::Absent, None),
         (StatutCalcul::Dispense, None),
         (StatutCalcul::NonRendu, None),
-        (StatutCalcul::Note, Some(15_000)),
     ];
-    // Barème 10 → ramenées sur 20 : 20, 10, 30 ?  15 > 10 : valeur hors barème ignorée ? Non :
-    // la ligne est une note ; le contrôle de barème est celui de la saisie. On reste sur ≤ 10.
-    let r2 = [r[0], r[1], r[2], r[3], r[4]];
-    let s = statistiques_evaluation(&r2, 10_000, &defaut())
-        .unwrap()
-        .unwrap();
+    let e10 = EvalCalcul::simple("DS", 10);
+    let s = statistiques_evaluation(&e10, &r, &defaut()).unwrap().unwrap();
     assert_eq!(s.effectif, 2);
     assert_eq!(s.moyenne, Rat::entier(15)); // (20 + 10) / 2
     assert_eq!(s.min, Rat::entier(10));
     assert_eq!(
-        statistiques_evaluation(&[(StatutCalcul::Absent, None)], 20_000, &defaut()).unwrap(),
+        statistiques_evaluation(&EvalCalcul::simple("DS", 20), &[(StatutCalcul::Absent, None)], &defaut())
+            .unwrap(),
         None
     );
-    assert_eq!(statistiques_evaluation(&r2, 0, &defaut()).unwrap(), None);
+    let mut sans_bareme = EvalCalcul::simple("DS", 10);
+    sans_bareme.bareme_m = 0;
+    assert_eq!(statistiques_evaluation(&sans_bareme, &r, &defaut()).unwrap(), None);
+}
+
+/// M7 : mêmes règles de classement que la moyenne. 10, 10, 10, 10 et 23 sur 20 (hors barème non autorisé) :
+/// la note de 23 est écartée, comme dans la moyenne ; moyenne 10 et maximum 10.
+#[test]
+fn statistiques_d_une_evaluation_utilisent_le_meme_classement_que_la_moyenne() {
+    let e = EvalCalcul::simple("DS", 20);
+    let res: Vec<(StatutCalcul, Option<i64>)> = [10_000, 10_000, 10_000, 10_000, 23_000]
+        .iter()
+        .map(|v| (StatutCalcul::Note, Some(*v)))
+        .collect();
+    let s = statistiques_evaluation(&e, &res, &defaut()).unwrap().unwrap();
+    assert_eq!(s.effectif, 4);
+    assert_eq!(s.moyenne, Rat::entier(10));
+    assert_eq!(s.max, Rat::entier(10));
+    // La moyenne de l'élève à 23 donne la même exclusion : cohérence avec `moyenne_cours`.
+    let m = moyenne_cours(&[EntreeCalcul::note(e.clone(), 23.0)], &defaut()).unwrap();
+    assert_eq!(m.exacte, None);
+    // Hors barème AUTORISÉ : la note entre dans la statistique.
+    let mut ok = e.clone();
+    ok.hors_bareme_autorise = true;
+    assert_eq!(statistiques_evaluation(&ok, &res, &defaut()).unwrap().unwrap().max, Rat::entier(23));
+    // Évaluation annulée : aucune statistique.
+    let mut annulee = e.clone();
+    annulee.annulee = true;
+    assert_eq!(statistiques_evaluation(&annulee, &res, &defaut()).unwrap(), None);
+    // Non rendu : exclu par défaut, compté 0 si l'établissement le décide (comme la moyenne).
+    let avec_nr = [(StatutCalcul::Note, Some(10_000)), (StatutCalcul::NonRendu, None)];
+    assert_eq!(statistiques_evaluation(&e, &avec_nr, &defaut()).unwrap().unwrap().effectif, 1);
+    let mut zero = defaut();
+    zero.non_rendu = TraitementNonRendu::Zero;
+    let s = statistiques_evaluation(&e, &avec_nr, &zero).unwrap().unwrap();
+    assert_eq!((s.effectif, s.moyenne), (2, Rat::entier(5)));
+}
+
+/// F1 : une ligne de bonus sans base n'est pas dite « comptée ».
+#[test]
+fn un_bonus_sans_base_est_etiquete_non_compte() {
+    let mut r = defaut();
+    r.bonus = TraitementBonus::PointsAuDessusDe { seuil_m: 10_000 };
+    let b = EvalCalcul::simple("Bonus", 20).avec_comptage(Comptage::Bonus);
+    let m = moyenne_cours(&[EntreeCalcul::note(b, 18.0)], &r).unwrap();
+    assert_eq!(m.exacte, None);
+    assert_eq!(
+        m.lignes[0].effet,
+        Effet::NonComptee(RaisonNonComptee::BonusSansBase)
+    );
+    assert!(m.lignes[0].texte_fr(20_000).contains("aucune autre évaluation"));
 }
 
 // ── Validation de saisie ───────────────────────────────────────────────────────────

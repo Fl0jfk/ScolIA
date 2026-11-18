@@ -24,9 +24,11 @@ CREATE TABLE IF NOT EXISTS eva_resultat (
     rattrapage_le DATE,
     source TEXT NOT NULL DEFAULT 'saisie'
         CHECK (source IN ('saisie', 'appel', 'dispense', 'import', 'hors_ligne', 'reprise')),
-    -- La dernière écriture était une correction après l'arrêt (son motif est dans l'historique : le
-    -- motif est transmis par la variable de transaction `ent.eva_motif` et ne survit pas à l'écriture).
+    -- La dernière écriture était une correction après l'arrêt. Son motif voyage dans la ligne elle-même
+    -- (`motif_correction`, jamais dans une variable de session) : il va au journal et ne survit pas à une
+    -- écriture ordinaire (le déclencheur le remet à NULL).
     derniere_ecriture_correction BOOLEAN NOT NULL DEFAULT false,
+    motif_correction TEXT CHECK (motif_correction IS NULL OR char_length(btrim(motif_correction)) >= 3),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
     saisi_par UUID,
     saisi_le TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -57,6 +59,15 @@ CREATE TABLE IF NOT EXISTS eva_resultat_historique (
     valeur_avant NUMERIC(7, 3),
     statut_apres TEXT NOT NULL,
     valeur_apres NUMERIC(7, 3),
+    -- F5 : le reste de la ligne est journalisé aussi (avant puis après).
+    commentaire_avant TEXT,
+    commentaire_apres TEXT,
+    amenage_avant BOOLEAN,
+    amenage_apres BOOLEAN,
+    rattrapage_le_avant DATE,
+    rattrapage_le_apres DATE,
+    note_privee_avant TEXT,
+    note_privee_apres TEXT,
     -- Correction après l'arrêt de la période de l'élève : motif obligatoire.
     correction BOOLEAN NOT NULL,
     motif TEXT,
@@ -70,16 +81,28 @@ CREATE TABLE IF NOT EXISTS eva_resultat_historique (
 );
 CREATE INDEX IF NOT EXISTS eva_resultat_histo_eleve_idx ON eva_resultat_historique (etablissement_id, eleve_id, le);
 
+-- Les gardes sont SANS dérogation de session : ni `SET`, ni variable de transaction ne les contourne.
+-- La reprise de l'existant (467) est la seule écriture qui échappe à ce déclencheur : c'est une fonction
+-- SECURITY DEFINER (propriétaire des tables) qui désactive ces deux déclencheurs le temps de sa transaction,
+-- comme `ent_fin_purger_etablissement` (522), et écrit elle-même le journal complet.
 CREATE OR REPLACE FUNCTION ent_trg_eva_resultat() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     ev RECORD;
     per RECORD;
     v_corr boolean := false;
-    v_motif text := nullif(btrim(coalesce(current_setting('ent.eva_motif', true), '')), '');
+    v_motif text := nullif(btrim(coalesce(NEW.motif_correction, '')), '');
+    v_arretee boolean;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'eva_resultat : suppression physique interdite, remplacer la valeur ou annuler (D7, R-V6)'
             USING ERRCODE = '23514';
+    END IF;
+    -- `reprise` n'est écrite que par la fonction de reprise (qui désactive ce déclencheur) : jamais ici.
+    IF NEW.source = 'reprise' THEN
+        RAISE EXCEPTION 'eva_resultat : la source reprise est réservée à la reprise de l''existant' USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.source IS DISTINCT FROM OLD.source THEN
+        RAISE EXCEPTION 'eva_resultat : la source d''un résultat ne change pas' USING ERRCODE = '23514';
     END IF;
     SELECT e.bareme, e.hors_bareme_autorise, e.etat, e.mode, e.date_eval, e.cours_id
       INTO ev
@@ -98,21 +121,25 @@ BEGIN
     IF ev.etat = 'annulee' THEN
         RAISE EXCEPTION 'eva_resultat : évaluation annulée' USING ERRCODE = '23514';
     END IF;
-    IF NEW.source <> 'reprise' AND NEW.statut = 'note' AND NEW.valeur > ev.bareme AND NOT ev.hors_bareme_autorise THEN
+    IF NEW.statut = 'note' AND NEW.valeur > ev.bareme AND NOT ev.hors_bareme_autorise THEN
         RAISE EXCEPTION 'eva_resultat : % sur % : vérifiez le barème', NEW.valeur, ev.bareme USING ERRCODE = '23514';
     END IF;
-    IF NEW.source <> 'reprise' THEN
-        -- Public : un élève hors du public du cours à la date n'a pas de résultat (non concerné, R-V2).
-        IF NOT EXISTS (SELECT 1 FROM ent_public_cours_jour(NEW.etablissement_id, ev.date_eval, ev.cours_id) pu
-                        WHERE pu.eleve_id = NEW.eleve_id) THEN
-            RAISE EXCEPTION 'eva_resultat : élève non concerné par cette évaluation à sa date' USING ERRCODE = '23514';
-        END IF;
-        -- Période de L'ÉLÈVE (R-V29) : classe de rattachement à la date de l'évaluation.
-        SELECT * INTO per FROM eva_periode_eleve_jour(NEW.etablissement_id, NEW.eleve_id, ev.date_eval);
-        IF FOUND AND per.etat <> 'ouverte'
-           AND NOT EXISTS (SELECT 1 FROM eva_rattrapage_autorise r
-                            WHERE r.etablissement_id = NEW.etablissement_id
-                              AND r.evaluation_id = NEW.evaluation_id AND r.eleve_id = NEW.eleve_id) THEN
+    -- Public : un élève hors du public du cours à la date n'a pas de résultat (non concerné, R-V2).
+    IF NOT EXISTS (SELECT 1 FROM ent_public_cours_jour(NEW.etablissement_id, ev.date_eval, ev.cours_id) pu
+                    WHERE pu.eleve_id = NEW.eleve_id) THEN
+        RAISE EXCEPTION 'eva_resultat : élève non concerné par cette évaluation à sa date' USING ERRCODE = '23514';
+    END IF;
+    -- Période de L'ÉLÈVE (R-V29) : classe de rattachement à la date de l'évaluation. Un élève sans classe ou
+    -- sans période à cette date est VERROUILLÉ (M8) : seule une correction motivée écrit.
+    SELECT * INTO per FROM eva_periode_eleve_jour(NEW.etablissement_id, NEW.eleve_id, ev.date_eval);
+    v_arretee := NOT FOUND OR per.etat <> 'ouverte';
+    IF v_arretee THEN
+        -- Rattrapage autorisé (E4) : en vigueur à ce jour, et seulement sur une ligne absente ou restée sans
+        -- note (absent, à rattraper, non rendu). Une note déjà saisie ne s'écrase pas par ce biais.
+        IF eva_rattrapage_en_vigueur(NEW.etablissement_id, NEW.evaluation_id, NEW.eleve_id)
+           AND (TG_OP = 'INSERT' OR OLD.statut IN ('absent', 'a_rattraper', 'non_rendu')) THEN
+            v_corr := false;
+        ELSE
             -- Après l'arrêt : seulement une correction motivée (la direction), jamais une saisie ordinaire.
             IF v_motif IS NULL OR length(v_motif) < 3 THEN
                 RAISE EXCEPTION 'eva_resultat : notes arrêtées pour cet élève, correction motivée requise (R-V10)'
@@ -122,10 +149,11 @@ BEGIN
         END IF;
     END IF;
     NEW.derniere_ecriture_correction := v_corr;
+    NEW.motif_correction := CASE WHEN v_corr THEN v_motif END;
     IF TG_OP = 'UPDATE' THEN
         NEW.version := OLD.version + 1;
         NEW.saisi_le := now();
-        -- Aucune écriture sans effet.
+        -- Aucune écriture sans effet : la ligne reste telle quelle, la version aussi (rien n'est journalisé).
         IF NEW.statut IS NOT DISTINCT FROM OLD.statut AND NEW.valeur IS NOT DISTINCT FROM OLD.valeur
            AND NEW.rattrapage_le IS NOT DISTINCT FROM OLD.rattrapage_le
            AND NEW.amenage IS NOT DISTINCT FROM OLD.amenage
@@ -138,25 +166,26 @@ BEGIN
 END
 $$;
 
+-- Le journal s'écrit TOUJOURS, sans condition ni dérogation : une ligne par écriture qui change quelque chose.
 CREATE OR REPLACE FUNCTION ent_trg_eva_resultat_historique() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    -- La reprise de l'existant écrit elle-même l'historique complet (corrections comprises).
-    IF current_setting('ent.eva_reprise', true) = 'oui' THEN
-        RETURN NULL;
-    END IF;
-    IF TG_OP = 'UPDATE'
-       AND NEW.statut IS NOT DISTINCT FROM OLD.statut AND NEW.valeur IS NOT DISTINCT FROM OLD.valeur THEN
+    IF TG_OP = 'UPDATE' AND NEW.version = OLD.version THEN
         RETURN NULL;
     END IF;
     INSERT INTO eva_resultat_historique (
         id, etablissement_id, resultat_id, evaluation_id, eleve_id, version, statut_avant, valeur_avant,
-        statut_apres, valeur_apres, correction, motif, source, auteur)
+        statut_apres, valeur_apres, commentaire_avant, commentaire_apres, amenage_avant, amenage_apres,
+        rattrapage_le_avant, rattrapage_le_apres, note_privee_avant, note_privee_apres,
+        correction, motif, source, auteur)
     VALUES (
         gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.evaluation_id, NEW.eleve_id, NEW.version,
         CASE WHEN TG_OP = 'UPDATE' THEN OLD.statut END, CASE WHEN TG_OP = 'UPDATE' THEN OLD.valeur END,
-        NEW.statut, NEW.valeur, NEW.derniere_ecriture_correction,
-        nullif(btrim(coalesce(current_setting('ent.eva_motif', true), '')), ''),
-        NEW.source, NEW.saisi_par);
+        NEW.statut, NEW.valeur,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.commentaire_eleve END, NEW.commentaire_eleve,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.amenage END, NEW.amenage,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.rattrapage_le END, NEW.rattrapage_le,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.note_privee END, NEW.note_privee,
+        NEW.derniere_ecriture_correction, NEW.motif_correction, NEW.source, NEW.saisi_par);
     RETURN NULL;
 END
 $$;
@@ -170,6 +199,13 @@ CREATE TRIGGER eva_resultat_histo AFTER INSERT OR UPDATE ON eva_resultat
 DROP TRIGGER IF EXISTS eva_resultat_histo_ajout_seul ON eva_resultat_historique;
 CREATE TRIGGER eva_resultat_histo_ajout_seul BEFORE UPDATE OR DELETE ON eva_resultat_historique
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+-- TRUNCATE (521, 650) : `TRUNCATE eva_evaluation CASCADE` ou `TRUNCATE ent_eleve CASCADE` viderait sinon ces tables.
+DROP TRIGGER IF EXISTS eva_resultat_vidage ON eva_resultat;
+CREATE TRIGGER eva_resultat_vidage BEFORE TRUNCATE ON eva_resultat
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_resultat_histo_vidage ON eva_resultat_historique;
+CREATE TRIGGER eva_resultat_histo_vidage BEFORE TRUNCATE ON eva_resultat_historique
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- Détail par exercice d'un barème détaillé : la somme vaut la note (§8.9).
 CREATE TABLE IF NOT EXISTS eva_resultat_item (

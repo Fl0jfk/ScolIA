@@ -57,6 +57,9 @@ CREATE INDEX IF NOT EXISTS eva_consultation_idx ON eva_consultation (etablisseme
 DROP TRIGGER IF EXISTS eva_consultation_ajout_seul ON eva_consultation;
 CREATE TRIGGER eva_consultation_ajout_seul BEFORE UPDATE OR DELETE ON eva_consultation
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_consultation_vidage ON eva_consultation;
+CREATE TRIGGER eva_consultation_vidage BEFORE TRUNCATE ON eva_consultation
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- ── Résultats externes ponctuels (notes d'un établissement d'origine, CNED, étranger, reprise) ──
 -- Ne comptent PAS par défaut ; un professeur peut décider de les compter dans un cours (geste tracé).

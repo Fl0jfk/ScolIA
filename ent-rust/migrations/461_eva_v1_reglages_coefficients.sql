@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS eva_reglage (
     mediane_paire TEXT NOT NULL DEFAULT 'moyenne_des_deux'
         CHECK (mediane_paire IN ('moyenne_des_deux', 'inferieure', 'superieure')),
     -- Statistiques montrées aux familles : seuil d'effectif (R-V12) et affichage.
-    seuil_effectif_stats SMALLINT NOT NULL DEFAULT 5 CHECK (seuil_effectif_stats BETWEEN 1 AND 100),
+    -- Plancher DUR de 3 (en dessous, la moyenne de la classe révèle les notes des autres) ; 5 par défaut.
+    seuil_effectif_stats SMALLINT NOT NULL DEFAULT 5 CHECK (seuil_effectif_stats BETWEEN 3 AND 100),
     stats_familles BOOLEAN NOT NULL DEFAULT true,
     mediane_familles BOOLEAN NOT NULL DEFAULT false,
     delai_publication_max_jours SMALLINT CHECK (delai_publication_max_jours IS NULL OR delai_publication_max_jours BETWEEN 1 AND 365),
@@ -96,17 +97,26 @@ CREATE TABLE IF NOT EXISTS eva_reglage_historique (
     arrondi_precision TEXT NOT NULL,
     arrondi_mode TEXT NOT NULL,
     arrondi_note_ramenee_precision TEXT,
+    arrondi_note_ramenee_mode TEXT NOT NULL,
     arrondi_sous_matiere_precision TEXT,
+    arrondi_sous_matiere_mode TEXT NOT NULL,
     arrondi_matiere_precision TEXT,
+    arrondi_matiere_mode TEXT NOT NULL,
     arrondi_periode_precision TEXT,
+    arrondi_periode_mode TEXT NOT NULL,
     ponderation TEXT NOT NULL,
     non_rendu TEXT NOT NULL,
     bonus TEXT NOT NULL,
+    bonus_seuil NUMERIC(7, 3),
     sous_matieres TEXT NOT NULL,
     generale TEXT NOT NULL,
     methode_annuelle TEXT NOT NULL,
+    plafonner_echelle BOOLEAN NOT NULL,
     mediane_paire TEXT NOT NULL,
     seuil_effectif_stats SMALLINT NOT NULL,
+    stats_familles BOOLEAN NOT NULL,
+    mediane_familles BOOLEAN NOT NULL,
+    figee BOOLEAN NOT NULL DEFAULT false,
     modifie_par UUID,
     pris_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT eva_reglage_histo_fk FOREIGN KEY (reglage_id, etablissement_id)
@@ -116,16 +126,52 @@ CREATE TABLE IF NOT EXISTS eva_reglage_historique (
 
 CREATE OR REPLACE FUNCTION ent_trg_eva_reglage() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- Un jeu de règles posé APRÈS un premier arrêt de période naît figé (R-V21).
+        IF NEW.fige_le IS NULL AND EXISTS (
+               SELECT 1 FROM eva_periode_etat e
+                 JOIN ent_periode p ON p.id = e.periode_id AND p.etablissement_id = e.etablissement_id
+                WHERE e.etablissement_id = NEW.etablissement_id AND p.annee_id = NEW.annee_id
+                  AND e.etat <> 'ouverte') THEN
+            NEW.fige_le := now();
+        END IF;
+        RETURN NEW;
+    END IF;
     IF TG_OP = 'UPDATE' THEN
-        -- Échelle et méthode annuelle figées dès le premier arrêt de période (R-V21).
+        -- Dès le premier arrêt de période, TOUTES les règles qui entrent dans un calcul sont figées : un
+        -- recalcul d'une période arrêtée utilise donc les règles en vigueur à la date d'arrêt (R-V21, R-V23).
+        -- Restent modifiables : seuil et affichage des statistiques aux familles, délai de publication,
+        -- arrêt automatique, seuils d'alerte.
         IF OLD.fige_le IS NOT NULL
            AND (NEW.echelle IS DISTINCT FROM OLD.echelle
-                OR NEW.methode_annuelle IS DISTINCT FROM OLD.methode_annuelle) THEN
-            RAISE EXCEPTION 'règles figées pour l''année : échelle et méthode annuelle ne changent plus (R-V21)'
+                OR NEW.pas_saisie IS DISTINCT FROM OLD.pas_saisie
+                OR NEW.arrondi_precision IS DISTINCT FROM OLD.arrondi_precision
+                OR NEW.arrondi_mode IS DISTINCT FROM OLD.arrondi_mode
+                OR NEW.arrondi_note_ramenee_precision IS DISTINCT FROM OLD.arrondi_note_ramenee_precision
+                OR NEW.arrondi_note_ramenee_mode IS DISTINCT FROM OLD.arrondi_note_ramenee_mode
+                OR NEW.arrondi_sous_matiere_precision IS DISTINCT FROM OLD.arrondi_sous_matiere_precision
+                OR NEW.arrondi_sous_matiere_mode IS DISTINCT FROM OLD.arrondi_sous_matiere_mode
+                OR NEW.arrondi_matiere_precision IS DISTINCT FROM OLD.arrondi_matiere_precision
+                OR NEW.arrondi_matiere_mode IS DISTINCT FROM OLD.arrondi_matiere_mode
+                OR NEW.arrondi_periode_precision IS DISTINCT FROM OLD.arrondi_periode_precision
+                OR NEW.arrondi_periode_mode IS DISTINCT FROM OLD.arrondi_periode_mode
+                OR NEW.ponderation IS DISTINCT FROM OLD.ponderation
+                OR NEW.non_rendu IS DISTINCT FROM OLD.non_rendu
+                OR NEW.bonus IS DISTINCT FROM OLD.bonus
+                OR NEW.bonus_seuil IS DISTINCT FROM OLD.bonus_seuil
+                OR NEW.sous_matieres IS DISTINCT FROM OLD.sous_matieres
+                OR NEW.generale IS DISTINCT FROM OLD.generale
+                OR NEW.methode_annuelle IS DISTINCT FROM OLD.methode_annuelle
+                OR NEW.plafonner_echelle IS DISTINCT FROM OLD.plafonner_echelle
+                OR NEW.mediane_paire IS DISTINCT FROM OLD.mediane_paire) THEN
+            RAISE EXCEPTION 'règles figées pour l''année : les règles de calcul ne changent plus après le premier arrêt (R-V21)'
                 USING ERRCODE = '23514';
         END IF;
-        IF OLD.fige_le IS NOT NULL AND NEW.fige_le IS NULL THEN
-            RAISE EXCEPTION 'règles figées : le gel ne se retire pas' USING ERRCODE = '23514';
+        IF OLD.fige_le IS NOT NULL AND NEW.fige_le IS DISTINCT FROM OLD.fige_le THEN
+            RAISE EXCEPTION 'règles figées : le gel ne se retire ni ne se modifie' USING ERRCODE = '23514';
+        END IF;
+        IF NEW.annee_id IS DISTINCT FROM OLD.annee_id OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id THEN
+            RAISE EXCEPTION 'eva_reglage : l''année ne change pas' USING ERRCODE = '23514';
         END IF;
         NEW.version := OLD.version + 1;
         NEW.modifie_le := now();
@@ -138,15 +184,19 @@ CREATE OR REPLACE FUNCTION ent_trg_eva_reglage_historique() RETURNS trigger LANG
 BEGIN
     INSERT INTO eva_reglage_historique (
         id, etablissement_id, reglage_id, version, echelle, pas_saisie, arrondi_precision, arrondi_mode,
-        arrondi_note_ramenee_precision, arrondi_sous_matiere_precision, arrondi_matiere_precision,
-        arrondi_periode_precision, ponderation, non_rendu, bonus, sous_matieres, generale,
-        methode_annuelle, mediane_paire, seuil_effectif_stats, modifie_par)
+        arrondi_note_ramenee_precision, arrondi_note_ramenee_mode, arrondi_sous_matiere_precision,
+        arrondi_sous_matiere_mode, arrondi_matiere_precision, arrondi_matiere_mode,
+        arrondi_periode_precision, arrondi_periode_mode, ponderation, non_rendu, bonus, bonus_seuil,
+        sous_matieres, generale, methode_annuelle, plafonner_echelle, mediane_paire, seuil_effectif_stats,
+        stats_familles, mediane_familles, figee, modifie_par)
     VALUES (
         gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.version, NEW.echelle, NEW.pas_saisie,
-        NEW.arrondi_precision, NEW.arrondi_mode, NEW.arrondi_note_ramenee_precision,
-        NEW.arrondi_sous_matiere_precision, NEW.arrondi_matiere_precision, NEW.arrondi_periode_precision,
-        NEW.ponderation, NEW.non_rendu, NEW.bonus, NEW.sous_matieres, NEW.generale,
-        NEW.methode_annuelle, NEW.mediane_paire, NEW.seuil_effectif_stats, NEW.modifie_par);
+        NEW.arrondi_precision, NEW.arrondi_mode, NEW.arrondi_note_ramenee_precision, NEW.arrondi_note_ramenee_mode,
+        NEW.arrondi_sous_matiere_precision, NEW.arrondi_sous_matiere_mode, NEW.arrondi_matiere_precision,
+        NEW.arrondi_matiere_mode, NEW.arrondi_periode_precision, NEW.arrondi_periode_mode,
+        NEW.ponderation, NEW.non_rendu, NEW.bonus, NEW.bonus_seuil, NEW.sous_matieres, NEW.generale,
+        NEW.methode_annuelle, NEW.plafonner_echelle, NEW.mediane_paire, NEW.seuil_effectif_stats,
+        NEW.stats_familles, NEW.mediane_familles, NEW.fige_le IS NOT NULL, NEW.modifie_par);
     RETURN NULL;
 END
 $$;
@@ -176,6 +226,14 @@ CREATE TRIGGER eva_reglage_sans_suppression BEFORE DELETE ON eva_reglage
 DROP TRIGGER IF EXISTS eva_reglage_histo_ajout_seul ON eva_reglage_historique;
 CREATE TRIGGER eva_reglage_histo_ajout_seul BEFORE UPDATE OR DELETE ON eva_reglage_historique
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+-- TRUNCATE : même convention que 521 et 650 (déclencheur d'instruction, aucune dérogation par réglage de
+-- session). Un TRUNCATE ... CASCADE sur une table parente est refusé dès qu'il touche une table protégée.
+DROP TRIGGER IF EXISTS eva_reglage_vidage ON eva_reglage;
+CREATE TRIGGER eva_reglage_vidage BEFORE TRUNCATE ON eva_reglage
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_reglage_histo_vidage ON eva_reglage_historique;
+CREATE TRIGGER eva_reglage_histo_vidage BEFORE TRUNCATE ON eva_reglage_historique
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- ── Coefficients de matière (la cible la plus précise gagne : classe > MEF > niveau > défaut) ──
 CREATE TABLE IF NOT EXISTS eva_coefficient_matiere (
@@ -219,7 +277,8 @@ CREATE TABLE IF NOT EXISTS eva_coefficient_matiere (
 );
 CREATE INDEX IF NOT EXISTS eva_coef_matiere_idx ON eva_coefficient_matiere (etablissement_id, annee_id, matiere_id);
 
--- Coefficient d'une sous-matière dans sa matière parente (défaut 1 : aucune ligne).
+-- Coefficient d'une sous-matière dans sa matière parente (défaut 1 : aucune ligne). DATÉ comme celui de
+-- la matière : un changement est une nouvelle ligne, jamais une modification (R-V23).
 CREATE TABLE IF NOT EXISTS eva_coefficient_sous_matiere (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
@@ -227,14 +286,83 @@ CREATE TABLE IF NOT EXISTS eva_coefficient_sous_matiere (
     annee_id UUID NOT NULL,
     matiere_id UUID NOT NULL,
     coef NUMERIC(6, 3) NOT NULL CHECK (coef >= 0 AND coef <= 100),
+    valable_du DATE NOT NULL,
+    valable_au DATE,
     cree_par UUID,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT eva_coef_sous_matiere_dates_chk CHECK (valable_au IS NULL OR valable_au >= valable_du),
     CONSTRAINT eva_coef_sous_matiere_annee_fk FOREIGN KEY (annee_id, etablissement_id)
         REFERENCES ent_annee_scolaire (id, etablissement_id),
     CONSTRAINT eva_coef_sous_matiere_matiere_fk FOREIGN KEY (matiere_id, etablissement_id)
         REFERENCES ent_matiere (id, etablissement_id),
-    CONSTRAINT eva_coef_sous_matiere_uq UNIQUE (etablissement_id, annee_id, matiere_id)
+    CONSTRAINT eva_coef_sous_matiere_sans_chevauchement EXCLUDE USING gist (
+        etablissement_id WITH =, annee_id WITH =, matiere_id WITH =,
+        daterange(valable_du, valable_au, '[]') WITH &&)
 );
+
+-- Des résultats existent-ils pour cette matière (ou sous-matière visée) à partir d'une date ? Un
+-- coefficient ne s'applique jamais à des résultats déjà calculés (R-V23, CE-53).
+-- (plpgsql : les tables `eva_evaluation` et `eva_resultat` sont créées par les migrations suivantes.)
+CREATE OR REPLACE FUNCTION eva_coef_touche_des_resultats(p_etab uuid, p_annee uuid, p_matiere uuid,
+                                                         p_sous boolean, p_depuis date)
+RETURNS boolean LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+          FROM eva_evaluation ev
+          JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
+         WHERE ev.etablissement_id = p_etab AND ev.annee_id = p_annee AND ev.date_eval >= p_depuis
+           AND (CASE WHEN p_sous THEN ev.matiere_id = p_matiere ELSE co.matiere_id = p_matiere END)
+           AND EXISTS (SELECT 1 FROM eva_resultat r
+                        WHERE r.etablissement_id = ev.etablissement_id AND r.evaluation_id = ev.id));
+END
+$$;
+
+CREATE OR REPLACE FUNCTION ent_trg_eva_coefficient() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_sous boolean := (TG_TABLE_NAME = 'eva_coefficient_sous_matiere');
+    v_jour date;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION '% : suppression physique interdite, poser une nouvelle ligne datée (R-V23)', TG_TABLE_NAME
+            USING ERRCODE = '23514';
+    END IF;
+    v_jour := ent_jour_etablissement(NEW.etablissement_id);
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.valable_du < v_jour
+           AND eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous, NEW.valable_du) THEN
+            RAISE EXCEPTION '% : un coefficient n''est jamais rétroactif, des résultats existent depuis le % (R-V23)',
+                TG_TABLE_NAME, NEW.valable_du USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+    -- UPDATE : seule la date de fin peut changer (clore une ligne), jamais le coefficient ni la cible.
+    IF to_jsonb(NEW) - 'valable_au' IS DISTINCT FROM to_jsonb(OLD) - 'valable_au' THEN
+        RAISE EXCEPTION '% : une ligne datée ne se modifie pas, clore la ligne et en poser une nouvelle (R-V23)', TG_TABLE_NAME
+            USING ERRCODE = '23514';
+    END IF;
+    IF NEW.valable_au IS DISTINCT FROM OLD.valable_au
+       AND (NEW.valable_au IS NULL OR NEW.valable_au < v_jour)
+       AND eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous,
+                                         COALESCE(NEW.valable_au + 1, OLD.valable_du)) THEN
+        RAISE EXCEPTION '% : la fin de validité ne peut pas toucher des résultats existants (R-V23)', TG_TABLE_NAME
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS eva_coef_matiere_garde ON eva_coefficient_matiere;
+CREATE TRIGGER eva_coef_matiere_garde BEFORE INSERT OR UPDATE OR DELETE ON eva_coefficient_matiere
+    FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_coefficient();
+DROP TRIGGER IF EXISTS eva_coef_sous_matiere_garde ON eva_coefficient_sous_matiere;
+CREATE TRIGGER eva_coef_sous_matiere_garde BEFORE INSERT OR UPDATE OR DELETE ON eva_coefficient_sous_matiere
+    FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_coefficient();
+DROP TRIGGER IF EXISTS eva_coef_matiere_vidage ON eva_coefficient_matiere;
+CREATE TRIGGER eva_coef_matiere_vidage BEFORE TRUNCATE ON eva_coefficient_matiere
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
+DROP TRIGGER IF EXISTS eva_coef_sous_matiere_vidage ON eva_coefficient_sous_matiere;
+CREATE TRIGGER eva_coef_sous_matiere_vidage BEFORE TRUNCATE ON eva_coefficient_sous_matiere
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_trg_eva_ajout_seul();
 
 -- Natures d'évaluation (DS, interrogation, DM, oral, TP, examen blanc…) : données de l'établissement.
 CREATE TABLE IF NOT EXISTS eva_nature (
