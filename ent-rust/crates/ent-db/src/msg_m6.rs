@@ -175,7 +175,6 @@ struct LigneLecture {
     cote: String,
     boite_id: Option<Uuid>,
     personne_id: Option<Uuid>,
-    eleve_id: Option<Uuid>,
     libelle: Option<String>,
     lu_jusqua_message_id: Option<Uuid>,
     lu_jusqua_message_le: Option<DateTime<Utc>>,
@@ -345,7 +344,7 @@ impl PgEnt {
         let est_personnel = Role::parse(role).is_some_and(|r| r.is_staff());
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes: Vec<LigneLecture> = sqlx::query_as(
-            "SELECT p.id AS participant_id, p.cote, p.boite_id, p.personne_id, p.eleve_id,
+            "SELECT p.id AS participant_id, p.cote, p.boite_id, p.personne_id,
                     COALESCE(
                         (SELECT btrim(coalesce(left(pe.prenom, 40), '') || ' ' || upper(left(pe.nom, 1)) || '.')
                            FROM ent_personne pe WHERE pe.etablissement_id = p.etablissement_id AND pe.id = p.personne_id),

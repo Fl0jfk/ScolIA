@@ -152,15 +152,15 @@ async fn m6_cm61_non_lu_apres_trois_jours() {
     let fils = super::tests_messagerie_m1::ouvrir(&ent, etab, Role::Direction, dir, cast.eleve_lea_id, "Convocation").await;
     let fil = fils[0].fil.id;
     let t0 = cree_le(&ent, fils[0].message.id).await;
-    let non_lu = |t| async move {
+    async fn non_lu(ent: &PgEnt, etab: Uuid, dir: Uuid, fil: Uuid, t: chrono::DateTime<Utc>) -> bool {
         let v = ent.lecture_du_fil_a(etab, dir, role(Role::Direction), fil, t).await.unwrap();
         v.participants.iter().find(|p| p.cote == "famille").unwrap().non_lu_apres_3_jours
-    };
-    assert!(!non_lu(t0 + Duration::days(2)).await, "témoin : deux jours, pas encore");
-    assert!(non_lu(t0 + Duration::days(4)).await, "quatre jours sans lecture : « non lu après 3 jours »");
+    }
+    assert!(!non_lu(&ent, etab, dir, fil, t0 + Duration::days(2)).await, "témoin : deux jours, pas encore");
+    assert!(non_lu(&ent, etab, dir, fil, t0 + Duration::days(4)).await, "quatre jours sans lecture : « non lu après 3 jours »");
     // Elle lit : plus d'alerte, même longtemps après.
     assert!(lit(&ent, etab, lily, Role::Parent, fil).await);
-    assert!(!non_lu(t0 + Duration::days(30)).await);
+    assert!(!non_lu(&ent, etab, dir, fil, t0 + Duration::days(30)).await);
 }
 
 #[tokio::test]
