@@ -443,8 +443,8 @@ impl PgEnt {
             let plages = self.plages_du_destinataire(etab, &lignes).await?;
             if !plages.is_empty() {
                 let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-                let param = lire_parametre(&mut *tx, etab).await.map_err(db)?;
-                let local = local_de(&mut *tx, &param.fuseau, maintenant).await.map_err(db)?;
+                let param = lire_parametre(&mut tx, etab).await.map_err(db)?;
+                let local = local_de(&mut tx, &param.fuseau, maintenant).await.map_err(db)?;
                 tx.commit().await.map_err(db)?;
                 disponibilite = Some(match disponibilite_a(&plages, local) {
                     Disponibilite::Ouverte => DisponibiliteVue { ouverte: true, libelle: None },
@@ -537,7 +537,7 @@ impl PgEnt {
             let g = MESSAGERIE_REPONSE_ATTENDUE.gabarit;
             for (user,) in familles {
                 crate::notifications::notifier_personne(
-                    &mut *tx,
+                    &mut tx,
                     crate::notifications::EnvoiAPlanifier {
                         etablissement_id: etab,
                         user_id: user,

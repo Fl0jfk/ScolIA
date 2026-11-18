@@ -381,7 +381,7 @@ impl PgEnt {
         // L'original est sous `{etab}/messages/` : un autre établissement ou un autre espace est refusé. (Les jumeaux d'un
         // fil dédoublé partagent l'original de la pièce copiée : la clé n'est donc pas liée à l'identifiant de la ligne.)
         if !cle.starts_with(&format!("{etab}/messages/")) || cle.contains("..") {
-            return Ok(self.conclure_piece(etab, piece_id, "rejetee", "clé d'objet inattendue").await?);
+            return self.conclure_piece(etab, piece_id, "rejetee", "clé d'objet inattendue").await;
         }
         let original = self.lire_objet_empreinte(etab, cle, Some(sha)).await?;
         // 1. Antivirus (client réseau synchrone : fil bloquant). Fermé par défaut : indisponible → quarantaine.
