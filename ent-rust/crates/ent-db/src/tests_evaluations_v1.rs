@@ -1007,22 +1007,119 @@ async fn ce66_option_multi_niveaux_trimestres_pour_les_uns_semestres_pour_les_au
     );
 }
 
+/// Lectures de la période INDICATIVE (`eva_evaluation.periode_id`) dans un texte SQL : l'alias donné à
+/// `eva_evaluation` (`eva_evaluation ev`, `FROM eva_evaluation AS e`, ou le nom de la table elle-même) suivi de
+/// `.periode_id`. Les commentaires de ligne (`-- …`, `// …`) sont retirés avant l'analyse.
+pub(crate) fn lectures_periode_indicative(sql: &str) -> Vec<String> {
+    let sans_commentaires: String = sql
+        .lines()
+        .map(|l| {
+            let l = l.split("--").next().unwrap_or("");
+            l.split("//").next().unwrap_or("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut fautes: Vec<String> = Vec::new();
+    // Une instruction à la fois : un alias (`e`) peut désigner une autre table dans l'instruction suivante.
+    for instruction in sans_commentaires.split(';') {
+        let bas = instruction.to_ascii_lowercase();
+        let mut alias: Vec<String> = vec!["eva_evaluation".to_string()];
+        let mots: Vec<&str> = instruction
+            .split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',')
+            .filter(|m| !m.is_empty())
+            .collect();
+        for (k, m) in mots.iter().enumerate() {
+            if m.eq_ignore_ascii_case("eva_evaluation") {
+                let suite = mots.get(k + 1).copied().unwrap_or("");
+                let nom = if suite.eq_ignore_ascii_case("as") {
+                    mots.get(k + 2).copied().unwrap_or("")
+                } else {
+                    suite
+                };
+                let mots_sql = [
+                    "on", "where", "join", "cross", "left", "inner", "set", "values", "select",
+                    "using", "order", "group", "limit", "for", "and", "or", "lateral",
+                ];
+                if !nom.is_empty()
+                    && nom.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && !mots_sql.contains(&nom.to_ascii_lowercase().as_str())
+                {
+                    alias.push(nom.to_string());
+                }
+            }
+        }
+        for a in alias {
+            if bas.contains(&format!("{}.periode_id", a.to_ascii_lowercase()))
+                && !fautes.contains(&a)
+            {
+                fautes.push(a);
+            }
+        }
+    }
+    fautes
+}
+
+#[test]
+fn le_detecteur_de_lecture_de_la_periode_indicative_detecte_et_ne_crie_pas_au_loup() {
+    // Témoins positifs : tout alias de eva_evaluation est reconnu.
+    assert!(!lectures_periode_indicative(
+        "SELECT 1 FROM eva_evaluation ev WHERE ev.periode_id = $1"
+    )
+    .is_empty());
+    assert!(
+        !lectures_periode_indicative("SELECT e.periode_id FROM eva_evaluation AS e").is_empty()
+    );
+    assert!(
+        !lectures_periode_indicative("SELECT eva_evaluation.periode_id FROM eva_evaluation")
+            .is_empty()
+    );
+    // Témoins négatifs : la période de l'ÉLÈVE, ou une autre table, ou un commentaire.
+    assert!(lectures_periode_indicative(
+        "SELECT pe.periode_id FROM eva_periode_eleve_jour(1, 2, 3) pe"
+    )
+    .is_empty());
+    assert!(
+        lectures_periode_indicative("SELECT np.periode_id FROM ent_note_periode np").is_empty()
+    );
+    assert!(lectures_periode_indicative(
+        "-- jamais ev.periode_id\nSELECT 1 FROM eva_evaluation ev"
+    )
+    .is_empty());
+}
+
 #[tokio::test]
 async fn aucune_fonction_de_controle_ne_lit_la_periode_indicative_de_l_evaluation() {
     let Some((ent, _cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
-    let fautes: Vec<(String,)> = sqlx::query_as(
-        "SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-          WHERE n.nspname = 'public' AND (p.proname LIKE 'eva\\_%' OR p.proname LIKE 'ent\\_trg\\_eva\\_%')
-            AND p.prosrc ~* '(eva_evaluation|ev)\\.periode_id'",
+    // 1. Les fonctions SQL et PL/pgSQL du lot, relues au catalogue.
+    let fonctions: Vec<(String, String)> = sqlx::query_as(
+        "SELECT p.proname::text, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND (p.proname LIKE 'eva\\_%' OR p.proname LIKE 'ent\\_trg\\_eva\\_%')",
     )
     .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert!(
+        fonctions.len() >= 15,
+        "les fonctions du lot sont relevées : {}",
+        fonctions.len()
+    );
+    let fautes: Vec<&str> = fonctions
+        .iter()
+        .filter(|(_, src)| !lectures_periode_indicative(src).is_empty())
+        .map(|(n, _)| n.as_str())
+        .collect();
+    assert!(
         fautes.is_empty(),
         "lecture de eva_evaluation.periode_id dans : {fautes:?}"
+    );
+    // 2. Le SQL EMBARQUÉ dans le code Rust de la couche V1 (requêtes de la couche, du calcul et de la grille).
+    let rust = include_str!("evaluations_v1.rs");
+    let fautes_rust = lectures_periode_indicative(rust);
+    assert!(
+        fautes_rust.is_empty(),
+        "lecture de la période indicative dans le SQL de evaluations_v1.rs : {fautes_rust:?}"
     );
 }
 
@@ -1446,42 +1543,36 @@ async fn rls_sur_les_tables_eva_isole_les_etablissements() {
     .unwrap();
     arreter(&ent, &w, w.t1, w.classe_a).await;
     const ROLE: &str = "ent_eva_v1_app";
-    let tables = [
-        "eva_reglage",
-        "eva_reglage_historique",
-        "eva_coefficient_matiere",
-        "eva_coefficient_sous_matiere",
-        "eva_nature",
-        "eva_evaluation_commune",
-        "eva_evaluation",
-        "eva_evaluation_restriction",
-        "eva_bareme_item",
-        "eva_periode_etat",
-        "eva_periode_transition",
-        "eva_rattrapage_autorise",
-        "eva_instantane",
-        "eva_instantane_ligne",
-        "eva_resultat",
-        "eva_resultat_historique",
-        "eva_resultat_item",
-        "eva_moyenne_statut",
-        "eva_appreciation",
-        "eva_appreciation_historique",
-        "eva_banque_phrase",
-        "eva_correction_demande",
-        "eva_revision_demande",
-        "eva_consultation",
-        "eva_resultat_externe",
-        "eva_enseignement_externe",
-        "eva_moyenne_externe",
-        "eva_reprise_execution",
-        "eva_reprise_compte",
-        "eva_reprise_ligne",
-    ];
+    // TOUTES les tables du lot, relevées au catalogue (pas une liste écrite à la main qui se périme).
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT c.relname::text FROM pg_class c
+          WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname LIKE 'eva\\_%'
+          ORDER BY 1",
+    )
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(tables.len() >= 31, "les tables du lot : {tables:?}");
+    for t in &tables {
+        let (rls, forcee, avec_check): (bool, bool, i64) = sqlx::query_as(
+            "SELECT c.relrowsecurity, c.relforcerowsecurity,
+                    (SELECT count(*) FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = c.relname
+                        AND p.with_check LIKE '%ent_rls_strict()%' AND p.qual LIKE '%ent_rls_strict()%')
+               FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relname = $1",
+        )
+        .bind(t)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        assert!(
+            rls && forcee && avec_check == 1,
+            "{t} : RLS forcée avec USING et WITH CHECK"
+        );
+    }
     for sql in [
         format!("DO $$ BEGIN CREATE ROLE {ROLE} LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; EXCEPTION WHEN duplicate_object THEN NULL; END $$"),
         format!("GRANT USAGE ON SCHEMA public TO {ROLE}"),
-        format!("GRANT SELECT ON {} TO {ROLE}", tables.join(", ")),
+        format!("GRANT SELECT, INSERT, UPDATE, DELETE ON {} TO {ROLE}", tables.join(", ")),
         format!("ALTER ROLE {ROLE} SET app.rls_strict = 'on'"),
     ] {
         sqlx::query(&sql).execute(ent.pool_verif()).await.unwrap();
@@ -1494,14 +1585,8 @@ async fn rls_sur_les_tables_eva_isole_les_etablissements() {
         .connect(url.as_str())
         .await
         .unwrap();
-    for table in [
-        "eva_reglage",
-        "eva_evaluation",
-        "eva_resultat",
-        "eva_resultat_historique",
-        "eva_periode_etat",
-        "eva_periode_transition",
-    ] {
+    let autre_etab = Uuid::new_v4();
+    for table in &tables {
         let compter = |etab_pose: Option<Uuid>| {
             let app = app.clone();
             async move {
@@ -1521,12 +1606,9 @@ async fn rls_sur_les_tables_eva_isole_les_etablissements() {
                 n
             }
         };
-        assert!(
-            compter(Some(w.etab)).await >= 1,
-            "{table} : l'établissement voit ses lignes"
-        );
+        let propres = compter(Some(w.etab)).await;
         assert_eq!(
-            compter(Some(Uuid::new_v4())).await,
+            compter(Some(autre_etab)).await,
             0,
             "{table} : un autre établissement ne voit rien"
         );
@@ -1535,16 +1617,83 @@ async fn rls_sur_les_tables_eva_isole_les_etablissements() {
             0,
             "{table} : strict sans établissement posé : aucune ligne"
         );
+        // ÉCRITURE hors établissement : depuis un autre contexte, ni modification ni suppression ne touchent une
+        // ligne (la lecture filtrée par USING les cache), et aucune ligne ne s'écrit au nom d'un autre établissement.
+        let mut tx = app.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+            .bind(autre_etab.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let modifiees = sqlx::query(&format!(
+            "UPDATE {table} SET etablissement_id = etablissement_id"
+        ))
+        .execute(&mut *tx)
+        .await
+        .map(|r| r.rows_affected());
+        assert_eq!(
+            modifiees.expect("UPDATE hors contexte sans erreur"),
+            0,
+            "{table} : aucune ligne modifiable hors établissement"
+        );
+        let supprimees = sqlx::query(&format!("DELETE FROM {table}"))
+            .execute(&mut *tx)
+            .await
+            .map(|r| r.rows_affected());
+        assert_eq!(
+            supprimees.expect("DELETE hors contexte sans erreur"),
+            0,
+            "{table} : aucune ligne supprimable hors établissement"
+        );
+        drop(tx);
+        // WITH CHECK : une ligne portant un AUTRE établissement que le contexte est refusée. Là où un déclencheur
+        // d'avant écriture répond avant la politique, on exige au moins un refus ; ailleurs, le refus est celui de
+        // la politique elle-même (42501).
+        let (declencheur,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid = ('public.' || $1)::regclass
+                             AND NOT g.tgisinternal AND (g.tgtype & 2) = 2 AND (g.tgtype & 4) = 4)",
+        )
+        .bind(table)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        let mut tx = app.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+            .bind(w.etab.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let refus = sqlx::query(&format!(
+            "INSERT INTO {table} (etablissement_id) VALUES ($1)"
+        ))
+        .bind(autre_etab)
+        .execute(&mut *tx)
+        .await
+        .expect_err(&format!("{table} : écriture hors établissement refusée"));
+        let code = refus
+            .as_database_error()
+            .and_then(|e| e.code())
+            .map(|c| c.to_string());
+        if !declencheur {
+            assert_eq!(
+                code.as_deref(),
+                Some("42501"),
+                "{table} : refus de la politique WITH CHECK ({refus})"
+            );
+        }
+        let _ = propres;
     }
     // Un autre établissement du labo ne lit pas non plus ces résultats par l'API.
     let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
-    let vue: Vec<CelluleGrille> = ent
+    let vue = ent
         .eva_v1_grille_eleves_for_actor(autre.etablissement_id, autre.direction.user_id, DIR, ev)
-        .await
-        .unwrap_or_default();
+        .await;
     assert!(
-        vue.is_empty(),
-        "une évaluation d'un autre établissement est introuvable"
+        matches!(
+            vue,
+            Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
+        ),
+        "une évaluation d'un autre établissement est introuvable : {vue:?}"
     );
 }
 
@@ -1781,7 +1930,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     assert!(a_la_ligne("note", n_hors, "hors_bareme"));
     // Le rapport ne porte ni nom, ni note, ni texte d'appréciation.
     for l in &rapport.lignes {
-        let d = l.detail.clone().unwrap_or_default();
+        let d = l.detail.as_deref().unwrap_or("");
         assert!(!d.contains("Abbott") && !d.contains("sérieux"), "{d}");
     }
 
@@ -2155,7 +2304,10 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
             .fetch_one(p)
             .await
             .unwrap();
-    assert!(!cloturees, "notes arrêtées seulement : appréciations pas closes");
+    assert!(
+        !cloturees,
+        "notes arrêtées seulement : appréciations pas closes"
+    );
     // Appréciation (M5) : validée, mais non montrée tant que l'état de la période ne clôt pas les appréciations.
     let (cachees,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_note_appreciation_v WHERE etablissement_id = $1 AND eleve_id = $2",
@@ -2165,7 +2317,10 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     .fetch_one(p)
     .await
     .unwrap();
-    assert_eq!(cachees, 0, "appréciation validée mais période pas close : cachée");
+    assert_eq!(
+        cachees, 0,
+        "appréciation validée mais période pas close : cachée"
+    );
     for classe in [w.classe_a, w.classe_d] {
         ent.eva_v1_changer_etat_periode_for_actor(
             w.etab,
@@ -2196,23 +2351,28 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
             .unwrap();
     assert_eq!((texte.as_str(), matiere), ("Bon trimestre.", Some(w.maths)));
     // Publication intégrée à `ent_note_v` (M5) : une évaluation dépubliée disparaît de la vue.
-    let (avant,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
-        .bind(w.etab)
-        .fetch_one(p)
-        .await
-        .unwrap();
+    let (avant,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+            .bind(w.etab)
+            .fetch_one(p)
+            .await
+            .unwrap();
     exec(
         &ent,
         "UPDATE eva_evaluation SET publiee_le = NULL WHERE id = $1",
         vec![u(anc.devoirs[0])],
     )
     .await;
-    let (apres,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
-        .bind(w.etab)
-        .fetch_one(p)
-        .await
-        .unwrap();
-    assert!(apres < avant, "les notes d'une évaluation non publiée ne sont plus dans la vue");
+    let (apres,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+            .bind(w.etab)
+            .fetch_one(p)
+            .await
+            .unwrap();
+    assert!(
+        apres < avant,
+        "les notes d'une évaluation non publiée ne sont plus dans la vue"
+    );
     // Les vues sont en lecture seule.
     assert!(
         sqlx::query("DELETE FROM ent_note_v WHERE etablissement_id = $1")

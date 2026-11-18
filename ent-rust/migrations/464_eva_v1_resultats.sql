@@ -24,11 +24,13 @@ CREATE TABLE IF NOT EXISTS eva_resultat (
     rattrapage_le DATE,
     source TEXT NOT NULL DEFAULT 'saisie'
         CHECK (source IN ('saisie', 'appel', 'dispense', 'import', 'hors_ligne', 'reprise')),
-    -- La dernière écriture était une correction après l'arrêt. Son motif voyage dans la ligne elle-même
-    -- (`motif_correction`, jamais dans une variable de session) : il va au journal et ne survit pas à une
-    -- écriture ordinaire (le déclencheur le remet à NULL).
+    -- La dernière écriture était une correction après l'arrêt. Son motif voyage dans la ligne elle-même, jamais
+    -- dans une variable de session : `motif_correction` est une ENTRÉE que l'écrivain pose dans l'écriture et que
+    -- le déclencheur remet toujours à NULL (un motif ancien ne sert donc jamais à une écriture suivante) ;
+    -- `dernier_motif_correction` en garde la trace pour le journal.
     derniere_ecriture_correction BOOLEAN NOT NULL DEFAULT false,
     motif_correction TEXT CHECK (motif_correction IS NULL OR char_length(btrim(motif_correction)) >= 3),
+    dernier_motif_correction TEXT,
     version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
     saisi_par UUID,
     saisi_le TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -149,7 +151,8 @@ BEGIN
         END IF;
     END IF;
     NEW.derniere_ecriture_correction := v_corr;
-    NEW.motif_correction := CASE WHEN v_corr THEN v_motif END;
+    NEW.dernier_motif_correction := CASE WHEN v_corr THEN v_motif END;
+    NEW.motif_correction := NULL;
     IF TG_OP = 'UPDATE' THEN
         NEW.version := OLD.version + 1;
         NEW.saisi_le := now();
@@ -185,7 +188,7 @@ BEGIN
         CASE WHEN TG_OP = 'UPDATE' THEN OLD.amenage END, NEW.amenage,
         CASE WHEN TG_OP = 'UPDATE' THEN OLD.rattrapage_le END, NEW.rattrapage_le,
         CASE WHEN TG_OP = 'UPDATE' THEN OLD.note_privee END, NEW.note_privee,
-        NEW.derniere_ecriture_correction, NEW.motif_correction, NEW.source, NEW.saisi_par);
+        NEW.derniere_ecriture_correction, NEW.dernier_motif_correction, NEW.source, NEW.saisi_par);
     RETURN NULL;
 END
 $$;

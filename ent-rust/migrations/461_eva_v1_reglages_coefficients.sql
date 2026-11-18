@@ -300,11 +300,13 @@ CREATE TABLE IF NOT EXISTS eva_coefficient_sous_matiere (
         daterange(valable_du, valable_au, '[]') WITH &&)
 );
 
--- Des résultats existent-ils pour cette matière (ou sous-matière visée) à partir d'une date ? Un
--- coefficient ne s'applique jamais à des résultats déjà calculés (R-V23, CE-53).
+-- Des résultats existent-ils pour cette matière (ou sous-matière visée) à partir d'une date ? Un coefficient ne
+-- s'applique jamais à des résultats déjà calculés (R-V23, CE-53). Critère PUREMENT DE DONNÉES (aucune horloge) :
+-- `p_classe` restreint aux cours de cette classe quand la cible du coefficient est une classe ; toute autre cible
+-- (MEF, niveau, défaut) est comptée pour tous les cours de la matière.
 -- (plpgsql : les tables `eva_evaluation` et `eva_resultat` sont créées par les migrations suivantes.)
 CREATE OR REPLACE FUNCTION eva_coef_touche_des_resultats(p_etab uuid, p_annee uuid, p_matiere uuid,
-                                                         p_sous boolean, p_depuis date)
+                                                         p_sous boolean, p_depuis date, p_classe uuid DEFAULT NULL)
 RETURNS boolean LANGUAGE plpgsql STABLE AS $$
 BEGIN
     RETURN EXISTS (
@@ -313,6 +315,7 @@ BEGIN
           JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
          WHERE ev.etablissement_id = p_etab AND ev.annee_id = p_annee AND ev.date_eval >= p_depuis
            AND (CASE WHEN p_sous THEN ev.matiere_id = p_matiere ELSE co.matiere_id = p_matiere END)
+           AND (p_classe IS NULL OR co.classe_id = p_classe)
            AND EXISTS (SELECT 1 FROM eva_resultat r
                         WHERE r.etablissement_id = ev.etablissement_id AND r.evaluation_id = ev.id));
 END
@@ -321,32 +324,35 @@ $$;
 CREATE OR REPLACE FUNCTION ent_trg_eva_coefficient() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     v_sous boolean := (TG_TABLE_NAME = 'eva_coefficient_sous_matiere');
-    v_jour date;
+    v_classe uuid;
+    v_depuis date;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION '% : suppression physique interdite, poser une nouvelle ligne datée (R-V23)', TG_TABLE_NAME
             USING ERRCODE = '23514';
     END IF;
-    v_jour := ent_jour_etablissement(NEW.etablissement_id);
+    v_classe := CASE WHEN v_sous THEN NULL ELSE to_jsonb(NEW)->>'classe_id' END::uuid;
     IF TG_OP = 'INSERT' THEN
-        IF NEW.valable_du < v_jour
-           AND eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous, NEW.valable_du) THEN
+        IF eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous, NEW.valable_du, v_classe) THEN
             RAISE EXCEPTION '% : un coefficient n''est jamais rétroactif, des résultats existent depuis le % (R-V23)',
                 TG_TABLE_NAME, NEW.valable_du USING ERRCODE = '23514';
         END IF;
         RETURN NEW;
     END IF;
-    -- UPDATE : seule la date de fin peut changer (clore une ligne), jamais le coefficient ni la cible.
+    -- UPDATE : seule la date de fin peut changer (clore ou prolonger une ligne), jamais le coefficient ni la cible.
     IF to_jsonb(NEW) - 'valable_au' IS DISTINCT FROM to_jsonb(OLD) - 'valable_au' THEN
         RAISE EXCEPTION '% : une ligne datée ne se modifie pas, clore la ligne et en poser une nouvelle (R-V23)', TG_TABLE_NAME
             USING ERRCODE = '23514';
     END IF;
-    IF NEW.valable_au IS DISTINCT FROM OLD.valable_au
-       AND (NEW.valable_au IS NULL OR NEW.valable_au < v_jour)
-       AND eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous,
-                                         COALESCE(NEW.valable_au + 1, OLD.valable_du)) THEN
-        RAISE EXCEPTION '% : la fin de validité ne peut pas toucher des résultats existants (R-V23)', TG_TABLE_NAME
-            USING ERRCODE = '23514';
+    IF NEW.valable_au IS DISTINCT FROM OLD.valable_au THEN
+        -- Les jours qui changent de coefficient commencent après la plus petite des deux fins.
+        v_depuis := CASE WHEN NEW.valable_au IS NULL THEN OLD.valable_au + 1
+                         WHEN OLD.valable_au IS NULL THEN NEW.valable_au + 1
+                         ELSE LEAST(NEW.valable_au, OLD.valable_au) + 1 END;
+        IF eva_coef_touche_des_resultats(NEW.etablissement_id, NEW.annee_id, NEW.matiere_id, v_sous, v_depuis, v_classe) THEN
+            RAISE EXCEPTION '% : la fin de validité ne peut pas toucher des résultats existants (R-V23)', TG_TABLE_NAME
+                USING ERRCODE = '23514';
+        END IF;
     END IF;
     RETURN NEW;
 END

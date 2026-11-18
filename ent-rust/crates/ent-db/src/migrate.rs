@@ -469,6 +469,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("467_eva_v1_reprise"),
     m!("468_eva_v1_vues_compat"),
     m!("469_eva_v1_reprise_executee"),
+    // Correctifs de la revue du lot V1 (F9) : les cours « de reprise » ne figurent plus dans les publics.
+    m!("470_eva_v1_cours_reprise_hors_publics"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

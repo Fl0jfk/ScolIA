@@ -1255,7 +1255,11 @@ pub fn moyenne_cours(
     // F1 : un bonus sans base n'a rien majoré : sa ligne ne se dit pas « comptée ».
     if res.ajout_bonus.is_none() {
         for idx in bonus_idx {
-            if let Some(l) = res.lignes.iter_mut().find(|l| l.evaluation_id == entrees[idx].evaluation.id) {
+            if let Some(l) = res
+                .lignes
+                .iter_mut()
+                .find(|l| l.evaluation_id == entrees[idx].evaluation.id)
+            {
                 l.effet = Effet::NonComptee(RaisonNonComptee::BonusSansBase);
             }
         }

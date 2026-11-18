@@ -1059,6 +1059,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_enseignement_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("eva_evaluation", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_commune", "evaluations_pedagogie", Portee::Etablissement),
+    t("eva_evaluation_historique", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_restriction", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("eva_instantane", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane_ligne", "evaluations_pedagogie", Portee::Etablissement).perso().export(),

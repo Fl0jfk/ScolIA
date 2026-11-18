@@ -643,9 +643,9 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let rattrapage = rattrapage
-            && existant
-                .as_ref()
-                .is_none_or(|(st, _)| ["absent", "a_rattraper", "non_rendu"].contains(&st.as_str()));
+            && existant.as_ref().is_none_or(|(st, _)| {
+                ["absent", "a_rattraper", "non_rendu"].contains(&st.as_str())
+            });
         // Un élève sans classe ou sans période à la date est verrouillé comme un élève arrêté (M8).
         let arretee = periode.as_ref().is_none_or(|p| p.etat != "ouverte") && !rattrapage;
         if arretee && !peut_corriger {
@@ -655,6 +655,7 @@ impl PgEnt {
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;
         valider_saisie(body.statut, body.valeur_m, bareme, hors_bareme, pas)
             .map_err(|e| refus(erreur_saisie(e)))?;
+        // (`motif_correction = $10` et non `EXCLUDED.motif_correction` : le déclencheur d'INSERT remet l'entrée à NULL.)
         // Le motif d'une correction voyage dans la ligne (`motif_correction`), jamais dans une variable de session :
         // la base l'exige après l'arrêt, le journal le garde, une écriture ordinaire le remet à NULL. La source
         // d'un résultat ne change plus après sa création (la base le refuse).
@@ -665,7 +666,7 @@ impl PgEnt {
              ON CONFLICT (evaluation_id, eleve_id) DO UPDATE SET
                 statut = EXCLUDED.statut, valeur = EXCLUDED.valeur,
                 commentaire_eleve = COALESCE(EXCLUDED.commentaire_eleve, eva_resultat.commentaire_eleve),
-                saisi_par = EXCLUDED.saisi_par, motif_correction = EXCLUDED.motif_correction
+                saisi_par = EXCLUDED.saisi_par, motif_correction = $10
              RETURNING id, version, derniere_ecriture_correction",
         )
         .bind(Uuid::new_v4())
@@ -1052,7 +1053,7 @@ impl PgEnt {
     /// Calcul **sans aucun contrôle d'accès** : réservé aux tests du crate. Aucune route ni aucun appelant de
     /// production ne l'atteint (M1) : ils passent par `eva_v1_moyennes_famille_for_actor` ou
     /// `eva_v1_moyennes_personnel_for_actor`.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "labo"))]
     pub(crate) async fn eva_v1_moyennes_eleve_periode(
         &self,
         etab: Uuid,
@@ -1289,8 +1290,13 @@ async fn moyennes_tx(
     let mut classe_du_cours: BTreeMap<Uuid, Uuid> = BTreeMap::new();
     for l in &lignes {
         let matiere: Option<Uuid> = l.try_get("matiere_id").map_err(db)?;
-        if let Some(c) = l.try_get::<Option<Uuid>, _>("cours_classe_id").map_err(db)? {
-            classe_du_cours.entry(matiere.unwrap_or(Uuid::nil())).or_insert(c);
+        if let Some(c) = l
+            .try_get::<Option<Uuid>, _>("cours_classe_id")
+            .map_err(db)?
+        {
+            classe_du_cours
+                .entry(matiere.unwrap_or(Uuid::nil()))
+                .or_insert(c);
         }
         let statut = StatutCalcul::parse(&l.try_get::<String, _>("statut").map_err(db)?)
             .ok_or(refus("statut de résultat inconnu"))?;
@@ -1429,14 +1435,9 @@ async fn coefficient_matiere_tx(
     .fetch_optional(&mut **tx)
     .await
     .map_err(db)?;
-    l.map(|l| {
-        Ok((
-            l.try_get("coef_m")?,
-            l.try_get("hors_moyenne_generale")?,
-        ))
-    })
-    .transpose()
-    .map_err(db)
+    l.map(|l| Ok((l.try_get("coef_m")?, l.try_get("hors_moyenne_generale")?)))
+        .transpose()
+        .map_err(db)
 }
 
 /// Valeur exacte → millièmes d'affichage selon les règles (outil de test et d'export).
