@@ -292,3 +292,9 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **18-11, 8 h UTC, CI frontend (PR 99)** : le job frontend passe de 78 min 29 à 28 min 51 (run 399 vert, runners gratuits).
   - Relecture du pilote : `entetes_securite` et `droits_parite` tournaient **sans labo** sur ENT ; l'archive unique les compile avec labo. Le lot doit garder une étape sans labo et prouver l'égalité du nombre de tests avant et après.
   - Pas de versement avant ces deux points et la fusion d'ENT 19058b4d.
+- **18-11, 8 h 36 UTC, CI frontend (PR 99, e5ddda1e)** : run 402 vert sur 4c77bf8 (ENT 19058b4d fusionné). Le commit suivant ne touche que la documentation.
+  - En-têtes et parité des droits tournent toujours sans labo.
+  - Nouveau contrôle de couverture dans le job de synthèse : 129 tests listés, 129 exécutés.
+  - Total identique : 153 tests avant, 153 après.
+  - Bout en bout : 34 min 50, dont 14 min de file d'attente des runners ; environ 21 min de calcul.
+  - **Versement par avance rapide après le verdict du run 400 d'ENT** (V2a, règle 29).
