@@ -770,9 +770,10 @@ async fn semaine_ab_vacances_cibles_et_acces() {
     );
     // Autres cibles : classe, salle, élève (Harry est en 4B), classe sans cours.
     let c4b: Uuid = sqlx::query_scalar(
-        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
-        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
-        "SELECT ent_resoudre_classe($1, '4B', current_date)",
+        // La classe à laquelle les créneaux « 4B » de ce test sont RATTACHÉS : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` sur `ent_classe` en prendrait une
+        // au hasard.
+        "SELECT classe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND classe = '4B' AND classe_id IS NOT NULL LIMIT 1",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
@@ -1164,9 +1165,10 @@ async fn absence_remplacement_delegation_et_notifications() {
         .await
         .unwrap();
     let c4b: Uuid = sqlx::query_scalar(
-        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
-        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
-        "SELECT ent_resoudre_classe($1, '4B', current_date)",
+        // La classe à laquelle les créneaux « 4B » de ce test sont RATTACHÉS : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` sur `ent_classe` en prendrait une
+        // au hasard.
+        "SELECT classe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND classe = '4B' AND classe_id IS NOT NULL LIMIT 1",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
@@ -1485,9 +1487,10 @@ async fn annulation_en_masse_apercu_vacances_ab_cle_et_droits() {
     ));
     // Portée par classe : seulement la 4B.
     let c4b: Uuid = sqlx::query_scalar(
-        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
-        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
-        "SELECT ent_resoudre_classe($1, '4B', current_date)",
+        // La classe à laquelle les créneaux « 4B » de ce test sont RATTACHÉS : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` sur `ent_classe` en prendrait une
+        // au hasard.
+        "SELECT classe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND classe = '4B' AND classe_id IS NOT NULL LIMIT 1",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
