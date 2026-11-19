@@ -702,7 +702,21 @@ impl PgEnt {
 
         // V3b : le semis écrit par l'ancienne voie d'amorçage (archives) ; on la verse dans `eva_*`, seule source des lectures
         // (bulletin, conseil, relevé, appli mobile), pour que les données de labo y soient visibles.
-        self.eva_v1_reprendre_amorcage(etab).await?;
+        // Seulement s'il reste des données héritées non reprises : le semis est rejoué par chaque test (établissement
+        // partagé) ; une reprise à chaque appel serialiserait les tests (verrou, ALTER TABLE) et ajouterait une
+        // exécution et un événement à chacun.
+        let a_reprendre: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_devoir_archive d WHERE d.etablissement_id = $1
+                             AND NOT EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.id = d.id AND e.etablissement_id = d.etablissement_id))
+                 OR EXISTS (SELECT 1 FROM ent_note_archive n WHERE n.etablissement_id = $1 AND n.devoir_id IS NOT NULL
+                             AND NOT EXISTS (SELECT 1 FROM eva_resultat r WHERE r.id = n.id AND r.etablissement_id = n.etablissement_id))",
+        )
+        .bind(etab)
+        .fetch_one(self.pool_verif())
+        .await?;
+        if a_reprendre {
+            self.eva_v1_reprendre_amorcage(etab).await?;
+        }
 
         Ok(LaboCast {
             etablissement_id: etab,
