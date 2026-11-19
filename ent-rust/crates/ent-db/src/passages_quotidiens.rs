@@ -88,6 +88,8 @@ pub struct BilanPassagesQuotidiens {
     pub exports_orphelins: usize,
     /// Classes dont les notes ont été arrêtées automatiquement à la date d'arrêt de la période (socle 21, M8).
     pub periodes_arretees: usize,
+    /// Évaluations publiées automatiquement (programmées ou au délai maximal) et rappels envoyés (socle 21, V3).
+    pub publications_automatiques: usize,
     /// Étapes en échec (journalisées ; l'étape suivante et l'établissement suivant sont traités).
     pub erreurs: usize,
 }
@@ -99,6 +101,7 @@ impl BilanPassagesQuotidiens {
         self.photos_orphelines += autre.photos_orphelines;
         self.exports_orphelins += autre.exports_orphelins;
         self.periodes_arretees += autre.periodes_arretees;
+        self.publications_automatiques += autre.publications_automatiques;
         self.erreurs += autre.erreurs;
     }
 }
@@ -141,6 +144,28 @@ impl PgEnt {
             Err(e) => {
                 b.erreurs += 1;
                 tracing::warn!(%etab, erreur = %e, "passage quotidien : arrêt automatique des notes en échec");
+            }
+        }
+        // Publications automatiques des évaluations (programmées, délai maximal, rappels) : horloge fournie.
+        let jour_eval = match jour {
+            Some(j) => Ok(j),
+            None => self.aujourdhui_etablissement(etab).await,
+        };
+        let maintenant = match jour {
+            Some(j) => j.and_hms_opt(12, 0, 0).map(|h| h.and_utc()).unwrap_or_else(chrono::Utc::now),
+            None => chrono::Utc::now(),
+        };
+        match jour_eval {
+            Ok(j) => match self.eva_v3_publications_automatiques_au(etab, maintenant, j).await {
+                Ok(bilan) => b.publications_automatiques += bilan.programmees + bilan.delai_max + bilan.rappels,
+                Err(e) => {
+                    b.erreurs += 1;
+                    tracing::warn!(%etab, erreur = %e, "passage quotidien : publications automatiques des évaluations en échec");
+                }
+            },
+            Err(e) => {
+                b.erreurs += 1;
+                tracing::warn!(%etab, erreur = %e, "passage quotidien : jour de l'établissement illisible");
             }
         }
         for (famille, compteur) in [(&PHOTOS, &mut b.photos_orphelines), (&EXPORTS_ARGENT, &mut b.exports_orphelins)] {

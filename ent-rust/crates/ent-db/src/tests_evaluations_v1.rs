@@ -1699,14 +1699,14 @@ async fn rls_sur_les_tables_eva_isole_les_etablissements() {
 
 // ───────────────────────── Reprise M2 ─────────────────────────
 
-struct Ancien {
-    note_periode: Uuid,
-    devoirs: Vec<Uuid>,
+pub(crate) struct Ancien {
+    pub(crate) note_periode: Uuid,
+    pub(crate) devoirs: Vec<Uuid>,
 }
 
 /// Données « historiques » écrites directement dans les anciennes tables (l'ancien écrivain est
 /// fermé ou migré : on rejoue ce qu'il a laissé), dates fixes.
-async fn ancien_monde(ent: &PgEnt, w: &W) -> Ancien {
+pub(crate) async fn ancien_monde(ent: &PgEnt, w: &W) -> Ancien {
     let np = Uuid::new_v4();
     exec(
         ent,
@@ -1770,7 +1770,7 @@ async fn ancien_monde(ent: &PgEnt, w: &W) -> Ancien {
     }
 }
 
-async fn ancienne_note(
+pub(crate) async fn ancienne_note(
     ent: &PgEnt,
     w: &W,
     devoir: Uuid,

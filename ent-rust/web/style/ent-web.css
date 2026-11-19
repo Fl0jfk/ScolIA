@@ -8,6 +8,7 @@
 @import "absences-personnels.css";
 @import "tableau-vs.css";
 @import "eleves.css";
+@import "grille-notes.css";
 
 /* --- Commun --------------------------------------------------------------- */
 .lien-evitement {
