@@ -340,10 +340,19 @@ struct Ctx {
     ent: PgEnt,
     cast: LaboCast,
     lundi: NaiveDate,
+    /// Verrou consultatif de session, tenu pendant tout le test : ces tests vident puis remplissent l'emploi du temps
+    /// de l'établissement PARTAGÉ du labo ; deux d'entre eux en parallèle (processus distincts d'une même tranche CI)
+    /// s'effacent mutuellement leurs créneaux. La connexion est détachée : fermée avec le contexte, elle libère le verrou.
+    _verrou: sqlx::PgConnection,
 }
 
 async fn ctx() -> Option<Ctx> {
     let (ent, cast) = labo().await?;
+    let mut verrou = ent.pool().acquire().await.expect("connexion du verrou").detach();
+    sqlx::query("SELECT pg_advisory_lock(7770063)")
+        .execute(&mut verrou)
+        .await
+        .expect("verrou de l'emploi du temps partagé");
     let annee = ent
         .referentiel_annee_courante_assuree(cast.etablissement_id)
         .await
@@ -355,7 +364,7 @@ async fn ctx() -> Option<Ctx> {
         .execute(ent.pool())
         .await
         .expect("retrait des créneaux du labo");
-    Some(Ctx { ent, cast, lundi })
+    Some(Ctx { ent, cast, lundi, _verrou: verrou })
 }
 
 impl Ctx {
@@ -761,7 +770,9 @@ async fn semaine_ab_vacances_cibles_et_acces() {
     );
     // Autres cibles : classe, salle, élève (Harry est en 4B), classe sans cours.
     let c4b: Uuid = sqlx::query_scalar(
-        "SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = '4B' LIMIT 1",
+        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
+        "SELECT ent_resoudre_classe($1, '4B', current_date)",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
@@ -1153,7 +1164,9 @@ async fn absence_remplacement_delegation_et_notifications() {
         .await
         .unwrap();
     let c4b: Uuid = sqlx::query_scalar(
-        "SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = '4B' LIMIT 1",
+        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
+        "SELECT ent_resoudre_classe($1, '4B', current_date)",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
@@ -1472,7 +1485,9 @@ async fn annulation_en_masse_apercu_vacances_ab_cle_et_droits() {
     ));
     // Portée par classe : seulement la 4B.
     let c4b: Uuid = sqlx::query_scalar(
-        "SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = '4B' LIMIT 1",
+        // Même résolution que le rattachement des créneaux (année courante) : plusieurs « 4B » peuvent exister (autres
+        // années, créées par d'autres tests sur l'établissement partagé), `LIMIT 1` en prendrait une au hasard.
+        "SELECT ent_resoudre_classe($1, '4B', current_date)",
     )
     .bind(x.e())
     .fetch_one(x.ent.pool())
