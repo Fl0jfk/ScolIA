@@ -325,11 +325,13 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
     absence_id UUID,
     sortie_id UUID,
     correspondant_id UUID,
+    -- Passe 4 (R5) : fait `requalification` d'un contact d'urgence (élève + personne), sans absence, sortie ni correspondant.
+    eleve_id UUID,
     acte TEXT NOT NULL CHECK (acte IN (
         'annonce', 'demande', 'regularisation_demandee', 'accord_titulaire', 'acceptation', 'refus', 'blocage',
         'opposition', 'tranchee_maintenue', 'tranchee_levee', 'regularisation', 'annulation', 'depart', 'retour',
         'retard_annonce', 'revocation', 'suspension', 'reprise', 'expiration', 'designation', 'fin',
-        'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse', 'signalement')),
+        'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse', 'signalement', 'requalification')),
     qualite TEXT NOT NULL CHECK (qualite IN (
         'titulaire', 'eleve_majeur', 'eleve', 'personnel', 'cpe', 'direction', 'systeme')),
     par_user_id UUID REFERENCES ent_user (id),
@@ -354,8 +356,13 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
         REFERENCES ent_internat_correspondant (etablissement_id, id),
     CONSTRAINT ent_internat_i3_fait_personne_cfk FOREIGN KEY (etablissement_id, personne_id)
         REFERENCES ent_personne (etablissement_id, id),
+    CONSTRAINT ent_internat_i3_fait_eleve_fk FOREIGN KEY (etablissement_id, eleve_id)
+        REFERENCES ent_eleve (etablissement_id, id),
     CONSTRAINT ent_internat_i3_fait_objet_chk CHECK (
-        (absence_id IS NOT NULL)::int + (sortie_id IS NOT NULL)::int + (correspondant_id IS NOT NULL)::int = 1)
+        (acte <> 'requalification'
+         AND (absence_id IS NOT NULL)::int + (sortie_id IS NOT NULL)::int + (correspondant_id IS NOT NULL)::int = 1)
+        OR (acte = 'requalification' AND eleve_id IS NOT NULL AND personne_id IS NOT NULL
+            AND absence_id IS NULL AND sortie_id IS NULL AND correspondant_id IS NULL))
 );
 CREATE INDEX IF NOT EXISTS ent_internat_i3_fait_absence_idx
     ON ent_internat_i3_fait (etablissement_id, absence_id, a) WHERE absence_id IS NOT NULL;
@@ -525,16 +532,6 @@ LANGUAGE sql STABLE AS $$
                         AND (k.au IS NULL OR k.au >= jour))
 $$;
 
--- Passe 4 (R5) : requalification d'un contact d'urgence par le personnel. Un contact « peut récupérer » déclaré par une
--- personne devenue visée (interdiction ou perte de droit) n'est plus remis tant que le personnel ne l'a pas
--- requalifié APRÈS cette perte : fait daté et signé, écrit par le seul service d'internat (jamais par la famille).
--- Colonnes ajoutées seulement ici ; la copie de fusion (`ent_personne_fusion_contact_supprime`) ne les reprend pas :
--- une défusion remet le contact « non requalifié » (sens prudent).
-ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_le TIMESTAMPTZ;
-ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_par_user_id UUID;
-ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_motif TEXT
-    CHECK (requalifie_motif IS NULL OR char_length(btrim(requalifie_motif)) BETWEEN 1 AND 300);
-
 -- ───────────────────────── Interdictions et remise : règles en SQL (passe 3) ─────────────────────────
 -- Une seule définition, appelée une fois par ligne (contrôle de départ) ou en lot (revue à la minute : une requête par
 -- établissement, jamais une par ligne). Aucune ne lit de donnée hors de l'établissement passé en paramètre.
@@ -643,16 +640,23 @@ $$;
 
 -- Passe 4 (R5) : un contact d'urgence est « suspect » quand lui, ou l'un des contacts de sa chaîne de déclarants, a été
 -- déclaré par une personne devenue visée (interdiction ou perte de droit, ou personne sans aucun lien ni contact) et que
--- le personnel ne l'a pas requalifié APRÈS cette perte. Une requalification d'un contact couvre ce qui, en amont dans
+-- le personnel ne l'a pas requalifié APRÈS cette perte (fait `requalification` du journal I3, daté, signé, avec motif). Une requalification d'un contact couvre ce qui, en amont dans
 -- la chaîne, date d'avant elle (le personnel a vu le contact et en répond). Profondeur bornée (cycles).
 CREATE OR REPLACE FUNCTION ent_internat_contact_suspect(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
     WITH RECURSIVE ch(declarant, prefixe, depth) AS (
-        SELECT c.declare_par_personne_id, COALESCE(c.requalifie_le, '-infinity'::timestamptz), 0
+        SELECT c.declare_par_personne_id,
+               COALESCE((SELECT max(f.a) FROM ent_internat_i3_fait f
+                          WHERE f.etablissement_id = p_etab AND f.acte = 'requalification' AND f.eleve_id = p_eleve
+                            AND f.personne_id = c.personne_id), '-infinity'::timestamptz), 0
           FROM ent_eleve_contact_urgence c
          WHERE c.etablissement_id = p_etab AND c.eleve_id = p_eleve AND c.personne_id = p_personne
         UNION ALL
-        SELECT d.declare_par_personne_id, GREATEST(ch.prefixe, COALESCE(d.requalifie_le, '-infinity'::timestamptz)),
+        SELECT d.declare_par_personne_id,
+               GREATEST(ch.prefixe, COALESCE((SELECT max(f.a) FROM ent_internat_i3_fait f
+                                               WHERE f.etablissement_id = p_etab AND f.acte = 'requalification'
+                                                 AND f.eleve_id = p_eleve AND f.personne_id = d.personne_id),
+                                             '-infinity'::timestamptz)),
                ch.depth + 1
           FROM ch
           CROSS JOIN LATERAL ent_internat_personne_chaine(p_etab, ch.declarant) AS cd(id)

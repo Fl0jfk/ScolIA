@@ -4814,14 +4814,18 @@ impl PgEnt {
         if !peut_recuperer || statut != "valide" {
             return Err(conflit("seul un contact validé autorisé à récupérer l'élève se requalifie"));
         }
+        // Fait de requalification du journal I3 (ajout seul, daté, signé, motif écrit) : aucune colonne n'est ajoutée à la
+        // table du dossier (copie de fusion intacte) ; la porte « contact » le lit (`ent_internat_contact_suspect`).
         sqlx::query(
-            "UPDATE ent_eleve_contact_urgence SET requalifie_le = $3, requalifie_par_user_id = $4, requalifie_motif = $5 \
-              WHERE etablissement_id = $1 AND id = $2",
+            "INSERT INTO ent_internat_i3_fait (id, etablissement_id, eleve_id, personne_id, acte, qualite, par_user_id, a, motif_texte) \
+             SELECT $1, $2, c.eleve_id, c.personne_id, 'requalification', 'cpe', $4, $5, $6 \
+               FROM ent_eleve_contact_urgence c WHERE c.etablissement_id = $2 AND c.id = $3",
         )
+        .bind(Uuid::new_v4())
         .bind(etab)
         .bind(contact_id)
-        .bind(maintenant)
         .bind(actor)
+        .bind(maintenant)
         .bind(&motif)
         .execute(&mut *tx)
         .await

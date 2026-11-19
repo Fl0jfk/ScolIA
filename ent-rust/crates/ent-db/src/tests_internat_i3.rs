@@ -2624,7 +2624,7 @@ async fn ea_correspondant_designe_par_un_parent_devenu_interdit_est_suspendu() {
         assert_eq!(vus[0].statut, "suspendu");
         assert!(faits_actes(&b, "correspondant_id", c.id).await.contains(&("suspension".to_string(), Some("interdiction_auteur".to_string()))));
         // Le CPE le reprend : la revue suivante ne le suspend pas de nouveau.
-        let r = b.ent.suspendre_correspondant_a(b.etab, b.cpe, CPE, c.id, false, &CorrespondantSuspensionDto { motif_texte: None }, paris(mardi, 14, 0)).await.unwrap();
+        let r = b.ent.suspendre_correspondant_a(b.etab, b.cpe, CPE, c.id, false, &CorrespondantSuspensionDto { motif_texte: Some("Désignation revue avec la famille".into()) }, paris(mardi, 14, 0)).await.unwrap();
         assert_eq!(r.statut, "valide");
         b.ent.veille_sorties_a(b.etab, paris(mardi, 14, 5)).await.unwrap();
         let vus = b.ent.correspondants_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 15, 0)).await.unwrap();
@@ -2859,8 +2859,8 @@ async fn fc_fd_ff_effacer_la_personne_historique_sans_interdiction_et_contact_sa
         let r = annoncer_avec(&b, pb, PARENT, eleve, avril(21), avril(21), Some(pers), maintenant).await;
         assert!(refus_de(&r, "pas autorisée à récupérer"), "garde {garde:?}, autorité {autorite} : {r:?}");
     }
-    // Un proche de lien « autre » (grand-mère inscrite comme responsable, sans autorité parentale), contact validé
-    // autorisé à récupérer : il prend l'élève (le pilote : seul un parent ou tuteur privé d'autorité est écarté).
+    // Passe 4 (R6) : aucune règle sur le libellé. Un proche de lien « autre » SANS autorité parentale (grand-mère inscrite
+    // comme responsable) n'est plus remis par la porte « contact » ; il l'est comme simple contact, sans lien.
     let user = compte(&b.ent, b.etab, PARENT).await;
     let mamie = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,$3,'Mamie',$4,'compte')")
@@ -2881,8 +2881,12 @@ async fn fc_fd_ff_effacer_la_personne_historique_sans_interdiction_et_contact_sa
         .await
         .unwrap();
     autoriser_recuperer(&b, eleve, mamie).await;
-    let a = annoncer_avec(&b, pb, PARENT, eleve, avril(22), avril(22), Some(mamie), maintenant).await.unwrap();
-    assert_eq!(a.recupere_par_personne_id, Some(mamie));
+    let r = annoncer_avec(&b, pb, PARENT, eleve, avril(22), avril(22), Some(mamie), maintenant).await;
+    assert!(refus_de(&r, "pas autorisée à récupérer"), "{r:?}");
+    let sans_lien = tiers(&b, "Voisine").await;
+    autoriser_recuperer(&b, eleve, sans_lien).await;
+    let a = annoncer_avec(&b, pb, PARENT, eleve, avril(22), avril(22), Some(sans_lien), maintenant).await.unwrap();
+    assert_eq!(a.recupere_par_personne_id, Some(sans_lien));
 }
 
 // ═════════════════════════════ Passe 3 : « un acte tombe avec son auteur » ═════════════════════════════
@@ -3335,7 +3339,7 @@ async fn p3_lien_echu_la_porte_contact_ecarte_un_parent_dont_le_lien_est_termine
         ("pere", false, None, Some("2026-03-01"), "non_autorisee"),  // lien terminé et privé d'autorité
         ("tuteur", true, Some("2026-05-01"), None, "non_autorisee"), // lien pas encore commencé
         ("mere", true, Some("2026-01-01"), Some("2026-12-31"), "autorisee"), // lien en cours
-        ("autre", false, None, Some("2026-03-01"), "autorisee"),     // proche : jamais eu l'autorité parentale
+        ("autre", false, None, Some("2026-03-01"), "non_autorisee"), // R6 : aucune règle sur le libellé (lien échu)
         ("pere", true, None, None, "autorisee"),
     ];
     for (i, (lien, autorite, debut, fin, attendu)) in cas.into_iter().enumerate() {
@@ -3751,13 +3755,19 @@ async fn p4_r5_un_contact_declare_par_un_vise_n_est_remis_qu_apres_requalificati
         assert!(est_interdit(&b.ent.requalifier_contact_a(b.etab, pb, PARENT, c_odile, &motif, paris(mardi, 15, 0)).await));
         let r = b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c_odile, &CorrespondantSuspensionDto { motif_texte: None }, paris(mardi, 15, 0)).await;
         assert!(refus_de(&r, "motif obligatoire"), "{r:?}");
-        sqlx::query("UPDATE ent_eleve_contact_urgence SET requalifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(b.etab)
-            .bind(c_odile)
-            .bind(paris(avril(1), 9, 0))
-            .execute(b.ent.pool_verif())
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO ent_internat_i3_fait (id, etablissement_id, eleve_id, personne_id, acte, qualite, par_user_id, a, motif_texte) \
+             VALUES ($1,$2,$3,$4,'requalification','cpe',$5,$6,'Ancienne revue')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(odile)
+        .bind(b.cpe)
+        .bind(paris(avril(1), 9, 0))
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
         assert_eq!(code_remise(&b, eleve, odile, mercredi).await.0, "non_autorisee", "une requalification antérieure à la perte ne compte pas");
         // Le personnel requalifie Pierre (en aval) : Pierre est remis, Odile non ; puis Odile.
         b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c_pierre, &motif, paris(mardi, 15, 0)).await.unwrap();
