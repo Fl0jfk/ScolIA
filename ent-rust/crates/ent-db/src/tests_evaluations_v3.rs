@@ -2033,3 +2033,66 @@ async fn evaluation_directe(
     )
     .await
 }
+
+// ───────────────────────── Mesure : grille de 40 élèves × 20 évaluations ─────────────────────────
+
+#[tokio::test]
+async fn v3_mesure_grille_40_eleves_x_20_evaluations() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let mut eleves = w.eleves_a.clone();
+    for i in 0..37 {
+        let e = creer_eleve(&ent, w.etab, &format!("Zeta{i:02}")).await;
+        crate::tests_evaluations_v1::affecter(&ent, w.etab, w.annee, e, w.classe_a, d(2031, 9, 1)).await;
+        eleves.push(e);
+    }
+    let t0 = std::time::Instant::now();
+    let mut evals = Vec::new();
+    for k in 0..20u32 {
+        evals.push(creer(&ent, &w, w.cours_maths, &format!("DS {k}"), d(2031, 9, 2 + k), 20_000, 1_000).await);
+    }
+    let t_creation = t0.elapsed();
+    let cellules: Vec<CelluleSaisieDto> = eleves
+        .iter()
+        .enumerate()
+        .flat_map(|(i, e)| {
+            evals.iter().enumerate().map(move |(k, ev)| {
+                let texte = if (i + k) % 17 == 0 { "abs".to_string() } else { format!("{}", 5 + (i * 7 + k * 3) % 16) };
+                cell(ev.id, *e, &texte, None)
+            })
+        })
+        .collect();
+    assert_eq!(cellules.len(), 800);
+    let t1 = std::time::Instant::now();
+    let r = lot(&ent, &w, w.cours_maths, cellules).await;
+    let t_saisie = t1.elapsed();
+    assert!(r.cellules.iter().all(|c| c.issue == "ecrit"), "800 cases écrites");
+    // Lecture de la grille (moteur : 40 moyennes, 20 statistiques, 1 statistique de classe), meilleure de 5 lectures.
+    let mut lectures = Vec::new();
+    for _ in 0..5 {
+        let t2 = std::time::Instant::now();
+        let g = grille(&ent, &w, w.cours_maths).await;
+        lectures.push(t2.elapsed());
+        assert_eq!((g.eleves.len(), g.evaluations.len()), (40, 20));
+        assert!(g.eleves.iter().all(|e| e.moyenne_m.is_some()));
+    }
+    lectures.sort();
+    // Une frappe isolée (une case, version lue) : le cas de la saisie continue.
+    let g = grille(&ent, &w, w.cours_maths).await;
+    let cel = &g.eleves[5].cellules[5];
+    let t3 = std::time::Instant::now();
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(evals[5].id, eleves_id(&g, 5), "19", cel.version)]).await;
+    let t_frappe = t3.elapsed();
+    assert_eq!(r.cellules[0].issue, "ecrit");
+    eprintln!(
+        "MESURE 40x20 (base locale, un fil) : créer 20 évaluations {:?} ; écrire 800 cases {:?} ; lire la grille (min de 5) {:?}, médiane {:?} ; une frappe (1 case) {:?}",
+        t_creation, t_saisie, lectures[0], lectures[2], t_frappe
+    );
+    assert!(lectures[0] < std::time::Duration::from_secs(3), "la lecture de la grille doit rester rapide");
+}
+
+fn eleves_id(g: &GrilleV3Dto, i: usize) -> Uuid {
+    g.eleves[i].eleve_id
+}
