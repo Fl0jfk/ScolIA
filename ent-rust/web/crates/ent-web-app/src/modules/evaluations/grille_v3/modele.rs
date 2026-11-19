@@ -772,6 +772,9 @@ mod tests {
             e.iter().map(|x| x.0).collect::<Vec<_>>(),
             ["titre", "date", "bareme", "coef"]
         );
-        assert!(controler_evaluation("DS", "2031-10-10", "20", "0").is_empty(), "coefficient 0 admis");
+        assert!(
+            controler_evaluation("DS", "2031-10-10", "20", "0").is_empty(),
+            "coefficient 0 admis"
+        );
     }
 }
