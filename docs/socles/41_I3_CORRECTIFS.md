@@ -64,7 +64,7 @@ Même branche (`ent-socle-41-code-i3`, PR n° 106, brouillon), partie de 1e40069
 Choix à valider : `interdiction_auteur` ne reprend jamais d'elle-même ; la décision revient au CPE (sortie « demandée » : un autre titulaire répond, le CPE décide) ou à la direction (absence, blocage M-A). Les actes appuyés sur l'autorisation annuelle (socle 18, sans compte auteur) ne sont pas revus par E-A.
 
 ## Tests locaux
-`tests_internat_i3` : **52 verts** (43 + 9 nouveaux) sur base neuve. Suite large, clippy et fmt : voir « Tête et CI ».
+`tests_internat_i3` : **52 verts** (43 + 9 nouveaux) sur base neuve. Suite large (`internat rls registre migrat fusion conservation rgpd accords d036 roles`, base neuve) : **312 verts sur 313** ; `tests_eleve_fusion::defusion_refusee_si_une_ligne_deplacee_a_change` a échoué une fois en parallèle (table `ent_absence_seance`, hors internat) et **passe seul** : flottement de concurrence à surveiller, non lié à ce lot. `ent-api` `tests_internat` : 5 verts. Clippy 1.99 `-D warnings` (3 commandes de la CI) : propre ; `cargo fmt -p ent-types --check` : propre (fmt non lancé sur `ent-db`, règle du dépôt). Non rejoué : suite complète d'`ent-db`, frontend (sauté, règle 27).
 
 ## Compteurs (règle 28), recalculés
 Tables **0** ; migration 2826 (modifiée : motif `interdiction_auteur`, fonction `ent_internat_eleve_majeur`, attendu) ; `MIGRATION_TAG` inchangé ; `Action::TOUTES` inchangé ; routes inchangées (36 pour I3) ; événements inchangés (réutilisés : décision de sortie, absence bloquée, correspondant) ; RLS et registre des données inchangés.
