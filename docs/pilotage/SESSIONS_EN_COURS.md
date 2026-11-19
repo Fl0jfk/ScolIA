@@ -452,3 +452,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
     - F-4 : normalisation : ligatures (U+FB01…), Latin étendu B et additionnel, marques combinantes hors U+0300–036F, invisibles U+2061–2064 et U+180E ; en-tête « équivalent NFKD » à corriger.
     - F-5 : test que `rendre_pdf_appel` part de `contenu_pdf_appel` ; F-6 : `#[track_caller]` sur `refus_de`.
   - CI 429 d'ENT (7402da72) : « runner lost communication » pendant la compilation des tests (infrastructure) ; jobs relancés une fois.
+- **19-11, 1 h 50 UTC, « runner lost communication » pour la 2e fois** (archive nextest : 49 min au lieu de 12 ; runs 429 et 431 de la PR 104). Signature d'une saturation mémoire (le runner rame puis meurt). Relance unique des jobs. **Si l'incident revient** : ajouter un fichier d'échange (8 Go) dans le job `backend-archive`, ou passer `CARGO_BUILD_JOBS` à 1 pour la seule archive « avec labo ».
