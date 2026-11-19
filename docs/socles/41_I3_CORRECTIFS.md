@@ -70,4 +70,4 @@ Choix à valider : `interdiction_auteur` ne reprend jamais d'elle-même ; la dé
 Tables **0** ; migration 2826 (modifiée : motif `interdiction_auteur`, fonction `ent_internat_eleve_majeur`, attendu) ; `MIGRATION_TAG` inchangé ; `Action::TOUTES` inchangé ; routes inchangées (36 pour I3) ; événements inchangés (réutilisés : décision de sortie, absence bloquée, correspondant) ; RLS et registre des données inchangés.
 
 ## Tête et CI
-Voir le message au pilote et la fin de cette section une fois la CI rendue.
+Tête de code vérifiée : **695e87ef** (branche `ent-socle-41-code-i3`, PR n° 106 en brouillon), partie de 1e400696. CI `ENT Rust`, run n° 440 : **verte** (formatage, audits, backend, frontend). Le premier passage avait rendu le job « compilation des binaires de test (archives nextest) » rouge par **perte de runner** (étape de compilation restée « en cours » 48 minutes, sans journal, alors que clippy et les autres jobs compilaient le même code) : un seul relancement des jobs en échec, vert. Le commit qui ajoute ce paragraphe ne touche que cette documentation (arbre de code identique à 695e87ef).
