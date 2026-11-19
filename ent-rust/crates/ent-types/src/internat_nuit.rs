@@ -292,6 +292,9 @@ pub struct CasVueDto {
     pub numeros_masques: bool,
     /// Le CPE d'astreinte vient du socle 6 ; tant qu'il n'est pas branché, `false`.
     pub astreinte_branchee: bool,
+    /// Note écrite à la clôture du cas (motif d'une annulation, précision d'un retour en famille…).
+    #[serde(default)]
+    pub issue_note: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
