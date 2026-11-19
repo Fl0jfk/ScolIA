@@ -471,8 +471,10 @@ async fn meme_personne_tx(conn: &mut PgConnection, etab: Uuid, a: Uuid, b: Uuid)
 }
 
 /// Une personne peut-elle prendre l'élève aujourd'hui ? (socle 4) : titulaire (lien actif, autorité parentale,
-/// garde non « aucune ») ou personne autorisée à récupérer (contact validé dont le lien avec l'élève n'est pas
-/// suspendu : il ne prend pas l'élève, même validé comme contact), non fusionnée dans une autre. **Une interdiction bloque toujours**, sur toute la chaîne de fusions, et
+/// garde non « aucune ») ou personne autorisée à récupérer (contact validé dont le lien avec l'élève n'est ni
+/// suspendu, ni en garde « aucune », ni celui d'un parent ou tuteur privé de l'autorité parentale : celui-là ne prend
+/// pas l'élève, même validé comme contact ; un proche de lien « autre » — grand-parent, beau-parent — qui n'a jamais eu
+/// l'autorité parentale reste une personne autorisée), non fusionnée dans une autre. **Une interdiction bloque toujours**, sur toute la chaîne de fusions, et
 /// sans attendre sa date de début (décision pessimiste, comme E3 d'I2).
 async fn remise_possible_tx(
     conn: &mut PgConnection,
@@ -514,8 +516,8 @@ async fn remise_possible_tx(
             AND c.statut = 'valide' AND p.fusionnee_dans IS NULL \
             AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien sl \
                              WHERE sl.etablissement_id = $1 AND sl.eleve_id = $2 \
-                               AND (sl.suspendu_le IS NOT NULL OR NOT sl.autorite_parentale \
-                                    OR COALESCE(sl.garde, '') = 'aucune') \
+                               AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune' \
+                                    OR (NOT sl.autorite_parentale AND sl.lien IN ('mere', 'pere', 'tuteur'))) \
                                AND sl.personne_id IN {chaine}) \
           LIMIT 1"
     ))

@@ -2846,4 +2846,28 @@ async fn fc_fd_ff_effacer_la_personne_historique_sans_interdiction_et_contact_sa
         let r = annoncer_avec(&b, pb, PARENT, eleve, avril(21), avril(21), Some(pers), maintenant).await;
         assert!(refus_de(&r, "pas autorisée à récupérer"), "garde {garde:?}, autorité {autorite} : {r:?}");
     }
+    // Un proche de lien « autre » (grand-mère inscrite comme responsable, sans autorité parentale), contact validé
+    // autorisé à récupérer : il prend l'élève (le pilote : seul un parent ou tuteur privé d'autorité est écarté).
+    let user = compte(&b.ent, b.etab, PARENT).await;
+    let mamie = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,$3,'Mamie',$4,'compte')")
+        .bind(mamie)
+        .bind(b.etab)
+        .bind(format!("Proche{}", alea()))
+        .bind(user)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, lien, autorite_parentale) VALUES ($1,$2,$3,$4,$5,'autre',false)")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(user)
+        .bind(mamie)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    autoriser_recuperer(&b, eleve, mamie).await;
+    let a = annoncer_avec(&b, pb, PARENT, eleve, avril(22), avril(22), Some(mamie), maintenant).await.unwrap();
+    assert_eq!(a.recupere_par_personne_id, Some(mamie));
 }
