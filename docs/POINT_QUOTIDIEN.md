@@ -6,6 +6,46 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-19 (jeudi soir, 18 h 45 Paris) — point du jour
+
+**Changement de pilote** à 10 h UTC : nouvelle session de pilotage au contexte léger, pour économiser le quota (passation `docs/pilotage/PASSATION_PILOTE.md`). La règle 36 est appliquée : pas d'abonnement aux PR de lot, revues sur Sonnet.
+
+**Sur ENT (validé par la CI)** : ENT = **9190a677**, run 452 vert. Depuis le point d'hier (86f03b82) :
+- Socle 41 **I2** (la nuit à l'internat) et ses suites (migration 2825).
+- Socle 21 **V1-V2** : modèle des évaluations et moteur de calcul unique, « comme Charlemagne ».
+- Socle 21 **V3** : grille de saisie des notes en Leptos.
+- Socle 21 **V3b** : tous les lecteurs passent sur le nouveau modèle (relevé élève et famille, bulletin, conseil, moyennes, agenda, cahier de textes, mobile, ancienne interface). Les anciennes tables deviennent des archives en lecture seule, et une note non publiée n'est jamais montrée à l'élève ni à la famille. Revue de sécurité : aucun défaut critique ni élevé.
+- **CI** : 8 Go de mémoire d'échange pour la compilation des tests, après 4 machines perdues en 24 h.
+
+**Prêt mais pas encore sur ENT** : rien.
+
+**En cours** :
+- Socle 41 **I3, passe 4** (absences et sorties de l'internat). La passe 3, verte en CI, n'a pas été versée : la revue de sécurité y a trouvé **5 défauts élevés**. Un enfant pouvait partir avec une personne choisie par un parent qui a perdu son droit. Les causes : une décision de routine du CPE « couvrait » l'acte du parent ; la perte d'autorité sans interdiction formelle ne faisait rien tomber ; un contact déclaré par ce parent restait valable ; le contrôle reposait sur un libellé en texte libre ; les sorties scolaires sont à vérifier. La passe 4 reprend tout avec **8 règles générales**, dont « un acte tombe avec le **droit** de son auteur ».
+
+**Conçu mais pas codé** :
+- Socle 21 **V3c** : correctifs moyens de la revue de V3b. Le « 0 / 20 » affiché à la famille pour une absence dans le cahier de textes, les évaluations non annoncées visibles dans l'agenda, les statistiques de classe du bulletin sans seuil d'effectif, et la tolérance trop large du rejeu des migrations en test.
+- Socle 21 **V4 à V8**.
+- Internat **I4, I5**.
+
+**Tableau d'avancement** : celui d'hier, avec trois changements. **21 Évaluations** passe de « faible » à **environ un tiers**, avec un premier écran (la grille). **41 Internat** passe à **environ un tiers** (I0 à I2 faits, I3 en cours). Les autres domaines sont sans changement aujourd'hui.
+
+**Décisions attendues de Florian** :
+- **Lancer V3c aujourd'hui malgré l'avertissement sur le quota hebdomadaire ?** Avis du pilote : V3c seul maintenant, V4 après la remise à zéro de dimanche. Sans réponse, rien n'est lancé.
+- Choix acceptés par défaut, sauf objection (règle 12) :
+  - V3b : retour de note du cahier jamais montré avant publication ; barème figé dès qu'une note existe ; anciennes notes sans évaluation laissées en archive.
+  - I3 : absence tranchée par la direction ; un parent contact au lien échu est écarté ; une sortie dont l'auteur a perdu son droit retourne à « demandée ».
+- Fermer la PR 102 (documentation seule, remplacée).
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) : rien de nécessaire bientôt. Les exports Charlemagne de notes (F-04) serviront au doublon I-032, quand l'outil de comparaison existera.
+
+**Ce qui a coincé** :
+- **I3** : quatre passes pour un seul lot. Les consignes de départ listaient des champs au lieu d'énoncer des règles générales sur la protection de l'enfant. La leçon est appliquée à la passe 4.
+- **V3b** : deux CI rouges, à cause de la reprise des données sur les nouvelles vues dans la migration 472 et des tests de l'emploi du temps. Corrigé par la session, vert au troisième passage.
+- **Machines de CI perdues** à répétition sur la compilation des tests : mémoire d'échange ajoutée, et le passage 452 est vert.
+- **Quota hebdomadaire en avertissement** dès jeudi : une seule session code ce soir.
+
+---
+
 ## 2026-11-18 (mercredi soir, 18 h 45 Paris) — point du jour
 
 **Décision structurante du jour (D-068, Florian)** : la bascule n'a plus lieu en février. Elle se fera **à la rentrée 2027**, voire un peu avant.
