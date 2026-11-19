@@ -265,9 +265,10 @@ async fn e3_le_premier_arret_fige_les_regles_meme_sans_jeu_pose_et_m3_tout_est_h
         "SELECT h.arrondi_note_ramenee_mode, h.arrondi_sous_matiere_mode, h.arrondi_matiere_mode, h.arrondi_periode_mode,
                 h.plafonner_echelle, h.stats_familles, h.mediane_familles, h.seuil_effectif_stats, h.figee, h.version
            FROM eva_reglage_historique h JOIN eva_reglage r ON r.id = h.reglage_id
-          WHERE r.etablissement_id = $1 ORDER BY h.version DESC LIMIT 1",
+          WHERE r.etablissement_id = $1 AND r.annee_id = $2 ORDER BY h.version DESC LIMIT 1",
     )
     .bind(w.etab)
+    .bind(w.annee)
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();

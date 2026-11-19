@@ -985,11 +985,12 @@ async fn professeur_hors_classe_et_familles_refuses() {
     ent.attribuer_role_for_actor(etab, cast.admin.user_id, "admin", role.id, cast.cpe.user_id, None)
         .await
         .unwrap();
-    let rap = ent
-        .saisir_grille_for_actor(etab, cast.cpe.user_id, "cpe", d.id, &SaisieGrilleBody { resultats: vec![r(m.eleves[0], "note", Some(11.0))] })
-        .await
-        .unwrap();
-    assert_eq!(rap.enregistres, 1);
+    // Grille V3 (§14) : la saisie reste liée au cours (professeur du cours ou suppléant) ; un droit d'établissement
+    // « notes.saisir » ne l'ouvre pas (droits inchangés par le basculement des lecteurs).
+    assert!(matches!(
+        ent.saisir_grille_for_actor(etab, cast.cpe.user_id, "cpe", d.id, &SaisieGrilleBody { resultats: vec![r(m.eleves[0], "note", Some(11.0))] }).await,
+        Err(EntDbError::Forbidden)
+    ));
     // Bilan de cycle : saisie par le professeur de la classe, validation par le PP
     // seulement quand les 8 composantes sont positionnées.
     let mut comps: Vec<ComposanteNiveauDto> = domain_eleve::evaluation::COMPOSANTES_SOCLE[..7]
@@ -1194,8 +1195,9 @@ async fn e2e_v3b_une_note_saisie_puis_publiee_est_lue_partout_avec_la_meme_moyen
     ent.publier_devoir_for_actor(etab, prof, "prof", d3.id).await.unwrap();
     assert_eq!(ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap().moyenne_generale, Some(18.04));
     assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(18.04));
-    let (n_archive,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_archive WHERE etablissement_id = $1")
+    let (n_archive,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_archive WHERE etablissement_id = $1 AND eleve_id = $2")
         .bind(etab)
+        .bind(a)
         .fetch_one(ent.pool_verif())
         .await
         .unwrap();
