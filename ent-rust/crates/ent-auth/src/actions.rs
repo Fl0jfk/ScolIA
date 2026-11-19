@@ -169,6 +169,9 @@ pub enum Action {
     InternatAppel,
     /// Socle 41, lot I2 : clore et valider un appel, le corriger après validation, tenir un cas.
     InternatAppelValider,
+    /// Socle 41, lot I3 : décider des absences annoncées et des sorties des internes (accepter, refuser,
+    /// traiter une annonce tardive, régulariser, trancher un désaccord entre titulaires).
+    InternatSortiesDecider,
     /// Gérer les sorties (règles, autorisations, demandes exceptionnelles).
     SortiesGerer,
     /// Contrôler les sorties au portail (scan de badge).
@@ -665,7 +668,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 274] = [
+    pub const TOUTES: [Action; 275] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -942,6 +945,7 @@ impl Action {
         Action::InternatLire,
         Action::InternatAppel,
         Action::InternatAppelValider,
+        Action::InternatSortiesDecider,
         Action::FacturationGuichet,
         Action::FacturationEmettre,
         Action::FacturationAvoirs,
@@ -1040,6 +1044,7 @@ impl Action {
             Self::InternatLire => "internat.lire",
             Self::InternatAppel => "internat.appel",
             Self::InternatAppelValider => "internat.appel.valider",
+            Self::InternatSortiesDecider => "internat.sorties.decider",
             Self::SortiesGerer => "sorties.gerer",
             Self::SortiesControler => "sorties.controler",
             Self::ElevesGerer => "eleves.gerer",
@@ -1320,6 +1325,7 @@ impl Action {
             Self::InternatLire => "Lire l'attendu, les appels et les cas de nuit de l'internat",
             Self::InternatAppel => "Ouvrir un appel de nuit et pointer les internes de son périmètre",
             Self::InternatAppelValider => "Clore, valider et corriger un appel de nuit ; tenir un cas",
+            Self::InternatSortiesDecider => "Décider des absences annoncées et des sorties des internes",
             Self::SortiesGerer => "Gérer les sorties (règles, autorisations, demandes)",
             Self::SortiesControler => "Contrôler les sorties au portail",
             Self::ElevesGerer => "Gérer les élèves, foyers, liens et comptes",
@@ -1651,7 +1657,10 @@ impl Action {
             | Self::DocsSignerPublier => &[Portee::Etablissement],
             // Socle 41, lot I2 (R-IT30) : une direction de formation (collège, lycée) lit et valide
             // seulement ses élèves : portée « désignés » (classes de la formation) en plus de l'établissement.
-            Self::InternatLire | Self::InternatAppel | Self::InternatAppelValider => {
+            Self::InternatLire
+            | Self::InternatAppel
+            | Self::InternatAppelValider
+            | Self::InternatSortiesDecider => {
                 &[Portee::Etablissement, Portee::Designes]
             }
             // E1 : lectures d'identité par groupe, 4 portées (comme `_` ci-dessous) ;
@@ -2691,7 +2700,7 @@ fn socle_8_notifications(role: Role, d: &mut Vec<(Action, Portee)>) {
 fn socle_41_internat(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
-        for a in [InternatLire, InternatAppel, InternatAppelValider] {
+        for a in [InternatLire, InternatAppel, InternatAppelValider, InternatSortiesDecider] {
             d.push((a, Portee::Etablissement));
         }
     }

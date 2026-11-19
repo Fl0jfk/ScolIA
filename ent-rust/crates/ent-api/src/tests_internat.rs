@@ -121,6 +121,42 @@ async fn internat_api_aucune_route_sans_session() {
         ("GET", "/internat/procedure".into()),
         ("PUT", "/internat/procedure".into()),
         ("GET", "/internat/lectures-sensibles".into()),
+        // Lot I3 : absences et sorties (R-IT39 : aucune action par lien sans compte).
+        ("GET", "/internat/sortie-types".into()),
+        ("PUT", "/internat/sortie-types/mercredi".into()),
+        ("POST", "/internat/absences".into()),
+        ("GET", "/internat/absences/a-traiter".into()),
+        ("POST", format!("/internat/absences/{id}/decision")),
+        ("POST", format!("/internat/absences/{id}/annulation")),
+        ("POST", format!("/internat/absences/{id}/opposition")),
+        ("POST", format!("/internat/absences/{id}/arbitrage")),
+        ("GET", format!("/internat/eleves/{id}/absences")),
+        ("POST", "/internat/sorties".into()),
+        ("GET", "/internat/sorties/a-traiter".into()),
+        ("POST", format!("/internat/sorties/{id}/reponse")),
+        ("POST", format!("/internat/sorties/{id}/decision")),
+        ("POST", format!("/internat/sorties/{id}/annulation")),
+        ("POST", format!("/internat/sorties/{id}/opposition")),
+        ("POST", format!("/internat/sorties/{id}/arbitrage")),
+        ("POST", format!("/internat/sorties/{id}/personne")),
+        ("POST", format!("/internat/sorties/{id}/retard")),
+        ("POST", format!("/internat/sorties/{id}/depart")),
+        ("POST", format!("/internat/sorties/{id}/retour")),
+        ("GET", format!("/internat/eleves/{id}/sorties")),
+        ("POST", "/internat/departs/2026-04-17/preparation".into()),
+        ("GET", "/internat/departs/2026-04-17/remise".into()),
+        ("GET", "/internat/nuits/2026-03-28/sorties-du-soir".into()),
+        ("POST", "/internat/correspondants".into()),
+        ("POST", format!("/internat/correspondants/{id}/suspension")),
+        ("POST", format!("/internat/correspondants/{id}/reprise")),
+        ("POST", format!("/internat/correspondants/{id}/fin")),
+        ("GET", format!("/internat/eleves/{id}/correspondants")),
+        ("GET", format!("/internat/absences/{id}/historique")),
+        ("GET", format!("/internat/sorties/{id}/historique")),
+        ("GET", format!("/internat/correspondants/{id}/historique")),
+        ("GET", format!("/internat/eleves/{id}/autorisations")),
+        ("POST", "/internat/autorisations/demande".into()),
+        ("POST", "/internat/autorisations/revocation".into()),
     ];
     for (methode, uri) in routes {
         let corps = if methode == "GET" || methode == "DELETE" { None } else { Some(json!({})) };
@@ -383,4 +419,90 @@ async fn internat_api_dates_de_nuit_hors_bornes_refusees_en_400() {
     // Corps vide avec Content-Type JSON, sans rien à transmettre : un refus MÉTIER (409), pas une erreur de corps.
     let (st, r) = appel_brut(&app, "POST", "/internat/nuits/2026-03-28/transmission", &dir.jeton, Some("application/json"), "").await;
     assert_eq!(st, StatusCode::CONFLICT, "aucun appel : refus métier, pas d'erreur de corps : {r}");
+}
+
+/// Lot I3 : parcours HTTP du CPE (régularisation d'une nuit passée, file à traiter, sortie exceptionnelle, décision,
+/// départ refusé sans personne) et droits par rôle ; dates hors bornes refusées en 400. Les parcours de la famille
+/// (titulaire, élève majeur, désaccords) sont éprouvés contre la base dans `ent-db/src/tests_internat_i3.rs`.
+#[tokio::test]
+async fn internat_api_absences_sorties_parcours_cpe_droits_et_bornes() {
+    let Some((state, ent)) = etat().await else { return };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let cpe = inscrire(&app, etab, "cpe").await;
+    let dir = inscrire(&app, etab, "direction").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let garcon = eleve_interne(&ent, etab, "M").await;
+    let nuit = ent.nuit_courante_internat(etab).await.unwrap();
+    let hier = (nuit - Duration::days(1)).to_string();
+
+    // Les types de sortie se lisent de toute session ; seul `internat.gerer` les règle.
+    let (st, t) = appel(&app, "GET", "/internat/sortie-types", Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{t}");
+    assert_eq!(t.as_array().map(Vec::len), Some(6));
+    let (st, _) = appel(&app, "PUT", "/internat/sortie-types/soiree", Some(&prof.jeton), Some(json!({"actif": false}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "PUT", "/internat/sortie-types/soiree", Some(&cpe.jeton), Some(json!({"autorisation": "au_hasard"}))).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "{st}");
+
+    // Régularisation d'une nuit passée par le CPE (CIT-37) : 201, puis visible dans l'historique de l'élève.
+    let (st, a) = appel(&app, "POST", "/internat/absences", Some(&cpe.jeton), Some(json!({
+        "eleve_id": garcon, "du_nuit": hier, "au_nuit": hier, "regularisation": true, "motif_texte": "appel de la mère"
+    }))).await;
+    assert_eq!(st, StatusCode::CREATED, "{a}");
+    assert_eq!((a["statut"].as_str(), a["annonce_qualite"].as_str()), (Some("regularisee"), Some("personnel")));
+    // Sans motif : refus de règle (4xx), jamais une panne ; un professeur n'annonce pas ; dates absurdes : 400.
+    let (st, _) = appel(&app, "POST", "/internat/absences", Some(&cpe.jeton), Some(json!({
+        "eleve_id": garcon, "du_nuit": (nuit - Duration::days(2)).to_string(), "au_nuit": (nuit - Duration::days(2)).to_string(), "regularisation": true
+    }))).await;
+    assert!(st.is_client_error(), "{st}");
+    let (st, _) = appel(&app, "POST", "/internat/absences", Some(&prof.jeton), Some(json!({"eleve_id": garcon, "du_nuit": nuit, "au_nuit": nuit}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", "/internat/absences", Some(&cpe.jeton), Some(json!({"eleve_id": garcon, "du_nuit": "9999-01-01", "au_nuit": "9999-01-02"}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, _) = appel(&app, "GET", "/internat/departs/9999-01-01/remise", Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let id_absence = a["id"].as_str().unwrap().to_string();
+    let (st, hist) = appel(&app, "GET", &format!("/internat/absences/{id_absence}/historique"), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{hist}");
+    assert_eq!(hist[0]["acte"], "regularisation");
+    let (st, _) = appel(&app, "GET", &format!("/internat/absences/{id_absence}/historique"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "GET", &format!("/internat/absences/{}/historique", Uuid::new_v4()), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, h) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/absences"), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{h}");
+    assert_eq!(h.as_array().map(Vec::len), Some(1));
+    // File à traiter : réservée à `internat.sorties.decider`.
+    let (st, _) = appel(&app, "GET", "/internat/absences/a-traiter", Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, f) = appel(&app, "GET", "/internat/absences/a-traiter", Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{f}");
+    // Trancher une absence qui n'est pas bloquée : 409 ; une absence inconnue : 404.
+    let id = a["id"].as_str().unwrap().to_string();
+    let (st, _) = appel(&app, "POST", &format!("/internat/absences/{id}/arbitrage"), Some(&dir.jeton), Some(json!({"decision": "lever"}))).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    let (st, _) = appel(&app, "POST", &format!("/internat/absences/{}/arbitrage", Uuid::new_v4()), Some(&dir.jeton), Some(json!({"decision": "lever"}))).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+
+    // Sortie exceptionnelle demandée par le CPE : en attente des titulaires (accord ponctuel), départ refusé tant que non autorisée.
+    // Jour de l'établissement + 3 jours, à midi UTC (aucune lecture directe de l'horloge dans le test).
+    let debut = (nuit + Duration::days(3)).and_hms_opt(10, 0, 0).unwrap().and_utc();
+    let (st, s) = appel(&app, "POST", "/internat/sorties", Some(&cpe.jeton), Some(json!({
+        "eleve_id": garcon, "type_code": "exceptionnelle", "debut": debut, "fin_prevue": debut + Duration::hours(3), "seul": false
+    }))).await;
+    assert_eq!(st, StatusCode::CREATED, "{s}");
+    assert_eq!(s["statut"], "demandee");
+    let sid = s["id"].as_str().unwrap().to_string();
+    let (st, _) = appel(&app, "POST", &format!("/internat/sorties/{sid}/depart"), Some(&cpe.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "pas encore autorisée");
+    let (st, _) = appel(&app, "POST", &format!("/internat/sorties/{sid}/annulation"), Some(&cpe.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::OK);
+    // Départs du vendredi : réservés à `internat.gerer` ; liste de remise : `internat.appel`.
+    let (st, _) = appel(&app, "POST", "/internat/departs/2030-04-19/preparation", Some(&prof.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, r) = appel(&app, "GET", &format!("/internat/departs/{nuit}/remise"), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    let (st, _) = appel(&app, "GET", &format!("/internat/departs/{nuit}/remise"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
 }

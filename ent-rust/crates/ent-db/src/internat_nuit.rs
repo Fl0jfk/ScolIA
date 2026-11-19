@@ -163,6 +163,7 @@ pub(crate) struct AppelRow {
     pub valide_le: Option<DateTime<Utc>>,
     pub nb_attendus: i32,
     pub nb_ecarts: Option<i32>,
+    pub complement: i16,
 }
 
 impl AppelRow {
@@ -182,6 +183,7 @@ impl AppelRow {
             valide_le: self.valide_le,
             nb_attendus: self.nb_attendus,
             nb_ecarts: self.nb_ecarts,
+            complement: self.complement,
         }
     }
 }
@@ -201,10 +203,11 @@ type AppelTuple = (
     Option<DateTime<Utc>>,
     i32,
     Option<i32>,
+    i16,
 );
 
 const COLONNES_APPEL: &str = "id, nuit, type, perimetre, batiment_id, zone_id, liste_id, etat, \
-     a_posteriori, ouvert_le, clos_le, valide_le, nb_attendus, nb_ecarts";
+     a_posteriori, ouvert_le, clos_le, valide_le, nb_attendus, nb_ecarts, complement";
 
 fn depuis_tuple(t: AppelTuple) -> AppelRow {
     AppelRow {
@@ -222,6 +225,7 @@ fn depuis_tuple(t: AppelTuple) -> AppelRow {
         valide_le: t.11,
         nb_attendus: t.12,
         nb_ecarts: t.13,
+        complement: t.14,
     }
 }
 
@@ -296,19 +300,36 @@ fn ligne_de(t: LigneTuple) -> LigneAttendu {
 
 /// Corps de requête commun à l'ouverture d'un appel : l'attendu calculé de la nuit de l'établissement,
 /// restreint au périmètre. Les arguments sont les numéros de paramètres (`$n`) de l'instruction appelante.
-fn from_attendu_perimetre(etab: &str, nuit: &str, perimetre: &str, batiment: &str, zone: &str, liste: &str) -> String {
+fn from_attendu_perimetre(
+    etab: &str,
+    nuit: &str,
+    perimetre: &str,
+    batiment: &str,
+    zone: &str,
+    liste: &str,
+    extra: &str,
+) -> String {
     format!(
         "FROM ent_internat_attendu_calcule({etab}::uuid, {nuit}::date) a \
            LEFT JOIN ent_internat_chambre c ON c.etablissement_id = {etab}::uuid AND c.id = a.chambre_id \
            LEFT JOIN ent_internat_zone z ON z.etablissement_id = {etab}::uuid AND z.id = c.zone_id \
-          WHERE {perimetre}::text = 'internat' \
+          WHERE ({perimetre}::text = 'internat' \
              OR ({perimetre}::text = 'batiment' AND z.batiment_id = {batiment}::uuid) \
              OR ({perimetre}::text = 'zone' AND c.zone_id = {zone}::uuid) \
              OR ({perimetre}::text = 'liste' AND a.chambre_id IN ( \
                     SELECT lc.chambre_id FROM ent_internat_liste_chambre lc \
-                     WHERE lc.etablissement_id = {etab}::uuid AND lc.liste_id = {liste}::uuid))"
+                     WHERE lc.etablissement_id = {etab}::uuid AND lc.liste_id = {liste}::uuid))) {extra}"
     )
 }
+
+/// Filtre d'un appel « soir » complémentaire (M-1) : seulement les élèves attendus ou ajoutés qu'AUCUN appel du
+/// soir validé de la nuit ne couvre dans sa liste figée. Les paramètres `$2` (établissement) et `$3` (nuit) sont
+/// ceux des deux insertions de l'ouverture.
+const FILTRE_COMPLEMENT: &str = "AND a.statut IN ('attendu', 'ajoute') AND NOT EXISTS ( \
+        SELECT 1 FROM ent_internat_appel_attendu cx \
+          JOIN ent_internat_appel cp ON cp.etablissement_id = cx.etablissement_id AND cp.id = cx.appel_id \
+         WHERE cx.etablissement_id = $2::uuid AND cp.nuit = $3::date AND cp.type = 'soir' \
+           AND cp.etat = 'valide' AND cx.eleve_id = a.eleve_id)";
 
 /// Attendu calculé d'une nuit pour un périmètre (`internat`, `batiment`, `zone`, `liste`).
 pub(crate) async fn attendu_perimetre_tx(
@@ -879,7 +900,7 @@ impl PgEnt {
             return Err(refus("libellé de liste invalide"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        Self::exiger_membre_tx(&mut tx, etab, b.confie_a_user_id).await?;
+        self.exiger_surveillant_tx(&mut tx, etab, b.confie_a_user_id).await?;
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_internat_liste (id, etablissement_id, libelle, confie_a_user_id) VALUES ($1,$2,$3,$4)",
@@ -908,27 +929,39 @@ impl PgEnt {
         })
     }
 
-    /// Le surveillant à qui une liste est confiée appartient à l'établissement (adhésion ouverte) : sinon
-    /// une liste pourrait être confiée à un compte d'un autre établissement, ou inexistant.
-    async fn exiger_membre_tx(
+    /// F-1 : l'agent à qui une liste est confiée est du **personnel de l'établissement qui porte le droit
+    /// `internat.appel`**, avec un accès ouvert dont la date de fin n'est pas dépassée (jour de
+    /// l'établissement, comme `ent_acces_ouvert`). Sans cela, une liste pourrait être confiée à un compte
+    /// d'un autre établissement, à un parent, ou à un agent dont le contrat est terminé.
+    async fn exiger_surveillant_tx(
+        &self,
         conn: &mut PgConnection,
         etab: Uuid,
         user: Option<Uuid>,
     ) -> Result<(), EntDbError> {
         let Some(user) = user else { return Ok(()) };
-        let membre: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2 AND etat = 'ouvert')",
+        let roles: Vec<String> = sqlx::query_scalar(
+            "SELECT role FROM ent_membership \
+              WHERE etablissement_id = $1 AND user_id = $2 AND etat = 'ouvert' \
+                AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab($1))",
         )
         .bind(etab)
         .bind(user)
-        .fetch_one(&mut *conn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
-        if membre {
-            Ok(())
-        } else {
-            Err(refus("l'agent à qui la liste est confiée n'appartient pas à l'établissement"))
+        if roles.is_empty() {
+            return Err(refus(
+                "l'agent à qui la liste est confiée n'appartient pas à l'établissement ou son contrat est terminé",
+            ));
         }
+        for role in &roles {
+            let droits = self.droits_effectifs(etab, user, role).await?;
+            if droits.iter().any(|d| accorde(d.action, Action::InternatAppel)) {
+                return Ok(());
+            }
+        }
+        Err(refus("l'agent à qui la liste est confiée ne porte pas le droit de faire l'appel de nuit"))
     }
 
     async fn poser_chambres_liste_tx(
@@ -979,7 +1012,7 @@ impl PgEnt {
             return Err(refus("libellé de liste invalide"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        Self::exiger_membre_tx(&mut tx, etab, b.confie_a_user_id).await?;
+        self.exiger_surveillant_tx(&mut tx, etab, b.confie_a_user_id).await?;
         let n = sqlx::query(
             "UPDATE ent_internat_liste SET libelle = $3, confie_a_user_id = $4, actif = $5, modifie_le = now() \
               WHERE etablissement_id = $1 AND id = $2",
@@ -1126,6 +1159,39 @@ impl PgEnt {
         if !existe {
             return Err(DomainError::NotFound.into());
         }
+        // M-1 : appel « soir » complémentaire. Seul un soir déjà validé en ouvre un ; il ne couvre que les élèves
+        // attendus qu'aucun soir validé n'a couverts ; un seul complément à la fois, jamais vide.
+        let mut complement: i16 = 0;
+        if b.complementaire {
+            if b.type_appel != "soir" || b.perimetre != "internat" {
+                return Err(refus("un appel complémentaire est un appel du soir de tout l'internat"));
+            }
+            let (valide, en_cours, dernier): (bool, bool, i16) = sqlx::query_as(
+                "SELECT COALESCE(bool_or(etat = 'valide'), false), \
+                        COALESCE(bool_or(complement > 0 AND etat <> 'valide'), false), \
+                        COALESCE(max(complement), 0)::smallint \
+                   FROM ent_internat_appel WHERE etablissement_id = $1 AND nuit = $2 AND type = 'soir'",
+            )
+            .bind(etab)
+            .bind(nuit)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if !valide {
+                return Err(conflit(
+                    "aucun appel du soir n'est validé : ouvrir l'appel du soir (le complément vient après sa validation)",
+                ));
+            }
+            if en_cours {
+                return Err(conflit("un appel complémentaire est déjà en cours pour cette nuit"));
+            }
+            let a_couvrir = Self::eleves_non_couverts_par_le_soir_tx(&mut tx, etab, nuit).await?;
+            if a_couvrir == 0 {
+                return Err(conflit("aucun élève attendu n'échappe aux appels du soir validés : rien à compléter"));
+            }
+            complement = dernier + 1;
+        }
+        let extra = if b.complementaire { FILTRE_COMPLEMENT } else { "" };
         // M7 : un appel a posteriori (nuit passée) se saisit dans les 48 h qui suivent la fin de la nuit ;
         // au-delà, seul le droit de valider l'ouvre (il s'agit alors de reconstituer une nuit).
         let mut portee_valider: Option<HashSet<Uuid>> = None;
@@ -1153,13 +1219,13 @@ impl PgEnt {
         let nb_attendus: i32 = sqlx::query_scalar(&format!(
             "INSERT INTO ent_internat_appel \
              (id, etablissement_id, nuit, type, perimetre, batiment_id, zone_id, liste_id, a_posteriori, \
-              ouvert_par_user_id, ouvert_le, nb_attendus) \
+              ouvert_par_user_id, ouvert_le, nb_attendus, complement) \
              SELECT $1::uuid, $2::uuid, $3::date, $4::text, $5::text, $6::uuid, $7::uuid, $8::uuid, $9::boolean, \
                     $10::uuid, $11::timestamptz, \
-                    (count(*) FILTER (WHERE a.statut IN ('attendu', 'ajoute')))::int \
+                    (count(*) FILTER (WHERE a.statut IN ('attendu', 'ajoute')))::int, $12::smallint \
                {} \
              RETURNING nb_attendus",
-            from_attendu_perimetre("$2", "$3", "$5", "$6", "$7", "$8")
+            from_attendu_perimetre("$2", "$3", "$5", "$6", "$7", "$8", extra)
         ))
         .bind(id)
         .bind(etab)
@@ -1172,6 +1238,7 @@ impl PgEnt {
         .bind(nuit < courante)
         .bind(actor)
         .bind(maintenant)
+        .bind(complement)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
@@ -1187,7 +1254,7 @@ impl PgEnt {
              SELECT $2::uuid, $1::uuid, a.eleve_id, a.chambre_id, a.lit_id, a.statut, a.motif_code, $8::timestamptz \
                {} \
              RETURNING eleve_id, statut",
-            from_attendu_perimetre("$2", "$3", "$4", "$5", "$6", "$7")
+            from_attendu_perimetre("$2", "$3", "$4", "$5", "$6", "$7", extra)
         ))
         .bind(id)
         .bind(etab)
@@ -1219,7 +1286,7 @@ impl PgEnt {
             None,
             json!({
                 "nuit": nuit.to_string(), "type": b.type_appel, "perimetre": b.perimetre,
-                "a_posteriori": nuit < courante, "nb_attendus": nb_attendus
+                "a_posteriori": nuit < courante, "nb_attendus": nb_attendus, "complement": complement
             }),
             Some(actor),
             Causalite::default(),
@@ -1542,7 +1609,7 @@ impl PgEnt {
         }
         // L5 : une correction « absent » après clôture ouvre un cas, comme la clôture le fait.
         if correction && b.marque == "absent" && (statut == "attendu" || statut == "ajoute") {
-            self.ouvrir_cas_tx(conn, etab, actor, Some(appel.id), b.eleve_id, appel.nuit, "non_retrouve", maintenant)
+            self.ouvrir_cas_tx(conn, etab, Some(actor), Some(appel.id), b.eleve_id, appel.nuit, "non_retrouve", maintenant)
                 .await?;
         }
         let marques = marques_courantes_tx(conn, etab, appel.id).await?;
@@ -1755,7 +1822,7 @@ impl PgEnt {
         let mut cas_ouverts = Vec::new();
         for (eleve, nature) in a_ouvrir {
             if let Some(cas) = self
-                .ouvrir_cas_tx(&mut tx, etab, actor, Some(appel.id), eleve, appel.nuit, nature, maintenant)
+                .ouvrir_cas_tx(&mut tx, etab, Some(actor), Some(appel.id), eleve, appel.nuit, nature, maintenant)
                 .await?
             {
                 cas_ouverts.push(cas);

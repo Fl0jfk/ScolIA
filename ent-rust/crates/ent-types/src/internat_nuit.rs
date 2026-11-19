@@ -111,6 +111,10 @@ pub struct AppelOuvertureDto {
     pub zone_id: Option<Uuid>,
     #[serde(default)]
     pub liste_id: Option<Uuid>,
+    /// Appel « soir » complémentaire (M-1) : couvre les élèves attendus qu'aucun appel du soir validé n'a
+    /// couverts (nuit exceptionnelle ou séjour posé après la validation). Périmètre « internat » seulement.
+    #[serde(default)]
+    pub complementaire: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -131,6 +135,9 @@ pub struct AppelDto {
     pub valide_le: Option<DateTime<Utc>>,
     pub nb_attendus: i32,
     pub nb_ecarts: Option<i32>,
+    /// 0 pour l'appel principal ; n >= 1 pour le n-ième appel complémentaire (M-1).
+    #[serde(default)]
+    pub complement: i16,
 }
 
 /// Ligne de la vue d'appel : la liste figée à l'ouverture et la valeur courante du pointage.
@@ -364,6 +371,12 @@ pub struct TransmissionDto {
     pub nb_cas: i32,
     /// `false` si la nuit avait déjà été transmise avec les mêmes chiffres (la route est idempotente).
     pub nouvelle: bool,
+    /// Élèves attendus qu'aucun appel du soir validé n'a couverts (M-1) : comptés à part, jamais passés
+    /// sous silence ni rangés parmi les présents ou les absents.
+    #[serde(default)]
+    pub nb_non_couverts: i32,
+    #[serde(default)]
+    pub non_couverts: Vec<Uuid>,
 }
 
 fn version_un() -> i32 {
@@ -383,8 +396,11 @@ pub struct EffectifRepasDto {
     pub nuit: NaiveDate,
     /// Dîner de la nuit : internes attendus ce soir.
     pub diner: i32,
-    /// Petit-déjeuner du lendemain : attendus moins ceux déclarés absents ou partis au matin.
+    /// Petit-déjeuner du lendemain : attendus moins l'**union** des absents et des partis des appels du soir.
     pub petit_dejeuner: i32,
+    /// Attendus non couverts par un appel du soir validé (M-1) : ni dans le dîner, ni dans le petit-déjeuner.
+    #[serde(default)]
+    pub non_couverts: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

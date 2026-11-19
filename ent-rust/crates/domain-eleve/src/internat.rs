@@ -751,11 +751,55 @@ pub struct CreerSuiviInternat {
 /// Longueur maximale d'un suivi (RI-09, R-IT7).
 pub const SUIVI_MAX_CARACTERES: usize = 300;
 
-/// Texte ramené en minuscules **sans diacritiques** (M1) : équivalent d'une normalisation NFKD suivie du
-/// retrait des marques, écrit à la main (aucune dépendance de plus, D-062). Couvre : les marques combinantes
-/// (texte décomposé « e » + U+0301), les lettres latines accentuées du Latin-1 et du Latin étendu A,
-/// « œ », « æ », « ß », les formes pleine chasse (« ＦＩＥＶＲＥ ») et les caractères invisibles (soft hyphen,
-/// espaces de largeur nulle) qu'on glisserait au milieu d'un mot pour tromper la détection.
+/// Lettre de base d'une lettre latine étendue **en minuscule** (Latin étendu B, U+0180–024F, et Latin étendu
+/// additionnel, U+1E00–1EFF) : barrée, à crochet, à anneau, à point suscrit ou souscrit, à accent empilé…
+/// Table écrite à la main par plages (aucune dépendance de plus, D-062) ; une lettre non listée reste
+/// telle quelle. Les digrammes (« ǆ », « ǉ », « ǌ », « ǳ ») et « æ » se déploient.
+fn base_etendue(c: char) -> Option<&'static str> {
+    let u = c as u32;
+    let plages: &[(u32, u32, &str)] = &[
+        // Latin étendu B.
+        (0x0180, 0x0183, "b"), (0x0187, 0x0188, "c"), (0x0189, 0x018C, "d"), (0x0191, 0x0192, "f"),
+        (0x0193, 0x0193, "g"), (0x0197, 0x0197, "i"), (0x0198, 0x0199, "k"), (0x019A, 0x019A, "l"),
+        (0x019D, 0x019E, "n"), (0x019F, 0x01A1, "o"), (0x01A4, 0x01A5, "p"), (0x01AB, 0x01AE, "t"),
+        (0x01AF, 0x01B0, "u"), (0x01B2, 0x01B2, "v"), (0x01B3, 0x01B4, "y"), (0x01B5, 0x01B6, "z"),
+        (0x01C4, 0x01C6, "dz"), (0x01C7, 0x01C9, "lj"), (0x01CA, 0x01CC, "nj"), (0x01CD, 0x01CE, "a"),
+        (0x01CF, 0x01D0, "i"), (0x01D1, 0x01D2, "o"), (0x01D3, 0x01DC, "u"), (0x01DE, 0x01E1, "a"),
+        (0x01E2, 0x01E3, "ae"), (0x01E4, 0x01E7, "g"), (0x01E8, 0x01E9, "k"), (0x01EA, 0x01ED, "o"),
+        (0x01F0, 0x01F0, "j"), (0x01F1, 0x01F3, "dz"), (0x01F4, 0x01F5, "g"), (0x01F8, 0x01F9, "n"),
+        (0x01FA, 0x01FB, "a"), (0x01FC, 0x01FD, "ae"), (0x01FE, 0x01FF, "o"), (0x0200, 0x0203, "a"),
+        (0x0204, 0x0207, "e"), (0x0208, 0x020B, "i"), (0x020C, 0x020F, "o"), (0x0210, 0x0213, "r"),
+        (0x0214, 0x0217, "u"), (0x0218, 0x0219, "s"), (0x021A, 0x021B, "t"), (0x021E, 0x021F, "h"),
+        (0x0220, 0x0220, "n"), (0x0224, 0x0225, "z"), (0x0226, 0x0227, "a"), (0x0228, 0x0229, "e"),
+        (0x022A, 0x0231, "o"), (0x0232, 0x0233, "y"), (0x0234, 0x0234, "l"), (0x0235, 0x0235, "n"),
+        (0x0236, 0x0236, "t"), (0x0243, 0x0243, "b"), (0x0244, 0x0244, "u"), (0x0246, 0x0247, "e"),
+        (0x0248, 0x0249, "j"), (0x024A, 0x024B, "q"), (0x024C, 0x024D, "r"), (0x024E, 0x024F, "y"),
+        // Latin étendu additionnel.
+        (0x1E00, 0x1E01, "a"), (0x1E02, 0x1E07, "b"), (0x1E08, 0x1E09, "c"), (0x1E0A, 0x1E13, "d"),
+        (0x1E14, 0x1E1D, "e"), (0x1E1E, 0x1E1F, "f"), (0x1E20, 0x1E21, "g"), (0x1E22, 0x1E2B, "h"),
+        (0x1E2C, 0x1E2F, "i"), (0x1E30, 0x1E35, "k"), (0x1E36, 0x1E3D, "l"), (0x1E3E, 0x1E43, "m"),
+        (0x1E44, 0x1E4B, "n"), (0x1E4C, 0x1E53, "o"), (0x1E54, 0x1E57, "p"), (0x1E58, 0x1E5F, "r"),
+        (0x1E60, 0x1E69, "s"), (0x1E6A, 0x1E71, "t"), (0x1E72, 0x1E7B, "u"), (0x1E7C, 0x1E7F, "v"),
+        (0x1E80, 0x1E89, "w"), (0x1E8A, 0x1E8D, "x"), (0x1E8E, 0x1E8F, "y"), (0x1E90, 0x1E95, "z"),
+        (0x1E96, 0x1E96, "h"), (0x1E97, 0x1E97, "t"), (0x1E98, 0x1E98, "w"), (0x1E99, 0x1E99, "y"),
+        (0x1E9A, 0x1E9A, "a"), (0x1E9B, 0x1E9D, "s"), (0x1E9E, 0x1E9E, "ss"), (0x1EA0, 0x1EB7, "a"),
+        (0x1EB8, 0x1EC7, "e"), (0x1EC8, 0x1ECB, "i"), (0x1ECC, 0x1EE3, "o"), (0x1EE4, 0x1EF1, "u"),
+        (0x1EF2, 0x1EF9, "y"),
+    ];
+    plages.iter().find(|(d, f, _)| (*d..=*f).contains(&u)).map(|(_, _, b)| *b)
+}
+
+/// Texte ramené en minuscules **sans diacritiques** (M1, F-4) : une **aide**, pas l'équivalent d'une
+/// normalisation Unicode NFKD (aucune dépendance de plus, D-062 : la table est écrite à la main et ne
+/// couvre donc pas tout Unicode). Couvre :
+/// * les marques combinantes (texte décomposé « e » + U+0301) des blocs U+0300–036F, U+1AB0–1AFF,
+///   U+1DC0–1DFF, U+20D0–20FF et U+FE20–FE2F ;
+/// * les lettres latines accentuées du Latin-1, du Latin étendu A, du Latin étendu B (U+0180–024F) et du Latin
+///   étendu additionnel (U+1E00–1EFF) ;
+/// * les ligatures U+FB00–FB06 (« ﬁèvre ») et « œ », « æ », « ß » ;
+/// * les formes pleine chasse (« ＦＩＥＶＲＥ ») ;
+/// * les caractères invisibles qu'on glisserait au milieu d'un mot pour tromper la détection : trait d'union
+///   conditionnel, espaces de largeur nulle, U+2060–2064 (opérateurs invisibles), U+180E, U+FEFF.
 fn replier_en_ascii(texte: &str) -> String {
     let mut sortie = String::with_capacity(texte.len());
     for c in texte.chars() {
@@ -765,7 +809,22 @@ fn replier_en_ascii(texte: &str) -> String {
             c
         };
         match c {
-            '\u{0300}'..='\u{036F}' | '\u{00AD}' | '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}' => {}
+            '\u{0300}'..='\u{036F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+            | '\u{00AD}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200D}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{FEFF}' => {}
+            '\u{FB00}' => sortie.push_str("ff"),
+            '\u{FB01}' => sortie.push_str("fi"),
+            '\u{FB02}' => sortie.push_str("fl"),
+            '\u{FB03}' => sortie.push_str("ffi"),
+            '\u{FB04}' => sortie.push_str("ffl"),
+            '\u{FB05}' | '\u{FB06}' => sortie.push_str("st"),
             _ => {
                 for l in c.to_lowercase() {
                     match l {
@@ -792,7 +851,10 @@ fn replier_en_ascii(texte: &str) -> String {
                         'ŵ' => sortie.push('w'),
                         'ý' | 'ÿ' | 'ŷ' => sortie.push('y'),
                         'ź' | 'ż' | 'ž' => sortie.push('z'),
-                        autre => sortie.push(autre),
+                        autre => match base_etendue(autre) {
+                            Some(base) => sortie.push_str(base),
+                            None => sortie.push(autre),
+                        },
                     }
                 }
             }
@@ -1285,5 +1347,34 @@ mod tests {
         assert!(!mots_de_sante_detectes("S'est bien intégré, rangé sa chambre"));
         assert!(!mots_de_sante_detectes("maladroit mais gentil"));
         assert!(!mots_de_sante_detectes("Il pleut, il pait calmement"));
+    }
+
+    /// F-4 : ligatures, Latin étendu B et additionnel, marques combinantes hors U+0300–036F, invisibles
+    /// U+2061–2064 et U+180E.
+    #[test]
+    fn repli_ligatures_latin_etendu_marques_et_invisibles() {
+        // Ligatures U+FB00–FB06.
+        assert_eq!(replier_en_ascii("\u{FB00}\u{FB01}\u{FB02}\u{FB03}\u{FB04}\u{FB05}\u{FB06}"), "fffiflffifflstst");
+        assert!(mots_de_sante_detectes("\u{FB01}evre"), "ﬁevre");
+        assert!(mots_de_sante_detectes("\u{FB01}\u{00E8}vre"), "ﬁèvre");
+        // Latin étendu B (U+0180–024F) : « ǎ », « ȇ », « ơ », « ƫ », « ǆ ».
+        assert_eq!(replier_en_ascii("ǍȆƠƫǅ"), "aeotdz");
+        assert!(mots_de_sante_detectes("diab\u{0229}te"), "ȩ proche de e");
+        assert!(mots_de_sante_detectes("m\u{0229}dicament"), "ȩ → e");
+        assert!(mots_de_sante_detectes("fi\u{1EC7}vre"), "ệ du Latin étendu additionnel");
+        assert!(mots_de_sante_detectes("\u{1E1E}IEVRE"), "Ḟ → f");
+        assert_eq!(replier_en_ascii("ḂḃẠạỆệṦṧẞ"), "bbaaeessss");
+        // Marques combinantes hors U+0300–036F.
+        for marque in ['\u{1AB0}', '\u{1AC0}', '\u{1DC0}', '\u{1DFF}', '\u{20D0}', '\u{20FF}', '\u{FE20}', '\u{FE2F}'] {
+            let t = format!("fi{marque}evre");
+            assert!(mots_de_sante_detectes(&t), "marque {marque:?}");
+        }
+        // Invisibles U+2061–2064 et U+180E.
+        for invisible in ['\u{2061}', '\u{2062}', '\u{2063}', '\u{2064}', '\u{180E}'] {
+            let t = format!("fi{invisible}evre");
+            assert!(mots_de_sante_detectes(&t), "invisible {invisible:?}");
+        }
+        // Rien de plus : un texte sans rapport reste libre, y compris avec des lettres étendues.
+        assert!(!mots_de_sante_detectes("Ơn a rangé sa chambre ǎ ȇ ṧ ệ"));
     }
 }

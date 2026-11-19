@@ -240,13 +240,13 @@ impl PgEnt {
     // ───────────────────────── Cas ─────────────────────────
 
     /// Ouvre un cas pour l'élève et la nuit (un seul cas ouvert par élève et par nuit). `None` si un cas
-    /// est déjà ouvert.
+    /// est déjà ouvert. `actor = None` : ouverture par le système (retard de retour, élève non récupéré).
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn ouvrir_cas_tx(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
-        actor: Uuid,
+        actor: Option<Uuid>,
         appel: Option<Uuid>,
         eleve: Uuid,
         nuit: NaiveDate,
@@ -284,7 +284,7 @@ impl PgEnt {
             id,
             Some(eleve),
             json!({ "nuit": nuit.to_string(), "nature": nature }),
-            Some(actor),
+            actor,
             Causalite::default(),
         )
         .await?;
@@ -782,13 +782,15 @@ impl PgEnt {
                     Some("present" | "vu" | "infirmerie" | "non_attendu_present") => {
                         presents.insert(l.eleve_id);
                         absents.remove(&l.eleve_id);
+                        // F-3 : « parti » au soir puis « présent » au matin : il est là, il prend son petit-déjeuner.
+                        partis.remove(&l.eleve_id);
                     }
                     Some("absent") => {
                         if !presents.contains(&l.eleve_id) {
                             absents.insert(l.eleve_id);
                         }
                     }
-                    Some("parti") => {
+                    Some("parti") if !presents.contains(&l.eleve_id) => {
                         partis.insert(l.eleve_id);
                     }
                     _ => {}
@@ -850,16 +852,48 @@ impl PgEnt {
             .map_err(db)?;
             n as i32
         };
+        // F-3 : on retranche l'UNION des absents et des partis (un élève à la fois absent et parti ne compte
+        // qu'une fois), jamais la somme des deux ensembles.
+        let hors: HashSet<&Uuid> = c.absents.iter().chain(c.partis.iter()).collect();
+        // M-1 : sur une nuit transmise, les attendus qu'aucun soir validé n'a couverts sont comptés à part.
+        let non_couverts = if figee {
+            Self::eleves_non_couverts_ids_tx(conn, etab, nuit).await?.len() as i32
+        } else {
+            0
+        };
         Ok(EffectifRepasDto {
             nuit,
             diner,
-            petit_dejeuner: (diner - c.absents.len() as i32 - c.partis.len() as i32).max(0),
+            petit_dejeuner: (diner - hors.len() as i32).max(0),
+            non_couverts,
         })
     }
 
     /// Élèves attendus (ou ajoutés) de la nuit qu'aucun appel « soir » **validé** ne couvre dans sa liste figée.
     /// Sert au rappel d'un appel en retard et refuse la transmission du matin (M3).
-    async fn eleves_non_couverts_par_le_soir_tx(
+    /// Les mêmes élèves, en liste triée (transmission du matin, M-1).
+    pub(crate) async fn eleves_non_couverts_ids_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        nuit: NaiveDate,
+    ) -> Result<Vec<Uuid>, EntDbError> {
+        sqlx::query_scalar(
+            "SELECT a.eleve_id FROM ent_internat_attendu_calcule($1, $2) a \
+              WHERE a.statut IN ('attendu', 'ajoute') AND NOT EXISTS ( \
+                    SELECT 1 FROM ent_internat_appel_attendu x \
+                      JOIN ent_internat_appel p ON p.etablissement_id = x.etablissement_id AND p.id = x.appel_id \
+                     WHERE x.etablissement_id = $1 AND p.nuit = $2 AND p.type = 'soir' AND p.etat = 'valide' \
+                       AND x.eleve_id = a.eleve_id) \
+              ORDER BY a.eleve_id",
+        )
+        .bind(etab)
+        .bind(nuit)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)
+    }
+
+    pub(crate) async fn eleves_non_couverts_par_le_soir_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         nuit: NaiveDate,
@@ -938,15 +972,12 @@ impl PgEnt {
         if !soir_valide {
             return Err(conflit("l'appel du soir n'est pas validé : le valider avant de transmettre"));
         }
-        // M3, couverture : le soir validé doit couvrir TOUS les élèves attendus ou ajoutés de la nuit ; un
-        // élève qui ne figure dans la liste figée d'aucun appel « soir » validé (appel d'une seule zone, par
-        // exemple) n'a jamais été vu : on ne transmet pas la nuit comme complète.
-        let non_couverts = Self::eleves_non_couverts_par_le_soir_tx(&mut tx, etab, nuit).await?;
-        if non_couverts > 0 {
-            return Err(conflit(
-                "des élèves attendus ne sont dans aucun appel du soir validé : couvrir tout l'internat avant de transmettre",
-            ));
-        }
+        // M3 / M-1, couverture : un élève attendu qui ne figure dans la liste figée d'aucun appel « soir »
+        // validé n'a jamais été vu (nuit exceptionnelle ou séjour posé après la validation du soir, zone jamais
+        // appelée). Un appel « soir » complémentaire peut le couvrir ; à défaut, la nuit PASSÉE se transmet
+        // quand même, avec la liste explicite de ces élèves, comptés à part (ni présents, ni absents) : la
+        // transmission ne se bloque plus pour toujours, et rien n'est passé sous silence.
+        let non_couverts = Self::eleves_non_couverts_ids_tx(&mut tx, etab, nuit).await?;
         let c = self.chiffres_nuit_tx(&mut tx, etab, nuit).await?;
         if c.nb_appels == 0 {
             return Err(conflit("aucun appel clos ou validé pour cette nuit : rien à transmettre"));
@@ -955,8 +986,10 @@ impl PgEnt {
         // lectures suivantes comptent de la même façon, aucune différence artificielle).
         let repas = self.effectif_repas_tx(&mut tx, etab, nuit, &c, true).await?;
         #[allow(clippy::type_complexity)]
-        let derniere: Option<(i32, DateTime<Utc>, i32, i32, i32, i32, Vec<Uuid>, Vec<Uuid>)> = sqlx::query_as(
-            "SELECT version, transmis_le, nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis \
+        let derniere: Option<(i32, DateTime<Utc>, i32, i32, i32, i32, Vec<Uuid>, Vec<Uuid>, bool, Vec<Uuid>)> =
+            sqlx::query_as(
+            "SELECT version, transmis_le, nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis, \
+                    ensembles_connus, eleves_non_couverts \
                FROM ent_internat_transmission \
               WHERE etablissement_id = $1 AND nuit = $2 AND nature = 'matin_vie_scolaire' \
               ORDER BY version DESC LIMIT 1",
@@ -970,7 +1003,7 @@ impl PgEnt {
         absents.sort();
         let version = match &derniere {
             None => 1,
-            Some((v, transmis_le, att, pre, abs, cas, anciens_absents, anciens_partis)) => {
+            Some((v, transmis_le, att, pre, abs, cas, anciens_absents, anciens_partis, connus, anciens_non_couverts)) => {
                 // Repas de la version précédente (dîner, petit-déjeuner), lus sur sa ligne de restauration.
                 let anciens_repas: Option<(i32, i32)> = sqlx::query_as(
                     "SELECT nb_attendus, nb_presents FROM ent_internat_transmission \
@@ -988,10 +1021,20 @@ impl PgEnt {
                 anciens_partis.sort();
                 // Les ENSEMBLES comptent, pas seulement les compteurs : un absent redevenu présent pendant
                 // qu'un autre devient absent laisse les totaux intacts mais change la vie scolaire.
+                // F-2 (tolérance documentée) : une ligne écrite avant I3 (`ensembles_connus = false`) n'a pas
+                // porté l'ensemble des partis ni celui des non-couverts, et son petit-déjeuner suit l'ancienne
+                // formule ; la relire ne doit pas forcer une rectificative artificielle. Elle se compare donc
+                // sur le dîner, les compteurs et l'ensemble des absents seulement.
+                let mut anciens_non_couverts = anciens_non_couverts.clone();
+                anciens_non_couverts.sort();
+                let repas_identiques = match (&anciens_repas, *connus) {
+                    (Some((d, _)), false) => *d == repas.diner,
+                    (r, _) => *r == Some((repas.diner, repas.petit_dejeuner)),
+                };
                 let identique = (*att, *pre, *abs, *cas) == (c.attendus, c.presents, nb_abs, c.nb_cas)
                     && anciens_absents == absents
-                    && anciens_partis == c.partis
-                    && anciens_repas == Some((repas.diner, repas.petit_dejeuner));
+                    && (!*connus || (anciens_partis == c.partis && anciens_non_couverts == non_couverts))
+                    && repas_identiques;
                 if identique {
                     // Mêmes chiffres : rien de nouveau à transmettre.
                     return Ok(TransmissionDto {
@@ -1003,6 +1046,8 @@ impl PgEnt {
                         nb_absents: *abs,
                         nb_cas: *cas,
                         nouvelle: false,
+                        nb_non_couverts: anciens_non_couverts.len() as i32,
+                        non_couverts: anciens_non_couverts,
                     });
                 }
                 if motif.is_none() {
@@ -1021,8 +1066,9 @@ impl PgEnt {
             sqlx::query(
                 "INSERT INTO ent_internat_transmission \
                  (id, etablissement_id, nuit, nature, version, motif_rectification, transmis_le, transmis_par_user_id, \
-                  nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+                  nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis, \
+                  ensembles_connus, nb_non_couverts, eleves_non_couverts) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15,$16)",
             )
             .bind(Uuid::new_v4())
             .bind(etab)
@@ -1038,6 +1084,8 @@ impl PgEnt {
             .bind(c.nb_cas)
             .bind(&absents_v)
             .bind(&partis_v)
+            .bind(non_couverts.len() as i32)
+            .bind(&non_couverts)
             .execute(&mut *tx)
             .await
             .map_err(|e| match &e {
@@ -1097,7 +1145,8 @@ impl PgEnt {
             None,
             json!({
                 "nuit": nuit.to_string(), "version": version, "rectificative": version > 1,
-                "nb_attendus": c.attendus, "nb_presents": c.presents, "nb_absents": nb_abs, "nb_cas": c.nb_cas
+                "nb_attendus": c.attendus, "nb_presents": c.presents, "nb_absents": nb_abs, "nb_cas": c.nb_cas,
+                "nb_non_couverts": non_couverts.len()
             }),
             Some(actor),
             Causalite::default(),
@@ -1113,7 +1162,7 @@ impl PgEnt {
             None,
             json!({
                 "nuit": nuit.to_string(), "version": version, "diner": repas.diner,
-                "petit_dejeuner": repas.petit_dejeuner
+                "petit_dejeuner": repas.petit_dejeuner, "non_couverts": repas.non_couverts
             }),
             Some(actor),
             Causalite::default(),
@@ -1129,6 +1178,8 @@ impl PgEnt {
             nb_absents: nb_abs,
             nb_cas: c.nb_cas,
             nouvelle: true,
+            nb_non_couverts: non_couverts.len() as i32,
+            non_couverts,
         })
     }
 
@@ -1435,10 +1486,16 @@ pub(crate) fn rendre_pdf_appel(
     nb_corrections: i64,
     local: NaiveDateTime,
 ) -> Vec<u8> {
+    rendre_pdf_depuis_contenu(&contenu_pdf_appel(vue, nb_corrections), vue.appel.nuit, local)
+}
+
+/// Rendu d'un contenu déjà établi (F-5) : le PDF ne lit RIEN d'autre que ce contenu et la nuit (titre du
+/// document) ; `rendre_pdf_appel` n'est que `contenu_pdf_appel` suivi de ce rendu. Les tests de la règle R-IT6
+/// (aucune donnée de santé) portent sur le contenu ; celui-ci prouve que le PDF en part.
+pub(crate) fn rendre_pdf_depuis_contenu(contenu: &ContenuPdfAppel, nuit: NaiveDate, local: NaiveDateTime) -> Vec<u8> {
     use ent_pdf::{Align, Colonne, Document, Ligne, Meta, Tableau};
-    let contenu = contenu_pdf_appel(vue, nb_corrections);
     let meta = Meta {
-        titre: format!("Appel de nuit — {}", vue.appel.nuit),
+        titre: format!("Appel de nuit — {nuit}"),
         auteur: "ScolIA".into(),
         creation: Some(ent_pdf::DateHeure {
             an: local.year() as u16,
@@ -1465,8 +1522,8 @@ pub(crate) fn rendre_pdf_appel(
             .map(|((nom, largeur), align)| Colonne::new(nom, largeur, align))
             .collect(),
     );
-    for (ligne, grasse) in contenu.lignes {
-        t.lignes.push(if grasse { Ligne::grasse(ligne) } else { Ligne::new(ligne) });
+    for (ligne, grasse) in &contenu.lignes {
+        t.lignes.push(if *grasse { Ligne::grasse(ligne.clone()) } else { Ligne::new(ligne.clone()) });
     }
     d.tableau(&t);
     d.paragraphe(&contenu.conclusion);
@@ -1582,7 +1639,7 @@ const OBJETS_INTERDITS_NUIT: &str = "ARRAY['communication', 'contact_eleve', 're
 /// Identifiants de la personne `p` et de toutes celles qui ont été fusionnées dans elle, **sur toute la
 /// chaîne** (A fusionnée dans B, B dans C : C porte les mesures de A, de B et les siennes). Sous-requête
 /// récursive ; l'établissement est `$1`. `UNION` écarte les doublons, donc un cycle ne boucle pas.
-fn chaine_fusion_sql(p: &str) -> String {
+pub(crate) fn chaine_fusion_sql(p: &str) -> String {
     format!(
         "(WITH RECURSIVE chaine(id) AS ( \
               SELECT {p}::uuid \
@@ -1744,5 +1801,77 @@ impl PgEnt {
                 a,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests_pdf {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn vue(nom: &str) -> AppelVueDto {
+        let t = Utc.with_ymd_and_hms(2026, 3, 28, 20, 45, 0).unwrap();
+        AppelVueDto {
+            appel: AppelDto {
+                id: Uuid::nil(),
+                nuit: NaiveDate::from_ymd_opt(2026, 3, 28).unwrap(),
+                type_appel: "soir".into(),
+                perimetre: "internat".into(),
+                batiment_id: None,
+                zone_id: None,
+                liste_id: None,
+                etat: "valide".into(),
+                a_posteriori: false,
+                ouvert_le: t,
+                clos_le: Some(t),
+                valide_le: Some(t),
+                nb_attendus: 1,
+                nb_ecarts: Some(0),
+                complement: 0,
+            },
+            calcule_le: t,
+            lignes: vec![AppelLigneDto {
+                eleve_id: Uuid::nil(),
+                nom: Some(nom.into()),
+                prenom: Some("Léa".into()),
+                protege: false,
+                chambre_code: Some("A1".into()),
+                lit_numero: Some(1),
+                statut: "attendu".into(),
+                motif_code: None,
+                marque: Some("present".into()),
+                marque_a: Some(t),
+                marque_par_user_id: None,
+                retour_attendu: None,
+                conflit: false,
+                marques_en_conflit: vec![],
+                renvoi_infirmerie: false,
+                corrige: false,
+            }],
+            nb_pointes: 1,
+            ecarts_avec_attendu_actuel: vec![],
+        }
+    }
+
+    /// F-5 : le PDF part de `contenu_pdf_appel`. Rendu déterministe comparé : le rendu direct d'une vue est
+    /// identique, octet pour octet, au rendu de son contenu ; changer une cellule du contenu change le PDF ;
+    /// changer la vue change le contenu et donc le PDF.
+    #[test]
+    fn le_pdf_part_du_contenu_pdf_appel() {
+        let local = NaiveDate::from_ymd_opt(2026, 3, 29).unwrap().and_hms_opt(8, 15, 0).unwrap();
+        let v = vue("Durand");
+        let direct = rendre_pdf_appel(&v, 2, local);
+        assert!(direct.starts_with(b"%PDF"), "un vrai PDF");
+        let contenu = contenu_pdf_appel(&v, 2);
+        assert_eq!(direct, rendre_pdf_depuis_contenu(&contenu, v.appel.nuit, local), "le PDF = rendu du contenu");
+        assert_eq!(direct, rendre_pdf_appel(&v, 2, local), "déterministe : mêmes entrées, mêmes octets");
+        let mut modifie = contenu_pdf_appel(&v, 2);
+        modifie.lignes[0].0[2] = "Autre Nom".into();
+        assert_ne!(rendre_pdf_depuis_contenu(&modifie, v.appel.nuit, local), direct, "le contenu pilote le PDF");
+        let mut conclusion = contenu_pdf_appel(&v, 2);
+        conclusion.conclusion.push_str(" Ajout.");
+        assert_ne!(rendre_pdf_depuis_contenu(&conclusion, v.appel.nuit, local), direct);
+        assert_ne!(rendre_pdf_appel(&vue("Martin"), 2, local), direct, "la vue pilote le contenu, donc le PDF");
+        assert_ne!(rendre_pdf_appel(&v, 3, local), direct, "le nombre de corrections figure dans le contenu");
     }
 }

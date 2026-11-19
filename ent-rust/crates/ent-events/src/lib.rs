@@ -328,6 +328,23 @@ pub mod types {
     pub const INTERNAT_ABSENCE_NUIT: &str = "internat.absence_nuit";
     pub const INTERNAT_TRANSMISSION: &str = "internat.transmission";
     pub const INTERNAT_EFFECTIF_REPAS: &str = "internat.effectif_repas";
+    // Socle 41, lot I3 : absences et sorties. Charges : identifiants, dates, codes ; jamais un nom, un
+    // texte libre ni une donnée de santé.
+    pub const INTERNAT_ABSENCE_ANNONCEE: &str = "internat.absence_annoncee";
+    pub const INTERNAT_ABSENCE_DECIDEE: &str = "internat.absence_decidee";
+    pub const INTERNAT_ABSENCE_REGULARISEE: &str = "internat.absence_regularisee";
+    pub const INTERNAT_ABSENCE_BLOQUEE: &str = "internat.absence_bloquee";
+    pub const INTERNAT_SORTIE_DEMANDEE: &str = "internat.sortie_demandee";
+    pub const INTERNAT_SORTIE_DECIDEE: &str = "internat.sortie_decidee";
+    pub const INTERNAT_SORTIE_PARTIE: &str = "internat.sortie_partie";
+    pub const INTERNAT_SORTIE_RENTREE: &str = "internat.sortie_rentree";
+    pub const INTERNAT_RETARD_ANNONCE: &str = "internat.retard_annonce";
+    pub const INTERNAT_DEPART_PREVU: &str = "internat.depart_prevu";
+    pub const INTERNAT_AUTORISATIONS_DEMANDEES: &str = "internat.autorisations_demandees";
+    pub const INTERNAT_AUTORISATION_REVOQUEE: &str = "internat.autorisation_revoquee";
+    pub const INTERNAT_CORRESPONDANT: &str = "internat.correspondant";
+    pub const INTERNAT_DESACCORD_TRANCHE: &str = "internat.desaccord_tranche";
+    pub const INTERNAT_MAJEUR_INFORME: &str = "internat.majeur_informe";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";

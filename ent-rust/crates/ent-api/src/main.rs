@@ -417,6 +417,22 @@ async fn run_api() {
             }
         });
     }
+    // Socle 41 (I3) : veille des sorties de l'internat : cas « retard de retour » et « non récupéré » au-delà du
+    // seuil, sorties jamais utilisées qui expirent, sorties à venir revues (personne devenue interdite). Chaque
+    // minute ; idempotent (un seul cas ouvert par élève et par nuit).
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.internat_sorties_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(sorties = n, "veille des sorties d'internat"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("veille des sorties d'internat : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {

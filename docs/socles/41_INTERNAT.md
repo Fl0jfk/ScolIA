@@ -1085,7 +1085,7 @@ ent_internat_cas_etape (id, etablissement_id, cas_id, etape_id, fait_le, par_use
 ent_internat_procedure_version (id, etablissement_id, nature, version, publiee_le, publiee_par)
 ent_internat_procedure_etape (id, etablissement_id, procedure_version_id, rang, code, libelle, delai_minutes, appelle CHECK (astreinte|titulaires|direction|secours|aucun))
 
--- Absences et sorties (I3 ; 2825)
+-- Absences et sorties (I3 ; 2826)
 ent_internat_absence (id, etablissement_id, eleve_id, du_nuit DATE, au_nuit DATE, annonce_par_user_id,
   annonce_qualite CHECK (titulaire|eleve_majeur|personnel), recupere_par_personne_id NULL, retour_prevu TIMESTAMPTZ NULL,
   statut CHECK (annoncee|acceptee|refusee|bloquee|regularisee|annulee), tardive BOOLEAN, decide_par NULL, decide_le NULL,
@@ -1098,14 +1098,14 @@ ent_internat_sortie (id, etablissement_id, eleve_id, type_id, debut TIMESTAMPTZ,
 ent_internat_sortie_fait (id, etablissement_id, sortie_id, nature CHECK (depart|retour|retard_annonce|revocation), a, par_user_id NULL, cree_le) -- ajout seul
 ent_internat_correspondant (id, etablissement_id, eleve_id, personne_id (4), du, au NULL, lundi … dimanche BOOLEAN, cree_le, modifie_le)
 
--- Sorties de groupe (I4 ; 2826)
+-- Sorties de groupe (I4 ; 2827)
 ent_internat_sortie_groupe (id, etablissement_id, titre, lieu, debut, fin, statut CHECK (brouillon|soumise|acceptee|refusee|annulee|close),
   decide_par NULL, decide_le NULL, cree_le, modifie_le)
 ent_internat_sortie_groupe_encadrant (etablissement_id, sortie_groupe_id, personnel_id (6))
 ent_internat_sortie_groupe_participant (id, etablissement_id, sortie_groupe_id, eleve_id,
   etat CHECK (invite|en_attente|autorise|refuse|non_autorise|parti|rentre), autorisation_id NULL, cree_le, modifie_le)
 
--- Vie quotidienne (I4 ; 2827)
+-- Vie quotidienne (I4 ; 2828)
 ent_internat_liaison_code (id, etablissement_id NULL pour le catalogue fourni, code, libelle, pour_le_jour BOOLEAN, actif)
   -- table de référence : etablissement_id NULL = catalogue ScolIA (classé « globale_reference », E12)
 ent_internat_liaison (id, etablissement_id, eleve_id, code_id, texte NULL CHECK (≤ 300), nuit DATE, par_user_id,
@@ -1117,13 +1117,13 @@ ent_internat_evenement_complement (id, etablissement_id, evenement_id, texte CHE
 ent_internat_temps (id, etablissement_id, nature CHECK (etude|activite), libelle, debut, fin, salle_id NULL (5), encadrant_personnel_id NULL, places NULL, cree_le, modifie_le)
 ent_internat_temps_participant (etablissement_id, temps_id, eleve_id, inscrit_le)
 
--- Sécurité, encadrement (I5, I6 ; 2828)
+-- Sécurité, encadrement (I5, I6 ; 2829)
 ent_internat_exercice (id, etablissement_id, batiment_id, type CHECK (evacuation|confinement|alerte_reelle), a TIMESTAMPTZ,
   de_nuit BOOLEAN, duree_secondes INTEGER, presents_comptes INTEGER, attendus INTEGER, appel_id NULL, observations CHECK (≤ 2000), saisi_par, cree_le)
 ent_internat_besoin_encadrement (id, etablissement_id, batiment_id NULL, zone_id NULL, jour_semaine SMALLINT, effectif_min SMALLINT, du, au NULL, cree_le)
 ent_internat_lecture_sensible (id, etablissement_id, user_id, objet CHECK (fiche_nuit|liaison|presents|registre|cas), eleve_id NULL, a) -- ajout seul (ou ent_journal_modif, E7)
 
--- Familles, rentrée (I7, I8 ; 2829–2830)
+-- Familles, rentrée (I7, I8 ; 2830–2831)
 ent_internat_bilan (id, etablissement_id, eleve_id, semaine_du DATE, etat CHECK (brouillon|publie), publie_par NULL, publie_le NULL, cree_le, modifie_le)
 ent_internat_bilan_ligne (id, etablissement_id, bilan_id, nature CHECK (nuits|absence|retard|fait_publie|sortie_a_venir), liaison_id NULL, texte CHECK (≤ 500), rang)
   -- copie publiée : instantané figé par ligne (texte), jamais relu comme source (exception D-036 non nécessaire : colonnes typées)
@@ -1134,11 +1134,11 @@ ent_internat_installation_reservation (id, etablissement_id, campagne_id, eleve_
   statut CHECK (confirmee|annulee), cree_le, modifie_le, UNIQUE (etablissement_id, campagne_id, eleve_id) WHERE statut = 'confirmee')
 ent_internat_voeu_cohabitation (id, etablissement_id, annee_id, eleve_id, avec_eleve_id, cree_le)  -- lu du seul responsable
 
--- Argent (I9 ; 2831)
+-- Argent (I9 ; 2832)
 ent_internat_nuit_mois (id, etablissement_id, eleve_id, mois DATE, dues SMALLINT, servies SMALLINT, exceptionnelles SMALLINT, calcule_le, version) -- état transmis au 24
 ent_internat_nuit_non_servie (etablissement_id, nuit_mois_id, cause CHECK (fermeture|stage|sejour_scolaire|exclusion|absence_justifiee|absence_famille|sante), nombre SMALLINT)
 
--- Reprise (I11 ; 2832)
+-- Reprise (I11 ; 2833)
 ent_internat_reprise_correspondance (id, etablissement_id, source CHECK (next_json|next_type), cle_source TEXT, cible_table, cible_id UUID, lot_id, cree_le)
 
 -- Paramètres (I1 ; 2821) : colonnes typées, pas de clé-valeur
@@ -1174,16 +1174,16 @@ ent_internat_type_appel_actif (etablissement_id, type, actif, heure_prevue TIME 
 |---|---|---|---|---|
 | **I1** Hébergement et séjours | zones, chambres étendues, lits, séjours, rythmes, affectations datées sous contraintes (public, accessibilité, interdiction), dérogations, plan, paramètres | I0 ; 2, 5 | R-IT1–R-IT5, R-IT10–R-IT12 testés | 2821–2823 |
 | **I2** La nuit | attendu calculé, appels (types, périmètres, listes), faits, clôture, validation, PDF, correction, rappel, cas et procédure, transmission au matin, effectif au 40 | I1 ; 12 (absence de nuit), 4 (numéros), 6 (astreinte) | parité NI-17 à NI-25 ; DI-01, DI-11, DI-13, DI-19 impossibles | 2824 |
-| **I3** Absences et sorties | annonces des familles, décisions, sorties typées, correspondants, départ du vendredi, retours, remise (14), autorisations annuelles (18), majeurs, désaccords | I2 ; 4, 14, 18 | parité NI-33 ; R-IT19–R-IT23 testés | 2825 |
-| **I4** Vie quotidienne | liaison codée, événements (→ 13, 34, 44), sorties de groupe, études (12), activités, préoccupation (36) | I2 ; 13, 18 | parité NI-27 à NI-41 ; DI-06, DI-14, DI-17 impossibles | 2826–2827 |
-| **I5** Sécurité et santé | présents de nuit, impression de secours, exercices et rappels, PPMS, fiche de nuit (consignes du 34), mouvements | I2 ; 14, 34 | présents produits < 2 s pour 300 internes ; R-IT6 testé (aucune donnée de santé) | 2828 |
-| **I6** Encadrement | besoins, lecture du planning du 6, trous, astreinte, prise et fin de service, garde d'honorabilité facultative | I2 ; 6, 15 | | 2828 |
-| **I7** Familles et élèves | espace famille, annonces mobiles, planning, avis (8), bilan relu et publié | I3, I4 ; 8, 16 | | 2829 |
-| **I8** Rentrée | répartition proposée (déterministe), vœux, reconduction, campagne d'installation, états des lieux et clés (44), capacité au 3, clôture d'année | I1 ; 3, 18, 19, 44 | parité NI-44 à NI-48 ; DI-07 impossible | 2830 |
-| **I9** Argent | nuits du mois et causes au 24 ; mode suivi et état de comparaison pendant le doublon ; cautions | I3 ; 24 | R-IT35, R-IT36 testés | 2831 |
+| **I3** Absences et sorties | annonces des familles, décisions, sorties typées, correspondants, départ du vendredi, retours, remise (14), autorisations annuelles (18), majeurs, désaccords | I2 ; 4, 14, 18 | parité NI-33 ; R-IT19–R-IT23 testés | 2826 (2825 consommée par les suites d'I2) |
+| **I4** Vie quotidienne | liaison codée, événements (→ 13, 34, 44), sorties de groupe, études (12), activités, préoccupation (36) | I2 ; 13, 18 | parité NI-27 à NI-41 ; DI-06, DI-14, DI-17 impossibles | 2827–2828 |
+| **I5** Sécurité et santé | présents de nuit, impression de secours, exercices et rappels, PPMS, fiche de nuit (consignes du 34), mouvements | I2 ; 14, 34 | présents produits < 2 s pour 300 internes ; R-IT6 testé (aucune donnée de santé) | 2829 |
+| **I6** Encadrement | besoins, lecture du planning du 6, trous, astreinte, prise et fin de service, garde d'honorabilité facultative | I2 ; 6, 15 | | 2829 |
+| **I7** Familles et élèves | espace famille, annonces mobiles, planning, avis (8), bilan relu et publié | I3, I4 ; 8, 16 | | 2830 |
+| **I8** Rentrée | répartition proposée (déterministe), vœux, reconduction, campagne d'installation, états des lieux et clés (44), capacité au 3, clôture d'année | I1 ; 3, 18, 19, 44 | parité NI-44 à NI-48 ; DI-07 impossible | 2831 |
+| **I9** Argent | nuits du mois et causes au 24 ; mode suivi et état de comparaison pendant le doublon ; cautions | I3 ; 24 | R-IT35, R-IT36 testés | 2832 |
 | **I10** Mobile surveillant | appel hors ligne chiffré, synchronisation et conflits, alerte, cas, fiche de nuit | I2, I5 ; 11 | appel complet en mode avion, 0 perte à la resynchronisation | — |
-| **I11** Reprise et parallèle | outil de reprise des deux générations Next.js, correspondances, rapport, comparaison des appels pendant le parallèle | I1–I4 | reprise d'un export anonymisé sans perte des données « à conserver » | 2832 |
-| **I12** Pilotage et conformité | tableau de bord, indicateurs (47), exports, registre R. 442-1, accès RGPD, purges, journal des lectures | I2–I8 ; 27, 47 | | 2833 |
+| **I11** Reprise et parallèle | outil de reprise des deux générations Next.js, correspondances, rapport, comparaison des appels pendant le parallèle | I1–I4 | reprise d'un export anonymisé sans perte des données « à conserver » | 2833 |
+| **I12** Pilotage et conformité | tableau de bord, indicateurs (47), exports, registre R. 442-1, accès RGPD, purges, journal des lectures | I2–I8 ; 27, 47 | | 2834 |
 | **I13** IA | capacités §18.3, jeu d'évaluation, tests de garde | I8, I2 ; `ent-ia` | 6 pièges réussis | — |
 | **I14** Retrait de l'ancien | retrait des colonnes 066 héritées (`batiment` texte, `genre`), de `ent_internat_presence` et `ent_internat_suivi` après reprise, sur décision et sauvegarde vérifiée (E8) | toutes | | 2839 |
 
@@ -1197,16 +1197,17 @@ ent_internat_type_appel_actif (etablissement_id, type, actif, heure_prevue TIME 
 | 2822 | I1 | zones, chambres étendues, lits |
 | 2823 | I1 | séjours, rythmes, affectations étendues, dérogations, nuits exceptionnelles |
 | 2824 | I2 | appels, listes, attendu figé, cas, procédures |
-| 2825 | I3 | absences, types de sortie, sorties, faits de sortie, correspondants |
-| 2826 | I4 | sorties de groupe |
-| 2827 | I4 | liaison, événements, temps du soir |
-| 2828 | I5 / I6 | exercices, besoins d'encadrement, lectures sensibles |
-| 2829 | I7 | bilans |
-| 2830 | I8 | campagne d'installation, réservations, vœux |
-| 2831 | I9 | nuits du mois |
-| 2832 | I11 | correspondances de reprise |
-| 2833 | I12 | index et vues de pilotage |
-| 2834–2838 | réserve | |
+| 2825 | I2 (suites) | consommée par les suites de la contre-revue d'I2 (date de sortie, sorties scolaires, note de clôture du cas, ensemble des partis) |
+| 2826 | I3 | **consommée** : absences annoncées, types de sortie, sorties, correspondants, journal des faits, appel « soir » complémentaire, attendu lisant absences et sorties |
+| 2827 | I4 | sorties de groupe *(décalée d'un cran : l'ancienne 2826)* |
+| 2828 | I4 | liaison, événements, temps du soir *(ancienne 2827)* |
+| 2829 | I5 / I6 | exercices, besoins d'encadrement *(ancienne 2828 ; `ent_internat_lecture_sensible` est déjà créée en 2824)* |
+| 2830 | I7 | bilans *(ancienne 2829)* |
+| 2831 | I8 | campagne d'installation, réservations, vœux *(ancienne 2830)* |
+| 2832 | I9 | nuits du mois *(ancienne 2831)* |
+| 2833 | I11 | correspondances de reprise *(ancienne 2832)* |
+| 2834 | I12 | index et vues de pilotage *(ancienne 2833)* |
+| 2835–2838 | réserve | |
 | 2839 | I14 | retrait des tables et colonnes héritées (sur décision) |
 
 ---

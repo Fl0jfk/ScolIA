@@ -33,6 +33,7 @@ mod inscriptions_pieces;
 mod documents_verif;
 mod internat;
 mod internat_nuit;
+mod internat_sorties;
 pub mod obs;
 mod referentiel;
 mod cahier;

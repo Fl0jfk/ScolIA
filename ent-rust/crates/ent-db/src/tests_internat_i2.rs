@@ -25,45 +25,45 @@ use uuid::Uuid;
 
 use crate::droits_repo::{Droit, RoleSaisie};
 
-const CPE: &str = "cpe";
-const DIR: &str = "direction";
+pub(crate) const CPE: &str = "cpe";
+pub(crate) const DIR: &str = "direction";
 
 /// Nuit du samedi 28 mars 2026 : le changement d'heure (passage à l'heure d'été) a lieu à 2 h le
 /// dimanche 29, au milieu de cette nuit. Paris est à UTC+1 le soir, UTC+2 au matin.
-fn nuit_dst() -> NaiveDate {
+pub(crate) fn nuit_dst() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 3, 28).unwrap()
 }
 
-fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
+pub(crate) fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(y, m, d, h, mi, 0).unwrap()
 }
 
 /// Soir de la nuit DST, à `mi` minutes après 20 h 45 UTC (21 h 45 à Paris).
-fn soir(mi: u32) -> DateTime<Utc> {
+pub(crate) fn soir(mi: u32) -> DateTime<Utc> {
     utc(2026, 3, 28, 20, 45) + chrono::Duration::minutes(i64::from(mi))
 }
 
-fn alea() -> String {
+pub(crate) fn alea() -> String {
     Uuid::new_v4().simple().to_string()[..6].to_string()
 }
 
-struct Banc {
-    ent: PgEnt,
-    etab: Uuid,
-    cpe: Uuid,
-    dir: Uuid,
-    admin: Uuid,
-    compta: Uuid,
-    prof: Uuid,
-    batiment: Uuid,
-    zone_a: Uuid,
-    zone_b: Uuid,
-    chambre_a: Uuid,
-    chambre_b: Uuid,
+pub(crate) struct Banc {
+    pub(crate) ent: PgEnt,
+    pub(crate) etab: Uuid,
+    pub(crate) cpe: Uuid,
+    pub(crate) dir: Uuid,
+    pub(crate) admin: Uuid,
+    pub(crate) compta: Uuid,
+    pub(crate) prof: Uuid,
+    pub(crate) batiment: Uuid,
+    pub(crate) zone_a: Uuid,
+    pub(crate) zone_b: Uuid,
+    pub(crate) chambre_a: Uuid,
+    pub(crate) chambre_b: Uuid,
     /// Quatre garçons en zone A (chambre A), deux en zone B.
-    a: Vec<Uuid>,
-    b: Vec<Uuid>,
-    cast: LaboCast,
+    pub(crate) a: Vec<Uuid>,
+    pub(crate) b: Vec<Uuid>,
+    pub(crate) cast: LaboCast,
 }
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
@@ -72,7 +72,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-async fn eleve_fixe(ent: &PgEnt, etab: Uuid, prenom: &str) -> Uuid {
+pub(crate) async fn eleve_fixe(ent: &PgEnt, etab: Uuid, prenom: &str) -> Uuid {
     ent.create_eleve(CreateEleve {
         etablissement_id: etab,
         nom: format!("Nuit{}", alea()),
@@ -97,7 +97,7 @@ async fn eleve_fixe(ent: &PgEnt, etab: Uuid, prenom: &str) -> Uuid {
 }
 
 /// Séjour 2025-09-01 → ouvert, sept nuits par semaine dès 2026-01-01, affectation à un lit.
-async fn heberger(b: &Banc, eleve: Uuid, chambre: Uuid, lit: Option<Uuid>) {
+pub(crate) async fn heberger(b: &Banc, eleve: Uuid, chambre: Uuid, lit: Option<Uuid>) {
     let pool = b.ent.pool_verif();
     let sejour = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_internat_sejour (id, etablissement_id, eleve_id, du, origine) VALUES ($1,$2,$3,'2025-09-01','regime')")
@@ -134,7 +134,7 @@ async fn heberger(b: &Banc, eleve: Uuid, chambre: Uuid, lit: Option<Uuid>) {
     .unwrap();
 }
 
-async fn banc() -> Option<Banc> {
+pub(crate) async fn banc() -> Option<Banc> {
     let (ent, cast) = labo().await?;
     let etab = cast.etablissement_id;
     let (cpe, dir) = (cast.cpe.user_id, cast.direction.user_id);
@@ -224,7 +224,7 @@ async fn banc() -> Option<Banc> {
     Some(b)
 }
 
-fn ouverture(type_appel: &str, perimetre: &str, zone: Option<Uuid>) -> AppelOuvertureDto {
+pub(crate) fn ouverture(type_appel: &str, perimetre: &str, zone: Option<Uuid>) -> AppelOuvertureDto {
     AppelOuvertureDto {
         nuit: Some(nuit_dst()),
         type_appel: type_appel.into(),
@@ -232,10 +232,11 @@ fn ouverture(type_appel: &str, perimetre: &str, zone: Option<Uuid>) -> AppelOuve
         batiment_id: None,
         zone_id: zone,
         liste_id: None,
+        complementaire: false,
     }
 }
 
-fn pointage(eleve: Uuid, marque: &str) -> PointageSaisieDto {
+pub(crate) fn pointage(eleve: Uuid, marque: &str) -> PointageSaisieDto {
     PointageSaisieDto {
         eleve_id: eleve,
         marque: marque.into(),
@@ -249,18 +250,18 @@ fn pointage(eleve: Uuid, marque: &str) -> PointageSaisieDto {
 }
 
 impl Banc {
-    async fn ouvrir(&self, type_appel: &str, perimetre: &str, zone: Option<Uuid>, mi: u32) -> AppelVueDto {
+    pub(crate) async fn ouvrir(&self, type_appel: &str, perimetre: &str, zone: Option<Uuid>, mi: u32) -> AppelVueDto {
         self.ent
             .ouvrir_appel_a(self.etab, self.cpe, CPE, &ouverture(type_appel, perimetre, zone), soir(mi))
             .await
             .unwrap()
     }
 
-    async fn point(&self, appel: Uuid, eleve: Uuid, marque: &str, mi: u32) -> Result<PointageResultatDto, EntDbError> {
+    pub(crate) async fn point(&self, appel: Uuid, eleve: Uuid, marque: &str, mi: u32) -> Result<PointageResultatDto, EntDbError> {
         self.ent.pointer_a(self.etab, self.cpe, CPE, appel, &pointage(eleve, marque), soir(mi)).await
     }
 
-    async fn evenements(&self, type_event: &str) -> Vec<serde_json::Value> {
+    pub(crate) async fn evenements(&self, type_event: &str) -> Vec<serde_json::Value> {
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT payload FROM ent_metier_event WHERE etablissement_id = $1 AND type = $2 ORDER BY created_at, id",
         )
@@ -277,7 +278,7 @@ impl Banc {
 /// erreur (panne de base, `Forbidden`, « introuvable »…) n'est JAMAIS un refus attendu : un test de refus ne doit
 /// pas passer au vert sur une panne. Affiche l'erreur reçue quand ce n'est pas le bon refus.
 #[track_caller]
-fn refus_de(r: &Result<impl std::fmt::Debug, EntDbError>, fragment: &str) -> bool {
+pub(crate) fn refus_de(r: &Result<impl std::fmt::Debug, EntDbError>, fragment: &str) -> bool {
     let attendu = fragment.to_lowercase();
     let ok = match r {
         Err(EntDbError::Refus(_, m)) => m.to_lowercase().contains(&attendu),
@@ -295,7 +296,7 @@ fn refus_de(r: &Result<impl std::fmt::Debug, EntDbError>, fragment: &str) -> boo
     ok
 }
 
-fn est_interdit(r: &Result<impl std::fmt::Debug, EntDbError>) -> bool {
+pub(crate) fn est_interdit(r: &Result<impl std::fmt::Debug, EntDbError>) -> bool {
     matches!(r, Err(EntDbError::Forbidden))
 }
 
@@ -2401,7 +2402,7 @@ async fn e3_fusions_en_chaine_portent_les_mesures_de_toute_la_chaine() {
     b.ent.cas_issue_a(b.etab, b.cpe, CPE, cas[&a1], &issue_famille(m1), soir(6)).await.unwrap();
 }
 
-async fn soir_zone_valide(b: &Banc, zone: Uuid, eleves: &[Uuid], mi: u32) -> Uuid {
+pub(crate) async fn soir_zone_valide(b: &Banc, zone: Uuid, eleves: &[Uuid], mi: u32) -> Uuid {
     let appel = b.ouvrir("soir", "zone", Some(zone), mi).await.appel.id;
     for e in eleves {
         b.point(appel, *e, "present", mi + 1).await.unwrap();
@@ -2411,27 +2412,43 @@ async fn soir_zone_valide(b: &Banc, zone: Uuid, eleves: &[Uuid], mi: u32) -> Uui
     appel
 }
 
-/// M3 — couverture : la transmission du matin est refusée tant qu'un élève attendu ou ajouté n'est dans la liste
-/// figée d'aucun appel « soir » validé.
+/// M-1 (suite de la revue d'I2) — couverture : un attendu qu'aucun appel « soir » validé ne couvre ne bloque plus la
+/// transmission du matin pour toujours. La nuit passée part avec la liste EXPLICITE des non-couverts, comptés à part
+/// (jamais passés sous silence), et une rectificative l'actualise quand un appel les couvre ensuite.
 #[tokio::test]
-async fn m3_transmission_refusee_tant_qu_un_attendu_n_est_dans_aucun_soir_valide() {
+async fn m3_zone_jamais_appelee_la_transmission_part_avec_les_non_couverts_comptes_a_part() {
     let Some(b) = banc().await else { return };
     let matin = utc(2026, 3, 29, 5, 0);
     // Seul l'appel de la zone A est validé : les deux élèves de la zone B n'ont jamais été appelés.
     soir_zone_valide(&b, b.zone_a, &b.a.clone(), 0).await;
-    let r = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await;
-    assert!(refus_de(&r, "aucun appel du soir validé"), "zone B jamais appelée");
-    // Avec la zone B validée à son tour, tout l'internat est couvert : la transmission passe.
+    let v1 = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
+    assert!(v1.nouvelle && v1.version == 1);
+    assert_eq!((v1.nb_attendus, v1.nb_presents, v1.nb_absents), (4, 4, 0), "les non-couverts ne sont ni présents ni absents");
+    let mut zone_b = b.b.clone();
+    zone_b.sort();
+    assert_eq!((v1.nb_non_couverts, v1.non_couverts.clone()), (2, zone_b), "liste explicite, triée");
+    // Idempotente : refaite avec les mêmes chiffres, elle renvoie la même version et la même liste.
+    let encore = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
+    assert!(!encore.nouvelle && encore.version == 1 && encore.non_couverts == v1.non_couverts);
+    let repas = b.ent.effectif_repas_a(b.etab, b.cpe, CPE, nuit_dst(), matin).await.unwrap();
+    assert_eq!((repas.diner, repas.non_couverts), (4, 2), "dîner sur les listes figées ; non-couverts à part");
+    // Événements : le compteur part avec la transmission, sans aucun nom.
+    let tx = b.evenements("internat.transmission").await;
+    assert_eq!(tx.len(), 1);
+    assert_eq!(tx[0]["nb_non_couverts"], 2);
+    // La zone B est appelée ensuite : les chiffres changent, une rectificative (motif obligatoire) les actualise.
     soir_zone_valide(&b, b.zone_b, &b.b.clone(), 10).await;
-    let v = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
-    assert!(v.nouvelle && v.version == 1);
-    assert_eq!(v.nb_attendus, 6);
+    let r = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await;
+    assert!(refus_de(&r, "motif de rectification"), "les chiffres ont changé : un motif est obligatoire");
+    let v2 = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), Some("zone B appelée après coup"), matin).await.unwrap();
+    assert!(v2.nouvelle && v2.version == 2);
+    assert_eq!((v2.nb_attendus, v2.nb_non_couverts, v2.non_couverts.len()), (6, 0, 0));
 }
 
-/// M3 — couverture, cas d'un élève « ajouté » (nuit exceptionnelle) sans chambre : les appels par zone ne le
-/// contiennent pas ; seul un appel de tout l'internat le couvre.
+/// M-1 — cas d'un élève « ajouté » (nuit exceptionnelle) sans chambre : les appels par zone ne le contiennent pas ; la
+/// transmission le liste à part ; un appel de tout l'internat le couvre et la rectificative l'intègre.
 #[tokio::test]
-async fn m3_un_eleve_ajoute_hors_zone_bloque_la_transmission_jusqu_a_un_appel_de_l_internat() {
+async fn m3_un_eleve_ajoute_hors_zone_est_non_couvert_puis_couvert_par_un_appel_de_l_internat() {
     let Some(b) = banc().await else { return };
     let matin = utc(2026, 3, 29, 5, 0);
     let invite = eleve_fixe(&b.ent, b.etab, "Invité").await;
@@ -2441,16 +2458,16 @@ async fn m3_un_eleve_ajoute_hors_zone_bloque_la_transmission_jusqu_a_un_appel_de
         .unwrap();
     soir_zone_valide(&b, b.zone_a, &b.a.clone(), 1).await;
     soir_zone_valide(&b, b.zone_b, &b.b.clone(), 10).await;
-    let r = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await;
-    assert!(refus_de(&r, "aucun appel du soir validé"), "l'ajouté n'est dans aucune liste de zone");
+    let v1 = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
+    assert_eq!((v1.nb_attendus, v1.non_couverts.clone()), (6, vec![invite]), "l'ajouté n'est dans aucune liste de zone");
     let tout = b.ouvrir("soir", "internat", None, 20).await.appel.id;
     for e in b.a.iter().chain(b.b.iter()).chain(std::iter::once(&invite)) {
         b.point(tout, *e, "present", 21).await.unwrap();
     }
     b.ent.cloturer_appel_a(b.etab, b.cpe, CPE, tout, soir(22)).await.unwrap();
     b.ent.valider_appel_a(b.etab, b.cpe, CPE, tout, soir(23)).await.unwrap();
-    let v = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), None, matin).await.unwrap();
-    assert_eq!(v.nb_attendus, 7);
+    let v2 = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), Some("appel de tout l'internat"), matin).await.unwrap();
+    assert_eq!((v2.version, v2.nb_attendus, v2.nb_non_couverts), (2, 7, 0));
 }
 
 /// M3 — rectificative : l'idempotence compare les ENSEMBLES (absents, partis), pas seulement quatre compteurs. Un absent
@@ -2474,7 +2491,7 @@ async fn m3_rectificative_quand_l_ensemble_des_absents_ou_des_partis_change_a_to
     // correction en « absent » n'en ajoute pas (un seul cas ouvert par élève et par nuit), donc `nb_cas` reste égal.
     {
         let mut tx = crate::tenant_tx::TenantTx::begin(b.ent.pool(), b.etab).await.unwrap();
-        b.ent.ouvrir_cas_tx(&mut tx, b.etab, b.cpe, None, b.a[1], nuit_dst(), "non_retrouve", soir(4)).await.unwrap().expect("cas ouvert");
+        b.ent.ouvrir_cas_tx(&mut tx, b.etab, Some(b.cpe), None, b.a[1], nuit_dst(), "non_retrouve", soir(4)).await.unwrap().expect("cas ouvert");
         tx.commit().await.unwrap();
     }
     let matin = utc(2026, 3, 29, 5, 0);

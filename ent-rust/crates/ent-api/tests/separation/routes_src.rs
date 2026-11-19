@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels, services d'enseignement). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 66] = [
+pub const SOURCES: [&str; 67] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/cahier_c3.rs"),
@@ -75,6 +75,7 @@ pub const SOURCES: [&str; 66] = [
     include_str!("../../src/agenda.rs"),
     include_str!("../../src/internat.rs"),
     include_str!("../../src/internat_nuit.rs"),
+    include_str!("../../src/internat_sorties.rs"),
     include_str!("../../src/voyages_achats.rs"),
     include_str!("../../src/voyages_v0d.rs"),
     include_str!("../../src/voyages_v1.rs"),
@@ -90,7 +91,7 @@ pub const SOURCES: [&str; 66] = [
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 66] = [
+pub const NOMS_SOURCES: [&str; 67] = [
     "routes.rs",
     "cahier.rs",
     "cahier_c3.rs",
@@ -145,6 +146,7 @@ pub const NOMS_SOURCES: [&str; 66] = [
     "agenda.rs",
     "internat.rs",
     "internat_nuit.rs",
+    "internat_sorties.rs",
     "voyages_achats.rs",
     "voyages_v0d.rs",
     "voyages_v1.rs",
