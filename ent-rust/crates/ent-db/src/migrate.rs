@@ -757,7 +757,7 @@ async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateErr
             // de son fichier) échoue sur la vue : l'erreur nomme alors la vue, pas l'ordre.
             let (code_vue, nomme_vue) = match &e {
                 sqlx::Error::Database(d) => (
-                    d.code().is_some_and(|c| c == "42809" || c == "55000"),
+                    d.code().is_some_and(|c| c == "42809" || c == "55000" || c == "42601"),
                     d.message().contains("\"ent_devoir\"") || d.message().contains("\"ent_note\""),
                 ),
                 _ => (false, false),
