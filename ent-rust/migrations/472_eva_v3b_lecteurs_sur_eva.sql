@@ -798,8 +798,7 @@ BEGIN
        AND (p_etab IS NULL OR t.etablissement_id = p_etab);
     GET DIAGNOSTICS n = ROW_COUNT; o_table := 'ent_edt_creneau'; o_rattachees := n; RETURN NEXT;
 
-    -- `ent_devoir` est désormais une vue dérivée de `eva_evaluation` (V3b) : sa classe vient du cours, rien à rattacher.
-    n := 0; o_table := 'ent_devoir'; o_rattachees := n; RETURN NEXT;
+    -- `ent_devoir` est désormais une vue dérivée de `eva_evaluation` (V3b) : sa classe vient du cours, il ne figure plus au rapport.
 
     UPDATE ent_cahier_texte t SET classe_id = ent_resoudre_classe(t.etablissement_id, t.classe, t.pour_le)
      WHERE t.classe_id IS NULL AND btrim(t.classe) <> ''

@@ -674,7 +674,7 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         // rejoue le fichier (cinq tentatives au plus, attente croissante).
         let mut tentative = 0u64;
         loop {
-            match apply_sql_file(pool, sql).await {
+            match apply_sql_file_rejeu(pool, sql).await {
                 Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
                     if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
                 {
@@ -739,6 +739,28 @@ fn ordres(sql: &str) -> Vec<String> {
 async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
     for stmt in ordres(sql) {
         sqlx::query(&stmt).execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// Rejeu : comme `apply_sql_file`, mais un ordre qui vise `ent_note` ou `ent_devoir` comme **table** (colonne, index,
+/// contrainte, suppression) est ignoré s'il échoue parce que ce sont désormais des **vues** de compatibilité en
+/// lecture seule sur `eva_*` (472 : les anciennes tables sont des archives). Ces ordres appartiennent à des fichiers
+/// anciens (008, 022, 111, 180, 460, 2402) dont la reprise ne porte plus sur ces objets ; tout autre échec reste fatal.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
+    for stmt in ordres(sql) {
+        if let Err(e) = sqlx::query(&stmt).execute(pool).await {
+            let vue_legacy = [" ent_note ", " ent_note(", " ent_devoir ", " ent_devoir(", "\nent_note ", "\nent_devoir "]
+                .iter()
+                .any(|m| stmt.contains(m));
+            let code_vue = matches!(&e, sqlx::Error::Database(d) if d.code().is_some_and(|c| c == "42809" || c == "55000"));
+            if vue_legacy && code_vue {
+                continue;
+            }
+            return Err(e.into());
+        }
     }
     Ok(())
 }

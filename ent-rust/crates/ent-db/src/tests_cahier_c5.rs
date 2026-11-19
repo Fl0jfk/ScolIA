@@ -567,6 +567,11 @@ async fn retours_note_masquee_versions_lot_et_prenom_d_un_autre_eleve() {
     let r2 = fx.ent.cdt_retour_enregistrer(&fx.prof(), rx, RetourC5Body { commentaire: "Bien.".into(), note_id: Some(note), montrer_note: true, ..Default::default() }, vec![]).await.unwrap();
     assert_eq!(r2.version, 2);
     assert_eq!(fx.nb_evenements("cahier.retour_modifie").await, avant + 1);
+    // Revue V3b : une note NON publiée n'est jamais montrée à l'élève ni aux familles, même si le professeur a choisi
+    // de la montrer ; elle apparaît à la publication de l'évaluation.
+    let lu = lire(&fx, &fx.x, t).await.retour.unwrap();
+    assert_eq!(lu.note_valeur, None, "note non publiée : jamais montrée");
+    crate::tests_evaluations::publier_note_eva_brute(&fx.ent, note).await;
     let lu = lire(&fx, &fx.x, t).await.retour.unwrap();
     assert_eq!((lu.note_valeur, lu.note_sur), (Some(15.0), Some(20.0)));
     assert!(lu.modifie);

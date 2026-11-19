@@ -314,6 +314,21 @@ pub(crate) async fn note_eva_brute(
     note
 }
 
+/// Publie (fixture de test) l'évaluation qui porte la note brute `note` : `publiee_le` posé hors garde.
+pub(crate) async fn publier_note_eva_brute(ent: &PgEnt, note: Uuid) {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "UPDATE eva_evaluation SET publiee_le = now(), publiee_par = cree_par
+          WHERE id = (SELECT evaluation_id FROM eva_resultat WHERE id = $1)",
+    )
+    .bind(note)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
 /// Une évaluation « brute » d'une classe (agenda des évaluations annoncées) : lisible par la vue `ent_devoir`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn devoir_eva_brute(
