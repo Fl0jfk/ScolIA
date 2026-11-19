@@ -654,6 +654,11 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         "665_d036_personne_plage_joignable",
         "666_d036_eleve_fusion_normalisee",
         "667_d036_personne_fusion_normalisee",
+        // 469 appelle `eva_reprendre_tout()` : le rejeu de 467 vient de le REDÉFINIR dans sa version d'origine, qui lit
+        // `ent_devoir`/`ent_note` (des vues sur `eva_*` depuis 472) et laisse un curseur ouvert sur `eva_resultat`
+        // pendant la reprise (PostgreSQL refuse alors l'`ALTER TABLE` : « being used by active queries »). La reprise
+        // est rejouée par le bloc final de 472, avec les fonctions de 472 (qui lisent les archives).
+        "469_eva_v1_reprise_executee",
     ];
     // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
     let mut verrou = pool.acquire().await?.detach();
