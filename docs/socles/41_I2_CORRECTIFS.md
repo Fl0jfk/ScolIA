@@ -50,7 +50,6 @@ Aucune table, route, action ni migration ajoutée : SOURCES / NOMS_SOURCES (66),
 
 ## Tête poussée et CI
 
-Voir la section ci-dessous, mise à jour à chaque poussée.
-
-- Tête : à renseigner après la poussée.
-- CI : à renseigner.
+- Commits des correctifs : 0286e8e5 (correctifs), 3278400a (fixture M9), 43e7ece6 (clippy d'un test), e3d8a329 (ce rapport), **591d8765** (test API de la nuit passé sur une nuit passée fixe : la transmission du matin refuse désormais une nuit non terminée, M3).
+- Historique de la CI : run 423 (43e7ece6) remplacé par la poussée suivante (jobs annulés, sans signification) ; run 425 (e3d8a329) rouge pour **un seul test** (`ent-api` `internat_api_la_nuit_parcours_droits_et_pdf`, tranche labo 2/20, cause : test sur la nuit courante, corrigé en 591d8765 et rejoué en local : 3 tests `ent-api` internat verts) ; les 40 autres jobs étaient verts.
+- Le pilote a ensuite fusionné ENT (b618a23e, socle 21) et poussé **7402da72**, qui contient 591d8765 : run 427 **vert** (formatage, audits, backend), selon le commentaire du bot de la PR n° 102. PR laissée en brouillon.
