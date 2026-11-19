@@ -2801,7 +2801,7 @@ async fn v3b_f7_la_publication_programmee_sort_a_l_heure() {
     assert_eq!(fin_du_jour.publications_automatiques, 1, "{fin_du_jour:?}");
     assert!(publiee(e20).await);
     // Planificateur dédié (toutes les 5 minutes) : retard maximal documenté.
-    assert!(crate::passages_quotidiens::RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES <= 10 * 60);
+    const { assert!(crate::passages_quotidiens::RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES <= 10 * 60) };
     let bilan = ent.eva_v3_publications_automatiques_tous(prevue).await.unwrap();
     assert_eq!(bilan.programmees, 0, "idempotent : rien n'est republié");
 }
