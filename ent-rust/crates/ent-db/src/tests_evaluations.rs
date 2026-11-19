@@ -692,7 +692,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     ));
     assert!(matches!(
         ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "Tardif", 1.0, 20.0)).await,
-        Err(EntDbError::ConflitDossier(_))
+        Err(EntDbError::SaisieInvalide(_)) // CE-47 : refus motivé de la V3 (période arrêtée pour tout le public)
     ));
     ent.saisir_appreciation_eva_for_actor(etab, prof, "prof", &AppreciationBody {
         eleve_id: a, periode_id: m.periode, matiere_id: Some(m.maths), texte: "Très bon trimestre.".into(),
