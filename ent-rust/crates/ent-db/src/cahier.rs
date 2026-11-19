@@ -444,12 +444,20 @@ impl PgEnt {
         action: Action,
     ) -> Result<(), EntDbError> {
         let classe: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2")
-                .bind(a.etablissement_id)
-                .bind(code.trim())
-                .fetch_optional(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
-                .await
-                .map_err(db)?;
+            // Un code de classe se répète d'une année à l'autre (4B en préparation et 4B courante) : on désigne
+            // la classe de l'année courante d'abord, jamais une ligne tirée au hasard de l'ordre physique.
+            sqlx::query_as(
+                "SELECT c.id FROM ent_classe c
+                   LEFT JOIN ent_annee_scolaire an ON an.etablissement_id = c.etablissement_id AND an.id = c.annee_id
+                  WHERE c.etablissement_id = $1 AND c.code = $2
+                  ORDER BY COALESCE(an.courante, false) DESC, an.date_debut DESC NULLS LAST, c.id
+                  LIMIT 1",
+            )
+            .bind(a.etablissement_id)
+            .bind(code.trim())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
+            .await
+            .map_err(db)?;
         let Some((classe_id,)) = classe else {
             return Err(EntDbError::Forbidden);
         };
