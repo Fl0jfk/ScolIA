@@ -308,20 +308,7 @@ async fn c3_evaluation_annoncee_port_du_21_sorties_et_comptage_unique() {
         .execute(fx.ent.pool())
         .await
         .unwrap();
-    let devoir = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id, titre, date_devoir, coef, sur)
-         VALUES ($1,$2,$3,$4,'CDT-A',$5,'Contrôle chapitre 4',$6, 3, 20)",
-    )
-    .bind(devoir)
-    .bind(e)
-    .bind(periode)
-    .bind(matiere)
-    .bind(fx.classe_a)
-    .bind(auj + Duration::days(4))
-    .execute(fx.ent.pool())
-    .await
-    .unwrap();
+    let devoir = crate::tests_evaluations::devoir_eva_brute(&fx.ent, e, fx.classe_a, matiere, periode, "Contrôle chapitre 4", auj + Duration::days(4), 3.0, None).await;
     let x = agenda(&fx, &fx.eleve(&fx.x), None, du, au).await.unwrap();
     let l = x.lignes.iter().find(|l| l.id == devoir).expect("évaluation annoncée dans l'agenda");
     assert_eq!((l.genre.as_str(), l.matiere.as_str(), l.titre.as_str()), ("evaluation", "Histoire", "Contrôle chapitre 4"));

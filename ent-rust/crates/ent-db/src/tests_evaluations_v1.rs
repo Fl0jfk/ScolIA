@@ -1171,9 +1171,11 @@ async fn les_regles_de_calcul_se_posent_se_relisent_et_s_historisent() {
         .unwrap();
     assert_eq!(v2.version, 2);
     let histo: Vec<(i32, String)> = sqlx::query_as(
-        "SELECT version, generale FROM eva_reglage_historique WHERE etablissement_id = $1 ORDER BY version",
+        "SELECT version, generale FROM eva_reglage_historique h WHERE etablissement_id = $1 \
+         AND EXISTS (SELECT 1 FROM eva_reglage g WHERE g.id = h.reglage_id AND g.annee_id = $2) ORDER BY version",
     )
     .bind(w.etab)
+    .bind(w.annee)
     .fetch_all(ent.pool_verif())
     .await
     .unwrap();
@@ -1740,7 +1742,7 @@ pub(crate) async fn ancien_monde(ent: &PgEnt, w: &W) -> Ancien {
     ] {
         let dv = Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id, service_id, titre,
+            "INSERT INTO ent_devoir_archive (id, etablissement_id, periode_id, matiere_id, classe, classe_id, service_id, titre,
                                      date_devoir, coef, sur, created_by_user_id, publication_explicite, publie_le, publie_par_user_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                      CASE WHEN $14 THEN '2031-11-20T10:00:00Z'::timestamptz END, CASE WHEN $14 THEN $12 END)",
@@ -1781,7 +1783,7 @@ pub(crate) async fn ancienne_note(
 ) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, statut)
+        "INSERT INTO ent_note_archive (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, statut)
          VALUES ($1, $2, $3, $4, $5, $6, '2031-10-10', $7, $8, $9)",
     )
     .bind(id)
@@ -1825,7 +1827,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     // Une note sans devoir (voie historique fermée) : listée, non reprise.
     let n_sans = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, statut)
+        "INSERT INTO ent_note_archive (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, statut)
          VALUES ($1, $2, $3, $4, 9, 20, '2031-10-11', $5, 'note')",
     )
     .bind(n_sans)
@@ -1839,7 +1841,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     // Une correction journalisée (12 → 13) : qui, quand, avant, après, motif sont conservés.
     exec(
         &ent,
-        "UPDATE ent_note SET valeur = 13 WHERE id = $1",
+        "UPDATE ent_note_archive SET valeur = 13 WHERE id = $1",
         vec![u(n_corrigee)],
     )
     .await;
@@ -1855,7 +1857,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     let orphelin = Uuid::new_v4();
     exec(
         &ent,
-        "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, titre, date_devoir, coef, sur)
+        "INSERT INTO ent_devoir_archive (id, etablissement_id, periode_id, matiere_id, classe, titre, date_devoir, coef, sur)
          VALUES ($1, $2, $3, $4, '', 'Orphelin', '2031-11-06', 1, 20)",
         vec![u(orphelin), u(w.etab), u(anc.note_periode), u(w.maths)],
     )
@@ -1882,12 +1884,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     )
     .await;
     // Une période fermée : l'état de chaque classe de la périodisation devient « appréciations closes ».
-    exec(
-        &ent,
-        "UPDATE ent_note_periode SET statut = 'fermee' WHERE id = $1",
-        vec![u(anc.note_periode)],
-    )
-    .await;
+    simuler_ancien_statut(&ent, anc.note_periode, "fermee").await;
 
     let rapport = ent
         .eva_v1_reprendre_for_actor(w.etab, w.direction, DIR)
@@ -2009,7 +2006,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     assert!(encore.compte("note").unwrap().inchangees >= 7);
     // L'ancienne table n'a pas bougé (rien n'est supprimé ni modifié).
     let (n_anc,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_note WHERE etablissement_id = $1 AND eleve_id = ANY($2)",
+        "SELECT count(*) FROM ent_note_archive WHERE etablissement_id = $1 AND eleve_id = ANY($2)",
     )
     .bind(w.etab)
     .bind(&w.eleves_a)
@@ -2020,7 +2017,7 @@ async fn reprise_idempotente_rapport_et_invariant() {
     // Dérive : l'ancien écrivain change une note après la reprise → listée, jamais écrasée.
     exec(
         &ent,
-        "UPDATE ent_note SET valeur = 16 WHERE id = $1",
+        "UPDATE ent_note_archive SET valeur = 16 WHERE id = $1",
         vec![u(n_ok)],
     )
     .await;
@@ -2038,6 +2035,19 @@ async fn reprise_idempotente_rapport_et_invariant() {
         ent.eva_v1_reprendre_for_actor(w.etab, w.prof, PROF).await,
         Err(EntDbError::Forbidden)
     ));
+}
+
+/// Simule l'ANCIEN écrivain du statut d'une période (`ent_note_periode.statut`, gelé depuis V3b : la garde est suspendue
+/// le temps de l'écriture, comme l'était la base avant 472) pour éprouver la reprise de l'état des classes.
+async fn simuler_ancien_statut(ent: &PgEnt, note_periode: Uuid, statut: &str) {
+    exec(ent, "ALTER TABLE ent_note_periode DISABLE TRIGGER ent_note_periode_statut_fige", vec![]).await;
+    exec(
+        ent,
+        &format!("UPDATE ent_note_periode SET statut = '{statut}' WHERE id = $1"),
+        vec![u(note_periode)],
+    )
+    .await;
+    exec(ent, "ALTER TABLE ent_note_periode ENABLE TRIGGER ent_note_periode_statut_fige", vec![]).await;
 }
 
 /// Jeu « historique » riche : maths (4 devoirs) et français (3 devoirs), trois élèves, statuts variés,
@@ -2067,7 +2077,7 @@ async fn ancien_riche(ent: &PgEnt, w: &W) -> Ancien {
     ] {
         let dv = Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id, service_id, titre,
+            "INSERT INTO ent_devoir_archive (id, etablissement_id, periode_id, matiere_id, classe, classe_id, service_id, titre,
                                      date_devoir, coef, sur, created_by_user_id, publication_explicite)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '2031-11-10', $9, $10, $11, false)",
         )
@@ -2120,7 +2130,7 @@ async fn ancien_riche(ent: &PgEnt, w: &W) -> Ancien {
             w.maths
         };
         sqlx::query(
-            "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, statut)
+            "INSERT INTO ent_note_archive (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, statut)
              VALUES ($1, $2, $3, $4, $5, $6, '2031-11-10', $7, $8, $9)",
         )
         .bind(Uuid::new_v4())
@@ -2152,57 +2162,143 @@ async fn ancien_riche(ent: &PgEnt, w: &W) -> Ancien {
     anc
 }
 
-/// Le test d'or : les moyennes tombent à l'identique avant et après la reprise (§22, M2). « Avant » :
-/// le lecteur historique (`eva_calculer_classe`, moteur de V0) sur les anciennes tables ; « après » :
-/// le moteur étendu de V2 sur `eva_*`.
+/// ORACLE du test d'or : l'ANCIEN calcul (moteur de V0, fractions exactes, lu sur les ANCIENNES tables — les archives
+/// `ent_devoir_archive` / `ent_note_archive` — et `ent_eva_coef_matiere`), tel que le lecteur historique
+/// `eva_calculer_classe` le faisait avant V3b. Rend, en centièmes, les moyennes de matière par (élève, matière) et les
+/// moyennes générales par élève.
+async fn calcul_historique(
+    ent: &PgEnt,
+    etab: Uuid,
+    classe: Uuid,
+    note_periode: Uuid,
+    eleves: &[Uuid],
+) -> (std::collections::HashMap<(Uuid, Uuid), i64>, std::collections::HashMap<Uuid, i64>) {
+    use domain_eleve::evaluation::{
+        moyenne_generale, moyenne_matiere, Arrondi, ReglesCalcul, ResultatCalcul, StatutResultat,
+    };
+    use std::collections::HashMap;
+    let p = ent.pool_verif();
+    let devoirs: Vec<(Uuid, Uuid, f64, f64)> = sqlx::query_as(
+        "SELECT id, matiere_id, coef, sur FROM ent_devoir_archive
+          WHERE etablissement_id = $1 AND periode_id = $2 AND classe_id = $3",
+    )
+    .bind(etab)
+    .bind(note_periode)
+    .bind(classe)
+    .fetch_all(p)
+    .await
+    .unwrap();
+    let ids: Vec<Uuid> = devoirs.iter().map(|d| d.0).collect();
+    let resultats: Vec<(Uuid, Uuid, String, f64)> = sqlx::query_as(
+        "SELECT DISTINCT ON (devoir_id, eleve_id) devoir_id, eleve_id, statut, valeur
+           FROM ent_note_archive WHERE etablissement_id = $1 AND devoir_id = ANY($2)
+          ORDER BY devoir_id, eleve_id, created_at DESC, id DESC",
+    )
+    .bind(etab)
+    .bind(&ids)
+    .fetch_all(p)
+    .await
+    .unwrap();
+    let coefs: HashMap<Uuid, f64> = sqlx::query_as::<_, (Uuid, f64)>(
+        "SELECT matiere_id, coef FROM ent_eva_coef_matiere WHERE etablissement_id = $1 AND classe_id = $2",
+    )
+    .bind(etab)
+    .bind(classe)
+    .fetch_all(p)
+    .await
+    .unwrap()
+    .into_iter()
+    .collect();
+    let mut matieres: Vec<Uuid> = devoirs.iter().map(|d| d.1).collect();
+    matieres.sort();
+    matieres.dedup();
+    let regles = ReglesCalcul::default();
+    let (mut par_matiere, mut generales) = (HashMap::new(), HashMap::new());
+    for &e in eleves {
+        let mut pour_generale = Vec::new();
+        for &m in &matieres {
+            let calc: Vec<ResultatCalcul> = devoirs
+                .iter()
+                .filter(|d| d.1 == m)
+                .filter_map(|d| {
+                    resultats.iter().find(|r| r.0 == d.0 && r.1 == e).map(|r| ResultatCalcul {
+                        statut: StatutResultat::parse(&r.2).unwrap_or(StatutResultat::NonNote),
+                        valeur: r.3,
+                        sur: d.3,
+                        coef: d.2,
+                    })
+                })
+                .collect();
+            if let Some(x) = moyenne_matiere(&calc, &regles) {
+                par_matiere.insert((e, m), (x.arrondie(Arrondi::Centieme) * 100.0).round() as i64);
+                pour_generale.push((x, coefs.get(&m).copied().unwrap_or(1.0)));
+            }
+        }
+        if let Some(g) = moyenne_generale(&pour_generale) {
+            generales.insert(e, (g.arrondie(Arrondi::Centieme) * 100.0).round() as i64);
+        }
+    }
+    (par_matiere, generales)
+}
+
+/// Le test d'or (§22, M2-M3) : les moyennes tombent à l'identique AVANT (l'ancien calcul, sur les anciennes tables) et
+/// APRÈS (chaque lecteur sur `eva_*`, par le moteur unique de V2) la bascule, pour CHAQUE lecteur : la vue de classe,
+/// le relevé, le conseil et le bulletin (tous quatre sur `eva_calculer_classe`), la lecture historique mobile
+/// (`moyennes_eleve_periode`) et la grille V3. Une moyenne lue à deux endroits est identique au centième ; tout écart
+/// est un défaut.
 #[tokio::test]
-async fn test_d_or_les_moyennes_sont_identiques_avant_et_apres_la_reprise() {
-    use domain_eleve::evaluation::Arrondi;
+async fn test_d_or_les_moyennes_sont_identiques_avant_et_apres_la_bascule_des_lecteurs() {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let w = monde_v1(&ent, &cast).await;
     let anc = ancien_riche(&ent, &w).await;
-    let avant = ent
-        .eva_calculer_classe(w.etab, w.classe_a, anc.note_periode, false)
-        .await
-        .unwrap();
+    let (avant_m, avant_g) = calcul_historique(&ent, w.etab, w.classe_a, anc.note_periode, &w.eleves_a).await;
     let rapport = ent
         .eva_v1_reprendre_for_actor(w.etab, w.direction, DIR)
         .await
         .unwrap();
     assert!(rapport.compte("note").unwrap().creees >= 21);
+    let apres_calc = ent
+        .eva_calculer_classe(w.etab, w.classe_a, anc.note_periode, false)
+        .await
+        .unwrap();
     let mut compares = 0;
     for &e in &w.eleves_a {
         let apres = ent
             .eva_v1_moyennes_eleve_periode(w.etab, e, w.t1, false)
             .await
             .unwrap();
+        let releve = ent
+            .releve_eleve_for_actor(w.etab, w.direction, DIR, e, anc.note_periode)
+            .await
+            .unwrap();
         for m in [w.maths, w.francais] {
-            let ancienne = avant
-                .moyennes
-                .get(&(e, m))
-                .map(|x| (x.arrondie(Arrondi::Centieme) * 100.0).round() as i64);
-            let nouvelle = apres
+            let ancienne = avant_m.get(&(e, m)).copied();
+            let moteur = apres
                 .matieres
                 .iter()
                 .find(|x| x.matiere_id == m)
                 .and_then(|x| x.moyenne.affichee_m)
                 .map(|x| x / 10);
-            assert_eq!(
-                ancienne, nouvelle,
-                "moyenne de matière, élève {e}, matière {m}"
-            );
+            let lecteur = apres_calc.moyennes.get(&(e, m)).map(|x| x.0 / 10);
+            let en_releve = releve
+                .matieres
+                .iter()
+                .find(|x| x.matiere_id == m)
+                .and_then(|x| x.moyenne)
+                .map(|x| (x * 100.0).round() as i64);
+            assert_eq!(ancienne, moteur, "moteur V2, élève {e}, matière {m}");
+            assert_eq!(ancienne, lecteur, "vue de classe / conseil / bulletin, élève {e}, matière {m}");
+            assert_eq!(ancienne, en_releve, "relevé, élève {e}, matière {m}");
             if ancienne.is_some() {
                 compares += 1;
             }
         }
-        let g_anc = avant
-            .generales
-            .get(&e)
-            .map(|x| (x.arrondie(Arrondi::Centieme) * 100.0).round() as i64);
-        let g_nouv = apres.generale.affichee_m.map(|x| x / 10);
-        assert_eq!(g_anc, g_nouv, "moyenne générale de {e}");
+        let g_anc = avant_g.get(&e).copied();
+        assert_eq!(g_anc, apres.generale.affichee_m.map(|x| x / 10), "moyenne générale (moteur), élève {e}");
+        assert_eq!(g_anc, apres_calc.generales.get(&e).map(|x| x.0 / 10), "moyenne générale (lecteurs), élève {e}");
+        assert_eq!(g_anc, releve.moyenne_generale.map(|x| (x * 100.0).round() as i64), "moyenne générale (relevé), élève {e}");
         // Les coefficients de matière repris sont ceux de l'ancienne table (3 et 2).
         let coefs: Vec<i64> = apres.matieres.iter().map(|x| x.coef_m).collect();
         assert!(coefs.contains(&3000) && coefs.contains(&2000), "{coefs:?}");
@@ -2211,6 +2307,18 @@ async fn test_d_or_les_moyennes_sont_identiques_avant_et_apres_la_reprise() {
         compares >= 5,
         "le jeu doit produire des moyennes à comparer ({compares})"
     );
+    // Lecture historique (mobile, famille) : seules les évaluations PUBLIÉES comptent ; le français (devoirs « publics
+    // à la création » dans l'ancienne table) est publié : sa moyenne est celle de l'ancien calcul.
+    for &e in &w.eleves_a {
+        let hist = ent.moyennes_eleve_periode(w.etab, e, anc.note_periode).await.unwrap();
+        if let Some(fr) = hist.iter().find(|x| x.matiere_id == w.francais) {
+            assert_eq!(
+                Some((fr.moyenne_sur_20 * 100.0).round() as i64),
+                avant_m.get(&(e, w.francais)).copied(),
+                "lecture historique (mobile), français, élève {e}"
+            );
+        }
+    }
     // Exemple lisible : Hannah, maths = (14×2 + 14×1 + 14,5×1 + 12×1) / 5.
     let hannah = ent
         .eva_v1_moyennes_eleve_periode(w.etab, w.eleves_a[0], w.t1, false)
@@ -2238,19 +2346,14 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     };
     let w = monde_v1(&ent, &cast).await;
     let anc = ancien_riche(&ent, &w).await;
-    exec(
-        &ent,
-        "UPDATE ent_note_periode SET statut = 'partielle_appreciations' WHERE id = $1",
-        vec![u(anc.note_periode)],
-    )
-    .await;
+    simuler_ancien_statut(&ent, anc.note_periode, "partielle_appreciations").await;
     ent.eva_v1_reprendre_for_actor(w.etab, w.direction, DIR)
         .await
         .unwrap();
     let p = ent.pool_verif();
     // Résultats : mêmes identifiants, élèves, évaluations, statuts, valeurs (à trois décimales).
     let ancien: Vec<(Uuid, Uuid, Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note
+        "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note_archive
           WHERE etablissement_id = $1 AND devoir_id IS NOT NULL AND eleve_id = ANY($2) ORDER BY id",
     )
     .bind(w.etab)
@@ -2259,7 +2362,7 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     .await
     .unwrap();
     let vue: Vec<(Uuid, Uuid, Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note_v
+        "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note
           WHERE etablissement_id = $1 AND eleve_id = ANY($2) ORDER BY id",
     )
     .bind(w.etab)
@@ -2273,7 +2376,7 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     // visible si la publication n'est pas explicite ou si elle a eu lieu).
     let ancien_dv: Vec<(Uuid, String, f64, f64, NaiveDate, Uuid, bool)> = sqlx::query_as(
         "SELECT id, titre, coef, sur, date_devoir, matiere_id, (NOT publication_explicite OR publie_le IS NOT NULL)
-           FROM ent_devoir WHERE etablissement_id = $1 AND classe_id = $2 ORDER BY id",
+           FROM ent_devoir_archive WHERE etablissement_id = $1 AND classe_id = $2 ORDER BY id",
     )
     .bind(w.etab)
     .bind(w.classe_a)
@@ -2282,7 +2385,7 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     .unwrap();
     let vue_dv: Vec<(Uuid, String, f64, f64, NaiveDate, Uuid, bool)> = sqlx::query_as(
         "SELECT id, titre, coef, sur, date_devoir, matiere_id, (NOT publication_explicite OR publie_le IS NOT NULL)
-           FROM ent_devoir_v WHERE etablissement_id = $1 AND classe_id = $2 ORDER BY id",
+           FROM ent_devoir WHERE etablissement_id = $1 AND classe_id = $2 ORDER BY id",
     )
     .bind(w.etab)
     .bind(w.classe_a)
@@ -2350,9 +2453,10 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
             .await
             .unwrap();
     assert_eq!((texte.as_str(), matiere), ("Bon trimestre.", Some(w.maths)));
-    // Publication intégrée à `ent_note_v` (M5) : une évaluation dépubliée disparaît de la vue.
+    // La publication est portée par la vue (`publiee`) : une évaluation dépubliée n'est plus « publiee » et les lecteurs
+    // qui répondent à une famille la filtrent (R-V7).
     let (avant,): (i64,) =
-        sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+        sqlx::query_as("SELECT count(*) FROM ent_note WHERE etablissement_id = $1 AND publiee")
             .bind(w.etab)
             .fetch_one(p)
             .await
@@ -2364,18 +2468,18 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     )
     .await;
     let (apres,): (i64,) =
-        sqlx::query_as("SELECT count(*) FROM ent_note_v WHERE etablissement_id = $1")
+        sqlx::query_as("SELECT count(*) FROM ent_note WHERE etablissement_id = $1 AND publiee")
             .bind(w.etab)
             .fetch_one(p)
             .await
             .unwrap();
     assert!(
         apres < avant,
-        "les notes d'une évaluation non publiée ne sont plus dans la vue"
+        "les notes d'une évaluation non publiée ne sont plus « publiee » dans la vue"
     );
     // Les vues sont en lecture seule.
     assert!(
-        sqlx::query("DELETE FROM ent_note_v WHERE etablissement_id = $1")
+        sqlx::query("DELETE FROM ent_note WHERE etablissement_id = $1")
             .bind(w.etab)
             .execute(p)
             .await

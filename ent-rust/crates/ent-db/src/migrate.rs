@@ -478,6 +478,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("470_eva_v1_cours_reprise_hors_publics"),
     // Lot V3 « grille et saisie » : correctifs F7/F8 de la reprise, retrait de publication, journaux.
     m!("471_eva_v3_grille_saisie"),
+    // Lot V3b « les lecteurs passent sur eva_* » (M2-M3 du plan) : `ent_devoir` et `ent_note` deviennent des vues en lecture
+    // seule alimentées par `eva_*` (anciennes tables renommées en archives), reprise corrigée (M2), statut de période gelé.
+    m!("472_eva_v3b_lecteurs_sur_eva"),
+    // Correctifs de la revue de sécurité de V3 qui touchent la base : attestation du droit de correction (F2), première
+    // publication d'une évaluation (F4).
+    m!("473_eva_v3b_revue_securite"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

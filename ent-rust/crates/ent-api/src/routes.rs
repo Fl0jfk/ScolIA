@@ -5,7 +5,7 @@ use crate::dto::{
     AbsenceDto, AbsentDto, AnnonceDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
     ChangeMefBody, ChangeRegimeBody, ChangeSiteBody, ChoisirOptionBody, CreateEleveBody,
     CreateMatiereBody, UpdateMatiereBody, CreerAnnonceBody, CreerCarnetBody,
-    CreerDevoirBody, CreerFactureBody, CreerNotePeriodeBody, DeclareAbsenceBody, DevoirDto,
+    CreerFactureBody, CreerNotePeriodeBody, DeclareAbsenceBody, DevoirDto,
     DeclarerRetardBody, RetardDto,
     CreerCompetenceItemBody, CompetenceItemDto, EvaluerCompetenceBody, EvaluationCompetenceDto,
     EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, VersDto, EffectifDto, EleveDto,
@@ -81,7 +81,6 @@ use domain_eleve::{
     annee_scolaire_de, annees_continuum, render_facture_pdf, render_quittance_pdf, reste_a_payer,
     today_utc, CarnetCategorie, ChangeClasse, ChangeMef, ChangeRegime, ChangeSite, ChoisirOptionN1,
     ConfigurerAcompteCampagne, ConfirmerReinscription, CreateEleve, CreerAnnonce, CreerCarnetEntree,
-    CreerDevoir,
     CreerFacture, CreerMandatSepa, CreerNotePeriode, DeclareAbsence, DeclarerRetard, DocTiroir, EcheanceCmd,
     SaisirAppreciation,
     EncaisserFacture, ExporterOgec, LigneFactureCmd, MonteeLot, MonteeRapide, MoyenPaiement,
@@ -8656,52 +8655,20 @@ async fn list_devoirs_eleve(
     ))
 }
 
-async fn creer_devoir(
-    State(state): State<AppState>,
-    session: EntSession,
-    Json(body): Json<CreerDevoirBody>,
-) -> Result<(StatusCode, Json<DevoirDto>), (StatusCode, String)> {
-    session.require_saisir_notes()?;
-    let devoir = state
-        .ent
-        .creer_devoir_for_actor(&session.role, CreerDevoir {
-            etablissement_id: session.etablissement_id,
-            periode_id: body.periode_id,
-            matiere_id: body.matiere_id,
-            classe: body.classe,
-            titre: body.titre,
-            date_devoir: body.date_devoir,
-            coef: body.coef.unwrap_or(1.0),
-            sur: body.sur.unwrap_or(20.0),
-            actor_user_id: session.user_id,
-        })
-        .await
-        .map_err(map_db)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(
-            enrich_devoir(
-                &state,
-                session.etablissement_id,
-                DevoirDto::from(&devoir),
-            )
-            .await?,
-        ),
-    ))
+/// Route historique fermée (V3b, M3) : un devoir se crée par la grille d'évaluation (`POST /eva/evaluations`).
+async fn creer_devoir(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V3b, M3) : créer une évaluation par la grille (POST /eva/evaluations), qui écrit dans le modèle unique eva_*".into(),
+    )
 }
 
-async fn supprimer_devoir(
-    State(state): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    session.require_saisir_notes()?;
-    state
-        .ent
-        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, session.user_id, id)
-        .await
-        .map_err(map_db)?;
-    Ok(StatusCode::NO_CONTENT)
+/// Route historique fermée (V3b, M3) : une évaluation ne se supprime pas, elle s'annule (`POST /eva/evaluations/{id}/annuler`).
+async fn supprimer_devoir(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V3b, M3) : une évaluation ne se supprime pas, elle s'annule (POST /eva/evaluations/{id}/annuler), historique conservé".into(),
+    )
 }
 
 async fn list_edt_creneaux(
@@ -12161,15 +12128,6 @@ async fn enrich_devoirs(
         d.matiere_libelle = by_id.get(&d.matiere_id).cloned();
     }
     Ok(list)
-}
-
-async fn enrich_devoir(
-    state: &AppState,
-    etablissement_id: Uuid,
-    d: DevoirDto,
-) -> Result<DevoirDto, (StatusCode, String)> {
-    let mut list = enrich_devoirs(state, etablissement_id, vec![d]).await?;
-    Ok(list.remove(0))
 }
 
 async fn enrich_appreciations(

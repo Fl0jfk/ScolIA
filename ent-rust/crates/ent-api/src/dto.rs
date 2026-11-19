@@ -718,17 +718,6 @@ pub struct PublierBulletinBody {
     pub periode_id: Uuid,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreerDevoirBody {
-    pub periode_id: Uuid,
-    pub matiere_id: Uuid,
-    pub classe: String,
-    pub titre: String,
-    pub date_devoir: NaiveDate,
-    pub coef: Option<f64>,
-    pub sur: Option<f64>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct NotePeriodeDto {
     pub id: Uuid,

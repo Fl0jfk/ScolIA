@@ -1,15 +1,15 @@
-//! Évaluations (socle 2, lot S2-7) : grille de saisie par service et période,
-//! publication aux familles, moyennes (règles de `domain_eleve::evaluation`),
-//! verrouillage des périodes, corrections après fermeture, vue de classe, relevé.
+//! Évaluations (socle 2, lot S2-7) : périodes et règles, relevé, vue de classe, services évaluables.
+//!
+//! **V3b (M2-M3 du plan de migration)** : tout ce qui se LIT passe par `eva_*`. Le calcul d'une
+//! moyenne n'existe qu'à un endroit, le moteur unique de V2 (`domain_eleve::evaluation_moteur`,
+//! chargé par `evaluations_v1::moyennes_tx`) : la vue de classe, le relevé, le bulletin, le
+//! conseil et la grille V3 lisent donc la **même** valeur, au centième. Les anciennes routes qui
+//! ÉCRIVAIENT dans `ent_devoir` / `ent_note` (grille historique) sont fermées : la saisie, la
+//! publication et la correction se font par la grille V3 (`/eva/*`).
 //!
 //! Droits (moteur D-017) :
-//! - lire une grille : professeur du service, ou `notes.lire` (lignes limitées aux
-//!   élèves de sa portée) ;
-//! - créer un devoir, saisir, publier : professeur **du service** ou `notes.saisir` sur
-//!   tout l'établissement ; chaque élève saisi doit être dans la portée de `notes.saisir`
-//!   **et** dans l'effectif du service sur la période ;
-//! - statut des périodes et règles de calcul : `periodes.verrouiller` ; coefficients de
-//!   matière : `matieres.gerer` ; correction après fermeture : `notes.corriger` ;
+//! - statut des périodes et règles de calcul : `periodes.verrouiller` ; coefficients de matière :
+//!   `matieres.gerer` ;
 //! - familles et élèves : `actor_can_read_notes` (lien actif + `peut_voir_notes`, ou soi),
 //!   **évaluations publiées seulement**.
 //!
@@ -17,23 +17,22 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{NaiveDate, Utc};
-use domain_eleve::evaluation::{
-    moyenne_generale, moyenne_matiere, statistiques, valider_devoir, valider_resultat, Arrondi,
-    ErreurSaisie, Moyenne, ReglesCalcul, ResultatCalcul, Statistiques, StatutResultat,
-};
+use chrono::NaiveDate;
+use domain_eleve::evaluation::Arrondi;
+use domain_eleve::evaluation_moteur::{statistiques, Precision, Rat, ReglesMoteur};
 use domain_eleve::{today_utc, DomainError, NotePeriodeStatut};
 use ent_auth::{Action, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use ent_types::evaluations::{
-    CoefMatiereBody, CorrigerNoteBody, CreerDevoirGrilleBody, DevoirGrilleDto, GrilleDto,
-    LigneClasseDto, LigneGrilleDto, MatiereColonneDto, PeriodeNotesDto, RapportSaisieDto,
-    RefusSaisieDto, ReglesCalculDto, ReleveEleveDto, ReleveEvaluationDto, ReleveMatiereDto,
-    ResultatDto, SaisieGrilleBody, ServiceEvaluationDto, StatsDto, VueClasseDto,
+    CoefMatiereBody, LigneClasseDto, MatiereColonneDto, PeriodeNotesDto, ReglesCalculDto,
+    ReleveEleveDto, ReleveEvaluationDto, ReleveMatiereDto, ServiceEvaluationDto, StatsDto,
+    VueClasseDto,
 };
 use serde_json::json;
+use sqlx::Row;
 use uuid::Uuid;
 
+use crate::evaluations_v1::{coefficient_matiere_tx, moyennes_tx, regles_tx, ReglesEtablissement};
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
@@ -71,16 +70,6 @@ pub(crate) fn conflit(msg: &'static str) -> EntDbError {
     EntDbError::ConflitDossier(msg)
 }
 
-fn erreur_saisie(e: ErreurSaisie) -> &'static str {
-    match e {
-        ErreurSaisie::Format => "note : au plus deux décimales, nombre positif",
-        ErreurSaisie::HorsBareme => "note supérieure au barème",
-        ErreurSaisie::Bareme => "barème invalide (0 < barème ≤ 1000)",
-        ErreurSaisie::Coefficient => "coefficient invalide (0 < coefficient ≤ 100)",
-        ErreurSaisie::Incoherent => "statut et valeur incohérents",
-    }
-}
-
 /// Texte libre borné, sans caractère de contrôle (hors saut de ligne).
 pub(crate) fn texte_borne(v: &str, max: usize) -> Result<String, EntDbError> {
     let v = v.trim();
@@ -90,17 +79,29 @@ pub(crate) fn texte_borne(v: &str, max: usize) -> Result<String, EntDbError> {
     Ok(v.to_string())
 }
 
-const MAX_SAISIES: usize = 500;
 
-/// Relit le statut de la période **dans la transaction** avec un verrou partagé : un
-/// changement de statut concurrent (UPDATE) attend la fin de l'écriture, ou l'inverse.
+/// Relit le statut de la période **dans la transaction** : il est DÉRIVÉ de la machine d'états
+/// (`eva_periode_etat`, vue `ent_note_periode_v`), jamais de la colonne gelée de `ent_note_periode`.
+/// Un verrou partagé sur les états de classe de la période fait attendre un changement concurrent.
 pub(crate) async fn statut_periode_tx(
     tx: &mut sqlx::PgConnection,
     etab: Uuid,
     periode_id: Uuid,
 ) -> Result<NotePeriodeStatut, EntDbError> {
+    sqlx::query(
+        "SELECT 1 FROM eva_periode_etat e
+           JOIN ent_note_periode np ON np.etablissement_id = e.etablissement_id
+          WHERE np.etablissement_id = $1 AND np.id = $2
+            AND e.periode_id = ent_periode_de_note_pour_classe(e.etablissement_id, np.id, e.classe_id)
+          FOR SHARE OF e",
+    )
+    .bind(etab)
+    .bind(periode_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(db)?;
     let row: Option<(String,)> = sqlx::query_as(
-        "SELECT statut FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2 FOR SHARE",
+        "SELECT statut FROM ent_note_periode_v WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(periode_id)
@@ -136,6 +137,7 @@ impl PeriodeRow {
     }
 }
 
+
 #[derive(Debug, Clone)]
 pub(crate) struct ServiceRow {
     pub id: Uuid,
@@ -146,8 +148,6 @@ pub(crate) struct ServiceRow {
     pub matiere_libelle: String,
     pub classe_id: Option<Uuid>,
     pub groupe_id: Option<Uuid>,
-    /// Classe de rattachement d'un demi-groupe (sinon `classe_id`).
-    pub classe_parente: Option<Uuid>,
     pub cible_code: String,
     pub professeur_principal: bool,
 }
@@ -199,109 +199,62 @@ fn service_de(t: ServiceTuple) -> ServiceRow {
         matiere_libelle: t.4,
         classe_id: t.5,
         groupe_id: t.6,
-        classe_parente: t.7,
         cible_code: t.8,
         professeur_principal: t.9,
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct DevoirRow {
-    pub id: Uuid,
-    pub service_id: Option<Uuid>,
-    pub periode_id: Uuid,
-    pub matiere_id: Uuid,
-    pub titre: String,
-    pub date_devoir: NaiveDate,
-    pub coef: f64,
-    pub sur: f64,
-    pub publie_le: Option<chrono::DateTime<Utc>>,
-    pub publication_explicite: bool,
-}
+/// Valeur d'AFFICHAGE d'une moyenne : millièmes, déjà arrondis par la règle d'affichage du moteur unique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Aff(pub i64);
 
-type DevoirTuple = (
-    Uuid,
-    Option<Uuid>,
-    Uuid,
-    Uuid,
-    String,
-    NaiveDate,
-    f64,
-    f64,
-    Option<chrono::DateTime<Utc>>,
-    bool,
-);
-
-const COLONNES_DEVOIR: &str = "id, service_id, periode_id, matiere_id, titre, date_devoir, coef, sur, \
-    publie_le, publication_explicite";
-
-fn devoir_de(t: DevoirTuple) -> DevoirRow {
-    DevoirRow {
-        id: t.0,
-        service_id: t.1,
-        periode_id: t.2,
-        matiere_id: t.3,
-        titre: t.4,
-        date_devoir: t.5,
-        coef: t.6,
-        sur: t.7,
-        publie_le: t.8,
-        publication_explicite: t.9,
+impl Aff {
+    pub(crate) fn valeur(self) -> f64 {
+        self.0 as f64 / 1000.0
     }
 }
 
-impl DevoirRow {
-    /// Visible des familles : devoir historique (sans publication explicite) ou publié.
-    fn visible_famille(&self) -> bool {
-        !self.publication_explicite || self.publie_le.is_some()
-    }
-}
-
-/// Résultat lu : le plus récent par (devoir, élève) fait foi.
+/// Moyenne, minimum, maximum d'une série de moyennes (valeurs d'affichage).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ResultatLu {
-    pub statut: StatutResultat,
-    pub valeur: f64,
+pub(crate) struct StatsAff {
+    pub moyenne: Aff,
+    pub min: Aff,
+    pub max: Aff,
+    pub effectif: usize,
 }
 
-fn arrondir(m: Option<Moyenne>, a: Arrondi) -> Option<f64> {
-    m.map(|x| x.arrondie(a))
-}
-
-fn stats_dto(s: Option<Statistiques>, a: Arrondi) -> StatsDto {
+fn stats_dto(s: Option<StatsAff>) -> StatsDto {
     match s {
         Some(s) => StatsDto {
-            moyenne: Some(s.moyenne.arrondie(a)),
-            min: Some(s.min.arrondie(a)),
-            max: Some(s.max.arrondie(a)),
+            moyenne: Some(s.moyenne.valeur()),
+            min: Some(s.min.valeur()),
+            max: Some(s.max.valeur()),
             effectif: s.effectif as u32,
         },
         None => StatsDto::default(),
     }
 }
 
-/// Résultat de calcul d'une classe sur une période (moteur commun : vue de classe,
-/// conseil, bulletin, livret, relevé).
+/// Moyennes de tous les élèves d'une classe sur une période, calculées par le moteur UNIQUE (V2).
 #[derive(Debug, Clone)]
 pub(crate) struct CalculClasse {
     pub classe_id: Uuid,
     pub classe_code: String,
     pub periode: PeriodeRow,
-    pub regles: ReglesCalcul,
-    /// (id, nom, prénom), triés.
+    /// Précision d'affichage de l'établissement (« centieme », « dixieme », « demi_point »…).
+    pub arrondi: String,
+    pub regles: ReglesMoteur,
     pub eleves: Vec<(Uuid, String, String)>,
-    /// (matière, libellé, code, coefficient de matière), triées par libellé.
     pub matieres: Vec<(Uuid, String, String, f64)>,
-    pub moyennes: HashMap<(Uuid, Uuid), Moyenne>,
-    pub generales: HashMap<Uuid, Moyenne>,
-    pub stats_matiere: HashMap<Uuid, Statistiques>,
-    pub stats_generale: Option<Statistiques>,
-    /// Devoirs pris en compte et résultats (pour le relevé).
-    pub devoirs: Vec<DevoirRow>,
-    pub resultats: HashMap<(Uuid, Uuid), ResultatLu>,
+    pub moyennes: HashMap<(Uuid, Uuid), Aff>,
+    pub generales: HashMap<Uuid, Aff>,
+    pub stats_matiere: HashMap<Uuid, StatsAff>,
+    pub stats_generale: Option<StatsAff>,
 }
 
+
 impl PgEnt {
+    /// Période de notes, avec son statut DÉRIVÉ (machine d'états de ses classes).
     pub(crate) async fn eva_periode(
         &self,
         etab: Uuid,
@@ -309,7 +262,7 @@ impl PgEnt {
     ) -> Result<PeriodeRow, EntDbError> {
         let row: Option<(Uuid, String, String, NaiveDate, NaiveDate, String)> = sqlx::query_as(
             "SELECT id, code, libelle, date_debut, date_fin, statut
-               FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2",
+               FROM ent_note_periode_v WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(periode_id)
@@ -327,37 +280,22 @@ impl PgEnt {
         })
     }
 
-    pub(crate) async fn eva_service(
+    /// Période du référentiel (`ent_periode`) qui correspond à une période de notes pour la périodisation d'UNE classe
+    /// (SQL `ent_periode_de_note_pour_classe`) : celle que lisent le moteur et la machine d'états de cette classe.
+    pub(crate) async fn eva_periode_pour_classe(
         &self,
         etab: Uuid,
-        service_id: Uuid,
-    ) -> Result<ServiceRow, EntDbError> {
-        let row: Option<ServiceTuple> = sqlx::query_as(&format!("{SELECT_SERVICE} AND s.id = $2"))
+        periode_note: Uuid,
+        classe_id: Uuid,
+    ) -> Result<Option<Uuid>, EntDbError> {
+        let p: Option<Uuid> = sqlx::query_scalar("SELECT ent_periode_de_note_pour_classe($1, $2, $3)")
             .bind(etab)
-            .bind(service_id)
-            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
+            .bind(periode_note)
+            .bind(classe_id)
+            .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
-        row.map(service_de).ok_or_else(introuvable)
-    }
-
-    pub(crate) async fn eva_regles(&self, etab: Uuid) -> Result<ReglesCalcul, EntDbError> {
-        let row: Option<(String, bool)> = sqlx::query_as(
-            "SELECT arrondi, absent_compte_zero FROM ent_eva_regle WHERE etablissement_id = $1",
-        )
-        .bind(etab)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        // V0 (D10, R-V5) : l'ancien réglage « un absent compte zéro » est lu comme
-        // faux, quelle que soit la valeur stockée (une absence n'est jamais un zéro).
-        Ok(match row {
-            Some((a, _)) => ReglesCalcul {
-                arrondi: Arrondi::parse(&a).unwrap_or_default(),
-                absent_compte_zero: false,
-            },
-            None => ReglesCalcul::default(),
-        })
+        Ok(p)
     }
 
     /// Effectif d'une classe ou d'un groupe sur la période (affectations du
@@ -388,90 +326,6 @@ impl PgEnt {
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
-    }
-
-    async fn eva_devoirs_service(
-        &self,
-        etab: Uuid,
-        service_id: Uuid,
-        periode_id: Uuid,
-    ) -> Result<Vec<DevoirRow>, EntDbError> {
-        let rows: Vec<DevoirTuple> = sqlx::query_as(&format!(
-            "SELECT {COLONNES_DEVOIR} FROM ent_devoir
-              WHERE etablissement_id = $1 AND service_id = $2 AND periode_id = $3
-              ORDER BY date_devoir, created_at, id"
-        ))
-        .bind(etab)
-        .bind(service_id)
-        .bind(periode_id)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        Ok(rows.into_iter().map(devoir_de).collect())
-    }
-
-    pub(crate) async fn eva_devoir(&self, etab: Uuid, id: Uuid) -> Result<DevoirRow, EntDbError> {
-        let row: Option<DevoirTuple> = sqlx::query_as(&format!(
-            "SELECT {COLONNES_DEVOIR} FROM ent_devoir WHERE etablissement_id = $1 AND id = $2"
-        ))
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        row.map(devoir_de).ok_or_else(introuvable)
-    }
-
-    /// Résultats (le plus récent par devoir et élève) des devoirs donnés.
-    async fn eva_resultats(
-        &self,
-        etab: Uuid,
-        devoirs: &[Uuid],
-    ) -> Result<HashMap<(Uuid, Uuid), ResultatLu>, EntDbError> {
-        if devoirs.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let rows: Vec<(Uuid, Uuid, String, f64)> = sqlx::query_as(
-            "SELECT DISTINCT ON (devoir_id, eleve_id) devoir_id, eleve_id, statut, valeur
-               FROM ent_note
-              WHERE etablissement_id = $1 AND devoir_id = ANY($2)
-              ORDER BY devoir_id, eleve_id, created_at DESC, id DESC",
-        )
-        .bind(etab)
-        .bind(devoirs)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        Ok(rows
-            .into_iter()
-            .map(|(d, e, s, v)| {
-                (
-                    (d, e),
-                    ResultatLu {
-                        statut: StatutResultat::parse(&s).unwrap_or(StatutResultat::NonNote),
-                        valeur: v,
-                    },
-                )
-            })
-            .collect())
-    }
-
-    /// Le professeur est-il celui du service, ou a-t-il `action` sur tout l'établissement ?
-    async fn eva_titulaire_ou_etab(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        service: &ServiceRow,
-        action: Action,
-    ) -> Result<bool, EntDbError> {
-        if Role::parse(role).is_none_or(|r| !r.is_staff()) {
-            return Ok(false);
-        }
-        if service.prof_user_id == acteur {
-            return Ok(true);
-        }
-        self.a_action_etablissement(etab, acteur, role, action).await
     }
 
     /// Professeur principal de la classe (année du service ou courante) ?
@@ -585,11 +439,11 @@ impl PgEnt {
         Ok(rows.into_iter().filter_map(|t| service_de(t).dto()).collect())
     }
 
-    /// Périodes de notes de l'établissement (tout membre connecté).
+    /// Périodes de notes de l'établissement (tout membre connecté) ; le statut est celui de la machine d'états.
     pub async fn periodes_notes(&self, etab: Uuid) -> Result<Vec<PeriodeNotesDto>, EntDbError> {
         let rows: Vec<(Uuid, String, String, NaiveDate, NaiveDate, String)> = sqlx::query_as(
             "SELECT id, code, libelle, date_debut, date_fin, statut
-               FROM ent_note_periode WHERE etablissement_id = $1 ORDER BY date_debut, code",
+               FROM ent_note_periode_v WHERE etablissement_id = $1 ORDER BY date_debut, code",
         )
         .bind(etab)
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
@@ -608,14 +462,13 @@ impl PgEnt {
             .collect())
     }
 
-    /// EVA-07 : ouvrir, passer en « appréciations seulement » ou fermer une période.
-    /// Changement de statut d'une période de notes (`periodes.verrouiller`).
+    /// EVA-07 : ouvrir, passer en « appréciations seulement » ou fermer une période (`periodes.verrouiller`).
     ///
-    /// V0 (D2, R-V25) : **toute** transition est inscrite dans le journal en ajout seul
-    /// `ent_note_periode_journal` (acteur, avant, après, motif), dans la même transaction.
-    /// **Rouvrir** une période (retour de `fermee` à `ouverte` ou `partielle_appreciations`,
-    /// ou de `partielle_appreciations` à `ouverte`) exige un **motif écrit** d'au moins 3
-    /// caractères.
+    /// **V3b** : le statut n'est plus écrit dans `ent_note_periode` (colonne gelée) ; il est porté par la machine
+    /// d'états de CHAQUE classe de la période (`eva_periode_etat`, un cran à la fois) : « partielle_appreciations »
+    /// = notes arrêtées, « fermee » = appréciations closes. Toute transition est aussi inscrite dans le journal
+    /// en ajout seul `ent_note_periode_journal` (acteur, avant, après, motif), dans la même transaction.
+    /// **Rouvrir** exige un **motif écrit** d'au moins 3 caractères.
     pub async fn changer_statut_periode_for_actor(
         &self,
         etab: Uuid,
@@ -634,24 +487,32 @@ impl PgEnt {
         }
         let statut = NotePeriodeStatut::parse(statut).ok_or(refus("statut de période inconnu"))?;
         let motif = motif.map(str::trim).filter(|m| !m.is_empty());
+        let rang = |s: NotePeriodeStatut| match s {
+            NotePeriodeStatut::Ouverte => 0usize,
+            NotePeriodeStatut::PartielleAppreciations => 1,
+            NotePeriodeStatut::Fermee => 2,
+        };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        // Verrou de ligne : deux changements concurrents sont sérialisés et l'« avant »
-        // journalisé est celui réellement remplacé.
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT statut FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        // Verrou de ligne : deux changements concurrents sont sérialisés et l'« avant » journalisé est celui
+        // réellement remplacé.
+        let existe: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
         .bind(periode_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (avant_s,) = row.ok_or_else(introuvable)?;
+        existe.ok_or_else(introuvable)?;
+        let avant_s: String = sqlx::query_scalar(
+            "SELECT statut FROM ent_note_periode_v WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(periode_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
         let avant_statut = NotePeriodeStatut::parse(&avant_s).unwrap_or(NotePeriodeStatut::Fermee);
-        let rang = |s: NotePeriodeStatut| match s {
-            NotePeriodeStatut::Ouverte => 0,
-            NotePeriodeStatut::PartielleAppreciations => 1,
-            NotePeriodeStatut::Fermee => 2,
-        };
         let reouverture = rang(statut) < rang(avant_statut);
         if reouverture && motif.is_none_or(|m| m.chars().count() < 3) {
             return Err(refus(
@@ -663,13 +524,32 @@ impl PgEnt {
                 return Err(refus("motif trop long (500 caractères au plus)"));
             }
         }
-        sqlx::query("UPDATE ent_note_periode SET statut = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(periode_id)
-            .bind(statut.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        // Les classes des années que la période recouvre, chacune avec SA période du référentiel (périodisation propre).
+        let classes: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "SELECT c.id, ent_periode_de_note_pour_classe(np.etablissement_id, np.id, c.id)
+               FROM ent_note_periode np
+               JOIN ent_annee_scolaire y ON y.etablissement_id = np.etablissement_id
+                                        AND y.date_debut <= np.date_fin AND y.date_fin >= np.date_debut
+               JOIN ent_classe c ON c.etablissement_id = np.etablissement_id AND c.annee_id = y.id
+              WHERE np.etablissement_id = $1 AND np.id = $2
+              ORDER BY c.id",
+        )
+        .bind(etab)
+        .bind(periode_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let mut alignees = 0usize;
+        for (classe, pe) in classes {
+            let Some(pe) = pe else { continue };
+            Self::aligner_classe_sur_statut_tx(&mut tx, etab, acteur, pe, classe, rang(statut), motif).await?;
+            alignees += 1;
+        }
+        if alignees == 0 {
+            return Err(refus(
+                "aucune classe n'a de période du référentiel qui recouvre cette période de notes : rien à faire avancer",
+            ));
+        }
         sqlx::query(
             "INSERT INTO ent_note_periode_journal
                  (id, etablissement_id, periode_id, statut_avant, statut_apres, motif, acteur_user_id)
@@ -702,6 +582,62 @@ impl PgEnt {
         tx.commit().await.map_err(db)?;
         Ok(self.eva_periode(etab, periode_id).await?.dto())
     }
+
+    /// Fait avancer (un cran à la fois) ou reculer (réouverture motivée) l'état d'une classe jusqu'au rang visé :
+    /// 0 ouverte, 1 notes arrêtées (« partielle_appreciations »), 2 appréciations closes (« fermee »). Une classe
+    /// déjà au rang visé ou au-delà d'un rang « fermee » ne bouge pas.
+    pub(crate) async fn aligner_classe_sur_statut_tx(
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        acteur: Uuid,
+        periode_eva: Uuid,
+        classe_id: Uuid,
+        rang_vise: usize,
+        motif: Option<&str>,
+    ) -> Result<(), EntDbError> {
+        const ETATS: [&str; 5] = ["ouverte", "notes_arretees", "appreciations_closes", "conseil_tenu", "close"];
+        sqlx::query("SELECT eva_etat_assurer($1, $2, $3)")
+            .bind(etab)
+            .bind(periode_eva)
+            .bind(classe_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(db)?;
+        let etat: String = sqlx::query_scalar(
+            "SELECT etat FROM eva_periode_etat WHERE etablissement_id = $1 AND periode_id = $2 AND classe_id = $3 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(periode_eva)
+        .bind(classe_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db)?;
+        let actuel = ETATS.iter().position(|e| *e == etat).unwrap_or(0);
+        let etapes: Vec<usize> = if rang_vise > actuel {
+            (actuel + 1..=rang_vise).collect()
+        } else if rang_vise < actuel {
+            vec![rang_vise]
+        } else {
+            Vec::new()
+        };
+        for e in etapes {
+            sqlx::query(
+                "UPDATE eva_periode_etat SET etat = $4, origine = 'geste', modifie_par = $5, motif = $6
+                  WHERE etablissement_id = $1 AND periode_id = $2 AND classe_id = $3",
+            )
+            .bind(etab)
+            .bind(periode_eva)
+            .bind(classe_id)
+            .bind(ETATS[e])
+            .bind(acteur)
+            .bind(motif)
+            .execute(&mut **tx)
+            .await
+            .map_err(db)?;
+        }
+        Ok(())
+    }
+
 
     /// Journal des changements de statut d'une période (direction : `periodes.verrouiller`),
     /// du plus récent au plus ancien.
@@ -755,16 +691,19 @@ impl PgEnt {
         }
     }
 
+    /// Règles de calcul : l'unique source est le réglage de l'année courante (`eva_reglage`, moteur V2). Le
+    /// « arrondi » historique est la précision d'affichage ; un absent ne compte jamais zéro (R-V5).
     pub async fn regles_calcul_for_actor(
         &self,
         etab: Uuid,
         role: &str,
     ) -> Result<ReglesCalculDto, EntDbError> {
         Self::exiger_staff(role)?;
-        let r = self.eva_regles(etab).await?;
+        let annee = self.eva_annee_courante(etab).await?;
+        let r = self.eva_v1_regles(etab, annee).await?;
         Ok(ReglesCalculDto {
-            arrondi: r.arrondi.as_str().to_string(),
-            absent_compte_zero: r.absent_compte_zero,
+            arrondi: r.regles.affichage.precision.as_str().to_string(),
+            absent_compte_zero: false,
         })
     }
 
@@ -789,36 +728,20 @@ impl PgEnt {
                  ou « à rattraper », puis évaluation de remplacement",
             ));
         }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        sqlx::query(
-            "INSERT INTO ent_eva_regle (etablissement_id, arrondi, absent_compte_zero, updated_by_user_id, updated_at)
-             VALUES ($1, $2, $3, $4, now())
-             ON CONFLICT (etablissement_id) DO UPDATE
-                SET arrondi = EXCLUDED.arrondi, absent_compte_zero = EXCLUDED.absent_compte_zero,
-                    updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()",
-        )
-        .bind(etab)
-        .bind(arrondi.as_str())
-        .bind(false)
-        .bind(acteur)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        tx.publier(MetierEventDraft {
-            etablissement_id: etab,
-            type_name: types_eva::REGLES_MODIFIEES.to_string(),
-            aggregate: AggregateKind::NotePeriode,
-            aggregate_id: etab,
-            eleve_id: None,
-            payload: json!({ "arrondi": arrondi.as_str() }),
-            actor_user_id: Some(acteur.to_string()),
-        })
-        .await?;
-        tx.commit().await.map_err(db)?;
+        let precision = Precision::parse(arrondi.as_str()).ok_or(refus("arrondi inconnu"))?;
+        let annee = self.eva_annee_courante(etab).await?;
+        let actuelles: ReglesEtablissement = self.eva_v1_regles(etab, annee).await?;
+        let mut regles = actuelles.regles;
+        regles.affichage.precision = precision;
+        self.eva_v1_definir_regles_for_actor(etab, acteur, role, annee, &regles, actuelles.pas_saisie_m)
+            .await?;
         self.regles_calcul_for_actor(etab, role).await
     }
 
-    /// Coefficient d'une matière dans la moyenne générale d'une classe (`matieres.gerer`).
+    /// Coefficient d'une matière dans la moyenne générale d'une classe (`matieres.gerer`). **V3b** : il s'écrit dans
+    /// `eva_coefficient_matiere` (la seule source des moyennes), DATÉ du jour de l'établissement : l'ancienne ligne
+    /// est close la veille, jamais réécrite (R-V23) ; un coefficient qui toucherait des résultats déjà saisis est
+    /// refusé par la base (jamais rétroactif).
     pub async fn definir_coef_matiere_for_actor(
         &self,
         etab: Uuid,
@@ -833,12 +756,14 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
-        if domain_eleve::evaluation::centiemes(body.coef).is_none_or(|c| c <= 0 || c > 10_000) {
-            return Err(refus(erreur_saisie(ErreurSaisie::Coefficient)));
-        }
+        let Some(coef_c) = domain_eleve::evaluation::centiemes(body.coef).filter(|c| *c > 0 && *c <= 10_000) else {
+            return Err(refus("coefficient invalide (0 < coefficient ≤ 100)"));
+        };
+        let coef_m = coef_c * 10;
+        let jour = self.aujourdhui_etablissement(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let ok: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM ent_classe c JOIN ent_matiere m ON m.etablissement_id = c.etablissement_id
+        let annee: Option<Uuid> = sqlx::query_scalar(
+            "SELECT c.annee_id FROM ent_classe c JOIN ent_matiere m ON m.etablissement_id = c.etablissement_id
               WHERE c.etablissement_id = $1 AND c.id = $2 AND m.id = $3",
         )
         .bind(etab)
@@ -847,20 +772,49 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        if ok.is_none() {
-            return Err(introuvable());
+        let annee = annee.ok_or_else(introuvable)?;
+        let courant: Option<(Uuid, i64, NaiveDate)> = sqlx::query_as(
+            "SELECT id, (coef * 1000)::bigint, valable_du FROM eva_coefficient_matiere
+              WHERE etablissement_id = $1 AND annee_id = $2 AND matiere_id = $3 AND classe_id = $4
+                AND valable_du <= $5 AND (valable_au IS NULL OR valable_au >= $5)
+              FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(annee)
+        .bind(body.matiere_id)
+        .bind(body.classe_id)
+        .bind(jour)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if let Some((id, actuel_m, depuis)) = courant {
+            if actuel_m == coef_m {
+                return Ok(());
+            }
+            if depuis >= jour {
+                return Err(conflit(
+                    "un coefficient posé aujourd'hui ne se remplace que demain (une ligne datée ne se réécrit pas)",
+                ));
+            }
+            sqlx::query("UPDATE eva_coefficient_matiere SET valable_au = $3 WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(id)
+                .bind(jour - chrono::Duration::days(1))
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
         }
         sqlx::query(
-            "INSERT INTO ent_eva_coef_matiere (id, etablissement_id, classe_id, matiere_id, coef, updated_by_user_id)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (etablissement_id, classe_id, matiere_id) DO UPDATE
-                SET coef = EXCLUDED.coef, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()",
+            "INSERT INTO eva_coefficient_matiere (id, etablissement_id, annee_id, matiere_id, classe_id, coef, valable_du, cree_par)
+             VALUES ($1, $2, $3, $4, $5, $6::bigint / 1000.0, $7, $8)",
         )
         .bind(Uuid::new_v4())
         .bind(etab)
-        .bind(body.classe_id)
+        .bind(annee)
         .bind(body.matiere_id)
-        .bind(body.coef)
+        .bind(body.classe_id)
+        .bind(coef_m)
+        .bind(jour)
         .bind(acteur)
         .execute(&mut *tx)
         .await
@@ -869,650 +823,10 @@ impl PgEnt {
         Ok(())
     }
 
-    // ───────────────────────────── Grille ─────────────────────────────
-
-    /// EVA-02 : grille d'un service sur une période.
-    pub async fn grille_for_actor(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        service_id: Uuid,
-        periode_id: Uuid,
-    ) -> Result<GrilleDto, EntDbError> {
-        Self::exiger_staff(role)?;
-        let service = self.eva_service(etab, service_id).await?;
-        let Some(service_dto) = service.dto() else {
-            return Err(refus("service sans matière du référentiel"));
-        };
-        let periode = self.eva_periode(etab, periode_id).await?;
-        let effectif = self
-            .eva_effectif(etab, service.classe_id, service.groupe_id, periode.date_debut, periode.date_fin)
-            .await?;
-        let titulaire = self
-            .eva_titulaire_ou_etab(etab, acteur, role, &service, Action::NotesLire)
-            .await?;
-        let effectif: Vec<_> = if titulaire {
-            effectif
-        } else {
-            let autorises = self
-                .eleves_autorises(etab, acteur, role, Action::NotesLire)
-                .await?
-                .unwrap_or_default();
-            let visibles: Vec<_> = effectif
-                .into_iter()
-                .filter(|(id, _, _)| autorises.contains(id))
-                .collect();
-            if visibles.is_empty() {
-                return Err(EntDbError::Forbidden);
-            }
-            visibles
-        };
-        let regles = self.eva_regles(etab).await?;
-        let devoirs = self.eva_devoirs_service(etab, service_id, periode_id).await?;
-        let ids: Vec<Uuid> = devoirs.iter().map(|d| d.id).collect();
-        let resultats = self.eva_resultats(etab, &ids).await?;
-        let matiere = service_dto.matiere_id;
-        let apprs: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT eleve_id, texte FROM ent_note_appreciation
-              WHERE etablissement_id = $1 AND periode_id = $2 AND matiere_id = $3",
-        )
-        .bind(etab)
-        .bind(periode_id)
-        .bind(matiere)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        let apprs: HashMap<Uuid, String> = apprs.into_iter().collect();
-        let mut moyennes = Vec::new();
-        let mut lignes = Vec::with_capacity(effectif.len());
-        for (eleve_id, nom, prenom) in effectif {
-            let mut res = Vec::new();
-            let mut calc = Vec::new();
-            for d in &devoirs {
-                if let Some(r) = resultats.get(&(d.id, eleve_id)) {
-                    res.push(ResultatDto {
-                        devoir_id: d.id,
-                        statut: r.statut.as_str().to_string(),
-                        valeur: (r.statut == StatutResultat::Note).then_some(r.valeur),
-                    });
-                    calc.push(ResultatCalcul {
-                        statut: r.statut,
-                        valeur: r.valeur,
-                        sur: d.sur,
-                        coef: d.coef,
-                    });
-                }
-            }
-            let m = moyenne_matiere(&calc, &regles);
-            if let Some(x) = m {
-                moyennes.push(x);
-            }
-            lignes.push(LigneGrilleDto {
-                eleve_id,
-                nom,
-                prenom,
-                resultats: res,
-                moyenne: arrondir(m, regles.arrondi),
-                appreciation: apprs.get(&eleve_id).cloned(),
-            });
-        }
-        let visibles: HashSet<Uuid> = lignes.iter().map(|l| l.eleve_id).collect();
-        let devoirs_dto = devoirs
-            .iter()
-            .map(|d| {
-                // Statistiques du devoir dans son barème, sur les élèves affichés.
-                let notes: Vec<Moyenne> = resultats
-                    .iter()
-                    .filter(|((dv, el), r)| {
-                        *dv == d.id && visibles.contains(el) && r.statut == StatutResultat::Note
-                    })
-                    .filter_map(|(_, r)| domain_eleve::evaluation::centiemes(r.valeur))
-                    .map(Moyenne::depuis_centiemes)
-                    .collect();
-                DevoirGrilleDto {
-                    id: d.id,
-                    titre: d.titre.clone(),
-                    date_devoir: d.date_devoir,
-                    coef: d.coef,
-                    sur: d.sur,
-                    publie_le: d.publie_le,
-                    stats: stats_dto(statistiques(&notes), Arrondi::Centieme),
-                }
-            })
-            .collect();
-        Ok(GrilleDto {
-            service: service_dto,
-            periode: periode.dto(),
-            saisie_ouverte: periode.statut.autorise_saisie_notes(),
-            appreciations_ouvertes: periode.statut.autorise_appreciations(),
-            arrondi: regles.arrondi.as_str().to_string(),
-            devoirs: devoirs_dto,
-            lignes,
-            stats: stats_dto(statistiques(&moyennes), regles.arrondi),
-        })
-    }
-
-    /// EVA-01 (grille) : crée une évaluation du service, à publication explicite.
-    pub async fn creer_devoir_grille_for_actor(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        body: &CreerDevoirGrilleBody,
-    ) -> Result<DevoirGrilleDto, EntDbError> {
-        Self::exiger_staff(role)?;
-        let service = self.eva_service(etab, body.service_id).await?;
-        let matiere_id = service.matiere_id.ok_or(refus("service sans matière du référentiel"))?;
-        if !self
-            .eva_titulaire_ou_etab(etab, acteur, role, &service, Action::NotesSaisir)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        let periode = self.eva_periode(etab, body.periode_id).await?;
-        if !periode.statut.autorise_saisie_notes() {
-            return Err(conflit("période verrouillée : saisie des notes fermée"));
-        }
-        if body.date_devoir < periode.date_debut || body.date_devoir > periode.date_fin {
-            return Err(refus("date du devoir hors de la période"));
-        }
-        valider_devoir(body.sur, body.coef).map_err(|e| refus(erreur_saisie(e)))?;
-        let titre = texte_borne(&body.titre, 200)?;
-        if titre.is_empty() {
-            return Err(refus("titre du devoir obligatoire"));
-        }
-        let id = Uuid::new_v4();
-        let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        // Classe de rattachement : la classe, ou celle du demi-groupe ; '' pour un
-        // groupe transverse (le déclencheur `classe_id` n'invente alors aucune classe).
-        let classe_code: String = match service.classe_parente {
-            Some(c) => {
-                let (code,): (String,) = sqlx::query_as(
-                    "SELECT code FROM ent_classe WHERE etablissement_id = $1 AND id = $2",
-                )
-                .bind(etab)
-                .bind(c)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
-                code
-            }
-            None => String::new(),
-        };
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        if !statut_periode_tx(&mut tx, etab, periode.id).await?.autorise_saisie_notes() {
-            return Err(conflit("période verrouillée : saisie des notes fermée"));
-        }
-        sqlx::query(
-            "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id,
-                                     groupe_id, service_id, titre, date_devoir, coef, sur,
-                                     created_by_user_id, publication_explicite)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)",
-        )
-        .bind(id)
-        .bind(etab)
-        .bind(periode.id)
-        .bind(matiere_id)
-        .bind(&classe_code)
-        .bind(service.classe_parente)
-        .bind(service.groupe_id)
-        .bind(service.id)
-        .bind(&titre)
-        .bind(body.date_devoir)
-        .bind(body.coef)
-        .bind(body.sur)
-        .bind(acteur)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        tx.publier(MetierEventDraft {
-            etablissement_id: etab,
-            type_name: types::DEVOIR_CREATED.to_string(),
-            aggregate: AggregateKind::Devoir,
-            aggregate_id: id,
-            eleve_id: None,
-            payload: json!({
-                "periode_id": periode.id,
-                "matiere_id": matiere_id,
-                "service_id": service.id,
-                "coef": body.coef,
-                "sur": body.sur,
-            }),
-            actor_user_id: Some(acteur.to_string()),
-        })
-        .await?;
-        tx.commit().await.map_err(db)?;
-        Ok(DevoirGrilleDto {
-            id,
-            titre,
-            date_devoir: body.date_devoir,
-            coef: body.coef,
-            sur: body.sur,
-            publie_le: None,
-            stats: StatsDto::default(),
-        })
-    }
-
-    /// EVA-02 : saisie groupée des résultats d'un devoir (seulement les cellules
-    /// modifiées). Statut `vide` : efface la saisie (période ouverte seulement).
-    pub async fn saisir_grille_for_actor(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        devoir_id: Uuid,
-        body: &SaisieGrilleBody,
-    ) -> Result<RapportSaisieDto, EntDbError> {
-        Self::exiger_staff(role)?;
-        if body.resultats.len() > MAX_SAISIES {
-            return Err(refus("trop de résultats dans une seule saisie"));
-        }
-        let devoir = self.eva_devoir(etab, devoir_id).await?;
-        let service_id = devoir.service_id.ok_or(refus("devoir hors grille (sans service)"))?;
-        let service = self.eva_service(etab, service_id).await?;
-        if !self
-            .eva_titulaire_ou_etab(etab, acteur, role, &service, Action::NotesSaisir)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        let periode = self.eva_periode(etab, devoir.periode_id).await?;
-        if !periode.statut.autorise_saisie_notes() {
-            return Err(conflit("période verrouillée : saisie des notes fermée"));
-        }
-        let effectif: HashSet<Uuid> = self
-            .eva_effectif(etab, service.classe_id, service.groupe_id, periode.date_debut, periode.date_fin)
-            .await?
-            .into_iter()
-            .map(|(id, _, _)| id)
-            .collect();
-        let autorises = self
-            .eleves_autorises(etab, acteur, role, Action::NotesSaisir)
-            .await?;
-        let mut rapport = RapportSaisieDto {
-            enregistres: 0,
-            inchanges: 0,
-            refuses: Vec::new(),
-        };
-        let mut vus = HashSet::new();
-        let mut a_ecrire: Vec<(Uuid, Option<(StatutResultat, f64)>)> = Vec::new();
-        for r in &body.resultats {
-            let refuser = |motif: &str| RefusSaisieDto {
-                eleve_id: r.eleve_id,
-                motif: motif.to_string(),
-            };
-            if !vus.insert(r.eleve_id) {
-                rapport.refuses.push(refuser("élève en double dans la saisie"));
-                continue;
-            }
-            if !effectif.contains(&r.eleve_id)
-                || autorises.as_ref().is_some_and(|a| !a.contains(&r.eleve_id))
-            {
-                rapport.refuses.push(refuser("élève hors de l'effectif ou de votre portée"));
-                continue;
-            }
-            if r.statut == "vide" {
-                a_ecrire.push((r.eleve_id, None));
-                continue;
-            }
-            let Some(statut) = StatutResultat::parse(&r.statut) else {
-                rapport.refuses.push(refuser("statut inconnu"));
-                continue;
-            };
-            match valider_resultat(statut, r.valeur, devoir.sur) {
-                Ok(v) => a_ecrire.push((r.eleve_id, Some((statut, v)))),
-                Err(e) => rapport.refuses.push(refuser(erreur_saisie(e))),
-            }
-        }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        if !statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
-            return Err(conflit("période verrouillée : saisie des notes fermée"));
-        }
-        // Verrou du devoir : deux saisies concurrentes du même devoir sont sérialisées.
-        sqlx::query("SELECT 1 FROM ent_devoir WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-            .bind(etab)
-            .bind(devoir_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        for (eleve_id, saisie) in a_ecrire {
-            let existant: Option<(Uuid, String, f64)> = sqlx::query_as(
-                "SELECT id, statut, valeur FROM ent_note
-                  WHERE etablissement_id = $1 AND devoir_id = $2 AND eleve_id = $3
-                  ORDER BY created_at DESC, id DESC LIMIT 1",
-            )
-            .bind(etab)
-            .bind(devoir_id)
-            .bind(eleve_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
-            match (saisie, existant) {
-                (None, None) => rapport.inchanges += 1,
-                (None, Some(_)) => {
-                    let (corrigee,): (bool,) = sqlx::query_as(
-                        "SELECT EXISTS (SELECT 1 FROM ent_note_correction c JOIN ent_note n
-                                          ON n.id = c.note_id AND n.etablissement_id = c.etablissement_id
-                                         WHERE c.etablissement_id = $1 AND n.devoir_id = $2 AND n.eleve_id = $3)",
-                    )
-                    .bind(etab)
-                    .bind(devoir_id)
-                    .bind(eleve_id)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    if corrigee {
-                        rapport.refuses.push(RefusSaisieDto {
-                            eleve_id,
-                            motif: "résultat corrigé après fermeture : effacement impossible".into(),
-                        });
-                        continue;
-                    }
-                    sqlx::query(
-                        "DELETE FROM ent_note WHERE etablissement_id = $1 AND devoir_id = $2 AND eleve_id = $3",
-                    )
-                    .bind(etab)
-                    .bind(devoir_id)
-                    .bind(eleve_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    rapport.enregistres += 1;
-                }
-                (Some((s, v)), Some((_, s0, v0))) if s0 == s.as_str() && (v0 - v).abs() < 1e-9 => {
-                    rapport.inchanges += 1;
-                }
-                (Some((s, v)), Some((id, _, _))) => {
-                    sqlx::query(
-                        "UPDATE ent_note SET statut = $3, valeur = $4, updated_at = now(), updated_by_user_id = $5
-                          WHERE etablissement_id = $1 AND id = $2",
-                    )
-                    .bind(etab)
-                    .bind(id)
-                    .bind(s.as_str())
-                    .bind(v)
-                    .bind(acteur)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    rapport.enregistres += 1;
-                }
-                (Some((s, v)), None) => {
-                    sqlx::query(
-                        "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note,
-                                               auteur_user_id, libelle, devoir_id, periode_id, statut)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-                    )
-                    .bind(Uuid::new_v4())
-                    .bind(etab)
-                    .bind(eleve_id)
-                    .bind(devoir.matiere_id)
-                    .bind(v)
-                    .bind(devoir.sur)
-                    .bind(devoir.date_devoir)
-                    .bind(acteur)
-                    .bind(&devoir.titre)
-                    .bind(devoir_id)
-                    .bind(devoir.periode_id)
-                    .bind(s.as_str())
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    rapport.enregistres += 1;
-                }
-            }
-        }
-        if rapport.enregistres > 0 {
-            tx.publier(MetierEventDraft {
-                etablissement_id: etab,
-                type_name: types_eva::RESULTATS_SAISIS.to_string(),
-                aggregate: AggregateKind::Devoir,
-                aggregate_id: devoir_id,
-                eleve_id: None,
-                // Charge utile minimale : aucune note recopiée.
-                payload: json!({ "periode_id": devoir.periode_id, "nombre": rapport.enregistres }),
-                actor_user_id: Some(acteur.to_string()),
-            })
-            .await?;
-        }
-        tx.commit().await.map_err(db)?;
-        Ok(rapport)
-    }
-
-    /// EVA-03 : publie les notes d'une évaluation aux familles (idempotent).
-    pub async fn publier_devoir_for_actor(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        devoir_id: Uuid,
-    ) -> Result<DevoirGrilleDto, EntDbError> {
-        Self::exiger_staff(role)?;
-        let devoir = self.eva_devoir(etab, devoir_id).await?;
-        let service_id = devoir.service_id.ok_or(refus("devoir hors grille (sans service)"))?;
-        let service = self.eva_service(etab, service_id).await?;
-        if !self
-            .eva_titulaire_ou_etab(etab, acteur, role, &service, Action::NotesSaisir)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        let mut publie_le = devoir.publie_le;
-        if publie_le.is_none() {
-            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-            let maj: Option<(chrono::DateTime<Utc>,)> = sqlx::query_as(
-                "UPDATE ent_devoir SET publie_le = now(), publie_par_user_id = $3
-                  WHERE etablissement_id = $1 AND id = $2 AND publie_le IS NULL RETURNING publie_le",
-            )
-            .bind(etab)
-            .bind(devoir_id)
-            .bind(acteur)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
-            let Some((le,)) = maj else {
-                // Publication concurrente : déjà faite, aucun second événement.
-                tx.rollback().await.map_err(db)?;
-                return Ok(DevoirGrilleDto {
-                    publie_le: self.eva_devoir(etab, devoir_id).await?.publie_le,
-                    ..self.eva_devoir_dto(etab, devoir_id).await?
-                });
-            };
-            tx.publier(MetierEventDraft {
-                etablissement_id: etab,
-                type_name: types_eva::EVALUATION_PUBLIEE.to_string(),
-                aggregate: AggregateKind::Devoir,
-                aggregate_id: devoir_id,
-                eleve_id: None,
-                payload: json!({
-                    "periode_id": devoir.periode_id,
-                    "service_id": service.id,
-                    "classe_id": service.classe_id,
-                    "groupe_id": service.groupe_id,
-                }),
-                actor_user_id: Some(acteur.to_string()),
-            })
-            .await?;
-            tx.commit().await.map_err(db)?;
-            publie_le = Some(le);
-        }
-        Ok(DevoirGrilleDto {
-            id: devoir.id,
-            titre: devoir.titre,
-            date_devoir: devoir.date_devoir,
-            coef: devoir.coef,
-            sur: devoir.sur,
-            publie_le,
-            stats: StatsDto::default(),
-        })
-    }
-
-    async fn eva_devoir_dto(&self, etab: Uuid, id: Uuid) -> Result<DevoirGrilleDto, EntDbError> {
-        let d = self.eva_devoir(etab, id).await?;
-        Ok(DevoirGrilleDto {
-            id: d.id,
-            titre: d.titre,
-            date_devoir: d.date_devoir,
-            coef: d.coef,
-            sur: d.sur,
-            publie_le: d.publie_le,
-            stats: StatsDto::default(),
-        })
-    }
-
-    /// EVA-14 : correction d'un résultat après fermeture (ou en phase « appréciations »),
-    /// motif obligatoire, journalisée ; le bulletin devra être régénéré (nouvelle version).
-    pub async fn corriger_note_for_actor(
-        &self,
-        etab: Uuid,
-        acteur: Uuid,
-        role: &str,
-        devoir_id: Uuid,
-        body: &CorrigerNoteBody,
-    ) -> Result<(), EntDbError> {
-        Self::exiger_staff(role)?;
-        if !self
-            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        let devoir = self.eva_devoir(etab, devoir_id).await?;
-        let periode = self.eva_periode(etab, devoir.periode_id).await?;
-        if periode.statut.autorise_saisie_notes() {
-            return Err(conflit("période ouverte : corriger depuis la grille"));
-        }
-        let motif = texte_borne(&body.motif, 500)?;
-        if motif.chars().count() < 3 {
-            return Err(refus("motif de correction obligatoire"));
-        }
-        let statut = StatutResultat::parse(&body.statut).ok_or(refus("statut inconnu"))?;
-        let valeur = valider_resultat(statut, body.valeur, devoir.sur).map_err(|e| refus(erreur_saisie(e)))?;
-        self.exiger_eleve_existe(etab, body.eleve_id).await?;
-        let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        // L'élève doit appartenir à l'effectif du service (ou de la classe) du devoir.
-        let (classe_id, groupe_id) = match devoir.service_id {
-            Some(sid) => {
-                let sv = self.eva_service(etab, sid).await?;
-                (sv.classe_id, sv.groupe_id)
-            }
-            None => {
-                let (c,): (Option<Uuid>,) = sqlx::query_as(
-                    "SELECT classe_id FROM ent_devoir WHERE etablissement_id = $1 AND id = $2",
-                )
-                .bind(etab)
-                .bind(devoir_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
-                (c, None)
-            }
-        };
-        let effectif = self
-            .eva_effectif(etab, classe_id, groupe_id, periode.date_debut, periode.date_fin)
-            .await?;
-        if !effectif.iter().any(|(id, _, _)| *id == body.eleve_id) {
-            return Err(refus("élève hors de l'effectif de l'évaluation"));
-        }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        if statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
-            return Err(conflit("période ouverte : corriger depuis la grille"));
-        }
-        sqlx::query("SELECT 1 FROM ent_devoir WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-            .bind(etab)
-            .bind(devoir_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        let existant: Option<(Uuid, String, f64)> = sqlx::query_as(
-            "SELECT id, statut, valeur FROM ent_note
-              WHERE etablissement_id = $1 AND devoir_id = $2 AND eleve_id = $3
-              ORDER BY created_at DESC, id DESC LIMIT 1",
-        )
-        .bind(etab)
-        .bind(devoir_id)
-        .bind(body.eleve_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let (note_id, ancien_statut, ancienne_valeur) = match existant {
-            Some((id, s, v)) => {
-                sqlx::query(
-                    "UPDATE ent_note SET statut = $3, valeur = $4, updated_at = now(), updated_by_user_id = $5
-                      WHERE etablissement_id = $1 AND id = $2",
-                )
-                .bind(etab)
-                .bind(id)
-                .bind(statut.as_str())
-                .bind(valeur)
-                .bind(acteur)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-                (id, s, v)
-            }
-            None => {
-                let id = Uuid::new_v4();
-                sqlx::query(
-                    "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note,
-                                           auteur_user_id, libelle, devoir_id, periode_id, statut)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-                )
-                .bind(id)
-                .bind(etab)
-                .bind(body.eleve_id)
-                .bind(devoir.matiere_id)
-                .bind(valeur)
-                .bind(devoir.sur)
-                .bind(devoir.date_devoir)
-                .bind(acteur)
-                .bind(&devoir.titre)
-                .bind(devoir_id)
-                .bind(devoir.periode_id)
-                .bind(statut.as_str())
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-                (id, "vide".to_string(), 0.0)
-            }
-        };
-        sqlx::query(
-            "INSERT INTO ent_note_correction (id, etablissement_id, note_id, eleve_id, periode_id, ancien_statut,
-                                              ancienne_valeur, nouveau_statut, nouvelle_valeur, motif, corrige_par_user_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-        )
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(note_id)
-        .bind(body.eleve_id)
-        .bind(devoir.periode_id)
-        .bind(&ancien_statut)
-        .bind(ancienne_valeur)
-        .bind(statut.as_str())
-        .bind(valeur)
-        .bind(&motif)
-        .bind(acteur)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        tx.publier(MetierEventDraft {
-            etablissement_id: etab,
-            type_name: types_eva::NOTE_CORRIGEE.to_string(),
-            aggregate: AggregateKind::Note,
-            aggregate_id: note_id,
-            eleve_id: Some(body.eleve_id),
-            payload: json!({ "periode_id": devoir.periode_id, "devoir_id": devoir_id }),
-            actor_user_id: Some(acteur.to_string()),
-        })
-        .await?;
-        tx.commit().await.map_err(db)?;
-        Ok(())
-    }
-
     // ───────────────────────────── Calcul de classe ─────────────────────────────
 
-    /// Moteur commun : moyennes de tous les élèves d'une classe sur une période.
+    /// Moteur commun : moyennes de tous les élèves d'une classe sur une période, par le moteur UNIQUE (V2,
+    /// `moyennes_tx`) : la valeur lue ici est celle de la grille, du bulletin et du conseil, au millième près.
     /// `publiees_seulement` : ne compter que les évaluations visibles des familles.
     pub(crate) async fn eva_calculer_classe(
         &self,
@@ -1531,37 +845,50 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
         let (classe_code,) = row.ok_or_else(introuvable)?;
-        let regles = self.eva_regles(etab).await?;
         let eleves = self
             .eva_effectif(etab, Some(classe_id), None, periode.date_debut, periode.date_fin)
             .await?;
-        let ids_eleves: Vec<Uuid> = eleves.iter().map(|e| e.0).collect();
-        // Devoirs : ceux des services de la classe et de ses groupes, et les devoirs
-        // historiques rattachés à la classe (sans service).
-        let rows: Vec<DevoirTuple> = sqlx::query_as(&format!(
-            "SELECT {COLONNES_DEVOIR} FROM ent_devoir d
-              WHERE d.etablissement_id = $1 AND d.periode_id = $2
-                AND (d.classe_id = $3
-                     OR d.service_id IN (SELECT s.id FROM ent_service_enseignement s
-                                           LEFT JOIN ent_groupe g ON g.id = s.groupe_id AND g.etablissement_id = s.etablissement_id
-                                          WHERE s.etablissement_id = $1 AND (s.classe_id = $3 OR g.classe_id = $3)))
-              ORDER BY d.date_devoir, d.created_at, d.id"
-        ))
-        .bind(etab)
-        .bind(periode_id)
-        .bind(classe_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        let devoirs: Vec<DevoirRow> = rows
-            .into_iter()
-            .map(devoir_de)
-            .filter(|d| !publiees_seulement || d.visible_famille())
-            .collect();
-        let ids_devoirs: Vec<Uuid> = devoirs.iter().map(|d| d.id).collect();
-        let resultats = self.eva_resultats(etab, &ids_devoirs).await?;
-        // Matières : celles des services de la classe (même sans note) et des devoirs.
-        let mut ids_matieres: HashSet<Uuid> = devoirs.iter().map(|d| d.matiere_id).collect();
+        let periode_eva = self.eva_periode_pour_classe(etab, periode_id, classe_id).await?;
+        let mut regles = ReglesEtablissement::default().regles;
+        if let Some(p) = periode_eva {
+            let annee: Option<Uuid> = sqlx::query_scalar(
+                "SELECT annee_id FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(p)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if let Some(a) = annee {
+                regles = regles_tx(&mut tx, etab, a).await?.regles;
+            }
+        }
+        let mut moyennes: HashMap<(Uuid, Uuid), Aff> = HashMap::new();
+        let mut generales: HashMap<Uuid, Aff> = HashMap::new();
+        let mut par_matiere: HashMap<Uuid, Vec<Rat>> = HashMap::new();
+        let mut exactes_generale: Vec<Rat> = Vec::new();
+        let mut coefs: HashMap<Uuid, f64> = HashMap::new();
+        if let Some(p) = periode_eva {
+            for (eleve, _, _) in &eleves {
+                let r = moyennes_tx(&mut tx, etab, *eleve, p, publiees_seulement).await?;
+                for m in &r.matieres {
+                    if m.matiere_id == Uuid::nil() {
+                        continue;
+                    }
+                    coefs.entry(m.matiere_id).or_insert(m.coef_m as f64 / 1000.0);
+                    if let (Some(x), Some(a)) = (m.moyenne.exacte, m.moyenne.affichee_m) {
+                        moyennes.insert((*eleve, m.matiere_id), Aff(a));
+                        par_matiere.entry(m.matiere_id).or_default().push(x);
+                    }
+                }
+                if let (Some(x), Some(a)) = (r.generale.exacte, r.generale.affichee_m) {
+                    generales.insert(*eleve, Aff(a));
+                    exactes_generale.push(x);
+                }
+            }
+        }
+        // Matières : celles des services de la classe (même sans note) et celles qui ont une moyenne.
+        let mut ids_matieres: HashSet<Uuid> = coefs.keys().copied().collect();
         let services: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT DISTINCT s.matiere_id FROM ent_service_enseignement s
                LEFT JOIN ent_groupe g ON g.id = s.groupe_id AND g.etablissement_id = s.etablissement_id
@@ -1575,60 +902,70 @@ impl PgEnt {
         .map_err(db)?;
         ids_matieres.extend(services.into_iter().map(|(m,)| m));
         let ids_matieres: Vec<Uuid> = ids_matieres.into_iter().collect();
-        let matieres_rows: Vec<(Uuid, String, String, Option<f64>)> = sqlx::query_as(
-            "SELECT m.id, m.libelle, m.code, k.coef
-               FROM ent_matiere m
-               LEFT JOIN ent_eva_coef_matiere k
-                 ON k.matiere_id = m.id AND k.etablissement_id = m.etablissement_id AND k.classe_id = $3
-              WHERE m.etablissement_id = $1 AND m.id = ANY($2)
-              ORDER BY m.libelle, m.code",
+        let matieres_rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT m.id, m.libelle, m.code FROM ent_matiere m
+              WHERE m.etablissement_id = $1 AND m.id = ANY($2) ORDER BY m.libelle, m.code",
         )
         .bind(etab)
         .bind(&ids_matieres)
-        .bind(classe_id)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let matieres: Vec<(Uuid, String, String, f64)> = matieres_rows
-            .into_iter()
-            .map(|(id, lib, code, coef)| (id, lib, code, coef.unwrap_or(1.0)))
-            .collect();
-        let mut moyennes = HashMap::new();
-        let mut generales = HashMap::new();
-        let mut par_matiere: HashMap<Uuid, Vec<Moyenne>> = HashMap::new();
-        for eleve in &ids_eleves {
-            let mut pour_generale = Vec::new();
-            for (mid, _, _, coef_matiere) in &matieres {
-                let calc: Vec<ResultatCalcul> = devoirs
-                    .iter()
-                    .filter(|d| d.matiere_id == *mid)
-                    .filter_map(|d| {
-                        resultats.get(&(d.id, *eleve)).map(|r| ResultatCalcul {
-                            statut: r.statut,
-                            valeur: r.valeur,
-                            sur: d.sur,
-                            coef: d.coef,
-                        })
-                    })
-                    .collect();
-                if let Some(m) = moyenne_matiere(&calc, &regles) {
-                    moyennes.insert((*eleve, *mid), m);
-                    par_matiere.entry(*mid).or_default().push(m);
-                    pour_generale.push((m, *coef_matiere));
-                }
-            }
-            if let Some(g) = moyenne_generale(&pour_generale) {
-                generales.insert(*eleve, g);
+        let mut matieres: Vec<(Uuid, String, String, f64)> = Vec::new();
+        for (id, lib, code) in matieres_rows {
+            let coef = match coefs.get(&id) {
+                Some(c) => *c,
+                None => match periode_eva {
+                    Some(p) => {
+                        let annee: Option<Uuid> = sqlx::query_scalar(
+                            "SELECT annee_id FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
+                        )
+                        .bind(etab)
+                        .bind(p)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(db)?;
+                        match annee {
+                            Some(a) => coefficient_matiere_tx(&mut tx, etab, a, id, Some(classe_id), periode.date_fin)
+                                .await?
+                                .map_or(1.0, |(m, _)| m as f64 / 1000.0),
+                            None => 1.0,
+                        }
+                    }
+                    None => 1.0,
+                },
+            };
+            matieres.push((id, lib, code, coef));
+        }
+        let affichage = regles.affichage;
+        let stats = |valeurs: &[Rat]| -> Result<Option<StatsAff>, EntDbError> {
+            let Some(s) = statistiques(valeurs, &regles).map_err(|_| refus("statistiques de classe indisponibles"))? else {
+                return Ok(None);
+            };
+            let conv = |x: Rat| -> Result<Aff, EntDbError> {
+                affichage
+                    .en_milliemes(x)
+                    .map(Aff)
+                    .map_err(|_| refus("statistiques de classe indisponibles"))
+            };
+            Ok(Some(StatsAff {
+                moyenne: conv(s.moyenne)?,
+                min: conv(s.min)?,
+                max: conv(s.max)?,
+                effectif: s.effectif,
+            }))
+        };
+        let mut stats_matiere = HashMap::new();
+        for (m, v) in &par_matiere {
+            if let Some(s) = stats(v)? {
+                stats_matiere.insert(*m, s);
             }
         }
-        let stats_matiere = par_matiere
-            .into_iter()
-            .filter_map(|(m, v)| statistiques(&v).map(|s| (m, s)))
-            .collect();
-        let gen: Vec<Moyenne> = ids_eleves.iter().filter_map(|e| generales.get(e).copied()).collect();
+        let stats_generale = stats(&exactes_generale)?;
         Ok(CalculClasse {
             classe_id,
             classe_code,
+            arrondi: affichage.precision.as_str().to_string(),
             periode,
             regles,
             eleves,
@@ -1636,9 +973,7 @@ impl PgEnt {
             moyennes,
             generales,
             stats_matiere,
-            stats_generale: statistiques(&gen),
-            devoirs,
-            resultats,
+            stats_generale,
         })
     }
 
@@ -1656,7 +991,6 @@ impl PgEnt {
         let autorises = self
             .eleves_autorises(etab, acteur, role, Action::NotesLire)
             .await?;
-        let a = calc.regles.arrondi;
         let lignes: Vec<LigneClasseDto> = calc
             .eleves
             .iter()
@@ -1668,9 +1002,9 @@ impl PgEnt {
                 moyennes: calc
                     .matieres
                     .iter()
-                    .map(|(m, _, _, _)| arrondir(calc.moyennes.get(&(*id, *m)).copied(), a))
+                    .map(|(m, _, _, _)| calc.moyennes.get(&(*id, *m)).map(|x| x.valeur()))
                     .collect(),
-                moyenne_generale: arrondir(calc.generales.get(id).copied(), a),
+                moyenne_generale: calc.generales.get(id).map(|x| x.valeur()),
             })
             .collect();
         if lignes.is_empty() && !calc.eleves.is_empty() {
@@ -1684,7 +1018,7 @@ impl PgEnt {
             classe_id,
             classe_code: calc.classe_code.clone(),
             periode: calc.periode.dto(),
-            arrondi: a.as_str().to_string(),
+            arrondi: calc.arrondi.clone(),
             matieres: calc
                 .matieres
                 .iter()
@@ -1693,16 +1027,17 @@ impl PgEnt {
                     libelle: lib.clone(),
                     coef: *coef,
                     // D-022 : agrégats de la classe entière non communiqués à qui ne la voit pas.
-                    stats: stats_dto(calc.stats_matiere.get(m).copied().filter(|_| autorises.is_none()), a),
+                    stats: stats_dto(calc.stats_matiere.get(m).copied().filter(|_| autorises.is_none())),
                 })
                 .collect(),
             lignes,
-            stats_generale: stats_dto(calc.stats_generale.filter(|_| autorises.is_none()), a),
+            stats_generale: stats_dto(calc.stats_generale.filter(|_| autorises.is_none())),
         })
     }
 
-    /// EVA-13 : relevé d'un élève. Famille et élève : évaluations **publiées** seulement
-    /// (moyennes de classe calculées sur les mêmes évaluations).
+    /// EVA-13 : relevé d'un élève. Famille et élève : évaluations **publiées** seulement ; les moyennes viennent
+    /// du moteur unique. Les statistiques de classe ne sont montrées à une famille que si l'établissement les
+    /// autorise et que l'effectif atteint son seuil (R-V12).
     pub async fn releve_eleve_for_actor(
         &self,
         etab: Uuid,
@@ -1716,52 +1051,85 @@ impl PgEnt {
         }
         let staff = Role::parse(role).is_some_and(|r| r.is_staff());
         let periode = self.eva_periode(etab, periode_id).await?;
-        let regles = self.eva_regles(etab).await?;
         let Some(classe_id) = self
             .eva_classe_eleve(etab, eleve_id, periode.date_debut, periode.date_fin)
             .await?
         else {
+            let annee = self.eva_annee_courante(etab).await?;
+            let regles = self.eva_v1_regles(etab, annee).await?;
             return Ok(ReleveEleveDto {
                 eleve_id,
                 periode: periode.dto(),
-                arrondi: regles.arrondi.as_str().to_string(),
+                arrondi: regles.regles.affichage.precision.as_str().to_string(),
                 matieres: Vec::new(),
                 moyenne_generale: None,
             });
         };
         let calc = self.eva_calculer_classe(etab, classe_id, periode_id, !staff).await?;
-        let a = calc.regles.arrondi;
+        let lignes = match self.eva_periode_pour_classe(etab, periode_id, classe_id).await? {
+            Some(p) => {
+                let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+                let r = sqlx::query(
+                    "SELECT ev.titre, ev.date_eval, (ev.coef * 1000)::bigint AS coef_m, (ev.bareme * 1000)::bigint AS bareme_m,
+                            co.matiere_id, r.statut, (r.valeur * 1000)::bigint AS valeur_m
+                       FROM eva_resultat r
+                       JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
+                       JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
+                      WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note' AND ev.etat = 'ouverte'
+                        AND ($4 = false OR ev.publiee_le IS NOT NULL)
+                        AND (SELECT pe.periode_id FROM eva_periode_eleve_jour(ev.etablissement_id, r.eleve_id, ev.date_eval) pe) = $3
+                      ORDER BY ev.date_eval, ev.id",
+                )
+                .bind(etab)
+                .bind(eleve_id)
+                .bind(p)
+                .bind(!staff)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(db)?;
+                tx.commit().await.map_err(db)?;
+                r
+            }
+            None => Vec::new(),
+        };
+        let montrer_stats = staff || (calc.regles.stats_familles && calc.regles.seuil_effectif_stats > 0);
         let matieres = calc
             .matieres
             .iter()
-            .map(|(m, lib, _, _)| ReleveMatiereDto {
-                matiere_id: *m,
-                matiere_libelle: lib.clone(),
-                moyenne: arrondir(calc.moyennes.get(&(eleve_id, *m)).copied(), a),
-                moyenne_classe: calc.stats_matiere.get(m).map(|s| s.moyenne.arrondie(a)),
-                evaluations: calc
-                    .devoirs
+            .map(|(m, lib, _, _)| {
+                let evaluations = lignes
                     .iter()
-                    .filter(|d| d.matiere_id == *m)
-                    .filter_map(|d| {
-                        calc.resultats.get(&(d.id, eleve_id)).map(|r| ReleveEvaluationDto {
-                            titre: d.titre.clone(),
-                            date_devoir: d.date_devoir,
-                            coef: d.coef,
-                            sur: d.sur,
-                            statut: r.statut.as_str().to_string(),
-                            valeur: (r.statut == StatutResultat::Note).then_some(r.valeur),
+                    .filter(|l| l.try_get::<Option<Uuid>, _>("matiere_id").ok().flatten() == Some(*m))
+                    .filter_map(|l| {
+                        let statut: String = l.try_get("statut").ok()?;
+                        let valeur_m: Option<i64> = l.try_get("valeur_m").ok()?;
+                        Some(ReleveEvaluationDto {
+                            titre: l.try_get("titre").ok()?,
+                            date_devoir: l.try_get("date_eval").ok()?,
+                            coef: l.try_get::<i64, _>("coef_m").ok()? as f64 / 1000.0,
+                            sur: l.try_get::<i64, _>("bareme_m").ok()? as f64 / 1000.0,
+                            valeur: (statut == "note").then(|| valeur_m.map(|v| v as f64 / 1000.0)).flatten(),
+                            statut,
                         })
                     })
-                    .collect(),
+                    .collect();
+                let stats = calc.stats_matiere.get(m).filter(|s| staff || (montrer_stats && s.effectif >= calc.regles.seuil_effectif_stats));
+                ReleveMatiereDto {
+                    matiere_id: *m,
+                    matiere_libelle: lib.clone(),
+                    moyenne: calc.moyennes.get(&(eleve_id, *m)).map(|x| x.valeur()),
+                    moyenne_classe: stats.map(|s| s.moyenne.valeur()),
+                    evaluations,
+                }
             })
             .collect();
         Ok(ReleveEleveDto {
             eleve_id,
             periode: calc.periode.dto(),
-            arrondi: a.as_str().to_string(),
+            arrondi: calc.arrondi.clone(),
             matieres,
-            moyenne_generale: arrondir(calc.generales.get(&eleve_id).copied(), a),
+            moyenne_generale: calc.generales.get(&eleve_id).map(|x| x.valeur()),
         })
     }
 }
+

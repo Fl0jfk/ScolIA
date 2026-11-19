@@ -258,7 +258,7 @@ impl PgEnt {
         etab: Uuid,
         calc: &CalculClasse,
     ) -> Result<Vec<(Uuid, BulletinContenuDto)>, EntDbError> {
-        let a = calc.regles.arrondi;
+        let a = calc.arrondi.as_str();
         let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let apprs: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
@@ -302,10 +302,10 @@ impl PgEnt {
                     BulletinLigneDto {
                         matiere: lib.clone(),
                         coef: *coef,
-                        moyenne: calc.moyennes.get(&(*id, *m)).map(|x| x.arrondie(a)),
-                        moyenne_classe: st.map(|s| s.moyenne.arrondie(a)),
-                        min: st.map(|s| s.min.arrondie(a)),
-                        max: st.map(|s| s.max.arrondie(a)),
+                        moyenne: calc.moyennes.get(&(*id, *m)).map(|x| x.valeur()),
+                        moyenne_classe: st.map(|s| s.moyenne.valeur()),
+                        min: st.map(|s| s.min.valeur()),
+                        max: st.map(|s| s.max.valeur()),
                         appreciation: apprs
                             .iter()
                             .find(|(e, mm, _)| e == id && *mm == Some(*m))
@@ -334,10 +334,10 @@ impl PgEnt {
                     periode_libelle: calc.periode.libelle.clone(),
                     date_debut: calc.periode.date_debut,
                     date_fin: calc.periode.date_fin,
-                    arrondi: a.as_str().to_string(),
+                    arrondi: a.to_string(),
                     lignes,
-                    moyenne_generale: calc.generales.get(id).map(|g| g.arrondie(a)),
-                    moyenne_generale_classe: calc.stats_generale.map(|s| s.moyenne.arrondie(a)),
+                    moyenne_generale: calc.generales.get(id).map(|g| g.valeur()),
+                    moyenne_generale_classe: calc.stats_generale.map(|s| s.moyenne.valeur()),
                     appreciation_generale: apprs
                         .iter()
                         .find(|(e, m, _)| e == id && m.is_none())
@@ -383,8 +383,11 @@ impl PgEnt {
             Some(m) => Some(texte_borne(m, 500)?).filter(|m| !m.is_empty()),
             None => None,
         };
+        // Le bulletin est un document VISIBLE des familles : il n'entre que les évaluations PUBLIÉES (R-V7, V3b). Une
+        // note non publiée ne peut pas se déduire d'une moyenne imprimée au bulletin. (À l'arrêt des notes, les
+        // évaluations « publiées à l'arrêt » le sont : le bulletin d'une période normale est complet.)
         let calc = self
-            .eva_calculer_classe(etab, body.classe_id, body.periode_id, false)
+            .eva_calculer_classe(etab, body.classe_id, body.periode_id, true)
             .await?;
         let contenus = self.eva_contenus_bulletins(etab, &calc).await?;
         // Première passe : ce qui change, sans rien écrire.
@@ -771,7 +774,6 @@ impl PgEnt {
             return Err(refus("format attendu : lsu ou lsl"));
         }
         let calc = self.eva_calculer_classe(etab, classe_id, periode_id, false).await?;
-        let a = calc.regles.arrondi;
         let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ines: Vec<(Uuid, Option<String>)> =
@@ -880,8 +882,8 @@ impl PgEnt {
                     .map(|(m, lib, code, _)| LivretMatiere {
                         code: code.clone(),
                         libelle: lib.clone(),
-                        moyenne: calc.moyennes.get(&(*id, *m)).map(|x| x.arrondie(a)),
-                        moyenne_classe: calc.stats_matiere.get(m).map(|s| s.moyenne.arrondie(a)),
+                        moyenne: calc.moyennes.get(&(*id, *m)).map(|x| x.valeur()),
+                        moyenne_classe: calc.stats_matiere.get(m).map(|s| s.moyenne.valeur()),
                         appreciation: apprs
                             .iter()
                             .find(|(e, mm, _)| e == id && *mm == Some(*m))

@@ -422,7 +422,7 @@ impl PgEnt {
         }
         let peut_decider = self.eva_peut_decider(etab, acteur, role, classe_id).await?;
         let calc = self.eva_calculer_classe(etab, classe_id, periode_id, false).await?;
-        let a = calc.regles.arrondi;
+        let a = calc.arrondi.as_str();
         // D-022 : un professeur de groupe ne voit que les élèves de son groupe.
         let visibles = self.eva_eleves_conseil(etab, acteur, role, classe_id).await?;
         let calc_eleves: Vec<(Uuid, String, String)> = calc
@@ -550,7 +550,7 @@ impl PgEnt {
                 eleve_id: *id,
                 nom: nom.clone(),
                 prenom: prenom.clone(),
-                moyenne_generale: calc.generales.get(id).map(|g| g.arrondie(a)),
+                moyenne_generale: calc.generales.get(id).map(|g| g.valeur()),
                 appreciations_manquantes: manquantes,
                 appreciation_generale: generale,
                 absences: dans(&voit_absences, id).then_some(abs),
@@ -564,10 +564,10 @@ impl PgEnt {
         Ok(PreparationConseilDto {
             conseil,
             periode: Some(calc.periode.dto()),
-            arrondi: a.as_str().to_string(),
+            arrondi: a.to_string(),
             // Agrégat de la classe entière : non communiqué à un professeur de groupe.
             moyenne_classe: if visibles.is_none() {
-                calc.stats_generale.map(|s| s.moyenne.arrondie(a))
+                calc.stats_generale.map(|s| s.moyenne.valeur())
             } else {
                 None
             },
@@ -962,7 +962,7 @@ impl PgEnt {
         })
     }
 
-    async fn eva_annee_courante(&self, etab: Uuid) -> Result<Uuid, EntDbError> {
+    pub(crate) async fn eva_annee_courante(&self, etab: Uuid) -> Result<Uuid, EntDbError> {
         Ok(self.referentiel_annee_courante_assuree(etab).await?.id)
     }
 

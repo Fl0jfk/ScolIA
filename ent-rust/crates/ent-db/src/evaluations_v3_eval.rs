@@ -24,6 +24,9 @@ use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
+/// Nombre maximal d'élèves dans un public restreint (F8) : un cours n'a pas plus d'élèves.
+const MAX_RESTREINTE: usize = 300;
+
 const COMPTAGES: [&str; 4] = ["normal", "si_ameliore", "ne_compte_pas", "bonus"];
 
 /// Un bilan de la publication automatique.
@@ -152,6 +155,9 @@ impl PgEnt {
                 "la période est arrêtée pour tous les élèves de ce cours à cette date : demandez à la direction",
             ));
         }
+        if body.restreinte_a.len() > MAX_RESTREINTE {
+            return Err(refus("un public restreint compte au plus 300 élèves"));
+        }
         for v in &body.restreinte_a {
             if !public.iter().any(|(e, _)| e == v) {
                 return Err(refus(
@@ -241,16 +247,25 @@ impl PgEnt {
             .eva_v3_acces(etab, acteur, role, cours_id, jour)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // F8 (course barème / saisie) : l'évaluation est verrouillée DANS UNE REQUÊTE À PART, puis relue. Dans une seule
+        // requête, les sous-requêtes (« existe-t-il des notes ? ») gardent l'instantané pris AVANT l'attente du verrou et
+        // ne voient pas la note qu'une écriture concurrente vient de valider.
+        sqlx::query("SELECT 1 FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
+            .bind(etab)
+            .bind(evaluation_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?
+            .ok_or_else(introuvable)?;
         let ev = sqlx::query(
             "SELECT e.version, e.etat, e.cree_par, e.date_eval, e.publiee_le, c.annee_id,
                     (e.bareme * 1000)::bigint AS bareme_m,
                     EXISTS (SELECT 1 FROM eva_resultat r WHERE r.etablissement_id = e.etablissement_id
                                                           AND r.evaluation_id = e.id) AS a_des_resultats,
-                    COALESCE((SELECT max((r.valeur * 1000)::bigint) FROM eva_resultat r
-                               WHERE r.etablissement_id = e.etablissement_id AND r.evaluation_id = e.id
-                                 AND r.statut = 'note'), 0) AS note_max_m
+                    EXISTS (SELECT 1 FROM eva_resultat r WHERE r.etablissement_id = e.etablissement_id
+                                                          AND r.evaluation_id = e.id AND r.statut = 'note') AS a_des_notes
                FROM eva_evaluation e JOIN ent_cours c ON c.id = e.cours_id AND c.etablissement_id = e.etablissement_id
-              WHERE e.etablissement_id = $1 AND e.id = $2 FOR UPDATE OF e",
+              WHERE e.etablissement_id = $1 AND e.id = $2",
         )
         .bind(etab)
         .bind(evaluation_id)
@@ -263,11 +278,36 @@ impl PgEnt {
         let date_actuelle: NaiveDate = ev.try_get("date_eval").map_err(db)?;
         let annee_id: Uuid = ev.try_get("annee_id").map_err(db)?;
         let a_des_resultats: bool = ev.try_get("a_des_resultats").map_err(db)?;
-        let note_max_m: i64 = ev.try_get("note_max_m").map_err(db)?;
+        let a_des_notes: bool = ev.try_get("a_des_notes").map_err(db)?;
         let bareme_m: i64 = ev.try_get("bareme_m").map_err(db)?;
-        let peut = acces.saisie && (cree_par == Some(acteur) || !acces.suppleant || acces.corriger);
-        if !peut && !acces.corriger {
+        // Élèves du public dont la période est arrêtée à la date de l'évaluation.
+        let arretes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ent_public_cours_jour($1, $2, $3) pu
+               CROSS JOIN LATERAL eva_periode_eleve_jour($1, pu.eleve_id, $2) pe
+              WHERE pe.etat <> 'ouverte'",
+        )
+        .bind(etab)
+        .bind(date_actuelle)
+        .bind(cours_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        // CE-44 (F1) : un suppléant ne modifie que ses propres évaluations. M3 : en période OUVERTE, l'évaluation
+        // appartient au professeur ; un porteur de `notes.corriger` sans droit de saisie n'y touche pas (ni barème, ni
+        // coefficient, ni comptage, ni titre). Après l'arrêt : correction possible, avec motif écrit, journalisée.
+        let proprietaire = acces.saisie && (cree_par == Some(acteur) || !acces.suppleant);
+        if !proprietaire && !(acces.corriger && arretes > 0) {
             return Err(EntDbError::Forbidden);
+        }
+        if !proprietaire
+            && body.motif.as_deref().map(str::trim).is_none_or(|m| m.chars().count() < 3)
+        {
+            return Err(refus(
+                "motif écrit obligatoire (3 caractères au moins) : correction après l'arrêt de la période",
+            ));
+        }
+        if body.motif.as_deref().is_some_and(|m| m.trim().chars().count() > 500) {
+            return Err(refus("motif trop long (500 caractères au plus)"));
         }
         if version != body.version_attendue {
             return Err(conflit("l'évaluation a changé depuis votre lecture"));
@@ -299,17 +339,6 @@ impl PgEnt {
             || body.date_eval.is_some_and(|d| d != date_actuelle);
         if touche_calcul {
             // Une période arrêtée pour une partie du public : seule la direction corrige (R-V10).
-            let arretes: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM ent_public_cours_jour($1, $2, $3) pu
-                   CROSS JOIN LATERAL eva_periode_eleve_jour($1, pu.eleve_id, $2) pe
-                  WHERE pe.etat <> 'ouverte'",
-            )
-            .bind(etab)
-            .bind(date_actuelle)
-            .bind(cours_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db)?;
             if arretes > 0 && !acces.corriger {
                 return Err(EntDbError::Forbidden);
             }
@@ -323,13 +352,15 @@ impl PgEnt {
                     "motif écrit obligatoire : l'évaluation porte déjà des résultats ou la période est arrêtée",
                 ));
             }
-            if let Some(b) = body.bareme_m {
-                let permis = body.hors_bareme_autorise.unwrap_or(false);
-                if b < note_max_m && !permis {
-                    return Err(refus(
-                        "des notes dépassent le nouveau barème : corrigez-les d'abord, ou autorisez les points au-delà du barème",
-                    ));
-                }
+            // CONVERSION DES NOTES AU CHANGEMENT DE BARÈME (limite §5 de V3, tranchée en V3b) : REFUSÉ dès qu'une note
+            // existe. Changer un barème sous des notes saisies change leur sens (14 sur 10 n'est pas 14 sur 20) et une
+            // conversion proportionnelle réécrirait en masse des notes sans que la famille, déjà publiée, le sache ;
+            // elle demande un aperçu et une confirmation que ce lot ne livre pas. Marche à suivre : annuler
+            // l'évaluation (historique conservé) et la recréer au bon barème, ou corriger les notes une à une.
+            if body.bareme_m.is_some_and(|b| b != bareme_m) && a_des_notes {
+                return Err(refus(
+                    "le barème ne change pas quand des notes sont saisies (14 sur 10 n'est pas 14 sur 20) : annulez l'évaluation et recréez-la au bon barème, ou corrigez les notes une à une",
+                ));
             }
             if let Some(d) = body.date_eval {
                 if d != date_actuelle {
@@ -410,7 +441,6 @@ impl PgEnt {
         )
         .await?;
         tx.commit().await.map_err(db)?;
-        let _ = bareme_m;
         self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant)
             .await
     }
@@ -436,7 +466,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
-            "SELECT version, etat, cree_par, publiee_le FROM eva_evaluation
+            "SELECT version, etat, cree_par, publiee_le, date_eval FROM eva_evaluation
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
@@ -448,13 +478,36 @@ impl PgEnt {
         let etat: String = ev.try_get("etat").map_err(db)?;
         let cree_par: Option<Uuid> = ev.try_get("cree_par").map_err(db)?;
         let publiee: Option<DateTime<Utc>> = ev.try_get("publiee_le").map_err(db)?;
-        let auteur_ou_titulaire = acces.saisie && (cree_par == Some(acteur) || !acces.suppleant);
-        if publiee.is_some() {
+        let date_eval: NaiveDate = ev.try_get("date_eval").map_err(db)?;
+        let arretes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ent_public_cours_jour($1, $2, $3) pu
+               CROSS JOIN LATERAL eva_periode_eleve_jour($1, pu.eleve_id, $2) pe
+              WHERE pe.etat <> 'ouverte'",
+        )
+        .bind(etab)
+        .bind(date_eval)
+        .bind(cours_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        // M3 : en période OUVERTE, l'évaluation appartient au professeur (titulaire, co-enseignant, ou suppléant pour
+        // SES évaluations, CE-44) : un porteur de `notes.corriger` sans droit de saisie n'annule pas ; une évaluation
+        // PUBLIÉE se retire d'abord (le professeur dans les 24 h, ensuite la direction). Après l'arrêt : la direction
+        // (`notes.corriger`) annule, avec le motif écrit exigé plus haut, journalisé.
+        let proprietaire = acces.saisie && (cree_par == Some(acteur) || !acces.suppleant);
+        if arretes > 0 {
             if !acces.corriger {
                 return Err(EntDbError::Forbidden);
             }
-        } else if !auteur_ou_titulaire && !acces.corriger {
-            return Err(EntDbError::Forbidden);
+        } else {
+            if !proprietaire {
+                return Err(EntDbError::Forbidden);
+            }
+            if publiee.is_some() {
+                return Err(refus(
+                    "évaluation publiée : retirez d'abord la publication (le professeur dans les 24 h, ensuite la direction), puis annulez",
+                ));
+            }
         }
         if version != body.version_attendue {
             return Err(conflit("l'évaluation a changé depuis votre lecture"));
@@ -505,6 +558,20 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // F1 (CE-44) : le suppléant saisit les notes du titulaire, mais « en cours de correction » comme la
+        // modification de l'évaluation restent à son auteur ou au titulaire.
+        let cree_par: Option<Uuid> = sqlx::query_scalar(
+            "SELECT cree_par FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(evaluation_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        if acces.suppleant && cree_par != Some(acteur) {
+            return Err(EntDbError::Forbidden);
+        }
         let n = sqlx::query(
             "UPDATE eva_evaluation SET en_cours_de_correction = $3, modifie_par = $4
               WHERE etablissement_id = $1 AND id = $2 AND etat = 'ouverte' AND publiee_le IS NULL",
@@ -565,7 +632,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
-            "SELECT etat, publiee_le, cree_par FROM eva_evaluation
+            "SELECT etat, publiee_le, cree_par, premiere_publiee_le FROM eva_evaluation
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
@@ -576,6 +643,7 @@ impl PgEnt {
         let etat: String = ev.try_get("etat").map_err(db)?;
         let publiee: Option<DateTime<Utc>> = ev.try_get("publiee_le").map_err(db)?;
         let cree_par: Option<Uuid> = ev.try_get("cree_par").map_err(db)?;
+        let premiere: Option<DateTime<Utc>> = ev.try_get("premiere_publiee_le").map_err(db)?;
         let peut_publier =
             acces.saisie && (cree_par == Some(acteur) || !acces.suppleant || acces.corriger);
         match body.action.as_str() {
@@ -583,7 +651,10 @@ impl PgEnt {
                 let Some(p) = publiee else {
                     return Err(refus("cette évaluation n'est pas publiée"));
                 };
-                let dans_les_24h = maintenant.signed_duration_since(p) <= Duration::hours(24);
+                // F4 : les 24 h du professeur courent depuis la PREMIÈRE publication : retirer puis republier ne
+                // relance pas le délai.
+                let dans_les_24h =
+                    maintenant.signed_duration_since(premiere.unwrap_or(p)) <= Duration::hours(24);
                 if !(acces.corriger || (peut_publier && dans_les_24h)) {
                     return Err(EntDbError::Forbidden);
                 }

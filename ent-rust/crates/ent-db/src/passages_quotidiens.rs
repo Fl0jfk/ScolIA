@@ -30,12 +30,16 @@
 //! * **ordre** : l'objet physique est supprimé d'abord, puis le registre est marqué ; une suppression qui échoue
 //!   laisse la ligne du registre intacte, l'objet est repris au passage suivant.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::objets::marquer_objet_supprime;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::{etablissements_systeme, ContexteSysteme, TenantTx};
+
+/// Retard maximal d'une publication programmée (F7) : période de la boucle dédiée d'`ent-api` (5 minutes) + une minute
+/// de temps de passage. Une évaluation programmée à l'heure H est publiée au plus tard à H + ce délai.
+pub const RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES: i64 = 6 * 60;
 
 /// Jours (de l'établissement) pendant lesquels un objet inscrit au registre mais non référencé n'est jamais supprimé.
 pub const GRACE_OBJETS_JOURS: i32 = 2;
@@ -110,19 +114,72 @@ impl PgEnt {
     /// Passages quotidiens de tous les établissements, au jour `jour` (`None` : le jour de chaque établissement).
     /// Idempotent. Une étape en échec est comptée et journalisée sans bloquer les suivantes.
     pub async fn passages_quotidiens(&self, jour: Option<NaiveDate>) -> Result<BilanPassagesQuotidiens, EntDbError> {
+        self.passages_quotidiens_a(jour, None).await
+    }
+
+    /// Comme [`Self::passages_quotidiens`], avec l'instant `maintenant` **fourni** pour les publications automatiques
+    /// des évaluations (`None` : l'horloge réelle si `jour` est `None`, sinon la FIN du jour demandé, heure de
+    /// l'établissement : un jour explicite veut dire « tout ce qui est dû d'ici la fin de ce jour »).
+    pub async fn passages_quotidiens_a(
+        &self,
+        jour: Option<NaiveDate>,
+        maintenant: Option<DateTime<Utc>>,
+    ) -> Result<BilanPassagesQuotidiens, EntDbError> {
         let etabs = etablissements_systeme(self.pool(), ContexteSysteme::JobPlanifie("passages_quotidiens"))
             .await
             .map_err(EntDbError::from)?;
         let mut b = BilanPassagesQuotidiens { etablissements: etabs.len(), ..Default::default() };
         for etab in etabs {
-            b.ajouter(&self.passages_quotidiens_etablissement(etab, jour).await);
+            b.ajouter(&self.passages_quotidiens_etablissement_a(etab, jour, maintenant).await);
         }
         Ok(b)
+    }
+
+    /// Publications automatiques des évaluations pour TOUS les établissements à l'instant fourni (F7). Planificateur
+    /// dédié, **toutes les 5 minutes** (`ent-api`) : une publication programmée sort au plus
+    /// [`RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES`] après l'heure choisie (période de la boucle + temps de passage),
+    /// et non plus jusqu'à une heure plus tard comme avec le passage horaire.
+    pub async fn eva_v3_publications_automatiques_tous(
+        &self,
+        maintenant: DateTime<Utc>,
+    ) -> Result<crate::evaluations_v3_eval::BilanPublications, EntDbError> {
+        let etabs = etablissements_systeme(self.pool(), ContexteSysteme::JobPlanifie("publications_evaluations"))
+            .await
+            .map_err(EntDbError::from)?;
+        let mut total = crate::evaluations_v3_eval::BilanPublications::default();
+        for etab in etabs {
+            let jour = match self.aujourdhui_etablissement(etab).await {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!(%etab, erreur = %e, "publications automatiques : jour de l'établissement illisible");
+                    continue;
+                }
+            };
+            match self.eva_v3_publications_automatiques_au(etab, maintenant, jour).await {
+                Ok(b) => {
+                    total.programmees += b.programmees;
+                    total.delai_max += b.delai_max;
+                    total.rappels += b.rappels;
+                }
+                Err(e) => tracing::warn!(%etab, erreur = %e, "publications automatiques des évaluations en échec"),
+            }
+        }
+        Ok(total)
     }
 
     /// Passages quotidiens d'**un** établissement (les étapes sont indépendantes : une étape en échec est comptée et
     /// journalisée, les suivantes s'exécutent).
     pub async fn passages_quotidiens_etablissement(&self, etab: Uuid, jour: Option<NaiveDate>) -> BilanPassagesQuotidiens {
+        self.passages_quotidiens_etablissement_a(etab, jour, None).await
+    }
+
+    /// Voir [`Self::passages_quotidiens_a`] pour `maintenant`.
+    pub async fn passages_quotidiens_etablissement_a(
+        &self,
+        etab: Uuid,
+        jour: Option<NaiveDate>,
+        maintenant: Option<DateTime<Utc>>,
+    ) -> BilanPassagesQuotidiens {
         let mut b = BilanPassagesQuotidiens { etablissements: 1, ..Default::default() };
         match self.voyages_acomptes_alertes_traiter_au(etab, jour).await {
             Ok(n) => b.acomptes_alertes += n,
@@ -151,9 +208,20 @@ impl PgEnt {
             Some(j) => Ok(j),
             None => self.aujourdhui_etablissement(etab).await,
         };
-        let maintenant = match jour {
-            Some(j) => j.and_hms_opt(12, 0, 0).map(|h| h.and_utc()).unwrap_or_else(chrono::Utc::now),
-            None => chrono::Utc::now(),
+        // F7 : l'instant est celui qu'on fournit ; à défaut, l'horloge réelle (jour implicite) ou la FIN du jour demandé
+        // à l'heure de l'établissement (jour explicite). Avant, un jour explicite figeait « maintenant » à 12 h UTC :
+        // une publication programmée à 14 h ne sortait pas ce jour-là.
+        let maintenant = match (maintenant, jour) {
+            (Some(m), _) => m,
+            (None, None) => Utc::now(),
+            (None, Some(j)) => match self.fin_du_jour_etablissement(etab, j).await {
+                Ok(m) => m,
+                Err(e) => {
+                    b.erreurs += 1;
+                    tracing::warn!(%etab, erreur = %e, "passage quotidien : fin du jour de l'établissement illisible");
+                    Utc::now()
+                }
+            },
         };
         match jour_eval {
             Ok(j) => match self.eva_v3_publications_automatiques_au(etab, maintenant, j).await {
@@ -178,6 +246,21 @@ impl PgEnt {
             }
         }
         b
+    }
+
+    /// Dernière seconde du jour `jour`, heure de l'établissement, en UTC.
+    async fn fin_du_jour_etablissement(&self, etab: Uuid, jour: NaiveDate) -> Result<DateTime<Utc>, EntDbError> {
+        let mut t = TenantTx::begin(self.pool(), etab).await?;
+        let m: DateTime<Utc> = sqlx::query_scalar(
+            "SELECT (($1::date + 1)::timestamp AT TIME ZONE COALESCE(
+                       (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $2), 'Europe/Paris'))
+                    - interval '1 second'",
+        )
+        .bind(jour)
+        .bind(etab)
+        .fetch_one(&mut *t)
+        .await?;
+        Ok(m)
     }
 
     /// Balaie les objets orphelins d'une famille pour un établissement (voir la documentation du module).

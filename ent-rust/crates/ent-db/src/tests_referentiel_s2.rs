@@ -105,7 +105,7 @@ async fn semer_donnees_historiques(ent: &PgEnt, c: &LaboCast) {
     let matiere = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1,$2,'MATHS',$3)")
         .bind(matiere).bind(e).bind("Maths").execute(p).await.unwrap();
-    sqlx::query("INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, titre, date_devoir, created_by_user_id)
+    sqlx::query("INSERT INTO ent_devoir_archive (id, etablissement_id, periode_id, matiere_id, classe, titre, date_devoir, created_by_user_id)
                  VALUES ($1,$2,$3,$4,'4B','DS1',$5,$6)")
         .bind(Uuid::new_v4()).bind(e).bind(periode).bind(matiere).bind(jour).bind(auteur).execute(p).await.unwrap();
 }

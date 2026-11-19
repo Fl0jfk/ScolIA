@@ -38,6 +38,10 @@ use crate::tenant_tx::TenantTx;
 
 /// Plafond de cases par envoi (collage de 40 élèves × 20 évaluations = 800).
 pub const MAX_CELLULES_PAR_LOT: usize = 2000;
+/// Longueur maximale du texte tapé dans une case (F8) : « 14,5 », « abs », « disp »… jamais un paragraphe.
+const MAX_TEXTE_CASE: usize = 40;
+/// Longueur maximale d'un motif écrit (F8).
+const MAX_MOTIF: usize = 500;
 
 /// Types d'événements de V3. Charges : identifiants seulement.
 pub mod types_v3 {
@@ -62,6 +66,9 @@ pub(crate) struct AccesCours {
     pub corriger: bool,
     /// Suppléant ce jour-là (ne modifie pas les évaluations d'un autre auteur sans droit de correction, CE-44).
     pub suppleant: bool,
+    /// Professeur DU COURS (service, y compris en lecture après la fin du service) : distinct de `notes.lire`
+    /// d'établissement (secrétariat) qui lit la grille mais pas l'historique d'une case (EVA-139, F6).
+    pub prof_du_cours: bool,
 }
 
 /// Un élève de la grille.
@@ -263,6 +270,7 @@ impl PgEnt {
             lecture: saisie || lecture_cours || etab_lecture,
             corriger,
             suppleant,
+            prof_du_cours: saisie || lecture_cours,
         })
     }
 
@@ -967,10 +975,15 @@ impl PgEnt {
         if !acces.saisie && !acces.corriger {
             return Err(EntDbError::Forbidden);
         }
-        let origine = match body.origine.as_deref() {
-            None | Some("saisie") => SourceResultat::Saisie,
-            Some("import") => SourceResultat::Import,
-            Some(_) => return Err(refus("origine de saisie inconnue")),
+        // F3 : `import` est RÉSERVÉ à la confirmation d'un import de fichier (seul appelant qui passe `journal_mode`) ;
+        // `/eva/saisie` écrit TOUJOURS `saisie`, quoi que dise le corps de la requête.
+        if !matches!(body.origine.as_deref(), None | Some("saisie") | Some("import")) {
+            return Err(refus("origine de saisie inconnue"));
+        }
+        let origine = if journal_mode.is_some() && body.origine.as_deref() == Some("import") {
+            SourceResultat::Import
+        } else {
+            SourceResultat::Saisie
         };
         // Élèves protégés : « introuvables » pour un tiers (garde du socle 2), calculé une fois.
         let profil = self.profil_champs(etab, acteur, role).await?;
@@ -1119,6 +1132,12 @@ impl PgEnt {
             hors_bareme_autorise: *hors_bareme,
             pas_m,
         };
+        if cell.texte.chars().count() > MAX_TEXTE_CASE {
+            return Ok(base("refuse", Some("texte de case trop long (40 caractères au plus)".to_string())));
+        }
+        if cell.motif.as_deref().is_some_and(|m| m.trim().chars().count() > MAX_MOTIF) {
+            return Ok(base("refuse", Some("motif trop long (500 caractères au plus)".to_string())));
+        }
         let (statut, valeur_m) = match analyser_cellule(&cell.texte, &contrainte) {
             Analyse::Vide => return Ok(base("vide", None)),
             Analyse::Erreur(m) => return Ok(base("refuse", Some(m))),
@@ -1274,8 +1293,14 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(introuvable)?;
         tx.commit().await.map_err(db)?;
-        self.eva_v3_acces(etab, acteur, role, cours_id, jour)
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
             .await?;
+        // F6 (EVA-139) : l'historique d'une case est réservé au professeur du cours et à la direction
+        // (`notes.corriger`), pas à tout détenteur de `notes.lire` (le secrétariat lit la grille, pas l'historique).
+        if !(acces.prof_du_cours || acces.corriger) {
+            return Err(EntDbError::Forbidden);
+        }
         self.exiger_eleve_visible(etab, acteur, role, eleve_id)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;

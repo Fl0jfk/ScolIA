@@ -10,7 +10,7 @@
 //! sur le cours est exigé, comme pour la grille. La lecture des textes est celle de la grille
 //! (`analyser_cellule`) : un seul analyseur.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::NaiveDate;
 use ent_types::evaluations_v3::{
@@ -247,7 +247,13 @@ impl PgEnt {
             let eleve_ok = if rapprochement == "ok" { eleve } else { None };
             let mut cases = Vec::new();
             if let Some(e) = eleve_ok {
+                // F8 : une évaluation citée deux fois dans `cibles` n'est écrite qu'une fois (la première colonne
+                // gagne, les doublons sont ignorés) : jamais deux écritures concurrentes sur la même case.
+                let mut deja: HashSet<Uuid> = HashSet::new();
                 for (k, ev) in cibles.iter().enumerate() {
+                    if !deja.insert(ev.id) {
+                        continue;
+                    }
                     let texte = l.cellules.get(k).map(String::as_str).unwrap_or("");
                     let case = g.cases.get(&(ev.id, e.id)).copied().unwrap_or_default();
                     let avant = g.resultats.get(&(ev.id, e.id));

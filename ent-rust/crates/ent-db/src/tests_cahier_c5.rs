@@ -552,16 +552,9 @@ async fn retours_note_masquee_versions_lot_et_prenom_d_un_autre_eleve() {
     let (rx, rw) = (remise(fx.x.id).await, remise(fx.w.id).await);
     // Une note du professeur pour X, non publiée : la note n'apparaît pas (CC-37) ; avec « montrer », elle apparaît.
     let matiere: Uuid = sqlx::query_scalar("SELECT id FROM ent_matiere WHERE etablissement_id = $1 LIMIT 1").bind(fx.cast.etablissement_id).fetch_one(fx.ent.pool()).await.unwrap();
-    let note: Uuid = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id) VALUES ($1, $2, $3, $4, 15, 20, ent_aujourdhui_etab($2), $5)")
-        .bind(note)
-        .bind(fx.cast.etablissement_id)
-        .bind(fx.x.id)
-        .bind(matiere)
-        .bind(fx.prof().user_id)
-        .execute(fx.ent.pool())
-        .await
-        .unwrap();
+    let jour_note: NaiveDate = sqlx::query_scalar("SELECT ent_aujourdhui_etab($1)").bind(fx.cast.etablissement_id).fetch_one(fx.ent.pool()).await.unwrap();
+    // La note n'est PAS publiée (CC-37) : la vue `ent_note` la porte avec `publiee = false`.
+    let note: Uuid = crate::tests_evaluations::note_eva_brute(&fx.ent, fx.cast.etablissement_id, fx.x.id, matiere, 15.0, jour_note, fx.prof().user_id, false).await;
     let r = fx.ent.cdt_retour_enregistrer(&fx.prof(), rx, RetourC5Body { commentaire: format!("Bien, comme {}.", fx.w.prenom), note_id: Some(note), montrer_note: false, rendre: true, criteres: vec![CritereDto { libelle: "Rigueur".into(), niveau: Some("atteint".into()) }], ..Default::default() }, vec![]).await.unwrap();
     // CC-38 : le prénom d'un autre élève du cours est signalé à l'auteur (contrôle doux).
     assert_eq!(r.avertissements.len(), 1, "{:?}", r.avertissements);

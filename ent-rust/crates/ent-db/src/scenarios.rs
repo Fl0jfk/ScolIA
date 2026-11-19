@@ -138,6 +138,7 @@ async fn vie_etablissement_matiere_note_absence_roles() {
         .await
         .unwrap());
 
+    ent.eva_v1_reprendre_amorcage(cast.etablissement_id).await.expect("reprise de l'amorçage");
     let notes_lea = ent
         .notes_for_eleve(cast.etablissement_id, cast.eleve_lea_id)
         .await

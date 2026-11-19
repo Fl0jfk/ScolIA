@@ -700,6 +700,10 @@ impl PgEnt {
         let eleve_ron_id = labo_eleve_prenom(&eleves, "Ron").map(|r| r.id);
         let eleve_ginny_id = labo_eleve_prenom(&eleves, "Ginny").map(|r| r.id);
 
+        // V3b : le semis écrit par l'ancienne voie d'amorçage (archives) ; on la verse dans `eva_*`, seule source des lectures
+        // (bulletin, conseil, relevé, appli mobile), pour que les données de labo y soient visibles.
+        self.eva_v1_reprendre_amorcage(etab).await?;
+
         Ok(LaboCast {
             etablissement_id: etab,
             admin,

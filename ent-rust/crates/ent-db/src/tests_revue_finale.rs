@@ -689,14 +689,13 @@ async fn rf04g_devoirs_et_cahier_de_textes_bornes_aux_classes_enseignees() {
     };
     let r = c.ent.creer_devoir_for_actor("prof", devoir(&c.non_suivie, c.prof)).await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "devoir hors classe : {r:?}");
-    // Un devoir d'une classe non enseignée (créé par la direction) ne se supprime ni ne se liste.
-    let autre = c
+    // Un devoir d'une classe non enseignée (créé par la direction) ne se liste pas pour un professeur. (La suppression
+    // d'un devoir n'existe plus : route fermée en V3b, une évaluation s'annule.)
+    let _autre = c
         .ent
         .creer_devoir_for_actor("direction", devoir(&c.non_suivie, c.direction))
         .await
         .expect("direction : toute classe");
-    let r = c.ent.supprimer_devoir_for_actor(c.etab, "prof", c.prof, autre.id).await;
-    assert!(matches!(r, Err(EntDbError::Forbidden)), "suppression hors classe : {r:?}");
     let liste = c
         .ent
         .list_devoirs_pour_acteur(c.etab, c.prof, "prof", periode_ouverte, None)
