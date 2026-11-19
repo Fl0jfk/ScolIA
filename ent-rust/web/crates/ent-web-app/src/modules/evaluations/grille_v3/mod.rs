@@ -636,9 +636,7 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
                                             focaliser(&id_case(ni, nj));
                                         }
                                     }
-                                    on:paste=move |ev: leptos::ev::Event| {
-                                        use leptos::wasm_bindgen::JsCast;
-                                        let Some(ev) = ev.dyn_ref::<web_sys::ClipboardEvent>() else { return };
+                                    on:paste=move |ev: web_sys::ClipboardEvent| {
                                         let colle = ev
                                             .clipboard_data()
                                             .and_then(|d| d.get_data("text").ok())
@@ -1128,7 +1126,7 @@ fn DialogueImport(
         let evals = evaluations.get_value();
         en_cours.set(true);
         erreur.set(None);
-        let input: web_sys::HtmlInputElement = (*input).clone();
+        let input: web_sys::HtmlInputElement = input;
         spawn_local(async move {
             let r: Result<Option<ImportApercuDto>, String> = async {
                 let Some(texte) = lire_texte_fichier(&input).await? else {
@@ -1244,7 +1242,7 @@ fn DialogueApercu(
                             {move || ecriture.erreur.get().map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })}
                             <div class="eva3-barre">
                                 <Bouton variante=Variante::Secondaire on_click=Callback::new(move |_| { ouvert.set(false); annonce.set("Import abandonné : rien n'a été écrit.".into()); })>"Abandonner"</Bouton>
-                                <Bouton variante=Variante::Primaire desactive=(a_ecrire == 0) en_cours=ecriture.en_cours on_click=Callback::new(confirmer)>
+                                <Bouton variante=Variante::Primaire desactive={a_ecrire == 0} en_cours=ecriture.en_cours on_click=Callback::new(confirmer)>
                                     {format!("Confirmer l'écriture de {a_ecrire} case(s)")}
                                 </Bouton>
                             </div>
