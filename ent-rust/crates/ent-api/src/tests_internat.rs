@@ -6,11 +6,34 @@
 
 use super::*;
 use crate::tests_l3::{appel, etat, inscrire};
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt;
+use tower::ServiceExt;
 use chrono::{Duration, NaiveDate};
 use domain_eleve::CreateEleve;
 use serde_json::json;
 use uuid::Uuid;
+
+/// Requête à corps brut : le corps et l'en-tête `Content-Type` sont choisis par le test (un corps VIDE accompagné de
+/// `Content-Type: application/json`, ce que `Option<Json<_>>` refuse).
+async fn appel_brut(
+    app: &axum::Router,
+    methode: &str,
+    uri: &str,
+    jeton: &str,
+    content_type: Option<&str>,
+    corps: &str,
+) -> (StatusCode, serde_json::Value) {
+    let mut b = Request::builder().method(methode).uri(uri).header("authorization", format!("Bearer {jeton}"));
+    if let Some(ct) = content_type {
+        b = b.header("content-type", ct);
+    }
+    let res = app.clone().oneshot(b.body(Body::from(corps.to_string())).unwrap()).await.unwrap();
+    let st = res.status();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (st, serde_json::from_slice(&bytes).unwrap_or(json!({})))
+}
 
 async fn eleve_interne(ent: &PgEnt, etab: Uuid, sexe: &str) -> Uuid {
     let jour = domain_eleve::horloge::jour_paris();
@@ -313,6 +336,14 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
     let (st, t) = appel(&app, "POST", &format!("/internat/nuits/{nuit}/transmission"), Some(&dir.jeton), None).await;
     assert_eq!(st, StatusCode::OK, "{t}");
     assert_eq!(t["nouvelle"], true);
+    // Corps facultatif : vide, même avec `Content-Type: application/json`, c'est « sans motif » (et non une erreur 400).
+    let (st, t) = appel_brut(&app, "POST", &format!("/internat/nuits/{nuit}/transmission"), &dir.jeton, Some("application/json"), "").await;
+    assert_eq!(st, StatusCode::OK, "corps vide + Content-Type JSON : {t}");
+    assert_eq!(t["nouvelle"], false);
+    let (st, t) = appel_brut(&app, "POST", &format!("/internat/nuits/{nuit}/transmission"), &dir.jeton, Some("application/json"), "{}").await;
+    assert_eq!(st, StatusCode::OK, "objet vide : {t}");
+    let (st, t) = appel_brut(&app, "POST", &format!("/internat/nuits/{nuit}/transmission"), &dir.jeton, Some("application/json"), "{pas du json").await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "corps invalide : 400, pas 500 : {t}");
     let (st, t) = appel(&app, "POST", &format!("/internat/nuits/{nuit}/transmission"), Some(&dir.jeton), None).await;
     assert_eq!(st, StatusCode::OK);
     assert_eq!(t["nouvelle"], false);
@@ -322,4 +353,34 @@ async fn internat_api_la_nuit_parcours_droits_et_pdf() {
     assert!(j.as_array().is_some_and(|l| !l.is_empty()), "{j}");
     let (st, _) = appel(&app, "GET", "/internat/lectures-sensibles", Some(&cpe.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
+}
+
+/// Une date de nuit hors bornes raisonnables (an 9999, an 1) est refusée proprement (400) par toutes les routes qui la
+/// reçoivent, au lieu de faire déborder les calculs de dates de la base (500).
+#[tokio::test]
+async fn internat_api_dates_de_nuit_hors_bornes_refusees_en_400() {
+    let Some((state, _ent)) = etat().await else { return };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    for nuit in ["9999-12-31", "+262142-12-31", "0001-01-01", "1999-12-31", "2101-01-01"] {
+        for (m, uri) in [
+            ("GET", format!("/internat/nuits/{nuit}/attendu")),
+            ("GET", format!("/internat/nuits/{nuit}/effectif")),
+            ("POST", format!("/internat/nuits/{nuit}/transmission")),
+            ("GET", format!("/internat/appels?nuit={nuit}")),
+            ("GET", format!("/internat/cas?nuit={nuit}")),
+        ] {
+            let (st, r) = appel(&app, m, &uri, Some(&dir.jeton), None).await;
+            assert_eq!(st, StatusCode::BAD_REQUEST, "{m} {uri} : {r}");
+        }
+        let (st, r) = appel(&app, "POST", "/internat/appels", Some(&dir.jeton), Some(json!({"type_appel": "soir", "perimetre": "internat", "nuit": nuit}))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "ouverture d'appel {nuit} : {r}");
+    }
+    // Dans les bornes : la route répond normalement (jamais 400 pour la date).
+    let (st, r) = appel(&app, "GET", "/internat/nuits/2026-03-28/attendu", Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    // Corps vide avec Content-Type JSON, sans rien à transmettre : un refus MÉTIER (409), pas une erreur de corps.
+    let (st, r) = appel_brut(&app, "POST", "/internat/nuits/2026-03-28/transmission", &dir.jeton, Some("application/json"), "").await;
+    assert_eq!(st, StatusCode::CONFLICT, "aucun appel : refus métier, pas d'erreur de corps : {r}");
 }

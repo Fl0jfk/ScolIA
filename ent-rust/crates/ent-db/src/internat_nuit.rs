@@ -879,6 +879,7 @@ impl PgEnt {
             return Err(refus("libellé de liste invalide"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        Self::exiger_membre_tx(&mut tx, etab, b.confie_a_user_id).await?;
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_internat_liste (id, etablissement_id, libelle, confie_a_user_id) VALUES ($1,$2,$3,$4)",
@@ -905,6 +906,29 @@ impl PgEnt {
             confie_a_user_id: b.confie_a_user_id,
             actif: true,
         })
+    }
+
+    /// Le surveillant à qui une liste est confiée appartient à l'établissement (adhésion ouverte) : sinon
+    /// une liste pourrait être confiée à un compte d'un autre établissement, ou inexistant.
+    async fn exiger_membre_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        user: Option<Uuid>,
+    ) -> Result<(), EntDbError> {
+        let Some(user) = user else { return Ok(()) };
+        let membre: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2 AND etat = 'ouvert')",
+        )
+        .bind(etab)
+        .bind(user)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if membre {
+            Ok(())
+        } else {
+            Err(refus("l'agent à qui la liste est confiée n'appartient pas à l'établissement"))
+        }
     }
 
     async fn poser_chambres_liste_tx(
@@ -955,6 +979,7 @@ impl PgEnt {
             return Err(refus("libellé de liste invalide"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        Self::exiger_membre_tx(&mut tx, etab, b.confie_a_user_id).await?;
         let n = sqlx::query(
             "UPDATE ent_internat_liste SET libelle = $3, confie_a_user_id = $4, actif = $5, modifie_le = now() \
               WHERE etablissement_id = $1 AND id = $2",
@@ -1103,6 +1128,7 @@ impl PgEnt {
         }
         // M7 : un appel a posteriori (nuit passée) se saisit dans les 48 h qui suivent la fin de la nuit ;
         // au-delà, seul le droit de valider l'ouvre (il s'agit alors de reconstituer une nuit).
+        let mut portee_valider: Option<HashSet<Uuid>> = None;
         if nuit < courante {
             let tardif: bool = sqlx::query_scalar(
                 "SELECT $3::timestamptz > ((($2::date + 1) + TIME '12:00') AT TIME ZONE ent_internat_fuseau($1)) \
@@ -1116,7 +1142,8 @@ impl PgEnt {
             .await
             .map_err(db)?;
             if tardif {
-                self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider]).await?;
+                // Sa portée s'applique aussi : elle doit couvrir tous les élèves du périmètre (voir plus bas).
+                portee_valider = self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider]).await?;
             }
         }
         // M6 : deux requêtes ensemblistes, aucun recalcul par élève. 1) l'appel, avec son effectif attendu ;
@@ -1174,7 +1201,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         // R-IT30 : l'acteur doit couvrir TOUS les élèves du périmètre (la transaction est abandonnée sinon).
-        if let Some(set) = &portee {
+        for set in portee.iter().chain(portee_valider.iter()) {
             if figes.iter().any(|(e, _)| !set.contains(e)) {
                 return Err(EntDbError::Forbidden);
             }
@@ -1365,9 +1392,14 @@ impl PgEnt {
         let appel = appel_tx(&mut tx, etab, appel_id, "FOR SHARE").await?;
         let correction = appel.etat != "ouvert";
         if correction {
-            // Une correction après clôture ou validation exige le droit de valider (R-IT17).
-            self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider])
+            // Une correction après clôture ou validation exige le droit de valider (R-IT17), et sa portée
+            // s'applique à l'élève corrigé : un valideur restreint ne corrige pas hors de sa portée.
+            let valider = self
+                .nuit_portee(etab, actor, role, &[Action::InternatAppelValider])
                 .await?;
+            if valider.as_ref().is_some_and(|s| !s.contains(&b.eleve_id)) {
+                return Err(EntDbError::Forbidden);
+            }
         }
         let resultat = self
             .pointer_tx(&mut tx, etab, actor, &appel, b, maintenant)

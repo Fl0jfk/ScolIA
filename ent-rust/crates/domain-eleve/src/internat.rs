@@ -751,28 +751,66 @@ pub struct CreerSuiviInternat {
 /// Longueur maximale d'un suivi (RI-09, R-IT7).
 pub const SUIVI_MAX_CARACTERES: usize = 300;
 
+/// Texte ramené en minuscules **sans diacritiques** (M1) : équivalent d'une normalisation NFKD suivie du
+/// retrait des marques, écrit à la main (aucune dépendance de plus, D-062). Couvre : les marques combinantes
+/// (texte décomposé « e » + U+0301), les lettres latines accentuées du Latin-1 et du Latin étendu A,
+/// « œ », « æ », « ß », les formes pleine chasse (« ＦＩＥＶＲＥ ») et les caractères invisibles (soft hyphen,
+/// espaces de largeur nulle) qu'on glisserait au milieu d'un mot pour tromper la détection.
+fn replier_en_ascii(texte: &str) -> String {
+    let mut sortie = String::with_capacity(texte.len());
+    for c in texte.chars() {
+        let c = if ('\u{FF01}'..='\u{FF5E}').contains(&c) {
+            char::from_u32(c as u32 - 0xFEE0).unwrap_or(c)
+        } else {
+            c
+        };
+        match c {
+            '\u{0300}'..='\u{036F}' | '\u{00AD}' | '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}' => {}
+            _ => {
+                for l in c.to_lowercase() {
+                    match l {
+                        '\u{0300}'..='\u{036F}' => {}
+                        'œ' => sortie.push_str("oe"),
+                        'æ' => sortie.push_str("ae"),
+                        'ß' => sortie.push_str("ss"),
+                        'à'..='å' | 'ā' | 'ă' | 'ą' => sortie.push('a'),
+                        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => sortie.push('c'),
+                        'ð' | 'ď' | 'đ' => sortie.push('d'),
+                        'è'..='ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => sortie.push('e'),
+                        'ĝ' | 'ğ' | 'ġ' | 'ģ' => sortie.push('g'),
+                        'ĥ' | 'ħ' => sortie.push('h'),
+                        'ì'..='ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => sortie.push('i'),
+                        'ĵ' => sortie.push('j'),
+                        'ķ' => sortie.push('k'),
+                        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => sortie.push('l'),
+                        'ñ' | 'ń' | 'ņ' | 'ň' => sortie.push('n'),
+                        'ò'..='ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => sortie.push('o'),
+                        'ŕ' | 'ŗ' | 'ř' => sortie.push('r'),
+                        'ś' | 'ŝ' | 'ş' | 'š' => sortie.push('s'),
+                        'ţ' | 'ť' | 'ŧ' => sortie.push('t'),
+                        'ù'..='ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => sortie.push('u'),
+                        'ŵ' => sortie.push('w'),
+                        'ý' | 'ÿ' | 'ŷ' => sortie.push('y'),
+                        'ź' | 'ż' | 'ž' => sortie.push('z'),
+                        autre => sortie.push(autre),
+                    }
+                }
+            }
+        }
+    }
+    sortie
+}
+
 /// Mots de santé reconnus (R-IT6) : détection **indicative**, jamais une décision. Sert à avertir
 /// l'auteur (« pas de santé dans l'internat ») ; la santé relève du module 34.
 ///
-/// C'est **une aide, pas une garantie** : une liste de racines (sans accents ; le texte est ramené en
-/// minuscules sans accents avant comparaison) ne reconnaît ni une périphrase, ni une faute de
+/// C'est **une aide, pas une garantie** : une liste de racines (le texte est ramené en minuscules, sans
+/// diacritiques ni « œ », par `replier_en_ascii` avant comparaison) ne reconnaît ni une périphrase, ni une faute de
 /// frappe, ni une abréviation. La protection réelle reste le code de motif sans texte libre, la
 /// confidentialité et la relecture humaine. Les faux positifs sont assumés (mieux vaut refuser un
 /// texte inoffensif que laisser passer un diagnostic).
 pub fn mots_de_sante_detectes(texte: &str) -> bool {
-    let t: String = texte
-        .to_lowercase()
-        .chars()
-        .map(|c| match c {
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'à' | 'â' | 'ä' => 'a',
-            'î' | 'ï' => 'i',
-            'ô' | 'ö' => 'o',
-            'ù' | 'û' | 'ü' => 'u',
-            'ç' => 'c',
-            other => other,
-        })
-        .collect();
+    let t = replier_en_ascii(texte);
     const RACINES: &[&str] = &[
         "allerg",
         "medicament",
@@ -802,6 +840,14 @@ pub fn mots_de_sante_detectes(texte: &str) -> bool {
         "grippe",
         "gastro",
         "covid",
+        "hospital",
+        "fractur",
+        "bless",
+        "douleur",
+        "nause",
+        "plaie",
+        "automutil",
+        "anorex",
     ];
     RACINES.iter().any(|r| t.contains(r))
         || t.split(|c: char| !c.is_alphanumeric()).any(|m| m == "pai")
@@ -1227,6 +1273,15 @@ mod tests {
         assert!(mots_de_sante_detectes("rdv psy"));
         assert!(mots_de_sante_detectes("TDAH"));
         assert!(mots_de_sante_detectes("diabète"));
+        // M1 : racines ajoutées, textes décomposés (NFD), « œ », pleine chasse, caractères invisibles.
+        for t in [
+            "hospitalisé", "fracture du bras", "blessé au pied", "douleurs", "nausées", "une plaie",
+            "automutilation", "anorexie", "fie\u{0300}vre", "e\u{0301}pilepsie", "ＦＩＥＶＲＥ",
+            "fi\u{00AD}evre", "fi\u{200B}evre", "DÉPRESSION", "dépre\u{0301}ssion",
+        ] {
+            assert!(mots_de_sante_detectes(t), "{t}");
+        }
+        assert_eq!(replier_en_ascii("Œuvre ÆTHER façade ñ"), "oeuvre aether facade n");
         assert!(!mots_de_sante_detectes("S'est bien intégré, rangé sa chambre"));
         assert!(!mots_de_sante_detectes("maladroit mais gentil"));
         assert!(!mots_de_sante_detectes("Il pleut, il pait calmement"));

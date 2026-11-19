@@ -7,6 +7,7 @@
 //! la portée sur les élèves (R-IT30), l'attendu (R-IT14) et la clôture (R-IT16). L'heure de chaque
 //! commande est celle du serveur. **Aucune route sans session.**
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -50,6 +51,22 @@ pub fn routes() -> Router<AppState> {
         .route("/internat/lectures-sensibles", get(lectures))
 }
 
+/// Bornes raisonnables d'une date de nuit reçue d'un client : une date absurde (an 9999, an 0) ferait déborder
+/// les calculs de dates de la base (500) ; on la refuse proprement (400).
+fn nuit_bornee(nuit: NaiveDate) -> Res<NaiveDate> {
+    let (min, max) = (
+        NaiveDate::from_ymd_opt(2000, 1, 1).unwrap_or(NaiveDate::MIN),
+        NaiveDate::from_ymd_opt(2100, 12, 31).unwrap_or(NaiveDate::MAX),
+    );
+    if nuit < min || nuit > max {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "date de nuit hors des bornes raisonnables (2000 à 2100)".into(),
+        ));
+    }
+    Ok(nuit)
+}
+
 #[derive(Debug, Deserialize)]
 struct NuitQuery {
     nuit: NaiveDate,
@@ -71,6 +88,7 @@ struct LimiteQuery {
 }
 
 async fn attendu(State(s): State<AppState>, se: EntSession, Path(nuit): Path<NaiveDate>) -> Res<Json<AttenduDto>> {
+    let nuit = nuit_bornee(nuit)?;
     Ok(Json(
         s.ent
             .attendu_nuit_a(se.etablissement_id, se.user_id, &se.role, nuit, Utc::now())
@@ -80,6 +98,7 @@ async fn attendu(State(s): State<AppState>, se: EntSession, Path(nuit): Path<Nai
 }
 
 async fn effectif(State(s): State<AppState>, se: EntSession, Path(nuit): Path<NaiveDate>) -> Res<Json<EffectifRepasDto>> {
+    let nuit = nuit_bornee(nuit)?;
     Ok(Json(
         s.ent
             .effectif_repas_a(se.etablissement_id, se.user_id, &se.role, nuit, Utc::now())
@@ -92,9 +111,18 @@ async fn transmettre(
     State(s): State<AppState>,
     se: EntSession,
     Path(nuit): Path<NaiveDate>,
-    corps: Option<Json<TransmissionSaisieDto>>,
+    corps: Bytes,
 ) -> Res<Json<TransmissionDto>> {
-    let motif = corps.and_then(|Json(c)| c.motif_rectification);
+    let nuit = nuit_bornee(nuit)?;
+    // Corps facultatif : absent, vide, ou blanc (même avec `Content-Type: application/json`), c'est « sans motif » ;
+    // `Option<Json<_>>` refuserait un corps vide quand l'en-tête JSON est présent.
+    let motif = if corps.iter().all(u8::is_ascii_whitespace) {
+        None
+    } else {
+        serde_json::from_slice::<TransmissionSaisieDto>(&corps)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("corps JSON invalide : {e}")))?
+            .motif_rectification
+    };
     Ok(Json(
         s.ent
             .transmettre_matin_a(se.etablissement_id, se.user_id, &se.role, nuit, motif.as_deref(), Utc::now())
@@ -180,7 +208,7 @@ async fn modifier_liste(
 async fn appels(State(s): State<AppState>, se: EntSession, Query(q): Query<NuitQuery>) -> Res<Json<Vec<AppelDto>>> {
     Ok(Json(
         s.ent
-            .lister_appels_a(se.etablissement_id, se.user_id, &se.role, q.nuit, Utc::now())
+            .lister_appels_a(se.etablissement_id, se.user_id, &se.role, nuit_bornee(q.nuit)?, Utc::now())
             .await
             .map_err(map_db)?,
     ))
@@ -191,6 +219,9 @@ async fn ouvrir_appel(
     se: EntSession,
     Json(b): Json<AppelOuvertureDto>,
 ) -> Res<(StatusCode, Json<AppelVueDto>)> {
+    if let Some(n) = b.nuit {
+        nuit_bornee(n)?;
+    }
     let r = s
         .ent
         .ouvrir_appel_a(se.etablissement_id, se.user_id, &se.role, &b, Utc::now())
@@ -275,7 +306,7 @@ async fn valider(State(s): State<AppState>, se: EntSession, Path(id): Path<Uuid>
 async fn cas(State(s): State<AppState>, se: EntSession, Query(q): Query<NuitQuery>) -> Res<Json<Vec<CasDto>>> {
     Ok(Json(
         s.ent
-            .lister_cas_a(se.etablissement_id, se.user_id, &se.role, q.nuit, Utc::now())
+            .lister_cas_a(se.etablissement_id, se.user_id, &se.role, nuit_bornee(q.nuit)?, Utc::now())
             .await
             .map_err(map_db)?,
     ))

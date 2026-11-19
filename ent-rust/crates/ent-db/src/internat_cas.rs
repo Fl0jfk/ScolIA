@@ -434,8 +434,8 @@ impl PgEnt {
         if portee.as_ref().is_some_and(|s| !s.contains(&ligne.0)) {
             return Err(EntDbError::Forbidden);
         }
-        let version: Uuid = sqlx::query_scalar(
-            "SELECT procedure_version_id FROM ent_internat_cas WHERE etablissement_id = $1 AND id = $2",
+        let (version, issue_note): (Uuid, Option<String>) = sqlx::query_as(
+            "SELECT procedure_version_id, issue_note FROM ent_internat_cas WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(cas_id)
@@ -489,6 +489,7 @@ impl PgEnt {
             numeros_titulaires: numeros,
             numeros_masques,
             astreinte_branchee: false,
+            issue_note,
             cas,
         })
     }
@@ -612,10 +613,13 @@ impl PgEnt {
         if !ISSUES.contains(&b.issue.as_str()) {
             return Err(refus("issue inconnue"));
         }
-        if b.issue == "annule_erreur" {
-            // Seule la validation peut déclarer une erreur d'ouverture.
-            self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider]).await?;
-        }
+        // Seule la validation peut déclarer une erreur d'ouverture ; sa portée s'applique à l'élève du cas
+        // (un valideur restreint hors portée est refusé plus bas).
+        let portee_valider = if b.issue == "annule_erreur" {
+            Some(self.nuit_portee(etab, actor, role, &[Action::InternatAppelValider]).await?)
+        } else {
+            None
+        };
         match b.issue.as_str() {
             "retrouve" => match b.lieu_code.as_deref() {
                 Some(l) if LIEUX.contains(&l) => {}
@@ -638,6 +642,9 @@ impl PgEnt {
         if note.is_some_and(|n| n.chars().count() > 300 || evoque_la_sante(n)) {
             return Err(refus("note invalide (300 caractères, aucune donnée de santé)"));
         }
+        if b.issue == "annule_erreur" && note.is_none() {
+            return Err(refus("« annulé : erreur d'ouverture » exige un motif écrit"));
+        }
         let a = b.a.unwrap_or(maintenant);
         if a > maintenant + Duration::minutes(5) {
             return Err(refus("l'heure de l'issue est dans le futur"));
@@ -647,23 +654,40 @@ impl PgEnt {
         if portee.as_ref().is_some_and(|s| !s.contains(&ligne.0)) {
             return Err(EntDbError::Forbidden);
         }
+        if portee_valider.as_ref().is_some_and(|p| p.as_ref().is_some_and(|s| !s.contains(&ligne.0))) {
+            return Err(EntDbError::Forbidden);
+        }
         if ligne.7.is_some() {
             return Err(conflit("le cas est déjà clos"));
         }
         if let Some(p) = b.confirme_par_personne_id {
-            // La personne qui confirme doit être liée à l'élève (socle 4), lien non suspendu.
+            // La personne qui confirme doit être joignable au même titre que pour la liste des numéros (E3,
+            // R-IT26) : lien non suspendu, dans ses dates à la nuit, autorité parentale, garde autre que
+            // « aucune », personne non fusionnée dans une autre.
             let lien: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
-                   AND l.personne_id = $3 AND l.suspendu_le IS NULL)",
+                "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien l \
+                   JOIN ent_personne p ON p.etablissement_id = l.etablissement_id AND p.id = l.personne_id \
+                  WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.personne_id = $3 \
+                    AND l.suspendu_le IS NULL AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' \
+                    AND (l.date_debut IS NULL OR l.date_debut <= $4) AND (l.date_fin IS NULL OR l.date_fin >= $4) \
+                    AND p.fusionnee_dans IS NULL)",
             )
             .bind(etab)
             .bind(ligne.0)
             .bind(p)
+            .bind(ligne.4)
             .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if !lien {
                 return Err(refus("la personne indiquée n'est pas rattachée à l'élève"));
+            }
+            // Élève protégé, ou visé par une interdiction sans personne identifiée : aucun contact ne
+            // confirme un retour, comme aucun numéro n'est rendu (décision pessimiste).
+            if eleve_numeros_masques_tx(&mut tx, etab, ligne.0, ligne.4).await? {
+                return Err(refus(
+                    "cet élève est protégé : la confirmation passe par la direction ou le CPE d'astreinte",
+                ));
             }
             // E3 : une personne visée par une interdiction ou à adresse protégée ne confirme pas un retour.
             if personne_exclue_tx(&mut tx, etab, ligne.0, ligne.4, p).await? {
@@ -674,7 +698,7 @@ impl PgEnt {
         }
         sqlx::query(
             "UPDATE ent_internat_cas SET issue = $3, issue_le = $4, issue_par_user_id = $5, issue_lieu_code = $6, \
-                    issue_confirmee_par_personne_id = $7, numero_intervention = $8, modifie_le = now() \
+                    issue_confirmee_par_personne_id = $7, numero_intervention = $8, issue_note = $9, modifie_le = now() \
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -685,9 +709,12 @@ impl PgEnt {
         .bind(&b.lieu_code)
         .bind(b.confirme_par_personne_id)
         .bind(b.numero_intervention.as_deref().map(str::trim))
+        .bind(note)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // La note est stockée avec l'issue (`issue_note`, quelle que soit l'issue) ; l'étape du lieu, quand il y en a
+        // un, garde aussi la sienne pour la chronologie.
         if note.is_some() || b.lieu_code.is_some() {
             sqlx::query(
                 "INSERT INTO ent_internat_cas_etape (id, etablissement_id, cas_id, lieu_code, fait_le, par_user_id, note, cree_le) \
@@ -780,36 +807,76 @@ impl PgEnt {
             nb_appels: appels.len(),
             attendus: attendus.len() as i32,
             presents: presents.len() as i32,
-            absents: absents.into_iter().collect(),
-            partis: partis.len() as i32,
+            absents: {
+                let mut a: Vec<Uuid> = absents.into_iter().collect();
+                a.sort();
+                a
+            },
+            partis: {
+                let mut p: Vec<Uuid> = partis.into_iter().collect();
+                p.sort();
+                p
+            },
             nb_cas: nb_cas as i32,
         })
     }
 
     /// Effectif de la restauration pour la nuit : une seule formule, partagée par la transmission et la lecture
-    /// (M3). Dîner = internes attendus ce soir (l'attendu calculé) ; petit-déjeuner = dîner moins ceux déclarés
-    /// absents ou partis dans les appels clos ou validés de la nuit (sans appel clos, aucun retrait de plus).
+    /// (M3). Dîner = internes attendus ce soir ; petit-déjeuner = dîner moins ceux déclarés absents ou partis
+    /// dans les appels clos ou validés de la nuit (sans appel clos, aucun retrait de plus).
+    ///
+    /// `figee` : le dîner se compte sur les **listes figées** des appels (`c.attendus`), pas sur l'attendu
+    /// recalculé à l'instant. C'est la règle d'une nuit déjà transmise : un retrait ou un séjour posé après
+    /// coup ne change pas les chiffres que la restauration a reçus (la correction passe par une
+    /// rectificative). Avant la transmission, la lecture suit l'attendu calculé, à jour.
     async fn effectif_repas_tx(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
         nuit: NaiveDate,
         c: &ChiffresNuit,
+        figee: bool,
     ) -> Result<EffectifRepasDto, EntDbError> {
-        let diner: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ent_internat_attendu_calcule($1, $2) WHERE statut IN ('attendu', 'ajoute')",
+        let diner = if figee {
+            c.attendus
+        } else {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM ent_internat_attendu_calcule($1, $2) WHERE statut IN ('attendu', 'ajoute')",
+            )
+            .bind(etab)
+            .bind(nuit)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+            n as i32
+        };
+        Ok(EffectifRepasDto {
+            nuit,
+            diner,
+            petit_dejeuner: (diner - c.absents.len() as i32 - c.partis.len() as i32).max(0),
+        })
+    }
+
+    /// Élèves attendus (ou ajoutés) de la nuit qu'aucun appel « soir » **validé** ne couvre dans sa liste figée.
+    /// Sert au rappel d'un appel en retard et refuse la transmission du matin (M3).
+    async fn eleves_non_couverts_par_le_soir_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        nuit: NaiveDate,
+    ) -> Result<i64, EntDbError> {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM ent_internat_attendu_calcule($1, $2) a \
+              WHERE a.statut IN ('attendu', 'ajoute') AND NOT EXISTS ( \
+                    SELECT 1 FROM ent_internat_appel_attendu x \
+                      JOIN ent_internat_appel p ON p.etablissement_id = x.etablissement_id AND p.id = x.appel_id \
+                     WHERE x.etablissement_id = $1 AND p.nuit = $2 AND p.type = 'soir' AND p.etat = 'valide' \
+                       AND x.eleve_id = a.eleve_id)",
         )
         .bind(etab)
         .bind(nuit)
         .fetch_one(&mut *conn)
         .await
-        .map_err(db)?;
-        let diner = diner as i32;
-        Ok(EffectifRepasDto {
-            nuit,
-            diner,
-            petit_dejeuner: (diner - c.absents.len() as i32 - c.partis).max(0),
-        })
+        .map_err(db)
     }
 
     /// INT-?? : transmission du matin à la vie scolaire (socle 12) et effectif à la restauration (socle 40).
@@ -871,13 +938,25 @@ impl PgEnt {
         if !soir_valide {
             return Err(conflit("l'appel du soir n'est pas validé : le valider avant de transmettre"));
         }
+        // M3, couverture : le soir validé doit couvrir TOUS les élèves attendus ou ajoutés de la nuit ; un
+        // élève qui ne figure dans la liste figée d'aucun appel « soir » validé (appel d'une seule zone, par
+        // exemple) n'a jamais été vu : on ne transmet pas la nuit comme complète.
+        let non_couverts = Self::eleves_non_couverts_par_le_soir_tx(&mut tx, etab, nuit).await?;
+        if non_couverts > 0 {
+            return Err(conflit(
+                "des élèves attendus ne sont dans aucun appel du soir validé : couvrir tout l'internat avant de transmettre",
+            ));
+        }
         let c = self.chiffres_nuit_tx(&mut tx, etab, nuit).await?;
         if c.nb_appels == 0 {
             return Err(conflit("aucun appel clos ou validé pour cette nuit : rien à transmettre"));
         }
-        let repas = self.effectif_repas_tx(&mut tx, etab, nuit, &c).await?;
-        let derniere: Option<(i32, DateTime<Utc>, i32, i32, i32, i32, Vec<Uuid>)> = sqlx::query_as(
-            "SELECT version, transmis_le, nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents \
+        // Effectif sur les listes figées (nuit transmise, première version comprise : la rectificative et les
+        // lectures suivantes comptent de la même façon, aucune différence artificielle).
+        let repas = self.effectif_repas_tx(&mut tx, etab, nuit, &c, true).await?;
+        #[allow(clippy::type_complexity)]
+        let derniere: Option<(i32, DateTime<Utc>, i32, i32, i32, i32, Vec<Uuid>, Vec<Uuid>)> = sqlx::query_as(
+            "SELECT version, transmis_le, nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis \
                FROM ent_internat_transmission \
               WHERE etablissement_id = $1 AND nuit = $2 AND nature = 'matin_vie_scolaire' \
               ORDER BY version DESC LIMIT 1",
@@ -891,8 +970,29 @@ impl PgEnt {
         absents.sort();
         let version = match &derniere {
             None => 1,
-            Some((v, transmis_le, att, pre, abs, cas, _)) => {
-                if (*att, *pre, *abs, *cas) == (c.attendus, c.presents, nb_abs, c.nb_cas) {
+            Some((v, transmis_le, att, pre, abs, cas, anciens_absents, anciens_partis)) => {
+                // Repas de la version précédente (dîner, petit-déjeuner), lus sur sa ligne de restauration.
+                let anciens_repas: Option<(i32, i32)> = sqlx::query_as(
+                    "SELECT nb_attendus, nb_presents FROM ent_internat_transmission \
+                      WHERE etablissement_id = $1 AND nuit = $2 AND nature = 'effectif_restauration' AND version = $3",
+                )
+                .bind(etab)
+                .bind(nuit)
+                .bind(*v)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
+                let mut anciens_absents = anciens_absents.clone();
+                anciens_absents.sort();
+                let mut anciens_partis = anciens_partis.clone();
+                anciens_partis.sort();
+                // Les ENSEMBLES comptent, pas seulement les compteurs : un absent redevenu présent pendant
+                // qu'un autre devient absent laisse les totaux intacts mais change la vie scolaire.
+                let identique = (*att, *pre, *abs, *cas) == (c.attendus, c.presents, nb_abs, c.nb_cas)
+                    && anciens_absents == absents
+                    && anciens_partis == c.partis
+                    && anciens_repas == Some((repas.diner, repas.petit_dejeuner));
+                if identique {
                     // Mêmes chiffres : rien de nouveau à transmettre.
                     return Ok(TransmissionDto {
                         nuit,
@@ -914,15 +1014,15 @@ impl PgEnt {
             }
         };
         let precedents: Vec<Uuid> = derniere.map(|d| d.6).unwrap_or_default();
-        for (nature, att, pre, abs, absents_v) in [
-            ("matin_vie_scolaire", c.attendus, c.presents, nb_abs, absents.clone()),
-            ("effectif_restauration", repas.diner, repas.petit_dejeuner, nb_abs, Vec::new()),
+        for (nature, att, pre, abs, absents_v, partis_v) in [
+            ("matin_vie_scolaire", c.attendus, c.presents, nb_abs, absents.clone(), c.partis.clone()),
+            ("effectif_restauration", repas.diner, repas.petit_dejeuner, nb_abs, Vec::new(), Vec::new()),
         ] {
             sqlx::query(
                 "INSERT INTO ent_internat_transmission \
                  (id, etablissement_id, nuit, nature, version, motif_rectification, transmis_le, transmis_par_user_id, \
-                  nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+                  nb_attendus, nb_presents, nb_absents, nb_cas, eleves_absents, eleves_partis) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
             )
             .bind(Uuid::new_v4())
             .bind(etab)
@@ -937,6 +1037,7 @@ impl PgEnt {
             .bind(abs)
             .bind(c.nb_cas)
             .bind(&absents_v)
+            .bind(&partis_v)
             .execute(&mut *tx)
             .await
             .map_err(|e| match &e {
@@ -1050,7 +1151,17 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let c = self.chiffres_nuit_tx(&mut tx, etab, nuit).await?;
-        let r = self.effectif_repas_tx(&mut tx, etab, nuit, &c).await?;
+        // Nuit déjà transmise : les chiffres se lisent sur les listes figées, pas sur l'attendu recalculé.
+        let transmise: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_internat_transmission \
+              WHERE etablissement_id = $1 AND nuit = $2 AND nature = 'matin_vie_scolaire')",
+        )
+        .bind(etab)
+        .bind(nuit)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let r = self.effectif_repas_tx(&mut tx, etab, nuit, &c, transmise).await?;
         journaliser_lecture_tx(&mut tx, etab, actor, "effectif_repas", None, None, maintenant).await?;
         tx.commit().await.map_err(db)?;
         Ok(r)
@@ -1101,19 +1212,7 @@ impl PgEnt {
             return Ok(sortie);
         }
         // Reste-t-il un élève attendu non couvert par un appel du soir validé ?
-        let manquants: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ent_internat_attendu_calcule($1, $2) a \
-              WHERE a.statut IN ('attendu', 'ajoute') AND NOT EXISTS ( \
-                    SELECT 1 FROM ent_internat_appel_attendu x \
-                      JOIN ent_internat_appel p ON p.etablissement_id = x.etablissement_id AND p.id = x.appel_id \
-                     WHERE x.etablissement_id = $1 AND p.nuit = $2 AND p.type = 'soir' AND p.etat = 'valide' \
-                       AND x.eleve_id = a.eleve_id)",
-        )
-        .bind(etab)
-        .bind(nuit)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
+        let manquants = Self::eleves_non_couverts_par_le_soir_tx(&mut tx, etab, nuit).await?;
         if manquants == 0 {
             return Ok(sortie);
         }
@@ -1258,6 +1357,78 @@ pub(crate) fn libelle_statut(s: &str, motif: Option<&str>) -> String {
     }
 }
 
+/// Contenu textuel du PDF d'un appel, **avant rendu** : le PDF encode son texte en polices à identifiants de glyphes
+/// (Identity-H), donc illisible en clair dans les octets. Les tests (et la relecture de la règle R-IT6 : aucune
+/// donnée de santé) portent sur ces lignes.
+pub(crate) struct ContenuPdfAppel {
+    pub titre: String,
+    /// Paragraphes avant le tableau.
+    pub intro: Vec<String>,
+    pub entetes: Vec<&'static str>,
+    /// (cellules, ligne en gras).
+    pub lignes: Vec<(Vec<String>, bool)>,
+    /// Paragraphe après le tableau.
+    pub conclusion: String,
+}
+
+pub(crate) fn contenu_pdf_appel(vue: &AppelVueDto, nb_corrections: i64) -> ContenuPdfAppel {
+    let mut intro = vec![format!(
+        "Périmètre : {} — état : {} — {} attendu(s), {} écart(s).",
+        vue.appel.perimetre,
+        vue.appel.etat,
+        vue.appel.nb_attendus,
+        vue.appel.nb_ecarts.unwrap_or(0)
+    )];
+    if vue.appel.a_posteriori {
+        intro.push("Appel saisi après la nuit (saisie a posteriori).".to_string());
+    }
+    let lignes = vue
+        .lignes
+        .iter()
+        .map(|l| {
+            let nom = match (&l.nom, &l.prenom) {
+                (Some(n), Some(p)) => format!("{n} {p}"),
+                _ => "Élève protégé".to_string(),
+            };
+            let marque = match (&l.marque, l.statut.as_str()) {
+                (Some(m), _) => libelle_marque(m).to_string(),
+                (None, "retire") => "Excusé".to_string(),
+                _ => "Non pointé".to_string(),
+            };
+            let mut ligne = vec![
+                l.chambre_code.clone().unwrap_or_else(|| "—".into()),
+                l.lit_numero.map(|n| n.to_string()).unwrap_or_else(|| "—".into()),
+                nom,
+                libelle_statut(&l.statut, l.motif_code.as_deref()),
+                marque,
+            ];
+            if l.conflit {
+                ligne[4].push_str(" (conflit)");
+            }
+            if l.corrige {
+                ligne[4].push_str(" (corrigé)");
+            }
+            let grasse = matches!(l.marque.as_deref(), Some("absent" | "non_attendu_present")) || l.conflit;
+            (ligne, grasse)
+        })
+        .collect();
+    ContenuPdfAppel {
+        titre: format!("Appel {} — nuit du {}", vue.appel.type_appel, vue.appel.nuit),
+        intro,
+        entetes: vec!["Chambre", "Lit", "Élève", "Attendu", "Marque"],
+        lignes,
+        conclusion: format!(
+            "{} élève(s) pointé(s) sur {}. {} correction(s) après clôture. Liste figée à l'ouverture de l'appel ; \
+             le motif d'une absence excusée pour raison de santé \
+             n'est pas détaillé (« Excusé »), et la marque « À l'infirmerie » ne dit que le renvoi vers l'infirmerie, \
+             sans aucune information médicale.",
+            vue.nb_pointes,
+            vue.lignes.len(),
+            nb_corrections
+        ),
+    }
+}
+
 /// PDF d'un appel : en-tête, tableau par chambre, écarts, pied. Déterministe (même entrée, mêmes octets).
 pub(crate) fn rendre_pdf_appel(
     vue: &AppelVueDto,
@@ -1265,6 +1436,7 @@ pub(crate) fn rendre_pdf_appel(
     local: NaiveDateTime,
 ) -> Vec<u8> {
     use ent_pdf::{Align, Colonne, Document, Ligne, Meta, Tableau};
+    let contenu = contenu_pdf_appel(vue, nb_corrections);
     let meta = Meta {
         titre: format!("Appel de nuit — {}", vue.appel.nuit),
         auteur: "ScolIA".into(),
@@ -1278,63 +1450,26 @@ pub(crate) fn rendre_pdf_appel(
         }),
     };
     let mut d = Document::new(meta).avec_pied("Document confidentiel — internat");
-    d.titre(&format!(
-        "Appel {} — nuit du {}",
-        vue.appel.type_appel, vue.appel.nuit
-    ));
-    d.paragraphe(&format!(
-        "Périmètre : {} — état : {} — {} attendu(s), {} écart(s).",
-        vue.appel.perimetre,
-        vue.appel.etat,
-        vue.appel.nb_attendus,
-        vue.appel.nb_ecarts.unwrap_or(0)
-    ));
-    if vue.appel.a_posteriori {
-        d.paragraphe("Appel saisi après la nuit (saisie a posteriori).");
+    d.titre(&contenu.titre);
+    for p in &contenu.intro {
+        d.paragraphe(p);
     }
-    let mut t = Tableau::new(vec![
-        Colonne::new("Chambre", 1.0, Align::Gauche),
-        Colonne::new("Lit", 0.5, Align::Centre),
-        Colonne::new("Élève", 3.0, Align::Gauche),
-        Colonne::new("Attendu", 2.2, Align::Gauche),
-        Colonne::new("Marque", 2.0, Align::Gauche),
-    ]);
-    for l in &vue.lignes {
-        let nom = match (&l.nom, &l.prenom) {
-            (Some(n), Some(p)) => format!("{n} {p}"),
-            _ => "Élève protégé".to_string(),
-        };
-        let marque = match (&l.marque, l.statut.as_str()) {
-            (Some(m), _) => libelle_marque(m).to_string(),
-            (None, "retire") => "Excusé".to_string(),
-            _ => "Non pointé".to_string(),
-        };
-        let mut ligne = vec![
-            l.chambre_code.clone().unwrap_or_else(|| "—".into()),
-            l.lit_numero.map(|n| n.to_string()).unwrap_or_else(|| "—".into()),
-            nom,
-            libelle_statut(&l.statut, l.motif_code.as_deref()),
-            marque,
-        ];
-        if l.conflit {
-            ligne[4].push_str(" (conflit)");
-        }
-        if l.corrige {
-            ligne[4].push_str(" (corrigé)");
-        }
-        let grasse = matches!(l.marque.as_deref(), Some("absent" | "non_attendu_present")) || l.conflit;
+    let alignements = [Align::Gauche, Align::Centre, Align::Gauche, Align::Gauche, Align::Gauche];
+    let largeurs = [1.0, 0.5, 3.0, 2.2, 2.0];
+    let mut t = Tableau::new(
+        contenu
+            .entetes
+            .iter()
+            .zip(largeurs)
+            .zip(alignements)
+            .map(|((nom, largeur), align)| Colonne::new(nom, largeur, align))
+            .collect(),
+    );
+    for (ligne, grasse) in contenu.lignes {
         t.lignes.push(if grasse { Ligne::grasse(ligne) } else { Ligne::new(ligne) });
     }
     d.tableau(&t);
-    d.paragraphe(&format!(
-        "{} élève(s) pointé(s) sur {}. {} correction(s) après clôture. Liste figée à l'ouverture de l'appel ; \
-         le motif d'une absence excusée pour raison de santé \
-         n'est pas détaillé (« Excusé »), et la marque « À l'infirmerie » ne dit que le renvoi vers l'infirmerie, \
-         sans aucune information médicale.",
-        vue.nb_pointes,
-        vue.lignes.len(),
-        nb_corrections
-    ));
+    d.paragraphe(&contenu.conclusion);
     d.octets()
 }
 
@@ -1345,7 +1480,8 @@ pub(crate) struct ChiffresNuit {
     pub attendus: i32,
     pub presents: i32,
     pub absents: Vec<Uuid>,
-    pub partis: i32,
+    /// Élèves pointés « parti » (triés) : l'idempotence de la transmission compare l'ensemble, pas un compteur.
+    pub partis: Vec<Uuid>,
     pub nb_cas: i32,
 }
 
@@ -1439,25 +1575,65 @@ async fn procedure_tx(conn: &mut PgConnection, etab: Uuid, version_id: Uuid) -> 
     })
 }
 
+/// Objets d'interdiction qui écartent une personne des contacts de la nuit : communication, contact avec
+/// l'élève, et remise de l'élève à cette personne (`remise`).
+const OBJETS_INTERDITS_NUIT: &str = "ARRAY['communication', 'contact_eleve', 'remise']::text[]";
+
+/// Identifiants de la personne `p` et de toutes celles qui ont été fusionnées dans elle, **sur toute la
+/// chaîne** (A fusionnée dans B, B dans C : C porte les mesures de A, de B et les siennes). Sous-requête
+/// récursive ; l'établissement est `$1`. `UNION` écarte les doublons, donc un cycle ne boucle pas.
+fn chaine_fusion_sql(p: &str) -> String {
+    format!(
+        "(WITH RECURSIVE chaine(id) AS ( \
+              SELECT {p}::uuid \
+              UNION \
+              SELECT s.id FROM ent_personne s JOIN chaine c ON s.etablissement_id = $1 AND s.fusionnee_dans = c.id) \
+          SELECT id FROM chaine)"
+    )
+}
+
 /// Personne exclue des numéros rendus au surveillant (E3), pour l'élève `$2` à la nuit `$3` de
-/// l'établissement `$1` : (a) visée par une interdiction de communication ou de contact encore active à la
-/// date de la nuit (`ent_eleve_interdiction`, socle 4, non levée), (b) ou dotée d'une adresse protégée
-/// (`ent_adresse_protegee`). Une personne fusionnée dans une autre porte les mesures de la fusionnée.
+/// l'établissement `$1` : (a) visée par une interdiction de communication, de contact ou de remise **non
+/// levée et non terminée avant la nuit** (`ent_eleve_interdiction`, socle 4), (b) ou dotée d'une adresse
+/// protégée (`ent_adresse_protegee`). Décision **pessimiste** : la date de début `du` est ignorée, une
+/// interdiction posée en urgence à 0 h 40 joue tout de suite, même si elle est datée du lendemain. Une
+/// personne fusionnée dans une autre, sur toute la chaîne de fusions, porte les mesures de la fusionnée.
 fn personne_exclue_sql(p: &str) -> String {
+    let chaine = chaine_fusion_sql(p);
     format!(
         "(EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
                    WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
-                     AND i.objet && ARRAY['communication', 'contact_eleve']::text[] \
-                     AND i.du <= $3 AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NOT NULL \
-                     AND (i.personne_id = {p} OR i.personne_id IN ( \
-                            SELECT s.id FROM ent_personne s \
-                             WHERE s.etablissement_id = $1 AND s.fusionnee_dans = {p}))) \
+                     AND i.objet && {OBJETS_INTERDITS_NUIT} \
+                     AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NOT NULL \
+                     AND i.personne_id IN {chaine}) \
           OR EXISTS (SELECT 1 FROM ent_adresse_protegee ap \
-                      WHERE ap.etablissement_id = $1 \
-                        AND (ap.personne_id = {p} OR ap.personne_id IN ( \
-                               SELECT s.id FROM ent_personne s \
-                                WHERE s.etablissement_id = $1 AND s.fusionnee_dans = {p}))))"
+                      WHERE ap.etablissement_id = $1 AND ap.personne_id IN {chaine}))"
     )
+}
+
+/// Élève dont **aucun** numéro ne sort (E3, décision pessimiste du pilote) : protégé (mesure de
+/// confidentialité du socle 2) ou visé par une interdiction active dont la cible n'est pas une personne
+/// identifiée (même règle de dates que `personne_exclue_sql`). La vue renvoie alors à la direction ou au
+/// CPE d'astreinte.
+async fn eleve_numeros_masques_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    nuit: NaiveDate,
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar(&format!(
+        "SELECT ent_eleve_confidentiel($1, $2, $3) OR ent_eleve_confidentiel($1, $2) \
+             OR EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
+                         WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
+                           AND i.objet && {OBJETS_INTERDITS_NUIT} \
+                           AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NULL)"
+    ))
+    .bind(etab)
+    .bind(eleve)
+    .bind(nuit)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
 }
 
 /// Numéros des titulaires joignables (socle 4) : liens non suspendus et dans leurs dates à la nuit,
@@ -1475,19 +1651,7 @@ async fn numeros_titulaires_tx(
     eleve: Uuid,
     nuit: NaiveDate,
 ) -> Result<(Vec<NumeroDto>, bool), EntDbError> {
-    let masque: bool = sqlx::query_scalar(
-        "SELECT ent_eleve_confidentiel($1, $2, $3) OR ent_eleve_confidentiel($1, $2) \
-             OR EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
-                         WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
-                           AND i.objet && ARRAY['communication', 'contact_eleve']::text[] \
-                           AND i.du <= $3 AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NULL)",
-    )
-    .bind(etab)
-    .bind(eleve)
-    .bind(nuit)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(db)?;
+    let masque = eleve_numeros_masques_tx(conn, etab, eleve, nuit).await?;
     if masque {
         return Ok((Vec::new(), true));
     }
