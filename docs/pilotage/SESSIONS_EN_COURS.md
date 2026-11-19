@@ -443,3 +443,12 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - « I2 suites » (session_01KZCbFDMBBQcGdRy5r9psea, branche `ent-socle-41-code-i2-suites`, migration 2825) : les 15 points de la contre-revue.
   - « 21 V3 grille et saisie » (session_01KZCbFHkL5Uo3EBp9kNeuMQ, branche `ent-socle-21-code-v3`, migrations 471-479) : grille au clavier, collage, import, conflits, publication ; cause « service sans matière » de la visite ; F7, F8, F12.
   - **Sessions qui codent : I2 suites et 21 V3** (2 sur 2).
+- **19-11, 1 h UTC, I2 suites (PR 104)** : tête e0bdf5f0, 15 points faits, migration 2825 (I3 passe à 2826). Normalisation des accents écrite à la main : acceptée (aucune dépendance ; revue : ni panique ni boucle).
+  - **Revue** : aucun critique ni élevé ; les 15 points vérifiés (tests non vides, 2825 rejouable, 2824 intacte).
+  - **À faire dans I3** (décisions du pilote) :
+    - **M-1** : une nuit exceptionnelle posée après la validation du soir bloque à jamais la transmission (aucun appel ne peut couvrir l'élève). Décision : **appel « soir » complémentaire** limité aux non-couverts, et, à défaut, transmission possible avec la liste explicite des non-couverts (jamais de blocage définitif).
+    - F-1 : `confie_a_user_id` limité au personnel (droit `internat.appel`) et contrat non terminé.
+    - F-3 : petit-déjeuner : `partis` suit la même priorité « dernier pointage » que les absents, soustraire l'union.
+    - F-4 : normalisation : ligatures (U+FB01…), Latin étendu B et additionnel, marques combinantes hors U+0300–036F, invisibles U+2061–2064 et U+180E ; en-tête « équivalent NFKD » à corriger.
+    - F-5 : test que `rendre_pdf_appel` part de `contenu_pdf_appel` ; F-6 : `#[track_caller]` sur `refus_de`.
+  - CI 429 d'ENT (7402da72) : « runner lost communication » pendant la compilation des tests (infrastructure) ; jobs relancés une fois.
