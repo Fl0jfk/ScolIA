@@ -621,14 +621,18 @@ SET search_path = pg_catalog, public AS $$
 DECLARE
     e uuid;
     n integer := 0;
+    v_etabs uuid[];
 BEGIN
-    FOR e IN
+    -- La liste est lue D'ABORD (curseur fermé) : la reprise de chaque établissement modifie des déclencheurs de
+    -- `eva_resultat` (ALTER TABLE), ce que PostgreSQL refuse tant qu'un curseur de la session reste ouvert.
+    SELECT array_agg(q.etablissement_id) INTO v_etabs FROM (
         SELECT etablissement_id FROM ent_devoir_archive
         UNION SELECT etablissement_id FROM ent_eva_regle
         UNION SELECT etablissement_id FROM ent_eva_coef_matiere
         UNION SELECT etablissement_id FROM ent_note_archive
         UNION SELECT etablissement_id FROM ent_note_periode
-        UNION SELECT etablissement_id FROM ent_note_appreciation
+        UNION SELECT etablissement_id FROM ent_note_appreciation) q;
+    FOREACH e IN ARRAY COALESCE(v_etabs, '{}'::uuid[])
     LOOP
         IF NOT EXISTS (SELECT 1 FROM eva_reprise_execution x WHERE x.etablissement_id = e) THEN
             PERFORM set_config('app.etablissement_id', e::text, true);
@@ -652,10 +656,12 @@ REVOKE ALL ON FUNCTION eva_reprendre_tout() FROM PUBLIC;
 DO $$
 DECLARE
     e uuid;
+    v_etabs uuid[];
 BEGIN
-    FOR e IN
+    SELECT array_agg(q.etablissement_id) INTO v_etabs FROM (
         SELECT etablissement_id FROM ent_devoir_archive
-        UNION SELECT etablissement_id FROM ent_note_archive
+        UNION SELECT etablissement_id FROM ent_note_archive) q;
+    FOREACH e IN ARRAY COALESCE(v_etabs, '{}'::uuid[])
     LOOP
         PERFORM set_config('app.etablissement_id', e::text, true);
         PERFORM eva_reprendre_existant(e, 'migration');
