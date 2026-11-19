@@ -123,7 +123,7 @@ Deux passes avaient bouché les trous un par un (un champ d'auteur par champ d'a
 
 ## Tests locaux
 
-`tests_internat_i3` : **63 verts** sur base neuve (52 + 11 nouveaux ; 4 anciens adaptés : `mb_` (absence du vendredi), `ea_absence_` (levée motivée, personne effacée), `c1_` et `ma_` (motif de levée)). Suite large `ent-db` (`internat rls registre migrat fusion conservation rgpd accords d036 roles isolation jour_utc`, base neuve) : voir « Tête et CI ». Clippy 1.99 `-D warnings` (3 commandes de la CI) : voir « Tête et CI ». `cargo fmt -p ent-types --check` : inchangé (`ent-types` non touché ; fmt non lancé sur `ent-db`, règle du dépôt).
+`tests_internat_i3` : **63 verts** sur base neuve (52 + 11 nouveaux ; 4 anciens adaptés : `mb_` (absence du vendredi), `ea_absence_` (levée motivée, personne effacée), `c1_` et `ma_` (motif de levée)). Suite large `ent-db` (`internat rls registre migrat fusion conservation rgpd accords d036 roles isolation jour_utc`, **base neuve** `ent_i3h`, un fil comme la CI) : **342 verts sur 342** (1371 s), dont les tests statiques d'isolation SQL et de jour UTC. Un premier passage à deux fils sur une base déjà utilisée par les essais précédents avait rendu 52 tests rouges (rejeu de migration, appels d'I2, défusion) : pollution de la base partagée, rejoués verts sur base neuve (les tests d'I2 cités passent aussi seuls). Clippy 1.99 `-D warnings`, les **3 commandes de la CI** (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`) : **propres** (un `filter().next_back()` relevé et corrigé en `rfind`). `ent-api` non touché (compilé par clippy). `cargo fmt -p ent-types --check` : inchangé (`ent-types` non touché ; fmt non lancé sur `ent-db`, règle du dépôt).
 
 ## Compteurs (règle 28), recalculés
 
