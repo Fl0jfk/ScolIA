@@ -146,6 +146,17 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.150
+      - name: Fichier d'échange de 8 Go (pointe mémoire de l'archive « avec labo »)
+        # 19-11 : « runner lost communication » 4 fois en 24 h, toujours pendant l'archive « avec labo »
+        # (même pointe mémoire qu'en novembre, ent-db a encore grossi). On ajoute de l'échange plutôt que
+        # de passer à -j1 (deux fois plus lent) ; l'échange existant du runner est conservé.
+        working-directory: /
+        run: |
+          sudo fallocate -l 8G /mnt/ent-swapfile
+          sudo chmod 600 /mnt/ent-swapfile
+          sudo mkswap /mnt/ent-swapfile
+          sudo swapon /mnt/ent-swapfile
+          free -h
       - name: Archive des binaires de test AVEC la feature labo (tous les paquets)
         run: cargo nextest archive --locked --workspace --features ent-api/labo,ent-lab/labo --archive-file "$RUNNER_TEMP/labo.tar.zst"
       - name: Archive des binaires de test SANS la feature labo (ent-api, ent-db)

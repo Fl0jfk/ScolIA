@@ -138,11 +138,23 @@ async fn vie_etablissement_matiere_note_absence_roles() {
         .await
         .unwrap());
 
+    ent.eva_v1_reprendre_amorcage(cast.etablissement_id).await.expect("reprise de l'amorçage");
     let notes_lea = ent
         .notes_for_eleve(cast.etablissement_id, cast.eleve_lea_id)
         .await
         .expect("notes lea");
-    assert!(notes_lea.iter().any(|n| n.id == note.id && n.valeur == 14.0));
+    // Une note sans évaluation (voie historique fermée en V0) reste dans l'archive : la reprise l'ignore et la liste
+    // (`note_sans_devoir`) ; les lecteurs ne lisent que `eva_*` (une note appartient à une évaluation).
+    assert!(!notes_lea.iter().any(|n| n.id == note.id));
+    let (archivee, listee): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM ent_note_archive WHERE id = $1),
+                (SELECT count(*) FROM eva_reprise_ligne WHERE source_id = $1 AND objet = 'note_sans_devoir')",
+    )
+    .bind(note.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .expect("archive et rapport de reprise");
+    assert_eq!((archivee, listee), (1, 1));
 
     // Parent Tom ne « voit » pas Léa via get_eleve_for_actor
     assert!(ent

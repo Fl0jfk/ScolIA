@@ -89,21 +89,8 @@ async fn devoir(fx: &Fx, periode: Uuid, classe: Uuid, code_classe: &str, jour: N
         .execute(fx.ent.pool())
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id, titre, date_devoir)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(e)
-    .bind(periode)
-    .bind(mat)
-    .bind(code_classe)
-    .bind(classe)
-    .bind(titre)
-    .bind(jour)
-    .execute(fx.ent.pool())
-    .await
-    .unwrap();
+    let _ = code_classe;
+    crate::tests_evaluations::devoir_eva_brute(&fx.ent, e, classe, mat, periode, titre, jour, 1.0, None).await;
 }
 
 async fn periode(fx: &Fx, auj: NaiveDate) -> Uuid {

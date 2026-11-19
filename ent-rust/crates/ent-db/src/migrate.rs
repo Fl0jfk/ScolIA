@@ -481,6 +481,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("470_eva_v1_cours_reprise_hors_publics"),
     // Lot V3 « grille et saisie » : correctifs F7/F8 de la reprise, retrait de publication, journaux.
     m!("471_eva_v3_grille_saisie"),
+    // Lot V3b « les lecteurs passent sur eva_* » (M2-M3 du plan) : `ent_devoir` et `ent_note` deviennent des vues en lecture
+    // seule alimentées par `eva_*` (anciennes tables renommées en archives), reprise corrigée (M2), statut de période gelé.
+    m!("472_eva_v3b_lecteurs_sur_eva"),
+    // Correctifs de la revue de sécurité de V3 qui touchent la base : attestation du droit de correction (F2), première
+    // publication d'une évaluation (F4).
+    m!("473_eva_v3b_revue_securite"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -665,6 +671,11 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         "665_d036_personne_plage_joignable",
         "666_d036_eleve_fusion_normalisee",
         "667_d036_personne_fusion_normalisee",
+        // 469 appelle `eva_reprendre_tout()` : le rejeu de 467 vient de le REDÉFINIR dans sa version d'origine, qui lit
+        // `ent_devoir`/`ent_note` (des vues sur `eva_*` depuis 472) et laisse un curseur ouvert sur `eva_resultat`
+        // pendant la reprise (PostgreSQL refuse alors l'`ALTER TABLE` : « being used by active queries »). La reprise
+        // est rejouée par le bloc final de 472, avec les fonctions de 472 (qui lisent les archives).
+        "469_eva_v1_reprise_executee",
     ];
     // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
     let mut verrou = pool.acquire().await?.detach();
@@ -685,7 +696,7 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         // rejoue le fichier (cinq tentatives au plus, attente croissante).
         let mut tentative = 0u64;
         loop {
-            match apply_sql_file(pool, sql).await {
+            match apply_sql_file_rejeu(pool, sql).await {
                 Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
                     if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
                 {
@@ -752,6 +763,48 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
         sqlx::query(&stmt).execute(pool).await?;
     }
     Ok(())
+}
+
+/// Rejeu : comme `apply_sql_file`, mais un ordre qui vise `ent_note` ou `ent_devoir` comme **table** (colonne, index,
+/// contrainte, suppression) est ignoré s'il échoue parce que ce sont désormais des **vues** de compatibilité en
+/// lecture seule sur `eva_*` (472 : les anciennes tables sont des archives). Ces ordres appartiennent à des fichiers
+/// anciens (008, 022, 111, 180, 460, 2402) dont la reprise ne porte plus sur ces objets ; tout autre échec reste fatal.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
+    for stmt in ordres(sql) {
+        if let Err(e) = sqlx::query(&stmt).execute(pool).await {
+            let vue_legacy = vise_ent_note_ou_devoir(&stmt);
+            // Un appel de fonction ancienne (112 : `ent_rattacher_classes`, remplacée par 472 mais redéfinie par le rejeu
+            // de son fichier) échoue sur la vue : l'erreur nomme alors la vue, pas l'ordre.
+            let (code_vue, nomme_vue) = match &e {
+                sqlx::Error::Database(d) => (
+                    d.code().is_some_and(|c| c == "42809" || c == "55000" || c == "42601"),
+                    d.message().contains("\"ent_devoir\"") || d.message().contains("\"ent_note\""),
+                ),
+                _ => (false, false),
+            };
+            if code_vue && (vue_legacy || nomme_vue) {
+                continue;
+            }
+            return Err(e.into());
+        }
+    }
+    Ok(())
+}
+
+/// Vrai si l'ordre cite `ent_note` ou `ent_devoir` comme identifiant entier (pas `ent_note_periode`, `ent_devoir_archive`…).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+fn vise_ent_note_ou_devoir(stmt: &str) -> bool {
+    let est_id = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    ["ent_note", "ent_devoir"].iter().any(|nom| {
+        stmt.match_indices(nom).any(|(i, _)| {
+            let avant = stmt[..i].chars().next_back();
+            let apres = stmt[i + nom.len()..].chars().next();
+            !avant.is_some_and(est_id) && !apres.is_some_and(est_id)
+        })
+    })
 }
 
 /// Découpe sur `;` **hors** blocs `$$ … $$` (corps de fonction plpgsql).

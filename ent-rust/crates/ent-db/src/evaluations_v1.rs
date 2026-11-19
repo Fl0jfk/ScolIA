@@ -38,7 +38,10 @@ use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
-/// Types d'événements de V1. Charges : identifiants seulement.
+/// Types d'événements de V1. Charges : identifiants seulement. **Règle (F5, V3b)** : les événements de SAISIE et de
+/// CORRECTION d'un résultat (`RESULTATS_SAISIS`, `CORRIGEE`) ne portent JAMAIS d'`eleve_id` : aucune notification
+/// famille, aucune chronologie d'élève ne s'y branche, donc rien de non publié ne se déduit de l'outbox. Seule la
+/// PUBLICATION (`evaluation.publiee`) prévient les familles.
 pub mod types_v1 {
     pub const RESULTATS_SAISIS: &str = "evaluations.resultats_saisis";
     pub const CORRIGEE: &str = "evaluations.corrigee";
@@ -634,9 +637,16 @@ impl PgEnt {
         body: &EcrireResultat,
         attendu: Attendu,
     ) -> Result<ResultatEcrit, EntDbError> {
+        // F8 : un motif est borné (500 caractères) AVANT toute écriture.
+        if body.motif.as_deref().is_some_and(|m| m.trim().chars().count() > 500) {
+            return Err(refus("motif trop long (500 caractères au plus)"));
+        }
+        // F8 (course barème / saisie) : l'évaluation est verrouillée en LECTURE (`FOR SHARE`) pour la durée de la
+        // transaction : un changement de barème concurrent (`FOR UPDATE`) attend la fin de cette écriture, ou
+        // l'inverse ; le barème contrôlé ci-dessous est celui qui sera en vigueur au commit.
         let ev = sqlx::query(
             "SELECT cours_id, (bareme * 1000)::bigint AS bareme_m, hors_bareme_autorise, etat, mode, annee_id
-               FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
+               FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2 FOR SHARE",
         )
         .bind(etab)
         .bind(body.evaluation_id)
@@ -674,6 +684,13 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let periode = periode_eleve_tx(tx, etab, body.evaluation_id, body.eleve_id).await?;
+        // F2 : l'état de la classe est VERROUILLÉ en lecture (`FOR SHARE`) puis RELU après verrou : un arrêt de la
+        // période qui se commet pendant cette écriture ne peut plus laisser passer une saisie ordinaire (l'arrêt
+        // attend la fin de l'écriture, ou l'écriture voit l'état arrêté).
+        let periode = match periode {
+            Some(p) => Some(verrouiller_etat_classe_tx(tx, etab, p).await?),
+            None => None,
+        };
         // Ligne existante (verrouillée) : son statut et sa version décident du rattrapage et d'une écriture sans effet.
         let existant: Option<(String, i32)> = sqlx::query_as(
             "SELECT statut, version FROM eva_resultat
@@ -712,34 +729,75 @@ impl PgEnt {
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;
         valider_saisie(body.statut, body.valeur_m, bareme, hors_bareme, pas)
             .map_err(|e| refus(erreur_saisie(e)))?;
-        // (`motif_correction = $10` et non `EXCLUDED.motif_correction` : le déclencheur d'INSERT remet l'entrée à NULL.)
+        // F2 (base) : une écriture après l'arrêt n'est acceptée par la base que si l'application atteste, dans cette
+        // transaction, que l'auteur porte `notes.corriger` (le motif seul ne suffit plus). Posée à vide sinon.
+        sqlx::query("SELECT set_config('app.eva_correcteur', $1, true)")
+            .bind(if peut_corriger { acteur.to_string() } else { String::new() })
+            .execute(&mut **tx)
+            .await
+            .map_err(db)?;
         // Le motif d'une correction voyage dans la ligne (`motif_correction`), jamais dans une variable de session :
         // la base l'exige après l'arrêt, le journal le garde, une écriture ordinaire le remet à NULL. La source
         // d'un résultat ne change plus après sa création (la base le refuse).
-        let ligne = sqlx::query(
-            "INSERT INTO eva_resultat (id, etablissement_id, evaluation_id, eleve_id, statut, valeur,
-                                       commentaire_eleve, source, saisi_par, motif_correction)
-             VALUES ($1, $2, $3, $4, $5, $6::bigint / 1000.0, $7, $8, $9, $10)
-             ON CONFLICT (evaluation_id, eleve_id) DO UPDATE SET
-                statut = EXCLUDED.statut, valeur = EXCLUDED.valeur,
-                commentaire_eleve = COALESCE(EXCLUDED.commentaire_eleve, eva_resultat.commentaire_eleve),
-                saisi_par = EXCLUDED.saisi_par, motif_correction = $10,
-                source = CASE WHEN eva_resultat.source = 'reprise' THEN EXCLUDED.source ELSE eva_resultat.source END
-             RETURNING id, version, derniere_ecriture_correction",
-        )
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(body.evaluation_id)
-        .bind(body.eleve_id)
-        .bind(body.statut.as_str())
-        .bind(body.valeur_m)
-        .bind(body.commentaire_eleve.as_deref())
-        .bind(body.source.as_str())
-        .bind(acteur)
-        .bind(body.motif.as_deref().map(str::trim).filter(|m| !m.is_empty()))
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(db)?;
+        let motif = body.motif.as_deref().map(str::trim).filter(|m| !m.is_empty());
+        let ligne = match &existant {
+            // M1 : case VIDE attendue ou constatée → INSERT simple. `FOR UPDATE` ne verrouille rien sur une ligne qui
+            // n'existe pas : une écriture concurrente sur la même case est détectée par l'unicité (23505) et
+            // devient un CONFLIT, jamais un écrasement silencieux.
+            None => {
+                let ins = sqlx::query(
+                    "INSERT INTO eva_resultat (id, etablissement_id, evaluation_id, eleve_id, statut, valeur,
+                                               commentaire_eleve, source, saisi_par, motif_correction)
+                     VALUES ($1, $2, $3, $4, $5, $6::bigint / 1000.0, $7, $8, $9, $10)
+                     RETURNING id, version, derniere_ecriture_correction",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(body.evaluation_id)
+                .bind(body.eleve_id)
+                .bind(body.statut.as_str())
+                .bind(body.valeur_m)
+                .bind(body.commentaire_eleve.as_deref())
+                .bind(body.source.as_str())
+                .bind(acteur)
+                .bind(motif)
+                .fetch_one(&mut **tx)
+                .await;
+                match ins {
+                    Ok(l) => l,
+                    Err(e) if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23505") => {
+                        return Err(conflit("version périmée : la case a été remplie depuis votre lecture"));
+                    }
+                    Err(e) => return Err(db(e)),
+                }
+            }
+            // M1 : case existante → UPDATE conditionné à la version lue sous verrou ; zéro ligne = conflit.
+            Some((_, version)) => {
+                let upd = sqlx::query(
+                    "UPDATE eva_resultat SET
+                        statut = $4, valeur = $5::bigint / 1000.0,
+                        commentaire_eleve = COALESCE($6, commentaire_eleve),
+                        saisi_par = $7, motif_correction = $8,
+                        source = CASE WHEN source = 'reprise' THEN $9 ELSE source END
+                      WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3 AND version = $10
+                      RETURNING id, version, derniere_ecriture_correction",
+                )
+                .bind(etab)
+                .bind(body.evaluation_id)
+                .bind(body.eleve_id)
+                .bind(body.statut.as_str())
+                .bind(body.valeur_m)
+                .bind(body.commentaire_eleve.as_deref())
+                .bind(acteur)
+                .bind(motif)
+                .bind(body.source.as_str())
+                .bind(*version)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(db)?;
+                upd.ok_or(conflit("version périmée : la case a changé depuis votre lecture"))?
+            }
+        };
         let version: i32 = ligne.try_get("version").map_err(db)?;
         // F4 : une écriture sans effet (même statut, même valeur, rien de changé) laisse la version telle quelle :
         // aucun journal, aucun événement.
@@ -760,7 +818,10 @@ impl PgEnt {
                 .to_string(),
                 aggregate: AggregateKind::Devoir,
                 aggregate_id: body.evaluation_id,
-                eleve_id: Some(body.eleve_id),
+                // F5 : AUCUN `eleve_id` : un événement de saisie ou de correction n'est jamais rattaché à un élève
+                // (une notification famille, une chronologie d'élève ne peuvent pas s'y brancher : une note non
+                // publiée ne se déduit pas de l'outbox). Règle écrite dans `types_v1` et testée.
+                eleve_id: None,
                 payload: json!({ "evaluation_id": body.evaluation_id, "resultat_id": ecrit.resultat_id,
                                  "version": ecrit.version }),
                 actor_user_id: Some(acteur.to_string()),
@@ -999,7 +1060,29 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        self.reprendre_interne(etab, Some(acteur)).await
+    }
+
+    /// **Voie d'amorçage** (labo, tests) : verse dans `eva_*` ce que l'ancienne voie d'écriture a posé dans les archives
+    /// (`ent_devoir_archive`, `ent_note_archive`), sans contrôle de droit. Aucune route ne l'appelle : la direction passe
+    /// par [`Self::eva_v1_reprendre_for_actor`].
+    pub async fn eva_v1_reprendre_amorcage(&self, etab: Uuid) -> Result<RapportReprise, EntDbError> {
+        self.reprendre_interne(etab, None).await
+    }
+
+    async fn reprendre_interne(
+        &self,
+        etab: Uuid,
+        acteur: Option<Uuid>,
+    ) -> Result<RapportReprise, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // F8 : la fonction EXIGE le contexte d'établissement ; on le pose ici quel que soit le mode RLS (en mode `off`
+        // du labo, `TenantTx` ne le pose pas).
+        sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+            .bind(etab.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let exec: Uuid = sqlx::query_scalar("SELECT eva_reprendre_existant($1, 'manuel')")
             .bind(etab)
             .fetch_one(&mut *tx)
@@ -1012,7 +1095,7 @@ impl PgEnt {
             aggregate_id: exec,
             eleve_id: None,
             payload: json!({ "execution_id": exec }),
-            actor_user_id: Some(acteur.to_string()),
+            actor_user_id: acteur.map(|a| a.to_string()),
         })
         .await?;
         let rapport = rapport_tx(&mut tx, etab, exec).await?;
@@ -1020,7 +1103,6 @@ impl PgEnt {
         Ok(rapport)
     }
 
-    /// Rapport d'une exécution (direction). `None` pour l'exécution la plus récente.
     pub async fn eva_v1_rapport_reprise_for_actor(
         &self,
         etab: Uuid,
@@ -1215,6 +1297,32 @@ pub(crate) async fn regles_tx(
     }
 }
 
+/// F2 : verrouille en lecture l'état de la classe pour la période (le crée « ouverte » s'il n'existe pas encore) puis
+/// le RELIT après verrou ; un arrêt concurrent attend la fin de l'écriture ou est vu par elle.
+pub(crate) async fn verrouiller_etat_classe_tx(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    p: PeriodeEleve,
+) -> Result<PeriodeEleve, EntDbError> {
+    sqlx::query("SELECT eva_etat_assurer($1, $2, $3)")
+        .bind(etab)
+        .bind(p.periode_id)
+        .bind(p.classe_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db)?;
+    let etat: String = sqlx::query_scalar(
+        "SELECT etat FROM eva_periode_etat WHERE etablissement_id = $1 AND periode_id = $2 AND classe_id = $3 FOR SHARE",
+    )
+    .bind(etab)
+    .bind(p.periode_id)
+    .bind(p.classe_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(db)?;
+    Ok(PeriodeEleve { etat, ..p })
+}
+
 pub(crate) async fn periode_eleve_tx(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
@@ -1299,7 +1407,7 @@ async fn rapport_tx(
 }
 
 /// Charge les résultats d'un élève pour une période, calcule moyennes de matière et générale.
-async fn moyennes_tx(
+pub(crate) async fn moyennes_tx(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     eleve_id: Uuid,
@@ -1483,7 +1591,7 @@ async fn moyennes_tx(
 
 /// Coefficient de la matière pour la classe à la date : la cible la plus précise gagne
 /// (classe > MEF > niveau > défaut) ; `None` sans ligne (l'appelant le dit, il ne suppose rien).
-async fn coefficient_matiere_tx(
+pub(crate) async fn coefficient_matiere_tx(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     annee_id: Uuid,

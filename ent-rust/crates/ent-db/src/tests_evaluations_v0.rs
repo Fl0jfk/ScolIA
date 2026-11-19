@@ -4,7 +4,7 @@
 //! Chaque scénario part d'un établissement neuf (`monde`, de `tests_evaluations`).
 
 use super::*;
-use crate::tests_evaluations::{devoir, labo, monde, r, statut, Monde};
+use crate::tests_evaluations::{devoir, labo, monde, r, statut, GrilleHistorique, Monde};
 use domain_eleve::{today_utc, DocConfidentialite, DocTiroir};
 use ent_types::evaluations::*;
 use sqlx::Row;
@@ -268,11 +268,20 @@ async fn une_absence_n_est_jamais_un_zero_et_le_rattrapage_reste_possible() {
         resultats: vec![r(a, "absent", None), r(b, "a_rattraper", None), r(c, "absent", None)],
     }).await.unwrap();
     assert_eq!((rap.enregistres, rap.refuses.len()), (3, 0));
-    // « absent » avec une valeur est incohérent : refusé (l'absence ne porte jamais de note).
-    let rap = ent.saisir_grille_for_actor(etab, prof, "prof", d2.id, &SaisieGrilleBody {
-        resultats: vec![r(a, "absent", Some(0.0))],
-    }).await.unwrap();
-    assert_eq!((rap.enregistres, rap.refuses.len()), (0, 1));
+    // « absent » avec une valeur est incohérent : refusé (l'absence ne porte jamais de note), par la couche V1 comme
+    // par l'analyseur de case de la grille (« abs 0 »).
+    assert!(ent
+        .eva_v1_ecrire_resultat_for_actor(etab, prof, "prof", &crate::evaluations_v1::EcrireResultat {
+            evaluation_id: d2.id,
+            eleve_id: a,
+            statut: domain_eleve::evaluation_moteur::StatutCalcul::Absent,
+            valeur_m: Some(0),
+            motif: None,
+            commentaire_eleve: None,
+            source: crate::evaluations_v1::SourceResultat::Saisie,
+        })
+        .await
+        .is_err());
 
     // Réglage « absent = 0 » : refusé, même par la direction ; la règle se lit comme fausse.
     assert!(matches!(
@@ -303,7 +312,7 @@ async fn une_absence_n_est_jamais_un_zero_et_le_rattrapage_reste_possible() {
     assert_eq!(v.lignes.iter().find(|l| l.eleve_id == b).unwrap().moyenne_generale, Some(15.0));
     // Aucune absence n'est stockée comme une note de 0 en base.
     let (zeros,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_note WHERE etablissement_id = $1 AND statut <> 'note' AND valeur <> 0",
+        "SELECT count(*) FROM eva_resultat WHERE etablissement_id = $1 AND statut <> 'note' AND valeur IS NOT NULL",
     )
     .bind(etab)
     .fetch_one(ent.pool())
@@ -322,17 +331,17 @@ async fn un_resultat_par_devoir_et_par_eleve() {
     let d = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "C1", 1.0, 20.0)).await.unwrap();
     ent.saisir_grille_for_actor(etab, prof, "prof", d.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(10.0))] }).await.unwrap();
     let doublon = sqlx::query(
-        "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, periode_id)
-         VALUES ($1,$2,$3,$4,18,20,ent_aujourdhui(),$5,$6,$7)",
+        "INSERT INTO eva_resultat (id, etablissement_id, evaluation_id, eleve_id, statut, valeur, source, saisi_par)
+         VALUES ($1,$2,$3,$4,'note',18,'saisie',$5)",
     )
-    .bind(Uuid::new_v4()).bind(etab).bind(a).bind(m.maths).bind(prof).bind(d.id).bind(m.periode)
+    .bind(Uuid::new_v4()).bind(etab).bind(d.id).bind(a).bind(prof)
     .execute(ent.pool())
     .await;
-    assert!(doublon.is_err(), "un second résultat pour le même (devoir, élève) est refusé par la base");
-    // Les notes hors devoir (sans devoir_id) restent libres.
+    assert!(doublon.is_err(), "un second résultat pour le même (évaluation, élève) est refusé par la base");
+    // Les notes libres de l'ARCHIVE (sans devoir) restent possibles : elle n'est plus lue par personne.
     for v in [11.0_f64, 12.0] {
         sqlx::query(
-            "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id)
+            "INSERT INTO ent_note_archive (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id)
              VALUES ($1,$2,$3,$4,$5,20,ent_aujourdhui(),$6)",
         )
         .bind(Uuid::new_v4()).bind(etab).bind(a).bind(m.maths).bind(v).bind(prof)
@@ -435,7 +444,7 @@ async fn rls_sur_les_tables_d_evaluation_isole_les_etablissements() {
     for sql in [
         format!("DO $$ BEGIN CREATE ROLE {ROLE} LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; EXCEPTION WHEN duplicate_object THEN NULL; END $$"),
         format!("GRANT USAGE ON SCHEMA public TO {ROLE}"),
-        format!("GRANT SELECT ON ent_note, ent_note_appreciation, ent_devoir, ent_note_periode, ent_bulletin, ent_competence_evaluation, ent_conseil_classe_dossier TO {ROLE}"),
+        format!("GRANT SELECT ON ent_note, ent_devoir, eva_resultat, eva_evaluation, ent_cours, ent_classe, ent_groupe, ent_service_enseignement, ent_note_periode, ent_note_appreciation, ent_note_archive, ent_devoir_archive, ent_bulletin, ent_competence_evaluation, ent_conseil_classe_dossier TO {ROLE}"),
         format!("ALTER ROLE {ROLE} SET app.rls_strict = 'on'"),
     ] {
         sqlx::query(&sql).execute(ent.pool()).await.unwrap();
@@ -444,7 +453,8 @@ async fn rls_sur_les_tables_d_evaluation_isole_les_etablissements() {
     u.set_username(ROLE).unwrap();
     u.set_password(Some("rls")).unwrap();
     let app = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect(u.as_str()).await.unwrap();
-    for table in ["ent_note", "ent_note_appreciation", "ent_devoir", "ent_note_periode"] {
+    // Les vues `ent_note` et `ent_devoir` (`security_invoker`) et les tables `eva_*` isolent comme les tables.
+    for table in ["ent_note", "ent_devoir", "eva_resultat", "eva_evaluation", "ent_note_appreciation", "ent_note_periode"] {
         let compter = |etab_pose: Option<Uuid>| {
             let app = app.clone();
             async move {

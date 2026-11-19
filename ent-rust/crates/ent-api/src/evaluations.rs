@@ -12,11 +12,10 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ent_types::evaluations::{
     AppreciationBody, AppreciationDto, AvisVoeuBody, BilanCycleBody, BilanCycleDto,
-    BulletinDetailDto, BulletinDto, CoefMatiereBody, ConseilDto, CorrigerNoteBody,
-    CreerConseilBody, CreerDevoirGrilleBody, DecisionConseilBody, DecisionConseilDto,
-    DevoirGrilleDto, ExportLivretDto, GenererBulletinsBody, GrilleDto, PeriodeNotesDto,
-    PreparationConseilDto, PublierBulletinsBody, RapportBulletinsDto, RapportSaisieDto,
-    ReglesCalculDto, ReleveEleveDto, ReponseFamilleBody, SaisieGrilleBody, ServiceEvaluationDto,
+    BulletinDetailDto, BulletinDto, CoefMatiereBody, ConseilDto, CreerConseilBody,
+    DecisionConseilBody, DecisionConseilDto, ExportLivretDto, GenererBulletinsBody,
+    PeriodeNotesDto, PreparationConseilDto, PublierBulletinsBody, RapportBulletinsDto,
+    ReglesCalculDto, ReleveEleveDto, ReponseFamilleBody, ServiceEvaluationDto,
     StatutPeriodeBody, VoeuAvisDto, VueClasseDto,
 };
 use serde::Deserialize;
@@ -27,6 +26,9 @@ use crate::routes::{attachment_response, map_db};
 use crate::AppState;
 
 type Res<T> = Result<T, (StatusCode, String)>;
+
+/// Réponse des routes historiques d'écriture de la grille (fermées en V3b : une seule source, `eva_*`).
+const MSG_GRILLE_FERMEE: &str = "route historique fermée (V3b, M3) : la grille, la saisie, la publication et la correction des notes passent par la grille d'évaluation (/eva/*), qui écrit dans le modèle unique eva_*";
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -67,12 +69,6 @@ pub fn routes() -> Router<AppState> {
         .route("/evaluations/eleves/{id}/bulletins", get(bulletins_eleve))
         // Livrets
         .route("/evaluations/exports", post(exporter))
-}
-
-#[derive(Deserialize)]
-struct GrilleQuery {
-    service_id: Uuid,
-    periode_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -174,66 +170,24 @@ async fn coefficient(
         .map_err(map_db)
 }
 
-async fn grille(
-    State(s): State<AppState>,
-    session: EntSession,
-    Query(q): Query<GrilleQuery>,
-) -> Res<Json<GrilleDto>> {
-    s.ent
-        .grille_for_actor(session.etablissement_id, session.user_id, &session.role, q.service_id, q.periode_id)
-        .await
-        .map(Json)
-        .map_err(map_db)
+async fn grille(_session: EntSession) -> (StatusCode, &'static str) {
+    (StatusCode::GONE, MSG_GRILLE_FERMEE)
 }
 
-async fn creer_devoir(
-    State(s): State<AppState>,
-    session: EntSession,
-    Json(b): Json<CreerDevoirGrilleBody>,
-) -> Res<(StatusCode, Json<DevoirGrilleDto>)> {
-    s.ent
-        .creer_devoir_grille_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
-        .await
-        .map(|d| (StatusCode::CREATED, Json(d)))
-        .map_err(map_db)
+async fn creer_devoir(_session: EntSession) -> (StatusCode, &'static str) {
+    (StatusCode::GONE, MSG_GRILLE_FERMEE)
 }
 
-async fn saisir(
-    State(s): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(b): Json<SaisieGrilleBody>,
-) -> Res<Json<RapportSaisieDto>> {
-    s.ent
-        .saisir_grille_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
-        .await
-        .map(Json)
-        .map_err(map_db)
+async fn saisir(_session: EntSession) -> (StatusCode, &'static str) {
+    (StatusCode::GONE, MSG_GRILLE_FERMEE)
 }
 
-async fn publier_devoir(
-    State(s): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-) -> Res<Json<DevoirGrilleDto>> {
-    s.ent
-        .publier_devoir_for_actor(session.etablissement_id, session.user_id, &session.role, id)
-        .await
-        .map(Json)
-        .map_err(map_db)
+async fn publier_devoir(_session: EntSession) -> (StatusCode, &'static str) {
+    (StatusCode::GONE, MSG_GRILLE_FERMEE)
 }
 
-async fn corriger(
-    State(s): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(b): Json<CorrigerNoteBody>,
-) -> Res<StatusCode> {
-    s.ent
-        .corriger_note_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
-        .await
-        .map(|_| StatusCode::NO_CONTENT)
-        .map_err(map_db)
+async fn corriger(_session: EntSession) -> (StatusCode, &'static str) {
+    (StatusCode::GONE, MSG_GRILLE_FERMEE)
 }
 
 async fn vue_classe(

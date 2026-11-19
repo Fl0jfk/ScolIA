@@ -511,7 +511,7 @@ impl PgEnt {
         .map_err(db)?;
         let (valeur, sur) = match (r.montrer_note && note_autorisee, r.note_id) {
             (true, Some(n)) => {
-                let v: Option<(f64, f64)> = sqlx::query_as("SELECT valeur, sur FROM ent_note WHERE etablissement_id = $1 AND id = $2")
+                let v: Option<(f64, f64)> = sqlx::query_as("SELECT valeur, sur FROM ent_note WHERE etablissement_id = $1 AND id = $2 AND publiee")
                     .bind(etab)
                     .bind(n)
                     .fetch_optional(&mut *tx)

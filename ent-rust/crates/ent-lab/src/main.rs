@@ -1831,6 +1831,10 @@ async fn explorer_nomenclature_et_notes(
     })
     .await
     .map_err(|e| e.to_string())?;
+    // V3b : les lectures passent par `eva_*` ; on verse d'abord l'amorçage (anciennes écritures du scénario).
+    ent.eva_v1_reprendre_amorcage(cast.etablissement_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let moy = ent
         .moyenne_matiere(
             cast.etablissement_id,
@@ -3386,6 +3390,9 @@ async fn explorer_portail_famille(
         .find(|e| e.eleve.id == cast.eleve_lea_id)
         .expect("harry");
     if harry.peut_voir_notes {
+        ent.eva_v1_reprendre_amorcage(cast.etablissement_id)
+            .await
+            .map_err(|e| e.to_string())?;
         let notes = ent
             .notes_for_eleve(cast.etablissement_id, cast.eleve_lea_id)
             .await

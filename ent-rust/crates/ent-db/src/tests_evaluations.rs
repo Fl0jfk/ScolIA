@@ -7,10 +7,21 @@
 use super::*;
 use crate::outbox::ConfigDistribution;
 use crate::referentiel_repo::CreerService;
-use chrono::Duration;
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use domain_eleve::{today_utc, CreateEleve, CreerNotePeriode, DomainError};
 use ent_types::evaluations::*;
+use ent_types::evaluations_v3::{
+    code_statut, CelluleSaisieDto, CreerEvaluationV3Body, PublierV3Body, SaisieLotBody,
+};
 use uuid::Uuid;
+
+/// Instant de TEST pour les gestes V3 qui en demandent un (la publication « maintenant » ne s'en sert que pour son
+/// horodatage ; aucun scénario de ce fichier ne dépend de sa valeur). Les scénarios de ce fichier vivent dans l'année
+/// COURANTE (les contrôles du professeur principal et du conseil lisent le jour de l'établissement) : le jour qu'ils
+/// utilisent est celui de l'établissement, jamais un jour UTC.
+pub(crate) fn maintenant_t() -> DateTime<Utc> {
+    Utc::now()
+}
 
 pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
@@ -51,7 +62,14 @@ pub(crate) struct Monde {
     /// Service de français d'un autre professeur.
     pub(crate) s_fr: Uuid,
     pub(crate) autre_prof: Uuid,
+    /// Période de notes (registre `ent_note_periode`, utilisé par bulletins et conseils).
     pub(crate) periode: Uuid,
+    /// La même période dans le référentiel (`ent_periode`), celle que lit le moteur et la grille V3.
+    pub(crate) periode_eva: Uuid,
+    /// Année scolaire fictive du monde (2031-2032).
+    pub(crate) annee_eva: Uuid,
+    /// Cours de maths (service `s_maths`).
+    pub(crate) cours_maths: Uuid,
     pub(crate) eleves: Vec<Uuid>,
 }
 
@@ -176,19 +194,37 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
         .await
         .unwrap();
     }
-    let t = today_utc();
     let periode = ent
         .creer_note_periode(CreerNotePeriode {
             etablissement_id: etab,
             code: format!("T{suffixe}"),
             libelle: "Trimestre S2-7".into(),
-            date_debut: (t - Duration::days(10)).max(annee.date_debut),
-            date_fin: (t + Duration::days(30)).min(annee.date_fin),
+            date_debut: (today_utc() - Duration::days(10)).max(annee.date_debut),
+            date_fin: (today_utc() + Duration::days(30)).min(annee.date_fin),
             actor_user_id: None,
         })
         .await
         .unwrap()
         .id;
+    let periode_eva: Uuid = sqlx::query_scalar("SELECT ent_periode_de_note_pour_classe($1, $2, $3)")
+        .bind(etab)
+        .bind(periode)
+        .bind(classe.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    let cours_de = |service: Uuid| {
+        let pool = ent.pool_verif().clone();
+        async move {
+            sqlx::query_scalar::<_, Uuid>("SELECT cours_id FROM ent_service_enseignement WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(service)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let cours_maths = cours_de(s_maths).await;
     Monde {
         etab,
         classe: classe.id,
@@ -198,6 +234,9 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
         s_fr,
         autre_prof,
         periode,
+        periode_eva,
+        annee_eva: annee.id,
+        cours_maths,
         eleves,
     }
 }
@@ -232,6 +271,340 @@ pub(crate) async fn statut(ent: &PgEnt, cast: &LaboCast, m: &Monde, s: &str) {
     )
     .await
         .unwrap();
+}
+
+/// Fixtures de TESTS des lecteurs historiques (cahier de textes, référentiel) : une note ou une évaluation « brute » dans
+/// `eva_*` (seule source des vues `ent_note` / `ent_devoir`), posée sans passer par la grille. Triggers et clés
+/// étrangères sont suspendus le temps de l'insertion (`session_replication_role = replica`, base de test locale, rôle
+/// propriétaire) : on pose une ligne lisible, on ne teste pas ici les gardes d'écriture (ce sont celles de V1 et V3).
+pub(crate) async fn note_eva_brute(
+    ent: &PgEnt,
+    etab: Uuid,
+    eleve: Uuid,
+    matiere: Uuid,
+    valeur: f64,
+    date: NaiveDate,
+    auteur: Uuid,
+    publiee: bool,
+) -> Uuid {
+    let (cours, annee, evaluation, note) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, matiere_id, classe_id, ouvert_le)
+         VALUES ($1, $2, $3, 'Cours de test', $4, $5, $6)",
+    )
+    .bind(cours).bind(etab).bind(annee).bind(matiere).bind(Uuid::new_v4()).bind(date)
+    .execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO eva_evaluation (id, etablissement_id, annee_id, cours_id, date_eval, titre, mode, bareme, coef, etat,
+                                     publication, publiee_le, publiee_par, cree_par)
+         VALUES ($1, $2, $3, $4, $5, 'Évaluation de test', 'note', 20, 1, 'ouverte', 'explicite',
+                 CASE WHEN $6 THEN now() END, CASE WHEN $6 THEN $7 END, $7)",
+    )
+    .bind(evaluation).bind(etab).bind(annee).bind(cours).bind(date).bind(publiee).bind(auteur)
+    .execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO eva_resultat (id, etablissement_id, evaluation_id, eleve_id, statut, valeur, source, saisi_par)
+         VALUES ($1, $2, $3, $4, 'note', $5::double precision, 'saisie', $6)",
+    )
+    .bind(note).bind(etab).bind(evaluation).bind(eleve).bind(valeur).bind(auteur)
+    .execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    note
+}
+
+/// Publie (fixture de test) l'évaluation qui porte la note brute `note` : `publiee_le` posé hors garde.
+pub(crate) async fn publier_note_eva_brute(ent: &PgEnt, note: Uuid) {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "UPDATE eva_evaluation SET publiee_le = now(), publiee_par = cree_par
+          WHERE id = (SELECT evaluation_id FROM eva_resultat WHERE id = $1)",
+    )
+    .bind(note)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// Une évaluation « brute » d'une classe (agenda des évaluations annoncées) : lisible par la vue `ent_devoir`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn devoir_eva_brute(
+    ent: &PgEnt,
+    etab: Uuid,
+    classe_id: Uuid,
+    matiere: Uuid,
+    periode_note: Uuid,
+    titre: &str,
+    date: NaiveDate,
+    coef: f64,
+    auteur: Option<Uuid>,
+) -> Uuid {
+    let (cours, annee, evaluation) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, matiere_id, classe_id, ouvert_le)
+         VALUES ($1, $2, $3, 'Cours de test', $4, $5, $6)",
+    )
+    .bind(cours).bind(etab).bind(annee).bind(matiere).bind(classe_id).bind(date)
+    .execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO eva_evaluation (id, etablissement_id, annee_id, cours_id, periode_id, date_eval, titre, mode, bareme, coef,
+                                     etat, publication, cree_par)
+         VALUES ($1, $2, $3, $4, (SELECT periode_id FROM ent_note_periode WHERE etablissement_id = $2 AND id = $5), $6, $7,
+                 'note', 20, $8::double precision, 'ouverte', 'explicite', $9)",
+    )
+    .bind(evaluation).bind(etab).bind(annee).bind(cours).bind(periode_note).bind(date).bind(titre).bind(coef).bind(auteur)
+    .execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    evaluation
+}
+
+/// Adaptateur de TEST : les routes et services de l'ancienne grille (écriture dans `ent_devoir` / `ent_note`) sont
+/// fermés depuis V3b ; ces méthodes en rejouent les GESTES (créer un devoir, saisir une grille, publier, corriger) par
+/// la grille V3 (`eva_*`), seule source des lectures. Les scénarios (bulletin, conseil, export, droits, isolation)
+/// gardent ainsi leur forme et prouvent que ce que la grille V3 écrit est ce que les lecteurs lisent.
+pub(crate) trait GrilleHistorique {
+    async fn creer_devoir_grille_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        body: &CreerDevoirGrilleBody,
+    ) -> Result<DevoirGrilleDto, EntDbError>;
+    async fn saisir_grille_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+        body: &SaisieGrilleBody,
+    ) -> Result<RapportSaisieDto, EntDbError>;
+    async fn publier_devoir_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+    ) -> Result<(), EntDbError>;
+    async fn corriger_note_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+        body: &CorrigerNoteBody,
+    ) -> Result<(), EntDbError>;
+}
+
+fn texte_de(statut: &str, valeur: Option<f64>) -> String {
+    match (statut, valeur) {
+        ("note", Some(v)) => format!("{v}").replace('.', ","),
+        ("vide", _) => String::new(),
+        (s, _) => code_statut(s).to_string(),
+    }
+}
+
+impl GrilleHistorique for PgEnt {
+    async fn creer_devoir_grille_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        body: &CreerDevoirGrilleBody,
+    ) -> Result<DevoirGrilleDto, EntDbError> {
+        let cours: Option<Uuid> = sqlx::query_scalar(
+            "SELECT cours_id FROM ent_service_enseignement WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(body.service_id)
+        .fetch_optional(self.pool_verif())
+        .await?
+        .flatten();
+        let cours = cours.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let c = self
+            .eva_v3_creer_evaluation_for_actor(
+                etab,
+                acteur,
+                role,
+                jour,
+                maintenant_t(),
+                &CreerEvaluationV3Body {
+                    cours_id: cours,
+                    titre: body.titre.clone(),
+                    date_eval: body.date_devoir,
+                    bareme_m: (body.sur * 1000.0).round() as i64,
+                    coef_m: (body.coef * 1000.0).round() as i64,
+                    comptage: None,
+                    hors_bareme_autorise: false,
+                    sous_matiere_id: None,
+                    restreinte_a: vec![],
+                    publication: None,
+                    publication_prevue_le: None,
+                    annoncee: false,
+                },
+            )
+            .await?;
+        Ok(DevoirGrilleDto {
+            id: c.id,
+            titre: c.titre,
+            date_devoir: c.date_eval,
+            coef: c.coef_m as f64 / 1000.0,
+            sur: c.bareme_m as f64 / 1000.0,
+            publie_le: c.publiee_le,
+            stats: StatsDto::default(),
+        })
+    }
+
+    async fn saisir_grille_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+        body: &SaisieGrilleBody,
+    ) -> Result<RapportSaisieDto, EntDbError> {
+        let cours: Option<Uuid> = sqlx::query_scalar(
+            "SELECT cours_id FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(devoir_id)
+        .fetch_optional(self.pool_verif())
+        .await?;
+        let cours = cours.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let mut cellules = Vec::new();
+        for r in &body.resultats {
+            // L'ancienne grille REMPLAÇAIT : la version courante de la case est relue, pas devinée.
+            let version: Option<i32> = sqlx::query_scalar(
+                "SELECT version FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+            )
+            .bind(etab)
+            .bind(devoir_id)
+            .bind(r.eleve_id)
+            .fetch_optional(self.pool_verif())
+            .await?;
+            cellules.push(CelluleSaisieDto {
+                evaluation_id: devoir_id,
+                eleve_id: r.eleve_id,
+                texte: texte_de(&r.statut, r.valeur),
+                version_attendue: version,
+                motif: None,
+            });
+        }
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let ret = self
+            .eva_v3_saisir_lot_for_actor(
+                etab,
+                acteur,
+                role,
+                jour,
+                &SaisieLotBody { cours_id: cours, cellules, origine: None },
+            )
+            .await?;
+        let mut rap = RapportSaisieDto { enregistres: 0, inchanges: 0, refuses: vec![] };
+        for c in ret.cellules {
+            match c.issue.as_str() {
+                "ecrit" => rap.enregistres += 1,
+                "inchange" | "vide" => rap.inchanges += 1,
+                _ => rap.refuses.push(RefusSaisieDto { eleve_id: c.eleve_id, motif: c.message.unwrap_or_default() }),
+            }
+        }
+        // Les refus d'autorisation (période arrêtée, droit) remontent comme l'ancienne API : une erreur.
+        if rap.enregistres == 0 && rap.inchanges == 0 {
+            if let Some(r) = rap.refuses.first() {
+                if r.motif.contains("période arrêtée") {
+                    return Err(EntDbError::ConflitDossier("période arrêtée"));
+                }
+            }
+        }
+        Ok(rap)
+    }
+
+    async fn publier_devoir_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        self.eva_v3_publier_for_actor(
+            etab,
+            acteur,
+            role,
+            jour,
+            maintenant_t(),
+            devoir_id,
+            &PublierV3Body { action: "maintenant".into(), prevue_le: None, prevue_locale: None, motif: None },
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn corriger_note_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+        body: &CorrigerNoteBody,
+    ) -> Result<(), EntDbError> {
+        let cours: Uuid = sqlx::query_scalar("SELECT cours_id FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(devoir_id)
+            .fetch_one(self.pool_verif())
+            .await?;
+        let version: Option<i32> = sqlx::query_scalar(
+            "SELECT version FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+        )
+        .bind(etab)
+        .bind(devoir_id)
+        .bind(body.eleve_id)
+        .fetch_optional(self.pool_verif())
+        .await?;
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let ret = self
+            .eva_v3_saisir_lot_for_actor(
+                etab,
+                acteur,
+                role,
+                jour,
+                &SaisieLotBody {
+                    cours_id: cours,
+                    cellules: vec![CelluleSaisieDto {
+                        evaluation_id: devoir_id,
+                        eleve_id: body.eleve_id,
+                        texte: texte_de(&body.statut, body.valeur),
+                        version_attendue: version,
+                        motif: Some(body.motif.clone()),
+                    }],
+                    origine: None,
+                },
+            )
+            .await?;
+        match ret.cellules.first() {
+            Some(c) if c.issue == "ecrit" || c.issue == "inchange" => Ok(()),
+            Some(c) if c.message.as_deref().is_some_and(|m| m.contains("seule la direction")) => Err(EntDbError::Forbidden),
+            Some(_) | None => Err(EntDbError::SaisieInvalide("correction refusée")),
+        }
+    }
+}
+
+/// Grille V3 du cours de maths de la classe pour la période du monde (les contrôles d'accès de l'ancienne grille).
+pub(crate) async fn grille_v3(
+    ent: &PgEnt,
+    m: &Monde,
+    etab: Uuid,
+    acteur: Uuid,
+    role: &str,
+) -> Result<ent_types::evaluations_v3::GrilleV3Dto, EntDbError> {
+    let jour = ent.aujourdhui_etablissement(etab).await?;
+    ent.eva_v3_grille_for_actor(etab, acteur, role, m.cours_maths, m.periode_eva, jour, maintenant_t())
+        .await
 }
 
 // ─── 1. Une période complète ─────────────────────────────────────────────────
@@ -280,19 +653,20 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
         .unwrap();
     assert_eq!((rap.enregistres, rap.inchanges, rap.refuses.len()), (0, 1, 1));
 
-    let g = ent.grille_for_actor(etab, prof, "prof", m.s_maths, m.periode).await.unwrap();
-    assert!(g.saisie_ouverte && g.appreciations_ouvertes);
-    let moy = |id: Uuid| g.lignes.iter().find(|l| l.eleve_id == id).unwrap().moyenne;
+    let g = grille_v3(&ent, &m, etab, prof, "prof").await.unwrap();
+    assert!(g.peut_saisir);
+    let moy = |id: Uuid| g.eleves.iter().find(|l| l.eleve_id == id).unwrap().moyenne_m;
     // Hannah : (15 × 1 + 16 × 2) / 3 = 15,67 ; Susan : absent + dispensé → pas de moyenne ;
     // Michael : 9,5 (le non noté est exclu).
-    assert_eq!(moy(a), Some(15.67));
+    assert_eq!(moy(a), Some(15_670));
     assert_eq!(moy(b), None);
-    assert_eq!(moy(c), Some(9.5));
-    assert_eq!(g.stats.effectif, 2);
-    assert_eq!((g.stats.min, g.stats.max), (Some(9.5), Some(15.67)));
-    assert_eq!(g.stats.moyenne, Some(12.58)); // (15,666… + 9,5) / 2 = 12,5833…
-    let st1 = &g.devoirs.iter().find(|d| d.id == d1.id).unwrap().stats;
-    assert_eq!((st1.effectif, st1.moyenne), (2, Some(12.25)));
+    assert_eq!(moy(c), Some(9_500));
+    let st = g.moyenne_classe.as_ref().expect("moyenne de classe");
+    assert_eq!(st.effectif, 2);
+    assert_eq!((st.min_m, st.max_m), (9_500, 15_670));
+    assert_eq!(st.moyenne_m, 12_580); // (15,666… + 9,5) / 2 = 12,5833…
+    let st1 = g.evaluations.iter().find(|e| e.id == d1.id).unwrap().stats.as_ref().unwrap();
+    assert_eq!((st1.effectif, st1.moyenne_m), (2, 12_250));
 
     // Publication : seule Hannah a un parent qui voit les notes → une notification ;
     // avant publication, la famille ne voit pas l'évaluation.
@@ -303,13 +677,13 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     ent.publier_devoir_for_actor(etab, prof, "prof", d1.id).await.unwrap();
     ent.publier_devoir_for_actor(etab, prof, "prof", d1.id).await.unwrap(); // idempotent
     // Ancien chemin de saisie : refusé sur un devoir de grille (service, effectif, verrou).
-    assert!(matches!(
-        ent.saisir_note_for_actor("prof", crate::note_repo::SaisirNote {
+    assert!(ent
+        .saisir_note_for_actor("prof", crate::note_repo::SaisirNote {
             etablissement_id: etab, eleve_id: a, matiere_id: m.maths, valeur: 3.0, sur: 20.0,
             date_note: today_utc(), auteur_user_id: prof, libelle: None, devoir_id: Some(d1.id), periode_id: None,
-        }).await,
-        Err(EntDbError::ConflitDossier(_))
-    ));
+        })
+        .await
+        .is_err());
     // Moyenne historique : le devoir non publié (d2) n'y entre pas.
     let hist = ent.moyennes_eleve_periode(etab, a, m.periode).await.unwrap();
     assert_eq!(hist.iter().find(|x| x.matiere_id == m.maths).map(|x| x.moyenne_sur_20), Some(15.0));
@@ -333,7 +707,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     ));
     assert!(matches!(
         ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "Tardif", 1.0, 20.0)).await,
-        Err(EntDbError::ConflitDossier(_))
+        Err(EntDbError::SaisieInvalide(_)) // CE-47 : refus motivé de la V3 (période arrêtée pour tout le public)
     ));
     ent.saisir_appreciation_eva_for_actor(etab, prof, "prof", &AppreciationBody {
         eleve_id: a, periode_id: m.periode, matiere_id: Some(m.maths), texte: "Très bon trimestre.".into(),
@@ -410,6 +784,10 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
         ent.repondre_avis_for_actor(etab, lea, "parent", avis_id, "accord").await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
+
+    // Le bulletin est un document visible des familles : il n'entre que les évaluations PUBLIÉES. Le professeur publie le
+    // second devoir avant l'arrêt (en pratique : « publié à l'arrêt des notes »).
+    ent.publier_devoir_for_actor(etab, prof, "prof", d2.id).await.unwrap();
 
     // Bulletin : impossible tant que la période n'est pas fermée.
     let gen_body = GenererBulletinsBody { classe_id: m.classe, periode_id: m.periode, motif: None };
@@ -580,11 +958,11 @@ async fn professeur_hors_classe_et_familles_refuses() {
         .map(|p| p.user_id)
         .find(|u| *u != prof && *u != m.autre_prof)
         .expect("un troisième professeur");
-    assert!(matches!(ent.grille_for_actor(etab, hors, "prof", m.s_maths, m.periode).await, Err(EntDbError::Forbidden)));
+    assert!(matches!(grille_v3(&ent, &m, etab, hors, "prof").await, Err(EntDbError::Forbidden)));
     assert!(matches!(ent.vue_classe_for_actor(etab, hors, "prof", m.classe, m.periode).await, Err(EntDbError::Forbidden)));
     // Famille et élève : aucune route de saisie ni de vue de classe.
     let lea = cast.parent_lea.user_id;
-    assert!(matches!(ent.grille_for_actor(etab, lea, "parent", m.s_maths, m.periode).await, Err(EntDbError::Forbidden)));
+    assert!(matches!(grille_v3(&ent, &m, etab, lea, "parent").await, Err(EntDbError::Forbidden)));
     assert!(matches!(
         ent.saisir_grille_for_actor(etab, lea, "parent", d.id, &SaisieGrilleBody { resultats: vec![] }).await,
         Err(EntDbError::Forbidden)
@@ -622,11 +1000,12 @@ async fn professeur_hors_classe_et_familles_refuses() {
     ent.attribuer_role_for_actor(etab, cast.admin.user_id, "admin", role.id, cast.cpe.user_id, None)
         .await
         .unwrap();
-    let rap = ent
-        .saisir_grille_for_actor(etab, cast.cpe.user_id, "cpe", d.id, &SaisieGrilleBody { resultats: vec![r(m.eleves[0], "note", Some(11.0))] })
-        .await
-        .unwrap();
-    assert_eq!(rap.enregistres, 1);
+    // Grille V3 (§14) : la saisie reste liée au cours (professeur du cours ou suppléant) ; un droit d'établissement
+    // « notes.saisir » ne l'ouvre pas (droits inchangés par le basculement des lecteurs).
+    assert!(matches!(
+        ent.saisir_grille_for_actor(etab, cast.cpe.user_id, "cpe", d.id, &SaisieGrilleBody { resultats: vec![r(m.eleves[0], "note", Some(11.0))] }).await,
+        Err(EntDbError::Forbidden)
+    ));
     // Bilan de cycle : saisie par le professeur de la classe, validation par le PP
     // seulement quand les 8 composantes sont positionnées.
     let mut comps: Vec<ComposanteNiveauDto> = domain_eleve::evaluation::COMPOSANTES_SOCLE[..7]
@@ -662,7 +1041,7 @@ async fn isolation_entre_etablissements() {
     let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (b, dir_b) = (autre.etablissement_id, autre.direction.user_id);
     let nf = |r: Result<_, EntDbError>| matches!(r, Err(EntDbError::Domain(DomainError::NotFound)));
-    assert!(nf(ent.grille_for_actor(b, dir_b, "direction", m.s_maths, m.periode).await.map(|_| ())));
+    assert!(nf(grille_v3(&ent, &m, b, dir_b, "direction").await.map(|_| ())));
     assert!(nf(ent.saisir_grille_for_actor(b, dir_b, "direction", d.id, &SaisieGrilleBody { resultats: vec![] }).await.map(|_| ())));
     assert!(nf(ent.publier_devoir_for_actor(b, dir_b, "direction", d.id).await.map(|_| ())));
     assert!(nf(ent.changer_statut_periode_for_actor(b, dir_b, "direction", m.periode, "fermee", None).await.map(|_| ())));
@@ -702,51 +1081,140 @@ async fn isolation_entre_etablissements() {
 
 // ─── 4. Calculs : coefficients de matière, règles de l'établissement ────────
 
+/// Les coefficients et règles de la route historique s'écrivent dans `eva_*` (V3b) : la moyenne lue (vue de classe,
+/// bulletin, conseil) les applique. Le coefficient est posé AVANT les résultats (un coefficient n'est jamais
+/// rétroactif, R-V23) ; l'année du monde est fictive (2031), les règles de l'année sont donc posées par la couche V1.
 #[tokio::test]
 async fn coefficients_de_matiere_et_regles_de_calcul() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let m = monde(&ent, &cast).await;
     let (etab, prof, a) = (m.etab, cast.prof.user_id, m.eleves[0]);
+    let dir = cast.direction.user_id;
+    // Maths coefficient 3 (route historique, secrétariat), posé avant toute note ; refusé à un professeur.
+    ent.definir_coef_matiere_for_actor(etab, cast.administratif.user_id, "administratif", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 3.0 }).await.unwrap();
+    assert!(matches!(
+        ent.definir_coef_matiere_for_actor(etab, prof, "prof", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 2.0 }).await,
+        Err(EntDbError::Forbidden)
+    ));
     let dm = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "M", 1.0, 20.0)).await.unwrap();
     let df = ent.creer_devoir_grille_for_actor(etab, m.autre_prof, "prof", &devoir(m.s_fr, m.periode, "F", 1.0, 20.0)).await.unwrap();
     let dabs = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "M2", 1.0, 20.0)).await.unwrap();
     ent.saisir_grille_for_actor(etab, prof, "prof", dm.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(16.0))] }).await.unwrap();
     ent.saisir_grille_for_actor(etab, m.autre_prof, "prof", df.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(10.25))] }).await.unwrap();
     ent.saisir_grille_for_actor(etab, prof, "prof", dabs.id, &SaisieGrilleBody { resultats: vec![r(a, "absent", None)] }).await.unwrap();
-    let dir = cast.direction.user_id;
     let vue = |v: VueClasseDto| v.lignes.into_iter().find(|l| l.eleve_id == a).unwrap().moyenne_generale;
-    // Coefficient 1 / 1 : (16 + 10,25) / 2 = 13,125 → 13,13 (demi vers le haut).
-    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(13.13));
-    // Maths coefficient 3 : (48 + 10,25) / 4 = 14,5625 → 14,56.
-    ent.definir_coef_matiere_for_actor(etab, cast.administratif.user_id, "administratif", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 3.0 }).await.unwrap();
+    // Maths coefficient 3 : (48 + 10,25) / 4 = 14,5625 → 14,56 (centième, demi vers le haut).
     assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(14.56));
-    assert!(matches!(
-        ent.definir_coef_matiere_for_actor(etab, prof, "prof", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 2.0 }).await,
-        Err(EntDbError::Forbidden)
-    ));
-    // V0 (D10, R-V5) : « absent = 0 » n'existe plus. Le réglage est refusé ; l'absent reste
-    // exclu : maths 16 (le devoir « absent » ne compte pas), générale (48 + 10,25) / 4 =
-    // 14,5625 ; arrondi au dixième → 14,6.
+    // Un coefficient ne se réécrit pas : la ligne posée est datée (le même jour, ou avec des résultats saisis depuis
+    // cette date, la route refuse plutôt que de changer en silence une moyenne déjà lue).
+    assert!(ent
+        .definir_coef_matiere_for_actor(etab, dir, "direction", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 1.0 })
+        .await
+        .is_err());
+    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(14.56));
+    // V0 (D10, R-V5) : « absent = 0 » n'existe plus. Le réglage est refusé ; arrondis inconnus refusés.
     assert!(matches!(
         ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "dixieme".into(), absent_compte_zero: true }).await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "dixieme".into(), absent_compte_zero: false }).await.unwrap();
+    assert!(matches!(
+        ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "entier".into(), absent_compte_zero: false }).await,
+        Err(EntDbError::SaisieInvalide(_))
+    ));
+    // Le réglage d'affichage vit dans `eva_reglage` : au dixième, la même moyenne s'affiche 14,6 (le calcul reste exact).
+    let mut regles = ent.eva_v1_regles(etab, m.annee_eva).await.unwrap();
+    regles.regles.affichage.precision = domain_eleve::evaluation_moteur::Precision::Dixieme;
+    ent.eva_v1_definir_regles_for_actor(etab, dir, "direction", m.annee_eva, &regles.regles, regles.pas_saisie_m).await.unwrap();
     let v = ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap();
     assert_eq!(v.arrondi, "dixieme");
     let l = v.lignes.iter().find(|l| l.eleve_id == a).unwrap();
     let idx = v.matieres.iter().position(|x| x.matiere_id == m.maths).unwrap();
     assert_eq!(l.moyennes[idx], Some(16.0));
     assert_eq!(l.moyenne_generale, Some(14.6));
-    // Arrondi inconnu refusé.
-    assert!(matches!(
-        ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "entier".into(), absent_compte_zero: false }).await,
-        Err(EntDbError::SaisieInvalide(_))
-    ));
     // Effacer une cellule (période ouverte) : statut « vide ».
     let rap = ent.saisir_grille_for_actor(etab, prof, "prof", dabs.id, &SaisieGrilleBody { resultats: vec![r(a, "vide", None)] }).await.unwrap();
-    assert_eq!(rap.enregistres, 1);
-    let g = ent.grille_for_actor(etab, prof, "prof", m.s_maths, m.periode).await.unwrap();
-    assert_eq!(g.lignes.iter().find(|l| l.eleve_id == a).unwrap().resultats.len(), 1);
-    assert_eq!(g.arrondi, "dixieme");
+    assert_eq!(rap.inchanges + rap.enregistres, 1);
+}
+
+// ─── 5. Bout en bout (V3b) : la grille V3 écrit, tous les lecteurs lisent la même moyenne ─────────────────
+
+/// Une note saisie dans la grille V3 puis publiée apparaît au relevé de la famille, à la lecture historique (mobile), à la
+/// vue de classe, au conseil et au bulletin, avec la MÊME moyenne ; non publiée, elle n'apparaît nulle part côté famille ni
+/// élève (relevé, notes, moyennes, bulletin) — et l'ancienne table (archive) n'a rien reçu.
+#[tokio::test]
+async fn e2e_v3b_une_note_saisie_puis_publiee_est_lue_partout_avec_la_meme_moyenne() {
+    let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    let m = monde(&ent, &cast).await;
+    let (etab, prof, dir, a) = (m.etab, cast.prof.user_id, cast.direction.user_id, m.eleves[0]);
+    let lea = cast.parent_lea.user_id;
+    let d1 = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "Contrôle e2e", 1.0, 20.0)).await.unwrap();
+    let d2 = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "Interro non publiée", 2.0, 10.0)).await.unwrap();
+    ent.saisir_grille_for_actor(etab, prof, "prof", d1.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(14.5))] }).await.unwrap();
+    ent.saisir_grille_for_actor(etab, prof, "prof", d2.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(5.0))] }).await.unwrap();
+    // Non publiée : rien côté famille.
+    let rel = ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap();
+    assert!(rel.matieres.iter().all(|x| x.evaluations.is_empty() && x.moyenne.is_none()), "{rel:?}");
+    assert!(rel.moyenne_generale.is_none());
+    assert!(ent.notes_for_eleve(etab, a).await.unwrap().is_empty(), "la lecture historique ne montre aucune note non publiée");
+    assert!(ent.moyennes_eleve_periode(etab, a, m.periode).await.unwrap().is_empty());
+    let fam = ent.eva_v1_moyennes_famille_for_actor(etab, lea, "parent", a, m.periode_eva).await.unwrap();
+    assert!(fam.generale.affichee_m.is_none() && fam.matieres.iter().all(|x| x.moyenne.affichee_m.is_none()));
+    // Le personnel, lui, voit tout : (14,5 × 1 + 10 × 2) / 3 = 11,5 (le calcul est exact).
+    let vue = |v: VueClasseDto| v.lignes.into_iter().find(|l| l.eleve_id == a).unwrap().moyenne_generale;
+    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(11.5));
+    // Publication du seul premier contrôle : la famille voit 14,5, partout la même valeur.
+    ent.publier_devoir_for_actor(etab, prof, "prof", d1.id).await.unwrap();
+    let rel = ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap();
+    let rm = rel.matieres.iter().find(|x| x.matiere_id == m.maths).unwrap();
+    assert_eq!((rm.evaluations.len(), rm.moyenne, rel.moyenne_generale), (1, Some(14.5), Some(14.5)));
+    let hist = ent.moyennes_eleve_periode(etab, a, m.periode).await.unwrap();
+    assert_eq!(hist.iter().find(|x| x.matiere_id == m.maths).map(|x| x.moyenne_sur_20), Some(14.5));
+    let fam = ent.eva_v1_moyennes_famille_for_actor(etab, lea, "parent", a, m.periode_eva).await.unwrap();
+    assert_eq!(fam.generale.affichee_m, Some(14_500));
+    assert_eq!(ent.notes_for_eleve(etab, a).await.unwrap().len(), 1);
+    // Publication du second : la même moyenne partout (vue de classe, relevé, lecture historique, grille V3).
+    ent.publier_devoir_for_actor(etab, prof, "prof", d2.id).await.unwrap();
+    let rel = ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap();
+    assert_eq!(rel.moyenne_generale, Some(11.5));
+    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(11.5));
+    let g = grille_v3(&ent, &m, etab, prof, "prof").await.unwrap();
+    assert_eq!(g.eleves.iter().find(|l| l.eleve_id == a).unwrap().moyenne_m, Some(11_500));
+    let hist = ent.moyennes_eleve_periode(etab, a, m.periode).await.unwrap();
+    assert_eq!(hist.iter().find(|x| x.matiere_id == m.maths).map(|x| x.moyenne_sur_20), Some(11.5));
+    // Une troisième évaluation, saisie mais NON publiée : le personnel la voit (vue de classe, conseil), jamais la famille
+    // ni le bulletin — « une note non publiée n'apparaît nulle part côté famille/élève ».
+    let d3 = ent.creer_devoir_grille_for_actor(etab, prof, "prof", &devoir(m.s_maths, m.periode, "Brouillon", 10.0, 20.0)).await.unwrap();
+    ent.saisir_grille_for_actor(etab, prof, "prof", d3.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(20.0))] }).await.unwrap();
+    // (14,5 × 1 + 10 × 2 + 20 × 10) / 13 = 18,04 pour le personnel ; 11,5 pour la famille.
+    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(18.04));
+    assert_eq!(ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap().moyenne_generale, Some(11.5));
+    assert_eq!(ent.notes_for_eleve(etab, a).await.unwrap().len(), 2, "la lecture historique ne montre pas la note non publiée");
+    // Conseil (personnel) : la préparation lit tout, comme la vue de classe.
+    let conseil = ent
+        .creer_conseil_eva_for_actor(etab, dir, "direction", &CreerConseilBody {
+            classe_id: m.classe, periode_id: m.periode, jour: today_utc(), heure: chrono::NaiveTime::from_hms_opt(17, 0, 0).unwrap(), lieu: "Salle e2e".into(),
+        })
+        .await
+        .unwrap();
+    let prep = ent.preparation_conseil_for_actor(etab, prof, "prof", conseil.id).await.unwrap();
+    assert_eq!(prep.eleves.iter().find(|e| e.eleve_id == a).unwrap().moyenne_generale, Some(18.04));
+    // Bulletin (document visible des familles) : période fermée, génération ; la moyenne est celle de la famille, la
+    // note non publiée n'y entre pas.
+    statut(&ent, &cast, &m, "fermee").await;
+    let gen_body = GenererBulletinsBody { classe_id: m.classe, periode_id: m.periode, motif: None };
+    let v1 = ent.generer_bulletins_for_actor(etab, dir, "direction", &gen_body).await.unwrap();
+    let bul = v1.bulletins.iter().find(|x| x.eleve_id == a).unwrap().id;
+    assert_eq!(ent.bulletin_detail_for_actor(etab, dir, "direction", bul).await.unwrap().contenu.moyenne_generale, Some(11.5));
+    // Une fois publiée, la même évaluation entre partout, avec la même moyenne.
+    statut(&ent, &cast, &m, "ouverte").await;
+    ent.publier_devoir_for_actor(etab, prof, "prof", d3.id).await.unwrap();
+    assert_eq!(ent.releve_eleve_for_actor(etab, lea, "parent", a, m.periode).await.unwrap().moyenne_generale, Some(18.04));
+    assert_eq!(vue(ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap()), Some(18.04));
+    let (n_archive,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_note_archive WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(etab)
+        .bind(a)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(n_archive, 0, "rien n'a été écrit dans l'ancienne table : la grille V3 écrit dans eva_* seul");
 }

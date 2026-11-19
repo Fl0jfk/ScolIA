@@ -7,7 +7,7 @@
 use super::*;
 use crate::doc_signer_repo::PgDocSignerRepo;
 use crate::service::document_storage_key_is_owned;
-use crate::tests_evaluations::{devoir, labo, monde, r, statut};
+use crate::tests_evaluations::{devoir, labo, monde, r, statut, GrilleHistorique};
 use domain_eleve::{
     DeposerDocument, DocConfidentialite, DocSignerStatut, DocTiroir, DomainError, EleveDocument,
     PublierDocASigner, SignerDocASigner,

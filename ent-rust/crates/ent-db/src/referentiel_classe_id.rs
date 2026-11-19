@@ -1,9 +1,10 @@
 //! Référentiel S2-2 : `classe_id` à côté du texte `classe` (V1) : rattachement idempotent
 //! des données existantes et comparaison texte ↔ identifiant.
 //!
-//! **Tables concernées (9)** : `ent_eleve`, `ent_eleve_periode` (kind `classe`),
-//! `ent_eleve_scolarite_annee`, `ent_appel`, `ent_edt_creneau`, `ent_devoir`,
+//! **Tables concernées (8)** : `ent_eleve`, `ent_eleve_periode` (kind `classe`),
+//! `ent_eleve_scolarite_annee`, `ent_appel`, `ent_edt_creneau`,
 //! `ent_cahier_texte`, `ent_conseil_classe`, `ent_annonce` (`cible_classe`).
+//! (`ent_devoir` n'en fait plus partie depuis V3b : c'est une vue dont la classe est celle du cours.)
 //!
 //! **Double écriture** : assurée par la base (triggers de la migration 111) quel que soit le
 //! code appelant. **Rattachement** : fonction SQL `ent_rattacher_classes` (migration 112),
@@ -17,13 +18,12 @@ use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 /// (table, colonne texte, filtre supplémentaire)
-pub const TABLES_CLASSE: [(&str, &str, &str); 9] = [
+pub const TABLES_CLASSE: [(&str, &str, &str); 8] = [
     ("ent_eleve", "classe", ""),
     ("ent_eleve_periode", "valeur", "AND t.kind = 'classe'"),
     ("ent_eleve_scolarite_annee", "classe", ""),
     ("ent_appel", "classe", ""),
     ("ent_edt_creneau", "classe", ""),
-    ("ent_devoir", "classe", ""),
     ("ent_cahier_texte", "classe", ""),
     ("ent_conseil_classe", "classe", ""),
     ("ent_annonce", "cible_classe", ""),

@@ -457,7 +457,7 @@ pub const CONSOMMATEUR_EVALUATIONS: &str = "d6.evaluations";
 
 pub struct ConsommateurEvaluations;
 
-const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", types::NOTE_BULLETIN_PUBLIE];
+const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", "evaluations.publiee", types::NOTE_BULLETIN_PUBLIE];
 
 /// Destinataires d'un élève relus au traitement : responsables au lien ACTIF avec
 /// `peut_voir_notes` (compte parent membre) et le compte de l'élève lui-même.
@@ -570,7 +570,9 @@ async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -
                 .await?;
             }
         }
-        "evaluation.publiee" => {
+        // `evaluations.publiee` : publication V3 (charge neutre, agrégat = évaluation) ; `evaluation.publiee` : ancien
+        // événement. Les deux se lisent par les vues de compatibilité (`ent_devoir`, `ent_note` : lecture seule sur `eva_*`).
+        "evaluation.publiee" | "evaluations.publiee" => {
             let row: Option<(String, String)> = sqlx::query_as(
                 r#"
                 SELECT d.titre, m.libelle

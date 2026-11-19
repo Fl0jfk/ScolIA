@@ -203,8 +203,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_msg_fil_eleve", &["fil_id", "eleve_id"]),
     d("ent_msg_lot_eleve", &["lot_id", "eleve_id"]),
     d("ent_msg_participant", &["id"]),
-    d("ent_note", &["id"]),
     d("ent_note_appreciation", &["id"]),
+    d("ent_note_archive", &["id"]),
     d("ent_note_correction", &["id"]),
     d("ent_note_doublon_archive", &["id"]),
     d("ent_notification", &["id"]),
@@ -411,14 +411,14 @@ mod tests {
         for t in ["ent_journal_modif", "ent_metier_event", "ent_eleve_identite", "ent_bulletin"] {
             assert_eq!(table_eleve(t).unwrap().strategie, Strategie::Reste, "{t}");
         }
-        for t in ["ent_note", "ent_absence", "ent_eleve_inscription", "ent_eleve_identifiant"] {
+        for t in ["ent_note_archive", "ent_absence", "ent_eleve_inscription", "ent_eleve_identifiant"] {
             assert_eq!(table_eleve(t).unwrap().strategie, Strategie::Deplacer, "{t}");
         }
     }
 
     #[test]
     fn domaines_lisibles_et_proteges() {
-        assert_eq!(domaine_fusion("ent_note"), "Évaluations");
+        assert_eq!(domaine_fusion("ent_note_archive"), "Évaluations");
         assert_eq!(domaine_fusion("ent_eleve_inscription"), "Scolarité");
         // Les tables d'admission (campagnes, voeux) sont « Inscriptions » ; l'inscription annuelle de l'élève fait partie de sa scolarité.
         assert_eq!(domaine_fusion("ent_voeu"), "Inscriptions");
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn cle_hors_eleve() {
         assert_eq!(table_eleve("ent_travail_eleve").unwrap().cle_hors_eleve(), vec!["travail_id"]);
-        assert_eq!(table_eleve("ent_note").unwrap().cle_hors_eleve(), vec!["id"]);
+        assert_eq!(table_eleve("ent_note_archive").unwrap().cle_hors_eleve(), vec!["id"]);
         assert_eq!(
             table_eleve("ent_eleve_compte").unwrap().cle_hors_eleve(),
             vec!["etablissement_id"]

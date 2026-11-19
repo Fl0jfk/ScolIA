@@ -891,7 +891,9 @@ async fn v3_creer_regler_et_annuler_une_evaluation() {
         matches!(r, Err(EntDbError::SaisieInvalide(_))),
         "la note 30 dépasserait le barème 20 : {r:?}"
     );
-    let ok = ent
+    // Limite de conversion de barème : dès qu'une note existe, le barème ne change plus (aucune conversion
+    // silencieuse des notes saisies), même avec un motif et même vers un barème plus grand.
+    let r = ent
         .eva_v3_modifier_evaluation_for_actor(
             w.etab,
             w.prof,
@@ -901,9 +903,35 @@ async fn v3_creer_regler_et_annuler_une_evaluation() {
             ev.id,
             &corps_modif(m.version, 50_000, Some("erreur de barème")),
         )
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::SaisieInvalide(_))),
+        "barème figé dès qu'une note existe : {r:?}"
+    );
+    // Le coefficient, lui, reste modifiable avec un motif : changement journalisé.
+    let ok = ent
+        .eva_v3_modifier_evaluation_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            maintenant(),
+            ev.id,
+            &ModifierEvaluationV3Body {
+                version_attendue: m.version,
+                titre: None,
+                date_eval: None,
+                bareme_m: None,
+                coef_m: Some(3_000),
+                comptage: None,
+                hors_bareme_autorise: None,
+                annoncee: None,
+                motif: Some("erreur de coefficient".into()),
+            },
+        )
         .await
         .unwrap();
-    assert_eq!(ok.bareme_m, 50_000);
+    assert_eq!(ok.coef_m, 3_000);
     let histo: i64 = sqlx::query_scalar("SELECT count(*) FROM eva_evaluation_historique WHERE etablissement_id = $1 AND evaluation_id = $2")
         .bind(w.etab).bind(ev.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(
@@ -1508,22 +1536,39 @@ async fn v3_les_evenements_ne_portent_ni_note_ni_motif_ni_nom() {
     )
     .await
     .unwrap();
-    let payloads: Vec<String> = sqlx::query_scalar(
-        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type LIKE 'evaluations.%'",
+    let payloads: Vec<(String, String)> = sqlx::query_as(
+        "SELECT type, payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type LIKE 'evaluations.%'",
     )
     .bind(w.etab)
     .fetch_all(ent.pool_verif())
     .await
     .unwrap_or_default();
     assert!(!payloads.is_empty(), "des événements neutres sont émis");
-    for p in &payloads {
-        assert!(!p.contains("13") || !p.contains("37"), "{p}");
+    for (type_, p) in &payloads {
+        // F9 : on compare la LISTE DE CLÉS autorisées (des identifiants seulement), pas des sous-chaînes : « 13 » ou
+        // « 37 » se retrouvent légitimement dans un identifiant ou une version.
+        let valeur: serde_json::Value = serde_json::from_str(p).unwrap();
+        let cles: Vec<&str> = valeur.as_object().expect("charge objet").keys().map(String::as_str).collect();
+        assert!(
+            cles.iter().all(|c| CLES_AUTORISEES.contains(c)),
+            "clé non autorisée dans {type_} : {cles:?}"
+        );
+        // Chaque valeur est un identifiant (UUID), un entier de version ou nulle : jamais du texte libre ni une note.
+        for (c, v) in valeur.as_object().unwrap() {
+            let ok = v.is_null()
+                || v.as_i64().is_some_and(|_| *c == "version")
+                || v.as_str().is_some_and(|t| Uuid::parse_str(t).is_ok());
+            assert!(ok, "valeur non neutre pour {c} dans {type_} : {v}");
+        }
         assert!(
             !p.contains("Zèbre") && !p.contains("confidentiel") && !p.contains("Abbott"),
             "{p}"
         );
     }
 }
+
+/// Clés qu'une charge d'événement du socle 21 peut porter : des identifiants et un numéro de version (F9).
+const CLES_AUTORISEES: [&str; 8] = ["execution_id", "evaluation_id", "resultat_id", "version", "periode_id", "classe_id", "auteur_id", "annee_id"];
 
 // ───────────────────────── Collage et import ─────────────────────────
 
@@ -1597,8 +1642,9 @@ async fn v3_import_apercu_erreurs_ligne_a_ligne_confirmation_et_conflit() {
     assert_eq!(ap.lignes[1].cellules[1].etat, "vide");
     // Rien n'a été écrit par l'aperçu.
     let n: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM eva_resultat WHERE etablissement_id = $1")
+        sqlx::query_scalar("SELECT count(*) FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = ANY($2)")
             .bind(w.etab)
+            .bind(vec![e1.id, e2.id])
             .fetch_one(ent.pool_verif())
             .await
             .unwrap();
@@ -1779,7 +1825,7 @@ async fn f8_une_note_reprise_puis_corrigee_par_l_ancien_ecrivain_est_recopiee_y_
         async move {
             exec(
                 ent,
-                &format!("UPDATE ent_note SET valeur = {vers} WHERE id = $1"),
+                &format!("UPDATE ent_note_archive SET valeur = {vers} WHERE id = $1"),
                 vec![u(n)],
             )
             .await;
@@ -2095,4 +2141,768 @@ async fn v3_mesure_grille_40_eleves_x_20_evaluations() {
 
 fn eleves_id(g: &GrilleV3Dto, i: usize) -> Uuid {
     g.eleves[i].eleve_id
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// Lot V3b : suites de la revue de sécurité de V3 (M1, M2, M3, F1 à F9, conversion de barème)
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+use crate::evaluations_v1::{Attendu, EcrireResultat, SourceResultat};
+use crate::tenant_tx::TenantTx;
+use domain_eleve::evaluation_moteur::StatutCalcul;
+use std::sync::Arc;
+
+fn note_m(ev: Uuid, eleve: Uuid, valeur_m: i64) -> EcrireResultat {
+    EcrireResultat {
+        evaluation_id: ev,
+        eleve_id: eleve,
+        statut: StatutCalcul::Note,
+        valeur_m: Some(valeur_m),
+        motif: None,
+        commentaire_eleve: None,
+        source: SourceResultat::Saisie,
+    }
+}
+
+/// M1 : deux transactions CONCURRENTES RÉELLES sur une case VIDE. `SELECT … FOR UPDATE` ne verrouille rien sur une ligne
+/// qui n'existe pas : avant V3b, le second `INSERT … ON CONFLICT DO UPDATE` écrasait sans condition de version. Désormais
+/// la seconde écriture attend la première, puis reçoit un CONFLIT (jamais un écrasement).
+#[tokio::test]
+async fn v3b_m1_deux_ecritures_concurrentes_sur_une_case_vide_une_seule_gagne() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let ent = Arc::new(ent);
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS concurrent", d(2031, 10, 10), 20_000, 1_000).await;
+    let mut t1 = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    let r1 = PgEnt::ecrire_resultat_tx(&mut t1, w.etab, w.prof, false, jour(), &note_m(ev.id, a, 14_000), Attendu::Vide)
+        .await
+        .unwrap();
+    assert_eq!(r1.version, 1);
+    // Seconde transaction, autre connexion : la même case, toujours « vide » du point de vue de son lecteur.
+    let e2 = ent.clone();
+    let (etab, prof, evid) = (w.etab, w.prof, ev.id);
+    let h = tokio::spawn(async move {
+        let mut t2 = TenantTx::begin(e2.pool(), etab).await.unwrap();
+        PgEnt::ecrire_resultat_tx(&mut t2, etab, prof, false, jour(), &note_m(evid, a, 18_000), Attendu::Vide).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!h.is_finished(), "la seconde écriture attend la première (même case)");
+    t1.commit().await.unwrap();
+    let r2 = h.await.unwrap();
+    assert!(matches!(r2, Err(EntDbError::ConflitDossier(_))), "conflit, pas d'écrasement : {r2:?}");
+    let (valeur, version): (String, i32) = sqlx::query_as(
+        "SELECT valeur::text, version FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+    )
+    .bind(w.etab).bind(ev.id).bind(a)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!((valeur.as_str(), version), ("14.000", 1), "la première écriture reste");
+    // Version attendue : deux écritures concurrentes sur la même version, une seule passe.
+    let mut t3 = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    PgEnt::ecrire_resultat_tx(&mut t3, w.etab, w.prof, false, jour(), &note_m(ev.id, a, 15_000), Attendu::Version(1))
+        .await
+        .unwrap();
+    let e4 = ent.clone();
+    let h4 = tokio::spawn(async move {
+        let mut t4 = TenantTx::begin(e4.pool(), etab).await.unwrap();
+        PgEnt::ecrire_resultat_tx(&mut t4, etab, prof, false, jour(), &note_m(evid, a, 19_000), Attendu::Version(1)).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    t3.commit().await.unwrap();
+    assert!(matches!(h4.await.unwrap(), Err(EntDbError::ConflitDossier(_))));
+    let valeur: String = sqlx::query_scalar(
+        "SELECT valeur::text FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+    )
+    .bind(w.etab).bind(ev.id).bind(a)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(valeur, "15.000");
+}
+
+/// M1 par l'API (lots) : vingt cases vides écrites en parallèle par deux envois, une seule valeur gagne par case.
+#[tokio::test]
+async fn v3b_m1_deux_envois_paralleles_aucune_case_n_est_ecrasee() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let ent = Arc::new(ent);
+    let w = monde_v1(&ent, &cast).await;
+    let mut evs = Vec::new();
+    for i in 0..8 {
+        evs.push(creer(&ent, &w, w.cours_maths, &format!("DS {i}"), d(2031, 10, 10), 20_000, 1_000).await.id);
+    }
+    let a = w.eleves_a[0];
+    let envoi = |ent: Arc<PgEnt>, texte: &'static str, prof: Uuid, etab: Uuid, cours: Uuid, evs: Vec<Uuid>| async move {
+        ent.eva_v3_saisir_lot_for_actor(
+            etab,
+            prof,
+            PROF,
+            jour(),
+            &SaisieLotBody {
+                cours_id: cours,
+                cellules: evs.iter().map(|e| cell(*e, a, texte, None)).collect(),
+                origine: None,
+            },
+        )
+        .await
+        .unwrap()
+    };
+    let (h1, h2) = (
+        tokio::spawn(envoi(ent.clone(), "11", w.prof, w.etab, w.cours_maths, evs.clone())),
+        tokio::spawn(envoi(ent.clone(), "17", w.prof, w.etab, w.cours_maths, evs.clone())),
+    );
+    let (r1, r2) = (h1.await.unwrap(), h2.await.unwrap());
+    for i in 0..evs.len() {
+        let issues = [issue(&r1, i), issue(&r2, i)];
+        assert_eq!(issues.iter().filter(|x| **x == "ecrit").count(), 1, "case {i} : {issues:?}");
+        assert_eq!(issues.iter().filter(|x| **x == "conflit").count(), 1, "case {i} : {issues:?}");
+    }
+}
+
+/// M2 : une correction ancienne invalide ne fait plus échouer toute la reprise : elle est listée « refusée », la note
+/// n'est pas réécrite, les autres notes et corrections sont reprises.
+#[tokio::test]
+async fn v3b_m2_une_correction_ancienne_invalide_n_annule_pas_la_reprise() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let anc = ancien_monde(&ent, &w).await;
+    let (a, b, c) = (w.eleves_a[0], w.eleves_a[1], w.eleves_a[2]);
+    let n_ok = ancienne_note(&ent, &w, anc.devoirs[0], a, 12.0, 20.0, "note").await;
+    let n_mauvaise = ancienne_note(&ent, &w, anc.devoirs[0], b, 10.0, 20.0, "note").await;
+    ent.eva_v1_reprendre_for_actor(w.etab, w.direction, DIR).await.unwrap();
+    for (note, eleve, apres, statut) in [(n_ok, a, 13.0_f64, "note"), (n_mauvaise, b, 99_999.0, "note")] {
+        exec(
+            &ent,
+            &format!(
+                "INSERT INTO ent_note_correction (id, etablissement_id, note_id, eleve_id, periode_id, ancien_statut, ancienne_valeur,
+                                                  nouveau_statut, nouvelle_valeur, motif, corrige_par_user_id, corrige_le)
+                 VALUES ($1, $2, $3, $4, $5, 'note', 10, '{statut}', {apres}, 'correction ancienne', $6, now())"
+            ),
+            vec![u(Uuid::new_v4()), u(w.etab), u(note), u(eleve), u(anc.note_periode), u(w.direction)],
+        )
+        .await;
+    }
+    // Une note ancienne valide de plus : elle doit être reprise malgré la correction invalide.
+    let n_nouvelle = ancienne_note(&ent, &w, anc.devoirs[0], c, 8.0, 20.0, "note").await;
+    let rapport = ent
+        .eva_v1_reprendre_for_actor(w.etab, w.direction, DIR)
+        .await
+        .expect("la reprise ne doit pas échouer à cause d'une correction invalide");
+    let corr = rapport.compte("correction").unwrap();
+    assert_eq!((corr.lues, corr.creees, corr.refusees), (2, 1, 1), "{corr:?}");
+    assert_eq!(corr.lues, corr.creees + corr.inchangees + corr.refusees + corr.ignorees);
+    let ligne = rapport
+        .lignes
+        .iter()
+        .find(|l| l.objet == "correction" && l.source_id == n_mauvaise)
+        .expect("la correction invalide est listée");
+    assert_eq!((ligne.issue.as_str(), ligne.code.as_str()), ("refusee", "correction_valeur_invalide"));
+    let val = |id: Uuid| {
+        let ent = &ent;
+        async move {
+            sqlx::query_scalar::<_, String>("SELECT valeur::text FROM eva_resultat WHERE id = $1")
+                .bind(id)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(val(n_ok).await, "13.000", "la correction valide est recopiée");
+    assert_eq!(val(n_mauvaise).await, "10.000", "la note à correction invalide n'est pas réécrite");
+    assert_eq!(val(n_nouvelle).await, "8.000", "les autres notes sont reprises");
+    // Elle est de nouveau listée à chaque reprise tant que l'ancienne donnée n'est pas corrigée, sans rien casser.
+    let encore = ent.eva_v1_reprendre_for_actor(w.etab, w.direction, DIR).await.unwrap();
+    assert_eq!(encore.compte("correction").unwrap().refusees, 1);
+}
+
+/// M3 : en période OUVERTE, l'évaluation appartient au professeur ; un porteur de `notes.corriger` (la direction), sans droit
+/// de saisie, ne la modifie pas et ne l'annule pas. Après l'arrêt : correction possible avec un motif d'au moins 3 caractères,
+/// journalisée.
+#[tokio::test]
+async fn v3b_m3_periode_ouverte_l_evaluation_appartient_au_professeur() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let ev = creer(&ent, &w, w.cours_maths, "DS M3", d(2031, 10, 10), 20_000, 1_000).await;
+    let modifier = |par: Uuid, role: &'static str, version: i32, bareme: Option<i64>, motif: Option<&'static str>| {
+        let ent = &ent;
+        let w = &w;
+        async move {
+            ent.eva_v3_modifier_evaluation_for_actor(
+                w.etab,
+                par,
+                role,
+                jour(),
+                maintenant(),
+                ev.id,
+                &ModifierEvaluationV3Body {
+                    version_attendue: version,
+                    titre: None,
+                    date_eval: None,
+                    bareme_m: bareme,
+                    coef_m: Some(2_000),
+                    comptage: None,
+                    hors_bareme_autorise: None,
+                    annoncee: None,
+                    motif: motif.map(String::from),
+                },
+            )
+            .await
+        }
+    };
+    // Période ouverte : la direction ne règle rien (ni coefficient, ni barème), même avec un motif.
+    let r = modifier(w.direction, DIR, ev.version, None, Some("je corrige quand même")).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    let r = ent
+        .eva_v3_annuler_evaluation_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            maintenant(),
+            ev.id,
+            &AnnulerEvaluationV3Body { version_attendue: ev.version, motif: "annulation par la direction".into() },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    // Le professeur, lui, règle.
+    let ok = modifier(w.prof, PROF, ev.version, None, None).await.unwrap();
+    assert_eq!(ok.coef_m, 2_000);
+    // Après l'arrêt : la direction corrige, avec motif (3 caractères au moins), journalisé.
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    arreter(&ent, &w, w.t1, w.classe_d).await;
+    let r = modifier(w.direction, DIR, ok.version, None, None).await;
+    assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "motif obligatoire : {r:?}");
+    let r = modifier(w.direction, DIR, ok.version, None, Some("ab")).await;
+    assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "motif d'au moins 3 caractères : {r:?}");
+    let corr = modifier(w.direction, DIR, ok.version, Some(10_000), Some("barème saisi sur 20 au lieu de 10"))
+        .await
+        .unwrap();
+    assert_eq!((corr.bareme_m, corr.coef_m), (10_000, 2_000));
+    let (n, motif): (i64, Option<String>) = sqlx::query_as(
+        "SELECT count(*), max(motif) FROM eva_evaluation_historique WHERE etablissement_id = $1 AND evaluation_id = $2 AND correction",
+    )
+    .bind(w.etab).bind(ev.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(n, 1, "la correction après l'arrêt est journalisée");
+    assert_eq!(motif.as_deref(), Some("barème saisi sur 20 au lieu de 10"));
+    // L'annulation après l'arrêt : la direction, avec motif.
+    let annulee = ent
+        .eva_v3_annuler_evaluation_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            maintenant(),
+            ev.id,
+            &AnnulerEvaluationV3Body { version_attendue: corr.version, motif: "évaluation annulée après l'arrêt".into() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(annulee.etat, "annulee");
+}
+
+/// Conversion des notes au changement de barème (limite §5 de V3) : REFUSÉE dès qu'une note existe (14 sur 10 n'est pas 14
+/// sur 20) ; permise tant qu'aucune note n'est saisie. Marche à suivre : annuler et recréer, ou corriger les notes.
+#[tokio::test]
+async fn v3b_le_bareme_ne_change_pas_quand_des_notes_existent() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS barème", d(2031, 10, 10), 20_000, 1_000).await;
+    let corps = |version: i32, bareme: i64, motif: Option<&str>| ModifierEvaluationV3Body {
+        version_attendue: version,
+        titre: None,
+        date_eval: None,
+        bareme_m: Some(bareme),
+        coef_m: None,
+        comptage: None,
+        hors_bareme_autorise: None,
+        annoncee: None,
+        motif: motif.map(String::from),
+    };
+    // Sans note : le barème se change librement.
+    let sur10 = ent
+        .eva_v3_modifier_evaluation_for_actor(w.etab, w.prof, PROF, jour(), maintenant(), ev.id, &corps(ev.version, 10_000, None))
+        .await
+        .unwrap();
+    assert_eq!(sur10.bareme_m, 10_000);
+    // Une absence n'est pas une note : le barème reste modifiable.
+    lot(&ent, &w, w.cours_maths, vec![cell(ev.id, w.eleves_a[1], "abs", None)]).await;
+    let version = |ent: &PgEnt| {
+        let (etab, id) = (w.etab, ev.id);
+        let pool = ent.pool_verif().clone();
+        async move {
+            sqlx::query_scalar::<_, i32>("SELECT version FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let sur20 = ent
+        .eva_v3_modifier_evaluation_for_actor(w.etab, w.prof, PROF, jour(), maintenant(), ev.id, &corps(version(&ent).await, 20_000, Some("absence saisie")))
+        .await
+        .unwrap();
+    assert_eq!(sur20.bareme_m, 20_000);
+    // Une note : le barème est figé, même avec un motif, même vers un barème plus grand.
+    lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "14", None)]).await;
+    for bareme in [10_000, 40_000] {
+        let r = ent
+            .eva_v3_modifier_evaluation_for_actor(
+                w.etab,
+                w.prof,
+                PROF,
+                jour(),
+                maintenant(),
+                ev.id,
+                &corps(version(&ent).await, bareme, Some("mes notes étaient sur 10")),
+            )
+            .await;
+        match r {
+            Err(EntDbError::SaisieInvalide(m)) => assert!(m.contains("barème ne change pas"), "{m}"),
+            autre => panic!("le changement de barème doit être refusé : {autre:?}"),
+        }
+    }
+    let g = grille(&ent, &w, w.cours_maths).await;
+    assert_eq!(g.evaluations[0].bareme_m, 20_000, "barème inchangé");
+}
+
+/// F1 : le suppléant SAISIT les notes du titulaire (accepté) ; « en cours de correction » et la modification suivent CE-44 :
+/// seulement ses propres évaluations.
+#[tokio::test]
+async fn v3b_f1_le_suppleant_ne_met_pas_en_cours_de_correction_l_evaluation_du_titulaire() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let remplacant = cast.profs.iter().map(|p| p.user_id).find(|x| *x != w.prof).unwrap();
+    let ev = creer(&ent, &w, w.cours_maths, "DS titulaire F1", d(2031, 10, 10), 20_000, 1_000).await;
+    let service: Uuid = sqlx::query_scalar("SELECT id FROM ent_service_enseignement WHERE etablissement_id = $1 AND cours_id = $2")
+        .bind(w.etab).bind(w.cours_maths).fetch_one(ent.pool_verif()).await.unwrap();
+    let agent: Option<Uuid> = sqlx::query_scalar(
+        "SELECT ag.id FROM ent_agent ag JOIN ent_personne pe ON pe.id = ag.personne_id AND pe.etablissement_id = ag.etablissement_id
+          WHERE ag.etablissement_id = $1 AND pe.user_id = $2 AND ag.fusionne_dans_agent_id IS NULL",
+    )
+    .bind(w.etab).bind(remplacant).fetch_optional(ent.pool_verif()).await.unwrap();
+    let Some(agent) = agent else {
+        return eprintln!("skip: pas d'agent pour le second professeur du labo");
+    };
+    exec(
+        &ent,
+        "INSERT INTO ent_service_intervenant (id, etablissement_id, service_id, agent_id, nature, du, saisie, origine)
+         VALUES ($1, $2, $3, $4, 'suppleant', '2031-10-15', true, 'saisie')",
+        vec![u(Uuid::new_v4()), u(w.etab), u(service), u(agent)],
+    )
+    .await;
+    // Il saisit (accepté)…
+    let r = lot_par(&ent, &w, remplacant, PROF, w.cours_maths, vec![cell(ev.id, w.eleves_a[0], "12", None)]).await.unwrap();
+    assert_eq!(issue(&r, 0), "ecrit");
+    // … mais ne met pas l'évaluation du titulaire « en cours de correction ».
+    let r = ent
+        .eva_v3_en_cours_correction_for_actor(w.etab, remplacant, PROF, jour(), maintenant(), ev.id, true)
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    // Sur SES évaluations, oui.
+    let propre = ent
+        .eva_v3_creer_evaluation_for_actor(w.etab, remplacant, PROF, jour(), maintenant(), &corps(w.cours_maths, "DS suppléant F1", d(2031, 10, 17), 20_000, 1_000))
+        .await
+        .unwrap();
+    let ok = ent
+        .eva_v3_en_cours_correction_for_actor(w.etab, remplacant, PROF, jour(), maintenant(), propre.id, true)
+        .await
+        .unwrap();
+    assert!(ok.en_cours_de_correction);
+}
+
+/// F2 : la base vérifie qu'une écriture après l'arrêt vient d'un PORTEUR de `notes.corriger` (pas seulement d'un motif non
+/// vide) ; un arrêt qui se commet pendant une écriture ordinaire est vu (verrou de l'état puis relecture).
+#[tokio::test]
+async fn v3b_f2_apres_l_arret_la_base_exige_l_attestation_du_droit_de_correction() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let ent = Arc::new(ent);
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS F2", d(2031, 10, 10), 20_000, 1_000).await;
+    let ev2 = creer(&ent, &w, w.cours_maths, "DS F2 bis", d(2031, 10, 11), 20_000, 1_000).await;
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "12", None)]).await;
+    let version = r.cellules[0].version;
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    // SQL direct avec un motif valide mais SANS attestation : refusé par la base.
+    let direct = sqlx::query(
+        "UPDATE eva_resultat SET valeur = 15, motif_correction = 'correction sans attestation', saisi_par = $4
+          WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+    )
+    .bind(w.etab).bind(ev.id).bind(a).bind(w.direction)
+    .execute(ent.pool_verif())
+    .await;
+    let e = direct.expect_err("l'écriture sans attestation doit être refusée");
+    assert!(e.to_string().contains("exige un porteur de notes.corriger"), "{e}");
+    // Par la direction, via l'API (qui atteste son droit) : acceptée.
+    let ok = lot_par(
+        &ent,
+        &w,
+        w.direction,
+        DIR,
+        w.cours_maths,
+        vec![CelluleSaisieDto { motif: Some("erreur de report".into()), ..cell(ev.id, a, "15", version) }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(issue(&ok, 0), "ecrit", "{ok:?}");
+    // Le professeur, après l'arrêt : refusé (pas de droit de correction), motif ou non.
+    let ko = lot_par(
+        &ent,
+        &w,
+        w.prof,
+        PROF,
+        w.cours_maths,
+        vec![CelluleSaisieDto { motif: Some("je corrige".into()), ..cell(ev.id, a, "16", ok.cellules[0].version) }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(issue(&ko, 0), "refuse");
+    // Course : une écriture ordinaire tient le verrou de l'état ; l'arrêt attend sa fin (il ne se glisse pas au milieu).
+    exec(
+        &ent,
+        "UPDATE eva_periode_etat SET etat = 'ouverte', origine = 'geste', modifie_par = $3, motif = 'réouverture de test'
+          WHERE etablissement_id = $1 AND classe_id = $2",
+        vec![u(w.etab), u(w.classe_a), u(w.direction)],
+    )
+    .await;
+    let mut t1 = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    PgEnt::ecrire_resultat_tx(&mut t1, w.etab, w.prof, false, jour(), &note_m(ev2.id, a, 9_000), Attendu::Vide)
+        .await
+        .unwrap();
+    let e2 = ent.clone();
+    let (etab, direction, classe, t1_id) = (w.etab, w.direction, w.classe_a, w.t1);
+    let arret = tokio::spawn(async move {
+        e2.eva_v1_changer_etat_periode_for_actor(etab, direction, DIR, t1_id, classe, "notes_arretees", None, Some(d(2031, 12, 5))).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!arret.is_finished(), "l'arrêt attend la fin de l'écriture en cours (verrou partagé sur l'état)");
+    t1.commit().await.unwrap();
+    arret.await.unwrap().unwrap();
+}
+
+/// F3 : `origine = import` est réservé à la confirmation d'un import de fichier ; `/eva/saisie` écrit toujours `saisie`.
+#[tokio::test]
+async fn v3b_f3_la_saisie_ecrit_toujours_saisie() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS F3", d(2031, 10, 10), 20_000, 1_000).await;
+    ent.eva_v3_saisir_lot_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        jour(),
+        &SaisieLotBody { cours_id: w.cours_maths, cellules: vec![cell(ev.id, a, "13", None)], origine: Some("import".into()) },
+    )
+    .await
+    .unwrap();
+    let source: String = sqlx::query_scalar(
+        "SELECT source FROM eva_resultat WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3",
+    )
+    .bind(w.etab).bind(ev.id).bind(a)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(source, "saisie", "une saisie qui se dit « import » reste une saisie");
+    // Une origine inconnue reste refusée.
+    let r = ent
+        .eva_v3_saisir_lot_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &SaisieLotBody { cours_id: w.cours_maths, cellules: vec![], origine: Some("magie".into()) },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))));
+}
+
+/// F4 : les 24 h du retrait par le professeur courent depuis la PREMIÈRE publication : retirer puis republier ne les
+/// relance pas.
+#[tokio::test]
+async fn v3b_f4_le_delai_de_24h_court_depuis_la_premiere_publication() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let ev = creer(&ent, &w, w.cours_maths, "DS F4", d(2031, 10, 10), 20_000, 1_000).await;
+    lot(&ent, &w, w.cours_maths, vec![cell(ev.id, w.eleves_a[0], "12", None)]).await;
+    let t0 = maintenant();
+    let publier = |par: Uuid, role: &'static str, action: &'static str, a_: DateTime<Utc>| {
+        let (ent, w) = (&ent, &w);
+        async move {
+            ent.eva_v3_publier_for_actor(w.etab, par, role, jour(), a_, ev.id, &pub_body(action, None, if action == "retirer" { Some("erreur de barème") } else { None }))
+                .await
+        }
+    };
+    publier(w.prof, PROF, "maintenant", t0).await.unwrap();
+    // Dix heures plus tard : le professeur retire (dans les 24 h), puis republie aussitôt.
+    publier(w.prof, PROF, "retirer", t0 + chrono::Duration::hours(10)).await.unwrap();
+    publier(w.prof, PROF, "maintenant", t0 + chrono::Duration::hours(10)).await.unwrap();
+    // À 25 h de la première publication (15 h de la seconde) : le professeur ne retire plus ; la direction, si.
+    let r = publier(w.prof, PROF, "retirer", t0 + chrono::Duration::hours(25)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "délai non relancé par la republication : {r:?}");
+    publier(w.direction, DIR, "retirer", t0 + chrono::Duration::hours(25)).await.unwrap();
+    // La première publication est posée une fois (déclencheur) et ne bouge plus.
+    let (premiere, courante): (DateTime<Utc>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT premiere_publiee_le, publiee_le FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.etab).bind(ev.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(premiere, t0);
+    assert!(courante.is_none());
+}
+
+/// F5 : les événements de saisie et de correction ne portent PAS d'`eleve_id` ; aucune note non publiée ne se déduit de
+/// l'outbox (et rien ne peut notifier une famille sur ces types).
+#[tokio::test]
+async fn v3b_f5_les_evenements_de_saisie_et_de_correction_ne_portent_pas_d_eleve() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS F5", d(2031, 10, 10), 20_000, 1_000).await;
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "12", None)]).await;
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    lot_par(
+        &ent,
+        &w,
+        w.direction,
+        DIR,
+        w.cours_maths,
+        vec![CelluleSaisieDto { motif: Some("erreur de report".into()), ..cell(ev.id, a, "14", r.cellules[0].version) }],
+    )
+    .await
+    .unwrap();
+    let (n, avec_eleve): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(eleve_id) FROM ent_metier_event
+          WHERE etablissement_id = $1 AND type IN ('evaluations.resultats_saisis', 'evaluations.corrigee')",
+    )
+    .bind(w.etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(n >= 2, "les deux types sont émis ({n})");
+    assert_eq!(avec_eleve, 0, "aucun événement de saisie ou de correction ne porte d'élève");
+}
+
+/// F6 : l'historique d'une case est réservé au professeur du cours et à la direction (EVA-139), pas à tout `notes.lire`.
+#[tokio::test]
+async fn v3b_f6_l_historique_d_une_case_est_reserve_au_professeur_et_a_la_direction() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS F6", d(2031, 10, 10), 20_000, 1_000).await;
+    lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "12", None)]).await;
+    let hist = |par: Uuid, role: &'static str| {
+        let (ent, w) = (&ent, &w);
+        async move { ent.eva_v3_historique_for_actor(w.etab, par, role, ev.id, a, jour()).await }
+    };
+    assert_eq!(hist(w.prof, PROF).await.unwrap().len(), 1);
+    assert_eq!(hist(w.direction, DIR).await.unwrap().len(), 1);
+    // Le secrétariat lit la grille (notes.lire établissement) mais pas l'historique des cases.
+    let secr = cast.administratif.user_id;
+    assert!(ent.eva_v3_grille_for_actor(w.etab, secr, "administratif", w.cours_maths, w.t1, jour(), maintenant()).await.is_ok());
+    let r = hist(secr, "administratif").await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    // Un autre professeur (qui n'enseigne pas ce cours) non plus.
+    let autre = cast.profs.iter().map(|p| p.user_id).find(|x| *x != w.prof).unwrap();
+    assert!(hist(autre, PROF).await.is_err());
+}
+
+/// F7 : une publication programmée sort à l'heure. Un jour explicite n'est plus figé à 12 h : sans instant fourni, c'est la
+/// FIN du jour (heure de l'établissement) ; avec un instant, c'est cet instant. Le retard maximal est documenté.
+#[tokio::test]
+async fn v3b_f7_la_publication_programmee_sort_a_l_heure() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let prevue = jour().and_hms_opt(14, 0, 0).unwrap().and_utc();
+    let programmee = |titre: &str, date: NaiveDate, a_: DateTime<Utc>| {
+        let (ent, w) = (&ent, &w);
+        let titre = titre.to_string();
+        async move {
+            let ev = creer(ent, w, w.cours_maths, &titre, date, 20_000, 1_000).await;
+            ent.eva_v3_saisir_lot_for_actor(
+                w.etab,
+                w.prof,
+                PROF,
+                jour(),
+                &SaisieLotBody { cours_id: w.cours_maths, cellules: vec![cell(ev.id, a, "12", None)], origine: None },
+            )
+            .await
+            .unwrap();
+            ent.eva_v3_publier_for_actor(
+                w.etab,
+                w.prof,
+                PROF,
+                jour(),
+                maintenant(),
+                ev.id,
+                &PublierV3Body { action: "programmer".into(), prevue_le: Some(a_), prevue_locale: None, motif: None },
+            )
+            .await
+            .unwrap();
+            ev.id
+        }
+    };
+    let e14 = programmee("Programmée 14 h", d(2031, 10, 10), prevue).await;
+    let e20 = programmee("Programmée 20 h", d(2031, 10, 11), jour().and_hms_opt(20, 0, 0).unwrap().and_utc()).await;
+    let publiee = |id: Uuid| {
+        let ent = &ent;
+        async move {
+            sqlx::query_scalar::<_, bool>("SELECT publiee_le IS NOT NULL FROM eva_evaluation WHERE id = $1")
+                .bind(id)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap()
+        }
+    };
+    // 13 h 59 : rien ; 14 h 00 pile : sortie (≤) ; l'évaluation de 20 h reste.
+    let avant = ent
+        .passages_quotidiens_etablissement_a(w.etab, Some(jour()), Some(prevue - chrono::Duration::minutes(1)))
+        .await;
+    assert_eq!(avant.publications_automatiques, 0);
+    assert!(!publiee(e14).await);
+    let a_l_heure = ent.passages_quotidiens_etablissement_a(w.etab, Some(jour()), Some(prevue)).await;
+    assert_eq!(a_l_heure.publications_automatiques, 1);
+    assert!(publiee(e14).await && !publiee(e20).await);
+    // Jour explicite SANS instant : la fin du jour (23 h 59 à Paris) : l'évaluation de 20 h UTC sort (avant : figé à 12 h).
+    let fin_du_jour = ent.passages_quotidiens_etablissement_a(w.etab, Some(jour()), None).await;
+    assert_eq!(fin_du_jour.publications_automatiques, 1, "{fin_du_jour:?}");
+    assert!(publiee(e20).await);
+    // Planificateur dédié (toutes les 5 minutes) : retard maximal documenté.
+    const { assert!(crate::passages_quotidiens::RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES <= 10 * 60) };
+    let bilan = ent.eva_v3_publications_automatiques_tous(prevue).await.unwrap();
+    assert_eq!(bilan.programmees, 0, "idempotent : rien n'est republié");
+}
+
+/// F8 : bornes (`restreinte_a`, texte de case, motif), doublons de cibles ignorés, fonction de reprise fermée à PUBLIC et
+/// contexte d'établissement obligatoire, course barème / saisie.
+#[tokio::test]
+async fn v3b_f8_bornes_doublons_et_fonction_de_reprise_fermee() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let ent = Arc::new(ent);
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b) = (w.eleves_a[0], w.eleves_a[1]);
+    // restreinte_a : au plus 300 élèves.
+    let mut c = corps(w.cours_maths, "DS restreinte", d(2031, 10, 10), 20_000, 1_000);
+    c.restreinte_a = (0..301).map(|_| Uuid::new_v4()).collect();
+    let r = ent.eva_v3_creer_evaluation_for_actor(w.etab, w.prof, PROF, jour(), maintenant(), &c).await;
+    assert!(matches!(r, Err(EntDbError::SaisieInvalide(m)) if m.contains("300")), "{r:?}");
+    // Un public restreint avec un doublon d'élève est accepté (ignoré proprement).
+    let mut c = corps(w.cours_maths, "DS demi-groupe", d(2031, 10, 10), 20_000, 1_000);
+    c.restreinte_a = vec![a, a, b];
+    assert!(ent.eva_v3_creer_evaluation_for_actor(w.etab, w.prof, PROF, jour(), maintenant(), &c).await.is_ok());
+    let ev = creer(&ent, &w, w.cours_maths, "DS bornes", d(2031, 10, 12), 20_000, 1_000).await;
+    // Texte de case : 40 caractères au plus.
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, &"1".repeat(41), None)]).await;
+    assert_eq!(issue(&r, 0), "refuse");
+    assert!(r.cellules[0].message.as_deref().unwrap_or("").contains("40"));
+    // Motif : 500 caractères au plus.
+    let r = lot(&ent, &w, w.cours_maths, vec![CelluleSaisieDto { motif: Some("m".repeat(501)), ..cell(ev.id, a, "12", None) }]).await;
+    assert_eq!(issue(&r, 0), "refuse");
+    // Doublons de `cibles` à l'import : la seconde colonne identique est ignorée (une seule case par élève et évaluation).
+    let ap = ent
+        .eva_v3_apercu_import_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &ImportBody {
+                cours_id: w.cours_maths,
+                mode: "collage".into(),
+                cibles: vec![ev.id, ev.id],
+                lignes: vec![ImportLigneBody { eleve_id: Some(a), nom: None, rang: None, cellules: vec!["14".into(), "9".into()] }],
+                empreinte: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(ap.lignes[0].cellules.len(), 1, "le doublon de cible est ignoré");
+    assert_eq!(ap.lignes[0].cellules[0].valeur_m, Some(14_000), "la première colonne gagne");
+    // `eva_reprendre_existant` : fermée à PUBLIC.
+    let public_execute: bool = sqlx::query_scalar(
+        "SELECT p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+           FROM pg_proc p WHERE p.proname = 'eva_reprendre_existant'",
+    )
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(!public_execute, "EXECUTE retiré à PUBLIC");
+    // … et le contexte d'établissement est OBLIGATOIRE (avant : « si présent » seulement).
+    let sans_contexte = sqlx::query("SELECT eva_reprendre_existant($1, 'manuel')").bind(w.etab).execute(ent.pool_verif()).await;
+    assert!(sans_contexte.is_err(), "pas de reprise sans contexte d'établissement");
+    let mut autre = TenantTx::begin(ent.pool(), Uuid::new_v4()).await.unwrap();
+    let hors = sqlx::query("SELECT eva_reprendre_existant($1, 'manuel')").bind(w.etab).execute(&mut *autre).await;
+    assert!(hors.is_err(), "pas de reprise d'un autre établissement");
+    drop(autre);
+    // Course barème / saisie : une écriture en cours tient l'évaluation en lecture ; le changement de barème attend sa fin
+    // puis voit la note (et la refuse) au lieu de laisser un 15 sur 10.
+    let ev2 = creer(&ent, &w, w.cours_maths, "DS course", d(2031, 10, 13), 20_000, 1_000).await;
+    let mut t1 = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    PgEnt::ecrire_resultat_tx(&mut t1, w.etab, w.prof, false, jour(), &note_m(ev2.id, a, 15_000), Attendu::Vide)
+        .await
+        .unwrap();
+    let e2 = ent.clone();
+    let (etab, prof, evid, version) = (w.etab, w.prof, ev2.id, ev2.version);
+    let modif = tokio::spawn(async move {
+        e2.eva_v3_modifier_evaluation_for_actor(
+            etab,
+            prof,
+            PROF,
+            jour(),
+            maintenant(),
+            evid,
+            &ModifierEvaluationV3Body {
+                version_attendue: version,
+                titre: None,
+                date_eval: None,
+                bareme_m: Some(10_000),
+                coef_m: None,
+                comptage: None,
+                hors_bareme_autorise: None,
+                annoncee: None,
+                motif: Some("barème sur 10".into()),
+            },
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!modif.is_finished(), "le changement de barème attend l'écriture en cours");
+    t1.commit().await.unwrap();
+    assert!(modif.await.unwrap().is_err(), "la note 15 saisie pendant ce temps interdit un barème sur 10");
+    let bareme: String = sqlx::query_scalar("SELECT bareme::text FROM eva_evaluation WHERE id = $1").bind(ev2.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(bareme, "20.000");
 }

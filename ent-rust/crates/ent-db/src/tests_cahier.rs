@@ -731,17 +731,11 @@ async fn rendu_tardif_retour_du_professeur_et_copies_privees() {
     assert!(est_refus(&fx.ent.cahier_retour(&fx.prof(), r.id, " ", None, None).await.unwrap_err(), RefusMetier::Invalide));
     let matiere: Uuid = sqlx::query_scalar("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1,$2,'MCDT','Maths') RETURNING id")
         .bind(Uuid::new_v4()).bind(fx.cast.etablissement_id).fetch_one(fx.ent.pool()).await.unwrap();
-    let note_y = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,12,$5,$6)")
-        .bind(note_y).bind(fx.cast.etablissement_id).bind(fx.y.id).bind(matiere).bind(today_utc()).bind(fx.cast.profs[0].user_id)
-        .execute(fx.ent.pool()).await.unwrap();
+    let note_y = crate::tests_evaluations::note_eva_brute(&fx.ent, fx.cast.etablissement_id, fx.y.id, matiere, 12.0, today_utc(), fx.cast.profs[0].user_id, false).await;
     assert!(est_refus(&fx.ent.cahier_retour(&fx.prof(), r.id, "Bien", Some(note_y), None).await.unwrap_err(), RefusMetier::Invalide));
     assert!(est_interdit(&fx.ent.cahier_retour(&fx.prof2(), r.id, "Bien", None, None).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cahier_retour(&fx.eleve(&fx.x), r.id, "Bien", None, None).await.unwrap_err()));
-    let note_x = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,15,$5,$6)")
-        .bind(note_x).bind(fx.cast.etablissement_id).bind(fx.x.id).bind(matiere).bind(today_utc()).bind(fx.cast.profs[0].user_id)
-        .execute(fx.ent.pool()).await.unwrap();
+    let note_x = crate::tests_evaluations::note_eva_brute(&fx.ent, fx.cast.etablissement_id, fx.x.id, matiere, 15.0, today_utc(), fx.cast.profs[0].user_id, false).await;
     let corr = fx.ent.cahier_retour(&fx.prof(), r.id, "Très bien", Some(note_x), Some(pdf("copie-annotee.pdf"))).await.unwrap();
     assert_eq!((corr.statut.as_str(), corr.note_id), ("corrige", Some(note_x)));
     assert!(corr.pieces.iter().any(|p| p.genre == "annotation") && corr.pieces.iter().any(|p| p.genre == "copie"));
@@ -1334,10 +1328,7 @@ async fn c0_cd4_retour_a_note_seulement_avec_le_droit_voir_les_notes_et_jamais_l
     let matiere = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1, $2, 'MATH-C0', 'Maths')")
         .bind(matiere).bind(e).execute(fx.ent.pool()).await.unwrap();
-    let note = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,14,$5,$6)")
-        .bind(note).bind(e).bind(fx.x.id).bind(matiere).bind(jour(&fx).await).bind(fx.cast.profs[0].user_id)
-        .execute(fx.ent.pool()).await.unwrap();
+    let note = crate::tests_evaluations::note_eva_brute(&fx.ent, e, fx.x.id, matiere, 14.0, jour(&fx).await, fx.cast.profs[0].user_id, false).await;
     fx.ent.cahier_retour(&fx.prof(), remise.id, "14/20, bon travail", Some(note), Some(pdf("annotee.pdf"))).await.unwrap();
 
     let parent = fx.parent(&fx.x);
@@ -1568,12 +1559,9 @@ async fn c0_cd8_note_liee_de_la_main_du_correcteur_et_retour_historise() {
     let matiere = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1, $2, 'MATH-C8', 'Maths')").bind(matiere).bind(e).execute(fx.ent.pool()).await.unwrap();
     let nouvelle_note = |eleve: Uuid, auteur: Uuid| {
-        let (fx, id) = (&fx, Uuid::new_v4());
+        let fx = &fx;
         async move {
-            sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,12,$5,$6)")
-                .bind(id).bind(fx.cast.etablissement_id).bind(eleve).bind(matiere).bind(today_utc()).bind(auteur)
-                .execute(fx.ent.pool()).await.unwrap();
-            id
+            crate::tests_evaluations::note_eva_brute(&fx.ent, fx.cast.etablissement_id, eleve, matiere, 12.0, today_utc(), auteur, false).await
         }
     };
     let note_prof = nouvelle_note(fx.x.id, fx.cast.profs[0].user_id).await;

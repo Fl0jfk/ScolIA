@@ -1,7 +1,9 @@
 //! Évaluations (socle 2, S2-7) contre le **vrai** backend (`ent_api::app`) et une base
 //! PostgreSQL **locale** de test : rendu serveur des écrans, puis une période complète avec le
-//! client typé du frontend (grille → publication → relevé famille → fermeture → bulletin
-//! publié → PDF → export LSU) et les refus attendus.
+//! client typé du frontend (grille V3 → publication → relevé famille → fermeture → bulletin
+//! publié → PDF → export LSU) et les refus attendus. Depuis V3b, la saisie, la publication et la
+//! lecture passent par le MÊME modèle `eva_*` : l'ancienne grille (écriture dans `ent_devoir` /
+//! `ent_note`) est fermée (410).
 //!
 //! Lancement (voir `contre_backend.rs`) :
 //!   cd ent-rust/web && cargo test -p ent-web-server --features labo --test evaluations -- --test-threads=1 --nocapture
@@ -12,11 +14,11 @@
 use std::net::SocketAddr;
 
 use chrono::Duration;
-use ent_types::evaluations::{
-    CreerDevoirGrilleBody, GenererBulletinsBody, PublierBulletinsBody, SaisieGrilleBody,
+use ent_types::evaluations::{GenererBulletinsBody, PublierBulletinsBody};
+use ent_types::evaluations_v3::{
+    CelluleSaisieDto, CreerEvaluationV3Body, PublierV3Body, SaisieLotBody,
 };
 use ent_web_api::{ApiClient, ApiError};
-use ent_web_app::modules::evaluations::modele::changements;
 use ent_web_server::labo::{self, Labo};
 use uuid::Uuid;
 
@@ -202,7 +204,7 @@ async fn periode_complete_avec_le_client_du_frontend() {
         .await
         .unwrap();
 
-    // 1. Le professeur voit son service, crée deux évaluations et saisit la grille.
+    // 1. Le professeur voit son enseignement, crée deux évaluations et saisit la grille V3.
     let c_prof = client_de(&base, &l, &prof.email).await;
     let services = c_prof.services_evaluables().await.expect("services");
     assert!(services.iter().any(|s| s.service_id == service.id));
@@ -210,39 +212,68 @@ async fn periode_complete_avec_le_client_du_frontend() {
     assert!(periodes
         .iter()
         .any(|p| p.id == periode.id && p.statut == "ouverte"));
-    let mut devoirs = Vec::new();
-    for (titre, coef, sur) in [("Contrôle", 1.0, 20.0), ("Exposé", 2.0, 10.0)] {
-        devoirs.push(
+    let enseignements = c_prof.eva3_enseignements().await.expect("enseignements");
+    let cours = enseignements
+        .iter()
+        .find(|e| e.matiere_id == Some(matiere.id))
+        .expect("le cours de la classe")
+        .cours_id;
+    let periodes_cours = c_prof
+        .eva3_periodes(cours)
+        .await
+        .expect("périodes du cours");
+    let periode_eva = periodes_cours
+        .iter()
+        .find(|p| p.date_debut <= t && t <= p.date_fin)
+        .expect("la période du jour")
+        .clone();
+    let mut evaluations = Vec::new();
+    for (titre, coef_m, bareme_m) in [("Contrôle", 1_000, 20_000), ("Exposé", 2_000, 10_000)] {
+        evaluations.push(
             c_prof
-                .creer_devoir_grille(&CreerDevoirGrilleBody {
-                    service_id: service.id,
-                    periode_id: periode.id,
+                .eva3_creer(&CreerEvaluationV3Body {
+                    cours_id: cours,
                     titre: titre.into(),
-                    date_devoir: t,
-                    coef,
-                    sur,
+                    date_eval: t,
+                    bareme_m,
+                    coef_m,
+                    comptage: None,
+                    hors_bareme_autorise: false,
+                    sous_matiere_id: None,
+                    restreinte_a: vec![],
+                    publication: None,
+                    publication_prevue_le: None,
+                    annoncee: false,
                 })
                 .await
-                .expect("devoir"),
+                .expect("évaluation"),
         );
     }
-    // La grille de l'écran : seules les cellules modifiées partent (modèle du frontend).
-    for (d, texte) in devoirs.iter().zip(["14,5", "abs"]) {
-        let resultats =
-            changements(&[(eleve.id, String::new(), texte.to_string())], d.sur).unwrap();
+    // La grille de l'écran : le texte tapé part, le serveur l'analyse (14,5 ; « abs »).
+    for (e, texte) in evaluations.iter().zip(["14,5", "abs"]) {
         let r = c_prof
-            .saisir_resultats(d.id, &SaisieGrilleBody { resultats })
+            .eva3_saisir(&SaisieLotBody {
+                cours_id: cours,
+                cellules: vec![CelluleSaisieDto {
+                    evaluation_id: e.id,
+                    eleve_id: eleve.id,
+                    texte: texte.into(),
+                    version_attendue: None,
+                    motif: None,
+                }],
+                origine: None,
+            })
             .await
             .expect("saisie");
-        assert_eq!(r.enregistres, 1);
+        assert_eq!(r.cellules[0].issue, "ecrit", "{r:?}");
     }
     let g = c_prof
-        .grille_notes(service.id, periode.id)
+        .eva3_grille(cours, periode_eva.id)
         .await
         .expect("grille");
-    let ligne = g.lignes.iter().find(|x| x.eleve_id == eleve.id).unwrap();
-    assert_eq!(ligne.moyenne, Some(14.5), "l'absent ne compte pas");
-    assert!(g.saisie_ouverte);
+    let ligne = g.eleves.iter().find(|x| x.eleve_id == eleve.id).unwrap();
+    assert_eq!(ligne.moyenne_m, Some(14_500), "l'absent ne compte pas");
+    assert!(g.peut_saisir);
 
     // 2. Avant publication, la famille ne voit rien ; après, le relevé montre l'évaluation.
     let r = c_parent
@@ -251,7 +282,15 @@ async fn periode_complete_avec_le_client_du_frontend() {
         .expect("relevé");
     assert!(r.matieres.iter().all(|m| m.evaluations.is_empty()));
     c_prof
-        .publier_devoir(devoirs[0].id)
+        .eva3_publication(
+            evaluations[0].id,
+            &PublierV3Body {
+                action: "maintenant".into(),
+                prevue_le: None,
+                prevue_locale: None,
+                motif: None,
+            },
+        )
         .await
         .expect("publication");
     let r = c_parent
@@ -264,11 +303,12 @@ async fn periode_complete_avec_le_client_du_frontend() {
         .find(|m| m.matiere_id == matiere.id)
         .unwrap();
     assert_eq!((m.evaluations.len(), m.moyenne), (1, Some(14.5)));
-    // La famille ne saisit pas, ne lit pas la grille.
+    // La famille ne saisit pas, ne lit pas la grille ; l'ancienne grille est fermée (410).
     assert!(matches!(
-        c_parent.grille_notes(service.id, periode.id).await,
+        c_parent.eva3_grille(cours, periode_eva.id).await,
         Err(ApiError::Interdit(_))
     ));
+    assert!(c_prof.grille_notes(service.id, periode.id).await.is_err());
 
     // 3. Direction : fermeture, génération, publication ; la famille télécharge le PDF.
     let c_dir = client_de(&base, &l, &personnel(&l, "direction").email).await;

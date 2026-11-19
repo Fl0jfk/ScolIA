@@ -518,6 +518,27 @@ async fn run_api() {
         })
     });
 
+    // Socle 21 (V3b, F7) : publications automatiques des évaluations (programmées, délai maximal, rappels), boucle
+    // DÉDIÉE toutes les 5 minutes : une publication programmée sort au plus 6 minutes après l'heure choisie
+    // (`passages_quotidiens::RETARD_MAX_PUBLICATION_PROGRAMMEE_SECONDES`). Idempotent. Désactivable
+    // (`ENT_PUBLICATIONS_EVALUATIONS=0`).
+    let publications_evaluations = (!valeur_desactivante(&std::env::var("ENT_PUBLICATIONS_EVALUATIONS").unwrap_or_default())).then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(150)).await;
+            loop {
+                match ent.eva_v3_publications_automatiques_tous(chrono::Utc::now()).await {
+                    Ok(b) if b.programmees + b.delai_max + b.rappels > 0 => {
+                        tracing::info!(?b, "publications automatiques des évaluations")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("publications automatiques des évaluations : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            }
+        })
+    });
+
     // Socle 29 (P2) : rapprochement de l'index des tâches (reprise initiale, appels non faits,
     // réparation des événements perdus). Idempotent, toutes les 10 minutes ; l'affichage ne dépend
     // jamais de lui (revérification à la lecture, R-PO3). Désactivable (`ENT_AFAIRE_RAPPROCHEMENT=0`).
@@ -772,6 +793,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = taches_voyages_objets {
+        t.abort();
+    }
+    if let Some(t) = publications_evaluations {
         t.abort();
     }
     if let Some(t) = rapprochement_afaire {

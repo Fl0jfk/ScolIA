@@ -6643,6 +6643,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(periode)
     }
 
+    /// Change le statut d'une période de notes en faisant avancer la machine d'états de CHAQUE classe de la
+    /// période (V3b : `ent_note_periode.statut` est gelé, la source est `eva_periode_etat`). **Voie d'amorçage du
+    /// labo et des tests** : aucun contrôle de droit ici (aucune route de production ne l'appelle ; les gestes de
+    /// la direction passent par `changer_statut_periode_for_actor`, qui contrôle `periodes.verrouiller`).
     pub async fn set_note_periode_statut(
         &self,
         etablissement_id: Uuid,
@@ -6650,9 +6654,43 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         statut: NotePeriodeStatut,
         actor_user_id: Option<String>,
     ) -> Result<NotePeriode, EntDbError> {
-        self.notes
-            .set_periode_statut(etablissement_id, periode_id, statut)
+        let acteur = actor_user_id
+            .as_deref()
+            .and_then(|a| Uuid::parse_str(a).ok())
+            .unwrap_or_else(Uuid::nil);
+        let rang = match statut {
+            NotePeriodeStatut::Ouverte => 0usize,
+            NotePeriodeStatut::PartielleAppreciations => 1,
+            NotePeriodeStatut::Fermee => 2,
+        };
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
+        let classes: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "SELECT c.id, ent_periode_de_note_pour_classe(np.etablissement_id, np.id, c.id)
+               FROM ent_note_periode np
+               JOIN ent_annee_scolaire y ON y.etablissement_id = np.etablissement_id
+                                        AND y.date_debut <= np.date_fin AND y.date_fin >= np.date_debut
+               JOIN ent_classe c ON c.etablissement_id = np.etablissement_id AND c.annee_id = y.id
+              WHERE np.etablissement_id = $1 AND np.id = $2
+              ORDER BY c.id",
+        )
+        .bind(etablissement_id)
+        .bind(periode_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (classe, pe) in classes {
+            let Some(pe) = pe else { continue };
+            Self::aligner_classe_sur_statut_tx(
+                &mut tx,
+                etablissement_id,
+                acteur,
+                pe,
+                classe,
+                rang,
+                Some("changement de statut (amorçage)"),
+            )
             .await?;
+        }
+        tx.commit().await?;
         let periode = self
             .notes
             .get_periode(etablissement_id, periode_id)
@@ -7258,79 +7296,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(devoir)
     }
 
-    pub async fn supprimer_devoir(
-        &self,
-        etablissement_id: Uuid,
-        devoir_id: Uuid,
-    ) -> Result<Devoir, EntDbError> {
-        let devoir = self
-            .notes
-            .get_devoir(etablissement_id, devoir_id)
-            .await?
-            .ok_or(DomainError::DevoirIntrouvable)?;
-        let periode = self
-            .notes
-            .get_periode(etablissement_id, devoir.periode_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        if !periode.statut.autorise_saisie_notes() {
-            return Err(DomainError::NotePeriodeFermee.into());
-        }
-        let n_notes = self
-            .notes
-            .count_notes_devoir(etablissement_id, devoir_id)
-            .await?;
-        if n_notes > 0 {
-            return Err(DomainError::DevoirNotesLiees.into());
-        }
-        let deleted = self
-            .notes
-            .delete_devoir(etablissement_id, devoir_id)
-            .await?;
-        if !deleted {
-            return Err(DomainError::DevoirIntrouvable.into());
-        }
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id,
-                type_name: types::DEVOIR_DELETED.to_string(),
-                aggregate: AggregateKind::Devoir,
-                aggregate_id: devoir.id,
-                eleve_id: None,
-                payload: json!({
-                    "periode_id": devoir.periode_id,
-                    "matiere_id": devoir.matiere_id,
-                    "classe": devoir.classe,
-                    "titre": devoir.titre,
-                }),
-                actor_user_id: devoir.created_by_user_id.map(|u| u.to_string()),
-            })
-            .await?;
-        Ok(devoir)
-    }
-
-    pub async fn supprimer_devoir_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        actor_user_id: Uuid,
-        devoir_id: Uuid,
-    ) -> Result<Devoir, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_saisir_notes() {
-            return Err(EntDbError::Forbidden);
-        }
-        // RF-04 (g) : un professeur ne supprime que les devoirs de ses classes.
-        let devoir = self
-            .notes
-            .get_devoir(etablissement_id, devoir_id)
-            .await?
-            .ok_or(DomainError::DevoirIntrouvable)?;
-        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &devoir.classe)
-            .await?;
-        self.supprimer_devoir(etablissement_id, devoir_id).await
-    }
-
     pub async fn get_devoir(
         &self,
         etablissement_id: Uuid,
@@ -7448,6 +7413,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.saisir_note(cmd).await
     }
 
+    /// **Voie d'amorçage** (labo, tests) : une note saisie à l'ancienne mode est écrite dans l'archive
+    /// `ent_note_archive` ; `eva_reprendre_existant` la verse ensuite dans `eva_*`, seule source des lectures (V3b).
+    /// Aucune route de production ne l'appelle. Une note « libre » (sans devoir) reçoit son propre devoir d'archive,
+    /// afin d'être reprise et lue comme une évaluation à un seul résultat.
     pub async fn saisir_note(&self, cmd: SaisirNote) -> Result<Note, EntDbError> {
         if cmd.sur <= 0.0 || cmd.valeur < 0.0 || cmd.valeur > cmd.sur {
             return Err(EntDbError::NoteInvalide);
@@ -7469,13 +7438,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if let Some(devoir_id) = cmd.devoir_id {
             let devoir = self
                 .notes
-                .get_devoir(cmd.etablissement_id, devoir_id)
+                .get_devoir_archive(cmd.etablissement_id, devoir_id)
                 .await?
                 .ok_or(DomainError::DevoirIntrouvable)?;
             // S2-7 : un devoir de grille (rattaché à un service) se saisit par la grille,
             // qui contrôle le service, l'effectif et le verrou.
             let (grille,): (bool,) = sqlx::query_as(
-                "SELECT service_id IS NOT NULL FROM ent_devoir WHERE etablissement_id = $1 AND id = $2",
+                "SELECT service_id IS NOT NULL FROM ent_devoir_archive WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(cmd.etablissement_id)
             .bind(devoir_id)
@@ -7503,6 +7472,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
         }
 
+        let mut devoir_id = cmd.devoir_id;
+        if devoir_id.is_none() {
+            // Note libre : un devoir d'archive à un résultat (classe de l'élève, période et matière connues).
+            let classe: Option<String> = sqlx::query_scalar(
+                "SELECT classe FROM ent_eleve WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(cmd.etablissement_id)
+            .bind(cmd.eleve_id)
+            .fetch_optional(&mut *TenantTx::begin(&self.pool, cmd.etablissement_id).await?)
+            .await?
+            .flatten();
+            if let (Some(classe), Some(pid)) = (classe.filter(|c| !c.trim().is_empty()), periode_id) {
+                let libre = Devoir {
+                    id: Uuid::new_v4(),
+                    etablissement_id: cmd.etablissement_id,
+                    periode_id: pid,
+                    matiere_id,
+                    classe,
+                    titre: libelle.clone().unwrap_or_else(|| "Note".to_string()),
+                    date_devoir: cmd.date_note,
+                    coef: 1.0,
+                    sur,
+                    created_by_user_id: Some(cmd.auteur_user_id),
+                };
+                self.notes.insert_devoir(&libre).await?;
+                devoir_id = Some(libre.id);
+            }
+        }
         let note = Note {
             id: Uuid::new_v4(),
             etablissement_id: cmd.etablissement_id,
@@ -7513,7 +7510,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             date_note: cmd.date_note,
             auteur_user_id: cmd.auteur_user_id,
             libelle,
-            devoir_id: cmd.devoir_id,
+            devoir_id,
             periode_id,
         };
         self.notes.insert(&note).await?;
@@ -7545,6 +7542,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.notes.list_for_eleve(etablissement_id, eleve_id).await?)
     }
 
+    /// Moyenne d'une matière pour un élève sur une période de notes : **moteur unique** (V2), évaluations
+    /// publiées seulement (lecture destinée à une famille, à un élève ou à l'application mobile).
     pub async fn moyenne_matiere(
         &self,
         etablissement_id: Uuid,
@@ -7552,54 +7551,47 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         periode_id: Uuid,
         matiere_id: Uuid,
     ) -> Result<Option<MoyenneMatiere>, EntDbError> {
-        let rows = self
-            .notes
-            .list_for_moyenne(etablissement_id, eleve_id, periode_id, matiere_id)
-            .await?;
-        // V0 (D12, R-V3) : un seul moteur de calcul, exact (fractions entières, aucun arrondi
-        // intermédiaire) ; l'ancien calcul en virgule flottante est retiré. Arrondi d'affichage
-        // selon la règle de l'établissement.
-        let regles = self.eva_regles(etablissement_id).await?;
-        let calcul: Vec<domain_eleve::evaluation::ResultatCalcul> = rows
-            .iter()
-            .map(|&(valeur, sur, coef)| domain_eleve::evaluation::ResultatCalcul {
-                statut: domain_eleve::evaluation::StatutResultat::Note,
-                valeur,
-                sur,
-                coef,
-            })
-            .collect();
-        Ok(domain_eleve::evaluation::moyenne_matiere(&calcul, &regles).map(|m| MoyenneMatiere {
-            matiere_id,
-            periode_id,
-            moyenne_sur_20: m.arrondie(regles.arrondi),
-        }))
+        Ok(self
+            .moyennes_eleve_periode(etablissement_id, eleve_id, periode_id)
+            .await?
+            .into_iter()
+            .find(|m| m.matiere_id == matiere_id))
     }
 
+    /// Moyennes par matière d'un élève sur une période de notes (V3b : calculées par le moteur unique de V2, la
+    /// même valeur que la grille, le relevé, le bulletin et le conseil ; seules les évaluations PUBLIÉES comptent).
     pub async fn moyennes_eleve_periode(
         &self,
         etablissement_id: Uuid,
         eleve_id: Uuid,
         periode_id: Uuid,
     ) -> Result<Vec<MoyenneMatiere>, EntDbError> {
-        let notes = self.notes.list_for_eleve(etablissement_id, eleve_id).await?;
-        let mut matiere_ids: Vec<Uuid> = notes
+        let periode = self.eva_periode(etablissement_id, periode_id).await?;
+        // La période du référentiel est celle de la périodisation de la classe de l'élève.
+        let Some(classe) = self
+            .eva_classe_eleve(etablissement_id, eleve_id, periode.date_debut, periode.date_fin)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let Some(periode_eva) = self.eva_periode_pour_classe(etablissement_id, periode_id, classe).await? else {
+            return Ok(Vec::new());
+        };
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
+        let r = crate::evaluations_v1::moyennes_tx(&mut tx, etablissement_id, eleve_id, periode_eva, true).await?;
+        tx.commit().await?;
+        Ok(r
+            .matieres
             .iter()
-            .filter(|n| n.periode_id == Some(periode_id))
-            .map(|n| n.matiere_id)
-            .collect();
-        matiere_ids.sort();
-        matiere_ids.dedup();
-        let mut out = Vec::new();
-        for mid in matiere_ids {
-            if let Some(m) = self
-                .moyenne_matiere(etablissement_id, eleve_id, periode_id, mid)
-                .await?
-            {
-                out.push(m);
-            }
-        }
-        Ok(out)
+            .filter(|m| m.matiere_id != Uuid::nil())
+            .filter_map(|m| {
+                m.moyenne.affichee_m.map(|a| MoyenneMatiere {
+                    matiere_id: m.matiere_id,
+                    periode_id,
+                    moyenne_sur_20: a as f64 / 1000.0,
+                })
+            })
+            .collect())
     }
 
     pub fn role_can_faire_appel(role: &str) -> bool {
