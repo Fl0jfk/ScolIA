@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
     a TIMESTAMPTZ NOT NULL,
     motif_code TEXT CHECK (motif_code IS NULL OR motif_code IN (
         'famille', 'tardive', 'desaccord_connu', 'desaccord_titulaires', 'autorisation_revoquee',
-        'interdiction_remise', 'personne_non_autorisee', 'correspondant_suspendu', 'examen', 'reglement',
+        'interdiction_remise', 'interdiction_auteur', 'personne_non_autorisee', 'correspondant_suspendu', 'examen', 'reglement',
         'erreur', 'train', 'autre')),
     motif_texte TEXT CHECK (motif_texte IS NULL OR char_length(btrim(motif_texte)) BETWEEN 1 AND 300),
     -- Personne à qui l'élève est remis (départ) ; correspondant ou opposant : jamais un nom.
@@ -499,12 +499,32 @@ $$;
 
 -- ───────────────────────── 4. L'attendu de la nuit lit les absences et les sorties ─────────────────────────
 -- Celle de 2825, plus deux sources de retrait :
---   * une absence en vigueur (annoncée, acceptée, régularisée) couvrant la nuit ;
+--   * une absence (M-B, même raisonnement qu'E-3 : « pas de départ constaté = attendu »). Pour un MINEUR, une absence
+--     annoncée ou acceptée ne retire l'élève qu'à partir du départ effectif contrôlé au portail (`depart_effectif`,
+--     antérieur à l'ancre de la nuit) : un départ refusé, ou jamais venu, le laisse attendu. Un MAJEUR (il part seul) et
+--     une régularisation (nuit passée, aucun départ à contrôler) retirent dès l'annonce. Un blocage ne prolonge le
+--     retrait de la nuit en cours que pour un élève réellement parti (`blocage_effet_nuit`) ;
 --   * une sortie PARTIE ou rentrée (E-3 : jamais une sortie seulement autorisée) qui COUVRE la nuit : commencée au plus tard à 22 h (heure murale
 --     de l'établissement) et dont le retour (effectif, sinon attendu à jour) tombe après 6 h du lendemain.
 --     Une sortie plus courte (mercredi après-midi, soirée) ne retire jamais l'élève de l'attendu : il
 --     reste attendu et se pointe « en activité » avec son retour attendu, sans quoi son absence passerait
 --     inaperçue si le retour n'a pas lieu.
+-- `ent_internat_eleve_majeur` : majorité (socle 2) et capacité juridique (émancipé = majeur ; tutelle = jamais), seule
+-- source de vérité, relue par le service Rust.
+CREATE OR REPLACE FUNCTION ent_internat_eleve_majeur(etab UUID, eleve UUID, jour DATE)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE AS $$
+    SELECT (EXISTS (SELECT 1 FROM ent_eleve_capacite k WHERE k.etablissement_id = etab AND k.eleve_id = eleve
+                       AND k.nature = 'emancipation' AND k.levee_le IS NULL AND k.du <= jour
+                       AND (k.au IS NULL OR k.au >= jour))
+            OR COALESCE((SELECT ent_eleve_majorite_le(e.date_naissance, e.date_naissance_precision,
+                                                      e.date_naissance_statut) <= jour
+                           FROM ent_eleve e WHERE e.etablissement_id = etab AND e.id = eleve), false))
+       AND NOT EXISTS (SELECT 1 FROM ent_eleve_capacite k WHERE k.etablissement_id = etab AND k.eleve_id = eleve
+                        AND k.nature = 'tutelle' AND k.levee_le IS NULL AND k.du <= jour
+                        AND (k.au IS NULL OR k.au >= jour))
+$$;
+
 CREATE OR REPLACE FUNCTION ent_internat_attendu_calcule(etab UUID, nuit DATE)
 RETURNS TABLE (eleve_id UUID, chambre_id UUID, lit_id UUID, statut TEXT, motif_code TEXT)
 LANGUAGE sql STABLE AS $$
@@ -539,11 +559,16 @@ LANGUAGE sql STABLE AS $$
         SELECT r.eleve_id, r.motif_code AS motif FROM ent_internat_retrait r
          WHERE r.etablissement_id = etab AND r.annule_le IS NULL AND r.du_nuit <= nuit AND r.au_nuit >= nuit
         UNION ALL
-        SELECT ab.eleve_id, 'absence_annoncee' FROM ent_internat_absence ab
+        SELECT ab.eleve_id, 'absence_annoncee' FROM ent_internat_absence ab, ancre
          WHERE ab.etablissement_id = etab AND ab.du_nuit <= nuit AND ab.au_nuit >= nuit
-           AND (ab.statut IN ('annoncee', 'acceptee', 'regularisee')
-                -- Blocage posé après le début d'une nuit : il ne vaut que pour les nuits suivantes.
-                OR (ab.statut = 'bloquee' AND ab.blocage_effet_nuit IS NOT NULL AND nuit < ab.blocage_effet_nuit))
+           AND (ab.statut = 'regularisee'
+                OR (ab.statut IN ('annoncee', 'acceptee')
+                    AND (ent_internat_eleve_majeur(etab, ab.eleve_id, nuit)
+                         OR (ab.depart_effectif IS NOT NULL AND ab.depart_effectif <= ancre.t)))
+                -- Blocage posé après le début d'une nuit : il ne vaut, pour un élève réellement parti, que pour les
+                -- nuits suivantes.
+                OR (ab.statut = 'bloquee' AND ab.blocage_effet_nuit IS NOT NULL AND nuit < ab.blocage_effet_nuit
+                    AND ab.depart_effectif IS NOT NULL AND ab.depart_effectif <= ancre.t))
         UNION ALL
         -- E-3 : seule une sortie effectivement PARTIE (ou rentrée) retire l'élève de l'attendu. Une sortie
         -- autorisée qui n'a jamais eu lieu (départ refusé au portail, famille absente) le laisse attendu : sans

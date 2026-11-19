@@ -2438,3 +2438,380 @@ async fn faible_m1_complement_laisse_ouvert_ne_bloque_pas_la_transmission_et_ouv
     let r = b.ent.transmettre_matin_a(b.etab, b.cpe, CPE, nuit_dst(), Some("test"), matin).await;
     assert!(refus_de(&r, "encore ouvert"), "{r:?}");
 }
+
+// ═════════════════════════════ Passe 2 de la contre-revue du pilote ═════════════════════════════
+
+/// Fixe la date de pose des interdictions de l'élève : `created_at` vaut sinon l'instant réel, alors que ces tests
+/// jouent à des jours fixes d'avril 2026 (règle 33).
+async fn dater_interdictions(b: &Banc, eleve: Uuid, instant: DateTime<Utc>) {
+    sqlx::query("UPDATE ent_eleve_interdiction SET created_at = $3 WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(instant)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+}
+
+/// Fixe la date de création du lien d'un compte avec l'élève.
+async fn dater_lien(b: &Banc, eleve: Uuid, user: Uuid, instant: DateTime<Utc>) {
+    sqlx::query("UPDATE ent_eleve_lien SET created_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(user)
+        .bind(instant)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+}
+
+fn accord_ok() -> AccordTitulaireDto {
+    AccordTitulaireDto { accord: true, motif_texte: None, avec_personne_id: None }
+}
+
+/// E-A (sortie seule) — ce qu'un parent a fait avant son interdiction ne reste pas effectif : lundi le père demande et
+/// accorde un départ seul pour mercredi, mardi une interdiction le vise, mercredi l'enfant ne part pas sur cet accord
+/// (au départ, ou plus tôt à la revue à la minute). La décision revient au CPE ; l'autre titulaire peut répondre.
+#[tokio::test]
+async fn ea_sortie_seule_l_accord_d_un_parent_devenu_interdit_tombe_au_depart_et_a_la_revue() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    for (i, par_la_revue) in [(0usize, false), (1usize, true)] {
+        let eleve = b.a[i];
+        let (pa, pers_a) = parent(&b, eleve, true).await;
+        let (pb, _) = parent(&b, eleve, true).await;
+        let d = paris(mercredi, 20, 0);
+        let s = b.ent.demander_sortie_a(b.etab, pa, PARENT, &demande(eleve, "retour_tardif", d, d + Duration::hours(3), true, None), paris(lundi, 10, 0)).await.unwrap();
+        assert!(s.accord_titulaire, "le père accorde en demandant");
+        let s = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+        assert_eq!(s.statut, "autorisee");
+        interdire_objet(&b, eleve, pers_a, "contact_eleve", None).await;
+        dater_interdictions(&b, eleve, paris(mardi, 12, 0)).await;
+        if par_la_revue {
+            b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 1)).await.unwrap();
+            let vue = b.ent.sorties_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 12, 2)).await.unwrap();
+            assert_eq!((vue[0].statut.as_str(), vue[0].accord_titulaire, vue[0].decision_cpe), ("demandee", false, false), "revue : accord retiré");
+            let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(None, d), d).await;
+            assert!(refus_de(&r, "pas encore autorisée"), "{r:?}");
+        } else {
+            let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(None, d), d).await;
+            assert!(refus_de(&r, "désormais l'objet d'une interdiction"), "{r:?}");
+            let f = faits_actes(&b, "sortie_id", s.id).await;
+            assert!(f.contains(&("accord_remis_a_zero".to_string(), Some("interdiction_auteur".to_string()))), "{f:?}");
+            assert!(f.contains(&("depart_refuse".to_string(), Some("interdiction_auteur".to_string()))), "{f:?}");
+        }
+        // Le père interdit n'agit plus ; la mère répond, le CPE décide de nouveau, puis le départ seul a lieu.
+        assert!(est_interdit(&b.ent.repondre_sortie_a(b.etab, pa, PARENT, s.id, &accord_ok(), paris(mardi, 13, 0)).await));
+        let ok = b.ent.repondre_sortie_a(b.etab, pb, PARENT, s.id, &accord_ok(), paris(mardi, 13, 0)).await.unwrap();
+        assert_eq!(ok.statut, "demandee", "la décision du CPE est à reprendre");
+        let ok = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(mardi, 14, 0)).await.unwrap();
+        assert_eq!(ok.statut, "autorisee");
+        b.ent.veille_sorties_a(b.etab, paris(mercredi, 19, 0)).await.unwrap();
+        let dep = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(None, d), d).await.unwrap();
+        assert_eq!(dep.statut, "partie", "l'accord de la mère vaut");
+    }
+}
+
+/// E-A (absence) — l'annonce d'un parent devenu interdit n'est plus valable : au départ et à la revue, l'absence est
+/// bloquée (motif `interdiction_auteur`) et l'élève reste attendu ; la direction tranche, et sa décision n'est pas
+/// rebloquée à la revue suivante.
+#[tokio::test]
+async fn ea_absence_annoncee_par_un_parent_devenu_interdit_est_bloquee_au_depart_et_a_la_revue() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    let soir = paris(mercredi, 17, 0);
+    for (i, par_la_revue) in [(0usize, false), (1usize, true)] {
+        let eleve = b.a[i];
+        let (pa, pers_a) = parent(&b, eleve, true).await;
+        let grand = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, grand).await;
+        let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+        interdire_objet(&b, eleve, pers_a, "visite", None).await;
+        dater_interdictions(&b, eleve, paris(mardi, 12, 0)).await;
+        if par_la_revue {
+            b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 1)).await.unwrap();
+        } else {
+            let r = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(Some(grand), soir), soir).await;
+            assert!(refus_de(&r, "désormais l'objet d'une interdiction"), "{r:?}");
+            let f = faits_actes(&b, "absence_id", a.id).await;
+            assert!(f.contains(&("depart_refuse".to_string(), Some("interdiction_auteur".to_string()))), "{f:?}");
+        }
+        let vue = b.ent.absences_eleve_a(b.etab, b.cpe, CPE, eleve, soir).await.unwrap();
+        assert_eq!(vue[0].statut, "bloquee");
+        let f = faits_actes(&b, "absence_id", a.id).await;
+        assert!(f.contains(&("blocage".to_string(), Some("interdiction_auteur".to_string()))), "{f:?}");
+        assert!(est_attendu(&b, mercredi, eleve).await, "aucun départ constaté : l'élève est attendu");
+        // La direction lève : la revue ne rebloque pas ce qu'elle a débloqué.
+        let l = b.ent.trancher_absence_a(b.etab, b.dir, DIR, a.id, &tranche("lever"), paris(mardi, 12, 10)).await.unwrap();
+        assert_eq!(l.statut, "annoncee");
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 15)).await.unwrap();
+        let vue = b.ent.absences_eleve_a(b.etab, b.cpe, CPE, eleve, soir).await.unwrap();
+        assert_eq!(vue[0].statut, "annoncee");
+    }
+}
+
+/// E-A (correspondant) — un correspondant désigné par un parent devenu interdit est suspendu, à la revue ou au départ ;
+/// les sorties chez lui le sont aussi ; seul le CPE le reprend, et la revue suivante respecte sa décision.
+#[tokio::test]
+async fn ea_correspondant_designe_par_un_parent_devenu_interdit_est_suspendu() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi) = (avril(13), avril(14));
+    let (debut, fin) = (paris(mardi, 17, 0), paris(avril(15), 8, 0));
+    for (i, par_la_revue) in [(0usize, true), (1usize, false)] {
+        let eleve = b.a[i];
+        let (pa, pers_a) = parent(&b, eleve, true).await;
+        let (pb, _) = parent(&b, eleve, true).await;
+        let corr = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, corr).await;
+        let saisie = CorrespondantSaisieDto { eleve_id: eleve, personne_id: corr, lundi: true, mardi: true, mercredi: true, jeudi: true, vendredi: true, samedi: true, dimanche: true, du: None, au: None };
+        let c = b.ent.designer_correspondant_a(b.etab, pa, PARENT, &saisie, paris(lundi, 9, 0)).await.unwrap();
+        // La sortie, elle, est demandée (et accordée) par la mère : seule la désignation du correspondant est du père.
+        let d = SortieDemandeDto { correspondant_id: Some(c.id), ..demande(eleve, "nuit_correspondant", debut, fin, false, None) };
+        let s = b.ent.demander_sortie_a(b.etab, pb, PARENT, &d, paris(lundi, 10, 0)).await.unwrap();
+        let s = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+        assert_eq!(s.statut, "autorisee");
+        interdire_objet(&b, eleve, pers_a, "remise", None).await;
+        dater_interdictions(&b, eleve, paris(mardi, 12, 0)).await;
+        if par_la_revue {
+            b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 1)).await.unwrap();
+            let sorties = b.ent.sorties_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 12, 2)).await.unwrap();
+            assert_eq!(sorties[0].statut, "suspendue", "la sortie chez le correspondant est suspendue");
+        } else {
+            let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(Some(corr), debut), debut).await;
+            assert!(refus_de(&r, "correspondant est suspendu"), "{r:?}");
+        }
+        let vus = b.ent.correspondants_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 13, 0)).await.unwrap();
+        assert_eq!(vus[0].statut, "suspendu");
+        assert!(faits_actes(&b, "correspondant_id", c.id).await.contains(&("suspension".to_string(), Some("interdiction_auteur".to_string()))));
+        // Le CPE le reprend : la revue suivante ne le suspend pas de nouveau.
+        let r = b.ent.suspendre_correspondant_a(b.etab, b.cpe, CPE, c.id, false, &CorrespondantSuspensionDto { motif_texte: None }, paris(mardi, 14, 0)).await.unwrap();
+        assert_eq!(r.statut, "valide");
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 14, 5)).await.unwrap();
+        let vus = b.ent.correspondants_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 15, 0)).await.unwrap();
+        assert_eq!(vus[0].statut, "valide", "décision du CPE respectée");
+    }
+}
+
+/// M-A — règle D25 : un lien créé APRÈS une interdiction sans personne identifiée, non levée, n'est ni acteur ni lecteur
+/// tant que la direction ne l'a pas confirmé (même décision que dans la messagerie) ; un lien antérieur n'est pas touché.
+#[tokio::test]
+async fn ma_lien_cree_apres_une_interdiction_sans_personne_n_est_ni_acteur_ni_lecteur_tant_que_non_confirme() {
+    let Some(b) = banc().await else { return };
+    let (mardi, eleve) = (avril(14), b.a[0]);
+    let maintenant = paris(avril(15), 9, 0);
+    let (avant, _) = parent(&b, eleve, true).await;
+    dater_lien(&b, eleve, avant, paris(avril(10), 9, 0)).await;
+    interdire(&b, eleve, None).await;
+    dater_interdictions(&b, eleve, paris(mardi, 8, 0)).await;
+    let (apres, _) = parent(&b, eleve, true).await;
+    dater_lien(&b, eleve, apres, paris(mardi, 9, 0)).await;
+    assert!(b.ent.absences_eleve_a(b.etab, avant, PARENT, eleve, maintenant).await.is_ok(), "lien antérieur : inchangé");
+    assert!(est_interdit(&b.ent.absences_eleve_a(b.etab, apres, PARENT, eleve, maintenant).await), "lecteur");
+    assert!(est_interdit(&b.ent.autorisations_eleve_a(b.etab, apres, PARENT, eleve, maintenant).await), "lecteur des autorisations");
+    assert!(est_interdit(&annoncer(&b, apres, PARENT, eleve, avril(21), avril(21), maintenant).await), "acteur");
+    // La direction confirme le lien (décision de la messagerie) : il redevient acteur et lecteur.
+    sqlx::query(
+        "INSERT INTO ent_msg_lien_decision (etablissement_id, lien_id, interdiction_id, decision, decide_par) \
+         SELECT l.etablissement_id, l.id, i.id, 'confirme', $4 FROM ent_eleve_lien l, ent_eleve_interdiction i \
+          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.user_id = $3 AND i.etablissement_id = $1 AND i.eleve_id = $2",
+    )
+    .bind(b.etab)
+    .bind(eleve)
+    .bind(apres)
+    .bind(b.dir)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(b.ent.absences_eleve_a(b.etab, apres, PARENT, eleve, maintenant).await.is_ok(), "confirmé par la direction");
+    // Une interdiction levée ne joue plus.
+    let e2 = b.a[1];
+    let (p2, _) = parent(&b, e2, true).await;
+    interdire(&b, e2, None).await;
+    dater_interdictions(&b, e2, paris(mardi, 8, 0)).await;
+    let (p3, _) = parent(&b, e2, true).await;
+    dater_lien(&b, e2, p3, paris(mardi, 9, 0)).await;
+    assert!(est_interdit(&b.ent.absences_eleve_a(b.etab, p3, PARENT, e2, maintenant).await));
+    lever_interdictions(&b, e2).await;
+    assert!(b.ent.absences_eleve_a(b.etab, p3, PARENT, e2, maintenant).await.is_ok());
+    assert!(b.ent.absences_eleve_a(b.etab, p2, PARENT, e2, maintenant).await.is_ok());
+}
+
+/// M-A — tant qu'une interdiction de remise sans personne identifiée est en vigueur, un mineur ne part pas seul (sortie
+/// ou absence) sans décision de la direction : blocage à la revue ou au départ ; une fois débloqué par la direction,
+/// le départ a lieu et la revue ne rebloque pas.
+#[tokio::test]
+async fn ma_mineur_ne_part_pas_seul_tant_qu_une_interdiction_de_remise_sans_personne_est_en_vigueur() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi, vendredi) = (avril(13), avril(14), avril(15), avril(17));
+    // Sortie seule (retour tardif, accord de la famille) : bloquée à la revue, puis débloquée par la direction.
+    let e1 = b.a[0];
+    let (p1, _) = parent(&b, e1, true).await;
+    let d = paris(mercredi, 20, 0);
+    let s = b.ent.demander_sortie_a(b.etab, p1, PARENT, &demande(e1, "retour_tardif", d, d + Duration::hours(3), true, None), paris(lundi, 10, 0)).await.unwrap();
+    let s = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+    assert_eq!(s.statut, "autorisee");
+    interdire(&b, e1, None).await;
+    dater_interdictions(&b, e1, paris(mardi, 12, 0)).await;
+    b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 1)).await.unwrap();
+    let vue = b.ent.sorties_eleve_a(b.etab, b.cpe, CPE, e1, paris(mardi, 12, 2)).await.unwrap();
+    assert_eq!(vue[0].statut, "bloquee");
+    assert!(faits_actes(&b, "sortie_id", s.id).await.contains(&("blocage".to_string(), Some("interdiction_remise".to_string()))));
+    let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(None, d), d).await;
+    assert!(refus_de(&r, "bloquée"), "{r:?}");
+    let l = b.ent.trancher_sortie_a(b.etab, b.dir, DIR, s.id, &tranche("lever"), paris(mardi, 13, 0)).await.unwrap();
+    assert_eq!(l.statut, "autorisee");
+    b.ent.veille_sorties_a(b.etab, paris(mercredi, 19, 0)).await.unwrap();
+    let dep = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(None, d), d).await.unwrap();
+    assert_eq!(dep.statut, "partie", "décision de la direction postérieure à l'interdiction : le départ a lieu");
+    // Départ seul d'une absence (autorisation annuelle « départ seul le week-end », annoncée pour un vendredi) : refusé
+    // au portail, absence bloquée, sans même attendre la revue.
+    let e2 = b.a[1];
+    let (p2, _) = parent(&b, e2, true).await;
+    accorder_annuellement(&b, p2, e2, &["week_end_seul"]).await;
+    let a = annoncer_avec(&b, p2, PARENT, e2, vendredi, vendredi, None, paris(mardi, 10, 0)).await.unwrap();
+    interdire(&b, e2, None).await;
+    dater_interdictions(&b, e2, paris(mercredi, 12, 0)).await;
+    let soir = paris(vendredi, 17, 0);
+    let r = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(None, soir), soir).await;
+    assert!(refus_de(&r, "interdiction de remise sans personne identifiée"), "{r:?}");
+    let vue = b.ent.absences_eleve_a(b.etab, b.cpe, CPE, e2, soir).await.unwrap();
+    assert_eq!(vue[0].statut, "bloquee");
+    assert!(est_attendu(&b, vendredi, e2).await);
+    b.ent.trancher_absence_a(b.etab, b.dir, DIR, a.id, &tranche("lever"), paris(vendredi, 17, 5)).await.unwrap();
+    b.ent.veille_sorties_a(b.etab, paris(vendredi, 17, 10)).await.unwrap();
+    let ok = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(None, paris(vendredi, 17, 15)), paris(vendredi, 17, 15)).await.unwrap();
+    assert!(ok.depart_effectif.is_some(), "décision de la direction : le départ seul a lieu");
+}
+
+/// M-B — pas de départ constaté = attendu : l'absence d'un mineur ne le retire de l'attendu qu'à son départ effectif.
+/// Un départ refusé au portail (interdiction posée à 22 h 05, refus à 22 h 10) le laisse attendu ; une absence restée
+/// sans départ à l'heure limite ouvre un cas « non récupéré » (une fois) ; un majeur, lui, est retiré dès l'annonce.
+#[tokio::test]
+async fn mb_pas_de_depart_constate_l_eleve_mineur_reste_attendu_et_un_cas_non_recupere_s_ouvre() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi) = (avril(13), avril(14));
+    // Départ constaté : retiré.
+    let e1 = b.a[0];
+    let (p1, pers1) = parent(&b, e1, true).await;
+    let a1 = annoncer(&b, p1, PARENT, e1, mardi, mardi, paris(lundi, 10, 0)).await.unwrap();
+    assert!(est_attendu(&b, mardi, e1).await, "annoncée mais personne n'est venu : attendu");
+    let soir = paris(mardi, 17, 0);
+    b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a1.id, &depart(Some(pers1), soir), soir).await.unwrap();
+    assert!(est_retire(&b, mardi, e1, "absence_annoncee").await, "parti : retiré");
+    // Refus au portail à 22 h 10 après une interdiction posée à 22 h 05 : l'élève reste attendu.
+    let e2 = b.a[1];
+    let (p2, _) = parent(&b, e2, true).await;
+    let grand = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, e2, grand).await;
+    let a2 = annoncer_avec(&b, p2, PARENT, e2, mardi, mardi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+    interdire(&b, e2, Some(grand)).await;
+    b.ent.veille_sorties_a(b.etab, paris(mardi, 22, 5)).await.unwrap();
+    let r = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a2.id, &depart(Some(grand), paris(mardi, 22, 10)), paris(mardi, 22, 10)).await;
+    assert!(refus_de(&r, "bloquée") || refus_de(&r, "REMISE REFUSÉE"), "{r:?}");
+    assert!(est_attendu(&b, mardi, e2).await, "départ refusé : l'élève reste attendu pour la nuit en cours");
+    let evts = b.evenements("internat.absence_bloquee").await;
+    assert!(evts.iter().all(|e| e["nuit_en_cours"].as_bool() != Some(true)), "aucun effet différé sans départ : {evts:?}");
+    // Sans départ à l'heure limite (18 h + 30 min) : un cas « non récupéré », une seule fois ; majeur : aucun cas.
+    let e3 = b.a[2];
+    let (p3, _) = parent(&b, e3, true).await;
+    annoncer(&b, p3, PARENT, e3, mardi, mardi, paris(lundi, 10, 0)).await.unwrap();
+    let moi = compte_eleve(&b, b.a[3], NaiveDate::from_ymd_opt(2007, 1, 1).unwrap()).await;
+    annoncer(&b, moi, ELEVE, b.a[3], mardi, mardi, paris(lundi, 10, 0)).await.unwrap();
+    assert!(est_retire(&b, mardi, b.a[3], "absence_annoncee").await, "majeur : retiré dès l'annonce");
+    let v = b.ent.veille_sorties_a(b.etab, paris(mardi, 18, 29)).await.unwrap();
+    assert_eq!(v.cas_non_recupere, 0, "avant l'heure limite");
+    let v = b.ent.veille_sorties_a(b.etab, paris(mardi, 18, 31)).await.unwrap();
+    assert_eq!(v.cas_non_recupere, 1, "e3 : le seul mineur resté sans départ, ni e2 (bloquée, déjà traitée)");
+    let v = b.ent.veille_sorties_a(b.etab, paris(mardi, 18, 40)).await.unwrap();
+    assert_eq!(v.cas_non_recupere, 0, "une seule ouverture");
+}
+
+/// F-A — un retard qui ajoute des nuits couvertes (nombre de nuits avant/après) part au CPE, même si la sortie en
+/// couvrait déjà une.
+#[tokio::test]
+async fn fa_retard_qui_ajoute_une_nuit_part_au_cpe_meme_si_la_sortie_en_couvrait_deja() {
+    let Some(b) = banc().await else { return };
+    let (eleve, maintenant) = (b.a[0], paris(avril(14), 12, 0));
+    let (p, pers) = parent(&b, eleve, true).await;
+    let s = week_end_parti(&b, eleve, p, pers, maintenant).await;
+    // Un retard qui reste dans la dernière nuit déjà couverte (dimanche 20 h → lundi 5 h) s'applique tout de suite.
+    let petit = b.ent.annoncer_retard_a(b.etab, p, PARENT, s.id, &RetardAnnonceDto { nouveau_retour: paris(avril(20), 5, 0), motif_code: Some("train".into()) }, paris(avril(19), 12, 0)).await.unwrap();
+    assert!(petit.retard_demande.is_none() && petit.fin_ajustee == paris(avril(20), 5, 0), "{petit:?}");
+    // Un retard qui fait couvrir la nuit du dimanche au lundi : demande au CPE, retour attendu inchangé.
+    let grand = b.ent.annoncer_retard_a(b.etab, p, PARENT, s.id, &RetardAnnonceDto { nouveau_retour: paris(avril(20), 9, 0), motif_code: Some("train".into()) }, paris(avril(19), 13, 0)).await.unwrap();
+    assert_eq!(grand.retard_demande, Some(paris(avril(20), 9, 0)));
+    assert_eq!(grand.fin_ajustee, paris(avril(20), 5, 0));
+}
+
+/// F-B — l'autorisation annuelle « départ seul le week-end » ne couvre le départ seul d'une absence que si la première
+/// nuit est une veille de week-end (le vendredi) : refusé à l'annonce un mardi, accepté un vendredi.
+#[tokio::test]
+async fn fb_autorisation_week_end_seul_ne_couvre_une_absence_que_la_veille_d_un_week_end() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let (p, _) = parent(&b, eleve, true).await;
+    accorder_annuellement(&b, p, eleve, &["week_end_seul"]).await;
+    let r = annoncer_avec(&b, p, PARENT, eleve, avril(14), avril(14), None, paris(avril(13), 10, 0)).await;
+    assert!(refus_de(&r, "veille d'un week-end"), "mardi : {r:?}");
+    let a = annoncer_avec(&b, p, PARENT, eleve, avril(17), avril(17), None, paris(avril(13), 10, 0)).await.expect("vendredi");
+    let soir = paris(avril(17), 17, 0);
+    let ok = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(None, soir), soir).await.unwrap();
+    assert!(ok.depart_effectif.is_some());
+}
+
+/// F-C — effacer la personne désignée par l'autre titulaire vaut changement, donc opposition (sortie bloquée,
+/// désignation d'origine conservée). F-D — la famille ne lit jamais « interdiction » dans l'historique (code
+/// générique) ; le personnel, si. F-F — une personne autorisée à récupérer dont le lien est sans autorité
+/// parentale (ou en garde « aucune ») ne prend pas l'élève par la porte des contacts.
+#[tokio::test]
+async fn fc_fd_ff_effacer_la_personne_historique_sans_interdiction_et_contact_sans_autorite() {
+    let Some(b) = banc().await else { return };
+    let (mardi, eleve) = (avril(14), b.a[0]);
+    let (pa, _) = parent(&b, eleve, true).await;
+    let (pb, _) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, grand).await;
+    let (debut, fin) = (paris(avril(17), 16, 0), paris(avril(19), 20, 0));
+    let maintenant = paris(mardi, 12, 0);
+    let s = b.ent.demander_sortie_a(b.etab, pa, PARENT, &demande(eleve, "week_end", debut, fin, false, Some(grand)), maintenant).await.unwrap();
+    // F-C
+    let r = b.ent.designer_personne_sortie_a(b.etab, pb, PARENT, s.id, &PersonneSortieDto { avec_personne_id: None, seul: false }, maintenant).await.unwrap();
+    assert_eq!((r.statut.as_str(), r.avec_personne_id, r.opposition), ("bloquee", Some(grand), true));
+    b.ent.trancher_sortie_a(b.etab, b.dir, DIR, s.id, &tranche("lever"), maintenant).await.unwrap();
+    // F-D
+    interdire(&b, eleve, Some(grand)).await;
+    let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, s.id, &depart(Some(grand), debut), debut).await;
+    assert!(refus_de(&r, "REMISE REFUSÉE"), "{r:?}");
+    let vu_famille = b.ent.historique_a(b.etab, pb, PARENT, "sortie", s.id, debut).await.unwrap();
+    assert!(vu_famille.iter().all(|f| !f.motif_code.as_deref().is_some_and(|m| m.starts_with("interdiction"))), "{vu_famille:?}");
+    assert!(vu_famille.iter().any(|f| f.acte == "depart_refuse" && f.motif_code.as_deref() == Some("personne_non_autorisee")));
+    let vu_cpe = b.ent.historique_a(b.etab, b.cpe, CPE, "sortie", s.id, debut).await.unwrap();
+    assert!(vu_cpe.iter().any(|f| f.motif_code.as_deref() == Some("interdiction_remise")), "le personnel lit le vrai motif");
+    // F-F : deux liens écartés de la garde, tous deux « personne autorisée à récupérer ».
+    for (garde, autorite) in [(Some("aucune"), true), (None, false)] {
+        let user = compte(&b.ent, b.etab, PARENT).await;
+        let pers = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,$3,'Ancien',$4,'compte')")
+            .bind(pers)
+            .bind(b.etab)
+            .bind(format!("Ancien{}", alea()))
+            .bind(user)
+            .execute(b.ent.pool_verif())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, lien, autorite_parentale, garde) VALUES ($1,$2,$3,$4,$5,'pere',$6,$7)")
+            .bind(Uuid::new_v4())
+            .bind(b.etab)
+            .bind(eleve)
+            .bind(user)
+            .bind(pers)
+            .bind(autorite)
+            .bind(garde)
+            .execute(b.ent.pool_verif())
+            .await
+            .unwrap();
+        autoriser_recuperer(&b, eleve, pers).await;
+        let r = annoncer_avec(&b, pb, PARENT, eleve, avril(21), avril(21), Some(pers), maintenant).await;
+        assert!(refus_de(&r, "pas autorisée à récupérer"), "garde {garde:?}, autorité {autorite} : {r:?}");
+    }
+}
