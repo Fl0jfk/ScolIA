@@ -623,15 +623,29 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
 /// ajouté ici** (fichier concerné, ordre SQL idempotent, cause).
 #[cfg(test)]
 #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
-const GARDES_DE_REJEU: &[(&str, &str)] = &[(
-    "644_sortie_prestataires",
-    "DO $$ BEGIN
+const GARDES_DE_REJEU: &[(&str, &str)] = &[
+    (
+        "644_sortie_prestataires",
+        "DO $$ BEGIN
         IF to_regclass('ent_sortie_document') IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_sortie_document_type_v0c_chk') THEN
             ALTER TABLE ent_sortie_document ADD CONSTRAINT ent_sortie_document_type_v0c_chk CHECK (true);
         END IF;
     END $$",
-)];
+    ),
+    // 2824 recrée l'index unique d'appel sans complément que 2826 remplace (un second appel « soir » complémentaire,
+    // M-1, est permis) : sur une base qui contient un tel appel, le rejeu de 2824 échouerait (doublon). Un index
+    // provisoire de même nom, non unique, fait ignorer la création (`IF NOT EXISTS`) ; 2826 le supprime de nouveau.
+    (
+        "2824_internat_i2_la_nuit",
+        "DO $$ BEGIN
+        IF to_regclass('ent_internat_appel') IS NOT NULL
+           AND to_regclass('ent_internat_appel_perimetre_uq') IS NULL THEN
+            CREATE INDEX ent_internat_appel_perimetre_uq ON ent_internat_appel (etablissement_id, nuit);
+        END IF;
+    END $$",
+    ),
+];
 
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
 /// données (« legacy » insérées après coup) que les fichiers de reprise savent absorber.

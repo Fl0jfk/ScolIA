@@ -131,4 +131,6 @@ Tables **0** (aucune) ; **fonctions SQL +5** (`ent_internat_personne_chaine`, `_
 
 ## Tête et CI (passe 3)
 
-À compléter par le message au pilote (tête finale et état de la CI de la PR en brouillon).
+* Premier push (**7e2ee370**) : la compilation des binaires de test a été interrompue par la perte du runner (arrêt demandé, puis étape restée « en cours » 49 minutes, sans journal), deux fois ; troisième tentative : compilation verte. Mesure locale de la mémoire de cette compilation (lib et lib de test d'`ent-db`) : pointe de 12,2 Go avec la passe 3, 12,5 Go sur la base d0d07a0e : pas de régression, c'est le même comportement du runner que le 440.
+* Une seule tranche rouge (tests avec labo 1/20) : `tests_personnels_p1::reprise_de_l_existant_…_rejeu` rejoue **toutes** les migrations ; le rejeu de 2824 recrée `ent_internat_appel_perimetre_uq`, index que 2826 remplace, et échoue (doublon) dès qu'un appel « soir » complémentaire (M-1) existe dans la même base. Défaut latent (ordre des tests dans une tranche, décalé par les 11 tests ajoutés). Correction conforme à la règle écrite dans `migrate.rs` : une **garde de rejeu** (test seulement, `GARDES_DE_REJEU`) pose un index provisoire de même nom avant le rejeu de 2824 ; 2826 le supprime de nouveau. Aucune migration modifiée. Vérifié en local (base neuve : `m1_ajout…` puis le rejeu, verts) ; clippy 1.99 (commande 2) rejoué propre.
+* Tête finale et état de la CI : voir le message au pilote.
