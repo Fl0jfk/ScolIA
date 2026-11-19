@@ -61,7 +61,7 @@ Même branche (`ent-socle-41-code-i3`, PR n° 106, brouillon), partie de 1e40069
 | **F-E** majeur, `si_a_charge` | fait | Aucun événement `majeur_informe` quand la politique n'est pas `toujours` (lecture refusée aux parents). Le futur résolveur de destinataires du **socle 8** devra écarter les parents visés par une interdiction (remise, visite, contact) avant tout envoi : documenté dans le code | `r_it22_…` adapté |
 | **F-F** branche « contact d'urgence » | fait | Un contact dont une fiche de la chaîne a un lien suspendu, en garde `aucune` ou **sans autorité parentale** ne prend pas l'élève. Limite à valider : un proche (grand-parent) qui aurait un lien sans autorité parentale ne passe plus par cette porte | `fc_fd_ff_…` |
 
-Choix à valider : `interdiction_auteur` ne reprend jamais d'elle-même ; la décision revient au CPE (sortie « demandée » : un autre titulaire répond, le CPE décide) ou à la direction (absence, blocage M-A). Les actes appuyés sur l'autorisation annuelle (socle 18, sans compte auteur) ne sont pas revus par E-A.
+Choix à valider : `interdiction_auteur` ne reprend jamais d'elle-même ; la décision revient au CPE (sortie « demandée » : un autre titulaire répond, le CPE décide) ou à la direction (absence, blocage M-A). Les actes appuyés sur l'autorisation annuelle (socle 18, sans compte auteur) ne sont pas revus par E-A. **[Remplacé par la passe 3 : les décideurs de l'autorisation annuelle sont des auteurs comme les autres, et E-A n'est plus qu'un cas de la règle générale « un acte tombe avec son auteur ».]**
 
 ## Tests locaux
 `tests_internat_i3` : **52 verts** (43 + 9 nouveaux) sur base neuve. Suite large (`internat rls registre migrat fusion conservation rgpd accords d036 roles`, base neuve) : **312 verts sur 313** ; `tests_eleve_fusion::defusion_refusee_si_une_ligne_deplacee_a_change` a échoué une fois en parallèle (table `ent_absence_seance`, hors internat) et **passe seul** : flottement de concurrence à surveiller, non lié à ce lot. `ent-api` `tests_internat` : 5 verts. Clippy 1.99 `-D warnings` (3 commandes de la CI) : propre ; `cargo fmt -p ent-types --check` : propre (fmt non lancé sur `ent-db`, règle du dépôt). Non rejoué : suite complète d'`ent-db`, frontend (sauté, règle 27).
@@ -71,3 +71,64 @@ Tables **0** ; migration 2826 (modifiée : motif `interdiction_auteur`, fonction
 
 ## Tête et CI
 Tête de code vérifiée : **695e87ef** (branche `ent-socle-41-code-i3`, PR n° 106 en brouillon), partie de 1e400696. CI `ENT Rust`, run n° 440 : **verte** (formatage, audits, backend, frontend). Le premier passage avait rendu le job « compilation des binaires de test (archives nextest) » rouge par **perte de runner** (étape de compilation restée « en cours » 48 minutes, sans journal, alors que clippy et les autres jobs compilaient le même code) : un seul relancement des jobs en échec, vert. Le commit qui ajoute ce paragraphe ne touche que cette documentation (arbre de code identique à 695e87ef).
+
+---
+
+# Passe 3 — « un acte tombe avec son auteur » : une règle générale, puis les points restants
+
+Même branche (`ent-socle-41-code-i3`, PR n° 106, brouillon), partie de la tête distante **d0d07a0e** (elle contient le commit du pilote sur `remise_possible_tx`, conservé : un parent ou tuteur privé d'autorité parentale est exclu de la porte « contact d'urgence », un proche de lien « autre » ne l'est pas). Migration **2826 modifiée** (non versée) ; 2824 et 2825 intactes. Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend non touché (règle 27) ; `ent-types` et `ent-api` non touchés. Tests : PostgreSQL 16 local, base **neuve** (`ent_i3f`), `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, Rust 1.99.0, `--locked` ; aucun test ne dépend de l'heure réelle (jours fixes d'avril 2026, instants passés à chaque commande, dates de pose des interdictions fixées).
+
+## La règle générale (décision du pilote)
+
+Deux passes avaient bouché les trous un par un (un champ d'auteur par champ d'auteur). La passe 3 remplace ces contrôles par **une seule fonction**, `actes_qui_tombent_tx` (`ent-rust/crates/ent-db/src/internat_sorties/actes.rs`), appelée **partout** : contrôle de départ d'une sortie, contrôle de départ d'une absence, revue à la minute (sorties, absences, correspondants, départs déjà constatés).
+
+> Pour la sortie ou l'absence d'un **mineur**, au contrôle de départ et à chaque revue : si **une seule** des personnes qui ont posé un acte encore en vigueur sur elle est désormais visée (sur toute sa chaîne `fusionnee_dans`) par une interdiction non levée et non terminée d'objet `remise`, `visite` ou `contact_eleve`, l'acte tombe.
+
+| Acte | Où l'auteur est lu |
+|---|---|
+| demande d'une sortie, annonce d'une absence | **journal des faits** (`demande`, `annonce`, qualité famille, en vigueur = non suivi d'un `accord_remis_a_zero`) |
+| accord de la famille | colonne `accord_titulaire_user_id` (l'accord en vigueur) |
+| désignation ou changement de la personne qui récupère | **journal** : dernier fait `demande` / `accord_titulaire` / `reprise` portant une personne (les faits `reprise` : un parent qui désigne la personne d'une sortie créée par le système en est l'auteur, aucune colonne de la ligne ne le dit) |
+| désignation du correspondant | colonne `designe_par_user_id` et fait `designation` |
+| autorisation annuelle (socle 18) dont l'objet dépend | **tous** les décideurs qui l'ont accordée (`ent_acc_decision`, dernière décision de chacun) |
+
+**Effets, par un seul chemin par objet** : sortie non partie → accord et décision du CPE retirés, personne désignée effacée, autorisation annuelle écartée, retour à « demandée » (suspendue ou bloquée comprises : un blocage de l'autre titulaire reste à trancher, avec un état antérieur « demandée »), fait `accord_remis_a_zero` (motif `interdiction_auteur`, personne effacée tracée), événement ; absence non partie → personne effacée, **bloquée** (motif `interdiction_auteur`), l'élève reste attendu ; correspondant → suspendu (seul le CPE le reprend) ; **déjà parti** → rien n'est défait, un cas pour le CPE (point 1). Une décision du CPE ou de la direction **postérieure à la pose de l'interdiction** couvre l'acte (la revue ne défait pas ce qu'ils ont décidé). La famille ne lit jamais la cause (code générique, F-D) ni le fait `signalement`.
+
+**Tests** (`tests_internat_i3`, préfixe `p3_` et `ea_`) : sortie de week-end créée par le système puis personne désignée par le parent A, A interdit → la personne tombe, à la revue et au départ, avec un **témoin** (parent non visé) qui part normalement : `p3_regle_sortie_week_end_du_systeme_…` ; sortie accompagnée, accord de B et personne de A : `p3_regle_sortie_accompagnee_accord_de_b_personne_de_a` ; autorisation annuelle signée par A seul / par A et B : `p3_regle_autorisation_annuelle_…` ; correspondant désigné par A : `ea_correspondant_…` (même fonction) ; E-A sur une sortie suspendue ou bloquée : `p3_regle_sortie_suspendue_ou_bloquee_…`. **Le contrôle échoue bien sans la règle** : avec la fonction neutralisée (mutation locale, retirée ensuite), les 8 tests de la règle (`p3_regle_*` ×4, `p3_deja_parti_*`, `ea_*` ×3) échouent tous (8 rouges sur 8) ; restaurée, ils passent.
+
+## Les points restants
+
+| Point | État | Ce qui a été fait | Tests |
+|---|---|---|---|
+| **1** déjà parti | fait | `signaler_departs_tx` : une absence ou une sortie « partie » dont un auteur **ou la personne remise** devient visé ouvre un cas **`interdiction_auteur`** pour le CPE (alerte `internat.cas_ouvert`, fait `signalement` illisible de la famille). `ent_internat_attendu_calcule` : **tant que ce cas est ouvert, les nuits SUIVANTES (nuit du cas exclue) ne retirent plus l'élève** de l'attendu ; le CPE tranche en fermant le cas ; un cas ouvert ou clos depuis la pose de l'interdiction n'est pas rouvert | `p3_deja_parti_…` (sortie de trois jours, absence partie, cas clos non rouvert) |
+| **2** verdict annuel | fait | `verdicts_annuels` : un verdict « autorisé » dont **tous** les décideurs sont visés devient `decideur_interdit` (la vue `ent_eleve_lien_communicant` n'exclut que `communication`) ; la lecture d'autorisations (`autorisations_eleve_a`) le montre ; l'inscription au mercredi est refusée. Le verdict reste « autorisé » si un autre décideur subsiste, mais la règle générale fait tomber l'acte (« une seule » personne visée) | `p3_regle_autorisation_annuelle_…` |
+| **3** faux « non récupéré » | fait | L'heure limite ne vaut que pour une absence qui **commence le vendredi** (première nuit) ; pour une sortie : l'heure de départ **prévue saisie**, ou l'heure de récupération du vendredi pour la sortie créée par le système (début nominal à midi) ; **le cas se ferme au départ constaté** (issue `rentre_famille`) ; une absence dont la nuit est couverte par une sortie « partie » est ignorée ; un cas ouvert **ou clos** pour la nuit n'est pas rouvert | `p3_non_recupere_…`, `mb_…` adapté (absence du vendredi) |
+| **4** interdiction sans personne identifiée | fait | **La direction lève** (le CPE ne tranche pas : code inchangé, documentation alignée ci-dessous). Une sortie ou une absence **accompagnée** reste impossible tant qu'elle est en vigueur : à la revue et au départ elle est **bloquée** (jamais suspendue d'elle-même). **Levée ponctuelle** : la direction tranche « lever » sur ce cas avec un **motif obligatoire** (`motif_de_levee_tx`) ; la décision est tracée (`tranchee_levee`, motif `interdiction_remise`), vaut **pour ce cas seulement** (`remise_pour_tx` lit la décision postérieure à la pose) ; une interdiction nominative ne se lève jamais ainsi ; une nouvelle demande accompagnée reste refusée | `p3_interdiction_sans_personne_…` (dont M-A sur une absence : revue), `c1_*` et `ma_*` adaptés (motif de levée) |
+| **5** lien échu | fait | Fonction SQL `ent_internat_remise` : la porte « contact d'urgence » écarte un parent ou tuteur dont le lien est **terminé** (`date_fin` passée) ou **pas encore commencé**, qu'il ait été privé d'autorité ou non. **Décision prudente, à valider** : un lien simplement échu d'un parent qui reste contact validé est écarté (la direction rétablit le lien) ; un proche de lien « autre » reste autorisé | `p3_lien_echu_…` (6 cas) |
+| **6** `week_end_seul` | fait | `week_end_complet` : première nuit un vendredi **et** dernière nuit au plus celle du dimanche (annonce, départ, revue) ; la direction ne lève pas une absence sans personne ni autorisation annuelle | `p3_week_end_seul_…` |
+| **7** course de la revue | fait | Sorties et absences lues `FOR UPDATE` ; chaque `UPDATE` gardé par l'état attendu (`AND statut = …`, `rows_affected`) : une sortie partie entre-temps (la contrainte `effectif_chk` aurait fait échouer toute la transaction de la minute) est ignorée | `p3_course_…` (deux transactions réelles) |
+| **8** outbox | fait | Contrat écrit : `cause = interdiction_*` **ne se relaie jamais aux familles** (`docs/socles/41_INTERNAT.md` §22 ; note pour le socle 8, `docs/socles/08_NOTIFICATIONS.md` §6.2) | — (recette du socle 8) |
+| **9** charge | fait | Revue sans requête par ligne : évaluation unique de la règle pour tous les objets, remises, verdicts annuels (une vérification par usage et jour), correspondants, interdictions sans personne, en lots (`unnest`) ; règles de remise et d'interdiction **déplacées en fonctions SQL** (une définition, appelée par ligne au départ et en lot à la revue) ; seules les écritures, rares, sont faites ligne à ligne. **Mesure** (300 internes : 150 sorties de week-end autorisées dont la personne est désignée par un parent, 100 absences annoncées) : **34 requêtes** pour toute la revue (journal du serveur, indépendant du nombre d'élèves), **69 ms** puis 65 ms (base locale) | `p3_charge_revue_a_la_minute_pour_300_internes` (borne large de 10 s, mesure imprimée) |
+| **10** tests manquants | fait | désignation de tiers (`p3_regle_sortie_week_end_…`), annuel signé par le parent visé, revue M-A d'une absence, E-A sur sortie suspendue ou bloquée, lien échu | voir ci-dessus |
+
+**Documentation du point 4 (alignement)** : une interdiction **sans personne identifiée** (non nominative) n'est levée que par la **direction** (ou l'administration), jamais par le CPE ; tant qu'elle est en vigueur, un mineur ne part pas seul et personne ne lui est remise (ni sortie ni absence accompagnée), sauf décision explicite et tracée de la direction sur le cas, avec motif obligatoire.
+
+## Choix à valider
+
+1. **Absence : la direction tranche, pas le CPE.** La consigne dit que « la décision revient au CPE » ; pour une sortie c'est exact (retour à « demandée »). Pour une **absence** le blocage existant (direction) est conservé : le CPE est alerté par l'événement, la direction tranche, et lever est impossible sans personne désignée ni autorisation annuelle (la personne a été effacée) : la famille annonce de nouveau.
+2. Une sortie **bloquée ou suspendue** dont l'auteur est visé retourne à « demandée » : la levée de la direction ne rend pas l'accord.
+3. Les décideurs de l'autorisation annuelle sont **tous** retenus comme auteurs (une décision expirée mais non retirée compte) : prudent.
+4. Lien échu d'un parent contact validé : écarté (point 5).
+5. Une nuit « en cours » s'arrête à midi (`nuit_a_tx`) : le cas du point 1 ouvert à 9 h porte sur la nuit précédente.
+
+## Tests locaux
+
+`tests_internat_i3` : **63 verts** sur base neuve (52 + 11 nouveaux ; 4 anciens adaptés : `mb_` (absence du vendredi), `ea_absence_` (levée motivée, personne effacée), `c1_` et `ma_` (motif de levée)). Suite large `ent-db` (`internat rls registre migrat fusion conservation rgpd accords d036 roles isolation jour_utc`, base neuve) : voir « Tête et CI ». Clippy 1.99 `-D warnings` (3 commandes de la CI) : voir « Tête et CI ». `cargo fmt -p ent-types --check` : inchangé (`ent-types` non touché ; fmt non lancé sur `ent-db`, règle du dépôt).
+
+## Compteurs (règle 28), recalculés
+
+Tables **0** (aucune) ; **fonctions SQL +5** (`ent_internat_personne_chaine`, `_personne_visee`, `_user_vise`, `_interdiction_sans_cible`, `_remise`) ; migration 2826 modifiée (nature de cas `interdiction_auteur`, acte `signalement`, attendu, fonctions) ; `MIGRATION_TAG` inchangé (aucune migration nouvelle) ; `Action::TOUTES` inchangé ; routes inchangées (36 pour I3) ; événements inchangés (réutilisés : `internat.sortie_decidee`, `internat.absence_bloquee`, `internat.correspondant`, `internat.cas_ouvert`) ; RLS et registre des données inchangés (aucune table) ; constantes publiques d'`ent-types` inchangées.
+
+## Tête et CI (passe 3)
+
+À compléter par le message au pilote (tête finale et état de la CI de la PR en brouillon).

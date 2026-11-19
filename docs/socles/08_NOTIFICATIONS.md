@@ -414,6 +414,8 @@ pub const AVIS: &[AvisSurEvenement] = &[
 ```
 La brique `notifications` installe **un seul consommateur** (`notifications.avis`) pour tous les `AvisSurEvenement` déclarés ; il crée l'avis et ses destinataires **dans la transaction de distribution** (rejouable : aucun effet externe), les remises partent après.
 
+> **Note pour le socle 8 (venue du socle 41, lot I3 passe 3).** Un événement dont le champ `cause` commence par **`interdiction_`** (`interdiction_remise`, `interdiction_auteur` : émis par `internat.sortie_decidee`, `internat.absence_bloquee`, `internat.correspondant`) **ne se relaie jamais aux familles** (titulaires, élève, personne désignée, correspondant) : ni in-app, ni push, ni SMS, ni e-mail. Il révèle l'existence et la cible d'une interdiction (socle 4). Le filtre `AvisSurEvenement` de ces événements doit exclure toute cause `interdiction_*` pour les destinataires famille ; seuls CPE, direction et surveillant de service (portée de la nuit) peuvent en être avisés, sans le motif. Test de recette du socle 8 : un événement de cause `interdiction_auteur` ne crée aucun destinataire famille. Contrat : `docs/socles/41_INTERNAT.md` §22.
+
 ### 6.3 Notifier par le service publié (quand l'émetteur a besoin d'un retour à l'écran)
 
 ```rust

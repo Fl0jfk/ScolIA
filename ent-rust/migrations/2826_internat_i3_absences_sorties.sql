@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
         'annonce', 'demande', 'regularisation_demandee', 'accord_titulaire', 'acceptation', 'refus', 'blocage',
         'opposition', 'tranchee_maintenue', 'tranchee_levee', 'regularisation', 'annulation', 'depart', 'retour',
         'retard_annonce', 'revocation', 'suspension', 'reprise', 'expiration', 'designation', 'fin',
-        'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse')),
+        'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse', 'signalement')),
     qualite TEXT NOT NULL CHECK (qualite IN (
         'titulaire', 'eleve_majeur', 'eleve', 'personnel', 'cpe', 'direction', 'systeme')),
     par_user_id UUID REFERENCES ent_user (id),
@@ -525,6 +525,110 @@ LANGUAGE sql STABLE AS $$
                         AND (k.au IS NULL OR k.au >= jour))
 $$;
 
+-- ───────────────────────── Interdictions et remise : règles en SQL (passe 3) ─────────────────────────
+-- Une seule définition, appelée une fois par ligne (contrôle de départ) ou en lot (revue à la minute : une requête par
+-- établissement, jamais une par ligne). Aucune ne lit de donnée hors de l'établissement passé en paramètre.
+
+-- Une personne et TOUTE sa chaîne de fusions, dans les deux sens : les fiches fusionnées dans elle, et la fiche dans
+-- laquelle elle est elle-même fusionnée (et ainsi de suite). Une interdiction posée sur n'importe quelle fiche de la
+-- chaîne vise la même personne réelle.
+CREATE OR REPLACE FUNCTION ent_internat_personne_chaine(p_etab UUID, p_personne UUID)
+RETURNS SETOF UUID LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE chaine(id) AS (
+        SELECT p_personne
+        UNION
+        SELECT CASE WHEN s.id = c.id THEN s.fusionnee_dans ELSE s.id END
+          FROM ent_personne s
+          JOIN chaine c ON s.etablissement_id = p_etab
+                       AND ((s.id = c.id AND s.fusionnee_dans IS NOT NULL) OR s.fusionnee_dans = c.id))
+    SELECT id FROM chaine
+$$;
+
+-- Date de pose (la plus récente) des interdictions de remise, de visite ou de contact qui visent la personne (chaîne de
+-- fusions comprise), non levées et non terminées ; NULL si elle n'est pas visée. La date de début est ignorée (décision
+-- pessimiste : une interdiction posée en urgence joue tout de suite).
+CREATE OR REPLACE FUNCTION ent_internat_personne_visee(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
+RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
+    SELECT max(i.created_at) FROM ent_eleve_interdiction i
+     WHERE i.etablissement_id = p_etab AND i.eleve_id = p_eleve AND i.levee_le IS NULL
+       AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[]
+       AND (i.au IS NULL OR i.au >= p_jour) AND i.personne_id IS NOT NULL
+       AND i.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
+$$;
+
+-- Le compte est-il « visé » : l'une des fiches qui sont les siennes (fiche personne rattachée au compte, ou lien avec
+-- l'élève) est visée par une interdiction (voir ci-dessus). Date de pose la plus récente, NULL sinon.
+CREATE OR REPLACE FUNCTION ent_internat_user_vise(p_etab UUID, p_eleve UUID, p_user UUID, p_jour DATE)
+RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
+    SELECT max(ent_internat_personne_visee(p_etab, p_eleve, x.pid, p_jour))
+      FROM (SELECT id AS pid FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user
+            UNION
+            SELECT personne_id FROM ent_eleve_lien
+             WHERE etablissement_id = p_etab AND eleve_id = p_eleve AND user_id = p_user) x
+$$;
+
+-- Date de pose de l'interdiction SANS personne identifiée (non nominative) la plus récente, non levée et non terminée ;
+-- `p_remise_seule` limite aux interdictions d'objet « remise ».
+CREATE OR REPLACE FUNCTION ent_internat_interdiction_sans_cible(
+    p_etab UUID, p_eleve UUID, p_jour DATE, p_remise_seule BOOLEAN)
+RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
+    SELECT max(i.created_at) FROM ent_eleve_interdiction i
+     WHERE i.etablissement_id = p_etab AND i.eleve_id = p_eleve AND i.levee_le IS NULL AND i.personne_id IS NULL
+       AND (CASE WHEN p_remise_seule THEN 'remise' = ANY (i.objet)
+                 ELSE i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] END)
+       AND (i.au IS NULL OR i.au >= p_jour)
+$$;
+
+-- Une personne peut-elle prendre l'élève ce jour-là ? Code : « interdite » (visée par une interdiction, toujours
+-- prioritaire), « sans_cible » (une interdiction sans personne identifiée est en vigueur et la direction ne l'a pas levée
+-- pour ce cas : `p_sans_cible_levee`), « autorisee » (+ relation) ou « non_autorisee ».
+--   * titulaire : lien actif, autorité parentale, garde non « aucune », non fusionnée ;
+--   * personne autorisée : contact validé, « peut récupérer », dont aucun lien avec l'élève (sur toute la chaîne de
+--     fusions) n'est suspendu, en garde « aucune », ni celui d'un parent ou tuteur privé de l'autorité parentale, ni celui
+--     d'un parent ou tuteur dont le lien est TERMINÉ (date de fin passée) ou PAS ENCORE COMMENCÉ : décision prudente (un
+--     parent dont le lien est simplement échu ne prend pas l'élève comme « contact » ; la direction rétablit le lien) ;
+--     un proche de lien « autre » (grand-parent, beau-parent) n'a jamais eu l'autorité parentale et reste autorisé.
+CREATE OR REPLACE FUNCTION ent_internat_remise(
+    p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE, p_sans_cible_levee BOOLEAN)
+RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
+    WITH base AS (
+        SELECT ent_internat_personne_visee(p_etab, p_eleve, p_personne, p_jour) IS NOT NULL AS visee,
+               (NOT p_sans_cible_levee
+                AND ent_internat_interdiction_sans_cible(p_etab, p_eleve, p_jour, false) IS NOT NULL) AS sans_cible,
+               (SELECT x.rel FROM (
+                    SELECT COALESCE(NULLIF(btrim(l.lien), ''), 'titulaire') AS rel
+                      FROM ent_eleve_lien l
+                      JOIN ent_personne p ON p.etablissement_id = l.etablissement_id AND p.id = l.personne_id
+                     WHERE l.etablissement_id = p_etab AND l.eleve_id = p_eleve AND l.personne_id = p_personne
+                       AND l.suspendu_le IS NULL AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune'
+                       AND (l.date_debut IS NULL OR l.date_debut <= p_jour)
+                       AND (l.date_fin IS NULL OR l.date_fin >= p_jour)
+                       AND p.fusionnee_dans IS NULL
+                    UNION ALL
+                    SELECT COALESCE(NULLIF(btrim(c.relation), ''), 'personne autorisée')
+                      FROM ent_eleve_contact_urgence c
+                      JOIN ent_personne p ON p.etablissement_id = c.etablissement_id AND p.id = c.personne_id
+                     WHERE c.etablissement_id = p_etab AND c.eleve_id = p_eleve AND c.personne_id = p_personne
+                       AND c.peut_recuperer AND c.statut = 'valide' AND p.fusionnee_dans IS NULL
+                       AND NOT EXISTS (
+                            SELECT 1 FROM ent_eleve_lien sl
+                             WHERE sl.etablissement_id = p_etab AND sl.eleve_id = p_eleve
+                               AND sl.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
+                               AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune'
+                                    OR (NOT sl.autorite_parentale AND sl.lien IN ('mere', 'pere', 'tuteur'))
+                                    OR (sl.lien IN ('mere', 'pere', 'tuteur')
+                                        AND ((sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
+                                             OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)))))
+                ) x LIMIT 1) AS rel
+    )
+    SELECT CASE WHEN visee THEN 'interdite'
+                WHEN sans_cible THEN 'sans_cible'
+                WHEN rel IS NOT NULL THEN 'autorisee'
+                ELSE 'non_autorisee' END,
+           CASE WHEN visee OR sans_cible THEN NULL ELSE rel END
+      FROM base
+$$;
+
 CREATE OR REPLACE FUNCTION ent_internat_attendu_calcule(etab UUID, nuit DATE)
 RETURNS TABLE (eleve_id UUID, chambre_id UUID, lit_id UUID, statut TEXT, motif_code TEXT)
 LANGUAGE sql STABLE AS $$
@@ -562,7 +666,13 @@ LANGUAGE sql STABLE AS $$
         SELECT ab.eleve_id, 'absence_annoncee' FROM ent_internat_absence ab, ancre
          WHERE ab.etablissement_id = etab AND ab.du_nuit <= nuit AND ab.au_nuit >= nuit
            AND (ab.statut = 'regularisee'
-                OR (ab.statut IN ('annoncee', 'acceptee')
+                -- Passe 3 : une absence dont l'auteur ou la personne remise est devenu visé APRÈS le départ ouvre un cas
+                -- pour le CPE ; tant qu'il n'a pas tranché (cas ouvert), les nuits SUIVANTES ne retirent plus l'élève.
+                OR (NOT EXISTS (SELECT 1 FROM ent_internat_cas cx
+                                 WHERE cx.etablissement_id = etab AND cx.eleve_id = ab.eleve_id
+                                   AND cx.nature = 'interdiction_auteur' AND cx.issue IS NULL
+                                   AND cx.nuit < ent_internat_attendu_calcule.nuit)
+                    AND ab.statut IN ('annoncee', 'acceptee')
                     AND (ent_internat_eleve_majeur(etab, ab.eleve_id, nuit)
                          OR (ab.depart_effectif IS NOT NULL AND ab.depart_effectif <= ancre.t)))
                 -- Blocage posé après le début d'une nuit : il ne vaut, pour un élève réellement parti, que pour les
@@ -575,6 +685,10 @@ LANGUAGE sql STABLE AS $$
         -- cela, un élève resté à l'internat ne serait ni appelé ni cherché.
         SELECT so.eleve_id, 'sortie' FROM ent_internat_sortie so, ancre
          WHERE so.etablissement_id = etab AND so.statut IN ('partie', 'rentree')
+           AND NOT EXISTS (SELECT 1 FROM ent_internat_cas cx
+                            WHERE cx.etablissement_id = etab AND cx.eleve_id = so.eleve_id
+                              AND cx.nature = 'interdiction_auteur' AND cx.issue IS NULL
+                              AND cx.nuit < ent_internat_attendu_calcule.nuit)
            AND so.debut <= ancre.t
            AND COALESCE(so.retour_effectif, so.fin_ajustee) >= ancre.matin
         UNION ALL
@@ -649,7 +763,11 @@ ALTER TABLE ent_internat_cas ALTER COLUMN ouvert_par_user_id DROP NOT NULL;
 -- (nature ajoutée ; la contrainte de 2824 est remplacée, jamais retirée).
 ALTER TABLE ent_internat_cas DROP CONSTRAINT IF EXISTS ent_internat_cas_nature_check;
 ALTER TABLE ent_internat_cas ADD CONSTRAINT ent_internat_cas_nature_check CHECK (
-    nature IN ('non_retrouve', 'non_rentre', 'non_recupere', 'retard_retour', 'non_couvert'));
+    nature IN ('non_retrouve', 'non_rentre', 'non_recupere', 'retard_retour', 'non_couvert', 'interdiction_auteur'));
+-- Passe 3 : « interdiction_auteur » = l'auteur d'un acte (demande, accord, désignation de la personne qui récupère,
+-- correspondant, autorisation annuelle) ou la personne remise est devenu visé par une interdiction APRÈS le départ de
+-- l'élève (absence ou sortie « partie ») : le CPE tranche ; les nuits suivantes ne retirent plus l'élève de l'attendu
+-- tant que ce cas est ouvert (voir `ent_internat_attendu_calcule`).
 
 -- Journal des lectures sensibles (R-IT38) : trois objets de plus pour ce lot (liste de remise, sorties d'un élève,
 -- correspondants). La contrainte de 2824 est remplacée (même nom automatique), jamais retirée.
