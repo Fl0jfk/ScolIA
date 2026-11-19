@@ -752,9 +752,7 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
 async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
     for stmt in ordres(sql) {
         if let Err(e) = sqlx::query(&stmt).execute(pool).await {
-            let vue_legacy = [" ent_note ", " ent_note(", " ent_devoir ", " ent_devoir(", "\nent_note ", "\nent_devoir "]
-                .iter()
-                .any(|m| stmt.contains(m));
+            let vue_legacy = vise_ent_note_ou_devoir(&stmt);
             let code_vue = matches!(&e, sqlx::Error::Database(d) if d.code().is_some_and(|c| c == "42809" || c == "55000"));
             if vue_legacy && code_vue {
                 continue;
@@ -763,6 +761,20 @@ async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateErr
         }
     }
     Ok(())
+}
+
+/// Vrai si l'ordre cite `ent_note` ou `ent_devoir` comme identifiant entier (pas `ent_note_periode`, `ent_devoir_archive`…).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+fn vise_ent_note_ou_devoir(stmt: &str) -> bool {
+    let est_id = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    ["ent_note", "ent_devoir"].iter().any(|nom| {
+        stmt.match_indices(nom).any(|(i, _)| {
+            let avant = stmt[..i].chars().next_back();
+            let apres = stmt[i + nom.len()..].chars().next();
+            !avant.is_some_and(est_id) && !apres.is_some_and(est_id)
+        })
+    })
 }
 
 /// Découpe sur `;` **hors** blocs `$$ … $$` (corps de fonction plpgsql).
