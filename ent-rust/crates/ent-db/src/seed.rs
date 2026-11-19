@@ -8,6 +8,7 @@ use crate::foyer_repo::CreateLien;
 use crate::matiere_repo::CreateMatiere;
 use crate::note_repo::SaisirNote;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
@@ -705,6 +706,7 @@ impl PgEnt {
         // Seulement s'il reste des données héritées non reprises : le semis est rejoué par chaque test (établissement
         // partagé) ; une reprise à chaque appel serialiserait les tests (verrou, ALTER TABLE) et ajouterait une
         // exécution et un événement à chacun.
+        let mut tx_lecture = TenantTx::begin(self.pool(), etab).await.map_err(crate::evaluations::db)?;
         let a_reprendre: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_devoir_archive d WHERE d.etablissement_id = $1
                              AND NOT EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.id = d.id AND e.etablissement_id = d.etablissement_id))
@@ -712,8 +714,9 @@ impl PgEnt {
                              AND NOT EXISTS (SELECT 1 FROM eva_resultat r WHERE r.id = n.id AND r.etablissement_id = n.etablissement_id))",
         )
         .bind(etab)
-        .fetch_one(self.pool_verif())
+        .fetch_one(&mut *tx_lecture)
         .await?;
+        drop(tx_lecture);
         if a_reprendre {
             self.eva_v1_reprendre_amorcage(etab).await?;
         }
