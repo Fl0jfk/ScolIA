@@ -753,8 +753,16 @@ async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateErr
     for stmt in ordres(sql) {
         if let Err(e) = sqlx::query(&stmt).execute(pool).await {
             let vue_legacy = vise_ent_note_ou_devoir(&stmt);
-            let code_vue = matches!(&e, sqlx::Error::Database(d) if d.code().is_some_and(|c| c == "42809" || c == "55000"));
-            if vue_legacy && code_vue {
+            // Un appel de fonction ancienne (112 : `ent_rattacher_classes`, remplacée par 472 mais redéfinie par le rejeu
+            // de son fichier) échoue sur la vue : l'erreur nomme alors la vue, pas l'ordre.
+            let (code_vue, nomme_vue) = match &e {
+                sqlx::Error::Database(d) => (
+                    d.code().is_some_and(|c| c == "42809" || c == "55000"),
+                    d.message().contains("\"ent_devoir\"") || d.message().contains("\"ent_note\""),
+                ),
+                _ => (false, false),
+            };
+            if code_vue && (vue_legacy || nomme_vue) {
                 continue;
             }
             return Err(e.into());
