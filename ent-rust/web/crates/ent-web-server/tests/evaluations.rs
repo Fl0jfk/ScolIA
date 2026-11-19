@@ -15,7 +15,9 @@ use std::net::SocketAddr;
 
 use chrono::Duration;
 use ent_types::evaluations::{GenererBulletinsBody, PublierBulletinsBody};
-use ent_types::evaluations_v3::{CelluleSaisieDto, CreerEvaluationV3Body, PublierV3Body, SaisieLotBody};
+use ent_types::evaluations_v3::{
+    CelluleSaisieDto, CreerEvaluationV3Body, PublierV3Body, SaisieLotBody,
+};
 use ent_web_api::{ApiClient, ApiError};
 use ent_web_server::labo::{self, Labo};
 use uuid::Uuid;
@@ -216,7 +218,10 @@ async fn periode_complete_avec_le_client_du_frontend() {
         .find(|e| e.matiere_id == Some(matiere.id))
         .expect("le cours de la classe")
         .cours_id;
-    let periodes_cours = c_prof.eva3_periodes(cours).await.expect("périodes du cours");
+    let periodes_cours = c_prof
+        .eva3_periodes(cours)
+        .await
+        .expect("périodes du cours");
     let periode_eva = periodes_cours
         .iter()
         .find(|p| p.date_debut <= t && t <= p.date_fin)
