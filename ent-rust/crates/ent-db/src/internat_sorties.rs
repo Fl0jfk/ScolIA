@@ -769,6 +769,8 @@ impl PgEnt {
     /// Lien de titulaire du compte pour l'élève : lien communicant, autorité parentale, garde non « aucune », et
     /// **personne non visée par une interdiction** de remise, de visite ou de contact (C-1) : un parent interdit de
     /// remise n'est acteur d'aucune action du lot. `Some(peut_autoriser_sorties)` si le compte est titulaire.
+    /// M-A (règle D25 de la messagerie, migration 481) : un lien créé APRÈS une interdiction sans personne identifiée,
+    /// non levée et non terminée, et tant que la direction ne l'a pas confirmé, n'est ni acteur ni lecteur du lot.
     async fn titulaire_tx(
         &self,
         conn: &mut PgConnection,
@@ -781,9 +783,6 @@ impl PgEnt {
             "SELECT l.peut_autoriser_sorties, l.personne_id FROM ent_eleve_lien_communicant l \
               WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 \
                 AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' \
-                -- M-A (règle D25 de la messagerie, migration 481) : un lien créé APRÈS une interdiction sans personne \
-                -- identifiée, non levée et non terminée, et tant que la direction ne l'a pas confirmé, n'est ni acteur \
-                -- ni lecteur du lot. \
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
                                  WHERE i.etablissement_id = l.etablissement_id AND i.eleve_id = l.eleve_id \
                                    AND i.levee_le IS NULL AND i.personne_id IS NULL \
@@ -1950,11 +1949,13 @@ async fn bloquer_absence_systeme_tx(
         AggregateKind::Internat,
         ab.id,
         Some(ab.eleve_id),
-        json!({ "du": ab.du_nuit.to_string(), "au": ab.au_nuit.to_string(), "cause": motif }),
+        json!({ "du": ab.du_nuit.to_string(), "au": ab.au_nuit.to_string(), "cause": motif, "nuit_en_cours": false }),
         None,
         Causalite::default(),
     )
     .await
+?;
+    Ok(())
 }
 
 /// E-A : les correspondants valides désignés par un compte désormais visé par une interdiction sont suspendus (la
