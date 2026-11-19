@@ -50,12 +50,9 @@ pub enum Deplacement {
 pub fn cible_touche(
     touche: &str,
     maj: bool,
-    ligne: usize,
-    col: usize,
-    nb_lignes: usize,
-    nb_cols: usize,
-    curseur_au_debut: bool,
-    curseur_a_la_fin: bool,
+    (ligne, col): (usize, usize),
+    (nb_lignes, nb_cols): (usize, usize),
+    (curseur_au_debut, curseur_a_la_fin): (bool, bool),
 ) -> Option<(usize, usize)> {
     let d = match touche {
         "ArrowDown" => Deplacement::Bas,
@@ -531,7 +528,7 @@ mod tests {
 
     #[test]
     fn clavier_fleches_entree_et_bords() {
-        let c = |k, maj, l, col, g, d| cible_touche(k, maj, l, col, 3, 2, g, d);
+        let c = |k, maj, l, col, g, d| cible_touche(k, maj, (l, col), (3, 2), (g, d));
         assert_eq!(c("ArrowDown", false, 0, 0, false, false), Some((1, 0)));
         assert_eq!(c("ArrowDown", false, 2, 0, false, false), None, "dernière ligne");
         assert_eq!(c("ArrowUp", false, 1, 1, false, false), Some((0, 1)));

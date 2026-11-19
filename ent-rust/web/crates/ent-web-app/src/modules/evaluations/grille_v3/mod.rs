@@ -193,6 +193,9 @@ enum EtatCase {
     Conflit(ent_types::evaluations_v3::ConflitDto),
 }
 
+/// Explication d'une moyenne : lignes du calcul et avertissements, ou message d'échec.
+type Explication = Result<(Vec<String>, Vec<String>), String>;
+
 /// Une case : un signal par élément modifiable, seule la case touchée se redessine.
 #[derive(Clone, Copy)]
 struct CaseSig {
@@ -627,7 +630,7 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
                                         }
                                         let (debut, fin) = curseur(&ev);
                                         if let Some((ni, nj)) =
-                                            cible_touche(&touche, ev.shift_key(), i, j, nb_lignes, nb_cols, debut, fin)
+                                            cible_touche(&touche, ev.shift_key(), (i, j), (nb_lignes, nb_cols), (debut, fin))
                                         {
                                             ev.prevent_default();
                                             if c.vue().modifiee() {
@@ -866,7 +869,7 @@ fn PanneauCase(
     periode_id: Uuid,
 ) -> impl IntoView {
     let historique: RwSignal<Option<Result<Vec<LigneHistoriqueV3Dto>, String>>> = RwSignal::new(None);
-    let explication: RwSignal<Option<Result<(Vec<String>, Vec<String>), String>>> = RwSignal::new(None);
+    let explication: RwSignal<Option<Explication>> = RwSignal::new(None);
     Effect::new(move |_| {
         selection.track();
         historique.set(None);
@@ -1383,7 +1386,7 @@ fn DialogueEvaluation(
                 let a_res = e.a_des_resultats;
                 view! {
                     <div class="eva3-form">
-                        <p><Badge libelle=lib ton=ton/>{e.restreinte.then(|| " · public restreint")}{e.commune.then(|| " · évaluation commune")}</p>
+                        <p><Badge libelle=lib ton=ton/>{e.restreinte.then_some(" · public restreint")}{e.commune.then_some(" · évaluation commune")}</p>
                         {e.motif_annulation.clone().map(|m| view! { <p>{format!("Motif d'annulation : {m}")}</p> })}
                         {if modifiable && !annulee {
                             view! {
