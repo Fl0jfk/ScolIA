@@ -31,6 +31,7 @@ pub fn routes() -> Router<AppState> {
         .route("/internat/absences/{id}/annulation", post(annuler_absence))
         .route("/internat/absences/{id}/opposition", post(opposer_absence))
         .route("/internat/absences/{id}/arbitrage", post(trancher_absence))
+        .route("/internat/absences/{id}/depart", post(controler_depart_absence))
         .route("/internat/eleves/{id}/absences", get(absences_eleve))
         .route("/internat/sorties", post(demander_sortie))
         .route("/internat/sorties/a-traiter", get(sorties_a_traiter))
@@ -267,6 +268,17 @@ async fn controler_depart(
 ) -> Res<Json<SortieDto>> {
     Ok(Json(
         s.ent.controler_depart_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?,
+    ))
+}
+
+async fn controler_depart_absence(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ControleDepartDto>,
+) -> Res<Json<AbsenceDto>> {
+    Ok(Json(
+        s.ent.controler_depart_absence_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?,
     ))
 }
 

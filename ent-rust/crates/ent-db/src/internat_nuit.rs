@@ -1052,10 +1052,20 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         journaliser_lecture_tx(&mut tx, etab, actor, "listes", None, None, maintenant).await?;
         let listes: Vec<(Uuid, String, Option<Uuid>, bool)> = sqlx::query_as(
-            "SELECT id, libelle, confie_a_user_id, actif FROM ent_internat_liste \
-              WHERE etablissement_id = $1 ORDER BY libelle",
+            // F-1 : une liste confiée à un agent dont le contrat est terminé (ou dont l'accès n'est plus ouvert) à la date
+            // de la lecture n'est plus confiée : on ne rend pas son identifiant.
+            "SELECT l.id, l.libelle, \
+                    CASE WHEN EXISTS (SELECT 1 FROM ent_membership m \
+                                       WHERE m.etablissement_id = l.etablissement_id AND m.user_id = l.confie_a_user_id \
+                                         AND m.etat = 'ouvert' \
+                                         AND (m.date_fin IS NULL \
+                                              OR m.date_fin >= ($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date)) \
+                         THEN l.confie_a_user_id END, \
+                    l.actif FROM ent_internat_liste l \
+              WHERE l.etablissement_id = $1 ORDER BY l.libelle",
         )
         .bind(etab)
+        .bind(maintenant)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

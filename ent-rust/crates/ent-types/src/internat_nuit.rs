@@ -253,7 +253,7 @@ pub struct CasDto {
     pub prenom: Option<String>,
     pub protege: bool,
     pub nuit: NaiveDate,
-    /// `non_retrouve`, `non_rentre`, `non_recupere`, `retard_retour`.
+    /// `non_retrouve`, `non_rentre`, `non_recupere`, `retard_retour`, `non_couvert` (M-1 : attendu qu'aucun appel du soir validé n'a couvert).
     pub nature: String,
     pub ouvert_le: DateTime<Utc>,
     pub issue: Option<String>,
@@ -377,6 +377,10 @@ pub struct TransmissionDto {
     pub nb_non_couverts: i32,
     #[serde(default)]
     pub non_couverts: Vec<Uuid>,
+    /// Appels « soir » complémentaires restés ouverts sur une nuit passée : ignorés avec mention (M-1), ils ne bloquent
+    /// plus la transmission ; les élèves qu'ils devaient couvrir sont dans `non_couverts`, avec un cas pour le CPE.
+    #[serde(default)]
+    pub complements_ignores: i32,
 }
 
 fn version_un() -> i32 {

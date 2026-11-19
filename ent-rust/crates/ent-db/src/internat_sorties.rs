@@ -26,7 +26,6 @@
 
 use crate::accords::{DemandeVerification, Sujet};
 use crate::finances::publier;
-use crate::internat_cas::chaine_fusion_sql;
 use crate::internat_hebergement::parametres_tx;
 use crate::internat_nuit::{conflit, db, evoque_la_sante, nuit_a_tx, refus};
 use crate::outbox::Causalite;
@@ -54,6 +53,12 @@ const DEPART_AVANCE_MAX_MINUTES: i64 = 180;
 const RETARD_MAX_HEURES: i64 = 48;
 /// Durée minimale d'une sortie.
 const SORTIE_MIN_MINUTES: i64 = 15;
+/// Un geste de contrôle (départ, retour) ne se date pas de plus de 30 minutes en arrière : on rattrape un geste
+/// noté à la main sur un cahier, pas une journée entière (aucune antidate qui réécrirait une nuit passée).
+const GESTE_ANTIDATE_MAX_MINUTES: i64 = 30;
+/// Un retard annoncé ne dépasse jamais la durée maximale du type de sortie de plus de 6 heures (marge pour un train
+/// supprimé ou une grève) : au-delà, c'est une autre sortie.
+const RETARD_MARGE_HEURES: i64 = 6;
 
 const MOTIFS_RETARD: [&str; 2] = ["train", "autre"];
 const OBJET_ACCORD_SORTIE: &str = "sortie_internat";
@@ -191,6 +196,24 @@ async fn jour_local_tx(conn: &mut PgConnection, etab: Uuid, instant: DateTime<Ut
         .map_err(db)
 }
 
+/// La nuit en cours, **si elle a déjà commencé** à cet instant (instant postérieur à l'ancre de la nuit, 22 h
+/// murales) ; `None` avant. Sert à ne faire porter un blocage que sur les nuits suivantes (Moyen 5).
+async fn nuit_commencee_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    instant: DateTime<Utc>,
+) -> Result<Option<NaiveDate>, EntDbError> {
+    let courante = nuit_a_tx(conn, etab, instant).await?;
+    let commencee: bool = sqlx::query_scalar("SELECT $1::timestamptz >= ent_internat_ancre_nuit($2, $3::date)")
+        .bind(instant)
+        .bind(etab)
+        .bind(courante)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(commencee.then_some(courante))
+}
+
 /// Instant correspondant à une date et une heure murales de l'établissement.
 async fn instant_mural_tx(
     conn: &mut PgConnection,
@@ -207,10 +230,20 @@ async fn instant_mural_tx(
         .map_err(db)
 }
 
+/// L'élève décide-t-il lui-même au jour donné ? Majorité calculée depuis la date de naissance (socle 2 : date
+/// « jour » non contestée) **et** capacité juridique (migration 285) : un mineur **émancipé** est traité en
+/// majeur ; un majeur **sous tutelle** ne l'est pas (le tuteur, titulaire du lien, décide à sa place).
 async fn eleve_majeur_tx(conn: &mut PgConnection, etab: Uuid, eleve: Uuid, jour: NaiveDate) -> Result<bool, EntDbError> {
     sqlx::query_scalar(
-        "SELECT COALESCE((SELECT e.date_naissance + INTERVAL '18 years' <= $3::date FROM ent_eleve e \
-                           WHERE e.etablissement_id = $1 AND e.id = $2), false)",
+        "SELECT (EXISTS (SELECT 1 FROM ent_eleve_capacite k WHERE k.etablissement_id = $1 AND k.eleve_id = $2 \
+                          AND k.nature = 'emancipation' AND k.levee_le IS NULL AND k.du <= $3::date \
+                          AND (k.au IS NULL OR k.au >= $3::date)) \
+                 OR COALESCE((SELECT ent_eleve_majorite_le(e.date_naissance, e.date_naissance_precision, \
+                                                           e.date_naissance_statut) <= $3::date \
+                                FROM ent_eleve e WHERE e.etablissement_id = $1 AND e.id = $2), false)) \
+            AND NOT EXISTS (SELECT 1 FROM ent_eleve_capacite k WHERE k.etablissement_id = $1 AND k.eleve_id = $2 \
+                             AND k.nature = 'tutelle' AND k.levee_le IS NULL AND k.du <= $3::date \
+                             AND (k.au IS NULL OR k.au >= $3::date))",
     )
     .bind(etab)
     .bind(eleve)
@@ -278,19 +311,33 @@ enum Remise {
     NonAutorisee,
 }
 
-/// Une personne peut-elle prendre l'élève aujourd'hui ? (socle 4) : titulaire (lien actif, autorité parentale,
-/// garde non « aucune ») ou personne autorisée à récupérer (contact validé), non fusionnée dans une autre.
-/// **Une interdiction bloque toujours**, sur toute la chaîne de fusions, et sans attendre sa date de début
-/// (décision pessimiste, comme E3 d'I2).
-async fn remise_possible_tx(
+/// Une personne et **toute sa chaîne de fusions**, dans les deux sens : les fiches fusionnées dans elle, et la fiche
+/// dans laquelle elle est elle-même fusionnée (et ainsi de suite). Une interdiction posée sur n'importe quelle fiche
+/// de la chaîne vise la même personne réelle. `$1` = établissement.
+fn chaine_complete_sql(p: &str) -> String {
+    format!(
+        "(WITH RECURSIVE chaine(id) AS ( \
+              SELECT {p}::uuid \
+              UNION \
+              SELECT CASE WHEN s.id = c.id THEN s.fusionnee_dans ELSE s.id END FROM ent_personne s \
+                JOIN chaine c ON s.etablissement_id = $1 \
+                             AND ((s.id = c.id AND s.fusionnee_dans IS NOT NULL) OR s.fusionnee_dans = c.id)) \
+          SELECT id FROM chaine)"
+    )
+}
+
+/// La personne est-elle visée (sur toute sa chaîne de fusions) par une interdiction de remise, de visite ou de
+/// contact avec l'élève, **non levée et non terminée** ? La date de début `du` est ignorée (décision pessimiste, comme
+/// E3 d'I2) : une interdiction posée en urgence joue tout de suite, même datée du lendemain.
+pub(crate) async fn personne_interdite_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     eleve: Uuid,
     personne: Uuid,
     jour: NaiveDate,
-) -> Result<Remise, EntDbError> {
-    let chaine = chaine_fusion_sql("$3");
-    let interdite: bool = sqlx::query_scalar(&format!(
+) -> Result<bool, EntDbError> {
+    let chaine = chaine_complete_sql("$3");
+    sqlx::query_scalar(&format!(
         "SELECT EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
           WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
             AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] \
@@ -302,8 +349,36 @@ async fn remise_possible_tx(
     .bind(jour)
     .fetch_one(&mut *conn)
     .await
-    .map_err(db)?;
-    if interdite {
+    .map_err(db)
+}
+
+/// Deux fiches désignent-elles la même personne (la même, ou reliées par une fusion) ?
+async fn meme_personne_tx(conn: &mut PgConnection, etab: Uuid, a: Uuid, b: Uuid) -> Result<bool, EntDbError> {
+    if a == b {
+        return Ok(true);
+    }
+    let chaine = chaine_complete_sql("$2");
+    sqlx::query_scalar(&format!("SELECT $3::uuid IN {chaine}"))
+        .bind(etab)
+        .bind(a)
+        .bind(b)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)
+}
+
+/// Une personne peut-elle prendre l'élève aujourd'hui ? (socle 4) : titulaire (lien actif, autorité parentale,
+/// garde non « aucune ») ou personne autorisée à récupérer (contact validé dont le lien avec l'élève n'est pas
+/// suspendu : il ne prend pas l'élève, même validé comme contact), non fusionnée dans une autre. **Une interdiction bloque toujours**, sur toute la chaîne de fusions, et
+/// sans attendre sa date de début (décision pessimiste, comme E3 d'I2).
+async fn remise_possible_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    personne: Uuid,
+    jour: NaiveDate,
+) -> Result<Remise, EntDbError> {
+    if personne_interdite_tx(conn, etab, eleve, personne, jour).await? {
         return Ok(Remise::Interdite);
     }
     let sans_cible: bool = sqlx::query_scalar(
@@ -321,7 +396,8 @@ async fn remise_possible_tx(
     if sans_cible {
         return Ok(Remise::InterditeSansCible);
     }
-    let relation: Option<String> = sqlx::query_scalar(
+    let chaine = chaine_complete_sql("$3");
+    let relation: Option<String> = sqlx::query_scalar(&format!(
         "SELECT COALESCE(NULLIF(btrim(l.lien), ''), 'titulaire') FROM ent_eleve_lien l \
            JOIN ent_personne p ON p.etablissement_id = l.etablissement_id AND p.id = l.personne_id \
           WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.personne_id = $3 AND l.suspendu_le IS NULL \
@@ -333,8 +409,11 @@ async fn remise_possible_tx(
            JOIN ent_personne p ON p.etablissement_id = c.etablissement_id AND p.id = c.personne_id \
           WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND c.personne_id = $3 AND c.peut_recuperer \
             AND c.statut = 'valide' AND p.fusionnee_dans IS NULL \
-          LIMIT 1",
-    )
+            AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien sl \
+                             WHERE sl.etablissement_id = $1 AND sl.eleve_id = $2 AND sl.suspendu_le IS NOT NULL \
+                               AND sl.personne_id IN {chaine}) \
+          LIMIT 1"
+    ))
     .bind(etab)
     .bind(eleve)
     .bind(personne)
@@ -423,11 +502,13 @@ struct AbsenceLigne {
     decide_le: Option<DateTime<Utc>>,
     motif_refus_texte: Option<String>,
     avant_blocage: Option<String>,
+    depart_effectif: Option<DateTime<Utc>>,
     cree_le: DateTime<Utc>,
 }
 
 const COLONNES_ABSENCE: &str = "id, eleve_id, du_nuit, au_nuit, mode, statut, tardive, annonce_qualite, \
-     annonce_par_user_id, recupere_par_personne_id, retour_prevu, decide_le, motif_refus_texte, avant_blocage, cree_le";
+     annonce_par_user_id, recupere_par_personne_id, retour_prevu, decide_le, motif_refus_texte, avant_blocage, \
+     depart_effectif, cree_le";
 
 #[derive(sqlx::FromRow)]
 struct SortieLigne {
@@ -449,12 +530,14 @@ struct SortieLigne {
     par_autorisation_annuelle: bool,
     depart_effectif: Option<DateTime<Utc>>,
     retour_effectif: Option<DateTime<Utc>>,
+    retard_demande_fin: Option<DateTime<Utc>>,
     cree_le: DateTime<Utc>,
 }
 
 const COLONNES_SORTIE: &str = "id, eleve_id, type_code, debut, fin_prevue, fin_ajustee, seul, avec_personne_id, \
      correspondant_id, demande_par_user_id, statut, avant_blocage, accord_titulaire_le, \
-     accord_titulaire_user_id, decision_cpe_le, par_autorisation_annuelle, depart_effectif, retour_effectif, cree_le";
+     accord_titulaire_user_id, decision_cpe_le, par_autorisation_annuelle, depart_effectif, retour_effectif, \
+     retard_demande_fin, cree_le";
 
 async fn absence_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid, verrou: bool) -> Result<AbsenceLigne, EntDbError> {
     let sql = format!(
@@ -502,6 +585,7 @@ fn absence_dto(l: &AbsenceLigne, nom: Option<(String, String)>, protege: bool, o
         decide_le: l.decide_le,
         motif_refus_texte: l.motif_refus_texte.clone(),
         opposition,
+        depart_effectif: l.depart_effectif,
         cree_le: l.cree_le,
     }
 }
@@ -534,15 +618,18 @@ fn sortie_dto(
         retour_effectif: l.retour_effectif,
         opposition,
         motif_refus_texte: motif_refus,
+        retard_demande: l.retard_demande_fin,
         cree_le: l.cree_le,
     }
 }
 
-/// Motif lu par la famille : celui du dernier refus ou du dernier maintien d'un blocage par la direction.
+/// Motif lu par la famille : celui du dernier refus ou du dernier maintien d'un blocage **par un CPE ou la direction**
+/// (jamais le texte d'un autre titulaire, refus de sortie compris).
 async fn motif_refus_sortie_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Option<String>, EntDbError> {
     sqlx::query_scalar(
         "SELECT motif_texte FROM ent_internat_i3_fait WHERE etablissement_id = $1 AND sortie_id = $2 \
-            AND acte IN ('refus', 'tranchee_maintenue') AND motif_texte IS NOT NULL ORDER BY a DESC, cree_le DESC LIMIT 1",
+            AND acte IN ('refus', 'tranchee_maintenue') AND qualite IN ('cpe', 'direction') AND motif_texte IS NOT NULL \
+          ORDER BY a DESC, cree_le DESC LIMIT 1",
     )
     .bind(etab)
     .bind(id)
@@ -574,8 +661,42 @@ fn absence_en_vigueur(statut: &str) -> bool {
 // ───────────────────────── Service : acteur, types, absences ─────────────────────────
 
 impl PgEnt {
-    /// Qualité familiale du compte pour l'élève : titulaire (lien communicant, autorité parentale, garde non
-    /// « aucune »), élève (compte de l'élève ; majeur à son 18ᵉ anniversaire). `None` pour tout autre compte.
+    /// Lien de titulaire du compte pour l'élève : lien communicant, autorité parentale, garde non « aucune », et
+    /// **personne non visée par une interdiction** de remise, de visite ou de contact (C-1) : un parent interdit de
+    /// remise n'est acteur d'aucune action du lot. `Some(peut_autoriser_sorties)` si le compte est titulaire.
+    async fn titulaire_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        user: Uuid,
+        eleve: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<bool>, EntDbError> {
+        let liens: Vec<(bool, Uuid)> = sqlx::query_as(
+            "SELECT l.peut_autoriser_sorties, l.personne_id FROM ent_eleve_lien_communicant l \
+              WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 \
+                AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' ORDER BY l.id",
+        )
+        .bind(etab)
+        .bind(user)
+        .bind(eleve)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for (peut, personne) in liens {
+            if !personne_interdite_tx(conn, etab, eleve, personne, jour).await? {
+                return Ok(Some(peut));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Qualité familiale **d'acteur** du compte pour l'élève : titulaire (lien communicant, autorité parentale,
+    /// garde non « aucune », personne non interdite de remise), élève (compte de l'élève ; majeur à son 18ᵉ
+    /// anniversaire, ou émancipé ; jamais majeur sous tutelle). `None` pour tout autre compte.
+    ///
+    /// **E-1** : dès que l'élève est majeur (R-IT22), ses parents ne sont plus acteurs (annonce, accord, opposition,
+    /// révocation, correspondants) ; leur lecture est réglée par `famille_lecture_tx`.
     async fn famille_tx(
         &self,
         conn: &mut PgConnection,
@@ -587,17 +708,10 @@ impl PgEnt {
     ) -> Result<Option<Famille>, EntDbError> {
         match Role::parse(role) {
             Some(Role::Parent) => {
-                let r: Option<bool> = sqlx::query_scalar(
-                    "SELECT l.peut_autoriser_sorties FROM ent_eleve_lien_communicant l \
-                      WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 \
-                        AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' LIMIT 1",
-                )
-                .bind(etab)
-                .bind(user)
-                .bind(eleve)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?;
+                if eleve_majeur_tx(conn, etab, eleve, jour).await? {
+                    return Ok(None);
+                }
+                let r = self.titulaire_tx(conn, etab, user, eleve, jour).await?;
                 Ok(r.map(|peut| Famille { qualite: Qualite::Titulaire, peut_autoriser: peut }))
             }
             Some(Role::Eleve) => {
@@ -622,6 +736,32 @@ impl PgEnt {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Qualité familiale **de lecteur** : celle d'acteur, plus les parents d'un élève majeur quand le règlement le
+    /// prévoit (`majeur_info_parents = toujours`). « si_a_charge » ne vise que les payeurs, notion du socle financier
+    /// que ce lot ne lit pas : sans elle, la lecture est refusée (décision prudente). Un parent interdit de remise ne
+    /// lit rien des absences, sorties, correspondants et historique de l'élève (C-1).
+    async fn famille_lecture_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        user: Uuid,
+        role: &str,
+        eleve: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<Famille>, EntDbError> {
+        if let Some(f) = self.famille_tx(conn, etab, user, role, eleve, jour).await? {
+            return Ok(Some(f));
+        }
+        if !matches!(Role::parse(role), Some(Role::Parent)) || !eleve_majeur_tx(conn, etab, eleve, jour).await? {
+            return Ok(None);
+        }
+        if parametres_tx(conn, etab).await?.majeur_info_parents != "toujours" {
+            return Ok(None);
+        }
+        let r = self.titulaire_tx(conn, etab, user, eleve, jour).await?;
+        Ok(r.map(|_| Famille { qualite: Qualite::Titulaire, peut_autoriser: false }))
     }
 
     /// Le personnel agit sur un élève de sa portée (R-IT30) avec l'une des actions données ; `Forbidden` sinon
@@ -822,6 +962,20 @@ impl PgEnt {
                 return Err(refus("cette personne n'est pas autorisée à récupérer l'élève"));
             }
         }
+        // C-1 : pour un mineur, une absence annoncée exige la personne qui récupère l'enfant (même quand l'annonceur
+        // est lui-même cette personne : le contrôle de remise ci-dessus s'applique alors aussi), sauf départ seul
+        // couvert par l'autorisation annuelle valable du socle 18 (usage « départ seul le week-end »).
+        if qualite == Qualite::Titulaire && !b.regularisation && b.recupere_par_personne_id.is_none() {
+            let pour = b.du_nuit.max(jour);
+            if !eleve_majeur_tx(&mut tx, etab, b.eleve_id, pour).await? {
+                let t = type_tx(&mut tx, etab, "week_end").await?;
+                if verdict_annuel(self, etab, b.eleve_id, &t.usage_accord_code, pour).await != "autorise" {
+                    return Err(refus(
+                        "pour un élève mineur, indiquer la personne qui le récupère (R-IT23), sauf départ seul couvert par l'autorisation annuelle de la famille (socle 18)",
+                    ));
+                }
+            }
+        }
         let doublon: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_internat_absence \
               WHERE etablissement_id = $1 AND eleve_id = $2 AND statut IN ('demandee', 'annoncee', 'acceptee', 'bloquee', 'regularisee') \
@@ -881,7 +1035,13 @@ impl PgEnt {
         .bind(maintenant)
         .execute(&mut *tx)
         .await
-        .map_err(db)?;
+        .map_err(|e| {
+            if matches!(&e, sqlx::Error::Database(d) if d.code().as_deref() == Some("23P01")) {
+                conflit("une absence est déjà annoncée sur certaines de ces nuits")
+            } else {
+                db(e)
+            }
+        })?;
         let acte = match (b.regularisation, par_cpe) {
             (true, true) => "regularisation",
             (true, false) => "regularisation_demandee",
@@ -1004,7 +1164,7 @@ impl PgEnt {
     ) -> Result<Vec<AbsenceDto>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
         if famille.is_none() {
             self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatSortiesDecider], eleve).await?;
         }
@@ -1098,6 +1258,18 @@ impl PgEnt {
         } else {
             motif
         };
+        if nouveau == "acceptee" {
+            // Accepter ne rend jamais valable une remise devenue interdite (C-1).
+            if let Some(p) = a.recupere_par_personne_id {
+                let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+                let pour = a.du_nuit.max(jour);
+                if !matches!(remise_possible_tx(&mut tx, etab, a.eleve_id, p, pour).await?, Remise::Autorisee(_)) {
+                    return Err(conflit(
+                        "la personne désignée ne peut plus récupérer l'élève (interdiction ou fin d'autorisation) : refuser, ou faire désigner une autre personne",
+                    ));
+                }
+            }
+        }
         sqlx::query(
             "UPDATE ent_internat_absence SET statut = $3, decide_par_user_id = $4, decide_le = $5, \
                     motif_refus_texte = CASE WHEN $3 = 'refusee' THEN $6 ELSE motif_refus_texte END, modifie_le = $5 \
@@ -1194,8 +1366,8 @@ impl PgEnt {
             return Err(conflit("toutes les nuits de cette absence sont passées : on ne les annule plus"));
         }
         sqlx::query(
-            "UPDATE ent_internat_absence SET statut = 'annulee', avant_blocage = NULL, modifie_le = $3 \
-              WHERE etablissement_id = $1 AND id = $2",
+            "UPDATE ent_internat_absence SET statut = 'annulee', avant_blocage = NULL, blocage_effet_nuit = NULL, \
+                    modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(id)
@@ -1240,13 +1412,21 @@ impl PgEnt {
         if a.au_nuit < courante {
             return Err(conflit("toutes les nuits de cette absence sont passées"));
         }
+        // Moyen 5 : une opposition posée après le début de la nuit ne porte que sur les nuits SUIVANTES. Pour la nuit
+        // en cours, l'absence continue de couvrir l'élève (il n'est pas remis à l'attendu en pleine nuit) et le CPE
+        // est alerté : l'absence bloquée figure en tête de sa file.
+        let effet_nuit = nuit_commencee_tx(&mut tx, etab, maintenant)
+            .await?
+            .filter(|c| absence_en_vigueur(&a.statut) && a.du_nuit <= *c && a.au_nuit >= *c)
+            .map(|c| c + Duration::days(1));
         sqlx::query(
-            "UPDATE ent_internat_absence SET statut = 'bloquee', avant_blocage = statut, modifie_le = $3 \
-              WHERE etablissement_id = $1 AND id = $2",
+            "UPDATE ent_internat_absence SET statut = 'bloquee', avant_blocage = statut, blocage_effet_nuit = $4, \
+                    modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(id)
         .bind(maintenant)
+        .bind(effet_nuit)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1261,7 +1441,10 @@ impl PgEnt {
             AggregateKind::Internat,
             id,
             Some(a.eleve_id),
-            json!({ "du": a.du_nuit.to_string(), "au": a.au_nuit.to_string(), "cause": "opposition" }),
+            json!({
+                "du": a.du_nuit.to_string(), "au": a.au_nuit.to_string(), "cause": "opposition",
+                "nuit_en_cours": effet_nuit.is_some()
+            }),
             Some(actor),
             Causalite::default(),
         )
@@ -1309,11 +1492,24 @@ impl PgEnt {
             "maintenir" => ("refusee", "tranchee_maintenue"),
             _ => return Err(refus("décision inconnue (lever, maintenir)")),
         };
+        if nouveau != "refusee" {
+            // Lever un blocage ne rend jamais valable une remise devenue interdite (C-1).
+            let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+            if let Some(p) = a.recupere_par_personne_id {
+                let pour = a.du_nuit.max(jour);
+                if !matches!(remise_possible_tx(&mut tx, etab, a.eleve_id, p, pour).await?, Remise::Autorisee(_)) {
+                    return Err(conflit(
+                        "la personne désignée ne peut plus récupérer l'élève (interdiction ou fin d'autorisation) : maintenir le blocage, ou refuser la demande",
+                    ));
+                }
+            }
+        }
         let motif_refus = (nouveau == "refusee").then(|| {
             motif.clone().unwrap_or_else(|| "Désaccord entre les titulaires de l'autorité parentale : demande refusée par la direction".to_string())
         });
         sqlx::query(
-            "UPDATE ent_internat_absence SET statut = $3, avant_blocage = NULL, decide_par_user_id = $4, decide_le = $5, \
+            "UPDATE ent_internat_absence SET statut = $3, avant_blocage = NULL, blocage_effet_nuit = NULL, \
+                    decide_par_user_id = $4, decide_le = $5, \
                     motif_refus_texte = COALESCE($6, motif_refus_texte), modifie_le = $5 \
               WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1374,14 +1570,17 @@ impl PgEnt {
 
 /// (accord de la famille requis, décision du CPE requise) pour un type de sortie. L'élève majeur tient lieu de
 /// titulaire (R-IT22) et son règlement ne passe pas par le CPE pour un type « titulaires et CPE ».
-fn exigences(t: &SortieTypeDto, eleve_majeur: bool) -> (bool, bool) {
-    let famille = t.autorisation != "aucune" && t.decideur != "cpe";
+///
+/// **Un mineur qui part seul exige toujours un accord de la famille** (le sien sur la sortie, ou l'autorisation annuelle
+/// du socle 18 qui en tient lieu), quel que soit le décideur du type : le CPE seul ne décide jamais d'un départ seul.
+fn exigences(t: &SortieTypeDto, eleve_majeur: bool, seul: bool) -> (bool, bool) {
+    let famille = (t.autorisation != "aucune" && t.decideur != "cpe") || (!eleve_majeur && seul);
     let cpe = t.decideur == "cpe" || (t.decideur == "titulaires_et_cpe" && !eleve_majeur);
     (famille, cpe)
 }
 
 fn sortie_prete(l: &SortieLigne, t: &SortieTypeDto, eleve_majeur: bool) -> bool {
-    let (famille, cpe) = exigences(t, eleve_majeur);
+    let (famille, cpe) = exigences(t, eleve_majeur, l.seul);
     (!famille || l.accord_titulaire_le.is_some()) && (!cpe || l.decision_cpe_le.is_some())
 }
 
@@ -1462,6 +1661,91 @@ fn erreur_sortie(e: sqlx::Error) -> EntDbError {
     } else {
         db(e)
     }
+}
+
+/// Une sortie de `debut` à `fin` couvre-t-elle au moins une nuit (commencée au plus tard à l'ancre de la nuit, retour
+/// après 6 h du lendemain) ? Même règle que `ent_internat_attendu_calcule` (migration 2826).
+async fn couvre_une_nuit_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    debut: DateTime<Utc>,
+    fin: DateTime<Utc>,
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar(
+        "WITH j AS (SELECT (($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date - 1) AS d0, \
+                           (($3::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date) AS d1) \
+         SELECT EXISTS (SELECT 1 FROM j, generate_series(0, j.d1 - j.d0) g(n) \
+                         WHERE $2::timestamptz <= ent_internat_ancre_nuit($1, j.d0 + g.n) \
+                           AND $3::timestamptz >= (((j.d0 + g.n + 1) + TIME '06:00') AT TIME ZONE ent_internat_fuseau($1)))",
+    )
+    .bind(etab)
+    .bind(debut)
+    .bind(fin)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
+}
+
+/// Bloque une sortie pour désaccord (le plus restrictif l'emporte, la direction tranche) : statut « bloquée », faits
+/// d'opposition (avec la personne proposée, le cas échéant) et de blocage, événement d'alerte au CPE.
+#[allow(clippy::too_many_arguments)]
+async fn bloquer_sortie_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    actor: Uuid,
+    qualite: &str,
+    s: &SortieLigne,
+    motif: Option<&str>,
+    personne_proposee: Option<Uuid>,
+    maintenant: DateTime<Utc>,
+) -> Result<(), EntDbError> {
+    sqlx::query(
+        "UPDATE ent_internat_sortie SET statut = 'bloquee', avant_blocage = statut, modifie_le = $3 \
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(s.id)
+    .bind(maintenant)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    fait_tx(conn, etab, Cible::Sortie(s.id), "opposition", qualite, Some(actor), maintenant, Some("desaccord_titulaires"), motif, personne_proposee, None)
+        .await?;
+    fait_tx(conn, etab, Cible::Sortie(s.id), "blocage", "systeme", None, maintenant, Some("desaccord_titulaires"), None, None, None)
+        .await?;
+    evenements_sortie_tx(conn, etab, Some(actor), s, types::INTERNAT_ABSENCE_BLOQUEE, "bloquee", "opposition", s.statut == "autorisee").await
+}
+
+/// Moyen 1 : un titulaire qui change la personne désignée par **un autre titulaire** s'oppose à lui : le plus
+/// restrictif l'emporte (l'ancienne désignation reste, la sortie est bloquée) jusqu'à la décision de la direction.
+/// Vrai si `nouvelle` remplace une personne désignée par un autre titulaire (ou l'élève majeur).
+async fn changement_vaut_opposition_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    s: &SortieLigne,
+    actor: Uuid,
+    nouvelle: Option<Uuid>,
+    devient_seul: bool,
+) -> Result<bool, EntDbError> {
+    let Some(ancienne) = s.avec_personne_id else { return Ok(false) };
+    if !devient_seul {
+        match nouvelle {
+            Some(n) if meme_personne_tx(conn, etab, ancienne, n).await? => return Ok(false),
+            None => return Ok(false),
+            _ => {}
+        }
+    }
+    let auteur: Option<(Option<Uuid>, String)> = sqlx::query_as(
+        "SELECT par_user_id, qualite FROM ent_internat_i3_fait WHERE etablissement_id = $1 AND sortie_id = $2 \
+            AND acte IN ('demande', 'accord_titulaire', 'reprise') AND personne_id IS NOT NULL \
+          ORDER BY a DESC, cree_le DESC LIMIT 1",
+    )
+    .bind(etab)
+    .bind(s.id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(matches!(auteur, Some((Some(u), q)) if u != actor && matches!(q.as_str(), "titulaire" | "eleve_majeur")))
 }
 
 impl PgEnt {
@@ -1594,7 +1878,7 @@ impl PgEnt {
         }
         // Accord annuel du socle 18 : seul un verdict « autorise » vaut accord (jamais par défaut).
         let accord_annuel = if matches!(t.autorisation.as_str(), "annuelle" | "annuelle_ou_ponctuelle")
-            || (t.autorisation == "aucune" && b.seul && !majeur)
+            || (b.seul && !majeur)
         {
             let v = verdict_annuel(self, etab, b.eleve_id, &t.usage_accord_code, jour_debut).await;
             v == "autorise"
@@ -1618,7 +1902,7 @@ impl PgEnt {
         let accord_propre = matches!(qualite, Qualite::Titulaire | Qualite::EleveMajeur);
         let accord_le = (accord_propre || accord_annuel).then_some(maintenant);
         let accord_user = accord_propre.then_some(actor);
-        let (_, cpe_requis) = exigences(&t, majeur);
+        let (_, cpe_requis) = exigences(&t, majeur, b.seul);
         let decision_cpe_le = (qualite == Qualite::Personnel && cpe_requis).then_some(maintenant);
         let id = Uuid::new_v4();
         sqlx::query(
@@ -1749,23 +2033,34 @@ impl PgEnt {
                     return Err(refus("cette personne n'est pas autorisée à récupérer l'élève"));
                 }
             }
-            sqlx::query(
-                "UPDATE ent_internat_sortie SET accord_titulaire_le = $3, accord_titulaire_user_id = $4, \
-                        avec_personne_id = COALESCE($5, avec_personne_id), modifie_le = $3 \
-                  WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(id)
-            .bind(maintenant)
-            .bind(actor)
-            .bind(b.avec_personne_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-            fait_tx(&mut tx, etab, Cible::Sortie(id), "accord_titulaire", qualite.code(), Some(actor), maintenant, None, motif.as_deref(), b.avec_personne_id, None)
-                .await?;
-            let l = sortie_tx(&mut tx, etab, id, true).await?;
-            promouvoir_tx(&mut tx, etab, &l, &t, majeur, Some(actor), maintenant).await?;
+            // Moyen 1 : désigner une AUTRE personne que celle qu'un autre titulaire a désignée vaut opposition.
+            let opposition = match b.avec_personne_id {
+                Some(p) if qualite == Qualite::Titulaire => {
+                    changement_vaut_opposition_tx(&mut tx, etab, &s, actor, Some(p), false).await?
+                }
+                _ => false,
+            };
+            if opposition {
+                bloquer_sortie_tx(&mut tx, etab, actor, qualite.code(), &s, motif.as_deref(), b.avec_personne_id, maintenant).await?;
+            } else {
+                sqlx::query(
+                    "UPDATE ent_internat_sortie SET accord_titulaire_le = $3, accord_titulaire_user_id = $4, \
+                            avec_personne_id = COALESCE($5, avec_personne_id), modifie_le = $3 \
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(id)
+                .bind(maintenant)
+                .bind(actor)
+                .bind(b.avec_personne_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                fait_tx(&mut tx, etab, Cible::Sortie(id), "accord_titulaire", qualite.code(), Some(actor), maintenant, None, motif.as_deref(), b.avec_personne_id, None)
+                    .await?;
+                let l = sortie_tx(&mut tx, etab, id, true).await?;
+                promouvoir_tx(&mut tx, etab, &l, &t, majeur, Some(actor), maintenant).await?;
+            }
         } else {
             if !matches!(s.statut.as_str(), "demandee" | "autorisee") {
                 return Err(conflit("cette sortie n'attend plus de réponse"));
@@ -1821,6 +2116,71 @@ impl PgEnt {
         let s = sortie_tx(&mut tx, etab, id, true).await?;
         self.personnel_exiger(etab, actor, role, &[Action::InternatSortiesDecider], s.eleve_id).await?;
         let t = type_tx(&mut tx, etab, &s.type_code).await?;
+        if matches!(b.decision.as_str(), "accepter_retard" | "refuser_retard") {
+            // E-2 : le CPE décide d'un retard qui ferait couvrir la nuit à une sortie qui ne la couvrait pas.
+            let Some(fin) = s.retard_demande_fin else {
+                return Err(conflit("aucun retard n'attend de décision pour cette sortie"));
+            };
+            if !matches!(s.statut.as_str(), "autorisee" | "partie") {
+                return Err(conflit("cette sortie n'est plus en cours : le retard demandé ne s'applique plus"));
+            }
+            if b.decision == "accepter_retard" {
+                sqlx::query(
+                    "UPDATE ent_internat_sortie SET fin_ajustee = GREATEST(fin_ajustee, $3), retard_demande_fin = NULL, \
+                            retard_demande_par_user_id = NULL, modifie_le = $4 WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(id)
+                .bind(fin)
+                .bind(maintenant)
+                .execute(&mut *tx)
+                .await
+                .map_err(erreur_sortie)?;
+                fait_tx(&mut tx, etab, Cible::Sortie(id), "retard_annonce", "cpe", Some(actor), maintenant, None, motif.as_deref(), None, Some(fin))
+                    .await?;
+                publier(
+                    &mut tx,
+                    etab,
+                    types::INTERNAT_RETARD_ANNONCE,
+                    AggregateKind::Internat,
+                    id,
+                    Some(s.eleve_id),
+                    json!({ "nouveau_retour": fin.to_rfc3339(), "decision": "acceptee" }),
+                    Some(actor),
+                    Causalite::default(),
+                )
+                .await?;
+                publier(
+                    &mut tx,
+                    etab,
+                    types::INTERNAT_ATTENDU_MODIFIE,
+                    AggregateKind::Internat,
+                    id,
+                    Some(s.eleve_id),
+                    json!({ "debut": s.debut.to_rfc3339(), "fin": fin.to_rfc3339(), "cause": "retard_accepte" }),
+                    Some(actor),
+                    Causalite::default(),
+                )
+                .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE ent_internat_sortie SET retard_demande_fin = NULL, retard_demande_par_user_id = NULL, modifie_le = $3 \
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(id)
+                .bind(maintenant)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                fait_tx(&mut tx, etab, Cible::Sortie(id), "retard_refuse", "cpe", Some(actor), maintenant, None, motif.as_deref(), None, Some(fin))
+                    .await?;
+            }
+            let l = sortie_tx(&mut tx, etab, id, false).await?;
+            let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
+            tx.commit().await.map_err(db)?;
+            return Ok(dto);
+        }
         if s.statut == "bloquee" {
             return Err(conflit("cette sortie est bloquée par un désaccord : la direction tranche"));
         }
@@ -1942,21 +2302,7 @@ impl PgEnt {
         if s.fin_ajustee <= maintenant {
             return Err(conflit("cette sortie est terminée"));
         }
-        sqlx::query(
-            "UPDATE ent_internat_sortie SET statut = 'bloquee', avant_blocage = statut, modifie_le = $3 \
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(id)
-        .bind(maintenant)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        fait_tx(&mut tx, etab, Cible::Sortie(id), "opposition", "titulaire", Some(actor), maintenant, Some("desaccord_titulaires"), motif.as_deref(), None, None)
-            .await?;
-        fait_tx(&mut tx, etab, Cible::Sortie(id), "blocage", "systeme", None, maintenant, Some("desaccord_titulaires"), None, None, None)
-            .await?;
-        evenements_sortie_tx(&mut tx, etab, Some(actor), &s, types::INTERNAT_ABSENCE_BLOQUEE, "bloquee", "opposition", s.statut == "autorisee").await?;
+        bloquer_sortie_tx(&mut tx, etab, actor, "titulaire", &s, motif.as_deref(), None, maintenant).await?;
         let l = sortie_tx(&mut tx, etab, id, false).await?;
         let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
         tx.commit().await.map_err(db)?;
@@ -2060,17 +2406,19 @@ impl PgEnt {
             return Err(conflit("on ne change plus la personne de cette sortie (partie, terminée ou chez un correspondant)"));
         }
         let t = type_tx(&mut tx, etab, &s.type_code).await?;
+        let jour_debut = jour_local_tx(&mut tx, etab, s.debut).await?;
+        let majeur = eleve_majeur_tx(&mut tx, etab, s.eleve_id, jour_debut).await?;
+        let mut annuel = false;
         if b.seul {
             if !t.seul_permis || b.avec_personne_id.is_some() {
                 return Err(refus("ce type de sortie ne se fait pas seul, ou une personne est aussi désignée"));
             }
-            let jour_debut = jour_local_tx(&mut tx, etab, s.debut).await?;
-        let majeur = eleve_majeur_tx(&mut tx, etab, s.eleve_id, jour_debut).await?;
             if !majeur && t.autorisation != "ponctuelle" {
                 let v = verdict_annuel(self, etab, s.eleve_id, &t.usage_accord_code, jour_debut).await;
                 if v != "autorise" {
                     return Err(refus("un départ seul d'un mineur exige l'autorisation annuelle de la famille (socle 18)"));
                 }
+                annuel = true;
             }
         }
         if let Some(p) = b.avec_personne_id {
@@ -2078,6 +2426,17 @@ impl PgEnt {
             if !matches!(remise_possible_tx(&mut tx, etab, s.eleve_id, p, jd).await?, Remise::Autorisee(_)) {
                 return Err(refus("cette personne n'est pas autorisée à récupérer l'élève"));
             }
+        }
+        // Moyen 1 : changer la personne désignée par un autre titulaire vaut opposition (le plus restrictif l'emporte :
+        // l'ancienne désignation reste en place, la sortie est bloquée jusqu'à la décision de la direction).
+        if qualite == Qualite::Titulaire
+            && changement_vaut_opposition_tx(&mut tx, etab, &s, actor, b.avec_personne_id, b.seul).await?
+        {
+            bloquer_sortie_tx(&mut tx, etab, actor, qualite.code(), &s, None, b.avec_personne_id, maintenant).await?;
+            let l = sortie_tx(&mut tx, etab, id, false).await?;
+            let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
+            tx.commit().await.map_err(db)?;
+            return Ok(dto);
         }
         sqlx::query(
             "UPDATE ent_internat_sortie SET seul = $3, avec_personne_id = $4, modifie_le = $5 \
@@ -2093,6 +2452,37 @@ impl PgEnt {
         .map_err(db)?;
         let q = if qualite == Qualite::Personnel { "cpe" } else { qualite.code() };
         fait_tx(&mut tx, etab, Cible::Sortie(id), "reprise", q, Some(actor), maintenant, None, None, b.avec_personne_id, None).await?;
+        // Moyen 2 : passer un MINEUR en départ « seul » remet à zéro l'accord de la famille donné pour un départ
+        // accompagné : il ne vaut pas pour un départ sans personne. Seule l'autorisation annuelle (socle 18, relue
+        // à l'instant) le remplace ; à défaut, la sortie retourne à la demande et la famille répond de nouveau.
+        if b.seul && !s.seul && !majeur {
+            sqlx::query(
+                "UPDATE ent_internat_sortie SET accord_titulaire_le = $3, accord_titulaire_user_id = NULL, \
+                        par_autorisation_annuelle = $4, modifie_le = $5 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(annuel.then_some(maintenant))
+            .bind(annuel)
+            .bind(maintenant)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            fait_tx(&mut tx, etab, Cible::Sortie(id), "accord_remis_a_zero", "systeme", None, maintenant, None, None, None, None).await?;
+            let l = sortie_tx(&mut tx, etab, id, true).await?;
+            if matches!(l.statut.as_str(), "autorisee" | "suspendue") && !sortie_prete(&l, &t, majeur) {
+                sqlx::query("UPDATE ent_internat_sortie SET statut = 'demandee', modifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
+                    .bind(etab)
+                    .bind(id)
+                    .bind(maintenant)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                evenements_sortie_tx(&mut tx, etab, Some(actor), &l, types::INTERNAT_SORTIE_DECIDEE, "demandee", "accord_remis_a_zero", false).await?;
+            } else {
+                promouvoir_tx(&mut tx, etab, &l, &t, majeur, Some(actor), maintenant).await?;
+            }
+        }
         let l = sortie_tx(&mut tx, etab, id, false).await?;
         let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
         tx.commit().await.map_err(db)?;
@@ -2117,11 +2507,17 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let s = sortie_tx(&mut tx, etab, id, true).await?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        // E-2 : seul un titulaire dont le lien permet d'autoriser les sorties, l'élève majeur ou le CPE annonce un
+        // retard (ni un surveillant, ni un titulaire sans ce droit, ni l'élève mineur).
         let qualite = match self.famille_tx(&mut tx, etab, actor, role, s.eleve_id, jour).await? {
-            Some(Famille { qualite: q @ (Qualite::Titulaire | Qualite::EleveMajeur), .. }) => q,
+            Some(Famille { qualite: Qualite::Titulaire, peut_autoriser: true }) => Qualite::Titulaire,
+            Some(Famille { qualite: Qualite::EleveMajeur, .. }) => Qualite::EleveMajeur,
+            Some(Famille { qualite: Qualite::Titulaire, .. }) => {
+                return Err(refus("votre lien avec l'élève ne vous permet pas d'annoncer un retard de retour"))
+            }
             Some(_) => return Err(EntDbError::Forbidden),
             None => {
-                self.personnel_exiger(etab, actor, role, &[Action::InternatSortiesDecider, Action::InternatAppel], s.eleve_id).await?;
+                self.personnel_exiger(etab, actor, role, &[Action::InternatSortiesDecider], s.eleve_id).await?;
                 Qualite::Personnel
             }
         };
@@ -2134,8 +2530,55 @@ impl PgEnt {
         if b.nouveau_retour > s.fin_prevue + Duration::hours(RETARD_MAX_HEURES) {
             return Err(refus("un retard décale le retour de 48 heures au plus : au-delà, joindre le CPE"));
         }
+        // Plafond : la durée maximale du type, plus une marge de 6 heures (train supprimé, grève).
+        let t = type_tx(&mut tx, etab, &s.type_code).await?;
+        if b.nouveau_retour > s.debut + Duration::hours(i64::from(t.duree_max_heures) + RETARD_MARGE_HEURES) {
+            return Err(refus(
+                "ce retard dépasse la durée maximale du type de sortie (marge de 6 heures comprise) : joindre le CPE",
+            ));
+        }
+        // Un retard ne fait pas couvrir la nuit à une sortie qui ne la couvrait pas : c'est une demande au CPE, sans
+        // effet (le retour attendu ne bouge pas) tant qu'il n'a pas décidé. Le CPE, lui, décide en l'annonçant.
+        let couvrait = couvre_une_nuit_tx(&mut tx, etab, s.debut, s.fin_ajustee).await?;
+        let couvrirait = couvre_une_nuit_tx(&mut tx, etab, s.debut, b.nouveau_retour).await?;
+        if qualite != Qualite::Personnel && couvrirait && !couvrait {
+            if s.retard_demande_fin.is_some() {
+                return Err(conflit("une demande de retard attend déjà la décision du CPE"));
+            }
+            sqlx::query(
+                "UPDATE ent_internat_sortie SET retard_demande_fin = $3, retard_demande_par_user_id = $4, modifie_le = $5 \
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(b.nouveau_retour)
+            .bind(actor)
+            .bind(maintenant)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            fait_tx(&mut tx, etab, Cible::Sortie(id), "retard_demande", qualite.code(), Some(actor), maintenant, Some(motif_code), None, None, Some(b.nouveau_retour))
+                .await?;
+            publier(
+                &mut tx,
+                etab,
+                types::INTERNAT_RETARD_ANNONCE,
+                AggregateKind::Internat,
+                id,
+                Some(s.eleve_id),
+                json!({ "nouveau_retour": b.nouveau_retour.to_rfc3339(), "motif_code": motif_code, "en_attente": true }),
+                Some(actor),
+                Causalite::default(),
+            )
+            .await?;
+            let l = sortie_tx(&mut tx, etab, id, false).await?;
+            let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
+            tx.commit().await.map_err(db)?;
+            return Ok(dto);
+        }
         sqlx::query(
-            "UPDATE ent_internat_sortie SET fin_ajustee = $3, modifie_le = $4 WHERE etablissement_id = $1 AND id = $2",
+            "UPDATE ent_internat_sortie SET fin_ajustee = $3, retard_demande_fin = NULL, retard_demande_par_user_id = NULL, \
+                    modifie_le = $4 WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(id)
@@ -2181,23 +2624,49 @@ impl PgEnt {
 // ───────────────────────── Sorties : lectures, contrôle de départ et de retour ─────────────────────────
 
 /// Refus d'un contrôle de départ : le fait est **écrit et validé** avant de refuser, pour que la tentative reste
-/// tracée (un départ à une personne interdite se voit dans l'historique de la sortie).
+/// tracée (un départ à une personne interdite se voit dans l'historique de la sortie ou de l'absence).
 #[allow(clippy::too_many_arguments)]
-async fn depart_refuse(
+async fn depart_refuse<T>(
     mut tx: TenantTx<'static>,
     etab: Uuid,
-    sortie: Uuid,
+    cible: Cible,
     actor: Uuid,
     a: DateTime<Utc>,
     motif_code: &str,
     personne: Option<Uuid>,
     message: &'static str,
     interdit: bool,
-) -> Result<SortieDto, EntDbError> {
-    fait_tx(&mut tx, etab, Cible::Sortie(sortie), "depart_refuse", "personnel", Some(actor), a, Some(motif_code), None, personne, None)
+) -> Result<T, EntDbError> {
+    fait_tx(&mut tx, etab, cible, "depart_refuse", "personnel", Some(actor), a, Some(motif_code), None, personne, None)
         .await?;
     tx.commit().await.map_err(db)?;
     Err(if interdit { conflit(message) } else { refus(message) })
+}
+
+/// Heure d'un geste de contrôle : jamais dans le futur (5 minutes de tolérance d'horloge), jamais antidatée de plus
+/// de 30 minutes (une antidate réécrirait une nuit passée).
+fn heure_du_geste(a: Option<DateTime<Utc>>, maintenant: DateTime<Utc>) -> Result<DateTime<Utc>, EntDbError> {
+    let a = a.unwrap_or(maintenant);
+    if a > maintenant + Duration::minutes(5) {
+        return Err(refus("l'heure du geste ne peut pas être dans le futur"));
+    }
+    if a < maintenant - Duration::minutes(GESTE_ANTIDATE_MAX_MINUTES) {
+        return Err(refus("l'heure du geste ne peut pas être antérieure de plus de 30 minutes : noter le geste à l'heure où il est enregistré"));
+    }
+    Ok(a)
+}
+
+/// Ce qui se remet à une personne un jour donné : une sortie ou le départ d'une absence annoncée.
+struct CibleRemise {
+    sortie_id: Option<Uuid>,
+    absence_id: Option<Uuid>,
+    eleve_id: Uuid,
+    type_code: String,
+    debut: DateTime<Utc>,
+    fin: DateTime<Utc>,
+    seul: bool,
+    statut: String,
+    avec: Option<Uuid>,
 }
 
 impl PgEnt {
@@ -2212,7 +2681,7 @@ impl PgEnt {
     ) -> Result<Vec<SortieDto>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
         if famille.is_none() {
             self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatSortiesDecider, Action::InternatAppel], eleve)
                 .await?;
@@ -2248,8 +2717,9 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes: Vec<SortieLigne> = sqlx::query_as(&format!(
             "SELECT {COLONNES_SORTIE} FROM ent_internat_sortie \
-              WHERE etablissement_id = $1 AND statut IN ('demandee', 'bloquee') \
-              ORDER BY CASE statut WHEN 'bloquee' THEN 0 ELSE 1 END, debut LIMIT 500"
+              WHERE etablissement_id = $1 AND (statut IN ('demandee', 'bloquee') \
+                     OR (statut IN ('autorisee', 'partie') AND retard_demande_fin IS NOT NULL)) \
+              ORDER BY CASE statut WHEN 'bloquee' THEN 0 WHEN 'demandee' THEN 1 ELSE 2 END, debut LIMIT 500"
         ))
         .bind(etab)
         .fetch_all(&mut *tx)
@@ -2272,8 +2742,9 @@ impl PgEnt {
 
     /// INT-159 : contrôle d'un départ (surveillant ou accueil, `internat.appel`). Vérifie, au moment du geste :
     /// la sortie est autorisée ; l'élève part seul avec une autorisation valide (majeur, accord annuel du
-    /// socle 18 ou accord sur la sortie) ou est remis à une personne **autorisée aujourd'hui** (R-IT23) ;
-    /// **une interdiction de remise bloque toujours** et la tentative est tracée.
+    /// socle 18 relu à l'instant, ou accord de la famille sur la sortie) ou est remis à **la personne désignée**, qui
+    /// doit être **autorisée aujourd'hui** (R-IT23) ; **une interdiction de remise bloque toujours** et la tentative
+    /// est tracée, comme toute remise à une autre personne que celle qui est désignée (appel du CPE).
     pub async fn controler_depart_a(
         &self,
         etab: Uuid,
@@ -2283,21 +2754,19 @@ impl PgEnt {
         b: &ControleDepartDto,
         maintenant: DateTime<Utc>,
     ) -> Result<SortieDto, EntDbError> {
-        let a = b.a.unwrap_or(maintenant);
-        if a > maintenant + Duration::minutes(5) {
-            return Err(refus("l'heure du geste ne peut pas être dans le futur"));
-        }
+        let a = heure_du_geste(b.a, maintenant)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let s = sortie_tx(&mut tx, etab, id, true).await?;
         self.personnel_exiger(etab, actor, role, &[Action::InternatAppel], s.eleve_id).await?;
         let t = type_tx(&mut tx, etab, &s.type_code).await?;
         let jour = jour_local_tx(&mut tx, etab, a).await?;
+        let cible = Cible::Sortie(id);
         match s.statut.as_str() {
             "autorisee" => {}
             "partie" => return Err(conflit("cet élève est déjà parti pour cette sortie")),
             "suspendue" => {
                 return depart_refuse(
-                    tx, etab, id, actor, a, "autorisation_revoquee", None,
+                    tx, etab, cible, actor, a, "autorisation_revoquee", None,
                     "départ refusé : l'autorisation de cette sortie est suspendue (retrait de l'autorisation ou interdiction) : appeler le CPE",
                     true,
                 )
@@ -2305,7 +2774,7 @@ impl PgEnt {
             }
             "bloquee" => {
                 return depart_refuse(
-                    tx, etab, id, actor, a, "desaccord_titulaires", None,
+                    tx, etab, cible, actor, a, "desaccord_titulaires", None,
                     "départ refusé : cette sortie est bloquée par un désaccord entre les titulaires : appeler la direction",
                     true,
                 )
@@ -2334,47 +2803,49 @@ impl PgEnt {
             .map_err(db)?;
             if !valide {
                 return depart_refuse(
-                    tx, etab, id, actor, a, "correspondant_suspendu", s.avec_personne_id,
+                    tx, etab, cible, actor, a, "correspondant_suspendu", s.avec_personne_id,
                     "départ refusé : le correspondant est suspendu ou n'est plus désigné : appeler le CPE",
                     true,
                 )
                 .await;
             }
         }
+        // Moyen 3 : dès que la sortie repose sur l'autorisation annuelle (départ seul ou accompagné), le verdict du
+        // socle 18 est relu au moment du départ : retirée entre-temps, la sortie est suspendue et le départ refusé.
+        if s.par_autorisation_annuelle && verdict_annuel(self, etab, s.eleve_id, &t.usage_accord_code, jour).await != "autorise" {
+            sqlx::query("UPDATE ent_internat_sortie SET statut = 'suspendue', modifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(id)
+                .bind(a)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            fait_tx(&mut tx, etab, cible, "suspension", "systeme", None, a, Some("autorisation_revoquee"), None, None, None).await?;
+            evenements_sortie_tx(&mut tx, etab, Some(actor), &s, types::INTERNAT_SORTIE_DECIDEE, "suspendue", "autorisation_annuelle", true).await?;
+            return depart_refuse(
+                tx, etab, cible, actor, a, "autorisation_revoquee", None,
+                "départ refusé : l'autorisation annuelle de sortie n'est plus valable : appeler le CPE",
+                true,
+            )
+            .await;
+        }
         let remis = b.remis_a_personne_id;
         let mut controle = "majeur";
         match (s.seul, remis) {
             (true, Some(_)) => return Err(refus("cette sortie se fait seul : aucune remise à une personne")),
             (true, None) => {
-                // Départ seul : majeur, ou accord de la famille encore valable au moment du départ.
+                // Départ seul d'un mineur : l'autorisation annuelle (relue ci-dessus) ou l'accord de la famille sur la
+                // sortie, quel que soit le décideur du type (Moyen 4).
                 if !majeur {
-                    let annuel = matches!(t.autorisation.as_str(), "annuelle" | "annuelle_ou_ponctuelle") || t.autorisation == "aucune";
-                    let besoin_annuel = s.par_autorisation_annuelle || (annuel && s.accord_titulaire_user_id.is_none());
-                    if besoin_annuel {
-                        let v = verdict_annuel(self, etab, s.eleve_id, &t.usage_accord_code, jour).await;
-                        if v != "autorise" {
-                            // L'accord annuel a disparu depuis la demande : la sortie est suspendue, le départ refusé.
-                            sqlx::query("UPDATE ent_internat_sortie SET statut = 'suspendue', modifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
-                                .bind(etab)
-                                .bind(id)
-                                .bind(a)
-                                .execute(&mut *tx)
-                                .await
-                                .map_err(db)?;
-                            fait_tx(&mut tx, etab, Cible::Sortie(id), "suspension", "systeme", None, a, Some("autorisation_revoquee"), None, None, None)
-                                .await?;
-                            evenements_sortie_tx(&mut tx, etab, Some(actor), &s, types::INTERNAT_SORTIE_DECIDEE, "suspendue", "autorisation_annuelle", true).await?;
-                            return depart_refuse(
-                                tx, etab, id, actor, a, "autorisation_revoquee", None,
-                                "départ refusé : l'autorisation annuelle de sortie n'est plus valable : appeler le CPE",
-                                true,
-                            )
-                            .await;
-                        }
+                    if !s.par_autorisation_annuelle && s.accord_titulaire_user_id.is_none() {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "personne_non_autorisee", None,
+                            "départ refusé : un mineur ne part seul qu'avec l'accord de sa famille ou son autorisation annuelle : appeler le CPE",
+                            false,
+                        )
+                        .await;
                     }
                     controle = "seul_autorise";
-                } else {
-                    controle = "majeur";
                 }
             }
             (false, None) => {
@@ -2382,33 +2853,50 @@ impl PgEnt {
                     return Err(refus("départ accompagné : indiquer la personne à qui l'élève est remis (R-IT23)"));
                 }
             }
-            (false, Some(p)) => match remise_possible_tx(&mut tx, etab, s.eleve_id, p, jour).await? {
-                Remise::Autorisee(_) => controle = "personne_autorisee",
-                Remise::Interdite => {
-                    return depart_refuse(
-                        tx, etab, id, actor, a, "interdiction_remise", Some(p),
-                        "REMISE REFUSÉE : cette personne fait l'objet d'une interdiction : appeler la direction (R-IT23)",
-                        true,
-                    )
-                    .await
+            (false, Some(p)) => {
+                match remise_possible_tx(&mut tx, etab, s.eleve_id, p, jour).await? {
+                    Remise::Autorisee(_) => {}
+                    Remise::Interdite => {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "interdiction_remise", Some(p),
+                            "REMISE REFUSÉE : cette personne fait l'objet d'une interdiction : appeler la direction (R-IT23)",
+                            true,
+                        )
+                        .await
+                    }
+                    Remise::InterditeSansCible => {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "interdiction_remise", Some(p),
+                            "REMISE REFUSÉE : une interdiction de remise sans personne identifiée est en vigueur : appeler la direction",
+                            true,
+                        )
+                        .await
+                    }
+                    Remise::NonAutorisee => {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "personne_non_autorisee", Some(p),
+                            "remise refusée : cette personne n'est pas autorisée à récupérer l'élève aujourd'hui (R-IT23)",
+                            false,
+                        )
+                        .await
+                    }
                 }
-                Remise::InterditeSansCible => {
+                // Moyen 1 : la remise ne se fait qu'à la personne désignée ; toute autre personne, même autorisée,
+                // est refusée et le CPE est appelé (la tentative est tracée).
+                let designee = match s.avec_personne_id {
+                    Some(d) => meme_personne_tx(&mut tx, etab, d, p).await?,
+                    None => false,
+                };
+                if !designee {
                     return depart_refuse(
-                        tx, etab, id, actor, a, "interdiction_remise", Some(p),
-                        "REMISE REFUSÉE : une interdiction de remise sans personne identifiée est en vigueur : appeler la direction",
-                        true,
-                    )
-                    .await
-                }
-                Remise::NonAutorisee => {
-                    return depart_refuse(
-                        tx, etab, id, actor, a, "personne_non_autorisee", Some(p),
-                        "remise refusée : cette personne n'est pas autorisée à récupérer l'élève aujourd'hui (R-IT23)",
+                        tx, etab, cible, actor, a, "personne_non_autorisee", Some(p),
+                        "remise refusée : ce n'est pas la personne désignée pour cette sortie (ou aucune n'est désignée) : appeler le CPE (R-IT23)",
                         false,
                     )
-                    .await
+                    .await;
                 }
-            },
+                controle = "personne_autorisee";
+            }
         }
         sqlx::query(
             "UPDATE ent_internat_sortie SET statut = 'partie', depart_effectif = $3, modifie_le = $4 \
@@ -2421,12 +2909,137 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_tx(&mut tx, etab, Cible::Sortie(id), "depart", "personnel", Some(actor), a, None, Some(controle), remis, None).await?;
+        fait_tx(&mut tx, etab, cible, "depart", "personnel", Some(actor), a, None, Some(controle), remis, None).await?;
         evenements_sortie_tx(&mut tx, etab, Some(actor), &s, types::INTERNAT_SORTIE_PARTIE, "partie", controle, false).await?;
         let l = sortie_tx(&mut tx, etab, id, false).await?;
         let dto = self.sortie_vers_dto(&mut tx, etab, &l, None, false).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
+    }
+
+    /// C-1 : contrôle du départ d'une **absence annoncée** au portail, comme celui d'une sortie. Un mineur n'est remis
+    /// qu'à la personne désignée par la famille, **autorisée aujourd'hui** (R-IT23, interdiction de remise sur toute la
+    /// chaîne de fusions), ou part seul avec l'autorisation annuelle du socle 18 relue à l'instant ; un majeur part
+    /// seul. Toute autre remise est refusée et tracée (appel du CPE). Le départ est un fait : la revue à la minute
+    /// ne bloque plus l'absence ensuite.
+    pub async fn controler_depart_absence_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &ControleDepartDto,
+        maintenant: DateTime<Utc>,
+    ) -> Result<AbsenceDto, EntDbError> {
+        let a = heure_du_geste(b.a, maintenant)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let ab = absence_tx(&mut tx, etab, id, true).await?;
+        self.personnel_exiger(etab, actor, role, &[Action::InternatAppel], ab.eleve_id).await?;
+        let jour = jour_local_tx(&mut tx, etab, a).await?;
+        let cible = Cible::Absence(id);
+        match ab.statut.as_str() {
+            "annoncee" | "acceptee" => {}
+            "bloquee" => {
+                return depart_refuse(
+                    tx, etab, cible, actor, a, "desaccord_titulaires", None,
+                    "départ refusé : cette absence est bloquée (désaccord, interdiction ou autorisation retirée) : appeler le CPE ou la direction",
+                    true,
+                )
+                .await
+            }
+            "demandee" => return Err(conflit("cette absence n'est pas encore acceptée par le CPE")),
+            _ => return Err(conflit("cette absence est refusée, annulée ou régularisée : aucun départ à contrôler")),
+        }
+        if ab.depart_effectif.is_some() {
+            return Err(conflit("cet élève est déjà parti pour cette absence"));
+        }
+        if jour < ab.du_nuit || jour > ab.au_nuit {
+            return Err(refus("le départ se contrôle le jour d'une des nuits de l'absence"));
+        }
+        let majeur = eleve_majeur_tx(&mut tx, etab, ab.eleve_id, jour).await?;
+        let remis = b.remis_a_personne_id;
+        let mut controle = "majeur";
+        match remis {
+            Some(p) => {
+                match remise_possible_tx(&mut tx, etab, ab.eleve_id, p, jour).await? {
+                    Remise::Autorisee(_) => {}
+                    Remise::Interdite | Remise::InterditeSansCible => {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "interdiction_remise", Some(p),
+                            "REMISE REFUSÉE : cette personne fait l'objet d'une interdiction (ou une interdiction sans personne identifiée est en vigueur) : appeler la direction (R-IT23)",
+                            true,
+                        )
+                        .await
+                    }
+                    Remise::NonAutorisee => {
+                        return depart_refuse(
+                            tx, etab, cible, actor, a, "personne_non_autorisee", Some(p),
+                            "remise refusée : cette personne n'est pas autorisée à récupérer l'élève aujourd'hui (R-IT23)",
+                            false,
+                        )
+                        .await
+                    }
+                }
+                let designee = match ab.recupere_par_personne_id {
+                    Some(d) => meme_personne_tx(&mut tx, etab, d, p).await?,
+                    None => false,
+                };
+                if !designee {
+                    return depart_refuse(
+                        tx, etab, cible, actor, a, "personne_non_autorisee", Some(p),
+                        "remise refusée : ce n'est pas la personne désignée par la famille (ou aucune n'est désignée) : appeler le CPE (R-IT23)",
+                        false,
+                    )
+                    .await;
+                }
+                controle = "personne_autorisee";
+            }
+            None if !majeur => {
+                if ab.recupere_par_personne_id.is_some() {
+                    return Err(refus("départ accompagné : indiquer la personne à qui l'élève est remis (R-IT23)"));
+                }
+                let t = type_tx(&mut tx, etab, "week_end").await?;
+                if verdict_annuel(self, etab, ab.eleve_id, &t.usage_accord_code, jour).await != "autorise" {
+                    return depart_refuse(
+                        tx, etab, cible, actor, a, "autorisation_revoquee", None,
+                        "départ refusé : un mineur ne part seul qu'avec l'autorisation annuelle de sa famille (retirée ou absente) : appeler le CPE",
+                        false,
+                    )
+                    .await;
+                }
+                controle = "seul_autorise";
+            }
+            None => {}
+        }
+        sqlx::query(
+            "UPDATE ent_internat_absence SET depart_effectif = $3, depart_remis_a_personne_id = $4, modifie_le = $5 \
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(a)
+        .bind(remis)
+        .bind(maintenant)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        fait_tx(&mut tx, etab, cible, "depart", "personnel", Some(actor), a, None, Some(controle), remis, None).await?;
+        publier(
+            &mut tx,
+            etab,
+            types::INTERNAT_SORTIE_PARTIE,
+            AggregateKind::Internat,
+            id,
+            Some(ab.eleve_id),
+            json!({ "objet": "absence", "du": ab.du_nuit.to_string(), "au": ab.au_nuit.to_string(), "controle": controle }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
+        let ligne = absence_tx(&mut tx, etab, id, false).await?;
+        let opp = opposition_tx(&mut tx, etab, cible).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(absence_dto(&ligne, None, false, opp))
     }
 
     /// INT-160 : contrôle d'un retour. Ferme les cas « retard de retour » et « non récupéré » ouverts pour l'élève
@@ -2440,10 +3053,7 @@ impl PgEnt {
         b: &ControleRetourDto,
         maintenant: DateTime<Utc>,
     ) -> Result<SortieDto, EntDbError> {
-        let a = b.a.unwrap_or(maintenant);
-        if a > maintenant + Duration::minutes(5) {
-            return Err(refus("l'heure du geste ne peut pas être dans le futur"));
-        }
+        let a = heure_du_geste(b.a, maintenant)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let s = sortie_tx(&mut tx, etab, id, true).await?;
         self.personnel_exiger(etab, actor, role, &[Action::InternatAppel], s.eleve_id).await?;
@@ -2453,13 +3063,27 @@ impl PgEnt {
         if s.depart_effectif.is_some_and(|d| a < d) {
             return Err(refus("le retour ne précède pas le départ"));
         }
+        // Un retour antidaté ne remet pas l'élève à l'attendu d'une nuit PASSÉE : si le geste est daté d'avant le dernier
+        // matin (6 h) déjà écoulé, l'heure de retour portée par la sortie (qui sert à l'attendu) ne précède pas ce
+        // matin ; l'heure exacte du geste reste dans le fait « retour ».
+        let dernier_matin: DateTime<Utc> = sqlx::query_scalar(
+            "SELECT (((($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date \
+                       - CASE WHEN ($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::time >= TIME '06:00' THEN 0 ELSE 1 END) \
+                      + TIME '06:00') AT TIME ZONE ent_internat_fuseau($1))",
+        )
+        .bind(etab)
+        .bind(maintenant)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let retour = if a < dernier_matin && s.fin_ajustee >= dernier_matin { dernier_matin } else { a };
         sqlx::query(
             "UPDATE ent_internat_sortie SET statut = 'rentree', retour_effectif = $3, modifie_le = $4 \
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(id)
-        .bind(a)
+        .bind(retour)
         .bind(maintenant)
         .execute(&mut *tx)
         .await
@@ -2687,7 +3311,9 @@ impl PgEnt {
 
     /// INT-167 : liste de remise du jour pour le surveillant et l'accueil : qui part, à quelle heure, qui peut le
     /// prendre (personnes autorisées aujourd'hui, socle 4) et **qui ne le doit pas** (interdictions de remise, nom
-    /// seulement, aucun motif). Jamais une adresse ni une coordonnée. Lecture journalisée.
+    /// seulement, aucun motif). Les départs des **absences annoncées** d'élèves mineurs (C-1) y figurent comme ceux des
+    /// sorties. Jamais une adresse ni une coordonnée. Un élève protégé caché au tiers n'est pas nommé et on ne montre ni
+    /// ses titulaires ni ses contacts. Lecture journalisée.
     pub async fn liste_remise_a(
         &self,
         etab: Uuid,
@@ -2710,76 +3336,121 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let lignes: Vec<SortieLigne> = lignes
-            .into_iter()
-            .filter(|l| portee.as_ref().is_none_or(|p| p.contains(&l.eleve_id)))
-            .collect();
-        let ids: Vec<Uuid> = lignes.iter().map(|l| l.eleve_id).collect();
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, &mut tx, &ids).await?;
-        let mut sortie = Vec::with_capacity(lignes.len());
-        for l in &lignes {
-            // Personnes qui pourraient prendre l'élève : titulaires et personnes autorisées à récupérer.
-            let candidats: Vec<(Uuid, String, String)> = sqlx::query_as(
-                "SELECT p.id, p.nom, p.prenom FROM ent_personne p WHERE p.etablissement_id = $1 AND p.id IN ( \
-                    SELECT l.personne_id FROM ent_eleve_lien l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
-                       AND l.personne_id IS NOT NULL AND l.suspendu_le IS NULL \
-                    UNION SELECT c.personne_id FROM ent_eleve_contact_urgence c \
-                     WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND c.peut_recuperer AND c.statut = 'valide') \
-                  ORDER BY p.nom, p.prenom, p.id",
-            )
-            .bind(etab)
-            .bind(l.eleve_id)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(db)?;
-            let mut autorisees = Vec::new();
-            for (pid, nom, prenom) in &candidats {
-                if let Remise::Autorisee(relation) = remise_possible_tx(&mut tx, etab, l.eleve_id, *pid, jour).await? {
-                    autorisees.push(PersonneRemiseDto { personne_id: *pid, nom: nom.clone(), prenom: prenom.clone(), relation });
-                }
-            }
-            let interdites: Vec<(Uuid, String, String)> = sqlx::query_as(
-                "SELECT DISTINCT p.id, p.nom, p.prenom FROM ent_eleve_interdiction i \
-                   JOIN ent_personne p ON p.etablissement_id = i.etablissement_id AND p.id = i.personne_id \
-                  WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
-                    AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] \
-                    AND (i.au IS NULL OR i.au >= $3) ORDER BY p.nom, p.prenom, p.id",
-            )
-            .bind(etab)
-            .bind(l.eleve_id)
-            .bind(jour)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(db)?;
-            let non_nominative: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM ent_eleve_interdiction i WHERE i.etablissement_id = $1 AND i.eleve_id = $2 \
-                  AND i.levee_le IS NULL AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] \
-                  AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NULL)",
-            )
-            .bind(etab)
-            .bind(l.eleve_id)
-            .bind(jour)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db)?;
-            let interdites_ids: HashSet<Uuid> = interdites.iter().map(|i| i.0).collect();
-            // La personne prévue n'est présentée comme telle que si elle est autorisée aujourd'hui.
-            let prevue = l.avec_personne_id.and_then(|p| autorisees.iter().find(|a| a.personne_id == p).cloned());
-            let masque = caches.contains(&l.eleve_id);
-            sortie.push(ListeRemiseLigneDto {
-                sortie_id: l.id,
+        let absences: Vec<AbsenceLigne> = sqlx::query_as(&format!(
+            "SELECT {COLONNES_ABSENCE} FROM ent_internat_absence \
+              WHERE etablissement_id = $1 AND statut IN ('annoncee', 'acceptee', 'bloquee') AND depart_effectif IS NULL \
+                AND du_nuit <= $2 AND au_nuit >= $2 ORDER BY du_nuit, id LIMIT 500"
+        ))
+        .bind(etab)
+        .bind(jour)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        // Un majeur part seul : sa famille n'a aucune remise à contrôler.
+        let mut cibles: Vec<CibleRemise> = Vec::with_capacity(lignes.len() + absences.len());
+        for l in lignes.into_iter().filter(|l| portee.as_ref().is_none_or(|p| p.contains(&l.eleve_id))) {
+            cibles.push(CibleRemise {
+                sortie_id: Some(l.id),
+                absence_id: None,
                 eleve_id: l.eleve_id,
-                nom: (!masque).then(|| noms.get(&l.eleve_id).map(|n| n.0.clone())).flatten(),
-                prenom: (!masque).then(|| noms.get(&l.eleve_id).map(|n| n.1.clone())).flatten(),
-                protege: proteges.contains(&l.eleve_id),
-                type_code: l.type_code.clone(),
+                type_code: l.type_code,
                 debut: l.debut,
-                fin_ajustee: l.fin_ajustee,
+                fin: l.fin_ajustee,
                 seul: l.seul,
-                statut: l.statut.clone(),
+                statut: l.statut,
+                avec: l.avec_personne_id,
+            });
+        }
+        for ab in absences.into_iter().filter(|x| portee.as_ref().is_none_or(|p| p.contains(&x.eleve_id))) {
+            if eleve_majeur_tx(&mut tx, etab, ab.eleve_id, jour).await? {
+                continue;
+            }
+            let debut = instant_mural_tx(&mut tx, etab, ab.du_nuit, NaiveTime::from_hms_opt(12, 0, 0).unwrap_or_default()).await?;
+            let fin = match ab.retour_prevu {
+                Some(r) => r,
+                None => instant_mural_tx(&mut tx, etab, ab.au_nuit + Duration::days(1), NaiveTime::from_hms_opt(12, 0, 0).unwrap_or_default()).await?,
+            };
+            cibles.push(CibleRemise {
+                sortie_id: None,
+                absence_id: Some(ab.id),
+                eleve_id: ab.eleve_id,
+                type_code: "absence".to_string(),
+                debut,
+                fin: fin.max(debut + Duration::hours(1)),
+                seul: ab.recupere_par_personne_id.is_none(),
+                statut: ab.statut,
+                avec: ab.recupere_par_personne_id,
+            });
+        }
+        let ids: Vec<Uuid> = cibles.iter().map(|c| c.eleve_id).collect();
+        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, &mut tx, &ids).await?;
+        let mut sortie = Vec::with_capacity(cibles.len());
+        for c in &cibles {
+            let masque = caches.contains(&c.eleve_id);
+            let (mut autorisees, mut interdites_ids_noms, mut non_nominative) = (Vec::new(), Vec::new(), false);
+            if !masque {
+                // Personnes qui pourraient prendre l'élève : titulaires et personnes autorisées à récupérer.
+                let candidats: Vec<(Uuid, String, String)> = sqlx::query_as(
+                    "SELECT p.id, p.nom, p.prenom FROM ent_personne p WHERE p.etablissement_id = $1 AND p.id IN ( \
+                        SELECT l.personne_id FROM ent_eleve_lien l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
+                           AND l.personne_id IS NOT NULL AND l.suspendu_le IS NULL \
+                        UNION SELECT c.personne_id FROM ent_eleve_contact_urgence c \
+                         WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND c.peut_recuperer AND c.statut = 'valide') \
+                      ORDER BY p.nom, p.prenom, p.id",
+                )
+                .bind(etab)
+                .bind(c.eleve_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(db)?;
+                for (pid, nom, prenom) in &candidats {
+                    if let Remise::Autorisee(relation) = remise_possible_tx(&mut tx, etab, c.eleve_id, *pid, jour).await? {
+                        autorisees.push(PersonneRemiseDto { personne_id: *pid, nom: nom.clone(), prenom: prenom.clone(), relation });
+                    }
+                }
+                interdites_ids_noms = sqlx::query_as(
+                    "SELECT DISTINCT p.id, p.nom, p.prenom FROM ent_eleve_interdiction i \
+                       JOIN ent_personne p ON p.etablissement_id = i.etablissement_id AND p.id = i.personne_id \
+                      WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.levee_le IS NULL \
+                        AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] \
+                        AND (i.au IS NULL OR i.au >= $3) ORDER BY p.nom, p.prenom, p.id",
+                )
+                .bind(etab)
+                .bind(c.eleve_id)
+                .bind(jour)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(db)?;
+                non_nominative = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM ent_eleve_interdiction i WHERE i.etablissement_id = $1 AND i.eleve_id = $2 \
+                      AND i.levee_le IS NULL AND i.objet && ARRAY['remise', 'visite', 'contact_eleve']::text[] \
+                      AND (i.au IS NULL OR i.au >= $3) AND i.personne_id IS NULL)",
+                )
+                .bind(etab)
+                .bind(c.eleve_id)
+                .bind(jour)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+            let interdites_ids: HashSet<Uuid> = interdites_ids_noms.iter().map(|i: &(Uuid, String, String)| i.0).collect();
+            // La personne prévue n'est présentée comme telle que si elle est autorisée aujourd'hui.
+            let prevue = c.avec.and_then(|p| autorisees.iter().find(|a| a.personne_id == p).cloned());
+            sortie.push(ListeRemiseLigneDto {
+                sortie_id: c.sortie_id,
+                absence_id: c.absence_id,
+                eleve_id: c.eleve_id,
+                nom: (!masque).then(|| noms.get(&c.eleve_id).map(|n| n.0.clone())).flatten(),
+                prenom: (!masque).then(|| noms.get(&c.eleve_id).map(|n| n.1.clone())).flatten(),
+                protege: proteges.contains(&c.eleve_id),
+                type_code: c.type_code.clone(),
+                debut: c.debut,
+                fin_ajustee: c.fin,
+                seul: c.seul,
+                statut: c.statut.clone(),
                 personne_prevue: prevue,
                 personnes_autorisees: autorisees.into_iter().filter(|a| !interdites_ids.contains(&a.personne_id)).collect(),
-                personnes_interdites: interdites
+                personnes_interdites: interdites_ids_noms
                     .into_iter()
                     .map(|(personne_id, nom, prenom)| PersonneRemiseDto { personne_id, nom, prenom, relation: String::new() })
                     .collect(),
@@ -2854,7 +3525,7 @@ impl PgEnt {
         }
         sortie.sorties_expirees = expirees.len() as i32;
         // 4. Revue des sorties à venir : interdiction survenue, correspondant suspendu.
-        Self::reviser_sorties_tx(&mut tx, etab, None, aujourdhui, maintenant).await?;
+        self.reviser_sorties_tx(&mut tx, etab, None, aujourdhui, maintenant).await?;
         tx.commit().await.map_err(db)?;
         Ok(sortie)
     }
@@ -2864,6 +3535,7 @@ impl PgEnt {
     /// redevient attendu), avec trace. Renvoie le nombre de sorties suspendues. Un titulaire qui retire l'autorisation
     /// annuelle passe par `revoquer_autorisation_a`.
     pub(crate) async fn reviser_sorties_tx(
+        &self,
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Option<Uuid>,
@@ -2906,6 +3578,15 @@ impl PgEnt {
                     }
                 }
             }
+            // Moyen 3 : une sortie qui repose sur l'autorisation annuelle voit son verdict du socle 18 relu à chaque
+            // revue : retirée ou expirée, elle est suspendue (et ne reprend jamais d'elle-même).
+            if motif.is_none() && s.par_autorisation_annuelle {
+                let t = type_tx(conn, etab, &s.type_code).await?;
+                let pour = jour_local_tx(conn, etab, s.debut).await?.max(jour);
+                if verdict_annuel(self, etab, s.eleve_id, &t.usage_accord_code, pour).await != "autorise" {
+                    motif = Some("autorisation_revoquee");
+                }
+            }
             let Some(motif) = motif else { continue };
             sqlx::query("UPDATE ent_internat_sortie SET statut = 'suspendue', modifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
@@ -2916,6 +3597,80 @@ impl PgEnt {
                 .map_err(db)?;
             fait_tx(conn, etab, Cible::Sortie(s.id), "suspension", "systeme", None, maintenant, Some(motif), None, s.avec_personne_id, None).await?;
             evenements_sortie_tx(conn, etab, None, &s, types::INTERNAT_SORTIE_DECIDEE, "suspendue", motif, true).await?;
+            suspendues += 1;
+        }
+        // C-1 : les absences annoncées dont l'élève n'est pas encore parti sont revues de la même façon : la personne
+        // désignée est devenue interdite (ou n'est plus autorisée), ou l'autorisation annuelle d'un départ seul a
+        // disparu → l'absence est **bloquée** pour le CPE (l'élève redevient attendu, sauf pour la nuit déjà commencée).
+        let absences: Vec<AbsenceLigne> = sqlx::query_as(&format!(
+            "SELECT {COLONNES_ABSENCE} FROM ent_internat_absence \
+              WHERE etablissement_id = $1 AND statut IN ('annoncee', 'acceptee') AND depart_effectif IS NULL \
+                AND au_nuit >= ent_nuit_etab($1, $2) AND ($3::uuid IS NULL OR eleve_id = $3) \
+              ORDER BY du_nuit, id FOR UPDATE"
+        ))
+        .bind(etab)
+        .bind(maintenant)
+        .bind(eleve)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for ab in absences {
+            let pour = ab.du_nuit.max(jour);
+            let motif: Option<&str> = match ab.recupere_par_personne_id {
+                Some(p) => match remise_possible_tx(conn, etab, ab.eleve_id, p, pour).await? {
+                    Remise::Interdite | Remise::InterditeSansCible => Some("interdiction_remise"),
+                    Remise::NonAutorisee => Some("personne_non_autorisee"),
+                    Remise::Autorisee(_) => None,
+                },
+                None if !eleve_majeur_tx(conn, etab, ab.eleve_id, pour).await? => {
+                    let t = type_tx(conn, etab, "week_end").await?;
+                    (verdict_annuel(self, etab, ab.eleve_id, &t.usage_accord_code, pour).await != "autorise")
+                        .then_some("autorisation_revoquee")
+                }
+                None => None,
+            };
+            let Some(motif) = motif else { continue };
+            let courante = nuit_commencee_tx(conn, etab, maintenant).await?;
+            let effet_nuit = courante.filter(|c| ab.du_nuit <= *c && ab.au_nuit >= *c).map(|c| c + Duration::days(1));
+            sqlx::query(
+                "UPDATE ent_internat_absence SET statut = 'bloquee', avant_blocage = statut, blocage_effet_nuit = $4, \
+                        modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(ab.id)
+            .bind(maintenant)
+            .bind(effet_nuit)
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+            fait_tx(conn, etab, Cible::Absence(ab.id), "blocage", "systeme", None, maintenant, Some(motif), None, ab.recupere_par_personne_id, None).await?;
+            publier(
+                conn,
+                etab,
+                types::INTERNAT_ABSENCE_BLOQUEE,
+                AggregateKind::Internat,
+                ab.id,
+                Some(ab.eleve_id),
+                json!({
+                    "du": ab.du_nuit.to_string(), "au": ab.au_nuit.to_string(), "cause": motif,
+                    "nuit_en_cours": effet_nuit.is_some()
+                }),
+                None,
+                Causalite::default(),
+            )
+            .await?;
+            publier(
+                conn,
+                etab,
+                types::INTERNAT_ATTENDU_MODIFIE,
+                AggregateKind::Internat,
+                ab.id,
+                Some(ab.eleve_id),
+                json!({ "du": ab.du_nuit.to_string(), "au": ab.au_nuit.to_string(), "cause": "absence_bloquee" }),
+                None,
+                Causalite::default(),
+            )
+            .await?;
             suspendues += 1;
         }
         // Reprise : une sortie suspendue PAR LE SYSTÈME pour une cause qui a disparu (interdiction levée, correspondant
@@ -3150,7 +3905,7 @@ impl PgEnt {
     ) -> Result<Vec<CorrespondantDto>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
         if famille.is_none() {
             self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatSortiesDecider, Action::InternatAppel], eleve)
                 .await?;
@@ -3226,7 +3981,7 @@ impl PgEnt {
         )
         .await?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        Self::reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
+        self.reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
         let l: CorrespondantLigne = sqlx::query_as(&format!("{SELECT_CORRESPONDANT} WHERE c.etablissement_id = $1 AND c.id = $2"))
             .bind(etab)
             .bind(id)
@@ -3294,7 +4049,7 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        Self::reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
+        self.reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
         let l: CorrespondantLigne = sqlx::query_as(&format!("{SELECT_CORRESPONDANT} WHERE c.etablissement_id = $1 AND c.id = $2"))
             .bind(etab)
             .bind(id)
@@ -3321,7 +4076,7 @@ impl PgEnt {
     ) -> Result<AutorisationsEleveDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
         if famille.is_none() {
             self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatSortiesDecider], eleve).await?;
         }
@@ -3496,7 +4251,7 @@ impl PgEnt {
             .map_err(db)?
             .ok_or(DomainError::NotFound)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
         if famille.is_none() {
             self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatSortiesDecider, Action::InternatAppel], eleve)
                 .await?;
@@ -3518,12 +4273,15 @@ impl PgEnt {
             .into_iter()
             .map(|r| {
                 let acte: String = r.get("acte");
-                let texte_visible = personnel || matches!(acte.as_str(), "refus" | "tranchee_maintenue");
+                let qualite_fait: String = r.get("qualite");
+                let texte_visible = personnel
+                    || (matches!(acte.as_str(), "refus" | "tranchee_maintenue")
+                        && matches!(qualite_fait.as_str(), "cpe" | "direction"));
                 FaitDto {
                     par_user_id: personnel.then(|| r.get("par_user_id")).flatten(),
                     motif_texte: texte_visible.then(|| r.get("motif_texte")).flatten(),
                     personne_id: personnel.then(|| r.get("personne_id")).flatten(),
-                    qualite: r.get("qualite"),
+                    qualite: qualite_fait,
                     a: r.get("a"),
                     motif_code: r.get("motif_code"),
                     jusqu_a: r.get("jusqu_a"),

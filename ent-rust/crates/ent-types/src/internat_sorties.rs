@@ -95,6 +95,9 @@ pub struct AbsenceDto {
     pub motif_refus_texte: Option<String>,
     /// Un titulaire s'oppose (l'identité n'est jamais rendue à la famille).
     pub opposition: bool,
+    /// Heure du départ contrôlé au portail (C-1), s'il a eu lieu.
+    #[serde(default)]
+    pub depart_effectif: Option<DateTime<Utc>>,
     pub cree_le: DateTime<Utc>,
 }
 
@@ -166,13 +169,18 @@ pub struct SortieDto {
     pub retour_effectif: Option<DateTime<Utc>>,
     /// Un titulaire s'oppose (l'identité n'est jamais rendue à la famille).
     pub opposition: bool,
-    /// Motif du refus ou du maintien du blocage, lu par la famille.
+    /// Motif du refus ou du maintien du blocage, lu par la famille (texte d'un CPE ou de la direction seulement).
     #[serde(default)]
     pub motif_refus_texte: Option<String>,
+    /// Retour demandé en retard qui ferait couvrir la nuit à une sortie qui ne la couvrait pas (E-2) : sans effet
+    /// tant que le CPE n'a pas décidé (`accepter_retard` ou `refuser_retard`).
+    #[serde(default)]
+    pub retard_demande: Option<DateTime<Utc>>,
     pub cree_le: DateTime<Utc>,
 }
 
-/// Décision du CPE ou de la direction sur une sortie : `autoriser` ou `refuser`.
+/// Décision du CPE ou de la direction sur une sortie : `autoriser` ou `refuser` (sortie demandée), `accepter_retard`
+/// ou `refuser_retard` (retard en attente, E-2).
 pub type SortieDecisionDto = DecisionDto;
 
 /// Réponse d'un titulaire (ou de l'élève majeur) à une demande de sortie.
@@ -249,7 +257,11 @@ pub struct PersonneRemiseDto {
 /// Une ligne de la liste de remise du jour (INT-167) : qui part, à quelle heure, et qui peut le prendre.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ListeRemiseLigneDto {
-    pub sortie_id: Uuid,
+    /// La sortie concernée ; absent pour le départ d'une absence annoncée (`absence_id`, type `absence`).
+    pub sortie_id: Option<Uuid>,
+    /// L'absence annoncée dont le départ se contrôle au portail (C-1).
+    #[serde(default)]
+    pub absence_id: Option<Uuid>,
     pub eleve_id: Uuid,
     pub nom: Option<String>,
     pub prenom: Option<String>,

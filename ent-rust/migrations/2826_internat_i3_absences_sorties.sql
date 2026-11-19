@@ -211,6 +211,14 @@ CREATE TABLE IF NOT EXISTS ent_internat_absence (
     decide_par_user_id UUID REFERENCES ent_user (id),
     decide_le TIMESTAMPTZ,
     motif_refus_texte TEXT CHECK (motif_refus_texte IS NULL OR char_length(btrim(motif_refus_texte)) BETWEEN 1 AND 300),
+    -- Départ contrôlé au portail (C-1) : heure du geste et personne à qui l'élève a été remis (NULL : départ seul,
+    -- autorisé par l'accord annuel du socle 18 ou élève majeur).
+    depart_effectif TIMESTAMPTZ,
+    depart_remis_a_personne_id UUID,
+    -- Blocage posé après le début de la nuit : il ne porte que sur les nuits SUIVANTES. L'absence continue de
+    -- retirer l'élève de l'attendu des nuits strictement antérieures à cette date (la nuit en cours reste couverte,
+    -- le CPE est alerté sans que l'élève revienne à l'attendu).
+    blocage_effet_nuit DATE,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_internat_absence_etab_id_uq UNIQUE (etablissement_id, id),
@@ -219,8 +227,21 @@ CREATE TABLE IF NOT EXISTS ent_internat_absence (
     CONSTRAINT ent_internat_absence_personne_cfk FOREIGN KEY (etablissement_id, recupere_par_personne_id)
         REFERENCES ent_personne (etablissement_id, id),
     CONSTRAINT ent_internat_absence_periode_chk CHECK (au_nuit >= du_nuit AND au_nuit - du_nuit <= 60),
-    CONSTRAINT ent_internat_absence_blocage_chk CHECK ((statut = 'bloquee') = (avant_blocage IS NOT NULL))
+    CONSTRAINT ent_internat_absence_blocage_chk CHECK ((statut = 'bloquee') = (avant_blocage IS NOT NULL)),
+    CONSTRAINT ent_internat_absence_remis_cfk FOREIGN KEY (etablissement_id, depart_remis_a_personne_id)
+        REFERENCES ent_personne (etablissement_id, id),
+    CONSTRAINT ent_internat_absence_effet_chk CHECK (blocage_effet_nuit IS NULL OR statut = 'bloquee'),
+    -- Une seule absence à la fois par élève sur une nuit (états en vigueur ou en attente) : le doublon est refusé
+    -- par la base, y compris entre deux annonces simultanées de deux titulaires.
+    CONSTRAINT ent_internat_absence_chevauchement_excl EXCLUDE USING gist (
+        etablissement_id WITH =, eleve_id WITH =, daterange(du_nuit, au_nuit, '[]') WITH &&)
+        WHERE (statut IN ('demandee', 'annoncee', 'acceptee', 'bloquee', 'regularisee'))
 );
+-- Rejeu sur une base où la table existait déjà (sans ces colonnes) : ajouts idempotents.
+ALTER TABLE ent_internat_absence
+    ADD COLUMN IF NOT EXISTS depart_effectif TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS depart_remis_a_personne_id UUID,
+    ADD COLUMN IF NOT EXISTS blocage_effet_nuit DATE;
 CREATE INDEX IF NOT EXISTS ent_internat_absence_eleve_idx
     ON ent_internat_absence (etablissement_id, eleve_id, du_nuit, au_nuit);
 CREATE INDEX IF NOT EXISTS ent_internat_absence_a_traiter_idx
@@ -256,6 +277,10 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie (
     par_autorisation_annuelle BOOLEAN NOT NULL DEFAULT false,
     depart_effectif TIMESTAMPTZ,
     retour_effectif TIMESTAMPTZ,
+    -- Retard annoncé qui ferait couvrir la nuit à une sortie qui ne la couvrait pas (E-2) : demande au CPE, sans
+    -- effet tant qu'il n'a pas décidé (`fin_ajustee` ne bouge pas).
+    retard_demande_fin TIMESTAMPTZ,
+    retard_demande_par_user_id UUID REFERENCES ent_user (id),
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_internat_sortie_etab_id_uq UNIQUE (etablissement_id, id),
@@ -283,6 +308,9 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie (
         etablissement_id WITH =, eleve_id WITH =, tstzrange(debut, fin_ajustee, '[)') WITH &&)
         WHERE (statut IN ('demandee', 'autorisee', 'suspendue', 'partie', 'bloquee'))
 );
+ALTER TABLE ent_internat_sortie
+    ADD COLUMN IF NOT EXISTS retard_demande_fin TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS retard_demande_par_user_id UUID REFERENCES ent_user (id);
 CREATE INDEX IF NOT EXISTS ent_internat_sortie_eleve_idx
     ON ent_internat_sortie (etablissement_id, eleve_id, debut);
 CREATE INDEX IF NOT EXISTS ent_internat_sortie_jour_idx
@@ -301,7 +329,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
         'annonce', 'demande', 'regularisation_demandee', 'accord_titulaire', 'acceptation', 'refus', 'blocage',
         'opposition', 'tranchee_maintenue', 'tranchee_levee', 'regularisation', 'annulation', 'depart', 'retour',
         'retard_annonce', 'revocation', 'suspension', 'reprise', 'expiration', 'designation', 'fin',
-        'depart_refuse')),
+        'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse')),
     qualite TEXT NOT NULL CHECK (qualite IN (
         'titulaire', 'eleve_majeur', 'eleve', 'personnel', 'cpe', 'direction', 'systeme')),
     par_user_id UUID REFERENCES ent_user (id),
@@ -314,7 +342,9 @@ CREATE TABLE IF NOT EXISTS ent_internat_i3_fait (
     -- Personne à qui l'élève est remis (départ) ; correspondant ou opposant : jamais un nom.
     personne_id UUID,
     jusqu_a TIMESTAMPTZ,
-    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- clock_timestamp() : l'ordre d'écriture de deux faits d'une même transaction (opposition, puis blocage) est
+    -- déterministe pour l'historique.
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     CONSTRAINT ent_internat_i3_fait_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_internat_i3_fait_absence_cfk FOREIGN KEY (etablissement_id, absence_id)
         REFERENCES ent_internat_absence (etablissement_id, id),
@@ -358,6 +388,14 @@ BEGIN
         OR (OLD.statut = 'bloquee' AND NEW.statut IN ('demandee', 'annoncee', 'acceptee', 'refusee', 'annulee'))) THEN
         RAISE EXCEPTION 'absence annoncée : transition % → % refusée', OLD.statut, NEW.statut USING ERRCODE = '42501';
     END IF;
+    IF OLD.depart_effectif IS NOT NULL AND (OLD.depart_effectif, OLD.depart_remis_a_personne_id)
+       IS DISTINCT FROM (NEW.depart_effectif, NEW.depart_remis_a_personne_id) THEN
+        RAISE EXCEPTION 'absence annoncée : le départ est un fait, il ne se modifie pas' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.statut <> 'bloquee' AND NEW.blocage_effet_nuit IS NOT NULL THEN
+        RAISE EXCEPTION 'absence annoncée : l''effet différé d''un blocage ne vaut que tant qu''elle est bloquée'
+            USING ERRCODE = '42501';
+    END IF;
     IF OLD.statut IN ('refusee', 'annulee', 'regularisee') AND NEW.statut = OLD.statut
        AND (OLD.recupere_par_personne_id, OLD.retour_prevu, OLD.decide_par_user_id, OLD.decide_le,
             OLD.motif_refus_texte)
@@ -386,8 +424,8 @@ BEGIN
     END IF;
     IF NEW.statut <> OLD.statut AND NOT (
            (OLD.statut = 'demandee' AND NEW.statut IN ('autorisee', 'refusee', 'bloquee', 'annulee', 'expiree'))
-        OR (OLD.statut = 'autorisee' AND NEW.statut IN ('partie', 'suspendue', 'bloquee', 'annulee', 'expiree'))
-        OR (OLD.statut = 'suspendue' AND NEW.statut IN ('autorisee', 'bloquee', 'annulee', 'refusee', 'expiree'))
+        OR (OLD.statut = 'autorisee' AND NEW.statut IN ('partie', 'suspendue', 'bloquee', 'annulee', 'expiree', 'demandee'))
+        OR (OLD.statut = 'suspendue' AND NEW.statut IN ('autorisee', 'bloquee', 'annulee', 'refusee', 'expiree', 'demandee'))
         OR (OLD.statut = 'bloquee' AND NEW.statut IN ('demandee', 'autorisee', 'suspendue', 'refusee', 'annulee', 'expiree'))
         OR (OLD.statut = 'partie' AND NEW.statut = 'rentree')) THEN
         RAISE EXCEPTION 'sortie : transition % → % refusée', OLD.statut, NEW.statut USING ERRCODE = '42501';
@@ -462,7 +500,7 @@ $$;
 -- ───────────────────────── 4. L'attendu de la nuit lit les absences et les sorties ─────────────────────────
 -- Celle de 2825, plus deux sources de retrait :
 --   * une absence en vigueur (annoncée, acceptée, régularisée) couvrant la nuit ;
---   * une sortie autorisée, partie ou rentrée qui COUVRE la nuit : commencée au plus tard à 22 h (heure murale
+--   * une sortie PARTIE ou rentrée (E-3 : jamais une sortie seulement autorisée) qui COUVRE la nuit : commencée au plus tard à 22 h (heure murale
 --     de l'établissement) et dont le retour (effectif, sinon attendu à jour) tombe après 6 h du lendemain.
 --     Une sortie plus courte (mercredi après-midi, soirée) ne retire jamais l'élève de l'attendu : il
 --     reste attendu et se pointe « en activité » avec son retour attendu, sans quoi son absence passerait
@@ -502,11 +540,16 @@ LANGUAGE sql STABLE AS $$
          WHERE r.etablissement_id = etab AND r.annule_le IS NULL AND r.du_nuit <= nuit AND r.au_nuit >= nuit
         UNION ALL
         SELECT ab.eleve_id, 'absence_annoncee' FROM ent_internat_absence ab
-         WHERE ab.etablissement_id = etab AND ab.statut IN ('annoncee', 'acceptee', 'regularisee')
-           AND ab.du_nuit <= nuit AND ab.au_nuit >= nuit
+         WHERE ab.etablissement_id = etab AND ab.du_nuit <= nuit AND ab.au_nuit >= nuit
+           AND (ab.statut IN ('annoncee', 'acceptee', 'regularisee')
+                -- Blocage posé après le début d'une nuit : il ne vaut que pour les nuits suivantes.
+                OR (ab.statut = 'bloquee' AND ab.blocage_effet_nuit IS NOT NULL AND nuit < ab.blocage_effet_nuit))
         UNION ALL
+        -- E-3 : seule une sortie effectivement PARTIE (ou rentrée) retire l'élève de l'attendu. Une sortie
+        -- autorisée qui n'a jamais eu lieu (départ refusé au portail, famille absente) le laisse attendu : sans
+        -- cela, un élève resté à l'internat ne serait ni appelé ni cherché.
         SELECT so.eleve_id, 'sortie' FROM ent_internat_sortie so, ancre
-         WHERE so.etablissement_id = etab AND so.statut IN ('autorisee', 'partie', 'rentree')
+         WHERE so.etablissement_id = etab AND so.statut IN ('partie', 'rentree')
            AND so.debut <= ancre.t
            AND COALESCE(so.retour_effectif, so.fin_ajustee) >= ancre.matin
         UNION ALL
@@ -577,6 +620,11 @@ SELECT ent_rls_poser(ARRAY[
 -- Un cas peut être ouvert par le SYSTÈME (INT-161, INT-166 : retard de retour au-delà du seuil, élève non
 -- récupéré à l'heure limite) : l'auteur d'ouverture n'est alors pas un compte (NULL, lisible comme « système »).
 ALTER TABLE ent_internat_cas ALTER COLUMN ouvert_par_user_id DROP NOT NULL;
+-- M-1 : un élève attendu qu'aucun appel du soir validé n'a couvert ouvre un cas « non couvert » pour le CPE
+-- (nature ajoutée ; la contrainte de 2824 est remplacée, jamais retirée).
+ALTER TABLE ent_internat_cas DROP CONSTRAINT IF EXISTS ent_internat_cas_nature_check;
+ALTER TABLE ent_internat_cas ADD CONSTRAINT ent_internat_cas_nature_check CHECK (
+    nature IN ('non_retrouve', 'non_rentre', 'non_recupere', 'retard_retour', 'non_couvert'));
 
 -- Journal des lectures sensibles (R-IT38) : trois objets de plus pour ce lot (liste de remise, sorties d'un élève,
 -- correspondants). La contrainte de 2824 est remplacée (même nom automatique), jamais retirée.

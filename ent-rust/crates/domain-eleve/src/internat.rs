@@ -789,6 +789,23 @@ fn base_etendue(c: char) -> Option<&'static str> {
     plages.iter().find(|(d, f, _)| (*d..=*f).contains(&u)).map(|(_, _, b)| *b)
 }
 
+/// Marques combinantes et caractères invisibles qu'on retire du texte (avant **et** après la mise en minuscule).
+fn a_ignorer(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0300}'..='\u{036F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+            | '\u{00AD}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200D}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{FEFF}'
+    )
+}
+
 /// Texte ramené en minuscules **sans diacritiques** (M1, F-4) : une **aide**, pas l'équivalent d'une
 /// normalisation Unicode NFKD (aucune dépendance de plus, D-062 : la table est écrite à la main et ne
 /// couvre donc pas tout Unicode). Couvre :
@@ -809,16 +826,7 @@ fn replier_en_ascii(texte: &str) -> String {
             c
         };
         match c {
-            '\u{0300}'..='\u{036F}'
-            | '\u{1AB0}'..='\u{1AFF}'
-            | '\u{1DC0}'..='\u{1DFF}'
-            | '\u{20D0}'..='\u{20FF}'
-            | '\u{FE20}'..='\u{FE2F}'
-            | '\u{00AD}'
-            | '\u{180E}'
-            | '\u{200B}'..='\u{200D}'
-            | '\u{2060}'..='\u{2064}'
-            | '\u{FEFF}' => {}
+            c if a_ignorer(c) => {}
             '\u{FB00}' => sortie.push_str("ff"),
             '\u{FB01}' => sortie.push_str("fi"),
             '\u{FB02}' => sortie.push_str("fl"),
@@ -828,7 +836,9 @@ fn replier_en_ascii(texte: &str) -> String {
             _ => {
                 for l in c.to_lowercase() {
                     match l {
-                        '\u{0300}'..='\u{036F}' => {}
+                        // La mise en minuscule peut elle-même produire une marque (« İ » → « i » + U+0307) : on
+                        // refiltre APRÈS, avec le même ensemble que ci-dessus, pas seulement U+0300–036F.
+                        l if a_ignorer(l) => {}
                         'œ' => sortie.push_str("oe"),
                         'æ' => sortie.push_str("ae"),
                         'ß' => sortie.push_str("ss"),
@@ -1374,6 +1384,10 @@ mod tests {
             let t = format!("fi{invisible}evre");
             assert!(mots_de_sante_detectes(&t), "invisible {invisible:?}");
         }
+        // La mise en minuscule produit elle-même une marque (« İ » → « i » + U+0307) : refiltrée après.
+        assert_eq!(replier_en_ascii("F\u{0130}EVRE"), "fievre");
+        assert!(mots_de_sante_detectes("F\u{0130}EVRE"), "FİEVRE");
+        assert!(mots_de_sante_detectes("M\u{00C9}D\u{0130}CAMENT"), "MÉDİCAMENT");
         // Rien de plus : un texte sans rapport reste libre, y compris avec des lettres étendues.
         assert!(!mots_de_sante_detectes("Ơn a rangé sa chambre ǎ ȇ ṧ ệ"));
     }

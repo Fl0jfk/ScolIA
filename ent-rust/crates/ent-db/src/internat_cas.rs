@@ -956,8 +956,13 @@ impl PgEnt {
         if nuit >= jour_local {
             return Err(conflit("la nuit n'est pas terminée : la transmission du matin se fait le lendemain"));
         }
-        let (ouverts, soir_valide): (i64, bool) = sqlx::query_as(
-            "SELECT count(*) FILTER (WHERE etat = 'ouvert'), \
+        // M-1 : un appel « soir » COMPLÉMENTAIRE laissé ouvert ne bloque pas la transmission d'une nuit passée (il aurait
+        // bloqué pour toujours) : la nuit est terminée, il est ignoré avec mention (compteur sur la transmission) et
+        // les élèves qu'il devait couvrir sont comptés non couverts, avec un cas pour le CPE. Seuls les appels
+        // principaux ouverts bloquent encore.
+        let (ouverts, complements_ignores, soir_valide): (i64, i64, bool) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE etat = 'ouvert' AND complement = 0), \
+                    count(*) FILTER (WHERE etat = 'ouvert' AND complement > 0), \
                     COALESCE(bool_or(type = 'soir' AND etat = 'valide'), false) \
                FROM ent_internat_appel WHERE etablissement_id = $1 AND nuit = $2",
         )
@@ -978,6 +983,23 @@ impl PgEnt {
         // quand même, avec la liste explicite de ces élèves, comptés à part (ni présents, ni absents) : la
         // transmission ne se bloque plus pour toujours, et rien n'est passé sous silence.
         let non_couverts = Self::eleves_non_couverts_ids_tx(&mut tx, etab, nuit).await?;
+        // Un élève non couvert ouvre un cas pour le CPE (une seule fois par élève et par nuit, même si le cas a été
+        // clos depuis : la transmission rejouée ne le rouvre pas et ses chiffres ne bougent pas).
+        for eleve in &non_couverts {
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_internat_cas WHERE etablissement_id = $1 AND eleve_id = $2 \
+                                  AND nuit = $3 AND nature = 'non_couvert')",
+            )
+            .bind(etab)
+            .bind(eleve)
+            .bind(nuit)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if !existe {
+                self.ouvrir_cas_tx(&mut tx, etab, Some(actor), None, *eleve, nuit, "non_couvert", maintenant).await?;
+            }
+        }
         let c = self.chiffres_nuit_tx(&mut tx, etab, nuit).await?;
         if c.nb_appels == 0 {
             return Err(conflit("aucun appel clos ou validé pour cette nuit : rien à transmettre"));
@@ -1048,6 +1070,7 @@ impl PgEnt {
                         nouvelle: false,
                         nb_non_couverts: anciens_non_couverts.len() as i32,
                         non_couverts: anciens_non_couverts,
+                        complements_ignores: complements_ignores as i32,
                     });
                 }
                 if motif.is_none() {
@@ -1146,7 +1169,7 @@ impl PgEnt {
             json!({
                 "nuit": nuit.to_string(), "version": version, "rectificative": version > 1,
                 "nb_attendus": c.attendus, "nb_presents": c.presents, "nb_absents": nb_abs, "nb_cas": c.nb_cas,
-                "nb_non_couverts": non_couverts.len()
+                "nb_non_couverts": non_couverts.len(), "complements_ignores": complements_ignores
             }),
             Some(actor),
             Causalite::default(),
@@ -1180,6 +1203,7 @@ impl PgEnt {
             nouvelle: true,
             nb_non_couverts: non_couverts.len() as i32,
             non_couverts,
+            complements_ignores: complements_ignores as i32,
         })
     }
 
