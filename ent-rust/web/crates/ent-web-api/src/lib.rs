@@ -41,6 +41,7 @@ mod edt;
 mod edt_s2;
 mod eleves;
 mod evaluations;
+mod evaluations_v3;
 mod finances;
 mod inscriptions;
 mod journee_vs;

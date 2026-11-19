@@ -941,6 +941,14 @@ impl MoyenneCalculee {
         }
     }
 
+    /// Moyenne **indisponible** : le calcul a échoué (débordement, réglage incohérent) et le dit, au lieu de
+    /// faire échouer tout le reste (F12). Ne porte aucune valeur.
+    pub fn indisponible(formule: Formule, avertissement: &str) -> Self {
+        let mut m = Self::vide(formule);
+        m.avertissements.push(avertissement.to_string());
+        m
+    }
+
     pub fn nb_comptees(&self) -> usize {
         self.lignes.iter().filter(|l| l.effet.compte()).count()
     }

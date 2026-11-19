@@ -152,7 +152,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::assiduite_vs::signalements::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>
-                    <Route path=path!("evaluations/grille") view=modules::evaluations::PageGrille/>
+                    <Route path=path!("evaluations/grille") view=modules::evaluations::PageGrilleV3/>
+                    <Route path=path!("evaluations/grille-historique") view=modules::evaluations::PageGrille/>
                     <Route path=path!("evaluations/classes/:id") view=modules::evaluations::PageVueClasse/>
                     <Route path=path!("evaluations/conseils/:id") view=modules::evaluations::PageConseil/>
                     <Route path=path!("evaluations/bulletins") view=modules::evaluations::PageBulletins/>

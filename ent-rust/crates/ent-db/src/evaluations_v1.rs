@@ -343,6 +343,17 @@ fn erreur_calcul(_: domain_eleve::evaluation_moteur::ErreurCalcul) -> EntDbError
     refus("calcul impossible : données ou réglage incohérents")
 }
 
+/// Version attendue d'une case à l'écriture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Attendu {
+    /// Aucun contrôle (écrivain historique).
+    Aucun,
+    /// La case doit être encore vide.
+    Vide,
+    /// La case doit porter exactement cette version.
+    Version(i32),
+}
+
 impl PgEnt {
     // ───────────────────────── Règles de calcul ─────────────────────────
 
@@ -583,20 +594,53 @@ impl PgEnt {
         role: &str,
         body: &EcrireResultat,
     ) -> Result<ResultatEcrit, EntDbError> {
+        self.eva_v1_ecrire_resultat_versionne_for_actor(etab, acteur, role, body, Attendu::Aucun)
+            .await
+    }
+
+    /// Comme `eva_v1_ecrire_resultat_for_actor`, avec la **version attendue** de la case (V3) : une version
+    /// différente en base est un conflit (409), jamais un écrasement silencieux.
+    pub async fn eva_v1_ecrire_resultat_versionne_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        body: &EcrireResultat,
+        attendu: Attendu,
+    ) -> Result<ResultatEcrit, EntDbError> {
         Self::exiger_staff(role)?;
         self.exiger_eleve_visible(etab, acteur, role, body.eleve_id)
             .await?;
         let peut_corriger = self
             .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
             .await?;
+        let jour = self.aujourdhui_etablissement(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let ecrit =
+            Self::ecrire_resultat_tx(&mut tx, etab, acteur, peut_corriger, jour, body, attendu).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(ecrit)
+    }
+
+    /// Cœur de l'écriture d'un résultat, dans la transaction de l'appelant (une case, ou un lot sous points de
+    /// sauvegarde). L'appelant a déjà contrôlé : rôle du personnel, élève visible (garde du socle 2).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn ecrire_resultat_tx(
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        acteur: Uuid,
+        peut_corriger: bool,
+        jour: NaiveDate,
+        body: &EcrireResultat,
+        attendu: Attendu,
+    ) -> Result<ResultatEcrit, EntDbError> {
         let ev = sqlx::query(
             "SELECT cours_id, (bareme * 1000)::bigint AS bareme_m, hors_bareme_autorise, etat, mode, annee_id
                FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(body.evaluation_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(db)?
         .ok_or(domain_eleve::DomainError::NotFound)?;
@@ -608,20 +652,28 @@ impl PgEnt {
         if etat_eval != "ouverte" {
             return Err(conflit("évaluation non ouverte à la saisie"));
         }
+        // Titulaire, co-enseignant ou suppléant en saisie ce jour-là (socle 6), ou service historique sans
+        // intervention (projection `prof_user_id`).
         let titulaire: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_service_enseignement
-                             WHERE etablissement_id = $1 AND cours_id = $2 AND prof_user_id = $3)",
+            "SELECT ent_prof_sur_cours($1, $2, $3, $4, true)
+                 OR EXISTS (SELECT 1 FROM ent_service_enseignement
+                             WHERE etablissement_id = $1 AND cours_id = $2 AND prof_user_id = $3
+                               AND NOT EXISTS (SELECT 1 FROM ent_service_intervenant z
+                                                WHERE z.etablissement_id = $1 AND z.service_id = ent_service_enseignement.id
+                                                  AND z.nature = 'suppleant' AND z.annule_le IS NULL AND z.saisie
+                                                  AND z.du <= $4 AND (z.au IS NULL OR z.au >= $4)))",
         )
         .bind(etab)
         .bind(cours_id)
         .bind(acteur)
-        .fetch_one(&mut *tx)
+        .bind(jour)
+        .fetch_one(&mut **tx)
         .await
         .map_err(db)?;
         if !titulaire && !peut_corriger {
             return Err(EntDbError::Forbidden);
         }
-        let periode = periode_eleve_tx(&mut tx, etab, body.evaluation_id, body.eleve_id).await?;
+        let periode = periode_eleve_tx(tx, etab, body.evaluation_id, body.eleve_id).await?;
         // Ligne existante (verrouillée) : son statut et sa version décident du rattrapage et d'une écriture sans effet.
         let existant: Option<(String, i32)> = sqlx::query_as(
             "SELECT statut, version FROM eva_resultat
@@ -630,16 +682,21 @@ impl PgEnt {
         .bind(etab)
         .bind(body.evaluation_id)
         .bind(body.eleve_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(db)?;
         // Rattrapage en vigueur (dernière autorisation, date de fin non dépassée au jour de l'établissement) et
         // seulement sur une ligne absente ou restée sans note : une note déjà saisie ne s'écrase pas par ce biais.
+        match (attendu, existant.as_ref()) {
+            (Attendu::Aucun, _) | (Attendu::Vide, None) => {}
+            (Attendu::Version(v), Some((_, courante))) if v == *courante => {}
+            _ => return Err(conflit("version périmée : la case a changé depuis votre lecture")),
+        }
         let rattrapage: bool = sqlx::query_scalar("SELECT eva_rattrapage_en_vigueur($1, $2, $3)")
             .bind(etab)
             .bind(body.evaluation_id)
             .bind(body.eleve_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(db)?;
         let rattrapage = rattrapage
@@ -651,7 +708,7 @@ impl PgEnt {
         if arretee && !peut_corriger {
             return Err(EntDbError::Forbidden);
         }
-        let pas = regles_tx(&mut tx, etab, annee_id).await?.pas_saisie_m;
+        let pas = regles_tx(tx, etab, annee_id).await?.pas_saisie_m;
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;
         valider_saisie(body.statut, body.valeur_m, bareme, hors_bareme, pas)
             .map_err(|e| refus(erreur_saisie(e)))?;
@@ -666,7 +723,8 @@ impl PgEnt {
              ON CONFLICT (evaluation_id, eleve_id) DO UPDATE SET
                 statut = EXCLUDED.statut, valeur = EXCLUDED.valeur,
                 commentaire_eleve = COALESCE(EXCLUDED.commentaire_eleve, eva_resultat.commentaire_eleve),
-                saisi_par = EXCLUDED.saisi_par, motif_correction = $10
+                saisi_par = EXCLUDED.saisi_par, motif_correction = $10,
+                source = CASE WHEN eva_resultat.source = 'reprise' THEN EXCLUDED.source ELSE eva_resultat.source END
              RETURNING id, version, derniere_ecriture_correction",
         )
         .bind(Uuid::new_v4())
@@ -679,7 +737,7 @@ impl PgEnt {
         .bind(body.source.as_str())
         .bind(acteur)
         .bind(body.motif.as_deref().map(str::trim).filter(|m| !m.is_empty()))
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(db)?;
         let version: i32 = ligne.try_get("version").map_err(db)?;
@@ -709,7 +767,6 @@ impl PgEnt {
             })
             .await?;
         }
-        tx.commit().await.map_err(db)?;
         Ok(ecrit)
     }
 
@@ -1141,7 +1198,7 @@ impl PgEnt {
 // Fonctions de transaction
 // ---------------------------------------------------------------------------
 
-async fn regles_tx(
+pub(crate) async fn regles_tx(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     annee_id: Uuid,
@@ -1158,7 +1215,7 @@ async fn regles_tx(
     }
 }
 
-async fn periode_eleve_tx(
+pub(crate) async fn periode_eleve_tx(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     evaluation_id: Uuid,
@@ -1365,7 +1422,29 @@ async fn moyennes_tx(
     let mut pour_generale = Vec::new();
     let mut avertissements: Vec<String> = Vec::new();
     for (matiere_id, entrees) in &par_matiere {
-        let moyenne = moyenne_matiere(entrees, &coefs_sm, &regles).map_err(erreur_calcul)?;
+        // F12 : un débordement ou un réglage incohérent n'échoue que CETTE matière (dite « indisponible »), pas
+        // toute la moyenne de l'élève ; la moyenne générale s'établit sur les autres matières, avec un
+        // avertissement qui nomme ce qui manque.
+        let moyenne = match moyenne_matiere(entrees, &coefs_sm, &regles) {
+            Ok(m) => m,
+            Err(_) => {
+                avertissements.push(format!(
+                    "Moyenne de la matière indisponible : calcul impossible, données ou réglage incohérents ({}). \
+                     Elle n'entre pas dans la moyenne générale.",
+                    if *matiere_id == Uuid::nil() { "matière non renseignée" } else { "voir le référentiel" }
+                ));
+                matieres.push(MatiereCalculee {
+                    matiere_id: *matiere_id,
+                    moyenne: MoyenneCalculee::indisponible(
+                        domain_eleve::evaluation_moteur::Formule::NotesRamenees,
+                        "calcul impossible pour cette matière",
+                    ),
+                    coef_m: 0,
+                    hors_moyenne_generale: true,
+                });
+                continue;
+            }
+        };
         let classe = classe_periode.or_else(|| classe_du_cours.get(matiere_id).copied());
         let trouve =
             coefficient_matiere_tx(tx, etab, annee_id, *matiere_id, classe, date_fin).await?;

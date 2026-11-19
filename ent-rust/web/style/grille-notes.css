@@ -1,0 +1,49 @@
+/* Grille de notes V3 (socle 21) : tableau élèves × évaluations. Jetons de ui.css uniquement. */
+.eva3-choix { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 12px; }
+.eva3-titre { font-size: var(--taille-l); margin: 8px 0; }
+.eva3-aide { color: var(--c-attenue); font-size: var(--taille-s); margin: 4px 0 12px; }
+.eva3-barre { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.eva3-statut { color: var(--c-attenue); font-size: var(--taille-s); }
+.eva3-cadre { overflow-x: auto; border: 1px solid var(--c-ligne-forte); border-radius: 10px; background: var(--c-surface); max-width: 100%; }
+.eva3-cadre:focus-visible { outline: 2px solid var(--c-acc); outline-offset: 2px; }
+.eva3-table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
+.eva3-table th, .eva3-table td { padding: 4px 6px; border-bottom: 1px solid var(--c-ligne); vertical-align: top; }
+.eva3-table thead th { position: sticky; top: 0; background: var(--c-surface-2); z-index: 2; text-align: left; font-weight: var(--graisse-moyenne); }
+/* La première colonne reste visible quand le tableau défile (375 px). */
+.eva3-nom { position: sticky; left: 0; background: var(--c-surface); z-index: 1; min-width: 132px; max-width: 168px; text-align: left; font-weight: var(--graisse-moyenne); box-shadow: 1px 0 0 var(--c-ligne-forte); }
+.eva3-table thead .eva3-nom { z-index: 3; background: var(--c-surface-2); }
+.eva3-mouvement { display: block; font-size: var(--taille-xs); color: var(--c-attenue); font-weight: var(--graisse-normale); }
+.eva3-col { min-width: 112px; max-width: 150px; }
+.eva3-col__titre { all: unset; cursor: pointer; display: block; font-weight: var(--graisse-forte); text-decoration: underline; text-underline-offset: 3px; min-height: 24px; }
+.eva3-col__titre:focus-visible { outline: 2px solid var(--c-acc); outline-offset: 2px; }
+.eva3-col__meta, .eva3-col__stats { display: block; font-size: var(--taille-xs); color: var(--c-attenue); font-weight: var(--graisse-normale); }
+.eva3-td { min-width: 112px; }
+.eva3-case { width: 100%; box-sizing: border-box; min-height: 36px; padding: 4px 8px; font: inherit; text-align: right; border: 1px solid var(--c-bord-champ); border-radius: 6px; background: var(--c-surface); color: var(--c-encre); }
+.eva3-case:focus-visible { outline: 2px solid var(--c-acc); outline-offset: 1px; background: var(--c-acc-doux); }
+.eva3-case--lecture { background: var(--c-surface-2); }
+.eva3-case--hors { background: var(--c-remplissage); color: var(--c-tertiaire); border-style: dashed; }
+.eva3-case--verrou { border-style: double; border-width: 3px; }
+.eva3-case--modifiee { border-color: var(--c-acc); box-shadow: inset 0 0 0 1px var(--c-acc); }
+.eva3-case--refusee { border-color: var(--c-mal); border-width: 2px; }
+.eva3-case--conflit { border-color: var(--c-avert); border-width: 3px; border-style: dashed; }
+.eva3-msg { display: block; font-size: var(--taille-xs); color: var(--c-mal); }
+.eva3-moy { text-align: right; min-width: 84px; font-weight: var(--graisse-moyenne); }
+.eva3-moy__btn { all: unset; cursor: pointer; font-weight: var(--graisse-forte); padding: 4px 6px; min-height: 24px; text-decoration: underline dotted; }
+.eva3-moy__btn:focus-visible { outline: 2px solid var(--c-acc); outline-offset: 2px; }
+.eva3-moy__n { display: block; font-size: var(--taille-xs); color: var(--c-attenue); }
+.eva3-pied { color: var(--c-attenue); font-size: var(--taille-s); margin: 8px 0; }
+.eva3-conflits, .eva3-panneau { margin-top: 16px; padding: 12px; border: 1px solid var(--c-ligne-forte); border-radius: 10px; background: var(--c-surface); }
+.eva3-conflits ul { list-style: none; padding: 0; margin: 0; }
+.eva3-conflits li { padding: 8px 0; border-bottom: 1px solid var(--c-ligne); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.eva3-histo, .eva3-apercu { border-collapse: collapse; width: 100%; font-size: var(--taille-s); }
+.eva3-histo th, .eva3-histo td, .eva3-apercu th, .eva3-apercu td { padding: 4px 8px; border-bottom: 1px solid var(--c-ligne); text-align: left; vertical-align: top; }
+.eva3-apercu ul { margin: 0; padding-left: 16px; }
+.eva3-form { display: flex; flex-direction: column; gap: 10px; min-width: min(560px, 80vw); }
+.eva3-fieldset { border: 1px solid var(--c-ligne-forte); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.eva3-visees { max-height: 200px; overflow-y: auto; }
+.eva3-calcul { margin: 8px 0; padding-left: 18px; }
+@media (max-width: 640px) {
+  .eva3-nom { min-width: 104px; max-width: 120px; }
+  .eva3-col, .eva3-td { min-width: 96px; }
+  .eva3-form { min-width: 0; }
+}

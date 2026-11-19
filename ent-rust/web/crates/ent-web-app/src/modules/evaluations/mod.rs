@@ -11,6 +11,7 @@ mod classe;
 mod conseil;
 mod famille;
 mod grille;
+pub mod grille_v3;
 pub mod modele;
 
 pub use bulletins::PageBulletins;
@@ -18,6 +19,7 @@ pub use classe::PageVueClasse;
 pub use conseil::PageConseil;
 pub use famille::PageEvaluationsEleve;
 pub use grille::PageGrille;
+pub use grille_v3::PageGrilleV3;
 
 use std::collections::BTreeMap;
 
@@ -42,7 +44,7 @@ use modele::{libelle_statut_periode, periode_par_defaut, services_hors_enseignem
 pub const RACINE: &str = "/web/evaluations";
 
 pub fn lien_grille(service: Uuid, periode: Uuid) -> String {
-    format!("{RACINE}/grille?service={service}&periode={periode}")
+    format!("{RACINE}/grille-historique?service={service}&periode={periode}")
 }
 
 pub fn lien_classe(classe: Uuid, periode: Uuid) -> String {
@@ -281,6 +283,13 @@ fn ListesPersonnel(
     let classes: Vec<(String, Uuid)> = classes.into_iter().collect();
     let autres = services_hors_enseignements(&services, &enseignements);
     view! {
+        <section class="ra-section" aria-labelledby="eva-grille-v3">
+            <h2 id="eva-grille-v3" class="vs-section-titre">"Grille de notes"</h2>
+            <p>
+                "Saisie au clavier, collage depuis un tableur, import d'un fichier, publication aux familles. "
+                <a href=format!("{RACINE}/grille")>"Ouvrir la grille de notes"</a>
+            </p>
+        </section>
         {(!enseignements.is_empty()).then(|| view! {
             <section class="ra-section" aria-labelledby="eva-enseignements">
                 <h2 id="eva-enseignements" class="vs-section-titre">"Mes enseignements"</h2>
@@ -292,7 +301,7 @@ fn ListesPersonnel(
                                 " · "{match e.effectif { 1 => "1 élève".to_string(), n => format!("{n} élèves") }}
                                 {e.professeur_principal.then(|| view! { " " <Badge libelle="Professeur principal" ton=TonEtat::Info/> })}
                             </span>
-                            <a href=lien_grille(e.service_id, periode)>"Ouvrir la grille"</a>
+                            <a href=lien_grille(e.service_id, periode)>"Ouvrir la grille (historique)"</a>
                         </li>
                     }).collect_view()}
                 </ul>
@@ -314,7 +323,7 @@ fn ListesPersonnel(
                                     <strong>{s.cible_code.clone()}</strong>" · "{s.matiere_libelle.clone()}
                                     {s.professeur_principal.then(|| view! { " " <Badge libelle="Professeur principal" ton=TonEtat::Info/> })}
                                 </span>
-                                <a href=lien_grille(s.service_id, periode)>"Ouvrir la grille"</a>
+                                <a href=lien_grille(s.service_id, periode)>"Ouvrir la grille (historique)"</a>
                             </li>
                         }).collect_view()}
                     </ul>

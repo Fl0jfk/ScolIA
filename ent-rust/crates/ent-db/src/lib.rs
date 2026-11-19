@@ -42,6 +42,9 @@ mod afaire_sources;
 pub mod evaluations;
 /// Socle 21, lot V1 : tables `eva_*`, règles de calcul, résultats historisés, états de période, reprise M2.
 pub mod evaluations_v1;
+pub mod evaluations_v3;
+pub mod evaluations_v3_eval;
+pub mod evaluations_v3_import;
 mod evaluations_bulletin;
 mod enseignements;
 pub mod cours;
@@ -89,6 +92,8 @@ mod tests_evaluations_v0;
 mod tests_evaluations_v1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v1_revue;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;
 pub mod campagnes;
