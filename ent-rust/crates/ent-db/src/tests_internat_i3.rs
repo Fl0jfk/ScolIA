@@ -3498,3 +3498,440 @@ async fn p3_charge_revue_a_la_minute_pour_300_internes() {
     eprintln!("CHARGE revue à la minute, 300 internes (150 sorties, 100 absences) : {revue:?} puis {revue_suivante:?}");
     assert!(revue < std::time::Duration::from_secs(10), "revue trop lente : {revue:?}");
 }
+
+// ───────────────────────── Passe 4 : protection des mineurs internes (R1 à R8) ─────────────────────────
+//
+// | Règle | Test(s) |
+// |---|---|
+// | R1 un acte tombe avec le droit de son auteur (lien suspendu, autorité retirée, lien échu, garde « aucune ») | `p4_r1_*` |
+// | R2 seule une décision qui porte sur la chute la couvre | `p4_r2_*` |
+// | R3 aucune décision du personnel sur un objet qui tombe ; R4 absences « demandées » revues | `p4_r3_r4_*` |
+// | R5 contact déclaré par un visé, requalification du personnel (chaînes comprises) | `p4_r5_*` |
+// | R6 aucune règle sur un libellé libre | `p4_r6_*` |
+// | R7 savepoint par objet, ordre de verrouillage | `p4_r7_*` |
+// | R8 remise des sorties scolaires | `p4_r8_*` |
+
+/// Fait la perte de droit de `user` sur `eleve`, datée du mardi 14 avril à 9 h (Paris) : 0 suspension du lien, 1 autorité
+/// parentale retirée, 2 lien échu (fin le 10 avril), 3 garde « aucune ».
+async fn p4_perdre_le_droit(b: &Banc, eleve: Uuid, user: Uuid, cas: usize) {
+    let t = paris(avril(14), 9, 0);
+    let (sql, avec_date): (&str, bool) = match cas {
+        0 => ("UPDATE ent_eleve_lien SET suspendu_le = $4, suspendu_par = $5, suspension_motif = 'Décision de justice', updated_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3", true),
+        1 => ("UPDATE ent_eleve_lien SET autorite_parentale = false, updated_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3 AND $5::uuid IS NOT NULL", true),
+        2 => ("UPDATE ent_eleve_lien SET date_fin = '2026-04-10', updated_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3 AND $5::uuid IS NOT NULL", true),
+        _ => ("UPDATE ent_eleve_lien SET garde = 'aucune', updated_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3 AND $5::uuid IS NOT NULL", true),
+    };
+    assert!(avec_date);
+    sqlx::query(sql).bind(b.etab).bind(eleve).bind(user).bind(t).bind(b.dir).execute(b.ent.pool_verif()).await.unwrap();
+}
+
+async fn p4_personne_absence(b: &Banc, id: Uuid) -> (String, Option<Uuid>) {
+    sqlx::query_as("SELECT statut, recupere_par_personne_id FROM ent_internat_absence WHERE etablissement_id = $1 AND id = $2")
+        .bind(b.etab)
+        .bind(id)
+        .fetch_one(b.ent.pool_verif())
+        .await
+        .unwrap()
+}
+
+/// R1 — « un acte tombe avec le droit de son auteur », SANS interdiction : le parent qui a annoncé l'absence (et désigné
+/// la personne) n'a plus de lien actif (lien suspendu, autorité retirée, lien échu, garde « aucune »). À la revue, l'acte
+/// tombe : l'absence est bloquée (motif `interdiction_auteur`), la personne effacée ; au départ, il est refusé. Un témoin
+/// (parent intact) n'est pas touché. Sans la règle, l'absence resterait valable et l'enfant partirait avec la personne.
+#[tokio::test]
+async fn p4_r1_un_acte_tombe_avec_le_droit_de_son_auteur_sans_interdiction() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    let soir = paris(mercredi, 17, 0);
+    // Témoin : parent intact, même scénario.
+    let (pt, _) = parent(&b, b.b[0], true).await;
+    let grand_t = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, b.b[0], grand_t).await;
+    let at = annoncer_avec(&b, pt, PARENT, b.b[0], mercredi, mercredi, Some(grand_t), paris(lundi, 10, 0)).await.unwrap();
+    for cas in 0..4usize {
+        let eleve = b.a[cas];
+        let (pa, _) = parent(&b, eleve, true).await;
+        let grand = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, grand).await;
+        let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+        assert_eq!(a.statut, "annoncee");
+        p4_perdre_le_droit(&b, eleve, pa, cas).await;
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 5)).await.unwrap();
+        let (statut, personne) = p4_personne_absence(&b, a.id).await;
+        assert_eq!((statut.as_str(), personne), ("bloquee", None), "cas {cas} : l'acte de l'auteur sans droit tombe");
+        let f = faits_actes(&b, "absence_id", a.id).await;
+        assert!(f.contains(&("blocage".to_string(), Some("interdiction_auteur".to_string()))), "cas {cas} : {f:?}");
+        assert!(est_attendu(&b, mercredi, eleve).await, "aucun départ constaté : l'élève reste attendu");
+    }
+    assert_eq!(p4_personne_absence(&b, at.id).await.0, "annoncee", "le témoin n'est pas touché");
+    // Au départ (sans passer par la revue) : refusé, tracé.
+    let eleve = b.b[1];
+    let (pa, _) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, grand).await;
+    let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+    p4_perdre_le_droit(&b, eleve, pa, 0).await;
+    let r = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(Some(grand), soir), soir).await;
+    assert!(refus_de(&r, "désormais l'objet d'une interdiction"), "{r:?}");
+    assert!(faits_actes(&b, "absence_id", a.id).await.contains(&("depart_refuse".to_string(), Some("interdiction_auteur".to_string()))));
+    // Le témoin part normalement avec la même personne.
+    let dep = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, at.id, &depart(Some(grand_t), soir), soir).await.unwrap();
+    assert_eq!(dep.statut, "annoncee");
+}
+
+/// R2 — seule une décision qui porte sur la chute elle-même la couvre : une levée de la direction pour une autre cause
+/// (désaccord), sans motif écrit, ou une acceptation du CPE ne couvrent jamais ; la levée motivée de la chute, si.
+#[tokio::test]
+async fn p4_r2_seule_une_decision_qui_porte_sur_la_chute_la_couvre() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    // (acte, qualité, code de motif, texte) ; couvert ?
+    let cas: [(&str, &str, Option<&str>, Option<&str>, bool); 4] = [
+        ("tranchee_levee", "direction", Some("desaccord_titulaires"), Some("Désaccord entre les parents levé"), false),
+        ("tranchee_levee", "direction", Some("interdiction_auteur"), None, false),
+        ("acceptation", "cpe", None, Some("Accepté par routine"), false),
+        ("tranchee_levee", "direction", Some("interdiction_auteur"), Some("La direction a examiné la perte de droit"), true),
+    ];
+    for (i, (acte, qualite, code, texte, couvert)) in cas.into_iter().enumerate() {
+        let eleve = b.a[i];
+        let (pa, _) = parent(&b, eleve, true).await;
+        let grand = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, grand).await;
+        let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+        p4_perdre_le_droit(&b, eleve, pa, 0).await;
+        let auteur = if qualite == "direction" { b.dir } else { b.cpe };
+        sqlx::query(
+            "INSERT INTO ent_internat_i3_fait (id, etablissement_id, absence_id, acte, qualite, par_user_id, a, motif_code, motif_texte) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(a.id)
+        .bind(acte)
+        .bind(qualite)
+        .bind(auteur)
+        .bind(paris(mardi, 11, 0))
+        .bind(code)
+        .bind(texte)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 0)).await.unwrap();
+        let attendu = if couvert { "annoncee" } else { "bloquee" };
+        assert_eq!(p4_personne_absence(&b, a.id).await.0, attendu, "cas {i} ({acte}, {code:?}, texte {})", texte.is_some());
+    }
+}
+
+/// R3 et R4 — le personnel ne décide pas d'un objet qui tombe, et les absences « demandées » sont revues. Scénario du
+/// rapport : le père annonce une absence tardive (« demandée ») pour une personne qu'il désigne, puis il est visé ; le CPE
+/// (qui ne le sait pas) l'accepte de routine : refus explicite, l'absence reste « demandée », la revue la bloque. Même chose
+/// pour l'autorisation d'une sortie demandée par un parent visé ; le témoin (parent intact) est autorisé.
+#[tokio::test]
+async fn p4_r3_r4_le_personnel_ne_decide_pas_d_un_objet_qui_tombe_et_les_demandees_sont_revues() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, jeudi) = (avril(13), avril(14), avril(16));
+    let eleve = b.a[0];
+    let (pa, pers_a) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, grand).await;
+    let t = annoncer_avec(&b, pa, PARENT, eleve, mardi, mardi, Some(grand), paris(mardi, 17, 0)).await.unwrap();
+    assert_eq!((t.statut.as_str(), t.tardive), ("demandee", true));
+    interdire_objet(&b, eleve, pers_a, "visite", None).await;
+    dater_interdictions(&b, eleve, paris(mardi, 17, 30)).await;
+    let r = b.ent.decider_absence_a(b.etab, b.cpe, CPE, t.id, &decision("accepter", None), paris(mardi, 17, 40)).await;
+    assert!(refus_de(&r, "n'a plus le droit d'agir"), "{r:?}");
+    assert_eq!(p4_personne_absence(&b, t.id).await.0, "demandee", "rien n'a été accepté");
+    assert!(!faits_actes(&b, "absence_id", t.id).await.iter().any(|(a, _)| a == "acceptation"));
+    // R4 : la revue regarde aussi la demandée.
+    b.ent.veille_sorties_a(b.etab, paris(mardi, 17, 50)).await.unwrap();
+    assert_eq!(p4_personne_absence(&b, t.id).await, ("bloquee".to_string(), None));
+    assert!(faits_actes(&b, "absence_id", t.id).await.contains(&("blocage".to_string(), Some("interdiction_auteur".to_string()))));
+    // Sortie demandée par un parent visé : le CPE ne l'autorise pas ; le témoin, si.
+    let (debut, fin) = (paris(jeudi, 18, 0), paris(jeudi, 21, 0));
+    let eleve2 = b.a[1];
+    let (pa2, pers_a2) = parent(&b, eleve2, true).await;
+    let s = b.ent.demander_sortie_a(b.etab, pa2, PARENT, &demande(eleve2, "exceptionnelle", debut, fin, false, Some(grand)), paris(lundi, 10, 0)).await;
+    // (le grand-parent n'est pas contact de cet élève : la demande s'adapte au cas)
+    let s = match s {
+        Ok(s) => s,
+        Err(_) => {
+            autoriser_recuperer(&b, eleve2, grand).await;
+            b.ent.demander_sortie_a(b.etab, pa2, PARENT, &demande(eleve2, "exceptionnelle", debut, fin, false, Some(grand)), paris(lundi, 10, 0)).await.unwrap()
+        }
+    };
+    interdire_objet(&b, eleve2, pers_a2, "contact_eleve", None).await;
+    dater_interdictions(&b, eleve2, paris(mardi, 12, 0)).await;
+    let r = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(mardi, 12, 10)).await;
+    assert!(refus_de(&r, "n'a plus le droit d'agir"), "{r:?}");
+    assert_eq!(ligne_sortie(&b, s.id).await.0, "demandee");
+    let eleve3 = b.b[0];
+    let (pt, _) = parent(&b, eleve3, true).await;
+    autoriser_recuperer(&b, eleve3, grand).await;
+    let st = b.ent.demander_sortie_a(b.etab, pt, PARENT, &demande(eleve3, "exceptionnelle", debut, fin, false, Some(grand)), paris(lundi, 10, 0)).await.unwrap();
+    let st = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, st.id, &decision("autoriser", None), paris(mardi, 12, 20)).await.unwrap();
+    assert_eq!(st.statut, "autorisee", "le témoin est autorisé");
+}
+
+/// Un contact validé « peut récupérer », déclaré par `declarant` (fiche) ; `requalifie` : date de requalification.
+async fn p4_contact_declare(b: &Banc, eleve: Uuid, personne: Uuid, declarant: Option<Uuid>) {
+    sqlx::query(
+        "INSERT INTO ent_eleve_contact_urgence (id, etablissement_id, eleve_id, personne_id, relation, peut_recuperer, statut, declare_par_personne_id) \
+         VALUES ($1,$2,$3,$4,'proche',true,'valide',$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(b.etab)
+    .bind(eleve)
+    .bind(personne)
+    .bind(declarant)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+}
+
+async fn p4_id_contact(b: &Banc, eleve: Uuid, personne: Uuid) -> Uuid {
+    sqlx::query_scalar("SELECT id FROM ent_eleve_contact_urgence WHERE etablissement_id = $1 AND eleve_id = $2 AND personne_id = $3")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(personne)
+        .fetch_one(b.ent.pool_verif())
+        .await
+        .unwrap()
+}
+
+/// R5 — un contact « peut récupérer » déclaré par un parent visé (interdiction, ou perte de droit) n'est plus remis tant que
+/// le personnel ne l'a pas requalifié après coup ; la chaîne de déclarants est suivie (le contact déclaré par un contact
+/// déclaré par le visé) ; une requalification antérieure à la perte ne compte pas ; la famille ne requalifie pas.
+#[tokio::test]
+async fn p4_r5_un_contact_declare_par_un_vise_n_est_remis_qu_apres_requalification_du_personnel() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    for par_interdiction in [true, false] {
+        let eleve = if par_interdiction { b.a[0] } else { b.a[1] };
+        let (_pa, pers_a) = parent(&b, eleve, true).await;
+        let (pb, pers_b) = parent(&b, eleve, true).await;
+        let odile = tiers(&b, "Odile").await; // déclarée par A
+        let pierre = tiers(&b, "Pierre").await; // déclaré par Odile (chaîne)
+        let marc = tiers(&b, "Marc").await; // déclaré par B (non visé)
+        let alice = tiers(&b, "Alice").await; // sans déclarant (saisie du personnel)
+        p4_contact_declare(&b, eleve, odile, Some(pers_a)).await;
+        p4_contact_declare(&b, eleve, pierre, Some(odile)).await;
+        p4_contact_declare(&b, eleve, marc, Some(pers_b)).await;
+        p4_contact_declare(&b, eleve, alice, None).await;
+        for p in [odile, pierre, marc, alice] {
+            assert_eq!(code_remise(&b, eleve, p, mercredi).await.0, "autorisee", "avant : tout le monde est remis");
+        }
+        // B annonce une absence avec Odile : valable tant que A n'est pas visé.
+        let a = annoncer_avec(&b, pb, PARENT, eleve, mercredi, mercredi, Some(odile), paris(lundi, 10, 0)).await.unwrap();
+        assert_eq!(a.statut, "annoncee");
+        if par_interdiction {
+            interdire_objet(&b, eleve, pers_a, "remise", None).await;
+            dater_interdictions(&b, eleve, paris(mardi, 12, 0)).await;
+        } else {
+            let user_a: Uuid = sqlx::query_scalar("SELECT user_id FROM ent_personne WHERE etablissement_id = $1 AND id = $2").bind(b.etab).bind(pers_a).fetch_one(b.ent.pool_verif()).await.unwrap();
+            sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = $4, suspendu_par = $5, suspension_motif = 'Décision de justice', updated_at = $4 WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+                .bind(b.etab)
+                .bind(eleve)
+                .bind(user_a)
+                .bind(paris(mardi, 12, 0))
+                .bind(b.dir)
+                .execute(b.ent.pool_verif())
+                .await
+                .unwrap();
+        }
+        for (p, attendu) in [(odile, "non_autorisee"), (pierre, "non_autorisee"), (marc, "autorisee"), (alice, "autorisee")] {
+            assert_eq!(code_remise(&b, eleve, p, mercredi).await.0, attendu, "après : contact déclaré par un visé, chaîne comprise");
+        }
+        // La revue bloque l'absence de B (personne désignée devenue non autorisée).
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 5)).await.unwrap();
+        assert_eq!(p4_personne_absence(&b, a.id).await.0, "bloquee");
+        // Requalification : la famille ne le peut pas ; sans motif, non ; une date antérieure à la perte ne compte pas.
+        let c_odile = p4_id_contact(&b, eleve, odile).await;
+        let c_pierre = p4_id_contact(&b, eleve, pierre).await;
+        let motif = CorrespondantSuspensionDto { motif_texte: Some("Contact revu avec la famille".into()) };
+        assert!(est_interdit(&b.ent.requalifier_contact_a(b.etab, pb, PARENT, c_odile, &motif, paris(mardi, 15, 0)).await));
+        let r = b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c_odile, &CorrespondantSuspensionDto { motif_texte: None }, paris(mardi, 15, 0)).await;
+        assert!(refus_de(&r, "motif obligatoire"), "{r:?}");
+        sqlx::query("UPDATE ent_eleve_contact_urgence SET requalifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
+            .bind(b.etab)
+            .bind(c_odile)
+            .bind(paris(avril(1), 9, 0))
+            .execute(b.ent.pool_verif())
+            .await
+            .unwrap();
+        assert_eq!(code_remise(&b, eleve, odile, mercredi).await.0, "non_autorisee", "une requalification antérieure à la perte ne compte pas");
+        // Le personnel requalifie Pierre (en aval) : Pierre est remis, Odile non ; puis Odile.
+        b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c_pierre, &motif, paris(mardi, 15, 0)).await.unwrap();
+        assert_eq!(code_remise(&b, eleve, pierre, mercredi).await.0, "autorisee");
+        assert_eq!(code_remise(&b, eleve, odile, mercredi).await.0, "non_autorisee");
+        b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c_odile, &motif, paris(mardi, 15, 5)).await.unwrap();
+        assert_eq!(code_remise(&b, eleve, odile, mercredi).await.0, "autorisee");
+        // La direction lève le blocage (la personne est de nouveau valable) et le départ a lieu avec Odile.
+        b.ent.trancher_absence_a(b.etab, b.dir, DIR, a.id, &tranche("lever"), paris(mardi, 16, 0)).await.unwrap();
+        let soir = paris(mercredi, 17, 0);
+        let dep = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(Some(odile), soir), soir).await.unwrap();
+        assert_eq!(dep.statut, "annoncee");
+    }
+}
+
+/// R6 — aucune règle sur un libellé libre : la porte « contact d'urgence » écarte tout contact dont un lien avec l'élève a
+/// l'autorité retirée, la garde « aucune », est suspendu ou échu, QUEL QUE SOIT le libellé du lien (« Maman », « Tonton »,
+/// « père »…). Un contact sans aucun lien reste autorisé ; un titulaire en cours aussi (porte « titulaire »).
+#[tokio::test]
+async fn p4_r6_la_porte_contact_ne_lit_jamais_le_libelle_du_lien() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let jour = avril(14);
+    // (libellé, autorité, garde, suspendu, fin, attendu)
+    let cas: [(&str, bool, Option<&str>, bool, Option<&str>, &str); 8] = [
+        ("Maman", false, None, false, None, "non_autorisee"),
+        ("Tonton", true, Some("aucune"), false, None, "non_autorisee"),
+        ("père", true, None, true, None, "non_autorisee"),
+        ("Mamie", true, None, false, Some("2026-03-01"), "non_autorisee"),
+        ("Parrain", false, None, false, None, "non_autorisee"),
+        ("tutrice légale", true, Some("aucune"), false, None, "non_autorisee"),
+        ("Maman", true, None, false, None, "autorisee"),
+        ("Tonton", true, Some("exclusive"), false, Some("2026-12-31"), "autorisee"),
+    ];
+    for (libelle, autorite, garde, suspendu, fin, attendu) in cas {
+        let user = compte(&b.ent, b.etab, PARENT).await;
+        let pers = tiers(&b, "Proche").await;
+        sqlx::query("UPDATE ent_personne SET user_id = $3 WHERE etablissement_id = $1 AND id = $2").bind(b.etab).bind(pers).bind(user).execute(b.ent.pool_verif()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, lien, autorite_parentale, garde, suspendu_le, suspendu_par, suspension_motif, date_fin) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(user)
+        .bind(pers)
+        .bind(libelle)
+        .bind(autorite)
+        .bind(garde)
+        .bind(suspendu.then(|| paris(avril(1), 9, 0)))
+        .bind(suspendu.then_some(b.dir))
+        .bind(suspendu.then_some("Décision de justice"))
+        .bind(fin)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+        autoriser_recuperer(&b, eleve, pers).await;
+        let r = code_remise(&b, eleve, pers, jour).await;
+        // La porte « titulaire » (lien actif, autorité, garde non « aucune ») rend « autorisee » avec le libellé ; la porte
+        // « contact » ne se prononce jamais sur lui.
+        assert_eq!(r.0, attendu, "libellé « {libelle} », autorité {autorite}, garde {garde:?}, suspendu {suspendu}, fin {fin:?}");
+    }
+    // Un contact sans aucun lien reste autorisé.
+    let seul = tiers(&b, "Voisine").await;
+    autoriser_recuperer(&b, eleve, seul).await;
+    assert_eq!(code_remise(&b, eleve, seul, jour).await.0, "autorisee");
+}
+
+/// R7 — une erreur sur un objet n'annule pas la revue des autres : un déclencheur de test fait échouer l'écriture d'une
+/// absence ; l'autre absence est bloquée, la revue réussit et compte l'échec. Ordre de verrouillage identique entre le
+/// départ et la revue : des départs et des revues concurrents ne se bloquent jamais mutuellement (pas d'interblocage).
+#[tokio::test]
+async fn p4_r7_une_erreur_sur_un_objet_n_annule_pas_la_revue_des_autres() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    let mut absences = Vec::new();
+    for i in 0..2 {
+        let eleve = b.a[i];
+        let (pa, _) = parent(&b, eleve, true).await;
+        let grand = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, grand).await;
+        let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+        p4_perdre_le_droit(&b, eleve, pa, 0).await;
+        absences.push(a.id);
+    }
+    let (en_echec, bonne) = (absences[0], absences[1]);
+    let nom = format!("ent_test_p4_echec_{}", en_echec.simple());
+    sqlx::query(&format!(
+        "CREATE FUNCTION {nom}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+           IF NEW.id = '{en_echec}'::uuid THEN RAISE EXCEPTION 'échec simulé'; END IF; RETURN NEW; END $$"
+    ))
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(&format!("CREATE TRIGGER {nom} BEFORE UPDATE ON ent_internat_absence FOR EACH ROW EXECUTE FUNCTION {nom}()"))
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    let r = b.ent.veille_sorties_bilan_a(b.etab, paris(mardi, 12, 5)).await;
+    sqlx::query(&format!("DROP TRIGGER {nom} ON ent_internat_absence")).execute(b.ent.pool_verif()).await.unwrap();
+    sqlx::query(&format!("DROP FUNCTION {nom}()")).execute(b.ent.pool_verif()).await.unwrap();
+    let echecs = r.expect("la revue réussit malgré l'objet en échec").1.echecs;
+    assert!(echecs >= 1, "l'échec est compté : {echecs}");
+    assert_eq!(p4_personne_absence(&b, bonne).await.0, "bloquee", "l'autre objet est revu");
+    assert_eq!(p4_personne_absence(&b, en_echec).await.0, "annoncee", "seul le travail de l'objet en échec est annulé");
+    // La revue suivante, sans panne, reprend l'objet.
+    let echecs = b.ent.veille_sorties_bilan_a(b.etab, paris(mardi, 12, 6)).await.unwrap().1.echecs;
+    assert_eq!(echecs, 0);
+    assert_eq!(p4_personne_absence(&b, en_echec).await.0, "bloquee");
+}
+
+/// R7 — ordre de verrouillage (correspondants, puis sortie, puis absences) : départs et revues concurrents ne
+/// s'interbloquent pas.
+#[tokio::test]
+async fn p4_r7_depart_et_revue_concurrents_ne_s_interbloquent_pas() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi) = (avril(13), avril(14));
+    let (debut, fin) = (paris(mardi, 17, 0), paris(avril(15), 8, 0));
+    let eleve = b.a[0];
+    let (pa, _) = parent(&b, eleve, true).await;
+    let corr = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, corr).await;
+    let saisie = CorrespondantSaisieDto { eleve_id: eleve, personne_id: corr, lundi: true, mardi: true, mercredi: true, jeudi: true, vendredi: true, samedi: true, dimanche: true, du: None, au: None };
+    let c = b.ent.designer_correspondant_a(b.etab, pa, PARENT, &saisie, paris(lundi, 9, 0)).await.unwrap();
+    let d = SortieDemandeDto { correspondant_id: Some(c.id), ..demande(eleve, "nuit_correspondant", debut, fin, false, None) };
+    let s = b.ent.demander_sortie_a(b.etab, pa, PARENT, &d, paris(lundi, 10, 0)).await.unwrap();
+    let s = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+    // Départs, revues et suspensions de correspondant en concurrence (mêmes lignes, ordre de verrouillage commun).
+    for tour in 0..4u32 {
+        let (etab, cpe, cid) = (b.etab, b.cpe, c.id);
+        let t = |m: u32| paris(mardi, 12, tour * 10 + m);
+        let tolerer = |r: Result<(), EntDbError>| match r {
+            Err(EntDbError::Refus(_, _)) => Ok(()),
+            autre => autre,
+        };
+        let (r1, r2, r3, r4) = tokio::join!(
+            async { b.ent.veille_sorties_a(etab, t(1)).await.map(|_| ()) },
+            async { tolerer(b.ent.controler_depart_a(etab, cpe, CPE, s.id, &depart(Some(corr), debut), debut).await.map(|_| ())) },
+            async { tolerer(b.ent.suspendre_correspondant_a(etab, cpe, CPE, cid, tour % 2 == 0, &CorrespondantSuspensionDto { motif_texte: Some("essai".into()) }, t(2)).await.map(|_| ())) },
+            async { b.ent.veille_sorties_a(etab, t(3)).await.map(|_| ()) },
+        );
+        for r in [r1, r2, r3, r4] {
+            if let Err(e) = r {
+                assert!(!format!("{e:?}").to_lowercase().contains("deadlock"), "interblocage : {e:?}");
+            }
+        }
+    }
+}
+
+/// R8 — la remise d'un élève passe par la même porte. Le module des sorties scolaires et voyages (socle 42) ne remet aucun
+/// élève : les états `remis` et `parti_seul_autorise` de `ent_sortie_participant` n'existent que dans la contrainte de la
+/// table, AUCUN code ne les écrit. Cette garde échoue le jour où un lot les écrira sans passer par `ent_internat_remise`
+/// (ou la même fonction de contrôle) : il faudra alors la corriger avec son test de remise.
+#[test]
+fn p4_r8_aucun_module_ne_remet_un_eleve_par_un_etat_de_participant() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut ecrivains = Vec::new();
+    for e in std::fs::read_dir(&src).unwrap() {
+        let chemin = e.unwrap().path();
+        let nom = chemin.file_name().unwrap().to_string_lossy().to_string();
+        if !nom.ends_with(".rs") || nom.starts_with("tests") {
+            continue;
+        }
+        // La seule mention connue est un FILTRE DE LECTURE (export de la liste des participants présents) : écartée.
+        let texte = std::fs::read_to_string(&chemin).unwrap().replace("&[\"inscrit\", \"pret\", \"parti\", \"rentre\", \"remis\"]", "");
+        let ecrit = texte.contains("UPDATE ent_sortie_participant") || texte.contains("INSERT INTO ent_sortie_participant ");
+        if ecrit {
+            assert!(
+                !texte.contains("parti_seul_autorise") && !texte.contains("\"remis\"") && !texte.contains("'remis'"),
+                "{nom} écrit ent_sortie_participant et cite un état de remise : le faire passer par ent_internat_remise (R8)"
+            );
+            ecrivains.push(nom);
+        }
+    }
+    assert!(!ecrivains.is_empty(), "la garde doit voir au moins un écrivain de ent_sortie_participant");
+}

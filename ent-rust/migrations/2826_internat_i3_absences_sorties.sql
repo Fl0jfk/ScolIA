@@ -525,6 +525,16 @@ LANGUAGE sql STABLE AS $$
                         AND (k.au IS NULL OR k.au >= jour))
 $$;
 
+-- Passe 4 (R5) : requalification d'un contact d'urgence par le personnel. Un contact « peut récupérer » déclaré par une
+-- personne devenue visée (interdiction ou perte de droit) n'est plus remis tant que le personnel ne l'a pas
+-- requalifié APRÈS cette perte : fait daté et signé, écrit par le seul service d'internat (jamais par la famille).
+-- Colonnes ajoutées seulement ici ; la copie de fusion (`ent_personne_fusion_contact_supprime`) ne les reprend pas :
+-- une défusion remet le contact « non requalifié » (sens prudent).
+ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_le TIMESTAMPTZ;
+ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_par_user_id UUID;
+ALTER TABLE ent_eleve_contact_urgence ADD COLUMN IF NOT EXISTS requalifie_motif TEXT
+    CHECK (requalifie_motif IS NULL OR char_length(btrim(requalifie_motif)) BETWEEN 1 AND 300);
+
 -- ───────────────────────── Interdictions et remise : règles en SQL (passe 3) ─────────────────────────
 -- Une seule définition, appelée une fois par ligne (contrôle de départ) ou en lot (revue à la minute : une requête par
 -- établissement, jamais une par ligne). Aucune ne lit de donnée hors de l'établissement passé en paramètre.
@@ -556,15 +566,67 @@ RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
        AND i.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
 $$;
 
+-- Passe 4 (R1) : PERTE DE DROIT. Un acte posé par une personne tombe aussi quand elle n'a plus de droit sur l'élève :
+-- plus aucun lien actif (suspendu, terminé, autorité parentale retirée, garde « aucune ») ou plus aucun lien du tout.
+-- Datée au moment de la perte : suspension (`suspendu_le`), lendemain de la date de fin, ou dernière modification du lien
+-- (`updated_at`) quand l'autorité est retirée ou la garde passée à « aucune » (aucun historique plus fin n'existe). NULL
+-- si la personne a encore un lien actif, si c'est le compte de l'élève lui-même, ou (p_sans_lien_perdu faux) si elle n'a
+-- jamais eu de lien (un simple contact : son cas est jugé par `ent_internat_contact_suspect`). Les liens sont ceux du
+-- compte (`user_id`) ou de toute fiche de la chaîne de fusions des personnes données. Aucun libellé de lien n'est lu.
+CREATE OR REPLACE FUNCTION ent_internat_perte_droit(
+    p_etab UUID, p_eleve UUID, p_personnes UUID[], p_user UUID, p_jour DATE, p_sans_lien_perdu BOOLEAN)
+RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
+    WITH liens AS (
+        SELECT l.* FROM ent_eleve_lien l
+         WHERE l.etablissement_id = p_etab AND l.eleve_id = p_eleve
+           AND ((p_user IS NOT NULL AND l.user_id = p_user)
+                OR l.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, x) FROM unnest(p_personnes) x))
+    ),
+    etat AS (
+        SELECT (SELECT count(*) FROM liens) AS n,
+               EXISTS (SELECT 1 FROM liens l
+                        WHERE l.suspendu_le IS NULL AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune'
+                          AND (l.date_debut IS NULL OR l.date_debut <= p_jour)
+                          AND (l.date_fin IS NULL OR l.date_fin >= p_jour)) AS actif,
+               (p_user IS NOT NULL AND EXISTS (SELECT 1 FROM ent_eleve_compte k
+                                                WHERE k.etablissement_id = p_etab AND k.eleve_id = p_eleve
+                                                  AND k.user_id = p_user)) AS eleve_lui_meme
+    )
+    SELECT CASE WHEN e.eleve_lui_meme OR e.actif THEN NULL
+                WHEN e.n = 0 THEN (CASE WHEN p_sans_lien_perdu THEN '1970-01-01'::timestamptz END)
+                ELSE (SELECT max(COALESCE(GREATEST(
+                                l.suspendu_le,
+                                CASE WHEN l.date_fin IS NOT NULL AND l.date_fin < p_jour
+                                     THEN ((l.date_fin + 1)::timestamp AT TIME ZONE ent_internat_fuseau(p_etab)) END,
+                                CASE WHEN NOT l.autorite_parentale OR COALESCE(l.garde, '') = 'aucune'
+                                     THEN l.updated_at END), l.updated_at))
+                        FROM liens l) END
+      FROM etat e
+$$;
+
+-- Une personne (fiche) est-elle « visée » : interdiction (chaîne de fusions comprise) OU perte de droit (R1). Date la
+-- plus récente, NULL sinon. Un simple contact (aucun lien) n'a pas de droit à perdre.
+CREATE OR REPLACE FUNCTION ent_internat_personne_vise(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
+RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
+    SELECT GREATEST(ent_internat_personne_visee(p_etab, p_eleve, p_personne, p_jour),
+                    ent_internat_perte_droit(p_etab, p_eleve, ARRAY[p_personne], NULL, p_jour, false))
+$$;
+
 -- Le compte est-il « visé » : l'une des fiches qui sont les siennes (fiche personne rattachée au compte, ou lien avec
--- l'élève) est visée par une interdiction (voir ci-dessus). Date de pose la plus récente, NULL sinon.
+-- l'élève) est visée par une interdiction (voir ci-dessus), OU le compte a perdu son droit sur l'élève (R1, ci-dessus).
+-- Date la plus récente, NULL sinon. C'est la SEULE définition lue par `actes_qui_tombent_tx` et par le verdict annuel.
 CREATE OR REPLACE FUNCTION ent_internat_user_vise(p_etab UUID, p_eleve UUID, p_user UUID, p_jour DATE)
 RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
-    SELECT max(ent_internat_personne_visee(p_etab, p_eleve, x.pid, p_jour))
-      FROM (SELECT id AS pid FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user
-            UNION
-            SELECT personne_id FROM ent_eleve_lien
-             WHERE etablissement_id = p_etab AND eleve_id = p_eleve AND user_id = p_user) x
+    SELECT GREATEST(
+        (SELECT max(ent_internat_personne_visee(p_etab, p_eleve, x.pid, p_jour))
+           FROM (SELECT id AS pid FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user
+                 UNION
+                 SELECT personne_id FROM ent_eleve_lien
+                  WHERE etablissement_id = p_etab AND eleve_id = p_eleve AND user_id = p_user) x),
+        ent_internat_perte_droit(
+            p_etab, p_eleve,
+            ARRAY(SELECT id FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user),
+            p_user, p_jour, true))
 $$;
 
 -- Date de pose de l'interdiction SANS personne identifiée (non nominative) la plus récente, non levée et non terminée ;
@@ -579,15 +641,51 @@ RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
        AND (i.au IS NULL OR i.au >= p_jour)
 $$;
 
+-- Passe 4 (R5) : un contact d'urgence est « suspect » quand lui, ou l'un des contacts de sa chaîne de déclarants, a été
+-- déclaré par une personne devenue visée (interdiction ou perte de droit, ou personne sans aucun lien ni contact) et que
+-- le personnel ne l'a pas requalifié APRÈS cette perte. Une requalification d'un contact couvre ce qui, en amont dans
+-- la chaîne, date d'avant elle (le personnel a vu le contact et en répond). Profondeur bornée (cycles).
+CREATE OR REPLACE FUNCTION ent_internat_contact_suspect(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE ch(declarant, prefixe, depth) AS (
+        SELECT c.declare_par_personne_id, COALESCE(c.requalifie_le, '-infinity'::timestamptz), 0
+          FROM ent_eleve_contact_urgence c
+         WHERE c.etablissement_id = p_etab AND c.eleve_id = p_eleve AND c.personne_id = p_personne
+        UNION ALL
+        SELECT d.declare_par_personne_id, GREATEST(ch.prefixe, COALESCE(d.requalifie_le, '-infinity'::timestamptz)),
+               ch.depth + 1
+          FROM ch
+          CROSS JOIN LATERAL ent_internat_personne_chaine(p_etab, ch.declarant) AS cd(id)
+          JOIN ent_eleve_contact_urgence d
+            ON d.etablissement_id = p_etab AND d.eleve_id = p_eleve AND d.personne_id = cd.id
+         WHERE ch.declarant IS NOT NULL AND ch.depth < 8
+    )
+    SELECT EXISTS (
+        SELECT 1 FROM (
+            SELECT ch.prefixe,
+                   GREATEST(
+                       ent_internat_personne_visee(p_etab, p_eleve, ch.declarant, p_jour),
+                       ent_internat_perte_droit(p_etab, p_eleve, ARRAY[ch.declarant], NULL, p_jour, false),
+                       (CASE WHEN NOT EXISTS (SELECT 1 FROM ent_eleve_lien l
+                                               WHERE l.etablissement_id = p_etab AND l.eleve_id = p_eleve
+                                                 AND l.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, ch.declarant)))
+                                  AND NOT EXISTS (SELECT 1 FROM ent_eleve_contact_urgence d2
+                                                   WHERE d2.etablissement_id = p_etab AND d2.eleve_id = p_eleve
+                                                     AND d2.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, ch.declarant)))
+                             THEN '1970-01-01'::timestamptz END)) AS perdu
+              FROM ch WHERE ch.declarant IS NOT NULL) t
+         WHERE t.perdu IS NOT NULL AND t.prefixe < t.perdu)
+$$;
+
 -- Une personne peut-elle prendre l'élève ce jour-là ? Code : « interdite » (visée par une interdiction, toujours
 -- prioritaire), « sans_cible » (une interdiction sans personne identifiée est en vigueur et la direction ne l'a pas levée
 -- pour ce cas : `p_sans_cible_levee`), « autorisee » (+ relation) ou « non_autorisee ».
 --   * titulaire : lien actif, autorité parentale, garde non « aucune », non fusionnée ;
 --   * personne autorisée : contact validé, « peut récupérer », dont aucun lien avec l'élève (sur toute la chaîne de
---     fusions) n'est suspendu, en garde « aucune », ni celui d'un parent ou tuteur privé de l'autorité parentale, ni celui
---     d'un parent ou tuteur dont le lien est TERMINÉ (date de fin passée) ou PAS ENCORE COMMENCÉ : décision prudente (un
---     parent dont le lien est simplement échu ne prend pas l'élève comme « contact » ; la direction rétablit le lien) ;
---     un proche de lien « autre » (grand-parent, beau-parent) n'a jamais eu l'autorité parentale et reste autorisé.
+--     fusions) n'est suspendu, terminé, pas encore commencé, en garde « aucune » ou privé d'autorité parentale, QUEL QUE
+--     SOIT LE LIBELLÉ du lien (R6, passe 4 : `ent_eleve_lien.lien` est un texte libre) ; et qui n'a pas été déclaré par
+--     une personne devenue visée sans requalification du personnel depuis (R5). Décision prudente : un proche dont le
+--     lien est sans autorité parentale ne passe pas par cette porte (la direction le rétablit, ou le déclare sans lien).
 CREATE OR REPLACE FUNCTION ent_internat_remise(
     p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE, p_sans_cible_levee BOOLEAN)
 RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
@@ -610,15 +708,18 @@ RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
                       JOIN ent_personne p ON p.etablissement_id = c.etablissement_id AND p.id = c.personne_id
                      WHERE c.etablissement_id = p_etab AND c.eleve_id = p_eleve AND c.personne_id = p_personne
                        AND c.peut_recuperer AND c.statut = 'valide' AND p.fusionnee_dans IS NULL
+                       -- R6 : aucune règle sur le libellé du lien (texte libre) : tout lien de l'élève dont l'autorité est
+                       -- retirée, la garde « aucune », suspendu, terminé ou pas encore commencé exclut la personne.
                        AND NOT EXISTS (
                             SELECT 1 FROM ent_eleve_lien sl
                              WHERE sl.etablissement_id = p_etab AND sl.eleve_id = p_eleve
                                AND sl.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
                                AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune'
-                                    OR (NOT sl.autorite_parentale AND sl.lien IN ('mere', 'pere', 'tuteur'))
-                                    OR (sl.lien IN ('mere', 'pere', 'tuteur')
-                                        AND ((sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
-                                             OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)))))
+                                    OR NOT sl.autorite_parentale
+                                    OR (sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
+                                    OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)))
+                       -- R5 : contact déclaré par une personne devenue visée, non requalifié par le personnel depuis.
+                       AND NOT ent_internat_contact_suspect(p_etab, p_eleve, p_personne, p_jour)
                 ) x LIMIT 1) AS rel
     )
     SELECT CASE WHEN visee THEN 'interdite'

@@ -33,6 +33,56 @@
 
 use super::*;
 
+/// Bilan d'une revue : objets suspendus, bloqués ou remis à la décision, et objets dont la revue a échoué.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct RevueBilan {
+    pub suspendues: i32,
+    pub echecs: i32,
+}
+
+/// Ouvre le savepoint de la revue d'UN objet, juste avant sa première écriture (jamais pour un objet sans écriture).
+pub(super) async fn ouvrir_savepoint_revue(conn: &mut PgConnection, ouvert: &mut bool) -> Result<(), EntDbError> {
+    if !*ouvert {
+        sqlx::query("SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+        *ouvert = true;
+    }
+    Ok(())
+}
+
+/// Passe 4 (R7) : ferme le savepoint ouvert (`SAVEPOINT revue_objet`) autour de la revue d'UN objet. Succès : le travail
+/// de l'objet est conservé (`vrai` = l'objet a été suspendu, bloqué ou remis à la décision). Échec : seul le travail de
+/// cet objet est annulé, l'échec est compté et journalisé (sans donnée nominative) ; les autres objets sont revus. Seule
+/// une erreur du savepoint lui-même (connexion perdue) remonte.
+pub(super) async fn fin_savepoint_revue(
+    conn: &mut PgConnection,
+    ouvert: bool,
+    resultat: Result<bool, EntDbError>,
+    comptes: &mut i32,
+    echecs: &mut i32,
+) -> Result<(), EntDbError> {
+    if !ouvert {
+        // Aucune écriture n'a été tentée pour cet objet (le plus grand nombre : pas de requête de plus par ligne) : une
+        // simple lecture qui échoue fait échouer la transaction, comme avant la passe 4.
+        *comptes += i32::from(resultat?);
+        return Ok(());
+    }
+    match resultat {
+        Ok(vrai) => {
+            sqlx::query("RELEASE SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+            if vrai {
+                *comptes += 1;
+            }
+        }
+        Err(e) => {
+            sqlx::query("ROLLBACK TO SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+            sqlx::query("RELEASE SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+            *echecs += 1;
+            tracing::warn!(erreur = %e, "revue d'internat : un objet n'a pas pu être revu (les autres l'ont été)");
+        }
+    }
+    Ok(())
+}
+
 /// Qualités d'un acte posé par la famille (les actes du personnel ne sont jamais visés par une interdiction).
 const FAMILLE: [&str; 3] = ["titulaire", "eleve_majeur", "eleve"];
 
@@ -122,9 +172,27 @@ struct FaitLu {
     a: DateTime<Utc>,
     personne_id: Option<Uuid>,
     cree_le: DateTime<Utc>,
+    motif_code: Option<String>,
+    motif_texte: Option<String>,
 }
 
 impl FaitLu {
+    /// R2 : une décision du CPE ou de la direction ne couvre la chute que si elle PORTE SUR elle : levée du blocage
+    /// (`tranchee_levee`, direction) ou reprise du correspondant (CPE) dont le motif est la chute elle-même
+    /// (`interdiction_auteur` : interdiction OU perte de droit de l'auteur), avec un motif écrit. Une acceptation, une
+    /// autorisation de routine, une levée pour une autre cause (désaccord, par exemple) ne couvrent jamais.
+    fn couvre_la_chute(&self, correspondant: bool) -> bool {
+        let motif_ecrit = self.motif_texte.as_deref().is_some_and(|t| !t.trim().is_empty());
+        let motif_chute = matches!(self.motif_code.as_deref(), Some("interdiction_auteur"));
+        motif_ecrit
+            && motif_chute
+            && if correspondant {
+                self.acte == "reprise" && self.qualite == "cpe"
+            } else {
+                self.acte == "tranchee_levee" && self.qualite == "direction"
+            }
+    }
+
     fn cible(&self) -> Option<Uuid> {
         self.sortie_id.or(self.absence_id).or(self.correspondant_id)
     }
@@ -213,7 +281,8 @@ pub(super) async fn actes_qui_tombent_tx(
     let ids: Vec<Uuid> = objets.iter().map(Objet::id).collect();
     // 1. Le journal des faits de tous les objets, en une requête.
     let faits: Vec<FaitLu> = sqlx::query_as(
-        "SELECT sortie_id, absence_id, correspondant_id, acte, qualite, par_user_id, a, personne_id, cree_le \
+        "SELECT sortie_id, absence_id, correspondant_id, acte, qualite, par_user_id, a, personne_id, cree_le, \
+                motif_code, motif_texte \
            FROM ent_internat_i3_fait \
           WHERE etablissement_id = $1 \
             AND (sortie_id = ANY($2) OR absence_id = ANY($2) OR correspondant_id = ANY($2)) \
@@ -379,7 +448,7 @@ pub(super) async fn actes_qui_tombent_tx(
         let (cibles, (eleves, personnes)): (Vec<Uuid>, (Vec<Uuid>, Vec<Uuid>)) =
             a_verifier.iter().map(|(c, e, p)| (*c, (*e, *p))).unzip();
         let lignes: Vec<(Uuid, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT k.c, ent_internat_personne_visee($1, k.e, k.p, $5) \
+            "SELECT k.c, ent_internat_personne_vise($1, k.e, k.p, $5) \
                FROM unnest($2::uuid[], $3::uuid[], $4::uuid[]) AS k(c, e, p)",
         )
         .bind(etab)
@@ -397,13 +466,7 @@ pub(super) async fn actes_qui_tombent_tx(
     for o in objets {
         let faits_o: &[&FaitLu] = par_cible.get(&o.id()).map(Vec::as_slice).unwrap_or(&[]);
         let couvert_apres = |depuis: DateTime<Utc>| {
-            faits_o.iter().any(|f| {
-                f.a >= depuis
-                    && match o {
-                        Objet::Correspondant(_) => f.acte == "reprise" && f.qualite == "cpe",
-                        _ => matches!(f.acte.as_str(), "tranchee_levee" | "acceptation") && matches!(f.qualite.as_str(), "cpe" | "direction"),
-                    }
-            })
+            faits_o.iter().any(|f| f.a >= depuis && f.couvre_la_chute(matches!(o, Objet::Correspondant(_))))
         };
         let mut chute = Chute::default();
         for (u, portee) in auteurs.get(&o.id()).map(Vec::as_slice).unwrap_or(&[]) {
@@ -558,6 +621,7 @@ pub(super) async fn suspendre_correspondants_auteur_tx(
     eleve: Option<Uuid>,
     jour: NaiveDate,
     maintenant: DateTime<Utc>,
+    echecs: &mut i32,
 ) -> Result<i32, EntDbError> {
     let lignes: Vec<(Uuid, Uuid, Uuid)> = sqlx::query_as(
         "SELECT id, eleve_id, designe_par_user_id FROM ent_internat_correspondant \
@@ -573,10 +637,10 @@ pub(super) async fn suspendre_correspondants_auteur_tx(
     let objets: Vec<Objet<'_>> = corr.iter().map(Objet::Correspondant).collect();
     let chutes = actes_qui_tombent_tx(conn, etab, &objets, jour).await?;
     let mut n = 0;
-    for c in &corr {
-        if chutes.contains_key(&c.id) && appliquer_correspondant_tx(conn, etab, c, maintenant).await? {
-            n += 1;
-        }
+    for c in corr.iter().filter(|c| chutes.contains_key(&c.id)) {
+        sqlx::query("SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+        let r = appliquer_correspondant_tx(conn, etab, c, maintenant).await;
+        fin_savepoint_revue(conn, true, r, &mut n, echecs).await?;
     }
     Ok(n)
 }
@@ -617,6 +681,7 @@ impl PgEnt {
         eleve: Option<Uuid>,
         jour: NaiveDate,
         maintenant: DateTime<Utc>,
+        echecs: &mut i32,
     ) -> Result<i32, EntDbError> {
         let nuit = nuit_a_tx(conn, etab, maintenant).await?;
         let sorties: Vec<SortieLigne> = sqlx::query_as(&format!(
@@ -631,7 +696,7 @@ impl PgEnt {
         .map_err(db)?;
         let absences: Vec<AbsenceLigne> = sqlx::query_as(&format!(
             "SELECT {COLONNES_ABSENCE} FROM ent_internat_absence \
-              WHERE etablissement_id = $1 AND statut IN ('annoncee', 'acceptee') AND depart_effectif IS NOT NULL \
+              WHERE etablissement_id = $1 AND statut IN ('demandee', 'annoncee', 'acceptee') AND depart_effectif IS NOT NULL \
                 AND au_nuit >= $3 AND ($2::uuid IS NULL OR eleve_id = $2) ORDER BY du_nuit, id"
         ))
         .bind(etab)
@@ -656,15 +721,21 @@ impl PgEnt {
                     continue;
                 }
             }
-            if self.ouvrir_cas_tx(conn, etab, None, None, eleve, nuit, "interdiction_auteur", maintenant).await?.is_some() {
+            sqlx::query("SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+            let r: Result<bool, EntDbError> = async {
+                if self.ouvrir_cas_tx(conn, etab, None, None, eleve, nuit, "interdiction_auteur", maintenant).await?.is_none() {
+                    return Ok(false);
+                }
                 let cible = match o {
                     Objet::Sortie(s) => Cible::Sortie(s.id),
                     Objet::Absence(a) => Cible::Absence(a.id),
                     Objet::Correspondant(c) => Cible::Correspondant(c.id),
                 };
                 fait_tx(conn, etab, cible, "signalement", "systeme", None, maintenant, Some("interdiction_auteur"), None, None, None).await?;
-                ouverts += 1;
+                Ok(true)
             }
+            .await;
+            fin_savepoint_revue(conn, true, r, &mut ouverts, echecs).await?;
         }
         Ok(ouverts)
     }

@@ -151,6 +151,7 @@ async fn internat_api_aucune_route_sans_session() {
         ("POST", format!("/internat/correspondants/{id}/suspension")),
         ("POST", format!("/internat/correspondants/{id}/reprise")),
         ("POST", format!("/internat/correspondants/{id}/fin")),
+        ("POST", format!("/internat/contacts/{id}/requalification")),
         ("GET", format!("/internat/eleves/{id}/correspondants")),
         ("GET", format!("/internat/absences/{id}/historique")),
         ("GET", format!("/internat/sorties/{id}/historique")),

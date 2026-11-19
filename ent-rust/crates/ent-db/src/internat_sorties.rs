@@ -44,8 +44,38 @@ use uuid::Uuid;
 mod actes;
 use actes::{
     actes_qui_tombent_tx, appliquer_absence_tx, appliquer_sortie_tx, comptes_vises_tx, deciders_annuel_tx,
-    suspendre_correspondants_auteur_tx, Objet,
+    fin_savepoint_revue, ouvrir_savepoint_revue, suspendre_correspondants_auteur_tx, Objet, RevueBilan,
 };
+
+/// Nombre de minutes de veille consécutives en échec avant l'alerte opérationnelle.
+const ALERTE_VEILLE_APRES: u32 = 3;
+
+/// Passe 4 (R7) : suivi des échecs répétés de la veille, par établissement (en mémoire du processus ; le compteur repart à
+/// zéro au redémarrage et dès qu'une veille réussit sans échec d'objet). À partir de `ALERTE_VEILLE_APRES` minutes
+/// consécutives, une alerte opérationnelle est journalisée (au niveau erreur, champ `alerte`), puis rappelée toutes les 30
+/// minutes. **Aucune donnée nominative ni d'établissement** : seul le nombre de minutes et d'établissements concernés.
+fn suivre_echecs_veille(etab: Uuid, echec: bool) {
+    static ECHECS: std::sync::Mutex<Option<HashMap<Uuid, u32>>> = std::sync::Mutex::new(None);
+    let Ok(mut garde) = ECHECS.lock() else { return };
+    let table = garde.get_or_insert_with(HashMap::new);
+    if !echec {
+        table.remove(&etab);
+        return;
+    }
+    let n = {
+        let c = table.entry(etab).or_insert(0);
+        *c += 1;
+        *c
+    };
+    if n == ALERTE_VEILLE_APRES || (n > ALERTE_VEILLE_APRES && n % 30 == 0) {
+        tracing::error!(
+            alerte = "internat_veille_sorties_en_echec",
+            minutes_consecutives = n,
+            etablissements_en_echec = table.len(),
+            "veille des sorties d'internat en échec répété pour un établissement (revue des sorties, absences ou correspondants)"
+        );
+    }
+}
 
 /// Une absence annoncée couvre 60 nuits au plus (CHECK de la base), jamais plus d'un an à l'avance.
 const HORIZON_ANNONCE_JOURS: i64 = 366;
@@ -1461,9 +1491,17 @@ impl PgEnt {
             motif
         };
         if nouveau == "acceptee" {
+            let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+            // Passe 4 (R3) : aucune décision du personnel sur un objet qui tombe. Accepter une absence dont un acte repose
+            // sur une personne désormais visée (interdiction ou perte de droit) la ferait partir avec un acte caduc :
+            // refus explicite (le personnel voit pourquoi ; la famille, elle, ne lit jamais la cause).
+            if actes_qui_tombent_tx(&mut tx, etab, &[Objet::Absence(&a)], jour).await?.contains_key(&a.id) {
+                return Err(conflit(
+                    "cette demande repose sur un acte (annonce, personne désignée ou autorisation annuelle) posé par une personne qui n'a plus le droit d'agir pour cet élève : l'accepter est impossible ; la refuser, ou la faire annoncer de nouveau par un titulaire",
+                ));
+            }
             // Accepter ne rend jamais valable une remise devenue interdite (C-1).
             if let Some(p) = a.recupere_par_personne_id {
-                let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
                 let pour = a.du_nuit.max(jour);
                 if !matches!(remise_possible_tx(&mut tx, etab, a.eleve_id, p, pour).await?, Remise::Autorisee(_)) {
                     return Err(conflit(
@@ -2481,6 +2519,13 @@ impl PgEnt {
         let majeur = eleve_majeur_tx(&mut tx, etab, s.eleve_id, jour_debut).await?;
         match b.decision.as_str() {
             "autoriser" => {
+                // Passe 4 (R3) : aucune décision du personnel sur un objet qui tombe (voir `decider_absence_a`).
+                let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+                if actes_qui_tombent_tx(&mut tx, etab, &[Objet::Sortie(&s)], jour).await?.contains_key(&s.id) {
+                    return Err(conflit(
+                        "cette sortie repose sur un acte (demande, accord, personne désignée ou autorisation annuelle) posé par une personne qui n'a plus le droit d'agir pour cet élève : l'autoriser est impossible ; la refuser, ou la faire redemander par un titulaire",
+                    ));
+                }
                 sqlx::query(
                     "UPDATE ent_internat_sortie SET decision_cpe_le = $3, decision_cpe_user_id = $4, modifie_le = $3 \
                       WHERE etablissement_id = $1 AND id = $2",
@@ -3150,6 +3195,27 @@ impl PgEnt {
     ) -> Result<SortieDto, EntDbError> {
         let a = heure_du_geste(b.a, maintenant)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Passe 4 (R7) : ORDRE DE VERROUILLAGE unique, le même que la revue à la minute et la suspension d'un
+        // correspondant : correspondants de l'élève, PUIS sortie, PUIS absences. Ici, la sortie n'est lue (sans verrou)
+        // que pour connaître l'élève ; ses correspondants sont verrouillés avant elle.
+        let eleve_de_la_sortie: Option<Uuid> = sqlx::query_scalar(
+            "SELECT eleve_id FROM ent_internat_sortie WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if let Some(e) = eleve_de_la_sortie {
+            sqlx::query(
+                "SELECT id FROM ent_internat_correspondant WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY id FOR UPDATE",
+            )
+            .bind(etab)
+            .bind(e)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         let s = sortie_tx(&mut tx, etab, id, true).await?;
         self.personnel_exiger(etab, actor, role, &[Action::InternatAppel], s.eleve_id).await?;
         let t = type_tx(&mut tx, etab, &s.type_code).await?;
@@ -3164,7 +3230,7 @@ impl PgEnt {
                 appliquer_sortie_tx(&mut tx, etab, &s, chute, a).await?;
                 return depart_refuse(
                     tx, etab, cible, actor, a, "interdiction_auteur", None,
-                    "départ refusé : un acte de cette sortie (demande, accord, personne désignée ou autorisation annuelle) a été posé par une personne qui fait désormais l'objet d'une interdiction : la décision revient au CPE",
+                    "départ refusé : un acte de cette sortie (demande, accord, personne désignée ou autorisation annuelle) a été posé par une personne qui fait désormais l'objet d'une interdiction ou qui n'a plus de droit sur l'élève : la décision revient au CPE",
                     true,
                 )
                 .await;
@@ -3201,7 +3267,8 @@ impl PgEnt {
         let majeur = eleve_majeur_tx(&mut tx, etab, s.eleve_id, jour).await?;
         // E-A : un correspondant désigné par un compte désormais interdit est suspendu avant le contrôle ci-dessous.
         if s.correspondant_id.is_some() {
-            suspendre_correspondants_auteur_tx(&mut tx, etab, Some(s.eleve_id), jour, a).await?;
+            let mut echecs_revue = 0;
+            suspendre_correspondants_auteur_tx(&mut tx, etab, Some(s.eleve_id), jour, a, &mut echecs_revue).await?;
         }
         // Le correspondant désigné doit l'être encore (CIT-33).
         if let Some(c) = s.correspondant_id {
@@ -3395,7 +3462,7 @@ impl PgEnt {
                 appliquer_absence_tx(&mut tx, etab, &ab, chute, a).await?;
                 return depart_refuse(
                     tx, etab, cible, actor, a, "interdiction_auteur", None,
-                    "départ refusé : cette absence repose sur un acte (annonce, personne désignée ou autorisation annuelle) posé par une personne qui fait désormais l'objet d'une interdiction : appeler le CPE ou la direction",
+                    "départ refusé : cette absence repose sur un acte (annonce, personne désignée ou autorisation annuelle) posé par une personne qui fait désormais l'objet d'une interdiction ou qui n'a plus de droit sur l'élève : appeler le CPE ou la direction",
                     true,
                 )
                 .await;
@@ -3931,6 +3998,16 @@ impl PgEnt {
     /// jamais utilisées ; **revoit** les sorties à venir (une personne devenue interdite, un correspondant
     /// suspendu suspendent la sortie). Idempotente : un seul cas ouvert par élève et par nuit.
     pub async fn veille_sorties_a(&self, etab: Uuid, maintenant: DateTime<Utc>) -> Result<VeilleSortiesDto, EntDbError> {
+        Ok(self.veille_sorties_bilan_a(etab, maintenant).await?.0)
+    }
+
+    /// Comme [`Self::veille_sorties_a`], avec le bilan de la revue (dont le nombre d'objets dont la revue a échoué (R7 : la tâche planifiée en tire
+    /// l'alerte opérationnelle quand l'échec se répète)).
+    pub(crate) async fn veille_sorties_bilan_a(
+        &self,
+        etab: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(VeilleSortiesDto, RevueBilan), EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let nuit = nuit_a_tx(&mut tx, etab, maintenant).await?;
         let aujourdhui = jour_local_tx(&mut tx, etab, maintenant).await?;
@@ -4038,9 +4115,9 @@ impl PgEnt {
         }
         sortie.sorties_expirees = expirees.len() as i32;
         // 4. Revue des sorties à venir : interdiction survenue, correspondant suspendu.
-        self.reviser_sorties_tx(&mut tx, etab, None, aujourdhui, maintenant).await?;
+        let bilan = self.reviser_sorties_tx(&mut tx, etab, None, aujourdhui, maintenant).await?;
         tx.commit().await.map_err(db)?;
-        Ok(sortie)
+        Ok((sortie, bilan))
     }
 
     /// Revue des sorties et des absences à venir (d'un élève, ou de tous si `eleve = None`), à la minute et à chaque
@@ -4063,11 +4140,12 @@ impl PgEnt {
         eleve: Option<Uuid>,
         jour: NaiveDate,
         maintenant: DateTime<Utc>,
-    ) -> Result<i32, EntDbError> {
+    ) -> Result<RevueBilan, EntDbError> {
         let mut suspendues = 0;
+        let mut echecs = 0;
         // Les correspondants désignés par un compte désormais visé sont suspendus d'abord (même règle) ; les sorties qui
         // reposent sur eux le sont aussitôt par le contrôle de validité ci-dessous.
-        suspendre_correspondants_auteur_tx(conn, etab, eleve, jour, maintenant).await?;
+        suspendre_correspondants_auteur_tx(conn, etab, eleve, jour, maintenant, &mut echecs).await?;
         let usages: HashMap<String, String> =
             types_tx(conn, etab).await?.into_iter().map(|t| (t.code, t.usage_accord_code)).collect();
         // ── Sorties : demandées, autorisées, suspendues ou bloquées ; lignes verrouillées.
@@ -4141,14 +4219,16 @@ impl PgEnt {
         )
         .await?;
         for s in &lignes {
+            // Passe 4 (R7) : une erreur sur une sortie n'annule pas la revue des autres : chaque sortie est revue dans un
+            // savepoint ; en cas d'échec, seul son travail est annulé et l'échec est compté.
+            let mut ouvert = false;
+            let revue: Result<bool, EntDbError> = async {
             if let Some(chute) = chutes.get(&s.id) {
-                if appliquer_sortie_tx(conn, etab, s, chute, maintenant).await? {
-                    suspendues += 1;
-                }
-                continue;
+                ouvrir_savepoint_revue(conn, &mut ouvert).await?;
+                return appliquer_sortie_tx(conn, etab, s, chute, maintenant).await;
             }
             if s.statut != "autorisee" {
-                continue;
+                return Ok(false);
             }
             let pour = pour_sortie(s);
             let mut motif: Option<&str> = None;
@@ -4167,10 +4247,8 @@ impl PgEnt {
                     Remise::Interdite => motif = Some("interdiction_remise"),
                     Remise::InterditeSansCible => {
                         // La direction tranche : la sortie accompagnée est bloquée, jamais suspendue d'elle-même.
-                        if bloquer_sortie_systeme_tx(conn, etab, s, "interdiction_remise", maintenant).await? {
-                            suspendues += 1;
-                        }
-                        continue;
+                        ouvrir_savepoint_revue(conn, &mut ouvert).await?;
+                        return bloquer_sortie_systeme_tx(conn, etab, s, "interdiction_remise", maintenant).await;
                     }
                     Remise::NonAutorisee => motif = Some("personne_non_autorisee"),
                     Remise::Autorisee(_) => {}
@@ -4201,12 +4279,11 @@ impl PgEnt {
                 && seuls_a_verifier.contains(&s.eleve_id)
                 && seul_arrete_par_interdiction_tx(conn, etab, Cible::Sortie(s.id), s.eleve_id, pour).await?
             {
-                if bloquer_sortie_systeme_tx(conn, etab, s, "interdiction_remise", maintenant).await? {
-                    suspendues += 1;
-                }
-                continue;
+                ouvrir_savepoint_revue(conn, &mut ouvert).await?;
+                return bloquer_sortie_systeme_tx(conn, etab, s, "interdiction_remise", maintenant).await;
             }
-            let Some(motif) = motif else { continue };
+            let Some(motif) = motif else { return Ok(false) };
+            ouvrir_savepoint_revue(conn, &mut ouvert).await?;
             let n = sqlx::query(
                 "UPDATE ent_internat_sortie SET statut = 'suspendue', modifie_le = $3 \
                   WHERE etablissement_id = $1 AND id = $2 AND statut = 'autorisee'",
@@ -4219,11 +4296,14 @@ impl PgEnt {
             .map_err(db)?
             .rows_affected();
             if n == 0 {
-                continue;
+                return Ok(false);
             }
             fait_tx(conn, etab, Cible::Sortie(s.id), "suspension", "systeme", None, maintenant, Some(motif), None, s.avec_personne_id, None).await?;
             evenements_sortie_tx(conn, etab, None, s, types::INTERNAT_SORTIE_DECIDEE, "suspendue", motif, true).await?;
-            suspendues += 1;
+            Ok(true)
+            }
+            .await;
+            fin_savepoint_revue(conn, ouvert, revue, &mut suspendues, &mut echecs).await?;
         }
         // ── C-1 : les absences annoncées dont l'élève n'est pas encore parti sont revues de la même façon : la personne
         // désignée est devenue interdite (ou n'est plus autorisée), l'autorisation annuelle d'un départ seul a disparu, ou
@@ -4231,7 +4311,7 @@ impl PgEnt {
         // la nuit déjà commencée).
         let absences: Vec<AbsenceLigne> = sqlx::query_as(&format!(
             "SELECT {COLONNES_ABSENCE} FROM ent_internat_absence \
-              WHERE etablissement_id = $1 AND statut IN ('annoncee', 'acceptee', 'bloquee') AND depart_effectif IS NULL \
+              WHERE etablissement_id = $1 AND statut IN ('demandee', 'annoncee', 'acceptee', 'bloquee') AND depart_effectif IS NULL \
                 AND au_nuit >= ent_nuit_etab($1, $2) AND ($3::uuid IS NULL OR eleve_id = $3) \
               ORDER BY du_nuit, id FOR UPDATE"
         ))
@@ -4244,7 +4324,7 @@ impl PgEnt {
         let objets: Vec<Objet<'_>> = absences.iter().map(Objet::Absence).collect();
         let chutes = actes_qui_tombent_tx(conn, etab, &objets, jour).await?;
         let en_vigueur: Vec<&AbsenceLigne> =
-            absences.iter().filter(|a| a.statut != "bloquee" && !chutes.contains_key(&a.id)).collect();
+            absences.iter().filter(|a| !matches!(a.statut.as_str(), "bloquee" | "demandee") && !chutes.contains_key(&a.id)).collect();
         let couples: Vec<(Uuid, Uuid, NaiveDate)> =
             en_vigueur.iter().filter_map(|a| a.recupere_par_personne_id.map(|p| (a.eleve_id, p, a.du_nuit.max(jour)))).collect();
         let remises = remises_en_lot_tx(conn, etab, &couples).await?;
@@ -4283,14 +4363,16 @@ impl PgEnt {
         }
         let seuls_absence = sans_cible_en_lot_tx(conn, etab, &sans_personne).await?;
         for ab in &absences {
+            let mut ouvert = false;
+            let revue: Result<bool, EntDbError> = async {
             if let Some(chute) = chutes.get(&ab.id) {
-                if appliquer_absence_tx(conn, etab, ab, chute, maintenant).await? {
-                    suspendues += 1;
-                }
-                continue;
+                ouvrir_savepoint_revue(conn, &mut ouvert).await?;
+                return appliquer_absence_tx(conn, etab, ab, chute, maintenant).await;
             }
-            if ab.statut == "bloquee" {
-                continue;
+            // Passe 4 (R4) : une absence « demandée » (pas encore acceptée) est revue elle aussi pour la règle générale
+            // ci-dessus ; les autres contrôles (personne, autorisation annuelle) ne valent qu'une fois acceptée.
+            if matches!(ab.statut.as_str(), "bloquee" | "demandee") {
+                return Ok(false);
             }
             let pour = ab.du_nuit.max(jour);
             let mineur = mineurs.contains(&(ab.eleve_id, pour));
@@ -4326,15 +4408,17 @@ impl PgEnt {
             {
                 motif = Some("interdiction_remise");
             }
-            let Some(motif) = motif else { continue };
+            let Some(motif) = motif else { return Ok(false) };
+            ouvrir_savepoint_revue(conn, &mut ouvert).await?;
             // M-B : l'absence n'a donné lieu à aucun départ constaté (la revue ne regarde que celles-là) : l'élève reste
             // attendu, bloquer l'absence ne change donc rien à l'attendu ; le CPE est alerté.
-            if bloquer_absence_systeme_tx(conn, etab, ab, motif, maintenant).await? {
-                suspendues += 1;
+            bloquer_absence_systeme_tx(conn, etab, ab, motif, maintenant).await
             }
+            .await;
+            fin_savepoint_revue(conn, ouvert, revue, &mut suspendues, &mut echecs).await?;
         }
         // ── Déjà parti : un auteur ou la personne remise devenu visé ouvre un cas pour le CPE (rien n'est défait).
-        self.signaler_departs_tx(conn, etab, eleve, jour, maintenant).await?;
+        self.signaler_departs_tx(conn, etab, eleve, jour, maintenant, &mut echecs).await?;
         // ── Reprise : une sortie suspendue PAR LE SYSTÈME pour une cause qui a disparu (interdiction levée, correspondant
         // repris) redevient autorisée ; une suspension due au retrait d'une autorisation annuelle ne reprend jamais seule
         // (le titulaire la redonne, ou une nouvelle demande est faite).
@@ -4354,6 +4438,8 @@ impl PgEnt {
         .await
         .map_err(db)?;
         for s in suspendues_systeme {
+            sqlx::query("SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
+            let revue: Result<bool, EntDbError> = async {
             let personne_ok = match s.avec_personne_id {
                 Some(p) => matches!(remise_possible_tx(conn, etab, s.eleve_id, p, jour).await?, Remise::Autorisee(_)),
                 None => true,
@@ -4370,7 +4456,7 @@ impl PgEnt {
                 None => true,
             };
             if !(personne_ok && correspondant_ok) {
-                continue;
+                return Ok(false);
             }
             let n = sqlx::query(
                 "UPDATE ent_internat_sortie SET statut = 'autorisee', modifie_le = $3 \
@@ -4384,12 +4470,18 @@ impl PgEnt {
             .map_err(erreur_sortie)?
             .rows_affected();
             if n == 0 {
-                continue;
+                return Ok(false);
             }
             fait_tx(conn, etab, Cible::Sortie(s.id), "reprise", "systeme", None, maintenant, None, None, None, None).await?;
             evenements_sortie_tx(conn, etab, None, &s, types::INTERNAT_SORTIE_DECIDEE, "autorisee", "cause_disparue", true).await?;
+            Ok(false)
+            }
+            .await;
+            // Une reprise n'est pas une suspension : elle ne compte pas dans `suspendues`.
+            let mut sans_effet = 0;
+            fin_savepoint_revue(conn, true, revue, &mut sans_effet, &mut echecs).await?;
         }
-        Ok(suspendues)
+        Ok(RevueBilan { suspendues, echecs })
     }
 
     /// Tâche planifiée (chaque minute) : veille des sorties de chaque établissement, à l'heure murale de son fuseau.
@@ -4402,9 +4494,15 @@ impl PgEnt {
         .await
         .map_err(db)?
         {
-            match self.veille_sorties_a(etab, Utc::now()).await {
-                Ok(v) => total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees) as usize,
-                Err(e) => tracing::warn!(error = %e, "veille des sorties d'internat non faite pour un établissement"),
+            match self.veille_sorties_bilan_a(etab, Utc::now()).await {
+                Ok((v, bilan)) => {
+                    total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;
+                    suivre_echecs_veille(etab, bilan.echecs > 0);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "veille des sorties d'internat non faite pour un établissement");
+                    suivre_echecs_veille(etab, true);
+                }
             }
         }
         Ok(total)
@@ -4635,7 +4733,30 @@ impl PgEnt {
         if n == 0 {
             return Err(conflit("l'état de ce correspondant ne permet pas cette opération"));
         }
-        fait_tx(&mut tx, etab, Cible::Correspondant(id), acte, "cpe", Some(actor), maintenant, suspendre.then_some("correspondant_suspendu"), motif.as_deref(), None, None)
+        // Passe 4 (R2) : reprendre un correspondant suspendu parce que son auteur est visé (interdiction ou perte de droit)
+        // est la décision qui porte sur la chute : motif écrit obligatoire, tracé sous le code de la chute.
+        let mut motif_code = suspendre.then_some("correspondant_suspendu");
+        if !suspendre {
+            let derniere: Option<Option<String>> = sqlx::query_scalar(
+                "SELECT motif_code FROM ent_internat_i3_fait \
+                  WHERE etablissement_id = $1 AND correspondant_id = $2 AND acte = 'suspension' \
+                  ORDER BY a DESC, cree_le DESC LIMIT 1",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if derniere.flatten().as_deref() == Some("interdiction_auteur") {
+                if motif.is_none() {
+                    return Err(refus(
+                        "motif obligatoire : ce correspondant a été suspendu parce que la personne qui l'a désigné n'a plus le droit d'agir pour l'élève ; le reprendre est une décision explicite, tracée",
+                    ));
+                }
+                motif_code = Some("interdiction_auteur");
+            }
+        }
+        fait_tx(&mut tx, etab, Cible::Correspondant(id), acte, "cpe", Some(actor), maintenant, motif_code, motif.as_deref(), None, None)
             .await?;
         publier(
             &mut tx,
@@ -4659,6 +4780,68 @@ impl PgEnt {
             .map_err(db)?;
         tx.commit().await.map_err(db)?;
         Ok(l.into())
+    }
+
+    /// Passe 4 (R5) : le personnel **requalifie** un contact d'urgence « peut récupérer » : il l'a vu et en répond. Sans cela,
+    /// un contact déclaré par une personne devenue visée (interdiction ou perte de droit, chaîne de déclarants comprise)
+    /// n'est plus remis à l'élève (`ent_internat_remise`). Fait daté et signé (`requalifie_le`), motif écrit obligatoire ;
+    /// la requalification ne vaut que pour les pertes qui la précèdent. Les sorties suspendues pour ce motif reprennent
+    /// à la revue qui suit, dans la même transaction.
+    pub async fn requalifier_contact_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        contact_id: Uuid,
+        b: &CorrespondantSuspensionDto,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
+        let motif = texte_court(b.motif_texte.as_deref())?.ok_or_else(|| {
+            refus("motif obligatoire : requalifier un contact d'urgence est une décision explicite du personnel, tracée")
+        })?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let ligne: Option<(Uuid, bool, String)> = sqlx::query_as(
+            "SELECT eleve_id, peut_recuperer, statut FROM ent_eleve_contact_urgence \
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(contact_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (eleve, peut_recuperer, statut) = ligne.ok_or(DomainError::NotFound)?;
+        self.personnel_exiger(etab, actor, role, &[Action::InternatSortiesDecider], eleve).await?;
+        if !peut_recuperer || statut != "valide" {
+            return Err(conflit("seul un contact validé autorisé à récupérer l'élève se requalifie"));
+        }
+        sqlx::query(
+            "UPDATE ent_eleve_contact_urgence SET requalifie_le = $3, requalifie_par_user_id = $4, requalifie_motif = $5 \
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(contact_id)
+        .bind(maintenant)
+        .bind(actor)
+        .bind(&motif)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        publier(
+            &mut tx,
+            etab,
+            types::INTERNAT_CORRESPONDANT,
+            AggregateKind::Internat,
+            contact_id,
+            Some(eleve),
+            json!({ "action": "contact_requalifie" }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
+        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        self.reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(())
     }
 
     /// Fin d'une désignation (titulaire, élève majeur, CPE) : les sorties à venir chez lui sont suspendues.

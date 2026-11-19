@@ -52,6 +52,7 @@ pub fn routes() -> Router<AppState> {
         .route("/internat/correspondants/{id}/suspension", post(suspendre_correspondant))
         .route("/internat/correspondants/{id}/reprise", post(reprendre_correspondant))
         .route("/internat/correspondants/{id}/fin", post(terminer_correspondant))
+        .route("/internat/contacts/{id}/requalification", post(requalifier_contact))
         .route("/internat/eleves/{id}/correspondants", get(correspondants_eleve))
         .route("/internat/absences/{id}/historique", get(historique_absence))
         .route("/internat/sorties/{id}/historique", get(historique_sortie))
@@ -379,6 +380,16 @@ async fn reprendre_correspondant(
             .await
             .map_err(map_db)?,
     ))
+}
+
+async fn requalifier_contact(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<CorrespondantSuspensionDto>,
+) -> Res<StatusCode> {
+    s.ent.requalifier_contact_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn terminer_correspondant(
