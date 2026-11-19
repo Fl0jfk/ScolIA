@@ -12,9 +12,9 @@ use axum::{Json, Router};
 use chrono::Utc;
 use ent_types::evaluations_v3::{
     AnnulerEvaluationV3Body, CreerEvaluationV3Body, EnCoursCorrectionBody, EnseignementV3Dto,
-    EvaluationColonneDto, ExplicationDto, GrilleV3Dto, ImportApercuDto, ImportBody, LigneHistoriqueV3Dto,
-    ModifierEvaluationV3Body, PeriodeV3Dto, PublierV3Body, SaisieLotBody, SaisieLotRetourDto,
-    SousMatiereV3Dto,
+    EvaluationColonneDto, ExplicationDto, GrilleV3Dto, ImportApercuDto, ImportBody,
+    LigneHistoriqueV3Dto, ModifierEvaluationV3Body, PeriodeV3Dto, PublierV3Body, SaisieLotBody,
+    SaisieLotRetourDto, SousMatiereV3Dto,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -37,8 +37,14 @@ pub fn routes() -> Router<AppState> {
         .route("/eva/evaluations/{id}", put(modifier))
         .route("/eva/evaluations/{id}/annuler", post(annuler))
         .route("/eva/evaluations/{id}/publication", post(publication))
-        .route("/eva/evaluations/{id}/en-cours-de-correction", put(en_cours))
-        .route("/eva/evaluations/{id}/eleves/{eleve_id}/historique", get(historique))
+        .route(
+            "/eva/evaluations/{id}/en-cours-de-correction",
+            put(en_cours),
+        )
+        .route(
+            "/eva/evaluations/{id}/eleves/{eleve_id}/historique",
+            get(historique),
+        )
         .route("/eva/import/apercu", post(apercu_import))
         .route("/eva/import/confirmer", post(confirmer_import))
 }
@@ -57,10 +63,16 @@ struct ExplicationQuery {
 }
 
 async fn jour(s: &AppState, session: &EntSession) -> Res<chrono::NaiveDate> {
-    s.ent.aujourdhui_etablissement(session.etablissement_id).await.map_err(map_db)
+    s.ent
+        .aujourdhui_etablissement(session.etablissement_id)
+        .await
+        .map_err(map_db)
 }
 
-async fn enseignements(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<EnseignementV3Dto>>> {
+async fn enseignements(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<EnseignementV3Dto>>> {
     let j = jour(&s, &session).await?;
     s.ent
         .eva_v3_enseignements_for_actor(session.etablissement_id, session.user_id, &session.role, j)
@@ -76,7 +88,13 @@ async fn periodes(
 ) -> Res<Json<Vec<PeriodeV3Dto>>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_periodes_for_actor(session.etablissement_id, session.user_id, &session.role, id, j)
+        .eva_v3_periodes_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            j,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -89,7 +107,13 @@ async fn sous_matieres(
 ) -> Res<Json<Vec<SousMatiereV3Dto>>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_sous_matieres_for_actor(session.etablissement_id, session.user_id, &session.role, id, j)
+        .eva_v3_sous_matieres_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            j,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -144,7 +168,13 @@ async fn saisir(
 ) -> Res<Json<SaisieLotRetourDto>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_saisir_lot_for_actor(session.etablissement_id, session.user_id, &session.role, j, &b)
+        .eva_v3_saisir_lot_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            j,
+            &b,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -157,7 +187,14 @@ async fn creer(
 ) -> Res<(StatusCode, Json<EvaluationColonneDto>)> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_creer_evaluation_for_actor(session.etablissement_id, session.user_id, &session.role, j, Utc::now(), &b)
+        .eva_v3_creer_evaluation_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            j,
+            Utc::now(),
+            &b,
+        )
         .await
         .map(|e| (StatusCode::CREATED, Json(e)))
         .map_err(map_db)
@@ -215,7 +252,15 @@ async fn publication(
 ) -> Res<Json<EvaluationColonneDto>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_publier_for_actor(session.etablissement_id, session.user_id, &session.role, j, Utc::now(), id, &b)
+        .eva_v3_publier_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            j,
+            Utc::now(),
+            id,
+            &b,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -250,7 +295,14 @@ async fn historique(
 ) -> Res<Json<Vec<LigneHistoriqueV3Dto>>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_historique_for_actor(session.etablissement_id, session.user_id, &session.role, id, eleve_id, j)
+        .eva_v3_historique_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            eleve_id,
+            j,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -263,7 +315,13 @@ async fn apercu_import(
 ) -> Res<Json<ImportApercuDto>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_apercu_import_for_actor(session.etablissement_id, session.user_id, &session.role, j, &b)
+        .eva_v3_apercu_import_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            j,
+            &b,
+        )
         .await
         .map(Json)
         .map_err(map_db)
@@ -276,7 +334,13 @@ async fn confirmer_import(
 ) -> Res<Json<SaisieLotRetourDto>> {
     let j = jour(&s, &session).await?;
     s.ent
-        .eva_v3_confirmer_import_for_actor(session.etablissement_id, session.user_id, &session.role, j, &b)
+        .eva_v3_confirmer_import_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            j,
+            &b,
+        )
         .await
         .map(Json)
         .map_err(map_db)

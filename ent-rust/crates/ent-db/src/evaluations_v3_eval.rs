@@ -11,7 +11,8 @@
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use ent_events::{AggregateKind, MetierEventDraft};
 use ent_types::evaluations_v3::{
-    AnnulerEvaluationV3Body, CreerEvaluationV3Body, EvaluationColonneDto, ModifierEvaluationV3Body, PublierV3Body,
+    AnnulerEvaluationV3Body, CreerEvaluationV3Body, EvaluationColonneDto, ModifierEvaluationV3Body,
+    PublierV3Body,
 };
 use serde_json::json;
 use sqlx::Row;
@@ -57,11 +58,15 @@ impl PgEnt {
             tx.commit().await.map_err(db)?;
             r.ok_or_else(introuvable)?
         };
-        let periodes = self.eva_v3_periodes_for_actor(etab, acteur, role, cours_id, jour).await?;
+        let periodes = self
+            .eva_v3_periodes_for_actor(etab, acteur, role, cours_id, jour)
+            .await?;
         let periode = periodes
             .iter()
             .find(|p| p.date_debut <= date_eval && date_eval <= p.date_fin)
-            .ok_or(refus("la date de l'évaluation ne tombe dans aucune période de ce cours"))?;
+            .ok_or(refus(
+                "la date de l'évaluation ne tombe dans aucune période de ce cours",
+            ))?;
         let g = self
             .eva_v3_grille_for_actor(etab, acteur, role, cours_id, periode.id, jour, maintenant)
             .await?;
@@ -83,7 +88,9 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
         body: &CreerEvaluationV3Body,
     ) -> Result<EvaluationColonneDto, EntDbError> {
-        let acces = self.eva_v3_acces(etab, acteur, role, body.cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, body.cours_id, jour)
+            .await?;
         if !acces.saisie {
             return Err(EntDbError::Forbidden);
         }
@@ -124,7 +131,9 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(introuvable)?;
         if body.date_eval < annee.1 || body.date_eval > annee.2 {
-            return Err(refus("la date de l'évaluation est hors de l'année scolaire du cours"));
+            return Err(refus(
+                "la date de l'évaluation est hors de l'année scolaire du cours",
+            ));
         }
         // Public à la date et état des périodes : refus si tous les élèves sont arrêtés (CE-47).
         let public: Vec<(Uuid, Option<String>)> = sqlx::query_as(
@@ -145,7 +154,9 @@ impl PgEnt {
         }
         for v in &body.restreinte_a {
             if !public.iter().any(|(e, _)| e == v) {
-                return Err(refus("un élève visé n'est pas dans le public du cours à cette date"));
+                return Err(refus(
+                    "un élève visé n'est pas dans le public du cours à cette date",
+                ));
             }
         }
         let id = Uuid::new_v4();
@@ -193,8 +204,13 @@ impl PgEnt {
                 &mut tx,
                 etab,
                 id,
-                if publication == "programmee" { "programmee" } else { "definie_a_l_arret" },
-                body.publication_prevue_le.filter(|_| publication == "programmee"),
+                if publication == "programmee" {
+                    "programmee"
+                } else {
+                    "definie_a_l_arret"
+                },
+                body.publication_prevue_le
+                    .filter(|_| publication == "programmee"),
                 None,
                 Some(acteur),
             )
@@ -202,7 +218,8 @@ impl PgEnt {
         }
         publier_evt(&mut tx, etab, types_v3::EVALUATION_CREEE, id, acteur).await?;
         tx.commit().await.map_err(db)?;
-        self.eva_v3_colonne(etab, acteur, role, id, jour, maintenant).await
+        self.eva_v3_colonne(etab, acteur, role, id, jour, maintenant)
+            .await
     }
 
     // ───────────────────────── Régler ─────────────────────────
@@ -220,7 +237,9 @@ impl PgEnt {
         body: &ModifierEvaluationV3Body,
     ) -> Result<EvaluationColonneDto, EntDbError> {
         let cours_id = self.eva_v3_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
             "SELECT e.version, e.etat, e.cree_par, e.date_eval, e.publiee_le, c.annee_id,
@@ -266,7 +285,11 @@ impl PgEnt {
         if body.coef_m.is_some_and(|c| !(0..=100_000).contains(&c)) {
             return Err(refus("coefficient invalide (entre 0 et 100)"));
         }
-        if body.comptage.as_deref().is_some_and(|c| !COMPTAGES.contains(&c)) {
+        if body
+            .comptage
+            .as_deref()
+            .is_some_and(|c| !COMPTAGES.contains(&c))
+        {
             return Err(refus("comptage inconnu"));
         }
         let touche_calcul = body.bareme_m.is_some()
@@ -290,7 +313,11 @@ impl PgEnt {
             if arretes > 0 && !acces.corriger {
                 return Err(EntDbError::Forbidden);
             }
-            let motif = body.motif.as_deref().map(str::trim).filter(|m| !m.is_empty());
+            let motif = body
+                .motif
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty());
             if (a_des_resultats || arretes > 0) && motif.is_none_or(|m| m.chars().count() < 3) {
                 return Err(refus(
                     "motif écrit obligatoire : l'évaluation porte déjà des résultats ou la période est arrêtée",
@@ -315,7 +342,9 @@ impl PgEnt {
                     .await
                     .map_err(db)?;
                     if d < debut || d > fin {
-                        return Err(refus("la date de l'évaluation est hors de l'année scolaire du cours"));
+                        return Err(refus(
+                            "la date de l'évaluation est hors de l'année scolaire du cours",
+                        ));
                     }
                     // Aucun élève ayant un résultat ne doit sortir du public en changeant la date.
                     let orphelins: i64 = sqlx::query_scalar(
@@ -361,16 +390,29 @@ impl PgEnt {
         .bind(body.hors_bareme_autorise)
         .bind(body.annoncee)
         .bind(acteur)
-        .bind(body.motif.as_deref().map(str::trim).filter(|m| !m.is_empty()))
+        .bind(
+            body.motif
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty()),
+        )
         .execute(&mut *tx)
         .await;
         if let Err(e) = upd {
             return Err(map_garde(e));
         }
-        publier_evt(&mut tx, etab, types_v3::EVALUATION_MODIFIEE, evaluation_id, acteur).await?;
+        publier_evt(
+            &mut tx,
+            etab,
+            types_v3::EVALUATION_MODIFIEE,
+            evaluation_id,
+            acteur,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         let _ = bareme_m;
-        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant).await
+        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant)
+            .await
     }
 
     /// Annule une évaluation (EVA-123) : motif obligatoire ; après publication, la direction seule.
@@ -389,7 +431,9 @@ impl PgEnt {
             return Err(refus("motif écrit obligatoire (3 à 500 caractères)"));
         }
         let cours_id = self.eva_v3_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
             "SELECT version, etat, cree_par, publiee_le FROM eva_evaluation
@@ -429,9 +473,17 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        publier_evt(&mut tx, etab, types_v3::EVALUATION_ANNULEE, evaluation_id, acteur).await?;
+        publier_evt(
+            &mut tx,
+            etab,
+            types_v3::EVALUATION_ANNULEE,
+            evaluation_id,
+            acteur,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
-        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant).await
+        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant)
+            .await
     }
 
     /// « En cours de correction » : suspend la publication automatique au délai maximal (§10.1).
@@ -446,7 +498,9 @@ impl PgEnt {
         en_cours: bool,
     ) -> Result<EvaluationColonneDto, EntDbError> {
         let cours_id = self.eva_v3_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         if !acces.saisie {
             return Err(EntDbError::Forbidden);
         }
@@ -464,13 +518,20 @@ impl PgEnt {
         .map_err(db)?
         .rows_affected();
         if n == 0 {
-            return Err(refus("cette évaluation est déjà publiée ou n'est pas ouverte"));
+            return Err(refus(
+                "cette évaluation est déjà publiée ou n'est pas ouverte",
+            ));
         }
         tx.commit().await.map_err(db)?;
-        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant).await
+        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant)
+            .await
     }
 
-    pub(crate) async fn eva_v3_cours_de(&self, etab: Uuid, evaluation_id: Uuid) -> Result<Uuid, EntDbError> {
+    pub(crate) async fn eva_v3_cours_de(
+        &self,
+        etab: Uuid,
+        evaluation_id: Uuid,
+    ) -> Result<Uuid, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r: Option<Uuid> = sqlx::query_scalar(
             "SELECT cours_id FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
@@ -499,7 +560,9 @@ impl PgEnt {
         body: &PublierV3Body,
     ) -> Result<EvaluationColonneDto, EntDbError> {
         let cours_id = self.eva_v3_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = sqlx::query(
             "SELECT etat, publiee_le, cree_par FROM eva_evaluation
@@ -513,7 +576,8 @@ impl PgEnt {
         let etat: String = ev.try_get("etat").map_err(db)?;
         let publiee: Option<DateTime<Utc>> = ev.try_get("publiee_le").map_err(db)?;
         let cree_par: Option<Uuid> = ev.try_get("cree_par").map_err(db)?;
-        let peut_publier = acces.saisie && (cree_par == Some(acteur) || !acces.suppleant || acces.corriger);
+        let peut_publier =
+            acces.saisie && (cree_par == Some(acteur) || !acces.suppleant || acces.corriger);
         match body.action.as_str() {
             "retirer" => {
                 let Some(p) = publiee else {
@@ -525,7 +589,9 @@ impl PgEnt {
                 }
                 let motif = body.motif.as_deref().map(str::trim).unwrap_or("");
                 if motif.chars().count() < 3 || motif.chars().count() > 500 {
-                    return Err(refus("motif écrit obligatoire pour retirer une publication (3 à 500 caractères)"));
+                    return Err(refus(
+                        "motif écrit obligatoire pour retirer une publication (3 à 500 caractères)",
+                    ));
                 }
                 sqlx::query(
                     "UPDATE eva_evaluation SET publiee_le = NULL, publiee_par = NULL, retiree_le = $3, retiree_par = $4,
@@ -539,8 +605,24 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                journal_publication(&mut tx, etab, evaluation_id, "retiree", None, Some(motif), Some(acteur)).await?;
-                publier_evt(&mut tx, etab, types_v3::PUBLICATION_RETIREE, evaluation_id, acteur).await?;
+                journal_publication(
+                    &mut tx,
+                    etab,
+                    evaluation_id,
+                    "retiree",
+                    None,
+                    Some(motif),
+                    Some(acteur),
+                )
+                .await?;
+                publier_evt(
+                    &mut tx,
+                    etab,
+                    types_v3::PUBLICATION_RETIREE,
+                    evaluation_id,
+                    acteur,
+                )
+                .await?;
             }
             action => {
                 if !peut_publier {
@@ -550,7 +632,9 @@ impl PgEnt {
                     return Err(refus("seule une évaluation ouverte se publie"));
                 }
                 if publiee.is_some() && action != "maintenant" {
-                    return Err(refus("cette évaluation est déjà publiée : retirez d'abord sa publication"));
+                    return Err(refus(
+                        "cette évaluation est déjà publiée : retirez d'abord sa publication",
+                    ));
                 }
                 match action {
                     "maintenant" => {
@@ -568,8 +652,24 @@ impl PgEnt {
                             .execute(&mut *tx)
                             .await
                             .map_err(db)?;
-                            journal_publication(&mut tx, etab, evaluation_id, "publiee", None, None, Some(acteur)).await?;
-                            publier_evt(&mut tx, etab, types_v3::EVALUATION_PUBLIEE, evaluation_id, acteur).await?;
+                            journal_publication(
+                                &mut tx,
+                                etab,
+                                evaluation_id,
+                                "publiee",
+                                None,
+                                None,
+                                Some(acteur),
+                            )
+                            .await?;
+                            publier_evt(
+                                &mut tx,
+                                etab,
+                                types_v3::EVALUATION_PUBLIEE,
+                                evaluation_id,
+                                acteur,
+                            )
+                            .await?;
                         }
                     }
                     "programmer" => {
@@ -601,9 +701,24 @@ impl PgEnt {
                         .execute(&mut *tx)
                         .await
                         .map_err(db)?;
-                        journal_publication(&mut tx, etab, evaluation_id, "programmee", Some(prevue), None, Some(acteur))
-                            .await?;
-                        publier_evt(&mut tx, etab, types_v3::PUBLICATION_PROGRAMMEE, evaluation_id, acteur).await?;
+                        journal_publication(
+                            &mut tx,
+                            etab,
+                            evaluation_id,
+                            "programmee",
+                            Some(prevue),
+                            None,
+                            Some(acteur),
+                        )
+                        .await?;
+                        publier_evt(
+                            &mut tx,
+                            etab,
+                            types_v3::PUBLICATION_PROGRAMMEE,
+                            evaluation_id,
+                            acteur,
+                        )
+                        .await?;
                     }
                     "a_l_arret" => {
                         sqlx::query(
@@ -616,8 +731,16 @@ impl PgEnt {
                         .execute(&mut *tx)
                         .await
                         .map_err(db)?;
-                        journal_publication(&mut tx, etab, evaluation_id, "definie_a_l_arret", None, None, Some(acteur))
-                            .await?;
+                        journal_publication(
+                            &mut tx,
+                            etab,
+                            evaluation_id,
+                            "definie_a_l_arret",
+                            None,
+                            None,
+                            Some(acteur),
+                        )
+                        .await?;
                     }
                     "annuler_programmation" => {
                         sqlx::query(
@@ -646,7 +769,8 @@ impl PgEnt {
             }
         }
         tx.commit().await.map_err(db)?;
-        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant).await
+        self.eva_v3_colonne(etab, acteur, role, evaluation_id, jour, maintenant)
+            .await
     }
 
     /// Publications automatiques d'un établissement (tâche planifiée, horloge **fournie**) :
@@ -834,7 +958,9 @@ async fn publier_evt_sys(
 fn map_garde(e: sqlx::Error) -> EntDbError {
     if let Some(d) = e.as_database_error() {
         if d.code().as_deref() == Some("23514") || d.code().as_deref() == Some("23503") {
-            return refus("refusé par les règles de l'évaluation (sous-matière, barème ou période)");
+            return refus(
+                "refusé par les règles de l'évaluation (sous-matière, barème ou période)",
+            );
         }
     }
     db(e)

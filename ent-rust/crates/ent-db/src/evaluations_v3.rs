@@ -18,15 +18,15 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::evaluation_moteur::{
-    moyenne_matiere, statistiques, statistiques_evaluation, CoefSousMatiere, Comptage, EntreeCalcul,
-    EvalCalcul, Rat, ReglesMoteur, StatutCalcul,
+    moyenne_matiere, statistiques, statistiques_evaluation, CoefSousMatiere, Comptage,
+    EntreeCalcul, EvalCalcul, Rat, ReglesMoteur, StatutCalcul,
 };
 use ent_auth::Action;
 use ent_types::evaluations_v3::{
     analyser_cellule, Analyse, CelluleDto, CelluleRetourDto, CelluleSaisieDto, ConflitDto,
     ContrainteCellule, EleveLigneDto, EnseignementV3Dto, EvaluationColonneDto, ExplicationDto,
-    GrilleV3Dto, LigneHistoriqueV3Dto, PeriodeV3Dto, SaisieLotBody, SaisieLotRetourDto, SousMatiereV3Dto,
-    StatsV3Dto,
+    GrilleV3Dto, LigneHistoriqueV3Dto, PeriodeV3Dto, SaisieLotBody, SaisieLotRetourDto,
+    SousMatiereV3Dto, StatsV3Dto,
 };
 use sqlx::Row;
 use uuid::Uuid;
@@ -119,7 +119,11 @@ pub(crate) struct EvalLue {
 
 impl EvalLue {
     pub(crate) fn contrainte(&self, pas_m: i64) -> ContrainteCellule {
-        ContrainteCellule { bareme_m: self.bareme_m, hors_bareme_autorise: self.hors_bareme, pas_m }
+        ContrainteCellule {
+            bareme_m: self.bareme_m,
+            hors_bareme_autorise: self.hors_bareme,
+            pas_m,
+        }
     }
 
     fn calcul(&self) -> EvalCalcul {
@@ -183,10 +187,23 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<AccesCours, EntDbError> {
         Self::exiger_staff(role)?;
-        let etab_lecture = self.a_action_etablissement(etab, acteur, role, Action::NotesLire).await?;
-        let corriger = self.a_action_etablissement(etab, acteur, role, Action::NotesCorriger).await?;
+        let etab_lecture = self
+            .a_action_etablissement(etab, acteur, role, Action::NotesLire)
+            .await?;
+        let corriger = self
+            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let a = Self::eva_v3_acces_tx(&mut tx, etab, acteur, cours_id, jour, etab_lecture, corriger).await?;
+        let a = Self::eva_v3_acces_tx(
+            &mut tx,
+            etab,
+            acteur,
+            cours_id,
+            jour,
+            etab_lecture,
+            corriger,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         if !a.lecture {
             return Err(EntDbError::Forbidden);
@@ -262,7 +279,9 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<Vec<EnseignementV3Dto>, EntDbError> {
         Self::exiger_staff(role)?;
-        let etab_lecture = self.a_action_etablissement(etab, acteur, role, Action::NotesLire).await?;
+        let etab_lecture = self
+            .a_action_etablissement(etab, acteur, role, Action::NotesLire)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes = sqlx::query(
             "SELECT c.id, c.matiere_id,
@@ -317,7 +336,8 @@ impl PgEnt {
         cours_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<PeriodeV3Dto>, EntDbError> {
-        self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        self.eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes = sqlx::query(
             "SELECT DISTINCT p.id, p.code, p.libelle, p.date_debut, p.date_fin
@@ -368,7 +388,8 @@ impl PgEnt {
         cours_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<SousMatiereV3Dto>, EntDbError> {
-        self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        self.eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT m.id, m.libelle FROM ent_matiere m
@@ -381,7 +402,10 @@ impl PgEnt {
         .await
         .map_err(db)?;
         tx.commit().await.map_err(db)?;
-        Ok(rows.into_iter().map(|(id, libelle)| SousMatiereV3Dto { id, libelle }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|(id, libelle)| SousMatiereV3Dto { id, libelle })
+            .collect())
     }
 
     // ───────────────────────── Chargement de la grille ─────────────────────────
@@ -400,7 +424,9 @@ impl PgEnt {
     ) -> Result<GrilleInterne, EntDbError> {
         let profil = self.profil_champs(etab, acteur, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let mut g = Self::eva_v3_charger_tx(&mut tx, etab, cours_id, periode_id, jour, avec_brouillons).await?;
+        let mut g =
+            Self::eva_v3_charger_tx(&mut tx, etab, cours_id, periode_id, jour, avec_brouillons)
+                .await?;
         tx.commit().await.map_err(db)?;
         let ids: Vec<Uuid> = g.eleves.iter().map(|e| e.id).collect();
         let caches = self.proteges_caches(etab, role, &profil, &ids).await?;
@@ -547,15 +573,14 @@ impl PgEnt {
         }
         // Public à la fin de la période (ou aujourd'hui, si elle est en cours) : élèves sans évaluation incluse.
         let jour_ref = jour.clamp(periode.date_debut, periode.date_fin);
-        let public: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT eleve_id FROM ent_public_cours_jour($1, $2, $3)",
-        )
-        .bind(etab)
-        .bind(jour_ref)
-        .bind(cours_id)
-        .fetch_all(&mut **tx)
-        .await
-        .map_err(db)?;
+        let public: Vec<Uuid> =
+            sqlx::query_scalar("SELECT eleve_id FROM ent_public_cours_jour($1, $2, $3)")
+                .bind(etab)
+                .bind(jour_ref)
+                .bind(cours_id)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(db)?;
         let dans_public_fin: HashSet<Uuid> = public.iter().copied().collect();
         eleves_ids.extend(public.iter().copied());
 
@@ -595,7 +620,10 @@ impl PgEnt {
             .map_err(db)?;
             for r in &rows {
                 resultats.insert(
-                    (r.try_get("evaluation_id").map_err(db)?, r.try_get("eleve_id").map_err(db)?),
+                    (
+                        r.try_get("evaluation_id").map_err(db)?,
+                        r.try_get("eleve_id").map_err(db)?,
+                    ),
                     ResultatLu {
                         id: r.try_get("id").map_err(db)?,
                         statut: r.try_get("statut").map_err(db)?,
@@ -606,7 +634,17 @@ impl PgEnt {
                 );
             }
         }
-        Ok(GrilleInterne { cours, annee_id, periode, evals, eleves, cases, resultats, dans_public_fin, reglage })
+        Ok(GrilleInterne {
+            cours,
+            annee_id,
+            periode,
+            evals,
+            eleves,
+            cases,
+            resultats,
+            dans_public_fin,
+            reglage,
+        })
     }
 
     /// Coefficients de sous-matière de l'année, à la fin de la période (comme `moyennes_tx`).
@@ -628,7 +666,10 @@ impl PgEnt {
         .map_err(db)?;
         rows.iter()
             .map(|r| {
-                Ok(CoefSousMatiere { sous_matiere_id: Some(r.try_get("matiere_id")?), coef_m: r.try_get("coef_m")? })
+                Ok(CoefSousMatiere {
+                    sous_matiere_id: Some(r.try_get("matiere_id")?),
+                    coef_m: r.try_get("coef_m")?,
+                })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()
             .map_err(db)
@@ -642,13 +683,23 @@ impl PgEnt {
             if ev.etat == "brouillon" {
                 continue;
             }
-            let Some(case) = g.cases.get(&(ev.id, eleve)) else { continue };
+            let Some(case) = g.cases.get(&(ev.id, eleve)) else {
+                continue;
+            };
             if !case.concerne || case.periode_id != Some(g.periode.id) {
                 continue;
             }
-            let Some(r) = g.resultats.get(&(ev.id, eleve)) else { continue };
-            let Some(statut) = StatutCalcul::parse(&r.statut) else { continue };
-            out.push(EntreeCalcul { evaluation: ev.calcul(), statut, valeur_m: r.valeur_m });
+            let Some(r) = g.resultats.get(&(ev.id, eleve)) else {
+                continue;
+            };
+            let Some(statut) = StatutCalcul::parse(&r.statut) else {
+                continue;
+            };
+            out.push(EntreeCalcul {
+                evaluation: ev.calcul(),
+                statut,
+                valeur_m: r.valeur_m,
+            });
         }
         out
     }
@@ -667,7 +718,9 @@ impl PgEnt {
         jour: NaiveDate,
         maintenant: DateTime<Utc>,
     ) -> Result<GrilleV3Dto, EntDbError> {
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let g = self
             .eva_v3_charger(etab, acteur, role, cours_id, periode_id, jour, acces.saisie)
             .await?;
@@ -706,9 +759,9 @@ impl PgEnt {
                     None
                 }
             };
-            let publiee_il_y_a_moins_de_24h = ev
-                .publiee_le
-                .is_some_and(|p| maintenant.signed_duration_since(p) <= chrono::Duration::hours(24));
+            let publiee_il_y_a_moins_de_24h = ev.publiee_le.is_some_and(|p| {
+                maintenant.signed_duration_since(p) <= chrono::Duration::hours(24)
+            });
             let auteur = ev.cree_par == Some(acteur);
             let peut_modifier = acces.saisie
                 && ev.etat == "ouverte"
@@ -736,7 +789,8 @@ impl PgEnt {
                 a_des_resultats: ev.a_des_resultats,
                 peut_modifier,
                 retrait_possible: ev.publiee_le.is_some()
-                    && ((acces.saisie && publiee_il_y_a_moins_de_24h && peut_modifier) || acces.corriger),
+                    && ((acces.saisie && publiee_il_y_a_moins_de_24h && peut_modifier)
+                        || acces.corriger),
                 stats,
             });
         }
@@ -772,7 +826,10 @@ impl PgEnt {
             let dernier = concernes.iter().rposition(|c| *c);
             let mouvement = match (premier, dernier) {
                 (Some(p), _) if p > 0 => Some("Arrivé(e) en cours de période".to_string()),
-                (_, Some(d)) if d + 1 < concernes.len() || (!g.dans_public_fin.contains(&e.id) && !concernes.is_empty()) => {
+                (_, Some(d))
+                    if d + 1 < concernes.len()
+                        || (!g.dans_public_fin.contains(&e.id) && !concernes.is_empty()) =>
+                {
                     Some("Parti(e) en cours de période".to_string())
                 }
                 (None, None) if !g.dans_public_fin.contains(&e.id) && !concernes.is_empty() => {
@@ -842,7 +899,9 @@ impl PgEnt {
         eleve_id: Uuid,
         jour: NaiveDate,
     ) -> Result<ExplicationDto, EntDbError> {
-        let acces = self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
         let g = self
             .eva_v3_charger(etab, acteur, role, cours_id, periode_id, jour, acces.saisie)
             .await?;
@@ -865,7 +924,9 @@ impl PgEnt {
                 moyenne_m: None,
                 echelle_m: regles.echelle_m,
                 lignes: Vec::new(),
-                avertissements: vec!["Calcul impossible : données ou réglage incohérents.".to_string()],
+                avertissements: vec![
+                    "Calcul impossible : données ou réglage incohérents.".to_string()
+                ],
             }),
         }
     }
@@ -884,7 +945,8 @@ impl PgEnt {
         jour: NaiveDate,
         body: &SaisieLotBody,
     ) -> Result<SaisieLotRetourDto, EntDbError> {
-        self.eva_v3_saisir_lot_interne(etab, acteur, role, jour, body, None).await
+        self.eva_v3_saisir_lot_interne(etab, acteur, role, jour, body, None)
+            .await
     }
 
     pub(crate) async fn eva_v3_saisir_lot_interne(
@@ -899,7 +961,9 @@ impl PgEnt {
         if body.cellules.len() > MAX_CELLULES_PAR_LOT {
             return Err(refus("trop de cases dans un même envoi"));
         }
-        let acces = self.eva_v3_acces(etab, acteur, role, body.cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, body.cours_id, jour)
+            .await?;
         if !acces.saisie && !acces.corriger {
             return Err(EntDbError::Forbidden);
         }
@@ -915,7 +979,13 @@ impl PgEnt {
 
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Évaluations visées (une seule lecture) : doivent être du cours et ouvertes.
-        let ev_ids: Vec<Uuid> = body.cellules.iter().map(|c| c.evaluation_id).collect::<BTreeSet<_>>().into_iter().collect();
+        let ev_ids: Vec<Uuid> = body
+            .cellules
+            .iter()
+            .map(|c| c.evaluation_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         let rows = sqlx::query(
             "SELECT e.id, e.cours_id, (e.bareme * 1000)::bigint AS bareme_m, e.hors_bareme_autorise, e.etat, c.annee_id
                FROM eva_evaluation e JOIN ent_cours c ON c.id = e.cours_id AND c.etablissement_id = e.etablissement_id
@@ -941,7 +1011,8 @@ impl PgEnt {
         }
         let mut pas_par_annee: HashMap<Uuid, i64> = HashMap::new();
         let mut retours: Vec<CelluleRetourDto> = Vec::with_capacity(body.cellules.len());
-        let (mut n_ecrites, mut n_inchangees, mut n_conflits, mut n_refusees) = (0i32, 0i32, 0i32, 0i32);
+        let (mut n_ecrites, mut n_inchangees, mut n_conflits, mut n_refusees) =
+            (0i32, 0i32, 0i32, 0i32);
         for cell in &body.cellules {
             let retour = self
                 .eva_v3_une_case(
@@ -1016,17 +1087,24 @@ impl PgEnt {
             message,
             conflit: None,
         };
-        let Some((ev_cours, bareme_m, hors_bareme, etat, annee_id)) = evs.get(&cell.evaluation_id) else {
+        let Some((ev_cours, bareme_m, hors_bareme, etat, annee_id)) = evs.get(&cell.evaluation_id)
+        else {
             return Ok(base("refuse", Some("évaluation introuvable".to_string())));
         };
         if *ev_cours != cours_id {
-            return Ok(base("refuse", Some("évaluation d'un autre cours".to_string())));
+            return Ok(base(
+                "refuse",
+                Some("évaluation d'un autre cours".to_string()),
+            ));
         }
         if caches.contains(&cell.eleve_id) {
             return Ok(base("refuse", Some("élève introuvable".to_string())));
         }
         if etat != "ouverte" {
-            return Ok(base("refuse", Some("évaluation annulée ou non ouverte à la saisie".to_string())));
+            return Ok(base(
+                "refuse",
+                Some("évaluation annulée ou non ouverte à la saisie".to_string()),
+            ));
         }
         let pas_m = match pas_par_annee.get(annee_id) {
             Some(p) => *p,
@@ -1036,7 +1114,11 @@ impl PgEnt {
                 p
             }
         };
-        let contrainte = ContrainteCellule { bareme_m: *bareme_m, hors_bareme_autorise: *hors_bareme, pas_m };
+        let contrainte = ContrainteCellule {
+            bareme_m: *bareme_m,
+            hors_bareme_autorise: *hors_bareme,
+            pas_m,
+        };
         let (statut, valeur_m) = match analyser_cellule(&cell.texte, &contrainte) {
             Analyse::Vide => return Ok(base("vide", None)),
             Analyse::Erreur(m) => return Ok(base("refuse", Some(m))),
@@ -1045,7 +1127,13 @@ impl PgEnt {
         };
         // Direction (sans droit de saisie) : seulement une correction après l'arrêt, motivée.
         if !acces.saisie {
-            let periode = crate::evaluations_v1::periode_eleve_tx(tx, etab, cell.evaluation_id, cell.eleve_id).await?;
+            let periode = crate::evaluations_v1::periode_eleve_tx(
+                tx,
+                etab,
+                cell.evaluation_id,
+                cell.eleve_id,
+            )
+            .await?;
             if periode.as_ref().is_some_and(|p| p.etat == "ouverte") {
                 return Ok(base(
                     "refuse",
@@ -1066,10 +1154,17 @@ impl PgEnt {
             commentaire_eleve: None,
             source: origine,
         };
-        sqlx::query("SAVEPOINT eva_v3_case").execute(&mut **tx).await.map_err(db)?;
-        match Self::ecrire_resultat_tx(tx, etab, acteur, acces.corriger, jour, &body, attendu).await {
+        sqlx::query("SAVEPOINT eva_v3_case")
+            .execute(&mut **tx)
+            .await
+            .map_err(db)?;
+        match Self::ecrire_resultat_tx(tx, etab, acteur, acces.corriger, jour, &body, attendu).await
+        {
             Ok(ecrit) => {
-                sqlx::query("RELEASE SAVEPOINT eva_v3_case").execute(&mut **tx).await.map_err(db)?;
+                sqlx::query("RELEASE SAVEPOINT eva_v3_case")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(db)?;
                 let inchange = matches!(attendu, Attendu::Version(v) if v == ecrit.version);
                 Ok(CelluleRetourDto {
                     version: Some(ecrit.version),
@@ -1079,26 +1174,43 @@ impl PgEnt {
                 })
             }
             Err(e) => {
-                sqlx::query("ROLLBACK TO SAVEPOINT eva_v3_case").execute(&mut **tx).await.map_err(db)?;
-                sqlx::query("RELEASE SAVEPOINT eva_v3_case").execute(&mut **tx).await.map_err(db)?;
+                sqlx::query("ROLLBACK TO SAVEPOINT eva_v3_case")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(db)?;
+                sqlx::query("RELEASE SAVEPOINT eva_v3_case")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(db)?;
                 match e {
                     EntDbError::ConflitDossier(_) => {
                         let actuel = Self::eva_v3_conflit(tx, etab, cell).await?;
-                        Ok(CelluleRetourDto { conflit: actuel, ..base("conflit", Some(
-                            "la case a changé depuis votre lecture".to_string(),
-                        )) })
+                        Ok(CelluleRetourDto {
+                            conflit: actuel,
+                            ..base(
+                                "conflit",
+                                Some("la case a changé depuis votre lecture".to_string()),
+                            )
+                        })
                     }
                     EntDbError::Forbidden => Ok(base(
                         "refuse",
-                        Some("période arrêtée : seule la direction corrige, avec un motif écrit".to_string()),
+                        Some(
+                            "période arrêtée : seule la direction corrige, avec un motif écrit"
+                                .to_string(),
+                        ),
                     )),
                     EntDbError::SaisieInvalide(m) => Ok(base("refuse", Some(m.to_string()))),
-                    EntDbError::Domain(domain_eleve::DomainError::NotFound) => {
-                        Ok(base("refuse", Some("élève ou évaluation introuvable".to_string())))
-                    }
+                    EntDbError::Domain(domain_eleve::DomainError::NotFound) => Ok(base(
+                        "refuse",
+                        Some("élève ou évaluation introuvable".to_string()),
+                    )),
                     EntDbError::Domain(_) | EntDbError::Sqlx(_) => Ok(base(
                         "refuse",
-                        Some("refusé par les règles de l'évaluation (public, période ou barème)".to_string()),
+                        Some(
+                            "refusé par les règles de l'évaluation (public, période ou barème)"
+                                .to_string(),
+                        ),
                     )),
                     autre => Err(autre),
                 }
@@ -1162,8 +1274,10 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(introuvable)?;
         tx.commit().await.map_err(db)?;
-        self.eva_v3_acces(etab, acteur, role, cours_id, jour).await?;
-        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
+        self.eva_v3_acces(etab, acteur, role, cours_id, jour)
+            .await?;
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows = sqlx::query(
             "SELECT h.version, h.statut_avant, (h.valeur_avant * 1000)::bigint AS valeur_avant_m, h.statut_apres,

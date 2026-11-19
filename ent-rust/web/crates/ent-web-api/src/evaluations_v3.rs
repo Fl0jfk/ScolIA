@@ -25,12 +25,18 @@ impl ApiClient {
 
     /// `GET /eva/cours/{id}/periodes`.
     pub async fn eva3_periodes(&self, cours: Uuid) -> Result<Vec<PeriodeV3Dto>, ApiError> {
-        self.appel(Methode::Get, &format!("/eva/cours/{cours}/periodes"), None).await
+        self.appel(Methode::Get, &format!("/eva/cours/{cours}/periodes"), None)
+            .await
     }
 
     /// `GET /eva/cours/{id}/sous-matieres`.
     pub async fn eva3_sous_matieres(&self, cours: Uuid) -> Result<Vec<SousMatiereV3Dto>, ApiError> {
-        self.appel(Methode::Get, &format!("/eva/cours/{cours}/sous-matieres"), None).await
+        self.appel(
+            Methode::Get,
+            &format!("/eva/cours/{cours}/sous-matieres"),
+            None,
+        )
+        .await
     }
 
     /// `GET /eva/grille?cours_id=&periode_id=`.
@@ -52,7 +58,9 @@ impl ApiClient {
     ) -> Result<ExplicationDto, ApiError> {
         self.appel(
             Methode::Get,
-            &format!("/eva/grille/explication?cours_id={cours}&periode_id={periode}&eleve_id={eleve}"),
+            &format!(
+                "/eva/grille/explication?cours_id={cours}&periode_id={periode}&eleve_id={eleve}"
+            ),
             None,
         )
         .await
@@ -60,7 +68,8 @@ impl ApiClient {
 
     /// `POST /eva/saisie` : un lot de cases ; chaque case revient avec son issue (écrite, conflit, refusée…).
     pub async fn eva3_saisir(&self, body: &SaisieLotBody) -> Result<SaisieLotRetourDto, ApiError> {
-        self.appel(Methode::Post, "/eva/saisie", Some(corps(body)?)).await
+        self.appel(Methode::Post, "/eva/saisie", Some(corps(body)?))
+            .await
     }
 
     /// `POST /eva/evaluations`.
@@ -68,7 +77,8 @@ impl ApiClient {
         &self,
         body: &CreerEvaluationV3Body,
     ) -> Result<EvaluationColonneDto, ApiError> {
-        self.appel(Methode::Post, "/eva/evaluations", Some(corps(body)?)).await
+        self.appel(Methode::Post, "/eva/evaluations", Some(corps(body)?))
+            .await
     }
 
     /// `PUT /eva/evaluations/{id}`.
@@ -77,7 +87,12 @@ impl ApiClient {
         id: Uuid,
         body: &ModifierEvaluationV3Body,
     ) -> Result<EvaluationColonneDto, ApiError> {
-        self.appel(Methode::Put, &format!("/eva/evaluations/{id}"), Some(corps(body)?)).await
+        self.appel(
+            Methode::Put,
+            &format!("/eva/evaluations/{id}"),
+            Some(corps(body)?),
+        )
+        .await
     }
 
     /// `POST /eva/evaluations/{id}/annuler`.
@@ -86,8 +101,12 @@ impl ApiClient {
         id: Uuid,
         body: &AnnulerEvaluationV3Body,
     ) -> Result<EvaluationColonneDto, ApiError> {
-        self.appel(Methode::Post, &format!("/eva/evaluations/{id}/annuler"), Some(corps(body)?))
-            .await
+        self.appel(
+            Methode::Post,
+            &format!("/eva/evaluations/{id}/annuler"),
+            Some(corps(body)?),
+        )
+        .await
     }
 
     /// `POST /eva/evaluations/{id}/publication`.
@@ -96,8 +115,12 @@ impl ApiClient {
         id: Uuid,
         body: &PublierV3Body,
     ) -> Result<EvaluationColonneDto, ApiError> {
-        self.appel(Methode::Post, &format!("/eva/evaluations/{id}/publication"), Some(corps(body)?))
-            .await
+        self.appel(
+            Methode::Post,
+            &format!("/eva/evaluations/{id}/publication"),
+            Some(corps(body)?),
+        )
+        .await
     }
 
     /// `PUT /eva/evaluations/{id}/en-cours-de-correction`.
@@ -130,7 +153,8 @@ impl ApiClient {
 
     /// `POST /eva/import/apercu` : rien n'est écrit.
     pub async fn eva3_apercu_import(&self, body: &ImportBody) -> Result<ImportApercuDto, ApiError> {
-        self.appel(Methode::Post, "/eva/import/apercu", Some(corps(body)?)).await
+        self.appel(Methode::Post, "/eva/import/apercu", Some(corps(body)?))
+            .await
     }
 
     /// `POST /eva/import/confirmer` : avec l'empreinte de l'aperçu.
@@ -138,6 +162,7 @@ impl ApiClient {
         &self,
         body: &ImportBody,
     ) -> Result<SaisieLotRetourDto, ApiError> {
-        self.appel(Methode::Post, "/eva/import/confirmer", Some(corps(body)?)).await
+        self.appel(Methode::Post, "/eva/import/confirmer", Some(corps(body)?))
+            .await
     }
 }

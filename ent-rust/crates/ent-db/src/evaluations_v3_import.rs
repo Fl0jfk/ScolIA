@@ -14,8 +14,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::NaiveDate;
 use ent_types::evaluations_v3::{
-    analyser_cellule, Analyse, CelluleSaisieDto, ImportApercuDto, ImportBody, ImportCelluleApercuDto,
-    ImportEleveRapprocheDto, ImportLigneApercuDto, ImportTotauxDto, SaisieLotBody, SaisieLotRetourDto,
+    analyser_cellule, Analyse, CelluleSaisieDto, ImportApercuDto, ImportBody,
+    ImportCelluleApercuDto, ImportEleveRapprocheDto, ImportLigneApercuDto, ImportTotauxDto,
+    SaisieLotBody, SaisieLotRetourDto,
 };
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -101,7 +102,10 @@ fn empreinte(cours_id: Uuid, mode: &str, lignes: &[LigneAnalysee]) -> String {
             format!(
                 "L{}|{}|{}|",
                 l.dto.numero,
-                l.dto.eleve.as_ref().map_or(String::from("-"), |e| e.eleve_id.to_string()),
+                l.dto
+                    .eleve
+                    .as_ref()
+                    .map_or(String::from("-"), |e| e.eleve_id.to_string()),
                 l.dto.rapprochement
             )
             .as_bytes(),
@@ -110,7 +114,12 @@ fn empreinte(cours_id: Uuid, mode: &str, lignes: &[LigneAnalysee]) -> String {
             h.update(
                 format!(
                     "{}|{}|{:?}|{:?}|{:?}|{};",
-                    c.dto.evaluation_id, c.dto.etat, c.dto.statut, c.dto.valeur_m, c.version_avant, c.ecrire
+                    c.dto.evaluation_id,
+                    c.dto.etat,
+                    c.dto.statut,
+                    c.dto.valeur_m,
+                    c.version_avant,
+                    c.ecrire
                 )
                 .as_bytes(),
             );
@@ -141,7 +150,9 @@ impl PgEnt {
         if body.cibles.is_empty() || body.cibles.len() > MAX_CIBLES {
             return Err(refus("un import vise de 1 à 60 évaluations"));
         }
-        let acces = self.eva_v3_acces(etab, acteur, role, body.cours_id, jour).await?;
+        let acces = self
+            .eva_v3_acces(etab, acteur, role, body.cours_id, jour)
+            .await?;
         if !acces.saisie {
             return Err(EntDbError::Forbidden);
         }
@@ -166,27 +177,33 @@ impl PgEnt {
         if cours_de != body.cours_id {
             return Err(introuvable());
         }
-        let periodes = self.eva_v3_periodes_for_actor(etab, acteur, role, body.cours_id, jour).await?;
+        let periodes = self
+            .eva_v3_periodes_for_actor(etab, acteur, role, body.cours_id, jour)
+            .await?;
         let periode = periodes
             .iter()
             .find(|p| p.date_debut <= date && date <= p.date_fin)
-            .ok_or(refus("la date de l'évaluation ne tombe dans aucune période de ce cours"))?;
+            .ok_or(refus(
+                "la date de l'évaluation ne tombe dans aucune période de ce cours",
+            ))?;
         let g = self
             .eva_v3_charger(etab, acteur, role, body.cours_id, periode.id, jour, true)
             .await?;
         let mut cibles = Vec::with_capacity(body.cibles.len());
         for id in &body.cibles {
-            let ev = g
-                .evals
-                .iter()
-                .find(|e| e.id == *id)
-                .ok_or(refus("une évaluation visée n'est pas dans la période de la première"))?;
+            let ev = g.evals.iter().find(|e| e.id == *id).ok_or(refus(
+                "une évaluation visée n'est pas dans la période de la première",
+            ))?;
             if ev.etat != "ouverte" {
                 return Err(refus("une évaluation visée est annulée ou non ouverte"));
             }
             cibles.push(ev.clone());
         }
-        let noms: Vec<(String, String)> = g.eleves.iter().map(|e| (e.nom.clone(), e.prenom.clone())).collect();
+        let noms: Vec<(String, String)> = g
+            .eleves
+            .iter()
+            .map(|e| (e.nom.clone(), e.prenom.clone()))
+            .collect();
         let pas_m = g.reglage.pas_saisie_m;
         let mut vus: HashMap<Uuid, usize> = HashMap::new();
         let mut lignes: Vec<LigneAnalysee> = Vec::with_capacity(body.lignes.len());
@@ -261,11 +278,15 @@ impl PgEnt {
                             dto.valeur_m = valeur;
                             if !case.concerne {
                                 dto.etat = "erreur".to_string();
-                                dto.erreur = Some("élève non concerné par cette évaluation à sa date".to_string());
+                                dto.erreur = Some(
+                                    "élève non concerné par cette évaluation à sa date".to_string(),
+                                );
                             } else if !case.saisie_ouverte && !case.rattrapage_autorise {
                                 dto.etat = "verrouille".to_string();
                                 dto.erreur = Some("période arrêtée pour cet élève".to_string());
-                            } else if avant.is_some_and(|r| r.statut == statut && r.valeur_m == valeur) {
+                            } else if avant
+                                .is_some_and(|r| r.statut == statut && r.valeur_m == valeur)
+                            {
                                 dto.etat = "inchange".to_string();
                             } else if avant.is_some() {
                                 dto.etat = "modifie".to_string();
@@ -276,7 +297,11 @@ impl PgEnt {
                             }
                         }
                     }
-                    cases.push(CaseAnalysee { dto, version_avant: avant.map(|r| r.version), ecrire });
+                    cases.push(CaseAnalysee {
+                        dto,
+                        version_avant: avant.map(|r| r.version),
+                        ecrire,
+                    });
                 }
             }
             lignes.push(LigneAnalysee {
@@ -307,8 +332,13 @@ impl PgEnt {
         jour: NaiveDate,
         body: &ImportBody,
     ) -> Result<ImportApercuDto, EntDbError> {
-        let (lignes, absents, _g) = self.eva_v3_analyser_import(etab, acteur, role, jour, body).await?;
-        let mut t = ImportTotauxDto { lignes: lignes.len(), ..Default::default() };
+        let (lignes, absents, _g) = self
+            .eva_v3_analyser_import(etab, acteur, role, jour, body)
+            .await?;
+        let mut t = ImportTotauxDto {
+            lignes: lignes.len(),
+            ..Default::default()
+        };
         for l in &lignes {
             if l.dto.rapprochement == "ok" {
                 t.rapprochees += 1;
@@ -345,11 +375,17 @@ impl PgEnt {
         body: &ImportBody,
     ) -> Result<SaisieLotRetourDto, EntDbError> {
         let Some(attendue) = body.empreinte.as_deref() else {
-            return Err(refus("l'empreinte de l'aperçu est obligatoire pour confirmer"));
+            return Err(refus(
+                "l'empreinte de l'aperçu est obligatoire pour confirmer",
+            ));
         };
-        let (lignes, _absents, _g) = self.eva_v3_analyser_import(etab, acteur, role, jour, body).await?;
+        let (lignes, _absents, _g) = self
+            .eva_v3_analyser_import(etab, acteur, role, jour, body)
+            .await?;
         if empreinte(body.cours_id, &body.mode, &lignes) != attendue {
-            return Err(conflit("l'aperçu n'est plus à jour : les notes ont changé, refaites l'aperçu"));
+            return Err(conflit(
+                "l'aperçu n'est plus à jour : les notes ont changé, refaites l'aperçu",
+            ));
         }
         let mut cellules: Vec<CelluleSaisieDto> = Vec::new();
         for l in &lignes {
@@ -371,9 +407,17 @@ impl PgEnt {
         let lot = SaisieLotBody {
             cours_id: body.cours_id,
             cellules,
-            origine: Some(if body.mode == "fichier" { "import" } else { "saisie" }.to_string()),
+            origine: Some(
+                if body.mode == "fichier" {
+                    "import"
+                } else {
+                    "saisie"
+                }
+                .to_string(),
+            ),
         };
-        self.eva_v3_saisir_lot_interne(etab, acteur, role, jour, &lot, Some(&body.mode)).await
+        self.eva_v3_saisir_lot_interne(etab, acteur, role, jour, &lot, Some(&body.mode))
+            .await
     }
 }
 
@@ -415,7 +459,12 @@ mod tests {
 
     #[test]
     fn rapprochement_un_ambigu_aucun() {
-        let e = vec![el("Martin", "Léa"), el("Martin", "Léo"), el("Durand", "Léa"), el("Durand", "Léa")];
+        let e = vec![
+            el("Martin", "Léa"),
+            el("Martin", "Léo"),
+            el("Durand", "Léa"),
+            el("Durand", "Léa"),
+        ];
         assert_eq!(rapprocher(&e, "martin lea"), Rapprochement::Un(0));
         assert_eq!(rapprocher(&e, "Léo MARTIN"), Rapprochement::Un(1));
         assert_eq!(rapprocher(&e, "Durand Léa"), Rapprochement::Ambigu);

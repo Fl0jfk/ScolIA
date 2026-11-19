@@ -14,13 +14,13 @@ pub mod modele;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use ent_types::evaluations_v3::{
-    AnnulerEvaluationV3Body, CreerEvaluationV3Body, EnseignementV3Dto, EvaluationColonneDto, GrilleV3Dto,
-    ImportApercuDto, ImportBody, LigneHistoriqueV3Dto, ModifierEvaluationV3Body, PeriodeV3Dto, PublierV3Body,
-    SaisieLotBody, SousMatiereV3Dto, StatsV3Dto, CODES_RAPIDES,
+    AnnulerEvaluationV3Body, CreerEvaluationV3Body, EnseignementV3Dto, EvaluationColonneDto,
+    GrilleV3Dto, ImportApercuDto, ImportBody, LigneHistoriqueV3Dto, ModifierEvaluationV3Body,
+    PeriodeV3Dto, PublierV3Body, SaisieLotBody, SousMatiereV3Dto, StatsV3Dto, CODES_RAPIDES,
 };
 use ent_web_ui::{
-    Alerte, Annonce, Badge, Bouton, Case, ChampTexte, Dialogue, EnTetePage, EtatVide, Niveau, Selection,
-    Squelette, TonEtat, Variante, ZoneTexte,
+    Alerte, Annonce, Badge, Bouton, Case, ChampTexte, Dialogue, EnTetePage, EtatVide, Niveau,
+    Selection, Squelette, TonEtat, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -29,9 +29,9 @@ use leptos_router::hooks::use_query_map;
 use uuid::Uuid;
 
 use modele::{
-    bilan_lot, cases_a_envoyer, cible_touche, controler_evaluation, effet_retour, est_un_bloc, id_case,
-    lire_tableur, milliemes_formulaire, moyenne_affichee, phrase_conflit, plan_collage, plan_fichier,
-    texte_cellule, texte_conflit, CaseVue, EffetRetour,
+    bilan_lot, cases_a_envoyer, cible_touche, controler_evaluation, effet_retour, est_un_bloc,
+    id_case, lire_tableur, milliemes_formulaire, moyenne_affichee, phrase_conflit, plan_collage,
+    plan_fichier, texte_cellule, texte_conflit, CaseVue, EffetRetour,
 };
 
 use crate::noyau::ecriture::{message_echec, Ecriture};
@@ -68,7 +68,8 @@ fn libelle_etat_publication(e: &EvaluationColonneDto) -> (&'static str, TonEtat)
 
 #[component]
 pub fn PageGrilleV3() -> impl IntoView {
-    let enseignements = LocalResource::new(|| async { session::client().eva3_enseignements().await });
+    let enseignements =
+        LocalResource::new(|| async { session::client().eva3_enseignements().await });
     view! {
         <Title text="Grille de notes"/>
         <EnTetePage
@@ -97,12 +98,20 @@ fn ChoixEtGrille(liste: Vec<EnseignementV3Dto>) -> impl IntoView {
     let cours = RwSignal::new(q.with_untracked(|q| q.get("cours")).unwrap_or_default());
     let periode = RwSignal::new(q.with_untracked(|q| q.get("periode")).unwrap_or_default());
     let reload = RwSignal::new(0u32);
-    let options: Vec<(String, String)> = std::iter::once((String::new(), "Choisir un enseignement…".to_string()))
-        .chain(liste.iter().map(|e| {
-            let suffixe = if e.droit == "saisie" { "" } else { " (lecture)" };
-            (e.cours_id.to_string(), format!("{} · {}{}", e.cible_code, e.libelle, suffixe))
-        }))
-        .collect();
+    let options: Vec<(String, String)> =
+        std::iter::once((String::new(), "Choisir un enseignement…".to_string()))
+            .chain(liste.iter().map(|e| {
+                let suffixe = if e.droit == "saisie" {
+                    ""
+                } else {
+                    " (lecture)"
+                };
+                (
+                    e.cours_id.to_string(),
+                    format!("{} · {}{}", e.cible_code, e.libelle, suffixe),
+                )
+            }))
+            .collect();
     let periodes = LocalResource::new(move || {
         let c = cours.get();
         async move {
@@ -120,7 +129,10 @@ fn ChoixEtGrille(liste: Vec<EnseignementV3Dto>) -> impl IntoView {
                 .is_some_and(|p| l.iter().any(|x| x.id == p));
             if !valide {
                 let auj = aujourdhui();
-                let choix = l.iter().find(|p| p.date_debut <= auj && auj <= p.date_fin).or(l.first());
+                let choix = l
+                    .iter()
+                    .find(|p| p.date_debut <= auj && auj <= p.date_fin)
+                    .or(l.first());
                 periode.set(choix.map(|p| p.id.to_string()).unwrap_or_default());
             }
         }
@@ -140,7 +152,10 @@ fn ChoixEtGrille(liste: Vec<EnseignementV3Dto>) -> impl IntoView {
         let c = cours.get();
         async move {
             match Uuid::parse_str(&c) {
-                Ok(c) => session::client().eva3_sous_matieres(c).await.unwrap_or_default(),
+                Ok(c) => session::client()
+                    .eva3_sous_matieres(c)
+                    .await
+                    .unwrap_or_default(),
                 Err(_) => Vec::new(),
             }
         }
@@ -249,7 +264,10 @@ fn classe_case(c: &CaseSig, editable: bool, texte: &str, etat: &EtatCase) -> Str
         EtatCase::Conflit(_) => k.push_str(" eva3-case--conflit"),
         EtatCase::Refusee(_) => k.push_str(" eva3-case--refusee"),
         EtatCase::Normal => {
-            if c.concerne && texte.trim() != c.base.get_untracked().trim() && !texte.trim().is_empty() {
+            if c.concerne
+                && texte.trim() != c.base.get_untracked().trim()
+                && !texte.trim().is_empty()
+            {
                 k.push_str(" eva3-case--modifiee");
             }
         }
@@ -263,12 +281,17 @@ async fn lire_texte_fichier(input: &web_sys::HtmlInputElement) -> Result<Option<
         return Ok(None);
     };
     if fichier.size() > 2_000_000.0 {
-        return Err("Ce fichier est trop volumineux pour un import de notes (2 Mo au plus).".into());
+        return Err(
+            "Ce fichier est trop volumineux pour un import de notes (2 Mo au plus).".into(),
+        );
     }
     let valeur = wasm_bindgen_futures::JsFuture::from(fichier.text())
         .await
         .map_err(|_| "Ce fichier n'a pas pu être lu.".to_string())?;
-    valeur.as_string().map(Some).ok_or_else(|| "Ce fichier n'est pas un texte lisible.".to_string())
+    valeur
+        .as_string()
+        .map(Some)
+        .ok_or_else(|| "Ce fichier n'est pas un texte lisible.".to_string())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -278,7 +301,10 @@ async fn lire_texte_fichier(_input: &web_sys::HtmlInputElement) -> Result<Option
 
 fn focaliser(id: &str) {
     use leptos::wasm_bindgen::JsCast;
-    if let Some(el) = document().get_element_by_id(id).and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok()) {
+    if let Some(el) = document()
+        .get_element_by_id(id)
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+    {
         let _ = el.focus();
     }
 }
@@ -289,7 +315,10 @@ fn curseur(ev: &leptos::ev::KeyboardEvent) -> (bool, bool) {
         .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
         .map(|i| {
             let n = i.value().chars().count() as u32;
-            let (a, b) = (i.selection_start().ok().flatten().unwrap_or(0), i.selection_end().ok().flatten().unwrap_or(0));
+            let (a, b) = (
+                i.selection_start().ok().flatten().unwrap_or(0),
+                i.selection_end().ok().flatten().unwrap_or(0),
+            );
             (a == 0 && b == 0, a == n && b == n)
         })
         .unwrap_or((false, false))
@@ -298,7 +327,11 @@ fn curseur(ev: &leptos::ev::KeyboardEvent) -> (bool, bool) {
 // ───────────────────────── Le tableau ─────────────────────────
 
 #[component]
-fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharger: Callback<()>) -> impl IntoView {
+fn TableauV3(
+    grille: GrilleV3Dto,
+    sous_matieres: Vec<SousMatiereV3Dto>,
+    recharger: Callback<()>,
+) -> impl IntoView {
     let cours_id = grille.enseignement.cours_id;
     let periode_id = grille.periode.id;
     let peut_saisir = grille.peut_saisir;
@@ -307,8 +340,11 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
     let evals = StoredValue::new(grille.evaluations.clone());
     let nb_cols = grille.evaluations.len();
     let nb_lignes = grille.eleves.len();
-    let stats_cols: Vec<RwSignal<Option<StatsV3Dto>>> =
-        grille.evaluations.iter().map(|e| RwSignal::new(e.stats.clone())).collect();
+    let stats_cols: Vec<RwSignal<Option<StatsV3Dto>>> = grille
+        .evaluations
+        .iter()
+        .map(|e| RwSignal::new(e.stats.clone()))
+        .collect();
     let stats_cols = StoredValue::new(stats_cols);
     let moyenne_classe = RwSignal::new(grille.moyenne_classe.clone());
     let avertissements = grille.avertissements.clone();
@@ -410,7 +446,11 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
         statut_enreg.set("Enregistrement…".into());
         spawn_local(async move {
             let r = session::client()
-                .eva3_saisir(&SaisieLotBody { cours_id, cellules, origine: None })
+                .eva3_saisir(&SaisieLotBody {
+                    cours_id,
+                    cellules,
+                    origine: None,
+                })
                 .await;
             match r {
                 Ok(retour) => {
@@ -511,7 +551,13 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
         match plan_collage(&bloc, i, j, &eleves, &ids) {
             Err(m) => erreur_globale.set(Some(m)),
             Ok((cibles, lignes_import)) => {
-                let corps = ImportBody { cours_id, mode: "collage".into(), cibles, lignes: lignes_import, empreinte: None };
+                let corps = ImportBody {
+                    cours_id,
+                    mode: "collage".into(),
+                    cibles,
+                    lignes: lignes_import,
+                    empreinte: None,
+                };
                 spawn_local(async move {
                     match session::client().eva3_apercu_import(&corps).await {
                         Ok(a) => {
@@ -527,10 +573,17 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
         }
     };
 
-    let colonnes_titres: Vec<(Uuid, String)> = grille.evaluations.iter().map(|e| (e.id, e.titre.clone())).collect();
+    let colonnes_titres: Vec<(Uuid, String)> = grille
+        .evaluations
+        .iter()
+        .map(|e| (e.id, e.titre.clone()))
+        .collect();
     let colonnes_titres = StoredValue::new(colonnes_titres);
 
-    let titre_grille = format!("{} · {}", grille.enseignement.cible_code, grille.enseignement.libelle);
+    let titre_grille = format!(
+        "{} · {}",
+        grille.enseignement.cible_code, grille.enseignement.libelle
+    );
     let avert_vue = avertissements
         .iter()
         .map(|a| view! { <Alerte niveau=Niveau::Avertissement titre=a.clone()/> })
@@ -688,7 +741,8 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
             .collect_view()
     };
 
-    let pied_classe = move || match moyenne_classe.get() {
+    let pied_classe = move || {
+        match moyenne_classe.get() {
         Some(s) => format!(
             "Moyenne de la classe {} · min {} · max {} · médiane {} · {} élève(s) · calculée par le serveur",
             moyenne_affichee(Some(s.moyenne_m)),
@@ -698,6 +752,7 @@ fn TableauV3(grille: GrilleV3Dto, sous_matieres: Vec<SousMatiereV3Dto>, recharge
             s.effectif
         ),
         None => "Pas encore de moyenne de classe.".to_string(),
+    }
     };
     let echelle = ent_types::evaluations_v3::formater_milliemes(echelle_m);
 
@@ -868,7 +923,8 @@ fn PanneauCase(
     cours_id: Uuid,
     periode_id: Uuid,
 ) -> impl IntoView {
-    let historique: RwSignal<Option<Result<Vec<LigneHistoriqueV3Dto>, String>>> = RwSignal::new(None);
+    let historique: RwSignal<Option<Result<Vec<LigneHistoriqueV3Dto>, String>>> =
+        RwSignal::new(None);
     let explication: RwSignal<Option<Explication>> = RwSignal::new(None);
     Effect::new(move |_| {
         selection.track();
@@ -876,16 +932,23 @@ fn PanneauCase(
         explication.set(None);
     });
     let voir_historique = move |_| {
-        let Some((i, j)) = selection.get_untracked().filter(|(_, j)| *j != usize::MAX) else { return };
+        let Some((i, j)) = selection.get_untracked().filter(|(_, j)| *j != usize::MAX) else {
+            return;
+        };
         let eleve = lignes.with_value(|ls| ls[i].eleve_id);
         let ev = evals.with_value(|e| e[j].id);
         spawn_local(async move {
-            let r = session::client().eva3_historique(ev, eleve).await.map_err(message_echec);
+            let r = session::client()
+                .eva3_historique(ev, eleve)
+                .await
+                .map_err(message_echec);
             historique.set(Some(r));
         });
     };
     let voir_calcul = move |_| {
-        let Some((i, _)) = selection.get_untracked() else { return };
+        let Some((i, _)) = selection.get_untracked() else {
+            return;
+        };
         let eleve = lignes.with_value(|ls| ls[i].eleve_id);
         spawn_local(async move {
             let r = session::client()
@@ -985,8 +1048,11 @@ fn DialogueNouvelle(
     let publication = RwSignal::new("explicite".to_string());
     let annoncee = RwSignal::new(false);
     let restreint = RwSignal::new(false);
-    let visees: Vec<(Uuid, String, RwSignal<bool>)> =
-        eleves.get_value().into_iter().map(|(id, n)| (id, n, RwSignal::new(false))).collect();
+    let visees: Vec<(Uuid, String, RwSignal<bool>)> = eleves
+        .get_value()
+        .into_iter()
+        .map(|(id, n)| (id, n, RwSignal::new(false)))
+        .collect();
     let visees = StoredValue::new(visees);
     let erreurs: RwSignal<Vec<(String, String)>> = RwSignal::new(Vec::new());
     // Date proposée : aujourd'hui borné à la période (posé après l'hydratation, jamais dans le HTML du serveur).
@@ -1002,7 +1068,12 @@ fn DialogueNouvelle(
         recharger.run(());
     }));
     let valider = move |_| {
-        let e = controler_evaluation(&titre.get_untracked(), &date.get_untracked(), &bareme.get_untracked(), &coef.get_untracked());
+        let e = controler_evaluation(
+            &titre.get_untracked(),
+            &date.get_untracked(),
+            &bareme.get_untracked(),
+            &coef.get_untracked(),
+        );
         erreurs.set(e.iter().map(|(c, m)| (c.to_string(), m.clone())).collect());
         if !e.is_empty() {
             return;
@@ -1012,12 +1083,20 @@ fn DialogueNouvelle(
             return;
         };
         let restreinte_a: Vec<Uuid> = if restreint.get_untracked() {
-            visees.with_value(|v| v.iter().filter(|(_, _, c)| c.get_untracked()).map(|(id, _, _)| *id).collect())
+            visees.with_value(|v| {
+                v.iter()
+                    .filter(|(_, _, c)| c.get_untracked())
+                    .map(|(id, _, _)| *id)
+                    .collect()
+            })
         } else {
             Vec::new()
         };
         if restreint.get_untracked() && restreinte_a.is_empty() {
-            erreurs.set(vec![("public".into(), "Cochez au moins un élève, ou décochez « Public restreint ».".into())]);
+            erreurs.set(vec![(
+                "public".into(),
+                "Cochez au moins un élève, ou décochez « Public restreint ».".into(),
+            )]);
             return;
         }
         let corps = CreerEvaluationV3Body {
@@ -1040,11 +1119,19 @@ fn DialogueNouvelle(
         });
     };
     let err = move |champ: &'static str| {
-        Signal::derive(move || erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone())))
+        Signal::derive(move || {
+            erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
+        })
     };
-    let opts_sous: Vec<(String, String)> = std::iter::once((String::new(), "Aucune (la matière elle-même)".to_string()))
-        .chain(sous_matieres.get_value().into_iter().map(|s| (s.id.to_string(), s.libelle)))
-        .collect();
+    let opts_sous: Vec<(String, String)> =
+        std::iter::once((String::new(), "Aucune (la matière elle-même)".to_string()))
+            .chain(
+                sous_matieres
+                    .get_value()
+                    .into_iter()
+                    .map(|s| (s.id.to_string(), s.libelle)),
+            )
+            .collect();
     view! {
         <Dialogue ouvert=ouvert titre="Nouvelle évaluation" id="eva3-dlg-nouvelle">
             <div class="eva3-form">
@@ -1120,9 +1207,15 @@ fn DialogueImport(
     let cible = RwSignal::new(String::new());
     let en_cours = RwSignal::new(false);
     let champ = NodeRef::<leptos::html::Input>::new();
-    let opts: Vec<(String, String)> = std::iter::once((String::new(), "Selon les titres du fichier".to_string()))
-        .chain(evaluations.get_value().into_iter().map(|(id, t)| (id.to_string(), t)))
-        .collect();
+    let opts: Vec<(String, String)> =
+        std::iter::once((String::new(), "Selon les titres du fichier".to_string()))
+            .chain(
+                evaluations
+                    .get_value()
+                    .into_iter()
+                    .map(|(id, t)| (id.to_string(), t)),
+            )
+            .collect();
     let lancer = move |_| {
         let Some(input) = champ.get() else { return };
         let cible_unique = Uuid::parse_str(&cible.get_untracked()).ok();
@@ -1133,15 +1226,29 @@ fn DialogueImport(
         spawn_local(async move {
             let r: Result<Option<ImportApercuDto>, String> = async {
                 let Some(texte) = lire_texte_fichier(&input).await? else {
-                    return Err("Choisissez un fichier (CSV, TSV ou texte copié d'un tableur).".to_string());
+                    return Err(
+                        "Choisissez un fichier (CSV, TSV ou texte copié d'un tableur).".to_string(),
+                    );
                 };
                 let table = lire_tableur(&texte);
                 let plan = plan_fichier(&table, &evals, cible_unique)?;
-                let corps = ImportBody { cours_id, mode: "fichier".into(), cibles: plan.cibles.clone(), lignes: plan.lignes.clone(), empreinte: None };
-                let a = session::client().eva3_apercu_import(&corps).await.map_err(message_echec)?;
+                let corps = ImportBody {
+                    cours_id,
+                    mode: "fichier".into(),
+                    cibles: plan.cibles.clone(),
+                    lignes: plan.lignes.clone(),
+                    empreinte: None,
+                };
+                let a = session::client()
+                    .eva3_apercu_import(&corps)
+                    .await
+                    .map_err(message_echec)?;
                 on_apercu.run((corps, a));
                 if !plan.colonnes_ignorees.is_empty() {
-                    erreur.set(Some(format!("Colonnes laissées de côté : {}.", plan.colonnes_ignorees.join(", "))));
+                    erreur.set(Some(format!(
+                        "Colonnes laissées de côté : {}.",
+                        plan.colonnes_ignorees.join(", ")
+                    )));
                 }
                 Ok(None)
             }
@@ -1182,7 +1289,9 @@ fn DialogueApercu(
         recharger.run(());
     }));
     let confirmer = move |_| {
-        let Some((mut corps, a)) = apercu.get_untracked() else { return };
+        let Some((mut corps, a)) = apercu.get_untracked() else {
+            return;
+        };
         corps.empreinte = Some(a.empreinte.clone());
         ecriture.lancer(async move {
             let r = session::client().eva3_confirmer_import(&corps).await?;
@@ -1304,10 +1413,19 @@ fn DialogueEvaluation(
         ouvert.set(false);
         recharger.run(());
     }));
-    let courante = move || eval_ouverte.get().and_then(|j| evals.with_value(|v| v.get(j).cloned()));
+    let courante = move || {
+        eval_ouverte
+            .get()
+            .and_then(|j| evals.with_value(|v| v.get(j).cloned()))
+    };
     let enregistrer = move |_| {
         let Some(e) = courante() else { return };
-        let er = controler_evaluation(&titre.get_untracked(), &date.get_untracked(), &bareme.get_untracked(), &coef.get_untracked());
+        let er = controler_evaluation(
+            &titre.get_untracked(),
+            &date.get_untracked(),
+            &bareme.get_untracked(),
+            &coef.get_untracked(),
+        );
         erreurs.set(er.iter().map(|(c, m)| (c.to_string(), m.clone())).collect());
         if !er.is_empty() {
             return;
@@ -1335,7 +1453,12 @@ fn DialogueEvaluation(
     let publier = move |action: &'static str| {
         Callback::new(move |_| {
             let Some(e) = courante() else { return };
-            let mut corps = PublierV3Body { action: action.into(), prevue_le: None, prevue_locale: None, motif: None };
+            let mut corps = PublierV3Body {
+                action: action.into(),
+                prevue_le: None,
+                prevue_locale: None,
+                motif: None,
+            };
             match action {
                 "retirer" => corps.motif = Some(motif_retrait.get_untracked()),
                 "programmer" => {
@@ -1343,7 +1466,10 @@ fn DialogueEvaluation(
                     match NaiveDateTime::parse_from_str(t.trim(), "%Y-%m-%dT%H:%M") {
                         Ok(l) => corps.prevue_locale = Some(l),
                         Err(_) => {
-                            erreurs.set(vec![("programme".into(), "Choisissez la date et l'heure de publication.".into())]);
+                            erreurs.set(vec![(
+                                "programme".into(),
+                                "Choisissez la date et l'heure de publication.".into(),
+                            )]);
                             return;
                         }
                     }
@@ -1352,7 +1478,11 @@ fn DialogueEvaluation(
             }
             ecriture.lancer(async move {
                 let r = session::client().eva3_publication(e.id, &corps).await?;
-                Ok(format!("« {} » : {}.", r.titre, libelle_etat_publication(&r).0.to_lowercase()))
+                Ok(format!(
+                    "« {} » : {}.",
+                    r.titre,
+                    libelle_etat_publication(&r).0.to_lowercase()
+                ))
             });
         })
     };
@@ -1360,20 +1490,35 @@ fn DialogueEvaluation(
         let Some(e) = courante() else { return };
         let v = !en_cours.get_untracked();
         ecriture.lancer(async move {
-            let r = session::client().eva3_en_cours_de_correction(e.id, v).await?;
-            Ok(format!("« {} » : {}.", r.titre, if v { "en cours de correction" } else { "correction terminée" }))
+            let r = session::client()
+                .eva3_en_cours_de_correction(e.id, v)
+                .await?;
+            Ok(format!(
+                "« {} » : {}.",
+                r.titre,
+                if v {
+                    "en cours de correction"
+                } else {
+                    "correction terminée"
+                }
+            ))
         });
     };
     let annuler = move |_| {
         let Some(e) = courante() else { return };
-        let corps = AnnulerEvaluationV3Body { version_attendue: e.version, motif: motif_annul.get_untracked() };
+        let corps = AnnulerEvaluationV3Body {
+            version_attendue: e.version,
+            motif: motif_annul.get_untracked(),
+        };
         ecriture.lancer(async move {
             let r = session::client().eva3_annuler(e.id, &corps).await?;
             Ok(format!("« {} » annulée.", r.titre))
         });
     };
     let err = move |champ: &'static str| {
-        Signal::derive(move || erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone())))
+        Signal::derive(move || {
+            erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
+        })
     };
     view! {
         <Dialogue ouvert=ouvert titre="Évaluation : réglages et publication" id="eva3-dlg-eval">

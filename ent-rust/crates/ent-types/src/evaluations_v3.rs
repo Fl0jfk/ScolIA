@@ -124,7 +124,11 @@ pub fn milliemes_depuis_texte(t: &str) -> Option<i64> {
     if entier.len() > 6 || frac.len() > 3 {
         return None;
     }
-    let e: i64 = if entier.is_empty() { 0 } else { entier.parse().ok()? };
+    let e: i64 = if entier.is_empty() {
+        0
+    } else {
+        entier.parse().ok()?
+    };
     let mut f = frac.to_string();
     while f.len() < 3 {
         f.push('0');
@@ -574,11 +578,20 @@ mod tests {
     fn codes_rapides_et_mots() {
         assert_eq!(analyser_cellule("abs", &C), Analyse::Statut("absent"));
         assert_eq!(analyser_cellule("ABS", &C), Analyse::Statut("absent"));
-        assert_eq!(analyser_cellule("Dispensé", &C), Analyse::Statut("dispense"));
-        assert_eq!(analyser_cellule("non rendu", &C), Analyse::Statut("non_rendu"));
+        assert_eq!(
+            analyser_cellule("Dispensé", &C),
+            Analyse::Statut("dispense")
+        );
+        assert_eq!(
+            analyser_cellule("non rendu", &C),
+            Analyse::Statut("non_rendu")
+        );
         assert_eq!(analyser_cellule("nn", &C), Analyse::Statut("non_note"));
         assert_eq!(analyser_cellule("ar", &C), Analyse::Statut("a_rattraper"));
-        assert_eq!(analyser_cellule("à rattraper", &C), Analyse::Statut("a_rattraper"));
+        assert_eq!(
+            analyser_cellule("à rattraper", &C),
+            Analyse::Statut("a_rattraper")
+        );
     }
 
     #[test]
@@ -599,11 +612,17 @@ mod tests {
 
     #[test]
     fn hors_bareme_autorise_et_pas() {
-        let c = ContrainteCellule { hors_bareme_autorise: true, ..C };
+        let c = ContrainteCellule {
+            hors_bareme_autorise: true,
+            ..C
+        };
         assert_eq!(analyser_cellule("22", &c), Analyse::Note(22_000));
         let demi = ContrainteCellule { pas_m: 500, ..C };
         assert_eq!(analyser_cellule("12,5", &demi), Analyse::Note(12_500));
-        assert!(matches!(analyser_cellule("12,25", &demi), Analyse::Erreur(_)));
+        assert!(matches!(
+            analyser_cellule("12,25", &demi),
+            Analyse::Erreur(_)
+        ));
     }
 
     #[test]

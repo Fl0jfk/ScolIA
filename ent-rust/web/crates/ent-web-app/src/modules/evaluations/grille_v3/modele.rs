@@ -3,8 +3,8 @@
 //! **Aucun calcul de moyenne** : le serveur les fournit (moteur unique). Aucune dépendance à Leptos ni au réseau.
 
 use ent_types::evaluations_v3::{
-    code_statut, formater_milliemes, libelle_statut, CelluleDto, CelluleRetourDto, CelluleSaisieDto,
-    ConflitDto, ImportLigneBody,
+    code_statut, formater_milliemes, libelle_statut, CelluleDto, CelluleRetourDto,
+    CelluleSaisieDto, ConflitDto, ImportLigneBody,
 };
 use uuid::Uuid;
 
@@ -20,13 +20,26 @@ pub fn texte_cellule(c: &CelluleDto) -> String {
 }
 
 /// Texte lu par un lecteur d'écran pour une case : « Léa Martin, DS 1 sur 20, 12,5 ».
-pub fn phrase_cellule(eleve: &str, titre: &str, bareme_m: i64, statut: Option<&str>, valeur_m: Option<i64>) -> String {
+pub fn phrase_cellule(
+    eleve: &str,
+    titre: &str,
+    bareme_m: i64,
+    statut: Option<&str>,
+    valeur_m: Option<i64>,
+) -> String {
     let contenu = match (statut, valeur_m) {
-        (Some("note"), Some(m)) => format!("{} sur {}", formater_milliemes(m), formater_milliemes(bareme_m)),
+        (Some("note"), Some(m)) => format!(
+            "{} sur {}",
+            formater_milliemes(m),
+            formater_milliemes(bareme_m)
+        ),
         (Some(s), _) => libelle_statut(s).to_string(),
         _ => "pas de résultat".to_string(),
     };
-    format!("{eleve}, {titre} sur {}, {contenu}", formater_milliemes(bareme_m))
+    format!(
+        "{eleve}, {titre} sur {}, {contenu}",
+        formater_milliemes(bareme_m)
+    )
 }
 
 /// Moyenne affichée (millièmes) : « 12,5 » ou un tiret.
@@ -131,7 +144,10 @@ pub fn lire_tableur(texte: &str) -> Vec<Vec<String>> {
         lignes.push(ligne);
     }
     // Ligne finale vide (« a\tb\n ») : ignorée ; une ligne entièrement vide au milieu est conservée (rang).
-    while lignes.last().is_some_and(|l| l.iter().all(|c| c.trim().is_empty())) {
+    while lignes
+        .last()
+        .is_some_and(|l| l.iter().all(|c| c.trim().is_empty()))
+    {
         lignes.pop();
     }
     lignes
@@ -189,7 +205,9 @@ pub fn plan_collage(
             eleve_id: Some(eleves[ligne + i]),
             nom: None,
             rang: None,
-            cellules: (0..largeur).map(|k| l.get(k).cloned().unwrap_or_default()).collect(),
+            cellules: (0..largeur)
+                .map(|k| l.get(k).cloned().unwrap_or_default())
+                .collect(),
         })
         .collect();
     Ok((cibles, lignes))
@@ -238,14 +256,19 @@ pub fn plan_fichier(
     }
     let largeur = table.iter().map(Vec::len).max().unwrap_or(0);
     if largeur < 2 {
-        return Err("Le fichier doit avoir au moins deux colonnes : le nom de l'élève et les notes.".into());
+        return Err(
+            "Le fichier doit avoir au moins deux colonnes : le nom de l'élève et les notes.".into(),
+        );
     }
     let entete: Vec<Option<Uuid>> = table[0]
         .iter()
         .skip(1)
         .map(|h| {
             let k = cle_titre(h);
-            evaluations.iter().find(|(_, t)| !k.is_empty() && cle_titre(t) == k).map(|(id, _)| *id)
+            evaluations
+                .iter()
+                .find(|(_, t)| !k.is_empty() && cle_titre(t) == k)
+                .map(|(id, _)| *id)
         })
         .collect();
     let a_un_entete = entete.iter().any(Option::is_some);
@@ -288,16 +311,27 @@ pub fn plan_fichier(
         .iter()
         .enumerate()
         .map(|(i, l)| {
-            let nom = l.first().map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+            let nom = l
+                .first()
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty());
             ImportLigneBody {
                 eleve_id: None,
                 rang: nom.is_none().then_some(i + 1),
                 nom,
-                cellules: indices.iter().map(|k| l.get(*k).cloned().unwrap_or_default()).collect(),
+                cellules: indices
+                    .iter()
+                    .map(|k| l.get(*k).cloned().unwrap_or_default())
+                    .collect(),
             }
         })
         .collect();
-    Ok(PlanFichier { cibles, lignes, colonnes_ignorees, entete: a_un_entete })
+    Ok(PlanFichier {
+        cibles,
+        lignes,
+        colonnes_ignorees,
+        entete: a_un_entete,
+    })
 }
 
 // ───────────────────────── Envoi et retours ─────────────────────────
@@ -335,7 +369,11 @@ pub fn cases_a_envoyer(cases: &[CaseVue], motif: Option<&str>) -> Vec<CelluleSai
             eleve_id: c.eleve_id,
             texte: c.texte.trim().to_string(),
             version_attendue: c.version,
-            motif: if c.saisie_ouverte { None } else { motif.map(str::to_string) },
+            motif: if c.saisie_ouverte {
+                None
+            } else {
+                motif.map(str::to_string)
+            },
         })
         .collect()
 }
@@ -368,7 +406,11 @@ pub fn effet_retour(r: &CelluleRetourDto) -> EffetRetour {
             Some(c) => EffetRetour::Conflit(c.clone()),
             None => EffetRetour::Refusee("La case a changé : rechargez la grille.".to_string()),
         },
-        _ => EffetRetour::Refusee(r.message.clone().unwrap_or_else(|| "Saisie refusée.".to_string())),
+        _ => EffetRetour::Refusee(
+            r.message
+                .clone()
+                .unwrap_or_else(|| "Saisie refusée.".to_string()),
+        ),
     }
 }
 
@@ -421,7 +463,12 @@ pub fn milliemes_formulaire(t: &str) -> Option<i64> {
 }
 
 /// Erreurs d'un formulaire d'évaluation : (champ, message). Le serveur revérifie tout.
-pub fn controler_evaluation(titre: &str, date: &str, bareme: &str, coef: &str) -> Vec<(&'static str, String)> {
+pub fn controler_evaluation(
+    titre: &str,
+    date: &str,
+    bareme: &str,
+    coef: &str,
+) -> Vec<(&'static str, String)> {
     let mut e = Vec::new();
     if titre.trim().is_empty() {
         e.push(("titre", "Le titre est obligatoire.".to_string()));
@@ -431,11 +478,17 @@ pub fn controler_evaluation(titre: &str, date: &str, bareme: &str, coef: &str) -
     }
     match milliemes_formulaire(bareme) {
         Some(b) if b > 0 && b <= 1_000_000 => {}
-        _ => e.push(("bareme", "Barème : un nombre entre 0,001 et 1000.".to_string())),
+        _ => e.push((
+            "bareme",
+            "Barème : un nombre entre 0,001 et 1000.".to_string(),
+        )),
     }
     match milliemes_formulaire(coef) {
         Some(c) if c <= 100_000 => {}
-        _ => e.push(("coef", "Coefficient : un nombre entre 0 et 100.".to_string())),
+        _ => e.push((
+            "coef",
+            "Coefficient : un nombre entre 0 et 100.".to_string(),
+        )),
     }
     e
 }
@@ -489,20 +542,31 @@ mod tests {
         assert_eq!(lignes[0].eleve_id, Some(id(2)));
         assert_eq!(lignes[1].eleve_id, Some(id(3)));
         assert_eq!(lignes[1].cellules, vec!["13", "9"]);
-        assert!(plan_collage(&bloc, 2, 0, &eleves, &evals).unwrap_err().contains("dépasse"));
-        assert!(plan_collage(&bloc, 0, 1, &eleves, &evals).unwrap_err().contains("colonne"));
+        assert!(plan_collage(&bloc, 2, 0, &eleves, &evals)
+            .unwrap_err()
+            .contains("dépasse"));
+        assert!(plan_collage(&bloc, 0, 1, &eleves, &evals)
+            .unwrap_err()
+            .contains("colonne"));
     }
 
     #[test]
     fn fichier_avec_entete_reconnu_et_colonne_ignoree() {
-        let evals = vec![(id(10), "DS 1".to_string()), (id(11), "Interro n°2".to_string())];
+        let evals = vec![
+            (id(10), "DS 1".to_string()),
+            (id(11), "Interro n°2".to_string()),
+        ];
         let t = lire_tableur("Nom;ds 1;Moyenne;Interro n°2\nMartin Léa;12;11;8\n;9;;7\n");
         let p = plan_fichier(&t, &evals, None).unwrap();
         assert_eq!(p.cibles, vec![id(10), id(11)]);
         assert_eq!(p.colonnes_ignorees, vec!["Moyenne"]);
         assert_eq!(p.lignes[0].nom.as_deref(), Some("Martin Léa"));
         assert_eq!(p.lignes[0].cellules, vec!["12", "8"]);
-        assert_eq!((p.lignes[1].nom.clone(), p.lignes[1].rang), (None, Some(2)), "sans nom : par rang");
+        assert_eq!(
+            (p.lignes[1].nom.clone(), p.lignes[1].rang),
+            (None, Some(2)),
+            "sans nom : par rang"
+        );
         assert!(p.entete);
     }
 
@@ -513,7 +577,10 @@ mod tests {
         let p = plan_fichier(&t, &evals, Some(id(10))).unwrap();
         assert_eq!(p.cibles, vec![id(10)]);
         assert_eq!(p.lignes.len(), 2);
-        assert!(plan_fichier(&t, &evals, None).is_err(), "sans évaluation choisie ni titre : refus");
+        assert!(
+            plan_fichier(&t, &evals, None).is_err(),
+            "sans évaluation choisie ni titre : refus"
+        );
         let large = lire_tableur("Martin\t12\t13\n");
         assert!(plan_fichier(&large, &evals, Some(id(10))).is_err());
         assert!(plan_fichier(&[], &evals, None).is_err());
@@ -530,12 +597,20 @@ mod tests {
     fn clavier_fleches_entree_et_bords() {
         let c = |k, maj, l, col, g, d| cible_touche(k, maj, (l, col), (3, 2), (g, d));
         assert_eq!(c("ArrowDown", false, 0, 0, false, false), Some((1, 0)));
-        assert_eq!(c("ArrowDown", false, 2, 0, false, false), None, "dernière ligne");
+        assert_eq!(
+            c("ArrowDown", false, 2, 0, false, false),
+            None,
+            "dernière ligne"
+        );
         assert_eq!(c("ArrowUp", false, 1, 1, false, false), Some((0, 1)));
         assert_eq!(c("Enter", false, 0, 1, false, false), Some((1, 1)));
         assert_eq!(c("Enter", true, 1, 1, false, false), Some((0, 1)));
         assert_eq!(c("ArrowRight", false, 0, 0, false, true), Some((0, 1)));
-        assert_eq!(c("ArrowRight", false, 0, 0, false, false), None, "curseur dans le texte : on édite");
+        assert_eq!(
+            c("ArrowRight", false, 0, 0, false, false),
+            None,
+            "curseur dans le texte : on édite"
+        );
         assert_eq!(c("ArrowLeft", false, 0, 1, true, false), Some((0, 0)));
         assert_eq!(c("ArrowLeft", false, 0, 0, true, false), None);
         assert_eq!(c("a", false, 0, 0, true, true), None);
@@ -560,11 +635,24 @@ mod tests {
         conflit.en_conflit = true;
         let mut non_concerne = case("5", "", None);
         non_concerne.concerne = false;
-        let cases = vec![case("12", "", None), case("13", "13", Some(2)), case("14", "13", Some(2)), conflit, non_concerne, case("", "13", Some(2))];
+        let cases = vec![
+            case("12", "", None),
+            case("13", "13", Some(2)),
+            case("14", "13", Some(2)),
+            conflit,
+            non_concerne,
+            case("", "13", Some(2)),
+        ];
         let lot = cases_a_envoyer(&cases, None);
         assert_eq!(lot.len(), 2);
-        assert_eq!((lot[0].texte.as_str(), lot[0].version_attendue), ("12", None));
-        assert_eq!((lot[1].texte.as_str(), lot[1].version_attendue), ("14", Some(2)));
+        assert_eq!(
+            (lot[0].texte.as_str(), lot[0].version_attendue),
+            ("12", None)
+        );
+        assert_eq!(
+            (lot[1].texte.as_str(), lot[1].version_attendue),
+            ("14", Some(2))
+        );
     }
 
     #[test]
@@ -591,37 +679,87 @@ mod tests {
 
     #[test]
     fn retours_ecrit_conflit_refus() {
-        assert_eq!(effet_retour(&retour("ecrit")), EffetRetour::Enregistree { version: 3, base: "12,5".into() });
+        assert_eq!(
+            effet_retour(&retour("ecrit")),
+            EffetRetour::Enregistree {
+                version: 3,
+                base: "12,5".into()
+            }
+        );
         let mut c = retour("conflit");
-        c.conflit = Some(ConflitDto { statut: "note".into(), valeur_m: Some(9_000), version: 4, par_nom: Some("Ada Lovelace".into()), le: None });
+        c.conflit = Some(ConflitDto {
+            statut: "note".into(),
+            valeur_m: Some(9_000),
+            version: 4,
+            par_nom: Some("Ada Lovelace".into()),
+            le: None,
+        });
         match effet_retour(&c) {
             EffetRetour::Conflit(x) => assert_eq!(phrase_conflit(&x), "9 (saisi par Ada Lovelace)"),
             autre => panic!("{autre:?}"),
         }
         let mut r = retour("refuse");
         r.message = Some("21 dépasse le barème".into());
-        assert_eq!(effet_retour(&r), EffetRetour::Refusee("21 dépasse le barème".into()));
+        assert_eq!(
+            effet_retour(&r),
+            EffetRetour::Refusee("21 dépasse le barème".into())
+        );
         assert_eq!(effet_retour(&retour("vide")), EffetRetour::Vide);
         let mut sans = retour("conflit");
         sans.conflit = None;
-        assert!(matches!(effet_retour(&sans), EffetRetour::Refusee(_)), "un conflit sans état n'écrase jamais");
+        assert!(
+            matches!(effet_retour(&sans), EffetRetour::Refusee(_)),
+            "un conflit sans état n'écrase jamais"
+        );
     }
 
     #[test]
     fn bilan_en_une_phrase() {
-        assert_eq!(bilan_lot(&[retour("ecrit"), retour("ecrit"), retour("conflit"), retour("refuse")]), "2 case(s) enregistrée(s), 1 conflit(s) à résoudre, 1 case(s) refusée(s).");
+        assert_eq!(
+            bilan_lot(&[
+                retour("ecrit"),
+                retour("ecrit"),
+                retour("conflit"),
+                retour("refuse")
+            ]),
+            "2 case(s) enregistrée(s), 1 conflit(s) à résoudre, 1 case(s) refusée(s)."
+        );
         assert_eq!(bilan_lot(&[]), "Aucune modification à enregistrer.");
     }
 
     #[test]
     fn textes_de_case_et_phrase_pour_lecteur_d_ecran() {
-        let c = CelluleDto { concerne: true, statut: Some("note".into()), valeur_m: Some(12_500), version: Some(1), resultat_id: None, saisie_ouverte: true, rattrapage_autorise: false, hors_periode: false, corrige: false, commentaire: false };
+        let c = CelluleDto {
+            concerne: true,
+            statut: Some("note".into()),
+            valeur_m: Some(12_500),
+            version: Some(1),
+            resultat_id: None,
+            saisie_ouverte: true,
+            rattrapage_autorise: false,
+            hors_periode: false,
+            corrige: false,
+            commentaire: false,
+        };
         assert_eq!(texte_cellule(&c), "12,5");
-        let a = CelluleDto { statut: Some("absent".into()), valeur_m: None, ..c.clone() };
+        let a = CelluleDto {
+            statut: Some("absent".into()),
+            valeur_m: None,
+            ..c.clone()
+        };
         assert_eq!(texte_cellule(&a), "abs");
-        assert_eq!(phrase_cellule("Léa Martin", "DS 1", 20_000, Some("note"), Some(12_500)), "Léa Martin, DS 1 sur 20, 12,5 sur 20");
-        assert_eq!(phrase_cellule("Léa Martin", "DS 1", 20_000, Some("absent"), None), "Léa Martin, DS 1 sur 20, Absent");
-        assert_eq!(phrase_cellule("Léa Martin", "DS 1", 20_000, None, None), "Léa Martin, DS 1 sur 20, pas de résultat");
+        assert_eq!(
+            phrase_cellule("Léa Martin", "DS 1", 20_000, Some("note"), Some(12_500)),
+            "Léa Martin, DS 1 sur 20, 12,5 sur 20"
+        );
+        assert_eq!(
+            phrase_cellule("Léa Martin", "DS 1", 20_000, Some("absent"), None),
+            "Léa Martin, DS 1 sur 20, Absent"
+        );
+        assert_eq!(
+            phrase_cellule("Léa Martin", "DS 1", 20_000, None, None),
+            "Léa Martin, DS 1 sur 20, pas de résultat"
+        );
         assert_eq!(moyenne_affichee(None), "–");
         assert_eq!(moyenne_affichee(Some(14_000)), "14");
     }
@@ -630,7 +768,13 @@ mod tests {
     fn controle_du_formulaire_d_evaluation() {
         assert!(controler_evaluation("DS", "2031-10-10", "20", "1,5").is_empty());
         let e = controler_evaluation(" ", "", "0", "101");
-        assert_eq!(e.iter().map(|x| x.0).collect::<Vec<_>>(), ["titre", "date", "bareme", "coef"]);
-        assert!(!controler_evaluation("DS", "2031-10-10", "20", "0").is_empty() == false, "coefficient 0 admis");
+        assert_eq!(
+            e.iter().map(|x| x.0).collect::<Vec<_>>(),
+            ["titre", "date", "bareme", "coef"]
+        );
+        assert!(
+            !controler_evaluation("DS", "2031-10-10", "20", "0").is_empty() == false,
+            "coefficient 0 admis"
+        );
     }
 }
