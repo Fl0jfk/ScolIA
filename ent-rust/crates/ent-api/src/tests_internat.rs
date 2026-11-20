@@ -153,6 +153,12 @@ async fn internat_api_aucune_route_sans_session() {
         ("POST", format!("/internat/correspondants/{id}/fin")),
         ("POST", format!("/internat/contacts/{id}/requalification")),
         ("GET", format!("/internat/eleves/{id}/correspondants")),
+        ("POST", "/internat/tiers".into()),
+        ("GET", format!("/internat/eleves/{id}/tiers")),
+        ("POST", format!("/internat/tiers/{id}/revocation")),
+        ("POST", format!("/internat/tiers/{id}/opposition")),
+        ("POST", format!("/internat/tiers/{id}/arbitrage")),
+        ("POST", format!("/internat/tiers/{id}/reprise")),
         ("GET", format!("/internat/absences/{id}/historique")),
         ("GET", format!("/internat/sorties/{id}/historique")),
         ("GET", format!("/internat/correspondants/{id}/historique")),
@@ -507,4 +513,32 @@ async fn internat_api_absences_sorties_parcours_cpe_droits_et_bornes() {
     assert_eq!(st, StatusCode::OK, "{r}");
     let (st, _) = appel(&app, "GET", &format!("/internat/departs/{nuit}/remise"), Some(&prof.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
+
+    // Tiers autorisé à récupérer (suites de l'I3, M3) : poser et lire sont réservés au personnel de l'internat (403 pour
+    // un professeur) ; la pose du CPE d'une personne inconnue est un refus de règle (4xx), jamais une panne.
+    let pose = json!({
+        "eleve_id": garcon, "personne_id": Uuid::new_v4(), "demande_par_personne_id": Uuid::new_v4(),
+        "demande_ecrite_le": (nuit - Duration::days(1)).to_string(), "du": nuit.to_string(),
+        "au": (nuit + Duration::days(10)).to_string(), "motif_texte": "Demande écrite d'un titulaire"
+    });
+    let (st, _) = appel(&app, "POST", "/internat/tiers", Some(&prof.jeton), Some(pose.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/tiers"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", "/internat/tiers", Some(&cpe.jeton), Some(pose)).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "{st}");
+    let (st, l) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/tiers"), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{l}");
+    assert_eq!(l.as_array().map(Vec::len), Some(0));
+    // Un tiers inconnu : 404 pour l'opposition, l'arbitrage, la révocation et la reprise.
+    let inconnu = Uuid::new_v4();
+    for (route, corps) in [
+        ("revocation", json!({})),
+        ("opposition", json!({})),
+        ("arbitrage", json!({"decision": "lever", "motif_texte": "x"})),
+        ("reprise", json!({"demande_par_personne_id": Uuid::new_v4(), "motif_texte": "x"})),
+    ] {
+        let (st, _) = appel(&app, "POST", &format!("/internat/tiers/{inconnu}/{route}"), Some(&dir.jeton), Some(corps)).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "{route}");
+    }
 }

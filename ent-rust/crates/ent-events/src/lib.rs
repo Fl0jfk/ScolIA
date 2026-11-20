@@ -343,6 +343,9 @@ pub mod types {
     pub const INTERNAT_AUTORISATIONS_DEMANDEES: &str = "internat.autorisations_demandees";
     pub const INTERNAT_AUTORISATION_REVOQUEE: &str = "internat.autorisation_revoquee";
     pub const INTERNAT_CORRESPONDANT: &str = "internat.correspondant";
+    /// Tiers autorisé à récupérer l'élève : posé, contesté, tranché, révoqué, repris, bientôt échu. Identifiants et action
+    /// seulement : jamais le motif, ni le demandeur, ni l'opposant. Destinataires : tous les titulaires (socle 8).
+    pub const INTERNAT_TIERS: &str = "internat.tiers";
     pub const INTERNAT_DESACCORD_TRANCHE: &str = "internat.desaccord_tranche";
     pub const INTERNAT_MAJEUR_INFORME: &str = "internat.majeur_informe";
     pub const DISPENSE_VS: &str = "vs.dispense";

@@ -1182,6 +1182,20 @@ impl PgEnt {
         role: &str,
         cmd: ClorePassage,
     ) -> Result<PassageSante, EntDbError> {
+        self.cloturer_passage_a(acteur, role, cmd, Utc::now()).await
+    }
+
+    /// Comme [`Self::cloturer_passage_for_actor`], à un instant donné (horloge injectée : les tests ne dépendent pas de
+    /// l'heure réelle). **M1 : la remise est évaluée au jour local de l'établissement À LA CLÔTURE** (c'est le moment où
+    /// l'élève part), pas au jour du passage : un statut échu, une interdiction posée ou un lien suspendu depuis l'arrivée
+    /// comptent.
+    pub async fn cloturer_passage_a(
+        &self,
+        acteur: Uuid,
+        role: &str,
+        cmd: ClorePassage,
+        maintenant: DateTime<Utc>,
+    ) -> Result<PassageSante, EntDbError> {
         self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         let courant = self.lire_passage(etab, cmd.passage_id).await?;
@@ -1196,7 +1210,7 @@ impl PgEnt {
                 "la personne qui récupère l'élève est obligatoire",
             ))?;
             recupere_nom = Some(
-                self.personne_habilitee_a_recuperer(etab, courant.eleve_id, pid)
+                self.personne_habilitee_a_recuperer(etab, courant.eleve_id, pid, self.jour_local(etab, maintenant).await?)
                     .await?
                     .ok_or(EntDbError::SaisieInvalide(
                         "personne non habilitée à récupérer l'élève",
@@ -1274,25 +1288,48 @@ impl PgEnt {
         self.lire_passage(etab, passage_id).await
     }
 
-    /// Nom de la personne si elle peut récupérer l'élève : responsable au lien actif
-    /// ou contact d'urgence validé « peut récupérer ».
-    async fn personne_habilitee_a_recuperer(
+    /// Jour local de l'établissement à un instant (fuseau de l'établissement, comme l'internat).
+    async fn jour_local(&self, etab: Uuid, instant: DateTime<Utc>) -> Result<NaiveDate, EntDbError> {
+        let mut tx = tenant(self.pool(), etab).await?;
+        let jour: NaiveDate = sqlx::query_scalar("SELECT ($1::timestamptz AT TIME ZONE ent_internat_fuseau($2))::date")
+            .bind(instant)
+            .bind(etab)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        Ok(jour)
+    }
+
+    /// Nom de la personne si elle peut récupérer l'élève. **La règle n'est pas réécrite ici** : elle passe par la fonction de
+    /// remise unique de l'internat (`ent_internat_remise`) : titulaire en exercice, personne autorisée à récupérer, tiers
+    /// autorisé ; une interdiction (chaîne de fusions comprise) bloque toujours ; un acte posé par une personne devenue
+    /// visée ou privée de son droit ne vaut plus. Le jour est celui que l'appelant fixe (la clôture, pas le passage).
+    pub(crate) async fn personne_habilitee_a_recuperer(
         &self,
         etab: Uuid,
         eleve_id: Uuid,
         personne_id: Uuid,
+        jour: NaiveDate,
     ) -> Result<Option<String>, EntDbError> {
-        for r in self.responsables_bruts(etab, eleve_id).await? {
-            if r.actif && r.personne.id == personne_id {
-                return Ok(Some(r.personne.libelle()));
-            }
-        }
-        for c in self.contacts_bruts(etab, eleve_id).await? {
-            if c.peut_recuperer && c.statut == "valide" && c.personne.id == personne_id {
-                return Ok(Some(c.personne.libelle()));
-            }
-        }
-        Ok(None)
+        let mut tx = tenant(self.pool(), etab).await?;
+        let ok = crate::internat_sorties::personne_peut_prendre_l_eleve_tx(&mut tx, etab, eleve_id, personne_id, jour).await?;
+        let nom: Option<(Option<String>, String)> = if ok {
+            sqlx::query_as("SELECT prenom, nom FROM ent_personne WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(personne_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?
+        } else {
+            None
+        };
+        tx.commit().await.map_err(db)?;
+        // Même libellé que `Personne::libelle` : « Prénom NOM », ou le nom seul.
+        Ok(nom.map(|(p, n)| match p.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) => format!("{p} {n}"),
+            None => n,
+        }))
     }
 
     async fn lire_passage(&self, etab: Uuid, id: Uuid) -> Result<PassageSante, EntDbError> {
@@ -1411,6 +1448,18 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<FicheUrgence, EntDbError> {
+        self.fiche_urgence_a(etab, acteur, role, eleve_id, Utc::now()).await
+    }
+
+    /// Comme [`Self::fiche_urgence_for_actor`], à un instant donné (horloge injectée).
+    pub async fn fiche_urgence_a(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<FicheUrgence, EntDbError> {
         self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
         // E6 : un élève protégé est introuvable d'un tiers (défense en profondeur, en plus de la couche HTTP).
@@ -1461,9 +1510,27 @@ impl PgEnt {
         .await
         .map_err(db)?;
         tx.commit().await.map_err(db)?;
-        let responsables = self
-            .responsables_bruts(etab, eleve_id)
-            .await?
+        // M2 : « peut récupérer » n'est JAMAIS réécrit ici (ni « toujours vrai » pour un responsable, ni la case du contact) :
+        // il vient de la fonction unique de remise de l'internat, au jour local, interdictions et pertes de droit comprises.
+        let jour = self.jour_local(etab, maintenant).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
+        let mut peut: std::collections::HashMap<Uuid, bool> = std::collections::HashMap::new();
+        let responsables_bruts = self.responsables_bruts(etab, eleve_id).await?;
+        let contacts_bruts = self.contacts_bruts(etab, eleve_id).await?;
+        let personnes = responsables_bruts
+            .iter()
+            .filter(|r| r.actif)
+            .map(|r| r.personne.id)
+            .chain(contacts_bruts.iter().filter(|c| c.statut == "valide").map(|c| c.personne.id));
+        for pid in personnes {
+            if let std::collections::hash_map::Entry::Vacant(v) = peut.entry(pid) {
+                v.insert(
+                    crate::internat_sorties::personne_peut_prendre_l_eleve_tx(&mut tx, etab, eleve_id, pid, jour).await?,
+                );
+            }
+        }
+        tx.commit().await.map_err(db)?;
+        let responsables = responsables_bruts
             .into_iter()
             .filter(|r| r.actif)
             .map(|r| PersonneUrgence {
@@ -1472,12 +1539,10 @@ impl PgEnt {
                 relation: r.lien,
                 telephone: r.personne.telephone,
                 telephone_2: r.personne.telephone_2,
-                peut_recuperer: true,
+                peut_recuperer: peut.get(&r.personne.id).copied().unwrap_or(false),
             })
             .collect();
-        let contacts = self
-            .contacts_bruts(etab, eleve_id)
-            .await?
+        let contacts = contacts_bruts
             .into_iter()
             .filter(|c| c.statut == "valide")
             .map(|c| PersonneUrgence {
@@ -1486,7 +1551,7 @@ impl PgEnt {
                 relation: c.relation,
                 telephone: c.personne.telephone,
                 telephone_2: c.personne.telephone_2,
-                peut_recuperer: c.peut_recuperer,
+                peut_recuperer: peut.get(&c.personne.id).copied().unwrap_or(false),
             })
             .collect();
         let (mut protocole, mut medecin, mut tel) = (None, None, None);
@@ -1523,7 +1588,7 @@ impl PgEnt {
             classe,
             date_naissance: naissance,
             niveau: if complet { "complete" } else { "minimale" }.into(),
-            genere_le: Utc::now(),
+            genere_le: maintenant,
             responsables,
             contacts,
             contraintes: contraintes.into_iter().map(|c| c.vue(false)).collect(),

@@ -54,6 +54,12 @@ pub fn routes() -> Router<AppState> {
         .route("/internat/correspondants/{id}/fin", post(terminer_correspondant))
         .route("/internat/contacts/{id}/requalification", post(requalifier_contact))
         .route("/internat/eleves/{id}/correspondants", get(correspondants_eleve))
+        .route("/internat/tiers", post(poser_tiers))
+        .route("/internat/eleves/{id}/tiers", get(tiers_eleve))
+        .route("/internat/tiers/{id}/revocation", post(revoquer_tiers))
+        .route("/internat/tiers/{id}/opposition", post(opposer_tiers))
+        .route("/internat/tiers/{id}/arbitrage", post(trancher_tiers))
+        .route("/internat/tiers/{id}/reprise", post(reprendre_tiers))
         .route("/internat/absences/{id}/historique", get(historique_absence))
         .route("/internat/sorties/{id}/historique", get(historique_sortie))
         .route("/internat/correspondants/{id}/historique", get(historique_correspondant))
@@ -450,4 +456,48 @@ async fn historique_sortie(State(s): State<AppState>, se: EntSession, Path(id): 
 
 async fn historique_correspondant(State(s): State<AppState>, se: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<FaitDto>>> {
     historique(s, se, "correspondant", id).await
+}
+
+async fn poser_tiers(State(s): State<AppState>, se: EntSession, Json(b): Json<TiersPoseDto>) -> Res<(StatusCode, Json<TiersDto>)> {
+    let r = s.ent.poser_tiers_a(se.etablissement_id, se.user_id, &se.role, &b, Utc::now()).await.map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(r)))
+}
+
+async fn tiers_eleve(State(s): State<AppState>, se: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<TiersDto>>> {
+    Ok(Json(s.ent.tiers_eleve_a(se.etablissement_id, se.user_id, &se.role, id, Utc::now()).await.map_err(map_db)?))
+}
+
+async fn revoquer_tiers(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<CorrespondantSuspensionDto>,
+) -> Res<StatusCode> {
+    s.ent.revoquer_tiers_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn opposer_tiers(State(s): State<AppState>, se: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
+    s.ent.opposer_tiers_a(se.etablissement_id, se.user_id, &se.role, id, Utc::now()).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn trancher_tiers(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<TrancheDto>,
+) -> Res<StatusCode> {
+    s.ent.trancher_tiers_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn reprendre_tiers(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<TiersRepriseDto>,
+) -> Res<StatusCode> {
+    s.ent.reprendre_tiers_a(se.etablissement_id, se.user_id, &se.role, id, &b, Utc::now()).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }

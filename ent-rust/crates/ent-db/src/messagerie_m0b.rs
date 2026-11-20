@@ -543,22 +543,27 @@ impl PgEnt {
     }
 
     /// Identifiant de la classe désignée par `libelle` (libellé ou code, sans tenir compte de la
-    /// casse). Plusieurs classes de ce nom : celle qui a des élèves affectés aujourd'hui ; si
-    /// c'est ambigu, la saisie est refusée.
-    async fn resoudre_classe(
+    /// casse). Plusieurs classes de ce nom : la seule de l'année courante, sinon celle qui a des élèves
+    /// affectés aujourd'hui ; si c'est ambigu, la saisie est refusée.
+    pub(crate) async fn resoudre_classe(
         &self,
         etablissement_id: Uuid,
         libelle: &str,
     ) -> Result<Option<Uuid>, EntDbError> {
         let jour = self.aujourdhui_etablissement(etablissement_id).await?;
-        let rows: Vec<(Uuid, bool)> = sqlx::query_as(
+        // Un libellé ou un code de classe se répète d'une année à l'autre : on lit aussi l'année de chaque classe, et un tri
+        // explicite (année courante d'abord) départage, jamais l'ordre physique des lignes.
+        let rows: Vec<(Uuid, bool, bool)> = sqlx::query_as(
             "SELECT c.id,
                     EXISTS (SELECT 1 FROM ent_affectation a
                              WHERE a.etablissement_id = c.etablissement_id AND a.classe_id = c.id
-                               AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3))
+                               AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3)),
+                    COALESCE(an.courante, false)
                FROM ent_classe c
+               LEFT JOIN ent_annee_scolaire an ON an.etablissement_id = c.etablissement_id AND an.id = c.annee_id
               WHERE c.etablissement_id = $1
-                AND (lower(btrim(c.libelle)) = lower(btrim($2)) OR lower(btrim(c.code)) = lower(btrim($2)))",
+                AND (lower(btrim(c.libelle)) = lower(btrim($2)) OR lower(btrim(c.code)) = lower(btrim($2)))
+              ORDER BY COALESCE(an.courante, false) DESC, an.date_debut DESC NULLS LAST, c.id",
         )
         .bind(etablissement_id)
         .bind(libelle)
@@ -567,10 +572,18 @@ impl PgEnt {
         .await?;
         match rows.as_slice() {
             [] => Ok(None),
-            [(id, _)] => Ok(Some(*id)),
+            [(id, _, _)] => Ok(Some(*id)),
             many => {
+                // D'abord LA SEULE classe de l'année courante (un code se répète d'une année à l'autre : une classe
+                // d'une année passée, avec encore des affectations, ne passe pas devant) ; à défaut, la seule qui a des
+                // élèves affectés aujourd'hui ; sinon ambiguïté.
+                let courantes: Vec<Uuid> =
+                    many.iter().filter(|(_, _, courante)| *courante).map(|(id, _, _)| *id).collect();
+                if let [id] = courantes.as_slice() {
+                    return Ok(Some(*id));
+                }
                 let actives: Vec<Uuid> =
-                    many.iter().filter(|(_, active)| *active).map(|(id, _)| *id).collect();
+                    many.iter().filter(|(_, active, _)| *active).map(|(id, _, _)| *id).collect();
                 match actives.as_slice() {
                     [id] => Ok(Some(*id)),
                     _ => Err(EntDbError::SaisieInvalide("classe ambiguë : précisez-la")),

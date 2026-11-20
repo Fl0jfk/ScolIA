@@ -399,6 +399,9 @@ pub struct VeilleSortiesDto {
     pub cas_retard_retour: i32,
     pub cas_non_recupere: i32,
     pub sorties_expirees: i32,
+    /// Tiers autorisés dont l'échéance approche : alerte émise (une seule fois par tiers).
+    #[serde(default)]
+    pub tiers_a_echeance: i32,
 }
 
 // ───────────────────────── Historique ─────────────────────────
@@ -417,4 +420,54 @@ pub struct FaitDto {
     pub motif_texte: Option<String>,
     pub personne_id: Option<Uuid>,
     pub jusqu_a: Option<DateTime<Utc>>,
+}
+
+// ───────────────────────── Tiers autorisé à récupérer (lot I3, suites, M3) ─────────────────────────
+
+/// Pose du statut « tiers autorisé à récupérer » par le personnel (CPE, vie scolaire, direction), à la demande **écrite**
+/// d'un titulaire de l'autorité parentale. Dates `du` / `au` obligatoires (un an au plus), motif obligatoire.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersPoseDto {
+    pub eleve_id: Uuid,
+    pub personne_id: Uuid,
+    pub demande_par_personne_id: Uuid,
+    pub demande_ecrite_le: NaiveDate,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    pub motif_texte: String,
+}
+
+/// Un tiers autorisé. La famille voit la personne, les dates, l'état et si le tiers est remettable aujourd'hui ; jamais le
+/// motif, ni qui a demandé, ni qui s'oppose (réservés au personnel de l'internat).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    /// Personnel : `actif`, `conteste` (désaccord : porte fermée jusqu'à la direction), `revoque`. **Famille** : `actif`
+    /// ou `en_cours_d_examen` — libellé neutre, identique quelle que soit la cause de la fermeture (opposition d'un autre
+    /// titulaire, décision en cours, demandeur ou lien écarté, interdiction) : la famille ne déduit rien d'une cause.
+    pub statut: String,
+    /// La porte est ouverte aujourd'hui (statut actif, dates, aucune interdiction, demandeur toujours titulaire).
+    pub remettable_aujourdhui: bool,
+    /// Le statut arrive à échéance dans les quinze jours (alerte avant échéance ; renouvellement = nouvelle pose).
+    #[serde(default)]
+    pub echeance_proche: bool,
+    /// Personnel disposant de `internat.sorties.decider` seulement.
+    #[serde(default)]
+    pub demande_par_personne_id: Option<Uuid>,
+    #[serde(default)]
+    pub motif_texte: Option<String>,
+}
+
+/// Reprise de la demande par un autre titulaire (le demandeur n'a plus le droit d'agir).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersRepriseDto {
+    pub demande_par_personne_id: Uuid,
+    #[serde(default)]
+    pub motif_texte: Option<String>,
 }

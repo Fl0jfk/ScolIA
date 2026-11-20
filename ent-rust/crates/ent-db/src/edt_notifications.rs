@@ -324,7 +324,8 @@ const SELECT_CIBLE: &str = "SELECT coalesce(s.id, '00000000-0000-0000-0000-00000
         coalesce(s.classe_id, (SELECT cl.id FROM ent_classe cl
                                  JOIN ent_annee_scolaire an ON an.id = cl.annee_id AND an.etablissement_id = cl.etablissement_id
                                 WHERE cl.etablissement_id = m.etablissement_id AND cl.code = btrim(c.classe)
-                                  AND an.date_debut <= m.jour AND an.date_fin >= m.jour LIMIT 1)) AS classe_id,
+                                  AND an.date_debut <= m.jour AND an.date_fin >= m.jour
+                                ORDER BY an.courante DESC, an.date_debut DESC, cl.id LIMIT 1)) AS classe_id,
         c.groupe_id, m.jour AS jour, coalesce(s.heure_debut, c.heure_debut) AS heure_debut,
         coalesce(s.heure_fin, c.heure_fin) AS heure_fin,
         coalesce(s.matiere_libelle, c.matiere_libelle, '') AS matiere,

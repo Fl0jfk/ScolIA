@@ -1349,7 +1349,7 @@ impl PgEnt {
         {
             match self.emettre_rappels_appels_a(etab, Utc::now()).await {
                 Ok(r) => total += r.surveillant.len() + r.cpe.len(),
-                Err(e) => tracing::warn!(error = %e, "rappels d'appel de nuit non émis pour un établissement"),
+                Err(e) => tracing::warn!(nature = %crate::internat_sorties::nature_erreur(&e), "rappels d'appel de nuit non émis pour un établissement"),
             }
         }
         Ok(total)
