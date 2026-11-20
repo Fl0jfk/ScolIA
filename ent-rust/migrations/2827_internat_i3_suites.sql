@@ -373,9 +373,6 @@ $$;
 
 SELECT ent_rls_poser(ARRAY['ent_internat_perte_droit_fait', 'ent_internat_tiers_autorise']);
 
--- Journal des lectures sensibles (R-IT38) : l'objet « tiers » (liste des tiers autorisés d'un élève).
-ALTER TABLE ent_internat_lecture_sensible DROP CONSTRAINT IF EXISTS ent_internat_lecture_sensible_objet_check;
-ALTER TABLE ent_internat_lecture_sensible ADD CONSTRAINT ent_internat_lecture_sensible_objet_check CHECK (objet IN (
-    'fiche_nuit', 'liaison', 'presents', 'registre', 'cas', 'appel', 'appel_pdf', 'attendu',
-    'liste_appels', 'procedure', 'effectif_repas', 'listes', 'journal',
-    'liste_remise', 'sorties', 'correspondants', 'tiers'));
+-- Journal des lectures sensibles (R-IT38) : la lecture de la liste des tiers est journalisée sous l'objet « correspondants »
+-- (déjà autorisé par 2826). Aucun nouvel objet : la contrainte de 2826, rejouée par la reprise, ne peut ainsi pas être
+-- violée par une ligne postérieure.

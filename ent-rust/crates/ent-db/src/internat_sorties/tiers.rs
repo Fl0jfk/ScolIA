@@ -371,7 +371,7 @@ impl PgEnt {
                 &mut tx,
                 etab,
                 actor,
-                "tiers",
+                "correspondants",
                 Some(eleve),
                 None,
                 &[eleve],
