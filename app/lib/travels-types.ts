@@ -215,6 +215,14 @@ export type TravelsTripData = {
     originalFilename?: string | null;
     gmailMessageId?: string;
   };
+  /** Chauffeur communiqué par le transporteur (extrait de sa réponse e-mail). */
+  transportDriver?: {
+    name?: string | null;
+    phone?: string | null;
+    receivedAt: string;
+    fromEmail?: string;
+    providerName?: string | null;
+  };
   pendingAmendedQuote?: boolean;
   /** Direction : passage aux finances sans devis transport signé. */
   transportPhaseBypassedAt?: string;

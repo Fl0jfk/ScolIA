@@ -22,6 +22,7 @@ import {
 import { sendTravelEmailUnmatchedAlert } from "@/app/lib/travel-email-alert";
 import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { notifyOrganizerTransportDriver, type TravelsTripForNotify } from "@/app/lib/travels-notify";
 
 const INCOMING_PREFIX = "devis-incoming/";
 const UNMATCHED_EMAIL_KEY = "travels/email-devis-unmatched.json";
@@ -404,13 +405,30 @@ function applyTransportInfoToTripData(
   tripFresh: Record<string, unknown>,
   analysis: TravelEmailAnalysis,
   msg: TransportEmailMessage,
-) {
+): boolean {
+  let driverChanged = false;
   const data = (tripFresh.data && typeof tripFresh.data === "object" ? tripFresh.data : {}) as Record<
     string,
     unknown
   >;
   const existing = Array.isArray(data.transportEmailMessages) ? data.transportEmailMessages : [];
   data.transportEmailMessages = [msg, ...existing].slice(0, 50);
+
+  if (analysis.driverName || analysis.driverPhone) {
+    const prev = (data.transportDriver && typeof data.transportDriver === "object"
+      ? data.transportDriver
+      : {}) as { name?: string | null; phone?: string | null };
+    const name = analysis.driverName || prev.name || null;
+    const phone = analysis.driverPhone || prev.phone || null;
+    driverChanged = name !== (prev.name ?? null) || phone !== (prev.phone ?? null);
+    data.transportDriver = {
+      name,
+      phone,
+      receivedAt: msg.receivedAt,
+      fromEmail: msg.fromEmail,
+      providerName: analysis.company || null,
+    };
+  }
 
   if (analysis.messageType === "confirmation_commande") {
     data.transportProviderConfirmation = {
@@ -463,6 +481,7 @@ function applyTransportInfoToTripData(
     note: analysis.summary || msg.subject,
   });
   tripFresh.history = history.slice(0, 200);
+  return driverChanged;
 }
 
 async function maybeAlertUnmatched(
@@ -726,6 +745,7 @@ async function runIngestJob(p: {
     const transportMsgs = Array.isArray(data.transportEmailMessages) ? data.transportEmailMessages : [];
     const transportDuplicate = transportEmailAlreadyInTrip(transportMsgs, gmailMessageId, s3Key);
 
+    let driverChanged = false;
     const shouldStoreTransportMsg = !transportDuplicate && analysis.messageType !== "non_lie";
 
     if (shouldStoreTransportMsg) {
@@ -742,7 +762,7 @@ async function runIngestJob(p: {
         now,
       );
       messageId = msg.id;
-      applyTransportInfoToTripData(tripMutable, analysis, msg);
+      driverChanged = applyTransportInfoToTripData(tripMutable, analysis, msg);
     }
 
     if (hasPdfAttachment && s3Key && fileViewUrl && !isDevis && analysis.messageType !== "non_lie") {
@@ -767,6 +787,16 @@ async function runIngestJob(p: {
     if (devisId || messageId || attachmentAdded) {
       tripMutable.updatedAt = now;
       await upsertTravelInDb(etablissementId, tripMutable as TravelsTrip);
+      if (driverChanged) {
+        try {
+          await notifyOrganizerTransportDriver({
+            tripId,
+            trip: tripMutable as unknown as TravelsTripForNotify,
+          });
+        } catch (notifyErr) {
+          console.error("[travel-email-ingest] notification chauffeur", notifyErr);
+        }
+      }
       return finish({
         matched: true,
         tripId,

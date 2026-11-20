@@ -376,6 +376,22 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
           )}
         </Tile>
 
+        {(trip.data.transportDriver?.name || trip.data.transportDriver?.phone) && (
+          <Tile icon="🚌" label="Chauffeur">
+            <span>
+              {trip.data.transportDriver?.name || "—"}
+              {trip.data.transportDriver?.phone ? (
+                <>
+                  {" · "}
+                  <a className="font-mono text-indigo-600" href={`tel:${trip.data.transportDriver.phone.replace(/[ .-]/g, "")}`}>
+                    {trip.data.transportDriver.phone}
+                  </a>
+                </>
+              ) : null}
+            </span>
+          </Tile>
+        )}
+
         <Tile
           icon="💶"
           label="Budget"

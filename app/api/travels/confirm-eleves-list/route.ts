@@ -230,6 +230,8 @@ export async function POST(req: Request) {
                   "",
                   "Le fichier CSV contient : Nom, Prénom, Classe, Email parent, Tél. parent.",
                   "",
+                  "Pourriez-vous nous communiquer, en répondant directement à cet e-mail, le nom (ou prénom) et le numéro de téléphone du chauffeur qui assurera ce transport ? Ces informations seront transmises à l'enseignant responsable de la sortie.",
+                  "",
                   "Cordialement,",
                   "Plateforme Voyages",
                 ].join("\n"),

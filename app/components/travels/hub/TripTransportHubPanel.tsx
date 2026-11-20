@@ -182,6 +182,25 @@ export function TripTransportHubPanel({
               )}
             </TripAlert>
           )}
+          {(trip.data.transportDriver?.name || trip.data.transportDriver?.phone) && (
+            <TripAlert tone="success" title="Chauffeur communiqué par le transporteur" icon="🚌">
+              <p className="text-sm font-semibold">
+                {trip.data.transportDriver?.name || "Nom non précisé"}
+                {trip.data.transportDriver?.phone ? (
+                  <>
+                    {" · "}
+                    <a className="font-mono underline" href={`tel:${trip.data.transportDriver.phone.replace(/[ .-]/g, "")}`}>
+                      {trip.data.transportDriver.phone}
+                    </a>
+                  </>
+                ) : null}
+              </p>
+              <p className="text-[10px] text-emerald-800/80 mt-1">
+                {new Date(trip.data.transportDriver.receivedAt).toLocaleString("fr-FR")}
+                {trip.data.transportDriver.providerName ? ` · ${trip.data.transportDriver.providerName}` : ""}
+              </p>
+            </TripAlert>
+          )}
           {trip.data.transportProviderConfirmation && (
             <TripAlert tone="success" title="Confirmation transporteur reçue" icon="✅">
               <p className="text-xs leading-relaxed">{trip.data.transportProviderConfirmation.summary}</p>

@@ -18,6 +18,7 @@ export type TravelsTripForNotify = {
     nbAccompagnateurs?: string | number;
     coutTotal?: string | number;
     piqueNiqueDetails?: { active?: boolean } | null;
+    transportDriver?: { name?: string | null; phone?: string | null; providerName?: string | null } | null;
   };
   history?: Array<{ action?: string; note?: string; user?: string; date?: string }>;
 };
@@ -171,5 +172,60 @@ export async function notifyOrganizerListeElevesNeeded(params: {
     ].join("\n"),
   });
 
+  return { sent: true };
+}
+
+/**
+ * Le transporteur a communiqué le chauffeur (réponse e-mail analysée) :
+ * prévient le professeur organisateur.
+ */
+export async function notifyOrganizerTransportDriver(params: {
+  tripId: string;
+  trip: TravelsTripForNotify;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const to = String(params.trip.ownerEmail || "").trim();
+  if (!to) return { sent: false, reason: "Pas d’e-mail organisateur" };
+  const driver = params.trip.data?.transportDriver;
+  if (!driver || (!driver.name && !driver.phone)) return { sent: false, reason: "Pas de chauffeur" };
+
+  const smtp = await getTenantSmtpConfig();
+  const transporter = smtp ? await createTenantTransporter() : null;
+  if (!smtp || !transporter) return { sent: false, reason: "SMTP non configuré" };
+
+  const d = params.trip.data || {};
+  const title = String(d.title || "Sans titre");
+  const destination = String(d.destination || "—");
+  const dateInfo =
+    d.startDate || d.endDate
+      ? `du ${d.startDate || d.date || "—"} au ${d.endDate || d.date || "—"}`
+      : String(d.date || "—");
+  const link = await tenantAbsolutePath(`/travels/${params.tripId}`);
+  const bundle = await loadAppConfig();
+  const orgName = bundle.identity.shortName || bundle.identity.name || "l’établissement";
+  const company = driver.providerName ? ` (${driver.providerName})` : "";
+
+  await transporter.sendMail({
+    from: `"Plateforme Voyages" <${smtp.user}>`,
+    to,
+    subject: `[Travels] Chauffeur communiqué par le transporteur — ${title}`,
+    text: [
+      `Bonjour${params.trip.ownerName ? ` ${params.trip.ownerName}` : ""},`,
+      ``,
+      `La compagnie de transport${company} nous a communiqué les informations du chauffeur pour votre sortie.`,
+      ``,
+      `Sortie : ${title}`,
+      `Destination : ${destination}`,
+      `Dates : ${dateInfo}`,
+      driver.name ? `Chauffeur : ${driver.name}` : null,
+      driver.phone ? `Téléphone : ${driver.phone}` : null,
+      ``,
+      `Retrouvez ces informations dans l’onglet Transport du dossier : ${link}`,
+      ``,
+      `Cordialement,`,
+      `Plateforme Voyages — ${orgName}`,
+    ]
+      .filter((l): l is string => l !== null)
+      .join("\n"),
+  });
   return { sent: true };
 }
