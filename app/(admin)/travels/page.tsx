@@ -38,6 +38,8 @@ import {
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
+import TravelsCommuneRecap from "@/app/components/travels/TravelsCommuneRecap";
+import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import {
   TRAVEL_RAIL_KEY_ATTR,
   TravelsMonthRailHorizontal,
@@ -79,6 +81,12 @@ function TripDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [filterEtab, setFilterEtab] = useState("");
   const [onlyMine, setOnlyMine] = useState(false);
+  const recapPerms = useTravelsPermissions(null);
+  const canSeeCommuneRecap =
+    recapPerms.isDirection ||
+    recapPerms.isCompta ||
+    recapPerms.isAdministratif ||
+    recapPerms.isGlobalAdmin;
   const [searchQuery, setSearchQuery] = useState("");
   const [directionDashboard, setDirectionDashboard] = useState<TravelsDirectionDashboard | null>(null);
   const [reminderCount, setReminderCount] = useState(0);
@@ -464,6 +472,7 @@ function TripDashboardContent() {
           </div>
         </div>
       )}
+      {canSeeCommuneRecap && <TravelsCommuneRecap />}
       <TravelsRemindersModal
         open={showRemindersModal}
         reminders={reminders}

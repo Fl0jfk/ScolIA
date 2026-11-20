@@ -8,7 +8,7 @@ import {
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 /** Année scolaire APEL : 1er septembre → 15 juillet inclus. */
-function comptaApelSchoolYearBounds(now = new Date()) {
+export function comptaApelSchoolYearBounds(now = new Date()) {
   const y = now.getFullYear();
   const m = now.getMonth();
   const day = now.getDate();
@@ -143,7 +143,7 @@ function apelCommitmentFromSheet(sheet: TravelsComptaSheet | null | undefined): 
   };
 }
 
-function formatTravelDateLabel(trip: TravelsTrip): string {
+export function formatTravelDateLabel(trip: TravelsTrip): string {
   const raw = trip.data?.startDate || trip.data?.date;
   if (!raw) return "Date à préciser";
   const d = new Date(raw);
@@ -174,7 +174,7 @@ function tripTravelStartDate(trip: TravelsTrip): Date | null {
   return parseTripLocalDate(trip.data?.startDate || trip.data?.date || null);
 }
 
-function tripInApelSchoolYear(trip: TravelsTrip, start: Date, end: Date): boolean {
+export function tripInApelSchoolYear(trip: TravelsTrip, start: Date, end: Date): boolean {
   const travel = tripTravelStartDate(trip);
   if (!travel) return false;
   travel.setHours(0, 0, 0, 0);
