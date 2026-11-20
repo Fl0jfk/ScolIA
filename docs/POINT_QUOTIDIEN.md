@@ -6,6 +6,38 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-20 (vendredi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT (validé par la CI)**, ENT = **d23a6f66** (CI 463 verte après une relance) :
+- Socle 41 **I3 suites** (f7b9421c) : statut **« tiers autorisé à récupérer »** (posé par le personnel à la demande écrite d'un titulaire, un an au plus, soumis à toutes les interdictions) ; **infirmerie** branchée sur la fonction unique de remise ; perte de droit datée par des **faits immuables** ; correspondant désigné par le CPE plus suspendu à tort ; recherches de classe par code **avec l'année** (cause du rouge d'hier). Revue : 2 élevés corrigés (parent privé d'autorité posé tiers ; agent du personnel aussi parent) ; correctif du pilote : liens parentaux reconnus dans le texte libre (« Maman », « Père », « tutrice »).
+- Socle 21 **V3c + V4** (d23a6f66) : correctifs de la revue de V3b (plus de « 0 / 20 » pour un absent, auteur obligatoire, seuil d'effectif des statistiques du bulletin, agenda) ; **V4** : absents proposés depuis l'appel (confirmés par le professeur), dispenses, **rattrapages** (convocation, résultat, échéance), évaluation de remplacement et « seul 0 autorisé », aménagements visibles de l'AESH sans donnée de santé. Revue : aucun critique ni élevé.
+
+**Prêt mais pas encore sur ENT** : rien.
+
+**En cours** : aucune session ne code (en attente de ton choix, quota hebdomadaire en avertissement jusqu'à dimanche).
+
+**Conçu mais pas codé** : 21 **V3d** (suites de la revue de V4 : zéro qui écrase une note saisie entre-temps, suppléant en V4, bulletin qui ignore « statistiques visibles des familles », tests faibles, test web non déterministe) ; 21 V5 à V13 ; 41 I4 (vie quotidienne, migrations 2828-2829) et suivants.
+
+**Tableau d'avancement** : nouveau tableau des **51 socles** dans `docs/pilotage/TABLEAU_MATURITE.md` (3 bien avancés, 4 à moitié, 11 au tiers, 5 faibles, 28 pas commencés ; environ 15 à 20 % de l'ENT complet). Plus gros manques : applications mobiles (11), bulletins (23).
+
+**Décisions attendues de Florian** :
+- **Prochain lot** : V3d (avis du pilote, aujourd'hui), cahier de textes (20), ou conception des applications mobiles (11) — le reste à partir de dimanche.
+- « **Tiers autorisé à récupérer** » : règle posée par le pilote (personnel, demande écrite d'un titulaire, un an au plus, parent privé d'autorité exclu, seul le demandeur révoque côté famille) : à confirmer.
+- **R-01** (évaluations) : référence du mémento eduscol de décembre 2025 à valider.
+- **Moyenne générale de l'ancienne interface** (`ui.rs`) calculée sans coefficients, donc fausse : la retirer en attendant le moteur ?
+- Année « **préparation** » créée d'office par le référentiel quand on saisit une date ancienne : à trancher plus tard.
+- Fermer la PR 102 (documentation seule, remplacée).
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) : rien de nécessaire bientôt.
+
+**Ce qui a coincé** :
+- Le pilote du 19-11 s'était mis **en attente de ton accord** (quota) : plus rien n'était lancé ; reprise ce matin par l'ancien pilote.
+- Le message de fin de la session V3c + V4 **n'est jamais arrivé** : rattrapé à la ronde (la ronde vérifie toujours les sessions).
+- **CI 463 d'ENT rouge** sur un test web des notes non déterministe (vert sur la PR, même arbre) : relance verte, cause à corriger dans V3d.
+- Base locale du pilote mal nommée (le harnais exige « test ») : sans effet sur le code.
+
+---
+
 ## 2026-11-19 (jeudi soir, 18 h 45 Paris) — point du jour
 
 **Changement de pilote** à 10 h UTC : nouvelle session de pilotage au contexte léger, pour économiser le quota (passation `docs/pilotage/PASSATION_PILOTE.md`). La règle 36 est appliquée : pas d'abonnement aux PR de lot, revues sur Sonnet.
