@@ -57,6 +57,15 @@ Faits relevés (Haiku, lecture seule, puis contrôle) : `ent_classe` est unique 
 - Le tiers n'a **pas de notification** (M4 d'I2, destinataires du socle 8) ; aucun écran (règle 27).
 - Un tiers désigné **correspondant** reste soumis à la règle existante (contact validé du socle 4) ; le statut de tiers ne suffit pas.
 
-## 6. Qualité
+## 6. Tests
 
-Voir « Tests » et « Tête et CI » ci-dessous (complétés à la fin).
+- `tests_internat_i3` : **78 verts** sur base neuve (63 + 11 de la passe 4 déjà là + nouveaux : `s_m1_*`, `s_m2_*`, `s_m3_*` ×3, `s_infirmerie_*`, `s_requalification_*`, `s_p4_r1_*`, `p4_r8` réécrit) ; `ent-api` `tests_internat` : **5 verts** (403 et 404 des 6 routes du tiers, 43 routes dans « aucune route sans session »).
+- Suite large `ent-db` (`internat rls registre migrat fusion conservation rgpd accords d036 roles isolation jour_utc sante`, base neuve `ent_i3w`, un fil) : **381 tests, 3 rouges au premier passage, tous corrigés puis rejoués verts** : (1) ordre alphabétique du registre des données et de `TABLES_ELEVE` ; (2) `m9_seuls_les_participants_confirmes…` (I2) posait les états `remis` / `parti_seul_autorise` : désormais dans une transaction en rôle de réplication, ce seul passage ; (3) `tests_sante::passages_famille_informee…` : **vrai défaut de ma part**, le prénom d'une personne est facultatif (`Option`), corrigé comme `Personne::libelle`.
+- Clippy 1.99 `-D warnings`, **les trois commandes de la CI propres** (deux passages, le second après les derniers correctifs) ; `cargo fmt -p ent-types --check` propre ; `tiers.rs` (nouveau fichier) formaté par `rustfmt` ; `cargo fmt --all` non lancé ; `web/Cargo.lock` : `metadata --locked` vert.
+- **0 nouvel avertissement** (rustc et clippy, tests et labo compris). Aucun `#[ignore]`, aucun test à l'heure réelle.
+- Non rejoué en local : suite complète d'`ent-db`, frontend (sauté, règle 27).
+- Incident local : `ent-api` ne se compile pas en parallèle sur 16 Go (rustc tué par l'OOM) ni avec le dossier `incremental` (disque) : compilé en `-j1`, sans débogage ni incrémental.
+
+## 7. Tête et CI
+
+Voir le message au pilote (tête finale et état de la CI de la PR en brouillon).
