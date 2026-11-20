@@ -42,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 mod actes;
+mod tiers;
 use actes::{
     actes_qui_tombent_tx, appliquer_absence_tx, appliquer_sortie_tx, comptes_vises_tx, deciders_annuel_tx,
     fin_savepoint_revue, ouvrir_savepoint_revue, suspendre_correspondants_auteur_tx, Objet, RevueBilan,
@@ -154,6 +155,20 @@ struct Famille {
     peut_autoriser: bool,
 }
 
+/// Nature d'une erreur pour les JOURNAUX (`tracing`) : jamais le texte d'une erreur sqlx, qui peut citer des valeurs de
+/// lignes (noms, identifiants, contenu d'une contrainte violée). Pour la base : la catégorie et le code SQLSTATE seulement.
+pub(crate) fn nature_erreur(e: &EntDbError) -> String {
+    match e {
+        EntDbError::Sqlx(sqlx::Error::Database(d)) => format!("base de données (SQLSTATE {})", d.code().as_deref().unwrap_or("?")),
+        EntDbError::Sqlx(sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed) => "base de données (pool indisponible)".into(),
+        EntDbError::Sqlx(sqlx::Error::Io(_)) => "base de données (connexion)".into(),
+        EntDbError::Sqlx(_) => "base de données".into(),
+        EntDbError::Domain(DomainError::NotFound) => "introuvable".into(),
+        EntDbError::Forbidden => "refusé".into(),
+        _ => "erreur de service".into(),
+    }
+}
+
 /// Texte court facultatif (300 caractères), sans donnée de santé (R-IT6).
 fn texte_court(t: Option<&str>) -> Result<Option<String>, EntDbError> {
     let Some(t) = t.map(str::trim).filter(|t| !t.is_empty()) else {
@@ -174,6 +189,7 @@ enum Cible {
     Absence(Uuid),
     Sortie(Uuid),
     Correspondant(Uuid),
+    Tiers(Uuid),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -190,16 +206,17 @@ async fn fait_tx(
     personne: Option<Uuid>,
     jusqu_a: Option<DateTime<Utc>>,
 ) -> Result<(), EntDbError> {
-    let (absence, sortie, correspondant) = match cible {
-        Cible::Absence(i) => (Some(i), None, None),
-        Cible::Sortie(i) => (None, Some(i), None),
-        Cible::Correspondant(i) => (None, None, Some(i)),
+    let (absence, sortie, correspondant, tiers) = match cible {
+        Cible::Absence(i) => (Some(i), None, None, None),
+        Cible::Sortie(i) => (None, Some(i), None, None),
+        Cible::Correspondant(i) => (None, None, Some(i), None),
+        Cible::Tiers(i) => (None, None, None, Some(i)),
     };
     sqlx::query(
         "INSERT INTO ent_internat_i3_fait \
          (id, etablissement_id, absence_id, sortie_id, correspondant_id, acte, qualite, par_user_id, a, \
-          motif_code, motif_texte, personne_id, jusqu_a) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+          motif_code, motif_texte, personne_id, jusqu_a, tiers_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -214,6 +231,7 @@ async fn fait_tx(
     .bind(motif_texte)
     .bind(personne)
     .bind(jusqu_a)
+    .bind(tiers)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -299,6 +317,7 @@ async fn opposition_tx(conn: &mut PgConnection, etab: Uuid, cible: Cible) -> Res
         Cible::Absence(i) => ("absence_id", i),
         Cible::Sortie(i) => ("sortie_id", i),
         Cible::Correspondant(i) => ("correspondant_id", i),
+        Cible::Tiers(i) => ("tiers_id", i),
     };
     sqlx::query_scalar(&format!(
         "SELECT EXISTS (SELECT 1 FROM ent_internat_i3_fait WHERE etablissement_id = $1 AND {colonne} = $2 \
@@ -465,6 +484,7 @@ async fn decision_apres_tx(conn: &mut PgConnection, etab: Uuid, cible: Cible, de
         Cible::Sortie(i) => ("sortie_id", i, "acte = 'tranchee_levee'"),
         // Un correspondant suspendu ne reprend que par le CPE.
         Cible::Correspondant(i) => ("correspondant_id", i, "acte = 'reprise' AND qualite = 'cpe'"),
+        Cible::Tiers(i) => ("tiers_id", i, "acte = 'tiers_levee'"),
     };
     sqlx::query_scalar(&format!(
         "SELECT EXISTS (SELECT 1 FROM ent_internat_i3_fait WHERE etablissement_id = $1 AND {colonne} = $2 \
@@ -576,6 +596,20 @@ async fn remise_sql_tx(
         .fetch_one(&mut *conn)
         .await
         .map_err(db)
+}
+
+/// **Point d'entrée unique pour les autres socles** (infirmerie, …) : la personne peut-elle prendre l'élève ce jour-là ?
+/// Même fonction SQL de remise que l'internat (`ent_internat_remise` : titulaire, personne autorisée, tiers autorisé ;
+/// interdiction toujours prioritaire sur toute la chaîne de fusions ; interdiction sans personne identifiée = refus ;
+/// acte qui tombe avec son auteur). Aucun autre module ne doit réécrire cette règle.
+pub(crate) async fn personne_peut_prendre_l_eleve_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    personne: Uuid,
+    jour: NaiveDate,
+) -> Result<bool, EntDbError> {
+    Ok(matches!(remise_possible_tx(conn, etab, eleve, personne, jour).await?, Remise::Autorisee(_)))
 }
 
 fn remise_de(code: &str, relation: Option<String>) -> Remise {
@@ -3023,6 +3057,7 @@ async fn cause_blocage_tx(conn: &mut PgConnection, etab: Uuid, cible: Cible) -> 
         Cible::Absence(i) => ("absence_id", i),
         Cible::Sortie(i) => ("sortie_id", i),
         Cible::Correspondant(i) => ("correspondant_id", i),
+        Cible::Tiers(i) => ("tiers_id", i),
     };
     sqlx::query_scalar(&format!(
         "SELECT motif_code FROM ent_internat_i3_fait WHERE etablissement_id = $1 AND {colonne} = $2 AND acte = 'blocage' \
@@ -3919,13 +3954,15 @@ impl PgEnt {
             let masque = caches.contains(&c.eleve_id);
             let (mut autorisees, mut interdites_ids_noms, mut non_nominative) = (Vec::new(), Vec::new(), false);
             if !masque {
-                // Personnes qui pourraient prendre l'élève : titulaires et personnes autorisées à récupérer.
+                // Personnes qui pourraient prendre l'élève : titulaires, personnes autorisées à récupérer, tiers autorisés.
                 let candidats: Vec<(Uuid, String, String)> = sqlx::query_as(
                     "SELECT p.id, p.nom, p.prenom FROM ent_personne p WHERE p.etablissement_id = $1 AND p.id IN ( \
                         SELECT l.personne_id FROM ent_eleve_lien l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
                            AND l.personne_id IS NOT NULL AND l.suspendu_le IS NULL \
                         UNION SELECT c.personne_id FROM ent_eleve_contact_urgence c \
-                         WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND c.peut_recuperer AND c.statut = 'valide') \
+                         WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND c.peut_recuperer AND c.statut = 'valide' \
+                        UNION SELECT t.personne_id FROM ent_internat_tiers_autorise t \
+                         WHERE t.etablissement_id = $1 AND t.eleve_id = $2 AND t.statut = 'actif') \
                       ORDER BY p.nom, p.prenom, p.id",
                 )
                 .bind(etab)
@@ -4500,7 +4537,7 @@ impl PgEnt {
                     suivre_echecs_veille(etab, bilan.echecs > 0);
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "veille des sorties d'internat non faite pour un établissement");
+                    tracing::warn!(nature = %nature_erreur(&e), "veille des sorties d'internat non faite pour un établissement");
                     suivre_echecs_veille(etab, true);
                 }
             }
@@ -4814,6 +4851,44 @@ impl PgEnt {
         if !peut_recuperer || statut != "valide" {
             return Err(conflit("seul un contact validé autorisé à récupérer l'élève se requalifie"));
         }
+        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        // Limitée aux élèves INTERNES (séjour d'internat couvrant le jour) : ce pouvoir est celui de l'internat, pas du dossier.
+        let interne: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_internat_sejour WHERE etablissement_id = $1 AND eleve_id = $2 \
+               AND du <= $3 AND (au IS NULL OR au >= $3))",
+        )
+        .bind(etab)
+        .bind(eleve)
+        .bind(jour)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if !interne {
+            return Err(refus("la requalification d'un contact est limitée aux élèves internes"));
+        }
+        // Conflit d'intérêt : l'agent ne requalifie pas un contact dont il est la personne ou le déclarant (chaîne de fusions
+        // comprise), ni pour un élève dont il est lui-même proche (lien avec l'élève).
+        let conflit_interet: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_eleve_contact_urgence c \
+                WHERE c.etablissement_id = $1 AND c.id = $2 AND ( \
+                      EXISTS (SELECT 1 FROM ent_personne me WHERE me.etablissement_id = $1 AND me.user_id = $3 \
+                                AND (me.id IN (SELECT ent_internat_personne_chaine($1, c.personne_id)) \
+                                  OR me.id IN (SELECT ent_internat_personne_chaine($1, c.declare_par_personne_id)))) \
+                   OR EXISTS (SELECT 1 FROM ent_eleve_lien l WHERE l.etablissement_id = $1 AND l.eleve_id = c.eleve_id \
+                                AND (l.user_id = $3 OR l.personne_id IN (SELECT id FROM ent_personne \
+                                                                          WHERE etablissement_id = $1 AND user_id = $3)))))",
+        )
+        .bind(etab)
+        .bind(contact_id)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if conflit_interet {
+            return Err(refus(
+                "conflit d'intérêt : vous ne pouvez pas requalifier un contact dont vous êtes la personne ou le déclarant, ni pour un élève dont vous êtes un proche ; un autre agent doit le faire",
+            ));
+        }
         // Fait de requalification du journal I3 (ajout seul, daté, signé, motif écrit) : aucune colonne n'est ajoutée à la
         // table du dossier (copie de fusion intacte) ; la porte « contact » le lit (`ent_internat_contact_suspect`).
         sqlx::query(
@@ -4842,7 +4917,6 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         self.reviser_sorties_tx(&mut tx, etab, Some(eleve), jour, maintenant).await?;
         tx.commit().await.map_err(db)?;
         Ok(())

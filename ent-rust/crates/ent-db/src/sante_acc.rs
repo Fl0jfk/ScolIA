@@ -1196,7 +1196,7 @@ impl PgEnt {
                 "la personne qui récupère l'élève est obligatoire",
             ))?;
             recupere_nom = Some(
-                self.personne_habilitee_a_recuperer(etab, courant.eleve_id, pid)
+                self.personne_habilitee_a_recuperer(etab, courant.eleve_id, pid, courant.jour)
                     .await?
                     .ok_or(EntDbError::SaisieInvalide(
                         "personne non habilitée à récupérer l'élève",
@@ -1274,25 +1274,31 @@ impl PgEnt {
         self.lire_passage(etab, passage_id).await
     }
 
-    /// Nom de la personne si elle peut récupérer l'élève : responsable au lien actif
-    /// ou contact d'urgence validé « peut récupérer ».
-    async fn personne_habilitee_a_recuperer(
+    /// Nom de la personne si elle peut récupérer l'élève. **La règle n'est pas réécrite ici** : elle passe par la fonction de
+    /// remise unique de l'internat (`ent_internat_remise`) : titulaire en exercice, personne autorisée à récupérer, tiers
+    /// autorisé ; une interdiction (chaîne de fusions comprise) bloque toujours ; un acte posé par une personne devenue
+    /// visée ou privée de son droit ne vaut plus. Le jour est celui du passage.
+    pub(crate) async fn personne_habilitee_a_recuperer(
         &self,
         etab: Uuid,
         eleve_id: Uuid,
         personne_id: Uuid,
+        jour: NaiveDate,
     ) -> Result<Option<String>, EntDbError> {
-        for r in self.responsables_bruts(etab, eleve_id).await? {
-            if r.actif && r.personne.id == personne_id {
-                return Ok(Some(r.personne.libelle()));
-            }
-        }
-        for c in self.contacts_bruts(etab, eleve_id).await? {
-            if c.peut_recuperer && c.statut == "valide" && c.personne.id == personne_id {
-                return Ok(Some(c.personne.libelle()));
-            }
-        }
-        Ok(None)
+        let mut tx = tenant(self.pool(), etab).await?;
+        let ok = crate::internat_sorties::personne_peut_prendre_l_eleve_tx(&mut tx, etab, eleve_id, personne_id, jour).await?;
+        let nom: Option<(String, String)> = if ok {
+            sqlx::query_as("SELECT prenom, nom FROM ent_personne WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(personne_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?
+        } else {
+            None
+        };
+        tx.commit().await.map_err(db)?;
+        Ok(nom.map(|(p, n)| format!("{p} {n}")))
     }
 
     async fn lire_passage(&self, etab: Uuid, id: Uuid) -> Result<PassageSante, EntDbError> {

@@ -3527,6 +3527,30 @@ async fn p4_perdre_le_droit(b: &Banc, eleve: Uuid, user: Uuid, cas: usize) {
     };
     assert!(avec_date);
     sqlx::query(sql).bind(b.etab).bind(eleve).bind(user).bind(t).bind(b.dir).execute(b.ent.pool_verif()).await.unwrap();
+    // Suites (M2) : la perte est datée par un FAIT immuable posé à l'instant de l'écriture ; le test fixe cet instant.
+    dater_perte_droit(b, eleve, t).await;
+}
+
+/// Fixe la date des faits de perte de droit d'un élève (suites, M2). Les faits sont en ajout seul : le test lève le
+/// déclencheur le temps d'une transaction (jamais en production), comme `dater_interdictions` règle `created_at`.
+async fn dater_perte_droit(b: &Banc, eleve: Uuid, instant: DateTime<Utc>) {
+    let mut tx = b.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("ALTER TABLE ent_internat_perte_droit_fait DISABLE TRIGGER ent_internat_perte_droit_fait_ajout_seul")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_internat_perte_droit_fait SET a = $3, effet_le = $3 WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(instant)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE ent_internat_perte_droit_fait ENABLE TRIGGER ent_internat_perte_droit_fait_ajout_seul")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn p4_personne_absence(b: &Banc, id: Uuid) -> (String, Option<Uuid>) {
@@ -3741,6 +3765,7 @@ async fn p4_r5_un_contact_declare_par_un_vise_n_est_remis_qu_apres_requalificati
                 .execute(b.ent.pool_verif())
                 .await
                 .unwrap();
+            dater_perte_droit(&b, eleve, paris(mardi, 12, 0)).await;
         }
         for (p, attendu) in [(odile, "non_autorisee"), (pierre, "non_autorisee"), (marc, "autorisee"), (alice, "autorisee")] {
             assert_eq!(code_remise(&b, eleve, p, mercredi).await.0, attendu, "après : contact déclaré par un visé, chaîne comprise");
@@ -3918,30 +3943,528 @@ async fn p4_r7_depart_et_revue_concurrents_ne_s_interbloquent_pas() {
     }
 }
 
-/// R8 — la remise d'un élève passe par la même porte. Le module des sorties scolaires et voyages (socle 42) ne remet aucun
-/// élève : les états `remis` et `parti_seul_autorise` de `ent_sortie_participant` n'existent que dans la contrainte de la
-/// table, AUCUN code ne les écrit. Cette garde échoue le jour où un lot les écrira sans passer par `ent_internat_remise`
-/// (ou la même fonction de contrôle) : il faudra alors la corriger avec son test de remise.
-#[test]
-fn p4_r8_aucun_module_ne_remet_un_eleve_par_un_etat_de_participant() {
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut ecrivains = Vec::new();
-    for e in std::fs::read_dir(&src).unwrap() {
-        let chemin = e.unwrap().path();
-        let nom = chemin.file_name().unwrap().to_string_lossy().to_string();
-        if !nom.ends_with(".rs") || nom.starts_with("tests") {
-            continue;
-        }
-        // La seule mention connue est un FILTRE DE LECTURE (export de la liste des participants présents) : écartée.
-        let texte = std::fs::read_to_string(&chemin).unwrap().replace("&[\"inscrit\", \"pret\", \"parti\", \"rentre\", \"remis\"]", "");
-        let ecrit = texte.contains("UPDATE ent_sortie_participant") || texte.contains("INSERT INTO ent_sortie_participant ");
-        if ecrit {
-            assert!(
-                !texte.contains("parti_seul_autorise") && !texte.contains("\"remis\"") && !texte.contains("'remis'"),
-                "{nom} écrit ent_sortie_participant et cite un état de remise : le faire passer par ent_internat_remise (R8)"
-            );
-            ecrivains.push(nom);
-        }
+/// R8 / M4 (suites) — la remise d'un élève passe par la même porte. Les états `remis` et `parti_seul_autorise` de
+/// `ent_sortie_participant` n'existent que dans la contrainte de la table : AUCUN code ne les écrit. La garde est
+/// désormais **en base** (déclencheur `ent_internat_remise_participant_garde`, migration 2827) : plus d'analyse de sources
+/// ni de littéraux. Le test vérifie (1) que le déclencheur est posé et actif sur la vraie table, (2) son comportement sur une
+/// table temporaire (insertion et passage vers un état de remise refusés ; autres états acceptés), même fonction.
+#[tokio::test]
+async fn p4_r8_la_base_refuse_d_ecrire_un_etat_de_remise_d_un_participant() {
+    let Some(b) = banc().await else { return };
+    let pose: Option<(String,)> = sqlx::query_as(
+        "SELECT tgenabled::text FROM pg_trigger WHERE tgrelid = 'ent_sortie_participant'::regclass \
+            AND tgname = 'ent_internat_remise_participant_garde' AND NOT tgisinternal",
+    )
+    .fetch_optional(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(pose.map(|p| p.0).as_deref(), Some("O"), "le déclencheur de garde est posé et actif");
+    let mut tx = b.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("CREATE TEMP TABLE essai_participant (etat TEXT NOT NULL) ON COMMIT DROP").execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "CREATE TRIGGER essai BEFORE INSERT OR UPDATE OF etat ON essai_participant FOR EACH ROW \
+         EXECUTE FUNCTION ent_internat_remise_participant_garde()",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO essai_participant VALUES ('inscrit'), ('pret'), ('rentre'), ('desiste')").execute(&mut *tx).await.unwrap();
+    for etat in ["remis", "parti_seul_autorise"] {
+        sqlx::query("SAVEPOINT s").execute(&mut *tx).await.unwrap();
+        let r = sqlx::query("INSERT INTO essai_participant VALUES ($1)").bind(etat).execute(&mut *tx).await;
+        assert!(r.is_err(), "insertion de {etat} refusée");
+        sqlx::query("ROLLBACK TO SAVEPOINT s").execute(&mut *tx).await.unwrap();
+        let r = sqlx::query("UPDATE essai_participant SET etat = $1 WHERE etat = 'pret'").bind(etat).execute(&mut *tx).await;
+        assert!(r.is_err(), "passage vers {etat} refusé");
+        sqlx::query("ROLLBACK TO SAVEPOINT s").execute(&mut *tx).await.unwrap();
     }
-    assert!(!ecrivains.is_empty(), "la garde doit voir au moins un écrivain de ent_sortie_participant");
+    sqlx::query("UPDATE essai_participant SET etat = 'rentre' WHERE etat = 'pret'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
+// ───────────────────────── Suites du lot I3 : M1, M2, M3, requalification, infirmerie ─────────────────────────
+//
+// | Point | Test(s) |
+// |---|---|
+// | M1 auteur du personnel (correspondant désigné par le CPE, décideur) n'est pas un « auteur sans lien » | `s_m1_*` |
+// | M2 perte de droit datée par un fait immuable (payeur, fusion, réactivation : aucun effet) | `s_m2_*` |
+// | M3 tiers autorisé à récupérer | `s_m3_*` |
+// | M4 garde SQL de la remise d'un participant | `p4_r8_*` |
+// | Infirmerie : même fonction de remise | `s_infirmerie_*` |
+// | Requalification : internes seulement, conflit d'intérêt | `s_requalification_*` |
+
+fn pose_tiers(eleve: Uuid, personne: Uuid, demandeur: Uuid) -> TiersPoseDto {
+    TiersPoseDto {
+        eleve_id: eleve,
+        personne_id: personne,
+        demande_par_personne_id: demandeur,
+        demande_ecrite_le: avril(10),
+        du: avril(13),
+        au: avril(30),
+        motif_texte: "Demande écrite de la mère : la grand-mère habite à côté".into(),
+    }
+}
+
+/// M1 — le CPE désigne un correspondant : son acte ne tombe pas « faute de lien avec l'élève » (un agent n'a pas de lien à
+/// perdre). Le même compte, sans rôle de personnel et sans lien (un parent sans lien), est bien « visé » (témoin).
+#[tokio::test]
+async fn s_m1_un_auteur_du_personnel_n_est_pas_un_auteur_sans_lien() {
+    let Some(b) = banc().await else { return };
+    let (mardi, eleve) = (avril(14), b.a[0]);
+    let (p, _) = parent(&b, eleve, true).await;
+    let corr = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, corr).await;
+    let saisie = CorrespondantSaisieDto { eleve_id: eleve, personne_id: corr, lundi: true, mardi: true, mercredi: true, jeudi: true, vendredi: true, samedi: true, dimanche: true, du: None, au: None };
+    let c = b.ent.designer_correspondant_a(b.etab, b.cpe, CPE, &saisie, paris(mardi, 9, 0)).await.unwrap();
+    for minute in [1, 2] {
+        b.ent.veille_sorties_a(b.etab, paris(mardi, 9, minute)).await.unwrap();
+    }
+    let vus = b.ent.correspondants_eleve_a(b.etab, b.cpe, CPE, eleve, paris(mardi, 10, 0)).await.unwrap();
+    assert_eq!(vus.iter().find(|v| v.id == c.id).map(|v| v.statut.as_str()), Some("valide"), "désigné par le CPE : pas suspendu à la revue");
+    assert!(!faits_actes(&b, "correspondant_id", c.id).await.iter().any(|(a, _)| a == "suspension"));
+    let vise = |user: Uuid| {
+        let b = &b;
+        async move {
+            sqlx::query_scalar::<_, Option<DateTime<Utc>>>("SELECT ent_internat_user_vise($1, $2, $3, $4)")
+                .bind(b.etab)
+                .bind(eleve)
+                .bind(user)
+                .bind(mardi)
+                .fetch_one(b.ent.pool_verif())
+                .await
+                .unwrap()
+        }
+    };
+    assert!(vise(b.cpe).await.is_none(), "CPE : jamais « sans lien »");
+    assert!(vise(b.dir).await.is_none(), "direction : idem");
+    assert!(vise(p).await.is_none(), "témoin : le parent qui a un lien actif n'est pas visé");
+    let sans_lien = compte(&b.ent, b.etab, PARENT).await;
+    assert!(vise(sans_lien).await.is_some(), "témoin : un parent sans aucun lien est « sans lien » (visé)");
+    // Une interdiction qui viserait l'agent reste prioritaire (sa fiche est visée).
+    let fiche_cpe = personne_de(&b.ent, b.etab, b.cpe).await;
+    interdire_objet(&b, eleve, fiche_cpe, "visite", None).await;
+    assert!(vise(b.cpe).await.is_some(), "une interdiction nominative vise toujours");
+}
+
+/// M2 — la perte d'un droit est datée par un fait immuable, plus par `updated_at`. Le parent perd l'autorité (14 avril 9 h) ;
+/// la direction lève la chute avec un motif (11 h) ; ensuite une écriture du payeur, une écriture « de fusion » et une
+/// réactivation du lien ne repoussent pas la date et n'annulent pas la levée : aucun nouveau fait, absence toujours valable.
+#[tokio::test]
+async fn s_m2_ecriture_du_payeur_fusion_reactivation_ne_datent_pas_la_perte() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, mercredi) = (avril(13), avril(14), avril(15));
+    let eleve = b.a[0];
+    let (pa, _) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, grand).await;
+    let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(lundi, 10, 0)).await.unwrap();
+    p4_perdre_le_droit(&b, eleve, pa, 1).await; // autorité retirée, datée du 14 avril 9 h
+    let faits_lien = || async {
+        sqlx::query_as::<_, (String, DateTime<Utc>)>(
+            "SELECT nature, effet_le FROM ent_internat_perte_droit_fait WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY nature",
+        )
+        .bind(b.etab)
+        .bind(eleve)
+        .fetch_all(b.ent.pool_verif())
+        .await
+        .unwrap()
+    };
+    assert_eq!(faits_lien().await, vec![("autorite_retiree".to_string(), paris(mardi, 9, 0))]);
+    // La direction lève la chute, motivée, APRÈS la perte (11 h).
+    sqlx::query(
+        "INSERT INTO ent_internat_i3_fait (id, etablissement_id, absence_id, acte, qualite, par_user_id, a, motif_code, motif_texte) \
+         VALUES ($1,$2,$3,'tranchee_levee','direction',$4,$5,'interdiction_auteur','La direction a examiné la perte de droit')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(b.etab)
+    .bind(a.id)
+    .bind(b.dir)
+    .bind(paris(mardi, 11, 0))
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 0)).await.unwrap();
+    assert_eq!(p4_personne_absence(&b, a.id).await.0, "annoncee", "couverte par la levée de la direction");
+    // Écritures qui ne sont PAS une perte : payeur, libellé / rattachement, réactivation (autorité rétablie).
+    sqlx::query("UPDATE ent_eleve_lien SET peut_voir_notes = NOT peut_voir_notes, updated_at = now() WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(pa)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_eleve_lien SET lien = 'pere', personne_id = personne_id, updated_at = now() WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(pa)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(faits_lien().await.len(), 1, "aucune de ces écritures ne pose de fait");
+    b.ent.veille_sorties_a(b.etab, paris(mercredi, 8, 0)).await.unwrap();
+    assert_eq!(p4_personne_absence(&b, a.id).await.0, "annoncee", "la levée n'est pas annulée par une écriture du payeur");
+    sqlx::query("UPDATE ent_eleve_lien SET autorite_parentale = true, updated_at = now() WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(pa)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(faits_lien().await.len(), 1, "la réactivation ne pose pas de fait");
+    b.ent.veille_sorties_a(b.etab, paris(mercredi, 8, 5)).await.unwrap();
+    assert_eq!(p4_personne_absence(&b, a.id).await.0, "annoncee");
+    // La perte est lue du fait (14 avril 9 h), pas de `updated_at` : le lien est actif de nouveau, plus de perte.
+    let perte: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT ent_internat_user_vise($1, $2, $3, $4)")
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(pa)
+        .bind(mercredi)
+        .fetch_one(b.ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(perte.is_none());
+    // Le fait est en ajout seul.
+    let r = sqlx::query("UPDATE ent_internat_perte_droit_fait SET effet_le = now() WHERE etablissement_id = $1")
+        .bind(b.etab)
+        .execute(b.ent.pool_verif())
+        .await;
+    assert!(r.is_err(), "ajout seul");
+    // Les quatre natures posent un fait, une seule fois, à la TRANSITION (suspension, garde, fin).
+    let e2 = b.a[1];
+    let (p2, _) = parent(&b, e2, true).await;
+    let lien = |sql: &'static str| {
+        let b = &b;
+        async move {
+            sqlx::query(sql).bind(b.etab).bind(e2).bind(p2).bind(b.dir).execute(b.ent.pool_verif()).await.unwrap();
+        }
+    };
+    lien("UPDATE ent_eleve_lien SET garde = 'aucune' WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3").await;
+    lien("UPDATE ent_eleve_lien SET garde = 'aucune', peut_voir_vs = false WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3").await;
+    lien("UPDATE ent_eleve_lien SET suspendu_le = now(), suspendu_par = $4, suspension_motif = 'Décision' WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3").await;
+    lien("UPDATE ent_eleve_lien SET date_fin = '2026-04-10' WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3").await;
+    let natures: Vec<(String,)> = sqlx::query_as("SELECT nature FROM ent_internat_perte_droit_fait WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY nature")
+        .bind(b.etab)
+        .bind(e2)
+        .fetch_all(b.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(natures.into_iter().map(|n| n.0).collect::<Vec<_>>(), ["fin", "garde_aucune", "suspendu"]);
+}
+
+async fn code_pour(b: &Banc, eleve: Uuid, personne: Uuid) -> (String, Option<String>) {
+    code_remise(b, eleve, personne, avril(14)).await
+}
+
+/// M3 — tiers autorisé à récupérer : posé par le personnel à la demande écrite d'un titulaire, daté, motivé ; remis par la
+/// fonction unique ; la famille le voit sans le motif ; une interdiction (chaîne de fusions) bloque ; l'acte tombe avec son
+/// auteur (le demandeur visé) jusqu'à la reprise par un autre titulaire.
+#[tokio::test]
+async fn s_m3_tiers_autorise_pose_remise_visibilite_interdiction_et_auteur_qui_tombe() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let maintenant = paris(avril(14), 10, 0);
+    let (pa, pers_a) = parent(&b, eleve, true).await;
+    let (pb, pers_b) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee", "refus par défaut : un proche sans statut n'est pas remis");
+    // Droits : ni la famille, ni le professeur ne posent le statut ; motif et dates obligatoires.
+    assert!(est_interdit(&b.ent.poser_tiers_a(b.etab, pa, PARENT, &pose_tiers(eleve, grand, pers_a), maintenant).await));
+    assert!(est_interdit(&b.ent.poser_tiers_a(b.etab, b.prof, "prof", &pose_tiers(eleve, grand, pers_a), maintenant).await));
+    let mut sans_motif = pose_tiers(eleve, grand, pers_a);
+    sans_motif.motif_texte = "  ".into();
+    assert!(refus_de(&b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &sans_motif, maintenant).await, "motif obligatoire"));
+    let mut trop_long = pose_tiers(eleve, grand, pers_a);
+    trop_long.au = avril(13) + Duration::days(400);
+    assert!(refus_de(&b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &trop_long, maintenant).await, "un an au plus"));
+    // Un demandeur qui n'est pas titulaire (le grand-parent lui-même, ou une autre personne sans lien) est refusé.
+    let autre = tiers(&b, "Marc").await;
+    assert!(refus_de(&b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, autre), maintenant).await, "titulaire de l'autorité parentale"));
+    let t = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    assert_eq!((t.statut.as_str(), t.remettable_aujourdhui), ("actif", true));
+    assert_eq!(t.motif_texte.as_deref().map(|m| m.contains("grand-mère")), Some(true), "le personnel lit le motif");
+    assert_eq!(code_pour(&b, eleve, grand).await, ("autorisee".to_string(), Some("tiers autorisé".to_string())));
+    // Datée : hors des dates, la porte est fermée.
+    assert_eq!(code_remise(&b, eleve, grand, avril(12)).await.0, "non_autorisee");
+    assert_eq!(code_remise(&b, eleve, grand, avril(30)).await.0, "autorisee");
+    assert_eq!(code_remise(&b, eleve, grand, avril(30) + Duration::days(1)).await.0, "non_autorisee");
+    // Une personne ne peut pas être posée deux fois ; historisé.
+    let r = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await;
+    assert!(refus_de(&r, "déjà tiers autorisé"), "{r:?}");
+    assert!(faits_actes(&b, "tiers_id", t.id).await.iter().any(|(a, _)| a == "tiers_pose"));
+    // Visible des deux titulaires, SANS le motif ni le demandeur ; un autre foyer ne voit rien.
+    for u in [pa, pb] {
+        let vus = b.ent.tiers_eleve_a(b.etab, u, PARENT, eleve, maintenant).await.unwrap();
+        assert_eq!(vus.len(), 1);
+        assert!(vus[0].motif_texte.is_none() && vus[0].demande_par_personne_id.is_none());
+        assert!(vus[0].remettable_aujourdhui);
+        assert!(!serde_json::to_string(&vus).unwrap().contains("grand-mère"));
+    }
+    let (autre_foyer, _) = parent(&b, b.a[1], true).await;
+    assert!(est_interdit(&b.ent.tiers_eleve_a(b.etab, autre_foyer, PARENT, eleve, maintenant).await));
+    assert_eq!(b.ent.tiers_eleve_a(b.etab, b.cpe, CPE, eleve, maintenant).await.unwrap().len(), 1);
+    // Interdiction nominative sur une fiche FUSIONNÉE dans le tiers : la chaîne bloque, toujours.
+    let doublon = tiers(&b, "Odile bis").await;
+    sqlx::query("UPDATE ent_personne SET fusionnee_dans = $3 WHERE etablissement_id = $1 AND id = $2")
+        .bind(b.etab)
+        .bind(doublon)
+        .bind(grand)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    interdire(&b, eleve, Some(doublon)).await;
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "interdite", "une interdiction bloque toujours, sur toute la chaîne de fusions");
+    lever_interdictions(&b, eleve).await;
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "autorisee");
+    // « Un acte tombe avec son auteur » : le demandeur devient visé → la porte se ferme ; B reprend la demande → rouverte.
+    interdire_objet(&b, eleve, pers_a, "visite", None).await;
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee", "demandeur visé : le statut ne vaut plus");
+    let r = b.ent.reprendre_tiers_a(b.etab, b.cpe, CPE, t.id, &TiersRepriseDto { demande_par_personne_id: pers_a, motif_texte: Some("même".into()) }, maintenant).await;
+    assert!(refus_de(&r, "titulaire de l'autorité parentale en exercice"), "{r:?}");
+    let r = b.ent.reprendre_tiers_a(b.etab, b.cpe, CPE, t.id, &TiersRepriseDto { demande_par_personne_id: pers_b, motif_texte: None }, maintenant).await;
+    assert!(refus_de(&r, "motif obligatoire"), "{r:?}");
+    b.ent.reprendre_tiers_a(b.etab, b.cpe, CPE, t.id, &TiersRepriseDto { demande_par_personne_id: pers_b, motif_texte: Some("Demande écrite du père".into()) }, maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "autorisee");
+    // L'interdiction qui vise le TIERS reste prioritaire et empêche toute nouvelle pose.
+    interdire(&b, eleve, Some(grand)).await;
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "interdite");
+    let autre_tiers = tiers(&b, "Paul").await;
+    interdire(&b, eleve, Some(autre_tiers)).await;
+    let r = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, autre_tiers, pers_b), maintenant).await;
+    assert!(refus_de(&r, "interdiction"), "{r:?}");
+    // Un lien suspendu ou en garde « aucune » n'est pas contourné par ce statut (décision de justice).
+    let juge = tiers(&b, "Jean").await;
+    sqlx::query(
+        "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, lien, autorite_parentale, suspendu_le, suspendu_par, suspension_motif) \
+         VALUES ($1,$2,$3,$4,'pere',false, now(), $5, 'Décision de justice')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(b.etab)
+    .bind(eleve)
+    .bind(juge)
+    .bind(b.dir)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    let r = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, juge, pers_b), maintenant).await;
+    assert!(refus_de(&r, "ne le remplace pas"), "{r:?}");
+}
+
+/// M3 — désaccord entre titulaires : le plus restrictif l'emporte jusqu'à la direction ; l'opposant n'est jamais nommé ;
+/// seul le demandeur ou le personnel révoque ; le CPE ne tranche pas ; une révocation est immédiate et historisée ; un
+/// désaccord connu du socle 18 pose le statut « contesté » d'emblée.
+#[tokio::test]
+async fn s_m3_desaccord_opposition_arbitrage_et_revocation() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let maintenant = paris(avril(14), 10, 0);
+    let (pa, pers_a) = parent(&b, eleve, true).await;
+    let (pb, _) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    let t = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "autorisee");
+    // Le demandeur ne s'oppose pas à sa propre demande ; un étranger, un élève, un professeur non plus.
+    assert!(refus_de(&b.ent.opposer_tiers_a(b.etab, pa, PARENT, t.id, maintenant).await, "la révoque"));
+    let (autre_foyer, _) = parent(&b, b.a[1], true).await;
+    assert!(est_interdit(&b.ent.opposer_tiers_a(b.etab, autre_foyer, PARENT, t.id, maintenant).await));
+    assert!(est_interdit(&b.ent.opposer_tiers_a(b.etab, b.prof, "prof", t.id, maintenant).await));
+    // B s'oppose : porte fermée aussitôt (le plus restrictif), statut « contesté » ; A et B ne lisent pas l'opposant.
+    b.ent.opposer_tiers_a(b.etab, pb, PARENT, t.id, maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee");
+    let vus = b.ent.tiers_eleve_a(b.etab, pa, PARENT, eleve, maintenant).await.unwrap();
+    assert_eq!((vus[0].statut.as_str(), vus[0].remettable_aujourdhui), ("conteste", false));
+    assert!(!serde_json::to_string(&vus).unwrap().contains(&pb.to_string()));
+    // B ne révoque pas la demande de A (il s'oppose) ; la direction seule tranche, avec motif pour lever.
+    assert!(est_interdit(&b.ent.revoquer_tiers_a(b.etab, pb, PARENT, t.id, &CorrespondantSuspensionDto::default(), maintenant).await));
+    assert!(est_interdit(&b.ent.trancher_tiers_a(b.etab, b.cpe, CPE, t.id, &tranche_motivee("lever"), maintenant).await), "le CPE ne tranche pas");
+    assert!(refus_de(&b.ent.trancher_tiers_a(b.etab, b.dir, DIR, t.id, &tranche("lever"), maintenant).await, "motif obligatoire"));
+    b.ent.trancher_tiers_a(b.etab, b.dir, DIR, t.id, &tranche_motivee("lever"), maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "autorisee");
+    // Seul un tiers contesté se tranche.
+    assert!(b.ent.trancher_tiers_a(b.etab, b.dir, DIR, t.id, &tranche_motivee("maintenir"), maintenant).await.is_err());
+    // Le demandeur révoque : effet immédiat, historisé ; une seconde révocation est un conflit.
+    b.ent.revoquer_tiers_a(b.etab, pa, PARENT, t.id, &CorrespondantSuspensionDto::default(), maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee");
+    assert!(b.ent.revoquer_tiers_a(b.etab, b.cpe, CPE, t.id, &CorrespondantSuspensionDto::default(), maintenant).await.is_err());
+    let actes: Vec<String> = faits_actes(&b, "tiers_id", t.id).await.into_iter().map(|(a, _)| a).collect();
+    assert_eq!(actes, ["tiers_pose", "tiers_opposition", "tiers_levee", "tiers_revocation"]);
+    assert!(b.ent.tiers_eleve_a(b.etab, pa, PARENT, eleve, maintenant).await.unwrap().is_empty(), "un tiers révoqué n'est plus listé");
+    // Une nouvelle pose est possible après révocation ; le personnel peut révoquer ; « maintenir » révoque un contesté.
+    let t2 = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    b.ent.opposer_tiers_a(b.etab, pb, PARENT, t2.id, maintenant).await.unwrap();
+    b.ent.trancher_tiers_a(b.etab, b.dir, DIR, t2.id, &tranche("maintenir"), maintenant).await.unwrap();
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee");
+    let t3 = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    b.ent.revoquer_tiers_a(b.etab, b.cpe, CPE, t3.id, &CorrespondantSuspensionDto::default(), maintenant).await.unwrap();
+    // Désaccord connu (socle 18) : pose d'emblée « contesté », porte fermée.
+    desaccord_connu(&b, eleve, pb).await;
+    let t4 = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    assert_eq!((t4.statut.as_str(), t4.remettable_aujourdhui), ("conteste", false));
+    assert_eq!(code_pour(&b, eleve, grand).await.0, "non_autorisee");
+    // Aucune donnée nominative ni texte libre dans les événements.
+    let evts: Vec<(String,)> = sqlx::query_as("SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND payload::text LIKE '%tiers_%'")
+        .bind(b.etab)
+        .fetch_all(b.ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(!evts.is_empty());
+    assert!(evts.iter().all(|e| !e.0.contains("grand-mère") && !e.0.contains("Odile")), "{evts:?}");
+}
+
+/// M3 — le tiers passe aussi par la revue : une sortie accompagnée par le tiers est suspendue ou bloquée quand le statut
+/// est révoqué (personne qui n'est plus autorisée), au départ comme à la revue ; le témoin (titulaire) part normalement.
+#[tokio::test]
+async fn s_m3_une_sortie_avec_le_tiers_ne_part_plus_apres_revocation() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let (mardi, mercredi) = (avril(14), avril(15));
+    let (pa, pers_a) = parent(&b, eleve, true).await;
+    let grand = tiers(&b, "Odile").await;
+    let t = b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), paris(mardi, 9, 0)).await.unwrap();
+    let a = annoncer_avec(&b, pa, PARENT, eleve, mercredi, mercredi, Some(grand), paris(mardi, 10, 0)).await.unwrap();
+    assert_eq!(a.statut, "annoncee", "la personne est le tiers autorisé");
+    b.ent.revoquer_tiers_a(b.etab, pa, PARENT, t.id, &CorrespondantSuspensionDto::default(), paris(mardi, 11, 0)).await.unwrap();
+    let soir = paris(mercredi, 17, 0);
+    let r = b.ent.controler_depart_absence_a(b.etab, b.cpe, CPE, a.id, &depart(Some(grand), soir), soir).await;
+    assert!(r.is_err(), "après révocation, le départ avec le tiers est refusé : {r:?}");
+}
+
+/// Infirmerie — la remise d'un élève malade passe par LA fonction de remise de l'internat (interdictions, chaîne de
+/// fusions, perte de droit, tiers autorisé). Avant, la règle était réécrite à part et ignorait les interdictions.
+#[tokio::test]
+async fn s_infirmerie_la_remise_passe_par_la_fonction_unique_de_l_internat() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let jour = avril(14);
+    let maintenant = paris(jour, 10, 0);
+    let (_, pers_a) = parent(&b, eleve, true).await;
+    let (pc, pers_c) = parent(&b, eleve, true).await;
+    let contact = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, eleve, contact).await;
+    let grand = tiers(&b, "Marc").await;
+    b.ent.poser_tiers_a(b.etab, b.cpe, CPE, &pose_tiers(eleve, grand, pers_a), maintenant).await.unwrap();
+    let inconnu = tiers(&b, "Zoé").await;
+    let ok = |p: Uuid| {
+        let b = &b;
+        async move { b.ent.personne_habilitee_a_recuperer(b.etab, eleve, p, jour).await.unwrap() }
+    };
+    assert!(ok(pers_a).await.is_some(), "titulaire");
+    assert!(ok(contact).await.is_some(), "personne autorisée");
+    assert!(ok(grand).await.is_some(), "tiers autorisé");
+    assert!(ok(inconnu).await.is_none(), "refus par défaut");
+    // Une interdiction (chaîne de fusions) bloque le titulaire, le contact et le tiers, comme à l'internat.
+    interdire(&b, eleve, Some(contact)).await;
+    let doublon = tiers(&b, "Marc bis").await;
+    sqlx::query("UPDATE ent_personne SET fusionnee_dans = $3 WHERE etablissement_id = $1 AND id = $2")
+        .bind(b.etab)
+        .bind(doublon)
+        .bind(grand)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    interdire(&b, eleve, Some(doublon)).await;
+    interdire(&b, eleve, Some(pers_a)).await;
+    assert!(ok(contact).await.is_none(), "contact interdit");
+    assert!(ok(grand).await.is_none(), "tiers interdit par sa chaîne de fusions");
+    assert!(ok(pers_a).await.is_none(), "titulaire interdit");
+    // Un titulaire privé d'autorité n'est plus remis (même fonction) ; le témoin reste remis.
+    p4_perdre_le_droit(&b, eleve, pc, 1).await;
+    assert!(ok(pers_c).await.is_none(), "titulaire sans autorité");
+    // Interdiction sans personne identifiée : on ne peut pas vérifier qui est à la porte.
+    let e2 = b.a[1];
+    let (_, pers_x) = parent(&b, e2, true).await;
+    assert!(b.ent.personne_habilitee_a_recuperer(b.etab, e2, pers_x, jour).await.unwrap().is_some());
+    interdire(&b, e2, None).await;
+    assert!(b.ent.personne_habilitee_a_recuperer(b.etab, e2, pers_x, jour).await.unwrap().is_none());
+}
+
+/// Requalification d'un contact : limitée aux élèves INTERNES, et refusée en cas de conflit d'intérêt (l'agent est la
+/// personne du contact, son déclarant, ou un proche de l'élève) ; un autre agent la fait.
+#[tokio::test]
+async fn s_requalification_limitee_aux_internes_et_sans_conflit_d_interet() {
+    let Some(b) = banc().await else { return };
+    let maintenant = paris(avril(14), 10, 0);
+    let motif = CorrespondantSuspensionDto { motif_texte: Some("Contact revu avec la famille".into()) };
+    let eleve = b.a[0];
+    let interne: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_internat_sejour WHERE etablissement_id = $1 AND eleve_id = $2 AND du <= $3 AND (au IS NULL OR au >= $3))",
+    )
+    .bind(b.etab)
+    .bind(eleve)
+    .bind(avril(14))
+    .fetch_one(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(interne, "le banc héberge ses élèves");
+    let fiche_cpe = personne_de(&b.ent, b.etab, b.cpe).await;
+    let fiche_dir = personne_de(&b.ent, b.etab, b.dir).await;
+    // Conflit 1 : le CPE est la personne du contact.
+    p4_contact_declare(&b, eleve, fiche_cpe, None).await;
+    let c1 = p4_id_contact(&b, eleve, fiche_cpe).await;
+    let r = b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c1, &motif, maintenant).await;
+    assert!(refus_de(&r, "conflit d'intérêt"), "{r:?}");
+    // Conflit 2 : le CPE est le déclarant du contact ; la direction (autre agent) peut requalifier.
+    let contact = tiers(&b, "Odile").await;
+    p4_contact_declare(&b, eleve, contact, Some(fiche_cpe)).await;
+    let c2 = p4_id_contact(&b, eleve, contact).await;
+    let r = b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c2, &motif, maintenant).await;
+    assert!(refus_de(&r, "conflit d'intérêt"), "{r:?}");
+    b.ent.requalifier_contact_a(b.etab, b.dir, DIR, c2, &motif, maintenant).await.unwrap();
+    // Conflit 3 : la direction est un proche de l'élève (lien) ; le CPE requalifie.
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, lien, autorite_parentale) VALUES ($1,$2,$3,$4,'oncle',false)")
+        .bind(Uuid::new_v4())
+        .bind(b.etab)
+        .bind(eleve)
+        .bind(fiche_dir)
+        .execute(b.ent.pool_verif())
+        .await
+        .unwrap();
+    let proche = tiers(&b, "Nina").await;
+    p4_contact_declare(&b, eleve, proche, None).await;
+    let c3 = p4_id_contact(&b, eleve, proche).await;
+    let r = b.ent.requalifier_contact_a(b.etab, b.dir, DIR, c3, &motif, maintenant).await;
+    assert!(refus_de(&r, "conflit d'intérêt"), "{r:?}");
+    b.ent.requalifier_contact_a(b.etab, b.cpe, CPE, c3, &motif, maintenant).await.unwrap();
+    // Un élève qui n'est pas interne (sans séjour d'internat) : refusé.
+    let externe = eleve_invite(&b, "Externe").await;
+    let ext = tiers(&b, "Lucie").await;
+    p4_contact_declare(&b, externe, ext, None).await;
+    let ce = p4_id_contact(&b, externe, ext).await;
+    let r = b.ent.requalifier_contact_a(b.etab, b.dir, DIR, ce, &motif, maintenant).await;
+    assert!(refus_de(&r, "limitée aux élèves internes"), "{r:?}");
+}
+
+/// R1 sur une SORTIE (le scénario de p4_r1 ne couvrait que l'absence) : la sortie demandée par un parent puis autorisée
+/// par le CPE retombe « demandée » quand ce parent perd son droit (lien suspendu, autorité retirée, lien échu, garde
+/// « aucune »), à la revue ; le témoin (parent intact) reste « autorisée ». Le départ est refusé avec la personne désignée.
+#[tokio::test]
+async fn s_p4_r1_la_sortie_dont_l_auteur_perd_son_droit_retombe_a_la_demande() {
+    let Some(b) = banc().await else { return };
+    let (lundi, mardi, jeudi) = (avril(13), avril(14), avril(16));
+    let (debut, fin) = (paris(jeudi, 18, 0), paris(jeudi, 21, 0));
+    let (pt, _) = parent(&b, b.b[0], true).await;
+    let grand_t = tiers(&b, "Odile").await;
+    autoriser_recuperer(&b, b.b[0], grand_t).await;
+    let st = b.ent.demander_sortie_a(b.etab, pt, PARENT, &demande(b.b[0], "exceptionnelle", debut, fin, false, Some(grand_t)), paris(lundi, 10, 0)).await.unwrap();
+    let st = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, st.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+    assert_eq!(st.statut, "autorisee");
+    let mut sorties = Vec::new();
+    for cas in 0..4usize {
+        let eleve = b.a[cas];
+        let (pa, _) = parent(&b, eleve, true).await;
+        let grand = tiers(&b, "Odile").await;
+        autoriser_recuperer(&b, eleve, grand).await;
+        let s = b.ent.demander_sortie_a(b.etab, pa, PARENT, &demande(eleve, "exceptionnelle", debut, fin, false, Some(grand)), paris(lundi, 10, 0)).await.unwrap();
+        let s = b.ent.decider_sortie_a(b.etab, b.cpe, CPE, s.id, &decision("autoriser", None), paris(lundi, 11, 0)).await.unwrap();
+        assert_eq!(s.statut, "autorisee");
+        p4_perdre_le_droit(&b, eleve, pa, cas).await;
+        sorties.push((s.id, grand));
+    }
+    b.ent.veille_sorties_a(b.etab, paris(mardi, 12, 5)).await.unwrap();
+    for (cas, (id, grand)) in sorties.iter().enumerate() {
+        let (statut, ..) = ligne_sortie(&b, *id).await;
+        assert_eq!(statut, "demandee", "cas {cas} : l'accord de l'auteur sans droit tombe, retour à la décision");
+        let r = b.ent.controler_depart_a(b.etab, b.cpe, CPE, *id, &depart(Some(*grand), debut), debut).await;
+        assert!(r.is_err(), "cas {cas} : départ refusé : {r:?}");
+    }
+    assert_eq!(ligne_sortie(&b, st.id).await.0, "autorisee", "le témoin est intact");
 }

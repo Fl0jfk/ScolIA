@@ -392,6 +392,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 41, lot I3 (absences et sorties) : absences annoncées, sorties typées, correspondants, appel
     // « soir » complémentaire, attendu qui lit les absences et les sorties. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2826_internat_i3_absences_sorties"),
+    m!("2827_internat_i3_suites"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),

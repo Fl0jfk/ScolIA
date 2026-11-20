@@ -187,6 +187,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("ent_internat_derogation", &["id"], "dérogation de la direction en ajout seul : décision datée qui reste sur la fiche pour laquelle elle a été prise"),
     r("ent_internat_i3_fait", &["id"], "faits d'absence, de sortie, de correspondant et de requalification de contact en ajout seul : historique daté qui reste sur la fiche concernée"),
     r("ent_internat_lecture_sensible", &["id"], "journal des lectures sensibles de l'internat en ajout seul : trace d'accès, elle reste sur la fiche lue"),
+    r("ent_internat_perte_droit_fait", &["id"], "faits de perte de droit sur un lien en ajout seul : date immuable de la perte, elle reste sur la fiche concernée"),
+    r("ent_internat_tiers_autorise", &["id"], "tiers autorisé à récupérer l'élève (posé par le personnel à la demande écrite d'un titulaire, daté, révocable) : décision tracée qui reste sur la fiche pour laquelle elle a été prise"),
     r("ent_internat_nuit_exceptionnelle", &["id"], "nuit exceptionnelle datée (élève accueilli une nuit de plus) : décision qui reste sur la fiche pour laquelle elle a été prise"),
     d("ent_internat_presence", &["id"]),
     r("ent_internat_presence_fait", &["id"], "faits de présence en ajout seul (R-IT13) : l'historique de la nuit reste sur la fiche où il a été écrit"),

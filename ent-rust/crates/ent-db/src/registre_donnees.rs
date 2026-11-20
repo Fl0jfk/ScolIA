@@ -807,6 +807,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_i3_fait", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_interdiction_contact", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_lecture_sensible", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_perte_droit_fait", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_tiers_autorise", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_liste", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_liste_chambre", "vie_pratique", Portee::Etablissement),
     t("ent_internat_lit", "vie_pratique", Portee::Etablissement),

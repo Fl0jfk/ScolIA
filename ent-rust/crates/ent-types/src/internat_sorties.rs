@@ -418,3 +418,48 @@ pub struct FaitDto {
     pub personne_id: Option<Uuid>,
     pub jusqu_a: Option<DateTime<Utc>>,
 }
+
+// ───────────────────────── Tiers autorisé à récupérer (lot I3, suites, M3) ─────────────────────────
+
+/// Pose du statut « tiers autorisé à récupérer » par le personnel (CPE, vie scolaire, direction), à la demande **écrite**
+/// d'un titulaire de l'autorité parentale. Dates `du` / `au` obligatoires (un an au plus), motif obligatoire.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersPoseDto {
+    pub eleve_id: Uuid,
+    pub personne_id: Uuid,
+    pub demande_par_personne_id: Uuid,
+    pub demande_ecrite_le: NaiveDate,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    pub motif_texte: String,
+}
+
+/// Un tiers autorisé. La famille voit la personne, les dates, l'état et si le tiers est remettable aujourd'hui ; jamais le
+/// motif, ni qui a demandé, ni qui s'oppose (réservés au personnel de l'internat).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    /// `actif`, `conteste` (désaccord : porte fermée jusqu'à la direction), `revoque`.
+    pub statut: String,
+    /// La porte est ouverte aujourd'hui (statut actif, dates, aucune interdiction, demandeur toujours titulaire).
+    pub remettable_aujourdhui: bool,
+    /// Personnel seulement.
+    #[serde(default)]
+    pub demande_par_personne_id: Option<Uuid>,
+    #[serde(default)]
+    pub motif_texte: Option<String>,
+}
+
+/// Reprise de la demande par un autre titulaire (le demandeur n'a plus le droit d'agir).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TiersRepriseDto {
+    pub demande_par_personne_id: Uuid,
+    #[serde(default)]
+    pub motif_texte: Option<String>,
+}

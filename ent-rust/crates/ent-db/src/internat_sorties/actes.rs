@@ -77,7 +77,7 @@ pub(super) async fn fin_savepoint_revue(
             sqlx::query("ROLLBACK TO SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
             sqlx::query("RELEASE SAVEPOINT revue_objet").execute(&mut *conn).await.map_err(db)?;
             *echecs += 1;
-            tracing::warn!(erreur = %e, "revue d'internat : un objet n'a pas pu être revu (les autres l'ont été)");
+            tracing::warn!(nature = %nature_erreur(&e), "revue d'internat : un objet n'a pas pu être revu (les autres l'ont été)");
         }
     }
     Ok(())
