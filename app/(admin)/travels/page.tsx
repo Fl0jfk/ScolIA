@@ -17,6 +17,7 @@ import {
   travelsTripMatchesSearch,
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
@@ -77,6 +78,7 @@ function TripDashboardContent() {
   const [trips, setTrips] = useState<TravelsTrip[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterEtab, setFilterEtab] = useState("");
+  const [onlyMine, setOnlyMine] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [directionDashboard, setDirectionDashboard] = useState<TravelsDirectionDashboard | null>(null);
   const [reminderCount, setReminderCount] = useState(0);
@@ -174,11 +176,18 @@ function TripDashboardContent() {
     const defaultLabel = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "";
     return filterTripsForModuleList(trips, {
       matchesSearch: (t) => travelsTripMatchesSearch(t, searchQuery),
-    }).filter((t) => {
-      if (!filterEtab) return true;
-      return (t.data?.etablissement || defaultLabel) === filterEtab;
-    });
-  }, [trips, filterEtab, searchQuery, etabFilterOptions]);
+    })
+      .filter((t) => !onlyMine || isTripOwnerOrCreator(t, user))
+      .filter((t) => {
+        if (!filterEtab) return true;
+        return (t.data?.etablissement || defaultLabel) === filterEtab;
+      });
+  }, [trips, filterEtab, onlyMine, user, searchQuery, etabFilterOptions]);
+
+  const myTripsCount = useMemo(
+    () => trips.filter((t) => isTripOwnerOrCreator(t, user)).length,
+    [trips, user],
+  );
 
   const monthRail = useTravelMonthRail(filteredTrips);
   const listAreaRef = useRef<HTMLDivElement>(null);
@@ -296,7 +305,21 @@ function TripDashboardContent() {
           </p>
         </label>
         <div className="flex gap-2 flex-wrap">
-          {["Tous", ...etabFilterOptions.labels, ...(etabFilterOptions.showGroupe ? [GROUPE_SCOLAIRE_LABEL] : [])].map((f) => {
+          {myTripsCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setOnlyMine((v) => !v)}
+              aria-pressed={onlyMine}
+              className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all cursor-pointer ${
+                onlyMine
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                  : "bg-white text-indigo-700 border-indigo-200 hover:border-indigo-400"
+              }`}
+            >
+              Mes voyages ({myTripsCount})
+            </button>
+          )}
+          {["Tous",...etabFilterOptions.labels, ...(etabFilterOptions.showGroupe ? [GROUPE_SCOLAIRE_LABEL] : [])].map((f) => {
             const active = (f === "Tous" && !filterEtab) || filterEtab === f;
             const vis = f !== "Tous" ? etabCardVisual(f) : null;
             return (
