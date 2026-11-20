@@ -60,22 +60,35 @@ impl PgEnt {
         if eleves.is_empty() {
             return Ok(Vec::new());
         }
+        // V3c (M3) : l'agenda lit `eva_evaluation` (et non la vue de compatibilité `ent_devoir`, qui ignorait ces deux
+        // règles) : (1) seules les évaluations **annoncées** (ou déjà publiées) sont montrées : une évaluation que le
+        // professeur n'a pas annoncée n'existe pas pour l'élève ; (2) le **public restreint** est respecté : une évaluation
+        // de demi-groupe ou de volontaires n'apparaît qu'aux élèves visés. Jamais une note, une moyenne, un coefficient.
         let rows: Vec<LigneRow> = sqlx::query_as(
-            "SELECT e.eleve_id, d.id, d.date_devoir AS jour, COALESCE(m.libelle, 'Évaluation') AS matiere, d.titre,
-                    s.cours_id, d.classe_id
+            "SELECT e.eleve_id, d.id, d.date_eval AS jour, COALESCE(m.libelle, 'Évaluation') AS matiere, d.titre,
+                    d.cours_id, c.classe_id
                FROM unnest($2::uuid[]) AS e(eleve_id)
-               JOIN ent_devoir d ON d.etablissement_id = $1 AND d.date_devoir BETWEEN $3 AND $4
-               LEFT JOIN ent_matiere m ON m.etablissement_id = d.etablissement_id AND m.id = d.matiere_id
-               LEFT JOIN ent_service_enseignement s ON s.etablissement_id = d.etablissement_id AND s.id = d.service_id
-              WHERE (d.service_id IS NOT NULL AND s.cours_id IS NOT NULL
-                     AND EXISTS (SELECT 1 FROM ent_public_cours_jour($1, $5, s.cours_id, NULL, e.eleve_id, false)))
-                 OR (d.service_id IS NULL
-                     AND EXISTS (SELECT 1 FROM ent_affectation a
-                                  WHERE a.etablissement_id = $1 AND a.eleve_id = e.eleve_id
-                                    AND ((a.classe_id IS NOT NULL AND a.classe_id = d.classe_id)
-                                      OR (a.groupe_id IS NOT NULL AND a.groupe_id = d.groupe_id))
-                                    AND a.date_debut <= $5 AND (a.date_fin IS NULL OR a.date_fin >= $5)))
-              ORDER BY e.eleve_id, d.date_devoir, d.titre, d.id",
+               JOIN eva_evaluation d ON d.etablissement_id = $1 AND d.date_eval BETWEEN $3 AND $4
+                                    AND d.mode = 'note' AND d.etat = 'ouverte'
+                                    AND (d.annoncee OR d.publiee_le IS NOT NULL)
+               JOIN ent_cours c ON c.etablissement_id = d.etablissement_id AND c.id = d.cours_id
+               LEFT JOIN ent_matiere m ON m.etablissement_id = c.etablissement_id AND m.id = c.matiere_id
+              WHERE (EXISTS (SELECT 1 FROM ent_public_cours_jour($1, $5, d.cours_id, NULL, e.eleve_id, false))
+                     -- Évaluation d'un cours sans service d'enseignement (existant historique) : sa classe ou son groupe, par
+                     -- l'affectation en cours (même repli que l'ancienne lecture).
+                     OR (NOT EXISTS (SELECT 1 FROM ent_service_enseignement s
+                                      WHERE s.etablissement_id = d.etablissement_id AND s.cours_id = d.cours_id)
+                         AND EXISTS (SELECT 1 FROM ent_affectation a
+                                      WHERE a.etablissement_id = $1 AND a.eleve_id = e.eleve_id
+                                        AND ((a.classe_id IS NOT NULL AND a.classe_id = c.classe_id)
+                                          OR (a.groupe_id IS NOT NULL AND a.groupe_id = c.groupe_id))
+                                        AND a.date_debut <= $5 AND (a.date_fin IS NULL OR a.date_fin >= $5))))
+                AND (NOT EXISTS (SELECT 1 FROM eva_evaluation_restriction rr
+                                  WHERE rr.etablissement_id = d.etablissement_id AND rr.evaluation_id = d.id)
+                     OR EXISTS (SELECT 1 FROM eva_evaluation_restriction rr
+                                 WHERE rr.etablissement_id = d.etablissement_id AND rr.evaluation_id = d.id
+                                   AND rr.eleve_id = e.eleve_id))
+              ORDER BY e.eleve_id, d.date_eval, d.titre, d.id",
         )
         .bind(etab)
         .bind(eleves)

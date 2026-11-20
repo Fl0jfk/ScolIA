@@ -15847,36 +15847,29 @@ function devoirMoyenneSur20Values(notesByEleve, sur) {
 }
 
 function devoirMoyenneClasseHtml(notesByEleve, sur) {
+  // V3c : plus de moyenne calculée dans le navigateur (moyenne partielle, sans les règles du moteur : coefficients,
+  // statuts, « ne compte pas »…). Seul le nombre de notes saisies est montré ; les moyennes viennent du moteur unique
+  // (grille d'évaluation, /web/evaluations/grille).
   const vals = devoirMoyenneSur20Values(notesByEleve, sur);
   if (!vals.length) {
-    return '<p class="muted" style="margin:.35rem 0 0;font-size:.85rem"><span class="empty-state-hint">Moyenne classe : — aucune note saisie sur ce devoir.</span></p>';
+    return '<p class="muted" style="margin:.35rem 0 0;font-size:.85rem"><span class="empty-state-hint">Aucune note saisie sur ce devoir.</span></p>';
   }
-  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
-  return `<p class="muted" style="margin:.35rem 0 0;font-size:.85rem"><span class="ok"><strong>Moyenne classe</strong> ${m.toFixed(1)} / 20</span> · ${vals.length} note(s)</p>`;
+  return `<p class="muted" style="margin:.35rem 0 0;font-size:.85rem">${vals.length} note(s) saisie(s) · moyenne calculée par le moteur d'évaluation</p>`;
 }
 
 function grilleMoyenneLiveTipHtml(vals) {
   if (!vals || !vals.length) {
-    return '<span class="empty-state-hint">Moyenne live : saisissez des notes dans la grille — la moyenne /20 se met à jour au fil de la saisie.</span>';
+    return '<span class="empty-state-hint">Saisissez des notes dans la grille : la moyenne est calculée par le moteur à l\'enregistrement.</span>';
   }
-  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
-  return `<span class="ok"><strong>Moyenne live</strong> ${m.toFixed(1)} / 20</span> · ${vals.length} note(s) dans la grille`;
+  return `<strong>${vals.length}</strong> note(s) dans la grille · moyenne calculée par le moteur à l'enregistrement`;
 }
 
-/** /app/notes — moyenne live grille (bento). */
+/** /app/notes — grille : nombre de notes saisies (la moyenne vient du moteur, jamais du navigateur). */
 function grilleMoyenneLiveTipDenseHtml(vals) {
-  if (!vals || !vals.length) {
-    return `<div class="bento" style="margin:.15rem 0 .45rem">
-      <div class="stat-tile bento-span-12"><strong class="muted">—</strong><span>Moyenne live · saisissez des notes — recalcul instantané /20</span></div>
-    </div>`;
-  }
-  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const n = vals ? vals.length : 0;
   return `<div class="bento" style="margin:.15rem 0 .45rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-      <strong class="ok">${m.toFixed(1)}</strong><span>Moyenne live / 20 · grille</span>
-    </div>
-    <div class="stat-tile bento-span-4"><strong>${vals.length}</strong><span>Note(s) saisie(s) · non enregistrées</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">↵</strong><span>Enregistrer la grille · moyennes élèves</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Note(s) saisie(s) · non enregistrées</span></div>
+    <div class="stat-tile bento-span-8"><strong class="muted">↵</strong><span>Enregistrer la grille · moyennes calculées par le moteur</span></div>
   </div>`;
 }
 

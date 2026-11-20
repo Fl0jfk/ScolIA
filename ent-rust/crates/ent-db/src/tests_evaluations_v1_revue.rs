@@ -538,6 +538,8 @@ async fn m2_un_eleve_sorti_avant_la_fin_de_la_periode_garde_les_coefficients_de_
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let w = monde_v1(&ent, &cast).await;
+    // M3 (V3c) : en période ouverte, chaque professeur écrit dans son cours (la direction ne saisit pas à sa place).
+    let autre_prof = cast.profs.iter().map(|p| p.user_id).find(|x| *x != w.prof).unwrap();
     let sorti = w.eleves_a[0];
     // Coefficients de la classe A : maths 3, français 1 (valables dès la rentrée, posés avant tout résultat).
     for (matiere, coef) in [(w.maths, 3.0f64), (w.francais, 1.0)] {
@@ -579,10 +581,10 @@ async fn m2_un_eleve_sorti_avant_la_fin_de_la_periode_garde_les_coefficients_de_
         true,
     )
     .await;
-    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev_m, sorti, 12_000))
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.prof, PROF, &note(ev_m, sorti, 12_000))
         .await
         .unwrap();
-    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev_f, sorti, 8_000))
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, autre_prof, PROF, &note(ev_f, sorti, 8_000))
         .await
         .unwrap();
     // L'élève quitte l'établissement le 15/12, avant la fin de T1 (20/12).
@@ -615,6 +617,7 @@ async fn m2_sans_coefficient_trouve_le_calcul_le_dit_au_lieu_de_supposer_un() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let w = monde_v1(&ent, &cast).await;
+    let autre_prof = cast.profs.iter().map(|p| p.user_id).find(|x| *x != w.prof).unwrap();
     let a = w.eleves_a[0];
     let ev_m = evaluation(
         &ent,
@@ -640,10 +643,10 @@ async fn m2_sans_coefficient_trouve_le_calcul_le_dit_au_lieu_de_supposer_un() {
         true,
     )
     .await;
-    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev_m, a, 12_000))
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.prof, PROF, &note(ev_m, a, 12_000))
         .await
         .unwrap();
-    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev_f, a, 8_000))
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, autre_prof, PROF, &note(ev_f, a, 8_000))
         .await
         .unwrap();
     let m = ent

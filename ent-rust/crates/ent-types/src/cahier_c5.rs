@@ -112,6 +112,10 @@ pub struct RetourLuDto {
     pub criteres: Vec<CritereDto>,
     pub note_valeur: Option<f64>,
     pub note_sur: Option<f64>,
+    /// V3c (M2) : statut du résultat publié quand ce n'est pas une note (`absent`, `dispense`, `a_rattraper`,
+    /// `non_note`, `non_rendu`, `annule`) : affiché tel quel, jamais converti en « 0 / 20 ».
+    #[serde(default)]
+    pub note_statut: Option<String>,
     pub pieces: Vec<PieceC5Dto>,
 }
 

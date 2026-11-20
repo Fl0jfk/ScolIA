@@ -151,7 +151,7 @@ impl PgEnt {
             let jour = match self.aujourdhui_etablissement(etab).await {
                 Ok(j) => j,
                 Err(e) => {
-                    tracing::warn!(%etab, erreur = %e, "publications automatiques : jour de l'établissement illisible");
+                    tracing::warn!(%etab, erreur = classe_erreur(&e), "publications automatiques : jour de l'établissement illisible");
                     continue;
                 }
             };
@@ -161,7 +161,7 @@ impl PgEnt {
                     total.delai_max += b.delai_max;
                     total.rappels += b.rappels;
                 }
-                Err(e) => tracing::warn!(%etab, erreur = %e, "publications automatiques des évaluations en échec"),
+                Err(e) => tracing::warn!(%etab, erreur = classe_erreur(&e), "publications automatiques des évaluations en échec"),
             }
         }
         Ok(total)
@@ -185,14 +185,14 @@ impl PgEnt {
             Ok(n) => b.acomptes_alertes += n,
             Err(e) => {
                 b.erreurs += 1;
-                tracing::warn!(%etab, erreur = %e, "passage quotidien : alertes d'acomptes en échec");
+                tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : alertes d'acomptes en échec");
             }
         }
         match self.voyages_argent_exports_purger_au(etab, jour).await {
             Ok(n) => b.exports_purges += n,
             Err(e) => {
                 b.erreurs += 1;
-                tracing::warn!(%etab, erreur = %e, "passage quotidien : purge des exports en échec");
+                tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : purge des exports en échec");
             }
         }
         // Arrêt automatique des notes à la date d'arrêt (réglage `arret_auto`), au jour de l'établissement.
@@ -200,7 +200,7 @@ impl PgEnt {
             Ok(n) => b.periodes_arretees += n,
             Err(e) => {
                 b.erreurs += 1;
-                tracing::warn!(%etab, erreur = %e, "passage quotidien : arrêt automatique des notes en échec");
+                tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : arrêt automatique des notes en échec");
             }
         }
         // Publications automatiques des évaluations (programmées, délai maximal, rappels) : horloge fournie.
@@ -218,7 +218,7 @@ impl PgEnt {
                 Ok(m) => m,
                 Err(e) => {
                     b.erreurs += 1;
-                    tracing::warn!(%etab, erreur = %e, "passage quotidien : fin du jour de l'établissement illisible");
+                    tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : fin du jour de l'établissement illisible");
                     Utc::now()
                 }
             },
@@ -228,12 +228,12 @@ impl PgEnt {
                 Ok(bilan) => b.publications_automatiques += bilan.programmees + bilan.delai_max + bilan.rappels,
                 Err(e) => {
                     b.erreurs += 1;
-                    tracing::warn!(%etab, erreur = %e, "passage quotidien : publications automatiques des évaluations en échec");
+                    tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : publications automatiques des évaluations en échec");
                 }
             },
             Err(e) => {
                 b.erreurs += 1;
-                tracing::warn!(%etab, erreur = %e, "passage quotidien : jour de l'établissement illisible");
+                tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : jour de l'établissement illisible");
             }
         }
         for (famille, compteur) in [(&PHOTOS, &mut b.photos_orphelines), (&EXPORTS_ARGENT, &mut b.exports_orphelins)] {
@@ -241,7 +241,7 @@ impl PgEnt {
                 Ok(n) => *compteur += n,
                 Err(e) => {
                     b.erreurs += 1;
-                    tracing::warn!(%etab, famille = famille.nom, erreur = %e, "passage quotidien : balayage des objets en échec");
+                    tracing::warn!(%etab, famille = famille.nom, erreur = classe_erreur(&e), "passage quotidien : balayage des objets en échec");
                 }
             }
         }
@@ -287,7 +287,7 @@ impl PgEnt {
             // L'objet physique d'abord ; le registre n'est marqué qu'une fois la suppression faite.
             if let Err(e) = self.objet_supprimer(cle).await {
                 echecs += 1;
-                tracing::warn!(%etab, famille = famille.nom, erreur = %e, "objet orphelin non supprimé : repris au prochain passage");
+                tracing::warn!(%etab, famille = famille.nom, erreur = classe_erreur(&e), "objet orphelin non supprimé : repris au prochain passage");
                 continue;
             }
             let mut t = TenantTx::begin(self.pool(), etab).await?;
@@ -308,5 +308,39 @@ impl PgEnt {
             );
         }
         Ok(balayes)
+    }
+}
+
+/// V3c : ce qu'un passage quotidien journalise d'une erreur. **Jamais le message** : un message d'erreur de base
+/// (clé dupliquée, ligne en cause, « DETAIL ») ou un refus métier peut citer un nom, un identifiant d'élève ou une
+/// valeur. On ne garde qu'une famille et, pour la base, le code SQLSTATE (5 caractères, sans donnée).
+fn classe_erreur(e: &EntDbError) -> String {
+    match e {
+        EntDbError::Sqlx(sqlx::Error::Database(d)) => {
+            format!("base:{}", d.code().as_deref().unwrap_or("?"))
+        }
+        EntDbError::Sqlx(_) => "base".to_string(),
+        EntDbError::Forbidden => "interdit".to_string(),
+        EntDbError::SaisieInvalide(_) => "saisie_invalide".to_string(),
+        EntDbError::ConflitDossier(_) => "conflit".to_string(),
+        _ => "autre".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests_journaux {
+    use super::*;
+
+    /// V3c : un passage quotidien ne journalise jamais le message d'une erreur (donnée d'élève possible), seulement une
+    /// famille et, pour la base, le code SQLSTATE.
+    #[test]
+    fn la_classe_d_erreur_ne_contient_aucune_donnee_personnelle() {
+        let e = EntDbError::SaisieInvalide("Dupont Marie, élève de 4A, absente le 12");
+        let c = classe_erreur(&e);
+        assert_eq!(c, "saisie_invalide");
+        assert!(!c.contains("Dupont"));
+        assert_eq!(classe_erreur(&EntDbError::Forbidden), "interdit");
+        assert_eq!(classe_erreur(&EntDbError::ConflitDossier("Dupont")), "conflit");
+        assert_eq!(classe_erreur(&EntDbError::Sqlx(sqlx::Error::RowNotFound)), "base");
     }
 }

@@ -725,6 +725,13 @@ impl PgEnt {
         if arretee && !peut_corriger {
             return Err(EntDbError::Forbidden);
         }
+        // V3c (M3, règle descendue de la grille) : tant que la période de l'élève est OUVERTE, l'évaluation appartient au
+        // professeur du cours (titulaire, co-enseignant, suppléant en saisie). Un porteur de `notes.corriger` qui n'est
+        // pas du cours ne saisit pas à sa place (il corrige APRÈS l'arrêt, avec un motif) : cette règle vit ici, dans
+        // l'écriture elle-même, et non plus seulement dans l'écran de grille (aucune voie ne la contourne).
+        if !titulaire && periode.as_ref().is_some_and(|p| p.etat == "ouverte") {
+            return Err(EntDbError::Forbidden);
+        }
         let pas = regles_tx(tx, etab, annee_id).await?.pas_saisie_m;
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;
         valider_saisie(body.statut, body.valeur_m, bareme, hors_bareme, pas)

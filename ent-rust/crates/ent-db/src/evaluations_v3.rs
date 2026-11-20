@@ -1026,7 +1026,14 @@ impl PgEnt {
         let mut retours: Vec<CelluleRetourDto> = Vec::with_capacity(body.cellules.len());
         let (mut n_ecrites, mut n_inchangees, mut n_conflits, mut n_refusees) =
             (0i32, 0i32, 0i32, 0i32);
-        for cell in &body.cellules {
+        // V3c : ordre de verrouillage STABLE. Deux lots simultanés qui touchent les mêmes cases dans deux ordres
+        // différents (A puis B, B puis A) pouvaient s'interbloquer (verrous `FOR UPDATE`). Les cases sont traitées dans
+        // l'ordre (évaluation, élève, position d'origine) ; la réponse reste dans l'ordre de la requête.
+        let mut ordre: Vec<usize> = (0..body.cellules.len()).collect();
+        ordre.sort_by_key(|&i| (body.cellules[i].evaluation_id, body.cellules[i].eleve_id, i));
+        let mut retours_ordonnes: Vec<Option<CelluleRetourDto>> = vec![None; body.cellules.len()];
+        for &i in &ordre {
+            let cell = &body.cellules[i];
             let retour = self
                 .eva_v3_une_case(
                     &mut tx,
@@ -1048,8 +1055,9 @@ impl PgEnt {
                 "conflit" => n_conflits += 1,
                 _ => n_refusees += 1,
             }
-            retours.push(retour);
+            retours_ordonnes[i] = Some(retour);
         }
+        retours.extend(retours_ordonnes.into_iter().flatten());
         if let Some(mode) = journal_mode {
             sqlx::query(
                 "INSERT INTO eva_import_journal (id, etablissement_id, cours_id, mode, nb_lignes, nb_cellules,
@@ -1245,7 +1253,7 @@ impl PgEnt {
         let r = sqlx::query(
             "SELECT r.statut, (r.valeur * 1000)::bigint AS valeur_m, r.version, r.saisi_le,
                     (SELECT btrim(COALESCE(p.prenom, '') || ' ' || p.nom) FROM ent_personne p
-                      WHERE p.etablissement_id = r.etablissement_id AND p.user_id = r.saisi_par LIMIT 1) AS par_nom
+                      WHERE p.etablissement_id = r.etablissement_id AND p.user_id = r.saisi_par ORDER BY p.id LIMIT 1) AS par_nom
                FROM eva_resultat r
               WHERE r.etablissement_id = $1 AND r.evaluation_id = $2 AND r.eleve_id = $3",
         )
@@ -1308,7 +1316,7 @@ impl PgEnt {
             "SELECT h.version, h.statut_avant, (h.valeur_avant * 1000)::bigint AS valeur_avant_m, h.statut_apres,
                     (h.valeur_apres * 1000)::bigint AS valeur_apres_m, h.correction, h.motif, h.source, h.le,
                     (SELECT btrim(COALESCE(p.prenom, '') || ' ' || p.nom) FROM ent_personne p
-                      WHERE p.etablissement_id = h.etablissement_id AND p.user_id = h.auteur LIMIT 1) AS auteur_nom
+                      WHERE p.etablissement_id = h.etablissement_id AND p.user_id = h.auteur ORDER BY p.id LIMIT 1) AS auteur_nom
                FROM eva_resultat_historique h
               WHERE h.etablissement_id = $1 AND h.evaluation_id = $2 AND h.eleve_id = $3
               ORDER BY h.version",

@@ -132,6 +132,9 @@ fn Retour(retour: RetourLuDto, erreur: RwSignal<Option<String>>) -> impl IntoVie
             {retour.note_valeur.zip(retour.note_sur).map(|(v, s)| view! {
                 <p class="cdt-travail__detail">{format!("Note : {v} / {s}")}</p>
             })}
+            {retour.note_statut.as_deref().map(|st| view! {
+                <p class="cdt-travail__detail">{format!("Résultat : {}", libelle_statut_resultat(st))}</p>
+            })}
             <Pieces pieces=retour.pieces.clone() erreur=erreur/>
         </section>
     }
@@ -506,4 +509,16 @@ fn Demandes(
         </section>
     }
     .into_any()
+}
+
+/// Libellé d'un statut de résultat non chiffré (jamais un « 0 » : R-V5).
+fn libelle_statut_resultat(statut: &str) -> &'static str {
+    match statut {
+        "absent" => "absent",
+        "a_rattraper" => "à rattraper",
+        "dispense" => "dispensé",
+        "non_rendu" => "non rendu",
+        "annule" => "annulé",
+        _ => "non noté",
+    }
 }

@@ -583,6 +583,27 @@ async fn retours_note_masquee_versions_lot_et_prenom_d_un_autre_eleve() {
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_notes = false WHERE eleve_id = $1").bind(fx.x.id).execute(fx.ent.pool()).await.unwrap();
     let pv = fx.ent.cdt_remise_lire(&fx.parent(&fx.x), t, Some(fx.x.id)).await.unwrap().retour.unwrap();
     assert_eq!(pv.note_valeur, None);
+    // V3c (M2) : un résultat PUBLIÉ qui n'est pas une note (absent, dispensé…) n'est jamais montré « 0 / 20 » : le statut l'est.
+    // Réglage de fixture hors gardes, en transaction (`SET LOCAL` : aucun réglage ne reste sur la connexion du pool).
+    let regler = |sql: &'static str, autre: Uuid| {
+        let pool = fx.ent.pool_verif().clone();
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+            sqlx::query(sql).bind(note).bind(autre).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+    regler("UPDATE eva_resultat SET statut = 'absent', valeur = NULL WHERE id = $1 AND $2::uuid IS NOT NULL", fx.x.id).await;
+    let lu = lire(&fx, &fx.x, t).await.retour.unwrap();
+    assert_eq!((lu.note_valeur, lu.note_sur, lu.note_statut.as_deref()), (None, None, Some("absent")), "statut affiché, jamais 0 / 20");
+    // `eleve_id` revérifié : le résultat lié doit être celui de l'élève de la remise (une liaison forgée ne montre rien).
+    regler("UPDATE eva_resultat SET statut = 'note', valeur = 15, eleve_id = $2 WHERE id = $1", fx.w.id).await;
+    let lu = lire(&fx, &fx.x, t).await.retour.unwrap();
+    assert_eq!((lu.note_valeur, lu.note_statut), (None, None), "la note d'un autre élève ne se montre pas");
+    regler("UPDATE eva_resultat SET eleve_id = $2 WHERE id = $1", fx.x.id).await;
+    let lu = lire(&fx, &fx.x, t).await.retour.unwrap();
+    assert_eq!(lu.note_valeur, Some(15.0));
     // C-D8 : la note de X ne se lie pas à la copie de W, ni la note d'un collègue.
     let err = fx.ent.cdt_retour_enregistrer(&fx.prof(), rw, RetourC5Body { commentaire: "ok".into(), note_id: Some(note), ..Default::default() }, vec![]).await.unwrap_err();
     assert!(est_refus(&err, RefusMetier::Invalide), "{err:?}");

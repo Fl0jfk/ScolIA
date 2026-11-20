@@ -252,6 +252,24 @@ pub(crate) struct CalculClasse {
     pub stats_generale: Option<StatsAff>,
 }
 
+impl CalculClasse {
+    /// V3c (M4) : statistiques de matière **montrables hors du personnel** (bulletin, livret : documents remis aux
+    /// familles). Même seuil que le relevé des familles : `seuil_effectif_stats` (plancher 3, 5 par défaut, R-V12). Sous
+    /// le seuil, ni moyenne de classe, ni minimum, ni maximum : une moyenne de 2 élèves identifie l'autre.
+    pub(crate) fn stats_matiere_montrables(&self, matiere: &Uuid) -> Option<&StatsAff> {
+        self.stats_matiere
+            .get(matiere)
+            .filter(|s| s.effectif >= self.regles.seuil_effectif_stats)
+    }
+
+    /// Idem pour la moyenne générale de la classe.
+    pub(crate) fn stats_generale_montrables(&self) -> Option<&StatsAff> {
+        self.stats_generale
+            .as_ref()
+            .filter(|s| s.effectif >= self.regles.seuil_effectif_stats)
+    }
+}
+
 
 impl PgEnt {
     /// Période de notes, avec son statut DÉRIVÉ (machine d'états de ses classes).
@@ -1049,6 +1067,8 @@ impl PgEnt {
         if !self.actor_can_read_notes(etab, acteur, role, eleve_id).await? {
             return Err(EntDbError::Forbidden);
         }
+        // V3c : garde du socle 2 sur TOUTE lecture par élève (élève protégé « introuvable » pour un tiers du personnel).
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id).await?;
         let staff = Role::parse(role).is_some_and(|r| r.is_staff());
         let periode = self.eva_periode(etab, periode_id).await?;
         let Some(classe_id) = self

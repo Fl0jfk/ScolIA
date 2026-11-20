@@ -353,9 +353,9 @@ pub(crate) async fn devoir_eva_brute(
     .execute(&mut *tx).await.unwrap();
     sqlx::query(
         "INSERT INTO eva_evaluation (id, etablissement_id, annee_id, cours_id, periode_id, date_eval, titre, mode, bareme, coef,
-                                     etat, publication, cree_par)
+                                     etat, publication, annoncee, cree_par)
          VALUES ($1, $2, $3, $4, (SELECT periode_id FROM ent_note_periode WHERE etablissement_id = $2 AND id = $5), $6, $7,
-                 'note', 20, $8::double precision, 'ouverte', 'explicite', $9)",
+                 'note', 20, $8::double precision, 'ouverte', 'explicite', true, $9)",
     )
     .bind(evaluation).bind(etab).bind(annee).bind(cours).bind(periode_note).bind(date).bind(titre).bind(coef).bind(auteur)
     .execute(&mut *tx).await.unwrap();
@@ -883,7 +883,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
         Err(EntDbError::SaisieInvalide(_))
     ));
     let v2 = ent.generer_bulletins_for_actor(etab, dir, "direction", &GenererBulletinsBody { motif: Some("Correction d'une note".into()), ..gen_body.clone() }).await.unwrap();
-    // Michael change (moyenne), Hannah aussi (moyenne de classe sur sa ligne), Susan aussi.
+    // Seul Michael change (sa moyenne) : la moyenne de classe n'est plus imprimée sous le seuil d'effectif (M4).
     assert!(v2.bulletins.iter().all(|x| x.version == 2));
     let v2c = v2.bulletins.iter().find(|x| x.eleve_id == c).unwrap();
     let d2c = ent.bulletin_detail_for_actor(etab, dir, "direction", v2c.id).await.unwrap();
@@ -906,8 +906,11 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     assert!(versions.iter().any(|v| v.version == 1 && v.statut == "remplace"));
     assert!(versions.iter().any(|v| v.version == 2 && v.statut == "publie"));
     let fam_c: Vec<_> = ent.bulletins_eleve_for_actor(etab, lea, "parent", a).await.unwrap();
+    // V3c (M4) : la classe compte 3 élèves, sous le seuil des statistiques montrées aux familles (5 par défaut) : la moyenne
+    // de classe n'est plus imprimée au bulletin. La correction de Michael ne change donc plus la ligne de Hannah : son
+    // bulletin n'a pas de nouvelle version (avant, la moyenne de classe changeait et forçait une version 2).
     assert_eq!(fam_c.len(), 1, "la famille ne voit que la version publiée en cours");
-    assert_eq!(fam_c[0].version, 2);
+    assert_eq!(fam_c[0].version, 1);
 
     // Export LSU / LSL : format documenté, anomalies signalées, trace d'export.
     assert!(matches!(
@@ -1205,6 +1208,10 @@ async fn e2e_v3b_une_note_saisie_puis_publiee_est_lue_partout_avec_la_meme_moyen
     let v1 = ent.generer_bulletins_for_actor(etab, dir, "direction", &gen_body).await.unwrap();
     let bul = v1.bulletins.iter().find(|x| x.eleve_id == a).unwrap().id;
     assert_eq!(ent.bulletin_detail_for_actor(etab, dir, "direction", bul).await.unwrap().contenu.moyenne_generale, Some(11.5));
+    // V3c (M4) : la direction est prévenue qu'une évaluation de la période n'a JAMAIS été publiée (ses notes ne sont pas dans
+    // les moyennes imprimées) ; cette alerte ne vit que dans le rapport de génération, jamais dans le bulletin.
+    assert_eq!(v1.alertes.len(), 1, "{:?}", v1.alertes);
+    assert!(v1.alertes[0].contains("Brouillon") && v1.alertes[0].contains("jamais publiée"), "{:?}", v1.alertes);
     // Une fois publiée, la même évaluation entre partout, avec la même moyenne.
     statut(&ent, &cast, &m, "ouverte").await;
     ent.publier_devoir_for_actor(etab, prof, "prof", d3.id).await.unwrap();

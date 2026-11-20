@@ -298,7 +298,7 @@ impl PgEnt {
                 .matieres
                 .iter()
                 .map(|(m, lib, _, coef)| {
-                    let st = calc.stats_matiere.get(m);
+                    let st = calc.stats_matiere_montrables(m);
                     BulletinLigneDto {
                         matiere: lib.clone(),
                         coef: *coef,
@@ -337,7 +337,7 @@ impl PgEnt {
                     arrondi: a.to_string(),
                     lignes,
                     moyenne_generale: calc.generales.get(id).map(|g| g.valeur()),
-                    moyenne_generale_classe: calc.stats_generale.map(|s| s.moyenne.valeur()),
+                    moyenne_generale_classe: calc.stats_generale_montrables().map(|s| s.moyenne.valeur()),
                     appreciation_generale: apprs
                         .iter()
                         .find(|(e, m, _)| e == id && m.is_none())
@@ -352,6 +352,42 @@ impl PgEnt {
             ));
         }
         Ok(out)
+    }
+
+    /// V3c (M4) : évaluations ouvertes de la classe sur la période qui ont des résultats mais **n'ont jamais été
+    /// publiées** (ni `publiee_le`, ni `premiere_publiee_le`) : leurs notes sont absentes des moyennes imprimées.
+    /// Une évaluation publiée puis retirée n'est pas « jamais publiée » (elle a une première publication).
+    async fn eva_alertes_jamais_publiees(
+        &self,
+        etab: Uuid,
+        classe_id: Uuid,
+        du: NaiveDate,
+        au: NaiveDate,
+    ) -> Result<Vec<String>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let lignes: Vec<(String, NaiveDate)> = sqlx::query_as(
+            "SELECT e.titre, e.date_eval
+               FROM eva_evaluation e
+               JOIN ent_cours c ON c.id = e.cours_id AND c.etablissement_id = e.etablissement_id
+              WHERE e.etablissement_id = $1 AND c.classe_id = $2 AND e.date_eval BETWEEN $3 AND $4
+                AND e.mode = 'note' AND e.etat = 'ouverte'
+                AND e.publiee_le IS NULL AND e.premiere_publiee_le IS NULL
+                AND EXISTS (SELECT 1 FROM eva_resultat r
+                             WHERE r.etablissement_id = e.etablissement_id AND r.evaluation_id = e.id
+                               AND r.statut = 'note')
+              ORDER BY e.date_eval, e.titre, e.id",
+        )
+        .bind(etab)
+        .bind(classe_id)
+        .bind(du)
+        .bind(au)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(lignes
+            .into_iter()
+            .map(|(titre, jour)| format!("« {titre} » du {jour} : jamais publiée, ses notes ne sont pas dans les moyennes du bulletin"))
+            .collect())
     }
 
     async fn exiger_action_bulletins(&self, etab: Uuid, acteur: Uuid, role: &str) -> Result<(), EntDbError> {
@@ -476,7 +512,10 @@ impl PgEnt {
         }
         tx.commit().await.map_err(db)?;
         let bulletins = self.eva_bulletins_par_ids(etab, &crees).await?;
-        Ok(RapportBulletinsDto { bulletins, inchanges })
+        let alertes = self
+            .eva_alertes_jamais_publiees(etab, body.classe_id, periode.date_debut, periode.date_fin)
+            .await?;
+        Ok(RapportBulletinsDto { bulletins, inchanges, alertes })
     }
 
     async fn eva_bulletins_par_ids(&self, etab: Uuid, ids: &[Uuid]) -> Result<Vec<BulletinDto>, EntDbError> {
@@ -607,6 +646,7 @@ impl PgEnt {
         Ok(RapportBulletinsDto {
             inchanges: total.saturating_sub(bulletins.len() as u32),
             bulletins,
+            alertes: Vec::new(),
         })
     }
 
@@ -883,7 +923,7 @@ impl PgEnt {
                         code: code.clone(),
                         libelle: lib.clone(),
                         moyenne: calc.moyennes.get(&(*id, *m)).map(|x| x.valeur()),
-                        moyenne_classe: calc.stats_matiere.get(m).map(|s| s.moyenne.valeur()),
+                        moyenne_classe: calc.stats_matiere_montrables(m).map(|s| s.moyenne.valeur()),
                         appreciation: apprs
                             .iter()
                             .find(|(e, mm, _)| e == id && *mm == Some(*m))

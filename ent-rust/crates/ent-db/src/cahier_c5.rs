@@ -509,17 +509,31 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let (valeur, sur) = match (r.montrer_note && note_autorisee, r.note_id) {
+        // V3c (M2) : la note liée se lit dans `eva_resultat_publie` (évaluation PUBLIÉE seulement), **revérifiée pour
+        // l'élève de la remise** (`eleve_id`), et jamais par la vue de compatibilité `ent_note` qui rendait 0 pour un
+        // absent, un dispensé ou un annulé. Valeur numérique seulement pour le statut `note` ; sinon le STATUT est
+        // montré (« Absent », « Dispensé »…), jamais un « 0 / 20 ».
+        let (valeur, sur, statut) = match (r.montrer_note && note_autorisee, r.note_id) {
             (true, Some(n)) => {
-                let v: Option<(f64, f64)> = sqlx::query_as("SELECT valeur, sur FROM ent_note WHERE etablissement_id = $1 AND id = $2 AND publiee")
-                    .bind(etab)
-                    .bind(n)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                v.map(|(a, b)| (Some(a), Some(b))).unwrap_or((None, None))
+                let v: Option<(String, Option<f64>, f64)> = sqlx::query_as(
+                    "SELECT p.statut, p.valeur::double precision, p.bareme::double precision
+                       FROM eva_resultat_publie p
+                       JOIN ent_cdt_remise t ON t.etablissement_id = p.etablissement_id AND t.eleve_id = p.eleve_id
+                      WHERE p.etablissement_id = $1 AND p.id = $2 AND t.id = $3",
+                )
+                .bind(etab)
+                .bind(n)
+                .bind(remise)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
+                match v {
+                    Some((st, Some(val), bareme)) if st == "note" => (Some(val), Some(bareme), None),
+                    Some((st, _, _)) if st != "note" => (None, None, Some(st)),
+                    _ => (None, None, None),
+                }
             }
-            _ => (None, None),
+            _ => (None, None, None),
         };
         let pieces = self.pieces_c5(tx, etab, "retour", r.id).await?;
         Ok(Some(RetourLuDto {
@@ -531,6 +545,7 @@ impl PgEnt {
             criteres: criteres.into_iter().map(|(libelle, niveau)| CritereDto { libelle, niveau }).collect(),
             note_valeur: valeur,
             note_sur: sur,
+            note_statut: statut,
             pieces,
         }))
     }

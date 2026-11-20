@@ -595,6 +595,9 @@ async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -
                   FROM ent_note n
                   JOIN ent_eleve el ON el.id = n.eleve_id AND el.etablissement_id = n.etablissement_id
                  WHERE n.etablissement_id = $1 AND n.devoir_id = $2
+                   -- V3c : seul un élève qui a une NOTE est prévenu « nouvelle note » ; un absent, un dispensé, un
+                   -- non-noté ou un résultat annulé n'est pas concerné (et son statut ne se déduit pas d'un avis).
+                   AND n.statut = 'note'
                  ORDER BY el.prenom
                 "#,
             )

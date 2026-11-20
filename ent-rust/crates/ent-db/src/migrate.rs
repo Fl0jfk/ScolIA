@@ -487,6 +487,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Correctifs de la revue de sécurité de V3 qui touchent la base : attestation du droit de correction (F2), première
     // publication d'une évaluation (F4).
     m!("473_eva_v3b_revue_securite"),
+    // Lot V3c : revue de sécurité de V3b (auteur obligatoire sur un résultat, vue `ent_note` sans 0 de substitution).
+    m!("474_eva_v3c_revue_securite"),
+    // Lot V4 « absences, dispenses, aménagements, rattrapages » : ports 12 (lecture), 34 et AESH (simulation), 35 (lecture),
+    // convocations de rattrapage et de remplacement, marque « aménagé » posée par la base.
+    m!("475_eva_v4_absences_dispenses_rattrapages"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -774,23 +779,43 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
 async fn apply_sql_file_rejeu(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
     for stmt in ordres(sql) {
         if let Err(e) = sqlx::query(&stmt).execute(pool).await {
-            let vue_legacy = vise_ent_note_ou_devoir(&stmt);
-            // Un appel de fonction ancienne (112 : `ent_rattacher_classes`, remplacée par 472 mais redéfinie par le rejeu
-            // de son fichier) échoue sur la vue : l'erreur nomme alors la vue, pas l'ordre.
-            let (code_vue, nomme_vue) = match &e {
-                sqlx::Error::Database(d) => (
-                    d.code().is_some_and(|c| c == "42809" || c == "55000" || c == "42601"),
-                    d.message().contains("\"ent_devoir\"") || d.message().contains("\"ent_note\""),
-                ),
-                _ => (false, false),
+            let code = match &e {
+                sqlx::Error::Database(d) => d.code().map(|c| c.to_string()).unwrap_or_default(),
+                _ => String::new(),
             };
-            if code_vue && (vue_legacy || nomme_vue) {
+            if rejeu_tolere(&code, &stmt) {
                 continue;
             }
             return Err(e.into());
         }
     }
     Ok(())
+}
+
+/// L'unique ordre de 460 qui échoue au rejeu en `42601` : l'archivage des doublons de notes (`SELECT n.*` face à
+/// `ent_note_doublon_archive`, dont la forme ne suit plus celle de la vue). Texte **exact**, espaces normalisés.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+const ORDRE_460_DOUBLONS: &str = "WITH classees AS ( SELECT n.id, first_value(n.id) OVER w AS garde FROM ent_note n LEFT JOIN (SELECT DISTINCT note_id FROM ent_note_correction) c ON c.note_id = n.id WHERE n.devoir_id IS NOT NULL WINDOW w AS (PARTITION BY n.etablissement_id, n.devoir_id, n.eleve_id ORDER BY (c.note_id IS NOT NULL) DESC, n.created_at DESC, n.id DESC) ), en_trop AS ( SELECT id, garde FROM classees WHERE id <> garde ), archivees AS ( INSERT INTO ent_note_doublon_archive SELECT n.*, e.garde, now() FROM ent_note n JOIN en_trop e ON e.id = n.id RETURNING id ) DELETE FROM ent_note WHERE id IN (SELECT id FROM archivees)";
+
+/// Le rejeu tolère-t-il cet échec ? **Liste fermée** (V3c, M5) : avant, trois SQLSTATE (42809, 55000, 42601) étaient tolérés
+/// pour tout ordre citant `ent_note` ou `ent_devoir`, ce qui aurait masqué une vraie faute de syntaxe dans une migration
+/// future qui cite ces noms. Désormais :
+/// * `42809` (« n'est pas une table ») : seulement une instruction qui cite `ent_note` ou `ent_devoir` comme identifiant
+///   entier (colonne, index, contrainte, déclencheur sur ce qui est devenu une vue) ;
+/// * `55000` : seulement l'appel exact `SELECT count(*) FROM ent_rattacher_classes()` (fonction de 112 redéfinie par le rejeu) ;
+/// * `42601` : seulement l'ordre exact de 460 (`ORDRE_460_DOUBLONS`) ;
+/// * tout autre code, ou tout autre ordre : fatal.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+fn rejeu_tolere(code: &str, stmt: &str) -> bool {
+    let normalise = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
+    match code {
+        "42809" => vise_ent_note_ou_devoir(stmt),
+        "55000" => normalise == "SELECT count(*) FROM ent_rattacher_classes()",
+        "42601" => normalise == ORDRE_460_DOUBLONS,
+        _ => false,
+    }
 }
 
 /// Vrai si l'ordre cite `ent_note` ou `ent_devoir` comme identifiant entier (pas `ent_note_periode`, `ent_devoir_archive`…).
@@ -833,6 +858,30 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn le_rejeu_ne_tolere_que_les_ordres_exacts_attendus() {
+        use super::{rejeu_tolere, ORDRE_460_DOUBLONS};
+        // L'ordre exact de 460 est toléré en 42601 (espaces et retours à la ligne indifférents)…
+        assert!(rejeu_tolere("42601", ORDRE_460_DOUBLONS));
+        assert!(rejeu_tolere("42601", &ORDRE_460_DOUBLONS.replace(' ', "\n  ")));
+        // …mais pas une autre faute de syntaxe qui cite `ent_note` (c'était toléré avant V3c).
+        assert!(!rejeu_tolere("42601", "SELECT n.* FROM ent_note n WHERE n.etablissement_id = $1 AND"));
+        assert!(!rejeu_tolere("42601", &format!("{ORDRE_460_DOUBLONS} -- modifié")));
+        assert!(!rejeu_tolere("42601", "INSERT INTO ent_note_doublon_archive SELECT n.* FROM ent_note n WHERE n.etablissement_id = $1"));
+        // 55000 : l'appel exact, pas un autre appel ni un ordre qui cite la vue.
+        assert!(rejeu_tolere("55000", "SELECT count(*) FROM ent_rattacher_classes()"));
+        assert!(!rejeu_tolere("55000", "UPDATE ent_note SET valeur = 1 WHERE etablissement_id = $1"));
+        assert!(!rejeu_tolere("55000", "SELECT count(*) FROM ent_autre_fonction()"));
+        // 42809 : DDL qui cite la vue comme identifiant entier ; pas `ent_note_periode`, ni un ordre qui ne la cite pas.
+        assert!(rejeu_tolere("42809", "CREATE INDEX IF NOT EXISTS ent_note_eleve_idx ON ent_note (etablissement_id)"));
+        assert!(rejeu_tolere("42809", "ALTER TABLE ent_devoir ADD COLUMN IF NOT EXISTS x INT"));
+        assert!(!rejeu_tolere("42809", "ALTER TABLE ent_note_periode ADD COLUMN x INT"));
+        // Tout autre code reste fatal, même pour un ordre qui cite ent_note.
+        for code in ["42P01", "23505", "42703", "22P02", ""] {
+            assert!(!rejeu_tolere(code, "ALTER TABLE ent_note ADD COLUMN IF NOT EXISTS statut TEXT"));
+        }
+    }
+
     use super::*;
 
     /// Garde anti-dérive : le tag annoncé par `/health` suit le dernier fichier

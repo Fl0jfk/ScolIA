@@ -1388,13 +1388,23 @@ async fn eleve_protege_introuvable_pour_un_tiers_et_absent_de_la_grille() {
             .len(),
         2
     );
-    // La direction (accès aux protégés) le voit et écrit.
+    // La direction (accès aux protégés) le voit ; elle n'écrit pas à la place du professeur tant que la période est
+    // ouverte (V3c, M3), mais corrige après l'arrêt, avec un motif.
     let grille_dir = ent
         .eva_v1_grille_eleves_for_actor(w.etab, w.direction, DIR, ev)
         .await
         .unwrap();
     assert_eq!(grille_dir.len(), 3);
-    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev, protege, 10_000))
+    assert!(matches!(
+        ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &note(ev, protege, 10_000)).await,
+        Err(EntDbError::Forbidden)
+    ));
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    let corr = EcrireResultat {
+        motif: Some("correction après l'arrêt".into()),
+        ..note(ev, protege, 10_000)
+    };
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.direction, DIR, &corr)
         .await
         .unwrap();
 }
@@ -2352,8 +2362,11 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
         .unwrap();
     let p = ent.pool_verif();
     // Résultats : mêmes identifiants, élèves, évaluations, statuts, valeurs (à trois décimales).
-    let ancien: Vec<(Uuid, Uuid, Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note_archive
+    // V3c (M2) : la vue ne rend plus de « 0 » de substitution : `valeur` n'est renseignée que pour le statut `note` ; l'archive,
+    // elle, garde ce que l'ancien écrivain avait posé (0 pour un statut).
+    let ancien: Vec<(Uuid, Uuid, Uuid, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, eleve_id, devoir_id, statut,
+                CASE WHEN statut = 'note' THEN round(valeur::numeric, 3)::text END FROM ent_note_archive
           WHERE etablissement_id = $1 AND devoir_id IS NOT NULL AND eleve_id = ANY($2) ORDER BY id",
     )
     .bind(w.etab)
@@ -2361,7 +2374,7 @@ async fn vues_de_compatibilite_rendent_la_forme_des_anciennes_tables() {
     .fetch_all(p)
     .await
     .unwrap();
-    let vue: Vec<(Uuid, Uuid, Uuid, String, String)> = sqlx::query_as(
+    let vue: Vec<(Uuid, Uuid, Uuid, String, Option<String>)> = sqlx::query_as(
         "SELECT id, eleve_id, devoir_id, statut, round(valeur::numeric, 3)::text FROM ent_note
           WHERE etablissement_id = $1 AND eleve_id = ANY($2) ORDER BY id",
     )

@@ -70,6 +70,7 @@ mod assiduite_verification;
 mod vie_scolaire;
 mod evaluations;
 mod evaluations_v3;
+mod evaluations_v4;
 mod agenda;
 mod communication_s28;
 mod accords_s18;

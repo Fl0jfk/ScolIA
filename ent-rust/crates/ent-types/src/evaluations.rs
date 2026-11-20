@@ -436,6 +436,10 @@ pub struct RapportBulletinsDto {
     pub bulletins: Vec<BulletinDto>,
     /// Élèves dont le bulletin était déjà à jour (aucune nouvelle version).
     pub inchanges: u32,
+    /// V3c (M4) : alertes pour la direction (jamais pour les familles) : évaluations de la période **jamais publiées**
+    /// (leurs résultats ne sont pas dans les moyennes imprimées), une ligne par évaluation (titre, date).
+    #[serde(default)]
+    pub alertes: Vec<String>,
 }
 
 // ───────────────────────────── Consultation famille / élève ─────────────────────────────
