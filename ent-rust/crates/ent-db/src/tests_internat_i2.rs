@@ -1998,6 +1998,11 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
         eleves.push(e);
     }
     let etats = ["inscrit", "pret", "parti", "liste_attente", "bloque", "rentre", "remis", "parti_seul_autorise", "absent_depart"];
+    // Les états « remis » et « parti_seul_autorise » sont refusés par la garde de base (2827, M4) : ce test éprouve la LECTURE
+    // de l'attendu sur ces états de la contrainte, il les pose donc dans une transaction qui lève les déclencheurs (rôle de
+    // réplication, ce seul passage), sans jamais désactiver la garde pour les autres tests.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
     for (i, etat) in etats.iter().enumerate() {
         sqlx::query("INSERT INTO ent_sortie_participant (id, etablissement_id, sortie_id, eleve_id, etat, rang_attente) VALUES ($1,$2,$3,$4,$5, CASE WHEN $5 = 'liste_attente' THEN 1 END)")
             .bind(Uuid::new_v4())
@@ -2005,10 +2010,11 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
             .bind(sortie)
             .bind(eleves[i])
             .bind(etat)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .unwrap();
     }
+    tx.commit().await.unwrap();
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
     let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == eleves[i]).unwrap().statut.clone();
     assert_eq!(statut(0), "attendu", "inscrit : autorisation non confirmée, dort à l'internat");
