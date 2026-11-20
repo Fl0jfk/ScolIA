@@ -94,15 +94,29 @@ DROP TRIGGER IF EXISTS ent_internat_perte_droit_poser ON ent_eleve_lien;
 CREATE TRIGGER ent_internat_perte_droit_poser AFTER INSERT OR UPDATE OF autorite_parentale, garde, suspendu_le, date_fin
     ON ent_eleve_lien FOR EACH ROW EXECUTE FUNCTION ent_internat_perte_droit_poser();
 
--- Le personnel de l'établissement (M1) : un compte qui n'a AUCUN rôle parent ni élève dans l'établissement ne pose jamais
--- d'acte de famille ; ses actes (désignation d'un correspondant, décision d'autorisation annuelle prise ou saisie par le
--- CPE ou la direction) ne tombent donc pas pour « absence de lien ». Une interdiction qui le viserait vaut toujours.
-CREATE OR REPLACE FUNCTION ent_internat_personnel_seul(p_etab UUID, p_user UUID)
+-- Le personnel « seul » (M1, revu E2) : compte du personnel SANS AUCUN lien avec l'élève visé. Il n'a alors pas de lien à
+-- perdre : ses actes (désignation d'un correspondant, décision d'autorisation annuelle prise ou saisie par le CPE ou la
+-- direction) ne tombent pas pour « absence de lien ». Ce n'est PLUS un laissez-passer : un agent qui est aussi proche de
+-- l'élève (lien direct ou par une fiche de la chaîne de fusions, compte de l'élève, casquette parent ou élève, rôle parent
+-- ou élève) est jugé sur son lien, comme tout titulaire. Une interdiction qui le viserait vaut toujours.
+DROP FUNCTION IF EXISTS ent_internat_personnel_seul(UUID, UUID);
+CREATE OR REPLACE FUNCTION ent_internat_personnel_seul(p_etab UUID, p_eleve UUID, p_user UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
     SELECT EXISTS (SELECT 1 FROM ent_membership m
                     WHERE m.etablissement_id = p_etab AND m.user_id = p_user AND m.role NOT IN ('parent', 'eleve'))
        AND NOT EXISTS (SELECT 1 FROM ent_membership m
                         WHERE m.etablissement_id = p_etab AND m.user_id = p_user AND m.role IN ('parent', 'eleve'))
+       AND NOT EXISTS (SELECT 1 FROM ent_membership_casquette c
+                        WHERE c.etablissement_id = p_etab AND c.user_id = p_user AND c.casquette IN ('parent', 'eleve'))
+       AND NOT EXISTS (SELECT 1 FROM ent_eleve_compte k
+                        WHERE k.etablissement_id = p_etab AND k.eleve_id = p_eleve AND k.user_id = p_user)
+       AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien l
+                        WHERE l.etablissement_id = p_etab AND l.eleve_id = p_eleve
+                          AND (l.user_id = p_user
+                               OR l.personne_id IN (
+                                    SELECT ent_internat_personne_chaine(p_etab, pe.id)
+                                      FROM ent_personne pe
+                                     WHERE pe.etablissement_id = p_etab AND pe.user_id = p_user)))
 $$;
 
 -- Perte de droit (R1, passe 4) : mêmes règles, datées par les FAITS ci-dessus (2827) et non plus par `updated_at`.
@@ -150,7 +164,8 @@ RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
       FROM etat e
 $$;
 
--- Compte « visé » (passe 4, R1) : interdiction OU perte de droit ; M1 : le personnel seul n'a pas de lien à perdre.
+-- Compte « visé » (passe 4, R1) : interdiction OU perte de droit. E2 : le personnel SEUL (aucun lien avec l'élève) n'a pas
+-- de lien à perdre ; tout autre compte est jugé sur son lien (`p_sans_lien_perdu := NOT personnel_seul`), jamais exempté.
 CREATE OR REPLACE FUNCTION ent_internat_user_vise(p_etab UUID, p_eleve UUID, p_user UUID, p_jour DATE)
 RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
     SELECT GREATEST(
@@ -159,17 +174,16 @@ RETURNS TIMESTAMPTZ LANGUAGE sql STABLE AS $$
                  UNION
                  SELECT personne_id FROM ent_eleve_lien
                   WHERE etablissement_id = p_etab AND eleve_id = p_eleve AND user_id = p_user) x),
-        (CASE WHEN ent_internat_personnel_seul(p_etab, p_user) THEN NULL
-              ELSE ent_internat_perte_droit(
-                    p_etab, p_eleve,
-                    ARRAY(SELECT id FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user),
-                    p_user, p_jour, true) END))
+        ent_internat_perte_droit(
+            p_etab, p_eleve,
+            ARRAY(SELECT id FROM ent_personne WHERE etablissement_id = p_etab AND user_id = p_user),
+            p_user, p_jour, NOT ent_internat_personnel_seul(p_etab, p_eleve, p_user)))
 $$;
 
 -- ───────────────────────── 3. M3 — tiers autorisé à récupérer ─────────────────────────
 -- Un grand-parent, beau-parent ou proche SANS autorité parentale peut être remis à l'élève s'il porte ce statut explicite,
 -- posé par le personnel (CPE, direction : droit `internat.sorties.decider`) à la DEMANDE ÉCRITE d'un titulaire de l'autorité
--- parentale (`demande_par_personne_id`, `demande_ecrite_le`), daté (du / au, un an au plus), motivé, historisé (faits
+-- parentale (`demande_par_personne_id`, `demande_ecrite_le`), daté (du / au, un an au plus : 365 jours), motivé, historisé (faits
 -- `tiers_*` du journal I3) et révocable. Il obéit à toutes les règles générales : interdiction (toujours prioritaire, chaîne
 -- de fusions comprise), acte qui tombe avec son auteur (le demandeur devenu visé ou sans droit ferme la porte), refus par
 -- défaut, désaccord entre titulaires (« conteste » : le plus restrictif jusqu'à la décision de la direction).
@@ -195,7 +209,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_tiers_autorise (
         REFERENCES ent_personne (etablissement_id, id),
     CONSTRAINT ent_internat_tiers_autorise_demandeur_cfk FOREIGN KEY (etablissement_id, demande_par_personne_id)
         REFERENCES ent_personne (etablissement_id, id),
-    CONSTRAINT ent_internat_tiers_autorise_dates_chk CHECK (au >= du AND au <= du + 366),
+    CONSTRAINT ent_internat_tiers_autorise_dates_chk CHECK (au >= du AND au <= du + 365),
     CONSTRAINT ent_internat_tiers_autorise_distinct_chk CHECK (personne_id <> demande_par_personne_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ent_internat_tiers_autorise_actif_uq
@@ -250,7 +264,8 @@ ALTER TABLE ent_internat_i3_fait ADD CONSTRAINT ent_internat_i3_fait_acte_check 
     'opposition', 'tranchee_maintenue', 'tranchee_levee', 'regularisation', 'annulation', 'depart', 'retour',
     'retard_annonce', 'revocation', 'suspension', 'reprise', 'expiration', 'designation', 'fin',
     'depart_refuse', 'accord_remis_a_zero', 'retard_demande', 'retard_refuse', 'signalement', 'requalification',
-    'tiers_pose', 'tiers_opposition', 'tiers_levee', 'tiers_maintenu', 'tiers_revocation', 'tiers_reprise'));
+    'tiers_pose', 'tiers_opposition', 'tiers_levee', 'tiers_maintenu', 'tiers_revocation', 'tiers_reprise',
+    'tiers_echeance'));
 ALTER TABLE ent_internat_i3_fait DROP CONSTRAINT IF EXISTS ent_internat_i3_fait_objet_chk;
 ALTER TABLE ent_internat_i3_fait ADD CONSTRAINT ent_internat_i3_fait_objet_chk CHECK (
     (acte <> 'requalification'
@@ -260,8 +275,10 @@ ALTER TABLE ent_internat_i3_fait ADD CONSTRAINT ent_internat_i3_fait_objet_chk C
         AND absence_id IS NULL AND sortie_id IS NULL AND correspondant_id IS NULL AND tiers_id IS NULL));
 
 -- Un lien de l'élève (chaîne de fusions comprise) écarte la personne : suspendu, garde « aucune », terminé ou pas encore
--- commencé. L'autorité parentale retirée n'écarte PAS (c'est le cas même du proche sans autorité). Définition unique, lue
--- par la porte « tiers » de `ent_internat_remise` et par la pose du statut (service).
+-- commencé, OU sans autorité parentale pour un lien de type `mere`, `pere` ou `tuteur` (un parent ou tuteur privé de
+-- l'autorité ne se rétablit pas comme tiers : décision de justice). Un proche de lien `autre` sans autorité reste posable
+-- (c'est le cas même du grand-parent). DÉFINITION UNIQUE : lue par la porte « contact » ET la porte « tiers autorisé » de
+-- `ent_internat_remise`, et par la pose du statut (service) ; une autorité retirée après coup ferme donc les deux portes.
 CREATE OR REPLACE FUNCTION ent_internat_lien_ecarte(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
     SELECT EXISTS (
@@ -270,7 +287,8 @@ RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
            AND sl.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
            AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune'
                 OR (sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
-                OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)))
+                OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)
+                OR (NOT sl.autorite_parentale AND lower(btrim(sl.lien)) IN ('mere', 'pere', 'tuteur'))))
 $$;
 
 -- La porte unique de remise (2826), avec la porte « tiers autorisé » : statut « actif » aujourd'hui, personne non fusionnée,
@@ -284,7 +302,7 @@ RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
                (NOT p_sans_cible_levee
                 AND ent_internat_interdiction_sans_cible(p_etab, p_eleve, p_jour, false) IS NOT NULL) AS sans_cible,
                (SELECT x.rel FROM (
-                    SELECT COALESCE(NULLIF(btrim(l.lien), ''), 'titulaire') AS rel
+                    SELECT 1 AS ord, COALESCE(NULLIF(btrim(l.lien), ''), 'titulaire') AS rel
                       FROM ent_eleve_lien l
                       JOIN ent_personne p ON p.etablissement_id = l.etablissement_id AND p.id = l.personne_id
                      WHERE l.etablissement_id = p_etab AND l.eleve_id = p_eleve AND l.personne_id = p_personne
@@ -293,22 +311,15 @@ RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
                        AND (l.date_fin IS NULL OR l.date_fin >= p_jour)
                        AND p.fusionnee_dans IS NULL
                     UNION ALL
-                    SELECT COALESCE(NULLIF(btrim(c.relation), ''), 'personne autorisée')
+                    SELECT 2, COALESCE(NULLIF(btrim(c.relation), ''), 'personne autorisée')
                       FROM ent_eleve_contact_urgence c
                       JOIN ent_personne p ON p.etablissement_id = c.etablissement_id AND p.id = c.personne_id
                      WHERE c.etablissement_id = p_etab AND c.eleve_id = p_eleve AND c.personne_id = p_personne
                        AND c.peut_recuperer AND c.statut = 'valide' AND p.fusionnee_dans IS NULL
-                       AND NOT EXISTS (
-                            SELECT 1 FROM ent_eleve_lien sl
-                             WHERE sl.etablissement_id = p_etab AND sl.eleve_id = p_eleve
-                               AND sl.personne_id IN (SELECT ent_internat_personne_chaine(p_etab, p_personne))
-                               AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune'
-                                    OR NOT sl.autorite_parentale
-                                    OR (sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
-                                    OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)))
+                       AND NOT ent_internat_lien_ecarte(p_etab, p_eleve, p_personne, p_jour)
                        AND NOT ent_internat_contact_suspect(p_etab, p_eleve, p_personne, p_jour)
                     UNION ALL
-                    SELECT 'tiers autorisé'
+                    SELECT 3, 'tiers autorisé'
                       FROM ent_internat_tiers_autorise t
                       JOIN ent_personne p ON p.etablissement_id = t.etablissement_id AND p.id = t.personne_id
                      WHERE t.etablissement_id = p_etab AND t.eleve_id = p_eleve AND t.personne_id = p_personne
@@ -318,7 +329,7 @@ RETURNS TABLE (code TEXT, relation TEXT) LANGUAGE sql STABLE AS $$
                             ent_internat_personne_visee(p_etab, p_eleve, t.demande_par_personne_id, p_jour),
                             ent_internat_perte_droit(p_etab, p_eleve, ARRAY[t.demande_par_personne_id], NULL,
                                                      p_jour, true)) IS NULL
-                ) x LIMIT 1) AS rel
+                ) x ORDER BY x.ord, x.rel LIMIT 1) AS rel
     )
     SELECT CASE WHEN visee THEN 'interdite'
                 WHEN sans_cible THEN 'sans_cible'

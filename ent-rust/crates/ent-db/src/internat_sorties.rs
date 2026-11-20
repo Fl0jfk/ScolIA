@@ -4151,6 +4151,8 @@ impl PgEnt {
             fait_tx(&mut tx, etab, Cible::Sortie(*id), "expiration", "systeme", None, maintenant, None, None, None, None).await?;
         }
         sortie.sorties_expirees = expirees.len() as i32;
+        // 3 bis. F4 : tiers autorisés dont l'échéance approche (alerte unique, sans motif ni demandeur).
+        sortie.tiers_a_echeance = self.alerter_tiers_echeance_tx(&mut tx, etab, aujourdhui, maintenant).await?;
         // 4. Revue des sorties à venir : interdiction survenue, correspondant suspendu.
         let bilan = self.reviser_sorties_tx(&mut tx, etab, None, aujourdhui, maintenant).await?;
         tx.commit().await.map_err(db)?;

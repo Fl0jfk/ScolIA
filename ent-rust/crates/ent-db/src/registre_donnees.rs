@@ -108,6 +108,9 @@ pub struct ClasseTable {
     pub fichiers: Fichiers,
     /// Incluse dans l'export de portabilité (RGPD art. 20) de la personne.
     pub export_portabilite: bool,
+    /// Colonnes que l'export de la personne ne rend JAMAIS (motif écrit, demandeur… : elles révèlent un tiers ou une
+    /// décision interne). Vide pour la plupart des tables ; l'assemblage de l'extrait les retire (lot G3).
+    pub colonnes_hors_export: &'static [&'static str],
     pub neutralisation: Neutralisation,
     pub retention: Retention,
     exceptions: [Option<&'static str>; 3],
@@ -142,6 +145,7 @@ const fn t(nom: &'static str, domaine: &'static str, portee: Portee) -> ClasseTa
         sante: false,
         fichiers: Fichiers::Aucun,
         export_portabilite: false,
+        colonnes_hors_export: &[],
         neutralisation: Neutralisation::Aucune,
         retention: Retention::ADefinir,
         exceptions: [None; 3],
@@ -164,6 +168,11 @@ impl ClasseTable {
     }
     const fn export(mut self) -> Self {
         self.export_portabilite = true;
+        self
+    }
+    /// Colonnes retirées de l'export de portabilité de la personne (voir [`ClasseTable::colonnes_hors_export`]).
+    const fn hors_export(mut self, colonnes: &'static [&'static str]) -> Self {
+        self.colonnes_hors_export = colonnes;
         self
     }
     /// Table hors « par établissement » qui porte tout de même `etablissement_id`.
@@ -823,7 +832,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_sortie", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_sortie_type", "vie_pratique", Portee::Etablissement),
     t("ent_internat_suivi", "vie_pratique", Portee::Etablissement).perso().export(),
-    t("ent_internat_tiers_autorise", "vie_pratique", Portee::Etablissement).perso().export(),
+    // F5 : le tiers reçoit sa propre fiche (personne, dates, état), jamais le motif écrit ni le titulaire qui l'a demandé.
+    t("ent_internat_tiers_autorise", "vie_pratique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["motif", "demande_par_personne_id"]),
     t("ent_internat_transmission", "vie_pratique", Portee::Etablissement),
     t("ent_internat_type_appel_actif", "vie_pratique", Portee::Etablissement),
     t("ent_internat_zone", "vie_pratique", Portee::Etablissement),

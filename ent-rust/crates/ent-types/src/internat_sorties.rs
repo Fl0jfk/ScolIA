@@ -399,6 +399,9 @@ pub struct VeilleSortiesDto {
     pub cas_retard_retour: i32,
     pub cas_non_recupere: i32,
     pub sorties_expirees: i32,
+    /// Tiers autorisés dont l'échéance approche : alerte émise (une seule fois par tiers).
+    #[serde(default)]
+    pub tiers_a_echeance: i32,
 }
 
 // ───────────────────────── Historique ─────────────────────────
@@ -445,11 +448,16 @@ pub struct TiersDto {
     pub prenom: String,
     pub du: NaiveDate,
     pub au: NaiveDate,
-    /// `actif`, `conteste` (désaccord : porte fermée jusqu'à la direction), `revoque`.
+    /// Personnel : `actif`, `conteste` (désaccord : porte fermée jusqu'à la direction), `revoque`. **Famille** : `actif`
+    /// ou `en_cours_d_examen` — libellé neutre, identique quelle que soit la cause de la fermeture (opposition d'un autre
+    /// titulaire, décision en cours, demandeur ou lien écarté, interdiction) : la famille ne déduit rien d'une cause.
     pub statut: String,
     /// La porte est ouverte aujourd'hui (statut actif, dates, aucune interdiction, demandeur toujours titulaire).
     pub remettable_aujourdhui: bool,
-    /// Personnel seulement.
+    /// Le statut arrive à échéance dans les quinze jours (alerte avant échéance ; renouvellement = nouvelle pose).
+    #[serde(default)]
+    pub echeance_proche: bool,
+    /// Personnel disposant de `internat.sorties.decider` seulement.
     #[serde(default)]
     pub demande_par_personne_id: Option<Uuid>,
     #[serde(default)]

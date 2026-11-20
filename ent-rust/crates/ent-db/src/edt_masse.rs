@@ -338,6 +338,8 @@ impl PgEnt {
                JOIN ent_edt_creneau c ON c.id = x.creneau_id AND c.etablissement_id = x.etablissement_id
                JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.code = btrim(c.classe)
                                  AND cl.id = ANY($4)
+               JOIN ent_annee_scolaire an ON an.etablissement_id = cl.etablissement_id AND an.id = cl.annee_id
+                                         AND x.jour BETWEEN an.date_debut AND an.date_fin
                LEFT JOIN ent_user u ON u.id = x.remplacant_user_id
                LEFT JOIN ent_edt_deplacement d ON d.etablissement_id = x.etablissement_id
                       AND d.creneau_id = x.creneau_id AND d.jour_origine = x.jour

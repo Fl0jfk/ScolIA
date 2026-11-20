@@ -543,9 +543,9 @@ impl PgEnt {
     }
 
     /// Identifiant de la classe désignée par `libelle` (libellé ou code, sans tenir compte de la
-    /// casse). Plusieurs classes de ce nom : celle qui a des élèves affectés aujourd'hui ; si
-    /// c'est ambigu, la saisie est refusée.
-    async fn resoudre_classe(
+    /// casse). Plusieurs classes de ce nom : la seule de l'année courante, sinon celle qui a des élèves
+    /// affectés aujourd'hui ; si c'est ambigu, la saisie est refusée.
+    pub(crate) async fn resoudre_classe(
         &self,
         etablissement_id: Uuid,
         libelle: &str,
@@ -574,15 +574,17 @@ impl PgEnt {
             [] => Ok(None),
             [(id, _, _)] => Ok(Some(*id)),
             many => {
-                let actives: Vec<Uuid> =
-                    many.iter().filter(|(_, active, _)| *active).map(|(id, _, _)| *id).collect();
-                if let [id] = actives.as_slice() {
-                    return Ok(Some(*id));
-                }
-                // Aucune affectation aujourd'hui (vacances) ou plusieurs : la SEULE classe de l'année courante, sinon ambiguïté.
+                // D'abord LA SEULE classe de l'année courante (un code se répète d'une année à l'autre : une classe
+                // d'une année passée, avec encore des affectations, ne passe pas devant) ; à défaut, la seule qui a des
+                // élèves affectés aujourd'hui ; sinon ambiguïté.
                 let courantes: Vec<Uuid> =
                     many.iter().filter(|(_, _, courante)| *courante).map(|(id, _, _)| *id).collect();
-                match courantes.as_slice() {
+                if let [id] = courantes.as_slice() {
+                    return Ok(Some(*id));
+                }
+                let actives: Vec<Uuid> =
+                    many.iter().filter(|(_, active, _)| *active).map(|(id, _, _)| *id).collect();
+                match actives.as_slice() {
                     [id] => Ok(Some(*id)),
                     _ => Err(EntDbError::SaisieInvalide("classe ambiguë : précisez-la")),
                 }

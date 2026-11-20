@@ -9,9 +9,9 @@ use super::*;
 use crate::accompagnement::{DefinirAmenagement, OuvrirDispositif};
 use crate::outbox::ConfigDistribution;
 use crate::sante_acc::{
-    Audience, ClorePassage, EnregistrerProtocole, ExtrasPai, NouveauPassage, PublierContrainte,
+    Audience, ClorePassage, EnregistrerProtocole, ExtrasPai, FicheUrgence, NouveauPassage, PublierContrainte,
 };
-use chrono::Duration;
+use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use domain_eleve::{today_utc, CreerPassageInfirmerie, DomainError, PassageInfirmerieMotif, UpsertFicheSante, UpsertPai};
 use ent_auth::Role;
 use uuid::Uuid;
@@ -1088,4 +1088,124 @@ async fn registre_des_protocoles_versions_droits_et_evenement() {
     .await
     .unwrap();
     assert_eq!(n, 2);
+}
+
+// ─── Correctifs de revue (M1, M2) : remise évaluée par la fonction unique, au jour local de la clôture ───
+
+/// M1 — le renvoi au domicile évalue « peut récupérer » au JOUR LOCAL DE L'ÉTABLISSEMENT À LA CLÔTURE, pas au jour du
+/// passage : un lien qui s'achève entre l'arrivée et le départ ferme la porte. Horloge injectée, jours fixes (aucun test à
+/// l'heure réelle). M2 — la fiche d'urgence ne réécrit jamais « peut récupérer » : une interdiction ferme la porte d'un
+/// responsable actif et d'un contact dont la case « peut récupérer » est cochée.
+#[tokio::test]
+async fn m1_m2_la_remise_de_l_infirmerie_suit_la_fonction_unique_au_jour_de_la_cloture() {
+    let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    let (etab, tom) = (cast.etablissement_id, cast.eleve_tom_id);
+    let (i, ri) = inf(&cast);
+    let jour = |m: u32, d: u32| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+    let instant = |m: u32, d: u32, h: u32| Utc.with_ymd_and_hms(2026, m, d, h, 0, 0).unwrap();
+    // Un titulaire (sans compte) dont le lien s'achève le 20 avril.
+    let personne = |prenom: &'static str| {
+        let ent = &ent;
+        async move {
+            let id = Uuid::new_v4();
+            sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, source) VALUES ($1,$2,$3,$4,'saisie')")
+                .bind(id)
+                .bind(etab)
+                .bind(format!("M1M2{}", &Uuid::new_v4().simple().to_string()[..6]))
+                .bind(prenom)
+                .execute(ent.pool_verif())
+                .await
+                .unwrap();
+            id
+        }
+    };
+    let titulaire = personne("Titulaire").await;
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, lien, autorite_parentale, date_fin) VALUES ($1,$2,$3,$4,'tuteur',true,'2026-04-20')")
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(tom)
+        .bind(titulaire)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let passage = |d: NaiveDate| NouveauPassage {
+        etablissement_id: etab,
+        eleve_id: tom,
+        jour: d,
+        heure_arrivee: None,
+        motif: "soins".into(),
+        note_soins: "n".into(),
+        soins: "s".into(),
+        visible_famille: false,
+        issue: "non_renseignee".into(),
+        informer_famille: false,
+    };
+    let cloture = |id: Uuid| ClorePassage {
+        etablissement_id: etab,
+        passage_id: id,
+        heure_sortie: None,
+        issue: "renvoi_domicile".into(),
+        soins: None,
+        recupere_par_personne_id: Some(titulaire),
+    };
+    let p1 = ent.enregistrer_passage_for_actor(i, ri, passage(jour(4, 14))).await.unwrap();
+    // Clôturé le 14 avril (lien en cours) : remis.
+    assert!(ent.cloturer_passage_a(i, ri, cloture(p1.id), instant(4, 14, 12)).await.is_ok());
+    // Passage du 14 avril, clôturé le 25 avril (lien échu depuis le 20) : refusé, malgré un jour de passage couvert.
+    let p2 = ent.enregistrer_passage_for_actor(i, ri, passage(jour(4, 14))).await.unwrap();
+    let r = ent.cloturer_passage_a(i, ri, cloture(p2.id), instant(4, 25, 12)).await;
+    assert!(r.is_err(), "remise évaluée au jour de la clôture : lien échu : {r:?}");
+    // M2 : la fiche d'urgence calcule « peut récupérer » par la fonction unique, au jour local de l'instant donné.
+    let contact = personne("Contact").await;
+    sqlx::query("INSERT INTO ent_eleve_contact_urgence (id, etablissement_id, eleve_id, personne_id, relation, peut_recuperer, statut) VALUES ($1,$2,$3,$4,'voisine',true,'valide')")
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(tom)
+        .bind(contact)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let peut = |f: &FicheUrgence, p: Uuid| {
+        f.responsables.iter().chain(f.contacts.iter()).find(|x| x.personne_id == p).map(|x| x.peut_recuperer)
+    };
+    // Un responsable dont le lien est en cours (la fiche ne liste que les responsables actifs aujourd'hui).
+    let responsable = personne("Responsable").await;
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, lien, autorite_parentale, date_fin) VALUES ($1,$2,$3,$4,'tuteur',true,'2099-12-31')")
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(tom)
+        .bind(responsable)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let avant = ent.fiche_urgence_a(etab, i, ri, tom, instant(4, 14, 12)).await.unwrap();
+    assert_eq!(peut(&avant, responsable), Some(true), "lien en cours");
+    assert_eq!(peut(&avant, contact), Some(true));
+    sqlx::query(
+        "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, decide_par) \
+         VALUES ($1,$2,$3,$4,ARRAY['remise'],'decision_etablissement','Appeler la direction','2026-01-01',$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(tom)
+    .bind(contact)
+    .bind(cast.direction.user_id)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, decide_par) \
+         VALUES ($1,$2,$3,$4,ARRAY['remise'],'decision_etablissement','Appeler la direction','2026-01-01',$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(tom)
+    .bind(responsable)
+    .bind(cast.direction.user_id)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    let interdit = ent.fiche_urgence_a(etab, i, ri, tom, instant(4, 14, 12)).await.unwrap();
+    assert_eq!(peut(&interdit, contact), Some(false), "case « peut récupérer » cochée mais interdiction : fermé");
+    assert_eq!(peut(&interdit, responsable), Some(false), "un responsable interdit n'est plus « toujours vrai »");
 }

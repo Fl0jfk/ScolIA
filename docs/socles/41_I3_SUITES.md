@@ -66,6 +66,49 @@ Faits relevés (Haiku, lecture seule, puis contrôle) : `ent_classe` est unique 
 - Non rejoué en local : suite complète d'`ent-db`, frontend (sauté, règle 27).
 - Incident local : `ent-api` ne se compile pas en parallèle sur 16 Go (rustc tué par l'OOM) ni avec le dossier `incremental` (disque) : compilé en `-j1`, sans débogage ni incrémental.
 
-## 7. Tête et CI
+## 7. Correctifs de revue
 
-Voir le message au pilote (tête finale et état de la CI de la PR en brouillon).
+Passe de correctifs demandée par le pilote sur la revue de la PR 108 (brouillon), partie de la tête distante `2340ca32`. **La migration 2827 n'étant pas versée, elle est modifiée** (2824 à 2826 non touchées). Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend sauté (règle 27).
+
+### 7.1 Fait / non fait
+
+| # | Point | État | Ce qui a été fait | Tests |
+|---|---|---|---|---|
+| E1 (élevé) | Parent privé d'autorité posé tiers | **fait** | `ent_internat_lien_ecarte` : un lien est écarté s'il est suspendu, en garde « aucune », échu ou pas commencé, **ou** sans autorité parentale **et** de type `mere`, `pere` ou `tuteur`. **Une seule fonction** : la branche « contact » de `ent_internat_remise` l'appelle (plus de prédicat dupliqué) ; effet à la pose et à la remise (autorité retirée après coup = porte fermée). Proche de lien `autre` sans autorité : posable. | `s_e1_*` ; `p4_r6_*` et `fc_fd_ff_*` adaptés (voir 7.3) |
+| E2 (élevé) | « Personnel seul » trop large | **fait** | `ent_internat_personnel_seul(etab, eleve, user)` : rôle de personnel **et** aucun lien (compte ou fiche de la chaîne de fusions), aucun compte élève sur cet élève, aucun rôle ni casquette parent/élève. `ent_internat_user_vise` passe `p_sans_lien_perdu := NOT personnel_seul` (plus de court-circuit). **Conflit d'intérêt** à la pose et à la reprise d'un tiers (l'agent n'est ni le tiers, ni le demandeur, ni un proche de l'élève). | `s_e2_*` (agent père, lien suspendu : visé ; casquette parent : visé ; témoins ; conflits à la pose et à la reprise) |
+| M1 | Infirmerie : jour de la remise | **fait** | `cloturer_passage_a` (horloge injectée ; `_for_actor` l'appelle avec l'heure réelle) évalue la remise au **jour local de l'établissement à la clôture**. | `m1_m2_*` (`tests_sante.rs`) |
+| M2 | `fiche_urgence` : `peut_recuperer` | **fait** | Calculé par `personne_peut_prendre_l_eleve_tx` pour les responsables **et** les contacts, jamais réécrit (`fiche_urgence_a`, horloge injectée). | `m1_m2_*` |
+| M3 | Tiers : notification, reprise | **fait** | Événement dédié `internat.tiers` à chaque acte, `destinataires: titulaires` (tous les titulaires, résolus par le socle 8), **sans motif ni demandeur** ; `reprendre_tiers_a` refusée tant que le demandeur actuel est en exercice. | `s_m3_revue_*` |
+| M4 | Motif et demandeur | **fait** | Lus seulement avec `InternatSortiesDecider` ; `InternatLire` / `InternatAppel` voient la liste sans ces champs. | `s_m4_m5_*` |
+| M5 | Famille : tiers contesté ou fermé | **fait** | Statut « en_cours_d_examen », identique pour toute cause (opposition, décision, demandeur ou lien écarté, interdiction) ; le personnel voit l'état réel. | `s_m4_m5_*`, `s_m3_desaccord_*` adapté |
+| M6 | Garde statique de P4-R8 | **fait** | Test sans base : la migration 2827 contient le déclencheur et la fonction de garde, enregistrée dans `migrate.rs` (le test à base reste). | `p4_r8_garde_statique_*` |
+| M7 | Classes | **fait** | Messagerie : « la seule classe de l'année courante » d'abord, puis la seule classe avec élèves affectés, sinon ambiguïté. `edt_masse.rs` : jointure aussi sur l'année (`x.jour` dans l'année de la classe). | `s_m7_*` (messagerie) ; `edt_masse` : pas de test dédié |
+| F1 | Ré-opposition illimitée après « lever » | **fait** | `opposer_tiers_a` : refusée si `decision_apres_tx(Tiers)` (fait `tiers_levee`) existe ; le demandeur ou le personnel peut révoquer. | `s_f1_*` |
+| F2 | `ORDER BY` de la remise | **fait** | Rang par porte (titulaire, contact, tiers) puis relation, dans l'`UNION ALL … LIMIT 1`. | couvert par les tests de remise |
+| F3 | Type d'événement des tiers | **fait** | `internat.tiers` (au lieu de `internat.correspondant`). | `s_m3_revue_*`, test de confidentialité des événements |
+| F4 | Durée et alerte | **fait** | `au <= du + 365` (contrainte et service, avant 366) ; alerte unique avant échéance (15 jours) dans la veille (`tiers_echeance`, `VeilleSortiesDto::tiers_a_echeance`), `TiersDto::echeance_proche`. | `s_f4_*` |
+| F5 | Export RGPD | **fait** | `ClasseTable::colonnes_hors_export` : `motif` et `demande_par_personne_id` ne sortent pas de l'export du tiers (l'assemblage de l'extrait, lot G3, les retire). | `s_f5_*` |
+
+### 7.2 Compteurs (règle 28, recalculés depuis `2340ca32`)
+
+Tables **+0** (RLS, registre, `TABLES_ELEVE` inchangés) ; routes **+0** (43) ; `Action::TOUTES` **inchangé (275)** ; `NOMS_SOURCES` / `SOURCES` **inchangés (68)** ; `MIGRATION_TAG` **inchangé (3808)** ; `Cargo.lock` : aucune dépendance. Événements **+1 type** (`internat.tiers`, aucun registre de types à tenir). Fonctions SQL : `ent_internat_personnel_seul` change de signature (3 paramètres, l'ancienne est supprimée par `DROP FUNCTION IF EXISTS` : la migration n'étant pas versée) ; `ent_internat_lien_ecarte`, `_user_vise`, `_remise` remplacées. Acte `tiers_echeance` ajouté à la contrainte du journal I3.
+
+### 7.3 Points à signaler au pilote
+
+1. **Conséquence de la fonction unique (E1)** : la porte « contact » ne lit plus « sans autorité » pour tout lien, mais seulement pour `mere`, `pere`, `tuteur`. Un proche de lien `autre` sans autorité (grand-mère inscrite comme responsable) **redevient remis comme contact validé** (passe 4 / R6 le refusait). Deux tests de la passe 4 ont été adaptés (`p4_r6_*`, `fc_fd_ff_*`) ; **à confirmer**.
+2. **Limite connue** : `ent_eleve_lien.lien` est un texte libre. Un lien saisi « Maman » ou « Papa » (hors vocabulaire `mere` / `pere` / `tuteur`) sans autorité n'est pas écarté. Les imports et inscriptions imposent le vocabulaire ; le saisir à la main reste possible. Contrainte de domaine possible (autre socle).
+3. Aucun test dédié pour `edt_masse` (jointure sur l'année, même comportement hors multi-années).
+
+### 7.4 Tests
+
+Environnement : PostgreSQL 16 local, bases **neuves** (`ent_rev`, puis `ent_revw` pour la suite large), `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, Rust **1.99.0**, `--locked`, un seul `CARGO_TARGET_DIR`. Aucun test à l'heure réelle ni au jour UTC : jours fixes d'avril 2026, horloge injectée (`cloturer_passage_a`, `fiche_urgence_a`).
+
+- `tests_internat_i3` complet : **85 verts, 2 rouges au premier passage**, tous deux dus à E1 (la décision change la porte « contact » pour un proche de lien `autre`, voir 7.3) : `p4_r6_*` et `fc_fd_ff_*` adaptés, puis verts.
+- Nouveaux tests : `s_e1_*`, `s_e2_*`, `s_m3_revue_*`, `s_m4_m5_*`, `s_f1_*`, `s_f4_*`, `s_f5_*`, `s_m7_*`, `p4_r8_garde_statique_*` (sans base), `m1_m2_*` (`tests_sante.rs`).
+- Suite large `ent-db` (`internat rls registre migrat fusion conservation rgpd accords d036 roles isolation jour_utc sante m1_m2`, base neuve, un fil) : **391 verts, 0 rouge** (et les binaires d'intégration filtrés : verts).
+- Clippy 1.99 `-D warnings`, **les trois commandes de la CI propres** ; `cargo fmt -p ent-types --check` propre ; `tiers.rs` formaté par `rustfmt` (fichier ciblé) ; `cargo fmt --all` non lancé ; `web/Cargo.lock` : `metadata --locked` vert. **0 nouvel avertissement**, aucun `#[ignore]`.
+- Non rejoué en local : `ent-api` `tests_internat` (la CI les passe), frontend (sauté, règle 27).
+
+### 7.5 Tête et CI
+
+Voir le message au pilote (tête finale et état de la CI de la PR 108).
