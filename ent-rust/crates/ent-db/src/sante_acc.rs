@@ -1287,7 +1287,7 @@ impl PgEnt {
     ) -> Result<Option<String>, EntDbError> {
         let mut tx = tenant(self.pool(), etab).await?;
         let ok = crate::internat_sorties::personne_peut_prendre_l_eleve_tx(&mut tx, etab, eleve_id, personne_id, jour).await?;
-        let nom: Option<(String, String)> = if ok {
+        let nom: Option<(Option<String>, String)> = if ok {
             sqlx::query_as("SELECT prenom, nom FROM ent_personne WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
                 .bind(personne_id)
@@ -1298,7 +1298,11 @@ impl PgEnt {
             None
         };
         tx.commit().await.map_err(db)?;
-        Ok(nom.map(|(p, n)| format!("{p} {n}")))
+        // Même libellé que `Personne::libelle` : « Prénom NOM », ou le nom seul.
+        Ok(nom.map(|(p, n)| match p.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) => format!("{p} {n}"),
+            None => n,
+        }))
     }
 
     async fn lire_passage(&self, etab: Uuid, id: Uuid) -> Result<PassageSante, EntDbError> {
