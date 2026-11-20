@@ -279,6 +279,16 @@ ALTER TABLE ent_internat_i3_fait ADD CONSTRAINT ent_internat_i3_fait_objet_chk C
 -- l'autorité ne se rétablit pas comme tiers : décision de justice). Un proche de lien `autre` sans autorité reste posable
 -- (c'est le cas même du grand-parent). DÉFINITION UNIQUE : lue par la porte « contact » ET la porte « tiers autorisé » de
 -- `ent_internat_remise`, et par la pose du statut (service) ; une autorité retirée après coup ferme donc les deux portes.
+-- Un lien de nature parentale (père, mère, parent, tuteur…) : `ent_eleve_lien.lien` est un texte libre (« Maman »,
+-- « Père », « tutrice »…), donc la reconnaissance est large, sans accents ni casse, par préfixe. Un parent ou tuteur sans
+-- autorité parentale est écarté ; un proche (« grand-mère », « beau-père », « autre ») ne l'est pas : « beau-»,
+-- « grand-» et « belle-» ne commencent pas par un mot parental.
+CREATE OR REPLACE FUNCTION ent_internat_lien_parental(p_lien TEXT)
+RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
+    SELECT lower(translate(btrim(coalesce(p_lien, '')), 'ÀÂÄàâäÈÉÊËèéêëÎÏîïÔÖôöÙÛÜùûü', 'AAAaaaEEEEeeeeIIiiOOooUUUuuu'))
+           ~ '^(mere|pere|maman|papa|parent|tuteur|tutrice|tutelle|responsable|representant|mother|father)'
+$$;
+
 CREATE OR REPLACE FUNCTION ent_internat_lien_ecarte(p_etab UUID, p_eleve UUID, p_personne UUID, p_jour DATE)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
     SELECT EXISTS (
@@ -288,7 +298,7 @@ RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
            AND (sl.suspendu_le IS NOT NULL OR COALESCE(sl.garde, '') = 'aucune'
                 OR (sl.date_fin IS NOT NULL AND sl.date_fin < p_jour)
                 OR (sl.date_debut IS NOT NULL AND sl.date_debut > p_jour)
-                OR (NOT sl.autorite_parentale AND lower(btrim(sl.lien)) IN ('mere', 'pere', 'tuteur'))))
+                OR (NOT sl.autorite_parentale AND ent_internat_lien_parental(sl.lien))))
 $$;
 
 -- La porte unique de remise (2826), avec la porte « tiers autorisé » : statut « actif » aujourd'hui, personne non fusionnée,

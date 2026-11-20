@@ -3812,8 +3812,9 @@ async fn p4_r5_un_contact_declare_par_un_vise_n_est_remis_qu_apres_requalificati
 }
 
 /// R6 / E1 — la porte « contact d'urgence » écarte tout contact dont un lien avec l'élève a la garde « aucune », est
-/// suspendu ou échu, QUEL QUE SOIT le libellé du lien (« Maman », « Tonton »…). L'autorité retirée n'écarte que le TYPE de
-/// lien `mere`, `pere` ou `tuteur` (décision du pilote : jamais un libellé libre, jamais un proche de lien `autre`).
+/// suspendu ou échu, QUEL QUE SOIT le libellé du lien (« Maman », « Tonton »…). L'autorité retirée écarte un lien de
+/// nature parentale, reconnu largement dans le texte libre (`mere`, « Maman », « Père », « tutrice »…, fonction
+/// `ent_internat_lien_parental`), jamais un proche (« Tonton », « Grand-mère », `autre`) — décision du pilote du 20-11.
 /// Un contact sans aucun lien reste autorisé ; un titulaire en cours aussi (porte « titulaire »).
 #[tokio::test]
 async fn p4_r6_la_porte_contact_ne_lit_jamais_le_libelle_du_lien() {
@@ -3825,7 +3826,7 @@ async fn p4_r6_la_porte_contact_ne_lit_jamais_le_libelle_du_lien() {
         ("mere", false, None, false, None, "non_autorisee"),
         ("pere", false, None, false, None, "non_autorisee"),
         ("tuteur", false, None, false, None, "non_autorisee"),
-        ("Maman", false, None, false, None, "autorisee"),
+        ("Maman", false, None, false, None, "non_autorisee"),
         ("Tonton", true, Some("aucune"), false, None, "non_autorisee"),
         ("père", true, None, true, None, "non_autorisee"),
         ("Mamie", true, None, false, Some("2026-03-01"), "non_autorisee"),
@@ -4544,6 +4545,15 @@ async fn s_e1_parent_prive_d_autorite_ni_tiers_ni_contact_proche_autre_accepte()
     lier_sans_compte(&b, eleve, grand2, "autre", false).await;
     autoriser_recuperer(&b, eleve, grand2).await;
     assert_eq!(code_pour(&b, eleve, grand2).await.0, "autorisee");
+    // `lien` est un texte libre : un parent sans autorité saisi « Maman », « Père » ou « tutrice » est écarté comme
+    // `mere` / `pere` / `tuteur` ; « Grand-mère » et « Beau-père » restent des proches.
+    for (nom, lien, ecarte) in [("Alba", "Maman", true), ("Bruno", " Père ", true), ("Chloé", "tutrice", true), ("Denise", "Grand-mère", false), ("Emile", "Beau-père", false)] {
+        let p = tiers(&b, nom).await;
+        lier_sans_compte(&b, eleve, p, lien, false).await;
+        autoriser_recuperer(&b, eleve, p).await;
+        let attendu = if ecarte { "non_autorisee" } else { "autorisee" };
+        assert_eq!(code_pour(&b, eleve, p).await.0, attendu, "lien « {lien} » sans autorité");
+    }
 }
 
 async fn vise_a(b: &Banc, eleve: Uuid, user: Uuid, jour: NaiveDate) -> Option<DateTime<Utc>> {
