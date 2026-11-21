@@ -129,6 +129,12 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("cahier/continuite") view=modules::cahier::PageContinuite/>
                     <Route path=path!("cahier/adaptations/:id") view=modules::cahier::PageAdaptations/>
                     <Route path=path!("cahier/aesh") view=modules::cahier::PageAesh/>
+                    <Route path=path!("cahier/visa") view=modules::cahier::PageTenueVisa/>
+                    <Route path=path!("cahier/chronologie") view=modules::cahier::PageChronologie/>
+                    <Route path=path!("cahier/inspection") view=modules::cahier::PageInspection/>
+                    <Route path=path!("cahier/inspection/lecture") view=modules::cahier::PageLectureInspection/>
+                    <Route path=path!("cahier/archives") view=modules::cahier::PageArchives/>
+                    <Route path=path!("cahier/progressions") view=modules::cahier::PageProgressions/>
                     <Route path=path!("cahier/rendu/:id") view=modules::cahier::PageRendu/>
                     <Route path=path!("cahier/suivi/:id") view=modules::cahier::PageSuiviRendus/>
                     <Route path=path!("agenda") view=modules::cahier::PageAgenda/>

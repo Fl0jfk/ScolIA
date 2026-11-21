@@ -2064,3 +2064,7 @@ mod c6;
 
 #[path = "tests_cahier_c7.rs"]
 mod c7;
+#[path = "tests_cahier_c8.rs"]
+mod c8;
+#[path = "tests_cahier_c9.rs"]
+mod c9;

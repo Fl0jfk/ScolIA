@@ -20,18 +20,26 @@
 //! Lot C6 (continuité) : `/web/cahier/continuite` — reports proposés, élèves en continuité.
 //! Lot C7 (adaptations) : `/web/cahier/adaptations/:id` — variantes et aménagements d'un travail ; `/web/cahier/aesh` — AESH.
 //!
+//! Lot C8 (visa, inspection, archive) : `/web/cahier/visa` — tenue et visa ; `/web/cahier/chronologie` — cahier du cours en lecture ;
+//! `/web/cahier/inspection` — accès d'inspection et journal ; `/web/cahier/inspection/lecture` — lecture de l'inspecteur ;
+//! `/web/cahier/archives` — clôture, archives, exports.
+//! Lot C9 (progressions) : `/web/cahier/progressions`.
+//!
 //! Lot C3 (agenda, cahier de l'élève et de la famille) :
 //! * `/web/cahier/agenda` — élève et famille : agenda de la semaine, « ce que j'ai manqué », la semaine, calendrier.
 
 mod adaptations;
 mod aesh;
 mod agenda;
+mod archives;
 mod bandeau_charge;
 mod charge_classe;
+mod chronologie;
 mod continuite;
 mod copies;
 mod cours;
 pub mod fichiers;
+mod inspection;
 pub mod modele;
 pub mod modele_c2;
 pub mod modele_c3;
@@ -39,23 +47,34 @@ pub mod modele_c4;
 pub mod modele_c5;
 pub mod modele_c6;
 pub mod modele_c7;
+pub mod modele_c8;
+pub mod modele_c9;
 mod mon_cahier;
 mod prof;
+mod progressions;
 mod rendu;
 mod suivi_rendus;
+mod tenue_visa;
 mod travail;
 
 pub use adaptations::{PageAdaptations, ADRESSE_ADAPTATIONS};
 pub use aesh::{PageAesh, ADRESSE_AESH};
 pub use agenda::PageAgenda;
+pub use archives::{PageArchives, ADRESSE_ARCHIVES};
 pub use charge_classe::{PageChargeClasses, ADRESSE_CHARGE};
+pub use chronologie::{PageChronologie, ADRESSE_CHRONOLOGIE};
 pub use continuite::{PageContinuite, ADRESSE_CONTINUITE};
 pub use copies::PageCopies;
 pub use cours::PageCahierCours;
+pub use inspection::{
+    PageInspection, PageLectureInspection, ADRESSE_INSPECTION, ADRESSE_LECTURE_INSPECTION,
+};
 pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};
 pub use prof::PageCahier;
+pub use progressions::{PageProgressions, ADRESSE_PROGRESSIONS};
 pub use rendu::{PageRendu, ADRESSE_RENDU};
 pub use suivi_rendus::{PageSuiviRendus, ADRESSE_SUIVI};
+pub use tenue_visa::{PageTenueVisa, ADRESSE_VISA};
 pub use travail::PageDonnerTravail;
 
 use ent_web_api::ApiError;

@@ -160,6 +160,20 @@ pub mod types {
     // Lot C7 : adaptations.
     pub const CAHIER_VARIANTE_ATTRIBUEE: &str = "cahier.variante_attribuee";
     pub const CAHIER_NOTE_ACCOMPAGNEMENT: &str = "cahier.note_accompagnement";
+    // Lot C8 : visa, inspection, exports figés, clôture et archive.
+    pub const CAHIER_OBSERVATION: &str = "cahier.observation";
+    pub const CAHIER_OBSERVATION_REPONSE: &str = "cahier.observation_reponse";
+    pub const CAHIER_ACCES_INSPECTION_ACCORDE: &str = "cahier.acces_inspection_accorde";
+    pub const CAHIER_ACCES_INSPECTION_PROLONGE: &str = "cahier.acces_inspection_prolonge";
+    pub const CAHIER_ACCES_INSPECTION_REVOQUE: &str = "cahier.acces_inspection_revoque";
+    pub const CAHIER_CONSULTE_INSPECTION: &str = "cahier.consulte_inspection";
+    pub const CAHIER_EXPORT_PRODUIT: &str = "cahier.export_produit";
+    pub const CAHIER_ANNEE_FIGEE: &str = "cahier.annee_figee";
+    pub const CAHIER_ANNEE_ROUVERTE: &str = "cahier.annee_rouverte";
+    pub const CAHIER_ARCHIVE_DECIDEE: &str = "cahier.archive_decidee";
+    // Lot C9 : progressions.
+    pub const CAHIER_PROGRESSION_PLANIFIEE: &str = "cahier.progression_planifiee";
+    pub const CAHIER_COURS_COPIE: &str = "cahier.cours_copie";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";
