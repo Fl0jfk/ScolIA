@@ -87,6 +87,13 @@ Testé en local : `tests_eleve_jour_etablissement` (fuseaux Pacific/Kiritimati U
 **Avis déclarés** : `AVIS_CAHIER` passe de 4 à 12 (accusé de dépôt, copie rendue, retour mis à jour, difficulté de dépôt, demande de délai, délai accordé, report appliqué) ; consommateur du socle 8 toujours absent de `ENT`.
 **Garde** : `cdt_projeter_echus` (appelée à chaque lecture) calcule aussi les propositions de report et applique celles dont l'heure est passée.
 
+## Socle 20 — lots C8 « visa, inspection, archive » et C9 « progressions et reconduction » (2026-11-21, branche `ent-socle-20-code-c8c9`, depuis `origin/ENT` d23a6f66)
+**Niveau : implémenté + testé en local (PostgreSQL 16) ; CI : voir `docs/socles/20_CAHIER_C8_C9_LIVRAISON.md` §8 ; non validé par Florian, pas prêt pilote.**
+- **Migrations 2407 (C8) et 2408 (C9)** : premiers numéros libres de la plage 2400–2419 (2419 reste à C14 ; **C10 n'a plus de numéro libre dans la plage : extension à demander**). 8 tables avec RLS, visa et journaux en ajout seul (TRUNCATE interdit), empreinte des exports recalculée par la base, accès d'inspection borné à 90 jours par CHECK.
+- **Actions** : `cahier.acces_inspection` et `cahier.exporter` (direction, `socle_20_cahier`) ; `Action::TOUTES` 275 → 277.
+- **Routes** `/cahier/c8/*` (24) et `/cahier/c9/*` (10) ; **écrans Leptos** : tenue et visa, cahier du cours en lecture, accès d'inspection et journal, lecture de l'inspecteur, clôture et archives, progressions.
+- **Non fait** (détail au rapport de livraison §4) : avis du socle 8, PDF/A du socle 7, pièces jointes, destruction effective, compte invité de l'inspecteur, annulation d'une planification.
+
 ## Socle 20 — lot C4 « charge de travail » (2026-11-14, branche `ent-socle-20-code-4`, depuis la tête de C3) — PARTIEL
 **Niveau : implémenté + testé en local (PostgreSQL 16) ; CI : à lancer ; non validé par Florian, pas prêt pilote.**
 - **Migration 2415** : index seulement (aucune table, RLS et registre inchangés, aucune colonne JSON). Action **`cahier.parametrer`** (direction, `socle_20_cahier`) : seul ajout de droit.
