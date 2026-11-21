@@ -536,3 +536,10 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **À faire (lot de la base de tests)** : le jeu de labo (`seed.rs`, dates 2026 en dur) casse dès le **2027-09-01** (`Domain(NotFound)`) — juste à la bascule : rendre le semis relatif à l'année en cours. À mettre en tête d'un prochain lot.
   - V3d et C8+C9 devront fusionner ENT (714ec134).
 - **21-11, 12 h UTC, V3d repris par le pilote** : la session attendait une décision depuis 9 h (CI rouge sur les tests du samedi, hors lot), message jamais reçu. ENT 714ec134 fusionné (sans conflit) → tête **57ee4763**, PR 111 (abonné). Revue de sécurité lancée. Session archivée. Leçon inscrite à la règle 37 (lire l'état de toutes les sessions à chaque réveil).
+- **21-11, 14 h 45 UTC, revue de 21 V3d** : aucun critique ni élevé ; M-1, M-2, M-3, M-6, F-1, F-3, F-9 corrigés et testés. `format!` signalé avec le motif : vérifié par le pilote, texte de motif lié en paramètre, **pas d'injection**. Décision : **verser après CI verte**. **Lot V3e** (en tête du prochain lot du socle 21, avec V5) :
+  - le motif du zéro (professeur, période ouverte) et de la note après échéance n'est conservé nulle part (le déclencheur de 464 l'efface hors correction après arrêt) ; test tautologique ;
+  - M-5 hors séance : relire aussi `eva_absence_justifiee_ce_jour` (demi-journée justifiée) ;
+  - `ui.rs` affiche encore une moyenne générale sans coefficients dans le bandeau CPE (l. ~33146) : retirer ;
+  - F-4 : impasse en période ouverte après l'échéance (professeur refusé par F-4, direction par `ecrire_resultat_tx`) : prévoir la voie ;
+  - choix de la période « du jour » : départage heuristique dans deux fonctions SQL aux critères différents ; contraindre les chevauchements ou unifier ; test web encore lié au jour réel ;
+  - faibles : relevé sans `pour_famille`, ordre des contrôles de `charger_convocation`, `LIMIT 500` avant filtres, table AESH et effacement RGPD.
