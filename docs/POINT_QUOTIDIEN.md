@@ -6,6 +6,31 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-21 (samedi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT (validé par la CI)**, ENT = **02659006** (CI 472 verte) :
+- Socle 21 **V3d** (57ee4763) : le zéro de remplacement et la note d'un rattrapage n'écrasent plus une note ou une dispense saisie entre-temps (compare-et-écrit) ; règle du suppléant sur les rattrapages ; le bulletin et le livret respectent « statistiques visibles des familles » ; le professeur peut attribuer le zéro réglementaire en période ouverte (confirmation, motif, absence non justifiée constatée) ; tests durcis ; moyenne générale fausse retirée de l'ancienne interface. Revue : aucun critique ni élevé.
+- **Tests indépendants du jour de la semaine** (714ec134) : 8 tests rougissaient le week-end (jour sans cours, période de notes franchissant le 20 décembre) ; corrigés sans affaiblir les assertions.
+- **Faux rouge corrigé** (02659006) : le test `a03` des pièces restreintes croyait voir une fuite (« A03 » présent par hasard dans un identifiant aléatoire). Aucune fuite réelle.
+
+**Prêt mais pas encore sur ENT** : socle 20 **C8 + C9** (cahier : visa, inspection, archive annuelle, progressions, 6 écrans ; PR 110) — **bloqué par la revue** (1 élevé : la clôture annuelle ne fige pas tout le cahier). Correctifs prêts, lancement **dimanche 9 h 10 UTC**.
+
+**En cours** : aucune session ne code (quota hebdomadaire en avertissement : règle 37, aucun lancement dans les 24 h avant la remise à zéro de dimanche 9 h UTC, pour garder la marge de 10 %).
+
+**Conçu mais pas codé** : 21 **V3e** (motif du zéro conservé, demi-journée justifiée hors séance, dernière moyenne fausse du bandeau CPE, impasse après l'échéance d'un rattrapage, choix de la période « du jour ») puis V5 ; **semis du labo relatif à l'année** (il casse le 1er septembre 2027) ; 41 I4 ; 20 C10 (plage de migrations à attribuer).
+
+**Tableau d'avancement** : inchangé cette semaine (`docs/pilotage/TABLEAU_MATURITE.md`), notes un peu plus épaisses (V3d).
+
+**Décisions attendues de Florian** : aucune. Florian a décidé le 21-11 (règle 37, D-069) : le pilote gère seul le rythme et le quota, et toute règle métier incertaine devient un paramètre de l'établissement avec une valeur par défaut prudente.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) : rien de nécessaire bientôt.
+
+**Ce qui a coincé** :
+- La session V3d est restée **bloquée trois heures** en attente d'une décision (CI rouge hors lot) sans que son message arrive : le pilote ne l'a vu qu'à la demande de Florian. Corrigé : à chaque réveil, le pilote lit l'état de toutes les sessions (règle 37).
+- Deux faux rouges (tests liés au samedi, test `a03`) : causes corrigées, pas seulement relancées.
+
+---
+
 ## 2026-11-20 (vendredi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT (validé par la CI)**, ENT = **d23a6f66** (CI 463 verte après une relance) :
