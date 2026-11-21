@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::referentiel_repo::CreerService;
-use chrono::{Duration, NaiveTime};
+use chrono::NaiveTime;
 use domain_eleve::{today_utc, CreateEleve, CreerNotePeriode};
 use ent_auth::Role;
 use ent_types::evaluations::*;
@@ -122,13 +122,14 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
         .await
         .unwrap();
     let t = today_utc();
+    let (fenetre_debut, fenetre_fin) = crate::tests_evaluations::fenetre_periode_note(annee.date_debut, annee.date_fin, t);
     let periode = ent
         .creer_note_periode(CreerNotePeriode {
             etablissement_id: etab,
             code: format!("T{sfx}"),
             libelle: "Trimestre bis".into(),
-            date_debut: (t - Duration::days(10)).max(annee.date_debut),
-            date_fin: (t + Duration::days(30)).min(annee.date_fin),
+            date_debut: fenetre_debut,
+            date_fin: fenetre_fin,
             actor_user_id: None,
         })
         .await
