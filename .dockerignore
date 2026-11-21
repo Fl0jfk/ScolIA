@@ -17,7 +17,6 @@ out
 *.env.*
 
 # Dev / IDE
-.cursor
 .vscode
 *.log
 npm-debug.log*

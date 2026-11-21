@@ -4,7 +4,6 @@
  *   npx tsx --require ./scripts/stub-server-only.cjs scripts/test-pronote-edt.ts [chemin.pdf]
  */
 import fs from "fs";
-import path from "path";
 import { extractPdfTextItems } from "@/app/lib/rh/planning-pdf-text";
 import {
   looksLikePronoteTeacherPdf,
@@ -12,15 +11,10 @@ import {
 } from "@/app/lib/rh/planning-pronote-parse";
 import { normalizeTeacherPlanning } from "@/app/lib/rh/planning-types";
 
-const pdfPath =
-  process.argv[2] ||
-  path.join(
-    process.env.USERPROFILE || "",
-    ".cursor/projects/c-Users-f-hacqueville-Desktop-Code-docsLaPro/attachments/53b358f9-cf3b-42cc-bea7-b15b157be3d6/Planning_Val_rie.pdf",
-  );
+const pdfPath = process.argv[2] || "";
 
 async function main() {
-  if (!fs.existsSync(pdfPath)) {
+  if (!pdfPath || !fs.existsSync(pdfPath)) {
     console.error("PDF introuvable:", pdfPath);
     process.exit(1);
   }

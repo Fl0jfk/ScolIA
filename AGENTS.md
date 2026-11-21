@@ -1,4 +1,4 @@
-# AGENTS.md — guide opérationnel pour agents (Cursor Cloud / IDE)
+# AGENTS.md — guide opérationnel pour agents
 
 Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizzle, PostgreSQL, Better-Auth).
 
@@ -17,7 +17,7 @@ Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizz
 
 **Jamais** de `git push origin main` pour un lot métier. Passage prod = validation humaine puis merge `dev` → `main`.
 
-Tests = Postgres **local** `127.0.0.1` (`install.sh`). Pas de migration / seed / wipe sur la RDB Scaleway. `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` (validation humaine obligatoire).
+Tests = Postgres **local** `127.0.0.1`. Pas de migration / seed / wipe sur la RDB Scaleway. `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` (validation humaine obligatoire).
 
 ## Labo Florian (hors prod)
 
@@ -30,7 +30,7 @@ Voir `docs/labo-florian.md`. Conteneur Scaleway **séparé** + Postgres labo + s
 
 Runtime labo : `SCOLA_ENV=lab` / `NEXT_PUBLIC_SCOLA_ENV=lab` → bandeau ambre. **Interdit** : pointer le labo sur la RDB prod ou `SCW_CONTAINER_ID` prod.
 
-**Démo Florian (Cloud Agent)** : Forwarded Ports → 3000 → `/demo` (boutons parent / staff). Voir `docs/demo-one-click.md`.
+**Démo Florian** : `npm run dev` puis http://localhost:3000/demo (boutons parent / staff). Voir `docs/demo-one-click.md`.
 
 ## Commandes essentielles
 
@@ -73,7 +73,7 @@ Historique : `0000_initial.sql` décrit déjà le schéma post-renommage (`exter
 
 | Contexte | Méthode |
 |----------|---------|
-| **Dev / Cloud Agent (base locale)** | `npm run db:migrate` ou `node scripts/apply-migrations-direct.mjs` — **uniquement** si `DATABASE_URL` = `127.0.0.1`. Schéma rapide sans rejouer l’historique : `npx drizzle-kit push --force`. |
+| **Dev (base locale)** | `npm run db:migrate` ou `node scripts/apply-migrations-direct.mjs` — **uniquement** si `DATABASE_URL` = `127.0.0.1`. Schéma rapide sans rejouer l’historique : `npx drizzle-kit push --force`. |
 | **Prod / Scaleway** | Au **démarrage du conteneur** : `scripts/docker-entrypoint.sh` → `apply-migrations-direct.mjs` (`SCOLA_AUTO_MIGRATE=1`). Manuel d’urgence : `ALLOW_PROD_MIGRATION=1` + validation humaine. |
 
 Le migrateur enregistre le **hash SHA256** de chaque fichier SQL dans `drizzle.__drizzle_migrations` (champ `created_at` = `when` du journal). Les anciennes lignes **tag-only** en prod restent reconnues (`skip` par tag). Cas base vierge sans modifier les `.sql` déjà journalisés en prod :
@@ -86,42 +86,12 @@ Preuve déploiement : `GET /api/health` → `{ gitSha, migrationTag }` (SHA inje
 
 Voir aussi `docs/migrations-prod-runbook.md`.
 
-Postgres local Cloud Agent (si `install.sh`) :
+Postgres local :
 
 - URL : `postgresql://scola:scola_dev_pwd@127.0.0.1:5432/scola`
-- Variables dans `.env.local` (gitignored), généré par `.cursor/install.sh`
+- Variables dans `.env.local` (gitignored, modèle : `.env.local.example`)
 
 **Tests automatisés Postgres** : utiliser **`TEST_DATABASE_URL` uniquement** (base de test explicite, ex. `scolia_migrate`). Les fichiers `*.test.*` ne doivent **jamais** lire `DATABASE_URL` ni charger `.env.local` pour se connecter — garde `scripts/test-database-guard.mjs`. CI : job `integration-db-tests`.
-
-## MCP et outils agents
-
-Florian n’a **rien à coller** (pas de JSON dashboard, pas d’Authenticate). Secrets uniquement via `process.env` / `.env.local` / `.cursor/mcp.local.env` (gitignored).
-
-| Surface | Ce qui est branché |
-|---------|-------------------|
-| **IDE / Project** | `.cursor/mcp.json` (stdio via wrappers `node` + `${workspaceFolder}`) + plugin `.cursor/plugins/scola-mcp` chargé par le hook `workspaceOpen` |
-| **Cloud Agent (cette VM)** | Binaires installés par `install.sh` (`uvx`, `scw`, Playwright Chromium, `psql`). Catalogue MCP Cloud = dashboard Cursor seulement |
-| **Repli tous agents** | `.cursor/tools/` — `psql.sh`, `fetch.mjs`, `browser.mjs`, `scw.sh`, `status.sh` (pas de protocole MCP) |
-
-| Serveur | Rôle | Prérequis |
-|---------|------|-----------|
-| **postgres** | Lire schéma / données | `MCP_DATABASE_URL` ou `DATABASE_URL` |
-| **browser** | Playwright UI locale | Chromium (`install.sh`) |
-| **fetch** | Doc officielle | `uvx` (`install.sh` → `/usr/local/bin/uvx`) |
-| **mistral** | OCR / vision | `MISTRAL_API_KEY` si présent, sinon le wrapper échoue clairement |
-| **scaleway** | Infra lecture | `scw` + `SCW_*` si présents ; **pas de mutation prod** |
-| **github** | Optionnel | `GITHUB_TOKEN` / PAT + binaire `github-mcp-server` ; sinon ignoré |
-
-**Limitation Cursor :** un Cloud Agent déjà lancé ne voit pas les MCP de l’IDE (`.cursor/mcp.json` / plugin projet) ; `workspaceOpen` ne s’exécute pas sur Cloud Agents. Un nouvel agent IDE charge le plugin ; un Cloud Agent utilise le repli `.cursor/tools/` tant que le dashboard équipe n’a pas le MCP (hors de portée repo).
-
-Si un MCP n’est pas dans le catalogue de la session : le dire, utiliser le repli, **ne pas inventer** l’état.
-
-```bash
-bash .cursor/tools/status.sh
-bash .cursor/tools/psql.sh -c 'SELECT 1'
-node .cursor/tools/fetch.mjs https://example.com
-node .cursor/tools/browser.mjs http://localhost:3000
-```
 
 ## Multi-tenant & sécurité (rappel)
 
@@ -147,14 +117,12 @@ Flux parent : e-mail d’abord (gate) → matching protégé (pool = enfants li�
 - Envoi d’e-mails réels (SMTP)
 - Import massif SIECLE / données élèves réelles
 
-## Cursor Cloud specific instructions
+## Validation locale
 
-### Boot
+### Démarrage
 
-1. `.cursor/start.sh` démarre PostgreSQL et rattache `uvx` / `scw` à `/usr/local/bin`.
-2. Terminal `next-dev` : `npm run dev` (port **3000**).
-3. Si besoin : `npm run seed:dev` (idempotent).
-4. Diagnostic outils : `bash .cursor/tools/status.sh`.
+1. `npm run dev` (port **3000**).
+2. Si besoin : `npm run seed:dev` (idempotent).
 
 ### Validation minimale d’un changement UI / auth
 
@@ -162,22 +130,15 @@ Flux parent : e-mail d’abord (gate) → matching protégé (pool = enfants li�
 2. Ouvrir `/auth/sign-in?dev_tenant=default`
 3. Login seed + TOTP (`npm run seed:dev:totp`)
 4. Vérifier absence d’erreurs console / 500
-5. Si mutation BDD : contrôler via MCP postgres **ou** `bash .cursor/tools/psql.sh`
+5. Si mutation BDD : contrôler en base locale (`psql` sur `127.0.0.1`)
 
-### Secrets optionnels (dashboard)
+### Secrets optionnels
 
-Non requis pour booter localement. Utile pour OCR / S3 / MCP Scaleway / cache Valkey :
+Non requis pour booter localement. Utile pour OCR / S3 / cache Valkey :
 
 - `MISTRAL_API_KEY`
 - `SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `SCW_DEFAULT_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`
-- `MCP_DATABASE_URL` — **ne pas** y mettre l’URL RDB prod pour tester ; cette VM = `127.0.0.1`
 - `VALKEY_URL` (ou `REDIS_URL`) — cache partagé auth / messagerie / dossiers / dashboard. Sans URL, l’app tourne avec repli mémoire + Postgres.
-
-### Fichiers env Cloud
-
-- Install : `bash .cursor/install.sh`
-- Start : `bash .cursor/start.sh`
-- Config : `.cursor/environment.json`
 
 <!-- BEGIN:nextjs-agent-rules -->
 

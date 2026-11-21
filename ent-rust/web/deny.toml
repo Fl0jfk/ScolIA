@@ -1,0 +1,80 @@
+# Règles d'audit des dépendances — cargo-deny (D-015).
+# Même politique pour les deux workspaces (copie de `ent-rust/deny.toml`).
+# Règle : on ne masque rien pour avoir une CI verte. Toute exception est listée
+# ici avec sa raison et une date de revue.
+
+[graph]
+all-features = false
+
+# --- Vulnérabilités et maintenance (base RustSec) --------------------------
+[advisories]
+# Les vulnérabilités connues sont TOUJOURS bloquantes (comportement de cargo-deny).
+# Crates non maintenues : bloquant pour nos dépendances directes ; les dépendances
+# transitives non maintenues sont signalées par `cargo audit` (avertissements visibles
+# dans la CI) et suivies dans docs/CI_REPRODUCTIBILITE.md.
+unmaintained = "workspace"
+# Version retirée (« yanked ») de crates.io : bloquant.
+yanked = "deny"
+# Exceptions (format : { id = "RUSTSEC-AAAA-NNNN", reason = "…, revue le AAAA-MM-JJ" }).
+ignore = []
+
+# --- Licences ---------------------------------------------------------------
+[licenses]
+# Licences permissives acceptées. Pas de copyleft fort (GPL, AGPL, LGPL) : l'ENT
+# n'est pas publié sous licence libre (voir D-005 : refus de reprendre du code AGPL).
+allow = [
+    "MIT",
+    "MIT-0",
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+# Licences de la liste non rencontrées : sans effet (la liste est commune aux deux workspaces).
+unused-allowed-license = "allow"
+
+# Exception ciblée, APPROUVÉE le 2026-11-03 (D-015, docs/CI_REPRODUCTIBILITE.md). MPL-2.0 est un
+# copyleft faible « au niveau du fichier » : utilisation sans modification compatible
+# avec un logiciel non libre ; toute modification de ces fichiers devrait être publiée.
+# Nécessaire pour les passkeys (D-009). MPL-2.0 n'est PAS autorisée ailleurs.
+# Épinglée à la version exacte : une montée de version fait échouer `cargo deny`
+# et impose de relire la licence avant de modifier ces lignes.
+exceptions = [
+    { allow = ["MPL-2.0"], crate = "webauthn-rs@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-rs-core@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-rs-proto@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-attestation-ca@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-authenticator-rs@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "base64urlsafedata@0.5.5" },
+]
+# Nos propres crates (`publish = false`, licence « UNLICENSED ») ne sont pas évaluées.
+[licenses.private]
+ignore = true
+
+# --- Doublons et versions ---------------------------------------------------
+[bans]
+# Plusieurs versions d'une même crate : signalées (avertissement), pas bloquantes,
+# car souvent imposées par des dépendances tierces. Suivi dans la doc ; à durcir
+# crate par crate (`deny`) quand un doublon devient évitable.
+multiple-versions = "warn"
+# Versions « * » interdites dans nos manifestes (sauf dépendances par chemin).
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+# --- Provenance -------------------------------------------------------------
+[sources]
+# Uniquement crates.io ; aucune dépendance Git ou registre inconnu.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

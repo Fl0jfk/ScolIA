@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ent-types",
+    "crates/ent-events",
+    "crates/domain-eleve",
+    "crates/ent-brain",
+    "crates/ent-auth",
+    "crates/ent-oidc",
+    "crates/ent-obs",
+    "crates/ent-mail",
+    "crates/ent-sms",
+    "crates/ent-push",
+    "crates/ent-bank",
+    "crates/ent-object",
+    "crates/ent-db",
+    "crates/ent-api",
+    "crates/ent-lab",
+]
+default-members = [
+    "crates/ent-types",
+    "crates/ent-events",
+    "crates/domain-eleve",
+    "crates/ent-brain",
+    "crates/ent-auth",
+    "crates/ent-oidc",
+    "crates/ent-obs",
+    "crates/ent-mail",
+    "crates/ent-sms",
+    "crates/ent-push",
+    "crates/ent-bank",
+    "crates/ent-object",
+    "crates/ent-db",
+    "crates/ent-api",
+    "crates/ent-lab",
+]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Profil de développement allégé (D-015, mesuré : ≈ −80 % d'espace disque).
+# Numéros de ligne conservés dans les traces d'erreur pour notre code ;
+# aucune info de débogage pour les dépendances. Release inchangé.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

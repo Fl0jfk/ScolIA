@@ -1,0 +1,50 @@
+-- 587 — RLS d'établissement, lot « structure_acces_divers » (42 tables). Même politique que le pilote
+-- (migration 100, docs/RLS_ISOLATION.md) : FORCE ROW LEVEL SECURITY + politique
+-- ent_rls_etablissement (variable app.etablissement_id posée par TenantTx ; sans
+-- variable : permissif tant que app.rls_strict n'est pas actif). Idempotent (rejoué à chaque
+-- démarrage). Pose via ent_rls_poser (définie en 580).
+
+SELECT ent_rls_poser(ARRAY[
+        'ent_affectation',
+        'ent_annee_scolaire',
+        'ent_classe',
+        'ent_conflit_interet',
+        'ent_delegation',
+        'ent_edt_annulation_masse',
+        'ent_edt_calendrier_ab',
+        'ent_edt_contrainte',
+        'ent_edt_creneau',
+        'ent_edt_deplacement',
+        'ent_edt_exception',
+        'ent_edt_import',
+        'ent_edt_seance',
+        'ent_eleve_dispense_repas',
+        'ent_eleve_grille_repas',
+        'ent_eleve_option',
+        'ent_eleve_option_annee',
+        'ent_etablissement_parametre',
+        'ent_filiere',
+        'ent_grille_horaire',
+        'ent_groupe',
+        'ent_groupe_responsable',
+        'ent_internat_affectation',
+        'ent_internat_chambre',
+        'ent_internat_presence',
+        'ent_internat_suivi',
+        'ent_jour_calendrier',
+        'ent_mef',
+        'ent_menu_cantine',
+        'ent_module_etablissement',
+        'ent_niveau',
+        'ent_param_etab',
+        'ent_politique_securite',
+        'ent_regle_effacement',
+        'ent_repas_activite',
+        'ent_repas_passage',
+        'ent_role',
+        'ent_role_attribution',
+        'ent_role_droit',
+        'ent_salle',
+        'ent_service_enseignement',
+        'ent_site'
+]);

@@ -1,0 +1,2 @@
+# Développement Rust
+Avant : lire architecture/conventions, identifier framework frontend Rust réel, versions, permissions et tenant ; définir critères/tests. Pendant : erreurs typées, validation aux frontières, séparation métier/handlers, transactions/invariants, logs sans données perso, dépendances justifiées. Après : format/build/lint/tests uniquement en environnement sûr, revue diff, documenter limites. Respecter les interdictions de production.
