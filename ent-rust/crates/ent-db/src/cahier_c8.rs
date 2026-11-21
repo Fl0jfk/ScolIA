@@ -156,9 +156,9 @@ impl PgEnt {
         let modifies: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
             "WITH d AS ({DERNIER_FIGE})
              SELECT cours_id, count(*) FROM (
-                SELECT e.cours_id FROM d JOIN ent_cdt_entree e ON d.objet = 'entree' AND e.id = d.objet_id AND e.version > d.version_visee
+                SELECT e.cours_id FROM d JOIN ent_cdt_entree e ON e.etablissement_id = $1 AND d.objet = 'entree' AND e.id = d.objet_id AND e.version > d.version_visee
                 UNION ALL
-                SELECT t.cours_id FROM d JOIN ent_cdt_travail t ON d.objet = 'travail' AND t.id = d.objet_id AND t.version > d.version_visee
+                SELECT t.cours_id FROM d JOIN ent_cdt_travail t ON t.etablissement_id = $1 AND d.objet = 'travail' AND t.id = d.objet_id AND t.version > d.version_visee
              ) x GROUP BY cours_id"
         ))
         .bind(etab)
