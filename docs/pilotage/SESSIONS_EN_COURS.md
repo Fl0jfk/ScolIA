@@ -543,3 +543,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - F-4 : impasse en période ouverte après l'échéance (professeur refusé par F-4, direction par `ecrire_resultat_tx`) : prévoir la voie ;
   - choix de la période « du jour » : départage heuristique dans deux fonctions SQL aux critères différents ; contraindre les chevauchements ou unifier ; test web encore lié au jour réel ;
   - faibles : relevé sans `pour_famille`, ordre des contrôles de `charger_convocation`, `LIMIT 500` avant filtres, table AESH et effacement RGPD.
+- **21-11, 15 h 10 UTC, versement de 21 V3d** : CI 469 verte sur 57ee4763 → **ENT = 57ee4763**. Aucune session ne code. Quota hebdomadaire en avertissement jusqu'à dimanche 9 h UTC (règle 37 : aucun lancement d'ici là). Dimanche 9 h 10 : correctifs de 20 C8+C9 (programmé), puis V3e+V5 ou semis du labo relatif à l'année.
