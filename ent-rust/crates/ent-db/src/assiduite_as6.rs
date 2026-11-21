@@ -620,6 +620,23 @@ impl PgEnt {
         jour: NaiveDate,
         raison_code: &str,
     ) -> Result<ResultatALaPlace, EntDbError> {
+        self.appel_a_la_place_au(etab, acteur, role, creneau_id, jour, raison_code, None).await
+    }
+
+    /// Corps de [`Self::appel_a_la_place_for_actor`] avec un « aujourd'hui » **injectable** (règle 33) : `None` = le jour
+    /// de l'établissement (comportement de production), `Some(j)` = jour de référence fixé par un test, pour éprouver la
+    /// règle « le jour même ou la veille » sans dépendre du jour (de la semaine) où il tourne.
+    #[allow(clippy::too_many_arguments)] // mêmes paramètres que la fonction publique + l'horloge ; pas de regroupement utile
+    pub(crate) async fn appel_a_la_place_au(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        creneau_id: Uuid,
+        jour: NaiveDate,
+        raison_code: &str,
+        aujourdhui_force: Option<NaiveDate>,
+    ) -> Result<ResultatALaPlace, EntDbError> {
         let droits = self.droits_appel(etab, acteur, role).await?;
         if !droits.tout {
             return Err(EntDbError::Forbidden);
@@ -629,7 +646,10 @@ impl PgEnt {
             .find(|r| **r == raison_code)
             .copied()
             .ok_or_else(|| invalide("raison de substitution inconnue"))?;
-        let aujourdhui = self.aujourdhui_etablissement(etab).await?;
+        let aujourdhui = match aujourdhui_force {
+            Some(j) => j,
+            None => self.aujourdhui_etablissement(etab).await?,
+        };
         if jour > aujourdhui || jour < aujourdhui - Duration::days(1) {
             return Err(invalide("l'appel à la place se fait le jour même ou la veille"));
         }
