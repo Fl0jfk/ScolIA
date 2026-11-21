@@ -9,7 +9,7 @@ use crate::tests_evaluations_v1::{
     ancien_monde, arreter, d, evaluation, exec, monde_v1, note, statut as statut_res, u, DIR, PROF,
 };
 use chrono::{DateTime, NaiveDate, Utc};
-use domain_eleve::evaluation_moteur::{Comptage, ReglesMoteur, StatutCalcul};
+use domain_eleve::evaluation_moteur::{Comptage, Rat, ReglesMoteur, Statistiques, StatutCalcul};
 use domain_eleve::NotePeriodeStatut;
 use ent_types::evaluations_v3::*;
 use std::collections::HashMap;
@@ -333,6 +333,13 @@ fn v3c_m4_les_statistiques_de_classe_du_bulletin_respectent_le_seuil_des_famille
         min: Aff(8_000),
         max: Aff(16_000),
         effectif,
+        brut: Statistiques {
+            effectif,
+            moyenne: Rat::new(12, 1).unwrap(),
+            min: Rat::new(8, 1).unwrap(),
+            max: Rat::new(16, 1).unwrap(),
+            mediane: Rat::new(12, 1).unwrap(),
+        },
     };
     let calc = |effectif: usize, seuil: usize| CalculClasse {
         classe_id: Uuid::new_v4(),
@@ -366,6 +373,11 @@ fn v3c_m4_les_statistiques_de_classe_du_bulletin_respectent_le_seuil_des_famille
     assert!(calc(3, 3).stats_matiere_montrables(&matiere).is_some());
     assert!(calc(2, 3).stats_matiere_montrables(&matiere).is_none());
     assert!(calc(2, 3).stats_generale_montrables().is_none());
+    // V3d (M-3) : réglage `stats_familles = false` → ni moyenne ni min ni max, même largement au-dessus du seuil.
+    let mut coupe = calc(30, 5);
+    coupe.regles.stats_familles = false;
+    assert!(coupe.stats_matiere_montrables(&matiere).is_none());
+    assert!(coupe.stats_generale_montrables().is_none());
 }
 
 // ───────────────────────── Faibles : lot de cases sans interblocage, ordre de réponse conservé ─────────────────────────

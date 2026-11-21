@@ -525,13 +525,18 @@ impl PgEnt {
                 duree_estimee_min: l.minutes,
             });
         }
-        // Évaluations annoncées du socle 21 pour la classe (matière et titre) : même règle.
-        let devoirs: Vec<(NaiveDate, String, String)> = sqlx::query_as(
-            "SELECT d.date_devoir, COALESCE(m.libelle, 'Évaluation'), d.titre
-               FROM ent_devoir d LEFT JOIN ent_matiere m ON m.etablissement_id = d.etablissement_id AND m.id = d.matiere_id
-              WHERE d.etablissement_id = $1 AND d.classe_id = $2 AND d.date_devoir BETWEEN $3 AND $4
+        // Évaluations du socle 21 pour la classe (matière et titre) : même règle. L'équipe lit tout le calendrier de la classe,
+        // mais le libellé dit la vérité (V3d, F-10) : une évaluation que le professeur n'a pas encore annoncée aux élèves
+        // porte « (non annoncée) », au lieu de passer pour une échéance connue des élèves et des familles.
+        let devoirs: Vec<(NaiveDate, String, String, bool)> = sqlx::query_as(
+            "SELECT d.date_eval, COALESCE(m.libelle, 'Évaluation'), d.titre, (d.annoncee OR d.publiee_le IS NOT NULL)
+               FROM eva_evaluation d
+               JOIN ent_cours c ON c.etablissement_id = d.etablissement_id AND c.id = d.cours_id
+               LEFT JOIN ent_matiere m ON m.etablissement_id = c.etablissement_id AND m.id = c.matiere_id
+              WHERE d.etablissement_id = $1 AND c.classe_id = $2 AND d.mode = 'note' AND d.etat = 'ouverte'
+                AND d.date_eval BETWEEN $3 AND $4
                 AND NOT EXISTS (SELECT 1 FROM ent_cdt_travail t WHERE t.etablissement_id = d.etablissement_id AND t.evaluation_id = d.id)
-              ORDER BY d.date_devoir, d.titre, d.id",
+              ORDER BY d.date_eval, d.titre, d.id",
         )
         .bind(etab)
         .bind(classe_id)
@@ -540,11 +545,15 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        for (jour, matiere, titre) in devoirs {
+        for (jour, matiere, titre, annoncee) in devoirs {
             par_jour.entry(jour).or_default().push(LigneClasseDto {
                 genre: "evaluation".to_string(),
                 matiere,
-                nature: "Évaluation".to_string(),
+                nature: if annoncee {
+                    "Évaluation".to_string()
+                } else {
+                    "Évaluation (non annoncée)".to_string()
+                },
                 titre,
                 duree_estimee_min: None,
             });

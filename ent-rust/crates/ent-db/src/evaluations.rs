@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use domain_eleve::evaluation::Arrondi;
-use domain_eleve::evaluation_moteur::{statistiques, Precision, Rat, ReglesMoteur};
+use domain_eleve::evaluation_moteur::{statistiques, Precision, Rat, ReglesMoteur, Statistiques};
 use domain_eleve::{today_utc, DomainError, NotePeriodeStatut};
 use ent_auth::{Action, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
@@ -221,6 +221,8 @@ pub(crate) struct StatsAff {
     pub min: Aff,
     pub max: Aff,
     pub effectif: usize,
+    /// Statistiques brutes du moteur : seule `Statistiques::pour_famille` décide de ce qu'on montre hors du personnel.
+    pub brut: Statistiques,
 }
 
 fn stats_dto(s: Option<StatsAff>) -> StatsDto {
@@ -254,19 +256,20 @@ pub(crate) struct CalculClasse {
 
 impl CalculClasse {
     /// V3c (M4) : statistiques de matière **montrables hors du personnel** (bulletin, livret : documents remis aux
-    /// familles). Même seuil que le relevé des familles : `seuil_effectif_stats` (plancher 3, 5 par défaut, R-V12). Sous
-    /// le seuil, ni moyenne de classe, ni minimum, ni maximum : une moyenne de 2 élèves identifie l'autre.
+    /// familles). V3d (M-3) : décidé par `Statistiques::pour_famille`, comme le relevé : réglage `stats_familles` coupé →
+    /// rien ; sous `seuil_effectif_stats` (plancher 3, 5 par défaut, R-V12) → rien : une moyenne de 2 élèves identifie
+    /// l'autre.
     pub(crate) fn stats_matiere_montrables(&self, matiere: &Uuid) -> Option<&StatsAff> {
         self.stats_matiere
             .get(matiere)
-            .filter(|s| s.effectif >= self.regles.seuil_effectif_stats)
+            .filter(|s| s.brut.pour_famille(&self.regles).is_some())
     }
 
     /// Idem pour la moyenne générale de la classe.
     pub(crate) fn stats_generale_montrables(&self) -> Option<&StatsAff> {
         self.stats_generale
             .as_ref()
-            .filter(|s| s.effectif >= self.regles.seuil_effectif_stats)
+            .filter(|s| s.brut.pour_famille(&self.regles).is_some())
     }
 }
 
@@ -971,6 +974,7 @@ impl PgEnt {
                 min: conv(s.min)?,
                 max: conv(s.max)?,
                 effectif: s.effectif,
+                brut: s,
             }))
         };
         let mut stats_matiere = HashMap::new();

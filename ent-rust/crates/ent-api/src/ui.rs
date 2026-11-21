@@ -799,33 +799,9 @@ function toastNotesAfterSave(ctx) {
   if (c.note) toastNoteSaisie(c.note, c.eleveLabel || '');
 }
 
-function moyenneGeneraleSur20FromMatiereRows(moyennes) {
-  const nums = (moyennes || [])
-    .map(m => Number(m.moyenne_sur_20))
-    .filter(v => Number.isFinite(v));
-  if (!nums.length) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-/** Élève /eleve/notes — moyenne générale (moyennes matière disponibles). */
-function eleveMoyGlobaleTipDenseHtml(moyennes, periodeLibelle) {
-  const rows = moyennes || [];
-  if (!rows.length) return '';
-  const mg = moyenneGeneraleSur20FromMatiereRows(rows);
-  if (mg == null) return '';
-  const nums = rows
-    .map(m => Number(m.moyenne_sur_20))
-    .filter(v => Number.isFinite(v));
-  const pl = periodeLibelle ? esc(String(periodeLibelle).trim()) : 'Période';
-  const nMat = nums.length;
-  return `<div class="bento" style="margin:0 0 .65rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong class="ok">${mg.toFixed(1)}</strong><span>Moyenne générale / 20 · ${pl}</span>
-    </div>
-    <div class="stat-tile bento-span-4"><strong>${nMat}</strong><span>Matière(s) avec moyenne</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">Coef</strong><span>Recalcul après chaque devoir noté</span></div>
-  </div>`;
-}
+// V3d (revue de V4) : la moyenne générale « moyenne simple des moyennes de matière, sans coefficients » est RETIRÉE de
+// l'interface (elle était fausse). La vraie moyenne générale vient du moteur de calcul (coefficients, règles de
+// l'établissement), pas du navigateur.
 
 /** Prof /app/notes — filtre classe (puces labo). */
 function notesClasseFilterTipDenseHtml(classe, nDevoirs) {
@@ -854,78 +830,10 @@ function refreshNotesClasseFilterTip(nDevoirs) {
   refreshNotesClasseMoyenneTip();
 }
 
-/** Prof /app/notes — moyenne générale de la classe (effectif + GET moyennes élève). */
-function notesClasseMoyenneTipDenseHtml(classe, mg, nAvecMoy, nEleves, periodeLabel) {
-  const cl = String(classe || '').trim();
-  if (!cl) return '';
-  const pl = periodeLabel ? esc(String(periodeLabel).trim()) : 'Période';
-  const nTot = Number(nEleves) || 0;
-  const nOk = Number(nAvecMoy) || 0;
-  if (mg == null || !Number.isFinite(mg)) {
-    return `<div class="bento" style="margin:.15rem 0 .45rem">
-      <div class="stat-tile bento-span-4"><strong>${esc(cl)}</strong><span>Classe · ${pl}</span></div>
-      <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Moyenne classe · pas encore calculée</span></div>
-      <div class="stat-tile bento-span-4"><strong>${nTot}</strong><span>Élève(s) effectif</span></div>
-    </div>`;
-  }
-  return `<div class="bento" style="margin:.15rem 0 .45rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong class="ok">${mg.toFixed(1)}</strong><span>Moyenne classe / 20 · ${pl}</span>
-    </div>
-    <div class="stat-tile bento-span-4"><strong>${esc(cl)}</strong><span>${nOk} / ${nTot} élève(s) avec moyenne</span></div>
-    <button type="button" class="stat-tile bento-span-4" id="notesClasseMoyGrilleBtn" style="cursor:pointer;text-align:left">
-      <strong>→</strong><span>Grille · saisie devoir</span>
-    </button>
-  </div>`;
-}
-
+/** Prof /app/notes — la moyenne générale de la classe n'est plus calculée ici (voir plus haut) : zone laissée vide. */
 async function refreshNotesClasseMoyenneTip() {
   const el = document.getElementById('notesClasseMoyenneTip');
-  if (!el) return;
-  const cl = String((document.getElementById('devClasse') || {}).value || '').trim();
-  const pid = String((document.getElementById('devPeriode') || {}).value || '').trim();
-  if (!cl || !pid) {
-    el.innerHTML = '';
-    return;
-  }
-  try {
-    const jour = today();
-    const eff = await api('/classes/' + encodeURIComponent(cl) + '/effectif?jour=' + encodeURIComponent(jour));
-    const eleves = (eff && eff.eleves) || [];
-    if (!eleves.length) {
-      el.innerHTML = '';
-      return;
-    }
-    let periodeLabel = '';
-    try {
-      const periodes = await api('/note-periodes');
-      const p = (periodes || []).find(x => x.id === pid);
-      periodeLabel = p ? (p.libelle || p.code || '') : '';
-    } catch (_) { /* libellé optionnel */ }
-    const mgs = await Promise.all(eleves.map(async (e) => {
-      try {
-        const moy = await api('/eleves/' + e.id + '/moyennes?periode_id=' + encodeURIComponent(pid));
-        return moyenneGeneraleSur20FromMatiereRows(moy);
-      } catch {
-        return null;
-      }
-    }));
-    const valid = mgs.filter(v => v != null);
-    const mg = valid.length
-      ? valid.reduce((a, b) => a + b, 0) / valid.length
-      : null;
-    el.innerHTML = notesClasseMoyenneTipDenseHtml(cl, mg, valid.length, eleves.length, periodeLabel);
-    const btn = document.getElementById('notesClasseMoyGrilleBtn');
-    if (btn) {
-      btn.onclick = () => {
-        const panel = document.getElementById('notesGrillePanel');
-        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        else document.getElementById('btnDevList')?.click();
-      };
-    }
-  } catch {
-    el.innerHTML = '';
-  }
+  if (el) el.innerHTML = '';
 }
 
 /** /app/notes — devoirs sans aucune note saisie (période ouverte). */
@@ -27115,9 +27023,7 @@ async function bindEleveNotes() {
     }
     const moy = await api('/eleves/' + eid + '/moyennes?periode_id=' + encodeURIComponent(p.id));
     const moyTip = document.getElementById('eleveMoyGlobaleTip');
-    if (moyTip) {
-      moyTip.innerHTML = moy.length ? eleveMoyGlobaleTipDenseHtml(moy, p.libelle) : '';
-    }
+    if (moyTip) moyTip.innerHTML = '';
     moyOut.innerHTML = moy.length
       ? `<p class="muted">${esc(p.libelle)}</p><ul>${moy.map(m =>
           `<li>${esc(m.matiere_libelle || 'Matière')} — ${Number(m.moyenne_sur_20).toFixed(1)} / 20</li>`

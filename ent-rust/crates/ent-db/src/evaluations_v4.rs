@@ -8,8 +8,14 @@
 //! * **L'appel propose, le professeur confirme** : les propositions sont **recalculées** par le serveur à chaque lecture
 //!   et à chaque confirmation (un statut ne vient jamais du client) ; une case déjà remplie n'est jamais écrasée.
 //! * **L'absence ne vaut jamais 0** (R-V5, règle 2) : le 0 n'existe que pour une convocation de **remplacement**, restée
-//!   « absent non justifié », par un acte explicite de `notes.corriger` portant la confirmation de la référence
-//!   réglementaire ; la base le garantit aussi (`eva_rattrapage_zero_chk`).
+//!   « absent non justifié », par un acte explicite portant la confirmation de la référence réglementaire : le
+//!   **professeur du cours** tant que la période de l'élève est ouverte (avec un motif, l'absence non justifiée étant
+//!   constatée par l'assiduité), la **direction** (`notes.corriger`) après l'arrêt ; l'assiduité est relue au moment du
+//!   zéro (V3d, M-4, M-5). La base le garantit aussi (`eva_rattrapage_zero_chk`).
+//! * **Ordre des contrôles** (règle 5, V3d F-2) : personnel, puis droit sur le cours, puis visibilité de l'élève, puis
+//!   existence et état : rien n'est révélé avant le droit.
+//! * **Aucune écriture sur un état périmé** (règle 4, V3d M-1) : la case est relue sous verrou, remplaçable seulement si
+//!   elle est vide ou « absent », « à rattraper », « non rendu », « non noté » ; sinon conflit.
 //! * **Tout ce qui change une note est attribué et historisé** : toute écriture passe par `ecrire_resultat_tx` (versions,
 //!   période par élève, historique, événement neutre).
 //! * **Rien pour la famille ni l'élève** : ces lectures et écritures sont réservées au personnel ; les événements sont
@@ -19,6 +25,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use chrono::{NaiveDate, NaiveTime};
 use domain_eleve::evaluation_moteur::StatutCalcul;
+use domain_eleve::DomainError;
 use ent_auth::Action;
 use ent_events::{AggregateKind, MetierEventDraft};
 use ent_types::evaluations_v3::{analyser_cellule, Analyse, ContrainteCellule};
@@ -36,7 +43,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::evaluations::{conflit, db, introuvable, refus};
-use crate::evaluations_v1::{regles_tx, Attendu, EcrireResultat, SourceResultat};
+use crate::evaluations_v1::{periode_eleve_tx, regles_tx, Attendu, EcrireResultat, SourceResultat};
 use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
@@ -55,6 +62,9 @@ pub mod types_v4 {
 /// Plafond d'élèves convoqués en un geste (un cours n'en compte pas plus, F8).
 const MAX_CONVOQUES: usize = 300;
 
+/// Plafond d'élèves examinés et rendus par la lecture des absences répétées (F-5, coût borné).
+const MAX_ABSENCES_REPETEES: i64 = 500;
+
 /// Aménagements qui demandent une aide humaine (AESH) le jour de l'évaluation (CE-37).
 const AMENAGEMENTS_AIDE_HUMAINE: [&str; 4] = [
     "lecteur",
@@ -71,6 +81,8 @@ struct EvalCtx {
     annee_id: Uuid,
     bareme_m: i64,
     hors_bareme: bool,
+    /// Annoncée aux élèves ou déjà publiée (seules ces évaluations existent pour un AESH, F-8).
+    annoncee: bool,
 }
 
 async fn charger_eval(
@@ -80,7 +92,8 @@ async fn charger_eval(
 ) -> Result<EvalCtx, EntDbError> {
     let r = sqlx::query(
         "SELECT e.cours_id, e.date_eval, c.matiere_id, e.annee_id, (e.bareme * 1000)::bigint AS bareme_m,
-                e.hors_bareme_autorise, e.etat, e.mode
+                e.hors_bareme_autorise, e.etat, e.mode,
+                (e.annoncee OR e.publiee_le IS NOT NULL) AS annoncee
            FROM eva_evaluation e
            JOIN ent_cours c ON c.id = e.cours_id AND c.etablissement_id = e.etablissement_id
           WHERE e.etablissement_id = $1 AND e.id = $2",
@@ -105,6 +118,7 @@ async fn charger_eval(
         annee_id: r.try_get("annee_id").map_err(db)?,
         bareme_m: r.try_get("bareme_m").map_err(db)?,
         hors_bareme: r.try_get("hors_bareme_autorise").map_err(db)?,
+        annoncee: r.try_get("annoncee").map_err(db)?,
     })
 }
 
@@ -221,6 +235,38 @@ async fn resultat_actuel(
     .map_err(db)
 }
 
+/// Statuts d'une case que V4 peut **remplacer** (une case vide aussi) : jamais une note, une dispense ni un statut de
+/// neutralisation saisis entre-temps.
+const STATUTS_REMPLACABLES: [&str; 4] = ["absent", "a_rattraper", "non_rendu", "non_note"];
+
+/// V3d (M-1) : relit la case **sous verrou** (`FOR UPDATE`) et rend la version à attendre à l'écriture : `Vide` si la case
+/// l'est encore, `Version(v)` si elle porte un statut remplaçable ; sinon **conflit** (une note, une dispense ou une
+/// annulation arrivée depuis la lecture de l'écran ne s'écrase jamais). Aucune écriture ne passe en `Attendu::Aucun`.
+async fn attendu_case_remplacable(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    evaluation_id: Uuid,
+    eleve_id: Uuid,
+) -> Result<Attendu, EntDbError> {
+    let existant: Option<(String, i32)> = sqlx::query_as(
+        "SELECT statut, version FROM eva_resultat
+          WHERE etablissement_id = $1 AND evaluation_id = $2 AND eleve_id = $3 FOR UPDATE",
+    )
+    .bind(etab)
+    .bind(evaluation_id)
+    .bind(eleve_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(db)?;
+    match existant {
+        None => Ok(Attendu::Vide),
+        Some((st, v)) if STATUTS_REMPLACABLES.contains(&st.as_str()) => Ok(Attendu::Version(v)),
+        Some(_) => Err(conflit(
+            "le résultat de cet élève a changé depuis votre lecture (note, dispense ou annulation) : relire avant d'écrire",
+        )),
+    }
+}
+
 /// Résultat de l'analyse des propositions (partagé par la lecture et la confirmation).
 struct CalculPropositions {
     seance_trouvee: bool,
@@ -333,6 +379,23 @@ impl PgEnt {
         c.ok_or_else(introuvable)
     }
 
+    /// V3d (F-2), règle 5 : personnel, puis **droit sur le cours** de l'évaluation. Rien n'est révélé avant le droit :
+    /// l'existence de l'évaluation, son état, l'élève et les cases ne sont lus qu'ensuite. (Une évaluation inconnue ou
+    /// d'un autre établissement est « introuvable » : l'isolation par ligne la rend invisible.)
+    async fn eva_v4_droit_cours(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        evaluation_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<(Uuid, crate::evaluations_v3::AccesCours), EntDbError> {
+        Self::exiger_staff(role)?;
+        let cours = self.eva_v4_cours_de(etab, evaluation_id).await?;
+        let acces = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
+        Ok((cours, acces))
+    }
+
     /// Élèves cachés à l'acteur (garde du socle 2), calculés une fois pour un ensemble d'élèves.
     async fn eva_v4_caches(
         &self,
@@ -357,8 +420,9 @@ impl PgEnt {
         evaluation_id: Uuid,
         jour: NaiveDate,
     ) -> Result<PropositionsDto, EntDbError> {
-        let cours = self.eva_v4_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
+        let (_, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, evaluation_id, jour)
+            .await?;
         if !acces.saisie {
             return Err(EntDbError::Forbidden);
         }
@@ -390,13 +454,22 @@ impl PgEnt {
         jour: NaiveDate,
         body: &AppliquerPropositionsBody,
     ) -> Result<Vec<PropositionAppliqueeDto>, EntDbError> {
-        let cours = self.eva_v4_cours_de(etab, body.evaluation_id).await?;
+        let (cours, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, body.evaluation_id, jour)
+            .await?;
+        if !acces.saisie {
+            return Err(EntDbError::Forbidden);
+        }
         if cours != body.cours_id {
             return Err(refus("évaluation d'un autre cours"));
         }
-        let acces = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
-        if !acces.saisie {
-            return Err(EntDbError::Forbidden);
+        // F-3 : la liste demandée est bornée (un cours n'a pas plus d'élèves que `MAX_CONVOQUES`).
+        if body
+            .eleves
+            .as_ref()
+            .is_some_and(|v| v.len() > MAX_CONVOQUES)
+        {
+            return Err(refus("trop d'élèves dans une même confirmation"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = charger_eval(&mut tx, etab, body.evaluation_id).await?;
@@ -480,6 +553,11 @@ impl PgEnt {
                             issue: "deja_saisi".into(),
                             statut: None,
                         }),
+                        // F-3 : une panne d'infrastructure n'est jamais un « refusé » : elle remonte (la transaction
+                        // entière est abandonnée, rien n'est écrit à moitié).
+                        EntDbError::Domain(DomainError::Infrastructure) => {
+                            return Err(EntDbError::Domain(DomainError::Infrastructure))
+                        }
                         EntDbError::Forbidden
                         | EntDbError::SaisieInvalide(_)
                         | EntDbError::Domain(_) => retours.push(PropositionAppliqueeDto {
@@ -669,6 +747,9 @@ impl PgEnt {
             Self::eva_v3_acces_tx(&mut tx, etab, acteur, cours, jour, false, corriger).await?;
         let ev = charger_eval(&mut tx, etab, evaluation_id).await?;
         let public = public_evaluation(&mut tx, etab, evaluation_id, &ev).await?;
+        // F-8 : une donnée d'accompagnement ne se lit que si le module santé de l'établissement est actif (fermé par
+        // défaut), après le droit sur le cours.
+        self.exiger_module_sante(etab).await?;
         let voit_tous = acces.prof_du_cours || acces.saisie || acces.corriger;
         // L'AESH n'a de droit que sur ses élèves, à la date de l'évaluation.
         let siens: Vec<Uuid> = sqlx::query_scalar(
@@ -682,7 +763,9 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        if !voit_tous && siens.is_empty() {
+        // F-8 : un AESH ne connaît que les évaluations **annoncées** (ou publiées) de ses élèves : une évaluation que le
+        // professeur n'a pas annoncée n'existe pas pour lui.
+        if !voit_tous && (siens.is_empty() || !ev.annoncee) {
             return Err(EntDbError::Forbidden);
         }
         let visibles: Vec<Uuid> = if voit_tous {
@@ -727,9 +810,11 @@ impl PgEnt {
             let eleve_id: Uuid = l.try_get("eleve_id").map_err(db)?;
             let code: String = l.try_get("code").map_err(db)?;
             let indispo: bool = l.try_get("aesh_indisponible").map_err(db)?;
-            let libelle = crate::accompagnement::amenagement_du_catalogue(&code)
-                .map(|e| e.libelle.to_string())
-                .unwrap_or_else(|| "Aménagement".to_string());
+            // F-8 : un code hors du catalogue fermé n'est jamais montré (ni son code, ni un libellé générique).
+            let Some(entree) = crate::accompagnement::amenagement_du_catalogue(&code) else {
+                continue;
+            };
+            let libelle = entree.libelle.to_string();
             if eleves.last().is_none_or(|e| e.eleve_id != eleve_id) {
                 eleves.push(EleveAmenageDto {
                     eleve_id,
@@ -749,6 +834,19 @@ impl PgEnt {
                 ));
             }
             cur.amenagements.push(AmenagementCodeDto { code, libelle });
+        }
+        // F-8 : la lecture d'aménagements (donnée d'accompagnement) est journalisée, élève par élève.
+        for e in &eleves {
+            self.tracer_acces_sensible(
+                etab,
+                acteur,
+                role,
+                Some(e.eleve_id),
+                "evaluations",
+                "consultation_amenagements",
+                "Consultation des aménagements d'une évaluation",
+            )
+            .await?;
         }
         Ok(AmenagementsEvaluationDto {
             evaluation_id,
@@ -796,7 +894,18 @@ impl PgEnt {
         nature: &'static str,
         precedent: Option<Uuid>,
     ) -> Result<Vec<RattrapageDto>, EntDbError> {
-        Self::exiger_staff(role)?;
+        // F-2 : personnel, puis droit sur le cours, AVANT toute lecture ou validation du contenu.
+        let (_, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, body.evaluation_id, jour)
+            .await?;
+        let autorise = if nature == "remplacement" {
+            acces.corriger
+        } else {
+            acces.saisie || acces.corriger
+        };
+        if !autorise {
+            return Err(EntDbError::Forbidden);
+        }
         let eleves: Vec<Uuid> = body
             .eleves
             .iter()
@@ -819,16 +928,6 @@ impl PgEnt {
         }
         let modalite = modalite_ou_defaut(body.modalite.as_deref())?;
         let lieu = lieu_valide(body.lieu.as_deref())?;
-        let cours = self.eva_v4_cours_de(etab, body.evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
-        let autorise = if nature == "remplacement" {
-            acces.corriger
-        } else {
-            acces.saisie || acces.corriger
-        };
-        if !autorise {
-            return Err(EntDbError::Forbidden);
-        }
         let caches = self.eva_v4_caches(etab, acteur, role, &eleves).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ev = charger_eval(&mut tx, etab, body.evaluation_id).await?;
@@ -854,6 +953,28 @@ impl PgEnt {
                     return Err(refus(
                         "cet élève a déjà un résultat sur cette évaluation : rien à rattraper",
                     ));
+                }
+            }
+            // V3d (F-4, doc V4 §2.3) : période de l'élève arrêtée sans rattrapage autorisé = convocation refusée, QUI QUE
+            // SOIT l'auteur (la direction aussi : elle autorise d'abord, avec un motif, puis convoque). Rien n'est écrit.
+            if nature == "rattrapage" {
+                let ouverte = periode_eleve_tx(&mut tx, etab, body.evaluation_id, *eleve)
+                    .await?
+                    .is_some_and(|p| p.etat == "ouverte");
+                if !ouverte {
+                    let autorise: bool =
+                        sqlx::query_scalar("SELECT eva_rattrapage_en_vigueur($1, $2, $3)")
+                            .bind(etab)
+                            .bind(body.evaluation_id)
+                            .bind(eleve)
+                            .fetch_one(&mut *tx)
+                            .await
+                            .map_err(db)?;
+                    if !autorise {
+                        return Err(refus(
+                            "période arrêtée pour cet élève : la direction doit d'abord autoriser le rattrapage",
+                        ));
+                    }
                 }
             }
             let id = Uuid::new_v4();
@@ -961,6 +1082,7 @@ impl PgEnt {
             Uuid,
             String,
             String,
+            Uuid,
         ),
         EntDbError,
     > {
@@ -978,14 +1100,16 @@ impl PgEnt {
             .map_err(db)?
             .ok_or_else(introuvable)?
         };
+        // F-2, règle 5 : droit sur le cours d'abord, puis visibilité de l'élève, puis état et version.
+        let (_, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, evaluation_id, jour)
+            .await?;
         self.exiger_eleve_visible(etab, acteur, role, eleve_id)
             .await?;
-        let cours = self.eva_v4_cours_de(etab, evaluation_id).await?;
-        let acces = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
-        let (nature, etat, version): (String, String, i32) = {
+        let (nature, etat, version, cree_par): (String, String, i32, Uuid) = {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             sqlx::query_as(
-                "SELECT nature, etat, version FROM eva_rattrapage WHERE etablissement_id = $1 AND id = $2",
+                "SELECT nature, etat, version, cree_par FROM eva_rattrapage WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(etab)
             .bind(rattrapage_id)
@@ -996,7 +1120,7 @@ impl PgEnt {
         if version != version_attendue {
             return Err(conflit("la convocation a changé depuis votre lecture"));
         }
-        Ok((acces, evaluation_id, eleve_id, nature, etat))
+        Ok((acces, evaluation_id, eleve_id, nature, etat, cree_par))
     }
 
     /// Déplace une convocation encore en cours (date, heure, lieu, modalité, échéance).
@@ -1009,7 +1133,7 @@ impl PgEnt {
         rattrapage_id: Uuid,
         body: &DeplacerRattrapageBody,
     ) -> Result<RattrapageDto, EntDbError> {
-        let (acces, evaluation_id, _, nature, etat) = self
+        let (acces, evaluation_id, _, nature, etat, cree_par) = self
             .eva_v4_charger_convocation(
                 etab,
                 acteur,
@@ -1019,7 +1143,11 @@ impl PgEnt {
                 body.version_attendue,
             )
             .await?;
-        if !(acces.corriger || (acces.saisie && nature == "rattrapage")) {
+        // V3d (M-2, CE-44) : un suppléant ne déplace ni n'annule la convocation du titulaire sans droit de correction
+        // (comme V3 pour les évaluations : `auteur || !suppléant || corriger`).
+        if !(acces.corriger
+            || (acces.saisie && nature == "rattrapage" && (cree_par == acteur || !acces.suppleant)))
+        {
             return Err(EntDbError::Forbidden);
         }
         if etat != "convoque" {
@@ -1086,11 +1214,13 @@ impl PgEnt {
         rattrapage_id: Uuid,
         body: &AnnulerRattrapageBody,
     ) -> Result<RattrapageDto, EntDbError> {
+        // F-2 : le personnel d'abord ; la forme du corps ensuite.
+        Self::exiger_staff(role)?;
         let motif = body.motif.trim();
         if motif.chars().count() < 3 || motif.chars().count() > 500 {
             return Err(refus("un motif de 3 à 500 caractères est requis"));
         }
-        let (acces, evaluation_id, _, nature, etat) = self
+        let (acces, evaluation_id, _, nature, etat, cree_par) = self
             .eva_v4_charger_convocation(
                 etab,
                 acteur,
@@ -1100,7 +1230,11 @@ impl PgEnt {
                 body.version_attendue,
             )
             .await?;
-        if !(acces.corriger || (acces.saisie && nature == "rattrapage")) {
+        // V3d (M-2, CE-44) : un suppléant ne déplace ni n'annule la convocation du titulaire sans droit de correction
+        // (comme V3 pour les évaluations : `auteur || !suppléant || corriger`).
+        if !(acces.corriger
+            || (acces.saisie && nature == "rattrapage" && (cree_par == acteur || !acces.suppleant)))
+        {
             return Err(EntDbError::Forbidden);
         }
         if etat != "convoque" {
@@ -1156,7 +1290,7 @@ impl PgEnt {
         rattrapage_id: Uuid,
         body: &NoterRattrapageBody,
     ) -> Result<RattrapageDto, EntDbError> {
-        let (acces, evaluation_id, eleve_id, _nature, etat) = self
+        let (acces, evaluation_id, eleve_id, _nature, etat, _cree_par) = self
             .eva_v4_charger_convocation(
                 etab,
                 acteur,
@@ -1173,6 +1307,32 @@ impl PgEnt {
             return Err(conflit("cette convocation est terminée"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // F-4 : l'échéance est appliquée. Après elle, seule la direction (`notes.corriger`) note, avec un motif ; le
+        // constat d'une absence au rattrapage reste possible (il ne change aucune note).
+        let echeance: NaiveDate = sqlx::query_scalar(
+            "SELECT echeance FROM eva_rattrapage WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(rattrapage_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let motif_apres_echeance = if body.absence.is_none() && echeance < jour {
+            if !acces.corriger {
+                return Err(refus(
+                    "l'échéance du rattrapage est dépassée : seule la direction peut encore noter, avec un motif",
+                ));
+            }
+            let m = body.motif.as_deref().map(str::trim).unwrap_or("");
+            if m.chars().count() < 3 || m.chars().count() > 500 {
+                return Err(refus(
+                    "échéance dépassée : un motif de 3 à 500 caractères est requis pour noter",
+                ));
+            }
+            Some(m.to_string())
+        } else {
+            None
+        };
         let nouvel_etat = match body.absence.as_deref() {
             Some("justifiee") => "absent_justifie",
             Some("non_justifiee") => "absent_non_justifie",
@@ -1210,15 +1370,23 @@ impl PgEnt {
                     eleve_id,
                     statut,
                     valeur_m,
-                    motif: None,
+                    motif: motif_apres_echeance,
                     commentaire_eleve: None,
                     source: SourceResultat::Saisie,
                 };
-                Self::ecrire_resultat_tx(&mut tx, etab, acteur, acces.corriger, jour, &r, Attendu::Aucun)
+                // M-1 : case relue sous verrou ; une note, une dispense ou une annulation arrivée entre-temps = conflit.
+                let attendu =
+                    attendu_case_remplacable(&mut tx, etab, evaluation_id, eleve_id).await?;
+                Self::ecrire_resultat_tx(&mut tx, etab, acteur, acces.corriger, jour, &r, attendu)
                     .await
                     .map_err(|e| match e {
+                        // Message exact selon le cas : la direction (sans être du cours) en période ouverte ; ou le
+                        // professeur après l'arrêt, sans rattrapage autorisé.
+                        EntDbError::Forbidden if acces.corriger => refus(
+                            "période de l'élève ouverte : le rattrapage est noté par le professeur du cours",
+                        ),
                         EntDbError::Forbidden => refus(
-                            "saisie refusée : période ouverte (le professeur du cours saisit) ou arrêtée sans rattrapage autorisé",
+                            "période de l'élève arrêtée : la direction doit d'abord autoriser le rattrapage",
                         ),
                         autre => autre,
                     })?;
@@ -1290,6 +1458,20 @@ impl PgEnt {
             .map_err(db)?
             .ok_or_else(introuvable)?
         };
+        // F-2, règle 5 : droit sur le cours, puis visibilité de l'élève, puis seulement l'état de la convocation.
+        let (_, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, evaluation_id, jour)
+            .await?;
+        let autorise = if nature == "remplacement" {
+            acces.corriger
+        } else {
+            acces.saisie || acces.corriger
+        };
+        if !autorise {
+            return Err(EntDbError::Forbidden);
+        }
+        self.exiger_eleve_visible(etab, acteur, role, eleve_id)
+            .await?;
         if etat != "absent_justifie" {
             return Err(conflit("on ne reconvoque qu'après une absence justifiée"));
         }
@@ -1321,8 +1503,15 @@ impl PgEnt {
         v.pop().ok_or_else(introuvable)
     }
 
-    /// EVA-174, CE-29 : **seul** cas où la note 0 est attribuée pour une absence : convocation de remplacement restée « absent
-    /// non justifié », `notes.corriger` (direction), confirmation de la référence réglementaire, acte tracé.
+    /// EVA-174, CE-29 : **seul** cas où la note 0 est attribuée pour une absence : convocation de remplacement restée
+    /// « absent non justifié », confirmation de la référence réglementaire, acte tracé.
+    ///
+    /// Qui : **après l'arrêt de la période de l'élève**, la direction (`notes.corriger`, avec le motif de correction) ;
+    /// **période ouverte**, le **professeur du cours** (titulaire ou co-enseignant, pas un suppléant) avec un **motif**
+    /// (V3d, M-4) : il n'a pas `notes.corriger`, et l'écriture commune réserve la période ouverte au professeur du cours.
+    /// Dans les deux cas, l'assiduité (socle 12) est **relue au moment du zéro** (V3d, M-5) : une justification arrivée
+    /// après coup, ou une absence pas encore qualifiée, bloque le zéro ; le professeur exige en plus une absence
+    /// **non justifiée constatée** par l'assiduité.
     pub async fn eva_v4_attribuer_zero_for_actor(
         &self,
         etab: Uuid,
@@ -1332,19 +1521,8 @@ impl PgEnt {
         rattrapage_id: Uuid,
         body: &AttribuerZeroBody,
     ) -> Result<ZeroAttribueDto, EntDbError> {
-        Self::exiger_staff(role)?;
-        if !self
-            .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        if !body.confirme {
-            return Err(refus(
-                "confirmer la lecture de la référence réglementaire avant d'attribuer un zéro",
-            ));
-        }
-        let (acces, evaluation_id, eleve_id, nature, etat) = self
+        // Règle 5 : personnel, droit sur le cours, élève visible, puis seulement la confirmation, la nature et l'état.
+        let (acces, evaluation_id, eleve_id, nature, etat, _cree_par) = self
             .eva_v4_charger_convocation(
                 etab,
                 acteur,
@@ -1354,6 +1532,28 @@ impl PgEnt {
                 body.version_attendue,
             )
             .await?;
+        let prof_titulaire = acces.saisie && !acces.suppleant;
+        if !(acces.corriger || prof_titulaire) {
+            return Err(EntDbError::Forbidden);
+        }
+        if !body.confirme {
+            return Err(refus(
+                "confirmer la lecture de la référence réglementaire avant d'attribuer un zéro",
+            ));
+        }
+        let motif_acteur = body
+            .motif
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty());
+        if motif_acteur.is_some_and(|m| m.chars().count() > 500) {
+            return Err(refus("motif trop long (500 caractères au plus)"));
+        }
+        if !acces.corriger && motif_acteur.is_none_or(|m| m.chars().count() < 3) {
+            return Err(refus(
+                "un motif de 3 à 500 caractères est requis pour attribuer le zéro",
+            ));
+        }
         if nature != "remplacement" {
             return Err(refus(
                 "le zéro n'existe que pour une évaluation de remplacement (R-01)",
@@ -1374,20 +1574,66 @@ impl PgEnt {
         if deja {
             return Err(conflit("le zéro a déjà été attribué"));
         }
+        // M-5 : l'assiduité est relue MAINTENANT (sous le verrou de la convocation), pas au moment du constat.
+        let (cours_eval, date_eval): (Uuid, NaiveDate) = sqlx::query_as(
+            "SELECT cours_id, date_eval FROM eva_evaluation WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(evaluation_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let assiduite: Option<String> =
+            sqlx::query_scalar("SELECT eva_absence_a_la_seance($1, $2, $3, $4)")
+                .bind(etab)
+                .bind(eleve_id)
+                .bind(cours_eval)
+                .bind(date_eval)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        match assiduite.as_deref() {
+            Some("justifiee") => {
+                return Err(conflit(
+                    "l'absence a été justifiée depuis le constat : le zéro n'est plus possible (reconvoquer l'élève)",
+                ))
+            }
+            Some("en_attente") => {
+                return Err(conflit(
+                    "l'absence n'est pas encore qualifiée au suivi de l'assiduité : attendre sa qualification avant le zéro",
+                ))
+            }
+            None if !acces.corriger => {
+                return Err(refus(
+                    "le professeur n'attribue le zéro que sur une absence non justifiée constatée par l'assiduité",
+                ))
+            }
+            _ => {}
+        }
+        let motif = match motif_acteur {
+            Some(m) => format!("Évaluation de remplacement : absence non justifiée (R-01). {m}"),
+            None => "Évaluation de remplacement : absence non justifiée (R-01)".to_string(),
+        };
         let r = EcrireResultat {
             evaluation_id,
             eleve_id,
             statut: StatutCalcul::Note,
             valeur_m: Some(0),
-            motif: Some("Évaluation de remplacement : absence non justifiée (R-01)".to_string()),
+            motif: Some(motif),
             commentaire_eleve: None,
             source: SourceResultat::Saisie,
         };
-        Self::ecrire_resultat_tx(&mut tx, etab, acteur, acces.corriger, jour, &r, Attendu::Aucun)
+        // M-1 : case relue sous verrou ; une note ou une dispense saisie entre-temps n'est jamais écrasée.
+        let attendu = attendu_case_remplacable(&mut tx, etab, evaluation_id, eleve_id).await?;
+        let a_la_direction = acces.corriger;
+        Self::ecrire_resultat_tx(&mut tx, etab, acteur, acces.corriger, jour, &r, attendu)
             .await
             .map_err(|e| match e {
+                EntDbError::Forbidden if a_la_direction => refus(
+                    "période de l'élève ouverte : le zéro est attribué par le professeur du cours (la direction le fait après l'arrêt)",
+                ),
                 EntDbError::Forbidden => refus(
-                    "tant que la période de l'élève est ouverte, le zéro est attribué par le professeur du cours",
+                    "période de l'élève arrêtée : le zéro est attribué par la direction, avec un motif",
                 ),
                 autre => autre,
             })?;
@@ -1434,8 +1680,10 @@ impl PgEnt {
         jour: NaiveDate,
         evaluation_id: Uuid,
     ) -> Result<Vec<RattrapageDto>, EntDbError> {
-        let cours = self.eva_v4_cours_de(etab, evaluation_id).await?;
-        let _ = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
+        let (_, acces) = self
+            .eva_v4_droit_cours(etab, acteur, role, evaluation_id, jour)
+            .await?;
+        let _ = acces;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows = sqlx::query(&format!(
             "SELECT {COLONNES_RATTRAPAGE} FROM eva_rattrapage WHERE etablissement_id = $1 AND evaluation_id = $2
@@ -1501,17 +1749,36 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (du, au) = bornes.ok_or_else(introuvable)?;
+        // F-5 : coût borné. L'étape 1 ne regarde que les cases (aucun appel au socle 12) et retient les élèves qui ont au
+        // moins `$5` cases absentes dans la période ; l'assiduité n'est interrogée que pour ces élèves-là, et la réponse est
+        // plafonnée. Faux positifs : une absence justifiée l'est à la séance du cours, ou, pour une évaluation hors séance
+        // (aucune séance du cours ce jour-là), par une absence justifiée du jour (séance ou demi-journée).
         let rows = sqlx::query(
-            "SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
+            "WITH candidats AS (
+                 SELECT r.eleve_id
+                   FROM eva_resultat r
+                   JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
+                  WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
+                    AND e.date_eval BETWEEN $2 AND $3
+                    AND ($4::uuid IS NULL OR e.cours_id = $4)
+                    AND r.statut IN ('absent', 'a_rattraper')
+                  GROUP BY r.eleve_id
+                 HAVING count(DISTINCT r.evaluation_id) >= $5
+                  ORDER BY r.eleve_id
+                  LIMIT $6)
+             SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
                     EXISTS (SELECT 1 FROM eva_rattrapage z WHERE z.etablissement_id = r.etablissement_id
                                AND z.eleve_id = r.eleve_id AND z.nature = 'remplacement' AND z.etat <> 'annule') AS rempl
                FROM eva_resultat r
+               JOIN candidats c ON c.eleve_id = r.eleve_id
                JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
+               LEFT JOIN LATERAL eva_absence_a_la_seance(r.etablissement_id, r.eleve_id, e.cours_id, e.date_eval) AS ab(v) ON true
               WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
                 AND e.date_eval BETWEEN $2 AND $3
                 AND ($4::uuid IS NULL OR e.cours_id = $4)
                 AND r.statut IN ('absent', 'a_rattraper')
-                AND COALESCE(eva_absence_a_la_seance(r.etablissement_id, r.eleve_id, e.cours_id, e.date_eval), 'sans') <> 'justifiee'
+                AND COALESCE(ab.v, 'sans') <> 'justifiee'
+                AND NOT (ab.v IS NULL AND eva_absence_justifiee_ce_jour(r.etablissement_id, r.eleve_id, e.date_eval))
               GROUP BY r.etablissement_id, r.eleve_id
              HAVING count(DISTINCT r.evaluation_id) >= $5
               ORDER BY r.eleve_id",
@@ -1521,6 +1788,7 @@ impl PgEnt {
         .bind(au)
         .bind(cours_id)
         .bind(SEUIL_ABSENCES_REPETEES as i32)
+        .bind(MAX_ABSENCES_REPETEES)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

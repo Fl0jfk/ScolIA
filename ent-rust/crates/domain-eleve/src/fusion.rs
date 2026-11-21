@@ -244,7 +244,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_vs_commission_dossier", &["id"]),
     r("eva_appreciation", &["id"], "appréciation versionnée du socle 21 : élève immuable (déclencheur de 465) ; les appréciations restent sur la fiche où elles ont été saisies (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
     r("eva_consultation", &["id"], "journal en ajout seul des consultations de résultats : trace de qui a regardé, reste sur la fiche consultée"),
-    r("eva_dispense_port", &["id"], "dispense ou inaptitude datée, SANS motif (port 34 en simulation, socle 21 V4) : décision rattachée à cette fiche, elle reste sur la fiche où elle a été déclarée (lisible via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
+    d("eva_dispense_port", &["id"]),
     r("eva_enseignement_externe", &["id"], "enseignement suivi hors de l'établissement (socle 21) : déclaré pour cette fiche, il suit ses résultats externes, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
     r("eva_evaluation_restriction", &["evaluation_id", "eleve_id"], "public restreint d'une évaluation : cohérent avec les résultats de la fiche, qui restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
     r("eva_instantane_ligne", &["id"], "ligne d'un instantané de période figé (socle 21) : document gelé, jamais réécrit"),
