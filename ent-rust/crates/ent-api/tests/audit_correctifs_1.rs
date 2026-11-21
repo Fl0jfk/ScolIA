@@ -266,7 +266,11 @@ fn a03_la_liste_des_documents_ne_revele_pas_les_pieces_restreintes_aux_familles(
             assert!(!ids.contains(&restreint.to_string()), "{a:?} voit l'existence d'une pièce restreinte");
             assert!(!ids.contains(&standard.to_string()), "{a:?} voit une pièce interne hors tiroir famille");
             assert!(!r.texte.contains("CODE-A03"), "{a:?} : code fuité");
-            assert!(!r.texte.contains("A03"), "{a:?} : titre fuité : {}", r.texte);
+            // Les titres exacts, pas la sous-chaîne « A03 » : un code d'une autre pièce, tiré au hasard
+            // (UUID en majuscules), peut contenir « A03 » (faux rouge du run 470 d'ENT).
+            for titre in ["Information préoccupante A03", "Note interne A03"] {
+                assert!(!r.texte.contains(titre), "{a:?} : titre fuité : {}", r.texte);
+            }
         }
 
         // Le personnel autorisé voit tout ; le personnel sans droit voit l'existence mais ni code ni source.
