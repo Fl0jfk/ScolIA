@@ -42,6 +42,8 @@ mod cahier_c4;
 mod cahier_c5;
 mod cahier_c6;
 mod cahier_c7;
+mod cahier_c8;
+mod cahier_c9;
 mod referentiel_s2;
 mod structure;
 mod structure_calendrier;

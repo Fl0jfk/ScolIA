@@ -870,6 +870,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::cahier_c5::routes());
     let r = r.merge(crate::cahier_c6::routes());
     let r = r.merge(crate::cahier_c7::routes());
+    let r = r.merge(crate::cahier_c8::routes());
+    let r = r.merge(crate::cahier_c9::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
     let r = r.merge(crate::dossier::routes());

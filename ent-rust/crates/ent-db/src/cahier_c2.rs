@@ -478,7 +478,7 @@ impl PgEnt {
     }
 
     /// Le compte porte-t-il `action` à portée d'établissement (direction) ?
-    async fn cdt_droit_etab(&self, a: &Acteur<'_>, action: Action) -> Result<bool, EntDbError> {
+    pub(crate) async fn cdt_droit_etab(&self, a: &Acteur<'_>, action: Action) -> Result<bool, EntDbError> {
         Ok(self
             .droits_effectifs(a.etablissement_id, a.user_id, a.role)
             .await?
@@ -487,7 +487,7 @@ impl PgEnt {
     }
 
     /// Le compte porte-t-il `action`, à n'importe quelle portée ? (la portée réelle se contrôle à part)
-    async fn cdt_droit_quelconque(
+    pub(crate) async fn cdt_droit_quelconque(
         &self,
         a: &Acteur<'_>,
         action: Action,
@@ -538,7 +538,8 @@ impl PgEnt {
         annee_id: Uuid,
     ) -> Result<(), EntDbError> {
         let (close,): (bool,) = sqlx::query_as(
-            "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
+            "SELECT cloturee_le IS NOT NULL OR ent_cdt_cahier_fige(etablissement_id, id)
+               FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(annee_id)

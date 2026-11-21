@@ -26,6 +26,8 @@ pub mod cahier_c4;
 pub mod cahier_c5;
 pub mod cahier_c6;
 pub mod cahier_c7;
+pub mod cahier_c8;
+pub mod cahier_c9;
 pub mod communication;
 pub mod demandes;
 pub mod discipline;

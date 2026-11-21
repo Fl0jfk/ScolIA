@@ -355,6 +355,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2416_cdt_c5_rendu_retour"),
     m!("2417_cdt_c6_continuite"),
     m!("2418_cdt_c7_adaptations"),
+    // Socle 20, C8 et C9 : premiers numéros libres de la plage 2400–2419 (2407 et 2408, jamais utilisés) ; placés après 2418
+    // car elles s'appuient sur 2410 (visa) et 2411 (archive). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2407_cdt_c8_visa_inspection_archive"),
+    m!("2408_cdt_c9_progressions"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
     // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
