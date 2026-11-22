@@ -495,6 +495,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("475_eva_v4_absences_dispenses_rattrapages"),
     // Lot V3d : revue de sécurité de V4 (F-1) : TRUNCATE de `eva_dispense_port`, table AESH en ajout seul.
     m!("476_eva_v3d_revue_securite_v4"),
+    // Lots V3e + V5 « parcours » : motif conservé, fonction unique de période, prolongation d'échéance tracée, résultats
+    // externes (décision de compter, publication, retrait) et moyennes externes gardés en base.
+    m!("477_eva_v3e_v5_parcours"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

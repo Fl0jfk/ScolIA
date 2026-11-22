@@ -1088,7 +1088,7 @@ impl PgEnt {
     > {
         Self::exiger_staff(role)?;
         let etab = tx_etab;
-        let (evaluation_id, eleve_id): (Uuid, Uuid) = {
+        let ligne: Option<(Uuid, Uuid)> = {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             sqlx::query_as(
                 "SELECT evaluation_id, eleve_id FROM eva_rattrapage WHERE etablissement_id = $1 AND id = $2",
@@ -1098,7 +1098,20 @@ impl PgEnt {
             .fetch_optional(&mut *tx)
             .await
             .map_err(db)?
-            .ok_or_else(introuvable)?
+        };
+        // V3e : « introuvable » ne se distingue pas de « pas votre droit » pour qui ne porte pas `notes.corriger`
+        // (règle 5 : rien n'est révélé avant le droit ; sinon l'existence d'une convocation d'un autre cours se devine).
+        let Some((evaluation_id, eleve_id)) = ligne else {
+            return Err(
+                if self
+                    .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+                    .await?
+                {
+                    introuvable()
+                } else {
+                    EntDbError::Forbidden
+                },
+            );
         };
         // F-2, règle 5 : droit sur le cours d'abord, puis visibilité de l'élève, puis état et version.
         let (_, acces) = self
@@ -1162,9 +1175,42 @@ impl PgEnt {
         }
         let modalite = modalite_ou_defaut(body.modalite.as_deref())?;
         let lieu = lieu_valide(body.lieu.as_deref())?;
+        let motif = body
+            .motif
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty());
+        if motif.is_some_and(|m| m.chars().count() < 3 || m.chars().count() > 500) {
+            return Err(refus("motif de la prolongation : 3 à 500 caractères"));
+        }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // V3e (F-4) : une échéance dépassée ne se repousse que par la direction (`notes.corriger`), avec un motif, et la
+        // prolongation est TRACÉE (échéances avant et après, motif et auteur au journal des convocations). Sans cette voie,
+        // ni le professeur (période ouverte) ni la direction ne pouvaient plus noter une convocation arrivée à échéance.
+        let ancienne: NaiveDate = sqlx::query_scalar(
+            "SELECT echeance FROM eva_rattrapage WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(rattrapage_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let prolonge = echeance > ancienne;
+        if ancienne < jour && prolonge {
+            if !acces.corriger {
+                return Err(refus(
+                    "l'échéance du rattrapage est dépassée : seule la direction peut la prolonger, avec un motif",
+                ));
+            }
+            if motif.is_none() {
+                return Err(refus(
+                    "prolongation d'une échéance dépassée : un motif de 3 à 500 caractères est requis",
+                ));
+            }
+        }
         let n = sqlx::query(
-            "UPDATE eva_rattrapage SET prevu_le = $3, heure = $4, lieu = $5, modalite = $6, echeance = $7, modifie_par = $8
+            "UPDATE eva_rattrapage SET prevu_le = $3, heure = $4, lieu = $5, modalite = $6, echeance = $7, modifie_par = $8,
+                    dernier_motif_prolongation = $10
               WHERE etablissement_id = $1 AND id = $2 AND version = $9 AND etat = 'convoque'",
         )
         .bind(etab)
@@ -1176,6 +1222,7 @@ impl PgEnt {
         .bind(echeance)
         .bind(acteur)
         .bind(body.version_attendue)
+        .bind(if prolonge { motif } else { None })
         .execute(&mut *tx)
         .await
         .map_err(db)?
@@ -1610,6 +1657,21 @@ impl PgEnt {
             }
             _ => {}
         }
+        // V3e (item 2, M-5 hors séance) : sans séance du cours ce jour-là, l'absence peut avoir été justifiée pour la
+        // demi-journée (socle 12) : relue elle aussi, au même moment, sous le même verrou.
+        let justifiee_ce_jour: bool =
+            sqlx::query_scalar("SELECT eva_absence_justifiee_ce_jour($1, $2, $3)")
+                .bind(etab)
+                .bind(eleve_id)
+                .bind(date_eval)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        if justifiee_ce_jour {
+            return Err(conflit(
+                "l'absence de ce jour a été justifiée depuis le constat : le zéro n'est plus possible (reconvoquer l'élève)",
+            ));
+        }
         let motif = match motif_acteur {
             Some(m) => format!("Évaluation de remplacement : absence non justifiée (R-01). {m}"),
             None => "Évaluation de remplacement : absence non justifiée (R-01)".to_string(),
@@ -1753,27 +1815,44 @@ impl PgEnt {
         // moins `$5` cases absentes dans la période ; l'assiduité n'est interrogée que pour ces élèves-là, et la réponse est
         // plafonnée. Faux positifs : une absence justifiée l'est à la séance du cours, ou, pour une évaluation hors séance
         // (aucune séance du cours ce jour-là), par une absence justifiée du jour (séance ou demi-journée).
+        // V3e : le plafond ne tronque JAMAIS en silence. L'étape 1 est lue avec un élève de plus que le plafond ; au-delà, la
+        // lecture est refusée (préciser le cours) au lieu de rendre une liste incomplète ; la justification et la
+        // visibilité s'appliquent ensuite à des candidats tous examinés.
+        let candidats: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT r.eleve_id
+               FROM eva_resultat r
+               JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
+              WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
+                AND e.date_eval BETWEEN $2 AND $3
+                AND ($4::uuid IS NULL OR e.cours_id = $4)
+                AND r.statut IN ('absent', 'a_rattraper')
+              GROUP BY r.eleve_id
+             HAVING count(DISTINCT r.evaluation_id) >= $5
+              ORDER BY r.eleve_id
+              LIMIT $6",
+        )
+        .bind(etab)
+        .bind(du)
+        .bind(au)
+        .bind(cours_id)
+        .bind(SEUIL_ABSENCES_REPETEES as i32)
+        .bind(MAX_ABSENCES_REPETEES + 1)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        if i64::try_from(candidats.len()).unwrap_or(i64::MAX) > MAX_ABSENCES_REPETEES {
+            return Err(refus(
+                "trop d'élèves à examiner pour une seule lecture : préciser le cours ou la période",
+            ));
+        }
         let rows = sqlx::query(
-            "WITH candidats AS (
-                 SELECT r.eleve_id
-                   FROM eva_resultat r
-                   JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
-                  WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
-                    AND e.date_eval BETWEEN $2 AND $3
-                    AND ($4::uuid IS NULL OR e.cours_id = $4)
-                    AND r.statut IN ('absent', 'a_rattraper')
-                  GROUP BY r.eleve_id
-                 HAVING count(DISTINCT r.evaluation_id) >= $5
-                  ORDER BY r.eleve_id
-                  LIMIT $6)
-             SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
+            "SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
                     EXISTS (SELECT 1 FROM eva_rattrapage z WHERE z.etablissement_id = r.etablissement_id
                                AND z.eleve_id = r.eleve_id AND z.nature = 'remplacement' AND z.etat <> 'annule') AS rempl
                FROM eva_resultat r
-               JOIN candidats c ON c.eleve_id = r.eleve_id
                JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
                LEFT JOIN LATERAL eva_absence_a_la_seance(r.etablissement_id, r.eleve_id, e.cours_id, e.date_eval) AS ab(v) ON true
-              WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
+              WHERE r.etablissement_id = $1 AND r.eleve_id = ANY($6) AND e.mode = 'note' AND e.etat = 'ouverte'
                 AND e.date_eval BETWEEN $2 AND $3
                 AND ($4::uuid IS NULL OR e.cours_id = $4)
                 AND r.statut IN ('absent', 'a_rattraper')
@@ -1788,7 +1867,7 @@ impl PgEnt {
         .bind(au)
         .bind(cours_id)
         .bind(SEUIL_ABSENCES_REPETEES as i32)
-        .bind(MAX_ABSENCES_REPETEES)
+        .bind(&candidats)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

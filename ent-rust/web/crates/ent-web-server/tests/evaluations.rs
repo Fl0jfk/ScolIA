@@ -191,7 +191,10 @@ async fn periode_complete_avec_le_client_du_frontend() {
     })
     .await
     .unwrap();
-    let t = ent_db::jour_paris();
+    // V3e (item 5) : le test ne dépend plus du jour réel. La date de référence est un jour de l'année scolaire courante (30
+    // jours après sa rentrée), jamais « aujourd'hui » : ni le chevauchement de périodes, ni la date de fin de trimestre, ni
+    // le jour où la CI tourne ne changent l'issue.
+    let t = annee.date_debut + Duration::days(30);
     let periode = ent
         .creer_note_periode(ent_db::CreerNotePeriode {
             etablissement_id: etab,

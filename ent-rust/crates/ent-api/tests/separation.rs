@@ -3026,3 +3026,34 @@ fn evaluations_v4_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
         }
     });
 }
+
+/// V3e/V5 : les 10 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
+/// à l'élève sur un élève qu'ils ne peuvent pas lire, quel que soit le corps, avant toute lecture (aucune écriture, aucun
+/// oracle d'existence). La lecture `externes-famille` n'est ouverte qu'avec le lien « voir les notes ».
+#[test]
+fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_un_inconnu() {
+    let Some(m) = monde() else { return };
+    let id = Uuid::new_v4();
+    let eleve = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("POST", "/eva/v5/externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "origine": "cned", "libelle": null, "date_resultat": "2031-10-10", "periode_id": null, "valeur_m": 10000, "bareme_m": 20000, "document_id": null}))),
+        ("POST", format!("/eva/v5/externes/{id}/compter"), Some(json!({"cours_id": id, "motif": "essai de la famille"}))),
+        ("POST", format!("/eva/v5/externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/externes/{id}/retirer"), Some(json!({"motif": "essai de la famille"}))),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
+        ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "organisme": "cned", "organisme_libelle": null, "du": "2031-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
+        ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null}))),
+        ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
+    ];
+    assert_eq!(routes.len(), 10, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}

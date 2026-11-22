@@ -152,6 +152,10 @@ pub struct DeplacerRattrapageBody {
     pub modalite: Option<String>,
     pub echeance: Option<NaiveDate>,
     pub version_attendue: i32,
+    /// V3e (F-4) : motif (3 à 500 caractères) **obligatoire** pour prolonger une échéance déjà dépassée (direction
+    /// seulement, `notes.corriger`) ; la prolongation est tracée (échéance avant et après, motif, auteur).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 /// Résultat d'un rattrapage : une note (ou `nn` / `disp`), **ou** une absence au rattrapage lui-même.

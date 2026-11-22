@@ -1436,7 +1436,10 @@ pub(crate) async fn moyennes_tx(
     let reglage = regles_tx(tx, etab, annee_id).await?;
     let regles = reglage.regles;
 
-    // Résultats dont la PÉRIODE DE L'ÉLÈVE (R-V29) est celle demandée. Jamais `eva_evaluation.periode_id`.
+    // V5 (règle 6) : une note appartient à l'élève et à la DATE de l'évaluation. Elle compte dans la période demandée
+    // quand cette date relève de cette période DANS SA PÉRIODISATION (`eva_periode_dans`), quelle que fût la classe de
+    // l'élève ce jour-là : un changement de classe ou de périodisation ne fait ni disparaître ni compter deux fois une note.
+    // Jamais `eva_evaluation.periode_id` (période indicative).
     let lignes = sqlx::query(
         "SELECT r.evaluation_id, ev.titre, (ev.bareme * 1000)::bigint AS bareme_m, (ev.coef * 1000)::bigint AS coef_m,
                 ev.comptage, ev.hors_bareme_autorise, ev.etat, ev.cours_id, ev.matiere_id AS sous_matiere_id,
@@ -1447,7 +1450,7 @@ pub(crate) async fn moyennes_tx(
           WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note'
             AND ev.etat IN ('ouverte', 'annulee')
             AND ($4 = false OR ev.publiee_le IS NOT NULL)
-            AND (SELECT pe.periode_id FROM eva_periode_eleve_jour(ev.etablissement_id, r.eleve_id, ev.date_eval) pe) = $3
+            AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
           ORDER BY ev.date_eval, ev.id",
     )
     .bind(etab)
@@ -1494,6 +1497,98 @@ pub(crate) async fn moyennes_tx(
             });
     }
 
+    // V5 (CE-02, CE-06, CE-07) : résultats d'un autre établissement, du CNED ou de l'étranger, DÉCIDÉS « comptés » par le
+    // professeur dans UN cours (geste tracé) et non retirés ; la date du résultat (ou, à défaut, sa période) le range
+    // dans la période du bulletin. Pour la famille et l'élève, seuls les résultats publiés comptent (règle 1).
+    let externes = sqlx::query(
+        "SELECT x.id, COALESCE(x.libelle, 'Résultat externe') AS libelle, (x.valeur * 1000)::bigint AS valeur_m,
+                (x.bareme * 1000)::bigint AS bareme_m, (x.coef * 1000)::bigint AS coef_m,
+                x.compte_dans_cours_id, co.matiere_id
+           FROM eva_resultat_externe x
+           JOIN ent_cours co ON co.id = x.compte_dans_cours_id AND co.etablissement_id = x.etablissement_id
+          WHERE x.etablissement_id = $1 AND x.eleve_id = $2 AND x.compte_dans_cours_id IS NOT NULL
+            AND x.retiree_le IS NULL AND ($4 = false OR x.publiee_le IS NOT NULL)
+            AND (CASE WHEN x.date_resultat IS NOT NULL THEN eva_periode_dans(x.etablissement_id, $3, x.date_resultat)
+                      ELSE x.periode_id = $3 END)
+          ORDER BY x.date_resultat NULLS LAST, x.id",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(periode_id)
+    .bind(publiees_seulement)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db)?;
+    for x in &externes {
+        let matiere: Option<Uuid> = x.try_get("matiere_id").map_err(db)?;
+        let evaluation = EvalCalcul {
+            id: x.try_get("id").map_err(db)?,
+            titre: format!("{} (résultat externe)", x.try_get::<String, _>("libelle").map_err(db)?),
+            bareme_m: x.try_get("bareme_m").map_err(db)?,
+            coef_m: x.try_get("coef_m").map_err(db)?,
+            comptage: Comptage::default(),
+            hors_bareme_autorise: false,
+            sous_matiere_id: None,
+            cours_id: x.try_get("compte_dans_cours_id").map_err(db)?,
+            annulee: false,
+        };
+        par_matiere
+            .entry(matiere.unwrap_or(Uuid::nil()))
+            .or_default()
+            .push(EntreeCalcul {
+                evaluation,
+                statut: StatutCalcul::Note,
+                valeur_m: x.try_get("valeur_m").map_err(db)?,
+            });
+    }
+    // V5 (CE-06) : enseignement suivi ailleurs (CNED, conservatoire…) dont la direction a déclaré que la moyenne externe
+    // vaut moyenne de matière (R-V38). Elle ne s'ajoute JAMAIS à des notes de l'établissement dans la même matière :
+    // celles-ci l'emportent (un seul moteur, pas de double compte).
+    let moyennes_externes = sqlx::query(
+        "SELECT m.id, ens.matiere_id, (m.valeur * 1000)::bigint AS valeur_m, (m.bareme * 1000)::bigint AS bareme_m
+           FROM eva_moyenne_externe m
+           JOIN eva_enseignement_externe ens ON ens.id = m.enseignement_externe_id AND ens.etablissement_id = m.etablissement_id
+           JOIN ent_periode pd ON pd.id = m.periode_id AND pd.etablissement_id = m.etablissement_id
+          WHERE m.etablissement_id = $1 AND ens.eleve_id = $2 AND ens.compte_moyenne_generale
+            AND m.statut = 'moyenne'
+            AND (m.periode_id = $3 OR eva_periode_dans(m.etablissement_id, $3, pd.date_fin))
+          ORDER BY pd.date_fin, m.id",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(periode_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db)?;
+    let mut avertissements: Vec<String> = Vec::new();
+    for x in &moyennes_externes {
+        let matiere: Uuid = x.try_get("matiere_id").map_err(db)?;
+        if par_matiere.contains_key(&matiere) {
+            avertissements.push(
+                "Une moyenne externe existe pour une matière qui a aussi des notes de l'établissement : \
+                 les notes de l'établissement l'emportent, la moyenne externe n'est pas comptée."
+                    .to_string(),
+            );
+            continue;
+        }
+        let evaluation = EvalCalcul {
+            id: x.try_get("id").map_err(db)?,
+            titre: "Moyenne externe (évalué par un autre organisme)".to_string(),
+            bareme_m: x.try_get("bareme_m").map_err(db)?,
+            coef_m: 1000,
+            comptage: Comptage::default(),
+            hors_bareme_autorise: false,
+            sous_matiere_id: None,
+            cours_id: None,
+            annulee: false,
+        };
+        par_matiere.entry(matiere).or_default().push(EntreeCalcul {
+            evaluation,
+            statut: StatutCalcul::Note,
+            valeur_m: x.try_get("valeur_m").map_err(db)?,
+        });
+    }
+
     // Coefficients de sous-matière de l'année.
     let coefs_sm: Vec<CoefSousMatiere> = sqlx::query(
         "SELECT matiere_id, (coef * 1000)::bigint AS coef_m FROM eva_coefficient_sous_matiere
@@ -1535,7 +1630,6 @@ pub(crate) async fn moyennes_tx(
 
     let mut matieres = Vec::new();
     let mut pour_generale = Vec::new();
-    let mut avertissements: Vec<String> = Vec::new();
     for (matiere_id, entrees) in &par_matiere {
         // F12 : un débordement ou un réglage incohérent n'échoue que CETTE matière (dite « indisponible »), pas
         // toute la moyenne de l'élève ; la moyenne générale s'établit sur les autres matières, avec un

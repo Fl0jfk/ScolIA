@@ -611,6 +611,7 @@ async fn v4_rattrapage_collectif_convocation_resultat_echeance_et_historique() {
         modalite: Some("oral".into()),
         echeance: Some(d(2031, 11, 5)),
         version_attendue: ra.version,
+        motif: None,
     };
     let ra2 = ent
         .eva_v4_deplacer_rattrapage_for_actor(w.etab, w.prof, PROF, jour(), ra.id, &dep)
@@ -1887,7 +1888,9 @@ async fn v3d_m4_m5_le_professeur_attribue_le_zero_en_periode_ouverte_et_l_assidu
     .unwrap();
     assert_eq!(auteur, w.prof);
     assert!(
-        motif.is_none_or(|m| m.contains("Absent sans justificatif") || m.is_empty()),
+        motif
+            .as_deref()
+            .is_some_and(|m| m.contains("Absent sans justificatif") && m.contains("R-01")),
         "le motif de l'acteur voyage dans l'historique"
     );
     // Un autre professeur (sans lien avec le cours), la famille, l'élève : refusés.
@@ -2078,6 +2081,7 @@ async fn v3d_m2_le_suppleant_ne_deplace_ni_n_annule_la_convocation_du_titulaire(
                     modalite: None,
                     echeance: None,
                     version_attendue: v,
+                    motif: None,
                 },
             )
             .await
@@ -2137,6 +2141,7 @@ async fn v3d_m2_le_suppleant_ne_deplace_ni_n_annule_la_convocation_du_titulaire(
                 modalite: None,
                 echeance: None,
                 version_attendue: rt.version,
+                motif: None,
             },
         )
         .await
@@ -2221,13 +2226,18 @@ async fn v3d_m6_eleve_protege_et_convocation_d_un_autre_etablissement_sont_intro
     };
     let w2 = monde_v1(&ent2, &cast2).await;
     let rc = rs.iter().find(|r| r.eleve_id == a).unwrap().clone();
+    // V3e (item 6, règle 5) : sans `notes.corriger`, une convocation d'un autre établissement répond comme un droit refusé
+    // (aucun oracle d'existence) ; seule la direction (`notes.corriger`) apprend qu'elle est « introuvable ».
+    fn refusee<T: std::fmt::Debug>(r: Result<T, EntDbError>) {
+        assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    }
     fn introuvable<T: std::fmt::Debug>(r: Result<T, EntDbError>) {
         assert!(
             matches!(r, Err(EntDbError::Domain(DomainError::NotFound))),
             "{r:?}"
         )
     }
-    introuvable(
+    refusee(
         ent2.eva_v4_deplacer_rattrapage_for_actor(
             w2.etab,
             w2.prof,
@@ -2241,11 +2251,12 @@ async fn v3d_m6_eleve_protege_et_convocation_d_un_autre_etablissement_sont_intro
                 modalite: None,
                 echeance: None,
                 version_attendue: rc.version,
+                motif: None,
             },
         )
         .await,
     );
-    introuvable(
+    refusee(
         ent2.eva_v4_annuler_rattrapage_for_actor(
             w2.etab,
             w2.prof,
@@ -2259,7 +2270,7 @@ async fn v3d_m6_eleve_protege_et_convocation_d_un_autre_etablissement_sont_intro
         )
         .await,
     );
-    introuvable(
+    refusee(
         ent2.eva_v4_noter_rattrapage_for_actor(
             w2.etab,
             w2.prof,
@@ -2480,6 +2491,22 @@ async fn v3d_f4_periode_arretee_sans_autorisation_et_echeance_depassee() {
     .unwrap();
     assert_eq!(ok.etat, "passe");
     assert_eq!(resultat(&ent, &w, ev, a).await.unwrap().1, Some(11.0));
+    // V3e (item 1) : le motif de la note après l'échéance reste lisible au journal (avant : effacé par le déclencheur).
+    let (motif, correction): (Option<String>, bool) = sqlx::query_as(
+        "SELECT h.motif, h.correction FROM eva_resultat_historique h JOIN eva_resultat r ON r.id = h.resultat_id
+          WHERE r.etablissement_id = $1 AND r.evaluation_id = $2 AND r.eleve_id = $3 ORDER BY h.version DESC LIMIT 1",
+    )
+    .bind(w.etab)
+    .bind(ev)
+    .bind(a)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        motif.as_deref(),
+        Some("Convocation reportée par la direction")
+    );
+    assert!(!correction, "rattrapage autorisé : ce n'est pas une correction après l'arrêt, mais son motif est conservé");
 }
 
 /// F-5 : une évaluation hors séance ne compte pas comme « absence sans justification » quand l'élève était absent ce jour-là
@@ -2743,4 +2770,398 @@ async fn v3d_item7_la_periode_de_l_eleve_est_deterministe_et_s_accorde_avec_cell
         .execute(&mut *conn)
         .await
         .unwrap();
+}
+
+// ───────────────────────── V3e : revue de V3d ─────────────────────────
+
+/// V3e item 2 (M-5 hors séance) : sans séance du cours ce jour-là, la demi-journée justifiée arrivée après le constat
+/// bloque le zéro, comme une absence justifiée à la séance.
+#[tokio::test]
+async fn v3e_item2_le_zero_hors_seance_relit_la_demi_journee_justifiee() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b) = (w.eleves_a[0], w.eleves_a[1]);
+    let jr = d(2031, 10, 24);
+    // Évaluation de remplacement HORS séance : aucune séance du cours ce jour-là.
+    let rempl = creer(&ent, &w, "Remplacement hors séance", jr).await;
+    let rs = ent
+        .eva_v4_convoquer_remplacement_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            &plan(rempl, vec![a, b], jr),
+        )
+        .await
+        .unwrap();
+    let mut conv = std::collections::HashMap::new();
+    for r in &rs {
+        let r2 = ent
+            .eva_v4_noter_rattrapage_for_actor(
+                w.etab,
+                w.prof,
+                PROF,
+                jour(),
+                r.id,
+                &absence_corps("non_justifiee", r.version),
+            )
+            .await
+            .unwrap();
+        conv.insert(r.eleve_id, r2);
+    }
+    // a : une demi-journée justifiée du socle 12 arrive APRÈS le constat.
+    let abs = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_asd_absence (id, etablissement_id, eleve_id, jour_debut, jour_fin, etat, qualification)
+         VALUES ($1, $2, $3, $4, $4, 'qualifie', 'excuse_valable')",
+    )
+    .bind(abs)
+    .bind(w.etab)
+    .bind(a)
+    .bind(jr)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_asd_absence_seance (id, etablissement_id, absence_id, eleve_id, jour, kind, periode, source)
+         VALUES ($1, $2, $3, $4, $5, 'demi_journee', 'matin', 'vie_scolaire')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(w.etab)
+    .bind(abs)
+    .bind(a)
+    .bind(jr)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    let zero = |e: Uuid| {
+        let r = conv[&e].clone();
+        let (ent, etab, direction) = (&ent, w.etab, w.direction);
+        async move {
+            ent.eva_v4_attribuer_zero_for_actor(
+                etab,
+                direction,
+                DIR,
+                jour(),
+                r.id,
+                &AttribuerZeroBody {
+                    confirme: true,
+                    version_attendue: r.version,
+                    motif: None,
+                },
+            )
+            .await
+        }
+    };
+    let r = zero(a).await;
+    assert!(
+        matches!(&r, Err(EntDbError::ConflitDossier(m)) if m.contains("justifiée depuis")),
+        "{r:?}"
+    );
+    assert!(
+        resultat(&ent, &w, rempl, a).await.is_none(),
+        "rien n'est écrit pour a"
+    );
+    // b : aucune justification : la direction attribue le zéro (période arrêtée).
+    zero(b).await.unwrap();
+    assert_eq!(resultat(&ent, &w, rempl, b).await.unwrap().1, Some(0.0));
+}
+
+/// V3e item 4 (F-4) : une échéance dépassée en période OUVERTE ne bloque plus personne : la direction la prolonge avec un
+/// motif, la prolongation est tracée (échéances avant et après, motif), puis le professeur note.
+#[tokio::test]
+async fn v3e_item4_prolongation_d_echeance_tracee_en_periode_ouverte() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, "DS 1", d(2031, 10, 10)).await;
+    saisir(&ent, &w, ev, a, "abs").await;
+    let rs = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &plan(ev, vec![a], d(2031, 10, 22)),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    let apres = d(2031, 10, 25); // après l'échéance du 22
+    let corps = note_texte("11", rs.version);
+    // Impasse d'avant V3e : ni le professeur ni la direction ne notent.
+    let r = ent
+        .eva_v4_noter_rattrapage_for_actor(w.etab, w.prof, PROF, apres, rs.id, &corps)
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("échéance")),
+        "{r:?}"
+    );
+    let r = ent
+        .eva_v4_noter_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            rs.id,
+            &NoterRattrapageBody {
+                motif: Some("Direction".into()),
+                ..corps.clone()
+            },
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(_))),
+        "période ouverte : la direction ne note pas à la place : {r:?}"
+    );
+    // La voie : prolonger. Le professeur ne le peut pas ; la direction sans motif non plus.
+    let dep = |motif: Option<&str>| DeplacerRattrapageBody {
+        prevu_le: d(2031, 10, 26),
+        heure: None,
+        lieu: None,
+        modalite: None,
+        echeance: Some(d(2031, 11, 5)),
+        version_attendue: rs.version,
+        motif: motif.map(str::to_string),
+    };
+    let r = ent
+        .eva_v4_deplacer_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            apres,
+            rs.id,
+            &dep(Some("Je prolonge")),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("seule la direction")),
+        "{r:?}"
+    );
+    let r = ent
+        .eva_v4_deplacer_rattrapage_for_actor(w.etab, w.direction, DIR, apres, rs.id, &dep(None))
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("motif")),
+        "{r:?}"
+    );
+    let r = ent
+        .eva_v4_deplacer_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            rs.id,
+            &dep(Some("ab")),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(_))),
+        "motif trop court : {r:?}"
+    );
+    let prolongee = ent
+        .eva_v4_deplacer_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            rs.id,
+            &dep(Some("Élève malade, prolongation accordée")),
+        )
+        .await
+        .unwrap();
+    let (av, ap, motif, par): (Option<NaiveDate>, Option<NaiveDate>, Option<String>, Uuid) =
+        sqlx::query_as(
+            "SELECT echeance_avant, echeance_apres, motif, par FROM eva_rattrapage_historique
+          WHERE etablissement_id = $1 AND rattrapage_id = $2 ORDER BY version DESC LIMIT 1",
+        )
+        .bind(w.etab)
+        .bind(rs.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!((av, ap), (Some(d(2031, 10, 22)), Some(d(2031, 11, 5))));
+    assert_eq!(
+        motif.as_deref(),
+        Some("Élève malade, prolongation accordée")
+    );
+    assert_eq!(par, w.direction);
+    // Le motif d'une prolongation ne reste pas périmé : un déplacement sans changement d'échéance n'en porte aucun.
+    let dep2 = DeplacerRattrapageBody {
+        prevu_le: d(2031, 10, 27),
+        heure: None,
+        lieu: None,
+        modalite: None,
+        echeance: Some(d(2031, 11, 5)),
+        version_attendue: prolongee.version,
+        motif: None,
+    };
+    let r2 = ent
+        .eva_v4_deplacer_rattrapage_for_actor(w.etab, w.prof, PROF, apres, rs.id, &dep2)
+        .await
+        .unwrap();
+    let motif2: Option<String> = sqlx::query_scalar(
+        "SELECT motif FROM eva_rattrapage_historique WHERE etablissement_id = $1 AND rattrapage_id = $2 ORDER BY version DESC LIMIT 1",
+    )
+    .bind(w.etab)
+    .bind(rs.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(motif2, None);
+    // Le professeur note, dans l'échéance prolongée.
+    let ok = ent
+        .eva_v4_noter_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            d(2031, 10, 28),
+            rs.id,
+            &note_texte("11", r2.version),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.etat, "passe");
+    assert_eq!(resultat(&ent, &w, ev, a).await.unwrap().1, Some(11.0));
+}
+
+/// V3e item 6 : « introuvable » ne se distingue pas de « pas votre droit » pour qui ne porte pas `notes.corriger`
+/// (une convocation inconnue répond comme une convocation d'un autre cours).
+#[tokio::test]
+async fn v3e_item6_une_convocation_inconnue_ne_se_distingue_pas_d_un_droit_refuse() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, "DS 1", d(2031, 10, 10)).await;
+    saisir(&ent, &w, ev, a, "abs").await;
+    let rs = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &plan(ev, vec![a], d(2031, 10, 22)),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    let autre = cast
+        .profs
+        .iter()
+        .map(|p| p.user_id)
+        .find(|x| *x != w.prof)
+        .unwrap();
+    let dep = |version: i32| DeplacerRattrapageBody {
+        prevu_le: d(2031, 10, 30),
+        heure: None,
+        lieu: None,
+        modalite: None,
+        echeance: None,
+        version_attendue: version,
+        motif: None,
+    };
+    let existante = ent
+        .eva_v4_deplacer_rattrapage_for_actor(w.etab, autre, PROF, jour(), rs.id, &dep(rs.version))
+        .await;
+    let inconnue = ent
+        .eva_v4_deplacer_rattrapage_for_actor(w.etab, autre, PROF, jour(), Uuid::new_v4(), &dep(1))
+        .await;
+    assert!(
+        matches!(existante, Err(EntDbError::Forbidden)),
+        "{existante:?}"
+    );
+    assert!(
+        matches!(inconnue, Err(EntDbError::Forbidden)),
+        "{inconnue:?}"
+    );
+    // La direction (`notes.corriger`) voit la différence : une ligne qui n'existe pas est « introuvable ».
+    let r = ent
+        .eva_v4_deplacer_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            Uuid::new_v4(),
+            &dep(1),
+        )
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::Domain(DomainError::NotFound))),
+        "{r:?}"
+    );
+}
+
+/// V3e item 5 : UNE fonction pour « la période d'un jour », totale : deux périodes qui se recouvrent dans la périodisation
+/// historique, un jour appartient à UNE seule d'entre elles (jamais deux, jamais aucune), et les trois lecteurs s'accordent.
+#[tokio::test]
+async fn v3e_item5_la_periode_d_un_jour_est_unique_et_les_lecteurs_s_accordent() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let pz: Uuid = sqlx::query_scalar(
+        "SELECT periodisation_id FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.etab)
+    .bind(w.t1)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    // Une période plus courte, qui recouvre T1 du 16 novembre au 11 décembre (origine reprise : non protégée).
+    let courte = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_periode (id, etablissement_id, annee_id, periodisation_id, code, libelle, kind, ordre,
+                                  date_debut, date_fin, date_arret_notes, origine)
+         VALUES ($1, $2, $3, $4, 'W', 'Période de notes', 'trimestre', 9, '2031-11-16', '2031-12-11', '2031-12-05', 'reprise')",
+    )
+    .bind(courte)
+    .bind(w.etab)
+    .bind(w.annee)
+    .bind(pz)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    for (jour_test, attendue) in [
+        (d(2031, 10, 10), w.t1),
+        (d(2031, 11, 20), courte),
+        (d(2031, 12, 15), w.t1),
+    ] {
+        let choisie: Option<Uuid> =
+            sqlx::query_scalar("SELECT ent_periode_choisir($1, $2, $3, $3, $4)")
+                .bind(w.etab)
+                .bind(pz)
+                .bind(jour_test)
+                .bind(w.annee)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap();
+        assert_eq!(choisie, Some(attendue), "le {jour_test}");
+        let eleve: Option<Uuid> =
+            sqlx::query_scalar("SELECT periode_id FROM eva_periode_eleve_jour($1, $2, $3)")
+                .bind(w.etab)
+                .bind(a)
+                .bind(jour_test)
+                .fetch_optional(ent.pool_verif())
+                .await
+                .unwrap();
+        assert_eq!(eleve, Some(attendue), "période de l'élève le {jour_test}");
+        for (p, doit) in [(w.t1, attendue == w.t1), (courte, attendue == courte)] {
+            let dans: bool = sqlx::query_scalar("SELECT eva_periode_dans($1, $2, $3)")
+                .bind(w.etab)
+                .bind(p)
+                .bind(jour_test)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap();
+            assert_eq!(dans, doit, "le {jour_test} appartient à une seule période");
+        }
+    }
 }
