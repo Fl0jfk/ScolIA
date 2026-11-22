@@ -11,7 +11,7 @@ use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
-    annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
+    annee_relative, annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
     CreerAlerteCpe, CreerCarnetEntree, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie,
     AbsenceStatut, AffecterEleveInternat, AjouterDossierConseil, CarnetCategorie, ChangeRegime,
     ChoisirOptionN1, ConvoquerCommission, CreerCahierTexte, CreerChambreInternat,
@@ -128,6 +128,13 @@ const PROFS_SEED: &[&str] = &[
 impl PgEnt {
     /// Crée un établissement jetable + école dense qui se teste entre elle.
     pub async fn seed_labo_cast(&self) -> Result<LaboCast, EntDbError> {
+        self.seed_labo_cast_au(today_utc()).await
+    }
+
+    /// Comme [`Self::seed_labo_cast`], avec un **jour de référence injectable** : le semis est
+    /// relatif à l'année scolaire de ce jour (rentrée, périodes, N-1, échéances), sans date en dur.
+    /// Défaut : le jour de l'établissement (`today_utc()`, Paris).
+    pub async fn seed_labo_cast_au(&self, jour: NaiveDate) -> Result<LaboCast, EntDbError> {
         // Tests : un rejeu de migrations (`rejouer_tout`, DDL en verrou exclusif sur les tables) lancé par un test
         // voisin pendant le semis formait un cycle de verrous avec les écritures du semis (« deadlock detected »,
         // `Reessayer` ou `Infrastructure`). Le semis tient donc le verrou de rejeu **partagé** : aucun rejeu
@@ -135,15 +142,15 @@ impl PgEnt {
         #[cfg(test)]
         {
             let garde = crate::migrate::garde_rejeu_partagee(self.pool_verif()).await;
-            let r = self.seed_labo_cast_sous_garde().await;
+            let r = self.seed_labo_cast_sous_garde(jour).await;
             garde.liberer().await;
             r
         }
         #[cfg(not(test))]
-        self.seed_labo_cast_sous_garde().await
+        self.seed_labo_cast_sous_garde(jour).await
     }
 
-    async fn seed_labo_cast_sous_garde(&self) -> Result<LaboCast, EntDbError> {
+    async fn seed_labo_cast_sous_garde(&self, jour: NaiveDate) -> Result<LaboCast, EntDbError> {
         let etab = Uuid::new_v4();
         // Le semis joue des gestes de santé / psychologie : le verrou « module santé » (D-02,
         // audit n° 1) est levé le temps du semis, puis l'établissement revient à l'état par
@@ -160,12 +167,12 @@ impl PgEnt {
             .await
         };
         regler(true).await?;
-        let r = self.seed_labo_cast_etab(etab).await;
+        let r = self.seed_labo_cast_etab(etab, jour).await;
         regler(false).await?;
         r
     }
 
-    async fn seed_labo_cast_etab(&self, etab: Uuid) -> Result<LaboCast, EntDbError> {
+    async fn seed_labo_cast_etab(&self, etab: Uuid, jour: NaiveDate) -> Result<LaboCast, EntDbError> {
         let suffix = etab.simple().to_string();
         let short = &suffix[..8];
         // Messagerie (M0b, D24) : le labo reste déterministe à toute heure ; la plage calme
@@ -290,7 +297,8 @@ impl PgEnt {
             );
         }
 
-        let entree = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        // Rentrée de l'année scolaire du jour de référence (jamais une date en dur).
+        let entree = debut_annee_scolaire(jour);
 
         // Référentiel repas + type bourse (configurable établissement).
         use domain_eleve::{
@@ -602,7 +610,8 @@ impl PgEnt {
                 self.enregistrer_scolarite_annee(EnregistrerScolariteAnnee {
                     etablissement_id: etab,
                     eleve_id: eleve.id,
-                    annee_scolaire: "2025-2026".into(),
+                    annee_scolaire: annee_relative(&annee_scolaire_de(jour), -1)
+                        .expect("N-1"),
                     niveau: Some("5e".into()),
                     mef: Some("MEF5".into()),
                     classe: Some("5A".into()),
@@ -648,7 +657,6 @@ impl PgEnt {
         let tom = eleves[1].clone();
 
         // EDT du jour : Rogue → 4B Potions ; McGonagall → 5A Transfiguration.
-        let jour = today_utc();
         let creneau_rogue_4b = self
             .seed_creneau_du_jour(
                 etab,
@@ -720,6 +728,20 @@ impl PgEnt {
         if a_reprendre {
             self.eva_v1_reprendre_amorcage(etab).await?;
         }
+
+        // L'année précédente existe parce que la période T0 (démo bulletin, fermée) la précède : elle est
+        // ici **explicite** — close, datée de ses vraies bornes — et non une année « préparation »
+        // parasite qui doublerait les classes de l'année courante (4B, 5A) dans les recherches.
+        let mut tx_cloture = TenantTx::begin(self.pool(), etab).await.map_err(crate::evaluations::db)?;
+        sqlx::query(
+            "UPDATE ent_annee_scolaire SET cloturee_le = now()
+              WHERE etablissement_id = $1 AND date_fin < $2 AND NOT courante AND cloturee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(entree)
+        .execute(&mut *tx_cloture)
+        .await?;
+        tx_cloture.commit().await.map_err(crate::evaluations::db)?;
 
         Ok(LaboCast {
             etablissement_id: etab,
@@ -2239,7 +2261,13 @@ impl PgEnt {
             let role_cpe = Role::Cpe.as_str();
             // La nuit courante (date du soir, R-IT5) peut être celle d'hier avant midi : le régime,
             // l'affectation et le pointage de labo partent de cette nuit-là.
-            let nuit = self.nuit_courante_internat(etab).await?.min(jour);
+            // Jour de référence injecté ≠ jour réel : la règle « avant midi » de l'horloge ne s'applique pas,
+            // la nuit de labo est celle du jour de référence.
+            let nuit = if jour == today_utc() {
+                self.nuit_courante_internat(etab).await?.min(jour)
+            } else {
+                jour
+            };
             let regime = self
                 .get_eleve(etab, neville.id)
                 .await?
