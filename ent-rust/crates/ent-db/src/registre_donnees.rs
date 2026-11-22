@@ -813,13 +813,17 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_chambre", "vie_pratique", Portee::Etablissement),
     t("ent_internat_correspondant", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_derogation", "vie_pratique", Portee::Etablissement).perso().export(),
-    t("ent_internat_evenement", "vie_pratique", Portee::Etablissement).perso().export(),
-    t("ent_internat_evenement_complement", "vie_pratique", Portee::Etablissement).perso().export(),
+    // M10 (règle 3) : l'export de portabilité d'une personne ne contient ni texte libre ni autre élève. Un événement de nuit
+    // (nature, niveau, mesures : circonstances impliquant d'autres élèves) et ses compléments (texte libre) n'en font pas
+    // partie ; la participation propre de l'élève (`ent_internat_evenement_participant`) reste exportée.
+    t("ent_internat_evenement", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_evenement_complement", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_evenement_participant", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_i3_fait", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_interdiction_contact", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_lecture_sensible", "vie_pratique", Portee::Etablissement).perso(),
-    t("ent_internat_liaison", "vie_pratique", Portee::Etablissement).perso().export(),
+    // M10 : le fait de liaison (code, nuit) est exporté, jamais son texte libre.
+    t("ent_internat_liaison", "vie_pratique", Portee::Etablissement).perso().export().hors_export(&["texte"]),
     t("ent_internat_liaison_code", "vie_pratique", Portee::Etablissement),
     t("ent_internat_liaison_fait", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_liste", "vie_pratique", Portee::Etablissement).perso().export(),

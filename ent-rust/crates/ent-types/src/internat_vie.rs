@@ -135,6 +135,10 @@ pub struct ReponseGroupeDto {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AccordHorsLigneDto {
     pub donne_par_personne_id: Uuid,
+    /// Vrai (par défaut) : accord reçu hors ligne. Faux : **refus** reçu hors ligne (téléphone, papier) ; il se saisit
+    /// comme un accord, avec la personne, la date et le canal (règle générale 5 : tout fait se corrige par un fait).
+    #[serde(default = "vrai")]
+    pub accord: bool,
     pub recu_le: DateTime<Utc>,
     pub canal: String,
     #[serde(default)]
@@ -142,9 +146,32 @@ pub struct AccordHorsLigneDto {
 }
 
 /// Appel de départ ou de retour : les élèves effectivement pointés.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+fn vrai() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppelGroupeDto {
     pub eleves: Vec<Uuid>,
+    /// Départ seulement : accompagnateurs pointés présents (l'acteur, s'il est accompagnateur, l'est d'office). Au
+    /// moins un accompagnateur présent est exigé ; l'encadrement se compte sur les présents.
+    #[serde(default)]
+    pub encadrants_presents: Vec<Uuid>,
+}
+
+/// Correction d'un retour pointé par erreur : un fait motivé remet l'élève « parti » (règle générale 5).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AnnulationRetourDto {
+    pub eleve_id: Uuid,
+    /// `erreur_pointage`, `retour_non_effectif`, `autre`.
+    pub motif_code: String,
+}
+
+/// Remplacement d'un accompagnateur pendant la sortie (fait tracé).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RemplacementEncadrantDto {
+    pub ancien_user_id: Uuid,
+    pub nouveau_user_id: Uuid,
 }
 
 /// Résultat par élève d'un appel de départ : `ok` ou le motif codé du refus (`non_autorise`, `accord_tombe`,
@@ -248,6 +275,9 @@ pub struct LiaisonDto {
     pub a_revoir: bool,
     pub signale_pp: bool,
     pub cree_le: DateTime<Utc>,
+    /// Posé à l'écriture seulement : rappel de ne saisir aucune information de santé (F12).
+    #[serde(default)]
+    pub avertissement: Option<String>,
 }
 
 /// Geste du CPE sur un fait : `masquer` (motif obligatoire), `a_revoir`, `lever_a_revoir`, `signaler_pp`.
@@ -333,6 +363,15 @@ pub struct EvenementDto {
     pub intervention_demandee_le: Option<DateTime<Utc>>,
     pub participants: Vec<ParticipantEvenementDto>,
     pub complements: Vec<ComplementDto>,
+    /// Signaux codés émis vers le mouvement du socle santé (malaise : un par élève concerné) ; accusé de l'émission.
+    #[serde(default)]
+    pub signaux_sante: i64,
+    /// Accusé minimal : l'acteur n'a pas le droit de lire cet événement (ou il sort de sa portée) ; ni participants ni
+    /// compléments ne sont rendus (M4).
+    #[serde(default)]
+    pub accuse_minimal: bool,
+    #[serde(default)]
+    pub avertissement: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -371,11 +410,76 @@ pub struct TempsDto {
     #[serde(default)]
     pub places: Option<i16>,
     pub statut: String,
-    pub nb_inscrits: i64,
+    /// Jamais donné à un élève (F7) : ni le nombre d'inscrits ni les places.
+    #[serde(default)]
+    pub nb_inscrits: Option<i64>,
     /// Seulement pour le personnel : les inscrits (jamais montrés à une famille).
     #[serde(default)]
     pub inscrits: Vec<Uuid>,
+    /// Pointage des inscrits (personnel seulement).
+    #[serde(default)]
+    pub pointages: Vec<PointageInscritDto>,
 }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PointageInscritDto {
+    pub eleve_id: Uuid,
+    /// `present`, `absent` ou absent du JSON (pas encore pointé).
+    #[serde(default)]
+    pub pointage: Option<String>,
+    #[serde(default)]
+    pub rentre_le: Option<DateTime<Utc>>,
+    /// Non pointé au-delà du délai : signalé à l'équipe.
+    pub signale: bool,
+}
+
+/// Pointage d'un inscrit à une étude ou une activité du soir.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PointageTempsDto {
+    pub eleve_id: Uuid,
+    /// `present`, `absent` ou `rentre` (activité seulement : retour à l'internat).
+    pub etat: String,
+}
+
+/// Réglages de vie quotidienne de l'établissement.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReglagesVieDto {
+    pub groupe_eleves_par_encadrant: i16,
+    pub groupe_preavis_heures: i16,
+    /// Tolérance après l'heure de fin prévue avant l'ouverture d'un cas de nuit (défaut prudent : 15 min).
+    pub groupe_tolerance_retour_minutes: i16,
+    /// Délai après le début d'une étude au-delà duquel un inscrit non pointé est signalé (défaut : 15 min).
+    pub etude_delai_absence_minutes: i16,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReglagesVieSaisieDto {
+    #[serde(default)]
+    pub groupe_eleves_par_encadrant: Option<i16>,
+    #[serde(default)]
+    pub groupe_preavis_heures: Option<i16>,
+    #[serde(default)]
+    pub groupe_tolerance_retour_minutes: Option<i16>,
+    #[serde(default)]
+    pub etude_delai_absence_minutes: Option<i16>,
+}
+
+/// Ce qu'un cas de nuit doit à une sortie ou à une activité non rentrée (règle générale 1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CasOrigineDto {
+    #[serde(default)]
+    pub sortie_groupe_id: Option<Uuid>,
+    #[serde(default)]
+    pub temps_id: Option<Uuid>,
+    /// Heure de retour prévue (fin de la sortie ou du temps).
+    pub heure_prevue: DateTime<Utc>,
+    /// Comptes à joindre : accompagnateurs de la sortie, ou encadrant du temps.
+    pub a_joindre: Vec<Uuid>,
+}
+
+/// Avertissement affiché à chaque saisie de texte libre (F12) : la liste de mots n'est qu'une aide, pas une garantie.
+pub const AVERTISSEMENT_TEXTE_LIBRE: &str =
+    "Ne saisissez aucune information de santé ni aucun nom d'autre élève dans ce texte : la détection automatique n'est qu'une aide. Pour la santé, utilisez le mouvement du socle santé.";
 
 /// Planning d'un élève (lu par lui, ses titulaires ou le personnel) : jamais le nom d'un autre élève.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

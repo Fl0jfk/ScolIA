@@ -35,33 +35,38 @@ use ent_auth::{Action, Portee};
 use ent_types::internat_vie::*;
 use uuid::Uuid;
 
-const PROF: &str = "prof";
-const PERSONNEL: &str = "personnel";
+pub(crate) const PROF: &str = "prof";
+pub(crate) const PERSONNEL: &str = "personnel";
 
 /// Mardi 14 avril 2026, 9 h (Paris) : « maintenant » des créations.
-fn t0() -> DateTime<Utc> {
+pub(crate) fn t0() -> DateTime<Utc> {
     paris(avril(14), 9, 0)
 }
 /// Jeudi 16 avril, 14 h – 18 h : la sortie.
-fn debut() -> DateTime<Utc> {
+pub(crate) fn debut() -> DateTime<Utc> {
     paris(avril(16), 14, 0)
 }
-fn fin() -> DateTime<Utc> {
+pub(crate) fn fin() -> DateTime<Utc> {
     paris(avril(16), 18, 0)
 }
-fn jour_j(mi: i64) -> DateTime<Utc> {
+pub(crate) fn jour_j(mi: i64) -> DateTime<Utc> {
     debut() - Duration::minutes(30) + Duration::minutes(mi)
 }
-fn h(n: i64) -> DateTime<Utc> {
+pub(crate) fn h(n: i64) -> DateTime<Utc> {
     t0() + Duration::hours(n)
 }
 
 /// Compte du personnel de base (aucun droit propre) auquel on attache un rôle réglable aux droits donnés.
-async fn personnel_avec(b: &Banc, actions: &[Action]) -> Uuid {
+pub(crate) async fn personnel_avec(b: &Banc, actions: &[Action]) -> Uuid {
     personnel_portee(b, actions, Portee::Etablissement, vec![]).await
 }
 
-async fn personnel_portee(b: &Banc, actions: &[Action], portee: Portee, cibles: Vec<Uuid>) -> Uuid {
+pub(crate) async fn personnel_portee(
+    b: &Banc,
+    actions: &[Action],
+    portee: Portee,
+    cibles: Vec<Uuid>,
+) -> Uuid {
     let u = compte(&b.ent, b.etab, PERSONNEL).await;
     let role = b
         .ent
@@ -92,7 +97,7 @@ async fn personnel_portee(b: &Banc, actions: &[Action], portee: Portee, cibles: 
     u
 }
 
-fn saisie_groupe(encadrants: Vec<Uuid>, eleves: Vec<Uuid>) -> SortieGroupeSaisieDto {
+pub(crate) fn saisie_groupe(encadrants: Vec<Uuid>, eleves: Vec<Uuid>) -> SortieGroupeSaisieDto {
     SortieGroupeSaisieDto {
         titre: "Sortie cinéma".into(),
         lieu: "Cinéma municipal".into(),
@@ -103,21 +108,25 @@ fn saisie_groupe(encadrants: Vec<Uuid>, eleves: Vec<Uuid>) -> SortieGroupeSaisie
     }
 }
 
-async fn brouillon(b: &Banc, encadrants: Vec<Uuid>, eleves: Vec<Uuid>) -> SortieGroupeDto {
+pub(crate) async fn brouillon(
+    b: &Banc,
+    encadrants: Vec<Uuid>,
+    eleves: Vec<Uuid>,
+) -> SortieGroupeDto {
     b.ent
         .creer_sortie_groupe_a(b.etab, b.cpe, CPE, &saisie_groupe(encadrants, eleves), t0())
         .await
         .unwrap()
 }
 
-async fn soumettre(b: &Banc, id: Uuid) -> SortieGroupeDto {
+pub(crate) async fn soumettre(b: &Banc, id: Uuid) -> SortieGroupeDto {
     b.ent
         .soumettre_sortie_groupe_a(b.etab, b.cpe, CPE, id, h(1))
         .await
         .unwrap()
 }
 
-async fn repondre(
+pub(crate) async fn repondre(
     b: &Banc,
     user: Uuid,
     id: Uuid,
@@ -137,7 +146,7 @@ async fn repondre(
         .await
 }
 
-async fn accepter(b: &Banc, id: Uuid) {
+pub(crate) async fn accepter(b: &Banc, id: Uuid) {
     b.ent
         .decider_sortie_groupe_a(
             b.etab,
@@ -154,7 +163,7 @@ async fn accepter(b: &Banc, id: Uuid) {
         .unwrap();
 }
 
-fn etat_de(d: &SortieGroupeDto, eleve: Uuid) -> String {
+pub(crate) fn etat_de(d: &SortieGroupeDto, eleve: Uuid) -> String {
     d.participants
         .iter()
         .find(|p| p.eleve_id == eleve)
@@ -162,28 +171,49 @@ fn etat_de(d: &SortieGroupeDto, eleve: Uuid) -> String {
         .unwrap_or_else(|| "absent".into())
 }
 
-async fn detail(b: &Banc, id: Uuid) -> SortieGroupeDto {
+pub(crate) async fn detail(b: &Banc, id: Uuid) -> SortieGroupeDto {
     b.ent
         .sortie_groupe_a(b.etab, b.cpe, CPE, id, jour_j(0))
         .await
         .unwrap()
 }
 
-async fn depart(b: &Banc, id: Uuid, eleves: Vec<Uuid>) -> Vec<ResultatAppelDto> {
+pub(crate) async fn depart(b: &Banc, id: Uuid, eleves: Vec<Uuid>) -> Vec<ResultatAppelDto> {
     b.ent
         .depart_groupe_a(
             b.etab,
             b.prof,
             PROF,
             id,
-            &AppelGroupeDto { eleves },
+            &AppelGroupeDto {
+                eleves,
+                ..Default::default()
+            },
             jour_j(10),
         )
         .await
         .unwrap()
 }
 
-fn resultat(r: &[ResultatAppelDto], eleve: Uuid) -> String {
+/// Départ fait par le CPE (qui voit la cause d'un blocage, E3), l'accompagnateur étant pointé présent.
+pub(crate) async fn depart_cause(b: &Banc, id: Uuid, eleves: Vec<Uuid>) -> Vec<ResultatAppelDto> {
+    b.ent
+        .depart_groupe_a(
+            b.etab,
+            b.cpe,
+            CPE,
+            id,
+            &AppelGroupeDto {
+                eleves,
+                encadrants_presents: vec![b.prof],
+            },
+            jour_j(10),
+        )
+        .await
+        .unwrap()
+}
+
+pub(crate) fn resultat(r: &[ResultatAppelDto], eleve: Uuid) -> String {
     r.iter()
         .find(|x| x.eleve_id == eleve)
         .map(|x| x.resultat.clone())
@@ -242,6 +272,7 @@ async fn groupe_cycle_complet() {
             g.id,
             &AppelGroupeDto {
                 eleves: vec![e1, e2],
+                ..Default::default()
             },
             jour_j(250),
         )
@@ -399,7 +430,10 @@ async fn groupe_refus_par_defaut_sans_reponse_ni_invitation() {
             b.prof,
             PROF,
             g.id,
-            &AppelGroupeDto { eleves: vec![e1] },
+            &AppelGroupeDto {
+                eleves: vec![e1],
+                ..Default::default()
+            },
             debut() - Duration::hours(2),
         )
         .await;
@@ -496,7 +530,8 @@ async fn groupe_decision_pas_par_l_auteur_et_motif_de_refus() {
             PROF,
             g.id,
             &AppelGroupeDto {
-                eleves: vec![b.a[0]]
+                eleves: vec![b.a[0]],
+                ..Default::default()
             },
             jour_j(10)
         )
@@ -534,7 +569,10 @@ async fn groupe_depart_exige_une_sortie_acceptee() {
             b.prof,
             PROF,
             g.id,
-            &AppelGroupeDto { eleves: vec![e1] },
+            &AppelGroupeDto {
+                eleves: vec![e1],
+                ..Default::default()
+            },
             jour_j(10),
         )
         .await;
@@ -552,7 +590,7 @@ async fn groupe_acte_tombe_avec_son_auteur_titulaire_interdit() {
     repondre(&b, p, g.id, e, true).await.unwrap();
     accepter(&b, g.id).await;
     interdire(&b, e, Some(pers)).await;
-    let r = depart(&b, g.id, vec![e]).await;
+    let r = depart_cause(&b, g.id, vec![e]).await;
     assert_eq!(resultat(&r, e), "accord_tombe");
     let d = detail(&b, g.id).await;
     assert_eq!(etat_de(&d, e), "non_autorise");
@@ -601,7 +639,7 @@ async fn groupe_interdiction_bloque_toujours_sur_la_chaine_de_fusions() {
     accepter(&b, g.id).await;
     interdire(&b, e, Some(doublon)).await;
     assert_eq!(
-        resultat(&depart(&b, g.id, vec![e]).await, e),
+        resultat(&depart_cause(&b, g.id, vec![e]).await, e),
         "accord_tombe"
     );
 }
@@ -705,6 +743,7 @@ async fn groupe_accord_hors_ligne_nomme_l_auteur_la_date_et_le_canal() {
     let g = soumettre(&b, brouillon(&b, vec![b.prof], vec![e]).await.id).await;
     let saisie = |personne: Uuid, recu: DateTime<Utc>, canal: &str| AccordHorsLigneDto {
         donne_par_personne_id: personne,
+        accord: true,
         recu_le: recu,
         canal: canal.into(),
         piece_id: None,
@@ -739,7 +778,7 @@ async fn groupe_accord_hors_ligne_nomme_l_auteur_la_date_et_le_canal() {
     let voisine = tiers(&b, "Voisine").await;
     assert!(refus_de(
         &hl(saisie(voisine, h(1), "telephone"), b.cpe, CPE).await,
-        "titulaire"
+        "ne peut pas être enregistré"
     ));
     // Sans droit de décision (accompagnateur, professeur) : interdit.
     assert!(est_interdit(
@@ -777,7 +816,7 @@ async fn groupe_accord_hors_ligne_nomme_l_auteur_la_date_et_le_canal() {
     accepter(&b, g.id).await;
     interdire(&b, e, Some(pers)).await;
     assert_eq!(
-        resultat(&depart(&b, g.id, vec![e]).await, e),
+        resultat(&depart_cause(&b, g.id, vec![e]).await, e),
         "accord_tombe"
     );
 }
@@ -791,6 +830,7 @@ async fn groupe_accord_hors_ligne_refuse_une_personne_interdite_et_un_majeur() {
     let g = soumettre(&b, brouillon(&b, vec![b.prof], vec![e]).await.id).await;
     let s = AccordHorsLigneDto {
         donne_par_personne_id: pers,
+        accord: true,
         recu_le: h(1),
         canal: "papier".into(),
         piece_id: None,
@@ -811,6 +851,7 @@ async fn groupe_accord_hors_ligne_refuse_une_personne_interdite_et_un_majeur() {
     let g2 = soumettre(&b2, brouillon(&b2, vec![b2.prof], vec![m]).await.id).await;
     let s2 = AccordHorsLigneDto {
         donne_par_personne_id: pm,
+        accord: true,
         recu_le: h(1),
         canal: "papier".into(),
         piece_id: None,
@@ -852,7 +893,7 @@ async fn groupe_accord_annuel_du_socle_18_autorise_sans_reponse() {
     accepter(&b, g.id).await;
     interdire(&b, e1, Some(pers1)).await;
     assert_eq!(
-        resultat(&depart(&b, g.id, vec![e1]).await, e1),
+        resultat(&depart_cause(&b, g.id, vec![e1]).await, e1),
         "accord_tombe"
     );
 }
@@ -1221,7 +1262,7 @@ async fn groupe_famille_ne_voit_que_son_enfant() {
     ));
     assert!(est_interdit(
         &b.ent
-            .lister_sorties_groupe_a(b.etab, p2, PARENT, avril(1), avril(30))
+            .lister_sorties_groupe_a(b.etab, p2, PARENT, avril(1), avril(30), jour_j(0))
             .await
     ));
     // Un brouillon n'est pas visible des familles (elles ne sont pas encore interrogées).
@@ -1275,18 +1316,18 @@ async fn groupe_lecture_du_personnel_bornee_et_cloisonnee() {
     // La liste : l'accompagnateur ne voit que ses sorties, sans nom ; un compte sans rapport est refusé.
     let liste = b
         .ent
-        .lister_sorties_groupe_a(b.etab, b.prof, PROF, avril(1), avril(30))
+        .lister_sorties_groupe_a(b.etab, b.prof, PROF, avril(1), avril(30), jour_j(0))
         .await
         .unwrap();
     assert_eq!(liste.len(), 1);
     assert!(est_interdit(
         &b.ent
-            .lister_sorties_groupe_a(b.etab, tiers_prof, PROF, avril(1), avril(30))
+            .lister_sorties_groupe_a(b.etab, tiers_prof, PROF, avril(1), avril(30), jour_j(0))
             .await
     ));
     assert!(b
         .ent
-        .lister_sorties_groupe_a(b.etab, b.cpe, CPE, avril(30), avril(1))
+        .lister_sorties_groupe_a(b.etab, b.cpe, CPE, avril(30), avril(1), jour_j(0))
         .await
         .is_err());
     // Un accompagnateur n'appelle pas une sortie qu'il n'accompagne pas.
@@ -1299,7 +1340,8 @@ async fn groupe_lecture_du_personnel_bornee_et_cloisonnee() {
                 PROF,
                 autre.id,
                 &AppelGroupeDto {
-                    eleves: vec![b.a[1]]
+                    eleves: vec![b.a[1]],
+                    ..Default::default()
                 },
                 jour_j(10)
             )
@@ -1384,11 +1426,11 @@ async fn groupe_direction_de_formation_ne_decide_que_ses_eleves() {
 // ───────────────────────── Liaison codée ─────────────────────────
 
 /// Soir du mardi 14 avril, 22 h 30 (Paris) : nuit courante = 14 avril.
-fn soir_14(mi: i64) -> DateTime<Utc> {
+pub(crate) fn soir_14(mi: i64) -> DateTime<Utc> {
     paris(avril(14), 22, 30) + Duration::minutes(mi)
 }
 
-fn fait(eleve: Uuid, code: &str, texte: Option<&str>) -> LiaisonSaisieDto {
+pub(crate) fn fait(eleve: Uuid, code: &str, texte: Option<&str>) -> LiaisonSaisieDto {
     LiaisonSaisieDto {
         eleve_id: eleve,
         code: code.into(),
@@ -1894,7 +1936,7 @@ async fn liaison_perimetre_verifie_au_serveur_r_it30() {
 
 // ───────────────────────── Événements de nuit ─────────────────────────
 
-fn evt(nature: &str) -> EvenementSaisieDto {
+pub(crate) fn evt(nature: &str) -> EvenementSaisieDto {
     EvenementSaisieDto {
         nature: nature.into(),
         niveau: None,
@@ -1907,7 +1949,7 @@ fn evt(nature: &str) -> EvenementSaisieDto {
     }
 }
 
-fn pe(eleve: Uuid, role: &str) -> ParticipantEvenementSaisieDto {
+pub(crate) fn pe(eleve: Uuid, role: &str) -> ParticipantEvenementSaisieDto {
     ParticipantEvenementSaisieDto {
         eleve_id: Some(eleve),
         user_id: None,
@@ -2079,7 +2121,7 @@ async fn evenement_declaration_completion_sans_suppression() {
                 .await
         ));
     }
-    let journal: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_internat_lecture_sensible WHERE etablissement_id = $1 AND objet = 'evenement'")
+    let journal: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_internat_lecture_sensible WHERE etablissement_id = $1 AND objet = 'registre'")
         .bind(b.etab)
         .fetch_one(pool)
         .await
@@ -2399,7 +2441,7 @@ async fn preoccupation_ne_garde_aucun_contenu_r_it29() {
 
 // ───────────────────────── Temps du soir : études et activités ─────────────────────────
 
-fn etude(places: Option<i16>) -> TempsSaisieDto {
+pub(crate) fn etude(places: Option<i16>) -> TempsSaisieDto {
     TempsSaisieDto {
         nature: "etude".into(),
         libelle: "Étude du soir".into(),
@@ -2411,7 +2453,7 @@ fn etude(places: Option<i16>) -> TempsSaisieDto {
     }
 }
 
-async fn creer_etude(b: &Banc, places: Option<i16>) -> TempsDto {
+pub(crate) async fn creer_etude(b: &Banc, places: Option<i16>) -> TempsDto {
     let mut s = etude(places);
     s.encadrant_user_id = Some(b.prof);
     b.ent
@@ -2420,7 +2462,7 @@ async fn creer_etude(b: &Banc, places: Option<i16>) -> TempsDto {
         .unwrap()
 }
 
-fn mi_etude(mi: i64) -> DateTime<Utc> {
+pub(crate) fn mi_etude(mi: i64) -> DateTime<Utc> {
     paris(avril(15), 19, 0) - Duration::hours(2) + Duration::minutes(mi)
 }
 
@@ -2431,7 +2473,7 @@ async fn temps_places_inscription_et_chevauchement() {
     let t = creer_etude(&b, Some(2)).await;
     assert_eq!(
         (t.nature.as_str(), t.statut.as_str(), t.nb_inscrits),
-        ("etude", "prevu", 0)
+        ("etude", "prevu", Some(0))
     );
     let ins = |u: Uuid, r: &'static str, e: Uuid, mi: i64| {
         let b = &b;
@@ -2449,8 +2491,8 @@ async fn temps_places_inscription_et_chevauchement() {
         }
     };
     // Le personnel d'internat inscrit ; les places sont comptées sous verrou.
-    assert_eq!(ins(b.cpe, CPE, e1, 0).await.unwrap().nb_inscrits, 1);
-    assert_eq!(ins(b.cpe, CPE, e2, 1).await.unwrap().nb_inscrits, 2);
+    assert_eq!(ins(b.cpe, CPE, e1, 0).await.unwrap().nb_inscrits, Some(1));
+    assert_eq!(ins(b.cpe, CPE, e2, 1).await.unwrap().nb_inscrits, Some(2));
     assert!(refus_de(&ins(b.cpe, CPE, e3, 2).await, "place"));
     assert!(refus_de(&ins(b.cpe, CPE, e1, 3).await, "déjà inscrit"));
     // Un professeur sans droit d'internat n'inscrit personne ; une famille non plus.
@@ -2463,8 +2505,8 @@ async fn temps_places_inscription_et_chevauchement() {
         .desinscrire_temps_a(b.etab, b.cpe, CPE, t.id, e2, mi_etude(5))
         .await
         .unwrap();
-    assert_eq!(d.nb_inscrits, 1);
-    assert_eq!(ins(b.cpe, CPE, e3, 6).await.unwrap().nb_inscrits, 2);
+    assert_eq!(d.nb_inscrits, Some(1));
+    assert_eq!(ins(b.cpe, CPE, e3, 6).await.unwrap().nb_inscrits, Some(2));
     assert!(
         sqlx::query("DELETE FROM ent_internat_temps_participant WHERE etablissement_id = $1")
             .bind(b.etab)
@@ -2507,7 +2549,7 @@ async fn temps_places_inscription_et_chevauchement() {
             .await
             .unwrap()
             .nb_inscrits,
-        1
+        Some(1)
     );
 }
 
@@ -2541,7 +2583,11 @@ async fn temps_l_eleve_s_inscrit_lui_meme_avant_le_debut() {
         r.inscrits.is_empty(),
         "un élève ne voit jamais la liste des inscrits"
     );
-    assert_eq!(r.nb_inscrits, 1);
+    assert_eq!(
+        r.nb_inscrits, None,
+        "F7 : jamais le nombre d'inscrits à un élève"
+    );
+    assert_eq!(r.places, None, "F7 : jamais les places à un élève");
     assert!(refus_de(
         &b.ent
             .desinscrire_temps_a(b.etab, u, ELEVE, t.id, e, paris(avril(15), 19, 5))

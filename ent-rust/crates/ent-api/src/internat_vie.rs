@@ -75,6 +75,14 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/internat/sorties-groupe/{id}/depart", post(depart_groupe))
         .route("/internat/sorties-groupe/{id}/retour", post(retour_groupe))
+        .route(
+            "/internat/sorties-groupe/{id}/retour/annulation",
+            post(annuler_retour_groupe),
+        )
+        .route(
+            "/internat/sorties-groupe/{id}/encadrants/remplacement",
+            post(remplacer_encadrant),
+        )
         .route("/internat/sorties-groupe/{id}/cloture", post(clore_groupe))
         .route("/internat/eleves/{id}/sorties-groupe", get(groupes_eleve))
         .route("/internat/eleves/{id}/planning", get(planning_eleve))
@@ -115,6 +123,11 @@ pub fn routes() -> Router<AppState> {
             post(desinscrire_temps),
         )
         .route("/internat/temps/{id}/absence", post(absence_etude))
+        .route("/internat/temps/{id}/pointage", post(pointer_temps))
+        .route(
+            "/internat/reglages-vie",
+            get(lire_reglages_vie).put(modifier_reglages_vie),
+        )
 }
 
 /// Bornes raisonnables d'une date reçue d'un client (une date absurde ferait déborder les calculs de la base).
@@ -664,7 +677,14 @@ async fn lister_groupes(
     date_bornee(p.au)?;
     Ok(Json(
         s.ent
-            .lister_sorties_groupe_a(se.etablissement_id, se.user_id, &se.role, p.du, p.au)
+            .lister_sorties_groupe_a(
+                se.etablissement_id,
+                se.user_id,
+                &se.role,
+                p.du,
+                p.au,
+                Utc::now(),
+            )
             .await
             .map_err(map_db)?,
     ))
@@ -853,6 +873,91 @@ async fn vigilances_eleve(
     Ok(Json(
         s.ent
             .vigilances_eleve_a(se.etablissement_id, se.user_id, &se.role, id, Utc::now())
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn annuler_retour_groupe(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AnnulationRetourDto>,
+) -> Res<Json<Vec<ResultatAppelDto>>> {
+    Ok(Json(
+        s.ent
+            .annuler_retour_groupe_a(
+                se.etablissement_id,
+                se.user_id,
+                &se.role,
+                id,
+                &b,
+                Utc::now(),
+            )
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn remplacer_encadrant(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RemplacementEncadrantDto>,
+) -> Res<Json<SortieGroupeDto>> {
+    Ok(Json(
+        s.ent
+            .remplacer_encadrant_groupe_a(
+                se.etablissement_id,
+                se.user_id,
+                &se.role,
+                id,
+                &b,
+                Utc::now(),
+            )
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn pointer_temps(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<PointageTempsDto>,
+) -> Res<Json<TempsDto>> {
+    Ok(Json(
+        s.ent
+            .pointer_temps_a(
+                se.etablissement_id,
+                se.user_id,
+                &se.role,
+                id,
+                &b,
+                Utc::now(),
+            )
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn lire_reglages_vie(State(s): State<AppState>, se: EntSession) -> Res<Json<ReglagesVieDto>> {
+    Ok(Json(
+        s.ent
+            .lire_reglages_vie_a(se.etablissement_id, se.user_id, &se.role)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn modifier_reglages_vie(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(b): Json<ReglagesVieSaisieDto>,
+) -> Res<Json<ReglagesVieDto>> {
+    Ok(Json(
+        s.ent
+            .modifier_reglages_vie_a(se.etablissement_id, se.user_id, &se.role, &b, Utc::now())
             .await
             .map_err(map_db)?,
     ))

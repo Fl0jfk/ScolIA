@@ -33,6 +33,7 @@ const MOTIFS_REFUS_DIRECTION: [&str; 5] = [
 ];
 const MOTIFS_ANNULATION: [&str; 5] = ["meteo", "encadrement", "organisateur", "securite", "autre"];
 const BILANS: [&str; 3] = ["sans_incident", "retard", "incident"];
+const MOTIFS_ANNULATION_RETOUR: [&str; 3] = ["erreur_pointage", "retour_non_effectif", "autre"];
 const CANAUX: [&str; 3] = ["telephone", "papier", "en_personne"];
 /// L'appel de départ s'ouvre 30 minutes avant l'heure prévue.
 const DEPART_AVANCE_MINUTES: i64 = 30;
@@ -43,6 +44,8 @@ pub(super) const GROUPE_HORIZON_JOURS: i64 = 366;
 /// Au plus 200 élèves par sortie, 20 accompagnateurs.
 const GROUPE_MAX_ELEVES: usize = 200;
 const GROUPE_MAX_ENCADRANTS: usize = 20;
+/// Un accompagnateur lit sa sortie jusqu'à 7 jours après sa fin (F4).
+const ENCADRANT_LECTURE_JOURS: i64 = 7;
 
 pub(super) struct GroupeLigne {
     pub(super) id: Uuid,
@@ -141,10 +144,26 @@ async fn fait_groupe_tx(
     a: DateTime<Utc>,
     motif: Option<&str>,
 ) -> Result<(), EntDbError> {
+    fait_groupe_autre_tx(conn, etab, sortie, eleve, acte, par, None, a, motif).await
+}
+
+/// Fait de la sortie qui vise aussi un compte du personnel (accompagnateur présent, remplacé) : jamais un nom.
+#[allow(clippy::too_many_arguments)]
+async fn fait_groupe_autre_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+    eleve: Option<Uuid>,
+    acte: &str,
+    par: Option<Uuid>,
+    autre: Option<Uuid>,
+    a: DateTime<Utc>,
+    motif: Option<&str>,
+) -> Result<(), EntDbError> {
     sqlx::query(
         "INSERT INTO ent_internat_sortie_groupe_fait \
-         (id, etablissement_id, sortie_groupe_id, eleve_id, acte, par_user_id, a, motif_code) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+         (id, etablissement_id, sortie_groupe_id, eleve_id, acte, par_user_id, autre_user_id, a, motif_code) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -152,6 +171,7 @@ async fn fait_groupe_tx(
     .bind(eleve)
     .bind(acte)
     .bind(par)
+    .bind(autre)
     .bind(a)
     .bind(motif)
     .execute(&mut *conn)
@@ -251,19 +271,31 @@ pub(super) async fn est_personnel_tx(
     .map_err(db)
 }
 
-async fn est_encadrant_tx(
+/// Un accompagnateur lit et fait l'appel de SA sortie tant qu'il est encore du personnel de l'établissement (adhésion
+/// ouverte, F4 : l'inscription dans la table ne suffit pas) et jusqu'à `ENCADRANT_LECTURE_JOURS` jours après la fin.
+pub(super) async fn est_encadrant_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     sortie: Uuid,
     user: Uuid,
+    maintenant: DateTime<Utc>,
 ) -> Result<bool, EntDbError> {
+    let jour = jour_local_tx(conn, etab, maintenant).await?;
     sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_encadrant \
-                         WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND user_id = $3)",
+        "SELECT EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_encadrant e \
+                          JOIN ent_internat_sortie_groupe g ON g.etablissement_id = e.etablissement_id AND g.id = e.sortie_groupe_id \
+                         WHERE e.etablissement_id = $1 AND e.sortie_groupe_id = $2 AND e.user_id = $3 \
+                           AND g.fin + make_interval(days => $4::int) > $5 \
+                           AND EXISTS (SELECT 1 FROM ent_membership m WHERE m.etablissement_id = e.etablissement_id \
+                                         AND m.user_id = e.user_id AND m.etat = 'ouvert' AND m.role NOT IN ('parent', 'eleve') \
+                                         AND (m.date_fin IS NULL OR m.date_fin >= $6)))",
     )
     .bind(etab)
     .bind(sortie)
     .bind(user)
+    .bind(ENCADRANT_LECTURE_JOURS as i32)
+    .bind(maintenant)
+    .bind(jour)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)
@@ -361,12 +393,80 @@ async fn participant_tx(
         .map_err(db)
 }
 
+/// Une sortie de groupe est-elle dans les bornes du type « soirée » ? (règle générale 2) : durée au plus égale à
+/// `duree_max_heures` du type, même jour local, aucune nuit couverte. Hors de ces bornes, l'accord annuel « sortie de
+/// soirée » ne vaut pas : la famille répond explicitement.
+async fn dans_les_bornes_soiree_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    g: &GroupeLigne,
+) -> Result<bool, EntDbError> {
+    let t = type_tx(conn, etab, "soiree").await?;
+    if !t.actif || g.fin - g.debut > Duration::hours(i64::from(t.duree_max_heures)) {
+        return Ok(false);
+    }
+    let meme_jour: bool = sqlx::query_scalar(
+        "SELECT ($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date \
+              = ($3::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date",
+    )
+    .bind(etab)
+    .bind(g.debut)
+    .bind(g.fin)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(meme_jour && nuits_couvertes_tx(conn, etab, g.debut, g.fin).await? == 0)
+}
+
+/// Un élève ne peut pas être à deux endroits à la fois (F9) : un temps du soir où il est inscrit, ou une autre sortie de
+/// groupe qu'il a acceptée ou qui attend sa famille, chevauche-t-il `[debut, fin)` ? **Sous verrou** : un verrou
+/// consultatif par élève (pris avant la lecture) sérialise les deux sens (inscription à un temps / invitation à une
+/// sortie), sans quoi deux demandes simultanées passeraient chacune le contrôle.
+pub(super) async fn chevauchement_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    debut: DateTime<Utc>,
+    fin: DateTime<Utc>,
+    ignorer_temps: Option<Uuid>,
+    ignorer_groupe: Option<Uuid>,
+) -> Result<bool, EntDbError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('internat.i4.eleve:' || $1::text || ':' || $2::text, 0))")
+        .bind(etab)
+        .bind(eleve)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_internat_temps_participant p JOIN ent_internat_temps t \
+                          ON t.etablissement_id = p.etablissement_id AND t.id = p.temps_id \
+                         WHERE p.etablissement_id = $1 AND p.eleve_id = $2 AND p.retire_le IS NULL \
+                           AND t.statut = 'prevu' AND ($5::uuid IS NULL OR t.id <> $5) AND t.debut < $4 AND t.fin > $3) \
+             OR EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_participant p JOIN ent_internat_sortie_groupe g \
+                          ON g.etablissement_id = p.etablissement_id AND g.id = p.sortie_groupe_id \
+                         WHERE p.etablissement_id = $1 AND p.eleve_id = $2 AND p.etat IN ('en_attente', 'autorise', 'parti') \
+                           AND g.statut IN ('soumise', 'acceptee') AND ($6::uuid IS NULL OR g.id <> $6) \
+                           AND g.debut < $4 AND g.fin > $3)",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .bind(debut)
+    .bind(fin)
+    .bind(ignorer_temps)
+    .bind(ignorer_groupe)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
+}
+
 /// État d'un participant à l'invitation (au moment de la soumission, ou d'un ajout après). **Refus par défaut** : tout
-/// ce qui n'est pas un accord annuel vérifié attend la famille. Retourne (état, qualité, motif).
+/// ce qui n'est pas un accord annuel vérifié, DANS LES BORNES d'une soirée, attend la famille. Retourne (état, qualité,
+/// motif).
 async fn evaluer_invitation_tx(
     ent: &PgEnt,
     conn: &mut PgConnection,
     etab: Uuid,
+    g: &GroupeLigne,
     eleve: Uuid,
     jour: NaiveDate,
 ) -> Result<(&'static str, Option<&'static str>, Option<&'static str>), EntDbError> {
@@ -376,7 +476,12 @@ async fn evaluer_invitation_tx(
     if desaccord_connu_tx(conn, etab, eleve).await? {
         return Ok(("non_autorise", None, Some("desaccord_connu")));
     }
-    if verdict_annuel(ent, conn, etab, eleve, "sortie_soiree", jour).await == "autorise" {
+    if chevauchement_tx(conn, etab, eleve, g.debut, g.fin, None, Some(g.id)).await? {
+        return Ok(("non_autorise", None, Some("chevauchement")));
+    }
+    if dans_les_bornes_soiree_tx(conn, etab, g).await?
+        && verdict_annuel(ent, conn, etab, eleve, "sortie_soiree", jour).await == "autorise"
+    {
         return Ok(("autorise", Some("annuelle"), None));
     }
     Ok(("en_attente", None, None))
@@ -413,6 +518,10 @@ async fn appliquer_invitation_tx(
     let acte = match (etat, motif) {
         ("autorise", _) => "accord_annuel",
         ("non_autorise", Some("desaccord_connu")) => "blocage_desaccord",
+        // F11 : chaque cause porte son propre fait (jamais « interdiction » pour un élève qui n'est plus interne).
+        ("non_autorise", Some("plus_interne")) => "blocage_plus_interne",
+        ("non_autorise", Some("majorite")) => "blocage_majorite",
+        ("non_autorise", Some("chevauchement")) => "blocage_chevauchement",
         ("non_autorise", _) => "blocage_interdiction",
         _ => "invitation",
     };
@@ -440,6 +549,7 @@ fn participant_dto(
     noms: &HashMap<Uuid, (String, String)>,
     proteges: &HashSet<Uuid>,
     caches: &HashSet<Uuid>,
+    voit_la_cause: bool,
 ) -> ParticipantGroupeDto {
     let cache = caches.contains(&p.0);
     ParticipantGroupeDto {
@@ -454,7 +564,9 @@ fn participant_dto(
         etat: p.1.clone(),
         reponse_qualite: p.2.clone(),
         reponse_le: p.5,
-        motif: p.6.clone(),
+        // E3 : la cause d'un blocage est une donnée de protection (interdiction, désaccord connu, accord tombé) : un
+        // accompagnateur sans droit de lecture ne voit que l'état opérationnel « non autorisé ».
+        motif: if voit_la_cause { p.6.clone() } else { None },
         parti_le: p.7,
         rentre_le: p.8,
     }
@@ -514,6 +626,7 @@ impl PgEnt {
         let (noms, proteges, caches) = self
             .noms_pour_personnel(etab, actor, role, conn, &ids)
             .await?;
+        let voit_la_cause = self.voit_la_cause(etab, actor, role).await?;
         Ok(SortieGroupeDto {
             id: g.id,
             titre: g.titre.clone(),
@@ -531,10 +644,37 @@ impl PgEnt {
             encadrants: encadrants_tx(conn, etab, g.id).await?,
             participants: parts
                 .iter()
-                .map(|p| participant_dto(p, &noms, &proteges, &caches))
+                .map(|p| participant_dto(p, &noms, &proteges, &caches, voit_la_cause))
                 .collect(),
             ecartes,
         })
+    }
+
+    /// Règle générale 3 : la CAUSE d'un blocage (interdiction, désaccord connu, accord tombé) est une donnée de protection ;
+    /// seuls `internat.lire`, `internat.gerer` et `internat.sorties.decider` la voient.
+    pub(super) async fn voit_la_cause(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<bool, EntDbError> {
+        match self
+            .nuit_portee(
+                etab,
+                actor,
+                role,
+                &[
+                    Action::InternatLire,
+                    Action::InternatGerer,
+                    Action::InternatSortiesDecider,
+                ],
+            )
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(EntDbError::Forbidden) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// Droit d'organiser : `internat.gerer` d'établissement (INT-170, INT-173, INT-177).
@@ -556,8 +696,9 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
         sortie: Uuid,
+        maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
-        if est_encadrant_tx(conn, etab, sortie, actor).await? {
+        if est_encadrant_tx(conn, etab, sortie, actor, maintenant).await? {
             return Ok(());
         }
         for a in [Action::InternatAppel, Action::InternatGerer] {
@@ -741,7 +882,7 @@ impl PgEnt {
         .await?;
         self.groupe_ajouter_encadrants(&mut tx, etab, &g, &b.encadrants, actor, maintenant)
             .await?;
-        let jour = jour_local_tx(&mut tx, etab, b.debut).await?;
+        let jour = nuit_a_tx(&mut tx, etab, b.debut).await?;
         let (retenus, ecartes) = self
             .groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves)
             .await?;
@@ -936,7 +1077,7 @@ impl PgEnt {
         {
             return Err(conflit("cette sortie n'accepte plus d'invités"));
         }
-        let jour = jour_local_tx(&mut tx, etab, g.debut).await?;
+        let jour = nuit_a_tx(&mut tx, etab, g.debut).await?;
         let (retenus, ecartes) = self
             .groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves)
             .await?;
@@ -966,15 +1107,53 @@ impl PgEnt {
             ) {
                 return Err(conflit("l'encadrement serait insuffisant pour ces élèves"));
             }
+            let a_des_nouveaux = !nouveaux.is_empty();
             for e in nouveaux {
                 let (etat, qualite, motif) =
-                    evaluer_invitation_tx(self, &mut tx, etab, e, jour).await?;
+                    evaluer_invitation_tx(self, &mut tx, etab, &g, e, jour).await?;
                 appliquer_invitation_tx(
                     &mut tx, etab, &g, e, etat, qualite, motif, actor, maintenant,
                 )
                 .await?;
             }
+            // M7 : des élèves ajoutés après l'acceptation remettent la sortie à la décision de la direction (la
+            // décision précédente ne couvrait pas ces élèves) ; l'acceptation reste dans le journal des faits.
+            if g.statut == "acceptee" && a_des_nouveaux {
+                sqlx::query(
+                    "UPDATE ent_internat_sortie_groupe SET statut = 'soumise', decide_par_user_id = NULL, decide_le = NULL, \
+                            decision_motif_code = NULL, modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(id)
+                .bind(maintenant)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                fait_groupe_tx(
+                    &mut tx,
+                    etab,
+                    id,
+                    None,
+                    "nouvelle_decision",
+                    Some(actor),
+                    maintenant,
+                    None,
+                )
+                .await?;
+                let g2 = groupe_tx(&mut tx, etab, id, false).await?;
+                evt_groupe_tx(
+                    &mut tx,
+                    etab,
+                    Some(actor),
+                    types::INTERNAT_SORTIE_GROUPE_CREEE,
+                    &g2,
+                    "soumise",
+                    "nouvelle_decision",
+                )
+                .await?;
+            }
         }
+        let g = groupe_tx(&mut tx, etab, id, false).await?;
         let dto = self
             .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes)
             .await?;
@@ -1097,11 +1276,11 @@ impl PgEnt {
             None,
         )
         .await?;
-        let jour = jour_local_tx(&mut tx, etab, g.debut).await?;
+        let jour = nuit_a_tx(&mut tx, etab, g.debut).await?;
         for p in participants_tx(&mut tx, etab, id).await? {
             if p.1 == "invite" {
                 let (etat, qualite, motif) =
-                    evaluer_invitation_tx(self, &mut tx, etab, p.0, jour).await?;
+                    evaluer_invitation_tx(self, &mut tx, etab, &g, p.0, jour).await?;
                 appliquer_invitation_tx(
                     &mut tx, etab, &g, p.0, etat, qualite, motif, actor, maintenant,
                 )
@@ -1368,7 +1547,7 @@ impl PgEnt {
             .into_iter()
             .map(|p| p.0)
             .collect();
-        let jour = jour_local_tx(&mut tx, etab, b.debut).await?;
+        let jour = nuit_a_tx(&mut tx, etab, b.debut).await?;
         let (retenus, ecartes) = self
             .groupe_trier_invites(&mut tx, etab, actor, role, jour, &invites)
             .await?;
@@ -1404,7 +1583,6 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
     ) -> Result<SortieGroupeFamilleDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let g = groupe_tx(&mut tx, etab, id, true).await?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let famille = self
             .famille_tx(&mut tx, etab, actor, role, eleve, jour)
@@ -1426,6 +1604,8 @@ impl PgEnt {
             }
             _ => return Err(EntDbError::Forbidden),
         };
+        // F1 : le droit (la qualité de titulaire de CET élève) est contrôlé avant l'existence de la sortie.
+        let g = groupe_tx(&mut tx, etab, id, true).await?;
         if !matches!(g.statut.as_str(), "soumise" | "acceptee") {
             return Err(conflit("cette sortie n'attend pas de réponse"));
         }
@@ -1557,9 +1737,10 @@ impl PgEnt {
         dto.ok_or_else(|| DomainError::NotFound.into())
     }
 
-    /// INT-174 : enregistre un accord reçu hors ligne, **avec auteur et date** (R-IT24). La personne qui l'a donné doit
-    /// être un titulaire de l'élève (autorité parentale, droit d'autoriser les sorties), non visée par une interdiction ;
-    /// un élève majeur répond lui-même (jamais d'accord hors ligne à sa place).
+    /// INT-174 : enregistre un accord — ou un REFUS — reçu hors ligne, **avec auteur et date** (R-IT24, règle 5). La
+    /// personne qui l'a donné doit être un titulaire de l'élève (autorité parentale, droit d'autoriser les sorties), non
+    /// visée par une interdiction : la qualité de titulaire passe par **la même fonction** que la réponse en ligne
+    /// (`titulaire_pour_tx`, règle M-A comprise). Un élève majeur répond lui-même (jamais d'accord hors ligne à sa place).
     pub async fn accord_hors_ligne_groupe_a(
         &self,
         etab: Uuid,
@@ -1570,6 +1751,7 @@ impl PgEnt {
         b: &AccordHorsLigneDto,
         maintenant: DateTime<Utc>,
     ) -> Result<SortieGroupeDto, EntDbError> {
+        // Ordre des contrôles (règle 6) : personnel et droit, puis élève protégé introuvable, puis le reste.
         let portee = self
             .nuit_portee(etab, actor, role, &[Action::InternatSortiesDecider])
             .await?;
@@ -1595,9 +1777,16 @@ impl PgEnt {
         let Some(p) = participant_tx(&mut tx, etab, id, eleve).await? else {
             return Err(DomainError::NotFound.into());
         };
-        if p.1 != "en_attente" {
+        // Un accord vaut pour un élève qui attend ; un refus (le plus restrictif l'emporte) aussi pour un élève déjà
+        // autorisé par un autre titulaire.
+        let admis = if b.accord {
+            p.1 == "en_attente"
+        } else {
+            matches!(p.1.as_str(), "en_attente" | "autorise")
+        };
+        if !admis {
             return Err(conflit(
-                "cet élève n'attend pas d'accord (déjà répondu, bloqué ou retiré)",
+                "cet élève n'attend pas de réponse (déjà répondu, bloqué ou retiré)",
             ));
         }
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
@@ -1606,41 +1795,54 @@ impl PgEnt {
                 "un élève majeur répond lui-même : aucun accord hors ligne à sa place",
             ));
         }
-        if desaccord_connu_tx(&mut tx, etab, eleve).await? {
+        if b.accord && desaccord_connu_tx(&mut tx, etab, eleve).await? {
             return Err(conflit(
                 "désaccord connu entre les titulaires : renvoyé au CPE",
             ));
         }
-        let titulaire: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
-                              AND l.personne_id = $3 AND l.autorite_parentale AND l.peut_autoriser_sorties \
-                              AND COALESCE(l.garde, '') <> 'aucune')",
-        )
-        .bind(etab)
-        .bind(eleve)
-        .bind(b.donne_par_personne_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
-        if !titulaire {
-            return Err(refus(
-                "cette personne n'est pas un titulaire autorisé à donner un accord pour cet élève",
-            ));
-        }
-        if personne_interdite_tx(&mut tx, etab, eleve, b.donne_par_personne_id, jour).await? {
-            // Refus par défaut ; la cause n'est jamais détaillée à l'élève ni à la famille.
+        // Une seule fonction pour la qualité de titulaire. Refus par défaut ; la cause (non titulaire, interdite) n'est
+        // jamais détaillée.
+        let titulaire = self
+            .titulaire_pour_tx(
+                &mut tx,
+                etab,
+                QuiTitulaire::Personne(b.donne_par_personne_id),
+                eleve,
+                jour,
+            )
+            .await?;
+        if !titulaire.is_some_and(|peut| peut) {
             return Err(refus("cet accord ne peut pas être enregistré"));
+        }
+        // F3 : la pièce justificative existe, dans cet établissement, et concerne cet élève ou cette personne.
+        if let Some(piece) = b.piece_id {
+            let ok: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2 \
+                                  AND (eleve_id = $3 OR personne_id = $4))",
+            )
+            .bind(etab)
+            .bind(piece)
+            .bind(eleve)
+            .bind(b.donne_par_personne_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if !ok {
+                return Err(refus("pièce justificative inconnue pour cet élève"));
+            }
         }
         sqlx::query(
             "INSERT INTO ent_internat_sortie_groupe_accord_hors_ligne \
-             (id, etablissement_id, sortie_groupe_id, eleve_id, donne_par_personne_id, recu_le, canal, recu_par_user_id, piece_id) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+             (id, etablissement_id, sortie_groupe_id, eleve_id, donne_par_personne_id, accord, recu_le, canal, \
+              recu_par_user_id, piece_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(Uuid::new_v4())
         .bind(etab)
         .bind(id)
         .bind(eleve)
         .bind(b.donne_par_personne_id)
+        .bind(b.accord)
         .bind(b.recu_le)
         .bind(&b.canal)
         .bind(actor)
@@ -1648,26 +1850,48 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        sqlx::query(
-            "UPDATE ent_internat_sortie_groupe_participant SET etat = 'autorise', reponse_qualite = 'hors_ligne', \
-                    reponse_user_id = $4, reponse_personne_id = $5, reponse_le = $6, motif_code = NULL, modifie_le = $6 \
-              WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
-        )
-        .bind(etab)
-        .bind(id)
-        .bind(eleve)
-        .bind(actor)
-        .bind(b.donne_par_personne_id)
-        .bind(maintenant)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
+        if b.accord {
+            sqlx::query(
+                "UPDATE ent_internat_sortie_groupe_participant SET etat = 'autorise', reponse_qualite = 'hors_ligne', \
+                        reponse_user_id = $4, reponse_personne_id = $5, reponse_le = $6, motif_code = NULL, modifie_le = $6 \
+                  WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(eleve)
+            .bind(actor)
+            .bind(b.donne_par_personne_id)
+            .bind(maintenant)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        } else {
+            sqlx::query(
+                "UPDATE ent_internat_sortie_groupe_participant SET etat = 'refuse', reponse_qualite = 'hors_ligne', \
+                        reponse_user_id = $4, reponse_personne_id = $5, reponse_le = $6, motif_code = 'refus_famille', \
+                        modifie_le = $6 \
+                  WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(eleve)
+            .bind(actor)
+            .bind(b.donne_par_personne_id)
+            .bind(maintenant)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         fait_groupe_tx(
             &mut tx,
             etab,
             id,
             Some(eleve),
-            "accord_hors_ligne",
+            if b.accord {
+                "accord_hors_ligne"
+            } else {
+                "refus_hors_ligne"
+            },
             Some(actor),
             maintenant,
             Some(&b.canal),
@@ -1679,8 +1903,12 @@ impl PgEnt {
             Some(actor),
             &g,
             eleve,
-            "autorise",
-            "accord_hors_ligne",
+            if b.accord { "autorise" } else { "refuse" },
+            if b.accord {
+                "accord_hors_ligne"
+            } else {
+                "refus_hors_ligne"
+            },
         )
         .await?;
         let dto = self
@@ -1692,51 +1920,55 @@ impl PgEnt {
 
     /// L'accord en vigueur d'un participant tient-il toujours à l'instant du départ ? **Un acte tombe avec son auteur** :
     /// l'accord d'un titulaire n'est valable que si ce titulaire a encore l'autorité et n'est pas visé par une
-    /// interdiction ; l'accord hors ligne que si la personne est encore titulaire et non interdite ; l'accord annuel que
-    /// si le verdict du socle 18 est toujours « autorisé ». Tout doute vaut refus.
+    /// interdiction ; l'accord hors ligne que si la personne est encore titulaire et non interdite (même fonction) ;
+    /// l'accord annuel que si le verdict du socle 18 est toujours « autorisé » ET que la sortie reste dans les bornes
+    /// d'une soirée (règle 2). **Un accord de titulaire tombe à la majorité de l'élève** (F8) : l'élève répond alors
+    /// lui-même, avant la sortie. Tout doute vaut refus. `None` : l'accord tient ; `Some(motif)` : il est tombé.
     async fn accord_tient_tx(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
         p: &PartBrute,
+        g: &GroupeLigne,
         jour: NaiveDate,
-    ) -> Result<bool, EntDbError> {
+    ) -> Result<Option<&'static str>, EntDbError> {
+        let tombe = Some("interdiction");
         match p.2.as_deref() {
-            Some("titulaire") => match p.3 {
-                Some(user) => Ok(self
-                    .titulaire_tx(conn, etab, user, eleve, jour)
-                    .await?
-                    .is_some_and(|peut| peut)),
-                None => Ok(false),
-            },
-            Some("eleve_majeur") => eleve_majeur_tx(conn, etab, eleve, jour).await,
-            Some("hors_ligne") => match p.4 {
-                Some(pers) => {
-                    let toujours: bool = sqlx::query_scalar(
-                        "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l WHERE l.etablissement_id = $1 \
-                                          AND l.eleve_id = $2 AND l.personne_id = $3 AND l.autorite_parentale \
-                                          AND l.peut_autoriser_sorties AND COALESCE(l.garde, '') <> 'aucune')",
-                    )
-                    .bind(etab)
-                    .bind(eleve)
-                    .bind(pers)
-                    .fetch_one(&mut *conn)
-                    .await
-                    .map_err(db)?;
-                    Ok(toujours && !personne_interdite_tx(conn, etab, eleve, pers, jour).await?)
+            Some(q @ ("titulaire" | "hors_ligne")) => {
+                if eleve_majeur_tx(conn, etab, eleve, jour).await? {
+                    return Ok(Some("majorite"));
                 }
-                None => Ok(false),
-            },
-            Some("annuelle") => Ok(
-                verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await == "autorise",
-            ),
-            _ => Ok(false),
+                let qui = match (q, p.3, p.4) {
+                    ("titulaire", Some(user), _) => QuiTitulaire::Compte(user),
+                    ("hors_ligne", _, Some(pers)) => QuiTitulaire::Personne(pers),
+                    _ => return Ok(tombe),
+                };
+                let tient = self
+                    .titulaire_pour_tx(conn, etab, qui, eleve, jour)
+                    .await?
+                    .is_some_and(|peut| peut);
+                Ok(if tient { None } else { tombe })
+            }
+            Some("eleve_majeur") => Ok(if eleve_majeur_tx(conn, etab, eleve, jour).await? {
+                None
+            } else {
+                tombe
+            }),
+            Some("annuelle") => {
+                let tient = dans_les_bornes_soiree_tx(conn, etab, g).await?
+                    && verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await
+                        == "autorise";
+                Ok(if tient { None } else { tombe })
+            }
+            _ => Ok(tombe),
         }
     }
 
     /// INT-176 : appel de DÉPART. Seuls les élèves `autorise` partent, et seulement si leur accord tient encore ; les
-    /// autres reçoivent un résultat codé, jamais un départ silencieux. Capacité d'encadrement revérifiée.
+    /// autres reçoivent un résultat codé, jamais un départ silencieux. **Au moins un accompagnateur est pointé présent**
+    /// (fait tracé) et l'encadrement se compte sur les accompagnateurs présents (M6). Le départ est raisonné en NUIT, pas
+    /// en jour civil (F6). Un élève parti est aussitôt marqué « en activité » dans les appels ouverts de la nuit (règle 1).
     pub async fn depart_groupe_a(
         &self,
         etab: Uuid,
@@ -1750,8 +1982,9 @@ impl PgEnt {
             return Err(refus("trop d'élèves en un appel"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id, maintenant)
             .await?;
+        let voit_la_cause = self.voit_la_cause(etab, actor, role).await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
             return Err(conflit(
@@ -1761,10 +1994,22 @@ impl PgEnt {
         if maintenant < g.debut - Duration::minutes(DEPART_AVANCE_MINUTES) || maintenant >= g.fin {
             return Err(conflit("hors de la plage de départ de cette sortie"));
         }
-        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        // F6 : la nuit (jour de la nuit en cours), jamais le jour civil : un départ à 00 h 30 appartient à la nuit d'hier.
+        let nuit = nuit_a_tx(&mut tx, etab, maintenant).await?;
+        let jour_civil = jour_local_tx(&mut tx, etab, maintenant).await?;
         let (par_encadrant, _) = parametres_vie_tx(&mut tx, etab).await?;
-        let nb_enc = encadrants_tx(&mut tx, etab, id).await?.len();
-        let capacite = nb_enc as i64 * i64::from(par_encadrant);
+        let nb_presents = self
+            .pointer_encadrants_presents(
+                &mut tx,
+                etab,
+                &g,
+                actor,
+                &b.encadrants_presents,
+                jour_civil,
+                maintenant,
+            )
+            .await?;
+        let capacite = nb_presents * i64::from(par_encadrant);
         let mut deja_partis: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_internat_sortie_groupe_participant \
               WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND etat = 'parti'",
@@ -1799,14 +2044,14 @@ impl PgEnt {
                     continue;
                 }
             }
-            if !est_interne_tx(&mut tx, etab, *e, jour).await? {
+            if !est_interne_tx(&mut tx, etab, *e, nuit).await? {
                 bloquer_participant_tx(
                     &mut tx,
                     etab,
                     &g,
                     *e,
                     "plus_interne",
-                    "blocage_interdiction",
+                    "blocage_plus_interne",
                     actor,
                     maintenant,
                 )
@@ -1829,19 +2074,23 @@ impl PgEnt {
                 resultats.push(res("non_autorise"));
                 continue;
             }
-            if !self.accord_tient_tx(&mut tx, etab, *e, &p, jour).await? {
-                bloquer_participant_tx(
-                    &mut tx,
-                    etab,
-                    &g,
-                    *e,
-                    "interdiction",
-                    "accord_tombe",
-                    actor,
-                    maintenant,
-                )
-                .await?;
-                resultats.push(res("accord_tombe"));
+            if let Some(motif) = self
+                .accord_tient_tx(&mut tx, etab, *e, &p, &g, nuit)
+                .await?
+            {
+                let acte = if motif == "majorite" {
+                    "blocage_majorite"
+                } else {
+                    "accord_tombe"
+                };
+                bloquer_participant_tx(&mut tx, etab, &g, *e, motif, acte, actor, maintenant)
+                    .await?;
+                // E3 : seule la direction, le CPE et l'internat voient pourquoi ; l'accompagnateur lit « non autorisé ».
+                resultats.push(res(if voit_la_cause {
+                    "accord_tombe"
+                } else {
+                    "non_autorise"
+                }));
                 continue;
             }
             if deja_partis + 1 > capacite {
@@ -1884,13 +2133,96 @@ impl PgEnt {
                 Causalite::default(),
             )
             .await?;
+            // Règle 1 : l'appel du soir marque l'élève « en activité » (retour attendu), jamais « absent ».
+            self.marquer_en_activite_tx(
+                &mut tx,
+                etab,
+                actor,
+                *e,
+                g.fin,
+                "sortie de groupe",
+                maintenant,
+            )
+            .await?;
             resultats.push(res("ok"));
         }
         tx.commit().await.map_err(db)?;
         Ok(resultats)
     }
 
-    /// Appel de RETOUR : seuls les élèves partis rentrent.
+    /// M6 : pointe la présence des accompagnateurs au départ (fait tracé par accompagnateur, une fois) et renvoie le nombre
+    /// d'accompagnateurs présents. L'acteur, s'il est accompagnateur, est présent d'office ; au moins un est exigé.
+    #[allow(clippy::too_many_arguments)]
+    async fn pointer_encadrants_presents(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        g: &GroupeLigne,
+        actor: Uuid,
+        listes: &[Uuid],
+        jour: NaiveDate,
+        maintenant: DateTime<Utc>,
+    ) -> Result<i64, EntDbError> {
+        let encadrants = encadrants_tx(conn, etab, g.id).await?;
+        let mut presents: Vec<Uuid> = listes.to_vec();
+        if encadrants.contains(&actor) {
+            presents.push(actor);
+        }
+        presents.sort();
+        presents.dedup();
+        for u in &presents {
+            if !encadrants.contains(u) || !est_personnel_tx(conn, etab, *u, jour).await? {
+                return Err(refus(
+                    "un accompagnateur pointé présent est un accompagnateur de cette sortie, encore du personnel",
+                ));
+            }
+        }
+        if presents.is_empty() {
+            return Err(conflit(
+                "aucun accompagnateur pointé présent : pointer au moins un accompagnateur avant le départ",
+            ));
+        }
+        for u in presents {
+            let deja: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_fait WHERE etablissement_id = $1 \
+                                  AND sortie_groupe_id = $2 AND acte = 'encadrant_present' AND autre_user_id = $3)",
+            )
+            .bind(etab)
+            .bind(g.id)
+            .bind(u)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+            if !deja {
+                fait_groupe_autre_tx(
+                    conn,
+                    etab,
+                    g.id,
+                    None,
+                    "encadrant_present",
+                    Some(actor),
+                    Some(u),
+                    maintenant,
+                    None,
+                )
+                .await?;
+            }
+        }
+        // Présents = pointés présents ET toujours accompagnateurs de la sortie (un remplacé ne compte plus).
+        sqlx::query_scalar(
+            "SELECT count(DISTINCT f.autre_user_id) FROM ent_internat_sortie_groupe_fait f \
+               JOIN ent_internat_sortie_groupe_encadrant e ON e.etablissement_id = f.etablissement_id \
+                    AND e.sortie_groupe_id = f.sortie_groupe_id AND e.user_id = f.autre_user_id \
+              WHERE f.etablissement_id = $1 AND f.sortie_groupe_id = $2 AND f.acte = 'encadrant_present'",
+        )
+        .bind(etab)
+        .bind(g.id)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)
+    }
+
+    /// Appel de RETOUR : seuls les élèves partis rentrent. Le retour ferme le cas de nuit ouvert pour cette sortie.
     pub async fn retour_groupe_a(
         &self,
         etab: Uuid,
@@ -1904,7 +2236,7 @@ impl PgEnt {
             return Err(refus("trop d'élèves en un appel"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id, maintenant)
             .await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
@@ -1959,6 +2291,8 @@ impl PgEnt {
                         Causalite::default(),
                     )
                     .await?;
+                    self.clore_cas_origine_tx(&mut tx, etab, actor, *e, Some(id), None, maintenant)
+                        .await?;
                     resultats.push(res("ok"));
                 }
                 Some(p) if p.1 == "rentre" => resultats.push(res("deja_rentre")),
@@ -1967,6 +2301,176 @@ impl PgEnt {
         }
         tx.commit().await.map_err(db)?;
         Ok(resultats)
+    }
+
+    /// Règle 5 (tout fait se corrige par un fait) : un retour pointé par erreur s'annule par un fait **motivé** qui remet
+    /// l'élève « parti » ; l'élève redevient « en activité » dans les appels ouverts et, s'il n'est toujours pas rentré à
+    /// l'heure prévue, la tâche de veille rouvre son cas.
+    pub async fn annuler_retour_groupe_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &AnnulationRetourDto,
+        maintenant: DateTime<Utc>,
+    ) -> Result<Vec<ResultatAppelDto>, EntDbError> {
+        if !MOTIFS_ANNULATION_RETOUR.contains(&b.motif_code.as_str()) {
+            return Err(refus(
+                "un retour s'annule avec un motif codé (erreur_pointage, retour_non_effectif, autre)",
+            ));
+        }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id, maintenant)
+            .await?;
+        let g = groupe_tx(&mut tx, etab, id, true).await?;
+        if g.statut != "acceptee" {
+            return Err(conflit("cette sortie n'est pas en cours"));
+        }
+        let Some(p) = participant_tx(&mut tx, etab, id, b.eleve_id).await? else {
+            return Err(DomainError::NotFound.into());
+        };
+        if p.1 != "rentre" {
+            return Err(conflit("cet élève n'est pas pointé rentré"));
+        }
+        sqlx::query(
+            "UPDATE ent_internat_sortie_groupe_participant SET etat = 'parti', rentre_le = NULL, rentre_par_user_id = NULL, \
+                    modifie_le = $4 WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(b.eleve_id)
+        .bind(maintenant)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            Some(b.eleve_id),
+            "retour_annule",
+            Some(actor),
+            maintenant,
+            Some(&b.motif_code),
+        )
+        .await?;
+        publier(
+            &mut tx,
+            etab,
+            types::INTERNAT_SORTIE_GROUPE_PRESENCE,
+            AggregateKind::Internat,
+            id,
+            Some(b.eleve_id),
+            json!({ "fin": g.fin.to_rfc3339(), "etat": "parti" }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
+        self.marquer_en_activite_tx(
+            &mut tx,
+            etab,
+            actor,
+            b.eleve_id,
+            g.fin,
+            "sortie de groupe",
+            maintenant,
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(vec![ResultatAppelDto {
+            eleve_id: b.eleve_id,
+            resultat: "parti".into(),
+        }])
+    }
+
+    /// M6 : remplace un accompagnateur, y compris pendant la sortie (maladie, imprévu). L'ancien sort de la liste, le
+    /// nouveau (compte du personnel) y entre ; un fait trace qui remplace qui. L'encadrement ne change pas.
+    pub async fn remplacer_encadrant_groupe_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &RemplacementEncadrantDto,
+        maintenant: DateTime<Utc>,
+    ) -> Result<SortieGroupeDto, EntDbError> {
+        self.groupe_organiser(etab, actor, role).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let g = groupe_tx(&mut tx, etab, id, true).await?;
+        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee")
+            || maintenant >= g.fin + Duration::hours(6)
+        {
+            return Err(conflit(
+                "cette sortie ne peut plus changer d'accompagnateurs",
+            ));
+        }
+        if b.ancien_user_id == b.nouveau_user_id {
+            return Err(refus(
+                "l'accompagnateur de remplacement est une autre personne",
+            ));
+        }
+        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        if !est_personnel_tx(&mut tx, etab, b.nouveau_user_id, jour).await? {
+            return Err(refus(
+                "un accompagnateur est un compte du personnel de l'établissement",
+            ));
+        }
+        let encadrants = encadrants_tx(&mut tx, etab, id).await?;
+        if !encadrants.contains(&b.ancien_user_id) {
+            return Err(DomainError::NotFound.into());
+        }
+        if encadrants.contains(&b.nouveau_user_id) {
+            return Err(conflit("cet accompagnateur est déjà de la sortie"));
+        }
+        sqlx::query(
+            "DELETE FROM ent_internat_sortie_groupe_encadrant WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND user_id = $3",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(b.ancien_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "INSERT INTO ent_internat_sortie_groupe_encadrant (etablissement_id, sortie_groupe_id, user_id) VALUES ($1,$2,$3)",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(b.nouveau_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        // Le fait garde le NOUVEAU (autre_user_id) et l'auteur du remplacement ; l'ancien se lit sur le fait d'ajout.
+        fait_groupe_autre_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "encadrant_remplace",
+            Some(actor),
+            Some(b.nouveau_user_id),
+            maintenant,
+            None,
+        )
+        .await?;
+        fait_groupe_autre_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "encadrant_retire",
+            Some(actor),
+            Some(b.ancien_user_id),
+            maintenant,
+            Some("remplace"),
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(dto)
     }
 
     /// INT-179 : clôture. Impossible tant qu'un élève parti n'est pas rentré (un élève jamais rentré n'est pas « oublié »).
@@ -1983,7 +2487,7 @@ impl PgEnt {
             return Err(refus("bilan inconnu (sans_incident, retard, incident)"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id, maintenant)
             .await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
@@ -2059,22 +2563,18 @@ impl PgEnt {
     ) -> Result<SortieGroupeDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let portee = self
-            .groupe_lecture_portee(&mut tx, etab, actor, role, id)
+            .groupe_lecture_portee(&mut tx, etab, actor, role, id, maintenant)
             .await?;
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        crate::internat_nuit::journaliser_lecture_tx(
-            &mut tx,
-            etab,
-            actor,
-            "sortie_groupe",
-            None,
-            None,
-            maintenant,
-        )
-        .await?;
         let dto = self
             .groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new())
             .await?;
+        // F5 : le journal de lecture nomme chaque élève lu (une ligne, la liste des identifiants), pas « une sortie ».
+        let lus: Vec<Uuid> = dto.participants.iter().map(|p| p.eleve_id).collect();
+        crate::internat_nuit::journaliser_lecture_eleves_tx(
+            &mut tx, etab, actor, "sorties", None, None, &lus, maintenant,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -2087,8 +2587,9 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
         id: Uuid,
+        maintenant: DateTime<Utc>,
     ) -> Result<Option<HashSet<Uuid>>, EntDbError> {
-        if est_encadrant_tx(conn, etab, id, actor).await? {
+        if est_encadrant_tx(conn, etab, id, actor, maintenant).await? {
             return Ok(None);
         }
         self.nuit_portee(
@@ -2104,7 +2605,8 @@ impl PgEnt {
         .await
     }
 
-    /// INT-175 : sorties d'une période (autorisés du jour, de la semaine) sans noms d'élèves.
+    /// INT-175 : sorties d'une période (par NUIT : une sortie qui commence à 00 h 30 est celle de la nuit d'hier, F6), sans
+    /// noms d'élèves.
     pub async fn lister_sorties_groupe_a(
         &self,
         etab: Uuid,
@@ -2112,6 +2614,7 @@ impl PgEnt {
         role: &str,
         du: NaiveDate,
         au: NaiveDate,
+        maintenant: DateTime<Utc>,
     ) -> Result<Vec<SortieGroupeResumeDto>, EntDbError> {
         if au < du || (au - du).num_days() > 366 {
             return Err(refus("période invalide (366 jours au plus)"));
@@ -2130,24 +2633,32 @@ impl PgEnt {
             .await
             .is_ok();
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let rows: Vec<(Uuid, String, String, DateTime<Utc>, DateTime<Utc>, String, i64, i64, i64, bool)> = sqlx::query_as(
             "SELECT g.id, g.titre, g.lieu, g.debut, g.fin, g.statut, \
                     count(p.*) FILTER (WHERE p.etat <> 'retire'), \
                     count(p.*) FILTER (WHERE p.etat IN ('autorise', 'parti', 'rentre')), \
                     count(p.*) FILTER (WHERE p.etat = 'en_attente'), \
                     EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_encadrant e \
-                             WHERE e.etablissement_id = g.etablissement_id AND e.sortie_groupe_id = g.id AND e.user_id = $4) \
+                             WHERE e.etablissement_id = g.etablissement_id AND e.sortie_groupe_id = g.id AND e.user_id = $4 \
+                               AND g.fin + make_interval(days => $6::int) > $5 \
+                               AND EXISTS (SELECT 1 FROM ent_membership m WHERE m.etablissement_id = e.etablissement_id \
+                                             AND m.user_id = e.user_id AND m.etat = 'ouvert' AND m.role NOT IN ('parent', 'eleve') \
+                                             AND (m.date_fin IS NULL OR m.date_fin >= $7))) \
                FROM ent_internat_sortie_groupe g \
                LEFT JOIN ent_internat_sortie_groupe_participant p \
                  ON p.etablissement_id = g.etablissement_id AND p.sortie_groupe_id = g.id \
               WHERE g.etablissement_id = $1 \
-                AND (g.debut AT TIME ZONE ent_internat_fuseau($1))::date BETWEEN $2 AND $3 \
+                AND ent_nuit_etab($1, g.debut) BETWEEN $2 AND $3 \
               GROUP BY g.id ORDER BY g.debut, g.id",
         )
         .bind(etab)
         .bind(du)
         .bind(au)
         .bind(actor)
+        .bind(maintenant)
+        .bind(ENCADRANT_LECTURE_JOURS as i32)
+        .bind(jour)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
@@ -2218,6 +2729,246 @@ impl PgEnt {
         }
         tx.commit().await.map_err(db)?;
         Ok(out)
+    }
+}
+
+impl PgEnt {
+    /// Règle 1 : marque « en activité » (retour attendu) un élève parti, dans chaque appel OUVERT de la nuit courante qui
+    /// l'attend (jamais « absent » : l'élève est sous la responsabilité d'un accompagnateur). Un élève déjà marqué « en
+    /// activité » n'est pas remarqué ; un élève hors liste de l'appel est ignoré.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn marquer_en_activite_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        actor: Uuid,
+        eleve: Uuid,
+        retour: DateTime<Utc>,
+        note: &str,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
+        let nuit = nuit_a_tx(conn, etab, maintenant).await?;
+        let appels: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT a.id FROM ent_internat_appel a JOIN ent_internat_appel_attendu x \
+                    ON x.etablissement_id = a.etablissement_id AND x.appel_id = a.id \
+              WHERE a.etablissement_id = $1 AND a.nuit = $2 AND a.etat = 'ouvert' AND x.eleve_id = $3 \
+                AND x.statut IN ('attendu', 'ajoute') ORDER BY a.id",
+        )
+        .bind(etab)
+        .bind(nuit)
+        .bind(eleve)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for id in appels {
+            let appel = crate::internat_nuit::appel_tx(conn, etab, id, "FOR UPDATE").await?;
+            let deja = crate::internat_nuit::marques_courantes_tx(conn, etab, id)
+                .await?
+                .get(&eleve)
+                .is_some_and(|m| m.marque == "activite");
+            if deja {
+                continue;
+            }
+            self.pointer_tx(
+                conn,
+                etab,
+                actor,
+                &appel,
+                &ent_types::internat_nuit::PointageSaisieDto {
+                    eleve_id: eleve,
+                    marque: "activite".into(),
+                    note: Some(note.to_string()),
+                    retour_attendu: Some(retour),
+                    a: None,
+                    appareil_id: None,
+                    motif_correction_code: None,
+                    motif_correction_texte: None,
+                },
+                maintenant,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Règle 1, à l'ouverture d'un appel : les élèves attendus qui sont PARTIS (sortie de groupe acceptée, activité du soir
+    /// pointée « en activité ») sont marqués « en activité » avec leur retour attendu : l'appel ne les compte pas absents.
+    pub(crate) async fn marquer_en_activite_ouverture_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        actor: Uuid,
+        appel_id: Uuid,
+        eleves: &[Uuid],
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
+        if eleves.is_empty() {
+            return Ok(());
+        }
+        let lignes: Vec<(Uuid, DateTime<Utc>, String)> = sqlx::query_as(
+            "SELECT DISTINCT ON (eleve_id) eleve_id, retour, note FROM ( \
+               SELECT p.eleve_id, g.fin AS retour, 'sortie de groupe'::text AS note \
+                 FROM ent_internat_sortie_groupe_participant p \
+                 JOIN ent_internat_sortie_groupe g ON g.etablissement_id = p.etablissement_id AND g.id = p.sortie_groupe_id \
+                WHERE p.etablissement_id = $1 AND p.etat = 'parti' AND g.statut = 'acceptee' AND p.eleve_id = ANY($2) \
+               UNION ALL \
+               SELECT tp.eleve_id, t.fin, 'activité du soir'::text \
+                 FROM ent_internat_temps_participant tp \
+                 JOIN ent_internat_temps t ON t.etablissement_id = tp.etablissement_id AND t.id = tp.temps_id \
+                WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL AND tp.retire_le IS NULL \
+                  AND t.nature = 'activite' AND t.statut = 'prevu' AND tp.eleve_id = ANY($2)) x \
+              ORDER BY eleve_id, retour",
+        )
+        .bind(etab)
+        .bind(eleves)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        if lignes.is_empty() {
+            return Ok(());
+        }
+        let appel = crate::internat_nuit::appel_tx(conn, etab, appel_id, "FOR UPDATE").await?;
+        for (eleve, retour, note) in lignes {
+            self.pointer_tx(
+                conn,
+                etab,
+                actor,
+                &appel,
+                &ent_types::internat_nuit::PointageSaisieDto {
+                    eleve_id: eleve,
+                    marque: "activite".into(),
+                    note: Some(note),
+                    retour_attendu: Some(retour),
+                    a: None,
+                    appareil_id: None,
+                    motif_correction_code: None,
+                    motif_correction_texte: None,
+                },
+                maintenant,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Le retour d'un élève parti ferme le cas de nuit que son absence avait ouvert (issue « retrouvé », lieu extérieur).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn clore_cas_origine_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        actor: Uuid,
+        eleve: Uuid,
+        sortie: Option<Uuid>,
+        temps: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
+        let cas: Option<(Uuid, NaiveDate)> = sqlx::query_as(
+            "UPDATE ent_internat_cas SET issue = 'retrouve', issue_le = $5, issue_par_user_id = $6, \
+                    issue_lieu_code = 'exterieur', modifie_le = now() \
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND issue IS NULL \
+                AND (($3::uuid IS NOT NULL AND sortie_groupe_id = $3) OR ($4::uuid IS NOT NULL AND temps_id = $4)) \
+          RETURNING id, nuit",
+        )
+        .bind(etab)
+        .bind(eleve)
+        .bind(sortie)
+        .bind(temps)
+        .bind(maintenant)
+        .bind(actor)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        if let Some((cas, nuit)) = cas {
+            publier(
+                conn,
+                etab,
+                types::INTERNAT_CAS_CLOS,
+                AggregateKind::Internat,
+                cas,
+                Some(eleve),
+                json!({ "nuit": nuit.to_string(), "issue": "retrouve" }),
+                Some(actor),
+                Causalite::default(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Règle 1 (tâche périodique, pas un point de lecture) : tout élève « parti » d'une sortie de groupe ou en activité du
+    /// soir et non rentré à l'heure de fin prévue + tolérance de l'établissement ouvre **automatiquement** un cas de nuit
+    /// (procédure d'I3, nature « non rentré ») qui garde la sortie ou le temps d'origine et l'heure prévue ; les
+    /// accompagnateurs à joindre se lisent sur la sortie. Idempotent (un seul cas ouvert par élève et par nuit). Renvoie
+    /// le nombre de cas ouverts.
+    pub async fn veille_non_rentres_a(
+        &self,
+        etab: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<usize, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let tolerance: i16 = {
+            let _ = parametres_vie_tx(&mut tx, etab).await?;
+            sqlx::query_scalar(
+                "SELECT groupe_tolerance_retour_minutes FROM ent_internat_parametres_vie WHERE etablissement_id = $1",
+            )
+            .bind(etab)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?
+        };
+        let limite = maintenant - Duration::minutes(i64::from(tolerance));
+        // (élève, sortie, temps, heure prévue) : sorties de groupe acceptées dont un élève est encore « parti », activités
+        // du soir où l'élève est pointé « en activité » sans retour.
+        let lignes: Vec<(Uuid, Option<Uuid>, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT p.eleve_id, g.id, NULL::uuid, g.fin FROM ent_internat_sortie_groupe_participant p \
+               JOIN ent_internat_sortie_groupe g ON g.etablissement_id = p.etablissement_id AND g.id = p.sortie_groupe_id \
+              WHERE p.etablissement_id = $1 AND p.etat = 'parti' AND g.statut = 'acceptee' AND g.fin < $2 \
+             UNION ALL \
+             SELECT tp.eleve_id, NULL::uuid, t.id, t.fin FROM ent_internat_temps_participant tp \
+               JOIN ent_internat_temps t ON t.etablissement_id = tp.etablissement_id AND t.id = tp.temps_id \
+              WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL AND tp.retire_le IS NULL \
+                AND t.nature = 'activite' AND t.statut = 'prevu' AND t.fin < $2 \
+              ORDER BY 4, 1",
+        )
+        .bind(etab)
+        .bind(limite)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let nuit = nuit_a_tx(&mut tx, etab, maintenant).await?;
+        let mut ouverts = 0;
+        for (eleve, sortie, temps, prevue) in lignes {
+            if let Some(cas) = self
+                .ouvrir_cas_tx(
+                    &mut tx,
+                    etab,
+                    None,
+                    None,
+                    eleve,
+                    nuit,
+                    "non_rentre",
+                    maintenant,
+                )
+                .await?
+            {
+                sqlx::query(
+                    "UPDATE ent_internat_cas SET sortie_groupe_id = $3, temps_id = $4, heure_prevue = $5 \
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(cas)
+                .bind(sortie)
+                .bind(temps)
+                .bind(prevue)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                ouverts += 1;
+            }
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(ouverts)
     }
 }
 

@@ -1665,7 +1665,7 @@ async fn historique_des_faits_visible_selon_le_role() {
 // | Faibles (antidate, doublons, liste de remise protégée, F-1, M-1) | `faible_*` |
 
 /// Interdiction de `personne` pour un objet précis (remise, visite, contact_eleve…), éventuellement terminée (`au`).
-async fn interdire_objet(b: &Banc, eleve: Uuid, personne: Uuid, objet: &str, au: Option<&str>) {
+pub(crate) async fn interdire_objet(b: &Banc, eleve: Uuid, personne: Uuid, objet: &str, au: Option<&str>) {
     sqlx::query(
         "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, au, decide_par) \
          VALUES ($1,$2,$3,$4,ARRAY[$5],'decision_etablissement','Appeler la direction','2026-01-01',$6::date,$7)",

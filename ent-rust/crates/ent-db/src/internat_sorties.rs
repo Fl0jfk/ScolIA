@@ -910,6 +910,13 @@ fn absence_en_vigueur(statut: &str) -> bool {
 
 // ───────────────────────── Service : acteur, types, absences ─────────────────────────
 
+/// Pour qui s'évalue la qualité de titulaire : un compte, ou une personne du socle 4 (accord hors ligne).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum QuiTitulaire {
+    Compte(Uuid),
+    Personne(Uuid),
+}
+
 impl PgEnt {
     /// Lien de titulaire du compte pour l'élève : lien communicant, autorité parentale, garde non « aucune », et
     /// **personne non visée par une interdiction** de remise, de visite ou de contact (C-1) : un parent interdit de
@@ -924,9 +931,28 @@ impl PgEnt {
         eleve: Uuid,
         jour: NaiveDate,
     ) -> Result<Option<bool>, EntDbError> {
+        self.titulaire_pour_tx(conn, etab, QuiTitulaire::Compte(user), eleve, jour).await
+    }
+
+    /// **Une seule fonction pour la règle de titulaire** (règle générale 4, I4) : la qualité s'évalue pour un COMPTE
+    /// (réponse en ligne) ou pour une PERSONNE du socle 4 (accord reçu hors ligne, qui n'a pas forcément de compte) ; les
+    /// deux passent par le même contrôle (autorité parentale, garde, interdictions, règle M-A, chaîne de fusions).
+    pub(crate) async fn titulaire_pour_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        qui: QuiTitulaire,
+        eleve: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<bool>, EntDbError> {
+        let (user, personne) = match qui {
+            QuiTitulaire::Compte(u) => (Some(u), None),
+            QuiTitulaire::Personne(p) => (None, Some(p)),
+        };
         let liens: Vec<(bool, Uuid)> = sqlx::query_as(
             "SELECT l.peut_autoriser_sorties, l.personne_id FROM ent_eleve_lien_communicant l \
-              WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 \
+              WHERE l.etablissement_id = $1 AND l.eleve_id = $3 \
+                AND (($2::uuid IS NOT NULL AND l.user_id = $2) OR ($5::uuid IS NOT NULL AND l.personne_id = $5)) \
                 AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' \
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
                                  WHERE i.etablissement_id = l.etablissement_id AND i.eleve_id = l.eleve_id \
@@ -942,6 +968,7 @@ impl PgEnt {
         .bind(user)
         .bind(eleve)
         .bind(jour)
+        .bind(personne)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
@@ -4535,6 +4562,15 @@ impl PgEnt {
         .await
         .map_err(db)?
         {
+            // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
+            match self.veille_non_rentres_a(etab, Utc::now()).await {
+                Ok(n) => total += n,
+                Err(e) => tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement"),
+            }
+            match self.veille_etudes_a(etab, Utc::now()).await {
+                Ok(n) => total += n,
+                Err(e) => tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement"),
+            }
             match self.veille_sorties_bilan_a(etab, Utc::now()).await {
                 Ok((v, bilan)) => {
                     total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;

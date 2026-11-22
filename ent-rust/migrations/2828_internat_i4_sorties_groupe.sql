@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS ent_internat_parametres_vie (
     groupe_eleves_par_encadrant SMALLINT NOT NULL DEFAULT 12 CHECK (groupe_eleves_par_encadrant BETWEEN 1 AND 60),
     groupe_preavis_heures SMALLINT NOT NULL DEFAULT 24 CHECK (groupe_preavis_heures BETWEEN 0 AND 720),
     liaison_texte_max SMALLINT NOT NULL DEFAULT 300 CHECK (liaison_texte_max BETWEEN 50 AND 300),
+    -- Un élève parti (sortie de groupe, activité du soir) non rentré à l'heure de fin prévue + cette tolérance ouvre
+    -- un cas de nuit (règle générale 1, D-069) ; un inscrit à l'étude non pointé au-delà du délai est signalé.
+    groupe_tolerance_retour_minutes SMALLINT NOT NULL DEFAULT 15 CHECK (groupe_tolerance_retour_minutes BETWEEN 0 AND 240),
+    etude_delai_absence_minutes SMALLINT NOT NULL DEFAULT 15 CHECK (etude_delai_absence_minutes BETWEEN 1 AND 240),
     modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     modifie_par UUID REFERENCES ent_user (id)
 );
@@ -94,7 +98,8 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_participant (
     reponse_personne_id UUID,
     reponse_le TIMESTAMPTZ,
     motif_code TEXT CHECK (motif_code IS NULL OR motif_code IN (
-        'refus_famille', 'desaccord_connu', 'interdiction', 'plus_interne', 'retire_par_organisateur', 'majeur_refuse')),
+        'refus_famille', 'desaccord_connu', 'interdiction', 'plus_interne', 'retire_par_organisateur', 'majeur_refuse',
+        'majorite', 'chevauchement')),
     parti_le TIMESTAMPTZ,
     parti_par_user_id UUID REFERENCES ent_user (id),
     rentre_le TIMESTAMPTZ,
@@ -107,6 +112,9 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_participant (
         REFERENCES ent_internat_sortie_groupe (etablissement_id, id),
     CONSTRAINT ent_internat_sg_part_eleve_cfk FOREIGN KEY (etablissement_id, eleve_id)
         REFERENCES ent_eleve (etablissement_id, id),
+    -- F3 : la personne qui a répondu hors ligne est une fiche de CET établissement (clé composite).
+    CONSTRAINT ent_internat_sg_part_personne_cfk FOREIGN KEY (etablissement_id, reponse_personne_id)
+        REFERENCES ent_personne (etablissement_id, id),
     CONSTRAINT ent_internat_sg_part_reponse_chk CHECK (
         etat NOT IN ('autorise', 'refuse', 'parti', 'rentre')
         OR (reponse_qualite IS NOT NULL AND reponse_le IS NOT NULL
@@ -132,6 +140,8 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_accord_hors_ligne (
     sortie_groupe_id UUID NOT NULL,
     eleve_id UUID NOT NULL,
     donne_par_personne_id UUID NOT NULL,
+    -- Faux : un REFUS reçu hors ligne (téléphone, papier) ; il se saisit comme un accord, avec auteur et date (règle 5).
+    accord BOOLEAN NOT NULL DEFAULT true,
     recu_le TIMESTAMPTZ NOT NULL,
     canal TEXT NOT NULL CHECK (canal IN ('telephone', 'papier', 'en_personne')),
     recu_par_user_id UUID NOT NULL REFERENCES ent_user (id),
@@ -140,7 +150,11 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_accord_hors_ligne (
     CONSTRAINT ent_internat_sg_hl_sg_cfk FOREIGN KEY (etablissement_id, sortie_groupe_id)
         REFERENCES ent_internat_sortie_groupe (etablissement_id, id),
     CONSTRAINT ent_internat_sg_hl_eleve_cfk FOREIGN KEY (etablissement_id, eleve_id)
-        REFERENCES ent_eleve (etablissement_id, id)
+        REFERENCES ent_eleve (etablissement_id, id),
+    -- F3 : la personne est une fiche de CET établissement (clé composite) ; `piece_id` est validé par le service
+    -- (la table des pièces du socle 7 est créée par une migration postérieure).
+    CONSTRAINT ent_internat_sg_hl_personne_cfk FOREIGN KEY (etablissement_id, donne_par_personne_id)
+        REFERENCES ent_personne (etablissement_id, id)
 );
 
 -- Journal des faits en ajout seul : ce qui s'est passé, par qui, quand. Aucun texte libre.
@@ -154,8 +168,11 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_fait (
         'creation', 'duplication', 'modification', 'soumission', 'acceptation', 'refus_direction', 'annulation',
         'invitation', 'retrait', 'accord_famille', 'refus_famille', 'accord_annuel', 'accord_hors_ligne',
         'blocage_desaccord', 'blocage_interdiction', 'accord_tombe', 'depart', 'retour', 'cloture', 'encadrant_ajoute',
-        'encadrant_retire')),
+        'encadrant_retire', 'blocage_plus_interne', 'blocage_majorite', 'blocage_chevauchement', 'retour_annule',
+        'refus_hors_ligne', 'encadrant_remplace', 'encadrant_present', 'nouvelle_decision')),
     par_user_id UUID REFERENCES ent_user (id),
+    -- Compte du personnel concerné par le fait (accompagnateur remplacé, présent au départ…), jamais un nom.
+    autre_user_id UUID REFERENCES ent_user (id),
     a TIMESTAMPTZ NOT NULL,
     motif_code TEXT,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -198,14 +215,24 @@ BEGIN
     IF OLD.statut <> NEW.statut AND NOT (
            (OLD.statut = 'brouillon' AND NEW.statut IN ('soumise', 'annulee'))
         OR (OLD.statut = 'soumise' AND NEW.statut IN ('acceptee', 'refusee', 'annulee'))
-        OR (OLD.statut = 'acceptee' AND NEW.statut IN ('close', 'annulee'))) THEN
+        -- Nouvelle décision (M7) : des élèves ajoutés après l'acceptation remettent la sortie à la décision de la
+        -- direction ; l'acceptation précédente reste dans le journal des faits.
+        OR (OLD.statut = 'acceptee' AND NEW.statut IN ('close', 'annulee', 'soumise'))) THEN
         RAISE EXCEPTION 'sortie de groupe : transition % → % refusée', OLD.statut, NEW.statut USING ERRCODE = '42501';
+    END IF;
+    -- F2 : une sortie dont des élèves sont partis ne s'annule pas et ne se remet pas à la décision (les faire rentrer,
+    -- puis clore), quel que soit le code qui s'y essaie.
+    IF OLD.statut <> NEW.statut AND NEW.statut IN ('annulee', 'soumise') AND OLD.statut <> 'brouillon' AND EXISTS (
+           SELECT 1 FROM ent_internat_sortie_groupe_participant p
+            WHERE p.etablissement_id = OLD.etablissement_id AND p.sortie_groupe_id = OLD.id
+              AND p.etat IN ('parti', 'rentre')) THEN
+        RAISE EXCEPTION 'sortie de groupe : des élèves sont partis, l''annulation est refusée' USING ERRCODE = '42501';
     END IF;
     IF OLD.statut IN ('refusee', 'annulee', 'close') AND OLD IS DISTINCT FROM NEW THEN
         RAISE EXCEPTION 'sortie de groupe terminée : plus aucune modification' USING ERRCODE = '42501';
     END IF;
-    IF OLD.decide_le IS NOT NULL AND (OLD.decide_par_user_id, OLD.decide_le)
-       IS DISTINCT FROM (NEW.decide_par_user_id, NEW.decide_le) THEN
+    IF OLD.decide_le IS NOT NULL AND NOT (OLD.statut = 'acceptee' AND NEW.statut = 'soumise' AND NEW.decide_le IS NULL)
+       AND (OLD.decide_par_user_id, OLD.decide_le) IS DISTINCT FROM (NEW.decide_par_user_id, NEW.decide_le) THEN
         RAISE EXCEPTION 'sortie de groupe : la décision et son auteur sont figés' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
@@ -223,17 +250,39 @@ BEGIN
         RAISE EXCEPTION 'participant de sortie de groupe : suppression interdite (R-IT3), le retirer par un fait'
             USING ERRCODE = '42501';
     END IF;
+    -- Fusion de fiches d'élèves (socle 2) : seul `eleve_id` est repointé, le reste de la ligne est identique.
+    IF ent_fusion_en_cours() AND (to_jsonb(NEW) - 'eleve_id') = (to_jsonb(OLD) - 'eleve_id') THEN
+        RETURN NEW;
+    END IF;
     IF (OLD.id, OLD.etablissement_id, OLD.sortie_groupe_id, OLD.eleve_id)
        IS DISTINCT FROM (NEW.id, NEW.etablissement_id, NEW.sortie_groupe_id, NEW.eleve_id) THEN
         RAISE EXCEPTION 'participant : sortie et élève ne se modifient pas' USING ERRCODE = '42501';
     END IF;
-    IF OLD.etat IN ('parti', 'rentre') AND NEW.etat NOT IN ('parti', 'rentre') THEN
+    IF OLD.etat = NEW.etat THEN
+        RETURN NEW;
+    END IF;
+    -- F2 : transitions gardées en base. Un départ ne se constate que d'un élève autorisé ; un refus et un blocage sont
+    -- terminaux (seul le retrait par l'organisateur les clôt) ; un retour pointé par erreur se corrige par un fait qui
+    -- remet l'élève « parti » (règle 5), jamais autrement.
+    IF NEW.etat = 'parti' AND OLD.etat NOT IN ('autorise', 'rentre') THEN
+        RAISE EXCEPTION 'participant : seul un élève autorisé part (état % refusé)', OLD.etat USING ERRCODE = '42501';
+    END IF;
+    IF NEW.etat = 'autorise' AND OLD.etat NOT IN ('invite', 'en_attente') THEN
+        RAISE EXCEPTION 'participant : état % → autorise refusé', OLD.etat USING ERRCODE = '42501';
+    END IF;
+    IF NEW.etat = 'en_attente' AND OLD.etat <> 'invite' THEN
+        RAISE EXCEPTION 'participant : état % → en_attente refusé', OLD.etat USING ERRCODE = '42501';
+    END IF;
+    IF OLD.etat IN ('refuse', 'non_autorise') AND NEW.etat <> 'retire' THEN
+        RAISE EXCEPTION 'participant : un refus ou un blocage est terminal (état %)', OLD.etat USING ERRCODE = '42501';
+    END IF;
+    IF OLD.etat = 'parti' AND NEW.etat <> 'rentre' THEN
         RAISE EXCEPTION 'participant parti : le départ constaté ne se défait pas' USING ERRCODE = '42501';
     END IF;
-    IF OLD.etat = 'rentre' AND NEW.etat <> 'rentre' THEN
-        RAISE EXCEPTION 'participant rentré : retour constaté figé' USING ERRCODE = '42501';
+    IF OLD.etat = 'rentre' AND NEW.etat <> 'parti' THEN
+        RAISE EXCEPTION 'participant rentré : seul un fait motivé le remet parti' USING ERRCODE = '42501';
     END IF;
-    IF OLD.etat IN ('retire') AND NEW.etat <> 'retire' THEN
+    IF OLD.etat = 'retire' THEN
         RAISE EXCEPTION 'participant retiré : réinviter par un nouveau fait n''est pas permis ici' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;

@@ -182,6 +182,8 @@ async fn internat_api_aucune_route_sans_session() {
         ("POST", format!("/internat/sorties-groupe/{id}/eleves/{id}/accord-hors-ligne")),
         ("POST", format!("/internat/sorties-groupe/{id}/depart")),
         ("POST", format!("/internat/sorties-groupe/{id}/retour")),
+        ("POST", format!("/internat/sorties-groupe/{id}/retour/annulation")),
+        ("POST", format!("/internat/sorties-groupe/{id}/encadrants/remplacement")),
         ("POST", format!("/internat/sorties-groupe/{id}/cloture")),
         ("GET", format!("/internat/eleves/{id}/sorties-groupe")),
         ("GET", format!("/internat/eleves/{id}/planning")),
@@ -209,6 +211,9 @@ async fn internat_api_aucune_route_sans_session() {
         ("POST", format!("/internat/temps/{id}/inscription")),
         ("POST", format!("/internat/temps/{id}/desinscription")),
         ("POST", format!("/internat/temps/{id}/absence")),
+        ("POST", format!("/internat/temps/{id}/pointage")),
+        ("GET", "/internat/reglages-vie".into()),
+        ("PUT", "/internat/reglages-vie".into()),
     ];
     for (methode, uri) in routes {
         let corps = if methode == "GET" || methode == "DELETE" { None } else { Some(json!({})) };

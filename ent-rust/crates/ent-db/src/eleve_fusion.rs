@@ -413,6 +413,15 @@ async fn compter(tx: &mut TenantTx<'static>, t: &TableEleve, etab: Uuid, eleve: 
     Ok(usize::try_from(n).unwrap_or(0))
 }
 
+/// Condition propre à une table dont seule la partie « vivante » suit l'élève (voir `TableEleve::condition`).
+fn filtre_condition(t: &TableEleve) -> String {
+    if t.condition.is_empty() {
+        String::new()
+    } else {
+        format!(" AND ({})", t.condition)
+    }
+}
+
 /// Déplace les lignes d'UNE table : d'un coup si aucune contrainte ne s'y oppose, sinon ligne par
 /// ligne (chacune sous un point de reprise) pour isoler les conflits.
 async fn deplacer_table(
@@ -424,8 +433,9 @@ async fn deplacer_table(
 ) -> Result<(Vec<Value>, Vec<Value>), EntDbError> {
     armer_drapeaux(tx).await?;
     point_de_reprise(tx, "fusion_table").await?;
+    let filtre = filtre_condition(t);
     let tout = format!(
-        "UPDATE {table} AS t SET eleve_id = $3 WHERE t.etablissement_id = $1 AND t.eleve_id = $2 RETURNING {obj}",
+        "UPDATE {table} AS t SET eleve_id = $3 WHERE t.etablissement_id = $1 AND t.eleve_id = $2{filtre} RETURNING {obj}",
         table = t.table,
         obj = objet_cle(t)
     );
@@ -445,7 +455,7 @@ async fn deplacer_table(
     }
     // Conflit quelque part dans la table : ligne par ligne.
     let cles: Vec<Value> = sqlx::query_scalar(&format!(
-        "SELECT {obj} FROM {table} t WHERE t.etablissement_id = $1 AND t.eleve_id = $2 ORDER BY ({obj})::text",
+        "SELECT {obj} FROM {table} t WHERE t.etablissement_id = $1 AND t.eleve_id = $2{filtre} ORDER BY ({obj})::text",
         obj = objet_cle(t),
         table = t.table
     ))
