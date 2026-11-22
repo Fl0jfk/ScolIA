@@ -144,4 +144,7 @@ PostgreSQL 16 jetable (`scolia_test_i5c`, `ENT_ENV=test`), `--locked`, un seul `
 `MIGRATION_TAG` inchangé (3808) ; migration 313 modifiée (non versée).
 
 ### Tête et CI
-TÊTE_À_COMPLÉTER
+Tête de code poussée : `40264c98` (après la fusion d'`origin/ENT` `94c22c66` et le correctif `url` `f6bcda93`) ; PR n° 120 laissée en **brouillon**.
+CI : voir la ligne ci-dessous, complétée à la réception du verdict.
+
+CI_À_COMPLÉTER
