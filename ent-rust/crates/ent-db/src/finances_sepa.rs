@@ -1102,7 +1102,7 @@ impl PgEnt {
         if recu_le > aujourd_hui() {
             return Err(invalide("date de réception dans le futur"));
         }
-        let reference = opt_texte(&b.reference, 80);
+        let reference = opt_texte(&b.reference, 80)?;
         let mut tx = self.fin_tx(etab).await?;
         crate::finances::foyer_existe(&mut tx, etab, b.foyer_id).await?;
         verrou_foyer(&mut tx, etab, b.foyer_id).await?;

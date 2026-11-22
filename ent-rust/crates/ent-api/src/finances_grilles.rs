@@ -9,7 +9,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ent_types::finances_grilles::*;
 use serde::Deserialize;
@@ -75,11 +75,13 @@ pub fn routes() -> Router<AppState> {
             "/finances/familles-types/{id}/desactiver",
             post(desactiver_famille_type),
         )
+        .route("/finances/familles-types/{id}", delete(supprimer_famille_type))
         .route(
             "/finances/simulations",
             get(simulations).post(creer_simulation),
         )
         .route("/finances/simulations/comparaison", get(comparer))
+        .route("/finances/simulations/{id}", delete(supprimer_simulation))
         .route("/finances/simulations/{id}/calculer", post(calculer))
         .route("/finances/simulations/{id}/export", get(exporter))
         // État des contributions.
@@ -502,6 +504,30 @@ async fn desactiver_famille_type(
 ) -> Res<StatusCode> {
     st.ent
         .desactiver_famille_type_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn supprimer_famille_type(
+    State(st): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    st.ent
+        .supprimer_famille_type_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn supprimer_simulation(
+    State(st): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    st.ent
+        .supprimer_simulation_for_actor(s.etablissement_id, s.user_id, &s.role, id)
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)

@@ -38,6 +38,9 @@ use crate::outbox::Causalite;
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 
 const MONTANT_MAX: i64 = 100_000_000;
+/// Plafonds par établissement (F5) : familles types et simulations ; au-delà, supprimer d'abord.
+const MAX_FAMILLES_TYPES: i64 = 200;
+const MAX_SIMULATIONS: i64 = 200;
 
 // ---------------------------------------------------------------------------
 // Fonctions pures : catalogue
@@ -461,8 +464,9 @@ pub fn montant_apres_hausse(
         ModeHausse::Montant => i128::from(montant) + i128::from(valeur),
         ModeHausse::Pourcentage => {
             let delta = i128::from(montant) * i128::from(valeur);
-            // arrondi « half up » vers l'infini positif, en centimes
-            i128::from(montant) + (delta + 5_000).div_euclid(10_000)
+            // arrondi symétrique (demi éloigné de zéro) : une baisse de 0,5 centime s'arrondit comme une hausse
+            let abs = (delta.abs() + 5_000) / 10_000;
+            i128::from(montant) + if delta < 0 { -abs } else { abs }
         }
     };
     let brut = brut.max(0);
@@ -644,6 +648,73 @@ pub fn controler_grille(
     v
 }
 
+/// Tarif de la version ou de l'historique précédent (identité seulement), pour la continuité (règle 4).
+#[derive(Clone, Debug)]
+pub struct TarifPrecedent {
+    pub article_id: Uuid,
+    pub article_code: String,
+    pub niveau: Option<String>,
+    pub regime: Option<String>,
+}
+
+/// Rien ne disparaît en silence (D-069, règle 4) : un article tarifé par la version (ou l'historique) précédente
+/// et absent de la nouvelle, ou un niveau / régime qui n'a plus de tarif, **bloque** ; un article déjà facturé
+/// sur l'année sans aucun tarif dans la nouvelle version est **signalé**.
+pub fn controler_continuite(
+    precedents: &[TarifPrecedent],
+    tarifs: &[TarifGrilleDto],
+    facturees_sans_tarif: &[(Uuid, String)],
+) -> Vec<AnomalieGrilleDto> {
+    let mut v = Vec::new();
+    let mut articles_oublies = BTreeSet::new();
+    let mut signales = BTreeSet::new();
+    for p in precedents {
+        let tarifs_article: Vec<&TarifGrilleDto> =
+            tarifs.iter().filter(|t| t.article_id == p.article_id).collect();
+        if tarifs_article.is_empty() {
+            if articles_oublies.insert(p.article_id) {
+                v.push(AnomalieGrilleDto {
+                    code: "article_oublie".into(),
+                    message: format!(
+                        "{} : tarifé par la version précédente, absent de cette grille (rien ne disparaît en silence)",
+                        p.article_code
+                    ),
+                    article_id: Some(p.article_id),
+                    bloquante: true,
+                });
+            }
+            continue;
+        }
+        let couvert = tarifs_article.iter().any(|t| {
+            (t.niveau.is_none() || t.niveau == p.niveau) && (t.regime.is_none() || t.regime == p.regime)
+        });
+        if !couvert && signales.insert((p.article_id, p.niveau.clone(), p.regime.clone())) {
+            v.push(AnomalieGrilleDto {
+                code: "tarif_perdu".into(),
+                message: format!(
+                    "{} : plus aucun tarif pour niveau {} / régime {} (tarifé par la version précédente)",
+                    p.article_code,
+                    p.niveau.as_deref().unwrap_or("tous"),
+                    p.regime.as_deref().unwrap_or("tous")
+                ),
+                article_id: Some(p.article_id),
+                bloquante: true,
+            });
+        }
+    }
+    for (id, code) in facturees_sans_tarif {
+        if !articles_oublies.contains(id) {
+            v.push(AnomalieGrilleDto {
+                code: "article_facture_sans_tarif".into(),
+                message: format!("{code} : facturé sur cette année, mais sans tarif dans cette grille"),
+                article_id: Some(*id),
+                bloquante: false,
+            });
+        }
+    }
+    v
+}
+
 // ---------------------------------------------------------------------------
 // Fonctions pures : simulation
 // ---------------------------------------------------------------------------
@@ -655,6 +726,17 @@ pub struct ArticleSim {
     pub libelle: String,
     pub categorie: String,
     pub soumis_reductions: bool,
+}
+
+impl ArticleSim {
+    fn categorie_protegee(&self) -> bool {
+        categorie_bourse_ou_reduction(&self.categorie)
+    }
+}
+
+/// Bourse et réduction : une hausse générale en montant ne les touche jamais (F7).
+fn categorie_bourse_ou_reduction(categorie: &str) -> bool {
+    matches!(categorie, "bourse" | "reduction")
 }
 
 #[derive(Clone, Debug)]
@@ -694,13 +776,22 @@ fn regle_de(regles: &[RegleSim], article: Uuid) -> Option<&RegleSim> {
 pub fn appliquer_regles(
     tarifs: &[TarifSim],
     regles: &[RegleSim],
+    articles: &[ArticleSim],
 ) -> Result<Vec<TarifSim>, EntDbError> {
     tarifs
         .iter()
         .map(|t| {
             let mut n = t.clone();
             if let Some(r) = regle_de(regles, t.article_id) {
-                n.montant = montant_apres_hausse(t.montant, r.mode, r.valeur, r.arrondi)?;
+                // une hausse en montant générale n'atteint jamais une bourse ni une réduction (F7)
+                let epargne = r.article_id.is_none()
+                    && r.mode == ModeHausse::Montant
+                    && articles
+                        .iter()
+                        .any(|a| a.id == t.article_id && a.categorie_protegee());
+                if !epargne {
+                    n.montant = montant_apres_hausse(t.montant, r.mode, r.valeur, r.arrondi)?;
+                }
             }
             Ok(n)
         })
@@ -793,8 +884,10 @@ fn euros(centimes: i64) -> String {
 
 /// Protège une cellule CSV : séparateur, guillemets, retours, et formules (`=`, `+`, `-`, `@`).
 fn cellule_csv(s: &str) -> String {
-    let mut t = s.replace(['\r', '\n'], " ");
-    if t.starts_with(['=', '+', '-', '@']) {
+    // le contrôle porte sur le texte d'origine : tabulation et retour chariot en tête sont aussi neutralisés
+    let formule = s.starts_with(['=', '+', '-', '@', '\t', '\r']);
+    let mut t = s.replace(['\r', '\n', '\t'], " ");
+    if formule {
         t.insert(0, '\'');
     }
     if t.contains([';', '"']) {
@@ -817,6 +910,7 @@ struct VersionRow {
     remplace_id: Option<Uuid>,
     motif: Option<String>,
     effet_retroactif: bool,
+    cree_par: Option<Uuid>,
     propose_le: Option<DateTime<Utc>>,
     propose_par: Option<Uuid>,
     vote_le: Option<NaiveDate>,
@@ -855,7 +949,7 @@ impl VersionRow {
 
 const SELECT_VERSION: &str =
     "SELECT g.id, g.annee_scolaire, g.numero, g.libelle, g.statut, g.remplace_id, g.motif,
-        g.effet_retroactif, g.propose_le, g.propose_par, g.vote_le, g.vote_reference,
+        g.effet_retroactif, g.cree_par, g.propose_le, g.propose_par, g.vote_le, g.vote_reference,
         g.vote_document_id, g.en_vigueur_du, g.close_le, g.publiee_le,
         (SELECT count(*) FROM ent_fin_tarif t WHERE t.etablissement_id = g.etablissement_id
             AND t.grille_version_id = g.id AND t.actif) AS nb_tarifs,
@@ -992,6 +1086,7 @@ struct ArticleRow {
 impl ArticleRow {
     fn dto(self) -> ArticleQualifieDto {
         let qualifie = self.qualifie_le.is_some();
+        let a_valider = !qualifie && self.modele_code.is_some() && self.nature_legale.is_some();
         ArticleQualifieDto {
             proposition: (!qualifie).then(|| proposition_qualification(&self.categorie)),
             id: self.id,
@@ -1008,8 +1103,9 @@ impl ArticleRow {
             remboursable: self.remboursable,
             soumis_reductions: self.soumis_reductions,
             soumis_remise_ordre: self.soumis_remise_ordre,
-            modele_code: self.modele_code,
             qualifie,
+            a_valider,
+            modele_code: self.modele_code,
             qualifie_le: self.qualifie_le,
             nb_lignes: self.nb_lignes,
         }
@@ -1063,7 +1159,40 @@ async fn reglages_tx(conn: &mut PgConnection, etab: Uuid) -> Result<(bool, bool)
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    Ok(r.unwrap_or((false, true)))
+    // ligne absente : établissement créé après la 523, qualification exigée (M7)
+    Ok(r.unwrap_or((true, true)))
+}
+
+/// Alertes de réglage visibles de la direction : qualification non exigée (établissement antérieur à la 523,
+/// à activer avant la rentrée 2027) ; second regard désactivé (auteur et date).
+async fn alertes_reglages_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    exiger: bool,
+    second: bool,
+) -> Result<Vec<String>, EntDbError> {
+    let mut v = Vec::new();
+    if !exiger {
+        v.push(
+            "qualification des articles non exigée à l'émission : à activer avant la rentrée 2027".to_string(),
+        );
+    }
+    if !second {
+        let r: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
+            "SELECT second_regard_desactive_le FROM ent_fin_parametres WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        let quand = r
+            .and_then(|r| r.0)
+            .map_or_else(String::new, |d| format!(" depuis le {}", d.format("%d/%m/%Y")));
+        v.push(format!(
+            "second regard sur le vote des grilles désactivé{quand} : la direction vote seule"
+        ));
+    }
+    Ok(v)
 }
 
 // -- Points d'entrée utilisés par `finances.rs` (lecture seule) ---------------------------------------
@@ -1076,16 +1205,17 @@ pub(crate) async fn exiger_qualification_tx(
     Ok(reglages_tx(conn, etab).await?.0)
 }
 
-/// Nombre d'articles non qualifiés portés par les lignes d'une pièce.
+/// Nombre de lignes d'une pièce dont l'article n'est pas qualifié ; une ligne sans article compte comme
+/// non qualifiée (M7).
 pub(crate) async fn articles_non_qualifies_de_piece_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     facture: Uuid,
 ) -> Result<i64, EntDbError> {
     let (n,): (i64,) = sqlx::query_as(
-        "SELECT count(DISTINCT a.id) FROM ent_fac_ligne l
-           JOIN ent_fin_article a ON a.id = l.article_id AND a.etablissement_id = l.etablissement_id
-          WHERE l.etablissement_id = $1 AND l.facture_id = $2 AND a.qualifie_le IS NULL",
+        "SELECT count(*) FROM ent_fac_ligne l
+           LEFT JOIN ent_fin_article a ON a.id = l.article_id AND a.etablissement_id = l.etablissement_id
+          WHERE l.etablissement_id = $1 AND l.facture_id = $2 AND (l.article_id IS NULL OR a.qualifie_le IS NULL)",
     )
     .bind(etab)
     .bind(facture)
@@ -1151,7 +1281,8 @@ impl PgEnt {
         Ok(v)
     }
 
-    /// FAC-103 : crée un article **déjà qualifié** depuis un modèle (nature, TVA, unité, mode obligatoires).
+    /// FAC-103 : crée un article depuis un modèle (nature, TVA, unité, mode obligatoires) : **qualifié** d'emblée,
+    /// sauf un modèle taxable, « à valider » par l'expert-comptable (M7).
     pub async fn article_depuis_modele_for_actor(
         &self,
         etab: Uuid,
@@ -1165,18 +1296,18 @@ impl PgEnt {
             .into_iter()
             .find(|m| m.code == b.modele_code.trim())
             .ok_or(invalide("modèle d'article inconnu"))?;
-        let code = opt_texte(&b.code, 30).unwrap_or_else(|| m.code.clone());
+        let code = opt_texte(&b.code, 30)?.unwrap_or_else(|| m.code.clone());
         if !code
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         {
             return Err(invalide("code d'article : lettres, chiffres, _ et -"));
         }
-        let libelle = match opt_texte(&b.libelle, 120) {
+        let libelle = match opt_texte(&b.libelle, 120)? {
             Some(l) => l,
             None => m.libelle.clone(),
         };
-        let compte = opt_texte(&b.compte_produit, 20).unwrap_or_else(|| m.compte_produit.clone());
+        let compte = opt_texte(&b.compte_produit, 20)?.unwrap_or_else(|| m.compte_produit.clone());
         if !compte.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(invalide("compte de produit : lettres et chiffres"));
         }
@@ -1186,7 +1317,8 @@ impl PgEnt {
             "INSERT INTO ent_fin_article (id, etablissement_id, code, libelle, categorie, compte_produit, actif,
                     created_by, nature_legale, regime_tva, taux_tva_bps, unite, mode, remboursable,
                     soumis_reductions, soumis_remise_ordre, modele_code, qualifie_le, qualifie_par)
-             VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $7)",
+             VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                    CASE WHEN $17 THEN NULL ELSE now() END, CASE WHEN $17 THEN NULL ELSE $7 END)",
         )
         .bind(id)
         .bind(etab)
@@ -1204,6 +1336,8 @@ impl PgEnt {
         .bind(m.soumis_reductions)
         .bind(m.soumis_remise_ordre)
         .bind(&m.code)
+        // un modèle taxable reste « à valider » tant que l'expert-comptable ne l'a pas validé (M7)
+        .bind(m.regime_tva == "taxable")
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -1416,15 +1550,19 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let (exiger, second) = reglages_tx(&mut tx, etab).await?;
         let n = nb_non_qualifies_tx(&mut tx, etab).await?;
+        let alertes = alertes_reglages_tx(&mut tx, etab, exiger, second).await?;
         tx.commit().await.map_err(db)?;
         Ok(ReglagesGrillesDto {
             exiger_qualification_articles: exiger,
             grille_second_regard: second,
             articles_non_qualifies: n,
+            alertes,
         })
     }
 
     /// Règle l'exigence de qualification à l'émission et le second regard sur le vote (droit `parametrer`).
+    /// Désactiver le second regard exige **aussi** `voter`, est refusé tant qu'une grille est proposée, est
+    /// journalisé et reste signalé à la direction (D-069, règle 3).
     pub async fn definir_reglages_grilles_for_actor(
         &self,
         etab: Uuid,
@@ -1438,19 +1576,43 @@ impl PgEnt {
         let (exiger, second) = reglages_tx(&mut tx, etab).await?;
         let exiger2 = b.exiger_qualification_articles.unwrap_or(exiger);
         let second2 = b.grille_second_regard.unwrap_or(second);
+        let desactive = second && !second2;
+        if desactive {
+            self.fin_exiger(etab, actor, role, Action::FacturationVoter)
+                .await?;
+            let (proposee,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_fin_grille_version
+                                 WHERE etablissement_id = $1 AND statut = 'proposee')",
+            )
+            .bind(etab)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if proposee {
+                return Err(EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "une grille est proposée : le second regard ne se désactive pas pendant le vote",
+                ));
+            }
+        }
         sqlx::query(
             "INSERT INTO ent_fin_parametres (etablissement_id, exiger_qualification_articles, grille_second_regard,
-                    updated_by)
-             VALUES ($1, $2, $3, $4)
+                    second_regard_desactive_le, second_regard_desactive_par, updated_by)
+             VALUES ($1, $2, $3, CASE WHEN $3 THEN NULL ELSE now() END, CASE WHEN $3 THEN NULL ELSE $4 END, $4)
              ON CONFLICT (etablissement_id) DO UPDATE SET
                     exiger_qualification_articles = EXCLUDED.exiger_qualification_articles,
                     grille_second_regard = EXCLUDED.grille_second_regard,
+                    second_regard_desactive_le = CASE WHEN EXCLUDED.grille_second_regard THEN NULL
+                         WHEN $5 THEN now() ELSE ent_fin_parametres.second_regard_desactive_le END,
+                    second_regard_desactive_par = CASE WHEN EXCLUDED.grille_second_regard THEN NULL
+                         WHEN $5 THEN $4 ELSE ent_fin_parametres.second_regard_desactive_par END,
                     updated_by = EXCLUDED.updated_by, updated_at = now()",
         )
         .bind(etab)
         .bind(exiger2)
         .bind(second2)
         .bind(actor)
+        .bind(desactive)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1461,7 +1623,11 @@ impl PgEnt {
                 Some(actor),
                 role,
                 Chemin::Finances,
-                "grille.reglages",
+                if desactive {
+                    "grille.second_regard_desactive"
+                } else {
+                    "grille.reglages"
+                },
                 "parametres",
             )
             .detail(&format!(
@@ -1470,11 +1636,13 @@ impl PgEnt {
         )
         .await?;
         let n = nb_non_qualifies_tx(&mut tx, etab).await?;
+        let alertes = alertes_reglages_tx(&mut tx, etab, exiger2, second2).await?;
         tx.commit().await.map_err(db)?;
         Ok(ReglagesGrillesDto {
             exiger_qualification_articles: exiger2,
             grille_second_regard: second2,
             articles_non_qualifies: n,
+            alertes,
         })
     }
 
@@ -1562,7 +1730,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let libelle =
-            opt_texte(&b.libelle, 120).unwrap_or_else(|| format!("Grille {annee} v{numero}"));
+            opt_texte(&b.libelle, 120)?.unwrap_or_else(|| format!("Grille {annee} v{numero}"));
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_fin_grille_version (id, etablissement_id, annee_scolaire, numero, libelle, cree_par)
@@ -1667,6 +1835,7 @@ impl PgEnt {
         .bind(actor)
         .bind(version)
         .bind(b.tarif_par_defaut.unwrap_or(false))
+        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -1718,7 +1887,7 @@ impl PgEnt {
         article_actif_tx(&mut tx, etab, b.article_id).await?;
         let r = sqlx::query(
             "UPDATE ent_fin_tarif SET article_id = $4, niveau = $5, regime = $6, qf_min_centimes = $7,
-                    qf_max_centimes = $8, montant_annuel_centimes = $9, tarif_par_defaut = $10
+                    qf_max_centimes = $8, montant_annuel_centimes = $9, tarif_par_defaut = $10, modifie_par = $11
               WHERE etablissement_id = $1 AND grille_version_id = $2 AND id = $3",
         )
         .bind(etab)
@@ -1731,6 +1900,7 @@ impl PgEnt {
         .bind(b.qf_max_centimes)
         .bind(b.montant_annuel_centimes)
         .bind(b.tarif_par_defaut.unwrap_or(false))
+        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -1896,6 +2066,11 @@ impl PgEnt {
         for t in tarifs
             .iter()
             .filter(|t| b.article_id.is_none_or(|a| a == t.article_id))
+            .filter(|t| {
+                b.article_id.is_some()
+                    || b.mode != ModeHausse::Montant
+                    || !categorie_bourse_ou_reduction(&t.categorie)
+            })
         {
             let apres =
                 montant_apres_hausse(t.montant_annuel_centimes, b.mode, b.valeur, b.arrondi)?;
@@ -1915,13 +2090,14 @@ impl PgEnt {
             for l in &lignes {
                 if l.4 != l.5 {
                     sqlx::query(
-                        "UPDATE ent_fin_tarif SET montant_annuel_centimes = $4
+                        "UPDATE ent_fin_tarif SET montant_annuel_centimes = $4, modifie_par = $5
                           WHERE etablissement_id = $1 AND grille_version_id = $2 AND id = $3",
                     )
                     .bind(etab)
                     .bind(version)
                     .bind(l.0)
                     .bind(l.5)
+                    .bind(actor)
                     .execute(&mut *tx)
                     .await
                     .map_err(db)?;
@@ -2154,6 +2330,25 @@ impl PgEnt {
     ) -> Result<GrilleVersionDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationVoter)
             .await?;
+        let jour = self.jour_etablissement(etab).await?;
+        self.voter_grille_au_jour(etab, actor, role, version, b, jour)
+            .await
+    }
+
+    /// Vote à un jour de référence donné (les tests fixent le jour ; `voter_grille_for_actor` lit celui de
+    /// l'établissement). Règles 2, 3 et 5 de D-069 : droit avant existence, vote jamais daté dans le futur,
+    /// second regard = une **autre personne** que l'auteur réel (créateur, proposant, auteurs de tarifs).
+    pub(crate) async fn voter_grille_au_jour(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        version: Uuid,
+        b: &VoteGrilleBody,
+        jour: NaiveDate,
+    ) -> Result<GrilleVersionDto, EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationVoter)
+            .await?;
         let reference = texte(
             &b.reference,
             200,
@@ -2161,6 +2356,11 @@ impl PgEnt {
         )?;
         if !(2000..=2100).contains(&b.vote_le.year()) {
             return Err(invalide("date de vote invraisemblable"));
+        }
+        if b.vote_le > jour {
+            return Err(invalide(
+                "date de vote dans le futur : la délibération a eu lieu au plus tard aujourd'hui",
+            ));
         }
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
@@ -2171,9 +2371,9 @@ impl PgEnt {
             ));
         }
         let (_, second) = reglages_tx(&mut tx, etab).await?;
-        if second && v.propose_par == Some(actor) {
+        if second && auteurs_grille_tx(&mut tx, etab, &v).await?.contains(&actor) {
             return Err(refus(
-                "second regard : celui qui a proposé la grille ne l'enregistre pas comme votée",
+                "second regard : l'auteur de la grille (créateur, proposant ou auteur d'un tarif) ne l'enregistre pas comme votée",
             ));
         }
         if let Some(doc) = b.document_id {
@@ -2238,7 +2438,11 @@ impl PgEnt {
         Ok(v.dto())
     }
 
-    /// FAC-127 : met une grille votée en vigueur à une date ; la version précédente de l'année est close.
+    /// FAC-127 : met une grille votée en vigueur à une date. **Une grille ne tarifie qu'à partir de sa date**
+    /// (règle 2) : la version appliquée jusque-là reste applicable jusqu'à la veille, puis est close ; toute autre
+    /// version votée de l'année est « supplantée » et ne peut plus être mise en vigueur (M5). Date : vote ≤ date,
+    /// dans l'année scolaire visée, jamais avant la date d'une version déjà appliquée. Les contrôles de
+    /// continuité (règle 4) sont rejoués avant la mise en vigueur.
     pub async fn mettre_en_vigueur_for_actor(
         &self,
         etab: Uuid,
@@ -2257,34 +2461,69 @@ impl PgEnt {
                 "seule une grille votée peut être mise en vigueur",
             ));
         }
-        if !(2000..=2100).contains(&b.du.year()) {
-            return Err(invalide("date d'entrée en vigueur invraisemblable"));
+        let (premier, dernier) = bornes_annee(&v.annee_scolaire)?;
+        if b.du < premier || b.du > dernier {
+            return Err(invalide(
+                "entrée en vigueur hors de l'année scolaire visée par la grille",
+            ));
         }
-        let ancienne: Option<(Uuid, Option<NaiveDate>)> = sqlx::query_as(
-            "SELECT id, en_vigueur_du FROM ent_fin_grille_version
-              WHERE etablissement_id = $1 AND annee_scolaire = $2 AND statut = 'en_vigueur' FOR UPDATE",
-        )
-        .bind(etab)
-        .bind(&v.annee_scolaire)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        if let Some((ancienne_id, du_ancienne)) = ancienne {
-            if du_ancienne.is_some_and(|d| b.du < d) {
-                return Err(invalide(
-                    "entrée en vigueur antérieure à celle de la grille actuelle",
-                ));
-            }
-            sqlx::query(
-                "UPDATE ent_fin_grille_version SET statut = 'close', close_le = now()
-                  WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(ancienne_id)
+        if v.vote_le.is_some_and(|vote| b.du < vote) {
+            return Err(invalide("entrée en vigueur antérieure au vote de la grille"));
+        }
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("fin:grille:{etab}:{}", v.annee_scolaire))
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        let c = controles_tx(&mut tx, etab, version).await?;
+        if !c.proposable {
+            return Err(EntDbError::Refus(
+                RefusMetier::Conflit,
+                "la grille perdrait des tarifs de la version précédente : voir les contrôles",
+            ));
         }
+        // versions déjà appliquées (en vigueur ou closes) : la plus récente borne la date
+        let appliquees: Vec<(Uuid, String, NaiveDate)> = sqlx::query_as(
+            "SELECT id, statut, en_vigueur_du FROM ent_fin_grille_version
+              WHERE etablissement_id = $1 AND annee_scolaire = $2 AND id <> $3
+                AND statut IN ('en_vigueur', 'close') AND en_vigueur_du IS NOT NULL
+              ORDER BY en_vigueur_du DESC, numero DESC FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(&v.annee_scolaire)
+        .bind(version)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        if appliquees.first().is_some_and(|a| b.du < a.2) {
+            return Err(invalide(
+                "entrée en vigueur antérieure à celle d'une version déjà appliquée",
+            ));
+        }
+        for (id, statut, _) in &appliquees {
+            if statut == "en_vigueur" {
+                sqlx::query(
+                    "UPDATE ent_fin_grille_version SET statut = 'close', close_le = now()
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+        }
+        let supplantees: Vec<(Uuid,)> = sqlx::query_as(
+            "UPDATE ent_fin_grille_version SET statut = 'supplantee', close_le = now()
+              WHERE etablissement_id = $1 AND annee_scolaire = $2 AND id <> $3 AND statut = 'votee'
+             RETURNING id",
+        )
+        .bind(etab)
+        .bind(&v.annee_scolaire)
+        .bind(version)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
         sqlx::query(
             "UPDATE ent_fin_grille_version SET statut = 'en_vigueur', en_vigueur_du = $3, en_vigueur_par = $4
               WHERE etablissement_id = $1 AND id = $2",
@@ -2308,8 +2547,15 @@ impl PgEnt {
             )
             .objet(version)
             .detail(&format!(
-                "grille {} v{} en vigueur au {}",
-                v.annee_scolaire, v.numero, b.du
+                "grille {} v{} en vigueur au {}{}",
+                v.annee_scolaire,
+                v.numero,
+                b.du,
+                if supplantees.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} autre(s) version(s) votée(s) supplantée(s))", supplantees.len())
+                }
             )),
         )
         .await?;
@@ -2564,7 +2810,7 @@ impl PgEnt {
         if b.enfants.is_empty() || b.enfants.len() > 10 {
             return Err(invalide("une famille type a de 1 à 10 enfants"));
         }
-        let tranche = opt_texte(&b.tranche_code, 8);
+        let tranche = opt_texte(&b.tranche_code, 8)?;
         for e in &b.enfants {
             if !REGIMES.contains(&e.regime.as_str()) {
                 return Err(invalide("régime inconnu (externe, demi_pension, interne)"));
@@ -2574,6 +2820,19 @@ impl PgEnt {
             }
         }
         let mut tx = self.fin_tx(etab).await?;
+        let (nb,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_fin_famille_type WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if nb >= MAX_FAMILLES_TYPES {
+            return Err(EntDbError::Refus(
+                RefusMetier::Conflit,
+                "plafond de familles types atteint : en supprimer avant d'en créer",
+            ));
+        }
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_fin_famille_type (id, etablissement_id, libelle, tranche_code, created_by)
@@ -2672,6 +2931,108 @@ impl PgEnt {
         Ok(())
     }
 
+    /// F5 : supprime une famille type (fictive, sans donnée personnelle) et ses enfants ; journalisé.
+    pub async fn supprimer_famille_type_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+    ) -> Result<(), EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
+            .await?;
+        let mut tx = self.fin_tx(etab).await?;
+        sqlx::query("DELETE FROM ent_fin_famille_type_enfant WHERE etablissement_id = $1 AND famille_type_id = $2")
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        let r = sqlx::query("DELETE FROM ent_fin_famille_type WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        if r.rows_affected() == 0 {
+            return Err(introuvable());
+        }
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(
+                etab,
+                Some(actor),
+                role,
+                Chemin::Finances,
+                "simulation.famille_type_supprimer",
+                "famille_type",
+            )
+            .objet(id),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(())
+    }
+
+    /// F5 : supprime une simulation (règles, effectifs et historique de ses calculs compris) ; journalisé.
+    pub async fn supprimer_simulation_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+    ) -> Result<(), EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
+            .await?;
+        let mut tx = self.fin_tx(etab).await?;
+        let (existe,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_fin_simulation WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if !existe {
+            return Err(introuvable());
+        }
+        for t in [
+            "ent_fin_simulation_calcul",
+            "ent_fin_simulation_regle",
+            "ent_fin_simulation_effectif",
+        ] {
+            sqlx::query(&format!(
+                "DELETE FROM {t} WHERE etablissement_id = $1 AND simulation_id = $2"
+            ))
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+        sqlx::query("DELETE FROM ent_fin_simulation WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(
+                etab,
+                Some(actor),
+                role,
+                Chemin::Finances,
+                "simulation.supprimer",
+                "simulation",
+            )
+            .objet(id),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(())
+    }
+
     /// FAC-121 : crée un scénario (règles de hausse et effectifs prévus), le calcule et fige le résultat.
     pub async fn creer_simulation_for_actor(
         &self,
@@ -2710,6 +3071,18 @@ impl PgEnt {
             }
         }
         let mut tx = self.fin_tx(etab).await?;
+        let (nb,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM ent_fin_simulation WHERE etablissement_id = $1")
+                .bind(etab)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        if nb >= MAX_SIMULATIONS {
+            return Err(EntDbError::Refus(
+                RefusMetier::Conflit,
+                "plafond de simulations atteint : en supprimer avant d'en créer",
+            ));
+        }
         let v = version_tx(&mut tx, etab, b.base_version_id, false).await?;
         if v.statut == "abandonnee" || v.annee_scolaire != annee {
             return Err(invalide(
@@ -2774,7 +3147,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        let res = calculer_simulation_tx(&mut tx, etab, id, true).await?;
+        let res = calculer_simulation_tx(&mut tx, etab, id, Some(actor)).await?;
         journaliser_tx(
             &mut tx,
             &Acte::new(
@@ -2853,7 +3226,7 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
-        let res = calculer_simulation_tx(&mut tx, etab, id, true).await?;
+        let res = calculer_simulation_tx(&mut tx, etab, id, Some(actor)).await?;
         journaliser_tx(
             &mut tx,
             &Acte::new(
@@ -2883,8 +3256,8 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
-        let ra = calculer_simulation_tx(&mut tx, etab, a, false).await?;
-        let rb = calculer_simulation_tx(&mut tx, etab, b, false).await?;
+        let ra = calculer_simulation_tx(&mut tx, etab, a, None).await?;
+        let rb = calculer_simulation_tx(&mut tx, etab, b, None).await?;
         tx.commit().await.map_err(db)?;
         let mut familles = Vec::new();
         for fa in &ra.familles {
@@ -2921,7 +3294,7 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
-        let res = calculer_simulation_tx(&mut tx, etab, id, false).await?;
+        let res = calculer_simulation_tx(&mut tx, etab, id, None).await?;
         journaliser_tx(
             &mut tx,
             &Acte::new(
@@ -3057,6 +3430,42 @@ impl PgEnt {
 // Aides aux commandes
 // ---------------------------------------------------------------------------
 
+/// Premier et dernier jour de l'année scolaire « AAAA-AAAA » (1er septembre → 31 août).
+fn bornes_annee(annee: &str) -> Result<(NaiveDate, NaiveDate), EntDbError> {
+    let debut: i32 = annee
+        .get(..4)
+        .and_then(|a| a.parse().ok())
+        .ok_or(invalide("année scolaire invalide"))?;
+    match (
+        NaiveDate::from_ymd_opt(debut, 9, 1),
+        NaiveDate::from_ymd_opt(debut + 1, 8, 31),
+    ) {
+        (Some(a), Some(b)) => Ok((a, b)),
+        _ => Err(invalide("année scolaire invalide")),
+    }
+}
+
+/// Auteurs réels d'une grille : créateur, proposant, auteurs et modificateurs des tarifs (règle 3).
+async fn auteurs_grille_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    v: &VersionRow,
+) -> Result<BTreeSet<Uuid>, EntDbError> {
+    let rows: Vec<(Option<Uuid>,)> = sqlx::query_as(
+        "SELECT created_by FROM ent_fin_tarif WHERE etablissement_id = $1 AND grille_version_id = $2
+         UNION SELECT modifie_par FROM ent_fin_tarif WHERE etablissement_id = $1 AND grille_version_id = $2",
+    )
+    .bind(etab)
+    .bind(v.id)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut set: BTreeSet<Uuid> = rows.into_iter().filter_map(|r| r.0).collect();
+    set.extend(v.cree_par);
+    set.extend(v.propose_par);
+    Ok(set)
+}
+
 fn exiger_brouillon(v: &VersionRow) -> Result<(), EntDbError> {
     if v.statut == "brouillon" {
         Ok(())
@@ -3069,7 +3478,7 @@ fn exiger_brouillon(v: &VersionRow) -> Result<(), EntDbError> {
 }
 
 fn valider_tarif(b: &TarifGrilleBody) -> Result<(Option<String>, Option<String>), EntDbError> {
-    let regime = opt_texte(&b.regime, 20);
+    let regime = opt_texte(&b.regime, 20)?;
     if regime.as_deref().is_some_and(|r| !REGIMES.contains(&r)) {
         return Err(invalide("régime inconnu (externe, demi_pension, interne)"));
     }
@@ -3086,7 +3495,7 @@ fn valider_tarif(b: &TarifGrilleBody) -> Result<(Option<String>, Option<String>)
             "le tarif par défaut n'a pas de borne haute (plein tarif)",
         ));
     }
-    Ok((opt_texte(&b.niveau, 20), regime))
+    Ok((opt_texte(&b.niveau, 20)?, regime))
 }
 
 async fn article_actif_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<(), EntDbError> {
@@ -3163,7 +3572,66 @@ async fn controles_tx(
     .await
     .map_err(db)?;
     let non_qualifies: BTreeSet<Uuid> = nq.into_iter().map(|r| r.0).collect();
-    let anomalies = controler_grille(&tarifs, &tranches, &non_qualifies);
+    let mut anomalies = controler_grille(&tarifs, &tranches, &non_qualifies);
+    // continuité avec la version précédente de l'année, ou à défaut avec l'historique (règle 4)
+    let (annee,): (String,) = sqlx::query_as(
+        "SELECT annee_scolaire FROM ent_fin_grille_version WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(version)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    let precedente: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM ent_fin_grille_version
+          WHERE etablissement_id = $1 AND annee_scolaire = $2 AND id <> $3
+            AND statut IN ('en_vigueur', 'close') AND en_vigueur_du IS NOT NULL
+          ORDER BY en_vigueur_du DESC, numero DESC LIMIT 1",
+    )
+    .bind(etab)
+    .bind(&annee)
+    .bind(version)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT t.article_id, a.code, t.niveau, t.regime FROM ent_fin_tarif t
+           JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
+          WHERE t.etablissement_id = $1 AND t.actif AND a.actif
+            AND CASE WHEN $3::UUID IS NULL THEN t.annee_scolaire = $2 AND t.grille_version_id IS NULL
+                     ELSE t.grille_version_id = $3 END",
+    )
+    .bind(etab)
+    .bind(&annee)
+    .bind(precedente.map(|p| p.0))
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let precedents: Vec<TarifPrecedent> = rows
+        .into_iter()
+        .map(|r| TarifPrecedent {
+            article_id: r.0,
+            article_code: r.1,
+            niveau: r.2,
+            regime: r.3,
+        })
+        .collect();
+    let facturees: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT DISTINCT a.id, a.code FROM ent_fac_ligne l
+           JOIN ent_fin_article a ON a.id = l.article_id AND a.etablissement_id = l.etablissement_id
+          WHERE l.etablissement_id = $1 AND l.source_cle LIKE $2 AND a.actif
+            AND NOT EXISTS (SELECT 1 FROM ent_fin_tarif t WHERE t.etablissement_id = l.etablissement_id
+                              AND t.grille_version_id = $3 AND t.article_id = a.id AND t.actif)",
+    )
+    .bind(etab)
+    .bind(format!("annuel:{annee}%"))
+    .bind(version)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    if !tarifs.is_empty() {
+        anomalies.extend(controler_continuite(&precedents, &tarifs, &facturees));
+    }
     let proposable = !anomalies.iter().any(|a| a.bloquante);
     Ok(ControlesGrilleDto {
         anomalies,
@@ -3324,7 +3792,7 @@ async fn calculer_simulation_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     id: Uuid,
-    figer: bool,
+    figer_par: Option<Uuid>,
 ) -> Result<ResultatSimulationDto, EntDbError> {
     let (annee, libelle, base_version): (String, String, Uuid) = sqlx::query_as(
         "SELECT annee_scolaire, libelle, base_version_id FROM ent_fin_simulation
@@ -3400,7 +3868,7 @@ async fn calculer_simulation_tx(
         (prevus, "prevu")
     };
     let (articles, base, tranches) = donnees_grille_tx(conn, etab, base_version).await?;
-    let simule = appliquer_regles(&base, &regles)?;
+    let simule = appliquer_regles(&base, &regles, &articles)?;
     let (produit_base, par_base) = produit_attendu(&articles, &base, &effectifs);
     let (produit_simule, par_simule) = produit_attendu(&articles, &simule, &effectifs);
     let familles = familles_tx(conn, etab, false).await?;
@@ -3416,7 +3884,22 @@ async fn calculer_simulation_tx(
             produit_simule_centimes: par_simule.get(&a.id).copied().unwrap_or(0),
         })
         .collect();
-    let (calcule_le,): (DateTime<Utc>,) = if figer {
+    let (calcule_le,): (DateTime<Utc>,) = if let Some(acteur) = figer_par {
+        // F4 : le résultat précédent n'est jamais écrasé en silence : chaque calcul s'ajoute à l'historique
+        sqlx::query(
+            "INSERT INTO ent_fin_simulation_calcul (id, etablissement_id, simulation_id, produit_base_centimes,
+                    produit_simule_centimes, calcule_par)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(id)
+        .bind(produit_base)
+        .bind(produit_simule)
+        .bind(acteur)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
         sqlx::query_as(
             "UPDATE ent_fin_simulation SET produit_base_centimes = $3, produit_simule_centimes = $4, calcule_le = now()
               WHERE etablissement_id = $1 AND id = $2 RETURNING calcule_le",
@@ -3753,7 +4236,7 @@ mod tests {
             valeur: 300,
             arrondi: Arrondi::Euro,
         }];
-        let hausse = appliquer_regles(&tarifs, &regles).unwrap();
+        let hausse = appliquer_regles(&tarifs, &regles, &articles).unwrap();
         let (apres, _) = produit_attendu(&articles, &hausse, &eff);
         assert_eq!(apres, 10 * 123_600 + 4 * 103_000 + 200_000);
         // famille type : 2 enfants, fratrie -10 % à partir du 2e sur la scolarité
@@ -3778,5 +4261,105 @@ mod tests {
         assert_eq!(cellule_csv("ligne\nsuivante"), "ligne suivante");
         assert_eq!(euros(123_456), "1234,56");
         assert_eq!(euros(-5), "-0,05");
+    }
+
+    #[test]
+    fn f6_csv_neutralise_tabulation_et_retour_chariot_en_tete() {
+        assert_eq!(cellule_csv("=1+1"), "'=1+1");
+        assert!(cellule_csv("\t=1+1").starts_with('\''));
+        assert!(cellule_csv("\r=1+1").starts_with('\''));
+        assert!(cellule_csv("@SUM(A1)").starts_with('\''));
+        assert!(!cellule_csv("a\tb").contains('\t'));
+        assert_eq!(cellule_csv("simple"), "simple");
+    }
+
+    #[test]
+    fn f7_arrondi_symetrique_des_baisses() {
+        let p = |m, v| montant_apres_hausse(m, ModeHausse::Pourcentage, v, Arrondi::Aucun).unwrap();
+        // demi éloigné de zéro des deux côtés : 0,5 centime → ±1
+        assert_eq!(p(100, 50), 101);
+        assert_eq!(p(100, -50), 99);
+        assert_eq!(p(1_000, 50), 1_005);
+        assert_eq!(p(1_000, -50), 995);
+        // sous la demi-unité : aucun changement, des deux côtés
+        assert_eq!(p(150, 33), 150);
+        assert_eq!(p(150, -33), 150);
+    }
+
+    #[test]
+    fn f7_hausse_generale_en_montant_epargne_bourses_et_reductions() {
+        let art = |code: &str, cat: &str| ArticleSim {
+            id: Uuid::new_v4(),
+            code: code.into(),
+            libelle: code.into(),
+            categorie: cat.into(),
+            soumis_reductions: false,
+        };
+        let (a, b) = (art("CONTRIB", "scolarite"), art("BOURSE", "bourse"));
+        let t = |art: &ArticleSim, m| TarifSim {
+            id: Uuid::new_v4(),
+            article_id: art.id,
+            niveau: None,
+            regime: None,
+            qf_min: None,
+            qf_max: None,
+            montant: m,
+        };
+        let tarifs = vec![t(&a, 100_000), t(&b, 20_000)];
+        let articles = vec![a.clone(), b.clone()];
+        let generale = RegleSim {
+            article_id: None,
+            mode: ModeHausse::Montant,
+            valeur: 5_000,
+            arrondi: Arrondi::Aucun,
+        };
+        let r = appliquer_regles(&tarifs, std::slice::from_ref(&generale), &articles).unwrap();
+        assert_eq!((r[0].montant, r[1].montant), (105_000, 20_000));
+        // avec un article explicite, la règle s'applique
+        let explicite = RegleSim {
+            article_id: Some(b.id),
+            ..generale
+        };
+        let r = appliquer_regles(&tarifs, &[explicite], &articles).unwrap();
+        assert_eq!(r[1].montant, 25_000);
+    }
+
+    #[test]
+    fn m6_continuite_article_oublie_et_tarif_perdu() {
+        let art = Uuid::new_v4();
+        let autre = Uuid::new_v4();
+        let prec = |a: Uuid, n: Option<&str>| TarifPrecedent {
+            article_id: a,
+            article_code: "X".into(),
+            niveau: n.map(Into::into),
+            regime: None,
+        };
+        let tarif = |a: Uuid, n: Option<&str>| TarifGrilleDto {
+            id: Uuid::new_v4(),
+            grille_version_id: Uuid::new_v4(),
+            annee_scolaire: "2030-2031".into(),
+            article_id: a,
+            article_code: "X".into(),
+            article_libelle: "X".into(),
+            categorie: "scolarite".into(),
+            niveau: n.map(Into::into),
+            regime: None,
+            qf_min_centimes: None,
+            qf_max_centimes: None,
+            montant_annuel_centimes: 1,
+            tarif_par_defaut: false,
+        };
+        // article oublié : bloquant
+        let v = controler_continuite(&[prec(art, None)], &[tarif(autre, None)], &[]);
+        assert!(v.iter().any(|a| a.code == "article_oublie" && a.bloquante));
+        // niveau qui n'a plus de tarif : bloquant
+        let v = controler_continuite(&[prec(art, Some("6EME"))], &[tarif(art, Some("5EME"))], &[]);
+        assert!(v.iter().any(|a| a.code == "tarif_perdu" && a.bloquante));
+        // un tarif général couvre
+        let v = controler_continuite(&[prec(art, Some("6EME"))], &[tarif(art, None)], &[]);
+        assert!(v.is_empty());
+        // article facturé sans tarif : signalé sans bloquer
+        let v = controler_continuite(&[], &[tarif(art, None)], &[(autre, "Z".into())]);
+        assert!(v.iter().any(|a| a.code == "article_facture_sans_tarif" && !a.bloquante));
     }
 }

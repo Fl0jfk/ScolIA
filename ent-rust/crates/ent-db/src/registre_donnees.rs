@@ -739,6 +739,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_fin_relance", "finances", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("les relances sont proposées puis décidées par un humain : aucun envoi automatique")),
     t("ent_fin_reprise_rapport", "finances", Portee::Etablissement),
     t("ent_fin_simulation", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_calcul", "finances", Portee::Etablissement),
     t("ent_fin_simulation_effectif", "finances", Portee::Etablissement),
     t("ent_fin_simulation_regle", "finances", Portee::Etablissement),
     t("ent_fin_tache", "finances", Portee::Etablissement).perso().export(),

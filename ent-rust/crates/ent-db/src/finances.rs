@@ -99,11 +99,13 @@ pub(crate) fn texte(s: &str, max: usize, msg: &'static str) -> Result<String, En
     Ok(t.to_string())
 }
 
-pub(crate) fn opt_texte(s: &Option<String>, max: usize) -> Option<String> {
-    s.as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(|t| t.chars().take(max).collect())
+/// Texte facultatif : vide → `None` ; trop long → 422 (jamais de troncature silencieuse, D-069).
+pub(crate) fn opt_texte(s: &Option<String>, max: usize) -> Result<Option<String>, EntDbError> {
+    match s.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        None => Ok(None),
+        Some(t) if t.chars().count() > max => Err(invalide("texte trop long")),
+        Some(t) => Ok(Some(t.to_string())),
+    }
 }
 
 /// Publication dans la transaction du fait (outbox S2-0), **sans transformation** : helper partagé avec
@@ -1023,11 +1025,44 @@ async fn restant_prise(
     Ok(plafond.checked_sub(facture.max(0)).unwrap_or(0).max(0))
 }
 
+/// Condition SQL « ce tarif s'applique au jour `{jour}` » (M1, règle 2) : une grille ne tarifie qu'à partir de son
+/// `en_vigueur_du` ; la version précédente reste applicable jusqu'à la veille ; avant toute version, seuls les
+/// tarifs historiques de l'année comptent (jamais un brouillon, une grille proposée, votée ou supplantée).
+/// L'alias de la table des tarifs est `t`.
+pub(crate) fn sql_tarif_applicable(jour: &str) -> String {
+    format!(
+        "(CASE WHEN t.grille_version_id IS NULL THEN NOT EXISTS (
+                  SELECT 1 FROM ent_fin_grille_version v WHERE v.etablissement_id = t.etablissement_id
+                     AND v.annee_scolaire = t.annee_scolaire AND v.statut IN ('en_vigueur', 'close')
+                     AND v.en_vigueur_du <= {jour})
+              ELSE t.grille_version_id = (
+                  SELECT v.id FROM ent_fin_grille_version v WHERE v.etablissement_id = t.etablissement_id
+                     AND v.annee_scolaire = t.annee_scolaire AND v.statut IN ('en_vigueur', 'close')
+                     AND v.en_vigueur_du <= {jour}
+                   ORDER BY v.en_vigueur_du DESC, v.numero DESC LIMIT 1)
+         END)"
+    )
+}
+
+/// Jour courant de l'établissement (son fuseau), pour les lectures « applicable aujourd'hui ».
+pub(crate) async fn jour_de_l_etablissement(
+    conn: &mut PgConnection,
+    etab: Uuid,
+) -> Result<NaiveDate, EntDbError> {
+    let (j,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
+        .bind(etab)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(j)
+}
+
 /// Calcule les lignes annuelles d'un élève (sans écrire).
 ///
 /// * `depuis` : date d'entrée (prorata au mois, mois commencé dû) ;
 /// * `categories` : restreint aux catégories citées (changement de régime) ;
-/// * `prefixe` : préfixe des clés de source (`annuel:<année>` ou `regime:<événement>`).
+/// * `prefixe` : préfixe des clés de source (`annuel:<année>` ou `regime:<événement>`) ;
+/// * `jour` : jour de référence (celui de l'établissement) : seule la grille **applicable ce jour-là** tarife.
 ///
 /// `Ok(Err(motif))` : élève non facturable (anomalie à afficher, rien d'écrit).
 pub(crate) async fn lignes_annuelles(
@@ -1039,6 +1074,7 @@ pub(crate) async fn lignes_annuelles(
     regime_force: Option<&str>,
     categories: Option<&[&str]>,
     prefixe: &str,
+    jour: NaiveDate,
 ) -> Result<Result<Vec<LigneAFacturer>, String>, EntDbError> {
     let p = params_tx(conn, etab).await?;
     let Some(cal) = p.calendrier(annee) else {
@@ -1063,22 +1099,19 @@ pub(crate) async fn lignes_annuelles(
         cal.dernier_jour(),
     );
     let nom = format!("{} {}", eleve.prenom, eleve.nom);
-    let candidats: Vec<TarifCandidat> = sqlx::query_as::<_, TarifRow>(
+    let sql_candidats = format!(
         "SELECT t.id, t.article_id, t.niveau, t.regime, t.qf_min_centimes, t.qf_max_centimes,
                 t.montant_annuel_centimes
            FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
-           LEFT JOIN ent_fin_grille_version g ON g.etablissement_id = t.etablissement_id AND g.id = t.grille_version_id
           WHERE t.etablissement_id = $1 AND t.annee_scolaire = $2 AND t.actif AND a.actif
-            -- F3 (R-F10) : une année qui a une grille en vigueur ne facture que cette version ; sinon seuls les
-            -- tarifs historiques (avant les versions) comptent, jamais un brouillon ni une grille proposée.
-            AND ((t.grille_version_id IS NULL AND NOT EXISTS (
-                      SELECT 1 FROM ent_fin_grille_version v WHERE v.etablissement_id = t.etablissement_id
-                         AND v.annee_scolaire = t.annee_scolaire AND v.statut = 'en_vigueur'))
-                 OR g.statut = 'en_vigueur')",
-    )
+            AND {}",
+        sql_tarif_applicable("$3")
+    );
+    let candidats: Vec<TarifCandidat> = sqlx::query_as::<_, TarifRow>(&sql_candidats)
     .bind(etab)
     .bind(annee)
+    .bind(jour)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?
@@ -1416,9 +1449,24 @@ pub(crate) async fn facturer_annee_eleve(
     actor: Option<Uuid>,
     causalite: Causalite,
 ) -> Result<Result<ResultatInsertion, String>, EntDbError> {
+    let jour = jour_de_l_etablissement(conn, etab).await?;
+    facturer_annee_eleve_au(conn, etab, annee, eleve_id, depuis, actor, causalite, jour).await
+}
+
+/// Même génération à un jour de référence donné (les tests fixent le jour, jamais l'horloge réelle).
+pub(crate) async fn facturer_annee_eleve_au(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    annee: &str,
+    eleve_id: Uuid,
+    depuis: Option<NaiveDate>,
+    actor: Option<Uuid>,
+    causalite: Causalite,
+    jour: NaiveDate,
+) -> Result<Result<ResultatInsertion, String>, EntDbError> {
     let prefixe = format!("annuel:{annee}");
     let lignes =
-        match lignes_annuelles(conn, etab, annee, eleve_id, depuis, None, None, &prefixe).await? {
+        match lignes_annuelles(conn, etab, annee, eleve_id, depuis, None, None, &prefixe, jour).await? {
             Ok(l) => l,
             Err(motif) => return Ok(Err(motif)),
         };
@@ -1571,6 +1619,7 @@ pub(crate) async fn facturer_changement_regime(
     }
     if !gagnees.is_empty() {
         let suivant = calcul::fin_de_mois(date.year(), date.month()) + Duration::days(1);
+        let jour = jour_de_l_etablissement(conn, etab).await?;
         if let Ok(lignes) = lignes_annuelles(
             conn,
             etab,
@@ -1580,6 +1629,7 @@ pub(crate) async fn facturer_changement_regime(
             Some(&nouveau),
             Some(&gagnees),
             &format!("regime:{evenement}"),
+            jour,
         )
         .await?
         {
@@ -2043,7 +2093,7 @@ impl PgEnt {
             return Err(invalide("seuils hors bornes"));
         }
         if b.crediteur_nom.is_some() {
-            p.crediteur_nom = opt_texte(&b.crediteur_nom, 70);
+            p.crediteur_nom = opt_texte(&b.crediteur_nom, 70)?;
         }
         if let Some(iban) = b
             .crediteur_iban
@@ -2057,10 +2107,10 @@ impl PgEnt {
             );
         }
         if b.crediteur_bic.is_some() {
-            p.crediteur_bic = opt_texte(&b.crediteur_bic, 11).map(|s| s.to_ascii_uppercase());
+            p.crediteur_bic = opt_texte(&b.crediteur_bic, 11)?.map(|s| s.to_ascii_uppercase());
         }
         if b.crediteur_ics.is_some() {
-            p.crediteur_ics = opt_texte(&b.crediteur_ics, 35).map(|s| s.to_ascii_uppercase());
+            p.crediteur_ics = opt_texte(&b.crediteur_ics, 35)?.map(|s| s.to_ascii_uppercase());
         }
         // F0 (FD-11) : changer le compte crédité est un geste de niveau direction. Un
         // autre profil financier ne peut pas rediriger les prélèvements des familles.
@@ -2085,7 +2135,7 @@ impl PgEnt {
             (&b.journal_ventes, &mut p.journal_ventes),
             (&b.journal_banque, &mut p.journal_banque),
         ] {
-            if let Some(v) = opt_texte(src, 20) {
+            if let Some(v) = opt_texte(src, 20)? {
                 if !v.chars().all(|c| c.is_ascii_alphanumeric()) {
                     return Err(invalide(
                         "compte ou journal : lettres et chiffres seulement",
@@ -2304,7 +2354,7 @@ impl PgEnt {
         if !CATEGORIES.contains(&b.categorie.as_str()) {
             return Err(invalide("catégorie inconnue"));
         }
-        let compte = opt_texte(&b.compte_produit, 20).unwrap_or_else(|| "706000".into());
+        let compte = opt_texte(&b.compte_produit, 20)?.unwrap_or_else(|| "706000".into());
         if !compte.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(invalide("compte de produit : lettres et chiffres"));
         }
@@ -2424,7 +2474,7 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let annee = annee_valide(&b.annee_scolaire)?;
-        let regime = opt_texte(&b.regime, 20);
+        let regime = opt_texte(&b.regime, 20)?;
         if regime.as_deref().is_some_and(|r| !REGIMES.contains(&r)) {
             return Err(invalide("régime inconnu (externe, demi_pension, interne)"));
         }
@@ -2462,7 +2512,7 @@ impl PgEnt {
         .bind(etab)
         .bind(&annee)
         .bind(b.article_id)
-        .bind(opt_texte(&b.niveau, 20))
+        .bind(opt_texte(&b.niveau, 20)?)
         .bind(&regime)
         .bind(b.qf_min_centimes)
         .bind(b.qf_max_centimes)
@@ -3362,7 +3412,7 @@ impl PgEnt {
             etab,
             foyer,
             &b.mode,
-            opt_texte(&b.motif, 160).as_deref(),
+            opt_texte(&b.motif, 160)?.as_deref(),
             Some(actor),
         )
         .await?;
@@ -3521,7 +3571,7 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve)
         .bind(b.date_sortie)
-        .bind(opt_texte(&b.motif, 200))
+        .bind(opt_texte(&b.motif, 200)?)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -3602,18 +3652,19 @@ async fn tarifs_tx(
     annee: Option<&str>,
     id: Option<Uuid>,
 ) -> Result<Vec<TarifDto>, EntDbError> {
-    let rows: Vec<TarifDtoRow> = sqlx::query_as(
+    let sql = format!(
         "SELECT t.id, t.annee_scolaire, t.article_id, a.code, a.libelle, a.categorie, t.niveau, t.regime,
                 t.qf_min_centimes, t.qf_max_centimes, t.montant_annuel_centimes
            FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
-           LEFT JOIN ent_fin_grille_version g ON g.etablissement_id = t.etablissement_id AND g.id = t.grille_version_id
           WHERE t.etablissement_id = $1 AND t.actif AND ($2::TEXT IS NULL OR t.annee_scolaire = $2)
             AND ($3::UUID IS NULL OR t.id = $3)
-            AND (t.grille_version_id IS NULL OR g.statut = 'en_vigueur')
+            AND {}
           ORDER BY t.annee_scolaire DESC, a.categorie, a.code, t.niveau NULLS FIRST, t.regime NULLS FIRST,
                    t.qf_min_centimes NULLS FIRST",
-    )
+        sql_tarif_applicable("ent_aujourdhui_etab($1)")
+    );
+    let rows: Vec<TarifDtoRow> = sqlx::query_as(&sql)
     .bind(etab)
     .bind(annee)
     .bind(id)

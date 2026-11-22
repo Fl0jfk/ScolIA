@@ -71,6 +71,8 @@ pub struct ArticleQualifieDto {
     pub modele_code: Option<String>,
     /// Qualifié (nature, TVA, unité validées par la comptabilité).
     pub qualifie: bool,
+    /// Pré-rempli depuis un modèle mais pas encore validé (modèle taxable) : ne compte pas comme qualifié.
+    pub a_valider: bool,
     pub qualifie_le: Option<DateTime<Utc>>,
     /// Proposition par règle, seulement pour un article non qualifié.
     pub proposition: Option<PropositionQualificationDto>,
@@ -150,6 +152,10 @@ pub struct ReglagesGrillesDto {
     pub grille_second_regard: bool,
     /// Articles actifs encore non qualifiés (à traiter avant d'exiger la qualification).
     pub articles_non_qualifies: i64,
+    /// Alertes visibles de la direction : qualification non exigée (« à activer avant la rentrée 2027 »),
+    /// second regard désactivé (qui, quand).
+    #[serde(default)]
+    pub alertes: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
