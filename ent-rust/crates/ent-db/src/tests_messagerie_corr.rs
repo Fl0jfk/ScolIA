@@ -496,7 +496,12 @@ async fn corr_f1_cinq_pieces_sous_verrou_et_message_retire_ou_differe() {
         .unwrap();
     let lily = cast.parent_lea.user_id;
     let e = deposer(&ent, etab, m3.id, lily, Role::Parent, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("autre auteur");
-    assert!(est_conflit(&e), "{e:?}");
+    // Un autre que l'auteur est refusé dès le domaine (jamais atteint le dépôt) ; le repli du dépôt (« différé » ->
+    // conflit) reste une seconde barrière.
+    assert!(
+        matches!(e, EntDbError::Domain(DomainError::MsgPiecePasAuteur)) || est_conflit(&e),
+        "{e:?}"
+    );
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m3.id]).await, 0);
     let propre = deposer(&ent, etab, m3.id, dir, Role::Direction, "mien.pdf", "application/pdf", PDF_REEL)
         .await
