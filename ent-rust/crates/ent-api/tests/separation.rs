@@ -3157,7 +3157,7 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
             .and_then(|a| a.first())
             .and_then(|v| v["matiere_id"].as_str())
             .and_then(|x| Uuid::parse_str(x).ok())
-            .expect("matière du cours du professeur");
+            .unwrap_or_else(|| panic!("matière du cours du professeur : {}", ens.texte));
         let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
             "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
         let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
