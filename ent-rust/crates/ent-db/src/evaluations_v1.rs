@@ -17,7 +17,7 @@
 //! Événements : identifiants seulement (R-V17) — jamais une note, une moyenne, un statut, un
 //! motif ni un nom.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::NaiveDate;
 use domain_eleve::evaluation_moteur::{
@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use crate::evaluations::{conflit, db, refus};
 use crate::outbox::Publier;
-use crate::service::{EntDbError, PgEnt};
+use crate::service::{CauseRefusEcriture, EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 /// Types d'événements de V1. Charges : identifiants seulement. **Règle (F5, V3b)** : les événements de SAISIE et de
@@ -637,6 +637,26 @@ impl PgEnt {
         body: &EcrireResultat,
         attendu: Attendu,
     ) -> Result<ResultatEcrit, EntDbError> {
+        Self::ecrire_resultat_cause_tx(tx, etab, acteur, peut_corriger, jour, body, attendu)
+            .await
+            .map_err(|e| match e {
+                EntDbError::RefusDroitEcriture(_) => EntDbError::Forbidden,
+                autre => autre,
+            })
+    }
+
+    /// Comme `ecrire_resultat_tx`, mais un refus de droit porte sa CAUSE (`RefusDroitEcriture`) : la saisie en lot
+    /// (V3) la présente à l'utilisateur case par case.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn ecrire_resultat_cause_tx(
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        acteur: Uuid,
+        peut_corriger: bool,
+        jour: NaiveDate,
+        body: &EcrireResultat,
+        attendu: Attendu,
+    ) -> Result<ResultatEcrit, EntDbError> {
         // F8 : un motif est borné (500 caractères) AVANT toute écriture.
         if body.motif.as_deref().is_some_and(|m| m.trim().chars().count() > 500) {
             return Err(refus("motif trop long (500 caractères au plus)"));
@@ -681,7 +701,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if !titulaire && !peut_corriger {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::HorsDeVosCours));
         }
         let periode = periode_eleve_tx(tx, etab, body.evaluation_id, body.eleve_id).await?;
         // F2 : l'état de la classe est VERROUILLÉ en lecture (`FOR SHARE`) puis RELU après verrou : un arrêt de la
@@ -723,14 +743,18 @@ impl PgEnt {
         // Un élève sans classe ou sans période à la date est verrouillé comme un élève arrêté (M8).
         let arretee = periode.as_ref().is_none_or(|p| p.etat != "ouverte") && !rattrapage;
         if arretee && !peut_corriger {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(if periode.is_none() {
+                CauseRefusEcriture::EleveSansPeriode
+            } else {
+                CauseRefusEcriture::PeriodeArretee
+            }));
         }
         // V3c (M3, règle descendue de la grille) : tant que la période de l'élève est OUVERTE, l'évaluation appartient au
         // professeur du cours (titulaire, co-enseignant, suppléant en saisie). Un porteur de `notes.corriger` qui n'est
         // pas du cours ne saisit pas à sa place (il corrige APRÈS l'arrêt, avec un motif) : cette règle vit ici, dans
         // l'écriture elle-même, et non plus seulement dans l'écran de grille (aucune voie ne la contourne).
         if !titulaire && periode.as_ref().is_some_and(|p| p.etat == "ouverte") {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::SaisieReserveeAuProfesseur));
         }
         let pas = regles_tx(tx, etab, annee_id).await?.pas_saisie_m;
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;
@@ -1436,7 +1460,10 @@ pub(crate) async fn moyennes_tx(
     let reglage = regles_tx(tx, etab, annee_id).await?;
     let regles = reglage.regles;
 
-    // Résultats dont la PÉRIODE DE L'ÉLÈVE (R-V29) est celle demandée. Jamais `eva_evaluation.periode_id`.
+    // V5 (règle 6) : une note appartient à l'élève et à la DATE de l'évaluation. Elle compte dans la période demandée
+    // quand cette date relève de cette période DANS SA PÉRIODISATION (`eva_periode_dans`), quelle que fût la classe de
+    // l'élève ce jour-là : un changement de classe ou de périodisation ne fait ni disparaître ni compter deux fois une note.
+    // Jamais `eva_evaluation.periode_id` (période indicative).
     let lignes = sqlx::query(
         "SELECT r.evaluation_id, ev.titre, (ev.bareme * 1000)::bigint AS bareme_m, (ev.coef * 1000)::bigint AS coef_m,
                 ev.comptage, ev.hors_bareme_autorise, ev.etat, ev.cours_id, ev.matiere_id AS sous_matiere_id,
@@ -1447,7 +1474,7 @@ pub(crate) async fn moyennes_tx(
           WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note'
             AND ev.etat IN ('ouverte', 'annulee')
             AND ($4 = false OR ev.publiee_le IS NOT NULL)
-            AND (SELECT pe.periode_id FROM eva_periode_eleve_jour(ev.etablissement_id, r.eleve_id, ev.date_eval) pe) = $3
+            AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
           ORDER BY ev.date_eval, ev.id",
     )
     .bind(etab)
@@ -1494,6 +1521,124 @@ pub(crate) async fn moyennes_tx(
             });
     }
 
+    // V5 (CE-02, CE-06, CE-07) : résultats d'un autre établissement, du CNED ou de l'étranger, DÉCIDÉS « comptés » par le
+    // professeur dans UN cours (geste tracé) et non retirés ; la date du résultat (ou, à défaut, sa période) le range
+    // dans la période du bulletin. Pour la famille et l'élève, seuls les résultats publiés comptent (règle 1).
+    let externes = sqlx::query(
+        "SELECT x.id, COALESCE(x.libelle, 'Résultat externe') AS libelle, (x.valeur * 1000)::bigint AS valeur_m,
+                (x.bareme * 1000)::bigint AS bareme_m, (x.coef * 1000)::bigint AS coef_m,
+                x.compte_dans_cours_id, co.matiere_id
+           FROM eva_resultat_externe x
+           JOIN ent_cours co ON co.id = x.compte_dans_cours_id AND co.etablissement_id = x.etablissement_id
+          WHERE x.etablissement_id = $1 AND x.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
+            AND x.compte_dans_cours_id IS NOT NULL
+            AND x.retiree_le IS NULL AND ($4 = false OR x.publiee_le IS NOT NULL)
+            AND (CASE WHEN x.date_resultat IS NOT NULL THEN eva_periode_dans(x.etablissement_id, $3, x.date_resultat)
+                      ELSE x.periode_id = $3 END)
+          ORDER BY x.date_resultat NULLS LAST, x.id",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(periode_id)
+    .bind(publiees_seulement)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db)?;
+    for x in &externes {
+        let matiere: Option<Uuid> = x.try_get("matiere_id").map_err(db)?;
+        let evaluation = EvalCalcul {
+            id: x.try_get("id").map_err(db)?,
+            titre: format!("{} (résultat externe)", x.try_get::<String, _>("libelle").map_err(db)?),
+            bareme_m: x.try_get("bareme_m").map_err(db)?,
+            coef_m: x.try_get("coef_m").map_err(db)?,
+            comptage: Comptage::default(),
+            hors_bareme_autorise: false,
+            sous_matiere_id: None,
+            cours_id: x.try_get("compte_dans_cours_id").map_err(db)?,
+            annulee: false,
+        };
+        par_matiere
+            .entry(matiere.unwrap_or(Uuid::nil()))
+            .or_default()
+            .push(EntreeCalcul {
+                evaluation,
+                statut: StatutCalcul::Note,
+                valeur_m: x.try_get("valeur_m").map_err(db)?,
+            });
+    }
+    // V5 (CE-06) : enseignement suivi ailleurs (CNED, conservatoire…) dont la direction a déclaré que la moyenne externe
+    // vaut moyenne de matière (R-V38). Règles (revue de V5, E1/M4) :
+    //  * pour la famille et l'élève, seule une moyenne externe PUBLIÉE compte (règle 1) ;
+    //  * elle ne s'ajoute JAMAIS à des notes de l'établissement dans la même matière (celles-ci l'emportent) ; la présence
+    //    se teste sur les notes ÉTABLISSEMENT (et les résultats externes comptés), jamais sur une autre moyenne externe ;
+    //  * plusieurs moyennes externes d'une même matière sur la période du bulletin (deux trimestres d'un semestre, deux
+    //    déclarations) : valeur PRUDENTE par défaut = aucune n'est comptée (on ne fabrique pas une moyenne que personne n'a
+    //    déclarée) ; l'avertissement nomme la matière et le nombre, la direction tranche (en ne gardant qu'une déclaration).
+    let matieres_avec_notes: BTreeSet<Uuid> = par_matiere.keys().copied().collect();
+    let moyennes_externes = sqlx::query(
+        "SELECT m.id, ens.matiere_id, mt.libelle AS matiere_libelle, (m.valeur * 1000)::bigint AS valeur_m,
+                (m.bareme * 1000)::bigint AS bareme_m
+           FROM eva_moyenne_externe m
+           JOIN eva_enseignement_externe ens ON ens.id = m.enseignement_externe_id AND ens.etablissement_id = m.etablissement_id
+           JOIN ent_matiere mt ON mt.id = ens.matiere_id AND mt.etablissement_id = ens.etablissement_id
+           JOIN ent_periode pd ON pd.id = m.periode_id AND pd.etablissement_id = m.etablissement_id
+          WHERE m.etablissement_id = $1 AND ens.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
+            AND ens.compte_moyenne_generale
+            AND m.statut = 'moyenne' AND ($4 = false OR m.publiee_le IS NOT NULL)
+            AND (m.periode_id = $3 OR eva_periode_dans(m.etablissement_id, $3, pd.date_fin))
+          ORDER BY pd.date_fin, m.id",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(periode_id)
+    .bind(publiees_seulement)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(db)?;
+    let mut avertissements: Vec<String> = Vec::new();
+    let mut externes_par_matiere: BTreeMap<Uuid, Vec<&sqlx::postgres::PgRow>> = BTreeMap::new();
+    for x in &moyennes_externes {
+        externes_par_matiere
+            .entry(x.try_get("matiere_id").map_err(db)?)
+            .or_default()
+            .push(x);
+    }
+    for (matiere, groupe) in &externes_par_matiere {
+        let libelle: String = groupe[0].try_get("matiere_libelle").map_err(db)?;
+        if matieres_avec_notes.contains(matiere) {
+            avertissements.push(format!(
+                "Matière {libelle} : une moyenne externe existe alors que l'élève a des notes de l'établissement ; \
+                 les notes de l'établissement l'emportent, la moyenne externe n'est pas comptée."
+            ));
+            continue;
+        }
+        if groupe.len() > 1 {
+            avertissements.push(format!(
+                "Matière {libelle} : {} moyennes externes tombent dans cette période ; aucune n'est comptée \
+                 (une seule moyenne externe par matière et par période du bulletin) : la direction n'en garde qu'une.",
+                groupe.len()
+            ));
+            continue;
+        }
+        let x = groupe[0];
+        let evaluation = EvalCalcul {
+            id: x.try_get("id").map_err(db)?,
+            titre: "Moyenne externe (évalué par un autre organisme)".to_string(),
+            bareme_m: x.try_get("bareme_m").map_err(db)?,
+            coef_m: 1000,
+            comptage: Comptage::default(),
+            hors_bareme_autorise: false,
+            sous_matiere_id: None,
+            cours_id: None,
+            annulee: false,
+        };
+        par_matiere.entry(*matiere).or_default().push(EntreeCalcul {
+            evaluation,
+            statut: StatutCalcul::Note,
+            valeur_m: x.try_get("valeur_m").map_err(db)?,
+        });
+    }
+
     // Coefficients de sous-matière de l'année.
     let coefs_sm: Vec<CoefSousMatiere> = sqlx::query(
         "SELECT matiere_id, (coef * 1000)::bigint AS coef_m FROM eva_coefficient_sous_matiere
@@ -1535,7 +1680,6 @@ pub(crate) async fn moyennes_tx(
 
     let mut matieres = Vec::new();
     let mut pour_generale = Vec::new();
-    let mut avertissements: Vec<String> = Vec::new();
     for (matiere_id, entrees) in &par_matiere {
         // F12 : un débordement ou un réglage incohérent n'échoue que CETTE matière (dite « indisponible »), pas
         // toute la moyenne de l'élève ; la moyenne générale s'établit sur les autres matières, avec un
