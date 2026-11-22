@@ -5264,7 +5264,7 @@ async fn a9_annulation_en_lot_et_tableau_de_crise() {
 
 impl Cadre {
     async fn classe_id_de(&self, code: &str) -> Uuid {
-        sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2 LIMIT 1")
+        sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2 AND annee_id IN (SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 AND statut <> 'cloturee') LIMIT 1")
             .bind(self.etab)
             .bind(code)
             .fetch_one(self.ent.pool())
