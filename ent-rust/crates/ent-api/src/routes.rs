@@ -918,6 +918,7 @@ pub fn router() -> Router<AppState> {
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
     let r = r.merge(crate::finances_comptes::routes());
+    let r = r.merge(crate::finances_grilles::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
     // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).

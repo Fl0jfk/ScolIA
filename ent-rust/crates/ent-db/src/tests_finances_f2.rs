@@ -97,6 +97,8 @@ async fn compte_du_foyer(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Uuid {
 async fn grille(ent: &PgEnt, c: &LaboCast) {
     let (u, r) = compta(c);
     let etab = c.etablissement_id;
+    // jeu d'essai d'un établissement antérieur à la 523 : articles « à l'ancienne », qualification non exigée
+    crate::tests_finances_f3::etablissement_anterieur(ent, etab).await;
     let art = |code: &str, cat: &str, compte: &str| ArticleBody {
         code: code.into(),
         libelle: format!("Article {code}"),
