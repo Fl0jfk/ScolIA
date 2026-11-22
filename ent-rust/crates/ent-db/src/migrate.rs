@@ -297,6 +297,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("650_sortie_argent_suivi"),
     m!("651_sortie_argent_bordereaux"),
     m!("652_sortie_contournement_devis_code"),
+    m!("653_sortie_argent_aides_reports"),
     m!("661_d036_corrections_lot1"),
     m!("662_d036_profil_jours_ouvres"),
     m!("663_d036_parametre_type"),
@@ -394,6 +395,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // « soir » complémentaire, attendu qui lit les absences et les sorties. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2826_internat_i3_absences_sorties"),
     m!("2827_internat_i3_suites"),
+    // Socle 42, lot V3 : lien séjour ↔ internat ; référence `ent_internat_retrait` (2824), d'où l'ordre APRÈS le socle 41.
+    m!("654_sortie_internat_lien"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),

@@ -474,7 +474,7 @@ Abréviations des actions : DIR (direction), CPE, RIN (responsable d'internat, s
 
 ### 9.1 L'attendu de la nuit (corrige DI-11, DI-16, RI-06)
 Pour la nuit N (Europe/Paris), `internat::attendu` calcule, pour chaque élève dont le séjour couvre N et dont le rythme contient le jour de N :
-- **retiré** (avec motif codé visible du surveillant) : absence annoncée et acceptée ; sortie (nuit chez le correspondant, week-end) ; séjour scolaire (42) ; stage avec hébergement ailleurs (39) ; exclusion d'internat (13) ; fermeture de l'internat (5) ; hospitalisation (« absent : santé », sans détail, posé par l'infirmière ou la direction) ;
+- **retiré** (avec motif codé visible du surveillant) : absence annoncée et acceptée ; sortie (nuit chez le correspondant, week-end) ; séjour scolaire (42, **à partir du départ constaté seulement**, D-069 : un élève « prêt » mais non parti reste attendu ; un retour anticipé le rend de nouveau attendu ; une annulation du CPE d'un retrait « voyage » est mémorisée et respectée — voir `42_VOYAGES_V3_LIVRAISON.md`, « Correctifs de revue ») ; stage avec hébergement ailleurs (39) ; exclusion d'internat (13) ; fermeture de l'internat (5) ; hospitalisation (« absent : santé », sans détail, posé par l'infirmière ou la direction) ;
 - **ajouté** : nuit exceptionnelle (élève accueilli une nuit de plus, interne d'un jour pour un examen, élève éloigné le week-end).
 L'attendu est **recalculé** à chaque fait ; la vue d'appel affiche l'heure de son dernier calcul.
 
