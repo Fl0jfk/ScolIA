@@ -711,9 +711,14 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
 
     // Temps du soir : créé par la gestion, lu par le personnel d'internat, l'élève n'y voit pas les autres.
     let debut_t = (nuit + Duration::days(2)).and_hms_opt(17, 0, 0).unwrap().and_utc();
-    let corps_t = json!({"nature": "etude", "libelle": "Étude du soir", "debut": debut_t, "fin": debut_t + Duration::hours(2), "places": 10});
+    let corps_t = json!({"nature": "etude", "libelle": "Étude du soir", "debut": debut_t, "fin": debut_t + Duration::hours(2), "places": 10, "encadrant_user_id": cpe.id});
     let (st, _) = appel(&app, "POST", "/internat/temps", Some(&prof.jeton), Some(corps_t.clone())).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
+    // M6 : sans encadrant, un temps du soir est refusé.
+    let mut sans = corps_t.clone();
+    sans.as_object_mut().unwrap().remove("encadrant_user_id");
+    let (st, _) = appel(&app, "POST", "/internat/temps", Some(&cpe.jeton), Some(sans)).await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
     let (st, t) = appel(&app, "POST", "/internat/temps", Some(&cpe.jeton), Some(corps_t)).await;
     assert_eq!(st, StatusCode::CREATED, "{t}");
     let tid = t["id"].as_str().unwrap().to_string();
