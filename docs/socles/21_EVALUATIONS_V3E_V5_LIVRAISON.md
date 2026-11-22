@@ -183,4 +183,4 @@ Un `Forbidden` inattendu garde un message de droit (« droit insuffisant pour sa
 * **Compteurs (règle 28)**, base `bfc95c00` : aucune table, aucune action, `TABLES_ELEVE` inchangé, registre inchangé, sources de routes 70 (12 routes dans `evaluations_v5.rs`), `migrate.rs` +1 (478), `MIGRATION_TAG` inchangé.
 
 ### 8.3 Tête et CI
-Voir le message final au pilote ; la tête et l'état de la CI y sont reportés (complétés ici si la CI se termine avant).
+Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de code testée : `9ba9fd67` ; CI (run 45061808763) : verte (success). Le run précédent (6a848cfc) a été annulé par le push suivant. Les commits de documentation qui suivent ne changent pas le code.
