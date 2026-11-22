@@ -1239,6 +1239,7 @@ fn specs_domaine_inscriptions_i5() -> Vec<Spec> {
         ecrire_sur_b("designation-sur-B", "POST", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2/liste-attente/designer", Some(r#"{}"#)),
         ecrire_sur_b("envoi-proposition-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/envoyer", Some(r#"{"confirmer":true}"#)),
         ecrire_sur_b("proposition-ecartee-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/ecarter", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("acceptation-au-guichet-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/accepter-au-guichet", Some(r#"{"motif":"essai de séparation"}"#)),
         ecrire_sur_b("expiration-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/constater-expiration", Some(r#"{}"#)),
     ]
 }

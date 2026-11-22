@@ -197,23 +197,30 @@ pub(crate) async fn ecarte_tx(
     lie_tx(conn, etab, dossier, membre).await
 }
 
-/// Dossiers dont `membre` est écarté (déport déclaré ou lien), à retirer de ses listes.
-pub(crate) async fn dossiers_ecartes(
+/// Parmi `dossiers`, ceux dont `membre` est écarté (déport déclaré ou lien) : **une seule requête** pour toute une
+/// liste (D-069 F11), jamais une garde par ligne et jamais un balayage de l'établissement.
+pub(crate) async fn ecartes_parmi(
     conn: &mut PgConnection,
     etab: Uuid,
     membre: Uuid,
-) -> Result<Vec<Uuid>, EntDbError> {
-    sqlx::query_scalar(
-        "SELECT dossier_id FROM ent_inscription_deport WHERE etablissement_id = $1 AND membre_id = $2
-         UNION
-         SELECT d.id FROM ent_inscription_dossier d
-          WHERE d.etablissement_id = $1 AND ent_inscription_membre_lie($1, d.id, $2)",
+    dossiers: &[Uuid],
+) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+    if dossiers.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let v: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT x.id FROM unnest($3::uuid[]) AS x(id)
+          WHERE EXISTS (SELECT 1 FROM ent_inscription_deport g
+                         WHERE g.etablissement_id = $1 AND g.dossier_id = x.id AND g.membre_id = $2)
+             OR ent_inscription_membre_lie($1, x.id, $2)",
     )
     .bind(etab)
     .bind(membre)
+    .bind(dossiers)
     .fetch_all(conn)
     .await
-    .map_err(db)
+    .map_err(db)?;
+    Ok(v.into_iter().collect())
 }
 
 /// Instant dans une **plage calme** (20 h – 8 h ou dimanche) à l'heure de l'établissement.
@@ -297,6 +304,11 @@ pub(crate) async fn decider_tx(
     }
 
     let d = dossier_tx(conn, etab, id).await?;
+    // Garde unique (règle 2) : déporté ou lié au candidat, on ne décide pas — et le dossier n'existe pas pour soi.
+    // Elle précède tout constat sur le dossier (nature, blocage) : un membre écarté n'en apprend rien.
+    if ecarte_tx(conn, etab, id, c.actor).await? {
+        return Err(introuvable());
+    }
     if d.nature != "admission" {
         return Err(conflit(
             "une réinscription se valide sans décision d'admission",
@@ -306,10 +318,6 @@ pub(crate) async fn decider_tx(
         return Err(conflit(
             "dossier bloqué : désaccord des responsables (levée avec pièce par la direction)",
         ));
-    }
-    // Garde unique (règle 2) : déporté ou lié au candidat, on ne décide pas — et le dossier n'existe pas pour soi.
-    if ecarte_tx(conn, etab, id, c.actor).await? {
-        return Err(introuvable());
     }
     // Dernière décision = bout de la chaîne `remplace_decision_id` (règle 4), jamais un tri sur `now()`.
     let precedente: Option<(Uuid, String, Option<Uuid>, Option<String>)> = sqlx::query_as(
@@ -514,6 +522,7 @@ pub(crate) async fn decider_tx(
     // Place déplacée par la décision (autre offre) : la liste d'attente de l'ancienne offre avance.
     if let (Some(avant), Some(apres)) = (offre_avant, offre_decision) {
         if avant != apres && matches!(e, "admis" | "confirme") {
+            crate::inscriptions_attente::place_liberee_tx(conn, etab, avant).await?;
             crate::inscriptions_attente::designer_suivants_tx(conn, etab, avant, &[id]).await?;
         }
     }
@@ -691,7 +700,7 @@ fn decision_dto(r: LigneDecision) -> DecisionDto {
         sens: r.2,
         offre_id: r.3,
         reserve: r.4,
-        motif_interne: r.5,
+        motif_interne: Some(r.5),
         motif_communique: r.6,
         depassement_capacite: r.7,
         alternative: r.8,
@@ -832,7 +841,7 @@ impl PgEnt {
             .map(decision_dto)
             .map(|mut d| {
                 if !decider {
-                    d.motif_interne = String::new();
+                    d.motif_interne = None;
                 }
                 d
             })
@@ -853,7 +862,8 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r =
-            publier_ou_programmer_tx(&mut tx, etab, &[decision_id], actor, b, maintenant).await?;
+            publier_ou_programmer_tx(&mut tx, etab, &[decision_id], actor, b, maintenant, false)
+                .await?;
         commit(tx).await?;
         Ok(r)
     }
@@ -978,11 +988,11 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
-        if d.nature != "admission" {
-            return Err(conflit("les avis concernent les admissions"));
-        }
         if ecarte_tx(&mut tx, etab, id, actor).await? {
             return Err(introuvable());
+        }
+        if d.nature != "admission" {
+            return Err(conflit("les avis concernent les admissions"));
         }
         let aid = Uuid::new_v4();
         let cree_le: DateTime<Utc> = sqlx::query_scalar(
@@ -1082,12 +1092,9 @@ impl PgEnt {
             // Introuvable si le dossier n'est pas de l'établissement, ou si le lecteur en est écarté (lien).
             dossier_visible_tx(&mut tx, etab, actor, id).await?;
         }
-        // Le lien est un déport **d'office** (la garde l'applique) : il ne reste ici qu'à le dire.
-        let conflit_possible = lie_tx(&mut tx, etab, id, actor).await?;
-        Ok(DeportEtatDto {
-            deporte,
-            conflit_possible,
-        })
+        // Un lien avec le candidat est un déport **d'office** : la garde ci-dessus répond « introuvable » ; il n'y a
+        // donc pas de « conflit possible » à suggérer (D-069 F8 : le champ est supprimé).
+        Ok(DeportEtatDto { deporte })
     }
 
     /// INS-63 : se déporter d'un dossier. Irréversible par soi-même (la direction pourrait rétablir par une
@@ -1106,6 +1113,10 @@ impl PgEnt {
             return Err(invalide("motif du déport : de 3 à 500 caractères"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Idempotent (D-069 F7) : déjà déporté, la réponse est la même, sans nouvelle ligne, trace ni événement.
+        if deporte_declare_tx(&mut tx, etab, id, actor).await? {
+            return Ok(DeportEtatDto { deporte: true });
+        }
         dossier_visible_tx(&mut tx, etab, actor, id).await?;
         sqlx::query(
             "INSERT INTO ent_inscription_deport (id, etablissement_id, dossier_id, membre_id, motif)
@@ -1142,10 +1153,7 @@ impl PgEnt {
         )
         .await?;
         commit(tx).await?;
-        Ok(DeportEtatDto {
-            deporte: true,
-            conflit_possible: false,
-        })
+        Ok(DeportEtatDto { deporte: true })
     }
 
     // ───────────────────────── Commissions ─────────────────────────
@@ -1199,7 +1207,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        ajouter_dossiers_tx(&mut tx, etab, id, b.campagne_id, &b.dossier_ids).await?;
+        ajouter_dossiers_tx(&mut tx, etab, actor, id, b.campagne_id, &b.dossier_ids).await?;
         let dto = commission_dto_tx(&mut tx, etab, actor, id).await?;
         commit(tx).await?;
         Ok(dto)
@@ -1265,7 +1273,7 @@ impl PgEnt {
                 "séance clôturée : la liste des dossiers ne change plus",
             ));
         }
-        ajouter_dossiers_tx(&mut tx, etab, id, campagne, &b.ajouter).await?;
+        ajouter_dossiers_tx(&mut tx, etab, actor, id, campagne, &b.ajouter).await?;
         let total: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_inscription_commission_dossier
               WHERE etablissement_id = $1 AND commission_id = $2",
@@ -1279,6 +1287,12 @@ impl PgEnt {
             return Err(invalide("cinq cents dossiers au plus par séance"));
         }
         if !b.retirer.is_empty() {
+            if !ecartes_parmi(&mut tx, etab, actor, &b.retirer)
+                .await?
+                .is_empty()
+            {
+                return Err(introuvable());
+            }
             let deja: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_inscription_decision
                   WHERE etablissement_id = $1 AND commission_id = $2 AND dossier_id = ANY($3)",
@@ -1458,7 +1472,7 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let r = publier_ou_programmer_tx(&mut tx, etab, &ids, actor, b, maintenant).await?;
+        let r = publier_ou_programmer_tx(&mut tx, etab, &ids, actor, b, maintenant, true).await?;
         commit(tx).await?;
         Ok(r)
     }
@@ -1547,7 +1561,7 @@ impl PgEnt {
             (None, None, Vec::new(), Vec::new())
         } else {
             let position = if sens == "liste_attente" && d.etat == "liste_attente" {
-                crate::inscriptions_attente::position_attente_publiee_tx(&mut tx, etab, id).await?
+                crate::inscriptions_attente::rang_famille_tx(&mut tx, etab, id).await?
             } else {
                 None
             };
@@ -1578,14 +1592,15 @@ impl PgEnt {
 
 /// **État visible** (D-069 règle 1) : la **seule** fonction qui dit à la famille où en est son dossier, pour
 /// l'affichage **et** pour autoriser ses actions (`exiger_dossier_stable_famille_tx`). Décision **prise mais non
-/// publiée** : si la dernière décision d'un dossier n'est pas publiée, renvoie l'état que
-/// la famille peut encore lire (celui de la dernière décision publiée, sinon l'instruction) et l'instant depuis
-/// lequel les changements d'état lui sont cachés (la plus ancienne décision non publiée de la chaîne).
+/// publiée** : si la dernière décision de la chaîne n'est pas publiée, renvoie l'état que la famille peut encore
+/// lire (celui de la dernière décision **publiée** de la chaîne, sinon l'instruction). Tout se lit dans la chaîne
+/// `remplace_decision_id` (D-069 F4) : jamais un tri ni un minimum sur des dates. Les lignes du suivi, elles, sont
+/// rattachées à la décision en cours à leur écriture (`suivi_tx`) et ne se lisent qu'avec elle.
 pub(crate) async fn visibilite_famille_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     dossier: Uuid,
-) -> Result<Option<(String, DateTime<Utc>)>, EntDbError> {
+) -> Result<Option<String>, EntDbError> {
     let derniere_publiee: Option<bool> = sqlx::query_scalar(&format!(
         "{CHAINE} SELECT publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1"
     ))
@@ -1597,26 +1612,16 @@ pub(crate) async fn visibilite_famille_tx(
     if derniere_publiee != Some(false) {
         return Ok(None);
     }
-    let publie: Option<(String, i32)> = sqlx::query_as(&format!(
-        "{CHAINE} SELECT sens, rang_chaine FROM chaine WHERE publiee_le IS NOT NULL
-          ORDER BY rang_chaine DESC LIMIT 1"
+    let publie: Option<String> = sqlx::query_scalar(&format!(
+        "{CHAINE} SELECT sens FROM chaine WHERE publiee_le IS NOT NULL ORDER BY rang_chaine DESC LIMIT 1"
     ))
     .bind(etab)
     .bind(dossier)
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    let depuis: DateTime<Utc> = sqlx::query_scalar(&format!(
-        "{CHAINE} SELECT min(decide_le) FROM chaine WHERE publiee_le IS NULL AND rang_chaine > $3"
-    ))
-    .bind(etab)
-    .bind(dossier)
-    .bind(publie.as_ref().map_or(0, |p| p.1))
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(db)?;
-    let visible = publie.map_or("en_instruction", |p| etat_cible(&p.0));
-    Ok(Some((visible.to_string(), depuis)))
+    let visible = publie.as_deref().map_or("en_instruction", etat_cible);
+    Ok(Some(visible.to_string()))
 }
 
 /// Garde des actions de la famille : tant qu'une décision plus récente que la dernière publiée existe, **aucune**
@@ -1657,7 +1662,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         for r in liste.iter_mut() {
-            if let Some((visible, _)) = visibilite_famille_tx(&mut tx, etab, r.id).await? {
+            if let Some(visible) = visibilite_famille_tx(&mut tx, etab, r.id).await? {
                 r.statut = visible.clone();
                 r.etat = visible;
             }
@@ -1696,6 +1701,7 @@ async fn publier_ou_programmer_tx(
     actor: Uuid,
     b: &PublierBody,
     maintenant: DateTime<Utc>,
+    ignorer_ecartes: bool,
 ) -> Result<PublicationDto, EntDbError> {
     let mut r = PublicationDto::default();
     let programme = b.publier_le.filter(|q| *q > maintenant);
@@ -1728,6 +1734,12 @@ async fn publier_ou_programmer_tx(
         .await
         .map_err(db)?;
         if ecarte_tx(conn, etab, dossier_de, actor).await? {
+            if ignorer_ecartes {
+                // Publication d'une séance (D-069 F10) : une décision dont l'acteur est écarté ne se publie pas à
+                // sa place, mais n'empêche pas les autres ; le récapitulatif la signale par un nombre.
+                r.ignorees += 1;
+                continue;
+            }
             return Err(introuvable());
         }
         if deja.is_some() {
@@ -1776,6 +1788,7 @@ async fn commission_ouverte_tx(
 async fn ajouter_dossiers_tx(
     conn: &mut PgConnection,
     etab: Uuid,
+    actor: Uuid,
     commission: Uuid,
     campagne: Uuid,
     dossiers: &[Uuid],
@@ -1796,6 +1809,10 @@ async fn ajouter_dossiers_tx(
     let distincts: std::collections::HashSet<&Uuid> = dossiers.iter().collect();
     if ok != i64::try_from(distincts.len()).unwrap_or(-1) {
         // Dossier inconnu, d'une autre campagne ou d'un autre établissement : même réponse.
+        return Err(introuvable());
+    }
+    // D-069 F9 : un dossier dont l'acteur est écarté (déport ou lien) n'existe pas pour lui : même réponse.
+    if !ecartes_parmi(conn, etab, actor, dossiers).await?.is_empty() {
         return Err(introuvable());
     }
     sqlx::query(
@@ -1828,7 +1845,6 @@ async fn commission_dto_tx(
     .await
     .map_err(db)?
     .ok_or_else(introuvable)?;
-    let deportes = dossiers_ecartes(conn, etab, actor).await?;
     let lignes: Vec<(Uuid, String, String, String, Option<String>, String, Option<String>, Option<DateTime<Utc>>, i64)> =
         sqlx::query_as(
             "SELECT d.id, d.reference, d.eleve_nom, d.eleve_prenom, d.niveau_demande, d.etat,
@@ -1849,6 +1865,8 @@ async fn commission_dto_tx(
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
+    let ids: Vec<Uuid> = lignes.iter().map(|l| l.0).collect();
+    let deportes = ecartes_parmi(conn, etab, actor, &ids).await?;
     let places = places_campagne_tx(conn, etab, c.0).await?;
     Ok(CommissionDto {
         id,

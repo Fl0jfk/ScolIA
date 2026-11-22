@@ -598,7 +598,6 @@ async fn i3_validation_pieces_bloquantes_et_rattachement() {
     )
     .await
     .unwrap();
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.unwrap();
     // Rattachement : une pièce de l'élève au socle 7, mêmes objets que la pièce du dossier.
     let (rattachees, memes_objets): (i64, i64) = sqlx::query_as(
@@ -952,7 +951,6 @@ async fn i4_refus_bloque_et_se_leve_avec_piece() {
             .await;
         assert!(r.is_err(), "décision {decision} impossible pendant le blocage");
     }
-    crate::tests_inscriptions::famille_a_accepte(&ent, f.dossier).await;
     assert!(ent.valider_inscription_for_actor(etab, d, dr, f.dossier, &ValidationBody::default()).await.is_err());
     assert!(ent
         .changer_statut_for_actor(etab, a, ar, f.dossier, &StatutBody { statut: "admis".into(), motif: None })

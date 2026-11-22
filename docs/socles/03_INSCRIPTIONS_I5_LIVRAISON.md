@@ -153,3 +153,75 @@ CI sur la tête `39698c2d` : tout vert sauf 3 tranches de tests (2, 7, 8 sur 20)
 `recette_securite_3` l'avaient été). Correction : même raccourci de test que côté `ent-db` (`famille_a_accepte`, SQL de la base de test) dans les deux
 fichiers de recette ; aucun code de production touché. Les deux fichiers de recette passent en entier (6 + 11 tests), clippy et fmt ciblé verts.
 Verdict CI de la tête finale : voir le message au pilote.
+
+## Passe 2 (contre-revue du pilote)
+
+Partie de la tête distante `6fb4f561` de `ent-socle-3-code-suite` (PR n° 120, brouillon), fusionnée avec `origin/ENT` (messagerie M12 :
+aucune migration, aucune action, aucune source ni table RLS de ce côté ; règle 28 : `Action::TOUTES`, `SOURCES`, compte RLS, `MIGRATION_TAG`
+relus, inchangés par la fusion). **Migration 313 toujours non versée : modifiée** (aucune autre migration ne change). Statut : **implémenté et
+testé en local** (PostgreSQL 16 jetable, base « test », `ENT_ENV=test`), **non validé** tant que la CI n'a pas rendu son verdict.
+
+### Règles tenues
+1. **Ce que voit la famille ne dépend que des décisions publiées, rang compris.** Un seul calcul, `rang_famille_tx`, utilisé par `dossier_famille`
+   et `decision_famille` : un dossier compte dans la file selon sa dernière décision **publiée** (fonction SQL `ent_inscription_en_liste_visible`) ;
+   il reste compté tant que sa sortie de liste n'est pas publiée, n'y entre qu'une fois son entrée publiée ; l'ordre est celui de l'**entrée**
+   (`ordre_attente`, jamais renuméroté, contrairement au rang affiché au personnel qui se compacte à chaque départ).
+2. **Personnel → droit → existence** partout (balayage de toutes les routes à identifiant de dossier) ; la garde d'écart d'`decider_tx` et
+   d'`donner_avis` précède aussi tout constat sur le dossier (nature, blocage).
+3. **Un refus se prouve par son refus exact** (variante, SQLSTATE) avec un compte qui a le droit.
+
+### Correctifs
+| N° | Correctif | Fait / test |
+|---|---|---|
+| M-A | rang famille : file calculée sur les décisions publiées (colonnes `ordre_attente`, `offre_attente_id`) | fait ; `p2_ma_rang_famille_sortie_de_liste_non_publiee` (sortie non publiée, entrée non publiée, publication ; `dossier_famille` = `decision_famille`) |
+| M-B | `transition` : droit, puis action inconnue, puis écart ; autres routes vérifiées (script sur tous les appels de garde) ; `decider_piece` : droit puis écart avant la forme ; avis et décision : écart avant la nature | fait ; `p2_mb_droit_avant_ecart` (sans droit et lié → 403 exact ; avec droit et lié → introuvable) ; le test de `transition` de `r_e2_…` utilise une action valide |
+| M-C | « passer son tour » vaut pour **la même place** : `ent_inscription_offre.liberations` (numéro de la place, incrémenté à chaque place rendue ou ajoutée), `proposition_place.place_no` ; un dossier qui a écarté la place n° n n'est plus désigné pour elle (désignation automatique **et** appel sans exclusion), redevient désignable pour n + 1 | fait ; `p2_mc_passer_son_tour_une_seule_place` (A/B/A, appel sans exclusion, place suivante) ; `r_m11_…` ouvre la place par la route de l'offre |
+| M-D | registre : dossier sans motif, auteur, état interne, rang bruts ; suivi sans lignes d'une décision non publiée ; décision limitée aux décisions publiées (`export_si`), sans motif interne ni auteur | fait ; `p2_md_registre_export_publie_seulement` (colonnes existantes, condition SQL valide) |
+| Raccourci de test | `parcours_famille_de_bout_en_bout` et les deux recettes `ent-api` (`rp2_t02`, `rp2_10`, `rp2_11`) font la **vraie** acceptation (`repondre_proposition_famille` / `POST …/proposition/repondre`) ; le raccourci SQL restant (`famille_a_accepte`) exige `rows_affected >= 1` | fait |
+| F2 | refus exacts (SQLSTATE `23514` pour les gardes en base, `23505` pour la chaîne ; conflit classé pour la concurrence acceptation/expiration ; saisie invalide ; conflit pour la confirmation sans motif) | fait (`tests_inscriptions_i5_revue.rs`) |
+| F3 | règle 1 sur `decider_en_lot` en séance | fait ; `p2_f3_decisions_de_seance_non_publiees` |
+| F4 | masquage par la **chaîne** : toute ligne de suivi écrite pendant une décision non publiée lui est rattachée (`suivi_tx`) ; plus de filtre sur `min(decide_le)` ni `created_at` ; `visibilite_famille_tx` ne lit que la chaîne | fait ; `p2_f4_masquage_par_la_chaine` (suivi antidaté) |
+| F5 | ordre des verrous unique **dossier → offre → propositions** : offre verrouillée avant les propositions (envoi, réponse, constat, transitions), premier suivant verrouillé avant l'offre, plus de `SKIP LOCKED` (sauter un dossier désignerait le suivant à sa place) ; un interblocage résiduel est classé en conflit | fait (pas de test de concurrence dédié : voir limites) |
+| F6 | doublon de `refuser_si_ecarte` (décision avancée) supprimé | fait |
+| F7 | `se_deporter` idempotent (déjà déporté : même réponse, ni ligne, ni trace, ni événement) | fait ; `p2_f7_se_deporter_idempotent` |
+| F8 | `conflit_possible` **supprimé** (inatteignable : un lien écarte d'office, la garde répond « introuvable ») | fait |
+| F9 | création et modification d'une commission refusent (introuvable) un dossier écarté pour l'acteur, y compris au retrait | fait ; `p2_f9_f10_commission_et_dossiers_ecartes` |
+| F10 | `publier_commission` n'échoue plus en bloc : les dossiers écartés sont ignorés et comptés (`PublicationDto.ignorees`) | fait ; même test |
+| F11 | `ecartes_parmi` : une requête groupée sur les seuls dossiers de la liste (plus de balayage de l'établissement ni de garde par ligne) | fait |
+| F12 | dépôt et reprise de pièce de la famille : contrôle de l'état visible **sous le verrou du dossier**, dans la transaction ; retrait/désistement idem (verrou avant le contrôle) | fait (couvert par `r_m2_…`, pas de test de course dédié) |
+| F13 | `DecisionDto.motif_interne` en `Option` : `None` = masqué, jamais une chaîne vide | fait ; `r_m8_…` |
+| F14 | `remplir` journalisé en ajout seul (`ent_inscription_condition_levee.genre = 'remplie'`, auteur, motif, objet source) | fait ; `p2_f14_f15_constat_et_acceptation_au_guichet` |
+| F15 | « accepté au guichet » : `POST /inscriptions/propositions/{id}/accepter-au-guichet` (droit `inscriptions.gerer`, motif obligatoire), mêmes effets que la réponse de la famille mais tracé à part (`genre = 'guichet'`, condition `source = 'personnel'`, suivi, événement) | fait ; même test, plus la séparation entre établissements dans `separation` |
+| F16 | 313 rejouable sur une base de l'ancienne version : objets recréés idempotents ; **réparation** d'un historique de décisions sans chaîne (plusieurs racines) avant les index uniques ; colonnes ajoutées en `IF NOT EXISTS` | fait ; `p2_f16_313_rejouable_sur_ancienne_version` (transaction annulée) |
+
+### Non fait / limites
+* Pas de test de **concurrence** pour l'ordre des verrous (F5) ni pour la course du dépôt de pièce (F12) : relus et couverts par les tests
+  fonctionnels, non éprouvés sous charge.
+* F16 ne répare que le cas « aucune décision du dossier ne remplace une autre » ; une chaîne partiellement renseignée et incohérente fait échouer
+  l'index unique (échec franc, à traiter à la main).
+* L'acceptation au guichet n'a pas de contrôle « deux personnes » : un secrétariat seul peut l'enregistrer ; le motif et le journal en ajout seul
+  sont la seule contrepartie (à arbitrer avec le lot des droits).
+* Le suivi écrit pendant une décision non publiée n'est lu qu'avec elle, y compris un commentaire destiné à la famille : voulu (règle 1).
+* Les `.is_err()` des tests I5 d'origine (`tests_inscriptions_i5.rs`) hors liste du pilote ne sont pas resserrés.
+
+### Vérifications locales (passe 2)
+PostgreSQL 16 jetable (`ent_test_p2`, nom contenant « test », `ENT_ENV=test`), toolchain 1.99.0, `--locked`, un seul `CARGO_TARGET_DIR`, un fil :
+* `ent-db` (labo) : `tests_inscriptions*`, `registre_donnees`, `tests_rls`, `migrate` : **130 verts, 0 échec** (dont 9 nouveaux tests `p2_…` et les 15 de
+  revue d'origine, un resserré) ; gardes statiques (`garde_inscriptions_ecritures`, `garde_finances_ecritures`, `isolation_sql_statique` — qui a attrapé
+  une condition d'export sans filtre d'établissement, corrigée —, `jour_utc_interdit`) : 0 échec.
+* `ent-api` (labo) : `separation` (58, dont la nouvelle route d'acceptation au guichet), `recette_securite_3` (10), `recette_personas_2` (6) et
+  `recette_personas_2_ouvertes` (11), cette fois **rejoués en entier** avec la vraie acceptation de la famille ; `tests_inscriptions` de la lib (4) : 0 échec.
+* Clippy 1.99.0, les trois commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`) : **0 avertissement** ;
+  rustc : 0 ; `cargo metadata --locked` dans `ent-rust/web` : vert ; fmt **ciblé** (jamais `--all`) : fichiers neufs ou déjà conformes seulement
+  (`tests_inscriptions_i5_revue.rs`, les deux recettes `ent-api`, `inscriptions_decisions.rs`).
+* Le raccourci SQL `famille_a_accepte` exige désormais `rows_affected >= 1` (et dit d'où il est appelé) : il a fait apparaître **dix appels sans objet**
+  (seconde acceptation d'un dossier déjà accepté, réinscription), supprimés. Les tests qui consomment la file d'envoi partagée (`expedier`) restent
+  sensibles au parallélisme, d'où le fil unique.
+* La suite complète d'`ent-db` n'est pas rejouée en local (CI).
+
+### Compteurs (règle 28, passe 2)
+`Action::TOUTES` inchangé (aucune action) ; `SOURCES`/`NOMS_SOURCES` inchangés (70) ; **compte RLS inchangé** (aucune table nouvelle : une séquence, des
+colonnes, une fonction SQL) ; registre des données : aucune table nouvelle, colonnes hors export et condition de ligne (`export_si`) ajoutées ;
+`MIGRATION_TAG` inchangé (3808) ; migration 313 modifiée (non versée) ; `ent-types` : `DeportEtatDto.conflit_possible` supprimé,
+`PublicationDto.ignorees` et `DecisionDto.motif_interne: Option` ajoutés (aucun autre consommateur : le frontend `web/` ne les lit pas).
+

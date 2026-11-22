@@ -521,14 +521,21 @@ pub(crate) async fn retenir_voeu_tx(
             .map_err(db)?,
         )
     };
+    // Entrée sur la liste : ordre d'entrée jamais renuméroté et offre de la liste (D-069 M-A). Une admission ne
+    // touche pas ces deux colonnes : elles gardent la trace de la liste que le dossier quitte.
     sqlx::query(
-        "UPDATE ent_inscription_dossier SET voeu_retenu_id = $3, rang_attente = $4, updated_at = now()
+        "UPDATE ent_inscription_dossier
+            SET voeu_retenu_id = $3, rang_attente = $4, updated_at = now(),
+                ordre_attente = CASE WHEN $4::int IS NULL THEN ordre_attente
+                                     ELSE nextval('ent_inscription_attente_ordre_seq') END,
+                offre_attente_id = CASE WHEN $4::int IS NULL THEN offre_attente_id ELSE $5 END
           WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(d.id)
     .bind(voeu)
     .bind(rang_attente)
+    .bind(offre)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -572,7 +579,10 @@ pub(crate) async fn synchroniser_offres_niveaux_tx(
             Some((id, avant)) => {
                 if avant != n.capacite {
                     sqlx::query(
-                        "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now()
+                        "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now(),
+                                liberations = liberations
+                                    + CASE WHEN capacite IS NOT NULL AND ($3::int IS NULL OR $3 > capacite)
+                                           THEN 1 ELSE 0 END
                           WHERE etablissement_id = $1 AND id = $2",
                     )
                     .bind(etab)
@@ -934,7 +944,13 @@ impl PgEnt {
             "UPDATE ent_inscription_offre SET libelle_public = $3, capacite = $4,
                     places_reservees_reinscription = COALESCE($5, places_reservees_reinscription),
                     ouverte_candidature = COALESCE($6, ouverte_candidature),
-                    conditions_acces = $7, modifie_le = now()
+                    conditions_acces = $7, modifie_le = now(),
+                    -- Une place ajoutée (capacité en hausse, réserve de réinscription en baisse) est une **nouvelle**
+                    -- place : « passer son tour » ne valait que pour les précédentes (D-069 M-C).
+                    liberations = liberations
+                        + CASE WHEN (capacite IS NOT NULL AND ($4::int IS NULL OR $4 > capacite))
+                                 OR COALESCE($5, places_reservees_reinscription) < places_reservees_reinscription
+                               THEN 1 ELSE 0 END
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -1148,12 +1164,12 @@ impl PgEnt {
         id: Uuid,
         b: &TransitionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_ecarte(etab, actor, id).await?;
+        // Règle 2 : personnel, droit, puis existence (la garde d'écart d'un membre lié vient après le droit).
         let (action, decideur) = match b.action.as_str() {
-            "annuler" | "non_reinscription_etablissement" => (b.action.as_str(), true),
+            "annuler" | "non_reinscription_etablissement" => (Some(b.action.as_str()), true),
             "sans_suite" | "desister" | "reprendre" | "non_presente" | "reaffecte" | "sans_reponse"
-            | "reouvrir" | "en_attente_passage" => (b.action.as_str(), false),
-            _ => return Err(invalide("action de transition inconnue")),
+            | "reouvrir" | "en_attente_passage" => (Some(b.action.as_str()), false),
+            _ => (None, false),
         };
         self.ins_exiger(
             etab,
@@ -1162,6 +1178,10 @@ impl PgEnt {
             if decideur { Action::InscriptionsDecider } else { Action::InscriptionsGerer },
         )
         .await?;
+        let Some(action) = action else {
+            return Err(invalide("action de transition inconnue"));
+        };
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));

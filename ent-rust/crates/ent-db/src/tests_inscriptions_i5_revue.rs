@@ -77,6 +77,20 @@ async fn nombre(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
         .unwrap()
 }
 
+/// Code SQLSTATE d'un refus de la base (D-069 règle 3 : un refus se prouve par son code exact, jamais par « une erreur »).
+fn sqlstate<T>(r: &Result<T, sqlx::Error>) -> String {
+    match r {
+        Err(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()).unwrap_or_default(),
+        Err(autre) => format!("autre erreur : {autre}"),
+        Ok(_) => "aucune erreur".to_string(),
+    }
+}
+
+/// `check_violation` : refus des gardes de la base (écart, ajout seul).
+const CHECK_VIOLATION: &str = "23514";
+/// `unique_violation` : une racine par dossier, un seul successeur par décision.
+const UNIQUE_VIOLATION: &str = "23505";
+
 fn conflit_exact(e: &EntDbError, attendu: &str) -> bool {
     matches!(e, EntDbError::ConflitDossier(m) if *m == attendu)
 }
@@ -221,7 +235,16 @@ async fn r_e2_membre_lie_ecarte_de_toutes_les_routes() {
         );
         refus_introuvable!(
             nom("transition"),
-            ent.transition_for_actor(etab, u, r, id, &TransitionBody::default())
+            ent.transition_for_actor(
+                etab,
+                u,
+                r,
+                id,
+                &TransitionBody {
+                    action: "sans_suite".into(),
+                    motif: "Motif de test".into()
+                }
+            )
         );
         refus_introuvable!(
             nom("blocage"),
@@ -457,7 +480,11 @@ async fn r_e2_membre_lie_ecarte_de_toutes_les_routes() {
         .bind(u)
         .execute(ent.pool_verif())
         .await;
-        assert!(avis.is_err(), "{variante} : avis refusé en base");
+        assert_eq!(
+            sqlstate(&avis),
+            CHECK_VIOLATION,
+            "{variante} : avis refusé en base (garde d'écart)"
+        );
         let decision = sqlx::query(
             "INSERT INTO ent_inscription_decision
                 (id, etablissement_id, dossier_id, sens, motif_interne, decide_par, remplace_decision_id)
@@ -470,7 +497,11 @@ async fn r_e2_membre_lie_ecarte_de_toutes_les_routes() {
         .bind(decision_id)
         .execute(ent.pool_verif())
         .await;
-        assert!(decision.is_err(), "{variante} : décision refusée en base");
+        assert_eq!(
+            sqlstate(&decision),
+            CHECK_VIOLATION,
+            "{variante} : décision refusée en base (garde d'écart)"
+        );
     }
     // Un membre sans lien, lui, accède au dossier (le refus n'est pas général).
     let (u, r) = dir(&c);
@@ -533,9 +564,9 @@ async fn r_e2_seance_membres_et_plafonds() {
             .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    // Un membre inconnu de l'établissement : refusé aussi.
-    assert!(ent
-        .creer_commission_admission_for_actor(
+    // Un membre inconnu de l'établissement : refusé aussi, du même refus exact.
+    assert!(matches!(
+        ent.creer_commission_admission_for_actor(
             etab,
             u,
             r,
@@ -544,8 +575,9 @@ async fn r_e2_seance_membres_et_plafonds() {
                 ..base.clone()
             }
         )
-        .await
-        .is_err());
+        .await,
+        Err(EntDbError::SaisieInvalide(_))
+    ));
     // La direction n'est pas membre de cette séance : elle n'y décide pas (refus exact, droit présent).
     let autre = agent_direction(&ent, etab, &email("membre")).await;
     let commission = ent
@@ -804,7 +836,11 @@ async fn r_m4_chaine_et_concurrence() {
     .bind(d.id)
     .execute(ent.pool_verif())
     .await;
-    assert!(racine.is_err());
+    assert_eq!(
+        sqlstate(&racine),
+        UNIQUE_VIOLATION,
+        "une seule racine par dossier"
+    );
     let successeur = sqlx::query(
         "INSERT INTO ent_inscription_decision (id, etablissement_id, dossier_id, sens, motif_interne, remplace_decision_id)
          VALUES ($1,$2,$3,'ajourne','Second successeur',$4)",
@@ -815,7 +851,11 @@ async fn r_m4_chaine_et_concurrence() {
     .bind(h[0].id)
     .execute(ent.pool_verif())
     .await;
-    assert!(successeur.is_err());
+    assert_eq!(
+        sqlstate(&successeur),
+        UNIQUE_VIOLATION,
+        "un seul successeur par décision"
+    );
 }
 
 /// Attaques SQL directes sur les historiques en ajout seul : modification, suppression, troncature refusées ; la
@@ -905,7 +945,11 @@ async fn r_m9_ajout_seul_attaques_sql() {
             let mut tx = ent.pool_verif().begin().await.unwrap();
             let res = sqlx::query(&attaque).execute(&mut *tx).await;
             tx.rollback().await.unwrap();
-            assert!(res.is_err(), "attaque non refusée : {attaque}");
+            assert_eq!(
+                sqlstate(&res),
+                CHECK_VIOLATION,
+                "attaque non refusée par la garde d'ajout seul : {attaque}"
+            );
         }
     }
     // Le chemin de purge unique : le dépôt le pose (`SET LOCAL`), la cascade d'un dossier passe.
@@ -988,7 +1032,11 @@ async fn r_m5_admission_directe_sur_place_designee() {
     // Confirmation sans motif : refusée aussi.
     let mut b = corps("admis", Some(offre), "Admission directe");
     b.confirmer_passer_devant = true;
-    assert!(decider(&ent, &c, &direct, &b).await.is_err());
+    let e = decider(&ent, &c, &direct, &b).await.unwrap_err();
+    assert!(
+        matches!(e, EntDbError::ConflitDossier(_)),
+        "refus exact attendu (conflit) : {e:?}"
+    );
     // Confirmation motivée : la désignation est annulée (tracée), le premier garde son rang.
     b.motif_passer_devant = Some("Frère d'un élève de l'établissement".into());
     decider(&ent, &c, &direct, &b).await.unwrap();
@@ -1085,12 +1133,31 @@ async fn r_m11_passer_son_tour_une_place() {
     )
     .await
     .unwrap();
-    // Capacité augmentée : une place de plus, désignation explicite par la direction.
-    sqlx::query("UPDATE ent_inscription_offre SET capacite = 2 WHERE id = $1")
-        .bind(offre)
-        .execute(ent.pool_verif())
-        .await
-        .unwrap();
+    // Capacité augmentée **par la route de l'offre** : une place de plus (nouveau numéro de place), désignation
+    // explicite par la direction.
+    let (niveau, libelle, regime): (String, String, Option<String>) = sqlx::query_as(
+        "SELECT niveau_code, libelle_public, regime FROM ent_inscription_offre WHERE id = $1",
+    )
+    .bind(offre)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    ent.modifier_offre_for_actor(
+        etab,
+        u,
+        r,
+        offre,
+        &OffreBody {
+            niveau_code: niveau,
+            regime,
+            libelle_public: libelle,
+            capacite: Some(2),
+            motif: Some("Ouverture d'une place".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     ent.designer_suivants_for_actor(etab, u, r, offre)
         .await
         .unwrap();
@@ -1226,12 +1293,15 @@ async fn r_m8_motif_interne_reserve_au_decideur() {
         .decisions_dossier_for_actor(etab, u, r, d.id)
         .await
         .unwrap();
-    assert_eq!(direction[0].motif_interne, "MOTIF-INTERNE-SECRET");
+    assert_eq!(
+        direction[0].motif_interne.as_deref(),
+        Some("MOTIF-INTERNE-SECRET")
+    );
     let secretariat = ent
         .decisions_dossier_for_actor(etab, a, ar, d.id)
         .await
         .unwrap();
-    assert!(secretariat.iter().all(|x| x.motif_interne.is_empty()));
+    assert!(secretariat.iter().all(|x| x.motif_interne.is_none()));
     let dossier_secretariat = ent.dossier_for_actor(etab, a, ar, d.id).await.unwrap();
     assert!(!serde_json::to_string(&dossier_secretariat)
         .unwrap()
@@ -1315,7 +1385,23 @@ async fn r_m10_concurrence_envois_et_reponse() {
         ),
         ent.constater_expiration_for_actor(etab, u, r, prop, apres)
     );
-    assert!(acc.is_ok() || exp.is_ok(), "au moins une des deux passe");
+    // Exactement une des deux passe ; l'autre est refusée par le conflit classé (jamais une erreur technique).
+    assert_eq!(
+        usize::from(acc.is_ok()) + usize::from(exp.is_ok()),
+        1,
+        "exactement une des deux passe : {:?} / {:?}",
+        acc.as_ref().err(),
+        exp.as_ref().err()
+    );
+    for perdante in [acc.as_ref().err(), exp.as_ref().err()]
+        .into_iter()
+        .flatten()
+    {
+        assert!(
+            matches!(perdante, EntDbError::ConflitDossier(_)),
+            "refus exact attendu (conflit) : {perdante:?}"
+        );
+    }
     let statut: String =
         sqlx::query_scalar("SELECT statut FROM ent_inscription_proposition_place WHERE id = $1")
             .bind(prop)
@@ -1331,7 +1417,6 @@ async fn r_m10_concurrence_envois_et_reponse() {
         "expiree" => assert_eq!(etat_final, "sans_suite"),
         autre => panic!("statut final incohérent : {autre} / {etat_final}"),
     }
-    assert!(!(acc.is_ok() && exp.is_ok()) || statut == "expiree" || statut == "acceptee");
 }
 
 // ───────────────────────────── F2 / F6 ─────────────────────────────
@@ -1439,4 +1524,906 @@ async fn r_f6_recapitulatif_sans_erreur_technique() {
             "{m}"
         );
     }
+}
+
+// ═════════════════════════════ Passe 2 (contre-revue du pilote) ═════════════════════════════
+//
+// | Correctif | Test(s) |
+// |---|---|
+// | M-A, F3 : rang famille = décisions publiées (sortie de liste, séance) ; `dossier_famille` = `decision_famille` | `p2_ma_rang_famille_sortie_de_liste_non_publiee`, `p2_f3_decisions_de_seance_non_publiees` |
+// | M-B : droit avant écart (transition) | `p2_mb_droit_avant_ecart` |
+// | M-C : passer son tour, même place | `p2_mc_passer_son_tour_une_seule_place` |
+// | M-D : registre, export de la personne | `p2_md_registre_export_publie_seulement` |
+// | F4 : masquage par la chaîne | `p2_f4_masquage_par_la_chaine` |
+// | F7 : déport idempotent | `p2_f7_se_deporter_idempotent` |
+// | F9, F10, F11 : commissions et dossiers écartés | `p2_f9_f10_commission_et_dossiers_ecartes` |
+// | F14, F15 : constat et acceptation au guichet journalisés | `p2_f14_f15_constat_et_acceptation_au_guichet` |
+// | F16 : 313 rejouable sur une base de l'ancienne version | `p2_f16_313_rejouable_sur_ancienne_version` |
+
+/// Membre du personnel créé pour le test, avec ce rôle et cette adresse.
+async fn agent_role(ent: &PgEnt, etab: Uuid, mail: &str, role: &str) -> Uuid {
+    let user = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
+         VALUES ($1,$2,'x','Agent de test', now(), now())",
+    )
+    .bind(user)
+    .bind(mail)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,$3, now())",
+    )
+    .bind(user)
+    .bind(etab)
+    .bind(role)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    user
+}
+
+/// Rang vu par la famille par les deux lectures : `dossier_famille` et `decision_famille` (un seul calcul).
+async fn rang_vu(ent: &PgEnt, etab: Uuid, d: &super::tests_inscriptions_i5::Dos) -> Option<i64> {
+    let dossier = ent.dossier_famille(etab, &d.jeton, d.id).await.unwrap();
+    let decision = ent.decision_famille(etab, &d.jeton, d.id).await.unwrap();
+    assert_eq!(
+        dossier.rang_attente.map(i64::from),
+        decision.position_attente,
+        "dossier_famille et decision_famille donnent le même rang"
+    );
+    decision.position_attente
+}
+
+async fn decision_id_de(ent: &PgEnt, etab: Uuid, u: Uuid, r: &str, d: Uuid) -> Uuid {
+    ent.decisions_dossier_for_actor(etab, u, r, d)
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .id
+}
+
+/// M-A : une sortie de liste par décision **non publiée** ne décale pas le rang des autres ; une fois publiée, oui.
+#[tokio::test]
+async fn p2_ma_rang_famille_sortie_de_liste_non_publiee() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, Some(1), "2027-2028").await;
+    let plein = dossier(&ent, &c, camp, "Occupe", None).await;
+    decider(&ent, &c, &plein, &corps("admis", Some(offre), "Admis"))
+        .await
+        .unwrap();
+    let a = dossier(&ent, &c, camp, "RangA", None).await;
+    let b = dossier(&ent, &c, camp, "RangB", None).await;
+    let cc = dossier(&ent, &c, camp, "RangC", None).await;
+    for x in [&a, &b, &cc] {
+        decider(&ent, &c, x, &corps("liste_attente", Some(offre), "Complet"))
+            .await
+            .unwrap();
+    }
+    assert_eq!(rang_vu(&ent, etab, &a).await, Some(1));
+    assert_eq!(rang_vu(&ent, etab, &b).await, Some(2));
+    assert_eq!(rang_vu(&ent, etab, &cc).await, Some(3));
+
+    // B sort de la liste par un refus **non publié** (programmé) : le rang réel de C passe à 2, celui de la famille non.
+    let mut refus = corps("refuse", Some(offre), "Refus programmé");
+    refus.publier_le = Some(t("2027-03-10T09:00:00Z"));
+    revoir(&ent, &c, &b, &refus).await.unwrap();
+    let reel: Option<i32> =
+        sqlx::query_scalar("SELECT rang_attente FROM ent_inscription_dossier WHERE id = $1")
+            .bind(cc.id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(reel, Some(2), "le rang réel (personnel) a bougé");
+    assert_eq!(
+        rang_vu(&ent, etab, &cc).await,
+        Some(3),
+        "la famille ne voit pas la sortie de B"
+    );
+    assert_eq!(rang_vu(&ent, etab, &a).await, Some(1));
+    // B lui-même : rien ne se lit (décision non publiée), il compte toujours dans la file des autres.
+    assert_eq!(rang_vu(&ent, etab, &b).await, None);
+    assert_eq!(
+        ent.dossier_famille(etab, &b.jeton, b.id)
+            .await
+            .unwrap()
+            .etat,
+        "liste_attente"
+    );
+
+    // Un dossier dont l'entrée en liste n'est pas publiée ne compte pas encore pour les autres.
+    let nouveau = dossier(&ent, &c, camp, "RangD", None).await;
+    let mut entree = corps("liste_attente", Some(offre), "Complet");
+    entree.publier_le = Some(t("2027-03-10T09:00:00Z"));
+    decider(&ent, &c, &nouveau, &entree).await.unwrap();
+    assert_eq!(rang_vu(&ent, etab, &nouveau).await, None);
+    assert_eq!(rang_vu(&ent, etab, &cc).await, Some(3));
+
+    // La sortie de B publiée : C avance, pour les deux lectures.
+    let id = decision_id_de(&ent, etab, u, r, b.id).await;
+    ent.publier_decision_for_actor(etab, u, r, id, &PublierBody::default(), maintenant())
+        .await
+        .unwrap();
+    assert_eq!(rang_vu(&ent, etab, &cc).await, Some(2));
+    assert_eq!(rang_vu(&ent, etab, &a).await, Some(1));
+}
+
+/// F3 : les décisions prises **en séance** restent non publiées jusqu'à la publication de la séance ; ni l'état ni le
+/// rang vus par la famille ne bougent avant, les deux lectures concordent.
+#[tokio::test]
+async fn p2_f3_decisions_de_seance_non_publiees() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, Some(1), "2027-2028").await;
+    let plein = dossier(&ent, &c, camp, "Occupe", None).await;
+    decider(&ent, &c, &plein, &corps("admis", Some(offre), "Admis"))
+        .await
+        .unwrap();
+    let a = dossier(&ent, &c, camp, "SeanceA", None).await;
+    let b = dossier(&ent, &c, camp, "SeanceB", None).await;
+    let cc = dossier(&ent, &c, camp, "SeanceC", None).await;
+    for x in [&a, &b, &cc] {
+        decider(&ent, &c, x, &corps("liste_attente", Some(offre), "Complet"))
+            .await
+            .unwrap();
+    }
+    let commission = ent
+        .creer_commission_admission_for_actor(
+            etab,
+            u,
+            r,
+            &CommissionBody {
+                campagne_id: camp,
+                intitule: "Séance de test".into(),
+                seance_le: t("2027-03-20T14:00:00Z"),
+                membres: vec![u],
+                dossier_ids: vec![b.id],
+            },
+        )
+        .await
+        .unwrap();
+    let recap = ent
+        .decider_en_lot_for_actor(
+            etab,
+            u,
+            r,
+            commission.id,
+            &DecisionsEnLotBody {
+                decisions: vec![DecisionEnLotItem {
+                    dossier_id: b.id,
+                    decision: corps("refuse", Some(offre), "Refus de séance"),
+                }],
+            },
+            maintenant(),
+        )
+        .await
+        .unwrap();
+    assert_eq!((recap.reussies, recap.refusees), (1, 0), "{recap:?}");
+    assert_eq!(
+        rang_vu(&ent, etab, &cc).await,
+        Some(3),
+        "décision de séance non publiée : rien ne bouge"
+    );
+    assert_eq!(rang_vu(&ent, etab, &b).await, None);
+    assert_eq!(
+        ent.dossier_famille(etab, &b.jeton, b.id)
+            .await
+            .unwrap()
+            .etat,
+        "liste_attente"
+    );
+    let p = ent
+        .publier_commission_for_actor(
+            etab,
+            u,
+            r,
+            commission.id,
+            &PublierBody::default(),
+            maintenant(),
+        )
+        .await
+        .unwrap();
+    assert_eq!((p.publiees, p.ignorees), (1, 0));
+    assert_eq!(rang_vu(&ent, etab, &cc).await, Some(2));
+    assert_eq!(
+        ent.dossier_famille(etab, &b.jeton, b.id)
+            .await
+            .unwrap()
+            .etat,
+        "refuse"
+    );
+}
+
+/// M-B : le droit précède la garde d'écart. Un compte **sans** le droit et lié au candidat reçoit « interdit » (403),
+/// un compte **avec** le droit et lié reçoit « introuvable » ; une action inconnue n'est signalée qu'après le droit.
+#[tokio::test]
+async fn p2_mb_droit_avant_ecart() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    let second = email("second");
+    let d = dossier(&ent, &c, camp, "DroitEcart", Some(&second)).await;
+    decider(
+        &ent,
+        &c,
+        &d,
+        &corps("liste_attente", Some(offre), "Complet"),
+    )
+    .await
+    .unwrap();
+    // Lié (adresse du second responsable) mais sans le droit de décider : le secrétariat (« administratif »).
+    let sans_droit = agent_role(&ent, etab, &second, "administratif").await;
+    let annuler = TransitionBody {
+        action: "annuler".into(),
+        motif: "Motif de test".into(),
+    };
+    let r = ent
+        .transition_for_actor(etab, sans_droit, "administratif", d.id, &annuler)
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::Forbidden)),
+        "sans droit et lié : 403 exact, obtenu {:?}",
+        r.err()
+    );
+    let r = ent
+        .decider_avance_for_actor(
+            etab,
+            sans_droit,
+            "administratif",
+            d.id,
+            &DecisionAvanceeBody {
+                decision: "refuse".into(),
+                motif: Some("Motif".into()),
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::Forbidden)),
+        "décision sans droit et lié : 403 exact, obtenu {:?}",
+        r.err()
+    );
+    // Lié **avec** le droit : introuvable.
+    let avec_droit = agent_direction(&ent, etab, &d.email).await;
+    refus_introuvable!(
+        "transition (avec droit, lié)",
+        ent.transition_for_actor(etab, avec_droit, "direction", d.id, &annuler)
+    );
+    // Action inconnue : le droit d'abord, puis la forme de la demande (jamais l'existence du dossier).
+    let r = ent
+        .transition_for_actor(
+            etab,
+            avec_droit,
+            "direction",
+            d.id,
+            &TransitionBody {
+                action: "inconnue".into(),
+                motif: "Motif de test".into(),
+            },
+        )
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::SaisieInvalide(_))),
+        "forme refusée avant l'existence : {:?}",
+        r.err()
+    );
+}
+
+/// M-C : « passer son tour » — A, B écartent la même place : ni la désignation automatique ni l'appel sans exclusion ne
+/// la reproposent à A ; une place libérée **ensuite** redevient proposable à A à son rang.
+#[tokio::test]
+async fn p2_mc_passer_son_tour_une_seule_place() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, Some(1), "2027-2028").await;
+    let plein = dossier(&ent, &c, camp, "Libere", None).await;
+    decider(&ent, &c, &plein, &corps("admis", Some(offre), "Admis"))
+        .await
+        .unwrap();
+    let a = dossier(&ent, &c, camp, "TourA", None).await;
+    let b = dossier(&ent, &c, camp, "TourB", None).await;
+    for x in [&a, &b] {
+        decider(&ent, &c, x, &corps("liste_attente", Some(offre), "Complet"))
+            .await
+            .unwrap();
+    }
+    revoir(
+        &ent,
+        &c,
+        &plein,
+        &corps("refuse", Some(offre), "Désistement"),
+    )
+    .await
+    .unwrap();
+    let motif = MotifBody {
+        motif: "Famille injoignable".into(),
+    };
+    // A est désigné, passe son tour : B est désigné, passe son tour.
+    let (pa, sa) = proposition_ouverte(&ent, etab, &a)
+        .await
+        .expect("A désigné");
+    assert_eq!(sa, "designee");
+    ent.ecarter_proposition_for_actor(etab, u, r, pa, &motif, maintenant())
+        .await
+        .unwrap();
+    let (pb, sb) = proposition_ouverte(&ent, etab, &b)
+        .await
+        .expect("B désigné à la suite");
+    assert_eq!(sb, "designee");
+    ent.ecarter_proposition_for_actor(etab, u, r, pb, &motif, maintenant())
+        .await
+        .unwrap();
+    // A/B/A : la même place n'est pas reproposée à A, ni à B.
+    assert!(
+        proposition_ouverte(&ent, etab, &a).await.is_none(),
+        "A n'est pas re-désigné pour la même place"
+    );
+    assert!(proposition_ouverte(&ent, etab, &b).await.is_none());
+    // L'appel sans exclusion (désignation explicite) ne la reprend pas non plus.
+    ent.designer_suivants_for_actor(etab, u, r, offre)
+        .await
+        .unwrap();
+    assert!(
+        proposition_ouverte(&ent, etab, &a).await.is_none(),
+        "appel sans exclusion : toujours pas A"
+    );
+    assert!(proposition_ouverte(&ent, etab, &b).await.is_none());
+    // Une place libérée ensuite : A redevient désignable, à son rang.
+    let y = dossier(&ent, &c, camp, "Nouveau", None).await;
+    decider(&ent, &c, &y, &corps("admis", Some(offre), "Admis"))
+        .await
+        .unwrap();
+    revoir(&ent, &c, &y, &corps("refuse", Some(offre), "Désistement"))
+        .await
+        .unwrap();
+    let (_, s) = proposition_ouverte(&ent, etab, &a)
+        .await
+        .expect("A désigné pour la nouvelle place");
+    assert_eq!(s, "designee");
+    assert!(
+        proposition_ouverte(&ent, etab, &b).await.is_none(),
+        "une seule place : une seule désignation"
+    );
+}
+
+/// M-D : l'export de la personne (registre des données) ne porte ni motif ni auteur de décision, ni état interne, ni rang
+/// brut ; il se limite aux décisions publiées ; chaque colonne retirée existe, la condition de ligne est du SQL valide.
+#[tokio::test]
+async fn p2_md_registre_export_publie_seulement() {
+    let Some((ent, _c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let get = |nom: &str| {
+        crate::registre_donnees::REGISTRE
+            .iter()
+            .find(|c| c.nom == nom)
+            .unwrap()
+    };
+    let dossier = get("ent_inscription_dossier");
+    for col in [
+        "decision_motif",
+        "decide_par",
+        "etat",
+        "etat_avant_blocage",
+        "rang_attente",
+        "ordre_attente",
+    ] {
+        assert!(
+            dossier.colonnes_hors_export.contains(&col),
+            "dossier : {col} jamais exporté"
+        );
+    }
+    let decision = get("ent_inscription_decision");
+    assert!(decision.colonnes_hors_export.contains(&"motif_interne"));
+    assert!(decision.colonnes_hors_export.contains(&"decide_par"));
+    assert_eq!(
+        decision.export_si,
+        Some("x.publiee_le IS NOT NULL"),
+        "décisions publiées seulement"
+    );
+    let suivi = get("ent_inscription_suivi_dossier");
+    assert!(
+        suivi
+            .export_si
+            .is_some_and(|s| s.contains("publiee_le IS NOT NULL")),
+        "suivi d'une décision non publiée exclu"
+    );
+    for classe in [dossier, decision, suivi] {
+        for col in classe.colonnes_hors_export {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2",
+            )
+            .bind(classe.nom)
+            .bind(*col)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+            assert_eq!(
+                n, 1,
+                "{}.{col} : la colonne retirée de l'export existe",
+                classe.nom
+            );
+        }
+        if let Some(cond) = classe.export_si {
+            sqlx::query(&format!(
+                "SELECT count(*) FROM {} x WHERE {cond}",
+                classe.nom
+            ))
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap_or_else(|e| panic!("{} : condition d'export invalide : {e}", classe.nom));
+        }
+    }
+}
+
+/// F4 : le suivi d'une décision non publiée se masque par la **chaîne** (rattachement à la décision), jamais par
+/// une date : même antidaté, il ne se lit pas avant la publication, et se lit après.
+#[tokio::test]
+async fn p2_f4_masquage_par_la_chaine() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (a, ar) = adm(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    let d = dossier(&ent, &c, camp, "Chaine", None).await;
+    decider(
+        &ent,
+        &c,
+        &d,
+        &corps("liste_attente", Some(offre), "Complet"),
+    )
+    .await
+    .unwrap();
+    let mut refus = corps("refuse", Some(offre), "Refus programmé");
+    refus.publier_le = Some(t("2027-03-10T09:00:00Z"));
+    revoir(&ent, &c, &d, &refus).await.unwrap();
+    // Un commentaire visible de la famille, écrit pendant la décision non publiée : rattaché à elle.
+    ent.commenter_for_actor(
+        etab,
+        a,
+        ar,
+        d.id,
+        &CommentaireBody {
+            texte: "COMMENTAIRE-PENDANT".into(),
+            visible_famille: true,
+        },
+    )
+    .await
+    .unwrap();
+    // Antidatage de toutes les lignes du suivi : le masquage ne doit pas dépendre des dates.
+    sqlx::query("UPDATE ent_inscription_suivi_dossier SET created_at = '2020-01-01T00:00:00Z' WHERE dossier_id = $1")
+        .bind(d.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let json =
+        serde_json::to_string(&ent.dossier_famille(etab, &d.jeton, d.id).await.unwrap()).unwrap();
+    assert!(
+        !json.contains("\"refuse\"") && !json.contains("COMMENTAIRE-PENDANT"),
+        "{json}"
+    );
+    let id = decision_id_de(&ent, etab, u, r, d.id).await;
+    ent.publier_decision_for_actor(etab, u, r, id, &PublierBody::default(), maintenant())
+        .await
+        .unwrap();
+    let json =
+        serde_json::to_string(&ent.dossier_famille(etab, &d.jeton, d.id).await.unwrap()).unwrap();
+    assert!(
+        json.contains("COMMENTAIRE-PENDANT") && json.contains("\"refuse\""),
+        "{json}"
+    );
+}
+
+/// F7 : se déporter deux fois est idempotent (même réponse, une seule ligne, une seule trace).
+#[tokio::test]
+async fn p2_f7_se_deporter_idempotent() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (a, ar) = adm(&c);
+    let (camp, _offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    let d = dossier(&ent, &c, camp, "Deport", None).await;
+    let b = DeportBody {
+        motif: "Connaissance de la famille".into(),
+    };
+    let premier = ent
+        .se_deporter_for_actor(etab, a, ar, d.id, &b)
+        .await
+        .unwrap();
+    let second = ent
+        .se_deporter_for_actor(etab, a, ar, d.id, &b)
+        .await
+        .unwrap();
+    assert_eq!(premier, second);
+    assert!(second.deporte);
+    assert_eq!(
+        nombre(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_deport WHERE dossier_id = $1",
+            d.id
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        nombre(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_suivi_dossier WHERE dossier_id = $1 AND kind = 'deport'",
+            d.id
+        )
+        .await,
+        1
+    );
+}
+
+/// F9, F10, F11 : une commission n'accepte pas un dossier dont l'acteur est écarté ; la publication d'une séance ignore
+/// (et signale) ces dossiers au lieu d'échouer en bloc ; les listes écartent les dossiers en une requête groupée.
+#[tokio::test]
+async fn p2_f9_f10_commission_et_dossiers_ecartes() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    let d1 = dossier(&ent, &c, camp, "Libre", None).await;
+    let d2 = dossier(&ent, &c, camp, "Lie", None).await;
+    let lie = agent_direction(&ent, etab, &d2.email).await;
+    let base = CommissionBody {
+        campagne_id: camp,
+        intitule: "Séance écartée".into(),
+        seance_le: t("2027-03-20T14:00:00Z"),
+        membres: vec![u],
+        dossier_ids: vec![d2.id],
+    };
+    // F9 : création avec un dossier dont l'acteur est écarté : introuvable.
+    refus_introuvable!(
+        "créer",
+        ent.creer_commission_admission_for_actor(etab, lie, "direction", &base)
+    );
+    let commission = ent
+        .creer_commission_admission_for_actor(
+            etab,
+            u,
+            r,
+            &CommissionBody {
+                dossier_ids: vec![d1.id],
+                ..base.clone()
+            },
+        )
+        .await
+        .unwrap();
+    refus_introuvable!(
+        "ajouter",
+        ent.modifier_dossiers_commission_for_actor(
+            etab,
+            lie,
+            "direction",
+            commission.id,
+            &CommissionDossiersBody {
+                ajouter: vec![d2.id],
+                retirer: vec![]
+            }
+        )
+    );
+    ent.modifier_dossiers_commission_for_actor(
+        etab,
+        u,
+        r,
+        commission.id,
+        &CommissionDossiersBody {
+            ajouter: vec![d2.id],
+            retirer: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    // La liste de la séance ne montre pas le dossier lié à l'agent lié (F11 : un seul filtre groupé).
+    let vue = ent
+        .commission_admission_for_actor(etab, lie, "direction", commission.id)
+        .await
+        .unwrap();
+    assert!(
+        vue.dossiers.iter().all(|x| x.dossier_id != d2.id)
+            && vue.dossiers.iter().any(|x| x.dossier_id == d1.id)
+    );
+    // Décisions de séance (non publiées) sur les deux dossiers.
+    let lot = DecisionsEnLotBody {
+        decisions: [&d1, &d2]
+            .iter()
+            .map(|x| DecisionEnLotItem {
+                dossier_id: x.id,
+                decision: corps("liste_attente", Some(offre), "Complet"),
+            })
+            .collect(),
+    };
+    let recap = ent
+        .decider_en_lot_for_actor(etab, u, r, commission.id, &lot, maintenant())
+        .await
+        .unwrap();
+    assert_eq!((recap.reussies, recap.refusees), (2, 0), "{recap:?}");
+    // F10 : l'agent lié à d2 publie la séance : d1 est publié, d2 ignoré et signalé, aucun échec en bloc.
+    let p = ent
+        .publier_commission_for_actor(
+            etab,
+            lie,
+            "direction",
+            commission.id,
+            &PublierBody::default(),
+            maintenant(),
+        )
+        .await
+        .unwrap();
+    assert_eq!((p.publiees, p.ignorees), (1, 1), "{p:?}");
+    let publiee = |d: Uuid| {
+        nombre(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = $1 AND publiee_le IS NOT NULL",
+            d,
+        )
+    };
+    assert_eq!(publiee(d1.id).await, 1);
+    assert_eq!(
+        publiee(d2.id).await,
+        0,
+        "le dossier écarté n'est pas publié à sa place"
+    );
+    let p = ent
+        .publier_commission_for_actor(
+            etab,
+            u,
+            r,
+            commission.id,
+            &PublierBody::default(),
+            maintenant(),
+        )
+        .await
+        .unwrap();
+    assert_eq!((p.publiees, p.ignorees), (1, 0));
+}
+
+/// F14, F15 : un constat de condition est journalisé en ajout seul ; le secrétariat enregistre l'acceptation de la
+/// famille au guichet, tracée à part (motif obligatoire, journal, auteur) et jamais confondue avec sa réponse.
+#[tokio::test]
+async fn p2_f14_f15_constat_et_acceptation_au_guichet() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (u, r) = dir(&c);
+    let (a, ar) = adm(&c);
+    let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    ent.definir_conditions_campagne_for_actor(
+        etab,
+        u,
+        r,
+        camp,
+        &ConditionsCampagneBody {
+            codes: vec!["reponse_famille".into(), "contrat_signe".into()],
+        },
+    )
+    .await
+    .unwrap();
+    let d = dossier(&ent, &c, camp, "Guichet", None).await;
+    decider(&ent, &c, &d, &corps("admis", Some(offre), "Admis"))
+        .await
+        .unwrap();
+    // F14 : le constat du contrat est journalisé (genre `remplie`), comme la levée.
+    ent.remplir_condition_for_actor(
+        etab,
+        a,
+        ar,
+        d.id,
+        "contrat_signe",
+        &RemplirConditionBody::default(),
+        maintenant(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        nombre(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_condition_levee
+              WHERE dossier_id = $1 AND code = 'contrat_signe' AND genre = 'remplie'",
+            d.id
+        )
+        .await,
+        1
+    );
+    let attaque = sqlx::query(
+        "UPDATE ent_inscription_condition_levee SET motif = 'falsifié' WHERE dossier_id = $1",
+    )
+    .bind(d.id)
+    .execute(ent.pool_verif())
+    .await;
+    assert_eq!(sqlstate(&attaque), CHECK_VIOLATION, "journal en ajout seul");
+    // F15 : acceptation au guichet. Le motif est obligatoire.
+    let (prop, statut) = proposition_ouverte(&ent, etab, &d).await.unwrap();
+    assert_eq!(statut, "envoyee");
+    let sans = ent
+        .accepter_proposition_au_guichet_for_actor(
+            etab,
+            a,
+            ar,
+            prop,
+            &MotifBody { motif: "  ".into() },
+            maintenant(),
+        )
+        .await;
+    assert!(
+        matches!(sans, Err(EntDbError::SaisieInvalide(_))),
+        "{:?}",
+        sans.err()
+    );
+    let dto = ent
+        .accepter_proposition_au_guichet_for_actor(
+            etab,
+            a,
+            ar,
+            prop,
+            &MotifBody {
+                motif: "Parent venu au guichet, signature sur place".into(),
+            },
+            maintenant(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dto.statut, "acceptee");
+    let (source, par): (Option<String>, Option<Uuid>) = sqlx::query_as(
+        "SELECT source, remplie_par FROM ent_inscription_condition WHERE dossier_id = $1 AND code = 'reponse_famille'",
+    )
+    .bind(d.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        (source.as_deref(), par),
+        (Some("personnel"), Some(a)),
+        "tracée comme saisie du personnel"
+    );
+    assert_eq!(
+        nombre(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_condition_levee
+              WHERE dossier_id = $1 AND code = 'reponse_famille' AND genre = 'guichet'",
+            d.id
+        )
+        .await,
+        1
+    );
+    // Une seule fois.
+    let encore = ent
+        .accepter_proposition_au_guichet_for_actor(
+            etab,
+            a,
+            ar,
+            prop,
+            &MotifBody {
+                motif: "Deuxième saisie".into(),
+            },
+            maintenant(),
+        )
+        .await;
+    assert!(
+        matches!(encore, Err(EntDbError::ConflitDossier(_))),
+        "{:?}",
+        encore.err()
+    );
+}
+
+/// F16 : 313 rejouable sur une base où l'**ancienne** version a tourné (objets de la passe 1 absents, historique de
+/// décisions sans chaîne). Tout se passe dans une transaction annulée : la base de test n'est pas modifiée.
+#[tokio::test]
+async fn p2_f16_313_rejouable_sur_ancienne_version() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
+    let d = dossier(&ent, &c, camp, "Ancienne", None).await;
+    decider(
+        &ent,
+        &c,
+        &d,
+        &corps("liste_attente", Some(offre), "Complet"),
+    )
+    .await
+    .unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    // L'état de l'ancienne version : ni la chaîne, ni les gardes de lien, ni le journal des levées, ni les colonnes de la passe 2.
+    for ordre in [
+        "DROP TRIGGER IF EXISTS ent_inscription_decision_chaine_trg ON ent_inscription_decision",
+        "DROP TRIGGER IF EXISTS ent_inscription_decision_ecarte_trg ON ent_inscription_decision",
+        "DROP TRIGGER IF EXISTS ent_inscription_decision_truncate_trg ON ent_inscription_decision",
+        "DROP TRIGGER IF EXISTS ent_inscription_avis_truncate_trg ON ent_inscription_avis",
+        "DROP TRIGGER IF EXISTS ent_inscription_avis_ecarte_trg ON ent_inscription_avis",
+        "DROP TRIGGER IF EXISTS ent_inscription_deport_truncate_trg ON ent_inscription_deport",
+        "DROP INDEX IF EXISTS ent_inscription_decision_racine_uq",
+        "DROP INDEX IF EXISTS ent_inscription_decision_successeur_uq",
+        "DROP TABLE IF EXISTS ent_inscription_condition_levee",
+        "ALTER TABLE ent_inscription_suivi_dossier DROP COLUMN IF EXISTS decision_id",
+        "ALTER TABLE ent_inscription_offre DROP COLUMN IF EXISTS liberations",
+        "ALTER TABLE ent_inscription_proposition_place DROP COLUMN IF EXISTS place_no",
+        "ALTER TABLE ent_inscription_dossier DROP COLUMN IF EXISTS ordre_attente, DROP COLUMN IF EXISTS offre_attente_id",
+        "DROP FUNCTION IF EXISTS ent_inscription_en_liste_visible(uuid, uuid, text)",
+        "DROP SEQUENCE IF EXISTS ent_inscription_attente_ordre_seq",
+        // Un historique **sans chaîne** : deux racines pour le même dossier (ce que l'ancien code pouvait laisser).
+        "ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_decision_ajout_seul_trg",
+    ] {
+        sqlx::query(ordre).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{ordre} : {e}"));
+    }
+    sqlx::query(
+        "INSERT INTO ent_inscription_decision (id, etablissement_id, dossier_id, sens, motif_interne, decide_le)
+         VALUES ($1,$2,$3,'refuse','Seconde racine héritée', now() + interval '1 minute')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(d.id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE ent_inscription_decision ENABLE TRIGGER ent_inscription_decision_ajout_seul_trg")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    // Rejeu du fichier courant.
+    let sql = include_str!("../../../migrations/313_inscription_decision_i5.sql");
+    for ordre in crate::migrate::ordres(sql) {
+        sqlx::query(&ordre)
+            .execute(&mut *tx)
+            .await
+            .unwrap_or_else(|e| panic!("rejeu de 313 refusé : {e}\n{ordre}"));
+    }
+    // L'historique est chaîné (une racine, un successeur) et les objets sont revenus.
+    let racines: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = $1 AND remplace_decision_id IS NULL",
+    )
+    .bind(d.id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        racines, 1,
+        "l'historique sans chaîne est chaîné par le rejeu"
+    );
+    for objet in [
+        "ent_inscription_condition_levee",
+        "ent_inscription_decision_racine_uq",
+        "ent_inscription_attente_ordre_seq",
+    ] {
+        let n: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+            .bind(objet)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert!(n.is_some(), "{objet} recréé par le rejeu");
+    }
+    tx.rollback().await.unwrap();
 }

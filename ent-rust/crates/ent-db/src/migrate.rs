@@ -752,7 +752,7 @@ impl GardeRejeu {
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
 /// commentaire deviendrait une « requête »), blocs `$$ … $$` préservés.
-fn ordres(sql: &str) -> Vec<String> {
+pub(crate) fn ordres(sql: &str) -> Vec<String> {
     let sans_commentaires: String = sql
         .lines()
         .filter(|l| !l.trim_start().starts_with("--"))

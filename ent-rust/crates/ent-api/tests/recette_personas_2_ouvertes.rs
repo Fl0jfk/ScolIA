@@ -237,19 +237,24 @@ impl Scene {
             .expect("connexion SQL de test")
     }
 
-    /// Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée. Raccourci de test
-    /// (SQL de la base de test) pour les parcours qui valident juste après l'admission.
-    async fn famille_a_accepte(&self, dossier: Uuid) {
-        let pool = self.pool().await;
-        sqlx::query(
-            "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le \
-             WHERE dossier_id = $1 AND statut = 'envoyee'",
-        )
-        .bind(dossier)
-        .execute(&pool)
-        .await
-        .expect("acceptation de la place par la famille");
-        pool.close().await;
+    /// Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée. **Vraie** acceptation :
+    /// la route de la famille (`POST /preinscription/dossiers/{id}/proposition/repondre`, jeton de préinscription).
+    async fn famille_a_accepte(&self, dossier: Uuid, jeton: &str) {
+        let r = self
+            .appel_en_tetes(
+                "POST",
+                &format!("/preinscription/dossiers/{dossier}/proposition/repondre"),
+                None,
+                &[("x-preinscription", jeton)],
+                Some(&json!({"reponse":"acceptee"})),
+            )
+            .await;
+        assert!(
+            r.statut.is_success(),
+            "acceptation de la place : {} {}",
+            r.statut,
+            r.texte
+        );
     }
 
     /// Donne à `email` le mot de passe de la Direction (base de test, comptes créés sans mot de passe).
@@ -564,7 +569,7 @@ impl Scene {
             c.texte
         );
         let resp = uuid(&c.json["responsables"][0]["responsable_id"]);
-        self.famille_a_accepte(dossier).await;
+        self.famille_a_accepte(dossier, &jeton).await;
         (dossier, resp)
     }
 

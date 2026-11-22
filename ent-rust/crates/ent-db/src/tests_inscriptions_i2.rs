@@ -921,7 +921,6 @@ async fn i2_blocage_desaccord() {
     ent.blocage_for_actor(etab, d, dr, dossier, &BlocageBody { bloquer: false, motif: "Accord écrit reçu".into() }).await.unwrap();
     assert_eq!(ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap().etat, "admis");
     assert!(ent.blocage_for_actor(etab, d, dr, dossier, &BlocageBody { bloquer: false, motif: "Encore".into() }).await.is_err());
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.unwrap();
 }
 
@@ -1137,7 +1136,6 @@ async fn i2_annuler_une_validation_erronee() {
     assert_eq!(events, 1);
     let dto = ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap();
     assert_eq!((dto.etat.as_str(), dto.eleve_id, dto.valide_le), ("confirme", None, None));
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     // Une nouvelle validation, correcte cette fois, est possible. La fiche archivée est un homonyme :
     // le choix humain (jamais implicite) est de créer une nouvelle fiche.
     assert!(ent
@@ -1154,7 +1152,6 @@ async fn i2_annuler_une_validation_erronee() {
             foyer: None,
         });
     }
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v2 = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody {
             niveau: Some("6EME".into()),

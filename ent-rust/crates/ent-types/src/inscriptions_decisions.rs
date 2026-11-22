@@ -54,7 +54,10 @@ pub struct DecisionDto {
     pub sens: String,
     pub offre_id: Option<Uuid>,
     pub reserve: Option<String>,
-    pub motif_interne: String,
+    /// Motif interne, **réservé** à `inscriptions.decider` : `None` quand il est masqué au lecteur (jamais une chaîne
+    /// vide, qui se confondrait avec un motif réellement vide ; D-069 F13).
+    #[serde(default)]
+    pub motif_interne: Option<String>,
     pub motif_communique: Option<String>,
     pub depassement_capacite: bool,
     pub alternative: bool,
@@ -83,6 +86,10 @@ pub struct PublicationDto {
     pub publiees: i64,
     pub programmees: i64,
     pub familles_prevenues: i64,
+    /// Décisions **ignorées** parce que l'acteur est écarté du dossier (déport ou lien) : elles ne se publient pas
+    /// à sa place. Un nombre seulement, jamais le dossier (D-069 F10).
+    #[serde(default)]
+    pub ignorees: i64,
 }
 
 /// Projet de courrier (jamais envoyé tel quel : la direction le relit, le publie par l'espace de la famille).
@@ -126,13 +133,11 @@ pub struct DeportBody {
     pub motif: String,
 }
 
-/// Réponse de `GET /inscriptions/dossiers/{id}/deport` : le déport est proposé, jamais imposé.
+/// Réponse de `GET /inscriptions/dossiers/{id}/deport` : l'état du déport du lecteur (un lien avec le candidat l'écarte d'office : « introuvable »).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeportEtatDto {
     /// Le lecteur s'est déjà déporté de ce dossier.
     pub deporte: bool,
-    /// Le lecteur partage une adresse avec un responsable ou le déposant du dossier : déport suggéré.
-    pub conflit_possible: bool,
 }
 
 // ───────────────────────────── Commissions ─────────────────────────────

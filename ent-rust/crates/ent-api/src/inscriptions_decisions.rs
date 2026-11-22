@@ -110,6 +110,10 @@ pub fn routes() -> Router<AppState> {
             post(ecarter_proposition),
         )
         .route(
+            "/inscriptions/propositions/{id}/accepter-au-guichet",
+            post(accepter_au_guichet),
+        )
+        .route(
             "/inscriptions/propositions/{id}/constater-expiration",
             post(constater_expiration),
         )
@@ -591,6 +595,29 @@ async fn ecarter_proposition(
         state
             .ent
             .ecarter_proposition_for_actor(
+                s.etablissement_id,
+                s.user_id,
+                &s.role,
+                id,
+                &b,
+                Utc::now(),
+            )
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn accepter_au_guichet(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    b: Result<Json<MotifBody>, JsonRejection>,
+) -> Res<Json<PropositionDto>> {
+    let b = corps(b)?;
+    Ok(Json(
+        state
+            .ent
+            .accepter_proposition_au_guichet_for_actor(
                 s.etablissement_id,
                 s.user_id,
                 &s.role,

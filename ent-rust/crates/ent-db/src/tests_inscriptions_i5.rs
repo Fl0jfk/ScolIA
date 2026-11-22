@@ -297,7 +297,7 @@ async fn i5_motif_interne_obligatoire_et_ajout_seul() {
         ["refuse", "admis"]
     );
     assert_eq!(
-        h[0].motif_interne, "Dossier hors secteur",
+        h[0].motif_interne.as_deref(), Some("Dossier hors secteur"),
         "l'ancienne ligne est intacte"
     );
 }

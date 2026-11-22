@@ -35,16 +35,27 @@ pub(crate) fn distributeur(ent: &PgEnt, etab: Uuid) -> Distributeur {
 }
 
 /// Les anciens parcours valident juste après l'admission : la famille a **accepté** la place proposée (règle 3 de
-/// D-069 : la validation attend cette réponse). Raccourci de test (le parcours réel : `r_m3_…`, `i5_…`).
-pub(crate) async fn famille_a_accepte(ent: &PgEnt, dossier: Uuid) {
-    sqlx::query(
-        "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le
-          WHERE dossier_id = $1 AND statut = 'envoyee'",
-    )
-    .bind(dossier)
-    .execute(ent.pool_verif())
-    .await
-    .unwrap();
+/// D-069 : la validation attend cette réponse). Raccourci de test (le parcours réel : `repondre_proposition_famille`,
+/// voir `parcours_famille_de_bout_en_bout`, `r_m3_…`, `i5_…`) : il doit toucher **au moins** une proposition, sinon le
+/// test croirait avoir fait accepter une place qui n'existe pas (D-069, passe 2).
+#[track_caller]
+pub(crate) fn famille_a_accepte<'a>(
+    ent: &'a PgEnt,
+    dossier: Uuid,
+) -> impl std::future::Future<Output = ()> + 'a {
+    let appelant = std::panic::Location::caller();
+    async move {
+        let n = sqlx::query(
+            "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le
+              WHERE dossier_id = $1 AND statut = 'envoyee'",
+        )
+        .bind(dossier)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap()
+        .rows_affected();
+        assert!(n >= 1, "aucune proposition envoyée à accepter pour le dossier {dossier} (appel : {appelant})");
+    }
 }
 
 pub(crate) fn dir(c: &LaboCast) -> (Uuid, &'static str) {
@@ -452,7 +463,19 @@ async fn parcours_famille_de_bout_en_bout() {
         .await
         .unwrap();
     let classe = classe_courante(&ent, etab, "6A").await;
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
+    // Règle 3 de D-069 : la **vraie** acceptation de la place par la famille (jamais un raccourci SQL), avec une
+    // date fixe (un test ne dépend pas de l'heure à laquelle il tourne).
+    let acceptee = ent
+        .repondre_proposition_famille(
+            etab,
+            &jeton,
+            dossier.id,
+            &ent_types::inscriptions_decisions::ReponsePropositionBody { reponse: "acceptee".into() },
+            chrono::DateTime::parse_from_rfc3339("2027-03-01T10:00:00Z").unwrap().to_utc(),
+        )
+        .await
+        .unwrap();
+    assert!(acceptee.publiee);
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1034,14 +1057,12 @@ async fn reinscription_campagne() {
         .await
         .unwrap();
     assert_eq!(dep.statut, "desistement");
-    crate::tests_inscriptions::famille_a_accepte(&ent, draco.id).await;
     assert!(ent
         .valider_inscription_for_actor(etab, d, dr, draco.id, &ValidationBody::default())
         .await
         .is_err());
     // Validation de Harry, classe de l'année courante.
     let classe = classe_courante(&ent, etab, "5B").await;
-    crate::tests_inscriptions::famille_a_accepte(&ent, harry.id).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1565,7 +1586,6 @@ async fn isolation_etablissements() {
         )
         .await
         .is_err());
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     ent.valider_inscription_for_actor(
         a.etablissement_id,
         da,
@@ -1806,7 +1826,6 @@ async fn attaque_email_parent_existant_aucun_acces() {
 
     // Une personne de l'établissement confirme le rapprochement.
     let resp2 = resp_id(&ent, dossier, 2).await;
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1988,7 +2007,6 @@ async fn fratrie_foyer_existant_confirme() {
         }],
         None,
     );
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &avec_foyer)
         .await
@@ -2052,7 +2070,6 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         .is_err());
     // La fiche a déjà des responsables : sans confirmation explicite, refus (INE copié).
     assert!(corr.eleves.iter().any(|e| e.responsables_lies > 0));
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     assert!(ent
         .valider_inscription_for_actor(
             etab,
@@ -2069,7 +2086,6 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         )
         .await
         .is_err());
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -2722,7 +2738,6 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &corps)
         .await

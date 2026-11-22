@@ -83,6 +83,34 @@ BEGIN
         USING ERRCODE = 'check_violation';
 END $$;
 
+-- Reprise (D-069 F16) : sur une base où une version antérieure de ce fichier (ou le code d'avant le lot) a laissé
+-- **plusieurs racines** pour un dossier (historique sans chaîne), l'index unique ci-dessous échouerait. Un dossier dont
+-- aucune décision ne remplace une autre est chaîné dans l'ordre de ses décisions (date, puis identifiant) ; un dossier
+-- déjà chaîné n'est pas touché. L'ajout seul est suspendu le temps de cette réparation, puis rétabli.
+DO $$
+DECLARE
+    v_garde boolean;
+BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_trigger
+                    WHERE tgname = 'ent_inscription_decision_ajout_seul_trg'
+                      AND tgrelid = 'ent_inscription_decision'::regclass) INTO v_garde;
+    IF v_garde THEN
+        ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_decision_ajout_seul_trg;
+    END IF;
+    WITH ordre AS (
+        SELECT id, remplace_decision_id,
+               lag(id) OVER (PARTITION BY dossier_id ORDER BY decide_le, id) AS precedent,
+               count(*) OVER (PARTITION BY dossier_id) AS total,
+               count(*) FILTER (WHERE remplace_decision_id IS NULL) OVER (PARTITION BY dossier_id) AS racines
+          FROM ent_inscription_decision)
+    UPDATE ent_inscription_decision d SET remplace_decision_id = o.precedent
+      FROM ordre o
+     WHERE d.id = o.id AND o.total > 1 AND o.racines = o.total AND o.precedent IS NOT NULL;
+    IF v_garde THEN
+        ALTER TABLE ent_inscription_decision ENABLE TRIGGER ent_inscription_decision_ajout_seul_trg;
+    END IF;
+END $$;
+
 -- Ordre certain : la chaîne `remplace_decision_id` (une racine par dossier, un seul successeur par décision) ;
 -- jamais `now()` (début de transaction) pour savoir laquelle est la dernière.
 CREATE UNIQUE INDEX IF NOT EXISTS ent_inscription_decision_racine_uq
@@ -331,6 +359,46 @@ CREATE INDEX IF NOT EXISTS ent_inscription_proposition_place_offre_idx
 CREATE UNIQUE INDEX IF NOT EXISTS ent_inscription_proposition_place_ouverte_uq
     ON ent_inscription_proposition_place (etablissement_id, dossier_id) WHERE statut IN ('designee', 'envoyee');
 
+-- « Passer son tour » ne vaut que pour **la même place** (D-069 M-C) : chaque offre numérote ses places libérées
+-- (`liberations`, incrémenté à chaque place rendue ou ajoutée) et la proposition garde le numéro de la place pour
+-- laquelle elle a été désignée. Un dossier qui a écarté la place n° n n'est plus désigné pour le n° n (ni par la
+-- désignation automatique, ni par la désignation explicite) ; il redevient désignable pour le n° n + 1.
+ALTER TABLE ent_inscription_offre ADD COLUMN IF NOT EXISTS liberations BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE ent_inscription_proposition_place ADD COLUMN IF NOT EXISTS place_no BIGINT;
+
+-- Ordre d'entrée sur la liste d'attente (D-069 M-A) : jamais renuméroté (contrairement au rang affiché au personnel,
+-- compacté à chaque départ), il permet de recalculer **le rang que voit la famille** à partir des seules décisions
+-- publiées, y compris pour un dossier dont la sortie de liste n'est pas encore publiée. `offre_attente_id` garde
+-- l'offre de la liste après la sortie.
+CREATE SEQUENCE IF NOT EXISTS ent_inscription_attente_ordre_seq;
+ALTER TABLE ent_inscription_dossier ADD COLUMN IF NOT EXISTS ordre_attente BIGINT;
+ALTER TABLE ent_inscription_dossier ADD COLUMN IF NOT EXISTS offre_attente_id UUID;
+-- Reprise : une base où l'ancienne version de ce fichier a tourné n'a ni l'un ni l'autre.
+UPDATE ent_inscription_dossier d SET ordre_attente = d.rang_attente, offre_attente_id = v.offre_id
+  FROM ent_inscription_voeu v
+ WHERE d.ordre_attente IS NULL AND d.rang_attente IS NOT NULL AND d.etat = 'liste_attente'
+   AND v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id;
+
+-- Le dossier compte-t-il **visiblement** dans la liste d'attente (ce que la famille peut lire) ? Selon sa dernière
+-- décision **publiée** : tant que la sortie de liste n'est pas publiée il reste compté ; il n'entre qu'une fois son
+-- entrée publiée. Dernière décision publiée ou aucune décision : l'état réel.
+CREATE OR REPLACE FUNCTION ent_inscription_en_liste_visible(p_etab UUID, p_dossier UUID, p_etat TEXT)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE chaine AS (
+        SELECT d.id, d.sens, d.publiee_le, 1 AS rang_chaine FROM ent_inscription_decision d
+         WHERE d.etablissement_id = p_etab AND d.dossier_id = p_dossier AND d.remplace_decision_id IS NULL
+        UNION ALL
+        SELECT x.id, x.sens, x.publiee_le, c.rang_chaine + 1 FROM ent_inscription_decision x
+          JOIN chaine c ON x.remplace_decision_id = c.id
+         WHERE x.etablissement_id = p_etab AND x.dossier_id = p_dossier)
+    SELECT CASE
+        WHEN (SELECT publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1) IS DISTINCT FROM false
+            THEN p_etat = 'liste_attente'
+        ELSE COALESCE((SELECT sens = 'liste_attente' FROM chaine WHERE publiee_le IS NOT NULL
+                        ORDER BY rang_chaine DESC LIMIT 1), false)
+    END
+$$;
+
 -- ───────────────────────────── Conditions de confirmation (§7.1, §8.7) ─────────────────────────────
 -- Par défaut une campagne n'exige aucune condition de ce tableau : le comportement d'avant ce lot est conservé
 -- (D-069 : paramètre de l'établissement). L'accord des responsables (I4) et les pièces bloquantes (I3) restent
@@ -372,8 +440,10 @@ CREATE TABLE IF NOT EXISTS ent_inscription_condition (
         REFERENCES ent_inscription_dossier (etablissement_id, id) ON DELETE CASCADE
 );
 
--- Levée d'une condition : journal **en ajout seul** (code, motif, auteur). La condition elle-même peut être
--- réinitialisée (nouvelle proposition, nouvelle réserve) : la trace de la levée, elle, n'est jamais effacée.
+-- Levée, constat ou acceptation au guichet d'une condition : journal **en ajout seul** (code, motif, auteur). La
+-- condition elle-même peut être réinitialisée (nouvelle proposition, nouvelle réserve) : la trace, elle, n'est jamais
+-- effacée. `genre` : `levee` (la direction lève avec motif), `remplie` (le personnel constate une condition remplie),
+-- `guichet` (le secrétariat enregistre l'acceptation de la place par la famille, au guichet).
 CREATE TABLE IF NOT EXISTS ent_inscription_condition_levee (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
@@ -384,10 +454,24 @@ CREATE TABLE IF NOT EXISTS ent_inscription_condition_levee (
     motif TEXT NOT NULL CHECK (char_length(btrim(motif)) BETWEEN 3 AND 500),
     auteur_id UUID NOT NULL,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    genre TEXT NOT NULL DEFAULT 'levee' CHECK (genre IN ('levee', 'remplie', 'guichet')),
+    source_ref UUID,
     CONSTRAINT ent_inscription_condition_levee_dossier_fk
         FOREIGN KEY (etablissement_id, dossier_id)
         REFERENCES ent_inscription_dossier (etablissement_id, id) ON DELETE CASCADE
 );
+-- Reprise : une base où l'ancienne version de ce fichier a tourné a déjà la table, sans ces deux colonnes.
+ALTER TABLE ent_inscription_condition_levee
+    ADD COLUMN IF NOT EXISTS genre TEXT NOT NULL DEFAULT 'levee';
+ALTER TABLE ent_inscription_condition_levee ADD COLUMN IF NOT EXISTS source_ref UUID;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_inscription_condition_levee_genre_chk') THEN
+        ALTER TABLE ent_inscription_condition_levee
+            ADD CONSTRAINT ent_inscription_condition_levee_genre_chk
+            CHECK (genre IN ('levee', 'remplie', 'guichet'));
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS ent_inscription_condition_levee_dossier_idx
     ON ent_inscription_condition_levee (etablissement_id, dossier_id, cree_le);
 DROP TRIGGER IF EXISTS ent_inscription_condition_levee_ajout_seul_trg ON ent_inscription_condition_levee;

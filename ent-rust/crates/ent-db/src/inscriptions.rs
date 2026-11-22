@@ -616,9 +616,15 @@ pub(crate) async fn suivi_tx(
             (id, etablissement_id, dossier_id, kind, statut_avant, statut_apres, texte,
              visible_famille, auteur_user_id, decision_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
-                 CASE WHEN split_part(COALESCE(current_setting('ent.suivi_decision', true), ''), '|', 1) = $3::text
-                      THEN NULLIF(split_part(current_setting('ent.suivi_decision', true), '|', 2), '')::uuid
-                 END)",
+                 COALESCE(
+                    CASE WHEN split_part(COALESCE(current_setting('ent.suivi_decision', true), ''), '|', 1) = $3::text
+                         THEN NULLIF(split_part(current_setting('ent.suivi_decision', true), '|', 2), '')::uuid
+                    END,
+                    -- Hors écriture d'une décision : la ligne se rattache à la décision **non publiée qui termine la
+                    -- chaîne** (s'il y en a une) et ne se lit qu'avec elle (D-069 F4).
+                    (SELECT x.id FROM ent_inscription_decision x
+                      WHERE x.etablissement_id = $2 AND x.dossier_id = $3 AND x.publiee_le IS NULL
+                        AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y WHERE y.remplace_decision_id = x.id))))",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -1531,7 +1537,6 @@ impl PgEnt {
         // Lot I5 : une décision prise mais **pas encore publiée** (publication programmée, INS-62) ne se lit pas :
         // la famille voit le dernier état publié (ou l'instruction), ni rang, ni échéance, ni suivi du changement.
         let mut d = d;
-        let mut suivi = suivi;
         let mut actions = actions;
         if famille {
             let masque = crate::inscriptions_decisions::visibilite_famille_tx(
@@ -1540,13 +1545,23 @@ impl PgEnt {
                 d.id,
             )
             .await?;
-            if let Some((visible, depuis)) = masque {
+            if let Some(visible) = masque {
                 d.etat = visible.clone();
                 d.statut = visible;
                 d.rang_attente = None;
                 d.echeance_famille = None;
-                suivi.retain(|(quand, kind, _, _, _)| !(kind == "statut" && *quand >= depuis));
+                // Le suivi n'est pas filtré par date : chaque ligne écrite pendant une décision non publiée lui est
+                // rattachée (`suivi_tx`) et la requête ci-dessus ne la lit qu'avec cette décision (D-069 F4).
                 actions.clear();
+            } else if d.etat == "liste_attente" {
+                // Rang lu par la famille : **un seul calcul**, celui de `decision_famille` (règle 1, M-A).
+                d.rang_attente = crate::inscriptions_attente::rang_famille_tx(
+                    &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
+                    etab,
+                    d.id,
+                )
+                .await?
+                .and_then(|p| i32::try_from(p).ok());
             }
         }
         Ok(DossierDto {
@@ -1682,12 +1697,6 @@ impl PgEnt {
                 return Err(invalide("statut de dossier inconnu"));
             }
         }
-        let deportes = crate::inscriptions_decisions::dossiers_ecartes(
-            &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
-            etab,
-            actor,
-        )
-        .await?;
         let mut liste = self
             .resumes(
                 etab,
@@ -1695,7 +1704,15 @@ impl PgEnt {
                 (campagne_id, statut),
             )
             .await?;
-        liste.retain(|r| !deportes.contains(&r.id));
+        let ids: Vec<Uuid> = liste.iter().map(|r| r.id).collect();
+        let ecartes = crate::inscriptions_decisions::ecartes_parmi(
+            &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
+            etab,
+            actor,
+            &ids,
+        )
+        .await?;
+        liste.retain(|r| !ecartes.contains(&r.id));
         Ok(liste)
     }
 
@@ -1795,6 +1812,8 @@ impl PgEnt {
         code: &str,
         b: &PieceDecisionBody,
     ) -> Result<DossierDto, EntDbError> {
+        // Règle 2 : le droit d'abord, puis l'existence (garde d'écart), puis la forme de la demande.
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = opt(&b.motif);
         let controle = match b.statut.as_str() {
@@ -2028,7 +2047,6 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     ) -> Result<DossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
             .await?;
-        self.refuser_si_ecarte(etab, actor, id).await?;
         self.refuser_si_ecarte(etab, actor, id).await?;
         if !["admis", "liste_attente", "refuse"].contains(&b.decision.as_str()) {
             return Err(invalide("décision : admis, liste_attente ou refuse"));
@@ -3187,7 +3205,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             return Err(invalide("nom de fichier invalide"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        // Action de la famille : l'état visible décide (règle 1), jamais un état non publié.
+        // Action de la famille : l'état visible décide (règle 1), jamais un état non publié ; sous le verrou du dossier
+        // (D-069 F12), pas avant.
+        dossier_tx(&mut tx, etab, id).await?;
         crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         if !matches!(
             d.statut.as_str(),
