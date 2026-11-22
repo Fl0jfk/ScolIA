@@ -97,6 +97,21 @@ fn uuid(v: &Value) -> Uuid {
 }
 
 impl Scene {
+    /// Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée. Raccourci de test
+    /// (SQL de la base de test) pour les parcours qui valident juste après l'admission.
+    async fn famille_a_accepte(&self, dossier: Uuid) {
+        let pool = self.pool().await;
+        sqlx::query(
+            "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le \
+             WHERE dossier_id = $1 AND statut = 'envoyee'",
+        )
+        .bind(dossier)
+        .execute(&pool)
+        .await
+        .expect("acceptation de la place par la famille");
+        pool.close().await;
+    }
+
     /// Bootstrap d'un établissement frais. `None` = SKIP (pas de base, labo fermé).
     async fn nouvelle() -> Option<Scene> {
         let r = routeur().await?;
@@ -533,6 +548,7 @@ fn rp2_t02_ne_pas_solliciter_et_adresse_protegee_de_bout_en_bout() {
             })
             .collect();
         assert_eq!(resp.len(), 2, "deux responsables attendus : {}", co.texte);
+        s.famille_a_accepte(dossier).await;
         let v = s
             .req(
                 "POST",

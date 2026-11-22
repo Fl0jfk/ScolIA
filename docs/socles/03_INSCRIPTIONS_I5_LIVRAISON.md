@@ -147,4 +147,9 @@ PostgreSQL 16 jetable (`scolia_test_i5c`, `ENT_ENV=test`), `--locked`, un seul `
 Tête de code poussée : `40264c98` (après la fusion d'`origin/ENT` `94c22c66` et le correctif `url` `f6bcda93`) ; PR n° 120 laissée en **brouillon**.
 CI : voir la ligne ci-dessous, complétée à la réception du verdict.
 
-CI_À_COMPLÉTER
+CI sur la tête `39698c2d` : tout vert sauf 3 tranches de tests (2, 7, 8 sur 20), pour une seule cause. Trois tests de recette d'`ent-api`
+(`rp2_t02_…`, `rp2_10_…`, `rp2_11_…`) validaient une inscription juste après l'admission, sans que la famille ait accepté la place
+(règle 3 : 409 « la famille n'a pas encore accepté la place proposée »). Ces tests n'avaient pas été rejoués en local (seuls `separation` et
+`recette_securite_3` l'avaient été). Correction : même raccourci de test que côté `ent-db` (`famille_a_accepte`, SQL de la base de test) dans les deux
+fichiers de recette ; aucun code de production touché. Les deux fichiers de recette passent en entier (6 + 11 tests), clippy et fmt ciblé verts.
+Verdict CI de la tête finale : voir le message au pilote.
