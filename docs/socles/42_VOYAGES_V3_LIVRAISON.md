@@ -41,7 +41,12 @@ Règles tenues : argent au centime (texte → `centimes_de_texte`, `CHECK` de bo
 4. **Source `voyage`** ajoutée à la contrainte des retraits du socle 41 par remplacement de contrainte (migration additive ; 2824 non modifiée).
 5. **Non fait** (suite du socle) : écran famille (Leptos), clôture financière (VOY-227/230/231, V11), demande d'aide par la famille (socle 26), V3b EDT/appel.
 
-## 4. Vérifications (locales, base PostgreSQL 16 neuve `ent_test_v3`, `ENT_EXIGER_BASE=1`)
+## 4. Vérifications (locales, PostgreSQL 16 neuve `ent_test_v3`, `ENT_EXIGER_BASE=1`, `--locked`)
 
-- `ent-db` : 8 tests V3 (`tests_voyages_v3`) ; 195 tests « voyages » verts ; registre, RLS, conservation, internat, finances, rôles et gardes statiques : voir la fin de ce rapport ;
-- clippy 1.99.0 et formatage ciblé : voir la fin de ce rapport.
+- `ent-db` : 8 tests V3 (`tests_voyages_v3`) ; 195 tests « voyages » ; registre, RLS, conservation, internat, finances, rôles (305 tests) ; gardes `jour_utc_interdit`, `isolation_sql_statique`, `garde_finances_ecritures`, `garde_inscriptions_ecritures` verts.
+- **Incident corrigé** : la première version de 654 posait une clé étrangère vers `ent_internat_retrait` ; elle faisait échouer `tests_internat_i2::e2_truncate_refuse_…` (TRUNCATE sans CASCADE). La clé est retirée (le lien est écrit dans la même transaction) ; test d'I2 et V3 reverts.
+- clippy 1.99.0 sur les trois commandes de la CI (`--workspace`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`, `-D warnings`) : **0 avertissement** ; rustfmt appliqué aux seuls fichiers nouveaux ; `cargo metadata --locked` dans `ent-rust/web` : ok.
+- Aucune heure réelle ni jour UTC dans les tests (départ = jour du cadre).
+- `origin/ENT` fusionné : déjà à jour (02659006c), compteurs inchangés par rapport au §2.
+- **Non fait localement** : suite complète d'`ent-db` et tests `ent-api` (séparation, recette sécurité) ; la CI fait foi.
+- Next.js, base et secrets de production, `main`, `dev`, `ENT` : non touchés.
