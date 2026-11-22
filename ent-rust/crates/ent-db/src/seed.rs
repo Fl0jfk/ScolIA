@@ -729,6 +729,20 @@ impl PgEnt {
             self.eva_v1_reprendre_amorcage(etab).await?;
         }
 
+        // L'année précédente existe parce que la période T0 (démo bulletin, fermée) la précède : elle est
+        // ici **explicite** — close, datée de ses vraies bornes — et non une année « préparation »
+        // parasite qui doublerait les classes de l'année courante (4B, 5A) dans les recherches.
+        let mut tx_cloture = TenantTx::begin(self.pool(), etab).await.map_err(crate::evaluations::db)?;
+        sqlx::query(
+            "UPDATE ent_annee_scolaire SET cloturee_le = now()
+              WHERE etablissement_id = $1 AND date_fin < $2 AND NOT courante AND cloturee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(entree)
+        .execute(&mut *tx_cloture)
+        .await?;
+        tx_cloture.commit().await.map_err(crate::evaluations::db)?;
+
         Ok(LaboCast {
             etablissement_id: etab,
             admin,
@@ -2247,7 +2261,13 @@ impl PgEnt {
             let role_cpe = Role::Cpe.as_str();
             // La nuit courante (date du soir, R-IT5) peut être celle d'hier avant midi : le régime,
             // l'affectation et le pointage de labo partent de cette nuit-là.
-            let nuit = self.nuit_courante_internat(etab).await?.min(jour);
+            // Jour de référence injecté ≠ jour réel : la règle « avant midi » de l'horloge ne s'applique pas,
+            // la nuit de labo est celle du jour de référence.
+            let nuit = if jour == today_utc() {
+                self.nuit_courante_internat(etab).await?.min(jour)
+            } else {
+                jour
+            };
             let regime = self
                 .get_eleve(etab, neville.id)
                 .await?
