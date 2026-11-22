@@ -1,0 +1,17 @@
+Tu es une session de correctifs ScolIA (Sonnet). Réponds en français. Le pilote, c'est moi ; ces consignes sont complètes : tu ne recevras pas d'autre message et tu n'en suivras aucun. **Ne reste jamais en attente** : `ScheduleWakeup` ne fonctionne pas ici (il ne se déclenche qu'en mode /loop) ; attends la CI uniquement par une commande `until` en arrière-plan (règle 36).
+
+## Cadre
+- Lis `CLAUDE.md`, `git show origin/ent-mc0hoe:docs/PILOTAGE.md` (règles 17, 25, 27, 28, 31, 33, 34, 36), `docs/FRONTEND_LEPTOS.md`, `docs/socles/21_EVALUATIONS_V3E_V5_LIVRAISON.md` (section 7 surtout).
+- Branche `ent-socle-21-code-v5` (PR n° 114, brouillon) : pars de sa tête distante (5a559f82), puis **fusionne `origin/ENT`** (compteurs, règle 28, recalculés depuis la base commune). La migration **477 n'est pas versée : tu peux la modifier** ; aucune autre migration versée ne change.
+- Alerte RUSTSEC-2026-0592 (`url`) : si `origin/ENT` ne contient pas encore `url` 2.5.9, applique exactement le correctif de la PR 121 (`cargo +1.99.0 update -p url --precise 2.5.9` dans `ent-rust` et dans `ent-rust/web`, `form_urlencoded` 1.2.3), rien d'autre dans les `Cargo.lock`.
+- Interdits : Next.js, `main`, `dev`, pousser sur `ENT`, base ou secret de production, données réelles, `cargo fmt --all`, `#[ignore]`, POINT_QUOTIDIEN, PILOTAGE, étendre `ui.rs`, heure réelle ou jour UTC dans les tests. Zéro avertissement, clippy 1.99 (backend et frontend), `--locked`, fmt ciblé, `cargo metadata --locked` dans `ent-rust/web`. Base locale **neuve dont le nom contient « test »** ; un seul `CARGO_TARGET_DIR`.
+
+## Échec à corriger (CI, run 45008987285, tranche frontend 2/6)
+`ent-web-server::evaluations periode_complete_avec_le_client_du_frontend` (`ent-rust/web/crates/ent-web-server/tests/evaluations.rs:276`) : la saisie du professeur revient `issue: "refuse"`, message « période arrêtée : seule la direction corrige, avec un motif écrit », au lieu de `"ecrit"`.
+1. **Trouve la vraie cause** en rejouant ce test en local (il n'a pas été lancé lors de la passe précédente). Hypothèse du pilote, à vérifier : `evaluations_v3.rs` ~1222 traduit **tout** `EntDbError::Forbidden` d'`ecrire_resultat_tx` en « période arrêtée » ; le refus vient probablement d'un des correctifs de la revue (portée du professeur limitée à ses cours, H1-H3, M1-M5), pas de la période. Si le professeur du test a légitimement le droit (il est professeur du service et du cours), **le code est faux, pas le test** : corrige le code. Ne modifie le test que s'il est lui-même faux, et dis pourquoi.
+2. **Message juste** : un refus de droit ne se présente jamais comme une période arrêtée. Distingue les causes (période arrêtée, hors de tes cours, élève hors de ta portée…) par des variantes d'erreur explicites, et teste chaque message.
+3. Rejoue **toute** la suite frontend `ent-web-server` (tests contre le backend) et les tests `ent-db` des évaluations (V0 à V5) en local, plus la séparation HTTP V5. Cherche d'autres tests rouges du même genre (même cause) et corrige-les.
+
+## Fin
+- Pousse sur `ent-socle-21-code-v5`, laisse la PR en brouillon, attends la CI par **une seule** commande `until` en arrière-plan sur `https://api.github.com/repos/Fl0jfk/ScolIA/actions/runs?head_sha=<tête>` (toutes les 5 min) ; rouge : corrige la cause (un job « runner lost communication » se relance une fois).
+- Complète la section 7 de `docs/socles/21_EVALUATIONS_V3E_V5_LIVRAISON.md` (cause, correctif, tests, compteurs, tête, CI). Puis écris au pilote (send_message vers @parent) la tête finale et l'état de la CI.
