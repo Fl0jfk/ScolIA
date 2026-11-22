@@ -27,12 +27,22 @@ use crate::ref_commun::{conflit, db, introuvable, invalide, Acteur};
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::voyages_argent::{centimes_de_texte, VERSEMENT_MAX};
 use crate::voyages_argent_repo::{
-    aides_nettes, paye_net, peut_argent, recalculer_depart, synchroniser, verrou_sortie, ETATS_PAYANTS,
+    aides_nettes, paye_net, peut_argent, recalculer_depart, synchroniser, verrou_sortie,
+    ETATS_PAYANTS,
 };
-use crate::voyages_repo::{charger_avec_acces, interdit, journaliser, refus, texte, texte_opt, tx, Fait, SortieLigne};
+use crate::voyages_repo::{
+    charger_avec_acces, interdit, journaliser, refus, texte, texte_opt, tx, Fait, SortieLigne,
+};
 
 /// Sources d'une aide (codes ; le libellé est l'affaire de l'écran).
-pub const SOURCES_AIDE: [&str; 6] = ["apel", "fonds_social", "collectivite", "entreprise", "don_affecte", "autre"];
+pub const SOURCES_AIDE: [&str; 6] = [
+    "apel",
+    "fonds_social",
+    "collectivite",
+    "entreprise",
+    "don_affecte",
+    "autre",
+];
 
 /// États d'un participant qui part effectivement : seuls ceux-là sont retirés de l'attendu de l'internat.
 pub(crate) const ETATS_PARTANTS: [&str; 2] = ["pret", "parti"];
@@ -160,7 +170,11 @@ async fn lire_aide(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Aide
     .map_err(db)
 }
 
-async fn lire_report(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<ReportVue, EntDbError> {
+async fn lire_report(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<ReportVue, EntDbError> {
     sqlx::query_as(
         "SELECT id, de_participant_id, vers_participant_id, compte_id, sens, montant_centimes, annule_id, motif, decide_le
            FROM ent_sortie_report WHERE etablissement_id = $1 AND id = $2",
@@ -242,11 +256,18 @@ impl PgEnt {
 
     /// Inscrit une aide sur la part d'**un** payeur d'un participant. Comptabilité et direction (`voyages.argent`).
     /// L'aide ne dépasse jamais ce qui reste dû sur cette part (versé et aides déjà inscrites déduits).
-    pub async fn voyage_aide_accorder(&self, a: &Acteur<'_>, id: Uuid, v: AideSaisie) -> Result<AideVue, EntDbError> {
+    pub async fn voyage_aide_accorder(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: AideSaisie,
+    ) -> Result<AideVue, EntDbError> {
         if !SOURCES_AIDE.contains(&v.source.as_str()) {
             return Err(invalide());
         }
-        let montant = centimes_de_texte(&v.montant).filter(|m| (1..=VERSEMENT_MAX).contains(m)).ok_or_else(invalide)?;
+        let montant = centimes_de_texte(&v.montant)
+            .filter(|m| (1..=VERSEMENT_MAX).contains(m))
+            .ok_or_else(invalide)?;
         let reference = texte_opt(v.reference.as_deref(), 40)?;
         let mut t = tx(self, a).await?;
         // M1 : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
@@ -256,25 +277,50 @@ impl PgEnt {
             return Err(interdit());
         }
         if s.nature == "obligatoire" {
-            return Err(refus(RefusMetier::Conflit, "Sortie obligatoire : rien n'est dû par les familles, aucune aide à inscrire."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Sortie obligatoire : rien n'est dû par les familles, aucune aide à inscrire.",
+            ));
         }
         synchroniser(&mut t, a, &s).await?;
         let etat = etat_participant(&mut t, a.etablissement_id, s.id, v.participant_id).await?;
         if !ETATS_PAYANTS.contains(&etat.as_str()) {
-            return Err(refus(RefusMetier::Conflit, "Ce participant n'est plus inscrit : aucune aide ne s'inscrit."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce participant n'est plus inscrit : aucune aide ne s'inscrit.",
+            ));
         }
-        let part = part_courante(&mut t, a.etablissement_id, s.id, v.participant_id, v.compte_id)
-            .await?
-            .ok_or_else(introuvable)?;
-        let verse = paye_net(&mut t, a.etablissement_id, s.id, v.participant_id, v.compte_id).await?;
+        let part = part_courante(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.participant_id,
+            v.compte_id,
+        )
+        .await?
+        .ok_or_else(introuvable)?;
+        let verse = paye_net(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.participant_id,
+            v.compte_id,
+        )
+        .await?;
         let aides = aides_nettes(&mut t, a.etablissement_id, s.id)
             .await?
             .get(&(v.participant_id, v.compte_id))
             .copied()
             .unwrap_or(0);
-        let couvert = verse.checked_add(aides).and_then(|x| x.checked_add(montant)).ok_or_else(invalide)?;
+        let couvert = verse
+            .checked_add(aides)
+            .and_then(|x| x.checked_add(montant))
+            .ok_or_else(invalide)?;
         if couvert > part {
-            return Err(refus(RefusMetier::Conflit, "Cette aide dépasse ce qui reste dû sur la part de ce payeur."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Cette aide dépasse ce qui reste dû sur la part de ce payeur.",
+            ));
         }
         let aid = Uuid::new_v4();
         sqlx::query(
@@ -301,7 +347,13 @@ impl PgEnt {
     }
 
     /// Annule une aide par une écriture **inverse motivée** (l'aide d'origine n'est jamais modifiée).
-    pub async fn voyage_aide_annuler(&self, a: &Acteur<'_>, id: Uuid, aide_id: Uuid, motif: &str) -> Result<AideVue, EntDbError> {
+    pub async fn voyage_aide_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        aide_id: Uuid,
+        motif: &str,
+    ) -> Result<AideVue, EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -309,7 +361,9 @@ impl PgEnt {
         if !peut_argent(&acces) {
             return Err(interdit());
         }
-        let o = lire_aide(&mut t, a.etablissement_id, aide_id).await.map_err(|_| introuvable())?;
+        let o = lire_aide(&mut t, a.etablissement_id, aide_id)
+            .await
+            .map_err(|_| introuvable())?;
         let de_cette_sortie: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_sortie_aide WHERE etablissement_id = $1 AND sortie_id = $2 AND id = $3)",
         )
@@ -385,7 +439,8 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
-        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", v.len()).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", v.len())
+            .await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -395,8 +450,15 @@ impl PgEnt {
     /// Reporte un montant déjà versé d'un participant à un autre **du même payeur**. Jamais plus que ce que ce payeur a
     /// versé pour le premier, jamais plus que ce qui reste dû pour le second ; si le premier est parti, son avoir
     /// proposé se recalcule sur ce qu'il lui reste.
-    pub async fn voyage_report_effectuer(&self, a: &Acteur<'_>, id: Uuid, v: ReportSaisie) -> Result<ReportVue, EntDbError> {
-        let montant = centimes_de_texte(&v.montant).filter(|m| (1..=VERSEMENT_MAX).contains(m)).ok_or_else(invalide)?;
+    pub async fn voyage_report_effectuer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: ReportSaisie,
+    ) -> Result<ReportVue, EntDbError> {
+        let montant = centimes_de_texte(&v.montant)
+            .filter(|m| (1..=VERSEMENT_MAX).contains(m))
+            .ok_or_else(invalide)?;
         let motif = texte(&v.motif, 500)?;
         if v.de_participant_id == v.vers_participant_id {
             return Err(invalide());
@@ -408,7 +470,10 @@ impl PgEnt {
             return Err(interdit());
         }
         if s.nature == "obligatoire" {
-            return Err(refus(RefusMetier::Conflit, "Sortie obligatoire : rien n'est dû par les familles."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Sortie obligatoire : rien n'est dû par les familles.",
+            ));
         }
         synchroniser(&mut t, a, &s).await?;
         // Ordre déterministe des verrous de lignes.
@@ -419,31 +484,75 @@ impl PgEnt {
         };
         let e1 = etat_participant(&mut t, a.etablissement_id, s.id, premier).await?;
         let e2 = etat_participant(&mut t, a.etablissement_id, s.id, second).await?;
-        let (etat_de, etat_vers) = if premier == v.de_participant_id { (e1, e2) } else { (e2, e1) };
+        let (etat_de, etat_vers) = if premier == v.de_participant_id {
+            (e1, e2)
+        } else {
+            (e2, e1)
+        };
         if !ETATS_PAYANTS.contains(&etat_vers.as_str()) {
-            return Err(refus(RefusMetier::Conflit, "Le participant qui reçoit le report n'est plus inscrit."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Le participant qui reçoit le report n'est plus inscrit.",
+            ));
         }
-        let part_vers = part_courante(&mut t, a.etablissement_id, s.id, v.vers_participant_id, v.compte_id).await?;
-        let part_de = part_courante(&mut t, a.etablissement_id, s.id, v.de_participant_id, v.compte_id).await?;
+        let part_vers = part_courante(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.vers_participant_id,
+            v.compte_id,
+        )
+        .await?;
+        let part_de = part_courante(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.de_participant_id,
+            v.compte_id,
+        )
+        .await?;
         let (Some(part_vers), Some(_)) = (part_vers, part_de) else {
             return Err(refus(
                 RefusMetier::Conflit,
                 "Un report reste chez le même payeur : ce payeur doit porter une part des deux participants.",
             ));
         };
-        let verse_de = paye_net(&mut t, a.etablissement_id, s.id, v.de_participant_id, v.compte_id).await?;
+        let verse_de = paye_net(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.de_participant_id,
+            v.compte_id,
+        )
+        .await?;
         if montant > verse_de {
-            return Err(refus(RefusMetier::Conflit, "Ce report dépasse ce que ce payeur a versé pour ce participant."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce report dépasse ce que ce payeur a versé pour ce participant.",
+            ));
         }
-        let verse_vers = paye_net(&mut t, a.etablissement_id, s.id, v.vers_participant_id, v.compte_id).await?;
+        let verse_vers = paye_net(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            v.vers_participant_id,
+            v.compte_id,
+        )
+        .await?;
         let aides_vers = aides_nettes(&mut t, a.etablissement_id, s.id)
             .await?
             .get(&(v.vers_participant_id, v.compte_id))
             .copied()
             .unwrap_or(0);
-        let couvert = verse_vers.checked_add(aides_vers).and_then(|x| x.checked_add(montant)).ok_or_else(invalide)?;
+        let couvert = verse_vers
+            .checked_add(aides_vers)
+            .and_then(|x| x.checked_add(montant))
+            .ok_or_else(invalide)?;
         if couvert > part_vers {
-            return Err(refus(RefusMetier::Conflit, "Ce report dépasse ce qui reste dû pour le participant qui le reçoit."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce report dépasse ce qui reste dû pour le participant qui le reçoit.",
+            ));
         }
         let rid = Uuid::new_v4();
         sqlx::query(
@@ -474,7 +583,13 @@ impl PgEnt {
 
     /// Défait un report par une écriture inverse motivée. Refusé si l'argent reporté n'est plus disponible chez le
     /// receveur (déjà remboursé ou reporté ailleurs) : la comptabilité règle d'abord ce mouvement.
-    pub async fn voyage_report_annuler(&self, a: &Acteur<'_>, id: Uuid, report_id: Uuid, motif: &str) -> Result<ReportVue, EntDbError> {
+    pub async fn voyage_report_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        report_id: Uuid,
+        motif: &str,
+    ) -> Result<ReportVue, EntDbError> {
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -507,7 +622,14 @@ impl PgEnt {
         if deja {
             return Err(conflit());
         }
-        let verse_vers = paye_net(&mut t, a.etablissement_id, s.id, o.vers_participant_id, o.compte_id).await?;
+        let verse_vers = paye_net(
+            &mut t,
+            a.etablissement_id,
+            s.id,
+            o.vers_participant_id,
+            o.compte_id,
+        )
+        .await?;
         if verse_vers < o.montant_centimes {
             return Err(refus(
                 RefusMetier::Conflit,
@@ -547,7 +669,8 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        let etat_de: String = etat_participant(&mut t, a.etablissement_id, s.id, o.de_participant_id).await?;
+        let etat_de: String =
+            etat_participant(&mut t, a.etablissement_id, s.id, o.de_participant_id).await?;
         if est_parti(&etat_de) {
             recalculer_depart(&mut t, a, &s, o.de_participant_id).await?;
         }
@@ -557,7 +680,11 @@ impl PgEnt {
     }
 
     /// Liste des reports d'une sortie : comptabilité et direction, consultation journalisée.
-    pub async fn voyage_reports(&self, a: &Acteur<'_>, id: Uuid) -> Result<Vec<ReportVue>, EntDbError> {
+    pub async fn voyage_reports(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<Vec<ReportVue>, EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
         if !peut_argent(&acces) {
@@ -572,7 +699,8 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
-        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", v.len()).await?;
+        self.acces_nominatif(&mut t, a, Some(s.id), "liste_paiements", v.len())
+            .await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -583,7 +711,11 @@ impl PgEnt {
     /// passées hors de l'établissement (de la nuit du départ à la veille du retour), motif « séjour scolaire » ; un
     /// participant qui n'est plus confirmé est rétabli. Idempotent : rejouer ne change rien. Le porteur, la direction
     /// ou un droit de modification de sortie.
-    pub async fn voyage_internat_synchroniser(&self, a: &Acteur<'_>, id: Uuid) -> Result<InternatSynchro, EntDbError> {
+    pub async fn voyage_internat_synchroniser(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<InternatSynchro, EntDbError> {
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -592,7 +724,16 @@ impl PgEnt {
         }
         let r = internat_synchroniser_tx(&mut t, a, &s).await?;
         if r.poses + r.annules > 0 {
-            journaliser(&mut t, a, s.id, Fait { champ: Some("internat"), ..Fait::simple("internat_synchronise") }).await?;
+            journaliser(
+                &mut t,
+                a,
+                s.id,
+                Fait {
+                    champ: Some("internat"),
+                    ..Fait::simple("internat_synchronise")
+                },
+            )
+            .await?;
         }
         t.commit().await.map_err(db)?;
         Ok(r)
@@ -607,17 +748,25 @@ pub(crate) async fn internat_synchroniser_tx(
 ) -> Result<InternatSynchro, EntDbError> {
     let etab = a.etablissement_id;
     // Jours de l'établissement (jamais UTC) : nuit du départ à la veille du retour.
-    let (du, retour): (NaiveDate, NaiveDate) = sqlx::query_as("SELECT ent_aujourdhui_etab($1, $2), ent_aujourdhui_etab($1, $3)")
-        .bind(etab)
-        .bind(s.debut)
-        .bind(s.fin)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
+    let (du, retour): (NaiveDate, NaiveDate) =
+        sqlx::query_as("SELECT ent_aujourdhui_etab($1, $2), ent_aujourdhui_etab($1, $3)")
+            .bind(etab)
+            .bind(s.debut)
+            .bind(s.fin)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
     let au = retour - chrono::Duration::days(1);
-    let nuits = if au >= du { (au - du).num_days() + 1 } else { 0 };
+    let nuits = if au >= du {
+        (au - du).num_days() + 1
+    } else {
+        0
+    };
     if nuits > 400 {
-        return Err(refus(RefusMetier::Invalide, "Un séjour de plus de 400 nuits ne se retire pas de l'internat en une fois."));
+        return Err(refus(
+            RefusMetier::Invalide,
+            "Un séjour de plus de 400 nuits ne se retire pas de l'internat en une fois.",
+        ));
     }
     // Internes confirmés dont le séjour d'internat couvre au moins une des nuits.
     let voulus: Vec<(Uuid, Uuid)> = if nuits == 0 {
@@ -654,7 +803,8 @@ pub(crate) async fn internat_synchroniser_tx(
     .map_err(db)?;
     let (mut poses, mut annules, mut inchanges) = (0usize, 0usize, 0usize);
     for (retrait, participant, eleve, rdu, rau) in &existants {
-        let garde = nuits > 0 && *rdu == du && *rau == au && voulus.iter().any(|(p, _)| p == participant);
+        let garde =
+            nuits > 0 && *rdu == du && *rau == au && voulus.iter().any(|(p, _)| p == participant);
         if garde {
             inchanges += 1;
         } else {
@@ -663,7 +813,9 @@ pub(crate) async fn internat_synchroniser_tx(
         }
     }
     for (participant, eleve) in &voulus {
-        let deja = existants.iter().any(|(_, p, _, rdu, rau)| p == participant && *rdu == du && *rau == au);
+        let deja = existants
+            .iter()
+            .any(|(_, p, _, rdu, rau)| p == participant && *rdu == du && *rau == au);
         if deja {
             continue;
         }
@@ -712,5 +864,10 @@ pub(crate) async fn internat_synchroniser_tx(
         .await?;
         poses += 1;
     }
-    Ok(InternatSynchro { poses, annules, inchanges, nuits })
+    Ok(InternatSynchro {
+        poses,
+        annules,
+        inchanges,
+        nuits,
+    })
 }

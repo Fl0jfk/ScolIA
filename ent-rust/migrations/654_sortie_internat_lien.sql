@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS ent_sortie_internat_retrait (
     CONSTRAINT ent_sortie_internat_retrait_sortie_fk FOREIGN KEY (etablissement_id, sortie_id)
         REFERENCES ent_sortie (etablissement_id, id),
     CONSTRAINT ent_sortie_internat_retrait_participant_fk FOREIGN KEY (etablissement_id, participant_id)
-        REFERENCES ent_sortie_participant (etablissement_id, id),
-    CONSTRAINT ent_sortie_internat_retrait_retrait_fk FOREIGN KEY (etablissement_id, retrait_id)
-        REFERENCES ent_internat_retrait (etablissement_id, id)
+        REFERENCES ent_sortie_participant (etablissement_id, id)
+    -- Volontairement SANS clé étrangère vers `ent_internat_retrait` : le socle 41 garde la main sur sa table (son
+    -- TRUNCATE est éprouvé par ses propres tests) ; le lien est écrit dans la même transaction que le retrait.
 );
 CREATE INDEX IF NOT EXISTS ent_sortie_internat_retrait_part_idx
     ON ent_sortie_internat_retrait (etablissement_id, sortie_id, participant_id);
