@@ -220,8 +220,11 @@ PostgreSQL 16 jetable (`ent_test_p2`, nom contenant « test », `ENT_ENV=test`),
 * La suite complète d'`ent-db` n'est pas rejouée en local (CI).
 
 ### Compteurs (règle 28, passe 2)
-`Action::TOUTES` inchangé (aucune action) ; `SOURCES`/`NOMS_SOURCES` inchangés (70) ; **compte RLS inchangé** (aucune table nouvelle : une séquence, des
-colonnes, une fonction SQL) ; registre des données : aucune table nouvelle, colonnes hors export et condition de ligne (`export_si`) ajoutées ;
+Deux fusions d'`origin/ENT` (messagerie M12, puis évaluations V5), **recomptées depuis la base commune** (`bc69cd0d`) : le compte RLS de `tests_rls.rs` a
+conflité (**+8** de I5 et **+1** de la base ENT : `… + 4 + 1 + 8`) ; `SOURCES`/`NOMS_SOURCES` de `separation` **ont fusionné sans conflit mais faux** (base 69,
++1 de chaque côté, déclaré 70 des deux côtés : 71 entrées) — corrigé à **71** (seule la compilation l'a attrapé, exactement le piège de la règle 28) ;
+`Action::TOUTES` inchangé (aucune action) ; **compte RLS de ce lot inchangé par la passe 2** (aucune table nouvelle : une séquence, des colonnes, une
+fonction SQL) ; registre des données : aucune table nouvelle, colonnes hors export et condition de ligne (`export_si`) ajoutées ;
 `MIGRATION_TAG` inchangé (3808) ; migration 313 modifiée (non versée) ; `ent-types` : `DeportEtatDto.conflit_possible` supprimé,
 `PublicationDto.ignorees` et `DecisionDto.motif_interne: Option` ajoutés (aucun autre consommateur : le frontend `web/` ne les lit pas).
 
