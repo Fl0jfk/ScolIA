@@ -106,4 +106,4 @@ Branche `ent-socle-42-code-suite`, partie de la tête distante `208a81ab` (ENT d
 
 ### Résultat final
 
-_(complété après la CI)_
+Tête de code `5a895818` : CI « ENT Rust » verte (https://github.com/Fl0jfk/ScolIA/actions/runs/45017674799). Le commit suivant ne change que cette documentation ; sa propre CI est vérifiée avant envoi au pilote. PR n° 117 laissée en brouillon.
