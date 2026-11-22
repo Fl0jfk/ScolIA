@@ -397,6 +397,37 @@ pub enum RefusMetier {
     Interdit,
 }
 
+/// Cause d'un refus de DROIT à l'écriture d'un résultat d'évaluation (socle 21). Une cause par règle : un refus de
+/// portée ne se présente jamais comme une période arrêtée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CauseRefusEcriture {
+    /// L'acteur n'est ni titulaire, ni co-enseignant, ni suppléant en saisie du cours et ne porte pas `notes.corriger`.
+    HorsDeVosCours,
+    /// La période de la classe de l'élève est arrêtée (ou fermée) : seule la direction corrige, avec un motif.
+    PeriodeArretee,
+    /// L'élève n'a ni classe ni période à la date de l'évaluation (verrouillé comme un élève arrêté, M8).
+    EleveSansPeriode,
+    /// Période OUVERTE : la saisie revient au professeur du cours ; un porteur de `notes.corriger` hors du cours ne
+    /// saisit pas à sa place (il corrige après l'arrêt, avec un motif).
+    SaisieReserveeAuProfesseur,
+}
+
+impl CauseRefusEcriture {
+    /// Message destiné à l'utilisateur (aucune donnée personnelle).
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::HorsDeVosCours => "ce cours n'est pas l'un de vos cours : vous ne pouvez pas y saisir de résultat",
+            Self::PeriodeArretee => "période arrêtée : seule la direction corrige, avec un motif écrit",
+            Self::EleveSansPeriode => {
+                "cet élève n'a ni classe ni période à la date de l'évaluation : saisie impossible (vérifiez son affectation à la classe à cette date)"
+            }
+            Self::SaisieReserveeAuProfesseur => {
+                "période ouverte : la saisie revient au professeur du cours ; la direction corrige après l'arrêt de la période, avec un motif écrit"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum EntDbError {
     #[error(transparent)]
@@ -431,6 +462,10 @@ pub enum EntDbError {
     Configuration(String),
     #[error("accès refusé pour ce rôle")]
     Forbidden,
+    /// Refus de droit à l'écriture d'un résultat, avec sa cause (socle 21). Interne à `ent-db` : l'écriture simple et les
+    /// lots V4 la rendent en `Forbidden` ; seule la saisie en lot (V3) la présente case par case.
+    #[error("{}", .0.message())]
+    RefusDroitEcriture(CauseRefusEcriture),
     /// Saisie refusée par une règle du dossier élève (message sans donnée personnelle).
     #[error("valeur invalide : {0}")]
     SaisieInvalide(&'static str),
@@ -18974,6 +19009,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_message(cmd.etablissement_id, cmd.message_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // Un message différé d'autrui n'existe pas encore : 404 comme un identifiant inconnu (aucune fuite
+        // d'existence ; seul l'auteur le voit).
+        if self
+            .messages
+            .message_differe_d_autrui(cmd.etablissement_id, cmd.message_id, cmd.actor_user_id)
+            .await?
+        {
+            return Err(DomainError::NotFound.into());
+        }
         let fil = self
             .messages
             .get_fil(cmd.etablissement_id, msg.fil_id)

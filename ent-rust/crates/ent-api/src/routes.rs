@@ -744,6 +744,8 @@ pub fn router() -> Router<AppState> {
         .route("/messages/cartes/{id}/document", get(ouvrir_carte_document))
         .route("/messages/fils/{id}/lecture", get(lecture_du_fil))
         .route("/messages/fils/{id}/lu", post(marquer_fil_lu))
+        // M12 : flux « quelque chose a changé » (interrogation longue), identique pour le web et l'appli unique.
+        .route("/messages/flux", get(flux_messagerie))
         .route(
             "/reinscription/campagne",
             get(get_campagne).post(ouvrir_campagne),
@@ -895,6 +897,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::evaluations::routes());
     let r = r.merge(crate::evaluations_v3::routes());
     let r = r.merge(crate::evaluations_v4::routes());
+    let r = r.merge(crate::evaluations_v5::routes());
     // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).
     let r = r.merge(crate::eleve_propositions::routes());
     // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).
@@ -10466,6 +10469,41 @@ async fn lecture_du_fil(
         .await
         .map_err(map_db)?;
     Ok(Json(v))
+}
+
+#[derive(serde::Deserialize)]
+struct FluxQuery {
+    apres: Option<chrono::DateTime<chrono::Utc>>,
+    /// Second terme du curseur quand la réponse précédente était tronquée.
+    apres_fil: Option<Uuid>,
+    attente: Option<u64>,
+}
+
+/// Fils lisibles par ce compte où un message est apparu depuis `apres` ; jamais de contenu (M12). Le jugement de
+/// lecture reçoit le **rôle de la session** (règle 1) ; un appel à la fois et au plus un par seconde par compte (F1).
+async fn flux_messagerie(
+    State(state): State<AppState>,
+    session: EntSession,
+    axum::extract::Query(q): axum::extract::Query<FluxQuery>,
+) -> Result<Json<ent_db::FluxMessagerie>, (StatusCode, String)> {
+    let _place = crate::flux_limite::limite_flux().entrer(session.user_id).map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Trop d'interrogations du flux : patientez avant de recommencer.".to_string(),
+        )
+    })?;
+    let flux = state
+        .ent
+        .flux_messagerie_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            q.apres.map(|a| (a, q.apres_fil)),
+            q.attente.unwrap_or(0),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(flux))
 }
 
 async fn marquer_fil_lu(

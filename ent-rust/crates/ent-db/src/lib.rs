@@ -46,6 +46,7 @@ pub mod evaluations_v3;
 pub mod evaluations_v3_eval;
 pub mod evaluations_v3_import;
 pub mod evaluations_v4;
+pub mod evaluations_v5;
 mod evaluations_bulletin;
 mod enseignements;
 pub mod cours;
@@ -99,6 +100,8 @@ mod tests_evaluations_v3;
 mod tests_evaluations_v3c;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;
 pub mod campagnes;
@@ -157,6 +160,8 @@ pub use msg_m4::{
     LOT_MAX_FILS, PROGRAMMATION_JOURS, RETRAIT_MINUTES,
 };
 mod msg_m5;
+mod msg_m12;
+pub use msg_m12::{FilActif, FluxMessagerie, FLUX_ATTENTE_MAX_SECONDES};
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
@@ -228,6 +233,10 @@ mod tests_messagerie_m5;
 mod tests_messagerie_m6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_corr;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m12;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_revue;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -565,7 +574,7 @@ pub use option_repo::PgOptionRepo;
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::nom_fichier_document;
 pub use service::{
-    BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
+    BankRapprochementSummary, CauseRefusEcriture, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
     PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, RefusMetier, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};
