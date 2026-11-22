@@ -163,7 +163,7 @@ impl W {
             sites.push(id);
         }
         let (classe,): (Uuid,) = sqlx::query_as(
-            "SELECT id FROM ent_classe WHERE etablissement_id = $1 ORDER BY code LIMIT 1",
+            "SELECT id FROM ent_classe WHERE etablissement_id = $1 AND annee_id IN (SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 AND statut <> 'cloturee') ORDER BY code LIMIT 1",
         )
         .bind(etab)
         .fetch_one(pool)

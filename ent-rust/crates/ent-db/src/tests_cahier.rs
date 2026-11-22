@@ -106,7 +106,7 @@ impl Fx {
         .await
         .unwrap();
         let id = Uuid::new_v4();
-        let classe_id: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2")
+        let classe_id: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2 AND annee_id IN (SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 AND statut <> 'cloturee')")
             .bind(e)
             .bind(classe_code)
             .fetch_one(self.ent.pool())
