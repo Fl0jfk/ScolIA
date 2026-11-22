@@ -558,3 +558,10 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - **Session « MB0 »** lancée (session_01KZCbFEM32Co8P3rHBjC2JE, branche `ent-socle-11-code-mb0`, plage 2220-2239). Conception archivée.
   - Q-MB1 (compte Apple payant et Google Play) ajouté à `A_FOURNIR_PAR_FLORIAN.md`, avant mars 2027.
   - **Sessions qui codent : C8+C9 correctifs, V3e+V5, semis du labo, MB0** (4 ; surveiller la file de la CI).
+- **22-11, 8 h 25 UTC, Florian : « une demi-heure pour défoncer 8 % »** → 5 sessions de plus (9 sessions de code au total ; la file de la CI va s'allonger, versements dans l'ordre d'arrivée) :
+  - « 41 I4 vie quotidienne » (session_01KZCbFENV62o3y6uowRh1mT, `ent-socle-41-code-i4`, 2828-2829) ;
+  - « 16 messagerie, lot suivant » (session_01KZCbFE28UoFn4e1X8VLmCo, `ent-socle-16-code-suite`, repli 3300-3309) ;
+  - « 42 voyages, lot suivant (V3) » (session_01KZCbFHsUgk296Xh1NNPHmo, `ent-socle-42-code-suite`, repli 3310-3319) ;
+  - « 24 facturation, lot suivant (F3) » (session_01KZCbFFiRgBxyyePDhrMQSD, `ent-socle-24-code-suite`, repli 3320-3329) ;
+  - « 3 inscriptions, lot suivant (I5) » (session_01KZCbFDUmLivb7WXVcQnxn2, `ent-socle-3-code-suite`, repli 3330-3339).
+  - Toutes : fusion d'`origin/ENT` avant la CI finale, « ne reste jamais en attente », D-069.
