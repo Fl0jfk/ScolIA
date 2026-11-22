@@ -207,7 +207,7 @@ const N_ESPACE_RESERVATION: Neutralisation = Neutralisation::Maj {
     ou: "confirmee_le IS NULL AND liberee_le IS NULL",
 };
 const N_PUSH_DEVICE: Neutralisation = Neutralisation::Maj {
-    set: "revoked_at = now(), revoque_motif = 'expire'",
+    set: "revoked_at = now(), revoque_motif = 'restauration'",
     ou: "revoked_at IS NULL",
 };
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {

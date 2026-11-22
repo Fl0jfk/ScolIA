@@ -257,7 +257,7 @@ pub(crate) async fn responsables_de(
                 p.calme_debut, p.calme_fin,
                 EXISTS (SELECT 1 FROM ent_push_device d
                          WHERE d.etablissement_id = $1 AND d.user_id = r.user_id
-                           AND ent_push_actif(d.revoked_at, d.session_id, d.last_seen_at))
+                           AND ent_push_actif(d.revoked_at, d.session_id, d.last_seen_at, d.user_id, d.etablissement_id))
            FROM (
                 SELECT l.user_id, (array_agg(l.eleve_id ORDER BY l.eleve_id))[1] AS eleve_id,
                        count(DISTINCT l.eleve_id) AS nb

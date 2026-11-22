@@ -18,7 +18,8 @@ pub struct PushDevice {
 pub struct RegisterPushDevice {
     pub etablissement_id: Uuid,
     pub user_id: Uuid,
-    pub platform: PushPlatform,
+    /// Plateforme déclarée (validée par le dépôt, APRÈS le contrôle de session : F-3).
+    pub platform: String,
     pub token: String,
     pub app_id: Option<String>,
     /// Session qui inscrit le jeton (DS1). `None` seulement par la variante explicite du labo et des
@@ -63,20 +64,13 @@ impl PgPushRepo {
         &self,
         cmd: RegisterPushDevice,
     ) -> Result<(PushDevice, Vec<Uuid>), PushRepoError> {
-        let token = cmd.token.trim().to_string();
-        if token.is_empty() || token.len() > 4096 {
-            return Err(PushRepoError::Domain(DomainError::EmptyAttributValeur));
-        }
-        let platform = cmd.platform.as_str();
-        let empreinte = empreinte_jeton(&token);
         let mut txw = TenantTx::begin(&self.pool, cmd.etablissement_id).await.map_err(map_sqlx)?;
         if let Some(sid) = cmd.session_id {
+            // Règle 1 : la même définition que l'envoi (`ent_session_vivante`, = `resolve_session`).
             let vivante: Option<(i32,)> = sqlx::query_as(
                 r#"SELECT 1 FROM ent_session
                     WHERE id = $1 AND user_id = $2 AND etablissement_id = $3
-                      AND revoked_at IS NULL AND expires_at > now()
-                      AND (inactivite_max_secs IS NULL
-                           OR last_seen_at > now() - make_interval(secs => inactivite_max_secs))
+                      AND ent_session_vivante(id)
                     FOR SHARE"#,
             )
             .bind(sid)
@@ -89,9 +83,18 @@ impl PgPushRepo {
                 return Err(PushRepoError::SessionMorte);
             }
         }
-        let anciens: Vec<(Uuid,)> = sqlx::query_as("SELECT ent_push_reaffecter($1, $2)")
+        // F-3 : le corps n'est validé qu'APRÈS le contrôle de session (une session morte : 401 d'abord).
+        let token = cmd.token.trim().to_string();
+        if token.is_empty() || token.len() > 4096 {
+            return Err(PushRepoError::Domain(DomainError::EmptyAttributValeur));
+        }
+        let platform = PushPlatform::parse(&cmd.platform).ok_or(PushRepoError::PlateformeInconnue)?;
+        let platform = platform.as_str();
+        let empreinte = empreinte_jeton(&token);
+        let anciens: Vec<(Uuid,)> = sqlx::query_as("SELECT ent_push_reaffecter($1, $2, $3)")
             .bind(&empreinte)
             .bind(cmd.user_id)
+            .bind(cmd.etablissement_id)
             .fetch_all(&mut *txw)
             .await
             .map_err(map_sqlx)?;
@@ -118,10 +121,13 @@ impl PgPushRepo {
         .fetch_optional(&mut *txw)
         .await
         .map_err(map_sqlx)?;
-        // Aucune ligne : une autre personne a inscrit ce jeton entre-temps (le verrou consultatif
-        // l'exclut) ; on refuse plutôt que de réaffecter en silence.
+        // Aucune ligne : une autre personne détient une inscription active de ce jeton dans cet
+        // établissement ET ne l'a pas passée par `ent_push_reaffecter` (écriture directe concurrente :
+        // toute inscription de l'API prend le même verrou consultatif, donc ne peut pas s'intercaler ;
+        // la ligne rivale ne peut être qu'une écriture hors API non encore validée). On refuse plutôt
+        // que de réaffecter en silence : conflit (409), jamais une erreur serveur (F-3).
         let Some(row) = row else {
-            return Err(PushRepoError::Domain(DomainError::Infrastructure));
+            return Err(PushRepoError::Conflit);
         };
         txw.commit().await.map_err(map_sqlx)?;
         let mut anciens: Vec<Uuid> = anciens.into_iter().map(|(u,)| u).collect();
@@ -141,7 +147,7 @@ impl PgPushRepo {
         let r: Option<(String,)> = sqlx::query_as(
             r#"SELECT token FROM ent_push_device
                 WHERE id = $1 AND etablissement_id = $2
-                  AND ent_push_actif(revoked_at, session_id, last_seen_at)"#,
+                  AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id)"#,
         )
         .bind(device_id)
         .bind(etablissement_id)
@@ -188,7 +194,7 @@ impl PgPushRepo {
             FROM ent_push_device
             WHERE etablissement_id = $1
               AND user_id = ANY($2)
-              AND ent_push_actif(revoked_at, session_id, last_seen_at)
+              AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id)
             "#,
         )
         .bind(etablissement_id)
@@ -283,6 +289,10 @@ impl PgPushRepo {
 #[derive(Debug)]
 pub enum PushRepoError {
     SessionMorte,
+    /// Plateforme non reconnue (403, comme avant).
+    PlateformeInconnue,
+    /// Une autre personne détient déjà ce jeton (409) : voir `upsert_device`.
+    Conflit,
     Domain(DomainError),
 }
 

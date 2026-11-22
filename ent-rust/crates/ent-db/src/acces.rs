@@ -289,12 +289,17 @@ impl PgEnt {
             .map_err(db)?
             .rows_affected();
             // Plus de notification poussée vers les appareils de la personne pour cet établissement.
-            sqlx::query("DELETE FROM ent_push_device WHERE etablissement_id = $1 AND user_id = $2")
-                .bind(etablissement_id)
-                .bind(cible_user_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
+            // Règle 4 : jamais d'effacement. Ceux qui tenaient à une session viennent d'être révoqués par
+            // le déclencheur (`session_revoquee`) ; les autres (sans session) le sont ici, avec trace.
+            sqlx::query(
+                "UPDATE ent_push_device SET revoked_at = now(), revoque_motif = 'acces_ferme'
+                  WHERE etablissement_id = $1 AND user_id = $2 AND revoked_at IS NULL",
+            )
+            .bind(etablissement_id)
+            .bind(cible_user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         }
         tx.commit().await.map_err(db)?;
 

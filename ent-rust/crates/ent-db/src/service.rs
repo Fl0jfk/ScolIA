@@ -1605,7 +1605,9 @@ impl PgEnt {
     }
 
     /// Variante explicite **labo et tests** : inscription sans session (l'appareil n'est alors
-    /// éligible à l'envoi que 30 jours après sa dernière inscription). Jamais appelée en production.
+    /// éligible à l'envoi que 30 jours après sa dernière inscription). Absente des binaires de
+    /// production (F-2) : seuls les tests et la feature `labo` la compilent.
+    #[cfg(any(test, feature = "labo"))]
     pub async fn register_push_device_sans_session(
         &self,
         etablissement_id: Uuid,
@@ -1626,13 +1628,12 @@ impl PgEnt {
         app_id: Option<String>,
         session_id: Option<Uuid>,
     ) -> Result<PushDevice, EntDbError> {
-        let platform = PushPlatform::parse(platform).ok_or(EntDbError::Forbidden)?;
         let (device, anciens_titulaires) = self
             .push_devices
             .upsert_device(RegisterPushDevice {
                 etablissement_id,
                 user_id,
-                platform,
+                platform: platform.to_string(),
                 token: token.to_string(),
                 app_id,
                 session_id,
@@ -1642,6 +1643,11 @@ impl PgEnt {
                 crate::push_repo::PushRepoError::SessionMorte => {
                     EntDbError::Auth(AuthError::InvalidSession)
                 }
+                crate::push_repo::PushRepoError::PlateformeInconnue => EntDbError::Forbidden,
+                crate::push_repo::PushRepoError::Conflit => EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "ce jeton de notification est déjà utilisé par une autre personne",
+                ),
                 crate::push_repo::PushRepoError::Domain(d) => EntDbError::Domain(d),
             })?;
         self.events
@@ -1654,7 +1660,8 @@ impl PgEnt {
                 payload: json!({
                     "platform": device.platform,
                     "user_id": user_id,
-                    // DS3 : trace de la réaffectation (anciens titulaires révoqués), sans le jeton.
+                    // DS3 : trace de la réaffectation, sans le jeton. Règle 2 : seulement les anciens
+                    // titulaires de CET établissement (ceux des autres ne traversent pas la frontière).
                     "reaffecte_depuis": anciens_titulaires,
                 }),
                 actor_user_id: Some(user_id.to_string()),

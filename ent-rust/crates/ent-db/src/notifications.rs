@@ -313,7 +313,7 @@ pub(crate) async fn contacts_de(
     let push: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM ent_push_device
           WHERE etablissement_id = $1 AND user_id = $2 AND revoked_at IS NULL
-            AND ent_push_actif(revoked_at, session_id, last_seen_at) LIMIT 1",
+            AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id) LIMIT 1",
     )
     .bind(etab)
     .bind(user)
@@ -1210,7 +1210,7 @@ impl Expediteur {
                 let appareils: Vec<(Uuid, String)> = sqlx::query_as(
                     "SELECT id, platform FROM ent_push_device
                       WHERE etablissement_id = $1 AND user_id = $2 AND revoked_at IS NULL
-                        AND ent_push_actif(revoked_at, session_id, last_seen_at)
+                        AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id)
                       ORDER BY last_seen_at DESC LIMIT 5",
                 )
                 .bind(e.etablissement_id)

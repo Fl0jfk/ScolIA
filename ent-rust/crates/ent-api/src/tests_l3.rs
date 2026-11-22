@@ -831,13 +831,14 @@ async fn socle1_sessions_web_inactivite_mobile_longue_et_appareils() {
         .unwrap();
     assert!(!vivante(&app, &c.jeton).await, "web : inactivité > 2 h");
     assert!(vivante(&app, &mobile).await, "mobile : pas de délai d'inactivité");
-    let (exp,): (chrono::DateTime<chrono::Utc>,) = sqlx::query_as(
-        "SELECT expires_at FROM ent_session WHERE user_id = $1 AND client = 'mobile'")
+    // F-7 : l'écart est calculé côté SQL (aucune comparaison à l'heure réelle du test).
+    let (restant_plus_de_80_jours,): (bool,) = sqlx::query_as(
+        "SELECT expires_at > now() + interval '80 days' FROM ent_session WHERE user_id = $1 AND client = 'mobile'")
         .bind(c.id)
         .fetch_one(&pool().await)
         .await
         .unwrap();
-    assert!(exp > chrono::Utc::now() + chrono::Duration::days(80), "mobile prolongée à l'usage");
+    assert!(restant_plus_de_80_jours, "mobile prolongée à l'usage");
 
     // Déconnexion ciblée : on ne touche pas aux sessions d'autrui.
     let (_, liste) = appel(&app, "GET", "/auth/sessions", Some(&mobile), None).await;
