@@ -46,6 +46,7 @@ pub mod evaluations_v3;
 pub mod evaluations_v3_eval;
 pub mod evaluations_v3_import;
 pub mod evaluations_v4;
+pub mod evaluations_v5;
 mod evaluations_bulletin;
 mod enseignements;
 pub mod cours;
@@ -99,6 +100,8 @@ mod tests_evaluations_v3;
 mod tests_evaluations_v3c;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;
 pub mod campagnes;
@@ -450,6 +453,7 @@ pub mod messagerie_m0b;
 pub mod voyages;
 pub mod voyages_argent;
 pub mod voyages_argent_flux;
+pub mod voyages_argent_v3;
 pub mod voyages_argent_repo;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
@@ -571,7 +575,7 @@ pub use option_repo::PgOptionRepo;
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::nom_fichier_document;
 pub use service::{
-    BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
+    BankRapprochementSummary, CauseRefusEcriture, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
     PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, RefusMetier, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};
@@ -811,6 +815,8 @@ mod tests_voyages_v0d;
 mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v2a;
+#[cfg(test)]
+mod tests_voyages_v3;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

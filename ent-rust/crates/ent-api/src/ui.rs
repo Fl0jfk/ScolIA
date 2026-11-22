@@ -33134,24 +33134,20 @@ async function bindDossier(id) {
             ? `<strong>${esc(ptsSolde)}</strong>${ptsDepart ? ' / ' + esc(ptsDepart) : ''}`
             : '—';
           let moyBlock = '<p class="muted">Moyennes : période ou API indisponible.</p>';
-          let moyResume = '—';
           const perList = periodes || [];
           const perCourante = perList.find(p => p.est_courante || p.courante || p.active) || perList[0];
           if (perCourante && perCourante.id) {
             try {
               const moy = await api('/eleves/' + id + '/moyennes?periode_id=' + encodeURIComponent(perCourante.id));
               const rows = (moy || []).filter(m => m.moyenne != null || m.valeur != null);
-              const nums = rows.map(m => Number(m.moyenne != null ? m.moyenne : m.valeur)).filter(n => !Number.isNaN(n));
-              if (nums.length) {
-                moyResume = (nums.reduce((s, n) => s + n, 0) / nums.length).toFixed(2);
-              }
+              // V3e : la moyenne générale « simple moyenne des moyennes de matière » (sans coefficients) est retirée.
               if (rows.length) {
                 moyBlock = `<table><thead><tr><th>Matière</th><th>Moyenne</th></tr></thead>
                   <tbody>${rows.map(m => `<tr>
                     <td>${esc(m.matiere_libelle || m.libelle || m.matiere || '—')}</td>
                     <td><strong>${esc(String(m.moyenne != null ? m.moyenne : m.valeur))}</strong></td>
                   </tr>`).join('')}</tbody></table>
-                  <p class="muted">Période : ${esc(perCourante.libelle || perCourante.nom || String(perCourante.id).slice(0, 8))}${moyResume !== '—' ? ' · moyenne générale ' + esc(moyResume) : ''}</p>`;
+                  <p class="muted">Période : ${esc(perCourante.libelle || perCourante.nom || String(perCourante.id).slice(0, 8))}</p>`;
               } else if (Array.isArray(moy) && moy.length) {
                 moyBlock = `<p class="ok">${moy.length} ligne(s) moyennes — détail dans Notes.</p>`;
               }
@@ -33163,8 +33159,7 @@ async function bindDossier(id) {
             cpeBandeau.innerHTML = `
             <a class="stat-tile bento-span-3" href="/app/absences"><strong class="${absOuvertes.length ? 'warn' : ''}">${absOuvertes.length}</strong><span>Absences ouvertes</span></a>
             <a class="stat-tile bento-span-3" href="/app/alertes"><strong class="${alertesOuvertes.length ? 'warn' : ''}">${alertesOuvertes.length}</strong><span>Alertes CPE</span></a>
-            <div class="stat-tile bento-span-3"><strong>${ptsTxt}</strong><span>Permis à points</span></div>
-            <div class="stat-tile bento-span-3"><strong>${esc(moyResume)}</strong><span>Moy. générale</span></div>`;
+            <div class="stat-tile bento-span-3"><strong>${ptsTxt}</strong><span>Permis à points</span></div>`;
           }
           if (synBox) {
             synBox.innerHTML = `
@@ -33172,7 +33167,6 @@ async function bindDossier(id) {
               <div class="stat-tile bento-span-2"><strong class="${absOuvertes.length ? 'warn' : ''}">${absOuvertes.length}</strong><span>Absences ouvertes</span></div>
               <div class="stat-tile bento-span-2"><strong class="${alertesOuvertes.length ? 'warn' : ''}">${alertesOuvertes.length}</strong><span>Alertes CPE</span></div>
               <div class="stat-tile bento-span-2"><strong>${ptsTxt}</strong><span>Permis à points</span></div>
-              <div class="stat-tile bento-span-2"><strong>${esc(moyResume)}</strong><span>Moy. générale</span></div>
               <div class="stat-tile bento-span-2"><strong>${dispActives.length}</strong><span>Dispenses EPS actives</span></div>
             </div>
             <h4>Absences à traiter</h4>

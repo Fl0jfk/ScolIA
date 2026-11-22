@@ -94,12 +94,22 @@ async fn flux_http_authentifie_cloisonne_sans_contenu_et_borne() {
             StatusCode::OK,
             "chaque appareil reçoit le temps réel : {flux}"
         );
-        assert_eq!(flux["fils"].as_array().unwrap().len(), 1, "{flux}");
+        // Le compte « famille de Léa » du labo est partagé avec les autres tests qui tournent en parallèle sur la même
+        // base : d'autres fils peuvent apparaître. On exige le fil de ce test (genre « nouveau ») et l'absence du fil de B,
+        // pas un nombre exact d'événements.
+        let fils = flux["fils"].as_array().unwrap();
+        let du_test: Vec<_> = fils
+            .iter()
+            .filter(|f| f["fil_id"] == fil_a.to_string())
+            .collect();
+        assert_eq!(du_test.len(), 1, "{flux}");
+        assert_eq!(du_test[0]["genre"], "nouveau");
+        assert!(
+            fils.iter().all(|f| f["fil_id"] != ouverts[1].to_string()),
+            "le fil de B ne fuit pas vers A : {flux}"
+        );
         flux_a = flux;
     }
-    let fils = flux_a["fils"].as_array().unwrap();
-    assert_eq!(fils[0]["fil_id"], fil_a.to_string());
-    assert_eq!(fils[0]["genre"], "nouveau");
     let texte = flux_a.to_string();
     assert!(
         !texte.contains("confidentiel") && !texte.contains("Flux HTTP"),

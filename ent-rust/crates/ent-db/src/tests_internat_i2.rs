@@ -2018,7 +2018,7 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
     let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == eleves[i]).unwrap().statut.clone();
     assert_eq!(statut(0), "attendu", "inscrit : autorisation non confirmée, dort à l'internat");
-    assert_eq!(statut(1), "retire", "prêt : autorisation complète");
+    assert_eq!(statut(1), "attendu", "prêt : pas de départ constaté, l'élève reste attendu et appelé (D-069, règle 1)");
     assert_eq!(statut(2), "retire", "parti : départ effectif");
     assert_eq!(statut(3), "attendu", "liste d'attente");
     assert_eq!(statut(4), "attendu", "bloqué");
