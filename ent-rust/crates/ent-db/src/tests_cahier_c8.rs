@@ -3514,3 +3514,202 @@ async fn c8_f11_l_octroi_d_acces_d_inspection_ne_depend_pas_de_cahier_viser() {
         .await
         .is_err_and(|e| est_interdit(&e)));
 }
+
+// ───────────────────────── passe 3 : restes de la passe 2 ─────────────────────────
+
+/// Faible 7 : un SEUL jour au-dessus du plafond d'une archive est tronqué avec une mention explicite, sans bloquer la clôture.
+#[tokio::test]
+async fn c8_un_jour_trop_gros_est_tronque_avec_mention_explicite_sans_bloquer_la_cloture() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
+    let t0 = travail(&fx, cours, "Modèle", "maintenant").await;
+    // 260 travaux de 20 000 caractères publiés le MÊME jour : 5 200 000 caractères, plus que le plafond (4 000 000).
+    sqlx::query(
+        "INSERT INTO ent_cdt_travail (id, etablissement_id, cours_id, annee_id, donne_le, echeance_mode, echeance_le, nature_id,
+                titre, consigne, etat, publie_a, visible_a, auteur_user_id)
+         SELECT gen_random_uuid(), t.etablissement_id, t.cours_id, t.annee_id, t.donne_le, t.echeance_mode, t.echeance_le, t.nature_id,
+                'Même jour ' || g, repeat('x', 20000), 'publie', now(), now() - interval '1 day', t.auteur_user_id
+           FROM ent_cdt_travail t, generate_series(1, 260) g WHERE t.id = $1",
+    )
+    .bind(t0)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    let r = fx
+        .ent
+        .cdt_c8_cloturer(
+            &fx.direction(),
+            ClotureBody {
+                annee_id: annee.id,
+                confirmer: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(r.archives_produites >= 1);
+    let (tronquees, plafond_ok): (i64, bool) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE x.contenu LIKE '%ARCHIVE TRONQUÉE%'), bool_and(length(x.contenu) <= 4000000)
+           FROM ent_cdt_archive a
+           JOIN ent_cdt_export x ON x.etablissement_id = a.etablissement_id AND x.id = a.export_id
+          WHERE a.etablissement_id = $1 AND a.annee_id = $2 AND a.cours_id = $3",
+    )
+    .bind(etab)
+    .bind(annee.id)
+    .bind(cours)
+    .fetch_one(fx.ent.pool())
+    .await
+    .unwrap();
+    assert!(
+        tronquees >= 1,
+        "la troncature est écrite dans le texte de l'archive"
+    );
+    assert!(plafond_ok, "aucune archive ne dépasse le plafond");
+}
+
+/// Un octroi croisé (A donne à B, puis B donne à A) est signalé par `croise` sur le second, jamais sur le premier.
+#[tokio::test]
+async fn c8_octroi_croise_est_signale_sur_le_second_octroi_seulement() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Entrée.",
+        "maintenant",
+    )
+    .await;
+    let (d1, d2) = (fx.cast.directions[0].user_id, fx.cast.directions[1].user_id);
+    let du = auj - Duration::days(7);
+    let premier = fx
+        .ent
+        .cdt_c8_acces_accorder(&fx.direction(), acces(d2, cours, du, auj))
+        .await
+        .unwrap();
+    assert!(!premier.croise, "l'octroi simple n'est pas croisé");
+    let second = fx
+        .ent
+        .cdt_c8_acces_accorder(&fx.direction2(), acces(d1, cours, du, auj))
+        .await
+        .unwrap();
+    assert!(
+        second.croise,
+        "B donne à A après que A a donné à B : signalé"
+    );
+}
+
+/// `cahier.cloturer` seul (sans `cahier.exporter`) : décider d'une archive et la lister, jamais lire son texte.
+#[tokio::test]
+async fn c8_cloturer_sans_exporter_decide_et_liste_les_archives_sans_lire_leur_texte() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj).await,
+        "Contenu.",
+        "maintenant",
+    )
+    .await;
+    fx.ent
+        .cdt_c8_cloturer(
+            &fx.direction(),
+            ClotureBody {
+                annee_id: annee.id,
+                confirmer: true,
+            },
+        )
+        .await
+        .unwrap();
+    let ancienne = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_cdt_archive (id, etablissement_id, annee_id, cours_id, export_id, empreinte, produite_le, version, echeance_archive)
+         SELECT $2, etablissement_id, annee_id, cours_id, export_id, empreinte, produite_le, 9, ($3::date - 1)
+           FROM ent_cdt_archive WHERE etablissement_id = $1 LIMIT 1",
+    )
+    .bind(etab)
+    .bind(ancienne)
+    .bind(auj)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    let dir = (fx.cast.direction.user_id, Role::Direction.as_str());
+    let role = fx
+        .ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            RoleSaisie {
+                nom: format!("Clôture {}", &Uuid::new_v4().simple().to_string()[..6]),
+                description: None,
+                modele: None,
+                droits: vec![Droit {
+                    action: Action::CahierCloturer,
+                    portee: Portee::Etablissement,
+                    cibles: vec![],
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    let delegue = &fx.cast.profs[1];
+    fx.ent
+        .attribuer_role_for_actor(etab, dir.0, dir.1, role.id, delegue.user_id, None)
+        .await
+        .unwrap();
+    let a = act(etab, delegue);
+    assert!(
+        !fx.ent
+            .cdt_droit_etab(&a, Action::CahierExporter)
+            .await
+            .unwrap(),
+        "il n'exporte pas"
+    );
+    assert!(!fx
+        .ent
+        .cdt_c8_archives(&a, Some(annee.id))
+        .await
+        .unwrap()
+        .is_empty());
+    let d = fx
+        .ent
+        .cdt_c8_archive_decider(
+            &a,
+            ancienne,
+            ArchiveDecisionBody {
+                decision: "versee".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(d.decision, "versee");
+    assert!(fx
+        .ent
+        .cdt_c8_archive_contenu(&a, ancienne)
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+}

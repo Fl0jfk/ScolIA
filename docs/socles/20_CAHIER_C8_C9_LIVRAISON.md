@@ -177,3 +177,31 @@ HTTP de séparation (`ent-api`, labo) : **57 verts**. Frontend : le test d'inté
 
 **Limites connues, déclarées.** Écran de réglage du délai de réouverture non fait (colonne et défaut en base). Troncature d'un jour trop volumineux non testée. `croise` non testé séparément. Le cas « `cahier.cloturer` sans `cahier.exporter` » (décision d'archive) n'est pas isolé par un test, aucun profil par défaut ne le porte. F12 et F13 : toujours sans énoncé.
 
+
+## 11. Passe 3 (2026-11-22) : reprise sur année figée, restes de la passe 2
+
+Branche `ent-socle-20-code-c8c9` (PR n° 110, brouillon), partie de sa tête distante `de331683`, puis fusion d'`origin/ENT` (commit `8001d97a`, aucun conflit). **Compteurs (règle 28) recalculés** : `Action::TOUTES` 278 (ENT 275 + 3 du lot, inchangé par la fusion), `MIGRATION_TAG` 3808 inchangé, aucune migration nouvelle (**2407 et 2412 modifiées**) ; `registre_donnees`, `tests_rls`, `migrate` verts dans la suite complète.
+
+### Échecs de la CI (run 45030673191)
+
+| Échec | Cause | Correctif | État |
+|---|---|---|---|
+| 5 tests de **rejeu des migrations** (`tests_d036`, `tests_personnels_p1`, `tests_eleve_identite`, `tests_inscriptions_i2`, `tests_structure_s4`) | `ent_cdt_reprise` (2412) insère dans `ent_cdt_travail` une année N-1 close au socle 5 : la garde `ent_cdt_ecriture_gardee` refuse (23514) | **La reprise est le seul chemin qui écrit dans une année figée**, et en INSERT seulement. 2412 pose `ent.cdt_reprise = 'on'` pour la transaction (`set_config(…, true)`), le retire en sortie et journalise les compteurs avant/après (`RAISE LOG`) ; 2407 : la garde laisse passer un INSERT si le drapeau est posé **et** si la pile d'appel (`PG_CONTEXT`) passe par `ent_cdt_reprise(uuid)`. UPDATE et DELETE restent refusés ; la reprise reste idempotente (`ON CONFLICT DO NOTHING`, aucune ligne existante modifiée). Poser le drapeau à la main ne désarme pas la garde. | fait et testé |
+| `e9c_majorite_proche_est_un_booleen_sans_date` | **Non reproduit** : passe seul, sur base neuve, à 16 h 28 UTC le 22-11 (la CI l'a vu échouer à 15 h 51 UTC le même jour). Il utilise le jour de l'établissement (`jour_etablissement`) et des naissances relatives à ce jour : il ne dépend pas d'une date fixe. Hypothèse (non prouvée) : état laissé par un autre test de la tranche. | aucun changement de code ; à resurveiller sur la CI | **non résolu** |
+| Tranches frontend | Non terminées dans ce run | Voir « Vérifications » | voir CI |
+
+Limite déclarée de la garde : la base de test n'a qu'un rôle ; le contrôle repose sur le drapeau **et** la pile d'appel, pas sur un rôle distinct (`SECURITY DEFINER` non retenu). Une fonction de même nom créée par un tiers dans un autre schéma contournerait le contrôle : le droit de créer des fonctions n'est pas accordé au rôle applicatif.
+
+### Restes de la passe 2
+
+| Reste | État |
+|---|---|
+| Troncature d'un jour trop gros | **testé** : `c8_un_jour_trop_gros_est_tronque_avec_mention_explicite_sans_bloquer_la_cloture` (260 travaux de 20 000 caractères le même jour : mention « ARCHIVE TRONQUÉE », aucune archive au-dessus du plafond) |
+| Octroi `croise` | **testé** : `c8_octroi_croise_est_signale_sur_le_second_octroi_seulement` |
+| Clôturer sans exporter | **testé** : `c8_cloturer_sans_exporter_decide_et_liste_les_archives_sans_lire_leur_texte` (rôle libre `cahier.cloturer` seul : liste et décision permises, lecture du texte refusée) |
+| `c4_..._performance` (200 ms) | critère de 200 ms **vérifié seul** (passe) ; sous charge 250 à 284 ms : le test garde un **garde-fou de 500 ms** (meilleur de trois passages), qui attrape une régression d'ordre de grandeur sans dépendre de la charge ; justification écrite dans le test |
+| Test de reprise sur année figée | `c1_reprise_sur_annee_figee_insere_les_manquants_sans_rien_alterer` : cahier clôturé puis année close au socle 5 ; insertion du manquant, lignes existantes inchangées (empreinte MD5), rejeu identique, écritures directes refusées, drapeau posé à la main inopérant, drapeau retiré en sortie |
+
+### Vérifications locales
+
+PostgreSQL 16 local, base neuve dont le nom contient « test » (`ent_ci_test`), `ENT_ENV=test`, **sans** `ENT_RLS_MODE=strict` (la CI ne le pose pas pour le job labo ; avec lui, 5 tests `a0bis` échouent), `--locked`, un seul `CARGO_TARGET_DIR`. Suite complète `ent-db --features labo --lib` en `--test-threads=4` : **2504 verts, 11 rouges**. Les 11 (`a1_port_absences_validees_non_remplacees`, `statut_de_tous_les_eleves_du_labo…`, `sortie_future_puis_tache_quotidienne`, `e2_aucune_variable_de_session…`, trois `i4_*`, `correspondance_stable_rejouable…`, `la_simulation_n_ecrit_rien…`, deux `r3_*`) sont des **artefacts d'exécution en un seul processus sur une base partagée** (comptages globaux de tables, base de 13 000 élèves) : rejoués **un par un sur base neuve**, ils passent tous (la CI isole chaque test, nextest). Aucun test n'est ignoré (`#[ignore]`).
