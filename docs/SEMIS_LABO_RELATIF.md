@@ -33,6 +33,11 @@ installé dans ce conteneur et son installation (`apt-get`) a été refusée par
 ne déplace pas l'horloge réelle (année « courante » du référentiel, `now()` SQL, `jour_paris()` des tests) : il ne remplace
 pas la simulation d'horloge pour les tests.
 
+## Correctif CI (run de 2273adb / ac64c88)
+`tests_referentiel_s2::isolation_droits_et_import_mef` : `SELECT id FROM ent_classe … LIMIT 1` pouvait tomber sur une classe de
+l'année close (`Conflit` au lieu de `NotFound`) — l'ambiguïté prévue. Recherches restreintes aux années non closes dans ce test
+(3 requêtes), `tests_absences_personnels`, `tests_demandes_n1_3` et `tests_cahier` (mêmes motifs) ; assertions inchangées.
+
 ## Restes
 1. Rejouer la suite (ou au moins `scenarios`, `tests_structure*`, `tests_evaluations*`, `tests_assiduite*`) sous
    `faketime` aux 5 dates ; corriger ce qui rougit sans affaiblir les assertions.
