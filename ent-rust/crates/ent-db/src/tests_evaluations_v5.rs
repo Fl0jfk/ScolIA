@@ -1411,3 +1411,92 @@ async fn v5_ce24_apres_le_retrait_du_lien_la_famille_ne_lit_plus_ni_moyennes_ni_
         .await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
 }
+
+// ───────────────────────── Cas limite dérivé : quitte l'établissement puis revient ─────────────────────────
+
+/// Un élève qui quitte l'établissement le 2 novembre puis revient le 1ᵉʳ décembre : absent du public entre les deux (non
+/// concerné, jamais un zéro), ses notes d'avant et d'après comptent **une seule fois**, il n'est « parti » qu'à la date
+/// de sortie encore en vigueur, et il reste dans l'effectif de sa classe.
+#[tokio::test]
+async fn v5_cas_limite_un_eleve_qui_quitte_puis_revient_ne_perd_ni_ne_double_aucune_note() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let s = creer_eleve(&ent, w.etab, "Revenant").await;
+    affecter(&ent, w.etab, w.annee, s, w.classe_a, d(2031, 9, 1)).await;
+    let avant = eval(&ent, &w, w.cours_maths, d(2031, 10, 20), "Avant", false).await;
+    let pendant = eval(&ent, &w, w.cours_maths, d(2031, 11, 15), "Pendant", false).await;
+    let apres = eval(&ent, &w, w.cours_maths, d(2031, 12, 5), "Après", false).await;
+    ecrire(&ent, &w, avant, s, 14_000).await;
+    // Départ le 2 novembre : fin d'affectation, date de sortie.
+    exec(
+        &ent,
+        "UPDATE ent_affectation SET date_fin = '2031-11-02' WHERE etablissement_id = $1 AND eleve_id = $2",
+        vec![u(w.etab), u(s)],
+    )
+    .await;
+    exec(
+        &ent,
+        "UPDATE ent_eleve SET date_sortie = '2031-11-02' WHERE etablissement_id = $1 AND id = $2",
+        vec![u(w.etab), u(s)],
+    )
+    .await;
+    assert!(
+        ent.eva_v1_ecrire_resultat_for_actor(w.etab, w.prof, PROF, &note(pendant, s, 0))
+            .await
+            .is_err(),
+        "parti : non concerné, jamais un zéro"
+    );
+    let p = ent
+        .eva_v5_parcours_for_actor(w.etab, w.direction, DIR, jour(), s, w.t1)
+        .await
+        .unwrap();
+    assert_eq!(p.parti_le, Some(d(2031, 11, 2)));
+    // Retour le 1ᵉʳ décembre : nouvelle affectation, sortie levée.
+    affecter(&ent, w.etab, w.annee, s, w.classe_a, d(2031, 12, 1)).await;
+    exec(
+        &ent,
+        "UPDATE ent_eleve SET date_sortie = NULL WHERE etablissement_id = $1 AND id = $2",
+        vec![u(w.etab), u(s)],
+    )
+    .await;
+    ecrire(&ent, &w, apres, s, 10_000).await;
+    assert_eq!(
+        moyenne(&ent, &w, s, w.maths, w.t1, false).await,
+        Some(12_000),
+        "avant et après comptent, une fois chacune"
+    );
+    let p = ent
+        .eva_v5_parcours_for_actor(w.etab, w.direction, DIR, jour(), s, w.t1)
+        .await
+        .unwrap();
+    assert_eq!(
+        p.parti_le, None,
+        "revenu : plus de date de sortie en vigueur"
+    );
+    assert_eq!(p.segments.len(), 2, "deux passages dans la même classe");
+    assert_eq!(p.classe_rattachement_id, Some(w.classe_a));
+    let ligne = |ev: Uuid| {
+        p.evaluations
+            .iter()
+            .find(|x| x.evaluation_id == ev)
+            .unwrap()
+    };
+    assert!(ligne(avant).concerne && !ligne(pendant).concerne && ligne(apres).concerne);
+    let eff = ent
+        .eva_effectif(
+            w.etab,
+            Some(w.classe_a),
+            None,
+            d(2031, 9, 1),
+            d(2031, 12, 20),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        eff.iter().filter(|(e, _, _)| *e == s).count(),
+        1,
+        "une seule fois dans l'effectif"
+    );
+}
