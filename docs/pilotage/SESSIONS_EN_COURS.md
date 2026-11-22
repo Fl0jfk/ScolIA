@@ -545,3 +545,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - faibles : relevé sans `pour_famille`, ordre des contrôles de `charger_convocation`, `LIMIT 500` avant filtres, table AESH et effacement RGPD.
 - **21-11, 15 h 10 UTC, versement de 21 V3d** : CI 469 verte sur 57ee4763 → **ENT = 57ee4763**. Aucune session ne code. Quota hebdomadaire en avertissement jusqu'à dimanche 9 h UTC (règle 37 : aucun lancement d'ici là). Dimanche 9 h 10 : correctifs de 20 C8+C9 (programmé), puis V3e+V5 ou semis du labo relatif à l'année.
 - **21-11, 16 h 20 UTC** : CI 470 d'ENT rouge sur le test `audit_correctifs_1::a03…` (« titre fuité ») : **faux rouge**, le test cherchait la sous-chaîne « A03 », présente par hasard dans le code d'un autre document (UUID en majuscules). Correctif du pilote (titres exacts) en PR 113, CI 471 verte → **ENT = 02659006**. Relance de la CI 470 : verte.
+- **22-11, 5 h 50 UTC, marge levée par Florian (« tu peux cramer la marge cette fois-ci »)** : lancement anticipé (programmation de 9 h 10 annulée) :
+  - « cahier C8 + C9 correctifs » (session_01KZCbFGt2AADgZsCTZqzsXu, branche `ent-socle-20-code-c8c9`, PR 110) ;
+  - « 21 V3e + V5 » (session_01KZCbFHn6Eu1cbWvugap4rG, branche `ent-socle-21-code-v5`) : suites de la revue de V3d, puis parcours (public à la date, changements de classe et d'option, résultats externes, double cursus, bulletin de rattachement).
+  - Les deux consignes portent la nouvelle clause « ne reste jamais en attente ». **Sessions qui codent : 2 sur 2.**
