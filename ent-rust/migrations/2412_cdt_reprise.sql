@@ -89,7 +89,13 @@ CREATE OR REPLACE FUNCTION ent_cdt_reprise(p_etab UUID DEFAULT NULL)
 RETURNS TABLE (objet TEXT, anciens BIGINT, repris BIGINT, quarantaine BIGINT)
 LANGUAGE plpgsql AS $$
 #variable_conflict use_column
+DECLARE
+    v_avant BIGINT;
 BEGIN
+    -- Seul chemin autorisé à insérer dans une année figée (la garde 2407 lit ce drapeau ET vérifie que l'appel vient d'ici) ;
+    -- le drapeau ne vit que dans cette transaction et est retiré en sortie.
+    PERFORM set_config('ent.cdt_reprise', 'on', true);
+    SELECT sum(c.repris) INTO v_avant FROM ent_cdt_reprise_compteurs(p_etab) c;
     PERFORM ent_cdt_assurer_natures(x.etablissement_id)
        FROM (SELECT DISTINCT etablissement_id FROM ent_travail WHERE p_etab IS NULL OR etablissement_id = p_etab) x;
 
@@ -296,6 +302,10 @@ BEGIN
          OR (q.objet = 'travail' AND EXISTS (SELECT 1 FROM ent_cdt_travail n WHERE n.ancien_id = q.ancien_id))
          OR (q.objet = 'piece' AND EXISTS (SELECT 1 FROM ent_cdt_piece_jointe j WHERE j.ancien_id = q.ancien_id)));
 
+    PERFORM set_config('ent.cdt_reprise', 'off', true);
+    -- Trace : les compteurs avant / après sont journalisés (et renvoyés à l'appelant).
+    RAISE LOG 'ent_cdt_reprise(%) : % ligne(s) reprise(s) avant, % après', p_etab, v_avant,
+              (SELECT sum(c.repris) FROM ent_cdt_reprise_compteurs(p_etab) c);
     RETURN QUERY SELECT * FROM ent_cdt_reprise_compteurs(p_etab);
 END
 $$;

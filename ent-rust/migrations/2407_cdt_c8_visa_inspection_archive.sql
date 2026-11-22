@@ -365,7 +365,17 @@ DECLARE
     v_annee UUID;
     r RECORD;
     i INTEGER;
+    v_pile TEXT;
 BEGIN
+    -- Reprise de l'existant (2412) : SEUL chemin autorisé à écrire dans une année figée, et en INSERT seulement (aucune
+    -- modification ni suppression d'une ligne existante). Double condition : le drapeau de transaction posé par
+    -- `ent_cdt_reprise` ET une pile d'appel qui passe par cette fonction ; poser le drapeau ailleurs ne désarme pas la garde.
+    IF TG_OP = 'INSERT' AND COALESCE(current_setting('ent.cdt_reprise', true), '') = 'on' THEN
+        GET DIAGNOSTICS v_pile = PG_CONTEXT;
+        IF v_pile ~ '(function|fonction) ent_cdt_reprise\(uuid\)' THEN
+            RETURN NEW;
+        END IF;
+    END IF;
     FOR i IN 1..2
     LOOP
         IF i = 1 THEN
