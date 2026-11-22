@@ -25,3 +25,9 @@ M7 (carnet et cartes) et M8 (élèves) dépendent de plusieurs socles propriéta
 
 ## Compteurs (règle 28)
 Tables avec RLS : **+0** ; `Action::TOUTES` inchangé ; routes **+1** (`/messages/flux`) ; `MIGRATION_TAG` inchangé.
+
+## Correctif CI n° 479 (suite)
+- `corr_f1_…` paniquait sur `Domain(MsgPiecePasAuteur)` : **pas une régression du code**. Le domaine (`plan_attacher_piece`) refuse tout non-auteur *avant* le dépôt ; le test attendait un conflit (repli du dépôt, seconde barrière). Le test accepte désormais `MsgPiecePasAuteur` ou le conflit pour « un autre que l'auteur » (aucune ligne créée), et garde : cinq pièces au plus sous verrou, refus sur message **retiré**, auteur accepté sur son message différé. Aucune règle de sécurité affaiblie.
+- Le correctif a d'abord manqué l'import de `DomainError` (vu à la compilation locale, jamais poussé vert).
+- Local (base neuve `ent_msg_test2`, `ENT_EXIGER_BASE=1`) : 124 tests (messagerie, `corr_`, M12, `isolation_sql_statique`, `jour_utc_interdit`) verts, 0 échec. Fusion d'`origin/ENT` faite (ebac151) ; compteurs inchangés (RLS +0, routes +1, migrations 0).
+- Toujours non fait : SSE, LISTEN/NOTIFY, test HTTP du flux, brouillons hors ligne, dictée, M7–M11, M13–M17. Compilation de `ent-db` : tuée par manque de mémoire avec les réglages par défaut ici ; passée avec `CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_CODEGEN_UNITS=64`.

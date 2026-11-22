@@ -28,6 +28,7 @@ use super::tests_messagerie_m5::{
 use super::tests_messagerie_m6::{cree_le, dernier_message, pointeurs};
 use super::*;
 use chrono::Duration;
+use domain_eleve::DomainError;
 use ent_auth::Role;
 use uuid::Uuid;
 
