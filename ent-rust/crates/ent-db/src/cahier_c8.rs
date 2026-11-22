@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
 use crate::cahier_c2::{conflit, invalide, texte_borne};
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -32,6 +32,30 @@ const MAX_VISAS: usize = 200;
 /// Visas examinés au plus avant filtrage (garde-fou de coût).
 const MAX_VISAS_ANALYSES: i64 = 5000;
 const MAX_ELEMENTS_DETAIL: i64 = 2000;
+
+/// Erreur base du cahier : interblocage (`40P01`) et échec de sérialisation (`40001`) sont un **conflit réessayable** (409,
+/// jamais 500) ; le refus des gardes de base (année figée, journal de clôture) en est un aussi quand une écriture croise
+/// une clôture ; tout le reste suit la classification commune.
+pub(crate) fn db(err: sqlx::Error) -> EntDbError {
+    if let sqlx::Error::Database(d) = &err {
+        match d.code().as_deref() {
+            Some("40P01" | "40001") => {
+                return conflit("conflit d'accès concurrent : réessayez dans un instant");
+            }
+            Some("23514")
+                if d.message()
+                    .starts_with("cahier de textes : l'année est figée") =>
+            {
+                return conflit("l'année est close : le cahier n'est plus modifiable");
+            }
+            Some("23514") if d.message().starts_with("journal de clôture") => {
+                return conflit("le journal de clôture refuse cette opération dans l'état actuel");
+            }
+            _ => {}
+        }
+    }
+    crate::ref_commun::db(err)
+}
 
 pub(crate) fn periode_valide(du: NaiveDate, au: NaiveDate) -> Result<(), EntDbError> {
     if au < du {

@@ -25,7 +25,8 @@ use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::db;
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::tenant_tx::TenantTx;
 
@@ -46,7 +47,7 @@ pub(crate) async fn exiger_annee_ouverte_tx(
     annee_id: Uuid,
 ) -> Result<(), EntDbError> {
     let (close,): (bool,) = sqlx::query_as(
-        "SELECT cloturee_le IS NOT NULL OR ent_cdt_cahier_fige(etablissement_id, id)
+        "SELECT ent_cdt_annee_gelee(etablissement_id, id)
            FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
@@ -432,7 +433,7 @@ impl PgEnt {
         let entrees: Vec<(Uuid, Option<Uuid>, Uuid, String)> = sqlx::query_as(
             "SELECT id, auteur_user_id, seance_id, etat FROM ent_cdt_entree
               WHERE etablissement_id = $1 AND ancien_id IS NULL AND etat IN ('programmee', 'publiee')
-                AND visible_a <= now() AND NOT ent_cdt_cahier_fige(etablissement_id, annee_id)
+                AND visible_a <= now() AND NOT ent_cdt_annee_gelee(etablissement_id, annee_id)
               ORDER BY visible_a LIMIT 200 FOR UPDATE SKIP LOCKED",
         )
         .bind(etab)

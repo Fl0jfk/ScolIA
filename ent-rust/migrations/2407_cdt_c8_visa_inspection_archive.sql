@@ -255,7 +255,8 @@ DROP TRIGGER IF EXISTS ent_cdt_cloture_ajout_seul ON ent_cdt_cloture;
 CREATE TRIGGER ent_cdt_cloture_ajout_seul BEFORE UPDATE OR DELETE ON ent_cdt_cloture
     FOR EACH ROW EXECUTE FUNCTION ent_cdt_ajout_seul();
 
--- Le cahier d'une année est figé quand la dernière ligne du journal est une clôture, ou quand l'année est close (socle 5).
+-- Journal de clôture : état du CAHIER seul (la dernière ligne `cloture` / `reouverture` du journal). Le gel effectif d'une
+-- année (cahier clos OU année close au socle 5) est `ent_cdt_annee_gelee`, la seule fonction de garde (D-069, règle 1).
 CREATE OR REPLACE FUNCTION ent_cdt_cahier_fige(p_etab UUID, p_annee UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE AS $$
     SELECT COALESCE((SELECT c.action = 'cloture' FROM ent_cdt_cloture c
@@ -263,46 +264,148 @@ LANGUAGE sql STABLE AS $$
                       ORDER BY c.cree_le DESC, c.id DESC LIMIT 1), false)
 $$;
 
--- ── E1 / M5 : une année figée l'est EN BASE, quel que soit le chemin d'écriture ──────────────────────────────────────────
--- Entrées, travaux, contributions et leurs versions (et les notions d'une entrée) ne s'insèrent ni ne se modifient quand le
--- cahier de l'année est figé : seule la réouverture (journal `ent_cdt_cloture`) désarme la garde. La garde prend un verrou
--- partagé sur la ligne de l'année ; la clôture et la réouverture la prennent en exclusif (`FOR UPDATE`) : une écriture et
--- une clôture ne se croisent donc jamais (l'écriture attend la fin de la clôture et la voit, la clôture attend les écritures
--- en cours et les archive). Lève 23514.
+-- Une année close est figée EN BASE (D-069, règle 1) : close au cahier (journal) ou au socle 5 (`cloturee_le`, qui ne repasse
+-- jamais à NULL). Seule une réouverture tracée du cahier désarme le gel du cahier ; elle ne rouvre pas une année close au socle 5.
+CREATE OR REPLACE FUNCTION ent_cdt_annee_gelee(p_etab UUID, p_annee UUID) RETURNS BOOLEAN
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE((SELECT a.cloturee_le IS NOT NULL FROM ent_annee_scolaire a
+                      WHERE a.etablissement_id = p_etab AND a.id = p_annee), false)
+        OR ent_cdt_cahier_fige(p_etab, p_annee)
+$$;
+
+-- Délai de validité d'une demande de réouverture (règle 2) : paramétrable par établissement, défaut prudent 14 jours.
+ALTER TABLE ent_cdt_reglage ADD COLUMN IF NOT EXISTS reouverture_delai_jours SMALLINT NOT NULL DEFAULT 14
+    CHECK (reouverture_delai_jours BETWEEN 1 AND 60);
+
+-- Demande de réouverture valable : la plus récente, postérieure à la dernière clôture/réouverture, non expirée.
+CREATE OR REPLACE FUNCTION ent_cdt_demande_reouverture(p_etab UUID, p_annee UUID) RETURNS UUID
+LANGUAGE sql STABLE AS $$
+    SELECT d.id FROM ent_cdt_cloture d
+     WHERE d.etablissement_id = p_etab AND d.annee_id = p_annee AND d.action = 'reouverture_demandee'
+       AND d.cree_le > COALESCE((SELECT max(c.cree_le) FROM ent_cdt_cloture c
+                                  WHERE c.etablissement_id = d.etablissement_id AND c.annee_id = d.annee_id
+                                    AND c.action IN ('cloture', 'reouverture')), '-infinity'::timestamptz)
+       AND d.cree_le + make_interval(days => COALESCE((SELECT r.reouverture_delai_jours FROM ent_cdt_reglage r
+                                                        WHERE r.etablissement_id = p_etab), 14)) > clock_timestamp()
+     ORDER BY d.cree_le DESC, d.id DESC LIMIT 1
+$$;
+
+-- Le journal est cohérent PAR CONSTRUCTION (règle 2) : seule la base le garantit, pas le code appelant. Sérialisé par le
+-- verrou de la ligne de l'année. Une clôture n'a lieu que si le cahier n'est pas déjà clos ; une demande, que s'il l'est ;
+-- une réouverture, que sur une demande d'UNE AUTRE personne, non expirée, non encore consommée, dont elle reprend le motif.
+CREATE OR REPLACE FUNCTION ent_cdt_cloture_coherence() RETURNS trigger AS $$
+DECLARE
+    v_dem ent_cdt_cloture%ROWTYPE;
+    v_id UUID;
+BEGIN
+    PERFORM 1 FROM ent_annee_scolaire a WHERE a.etablissement_id = NEW.etablissement_id AND a.id = NEW.annee_id FOR NO KEY UPDATE;
+    NEW.cree_le := clock_timestamp();
+    IF NEW.action = 'cloture' THEN
+        IF ent_cdt_cahier_fige(NEW.etablissement_id, NEW.annee_id) THEN
+            RAISE EXCEPTION 'journal de clôture : le cahier de cette année est déjà clôturé' USING ERRCODE = '23514';
+        END IF;
+    ELSIF NEW.action = 'reouverture_demandee' THEN
+        IF NOT ent_cdt_cahier_fige(NEW.etablissement_id, NEW.annee_id) THEN
+            RAISE EXCEPTION 'journal de clôture : demande de réouverture sans cahier clôturé' USING ERRCODE = '23514';
+        END IF;
+    ELSE
+        IF NOT ent_cdt_cahier_fige(NEW.etablissement_id, NEW.annee_id) THEN
+            RAISE EXCEPTION 'journal de clôture : réouverture sans cahier clôturé' USING ERRCODE = '23514';
+        END IF;
+        v_id := ent_cdt_demande_reouverture(NEW.etablissement_id, NEW.annee_id);
+        IF v_id IS NULL THEN
+            RAISE EXCEPTION 'journal de clôture : réouverture sans demande valable (absente, expirée ou déjà consommée)'
+                USING ERRCODE = '23514';
+        END IF;
+        SELECT * INTO v_dem FROM ent_cdt_cloture WHERE id = v_id;
+        IF v_dem.par_user_id = NEW.par_user_id OR NEW.demandeur_user_id IS DISTINCT FROM v_dem.par_user_id THEN
+            RAISE EXCEPTION 'journal de clôture : la réouverture doit valider la demande d''une autre personne'
+                USING ERRCODE = '23514';
+        END IF;
+        IF NEW.motif IS DISTINCT FROM v_dem.motif THEN
+            RAISE EXCEPTION 'journal de clôture : la réouverture reprend le motif de la demande' USING ERRCODE = '23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ent_cdt_cloture_coherence_trg ON ent_cdt_cloture;
+CREATE TRIGGER ent_cdt_cloture_coherence_trg BEFORE INSERT ON ent_cdt_cloture
+    FOR EACH ROW EXECUTE FUNCTION ent_cdt_cloture_coherence();
+
+-- ── E1 / M5 : une année gelée l'est EN BASE, quel que soit le chemin d'écriture ──────────────────────────────────────────
+-- Entrées, travaux, contributions, leurs versions et TOUTES leurs tables filles (notions, cibles, formats, variantes, liens,
+-- pièces jointes, reports) ne s'insèrent, ne se modifient ni ne se suppriment quand l'année est gelée (`ent_cdt_annee_gelee`).
+-- Hors périmètre du gel, volontairement : l'activité des élèves (coches, dépôts, retours, remises) et les progressions
+-- personnelles. La garde prend un verrou partagé sur la ligne de l'année ; la clôture et la réouverture la prennent en
+-- exclusif : une écriture et une clôture ne se croisent jamais. Lève 23514.
+CREATE OR REPLACE FUNCTION ent_cdt_annee_de_travail(p_etab UUID, p_id UUID) RETURNS UUID
+LANGUAGE sql STABLE AS $$ SELECT t.annee_id FROM ent_cdt_travail t WHERE t.etablissement_id = p_etab AND t.id = p_id $$;
+CREATE OR REPLACE FUNCTION ent_cdt_annee_de_entree(p_etab UUID, p_id UUID) RETURNS UUID
+LANGUAGE sql STABLE AS $$ SELECT e.annee_id FROM ent_cdt_entree e WHERE e.etablissement_id = p_etab AND e.id = p_id $$;
+
+CREATE OR REPLACE FUNCTION ent_cdt_annee_de_porteur(p_etab UUID, p_porteur TEXT, p_id UUID) RETURNS UUID
+LANGUAGE sql STABLE AS $$
+    SELECT CASE p_porteur
+        WHEN 'entree' THEN ent_cdt_annee_de_entree(p_etab, p_id)
+        WHEN 'travail' THEN ent_cdt_annee_de_travail(p_etab, p_id)
+        WHEN 'contribution' THEN (SELECT ent_cdt_annee_de_entree(p_etab, c.entree_id) FROM ent_cdt_contribution c
+                                   WHERE c.etablissement_id = p_etab AND c.id = p_id)
+        WHEN 'variante' THEN (SELECT ent_cdt_annee_de_travail(p_etab, v.travail_id) FROM ent_cdt_variante v
+                               WHERE v.etablissement_id = p_etab AND v.id = p_id)
+    END -- dépôt, retour : activité d'élève, hors gel (NULL)
+$$;
+
+-- Les champs de `r` ne sont lus que dans la branche de leur table (évaluation paresseuse de plpgsql) ; une ligne dont le
+-- parent n'existe pas n'a pas d'année : la clé étrangère tranche.
 CREATE OR REPLACE FUNCTION ent_cdt_ecriture_gardee() RETURNS trigger AS $$
 DECLARE
-    v_etab UUID := NEW.etablissement_id;
-    v_annees UUID[];
+    v_etab UUID;
+    v_annees UUID[] := ARRAY[]::uuid[];
     v_annee UUID;
-    v_fige BOOLEAN;
+    r RECORD;
+    i INTEGER;
 BEGIN
-    IF TG_TABLE_NAME IN ('ent_cdt_entree', 'ent_cdt_travail') THEN
-        v_annees := ARRAY[NEW.annee_id];
-        IF TG_OP = 'UPDATE' AND OLD.annee_id IS DISTINCT FROM NEW.annee_id THEN
-            v_annees := v_annees || OLD.annee_id;
+    FOR i IN 1..2
+    LOOP
+        IF i = 1 THEN
+            IF TG_OP = 'DELETE' THEN CONTINUE; END IF;
+            r := NEW;
+        ELSE
+            IF TG_OP = 'INSERT' THEN CONTINUE; END IF;
+            r := OLD;
         END IF;
-    ELSIF TG_TABLE_NAME IN ('ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_contribution') THEN
-        SELECT ARRAY[e.annee_id] INTO v_annees FROM ent_cdt_entree e
-         WHERE e.etablissement_id = v_etab AND e.id = NEW.entree_id;
-    ELSIF TG_TABLE_NAME = 'ent_cdt_travail_version' THEN
-        SELECT ARRAY[t.annee_id] INTO v_annees FROM ent_cdt_travail t
-         WHERE t.etablissement_id = v_etab AND t.id = NEW.travail_id;
-    ELSIF TG_TABLE_NAME = 'ent_cdt_contribution_version' THEN
-        SELECT ARRAY[e.annee_id] INTO v_annees FROM ent_cdt_contribution c
-          JOIN ent_cdt_entree e ON e.etablissement_id = c.etablissement_id AND e.id = c.entree_id
-         WHERE c.etablissement_id = v_etab AND c.id = NEW.contribution_id;
-    END IF;
-    FOREACH v_annee IN ARRAY COALESCE(v_annees, ARRAY[]::uuid[])
+        v_etab := r.etablissement_id;
+        v_annee := NULL;
+        IF TG_TABLE_NAME IN ('ent_cdt_entree', 'ent_cdt_travail') THEN
+            v_annee := r.annee_id;
+        ELSIF TG_TABLE_NAME IN ('ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_contribution') THEN
+            v_annee := ent_cdt_annee_de_entree(v_etab, r.entree_id);
+        ELSIF TG_TABLE_NAME IN ('ent_cdt_travail_version', 'ent_cdt_travail_cible', 'ent_cdt_travail_format', 'ent_cdt_variante') THEN
+            v_annee := ent_cdt_annee_de_travail(v_etab, r.travail_id);
+        ELSIF TG_TABLE_NAME = 'ent_cdt_variante_eleve' THEN
+            v_annee := ent_cdt_annee_de_porteur(v_etab, 'variante', r.variante_id);
+        ELSIF TG_TABLE_NAME = 'ent_cdt_contribution_version' THEN
+            v_annee := ent_cdt_annee_de_porteur(v_etab, 'contribution', r.contribution_id);
+        ELSIF TG_TABLE_NAME = 'ent_cdt_report' THEN
+            v_annee := ent_cdt_annee_de_porteur(v_etab, r.objet, r.objet_id);
+        ELSE -- ent_cdt_lien, ent_cdt_piece_jointe
+            v_annee := ent_cdt_annee_de_porteur(v_etab, r.porteur, r.porteur_id);
+        END IF;
+        IF v_annee IS NOT NULL AND NOT (v_annee = ANY (v_annees)) THEN
+            v_annees := v_annees || v_annee;
+        END IF;
+    END LOOP;
+    v_etab := CASE WHEN TG_OP = 'DELETE' THEN OLD.etablissement_id ELSE NEW.etablissement_id END;
+    FOREACH v_annee IN ARRAY v_annees
     LOOP
         PERFORM 1 FROM ent_annee_scolaire a WHERE a.etablissement_id = v_etab AND a.id = v_annee FOR SHARE;
-        SELECT COALESCE((SELECT c.action = 'cloture' FROM ent_cdt_cloture c
-                          WHERE c.etablissement_id = v_etab AND c.annee_id = v_annee AND c.action IN ('cloture', 'reouverture')
-                          ORDER BY c.cree_le DESC, c.id DESC LIMIT 1), false) INTO v_fige;
-        IF v_fige THEN
+        IF ent_cdt_annee_gelee(v_etab, v_annee) THEN
             RAISE EXCEPTION 'cahier de textes : l''année est figée (clôturée), aucune écriture sans réouverture tracée (R-C28)'
                 USING ERRCODE = '23514';
         END IF;
     END LOOP;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
@@ -311,10 +414,12 @@ DECLARE
     t TEXT;
 BEGIN
     FOREACH t IN ARRAY ARRAY['ent_cdt_entree', 'ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_travail',
-                             'ent_cdt_travail_version', 'ent_cdt_contribution', 'ent_cdt_contribution_version']
+                             'ent_cdt_travail_version', 'ent_cdt_travail_cible', 'ent_cdt_travail_format', 'ent_cdt_variante',
+                             'ent_cdt_variante_eleve', 'ent_cdt_contribution', 'ent_cdt_contribution_version', 'ent_cdt_lien',
+                             'ent_cdt_piece_jointe', 'ent_cdt_report']
     LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
-        EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION ent_cdt_ecriture_gardee()',
+        EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION ent_cdt_ecriture_gardee()',
                        t || '_annee_figee', t);
     END LOOP;
 END

@@ -22,8 +22,8 @@ use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
 use crate::cahier_c2::{conflit, exiger_annee_ouverte_tx, invalide, texte_borne};
-use crate::cahier_c8::jour_tx;
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::{db, jour_tx};
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -370,17 +370,15 @@ impl PgEnt {
         }
         match (b.cours_id, b.matiere_id) {
             (Some(c), None) => {
+                // F8 : 404 uniforme (cours inexistant ou sans droit : même réponse, pas d'oracle d'existence).
                 let (existe,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM ent_cours WHERE etablissement_id = $1 AND id = $2)")
                     .bind(etab)
                     .bind(c)
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(db)?;
-                if !existe {
+                if !existe || !self.c9_intervient(a, &mut tx, c).await? {
                     return Err(introuvable());
-                }
-                if !self.c9_intervient(a, &mut tx, c).await? {
-                    return Err(EntDbError::Forbidden);
                 }
             }
             (None, Some(m)) => {
@@ -393,6 +391,7 @@ impl PgEnt {
                 if !existe {
                     return Err(introuvable());
                 }
+                // F8 : même réponse qu'une discipline inexistante.
                 let (enseigne,): (bool,) = sqlx::query_as(
                     "SELECT EXISTS (SELECT 1 FROM ent_cours c WHERE c.etablissement_id = $1 AND c.matiere_id = $2 AND ent_prof_sur_cours($1, c.id, $3, $4, false))",
                 )
@@ -404,7 +403,7 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
                 if !enseigne {
-                    return Err(EntDbError::Forbidden);
+                    return Err(introuvable());
                 }
             }
             _ => {
@@ -485,12 +484,13 @@ impl PgEnt {
     ) -> Result<PlanDto, EntDbError> {
         self.c9_exiger_prof(a).await?;
         let etab = a.etablissement_id;
+        // F3 : droit de saisie sur le cours AVANT son existence (un cours inconnu et un cours sans droit : même refus).
+        // M6 : contrôle fait AVANT d'ouvrir la transaction (il ouvre la sienne : jamais de transaction imbriquée sur le pool).
+        self.cdt_exiger_saisie(a, b.cours_id, None).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         if self.c9_lisible(a, &mut tx, id).await?.is_none() {
             return Err(introuvable());
         }
-        // F3 : droit de saisie sur le cours AVANT son existence (un cours inconnu et un cours sans droit : même refus).
-        self.cdt_exiger_saisie(a, b.cours_id, None).await?;
         // F8 : une progression archivée ne se planifie plus (elle se reconduit).
         let (archivee,): (bool,) = sqlx::query_as(
             "SELECT archivee_le IS NOT NULL FROM ent_cdt_progression WHERE etablissement_id = $1 AND id = $2",
@@ -722,6 +722,8 @@ impl PgEnt {
     ) -> Result<CopieCoursDto, EntDbError> {
         self.c9_exiger_prof(a).await?;
         let etab = a.etablissement_id;
+        // F3 / M6 : droit de saisie sur le cours cible AVANT toute existence et AVANT la transaction (pas d'imbrication).
+        self.cdt_exiger_saisie(a, b.cible_cours_id, None).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let cible: Option<(Uuid,)> = sqlx::query_as(
             "SELECT annee_id FROM ent_cours WHERE etablissement_id = $1 AND id = $2",
@@ -739,8 +741,6 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        // F3 : droit de saisie sur le cours cible AVANT toute existence (cible ou source inconnues : même refus).
-        self.cdt_exiger_saisie(a, b.cible_cours_id, None).await?;
         // Ordre des contrôles : personnel, droit, puis la forme de la demande (jamais avant le droit).
         if b.source_cours_id == b.cible_cours_id {
             return Err(invalide(

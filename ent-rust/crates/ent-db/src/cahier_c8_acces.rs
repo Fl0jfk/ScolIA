@@ -20,8 +20,8 @@ use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
 use crate::cahier_c2::{conflit, invalide, texte_borne};
-use crate::cahier_c8::{cours_de_agent, jour_tx, nom, periode_valide};
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::{cours_de_agent, db, jour_tx, nom, periode_valide};
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -173,11 +173,34 @@ pub(crate) async fn inserer_export(
     cours: Option<Uuid>,
     agent: Option<Uuid>,
     annee: Option<Uuid>,
+    periode: (NaiveDate, NaiveDate),
+    titre: &str,
+    motif: Option<&str>,
+    par: Uuid,
+    contenu: (String, i32, i32),
+) -> Result<(Uuid, String), EntDbError> {
+    inserer_export_avec(
+        tx, etab, nature, cours, agent, annee, periode, titre, motif, par, contenu, false,
+    )
+    .await
+}
+
+/// `ignorer_doublon` : `INSERT … ON CONFLICT DO NOTHING` (export personnel : un seul par auteur, année et empreinte) ; l'appelant
+/// relit ensuite l'export retenu.
+#[allow(clippy::too_many_arguments)]
+async fn inserer_export_avec(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    nature: &str,
+    cours: Option<Uuid>,
+    agent: Option<Uuid>,
+    annee: Option<Uuid>,
     (du, au): (NaiveDate, NaiveDate),
     titre: &str,
     motif: Option<&str>,
     par: Uuid,
     (contenu, ne, nt): (String, i32, i32),
+    ignorer_doublon: bool,
 ) -> Result<(Uuid, String), EntDbError> {
     // M2 : taille plafonnée AVANT l'insertion (la contrainte de la base ferait une erreur serveur) : 422, jamais 500.
     if contenu.chars().count() > EXPORT_TAILLE_MAX {
@@ -192,11 +215,16 @@ pub(crate) async fn inserer_export(
             .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
-    sqlx::query(
+    sqlx::query(&format!(
         "INSERT INTO ent_cdt_export (id, etablissement_id, nature, cours_id, agent_id, annee_id, du, au, titre, contenu, empreinte,
                 nb_entrees, nb_travaux, motif, produit_par_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
-    )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15){}",
+        if ignorer_doublon {
+            " ON CONFLICT (etablissement_id, produit_par_user_id, annee_id, empreinte) WHERE nature = 'professeur' DO NOTHING"
+        } else {
+            ""
+        }
+    ))
     .bind(id)
     .bind(etab)
     .bind(nature)
@@ -468,7 +496,24 @@ impl PgEnt {
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
-        let existant: Option<Uuid> = sqlx::query_scalar(
+        // Faible 7 : insertion sans course (`ON CONFLICT DO NOTHING`), puis relecture de l'export retenu : deux POST
+        // simultanés conservent un seul export.
+        inserer_export_avec(
+            &mut tx,
+            etab,
+            "professeur",
+            None,
+            agent,
+            Some(annee_id),
+            (du, au),
+            &format!("Mon cahier — {libelle}"),
+            None,
+            a.user_id,
+            contenu.clone(),
+            true,
+        )
+        .await?;
+        let id: Uuid = sqlx::query_scalar(
             "SELECT id FROM ent_cdt_export WHERE etablissement_id = $1 AND nature = 'professeur' AND produit_par_user_id = $2
                 AND annee_id = $3 AND empreinte = $4",
         )
@@ -476,29 +521,9 @@ impl PgEnt {
         .bind(a.user_id)
         .bind(annee_id)
         .bind(&empreinte)
-        .fetch_optional(&mut *tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        let id = match existant {
-            Some(id) => id,
-            None => {
-                inserer_export(
-                    &mut tx,
-                    etab,
-                    "professeur",
-                    None,
-                    agent,
-                    Some(annee_id),
-                    (du, au),
-                    &format!("Mon cahier — {libelle}"),
-                    None,
-                    a.user_id,
-                    contenu.clone(),
-                )
-                .await?
-                .0
-            }
-        };
         let dto = export_dto(&mut tx, etab, id).await?;
         tx.commit().await.map_err(db)?;
         Ok(ExportContenuDto {
@@ -535,24 +560,15 @@ impl PgEnt {
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Le bénéficiaire est un compte de l'établissement, jamais un élève ni un responsable.
-        let m: Option<(String,)> = sqlx::query_as(
-            "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
-        )
-        .bind(etab)
-        .bind(b.beneficiaire_user_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let Some((role,)) = m else {
-            return Err(introuvable());
-        };
-        if matches!(
-            ent_auth::Role::parse(&role),
-            Some(ent_auth::Role::Eleve | ent_auth::Role::Parent)
-        ) {
-            return Err(invalide(
-                "un élève ou un responsable ne peut pas recevoir un accès d'inspection",
-            ));
+        // Faible 10 : le rôle se lit avec les casquettes (`ent_membership_casquette`), pas sur le seul `ent_membership.role`.
+        match compte_personnel(&mut tx, etab, b.beneficiaire_user_id).await? {
+            None => return Err(introuvable()),
+            Some(false) => {
+                return Err(invalide(
+                    "un élève ou un responsable ne peut pas recevoir un accès d'inspection",
+                ));
+            }
+            Some(true) => {}
         }
         let (agent_cible, mut cours_ids) = match b.agent_id {
             Some(ag) => {
@@ -866,20 +882,7 @@ impl PgEnt {
         };
         // F6 : le rôle et l'appartenance se revérifient à CHAQUE lecture, pas seulement à l'octroi : un compte qui a quitté
         // l'établissement, ou devenu élève ou responsable depuis, ne lit plus rien.
-        let m: Option<(String,)> = sqlx::query_as(
-            "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
-        )
-        .bind(etab)
-        .bind(a.user_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let role_ok = m.is_some_and(|(r,)| {
-            !matches!(
-                ent_auth::Role::parse(&r),
-                None | Some(ent_auth::Role::Eleve | ent_auth::Role::Parent)
-            )
-        });
+        let role_ok = compte_personnel(&mut tx, etab, a.user_id).await? == Some(true);
         if !role_ok {
             return Err(EntDbError::Forbidden);
         }
@@ -1102,10 +1105,14 @@ impl PgEnt {
     ) -> Result<ClotureDto, EntDbError> {
         self.c8_exiger_etab(a, Action::CahierCloturer).await?;
         let etab = a.etablissement_id;
+        // Faible 5 : les publications échues (programmées, heure passée) sont projetées AVANT de figer l'année, sinon une
+        // publication due serait perdue (jamais publiée, absente de l'archive). Hors transaction : la projection ouvre la sienne.
+        self.c8_projeter_echus_avant_cloture(etab, b.annee_id)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Verrou de l'année : deux clôtures simultanées se suivent.
         let an: Option<(NaiveDate, NaiveDate)> = sqlx::query_as(
-            "SELECT date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+            "SELECT date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
         )
         .bind(etab)
         .bind(b.annee_id)
@@ -1118,6 +1125,11 @@ impl PgEnt {
         let c = controle(&mut tx, etab, b.annee_id, a.user_id).await?;
         if c.deja_fige {
             return Err(conflit("le cahier de cette année est déjà figé"));
+        }
+        if echus_restants(&mut tx, etab, b.annee_id).await? > 0 {
+            return Err(conflit(
+                "des publications programmées viennent d'arriver à échéance : réessayez la clôture",
+            ));
         }
         if !b.confirmer
             && (!c.cours_non_vises.is_empty()
@@ -1156,47 +1168,78 @@ impl PgEnt {
                 x
             };
             let titre = format!("{} ({}) — archive {}", r.0, r.1, c.annee_libelle);
-            let contenu = contenu_cahier(
-                &mut tx,
-                etab,
-                &titre,
-                debut,
-                fin,
-                &Perimetre::Cours(vec![cours_id]),
-            )
-            .await?;
-            let (export_id, empreinte) = inserer_export(
-                &mut tx,
-                etab,
-                "archive",
-                Some(cours_id),
-                None,
-                Some(b.annee_id),
-                (debut, fin),
-                &format!("Archive — {titre}"),
-                None,
-                a.user_id,
-                contenu,
-            )
-            .await?;
-            // Conservation : lecture jusqu'à la fin de l'année suivante, puis cinq ans (R-06, R-C28, à valider par le DPO).
-            sqlx::query(
-                "INSERT INTO ent_cdt_archive (id, etablissement_id, annee_id, cours_id, export_id, empreinte, produite_le, version, echeance_archive)
-                 VALUES ($1, $2, $3, $4, $5, $6, now(),
-                         COALESCE((SELECT max(version) FROM ent_cdt_archive WHERE etablissement_id = $2 AND annee_id = $3 AND cours_id = $4), 0) + 1,
-                         ($7::date + interval '6 years')::date)",
-            )
-            .bind(Uuid::new_v4())
-            .bind(etab)
-            .bind(b.annee_id)
-            .bind(cours_id)
-            .bind(export_id)
-            .bind(&empreinte)
-            .bind(fin)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-            n += 1;
+            // Faible 7 : un cours dont le texte dépasse le plafond d'un export ne bloque pas la clôture : sa période est
+            // coupée en deux jusqu'à tenir (une archive par morceau, sans perte) ; un seul jour trop gros est tronqué
+            // avec une mention explicite dans le texte.
+            let mut pile = vec![(debut, fin)];
+            let mut premier = true;
+            while let Some((d1, d2)) = pile.pop() {
+                let mut contenu = contenu_cahier(
+                    &mut tx,
+                    etab,
+                    &titre,
+                    d1,
+                    d2,
+                    &Perimetre::Cours(vec![cours_id]),
+                )
+                .await?;
+                if contenu.0.chars().count() > EXPORT_TAILLE_MAX {
+                    if d1 < d2 {
+                        let milieu = d1 + Duration::days((d2 - d1).num_days() / 2);
+                        pile.push((milieu + Duration::days(1), d2));
+                        pile.push((d1, milieu));
+                        continue;
+                    }
+                    let total = contenu.0.chars().count();
+                    let garde = EXPORT_TAILLE_MAX - 300;
+                    contenu.0 = contenu.0.chars().take(garde).collect();
+                    contenu.0.push_str(&format!(
+                        "\n[ARCHIVE TRONQUÉE : le {d1} dépasse la taille maximale d'une archive ; {} caractères omis]\n",
+                        total - garde
+                    ));
+                }
+                if !premier && contenu.1 == 0 && contenu.2 == 0 {
+                    continue;
+                }
+                premier = false;
+                let partie = if (d1, d2) == (debut, fin) {
+                    String::new()
+                } else {
+                    format!(" — partie du {d1} au {d2}")
+                };
+                let (export_id, empreinte) = inserer_export(
+                    &mut tx,
+                    etab,
+                    "archive",
+                    Some(cours_id),
+                    None,
+                    Some(b.annee_id),
+                    (d1, d2),
+                    &format!("Archive — {titre}{partie}"),
+                    None,
+                    a.user_id,
+                    contenu,
+                )
+                .await?;
+                // Conservation : lecture jusqu'à la fin de l'année suivante, puis cinq ans (R-06, R-C28, à valider par le DPO).
+                sqlx::query(
+                    "INSERT INTO ent_cdt_archive (id, etablissement_id, annee_id, cours_id, export_id, empreinte, produite_le, version, echeance_archive)
+                     VALUES ($1, $2, $3, $4, $5, $6, now(),
+                             COALESCE((SELECT max(version) FROM ent_cdt_archive WHERE etablissement_id = $2 AND annee_id = $3 AND cours_id = $4), 0) + 1,
+                             ($7::date + interval '6 years')::date)",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(b.annee_id)
+                .bind(cours_id)
+                .bind(export_id)
+                .bind(&empreinte)
+                .bind(fin)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                n += 1;
+            }
         }
         let id = Uuid::new_v4();
         sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, nb_archives, par_user_id) VALUES ($1, $2, $3, 'cloture', $4, $5)")
@@ -1360,56 +1403,15 @@ impl PgEnt {
         a: &Acteur<'_>,
         annee_id: Option<Uuid>,
     ) -> Result<Vec<ArchiveDto>, EntDbError> {
-        self.c8_exiger_etab(a, Action::CahierExporter).await?;
+        // Lister les archives sert aussi à en décider : `cahier.exporter` OU `cahier.cloturer` suffit.
+        if !self.cdt_droit_etab(a, Action::CahierExporter).await?
+            && !self.cdt_droit_etab(a, Action::CahierCloturer).await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        #[allow(clippy::type_complexity)]
-        let l: Vec<(Uuid, Uuid, Uuid, String, String, DateTime<Utc>, String, i32, NaiveDate, String, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT r.id, r.annee_id, c.id, c.libelle, COALESCE(cl.code, g.code, ''), r.produite_le, r.empreinte, r.version,
-                    r.echeance_archive, r.decision, r.decide_le
-               FROM ent_cdt_archive r
-               JOIN ent_cours c ON c.etablissement_id = r.etablissement_id AND c.id = r.cours_id
-               LEFT JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.id = c.classe_id
-               LEFT JOIN ent_groupe g ON g.etablissement_id = c.etablissement_id AND g.id = c.groupe_id
-              WHERE r.etablissement_id = $1 AND ($2::uuid IS NULL OR r.annee_id = $2)
-              ORDER BY r.produite_le DESC, c.libelle, r.version DESC LIMIT 500",
-        )
-        .bind(etab)
-        .bind(annee_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        Ok(l.into_iter()
-            .map(
-                |(
-                    id,
-                    annee_id,
-                    cid,
-                    libelle,
-                    public,
-                    produite_le,
-                    empreinte,
-                    version,
-                    echeance_archive,
-                    decision,
-                    decide_le,
-                )| ArchiveDto {
-                    id,
-                    annee_id,
-                    cours: CoursRefDto {
-                        cours_id: cid,
-                        libelle,
-                        public,
-                    },
-                    produite_le,
-                    empreinte,
-                    version,
-                    echeance_archive,
-                    decision,
-                    decide_le,
-                },
-            )
-            .collect())
+        lister_archives(&mut tx, etab, annee_id, None).await
     }
 
     /// Texte figé d'une archive (direction, `cahier.exporter`).
@@ -1484,13 +1486,73 @@ impl PgEnt {
             json!({ "decision": b.decision }),
         )
         .await?;
-        tx.commit().await.map_err(db)?;
-        self.cdt_c8_archives(a, Some(annee))
+        // Faible 11 : la réponse est lue dans la même transaction, sans second contrôle de droit (`cahier.exporter`) : la
+        // décision enregistrée et la réponse restent cohérentes avec le seul droit exigé, `cahier.cloturer`.
+        let dto = lister_archives(&mut tx, etab, Some(annee), Some(id))
             .await?
             .into_iter()
-            .find(|x| x.id == id)
-            .ok_or_else(introuvable)
+            .next()
+            .ok_or_else(introuvable)?;
+        tx.commit().await.map_err(db)?;
+        Ok(dto)
     }
+}
+
+/// Archives de l'établissement (filtre année et/ou archive) : liste commune à la lecture et à la décision.
+async fn lister_archives(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    annee_id: Option<Uuid>,
+    id: Option<Uuid>,
+) -> Result<Vec<ArchiveDto>, EntDbError> {
+    #[allow(clippy::type_complexity)]
+    let l: Vec<(Uuid, Uuid, Uuid, String, String, DateTime<Utc>, String, i32, NaiveDate, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT r.id, r.annee_id, c.id, c.libelle, COALESCE(cl.code, g.code, ''), r.produite_le, r.empreinte, r.version,
+                r.echeance_archive, r.decision, r.decide_le
+           FROM ent_cdt_archive r
+           JOIN ent_cours c ON c.etablissement_id = r.etablissement_id AND c.id = r.cours_id
+           LEFT JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.id = c.classe_id
+           LEFT JOIN ent_groupe g ON g.etablissement_id = c.etablissement_id AND g.id = c.groupe_id
+          WHERE r.etablissement_id = $1 AND ($2::uuid IS NULL OR r.annee_id = $2) AND ($3::uuid IS NULL OR r.id = $3)
+          ORDER BY r.produite_le DESC, c.libelle, r.version DESC LIMIT 500",
+    )
+    .bind(etab)
+    .bind(annee_id)
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(db)?;
+    Ok(l.into_iter()
+        .map(
+            |(
+                id,
+                annee_id,
+                cid,
+                libelle,
+                public,
+                produite_le,
+                empreinte,
+                version,
+                echeance_archive,
+                decision,
+                decide_le,
+            )| ArchiveDto {
+                id,
+                annee_id,
+                cours: CoursRefDto {
+                    cours_id: cid,
+                    libelle,
+                    public,
+                },
+                produite_le,
+                empreinte,
+                version,
+                echeance_archive,
+                decision,
+                decide_le,
+            },
+        )
+        .collect())
 }
 
 async fn historiser(
@@ -1580,8 +1642,19 @@ async fn acces_dto(
     } else {
         ACCES_ACTIF
     };
+    let croise: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_cdt_acces_inspection x
+                         WHERE x.etablissement_id = $1 AND x.beneficiaire_user_id = $2 AND x.accorde_par_user_id = $3)",
+    )
+    .bind(etab)
+    .bind(par)
+    .bind(benef)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)?;
     Ok(AccesInspectionDto {
         id,
+        croise,
         beneficiaire: nom(tx, etab, Some(benef)).await?,
         motif,
         agent_cible,
@@ -1722,7 +1795,96 @@ async fn controle(
     })
 }
 
-/// Verrou exclusif de l'année (clôture, réouverture : elles se suivent, et les écritures du cahier les attendent). Retourne
+/// Le compte est-il un personnel de l'établissement ? `None` : aucune appartenance. Les casquettes comptent : une casquette
+/// `personnel` (profil de base, ouverte à la date du jour de l'établissement) fait de son titulaire un personnel même si son
+/// profil principal est « parent » ; une casquette `personnel` fermée ou suspendue l'en prive même si le profil principal
+/// est un rôle de personnel (l'agent est parti). Sans casquette `personnel`, le profil de l'appartenance fait foi.
+async fn compte_personnel(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+) -> Result<Option<bool>, EntDbError> {
+    let m: Option<(String,)> = sqlx::query_as(
+        "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
+    )
+    .bind(etab)
+    .bind(user)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    let Some((role,)) = m else {
+        return Ok(None);
+    };
+    let jour = jour_tx(tx, etab).await?;
+    let casquette: Option<(Option<String>, String, NaiveDate, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT profil_base, etat, du, au FROM ent_membership_casquette
+          WHERE etablissement_id = $1 AND user_id = $2 AND casquette = 'personnel'",
+    )
+    .bind(etab)
+    .bind(user)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    let est_personnel = |r: &str| {
+        !matches!(
+            ent_auth::Role::parse(r),
+            None | Some(ent_auth::Role::Eleve | ent_auth::Role::Parent)
+        )
+    };
+    Ok(Some(match casquette {
+        Some((profil, etat, du, au)) => {
+            etat == "ouvert"
+                && du <= jour
+                && au.is_none_or(|f| f >= jour)
+                && profil
+                    .as_deref()
+                    .map_or_else(|| est_personnel(&role), est_personnel)
+        }
+        None => est_personnel(&role),
+    }))
+}
+
+/// Publications dues non publiées d'une année : entrées `programmee` et travaux `programme` dont l'heure est passée (hors année
+/// close au socle 5, où rien ne se publie plus). Une publication due qui ne serait pas projetée avant la clôture serait perdue.
+async fn echus_restants(tx: &mut PgConnection, etab: Uuid, annee: Uuid) -> Result<i64, EntDbError> {
+    sqlx::query_scalar(
+        "SELECT CASE WHEN ent_cdt_annee_gelee($1, $2) THEN 0 ELSE
+                (SELECT count(*) FROM ent_cdt_entree WHERE etablissement_id = $1 AND annee_id = $2
+                    AND etat = 'programmee' AND visible_a <= now())
+              + (SELECT count(*) FROM ent_cdt_travail WHERE etablissement_id = $1 AND annee_id = $2
+                    AND etat = 'programme' AND visible_a <= now()) END",
+    )
+    .bind(etab)
+    .bind(annee)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)
+}
+
+impl PgEnt {
+    /// Projette les publications échues jusqu'à ce qu'il n'en reste plus (ou que la projection ne progresse plus).
+    async fn c8_projeter_echus_avant_cloture(
+        &self,
+        etab: Uuid,
+        annee: Uuid,
+    ) -> Result<(), EntDbError> {
+        let mut restant = i64::MAX;
+        for _ in 0..50 {
+            self.cdt_projeter_echus(etab).await?;
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            let n = echus_restants(&mut tx, etab, annee).await?;
+            drop(tx);
+            if n == 0 || n >= restant {
+                break;
+            }
+            restant = n;
+        }
+        Ok(())
+    }
+}
+
+/// Verrou exclusif de l'année (`FOR NO KEY UPDATE` : clôture et réouverture se suivent et les écritures gardées du cahier, qui
+/// prennent `FOR SHARE`, les attendent ; les insertions qui ne font que référencer l'année, `FOR KEY SHARE`, ne sont pas bloquées). Retourne
 /// « année close au socle 5 ». Année inconnue (ou d'un autre établissement) : introuvable.
 async fn verrouiller_annee(
     tx: &mut PgConnection,
@@ -1730,7 +1892,7 @@ async fn verrouiller_annee(
     annee: Uuid,
 ) -> Result<bool, EntDbError> {
     let an: Option<(bool,)> = sqlx::query_as(
-        "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
     )
     .bind(etab)
     .bind(annee)
@@ -1749,11 +1911,7 @@ async fn demande_en_attente(
     sqlx::query_as(
         "SELECT d.motif, d.par_user_id, d.cree_le, d.id
            FROM ent_cdt_cloture d
-          WHERE d.etablissement_id = $1 AND d.annee_id = $2 AND d.action = 'reouverture_demandee'
-            AND d.cree_le > COALESCE((SELECT max(c.cree_le) FROM ent_cdt_cloture c
-                                       WHERE c.etablissement_id = d.etablissement_id AND c.annee_id = d.annee_id
-                                         AND c.action IN ('cloture', 'reouverture')), '-infinity'::timestamptz)
-          ORDER BY d.cree_le DESC, d.id DESC LIMIT 1",
+          WHERE d.etablissement_id = $1 AND d.annee_id = $2 AND d.id = ent_cdt_demande_reouverture($1, $2)",
     )
     .bind(etab)
     .bind(annee)

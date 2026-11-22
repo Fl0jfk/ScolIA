@@ -2792,14 +2792,13 @@ fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push((CahierRetirer, Portee::Etablissement));
         d.push((CahierParametrer, Portee::Etablissement));
-        // Lot C8 : l'accès d'inspection et les exports figés sont décidés par la direction seule (secrétariat par délégation,
-        // rôle paramétrable : D-017).
+    }
+    // Un pouvoir = une action (D-069, règle 3) : l'accès d'inspection, les exports figés, la clôture, la réouverture et la
+    // décision d'archive sont à la direction seule ; l'administrateur technique n'en a aucun par défaut (secrétariat par
+    // délégation, rôle paramétrable : D-017). La réouverture exige en plus une seconde personne de la direction.
+    if role == Role::Direction {
         d.push((CahierAccesInspection, Portee::Etablissement));
         d.push((CahierExporter, Portee::Etablissement));
-    }
-    // Clôture, réouverture et décision d'archive : direction seule (l'administrateur technique ne l'a pas par défaut ;
-    // M1 de la revue : la réouverture exige en plus une seconde personne de la direction).
-    if role == Role::Direction {
         d.push((CahierCloturer, Portee::Etablissement));
     }
     if role == Role::Prof {

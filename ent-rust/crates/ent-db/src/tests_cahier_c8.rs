@@ -2123,133 +2123,6 @@ async fn c8_annee_figee_en_base_aucun_chemin_n_ecrit_et_seule_la_reouverture_des
 }
 
 #[tokio::test]
-async fn c8_cloture_et_ecritures_ne_se_croisent_pas_dans_les_deux_sens() {
-    let Some(fx) = fixture().await else {
-        eprintln!("skip: ENT_DATABASE_URL");
-        return;
-    };
-    let etab = fx.cast.etablissement_id;
-    let cours = cours_a(&fx).await;
-    let auj = jour(&fx).await;
-    let annee = fx
-        .ent
-        .referentiel_annee_courante_assuree(etab)
-        .await
-        .unwrap()
-        .id;
-    let s = seance_a(&fx, auj - Duration::days(1)).await;
-    let e1 = entree(&fx, cours, s, "Contenu initial.", "maintenant").await;
-    let pause = std::time::Duration::from_millis(400);
-
-    // Sens 1 : une écriture en cours (non validée) retient la clôture ; la clôture attend, puis archive CE qui a été écrit.
-    let pool = fx.ent.pool();
-    let mut ecrivain = pool.begin().await.unwrap();
-    sqlx::query(
-        "UPDATE ent_cdt_entree SET contenu = 'Contenu écrit pendant la clôture.' WHERE id = $1",
-    )
-    .bind(e1.id)
-    .execute(&mut *ecrivain)
-    .await
-    .unwrap();
-    let valide_a = std::sync::Mutex::new(None::<std::time::Instant>);
-    let fin_cloture = std::sync::Mutex::new(None::<std::time::Instant>);
-    let (clot, comm) = tokio::join!(
-        async {
-            let r = fx
-                .ent
-                .cdt_c8_cloturer(
-                    &fx.direction(),
-                    ClotureBody {
-                        annee_id: annee,
-                        confirmer: true,
-                    },
-                )
-                .await;
-            *fin_cloture.lock().unwrap() = Some(std::time::Instant::now());
-            r
-        },
-        async {
-            tokio::time::sleep(pause).await;
-            *valide_a.lock().unwrap() = Some(std::time::Instant::now());
-            ecrivain.commit().await
-        }
-    );
-    comm.unwrap();
-    clot.unwrap();
-    assert!(
-        fin_cloture.lock().unwrap().unwrap() >= valide_a.lock().unwrap().unwrap(),
-        "la clôture a attendu la fin de l'écriture en cours"
-    );
-    let archives = fx
-        .ent
-        .cdt_c8_archives(&fx.direction(), Some(annee))
-        .await
-        .unwrap();
-    let a = archives
-        .iter()
-        .find(|x| x.cours.cours_id == cours)
-        .expect("archive du cours");
-    let contenu = fx
-        .ent
-        .cdt_c8_archive_contenu(&fx.direction(), a.id)
-        .await
-        .unwrap();
-    assert!(
-        contenu
-            .contenu
-            .contains("Contenu écrit pendant la clôture."),
-        "l'archive contient l'écriture concurrente : rien n'est écrit après son empreinte"
-    );
-    rouvrir_a_deux(&fx, annee).await;
-
-    // Sens 2 : une clôture en cours (non validée) retient l'écriture, qui échoue ensuite : l'année est figée.
-    let mut cloturant = pool.begin().await.unwrap();
-    sqlx::query(
-        "SELECT 1 FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-    )
-    .bind(etab)
-    .bind(annee)
-    .fetch_one(&mut *cloturant)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, nb_archives, par_user_id) VALUES ($1, $2, $3, 'cloture', 0, $4)")
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(annee)
-        .bind(fx.cast.direction.user_id)
-        .execute(&mut *cloturant)
-        .await
-        .unwrap();
-    let prof = fx.prof();
-    let (ecriture, comm) = tokio::join!(
-        fx.ent.cdt_entree_enregistrer(
-            &prof,
-            cours,
-            s,
-            corps_entree_c8("Écrit pendant la clôture, perdu.")
-        ),
-        async {
-            tokio::time::sleep(pause).await;
-            cloturant.commit().await
-        }
-    );
-    comm.unwrap();
-    assert!(
-        ecriture.is_err(),
-        "l'écriture qui croise une clôture échoue (année figée)"
-    );
-    let (c,): (String,) = sqlx::query_as("SELECT contenu FROM ent_cdt_entree WHERE id = $1")
-        .bind(e1.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        c, "Contenu écrit pendant la clôture.",
-        "la tentative n'a laissé aucune trace"
-    );
-}
-
-#[tokio::test]
 async fn c8_mon_export_repete_n_ecrit_rien_un_seul_export_par_empreinte_et_taille_plafonnee() {
     let Some(fx) = fixture().await else {
         eprintln!("skip: ENT_DATABASE_URL");
@@ -2546,4 +2419,1098 @@ async fn c8_ajoute_depuis_le_visa_est_visible_du_viseur() {
             .ajoutes_apres_visa,
         0
     );
+}
+
+// ───────────────────────── correctifs de revue, passe 2 (D-069) ─────────────────────────
+
+/// Attente CONDITIONNELLE, jamais un délai fixe pris pour une preuve : sonde `pg_stat_activity` jusqu'à ce qu'une requête dont
+/// le texte contient `motif` soit bloquée sur un verrou (l'observation du blocage est la preuve). Échoue après 30 s.
+async fn attendre_verrou(pool: &sqlx::PgPool, motif: &str) {
+    let motif = format!("%{motif}%");
+    let debut = std::time::Instant::now();
+    loop {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE $1 AND pid <> pg_backend_pid()",
+        )
+        .bind(&motif)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if n > 0 {
+            return;
+        }
+        assert!(
+            debut.elapsed() < std::time::Duration::from_secs(30),
+            "aucune requête bloquée sur un verrou : {motif}"
+        );
+        // Cadence de la sonde seulement (la condition observée fait foi, pas ce délai).
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
+/// Une ligne par table fille du cahier : (table, INSERT valide, UPDATE neutre, DELETE) — ids interpolés (UUID, sans risque).
+struct JeuGel {
+    annee: Uuid,
+    lignes: Vec<(&'static str, String, String, String)>,
+}
+
+async fn jeu_gel(fx: &Fx) -> JeuGel {
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(fx).await;
+    let auj = jour(fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    let p0 = fx.cast.profs[0].user_id;
+    let eleve = fx.cast.eleves[0].id;
+    let s0 = seance_a(fx, auj - Duration::days(1)).await;
+    let s1 = seance_a(fx, auj - Duration::days(2)).await;
+    let e1 = entree(fx, cours, s0, "Contenu du jeu.", "maintenant")
+        .await
+        .id;
+    let t1 = travail(fx, cours, "Travail du jeu", "maintenant").await;
+    let pool = fx.ent.pool();
+    let (contrib, contrib_v, variante, lien, objet, pj) = (
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+    );
+    for q in [
+        format!("INSERT INTO ent_cdt_contribution (id, etablissement_id, entree_id, libelle_externe, contenu) VALUES ('{contrib}', '{etab}', '{e1}', 'Externe', 'x')"),
+        format!("INSERT INTO ent_cdt_contribution_version (id, etablissement_id, contribution_id, version, contenu) VALUES ('{contrib_v}', '{etab}', '{contrib}', 1, 'x')"),
+        format!("INSERT INTO ent_cdt_travail_cible (etablissement_id, travail_id, eleve_id) VALUES ('{etab}', '{t1}', '{eleve}')"),
+        format!("INSERT INTO ent_cdt_travail_format (etablissement_id, travail_id, format_code) VALUES ('{etab}', '{t1}', 'pdf')"),
+        format!("INSERT INTO ent_cdt_variante (id, etablissement_id, travail_id, libelle_interne, consigne) VALUES ('{variante}', '{etab}', '{t1}', 'V', 'c')"),
+        format!("INSERT INTO ent_cdt_variante_eleve (etablissement_id, variante_id, eleve_id) VALUES ('{etab}', '{variante}', '{eleve}')"),
+        format!("INSERT INTO ent_cdt_lien (id, etablissement_id, porteur, porteur_id, url) VALUES ('{lien}', '{etab}', 'entree', '{e1}', 'https://exemple.fr/a')"),
+        format!("INSERT INTO ent_objet (id, etablissement_id, cle_objet, taille, sha256) VALUES ('{objet}', '{etab}', '{etab}/cdt/{objet}', 1, '{}')", "0".repeat(64)),
+        format!("INSERT INTO ent_cdt_piece_jointe (id, etablissement_id, objet_id, porteur, porteur_id, nom) VALUES ('{pj}', '{etab}', '{objet}', 'entree', '{e1}', 'a.pdf')"),
+        format!("INSERT INTO ent_cdt_report (id, etablissement_id, origine_seance_id, objet, objet_id) VALUES ('{}', '{etab}', '{s0}', 'entree', '{e1}')", Uuid::new_v4()),
+    ] {
+        sqlx::query(&q).execute(pool).await.unwrap_or_else(|e| panic!("jeu : {q} : {e}"));
+    }
+    let nouvelle_seance = s1;
+    let mut lignes: Vec<(&'static str, String, String, String)> = Vec::new();
+    let mut ajoute =
+        |t: &'static str, ins: String, upd: String, del: String| lignes.push((t, ins, upd, del));
+    ajoute(
+        "ent_cdt_entree",
+        format!("INSERT INTO ent_cdt_entree (id, etablissement_id, cours_id, seance_id, annee_id, contenu, etat, auteur_user_id) VALUES ('{}', '{etab}', '{cours}', '{nouvelle_seance}', '{annee}', 'x', 'brouillon', '{p0}')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_entree SET modifie_le = modifie_le WHERE id = '{e1}'"),
+        format!("DELETE FROM ent_cdt_entree WHERE id = '{e1}'"),
+    );
+    ajoute(
+        "ent_cdt_entree_version",
+        format!("INSERT INTO ent_cdt_entree_version (id, etablissement_id, entree_id, version, contenu, etat) VALUES ('{}', '{etab}', '{e1}', 900, 'x', 'publiee')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_entree_version SET cree_le = cree_le WHERE entree_id = '{e1}'"),
+        format!("DELETE FROM ent_cdt_entree_version WHERE entree_id = '{e1}'"),
+    );
+    ajoute(
+        "ent_cdt_entree_notion",
+        format!("INSERT INTO ent_cdt_entree_notion (etablissement_id, entree_id, ordre, libelle) VALUES ('{etab}', '{e1}', 900, 'N')"),
+        format!("UPDATE ent_cdt_entree_notion SET libelle = libelle WHERE entree_id = '{e1}'"),
+        format!("DELETE FROM ent_cdt_entree_notion WHERE entree_id = '{e1}'"),
+    );
+    ajoute(
+        "ent_cdt_travail",
+        format!("INSERT INTO ent_cdt_travail (id, etablissement_id, cours_id, annee_id, donne_le, echeance_mode, echeance_le, nature_id, titre, consigne, auteur_user_id)
+                 SELECT '{}', etablissement_id, cours_id, annee_id, donne_le, echeance_mode, echeance_le, nature_id, 'Copie', consigne, auteur_user_id FROM ent_cdt_travail WHERE id = '{t1}'", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_travail SET modifie_le = modifie_le WHERE id = '{t1}'"),
+        format!("DELETE FROM ent_cdt_travail WHERE id = '{t1}'"),
+    );
+    ajoute(
+        "ent_cdt_travail_version",
+        format!("INSERT INTO ent_cdt_travail_version (id, etablissement_id, travail_id, version, titre, consigne, etat) VALUES ('{}', '{etab}', '{t1}', 900, 't', 'c', 'publie')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_travail_version SET cree_le = cree_le WHERE travail_id = '{t1}'"),
+        format!("DELETE FROM ent_cdt_travail_version WHERE travail_id = '{t1}'"),
+    );
+    ajoute(
+        "ent_cdt_travail_cible",
+        format!("INSERT INTO ent_cdt_travail_cible (etablissement_id, travail_id, eleve_id) VALUES ('{etab}', '{t1}', '{}')", fx.cast.eleves[1].id),
+        format!("UPDATE ent_cdt_travail_cible SET cree_le = cree_le WHERE travail_id = '{t1}'"),
+        format!("DELETE FROM ent_cdt_travail_cible WHERE travail_id = '{t1}'"),
+    );
+    ajoute(
+        "ent_cdt_travail_format",
+        format!("INSERT INTO ent_cdt_travail_format (etablissement_id, travail_id, format_code) VALUES ('{etab}', '{t1}', 'docx')"),
+        format!("UPDATE ent_cdt_travail_format SET cree_le = cree_le WHERE travail_id = '{t1}'"),
+        format!("DELETE FROM ent_cdt_travail_format WHERE travail_id = '{t1}'"),
+    );
+    ajoute(
+        "ent_cdt_variante",
+        format!("INSERT INTO ent_cdt_variante (id, etablissement_id, travail_id, libelle_interne, consigne) VALUES ('{}', '{etab}', '{t1}', 'W', 'c')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_variante SET cree_le = cree_le WHERE id = '{variante}'"),
+        format!("DELETE FROM ent_cdt_variante WHERE id = '{variante}'"),
+    );
+    ajoute(
+        "ent_cdt_variante_eleve",
+        format!("INSERT INTO ent_cdt_variante_eleve (etablissement_id, variante_id, eleve_id) VALUES ('{etab}', '{variante}', '{}')", fx.cast.eleves[1].id),
+        format!("UPDATE ent_cdt_variante_eleve SET cree_le = cree_le WHERE variante_id = '{variante}'"),
+        format!("DELETE FROM ent_cdt_variante_eleve WHERE variante_id = '{variante}'"),
+    );
+    ajoute(
+        "ent_cdt_contribution",
+        format!("INSERT INTO ent_cdt_contribution (id, etablissement_id, entree_id, libelle_externe, contenu) VALUES ('{}', '{etab}', '{e1}', 'Autre', 'y')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_contribution SET cree_le = cree_le WHERE id = '{contrib}'"),
+        format!("DELETE FROM ent_cdt_contribution WHERE id = '{contrib}'"),
+    );
+    ajoute(
+        "ent_cdt_contribution_version",
+        format!("INSERT INTO ent_cdt_contribution_version (id, etablissement_id, contribution_id, version, contenu) VALUES ('{}', '{etab}', '{contrib}', 900, 'y')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_contribution_version SET cree_le = cree_le WHERE contribution_id = '{contrib}'"),
+        format!("DELETE FROM ent_cdt_contribution_version WHERE contribution_id = '{contrib}'"),
+    );
+    ajoute(
+        "ent_cdt_lien",
+        format!("INSERT INTO ent_cdt_lien (id, etablissement_id, porteur, porteur_id, url) VALUES ('{}', '{etab}', 'travail', '{t1}', 'https://exemple.fr/b')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_lien SET cree_le = cree_le WHERE id = '{lien}'"),
+        format!("DELETE FROM ent_cdt_lien WHERE id = '{lien}'"),
+    );
+    ajoute(
+        "ent_cdt_piece_jointe",
+        format!("INSERT INTO ent_cdt_piece_jointe (id, etablissement_id, objet_id, porteur, porteur_id, nom) VALUES ('{}', '{etab}', '{objet}', 'travail', '{t1}', 'b.pdf')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_piece_jointe SET cree_le = cree_le WHERE id = '{pj}'"),
+        format!("DELETE FROM ent_cdt_piece_jointe WHERE id = '{pj}'"),
+    );
+    ajoute(
+        "ent_cdt_report",
+        format!("INSERT INTO ent_cdt_report (id, etablissement_id, origine_seance_id, objet, objet_id) VALUES ('{}', '{etab}', '{s0}', 'travail', '{t1}')", Uuid::new_v4()),
+        format!("UPDATE ent_cdt_report SET cree_le = cree_le WHERE objet_id = '{e1}'"),
+        format!("DELETE FROM ent_cdt_report WHERE objet_id = '{e1}'"),
+    );
+    JeuGel { annee, lignes }
+}
+
+/// Tables de versions : en ajout seul (UPDATE et DELETE y sont refusés par leur propre garde, avec le même code 23514).
+fn ajout_seul(table: &str) -> bool {
+    table.ends_with("_version")
+}
+
+/// Avant le gel, l'INSERT passe sur chaque table (le jeu est valide : un refus plus tard vient bien du gel) et l'UPDATE touche
+/// au moins une ligne (hors tables en ajout seul).
+async fn inserer_avant_gel(fx: &Fx, jeu: &JeuGel) {
+    for (table, ins, upd, _) in &jeu.lignes {
+        sqlx::query(ins)
+            .execute(fx.ent.pool())
+            .await
+            .unwrap_or_else(|e| panic!("avant gel : INSERT {table} : {e}"));
+        if !ajout_seul(table) {
+            let n = sqlx::query(upd)
+                .execute(fx.ent.pool())
+                .await
+                .unwrap()
+                .rows_affected();
+            assert!(
+                n > 0,
+                "avant gel : UPDATE {table} touche au moins une ligne"
+            );
+        }
+    }
+}
+
+/// Chaque table, chaque verbe (INSERT, UPDATE, DELETE) : refusé par la base (23514), sans exception ; rien n'a changé.
+async fn verifier_gel(fx: &Fx, jeu: &JeuGel, contexte: &str) {
+    let pool = fx.ent.pool();
+    for (table, ins, upd, del) in &jeu.lignes {
+        let (avant,): (i64,) = sqlx::query_as(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        for (verbe, q) in [("INSERT", ins), ("UPDATE", upd), ("DELETE", del)] {
+            assert_eq!(
+                code_sql(sqlx::query(q).execute(pool).await).as_deref(),
+                Some("23514"),
+                "{contexte} : {verbe} sur {table} doit être refusé par la base"
+            );
+        }
+        let (apres,): (i64,) = sqlx::query_as(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(avant, apres, "{contexte} : {table} inchangée");
+    }
+}
+
+#[tokio::test]
+async fn c8_gel_en_base_de_toutes_les_tables_du_cahier_apres_cloture_du_cahier() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    cloturer(&fx, jeu.annee).await;
+    verifier_gel(&fx, &jeu, "cahier clôturé").await;
+    // Seule la réouverture tracée désarme le gel : le même jeu repasse.
+    rouvrir_a_deux(&fx, jeu.annee).await;
+    for (table, _, upd, _) in jeu.lignes.iter().filter(|l| !ajout_seul(l.0)) {
+        let n = sqlx::query(upd)
+            .execute(fx.ent.pool())
+            .await
+            .unwrap()
+            .rows_affected();
+        assert!(n > 0, "après réouverture : UPDATE {table}");
+    }
+}
+
+#[tokio::test]
+async fn c8_gel_en_base_d_une_annee_close_au_socle_5_sans_cloture_du_cahier() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let jeu = jeu_gel(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    // Une publication programmée, due, dans l'année : elle ne doit pas se publier dans une année close au socle 5.
+    let s = seance_a(&fx, auj - Duration::days(3)).await;
+    let prog = fx
+        .ent
+        .cdt_entree_enregistrer(
+            &fx.prof(),
+            cours,
+            s,
+            EntreeBody {
+                titre: None,
+                contenu: "Programmée.".into(),
+                notions: vec![],
+                publication: "programmer".into(),
+                publie_a: None,
+                publie_jour: Some(auj + Duration::days(2)),
+                publie_heure: NaiveTime::from_hms_opt(8, 0, 0),
+                sans_avis: false,
+                motif: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    sqlx::query("UPDATE ent_cdt_entree SET visible_a = now() - interval '2 days' WHERE id = $1")
+        .bind(prog)
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(jeu.annee)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    verifier_gel(&fx, &jeu, "année close au socle 5").await;
+    // La publication programmée n'aboutit pas (aucune erreur, aucune écriture) : l'entrée reste programmée.
+    fx.ent.cdt_projeter_echus(etab).await.unwrap();
+    let (etat,): (String,) = sqlx::query_as("SELECT etat FROM ent_cdt_entree WHERE id = $1")
+        .bind(prog)
+        .fetch_one(fx.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(etat, "programmee");
+}
+
+#[tokio::test]
+async fn c8_journal_de_cloture_coherent_par_construction_demande_expiree_et_admin_sans_les_trois_droits(
+) {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Contenu.",
+        "maintenant",
+    )
+    .await;
+    let pool = fx.ent.pool();
+    let d1 = fx.cast.direction.user_id;
+    let insere = |action: &'static str,
+                  par: Uuid,
+                  demandeur: Option<Uuid>,
+                  motif: Option<&'static str>| {
+        let q = sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, motif, par_user_id, demandeur_user_id) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+            .bind(Uuid::new_v4())
+            .bind(etab)
+            .bind(annee)
+            .bind(action)
+            .bind(motif)
+            .bind(par)
+            .bind(demandeur);
+        async move { code_sql(q.execute(pool).await) }
+    };
+    let motif = Some("Motif suffisamment long pour la demande");
+    // Cahier non clôturé : ni demande ni réouverture.
+    assert_eq!(
+        insere("reouverture_demandee", d1, None, motif)
+            .await
+            .as_deref(),
+        Some("23514")
+    );
+    assert_eq!(
+        insere(
+            "reouverture",
+            fx.cast.directions[1].user_id,
+            Some(d1),
+            motif
+        )
+        .await
+        .as_deref(),
+        Some("23514")
+    );
+    cloturer(&fx, annee).await;
+    // Clôturé : pas de seconde clôture, et une `reouverture` en SQL direct sans demande est refusée par la base.
+    assert_eq!(
+        insere("cloture", d1, None, None).await.as_deref(),
+        Some("23514"),
+        "double clôture"
+    );
+    assert_eq!(
+        insere(
+            "reouverture",
+            fx.cast.directions[1].user_id,
+            Some(d1),
+            motif
+        )
+        .await
+        .as_deref(),
+        Some("23514"),
+        "réouverture sans demande"
+    );
+    // Demande par d1 : la valider soi-même est refusé (code et base) ; une autre personne la valide.
+    fx.ent
+        .cdt_c8_rouvrir(
+            &fx.direction(),
+            ReouvrirBody {
+                annee_id: annee,
+                motif: "Motif suffisamment long pour la demande".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(fx
+        .ent
+        .cdt_c8_rouvrir_valider(&fx.direction(), ValiderReouvertureBody { annee_id: annee })
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    assert_eq!(
+        insere("reouverture", d1, Some(d1), motif).await.as_deref(),
+        Some("23514"),
+        "auto-validation en SQL"
+    );
+    assert_eq!(
+        insere(
+            "reouverture",
+            fx.cast.directions[1].user_id,
+            Some(d1),
+            Some("Un autre motif, suffisamment long")
+        )
+        .await
+        .as_deref(),
+        Some("23514"),
+        "la réouverture reprend le motif de la demande"
+    );
+    // Demande expirée (délai de l'établissement : 14 jours par défaut) : rétrodatée sous `replica` pour ce seul test.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_cdt_cloture SET cree_le = cree_le - interval '15 days' WHERE etablissement_id = $1 AND annee_id = $2 AND action = 'reouverture_demandee'")
+        .bind(etab)
+        .bind(annee)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(
+        insere(
+            "reouverture",
+            fx.cast.directions[1].user_id,
+            Some(d1),
+            motif
+        )
+        .await
+        .as_deref(),
+        Some("23514"),
+        "demande expirée : la base refuse"
+    );
+    assert!(fx
+        .ent
+        .cdt_c8_rouvrir_valider(&fx.direction2(), ValiderReouvertureBody { annee_id: annee })
+        .await
+        .is_err_and(|e| est_refus(&e, RefusMetier::Conflit)));
+    // Une demande expirée ne bloque pas une nouvelle demande ; celle-ci se valide.
+    rouvrir_a_deux(&fx, annee).await;
+    // Un pouvoir = une action : l'administrateur technique n'a ni clôture, ni export, ni octroi d'accès d'inspection.
+    cloturer(&fx, annee).await;
+    assert!(fx
+        .ent
+        .cdt_c8_cloturer(
+            &fx.admin(),
+            ClotureBody {
+                annee_id: annee,
+                confirmer: true
+            }
+        )
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    assert!(fx
+        .ent
+        .cdt_c8_rouvrir(
+            &fx.admin(),
+            ReouvrirBody {
+                annee_id: annee,
+                motif: "Motif suffisamment long pour la demande".into()
+            }
+        )
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    assert!(fx
+        .ent
+        .cdt_c8_export_produire(
+            &fx.admin(),
+            ExportBody {
+                nature: "inspection".into(),
+                cours_id: Some(cours),
+                agent_id: None,
+                du: auj - Duration::days(7),
+                au: auj,
+                motif: None,
+            },
+        )
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    assert!(fx
+        .ent
+        .cdt_c8_acces_accorder(
+            &fx.admin(),
+            acces(fx.cast.compta.user_id, cours, auj - Duration::days(7), auj)
+        )
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    assert!(fx
+        .ent
+        .cdt_c8_archives(&fx.admin(), Some(annee))
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+}
+
+#[tokio::test]
+async fn c8_cloture_projette_les_publications_echues_et_n_en_perd_aucune() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    let s = seance_a(&fx, auj - Duration::days(3)).await;
+    let prog = fx
+        .ent
+        .cdt_entree_enregistrer(
+            &fx.prof(),
+            cours,
+            s,
+            EntreeBody {
+                titre: None,
+                contenu: "Publication programmée, due avant la clôture.".into(),
+                notions: vec![],
+                publication: "programmer".into(),
+                publie_a: None,
+                publie_jour: Some(auj + Duration::days(2)),
+                publie_heure: NaiveTime::from_hms_opt(8, 0, 0),
+                sans_avis: false,
+                motif: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    // Échue : rétrodatée (valeur fixe dans le passé, aucune dépendance à l'heure du test), jamais projetée.
+    sqlx::query("UPDATE ent_cdt_entree SET visible_a = now() - interval '2 days' WHERE id = $1")
+        .bind(prog)
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+    cloturer(&fx, annee).await;
+    let (etat,): (String,) = sqlx::query_as("SELECT etat FROM ent_cdt_entree WHERE id = $1")
+        .bind(prog)
+        .fetch_one(fx.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        etat, "publiee",
+        "la publication due a été projetée avant la clôture"
+    );
+    let a = fx
+        .ent
+        .cdt_c8_archives(&fx.direction(), Some(annee))
+        .await
+        .unwrap();
+    let a = a
+        .iter()
+        .find(|x| x.cours.cours_id == cours)
+        .expect("archive du cours");
+    let c = fx
+        .ent
+        .cdt_c8_archive_contenu(&fx.direction(), a.id)
+        .await
+        .unwrap();
+    assert!(
+        c.contenu
+            .contains("Publication programmée, due avant la clôture."),
+        "présente dans l'archive"
+    );
+}
+
+#[tokio::test]
+async fn c8_erreurs_de_concurrence_de_la_base_sont_un_conflit_reessayable_jamais_une_erreur_serveur(
+) {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    for code in ["40001", "40P01"] {
+        let err = sqlx::query(&format!(
+            "DO $$ BEGIN RAISE EXCEPTION 'x' USING ERRCODE = '{code}'; END $$"
+        ))
+        .execute(fx.ent.pool())
+        .await
+        .unwrap_err();
+        let e = crate::cahier_c8::db(err);
+        assert!(est_refus(&e, RefusMetier::Conflit), "{code} : {e:?}");
+    }
+    // Le refus d'une garde de base (année figée) est lui aussi un conflit (409), pas un 400.
+    let err = sqlx::query("DO $$ BEGIN RAISE EXCEPTION 'cahier de textes : l''année est figée (clôturée)' USING ERRCODE = '23514'; END $$")
+        .execute(fx.ent.pool())
+        .await
+        .unwrap_err();
+    assert!(est_refus(&crate::cahier_c8::db(err), RefusMetier::Conflit));
+}
+
+#[tokio::test]
+async fn c8_cloture_et_ecritures_se_serialisent_par_verrou_dans_les_deux_sens_sans_delai() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    let s = seance_a(&fx, auj - Duration::days(1)).await;
+    let s_nouvelle = seance_a(&fx, auj - Duration::days(2)).await;
+    let e1 = entree(&fx, cours, s, "Contenu initial.", "maintenant").await;
+    let pool = fx.ent.pool();
+
+    // Sens 1 : une écriture en cours (non validée) retient la clôture ; on observe la clôture bloquée sur le verrou de l'année,
+    // PUIS on valide l'écriture : la clôture la voit et l'archive.
+    let mut ecrivain = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE ent_cdt_entree SET contenu = 'Contenu écrit pendant la clôture.' WHERE id = $1",
+    )
+    .bind(e1.id)
+    .execute(&mut *ecrivain)
+    .await
+    .unwrap();
+    let dir = fx.direction();
+    let (clot, comm) = tokio::join!(
+        fx.ent.cdt_c8_cloturer(
+            &dir,
+            ClotureBody {
+                annee_id: annee,
+                confirmer: true
+            }
+        ),
+        async {
+            attendre_verrou(pool, "FROM ent_annee_scolaire").await;
+            ecrivain.commit().await
+        }
+    );
+    comm.unwrap();
+    clot.unwrap();
+    let archives = fx
+        .ent
+        .cdt_c8_archives(&fx.direction(), Some(annee))
+        .await
+        .unwrap();
+    let a = archives
+        .iter()
+        .find(|x| x.cours.cours_id == cours)
+        .expect("archive du cours");
+    let contenu = fx
+        .ent
+        .cdt_c8_archive_contenu(&fx.direction(), a.id)
+        .await
+        .unwrap();
+    assert!(
+        contenu
+            .contenu
+            .contains("Contenu écrit pendant la clôture."),
+        "l'archive contient l'écriture concurrente"
+    );
+    rouvrir_a_deux(&fx, annee).await;
+
+    // Sens 2 : la clôture RÉELLE (`cdt_c8_cloturer`) est retenue après avoir pris le verrou de l'année (une archive fantôme,
+    // non validée, occupe la version 1 de l'archive du cours : l'insertion de la clôture attend). Une écriture RÉELLE démarre
+    // alors, puis attend à son tour. On observe les deux blocages, puis on lève l'obstacle : la clôture aboutit, l'écriture
+    // est refusée avec le conflit exact « année close », sans aucune trace.
+    let mut obstacle = pool.begin().await.unwrap();
+    let fantome = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_cdt_export (id, etablissement_id, nature, cours_id, annee_id, du, au, titre, contenu, empreinte, nb_entrees, nb_travaux, produit_par_user_id)
+                 VALUES ($1, $2, 'archive', $3, $4, $5, $5, 'fantôme', 'x', encode(sha256(convert_to('x', 'UTF8')), 'hex'), 0, 0, $6)")
+        .bind(fantome)
+        .bind(etab)
+        .bind(cours)
+        .bind(annee)
+        .bind(auj)
+        .bind(fx.cast.direction.user_id)
+        .execute(&mut *obstacle)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ent_cdt_archive (id, etablissement_id, annee_id, cours_id, export_id, empreinte, produite_le, version, echeance_archive)
+                 SELECT $1, etablissement_id, annee_id, cours_id, id, empreinte, now(),
+                        COALESCE((SELECT max(version) FROM ent_cdt_archive WHERE etablissement_id = $4 AND annee_id = $5 AND cours_id = $6), 0) + 1, $3
+                   FROM ent_cdt_export WHERE id = $2")
+        .bind(Uuid::new_v4())
+        .bind(fantome)
+        .bind(auj + Duration::days(900))
+        .bind(etab)
+        .bind(annee)
+        .bind(cours)
+        .execute(&mut *obstacle)
+        .await
+        .unwrap();
+    let prof = fx.prof();
+    let dir = fx.direction();
+    let (clot, ecriture, ()) = tokio::join!(
+        fx.ent.cdt_c8_cloturer(
+            &dir,
+            ClotureBody {
+                annee_id: annee,
+                confirmer: true
+            }
+        ),
+        async {
+            // Démarre quand la clôture réelle est bloquée (elle détient donc le verrou de l'année).
+            attendre_verrou(pool, "INSERT INTO ent_cdt_archive").await;
+            fx.ent
+                .cdt_entree_enregistrer(
+                    &prof,
+                    cours,
+                    s_nouvelle,
+                    corps_entree_c8("Écrit pendant la clôture, perdu."),
+                )
+                .await
+        },
+        async {
+            attendre_verrou(pool, "INSERT INTO ent_cdt_archive").await;
+            attendre_verrou(pool, "ent_cdt_entree").await;
+            obstacle.rollback().await.unwrap();
+        }
+    );
+    clot.unwrap();
+    assert!(
+        ecriture.is_err_and(|e| est_refus(&e, RefusMetier::Conflit)),
+        "l'écriture qui croise la clôture échoue avec le conflit « année close »"
+    );
+    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_cdt_entree WHERE seance_id = $1")
+        .bind(s_nouvelle)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "la tentative n'a laissé aucune trace");
+    let (c,): (String,) = sqlx::query_as("SELECT contenu FROM ent_cdt_entree WHERE id = $1")
+        .bind(e1.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(c, "Contenu écrit pendant la clôture.");
+}
+
+#[tokio::test]
+async fn c8_deux_post_simultanes_de_mon_export_conservent_un_seul_export() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Contenu du professeur.",
+        "maintenant",
+    )
+    .await;
+    let (a, b) = (fx.prof(), fx.prof());
+    let (r1, r2) = tokio::join!(
+        fx.ent.cdt_c8_export_professeur_conserver(&a, annee),
+        fx.ent.cdt_c8_export_professeur_conserver(&b, annee)
+    );
+    let (r1, r2) = (r1.unwrap(), r2.unwrap());
+    assert_eq!(
+        r1.export.id, r2.export.id,
+        "le même export est renvoyé aux deux appels"
+    );
+    assert_eq!(r1.export.empreinte, r2.export.empreinte);
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_cdt_export WHERE etablissement_id = $1 AND nature = 'professeur'",
+    )
+    .bind(etab)
+    .fetch_one(fx.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 1, "un seul export conservé");
+}
+
+#[tokio::test]
+async fn c8_cours_trop_gros_pour_une_archive_est_archive_par_morceaux_sans_bloquer_la_cloture() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
+    let t0 = travail(&fx, cours, "Modèle", "maintenant").await;
+    // 260 travaux publiés de 20 000 caractères sur 260 jours : plus que le plafond d'une archive (4 000 000 caractères).
+    sqlx::query(
+        "INSERT INTO ent_cdt_travail (id, etablissement_id, cours_id, annee_id, donne_le, echeance_mode, echeance_le, nature_id,
+                titre, consigne, etat, publie_a, visible_a, auteur_user_id)
+         SELECT gen_random_uuid(), t.etablissement_id, t.cours_id, t.annee_id, $2::date + g, t.echeance_mode, t.echeance_le, t.nature_id,
+                'Volumineux ' || g, repeat('x', 20000), 'publie', now(), now() - interval '1 day', t.auteur_user_id
+           FROM ent_cdt_travail t, generate_series(1, 260) g WHERE t.id = $1",
+    )
+    .bind(t0)
+    .bind(annee.date_debut)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    let r = fx
+        .ent
+        .cdt_c8_cloturer(
+            &fx.direction(),
+            ClotureBody {
+                annee_id: annee.id,
+                confirmer: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        r.archives_produites >= 2,
+        "plusieurs morceaux : {}",
+        r.archives_produites
+    );
+    let (parts, total): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), COALESCE(sum(x.nb_travaux), 0)::bigint FROM ent_cdt_archive a
+           JOIN ent_cdt_export x ON x.etablissement_id = a.etablissement_id AND x.id = a.export_id
+          WHERE a.etablissement_id = $1 AND a.annee_id = $2 AND a.cours_id = $3",
+    )
+    .bind(etab)
+    .bind(annee.id)
+    .bind(cours)
+    .fetch_one(fx.ent.pool())
+    .await
+    .unwrap();
+    assert!(parts >= 2);
+    assert_eq!(
+        total, 261,
+        "aucun travail perdu : tous sont dans un morceau"
+    );
+}
+
+#[tokio::test]
+async fn c8_inspecteur_les_casquettes_comptent_pour_le_role_a_l_octroi_et_a_chaque_lecture() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Entrée publiée.",
+        "maintenant",
+    )
+    .await;
+    let insp = &fx.cast.compta;
+    let a_insp = act(etab, insp);
+    let casquette = |etat: &'static str| {
+        sqlx::query("INSERT INTO ent_membership_casquette (user_id, etablissement_id, casquette, profil_base, du, etat)
+                     VALUES ($1, $2, 'personnel', 'compta', $3, $4)
+                     ON CONFLICT (user_id, etablissement_id, casquette) DO UPDATE SET etat = EXCLUDED.etat, du = EXCLUDED.du")
+            .bind(insp.user_id)
+            .bind(etab)
+            .bind(auj - Duration::days(30))
+            .bind(etat)
+            .execute(fx.ent.pool())
+    };
+    // Casquette personnelle fermée : le profil principal n'y change rien, l'octroi est refusé.
+    casquette("ferme").await.unwrap();
+    assert!(fx
+        .ent
+        .cdt_c8_acces_accorder(
+            &fx.direction(),
+            acces(insp.user_id, cours, auj - Duration::days(7), auj)
+        )
+        .await
+        .is_err_and(|e| est_refus(&e, RefusMetier::Invalide)));
+    casquette("ouvert").await.unwrap();
+    let acc = fx
+        .ent
+        .cdt_c8_acces_accorder(
+            &fx.direction(),
+            acces(insp.user_id, cours, auj - Duration::days(7), auj),
+        )
+        .await
+        .unwrap();
+    assert!(fx
+        .ent
+        .cdt_c8_inspection_lire(&a_insp, acc.id, cours)
+        .await
+        .is_ok());
+    // Profil principal devenu « parent » mais casquette personnelle ouverte : il reste un personnel, la lecture passe.
+    sqlx::query(
+        "UPDATE ent_membership SET role = 'parent' WHERE etablissement_id = $1 AND user_id = $2",
+    )
+    .bind(etab)
+    .bind(insp.user_id)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    assert!(fx
+        .ent
+        .cdt_c8_inspection_lire(&a_insp, acc.id, cours)
+        .await
+        .is_ok());
+    // Casquette personnelle fermée : plus rien, à la lecture suivante.
+    casquette("ferme").await.unwrap();
+    assert!(fx
+        .ent
+        .cdt_c8_inspection_lire(&a_insp, acc.id, cours)
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+}
+
+#[tokio::test]
+async fn c8_f4_un_visa_de_classe_ne_compte_pour_un_professeur_que_les_cours_qu_il_voit() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let auj = jour(&fx).await;
+    let cours1 = cours_a(&fx).await;
+    // Second cours de la même classe, tenu par un collègue (autre matière).
+    let p1 = fx.cast.profs[1].user_id;
+    let matiere: Uuid =
+        sqlx::query_scalar("SELECT id FROM ent_matiere WHERE etablissement_id = $1 LIMIT 1")
+            .bind(etab)
+            .fetch_one(fx.ent.pool())
+            .await
+            .unwrap();
+    let service2 = fx
+        .ent
+        .referentiel_creer_service(
+            Role::Direction.as_str(),
+            etab,
+            CreerService {
+                prof_user_id: p1,
+                matiere_id: Some(matiere),
+                classe_id: Some(fx.classe_a),
+                groupe_id: None,
+                professeur_principal: false,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let cours2: Uuid =
+        sqlx::query_scalar("SELECT cours_id FROM ent_service_enseignement WHERE id = $1")
+            .bind(service2)
+            .fetch_one(fx.ent.pool())
+            .await
+            .unwrap();
+    assert_ne!(cours1, cours2);
+    entree(
+        &fx,
+        cours1,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Cours 1.",
+        "maintenant",
+    )
+    .await;
+    let s2 = fx
+        .seance("CDT-A", p1, Some(service2), auj - Duration::days(1))
+        .await;
+    fx.ent
+        .cdt_entree_enregistrer(
+            &fx.prof2(),
+            cours2,
+            s2,
+            corps_entree_c8("Cours 2 du collègue."),
+        )
+        .await
+        .unwrap();
+    let visa = fx
+        .ent
+        .cdt_c8_viser(
+            &fx.direction(),
+            VisaCahierBody {
+                cible: VISA_CLASSE.into(),
+                cours_id: None,
+                classe_id: Some(fx.classe_a),
+                agent_id: None,
+                du: auj - Duration::days(2),
+                au: auj,
+                observation: None,
+                confirmer_vide: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(visa.nb_elements, 2, "la direction voit les deux cours");
+    // Le professeur du cours 1 : seul son cours est compté ; aucun nombre ne trahit celui du collègue.
+    let vus = fx.ent.cdt_c8_visas(&fx.prof(), None).await.unwrap();
+    let v = vus
+        .iter()
+        .find(|x| x.id == visa.id)
+        .expect("le visa de classe est visible du professeur de la classe");
+    assert_eq!(v.nb_elements, 1, "comptage limité aux cours visibles");
+    let detail = fx
+        .ent
+        .cdt_c8_visa_detail(&fx.prof(), visa.id)
+        .await
+        .unwrap();
+    assert_eq!(detail.visa.nb_elements, 1);
+}
+
+#[tokio::test]
+async fn c8_f11_l_octroi_d_acces_d_inspection_ne_depend_pas_de_cahier_viser() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(&fx).await;
+    let auj = jour(&fx).await;
+    entree(
+        &fx,
+        cours,
+        seance_a(&fx, auj - Duration::days(1)).await,
+        "Entrée.",
+        "maintenant",
+    )
+    .await;
+    let dir = (fx.cast.direction.user_id, Role::Direction.as_str());
+    // Rôle libre « Référent inspections » : `cahier.acces_inspection` seul, sans `cahier.viser`.
+    let role = fx
+        .ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            RoleSaisie {
+                nom: format!("Inspections {}", &Uuid::new_v4().simple().to_string()[..6]),
+                description: None,
+                modele: None,
+                droits: vec![Droit {
+                    action: Action::CahierAccesInspection,
+                    portee: Portee::Etablissement,
+                    cibles: vec![],
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    let delegue = &fx.cast.profs[1];
+    let a_delegue = act(etab, delegue);
+    // Avant l'attribution : rien, ni liste de cours ni octroi.
+    assert!(fx
+        .ent
+        .cdt_c8_cours_ouvrables(&a_delegue)
+        .await
+        .is_err_and(|e| est_interdit(&e)));
+    fx.ent
+        .attribuer_role_for_actor(etab, dir.0, dir.1, role.id, delegue.user_id, None)
+        .await
+        .unwrap();
+    assert!(
+        !fx.ent
+            .cdt_droit_etab(&a_delegue, Action::CahierViser)
+            .await
+            .unwrap(),
+        "il ne vise pas"
+    );
+    let ouvrables = fx.ent.cdt_c8_cours_ouvrables(&a_delegue).await.unwrap();
+    assert!(
+        ouvrables.iter().any(|c| c.cours_id == cours),
+        "la liste des cours vient du droit d'octroi"
+    );
+    let acc = fx
+        .ent
+        .cdt_c8_acces_accorder(
+            &a_delegue,
+            acces(fx.cast.compta.user_id, cours, auj - Duration::days(7), auj),
+        )
+        .await
+        .unwrap();
+    assert_eq!(acc.motif, "inspection");
+    // Jamais à soi-même, même avec le droit.
+    assert!(fx
+        .ent
+        .cdt_c8_acces_accorder(
+            &a_delegue,
+            acces(delegue.user_id, cours, auj - Duration::days(7), auj)
+        )
+        .await
+        .is_err_and(|e| est_interdit(&e)));
 }

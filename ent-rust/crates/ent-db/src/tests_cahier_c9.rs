@@ -282,8 +282,8 @@ async fn c9_partage_avec_un_cours_ou_une_discipline_sans_ouvrir_le_cahier_d_un_a
         fx.ent
             .cdt_c9_partager(&fx.prof(), id, vers_c.clone())
             .await
-            .is_err_and(|e| est_interdit(&e)),
-        "il n'intervient pas dans le cours de son collègue"
+            .is_err_and(|e| est_introuvable(&e)),
+        "il n'intervient pas dans le cours de son collègue : 404 uniforme (F8)"
     );
     assert!(
         fx.ent
@@ -311,7 +311,7 @@ async fn c9_partage_avec_un_cours_ou_une_discipline_sans_ouvrir_le_cahier_d_un_a
             }
         )
         .await
-        .is_err_and(|e| est_interdit(&e)));
+        .is_err_and(|e| est_introuvable(&e)));
     assert!(fx
         .ent
         .cdt_c9_partager(
@@ -1074,5 +1074,86 @@ async fn c9_progression_archivee_non_planifiable_et_copie_limitee_au_meme_niveau
     assert!(
         r.is_err(),
         "matière inconnue de l'établissement : clé étrangère composite"
+    );
+}
+
+#[tokio::test]
+async fn c9_f7_la_copie_d_un_cours_a_l_autre_refuse_deux_niveaux_differents() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let dir = Role::Direction.as_str();
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
+    let c6a = fx
+        .ent
+        .referentiel_creer_classe(dir, etab, Some(annee.id), "F7-6A", None, Some("6e"))
+        .await
+        .unwrap();
+    let c6b = fx
+        .ent
+        .referentiel_creer_classe(dir, etab, Some(annee.id), "F7-6B", None, Some("6e"))
+        .await
+        .unwrap();
+    let c5 = fx
+        .ent
+        .referentiel_creer_classe(dir, etab, Some(annee.id), "F7-5A", None, Some("5e"))
+        .await
+        .unwrap();
+    // Niveaux de la structure (`niveau_id`, ce que lit la garde de copie) : 6e pour deux classes, 5e pour la troisième.
+    for (code, classes) in [("F7-6E", vec![c6a.id, c6b.id]), ("F7-5E", vec![c5.id])] {
+        let niveau = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_niveau (id, etablissement_id, code, libelle) VALUES ($1, $2, $3, $3)",
+        )
+        .bind(niveau)
+        .bind(etab)
+        .bind(code)
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+        for c in classes {
+            sqlx::query(
+                "UPDATE ent_classe SET niveau_id = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(c)
+            .bind(niveau)
+            .execute(fx.ent.pool())
+            .await
+            .unwrap();
+        }
+    }
+    let prof = fx.cast.profs[0].user_id;
+    let m = matiere(&fx, "F7M").await;
+    let src = cours_de(&fx, service(&fx, prof, c6a.id, Some(m)).await).await;
+    let meme_niveau = cours_de(&fx, service(&fx, prof, c6b.id, Some(m)).await).await;
+    let autre_niveau = cours_de(&fx, service(&fx, prof, c5.id, Some(m)).await).await;
+    let corps = |cible| CopierCoursBody {
+        source_cours_id: src,
+        cible_cours_id: cible,
+        a_partir_du: None,
+        apercu: true,
+    };
+    let r = fx
+        .ent
+        .cdt_c9_copier_cours(&fx.prof(), corps(autre_niveau))
+        .await;
+    assert!(
+        matches!(&r, Err(e) if est_refus(e, RefusMetier::Conflit)),
+        "6e vers 5e : refusé ({:?})",
+        r.map(|_| ())
+    );
+    assert!(
+        fx.ent
+            .cdt_c9_copier_cours(&fx.prof(), corps(meme_niveau))
+            .await
+            .is_ok(),
+        "6e vers 6e : permis"
     );
 }

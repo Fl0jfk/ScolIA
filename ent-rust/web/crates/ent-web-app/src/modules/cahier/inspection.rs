@@ -88,7 +88,10 @@ fn LigneAcces(
         .map(|c| format!("{} ({})", c.libelle, c.public))
         .collect::<Vec<_>>()
         .join(", ");
-    let qui = format!("{} — {}", a.beneficiaire, libelle_motif(&a.motif));
+    let mut qui = format!("{} — {}", a.beneficiaire, libelle_motif(&a.motif));
+    if a.croise {
+        qui.push_str(" — octroi croisé entre deux directeurs : à vérifier");
+    }
     let validite = phrase_validite(&a);
     let cible = a.agent_cible.clone().map(|n| format!("Rendez-vous de {n}"));
     let ouvrir_journal = move |_| {

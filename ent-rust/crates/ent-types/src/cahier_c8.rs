@@ -247,6 +247,10 @@ pub struct AccesInspectionDto {
     pub revoque_le: Option<DateTime<Utc>>,
     /// Lectures déjà faites (comptage ; le détail est au journal).
     pub nb_consultations: i64,
+    /// Octroi croisé : le bénéficiaire a lui-même accordé un accès à celui qui lui a accordé celui-ci (limite documentée du
+    /// « un pouvoir = une action », D-069) : signalé à la direction.
+    #[serde(default)]
+    pub croise: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -26,7 +26,8 @@ use uuid::Uuid;
 use crate::cahier::publier_cdt;
 use crate::cahier_c2::{conflit, invalide, miroir_entree};
 use crate::cahier_c2_travaux::miroir_travail;
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::db;
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -109,13 +110,14 @@ impl PgEnt {
                   FROM ent_cdt_entree e
                   JOIN ent_edt_seance s ON s.etablissement_id = e.etablissement_id AND s.id = e.seance_id
                  WHERE e.etablissement_id = $1 AND s.statut = 'annulee' AND e.etat IN ('brouillon', 'programmee', 'publiee')
+                   AND NOT ent_cdt_annee_gelee(e.etablissement_id, e.annee_id)
                    AND s.jour >= ent_aujourdhui_etab($1) - $2::int
                 UNION ALL
                 SELECT t.cours_id, s.id, 'travail', t.id
                   FROM ent_cdt_travail t
                   JOIN ent_edt_seance s ON s.etablissement_id = t.etablissement_id AND s.id = t.echeance_seance_id
                  WHERE t.etablissement_id = $1 AND t.echeance_mode = 'seance' AND s.statut = 'annulee'
-                   AND t.etat IN ('brouillon', 'programme', 'publie')
+                   AND t.etat IN ('brouillon', 'programme', 'publie') AND NOT ent_cdt_annee_gelee(t.etablissement_id, t.annee_id)
                    AND s.jour >= ent_aujourdhui_etab($1) - $2::int)
              INSERT INTO ent_cdt_report (id, etablissement_id, origine_seance_id, objet, objet_id, vers_seance_id, cours_id)
              SELECT gen_random_uuid(), $1, n.seance, n.objet, n.objet_id, ent_cdt_prochaine_seance($1, n.cours_id, n.seance), n.cours_id
