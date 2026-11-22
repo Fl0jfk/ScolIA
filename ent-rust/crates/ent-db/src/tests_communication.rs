@@ -104,7 +104,7 @@ async fn rendre_joignable(ent: &PgEnt, etab: Uuid, user: Uuid, tel: &str) {
         .unwrap();
     sqlx::query(
         "INSERT INTO ent_push_device (id, etablissement_id, user_id, platform, token)
-         VALUES ($1,$2,$3,'android',$4) ON CONFLICT (etablissement_id, token) WHERE revoked_at IS NULL DO UPDATE SET revoked_at = NULL",
+         VALUES ($1,$2,$3,'android',$4) ON CONFLICT (etablissement_id, token_empreinte) WHERE revoked_at IS NULL DO UPDATE SET revoked_at = NULL",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
