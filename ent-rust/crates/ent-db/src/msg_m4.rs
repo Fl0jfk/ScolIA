@@ -518,6 +518,12 @@ impl PgEnt {
 
     // ───────────────────────────── Correction et retrait (R-M27, R-M28) ─────────────────────────────
 
+    /// Règle 4 : l'instant des délais de la messagerie (15 min de correction, 10 min de retrait) est celui de la
+    /// base, comme `created_at` et `remise_prevue_le` (jamais l'horloge de l'application).
+    async fn maintenant_base(&self) -> Result<DateTime<Utc>, EntDbError> {
+        Ok(sqlx::query_scalar("SELECT now()").fetch_one(self.pool()).await?)
+    }
+
     async fn message_de_l_auteur(
         &self,
         etab: Uuid,
@@ -535,6 +541,10 @@ impl PgEnt {
         .await?;
         let (fil_id, auteur, corps, version, cree, remise, retire) =
             ligne.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        // Règle 3 : un différé d'autrui est un 404, identique à un identifiant inconnu, avant tout jugement d'auteur.
+        if self.messages.message_differe_d_autrui(etab, message, user).await? {
+            return Err(EntDbError::Domain(DomainError::NotFound));
+        }
         // Le message n'existe pour l'acteur que si le fil lui est lisible.
         let fil: MsgFil = self
             .messages
@@ -563,7 +573,8 @@ impl PgEnt {
         message: Uuid,
         nouveau_corps: &str,
     ) -> Result<(), EntDbError> {
-        self.corriger_message_fil_a(etab, user, role, message, nouveau_corps, Utc::now()).await
+        let maintenant = self.maintenant_base().await?;
+        self.corriger_message_fil_a(etab, user, role, message, nouveau_corps, maintenant).await
     }
 
     pub(crate) async fn corriger_message_fil_a(
@@ -649,7 +660,8 @@ impl PgEnt {
         message: Uuid,
         motif_code: Option<&str>,
     ) -> Result<(), EntDbError> {
-        self.retirer_message_a(etab, user, role, message, motif_code, Utc::now()).await
+        let maintenant = self.maintenant_base().await?;
+        self.retirer_message_a(etab, user, role, message, motif_code, maintenant).await
     }
 
     pub(crate) async fn retirer_message_a(

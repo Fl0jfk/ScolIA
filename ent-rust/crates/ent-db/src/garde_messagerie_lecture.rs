@@ -58,11 +58,12 @@ const FILTRE_INTEGRE: &[&str] = &[
     "fils_lisibles_personnel",
     "page_fils_personnel",
     "destinataires_famille_fil",
-    "evenements_depuis",
 ];
 /// B : lecture par identifiant ; l'appelant a déjà appelé `peut_lire_fil` (contrôle 3).
 const PAR_IDENTIFIANT: &[&str] = &[
     "get_fil",
+    // Lot : l'appelant (le flux M12) applique le jugement de lecture groupé `actor_can_access_fils_lot`.
+    "get_fils_lot",
     "list_messages",
     "list_accuses_fil",
     "list_pieces_meta_fil",
