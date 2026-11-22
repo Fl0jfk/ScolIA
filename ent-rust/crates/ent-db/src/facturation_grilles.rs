@@ -669,8 +669,10 @@ pub fn controler_continuite(
     let mut articles_oublies = BTreeSet::new();
     let mut signales = BTreeSet::new();
     for p in precedents {
-        let tarifs_article: Vec<&TarifGrilleDto> =
-            tarifs.iter().filter(|t| t.article_id == p.article_id).collect();
+        let tarifs_article: Vec<&TarifGrilleDto> = tarifs
+            .iter()
+            .filter(|t| t.article_id == p.article_id)
+            .collect();
         if tarifs_article.is_empty() {
             if articles_oublies.insert(p.article_id) {
                 v.push(AnomalieGrilleDto {
@@ -686,7 +688,8 @@ pub fn controler_continuite(
             continue;
         }
         let couvert = tarifs_article.iter().any(|t| {
-            (t.niveau.is_none() || t.niveau == p.niveau) && (t.regime.is_none() || t.regime == p.regime)
+            (t.niveau.is_none() || t.niveau == p.niveau)
+                && (t.regime.is_none() || t.regime == p.regime)
         });
         if !couvert && signales.insert((p.article_id, p.niveau.clone(), p.regime.clone())) {
             v.push(AnomalieGrilleDto {
@@ -706,7 +709,9 @@ pub fn controler_continuite(
         if !articles_oublies.contains(id) {
             v.push(AnomalieGrilleDto {
                 code: "article_facture_sans_tarif".into(),
-                message: format!("{code} : facturé sur cette année, mais sans tarif dans cette grille"),
+                message: format!(
+                    "{code} : facturé sur cette année, mais sans tarif dans cette grille"
+                ),
                 article_id: Some(*id),
                 bloquante: false,
             });
@@ -861,9 +866,7 @@ pub fn total_famille(
             if a.soumis_reductions {
                 let meilleure = fratries
                     .iter()
-                    .filter(|f| {
-                        rang >= f.rang_min && f.categories.contains(&a.categorie)
-                    })
+                    .filter(|f| rang >= f.rang_min && f.categories.contains(&a.categorie))
                     .map(|f| f.taux_bps)
                     .max();
                 if let Some(bps) = meilleure {
@@ -1174,7 +1177,8 @@ async fn alertes_reglages_tx(
     let mut v = Vec::new();
     if !exiger {
         v.push(
-            "qualification des articles non exigée à l'émission : à activer avant la rentrée 2027".to_string(),
+            "qualification des articles non exigée à l'émission : à activer avant la rentrée 2027"
+                .to_string(),
         );
     }
     if !second {
@@ -1185,9 +1189,9 @@ async fn alertes_reglages_tx(
         .fetch_optional(&mut *conn)
         .await
         .map_err(db)?;
-        let quand = r
-            .and_then(|r| r.0)
-            .map_or_else(String::new, |d| format!(" depuis le {}", d.format("%d/%m/%Y")));
+        let quand = r.and_then(|r| r.0).map_or_else(String::new, |d| {
+            format!(" depuis le {}", d.format("%d/%m/%Y"))
+        });
         v.push(format!(
             "second regard sur le vote des grilles désactivé{quand} : la direction vote seule"
         ));
@@ -2357,17 +2361,18 @@ impl PgEnt {
         if !(2000..=2100).contains(&b.vote_le.year()) {
             return Err(invalide("date de vote invraisemblable"));
         }
-        if b.vote_le > jour {
-            return Err(invalide(
-                "date de vote dans le futur : la délibération a eu lieu au plus tard aujourd'hui",
-            ));
-        }
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         if v.statut != "proposee" {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
                 "seule une grille proposée peut être votée",
+            ));
+        }
+        // le futur se contrôle après l'existence de la grille (ordre : personnel, droit, existence)
+        if b.vote_le > jour {
+            return Err(invalide(
+                "date de vote dans le futur : la délibération a eu lieu au plus tard aujourd'hui",
             ));
         }
         let (_, second) = reglages_tx(&mut tx, etab).await?;
@@ -2468,7 +2473,9 @@ impl PgEnt {
             ));
         }
         if v.vote_le.is_some_and(|vote| b.du < vote) {
-            return Err(invalide("entrée en vigueur antérieure au vote de la grille"));
+            return Err(invalide(
+                "entrée en vigueur antérieure au vote de la grille",
+            ));
         }
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("fin:grille:{etab}:{}", v.annee_scolaire))
@@ -2554,7 +2561,10 @@ impl PgEnt {
                 if supplantees.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({} autre(s) version(s) votée(s) supplantée(s))", supplantees.len())
+                    format!(
+                        " ({} autre(s) version(s) votée(s) supplantée(s))",
+                        supplantees.len()
+                    )
                 }
             )),
         )
@@ -2820,13 +2830,12 @@ impl PgEnt {
             }
         }
         let mut tx = self.fin_tx(etab).await?;
-        let (nb,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_fin_famille_type WHERE etablissement_id = $1",
-        )
-        .bind(etab)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
+        let (nb,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM ent_fin_famille_type WHERE etablissement_id = $1")
+                .bind(etab)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
         if nb >= MAX_FAMILLES_TYPES {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
@@ -2948,12 +2957,13 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        let r = sqlx::query("DELETE FROM ent_fin_famille_type WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        let r =
+            sqlx::query("DELETE FROM ent_fin_famille_type WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
         if r.rows_affected() == 0 {
             return Err(introuvable());
         }
@@ -4360,6 +4370,8 @@ mod tests {
         assert!(v.is_empty());
         // article facturé sans tarif : signalé sans bloquer
         let v = controler_continuite(&[], &[tarif(art, None)], &[(autre, "Z".into())]);
-        assert!(v.iter().any(|a| a.code == "article_facture_sans_tarif" && !a.bloquante));
+        assert!(v
+            .iter()
+            .any(|a| a.code == "article_facture_sans_tarif" && !a.bloquante));
     }
 }

@@ -846,6 +846,8 @@ fn specs_domaine_finances_grilles() -> Vec<Spec> {
         refuse_sur_b("f3-publier-B", "POST", "/finances/grilles/{compte}/publier", Some("{}")),
         refuse_sur_b("f3-effet-familles-B", "GET", "/finances/grilles/{compte}/familles-types", None),
         refuse_sur_b("f3-famille-desactiver-B", "POST", "/finances/familles-types/{compte}/desactiver", Some("{}")),
+        refuse_sur_b("f3-famille-supprimer-B", "DELETE", "/finances/familles-types/{compte}", None),
+        refuse_sur_b("f3-simulation-supprimer-B", "DELETE", "/finances/simulations/{compte}", None),
         refuse_sur_b("f3-simulation-calculer-B", "POST", "/finances/simulations/{compte}/calculer", Some("{}")),
         refuse_sur_b("f3-simulation-export-B", "GET", "/finances/simulations/{compte}/export", None),
         refuse_sur_b("f3-comparaison-B", "GET", "/finances/simulations/comparaison?a={compte}&b={compte}", None),

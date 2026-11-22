@@ -212,7 +212,7 @@ async fn grille_proposee(ent: &PgEnt, c: &LaboCast) -> (Uuid, Uuid, Uuid) {
 /// Établissement **antérieur à la 523** : qualification non exigée (valeur transitoire, M7). Les scénarios qui
 /// créent des articles « à l'ancienne » ou émettent sans catalogue qualifié se placent dans cet état ; le défaut
 /// d'un établissement créé après la 523 (exigée) est éprouvé par `f3r_m7_*`.
-async fn etablissement_anterieur(ent: &PgEnt, etab: Uuid) {
+pub(crate) async fn etablissement_anterieur(ent: &PgEnt, etab: Uuid) {
     sqlx::query(
         "INSERT INTO ent_fin_parametres (etablissement_id, exiger_qualification_articles) VALUES ($1, false)
          ON CONFLICT (etablissement_id) DO UPDATE SET exiger_qualification_articles = false",
@@ -644,8 +644,7 @@ async fn f3_cycle_de_vie_gel_correction_et_publication() {
     ));
     // Direction : vote valide ; référence obligatoire, vote d'une grille déjà votée refusé.
     assert!(invalide(
-        ent.voter_grille_test(etab, ud, rd, v, &vote("   "))
-            .await
+        ent.voter_grille_test(etab, ud, rd, v, &vote("   ")).await
     ));
     let votee = ent
         .voter_grille_test(etab, ud, rd, v, &vote("CA du 20 juin"))
@@ -937,10 +936,7 @@ async fn f3_second_regard_retour_brouillon_et_abandon() {
         .await
         .unwrap();
     assert!(
-        interdit(
-            ent.voter_grille_test(etab, ud, rd, v.id, &vote("CA"))
-                .await
-        ),
+        interdit(ent.voter_grille_test(etab, ud, rd, v.id, &vote("CA")).await),
         "même personne : second regard"
     );
     // Retour en brouillon motivé (le conseil demande un changement), puis nouvelle proposition.
@@ -2187,7 +2183,9 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     )
     .await
     .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, b1.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, b1.id)
+        .await
+        .unwrap();
     let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
     // vote daté dans le futur (jour de référence : 1er juillet 2030) : refusé
     assert!(invalide(
@@ -2209,12 +2207,24 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
         .unwrap();
     // vigueur hors de l'année scolaire visée : refusée
     assert!(invalide(
-        ent.mettre_en_vigueur_for_actor(etab, u, r, b1.id, &MiseEnVigueurBody { du: d(2030, 8, 31) })
-            .await
+        ent.mettre_en_vigueur_for_actor(
+            etab,
+            u,
+            r,
+            b1.id,
+            &MiseEnVigueurBody { du: d(2030, 8, 31) }
+        )
+        .await
     ));
     assert!(invalide(
-        ent.mettre_en_vigueur_for_actor(etab, u, r, b1.id, &MiseEnVigueurBody { du: d(2031, 9, 1) })
-            .await
+        ent.mettre_en_vigueur_for_actor(
+            etab,
+            u,
+            r,
+            b1.id,
+            &MiseEnVigueurBody { du: d(2031, 9, 1) }
+        )
+        .await
     ));
     ent.mettre_en_vigueur_for_actor(etab, u, r, b1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
         .await
@@ -2248,7 +2258,9 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     )
     .await
     .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         ua,
@@ -2265,17 +2277,24 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     .unwrap();
     // vigueur avant le vote : refusée ; avant la date de la version appliquée : refusée
     assert!(invalide(
-        ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2030, 12, 5) })
-            .await
+        ent.mettre_en_vigueur_for_actor(
+            etab,
+            u,
+            r,
+            v2.id,
+            &MiseEnVigueurBody { du: d(2030, 12, 5) }
+        )
+        .await
     ));
     ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
         .await
         .unwrap();
-    let statut_v1: (String,) = sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
-        .bind(b1.id)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let statut_v1: (String,) =
+        sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
+            .bind(b1.id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
     assert_eq!(statut_v1.0, "close");
     // Génération : juillet → historique (1 000 €) ; septembre et décembre → v1 (1 200 €) ; janvier → v2 (1 300 €).
     let mut attendu = Vec::new();
@@ -2286,7 +2305,14 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
         ("Jan", d(2031, 1, 1), 130_000),
     ] {
         let el = eleve(&ent, etab, prenom, "externe").await;
-        let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, &format!("Foyer {prenom}")).await;
+        let _ = foyer_payeur(
+            &ent,
+            etab,
+            el,
+            c.parent_lea.user_id,
+            &format!("Foyer {prenom}"),
+        )
+        .await;
         facturer_au(&ent, etab, el, jour).await;
         attendu.push((el, montant));
     }
@@ -2306,15 +2332,18 @@ async fn f3r_m2_second_regard_autre_personne_que_l_auteur() {
     let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
     let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
     // direction rédige, comptabilité propose, direction vote → refus ; une autre personne vote.
-    let v = grille_par_direction_proposee_par_compta(&ent, &c, None, false, Some(120_000), contrib.id).await;
+    let v =
+        grille_par_direction_proposee_par_compta(&ent, &c, None, false, Some(120_000), contrib.id)
+            .await;
     assert!(interdit(
         ent.voter_grille_test(etab, ud, rd, v, &vote("CA")).await
     ));
-    let (statut,): (String,) = sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
-        .bind(v)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
     assert_eq!(statut, "proposee");
     // même chose vérifiée en base : un vote écrit directement par l'auteur est refusé
     assert!(sqlx::query(
@@ -2347,7 +2376,9 @@ async fn f3r_m2_second_regard_autre_personne_que_l_auteur() {
     .execute(ent.pool_verif())
     .await
     .is_err());
-    ent.voter_grille_test(etab, ua, ra, v, &vote("CA")).await.unwrap();
+    ent.voter_grille_test(etab, ua, ra, v, &vote("CA"))
+        .await
+        .unwrap();
     // la désactivation exige `voter` en plus de `parametrer` : la comptabilité est refusée
     assert!(refuse(
         ent.definir_reglages_grilles_for_actor(
@@ -2393,9 +2424,7 @@ async fn f3r_m3_version_figee_par_la_base() {
     let pool = ent.pool_verif();
     let echoue = |sql: &'static str| {
         let id = v;
-        async move {
-            sqlx::query(sql).bind(id).execute(pool).await.is_err()
-        }
+        async move { sqlx::query(sql).bind(id).execute(pool).await.is_err() }
     };
     // INSERT : une version naît brouillon, vierge de toute transition
     assert!(
@@ -2428,7 +2457,9 @@ async fn f3r_m3_version_figee_par_la_base() {
         "date de proposition figée"
     );
     // vote par le service puis tentatives directes
-    ent.voter_grille_test(etab, ua, ra, v, &vote("CA du 20 juin")).await.unwrap();
+    ent.voter_grille_test(etab, ua, ra, v, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
     assert!(
         echoue("UPDATE ent_fin_grille_version SET statut = 'en_vigueur', en_vigueur_du = '2030-09-01', en_vigueur_par = vote_par, libelle = 'autre' WHERE id = $1").await,
         "transition + autre colonne"
@@ -2459,17 +2490,25 @@ async fn f3r_m3_version_figee_par_la_base() {
         assert!(echoue(sql).await, "{nom} doit rester figé");
     }
     // clôture légitime, puis close_le figé une fois posé
-    sqlx::query("UPDATE ent_fin_grille_version SET statut = 'close', close_le = now() WHERE id = $1")
-        .bind(v)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'close', close_le = now() WHERE id = $1",
+    )
+    .bind(v)
+    .execute(pool)
+    .await
+    .unwrap();
     assert!(
-        echoue("UPDATE ent_fin_grille_version SET close_le = now() + interval '1 day' WHERE id = $1").await,
+        echoue(
+            "UPDATE ent_fin_grille_version SET close_le = now() + interval '1 day' WHERE id = $1"
+        )
+        .await,
         "close_le figé"
     );
     assert!(echoue("DELETE FROM ent_fin_grille_version WHERE id = $1").await);
-    assert!(sqlx::query("TRUNCATE ent_fin_grille_version").execute(pool).await.is_err());
+    assert!(sqlx::query("TRUNCATE ent_fin_grille_version")
+        .execute(pool)
+        .await
+        .is_err());
 }
 
 async fn brouillon_vide(ent: &PgEnt, etab: Uuid, u: Uuid, r: &str) -> GrilleVersionDto {
@@ -2512,14 +2551,26 @@ async fn f3r_m4_tranche_ne_change_ni_de_version_ni_d_etablissement() {
     };
     let figee = brouillon_vide(&ent, etab, u, r).await;
     let brouillon = brouillon_vide(&ent, etab, u, r).await;
-    ent.definir_tranches_for_actor(etab, u, r, figee.id, &tranches).await.unwrap();
-    ent.definir_tranches_for_actor(etab, u, r, brouillon.id, &tranches).await.unwrap();
-    // la grille figée porte un tarif pour être proposable
-    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, figee.id, &tarif_body(contrib.id, 100_000, true))
+    ent.definir_tranches_for_actor(etab, u, r, figee.id, &tranches)
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, figee.id).await.unwrap();
+    ent.definir_tranches_for_actor(etab, u, r, brouillon.id, &tranches)
+        .await
+        .unwrap();
+    // la grille figée porte un tarif pour être proposable
+    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
+    ent.ajouter_tarif_grille_for_actor(
+        etab,
+        u,
+        r,
+        figee.id,
+        &tarif_body(contrib.id, 100_000, true),
+    )
+    .await
+    .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, figee.id)
+        .await
+        .unwrap();
     let pool = ent.pool_verif();
     // déplacement d'une tranche de la version figée vers un brouillon : refusé (OLD contrôlé)
     assert!(sqlx::query(
@@ -2572,7 +2623,10 @@ async fn f3r_m4_tranche_ne_change_ni_de_version_ni_d_etablissement() {
         .await
         .is_err());
     // F4 : le vidage de la table des tarifs est bloqué
-    assert!(sqlx::query("TRUNCATE ent_fin_tarif").execute(pool).await.is_err());
+    assert!(sqlx::query("TRUNCATE ent_fin_tarif")
+        .execute(pool)
+        .await
+        .is_err());
 }
 
 /// M5 : à la mise en vigueur, les autres versions votées de l'année sont supplantées et ne s'activent plus.
@@ -2584,7 +2638,9 @@ async fn f3r_m5_versions_votees_concurrentes_supplantees() {
     let (ud, rd) = direction(&c);
     let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
     let (v1, _, _) = grille_proposee(&ent, &c).await;
-    ent.voter_grille_test(etab, ud, rd, v1, &vote("CA du 20 juin")).await.unwrap();
+    ent.voter_grille_test(etab, ud, rd, v1, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
     // deux corrections concurrentes d'une même version : impossible (une seule en cours) ; on en vote une,
     // puis l'autre grille votée de l'année doit être supplantée.
     let c1 = ent
@@ -2600,17 +2656,22 @@ async fn f3r_m5_versions_votees_concurrentes_supplantees() {
         )
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, c1.id).await.unwrap();
-    ent.voter_grille_test(etab, ua, ra, c1.id, &vote("CA du 21 juin")).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, c1.id)
+        .await
+        .unwrap();
+    ent.voter_grille_test(etab, ua, ra, c1.id, &vote("CA du 21 juin"))
+        .await
+        .unwrap();
     // v1 et c1 sont toutes deux votées
     ent.mettre_en_vigueur_for_actor(etab, u, r, c1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
         .await
         .unwrap();
-    let (statut,): (String,) = sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
-        .bind(v1)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v1)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
     assert_eq!(statut, "supplantee");
     // elle ne se met plus en vigueur, ni par le service, ni par la base
     assert!(conflit(
@@ -2632,8 +2693,12 @@ async fn f3r_m6_article_oublie_bloque_la_proposition() {
     let (u, r) = compta(&c);
     let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
     let dp = article_modele(&ent, &c, "DEMI_PENSION", "DP").await;
-    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib.id, 100_000)).await.unwrap();
-    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(dp.id, 40_000)).await.unwrap();
+    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib.id, 100_000))
+        .await
+        .unwrap();
+    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(dp.id, 40_000))
+        .await
+        .unwrap();
     let v = ent
         .creer_grille_for_actor(
             etab,
@@ -2652,14 +2717,27 @@ async fn f3r_m6_article_oublie_bloque_la_proposition() {
         .await
         .unwrap();
     // la demi-pension de l'historique est oubliée : blocage
-    let ctrl = ent.controles_grille_for_actor(etab, u, r, v.id).await.unwrap();
+    let ctrl = ent
+        .controles_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
     assert!(!ctrl.proposable);
-    assert!(ctrl.anomalies.iter().any(|a| a.code == "article_oublie" && a.bloquante));
-    assert!(conflit(ent.proposer_grille_for_actor(etab, u, r, v.id).await));
+    assert!(ctrl
+        .anomalies
+        .iter()
+        .any(|a| a.code == "article_oublie" && a.bloquante));
+    assert!(conflit(
+        ent.proposer_grille_for_actor(etab, u, r, v.id).await
+    ));
     ent.ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(dp.id, 45_000, true))
         .await
         .unwrap();
-    assert!(ent.controles_grille_for_actor(etab, u, r, v.id).await.unwrap().proposable);
+    assert!(
+        ent.controles_grille_for_actor(etab, u, r, v.id)
+            .await
+            .unwrap()
+            .proposable
+    );
 }
 
 /// M7 : qualification exigée par défaut (ligne de paramètres absente) ; transitoire faux avec alerte ;
@@ -2676,7 +2754,10 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
         .await
         .unwrap();
     let reglages = ent.reglages_grilles_for_actor(etab, u, r).await.unwrap();
-    assert!(reglages.exiger_qualification_articles, "ligne absente : exigée");
+    assert!(
+        reglages.exiger_qualification_articles,
+        "ligne absente : exigée"
+    );
     assert!(reglages.alertes.is_empty());
     // le défaut de la colonne est « vrai » pour un établissement créé après la 523
     sqlx::query("INSERT INTO ent_fin_parametres (etablissement_id) VALUES ($1)")
@@ -2684,7 +2765,12 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    assert!(ent.reglages_grilles_for_actor(etab, u, r).await.unwrap().exiger_qualification_articles);
+    assert!(
+        ent.reglages_grilles_for_actor(etab, u, r)
+            .await
+            .unwrap()
+            .exiger_qualification_articles
+    );
     // transitoire (établissement antérieur) : faux, avec l'alerte à la direction
     sqlx::query("UPDATE ent_fin_parametres SET exiger_qualification_articles = false WHERE etablissement_id = $1")
         .bind(etab)
@@ -2713,7 +2799,9 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
     // une ligne sans article ne passe pas l'émission quand la qualification est exigée
     let el = eleve(&ent, etab, "Sans", "externe").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer sans article").await;
-    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib.id, 100_000)).await.unwrap();
+    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib.id, 100_000))
+        .await
+        .unwrap();
     facturer(&ent, etab, el).await;
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_fac_ligne l WHERE l.eleve_id = $1 AND l.article_id IS NOT NULL",
@@ -2724,13 +2812,12 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
     .unwrap();
     assert!(n > 0);
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    let (fid,): (Uuid,) = sqlx::query_as(
-        "SELECT l.facture_id FROM ent_fac_ligne l WHERE l.eleve_id = $1 LIMIT 1",
-    )
-    .bind(el)
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let (fid,): (Uuid,) =
+        sqlx::query_as("SELECT l.facture_id FROM ent_fac_ligne l WHERE l.eleve_id = $1 LIMIT 1")
+            .bind(el)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     sqlx::query("UPDATE ent_fac_ligne SET article_id = NULL WHERE facture_id = $1")
         .bind(fid)
         .execute(&mut *tx)
@@ -2740,7 +2827,10 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
         crate::facturation_grilles::articles_non_qualifies_de_piece_tx(&mut tx, etab, fid)
             .await
             .unwrap();
-    assert!(non_qualifiees > 0, "une ligne sans article compte comme non qualifiée");
+    assert!(
+        non_qualifiees > 0,
+        "une ligne sans article compte comme non qualifiée"
+    );
     tx.rollback().await.unwrap();
 }
 
@@ -2777,17 +2867,22 @@ async fn f3r_f1_f4_f5_simulation_historique_plafond_et_suppression() {
         .await
         .unwrap();
     // F4 : recalculer ajoute à l'historique, rien n'est écrasé en silence
-    ent.calculer_simulation_for_actor(etab, u, r, sim.simulation_id).await.unwrap();
-    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_simulation_calcul WHERE simulation_id = $1")
-        .bind(sim.simulation_id)
-        .fetch_one(ent.pool_verif())
+    ent.calculer_simulation_for_actor(etab, u, r, sim.simulation_id)
         .await
         .unwrap();
+    let (n,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM ent_fin_simulation_calcul WHERE simulation_id = $1")
+            .bind(sim.simulation_id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
     assert_eq!(n, 2);
-    assert!(sqlx::query("UPDATE ent_fin_simulation_calcul SET produit_base_centimes = 0")
-        .execute(ent.pool_verif())
-        .await
-        .is_err());
+    assert!(
+        sqlx::query("UPDATE ent_fin_simulation_calcul SET produit_base_centimes = 0")
+            .execute(ent.pool_verif())
+            .await
+            .is_err()
+    );
     // F1 : l'article d'une règle appartient à l'établissement (clé composite)
     let autre_etab = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_fin_article (id, etablissement_id, code, libelle, categorie, compte_produit) VALUES ($1, $2, 'AUTRE', 'autre', 'scolarite', '706000')")
@@ -2796,11 +2891,12 @@ async fn f3r_f1_f4_f5_simulation_historique_plafond_et_suppression() {
         .execute(ent.pool_verif())
         .await
         .ok();
-    let (art_autre,): (Option<Uuid>,) = sqlx::query_as("SELECT id FROM ent_fin_article WHERE etablissement_id = $1 LIMIT 1")
-        .bind(autre_etab)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap_or((None,));
+    let (art_autre,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT id FROM ent_fin_article WHERE etablissement_id = $1 LIMIT 1")
+            .bind(autre_etab)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap_or((None,));
     if let Some(art) = art_autre {
         assert!(sqlx::query(
             "INSERT INTO ent_fin_simulation_regle (id, etablissement_id, simulation_id, article_id, hausse_mode, hausse_valeur)
@@ -2830,8 +2926,13 @@ async fn f3r_f1_f4_f5_simulation_historique_plafond_et_suppression() {
         .map(|_| ())
     ));
     // suppression d'une simulation : ses règles, effectifs et calculs partent avec
-    ent.supprimer_simulation_for_actor(etab, u, r, sim.simulation_id).await.unwrap();
-    assert!(introuvable(ent.supprimer_simulation_for_actor(etab, u, r, sim.simulation_id).await));
+    ent.supprimer_simulation_for_actor(etab, u, r, sim.simulation_id)
+        .await
+        .unwrap();
+    assert!(introuvable(
+        ent.supprimer_simulation_for_actor(etab, u, r, sim.simulation_id)
+            .await
+    ));
     // familles types : plafond et suppression
     let fam = ent
         .creer_famille_type_for_actor(
@@ -2849,7 +2950,9 @@ async fn f3r_f1_f4_f5_simulation_historique_plafond_et_suppression() {
         )
         .await
         .unwrap();
-    ent.supprimer_famille_type_for_actor(etab, u, r, fam.id).await.unwrap();
+    ent.supprimer_famille_type_for_actor(etab, u, r, fam.id)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO ent_fin_famille_type (id, etablissement_id, libelle)
          SELECT gen_random_uuid(), $1, 'F' || g FROM generate_series(1, 200) g",

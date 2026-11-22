@@ -64,3 +64,64 @@ Base locale **neuve** `ent_f3_test` (PostgreSQL 16, `ENT_ENV=test`, `ENT_EXIGER_
 - **Non-régression** : 193 tests `ent-db` (finances F0 à F3, comptes F2, registre, conservation, RLS dont le compte de tables, rôles, charges d'événements), gardes `garde_finances_ecritures`, `garde_inscriptions_ecritures`, `isolation_sql_statique`, `jour_utc_interdit` ; `ent-api` : **test d'or de l'historique** (`or_facturation_historique`, identique), `recette_finances_f0` (17), `recette_securite_3` (10), `separation` (58, dont `domaine_finances_grilles`, 32 routes F3 refusées sur les identifiants d'un autre établissement, et la matrice du double membre).
 - **Pas de `#[ignore]`**, aucun test désactivé.
 - **CI** : voir le message au pilote (tête finale et état), après fusion d'`origin/ENT` (règle 36).
+
+## 7. Correctifs de revue (D-069, session du 2026-11-22)
+
+Revue du pilote sur la PR n° 118 (brouillon) : la migration **523 n'étant pas versée, elle est modifiée** ; aucune autre migration versée ne change. Branche partie de `5f12c34a`, fusionnée avec `origin/ENT` (compteurs recalculés depuis la base commune : voir plus bas) ; `url` 2.5.9 appliqué comme la PR 121 (`cargo update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web`, commit séparé, rien d'autre dans les `Cargo.lock` hormis `form_urlencoded` 1.2.3 tiré par le même `--precise`).
+
+**Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.**
+
+### 7.1 Fait
+
+| Réf. | Correctif | Où | Test |
+|---|---|---|---|
+| **M1** | Une grille ne tarifie qu'à partir de son `en_vigueur_du` ; la version précédente (close) reste applicable jusqu'à la veille ; sans version applicable, historique seul. Génération et liste des tarifs lisent la grille **applicable au jour** (jour de l'établissement, `ent_aujourdhui_etab`) ; `facturer_annee_eleve_au` fixe le jour pour les tests. Vote ≤ aujourd'hui (jour de l'établissement) ; vigueur ≥ vote, dans l'année scolaire visée (1er sept. → 31 août), jamais avant une version déjà appliquée ; CHECK `vigueur ≥ vote` en base. | `finances.rs` (`sql_tarif_applicable`, `lignes_annuelles`, `tarifs_tx`), GR `voter_grille_au_jour`, `mettre_en_vigueur_for_actor`, MIG | `f3r_m1_*` : historique en juillet, v1 en septembre et décembre, v2 en janvier ; vote futur, vigueur avant le vote, hors année : refusés |
+| **M2** | Second regard = **autre personne** que l'auteur réel (créateur, proposant, auteurs et modificateurs de tarifs — colonne `ent_fin_tarif.modifie_par`) ; vérifié aussi par déclencheur. Il ne se désactive jamais pendant qu'une grille est proposée (service **et** déclencheur sur `ent_fin_parametres`) ; la désactivation exige `voter` **en plus** de `parametrer`, est journalisée (`grille.second_regard_desactive`) et signalée par une alerte du réglage (qui, quand). | GR `auteurs_grille_tx`, `definir_reglages_grilles_for_actor`, MIG | `f3r_m2_*` : direction rédige, comptabilité propose, direction vote → refus ; vote direct par l'auteur en base refusé ; désactivation sans `voter` refusée ; pendant une proposition refusée |
+| **M3** | `ent_fin_grille_version` : plus de `RETURN NEW` qui court-circuite ; la transition ne change que ses propres colonnes (liste par transition), vides auparavant ; `en_vigueur_du`, `en_vigueur_par`, `close_le`, vote, proposition figés une fois posés ; `BEFORE INSERT` impose un brouillon vierge. | MIG | `f3r_m3_*` : une dizaine de cas SQL directs (insertion votée, transition + autre colonne, vigueur avant le vote, clôture sans date, colonnes figées, suppression, vidage) |
+| **M4** | `ent_fin_tranche_qf` : contrôle OLD **et** NEW en UPDATE, `grille_version_id` et `etablissement_id` figés ; idem `ent_fin_tarif.etablissement_id`. | MIG | `f3r_m4_*` : déplacement figée→brouillon, brouillon→figée, brouillon→brouillon, changement d'établissement |
+| **M5** | À la mise en vigueur, la version appliquée jusque-là passe `close` (applicable jusqu'à la veille) ; toute autre version **votée** de l'année passe **`supplantee`** (nouveau statut) et ne peut plus être mise en vigueur (service et base). | GR, MIG | `f3r_m5_*` |
+| **M6** | Continuité (règle 4) : article tarifé par la version précédente (ou par l'historique à défaut) et absent de la nouvelle = **bloquant** (`article_oublie`) ; niveau/régime qui n'a plus de tarif = bloquant (`tarif_perdu`) ; article déjà facturé sans tarif = **signalé** (`article_facture_sans_tarif`). Contrôles joués à la proposition **et** rejoués à la mise en vigueur. | GR `controler_continuite`, `controles_tx` | `f3r_m6_*` (historique oublié) + test pur |
+| **M7** | Qualification exigée **par défaut** (colonne `DEFAULT true` ; ligne absente = exigée) ; la migration crée la ligne de chaque établissement existant **avec la valeur transitoire fausse** ; alerte « à activer avant la rentrée 2027 » dans le réglage (lue par la direction). Une ligne sans `article_id` compte comme non qualifiée. Un article créé depuis un modèle **taxable** reste « à valider » (`a_valider`, non qualifié) tant qu'il n'est pas validé. | MIG, GR (`reglages_tx`, `alertes_reglages_tx`, `articles_non_qualifies_de_piece_tx`, `article_depuis_modele`) | `f3r_m7_*` |
+| **F1** | `ent_fin_simulation_regle.article_id` : clé étrangère **composite** (établissement, article) ; `vote_document_id` : la table `ent_doc_document` est créée par la migration 3701, **postérieure** à la 523, une clé étrangère y est impossible ici → **déclencheur** à la transition de vote (document de l'établissement). | MIG | `f3r_f1_*` |
+| **F2** | `23001` (RESTRICT) et `23P01` (exclusion) classés en **conflit** (409). | `pg_err.rs` | test unitaire `classification_sqlstate` |
+| **F3** | `FOR SHARE` sur la lecture de la version par les déclencheurs de gel (tarifs, tranches). | MIG | (verrou ; vérifié par relecture) |
+| **F4** | `TRUNCATE` bloqué sur `ent_fin_tarif` ; le recalcul d'une simulation **ajoute** une ligne à `ent_fin_simulation_calcul` (ajout seul, non modifiable) au lieu d'écraser. | MIG, GR | `f3r_m4_*`, `f3r_f1_f4_f5_*` |
+| **F5** | `opt_texte` répond **422** au lieu de tronquer (tous les appelants du service financier) ; plafonds de **200** familles types et **200** simulations par établissement (409) ; suppression volontaire (`DELETE /finances/familles-types/{id}`, `DELETE /finances/simulations/{id}`, journalisée ; les déclencheurs « sans suppression » de ces tables sont retirés, le vidage reste interdit). | `finances.rs`, GR, API, MIG | `f3r_f1_f4_f5_*`, sondes de séparation sur les deux routes |
+| **F6** | CSV : tabulation et retour chariot en tête neutralisés comme `= + - @`. | GR `cellule_csv` | test pur |
+| **F7** | Arrondi **symétrique** des baisses (demi éloigné de zéro) ; une hausse **générale en montant** n'atteint jamais les catégories `bourse` / `reduction` (simulation et hausse de grille) sauf règle explicite par article. | GR | tests purs |
+| **F8** | Effacement d'un utilisateur : le compte est **anonymisé** (ligne `ent_user` et identifiant conservés), les références d'auteur de ce lot sont **conservées** (preuve du second regard et du vote, `fin.piece` 10 ans) ; écrit dans l'en-tête de la 523. | MIG | (documentaire) |
+
+Ordre des contrôles (règle 5) : personnel, droit, existence ; le futur d'une date de vote se contrôle **après** l'existence de la grille (la sonde de séparation attend un refus d'établissement avant une erreur de saisie). Erreurs de base classées (409 / 422, jamais 500) : les erreurs des déclencheurs utilisent `restrict_violation` (409), `check_violation` (422), `foreign_key_violation`.
+
+### 7.2 Choix à valider
+
+1. **Statut de la version remplacée** : la version appliquée jusque-là passe `close` (elle reste applicable avant la date de la nouvelle), et seules les autres versions **votées** passent `supplantee` : une version remplacée mais encore applicable ne peut pas être « supplantée ».
+2. **Année scolaire** pour la date de vigueur : 1er septembre → 31 août (indépendant du calendrier de facturation).
+3. **Établissements existants** : la migration insère leur ligne de paramètres (valeur transitoire fausse). Un établissement **créé après** la 523 sans ligne ni réglage est en « exigée » : les jeux d'essai qui créent des articles « à l'ancienne » (`tests_finances`, `tests_finances_f2`, scénarios F3) se placent explicitement dans l'état « établissement antérieur » (`etablissement_anterieur`).
+4. **Désactivation du second regard** : « signalée à la direction » = alerte persistante du réglage (visible par `lire`) et journal ; aucun nouveau type d'événement (liste blanche inchangée).
+5. Une correction rédigée par la direction ne peut pas être votée par elle (second regard) : il faut une autre personne titulaire de `voter` (administrateur, autre direction).
+
+### 7.3 Non fait
+
+Rien de la liste n'est laissé de côté. Restent hors lot (inchangés, §5) : écrans Leptos, F4/F5 de la conception (recalcul, pièces numérotées), gel au décès, réductions en montant (F8 de la conception).
+
+### 7.4 Compteurs (règle 28, recalculés depuis la base commune après fusion d'`origin/ENT`)
+
+| Compteur | Valeur |
+|---|---|
+| `Action::TOUTES` | 269 (inchangé : aucune action ajoutée) |
+| Tables avec RLS (`tests_rls.rs`) | base ENT + **8** (7 + `ent_fin_simulation_calcul`) |
+| Registre des données | +8 tables |
+| Migrations | 523 modifiée (non versée) ; aucune autre ; `MIGRATION_TAG` inchangé |
+| Routes F3 | 35 opérations sur 29 chemins (+2 : suppressions) |
+| `SOURCES` / `NOMS_SOURCES` | 70 (inchangé) |
+| Événements | inchangés (7 types F3) |
+
+### 7.5 Vérifications
+
+Base locale **neuve** `ent_f3r_test` (PostgreSQL 16, `ENT_ENV=test`, `ENT_EXIGER_BASE=1`), un seul `CARGO_TARGET_DIR`, toolchain 1.99.0, `--locked`. Aucune base ni donnée de production.
+
+- `ent-db` : scénarios F3 (8 existants + 8 nouveaux `f3r_*`, dates fixes : 2030-2031, jour de référence injecté, **aucune horloge réelle ni jour UTC**), tests purs, finances F0 à F2, comptes, registre, conservation, RLS (96 + 243 tests des filtres finances / factur / rls / registre / conservation / comptes / payeurs / inscription), gardes `garde_finances_ecritures`, `garde_inscriptions_ecritures`, `isolation_sql_statique`, `jour_utc_interdit`.
+- `ent-api` : `recette_finances_f0` (17), `recette_securite_3` (10), test d'or historique, `separation` (58, dont `domaine_finances_grilles` avec les deux sondes ajoutées).
+- Clippy 1.99.0 `-D warnings` sur les trois passes de la CI ; rustfmt ciblé sur les fichiers du lot (`facturation_grilles.rs`, `tests_finances_f3.rs`, `ent-api/src/finances_grilles.rs`), `cargo fmt -p ent-types --check`, **aucun `cargo fmt --all`** ; `cargo metadata --locked` dans `ent-rust/web` propre. Aucun `#[ignore]`.
+- **Tête finale et CI** : voir le message au pilote (règle 36).

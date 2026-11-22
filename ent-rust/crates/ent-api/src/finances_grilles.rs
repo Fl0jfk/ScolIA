@@ -75,7 +75,10 @@ pub fn routes() -> Router<AppState> {
             "/finances/familles-types/{id}/desactiver",
             post(desactiver_famille_type),
         )
-        .route("/finances/familles-types/{id}", delete(supprimer_famille_type))
+        .route(
+            "/finances/familles-types/{id}",
+            delete(supprimer_famille_type),
+        )
         .route(
             "/finances/simulations",
             get(simulations).post(creer_simulation),
