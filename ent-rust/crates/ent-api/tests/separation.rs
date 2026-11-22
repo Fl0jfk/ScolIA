@@ -809,6 +809,58 @@ fn domaine_finances_comptes() {
     jouer("finances : comptes, payeurs, conséquences", &specs_domaine_finances_comptes());
 }
 
+/// Socle 24, lot F3 : catalogue qualifié, versions de grille, simulateur, familles types, état des contributions.
+/// Lectures bornées à A (aucune donnée de B) ; toute route visant un identifiant de B (grille, article,
+/// simulation, famille type) répond un refus exact : l'identifiant de compte de B tient lieu d'identifiant
+/// inconnu de A (aucune de ces ressources n'existe dans le seed, ni dans A ni dans B).
+fn specs_domaine_finances_grilles() -> Vec<Spec> {
+    vec![
+        borne_a("f3-modeles", "GET", "/finances/catalogue/modeles", None, &[]),
+        borne_a("f3-catalogue", "GET", "/finances/catalogue/articles", None, &[]),
+        borne_a("f3-reglages", "GET", "/finances/grilles/reglages", None, &[]),
+        borne_a("f3-grilles", "GET", "/finances/grilles", None, &[]),
+        borne_a("f3-familles-types", "GET", "/finances/familles-types", None, &[]),
+        borne_a("f3-simulations", "GET", "/finances/simulations", None, &[]),
+        borne_a("f3-contributions", "GET", "/finances/contributions?annee=2030-2031", None, &[]),
+        refuse_sur_b("f3-qualifier-B", "POST", "/finances/catalogue/articles/{compte}/qualifier",
+            Some(r#"{"nature_legale":"internat","regime_tva":"hors_champ","unite":"annee"}"#)),
+        refuse_sur_b("f3-usage-B", "GET", "/finances/catalogue/articles/{compte}/usage", None),
+        refuse_sur_b("f3-grille-B", "GET", "/finances/grilles/{compte}", None),
+        refuse_sur_b("f3-tarif-B", "POST", "/finances/grilles/{compte}/tarifs",
+            Some(r#"{"article_id":"{compte}","montant_annuel_centimes":1000}"#)),
+        refuse_sur_b("f3-tarif-modifier-B", "PUT", "/finances/grilles/{compte}/tarifs/{compte}",
+            Some(r#"{"article_id":"{compte}","montant_annuel_centimes":1000}"#)),
+        refuse_sur_b("f3-tarif-retirer-B", "DELETE", "/finances/grilles/{compte}/tarifs/{compte}", None),
+        refuse_sur_b("f3-tranches-B", "PUT", "/finances/grilles/{compte}/tranches", Some(r#"{"tranches":[]}"#)),
+        refuse_sur_b("f3-hausse-B", "POST", "/finances/grilles/{compte}/hausse",
+            Some(r#"{"mode":"montant","valeur":100,"arrondi":"aucun","apercu":true}"#)),
+        refuse_sur_b("f3-controles-B", "GET", "/finances/grilles/{compte}/controles", None),
+        refuse_sur_b("f3-proposer-B", "POST", "/finances/grilles/{compte}/proposer", Some("{}")),
+        refuse_sur_b("f3-retour-B", "POST", "/finances/grilles/{compte}/retour-brouillon", Some(r#"{"motif":"test"}"#)),
+        refuse_sur_b("f3-abandonner-B", "POST", "/finances/grilles/{compte}/abandonner", Some(r#"{"motif":"test"}"#)),
+        refuse_sur_b("f3-voter-B", "POST", "/finances/grilles/{compte}/voter",
+            Some(r#"{"vote_le":"2030-06-20","reference":"CA"}"#)),
+        refuse_sur_b("f3-vigueur-B", "POST", "/finances/grilles/{compte}/mise-en-vigueur", Some(r#"{"du":"2030-09-01"}"#)),
+        refuse_sur_b("f3-correction-B", "POST", "/finances/grilles/{compte}/correction",
+            Some(r#"{"motif":"test","effet_retroactif":false}"#)),
+        refuse_sur_b("f3-publier-B", "POST", "/finances/grilles/{compte}/publier", Some("{}")),
+        refuse_sur_b("f3-effet-familles-B", "GET", "/finances/grilles/{compte}/familles-types", None),
+        refuse_sur_b("f3-famille-desactiver-B", "POST", "/finances/familles-types/{compte}/desactiver", Some("{}")),
+        refuse_sur_b("f3-simulation-calculer-B", "POST", "/finances/simulations/{compte}/calculer", Some("{}")),
+        refuse_sur_b("f3-simulation-export-B", "GET", "/finances/simulations/{compte}/export", None),
+        refuse_sur_b("f3-comparaison-B", "GET", "/finances/simulations/comparaison?a={compte}&b={compte}", None),
+        refuse_sur_b("f3-simulation-creer-B", "POST", "/finances/simulations",
+            Some(r#"{"annee_scolaire":"2030-2031","libelle":"S","base_version_id":"{compte}","regles":[],"effectifs":[]}"#)),
+        refuse_sur_b("f3-grille-creer-copie-B", "POST", "/finances/grilles",
+            Some(r#"{"annee_scolaire":"2030-2031","copier_de":"{compte}"}"#)),
+    ]
+}
+
+#[test]
+fn domaine_finances_grilles() {
+    jouer("finances : catalogue, grilles, simulateur", &specs_domaine_finances_grilles());
+}
+
 fn specs_domaine_appel() -> Vec<Spec> {
     vec![
             // Appel ouvert par le professeur : visible de lui et de la gestion, pas des familles.
@@ -2318,6 +2370,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_finances_comptes());
+    v.extend(specs_domaine_finances_grilles());
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
     v.extend(specs_domaine_espaces());

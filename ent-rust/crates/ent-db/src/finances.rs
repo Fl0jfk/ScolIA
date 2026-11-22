@@ -78,13 +78,13 @@ pub(crate) fn aujourd_hui() -> NaiveDate {
 
 pub(crate) use domain_eleve::horloge::date_paris;
 
-fn est_doublon(e: &sqlx::Error) -> bool {
+pub(crate) fn est_doublon(e: &sqlx::Error) -> bool {
     e.as_database_error()
         .and_then(|d| d.code())
         .is_some_and(|c| c == "23505")
 }
 
-fn annee_valide(a: &str) -> Result<String, EntDbError> {
+pub(crate) fn annee_valide(a: &str) -> Result<String, EntDbError> {
     let a = a.trim();
     Calendrier::new(a, 9, 10)
         .map(|_| a.to_string())
@@ -1068,7 +1068,14 @@ pub(crate) async fn lignes_annuelles(
                 t.montant_annuel_centimes
            FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
-          WHERE t.etablissement_id = $1 AND t.annee_scolaire = $2 AND t.actif AND a.actif",
+           LEFT JOIN ent_fin_grille_version g ON g.etablissement_id = t.etablissement_id AND g.id = t.grille_version_id
+          WHERE t.etablissement_id = $1 AND t.annee_scolaire = $2 AND t.actif AND a.actif
+            -- F3 (R-F10) : une année qui a une grille en vigueur ne facture que cette version ; sinon seuls les
+            -- tarifs historiques (avant les versions) comptent, jamais un brouillon ni une grille proposée.
+            AND ((t.grille_version_id IS NULL AND NOT EXISTS (
+                      SELECT 1 FROM ent_fin_grille_version v WHERE v.etablissement_id = t.etablissement_id
+                         AND v.annee_scolaire = t.annee_scolaire AND v.statut = 'en_vigueur'))
+                 OR g.statut = 'en_vigueur')",
     )
     .bind(etab)
     .bind(annee)
@@ -2331,6 +2338,12 @@ impl PgEnt {
                 id
             }
             None => {
+                if crate::facturation_grilles::exiger_qualification_tx(&mut tx, etab).await? {
+                    return Err(EntDbError::Refus(
+                        crate::service::RefusMetier::Conflit,
+                        "la qualification des articles est exigée : créer l'article depuis un modèle (nature légale, TVA)",
+                    ));
+                }
                 let id = Uuid::new_v4();
                 sqlx::query(
                     "INSERT INTO ent_fin_article (id, etablissement_id, code, libelle, categorie, compte_produit, actif, created_by)
@@ -2424,6 +2437,12 @@ impl PgEnt {
             return Err(invalide("tranche de quotient : minimum < maximum"));
         }
         let mut tx = self.fin_tx(etab).await?;
+        if crate::facturation_grilles::annee_a_grille_votee_tx(&mut tx, etab, &annee).await? {
+            return Err(EntDbError::Refus(
+                crate::service::RefusMetier::Conflit,
+                "l'année a une grille votée : passer par une version de grille (R-F10)",
+            ));
+        }
         let article: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_fin_article WHERE etablissement_id = $1 AND id = $2",
         )
@@ -2493,7 +2512,8 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         // Désactivation : les lignes déjà facturées restent liées à leur article.
         let r = sqlx::query(
-            "UPDATE ent_fin_tarif SET actif = false WHERE etablissement_id = $1 AND id = $2 AND actif",
+            "UPDATE ent_fin_tarif SET actif = false
+              WHERE etablissement_id = $1 AND id = $2 AND actif AND grille_version_id IS NULL",
         )
         .bind(etab)
         .bind(id)
@@ -3156,6 +3176,15 @@ impl PgEnt {
                     .push(refus("montant nul ou négatif : à corriger avant émission"));
                 continue;
             }
+            if f.type_piece == "facture"
+                && crate::facturation_grilles::exiger_qualification_tx(&mut tx, etab).await?
+                && crate::facturation_grilles::articles_non_qualifies_de_piece_tx(&mut tx, etab, f.id).await? > 0
+            {
+                rapport.refus.push(refus(
+                    "article non qualifié (nature légale et TVA) : qualifier le catalogue avant d'émettre (R-F9)",
+                ));
+                continue;
+            }
             if f.type_piece == "avoir" {
                 if f.total_centimes >= 0 {
                     rapport.refus.push(refus("avoir sans montant"));
@@ -3578,8 +3607,10 @@ async fn tarifs_tx(
                 t.qf_min_centimes, t.qf_max_centimes, t.montant_annuel_centimes
            FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
+           LEFT JOIN ent_fin_grille_version g ON g.etablissement_id = t.etablissement_id AND g.id = t.grille_version_id
           WHERE t.etablissement_id = $1 AND t.actif AND ($2::TEXT IS NULL OR t.annee_scolaire = $2)
             AND ($3::UUID IS NULL OR t.id = $3)
+            AND (t.grille_version_id IS NULL OR g.statut = 'en_vigueur')
           ORDER BY t.annee_scolaire DESC, a.categorie, a.code, t.niveau NULLS FIRST, t.regime NULLS FIRST,
                    t.qf_min_centimes NULLS FIRST",
     )
