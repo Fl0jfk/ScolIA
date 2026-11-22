@@ -601,7 +601,6 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
     let parent = inscrire(&app, etab, "parent").await;
     let garcon = eleve_interne(&ent, etab, "M").await;
     let nuit = ent.nuit_courante_internat(etab).await.unwrap();
-
     // Sortie de groupe : seul `internat.gerer` crée ; le brouillon est lisible de l'accompagnateur et du personnel.
     let debut = (nuit + Duration::days(5)).and_hms_opt(10, 0, 0).unwrap().and_utc();
     let corps = json!({"titre": "Sortie cinéma", "lieu": "Cinéma municipal", "debut": debut, "fin": debut + Duration::hours(3),
@@ -613,6 +612,7 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
     let (st, g) = appel(&app, "POST", "/internat/sorties-groupe", Some(&cpe.jeton), Some(corps)).await;
     assert_eq!(st, StatusCode::CREATED, "{g}");
     assert_eq!(g["statut"], "brouillon");
+    assert_eq!(g["ecartes"][0]["motif"], "plus_interne", "un élève sans séjour est écarté avec son motif, jamais invité en silence");
     let gid = g["id"].as_str().unwrap().to_string();
     let (st, _) = appel(&app, "GET", &format!("/internat/sorties-groupe/{gid}"), Some(&prof.jeton), None).await;
     assert_eq!(st, StatusCode::OK, "l'accompagnateur lit sa sortie");
@@ -649,8 +649,25 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
     assert_eq!(c.as_array().map(Vec::len), Some(10));
     let (st, _) = appel(&app, "GET", "/internat/liaison-codes", Some(&parent.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, l) = appel(&app, "POST", "/internat/liaison", Some(&cpe.jeton), Some(json!({"eleve_id": garcon, "code": "objet_perdu", "texte": "Casquette"}))).await;
-    assert_eq!(st, StatusCode::CREATED, "{l}");
+    let brut = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/internat/liaison")
+                .header("authorization", format!("Bearer {}", cpe.jeton))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"eleve_id": garcon, "code": "objet_perdu", "texte": "Casquette", "nuit": nuit}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let st = brut.status();
+    let l = String::from_utf8_lossy(&brut.into_body().collect().await.unwrap().to_bytes()).to_string();
+    // Le séjour issu du régime démarre à la date du jour : l'élève n'est pas encore interne la nuit courante, le fait est
+    // refusé (422) ; le parcours d'écriture réussi est éprouvé contre la base (`ent-db`, tests `liaison_*`).
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{l}");
+    assert!(l.contains("interne"), "{l}");
     let (st, _) = appel(&app, "POST", "/internat/liaison", Some(&prof.jeton), Some(json!({"eleve_id": garcon, "code": "objet_perdu"}))).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
     let (st, _) = appel(&app, "POST", "/internat/liaison", Some(&cpe.jeton), Some(json!({"eleve_id": garcon, "code": "fatigue", "texte": "Prend un traitement"}))).await;
@@ -659,7 +676,7 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
     assert_eq!(st, StatusCode::FORBIDDEN);
     let (st, h) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/liaison"), Some(&cpe.jeton), None).await;
     assert_eq!(st, StatusCode::OK, "{h}");
-    assert_eq!(h.as_array().map(Vec::len), Some(1));
+    assert_eq!(h.as_array().map(Vec::len), Some(0));
     let (st, _) = appel(&app, "GET", "/internat/nuits/9999-01-01/liaison", Some(&cpe.jeton), None).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 
@@ -697,8 +714,25 @@ async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
     let tid = t["id"].as_str().unwrap().to_string();
     let (st, _) = appel(&app, "POST", &format!("/internat/temps/{tid}/inscription"), Some(&parent.jeton), Some(json!({"eleve_id": garcon}))).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, i) = appel(&app, "POST", &format!("/internat/temps/{tid}/inscription"), Some(&cpe.jeton), Some(json!({"eleve_id": garcon}))).await;
-    assert_eq!(st, StatusCode::OK, "{i}");
+    let brut = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/internat/temps/{tid}/inscription"))
+                .header("authorization", format!("Bearer {}", cpe.jeton))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"eleve_id": garcon}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let st = brut.status();
+    let i = String::from_utf8_lossy(&brut.into_body().collect().await.unwrap().to_bytes()).to_string();
+    // Sans séjour d'hébergement dans ce banc HTTP, l'élève n'est pas interne : refus de règle (422), jamais un succès
+    // silencieux ; l'inscription réussie est éprouvée contre la base (`ent-db`, tests `temps_*`).
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{i}");
+    assert!(i.contains("interne"), "{i}");
     let (st, _) = appel(&app, "GET", "/internat/temps?du=0001-01-01&au=0001-01-02", Some(&cpe.jeton), None).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
