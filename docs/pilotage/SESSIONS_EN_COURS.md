@@ -554,3 +554,7 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - « semis du labo relatif à l'année » (session_01KZCbFH5fsrHyfgWyvm7FS3, branche `ent-semis-labo-relatif`, sans migration) ;
   - plus C8+C9 correctifs et 21 V3e+V5.
   - Charge de la CI : 3 lots de code en parallèle (la conception n'en lance pas) ; surveiller la file (règle 32 : saturation vue à 7 runs en attente).
+- **22-11, 7 h 35 UTC, conception du socle 11 versée sur ent-mc0hoe** (`docs/socles/11_APPLICATIONS_MOBILES.md`) : 151 actions du quotidien sur 17 rôles, contrat d'API (codes d'erreur stables, 404 neutre, curseur, Idempotency-Key, ETag, version d'appli), biométrie attestée pour justifier, autoriser, signer ou payer (enfant sur le téléphone d'un parent), 22 menaces, plan MB0 à MB16 ; démo du printemps = MB0 à MB11 (Android et iOS hors magasin). Constat : un client obtient 90 jours en se déclarant « mobile » (`auth_repo.rs` ~58).
+  - **Session « MB0 »** lancée (session_01KZCbFEM32Co8P3rHBjC2JE, branche `ent-socle-11-code-mb0`, plage 2220-2239). Conception archivée.
+  - Q-MB1 (compte Apple payant et Google Play) ajouté à `A_FOURNIR_PAR_FLORIAN.md`, avant mars 2027.
+  - **Sessions qui codent : C8+C9 correctifs, V3e+V5, semis du labo, MB0** (4 ; surveiller la file de la CI).
