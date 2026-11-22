@@ -797,7 +797,7 @@ async fn socle1_sessions_web_inactivite_mobile_longue_et_appareils() {
     let reg = dev.do_registration(origine.clone(), ccr).expect("enregistrement logiciel");
     let (st, _) = appel(&app, "POST", "/auth/passkey/register/finish", Some(&c.jeton), Some(json!({
         "token": start["token"], "credential": reg, "name": "Pixel", "current_password": MDP}))).await;
-    assert_eq!(st, StatusCode::OK);
+    assert_eq!(st, StatusCode::CREATED);
     let (st, defi) = appel(&app, "POST", "/auth/passkey/login/start", None, Some(json!({
         "email": c.email, "etablissement_id": etab, "client": "mobile"}))).await;
     assert_eq!(st, StatusCode::OK);

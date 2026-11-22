@@ -157,13 +157,7 @@ async fn prolongation_glissante_refusee_sans_passkey() {
     );
 }
 
-async fn inscrire(
-    ent: &PgEnt,
-    etab: Uuid,
-    user: Uuid,
-    token: &str,
-    session: Uuid,
-) -> PushDevice {
+async fn inscrire(ent: &PgEnt, etab: Uuid, user: Uuid, token: &str, session: Uuid) -> PushDevice {
     ent.register_push_device_for_actor(etab, user, "android", token, None, session)
         .await
         .expect("inscription push")
@@ -315,7 +309,10 @@ fn registre_jetons_non_exportes_et_purges() {
         .iter()
         .find(|t| t.nom == "ent_push_device")
         .expect("table au registre");
-    assert!(t.export_portabilite, "la personne a accès aux métadonnées de ses appareils");
+    assert!(
+        t.export_portabilite,
+        "la personne a accès aux métadonnées de ses appareils"
+    );
     assert!(t.colonnes_hors_export.contains(&"token"));
     assert!(t.colonnes_hors_export.contains(&"token_empreinte"));
     assert!(matches!(
@@ -433,11 +430,19 @@ async fn inscription_avec_une_session_morte_est_refusee() {
     let etab = Uuid::new_v4();
     let (email, user) = compte(&ent, etab).await;
     let revoquee = connexion(&ent, &email, etab, ClientSession::Web).await;
-    ent.logout(&format!("Bearer {}", revoquee.token)).await.expect("déconnexion");
+    ent.logout(&format!("Bearer {}", revoquee.token))
+        .await
+        .expect("déconnexion");
     let r = ent
         .register_push_device_for_actor(etab, user, "android", &jeton(), None, revoquee.session_id)
         .await;
-    assert!(matches!(r, Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))), "{r:?}");
+    assert!(
+        matches!(
+            r,
+            Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))
+        ),
+        "{r:?}"
+    );
     let expiree = connexion(&ent, &email, etab, ClientSession::Web).await;
     sqlx::query("UPDATE ent_session SET expires_at = now() - interval '1 minute' WHERE id = $1")
         .bind(expiree.session_id)
@@ -447,15 +452,30 @@ async fn inscription_avec_une_session_morte_est_refusee() {
     let r = ent
         .register_push_device_for_actor(etab, user, "android", &jeton(), None, expiree.session_id)
         .await;
-    assert!(matches!(r, Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))), "{r:?}");
+    assert!(
+        matches!(
+            r,
+            Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))
+        ),
+        "{r:?}"
+    );
     // Session d'une autre personne : refus aussi (la session doit appartenir à l'acteur).
     let (email_b, b) = compte(&ent, etab).await;
     let sb = connexion(&ent, &email_b, etab, ClientSession::Web).await;
     let r = ent
         .register_push_device_for_actor(etab, user, "android", &jeton(), None, sb.session_id)
         .await;
-    assert!(matches!(r, Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))), "{r:?}");
-    assert_eq!(actifs(&ent, etab, user).await + actifs(&ent, etab, b).await, 0);
+    assert!(
+        matches!(
+            r,
+            Err(EntDbError::Auth(ent_auth::AuthError::InvalidSession))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(
+        actifs(&ent, etab, user).await + actifs(&ent, etab, b).await,
+        0
+    );
 }
 
 /// M2 (règle 2) : un jeton physique n'a qu'un titulaire, tous établissements confondus ; une même
@@ -471,7 +491,11 @@ async fn un_jeton_n_a_qu_un_titulaire_entre_etablissements() {
     let t = jeton();
     inscrire(&ent, etab1, a, &t, sa.session_id).await;
     inscrire(&ent, etab2, b, &t, sb.session_id).await;
-    assert_eq!(actifs(&ent, etab1, a).await, 0, "A (autre établissement) n'est plus titulaire");
+    assert_eq!(
+        actifs(&ent, etab1, a).await,
+        0,
+        "A (autre établissement) n'est plus titulaire"
+    );
     assert_eq!(actifs(&ent, etab2, b).await, 1);
     let motif: Option<String> = sqlx::query_scalar(
         "SELECT revoque_motif FROM ent_push_device WHERE etablissement_id = $1 AND user_id = $2",
@@ -494,8 +518,12 @@ async fn un_jeton_n_a_qu_un_titulaire_entre_etablissements() {
     // Même personne dans deux établissements (inscriptions sans session : pas de lien de membre requis) :
     // aucune révocation.
     let t2 = jeton();
-    ent.register_push_device_sans_session(etab1, a, "ios", &t2, None).await.expect("etab1");
-    ent.register_push_device_sans_session(etab2, a, "ios", &t2, None).await.expect("etab2");
+    ent.register_push_device_sans_session(etab1, a, "ios", &t2, None)
+        .await
+        .expect("etab1");
+    ent.register_push_device_sans_session(etab2, a, "ios", &t2, None)
+        .await
+        .expect("etab2");
     assert_eq!(actifs(&ent, etab1, a).await, 1);
     assert_eq!(actifs(&ent, etab2, a).await, 1);
 }
@@ -535,9 +563,13 @@ async fn meme_personne_nouvelle_session_meme_jeton_met_a_jour_la_ligne() {
     .expect("ligne");
     assert_eq!((n, session, revoque), (1, Some(s2.session_id), false));
     // L'ancienne session n'a plus d'effet sur l'appareil ; la nouvelle oui.
-    ent.logout(&format!("Bearer {}", s1.token)).await.expect("déconnexion");
+    ent.logout(&format!("Bearer {}", s1.token))
+        .await
+        .expect("déconnexion");
     assert_eq!(actifs(&ent, etab, user).await, 1);
-    ent.logout(&format!("Bearer {}", s2.token)).await.expect("déconnexion");
+    ent.logout(&format!("Bearer {}", s2.token))
+        .await
+        .expect("déconnexion");
     assert_eq!(actifs(&ent, etab, user).await, 0);
 }
 
@@ -570,7 +602,11 @@ async fn l_historique_d_envoi_ne_garde_pas_le_jeton() {
     let t = jeton();
     let d = inscrire(&ent, etab, user, &t, s.session_id).await;
     assert_eq!(
-        repo(&ent).relire_jeton(etab, d.id).await.expect("relecture").as_deref(),
+        repo(&ent)
+            .relire_jeton(etab, d.id)
+            .await
+            .expect("relecture")
+            .as_deref(),
         Some(t.as_str())
     );
     repo(&ent)
@@ -600,7 +636,10 @@ async fn l_historique_d_envoi_ne_garde_pas_le_jeton() {
     .await
     .expect("ligne");
     assert_eq!(token, None, "jamais le jeton en clair dans l'historique");
-    assert_eq!(empreinte.as_deref(), Some(ent_auth::hash_token(&t).as_str()));
+    assert_eq!(
+        empreinte.as_deref(),
+        Some(ent_auth::hash_token(&t).as_str())
+    );
     assert_eq!(device, Some(d.id));
     // Garde-fou en base : une écriture qui tenterait d'y remettre le jeton est refusée.
     let r = sqlx::query(
@@ -612,10 +651,21 @@ async fn l_historique_d_envoi_ne_garde_pas_le_jeton() {
     .bind(&t)
     .execute(ent.pool())
     .await;
-    assert!(r.is_err(), "le jeton en clair ne doit plus entrer dans ent_push_outbox");
+    assert!(
+        r.is_err(),
+        "le jeton en clair ne doit plus entrer dans ent_push_outbox"
+    );
     // Révoquée entre la sélection et l'envoi : plus de jeton, donc plus d'envoi.
-    ent.desinscrire_push_device(etab, user, d.id).await.expect("désinscription");
-    assert_eq!(repo(&ent).relire_jeton(etab, d.id).await.expect("relecture"), None);
+    ent.desinscrire_push_device(etab, user, d.id)
+        .await
+        .expect("désinscription");
+    assert_eq!(
+        repo(&ent)
+            .relire_jeton(etab, d.id)
+            .await
+            .expect("relecture"),
+        None
+    );
 }
 
 /// M5 / F2 : `passkey_login_finish` avec un client « mobile » est le seul chemin à durée mobile ;
@@ -630,9 +680,14 @@ async fn passkey_mobile_donne_la_duree_mobile_et_la_lecture_la_confirme() {
     let (email, user) = compte(&ent, etab).await;
     let origine = url::Url::parse("http://localhost:3000").expect("origine");
     let mut dev = WebauthnAuthenticator::new(SoftPasskey::new(true));
-    let (reg_token, options) = ent.passkey_register_start_for_actor(etab, user).await.expect("start");
+    let (reg_token, options) = ent
+        .passkey_register_start_for_actor(etab, user)
+        .await
+        .expect("start");
     let ccr: CreationChallengeResponse = serde_json::from_value(options).expect("options");
-    let reg = dev.do_registration(origine.clone(), ccr).expect("enregistrement");
+    let reg = dev
+        .do_registration(origine.clone(), ccr)
+        .expect("enregistrement");
     ent.passkey_register_finish_for_actor(etab, user, &reg_token, &reg, Some("Clé".into()))
         .await
         .expect("enrôlement");
@@ -643,13 +698,21 @@ async fn passkey_mobile_donne_la_duree_mobile_et_la_lecture_la_confirme() {
             .expect("start login")
             .expect("passkeys présentes");
         let rcr: RequestChallengeResponse = serde_json::from_value(options).expect("options");
-        let assertion = dev.do_authentication(origine.clone(), rcr).expect("assertion");
-        let s = ent.passkey_login_finish(&token, &assertion).await.expect("session passkey");
+        let assertion = dev
+            .do_authentication(origine.clone(), rcr)
+            .expect("assertion");
+        let s = ent
+            .passkey_login_finish(&token, &assertion)
+            .await
+            .expect("session passkey");
         assert_eq!(s.assurance, AssuranceSession::Passkey);
         assert_eq!(s.client == ClientSession::Mobile, mobile_attendu);
         let duree = s.expires_at - chrono::Utc::now();
         assert_eq!(duree > Duration::days(80), mobile_attendu, "durée {duree}");
-        let relue = ent.resolve_session(&format!("Bearer {}", s.token)).await.expect("lecture");
+        let relue = ent
+            .resolve_session(&format!("Bearer {}", s.token))
+            .await
+            .expect("lecture");
         assert_eq!(relue.client == ClientSession::Mobile, mobile_attendu);
     }
     // F2 : une ligne « mobile » sans passkey (antérieure au correctif) est lue comme « web ».
@@ -659,8 +722,15 @@ async fn passkey_mobile_donne_la_duree_mobile_et_la_lecture_la_confirme() {
         .execute(ent.pool())
         .await
         .expect("forge");
-    let relue = ent.resolve_session(&format!("Bearer {}", web.token)).await.expect("lecture");
-    assert_eq!(relue.client, ClientSession::Web, "F2 : client effectif à la lecture");
+    let relue = ent
+        .resolve_session(&format!("Bearer {}", web.token))
+        .await
+        .expect("lecture");
+    assert_eq!(
+        relue.client,
+        ClientSession::Web,
+        "F2 : client effectif à la lecture"
+    );
 }
 
 /// M5 : `completer_session_apres_enrolement` ne donne jamais la durée mobile à une session sans passkey,
@@ -692,16 +762,22 @@ async fn fin_d_enrolement_ne_donne_pas_la_duree_mobile_sans_passkey() {
         .execute(ent.pool())
         .await
         .expect("forge");
-    auth.completer_session_apres_enrolement(s.session_id).await.expect("fin d'enrôlement");
-    let (portee, expire, inactivite): (String, chrono::DateTime<chrono::Utc>, Option<i32>) = sqlx::query_as(
-        "SELECT portee, expires_at, inactivite_max_secs FROM ent_session WHERE id = $1",
-    )
-    .bind(s.session_id)
-    .fetch_one(ent.pool())
-    .await
-    .expect("lecture");
+    auth.completer_session_apres_enrolement(s.session_id)
+        .await
+        .expect("fin d'enrôlement");
+    let (portee, expire, inactivite): (String, chrono::DateTime<chrono::Utc>, Option<i32>) =
+        sqlx::query_as(
+            "SELECT portee, expires_at, inactivite_max_secs FROM ent_session WHERE id = $1",
+        )
+        .bind(s.session_id)
+        .fetch_one(ent.pool())
+        .await
+        .expect("lecture");
     assert_eq!(portee, "complete");
-    assert!(expire - chrono::Utc::now() <= Duration::hours(13), "durée web attendue");
+    assert!(
+        expire - chrono::Utc::now() <= Duration::hours(13),
+        "durée web attendue"
+    );
     assert!(inactivite.is_some());
 }
 
@@ -717,7 +793,10 @@ async fn migration_2220_ramene_les_sessions_mobiles_sans_passkey_et_se_rejoue_sa
     let ancienne = connexion(&ent, &email, etab, ClientSession::Web).await;
     let passkey_session = session_passkey(&ent, user, &email, etab, ClientSession::Mobile).await;
     // État antérieur au lot : « mobile » sans passkey, 90 jours, sans délai d'inactivité.
-    for (id, age) in [(recente.session_id, "1 hour"), (ancienne.session_id, "13 hours")] {
+    for (id, age) in [
+        (recente.session_id, "1 hour"),
+        (ancienne.session_id, "13 hours"),
+    ] {
         sqlx::query(
             "UPDATE ent_session SET client = 'mobile', inactivite_max_secs = NULL,
                     created_at = now() - $2::interval, expires_at = now() + interval '90 days' WHERE id = $1",
@@ -735,11 +814,23 @@ async fn migration_2220_ramene_les_sessions_mobiles_sans_passkey_et_se_rejoue_sa
         .await
         .expect("empreinte absente");
     let sql = include_str!("../../../migrations/2220_mob_mb0_appareils_push.sql");
-    sqlx::raw_sql(sql).execute(ent.pool()).await.expect("rejeu de la migration");
+    sqlx::raw_sql(sql)
+        .execute(ent.pool())
+        .await
+        .expect("rejeu de la migration");
     let lire = |id: Uuid| {
         let pool = ent.pool().clone();
         async move {
-            sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, Option<i32>, bool)>(
+            sqlx::query_as::<
+                _,
+                (
+                    String,
+                    chrono::DateTime<chrono::Utc>,
+                    chrono::DateTime<chrono::Utc>,
+                    Option<i32>,
+                    bool,
+                ),
+            >(
                 "SELECT client, expires_at, created_at, inactivite_max_secs, revoked_at IS NOT NULL
                    FROM ent_session WHERE id = $1",
             )
@@ -751,12 +842,19 @@ async fn migration_2220_ramene_les_sessions_mobiles_sans_passkey_et_se_rejoue_sa
     };
     let (client, expire, cree, inactivite, close) = lire(recente.session_id).await;
     assert_eq!(client, "web");
-    assert!(expire <= cree + Duration::hours(12) + Duration::seconds(1), "plafond depuis la création");
+    assert!(
+        expire <= cree + Duration::hours(12) + Duration::seconds(1),
+        "plafond depuis la création"
+    );
     assert_eq!(inactivite, Some(7200));
     assert!(!close);
     let (_, _, _, _, close) = lire(ancienne.session_id).await;
     assert!(close, "session déjà au-delà du plafond : close");
-    assert_eq!(actifs(&ent, etab, user).await, 0, "l'appareil de la session close est révoqué");
+    assert_eq!(
+        actifs(&ent, etab, user).await,
+        0,
+        "l'appareil de la session close est révoqué"
+    );
     let empreinte: Option<String> =
         sqlx::query_scalar("SELECT token_empreinte FROM ent_push_device WHERE id = $1")
             .bind(d_ancienne.id)
@@ -770,6 +868,9 @@ async fn migration_2220_ramene_les_sessions_mobiles_sans_passkey_et_se_rejoue_sa
     assert!(expire - chrono::Utc::now() > Duration::days(80) && !close);
     // Rejeu : aucun changement.
     let avant = lire(recente.session_id).await;
-    sqlx::raw_sql(sql).execute(ent.pool()).await.expect("second rejeu");
+    sqlx::raw_sql(sql)
+        .execute(ent.pool())
+        .await
+        .expect("second rejeu");
     assert_eq!(lire(recente.session_id).await, avant);
 }

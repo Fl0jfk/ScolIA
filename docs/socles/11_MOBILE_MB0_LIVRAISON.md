@@ -32,3 +32,32 @@ Migration **2220** (plage 2220–2239 ; 2221–2239 libres). Aucune table nouvel
 
 ## Tête et CI
 Voir le message au pilote (tête finale et état de la CI renseignés après le push).
+
+## Correctifs de revue (2026-11-22)
+Base : tête distante `159ca4ed`, puis fusion de `origin/ENT` (`ebac1517`, semis de labo relatif ; aucun conflit, compteurs recalculés depuis la base commune `02659006` : `lib.rs` +2 modules de tests côté ENT, +0 de mon côté hors `tests_mobile_mb0` déjà présent ; `MIGRATION_TAG` inchangé). **La migration 2220 n'étant pas versée, elle est modifiée** ; aucune autre migration versée ne change. `url` 2.5.9 appliqué comme la PR 121 (`cargo update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web` : `url` et sa dépendance `form_urlencoded` 1.2.3, rien d'autre ; `cargo metadata --locked` de `web` vérifié).
+
+### Règles générales
+1. **Règle 1** : une seule fonction SQL, `ent_push_actif(revoked_at, session_id, last_seen_at)` (appuyée sur `ent_session_vivante` : non révoquée, non expirée, inactivité respectée ; sans session : réinscription de moins de 30 jours), appelée par `notifications.rs` (deux chemins), `ntf/destinataires.rs`, `campagnes.rs`, `push_repo.rs`.
+2. **Règle 2** : `ent_push_reaffecter` (`SECURITY DEFINER`, verrou consultatif par empreinte, parcours des établissements car la RLS est forcée) révoque (`reaffecte`, trace) tout jeton actif de même empreinte détenu par une autre personne ; la même personne peut l'avoir dans plusieurs établissements.
+3. **Règle 3** : le jeton en clair n'existe que sur la ligne active de `ent_push_device`.
+
+### Fait
+| Réf. | Correctif | Test |
+|---|---|---|
+| Compilation | `ent-lab` : `register_push_device_sans_session` (variante explicite labo/tests) ; en production `register_push_device_for_actor` exige `session_id: Uuid` | compilation workspace + labo |
+| **E1** | `ent_push_actif` partout ; suppression de session : `ON DELETE SET NULL` + déclencheur `BEFORE DELETE` qui révoque l'appareil (`expire`, trace gardée) | `appareil_d_une_session_expiree…`, `…inactive…` (web, 3 h), `purge_des_sessions_expirees_garde_la_trace…` |
+| **E2** | `socle1_sessions_web_inactivite_mobile_longue_et_appareils` : le login mot de passe « mobile » est vérifié **web** ; la partie mobile passe par une vraie session passkey (SoftPasskey, enrôlement puis `/auth/passkey/login/*`), mêmes vérifications qu'avant (inactivité, prolongation > 80 j, liste, déconnexion ciblée) | `ent-api --lib` (158), `recette_securite_3`, `recette_mobile_mb0`, `separation` |
+| **M1** | `SELECT … FROM ent_session … FOR SHARE` dans la transaction d'inscription (session vivante **et** de l'acteur) ; absente → 401 | `inscription_avec_une_session_morte_est_refusee` |
+| **M2** | règle 2 | `un_jeton_n_a_qu_un_titulaire_entre_etablissements` (deux établissements ; même personne dans deux établissements : rien révoqué) |
+| **M3** | même personne, nouvelle session : `ON CONFLICT … DO UPDATE SET session_id` sur la même ligne, sans révocation ; `reaffecte_depuis` = autres personnes seulement | `meme_personne_nouvelle_session_meme_jeton…` |
+| **M4** | `ent_push_outbox` : `token_empreinte` + `device_id`, plus de jeton (`CHECK (token IS NULL)`, lignes existantes neutralisées dans 2220) ; l'envoi relit le jeton sur la ligne active (`relire_jeton`) et n'envoie rien si elle est révoquée entre-temps ; registre : export sans `token`/`token_empreinte` | `l_historique_d_envoi_ne_garde_pas_le_jeton` |
+| **M5** | `finish_passkey_login` mobile/web (seul chemin à durée mobile) ; SSO forcé web ; `completer_session_apres_enrolement` (durée web sans passkey, y compris ligne forgée « mobile ») ; migration (sessions ramenées, empreintes remplies, rejeu sans effet) | `passkey_mobile_donne_la_duree_mobile…`, `sso_rattachement_par_email…`, `fin_d_enrolement…`, `migration_2220_ramene…` |
+| **F2** | `resolve_bearer` applique `client_effectif` à la lecture | même test passkey (ligne forgée lue « web ») |
+| **F3** | `LEAST(expires_at, created_at + 12 h)` ; au-delà, session close (appareils révoqués par le déclencheur) | test de migration |
+| **F4** | l'empreinte (tenue à jour par déclencheur) est le critère de recherche et d'unicité ; index sur `token` supprimé | tests ci-dessus |
+| **F5** | `ON CONFLICT` puis relecture : trois inscriptions simultanées → jamais de 500 ; portabilité : métadonnées de l'appareil exportées sans jeton ni empreinte, purge à la restauration | `inscriptions_simultanees…`, `registre_jetons_non_exportes_et_purges` |
+
+### Non fait / risques connus
+- **F1** (passkey + client déclaré « mobile » depuis un navigateur) : reste pour **MB4** (clé d'appareil) ; risque connu, réf. MEN-11.
+- **Chiffrement du jeton** : toujours hors lot (aucune brique E11) ; **reste à faire du socle 8 (N7)** ; entre-temps le jeton n'est en clair qu'à un seul endroit (règle 3).
+- DA1, DA2, retrait d'OkHttp, enveloppe d'erreur, retrait des prototypes, avis de sécurité à l'ancien titulaire : inchangés (voir plus haut).
