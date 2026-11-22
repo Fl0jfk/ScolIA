@@ -2906,3 +2906,89 @@ async fn v3b_f8_bornes_doublons_et_fonction_de_reprise_fermee() {
     let bareme: String = sqlx::query_scalar("SELECT bareme::text FROM eva_evaluation WHERE id = $1").bind(ev2.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(bareme, "20.000");
 }
+
+// ───────────────────────── Messages de refus : une cause, un message (correctif de CI 45008987285) ─────────────────────────
+
+const PERIODE_ARRETEE: &str = "période arrêtée";
+
+/// Le refus d'une case dit POURQUOI : période arrêtée seulement quand la période l'est, élève hors classe à la date sinon.
+#[tokio::test]
+async fn v3_le_message_d_un_refus_de_saisie_nomme_sa_vraie_cause() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    // Un arrivant du 15 octobre : le 10 octobre il n'est dans aucune classe (verrouillé comme un élève arrêté, M8).
+    let arrive = creer_eleve(&ent, w.etab, "Arrive").await;
+    crate::tests_evaluations_v1::affecter(&ent, w.etab, w.annee, arrive, w.classe_a, d(2031, 10, 15)).await;
+    let ev = creer(&ent, &w, w.cours_maths, "DS 1", d(2031, 10, 10), 20_000, 1_000).await;
+
+    // 1. Élève sans classe à la date : le message parle d'affectation, JAMAIS de période arrêtée (la période est ouverte).
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, arrive, "9", None)]).await;
+    assert_eq!(issue(&r, 0), "refuse", "{r:?}");
+    let m = r.cellules[0].message.as_deref().unwrap();
+    assert_eq!(m, CauseRefusEcriture::EleveSansPeriode.message());
+    assert!(!m.contains(PERIODE_ARRETEE), "{m}");
+
+    // 2. Période réellement arrêtée : c'est bien ce message-là.
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "11", None)]).await;
+    assert_eq!(issue(&r, 0), "ecrit", "{r:?}");
+    let v1 = r.cellules[0].version;
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    let r = lot(&ent, &w, w.cours_maths, vec![cell(ev.id, a, "15", v1)]).await;
+    assert_eq!(issue(&r, 0), "refuse", "{r:?}");
+    assert_eq!(
+        r.cellules[0].message.as_deref(),
+        Some(CauseRefusEcriture::PeriodeArretee.message())
+    );
+    assert!(r.cellules[0].message.as_deref().unwrap().contains(PERIODE_ARRETEE));
+}
+
+/// Refus de DROIT de l'écriture (défense en profondeur sous le contrôle d'accès du lot) : chaque règle rend sa cause ; la
+/// voie simple et les lots V4 continuent de rendre `Forbidden`.
+#[tokio::test]
+async fn v3_ecriture_refus_de_droit_hors_de_vos_cours_et_saisie_reservee_au_professeur() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, w.cours_maths, "DS 1", d(2031, 10, 10), 20_000, 1_000).await;
+    let autre = cast.profs.iter().map(|p| p.user_id).find(|x| *x != w.prof).unwrap();
+
+    // Un autre professeur, sans `notes.corriger`, hors du cours : « hors de vos cours ».
+    let mut t = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    let r = PgEnt::ecrire_resultat_cause_tx(&mut t, w.etab, autre, false, jour(), &note_m(ev.id, a, 10_000), Attendu::Vide).await;
+    assert!(
+        matches!(r, Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::HorsDeVosCours))),
+        "{r:?}"
+    );
+    drop(t);
+    let mut t = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    let r = PgEnt::ecrire_resultat_tx(&mut t, w.etab, autre, false, jour(), &note_m(ev.id, a, 10_000), Attendu::Vide).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "la voie simple rend toujours Forbidden : {r:?}");
+    drop(t);
+
+    // La direction (notes.corriger) hors du cours, période OUVERTE : la saisie revient au professeur.
+    let mut t = TenantTx::begin(ent.pool(), w.etab).await.unwrap();
+    let r = PgEnt::ecrire_resultat_cause_tx(&mut t, w.etab, w.direction, true, jour(), &note_m(ev.id, a, 10_000), Attendu::Vide).await;
+    assert!(
+        matches!(r, Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::SaisieReserveeAuProfesseur))),
+        "{r:?}"
+    );
+    drop(t);
+
+    // Les quatre messages sont distincts et aucun refus de portée ne dit « période arrêtée ».
+    let causes = [
+        CauseRefusEcriture::HorsDeVosCours,
+        CauseRefusEcriture::PeriodeArretee,
+        CauseRefusEcriture::EleveSansPeriode,
+        CauseRefusEcriture::SaisieReserveeAuProfesseur,
+    ];
+    let messages: std::collections::BTreeSet<_> = causes.iter().map(|c| c.message()).collect();
+    assert_eq!(messages.len(), causes.len());
+    for c in causes {
+        assert_eq!(c.message().contains(PERIODE_ARRETEE), c == CauseRefusEcriture::PeriodeArretee, "{c:?}");
+    }
+}
