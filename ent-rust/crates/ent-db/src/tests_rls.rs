@@ -349,13 +349,14 @@ async fn rls_politiques_presentes_et_forcees() {
     // exécutions, comptes et lignes du rapport de reprise).
     // + 13 du socle 41, lot I2 (migration 2824 : nuits exceptionnelles, retraits, listes de chambres, appels et leur liste figée,
     // procédures, cas et leurs étapes, transmission, rappels, journal des lectures sensibles).
-    // + 3 du socle 42 (lot V3, migrations 653–654 : aides, reports de versement, retraits d'internat posés pour un séjour).
+    // + 6 du socle 42 (lot V3, migrations 653–654 : demandes d'argent et leurs issues, aides, reports de versement,
+    // retraits d'internat posés pour un séjour et leur fin).
     // + 5 du socle 41, lot I3 (migration 2826 : types de sortie, correspondants, absences annoncées, sorties individuelles,
     // journal des faits de l'absence, de la sortie et du correspondant).
     // + 2 du socle 21 (lot V3, migration 471 : journal des publications et journal des imports).
     // + 4 du socle 21 (lot V4, migration 475 : dispenses (port 34 simulé), indisponibilités d'AESH (simulées), convocations de
     // rattrapage, historique des convocations).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 3, "tables avec RLS activée et forcée");
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 6, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

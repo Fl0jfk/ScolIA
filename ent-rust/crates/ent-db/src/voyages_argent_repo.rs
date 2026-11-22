@@ -1175,6 +1175,15 @@ impl PgEnt {
         if deja {
             return Err(conflit());
         }
+        // M1 : un report cédé s'est appuyé sur ce versement ; l'annuler ferait passer l'argent net du payeur sous zéro
+        // (de l'argent reporté ailleurs ne se rembourse pas deux fois). Le report se défait d'abord.
+        let net = paye_net(&mut t, a.etablissement_id, s.id, o.participant_id, o.compte_id).await?;
+        if net.checked_sub(o.montant_centimes).ok_or_else(invalide)? < 0 {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce versement a servi à un report vers un autre participant : annule d'abord le report.",
+            ));
+        }
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let nid = Uuid::new_v4();
         sqlx::query(
@@ -1917,6 +1926,8 @@ pub(crate) async fn pointer_tx(
     if s.nature == "obligatoire" {
         return Err(refus(RefusMetier::Conflit, "Sortie obligatoire : rien n'est dû par les familles."));
     }
+    // M4 : aucun pointage sur une sortie close, annulée ou refusée.
+    crate::voyages_argent_v3::exiger_sortie_ouverte_a_l_argent(s)?;
     if !MOYENS.contains(&v.moyen.as_str()) {
         return Err(invalide());
     }
