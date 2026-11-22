@@ -3027,7 +3027,7 @@ fn evaluations_v4_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
     });
 }
 
-/// V3e/V5 : les 11 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
+/// V3e/V5 : les 12 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
 /// à l'élève sur un élève qu'ils ne peuvent pas lire, quel que soit le corps, avant toute lecture (aucune écriture, aucun
 /// oracle d'existence). La lecture `externes-famille` n'est ouverte qu'avec le lien « voir les notes ».
 #[test]
@@ -3045,10 +3045,11 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
         ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "organisme": "cned", "organisme_libelle": null, "du": "2031-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
         ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null}))),
         ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement"}))),
         ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
     ];
-    assert_eq!(routes.len(), 11, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
+    assert_eq!(routes.len(), 12, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
     rt().block_on(async {
         for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
             for (methode, chemin, corps) in &routes {
@@ -3059,7 +3060,7 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
     });
 }
 
-/// Les 11 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
+/// Les 12 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
 fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
     vec![
         ("POST", "/eva/v5/externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "origine": "cned", "libelle": null, "date_resultat": "2020-10-10", "periode_id": null, "valeur_m": 10000, "bareme_m": 20000, "document_id": null}))),
@@ -3071,12 +3072,13 @@ fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static
         ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "organisme": "cned", "organisme_libelle": null, "du": "2020-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
         ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null, "motif": null}))),
         ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement"}))),
         ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
     ]
 }
 
-/// Revue de V5 (F5) : séparation entre établissements sur les 11 routes `/eva/v5/*` : la direction de A, avec des
+/// Revue de V5 (F5) : séparation entre établissements sur les 12 routes `/eva/v5/*` : la direction de A, avec des
 /// identifiants de B, et la direction de B, avec des identifiants de A, n'obtiennent jamais un 2xx ni une donnée de l'autre.
 #[test]
 fn evaluations_v5_la_direction_d_un_etablissement_n_atteint_rien_de_l_autre() {
@@ -3109,16 +3111,68 @@ fn evaluations_v5_la_direction_d_un_etablissement_n_atteint_rien_de_l_autre() {
     });
 }
 
-/// Revue de V5 (F5) : portée du professeur sur les 11 routes. Les actions de la direction (déclarer un enseignement,
-/// saisir ou publier une moyenne) lui répondent 403 ; une ligne inconnue lui répond 403 (jamais 404 : aucun oracle) ; ses
-/// lectures ne rendent rien d'une matière qu'il n'enseigne pas (liste vide ou refus).
+/// Revue de V5 (F5) et contre-revue (M-D) : portée du professeur sur les 12 routes, avec des DONNÉES RÉELLES. La direction
+/// déclare un résultat externe, un enseignement externe et sa moyenne dans une matière que le professeur n'enseigne pas :
+/// ses lectures n'en rendent rien (l'absence est vérifiée dans le corps), ses actions de direction lui répondent 403, une
+/// ligne inconnue lui répond 403 (jamais 404 : aucun oracle). La direction, elle, voit et retire la publication.
 #[test]
 fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
     let Some(m) = monde() else { return };
     let o = &m.a.objets;
-    let (matiere, cours) = (o.matiere.unwrap_or_else(Uuid::new_v4), o.cours.unwrap_or_else(Uuid::new_v4));
+    let Some(cours) = o.cours else {
+        return eprintln!("skip: cours absent du labo");
+    };
     let inconnu = Uuid::new_v4();
+    // F-5 : jour de référence FIXE (jamais le jour réel) ; passé, donc jamais « dans le futur » pour le serveur.
+    let jour_fixe = "2020-10-10";
     rt().block_on(async {
+        let dir = m.jeton(Direction);
+        let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL"))
+            .await
+            .expect("connexion propriétaire");
+        // Une matière que le professeur du labo n'enseigne pas (son cours n'a pas de matière du référentiel) et une période.
+        let (cours_autre, matiere): (Uuid, Uuid) = sqlx::query_as(
+            "SELECT c2.id, c2.matiere_id FROM ent_cours c1
+               JOIN ent_cours c2 ON c2.etablissement_id = c1.etablissement_id AND c2.classe_id = c1.classe_id
+                AND c2.matiere_id IS NOT NULL
+              WHERE c1.etablissement_id = $1 AND c1.id = $2 ORDER BY c2.id LIMIT 1",
+        )
+        .bind(o.etab)
+        .bind(cours)
+        .fetch_one(&pool)
+        .await
+        .expect("autre cours de la classe avec une matière");
+        // 1. Données réelles posées par la direction.
+        let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED confidentiel",
+            "date_resultat": jour_fixe, "periode_id": null, "valeur_m": 13370, "bareme_m": 20000, "document_id": null});
+        let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
+        assert_eq!(r.statut.as_u16(), 201, "déclarer : {}", r.texte);
+        let externe = r.json["id"].as_str().expect("id").to_string();
+        let r = m
+            .appel("POST", &format!("/eva/v5/externes/{externe}/compter"), Some(dir),
+                   Some(&json!({"cours_id": cours_autre, "motif": "Motif réservé à la direction"})))
+            .await;
+        assert!(r.est_succes(), "compter : {} {}", r.statut, r.texte);
+        let r = m
+            .appel("POST", "/eva/v5/enseignements-externes", Some(dir),
+                   Some(&json!({"eleve_id": o.eleve, "matiere_id": matiere, "organisme": "cned", "organisme_libelle": "Organisme confidentiel",
+                                "du": "2000-09-01", "au": null, "referent": null, "compte_moyenne_generale": true})))
+            .await;
+        assert_eq!(r.statut.as_u16(), 201, "enseignement externe : {}", r.texte);
+        let enseignement = r.json["id"].as_str().expect("id").to_string();
+        // 2. Lectures du professeur : l'absence est vérifiée dans le corps (jamais un simple « pas d'erreur »).
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes", o.eleve), Some(m.jeton(Prof)), None).await;
+        assert!(!r.texte.contains("Devoir CNED confidentiel") && !r.texte.contains("13370") && !r.texte.contains("Motif réservé"),
+            "externes : {} {}", r.statut, r.texte);
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/enseignements-externes", o.eleve), Some(m.jeton(Prof)), None).await;
+        assert!(!r.texte.contains("Organisme confidentiel") && !r.texte.contains(&enseignement),
+            "enseignements externes : {} {}", r.statut, r.texte);
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/parcours?periode_id={}", o.eleve, inconnu), Some(m.jeton(Prof)), None).await;
+        assert!(r.statut.as_u16() < 500 && !r.texte.contains("Devoir CNED confidentiel"), "parcours : {} {}", r.statut, r.texte);
+        // Contrôle positif : la direction, elle, les voit.
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes", o.eleve), Some(dir), None).await;
+        assert!(r.texte.contains("Devoir CNED confidentiel"), "la direction lit : {} {}", r.statut, r.texte);
+        // 3. Actions : le professeur n'atteint ni l'enseignement, ni la moyenne, ni la publication, ni les lignes inconnues.
         for (methode, chemin, corps) in routes_v5(o.eleve, matiere, cours, inconnu) {
             let r = m.appel(methode, &chemin, Some(m.jeton(Prof)), corps.as_ref()).await;
             assert!(r.statut.as_u16() < 500, "{methode} {chemin} : erreur serveur {}", r.texte);
@@ -3128,11 +3182,15 @@ fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
             if direction_seule || ligne_inconnue {
                 assert_eq!(r.statut.as_u16(), 403, "{methode} {chemin} : {}", r.texte);
             }
-            if methode == "GET" && !chemin.contains("externes-famille") {
-                assert!(r.est_refus() || r.est_vide() || r.json.as_array().is_some_and(Vec::is_empty) || r.json.is_object(),
-                    "{methode} {chemin} : {}", r.texte);
-            }
         }
+        // Mêmes actions sur des lignes RÉELLES : 403 aussi (le motif de refus ne dépend pas de l'existence).
+        let r = m.appel("POST", &format!("/eva/v5/enseignements-externes/{enseignement}/moyennes"), Some(m.jeton(Prof)),
+                        Some(&json!({"periode_id": inconnu, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null, "motif": null}))).await;
+        assert_eq!(r.statut.as_u16(), 403, "moyenne réelle : {}", r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/externes/{externe}/retirer"), Some(m.jeton(Prof)), Some(&json!({"motif": "Retrait par un professeur"}))).await;
+        assert_eq!(r.statut.as_u16(), 403, "retrait par un professeur d'une autre matière : {}", r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/externes/{externe}/publier"), Some(m.jeton(Prof)), None).await;
+        assert_eq!(r.statut.as_u16(), 403, "publier par un professeur : {}", r.texte);
     });
 }
 
@@ -3146,7 +3204,8 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
     let Some(cours) = o.cours else {
         return eprintln!("skip: cours absent du labo");
     };
-    let aujourd_hui = domain_eleve::horloge::jour_paris();
+    // F-5 : jour de référence FIXE (jamais le jour réel) ; passé, donc jamais « dans le futur » pour le serveur.
+    let jour_fixe = "2020-10-10";
     rt().block_on(async {
         let dir = m.jeton(Direction);
         // Le cours du professeur du labo n'a pas de matière du référentiel : on compte le résultat dans un autre cours de la
@@ -3166,7 +3225,7 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         .await
         .expect("autre cours de la classe avec une matière");
         let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
-            "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
+            "date_resultat": jour_fixe, "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
         let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
         assert_eq!(r.statut.as_u16(), 201, "déclarer : {}", r.texte);
         let id = r.json["id"].as_str().expect("id").to_string();

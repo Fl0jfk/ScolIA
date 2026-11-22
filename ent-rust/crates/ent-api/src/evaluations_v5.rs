@@ -49,6 +49,10 @@ pub fn routes() -> Router<AppState> {
             post(publier_moyenne),
         )
         .route(
+            "/eva/v5/moyennes-externes/{id}/retirer-publication",
+            post(retirer_publication_moyenne),
+        )
+        .route(
             "/eva/v5/eleves/{id}/enseignements-externes",
             get(enseignements_eleve),
         )
@@ -225,6 +229,25 @@ async fn publier_moyenne(
             session.user_id,
             &session.role,
             id,
+        )
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn retirer_publication_moyenne(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RetirerExterneBody>,
+) -> Res<Json<EnseignementExterneDto>> {
+    s.ent
+        .eva_v5_retirer_publication_moyenne_externe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
         )
         .await
         .map(Json)

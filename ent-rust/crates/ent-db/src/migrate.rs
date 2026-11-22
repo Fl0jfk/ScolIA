@@ -498,6 +498,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lots V3e + V5 « parcours » : motif conservé, fonction unique de période, prolongation d'échéance tracée, résultats
     // externes (décision de compter, publication, retrait) et moyennes externes gardés en base.
     m!("477_eva_v3e_v5_parcours"),
+    // Contre-revue de V5 : une correction d'une moyenne externe publiée la remet en « non publiée », retrait de publication
+    // tracé, seule une moyenne se publie (en base).
+    m!("478_eva_v5_contre_revue_publication"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

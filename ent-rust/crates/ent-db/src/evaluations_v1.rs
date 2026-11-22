@@ -1471,7 +1471,12 @@ pub(crate) async fn moyennes_tx(
            FROM eva_resultat r
            JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
            JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
-          WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note'
+          WHERE r.etablissement_id = $1 AND r.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2)) AND ev.mode = 'note'
+            -- M-C : la note suit l'élève CONSERVÉ après une fusion de fiches ; si la fiche conservée a elle-même un
+            -- résultat pour la même évaluation, celui de la fiche absorbée ne compte pas (jamais deux fois).
+            AND (r.eleve_id = $2 OR NOT EXISTS (SELECT 1 FROM eva_resultat r2
+                                                 WHERE r2.etablissement_id = r.etablissement_id
+                                                   AND r2.evaluation_id = r.evaluation_id AND r2.eleve_id = $2))
             AND ev.etat IN ('ouverte', 'annulee')
             AND ($4 = false OR ev.publiee_le IS NOT NULL)
             AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
@@ -1574,24 +1579,53 @@ pub(crate) async fn moyennes_tx(
     //  * plusieurs moyennes externes d'une même matière sur la période du bulletin (deux trimestres d'un semestre, deux
     //    déclarations) : valeur PRUDENTE par défaut = aucune n'est comptée (on ne fabrique pas une moyenne que personne n'a
     //    déclarée) ; l'avertissement nomme la matière et le nombre, la direction tranche (en ne gardant qu'une déclaration).
-    let matieres_avec_notes: BTreeSet<Uuid> = par_matiere.keys().copied().collect();
+    // M-B : « des notes de l'établissement existent dans cette matière » se décide sur TOUTES les lignes, publiées ou
+    // non, quelle que soit l'audience : un seul moteur. Seul l'affichage (ce qui entre dans la moyenne servie) est
+    // filtré. Sinon une note non publiée ferait compter, pour la famille, une moyenne externe que le professeur ne
+    // compte pas (et deux audiences verraient deux moyennes différentes pour les mêmes données).
+    let mut matieres_avec_notes: BTreeSet<Uuid> = par_matiere.keys().copied().collect();
+    if publiees_seulement {
+        let toutes: Vec<Option<Uuid>> = sqlx::query_scalar(
+            "SELECT co.matiere_id
+               FROM eva_resultat r
+               JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
+               JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
+              WHERE r.etablissement_id = $1 AND r.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2)) AND ev.mode = 'note'
+                AND ev.etat IN ('ouverte', 'annulee')
+                AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
+             UNION
+             SELECT co.matiere_id
+               FROM eva_resultat_externe x
+               JOIN ent_cours co ON co.id = x.compte_dans_cours_id AND co.etablissement_id = x.etablissement_id
+              WHERE x.etablissement_id = $1 AND x.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
+                AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL
+                AND (CASE WHEN x.date_resultat IS NOT NULL THEN eva_periode_dans(x.etablissement_id, $3, x.date_resultat)
+                          ELSE x.periode_id = $3 END)",
+        )
+        .bind(etab)
+        .bind(eleve_id)
+        .bind(periode_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(db)?;
+        matieres_avec_notes.extend(toutes.into_iter().map(|m| m.unwrap_or(Uuid::nil())));
+    }
     let moyennes_externes = sqlx::query(
         "SELECT m.id, ens.matiere_id, mt.libelle AS matiere_libelle, (m.valeur * 1000)::bigint AS valeur_m,
-                (m.bareme * 1000)::bigint AS bareme_m
+                (m.bareme * 1000)::bigint AS bareme_m, (m.publiee_le IS NOT NULL) AS publiee
            FROM eva_moyenne_externe m
            JOIN eva_enseignement_externe ens ON ens.id = m.enseignement_externe_id AND ens.etablissement_id = m.etablissement_id
            JOIN ent_matiere mt ON mt.id = ens.matiere_id AND mt.etablissement_id = ens.etablissement_id
            JOIN ent_periode pd ON pd.id = m.periode_id AND pd.etablissement_id = m.etablissement_id
           WHERE m.etablissement_id = $1 AND ens.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
             AND ens.compte_moyenne_generale
-            AND m.statut = 'moyenne' AND ($4 = false OR m.publiee_le IS NOT NULL)
+            AND m.statut = 'moyenne'
             AND (m.periode_id = $3 OR eva_periode_dans(m.etablissement_id, $3, pd.date_fin))
           ORDER BY pd.date_fin, m.id",
     )
     .bind(etab)
     .bind(eleve_id)
     .bind(periode_id)
-    .bind(publiees_seulement)
     .fetch_all(&mut **tx)
     .await
     .map_err(db)?;
@@ -1605,19 +1639,43 @@ pub(crate) async fn moyennes_tx(
     }
     for (matiere, groupe) in &externes_par_matiere {
         let libelle: String = groupe[0].try_get("matiere_libelle").map_err(db)?;
+        // M-B : la décision (notes de l'établissement présentes ? plusieurs moyennes ?) porte sur TOUTES les lignes,
+        // publiées ou non ; l'audience ne filtre que ce qui s'affiche. Pour la famille, un avertissement ne parle que
+        // d'une moyenne publiée et ne dit rien de ce qui ne l'est pas (ni nombre, ni existence).
+        let mut visibles = Vec::new();
+        for x in groupe {
+            if !publiees_seulement || x.try_get::<bool, _>("publiee").map_err(db)? {
+                visibles.push(x);
+            }
+        }
         if matieres_avec_notes.contains(matiere) {
-            avertissements.push(format!(
-                "Matière {libelle} : une moyenne externe existe alors que l'élève a des notes de l'établissement ; \
-                 les notes de l'établissement l'emportent, la moyenne externe n'est pas comptée."
-            ));
+            if !visibles.is_empty() {
+                avertissements.push(if publiees_seulement {
+                    format!("Matière {libelle} : la moyenne externe n'est pas comptée pour le moment.")
+                } else {
+                    format!(
+                        "Matière {libelle} : une moyenne externe existe alors que l'élève a des notes de l'établissement ; \
+                         les notes de l'établissement l'emportent, la moyenne externe n'est pas comptée."
+                    )
+                });
+            }
             continue;
         }
         if groupe.len() > 1 {
-            avertissements.push(format!(
-                "Matière {libelle} : {} moyennes externes tombent dans cette période ; aucune n'est comptée \
-                 (une seule moyenne externe par matière et par période du bulletin) : la direction n'en garde qu'une.",
-                groupe.len()
-            ));
+            if !visibles.is_empty() {
+                avertissements.push(if publiees_seulement {
+                    format!("Matière {libelle} : la moyenne externe n'est pas comptée pour le moment.")
+                } else {
+                    format!(
+                        "Matière {libelle} : {} moyennes externes tombent dans cette période ; aucune n'est comptée \
+                         (une seule moyenne externe par matière et par période du bulletin) : la direction n'en garde qu'une.",
+                        groupe.len()
+                    )
+                });
+            }
+            continue;
+        }
+        if visibles.is_empty() {
             continue;
         }
         let x = groupe[0];
