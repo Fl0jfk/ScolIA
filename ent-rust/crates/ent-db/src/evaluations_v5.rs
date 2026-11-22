@@ -486,8 +486,15 @@ impl PgEnt {
             return Err(refus("l'élève ne suit pas ce cours aujourd'hui"));
         }
         // Après l'arrêt de la période de l'élève, compter un résultat change une moyenne arrêtée : direction seulement.
-        Self::eva_v5_garde_periode(&mut tx, etab, eleve, date_resultat, periode_id, a_la_direction)
-            .await?;
+        Self::eva_v5_garde_periode(
+            &mut tx,
+            etab,
+            eleve,
+            date_resultat,
+            periode_id,
+            a_la_direction,
+        )
+        .await?;
         let n = sqlx::query(
             "UPDATE eva_resultat_externe
                 SET compte_dans_cours_id = $3, compte_decide_par = $4, compte_decide_le = now(), compte_motif = $5
@@ -1004,14 +1011,7 @@ impl PgEnt {
         if !piece_ok {
             return Err(refus("pièce inconnue pour cet élève"));
         }
-        type Existante = (
-            Uuid,
-            i64,
-            String,
-            Option<i64>,
-            Option<String>,
-            Option<Uuid>,
-        );
+        type Existante = (Uuid, i64, String, Option<i64>, Option<String>, Option<Uuid>);
         let existante: Option<Existante> = sqlx::query_as(
             "SELECT id, (bareme * 1000)::bigint, statut, (valeur * 1000)::bigint, appreciation_transcrite, document_id
                FROM eva_moyenne_externe

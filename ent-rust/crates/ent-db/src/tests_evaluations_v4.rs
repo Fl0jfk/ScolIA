@@ -3172,7 +3172,8 @@ async fn v3e_item5_la_periode_d_un_jour_est_unique_et_les_lecteurs_s_accordent()
 /// H3 : constater une absence JUSTIFIÉE après l'échéance rouvre la reconvocation (nouvelle échéance) : c'était une
 /// prolongation sans direction ni motif. Désormais : direction seule, avec un motif, tracé au journal.
 #[tokio::test]
-async fn revue_h3_constater_une_absence_justifiee_apres_l_echeance_ne_contourne_pas_la_prolongation() {
+async fn revue_h3_constater_une_absence_justifiee_apres_l_echeance_ne_contourne_pas_la_prolongation(
+) {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
@@ -3192,7 +3193,7 @@ async fn revue_h3_constater_une_absence_justifiee_apres_l_echeance_ne_contourne_
         .unwrap()
         .remove(0);
     let apres = d(2031, 10, 25); // après l'échéance du 22
-    // Le professeur ne constate plus l'absence justifiée après l'échéance (avant : possible, puis reconvocation libre).
+                                 // Le professeur ne constate plus l'absence justifiée après l'échéance (avant : possible, puis reconvocation libre).
     let r = ent
         .eva_v4_noter_rattrapage_for_actor(
             w.etab,
@@ -3244,10 +3245,7 @@ async fn revue_h3_constater_une_absence_justifiee_apres_l_echeance_ne_contourne_
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    assert_eq!(
-        motif.as_deref(),
-        Some("Certificat médical remis en retard")
-    );
+    assert_eq!(motif.as_deref(), Some("Certificat médical remis en retard"));
     assert_eq!(par, w.direction);
     // Le constat d'une absence NON justifiée après l'échéance ne rouvre rien : il reste ouvert au professeur.
     let ev2 = creer(&ent, &w, "DS 2", d(2031, 10, 11)).await;

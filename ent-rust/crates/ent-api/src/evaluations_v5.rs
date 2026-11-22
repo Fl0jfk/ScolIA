@@ -44,7 +44,10 @@ pub fn routes() -> Router<AppState> {
             "/eva/v5/enseignements-externes/{id}/moyennes",
             post(saisir_moyenne),
         )
-        .route("/eva/v5/moyennes-externes/{id}/publier", post(publier_moyenne))
+        .route(
+            "/eva/v5/moyennes-externes/{id}/publier",
+            post(publier_moyenne),
+        )
         .route(
             "/eva/v5/eleves/{id}/enseignements-externes",
             get(enseignements_eleve),

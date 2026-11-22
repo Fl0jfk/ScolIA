@@ -1632,7 +1632,10 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
         .unwrap();
     assert!(!saisi.moyennes[0].publiee);
     // E1 : personnel = 15 ; famille = rien tant que la moyenne n'est pas publiée (une note non publiée n'existe pas).
-    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, false).await, Some(15_000));
+    assert_eq!(
+        moyenne(&ent, &w, a, w.francais, w.t1, false).await,
+        Some(15_000)
+    );
     assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, None);
     let famille = ent
         .eva_v1_moyennes_famille_for_actor(w.etab, cast.parent_lea.user_id, "parent", a, w.t1)
@@ -1648,11 +1651,17 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
     let r = ent
         .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.prof, PROF, Uuid::new_v4())
         .await;
-    assert!(matches!(r, Err(EntDbError::Forbidden)), "ligne inconnue : droit refusé : {r:?}");
+    assert!(
+        matches!(r, Err(EntDbError::Forbidden)),
+        "ligne inconnue : droit refusé : {r:?}"
+    );
     let r = ent
         .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, Uuid::new_v4())
         .await;
-    assert!(matches!(r, Err(EntDbError::Domain(DomainError::NotFound))), "{r:?}");
+    assert!(
+        matches!(r, Err(EntDbError::Domain(DomainError::NotFound))),
+        "{r:?}"
+    );
     let publiee = ent
         .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, moyenne_id)
         .await
@@ -1662,7 +1671,10 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
         .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, moyenne_id)
         .await;
     assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
-    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, Some(15_000));
+    assert_eq!(
+        moyenne(&ent, &w, a, w.francais, w.t1, true).await,
+        Some(15_000)
+    );
     let famille = ent
         .eva_v1_moyennes_famille_for_actor(w.etab, cast.parent_lea.user_id, "parent", a, w.t1)
         .await
@@ -1679,7 +1691,10 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
                 &moy(w.t1, "moyenne", Some(16_000), motif, None),
             )
             .await;
-        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{motif:?} : {r:?}");
+        assert!(
+            matches!(r, Err(EntDbError::SaisieInvalide(_))),
+            "{motif:?} : {r:?}"
+        );
     }
     // Rien ne change : aucune écriture, aucun journal, aucun motif exigé (idempotent).
     ent.eva_v5_saisir_moyenne_externe_for_actor(
@@ -1705,18 +1720,31 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
             .unwrap()
         }
     };
-    assert_eq!(nb(&ent).await, 2, "saisie + publication, pas de ligne pour un geste sans effet");
+    assert_eq!(
+        nb(&ent).await,
+        2,
+        "saisie + publication, pas de ligne pour un geste sans effet"
+    );
     // Correction motivée : la famille voit la nouvelle valeur (la moyenne reste publiée), le journal garde l'ancienne.
     ent.eva_v5_saisir_moyenne_externe_for_actor(
         w.etab,
         w.direction,
         DIR,
         fr.id,
-        &moy(w.t1, "moyenne", Some(16_000), Some("Rectification du relevé CNED"), None),
+        &moy(
+            w.t1,
+            "moyenne",
+            Some(16_000),
+            Some("Rectification du relevé CNED"),
+            None,
+        ),
     )
     .await
     .unwrap();
-    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, Some(16_000));
+    assert_eq!(
+        moyenne(&ent, &w, a, w.francais, w.t1, true).await,
+        Some(16_000)
+    );
     // M5 : la pièce d'un autre élève, ou inconnue, est refusée ; la pièce de l'élève est journalisée avec le motif.
     let autre = piece(&ent, &w, b).await;
     for faux in [autre, Uuid::new_v4()] {
@@ -1726,7 +1754,13 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
                 w.direction,
                 DIR,
                 fr.id,
-                &moy(w.t1, "moyenne", Some(16_000), Some("Ajout de la pièce"), Some(faux)),
+                &moy(
+                    w.t1,
+                    "moyenne",
+                    Some(16_000),
+                    Some("Ajout de la pièce"),
+                    Some(faux),
+                ),
             )
             .await;
         assert!(
@@ -1740,11 +1774,25 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
         w.direction,
         DIR,
         fr.id,
-        &moy(w.t1, "moyenne", Some(16_000), Some("Ajout de la pièce"), Some(mienne)),
+        &moy(
+            w.t1,
+            "moyenne",
+            Some(16_000),
+            Some("Ajout de la pièce"),
+            Some(mienne),
+        ),
     )
     .await
     .unwrap();
-    type Ligne = (String, Option<i64>, Option<i64>, Option<String>, Option<Uuid>, Option<Uuid>, Uuid);
+    type Ligne = (
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<Uuid>,
+        Option<Uuid>,
+        Uuid,
+    );
     let histo: Vec<Ligne> = sqlx::query_as(
         "SELECT evenement, (valeur_avant * 1000)::bigint, (valeur_apres * 1000)::bigint, motif, document_avant, document_apres, par
            FROM eva_moyenne_externe_historique WHERE etablissement_id = $1 AND enseignement_externe_id = $2 ORDER BY le, id",
@@ -1755,7 +1803,10 @@ async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_s
     .await
     .unwrap();
     let evenements: Vec<&str> = histo.iter().map(|h| h.0.as_str()).collect();
-    assert_eq!(evenements, ["saisie", "publication", "correction", "correction"]);
+    assert_eq!(
+        evenements,
+        ["saisie", "publication", "correction", "correction"]
+    );
     assert_eq!((histo[2].1, histo[2].2), (Some(15_000), Some(16_000)));
     assert_eq!(histo[2].3.as_deref(), Some("Rectification du relevé CNED"));
     assert_eq!((histo[3].4, histo[3].5), (None, Some(mienne)));
@@ -1862,7 +1913,10 @@ async fn revue_f3_f4_periode_de_la_moyenne_externe_et_saisies_concurrentes() {
                 &moy(periode, "moyenne", Some(12_000), None, None),
             )
             .await;
-        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{pourquoi} : {r:?}");
+        assert!(
+            matches!(r, Err(EntDbError::SaisieInvalide(_))),
+            "{pourquoi} : {r:?}"
+        );
     }
     // F4 : deux saisies simultanées de la même période (valeurs différentes) : une réussit, l'autre est un conflit (ou
     // une correction sans motif refusée si elle passe après) ; jamais d'erreur de base, une seule ligne.
@@ -1871,25 +1925,16 @@ async fn revue_f3_f4_periode_de_la_moyenne_externe_et_saisies_concurrentes() {
         moy(w.t1, "moyenne", Some(13_000), None, None),
     );
     let (r1, r2) = tokio::join!(
-        ent.eva_v5_saisir_moyenne_externe_for_actor(
-            w.etab,
-            w.direction,
-            DIR,
-            ens.id,
-            &c1,
-        ),
-        ent.eva_v5_saisir_moyenne_externe_for_actor(
-            w.etab,
-            w.direction,
-            DIR,
-            ens.id,
-            &c2,
-        ),
+        ent.eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, ens.id, &c1,),
+        ent.eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, ens.id, &c2,),
     );
     assert!(r1.is_ok() ^ r2.is_ok(), "{r1:?} / {r2:?}");
     for r in [r1.err(), r2.err()].into_iter().flatten() {
         assert!(
-            matches!(r, EntDbError::ConflitDossier(_) | EntDbError::SaisieInvalide(_)),
+            matches!(
+                r,
+                EntDbError::ConflitDossier(_) | EntDbError::SaisieInvalide(_)
+            ),
             "{r:?}"
         );
     }
@@ -2064,14 +2109,26 @@ async fn revue_m2_un_professeur_ne_voit_que_ses_matieres_ni_dispense_ni_motifs()
         .unwrap();
     assert_eq!(ext.len(), 1);
     assert_eq!(ext[0].matiere_id, w.maths);
-    assert!(ext[0].compte_motif.is_none() && ext[0].motif_retrait.is_none(), "{:?}", ext[0]);
+    assert!(
+        ext[0].compte_motif.is_none() && ext[0].motif_retrait.is_none(),
+        "{:?}",
+        ext[0]
+    );
     let ens = ent
         .eva_v5_enseignements_externes_for_actor(w.etab, w.prof, PROF, jour(), a)
         .await
         .unwrap();
-    assert_eq!(ens.len(), 1, "l'enseignement de français n'existe pas pour lui");
+    assert_eq!(
+        ens.len(),
+        1,
+        "l'enseignement de français n'existe pas pour lui"
+    );
     assert_eq!(ens[0].matiere_id, w.maths);
-    assert!(ens[0].moyennes.iter().all(|m| m.statut != "dispense"), "{:?}", ens[0].moyennes);
+    assert!(
+        ens[0].moyennes.iter().all(|m| m.statut != "dispense"),
+        "{:?}",
+        ens[0].moyennes
+    );
     let p = ent
         .eva_v5_parcours_for_actor(w.etab, w.prof, PROF, jour(), a, w.t1)
         .await
@@ -2080,7 +2137,10 @@ async fn revue_m2_un_professeur_ne_voit_que_ses_matieres_ni_dispense_ni_motifs()
     assert_eq!(p.enseignements[0].cours_id, w.cours_maths);
     assert_eq!(p.evaluations.len(), 1);
     assert_eq!(p.evaluations[0].evaluation_id, ev_m);
-    assert!(p.resultats_externes.iter().all(|x| x.matiere_id == w.maths && x.compte_motif.is_none()));
+    assert!(p
+        .resultats_externes
+        .iter()
+        .all(|x| x.matiere_id == w.maths && x.compte_motif.is_none()));
     // Le professeur de français voit l'inverse (jamais la matière de l'autre), sans le motif de maths.
     let ext = ent
         .eva_v5_externes_eleve_for_actor(w.etab, prof_fr, PROF, jour(), a)
@@ -2094,13 +2154,18 @@ async fn revue_m2_un_professeur_ne_voit_que_ses_matieres_ni_dispense_ni_motifs()
         .await
         .unwrap();
     assert_eq!(tous.len(), 2);
-    assert!(tous.iter().any(|x| x.compte_motif.as_deref() == Some("Motif réservé à la direction")));
+    assert!(tous
+        .iter()
+        .any(|x| x.compte_motif.as_deref() == Some("Motif réservé à la direction")));
     let ens = ent
         .eva_v5_enseignements_externes_for_actor(w.etab, w.direction, DIR, jour(), a)
         .await
         .unwrap();
     assert_eq!(ens.len(), 2);
-    assert!(ens.iter().flat_map(|e| &e.moyennes).any(|m| m.statut == "dispense"));
+    assert!(ens
+        .iter()
+        .flat_map(|e| &e.moyennes)
+        .any(|m| m.statut == "dispense"));
     // Déclarer : un professeur ne déclare que dans une matière qu'il enseigne.
     let r = ent
         .eva_v5_declarer_externe_for_actor(
@@ -2133,7 +2198,8 @@ async fn revue_m2_un_professeur_ne_voit_que_ses_matieres_ni_dispense_ni_motifs()
 /// d'une même matière sur la période : aucune n'est comptée, avertissement exact (jamais le message des notes de
 /// l'établissement).
 #[tokio::test]
-async fn revue_m4_plusieurs_moyennes_externes_d_une_matiere_et_presence_de_notes_de_l_etablissement() {
+async fn revue_m4_plusieurs_moyennes_externes_d_une_matiere_et_presence_de_notes_de_l_etablissement(
+) {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
@@ -2159,7 +2225,9 @@ async fn revue_m4_plusieurs_moyennes_externes_d_une_matiere_et_presence_de_notes
         .unwrap()
         .generale;
     assert!(
-        g.avertissements.iter().any(|m| m.contains("2 moyennes externes") && m.contains("aucune n'est comptée")),
+        g.avertissements
+            .iter()
+            .any(|m| m.contains("2 moyennes externes") && m.contains("aucune n'est comptée")),
         "{:?}",
         g.avertissements
     );
@@ -2179,19 +2247,29 @@ async fn revue_m4_plusieurs_moyennes_externes_d_une_matiere_et_presence_de_notes
     )
     .await
     .unwrap();
-    assert_eq!(moyenne(&ent, &w, b, w.francais, w.t1, false).await, Some(14_000));
+    assert_eq!(
+        moyenne(&ent, &w, b, w.francais, w.t1, false).await,
+        Some(14_000)
+    );
     let gb = ent
         .eva_v1_moyennes_eleve_periode(w.etab, b, w.t1, false)
         .await
         .unwrap()
         .generale;
-    assert!(gb.avertissements.iter().all(|m| !m.contains("moyenne")), "{:?}", gb.avertissements);
+    assert!(
+        gb.avertissements.iter().all(|m| !m.contains("moyenne")),
+        "{:?}",
+        gb.avertissements
+    );
     // b a ensuite une note de l'établissement en français : elle l'emporte, avertissement nommant la matière.
     let ev = eval(&ent, &w, w.cours_fr, d(2031, 10, 10), "Dictée", false).await;
     ent.eva_v1_ecrire_resultat_for_actor(w.etab, autre_prof(&cast, &w), PROF, &note(ev, b, 8_000))
         .await
         .unwrap();
-    assert_eq!(moyenne(&ent, &w, b, w.francais, w.t1, false).await, Some(8_000));
+    assert_eq!(
+        moyenne(&ent, &w, b, w.francais, w.t1, false).await,
+        Some(8_000)
+    );
     let gb = ent
         .eva_v1_moyennes_eleve_periode(w.etab, b, w.t1, false)
         .await
@@ -2239,16 +2317,24 @@ async fn revue_h1_une_periode_annuelle_chevauchante_porte_les_notes_de_ses_trime
     ecrire(&ent, &w, e1, a, 10_000).await;
     ecrire(&ent, &w, e2, a, 14_000).await;
     // T1 : deux notes comptées UNE fois chacune ; année : les mêmes (avant : aucune note, la période était « sans notes »).
-    assert_eq!(moyenne(&ent, &w, a, w.maths, w.t1, false).await, Some(12_000));
-    assert_eq!(moyenne(&ent, &w, a, w.maths, annee, false).await, Some(12_000));
+    assert_eq!(
+        moyenne(&ent, &w, a, w.maths, w.t1, false).await,
+        Some(12_000)
+    );
+    assert_eq!(
+        moyenne(&ent, &w, a, w.maths, annee, false).await,
+        Some(12_000)
+    );
     // La note du 10 octobre est dans l'année ET dans le T1 ; jamais deux fois dans la même période.
-    let (dans_t1, dans_an): (bool, bool) = sqlx::query_as("SELECT eva_periode_dans($1, $2, '2031-10-10'), eva_periode_dans($1, $3, '2031-10-10')")
-        .bind(w.etab)
-        .bind(w.t1)
-        .bind(annee)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let (dans_t1, dans_an): (bool, bool) = sqlx::query_as(
+        "SELECT eva_periode_dans($1, $2, '2031-10-10'), eva_periode_dans($1, $3, '2031-10-10')",
+    )
+    .bind(w.etab)
+    .bind(w.t1)
+    .bind(annee)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
     assert!(dans_t1 && dans_an);
     let t2_dans_t1: bool = sqlx::query_scalar("SELECT eva_periode_dans($1, $2, '2032-01-10')")
         .bind(w.etab)
@@ -2300,7 +2386,10 @@ async fn revue_h2_une_fusion_de_fiches_ne_fait_pas_disparaitre_un_resultat_exter
     )
     .await
     .unwrap();
-    assert_eq!(moyenne(&ent, &w, garde, w.maths, w.t1, false).await, Some(10_000));
+    assert_eq!(
+        moyenne(&ent, &w, garde, w.maths, w.t1, false).await,
+        Some(10_000)
+    );
     // Fusion de la fiche `absorbe` dans `garde` (marque du socle 2).
     exec(
         &ent,
