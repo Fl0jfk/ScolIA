@@ -568,7 +568,7 @@ pub use option_repo::PgOptionRepo;
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::nom_fichier_document;
 pub use service::{
-    BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
+    BankRapprochementSummary, CauseRefusEcriture, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
     PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, RefusMetier, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};

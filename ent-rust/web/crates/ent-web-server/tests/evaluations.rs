@@ -166,9 +166,17 @@ async fn periode_complete_avec_le_client_du_frontend() {
         })
         .await
         .unwrap();
-    ent.referentiel_affecter_eleve_classe("admin", etab, classe.id, eleve.id, None)
-        .await
-        .unwrap();
+    // Affectation dès la rentrée de l'année : la date par défaut est « aujourd'hui » (règle 33, jamais l'horloge réelle), et
+    // l'élève n'était alors pas dans la classe à la date des évaluations du test (rentrée + 30 jours).
+    ent.referentiel_affecter_eleve_classe(
+        "admin",
+        etab,
+        classe.id,
+        eleve.id,
+        Some(annee.date_debut),
+    )
+    .await
+    .unwrap();
     let parent = l
         .personas
         .iter()

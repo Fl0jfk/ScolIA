@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use crate::evaluations::{conflit, db, refus};
 use crate::outbox::Publier;
-use crate::service::{EntDbError, PgEnt};
+use crate::service::{CauseRefusEcriture, EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 /// Types d'événements de V1. Charges : identifiants seulement. **Règle (F5, V3b)** : les événements de SAISIE et de
@@ -637,6 +637,26 @@ impl PgEnt {
         body: &EcrireResultat,
         attendu: Attendu,
     ) -> Result<ResultatEcrit, EntDbError> {
+        Self::ecrire_resultat_cause_tx(tx, etab, acteur, peut_corriger, jour, body, attendu)
+            .await
+            .map_err(|e| match e {
+                EntDbError::RefusDroitEcriture(_) => EntDbError::Forbidden,
+                autre => autre,
+            })
+    }
+
+    /// Comme `ecrire_resultat_tx`, mais un refus de droit porte sa CAUSE (`RefusDroitEcriture`) : la saisie en lot
+    /// (V3) la présente à l'utilisateur case par case.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn ecrire_resultat_cause_tx(
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        acteur: Uuid,
+        peut_corriger: bool,
+        jour: NaiveDate,
+        body: &EcrireResultat,
+        attendu: Attendu,
+    ) -> Result<ResultatEcrit, EntDbError> {
         // F8 : un motif est borné (500 caractères) AVANT toute écriture.
         if body.motif.as_deref().is_some_and(|m| m.trim().chars().count() > 500) {
             return Err(refus("motif trop long (500 caractères au plus)"));
@@ -681,7 +701,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if !titulaire && !peut_corriger {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::HorsDeVosCours));
         }
         let periode = periode_eleve_tx(tx, etab, body.evaluation_id, body.eleve_id).await?;
         // F2 : l'état de la classe est VERROUILLÉ en lecture (`FOR SHARE`) puis RELU après verrou : un arrêt de la
@@ -723,14 +743,18 @@ impl PgEnt {
         // Un élève sans classe ou sans période à la date est verrouillé comme un élève arrêté (M8).
         let arretee = periode.as_ref().is_none_or(|p| p.etat != "ouverte") && !rattrapage;
         if arretee && !peut_corriger {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(if periode.is_none() {
+                CauseRefusEcriture::EleveSansPeriode
+            } else {
+                CauseRefusEcriture::PeriodeArretee
+            }));
         }
         // V3c (M3, règle descendue de la grille) : tant que la période de l'élève est OUVERTE, l'évaluation appartient au
         // professeur du cours (titulaire, co-enseignant, suppléant en saisie). Un porteur de `notes.corriger` qui n'est
         // pas du cours ne saisit pas à sa place (il corrige APRÈS l'arrêt, avec un motif) : cette règle vit ici, dans
         // l'écriture elle-même, et non plus seulement dans l'écran de grille (aucune voie ne la contourne).
         if !titulaire && periode.as_ref().is_some_and(|p| p.etat == "ouverte") {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::RefusDroitEcriture(CauseRefusEcriture::SaisieReserveeAuProfesseur));
         }
         let pas = regles_tx(tx, etab, annee_id).await?.pas_saisie_m;
         let bareme = bareme_m.ok_or(refus("évaluation sans barème"))?;

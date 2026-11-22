@@ -125,3 +125,32 @@ Recalculés à partir de la base commune `02659006` : **+1 table avec RLS** (`te
 * **13 tests ajoutés** : `tests_evaluations_v5` 7, `tests_evaluations_v4` 3, `ent-api/tests/separation.rs` 3 (+ 1 étendu : 10 → 11 routes). Ajustés : le test CE-06 (motif de correction).
 * **Locaux, verts** : 77/77 (`tests_evaluations_v5`, `revue_`, `v3e_`, `v3d_`) ; 174/174 (`tests_evaluations*`, `migrate::`, `registre_donnees`, `tests_rls::`, `tests_eleve_fusion`, `tests_d036`) ; séparation `evaluations_v5` (4/4) et inventaire des routes. **Relèvent de la CI** : la suite complète d'`ent-db` et la matrice de séparation complète.
 * **Compteurs (règle 28)** : aucune table nouvelle, aucune action, `TABLES_ELEVE` inchangé ; sources de routes **70** (même fichier, 11 routes) ; liste de `migrate.rs` inchangée (477 déjà listée) ; `MIGRATION_TAG` inchangé.
+
+### 7.3 Échec de CI 45008987285 (tranche frontend 2/6) : `periode_complete_avec_le_client_du_frontend`
+
+**Symptôme.** La saisie du professeur revenait `issue: "refuse"`, « période arrêtée : seule la direction corrige, avec un motif écrit », au lieu de `"ecrit"`. Rejoué en local (base neuve `ent_v5_test`, 1.99.0, `--locked`) : même échec.
+
+**Cause (deux défauts, un seul vrai).**
+1. **Le test était faux (règle 33).** Il affectait l'élève à la classe avec `referentiel_affecter_eleve_classe(…, None)`, c'est-à-dire **à la date réelle du jour** (bornée à l'année), alors que les évaluations sont datées « rentrée + 30 jours » depuis V3e-5. Dès que le jour réel dépasse cette date, l'élève n'est pas dans la classe à la date de l'évaluation : `eva_periode_eleve` ne rend aucune période et `ecrire_resultat_tx` le verrouille comme un élève arrêté (M8, voulu). Le professeur a bien le droit sur le cours (il est titulaire) : **ce n'est pas un correctif de portée de la revue**, l'hypothèse du pilote sur H1-H3/M1-M5 est écartée. Le test dépendait donc du jour où la CI tourne. Corrigé : affectation à `annee.date_debut`.
+2. **Le message était faux.** `eva_v3_une_case` traduisait tout `EntDbError::Forbidden` en « période arrêtée », quelle que soit la règle qui refusait (trois règles distinctes dans `ecrire_resultat_tx`). Ici la période était **ouverte** et le message disait le contraire.
+
+**Correctif du code.** `CauseRefusEcriture` (`service.rs`, exportée) et la variante interne `EntDbError::RefusDroitEcriture(cause)` : `ecrire_resultat_cause_tx` (nouvelle, corps de l'ancienne `ecrire_resultat_tx`) rend la cause ; `ecrire_resultat_tx` devient un mince enrobage qui la rend en `Forbidden` : **aucun autre appelant ne change** (écriture simple, lots V4, HTTP 403 inchangé). Seule la saisie en lot V3 présente la cause, case par case :
+
+| Cause | Règle | Message |
+|---|---|---|
+| `HorsDeVosCours` | ni titulaire/co-enseignant/suppléant en saisie, ni `notes.corriger` | « ce cours n'est pas l'un de vos cours : vous ne pouvez pas y saisir de résultat » |
+| `PeriodeArretee` | période de la classe de l'élève arrêtée/fermée, sans droit de correction | « période arrêtée : seule la direction corrige, avec un motif écrit » |
+| `EleveSansPeriode` | élève sans classe ni période à la date de l'évaluation (M8) | « cet élève n'a ni classe ni période à la date de l'évaluation : saisie impossible (vérifiez son affectation à la classe à cette date) » |
+| `SaisieReserveeAuProfesseur` | période ouverte, porteur de `notes.corriger` hors du cours | « période ouverte : la saisie revient au professeur du cours ; la direction corrige après l'arrêt de la période, avec un motif écrit » |
+
+Un `Forbidden` inattendu garde un message de droit (« droit insuffisant pour saisir ce résultat »), jamais « période arrêtée ».
+
+**Tests.** `v3_le_message_d_un_refus_de_saisie_nomme_sa_vraie_cause` (élève sans classe à la date → `EleveSansPeriode`, jamais « période arrêtée » ; période réellement arrêtée → `PeriodeArretee`) ; `v3_ecriture_refus_de_droit_hors_de_vos_cours_et_saisie_reservee_au_professeur` (les deux autres causes, la voie simple rend toujours `Forbidden`, quatre messages distincts et seul `PeriodeArretee` dit « période arrêtée »). Les deux dernières causes sont une défense en profondeur sous le contrôle d'accès du lot : testées sur l'écriture elle-même.
+
+**Vérifications locales (aucune CI avant le push).** `ent-web-server` + `ent-web-session`, toute la suite avec `labo` et `LEPTOS_OUTPUT_NAME=ent-web` (comme la CI) : **verte** (`evaluations` 2/2, `contre_backend` 9/9, `securite` 2/2, les autres cibles vertes ; aucun autre test rouge de même cause). `ent-db` : **176/176** (`tests_evaluations*`, `migrate::`, `registre_donnees`, `tests_rls::`, `tests_eleve_fusion`, `tests_d036`, dont les 2 nouveaux). Séparation HTTP `evaluations_v5` **4/4**. Clippy 1.99.0 `--all-targets` (backend avec labo ; frontend `-D warnings`) : **0 avertissement**. `rustfmt` ciblé sur le test web ; `cargo metadata --locked` dans `web/` : OK.
+
+**Fusion d'`origin/ENT`** (5 commits : semis de labo relatif, `tests_semis_relatif`) : aucun conflit ; **compteurs (règle 28)** recalculés depuis la base commune 02659006 : aucune action, aucune table, aucune migration, `MIGRATION_TAG` inchangé ; seul ajout de ligne dans `lib.rs` côté ENT (`mod tests_semis_relatif`), indépendant des nôtres.
+
+**Alerte RUSTSEC-2026-0592.** `origin/ENT` portait encore `url` 2.5.8 : correctif de la PR 121 appliqué à l'identique (`cargo +1.99.0 update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web` : `url` 2.5.9, `form_urlencoded` 1.2.3, rien d'autre dans les deux `Cargo.lock`).
+
+**Tête et CI :** voir ci-dessous (complété après le push).
