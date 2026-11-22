@@ -153,4 +153,4 @@ Un `Forbidden` inattendu garde un message de droit (« droit insuffisant pour sa
 
 **Alerte RUSTSEC-2026-0592.** `origin/ENT` portait encore `url` 2.5.8 : correctif de la PR 121 appliqué à l'identique (`cargo +1.99.0 update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web` : `url` 2.5.9, `form_urlencoded` 1.2.3, rien d'autre dans les deux `Cargo.lock`).
 
-**Tête et CI :** voir ci-dessous (complété après le push).
+**Tête et CI :** tête du code et de la correction `947ceb8c` ; **CI « ENT Rust » verte** (run 45029868708 : tous les jobs réussis, un seul sauté par conception — la RLS stricte ne tourne que sur `ENT`, règle 27 ; aucun rejeu nécessaire). La PR 114 reste en brouillon. Niveau : implémenté + testé (local et CI) ; **non validé par Florian, non prêt pilote**. Le présent complément de documentation est poussé dans un commit suivant (documentation seule).
