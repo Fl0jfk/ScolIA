@@ -233,7 +233,8 @@ async fn double_ecriture_texte_et_classe_id() {
 
     // Classe d'un autre établissement : refusée.
     let classe_autre: Uuid = sqlx::query_scalar(
-        "SELECT id FROM ent_classe WHERE etablissement_id = $1 LIMIT 1",
+        "SELECT c.id FROM ent_classe c JOIN ent_annee_scolaire y ON y.id = c.annee_id
+          WHERE c.etablissement_id = $1 AND y.statut <> 'cloturee' LIMIT 1",
     ).bind(autre.etablissement_id).fetch_one(ent.pool()).await.unwrap();
     let r = sqlx::query("UPDATE ent_appel SET classe_id = $2 WHERE id = $1")
         .bind(id).bind(classe_autre).execute(ent.pool()).await;
@@ -537,11 +538,13 @@ async fn isolation_droits_et_import_mef() {
     assert!(est(&err, DomainError::NotFound), "{err:?}");
 
     // Classe de B rattachée à un site de A : introuvable ; modifier une classe de B depuis A : introuvable.
-    let classe_b: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 LIMIT 1")
+    let classe_b: Uuid = sqlx::query_scalar("SELECT c.id FROM ent_classe c JOIN ent_annee_scolaire y ON y.id = c.annee_id
+          WHERE c.etablissement_id = $1 AND y.statut <> 'cloturee' LIMIT 1")
         .bind(b.etablissement_id).fetch_one(ent.pool()).await.unwrap();
     let err = ent.ref_modifier_classe(&aa, classe_b, Some("x"), None, None, None, None).await.unwrap_err();
     assert!(est(&err, DomainError::NotFound), "{err:?}");
-    let classe_a: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 LIMIT 1")
+    let classe_a: Uuid = sqlx::query_scalar("SELECT c.id FROM ent_classe c JOIN ent_annee_scolaire y ON y.id = c.annee_id
+          WHERE c.etablissement_id = $1 AND y.statut <> 'cloturee' LIMIT 1")
         .bind(a.etablissement_id).fetch_one(ent.pool()).await.unwrap();
     let err = ent.ref_modifier_classe(&aa, classe_a, None, Some(sb.id), None, None, None).await.unwrap_err();
     assert!(est(&err, DomainError::NotFound), "site d'un autre établissement : {err:?}");
