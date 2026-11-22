@@ -1185,7 +1185,7 @@ impl PgEnt {
             .execute(&mut **tx)
             .await
             .map_err(db)?;
-        match Self::ecrire_resultat_tx(tx, etab, acteur, acces.corriger, jour, &body, attendu).await
+        match Self::ecrire_resultat_cause_tx(tx, etab, acteur, acces.corriger, jour, &body, attendu).await
         {
             Ok(ecrit) => {
                 sqlx::query("RELEASE SAVEPOINT eva_v3_case")
@@ -1220,12 +1220,14 @@ impl PgEnt {
                             )
                         })
                     }
+                    EntDbError::RefusDroitEcriture(cause) => {
+                        Ok(base("refuse", Some(cause.message().to_string())))
+                    }
+                    // Aucune autre voie de `ecrire_resultat_cause_tx` ne rend `Forbidden` ; si une règle future le fait, le
+                    // message reste un refus de droit, jamais une « période arrêtée » inventée.
                     EntDbError::Forbidden => Ok(base(
                         "refuse",
-                        Some(
-                            "période arrêtée : seule la direction corrige, avec un motif écrit"
-                                .to_string(),
-                        ),
+                        Some("droit insuffisant pour saisir ce résultat".to_string()),
                     )),
                     EntDbError::SaisieInvalide(m) => Ok(base("refuse", Some(m.to_string()))),
                     EntDbError::Domain(domain_eleve::DomainError::NotFound) => Ok(base(

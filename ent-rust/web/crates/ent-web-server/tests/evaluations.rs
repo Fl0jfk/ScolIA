@@ -166,9 +166,17 @@ async fn periode_complete_avec_le_client_du_frontend() {
         })
         .await
         .unwrap();
-    ent.referentiel_affecter_eleve_classe("admin", etab, classe.id, eleve.id, None)
-        .await
-        .unwrap();
+    // Affectation dès la rentrée de l'année : la date par défaut est « aujourd'hui » (règle 33, jamais l'horloge réelle), et
+    // l'élève n'était alors pas dans la classe à la date des évaluations du test (rentrée + 30 jours).
+    ent.referentiel_affecter_eleve_classe(
+        "admin",
+        etab,
+        classe.id,
+        eleve.id,
+        Some(annee.date_debut),
+    )
+    .await
+    .unwrap();
     let parent = l
         .personas
         .iter()
@@ -191,7 +199,10 @@ async fn periode_complete_avec_le_client_du_frontend() {
     })
     .await
     .unwrap();
-    let t = ent_db::jour_paris();
+    // V3e (item 5) : le test ne dépend plus du jour réel. La date de référence est un jour de l'année scolaire courante (30
+    // jours après sa rentrée), jamais « aujourd'hui » : ni le chevauchement de périodes, ni la date de fin de trimestre, ni
+    // le jour où la CI tourne ne changent l'issue.
+    let t = annee.date_debut + Duration::days(30);
     let periode = ent
         .creer_note_periode(ent_db::CreerNotePeriode {
             etablissement_id: etab,
