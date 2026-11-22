@@ -744,6 +744,8 @@ pub fn router() -> Router<AppState> {
         .route("/messages/cartes/{id}/document", get(ouvrir_carte_document))
         .route("/messages/fils/{id}/lecture", get(lecture_du_fil))
         .route("/messages/fils/{id}/lu", post(marquer_fil_lu))
+        // M12 : flux « quelque chose a changé » (interrogation longue), identique pour le web et l'appli unique.
+        .route("/messages/flux", get(flux_messagerie))
         .route(
             "/reinscription/campagne",
             get(get_campagne).post(ouvrir_campagne),
@@ -10466,6 +10468,26 @@ async fn lecture_du_fil(
         .await
         .map_err(map_db)?;
     Ok(Json(v))
+}
+
+#[derive(serde::Deserialize)]
+struct FluxQuery {
+    apres: Option<chrono::DateTime<chrono::Utc>>,
+    attente: Option<u64>,
+}
+
+/// Fils lisibles par ce compte où un message est apparu depuis `apres` ; jamais de contenu (M12).
+async fn flux_messagerie(
+    State(state): State<AppState>,
+    session: EntSession,
+    axum::extract::Query(q): axum::extract::Query<FluxQuery>,
+) -> Result<Json<ent_db::FluxMessagerie>, (StatusCode, String)> {
+    let flux = state
+        .ent
+        .flux_messagerie_for_actor(session.etablissement_id, session.user_id, q.apres, q.attente.unwrap_or(0))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(flux))
 }
 
 async fn marquer_fil_lu(

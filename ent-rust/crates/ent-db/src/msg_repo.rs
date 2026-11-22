@@ -985,6 +985,44 @@ impl PgMsgRepo {
         Ok(rows.into_iter().map(AccuseRow::into_accuse).collect())
     }
 
+    /// M12 (flux temps réel) : les fils **lisibles par ce compte** (vue `ent_msg_fil_lisible`, relue à chaque appel :
+    /// un participant retiré ne reçoit plus rien) où un message est devenu visible après `apres`. Aucun contenu :
+    /// l'identifiant du fil et l'instant. Renvoie aussi le curseur à rendre au prochain appel (l'heure de la base,
+    /// reculée de 5 s : un message validé en retard n'est jamais perdu ; un doublon est inoffensif).
+    pub async fn evenements_depuis(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        apres: DateTime<Utc>,
+        limite: i64,
+    ) -> Result<(DateTime<Utc>, Vec<(Uuid, DateTime<Utc>)>), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let (curseur,): (DateTime<Utc>,) = sqlx::query_as("SELECT now() - interval '5 seconds'")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        let rows: Vec<(Uuid, DateTime<Utc>)> = sqlx::query_as(
+            r#"
+            SELECT m.fil_id, max(coalesce(m.remise_prevue_le, m.created_at)) AS instant
+              FROM ent_msg_fil_lisible($1, $2) l
+              JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
+             WHERE coalesce(m.remise_prevue_le, m.created_at) > $3
+               AND coalesce(m.remise_prevue_le, m.created_at) <= now()
+             GROUP BY m.fil_id
+             ORDER BY instant ASC
+             LIMIT $4
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .bind(apres)
+        .bind(limite)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        Ok((curseur, rows))
+    }
+
     /// Messages non accusés par le lecteur (hors ses propres messages), par fil.
     pub async fn count_non_lus_par_fils(
         &self,
@@ -1022,7 +1060,7 @@ impl PgMsgRepo {
     /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets (clé + empreinte).
     /// Plus aucune écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
     /// Insère une pièce **sous verrou** du message (F1) : le message est verrouillé (`FOR UPDATE`), puis la limite de
-    /// `max` pièces et l'état du message (ni retiré, ni différé) sont contrôlés dans la même transaction que
+    /// `max` pièces et l'état du message (ni retiré, ni différé d'un autre auteur) sont contrôlés dans la même transaction que
     /// l'insertion : deux dépôts simultanés ne dépassent pas la limite.
     pub async fn insert_piece(&self, piece: &MsgPiece, max: i64) -> Result<InsertionPiece, DomainError> {
         let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
@@ -1031,8 +1069,8 @@ impl PgMsgRepo {
         let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id)
             .await
             .map_err(map_sqlx)?;
-        let etat: Option<(bool, bool)> = sqlx::query_as(
-            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false)
+        let etat: Option<(bool, bool, Option<Uuid>)> = sqlx::query_as(
+            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false), auteur_user_id
                FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(piece.etablissement_id)
@@ -1040,13 +1078,15 @@ impl PgMsgRepo {
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-        let Some((retire, differe)) = etat else {
+        let Some((retire, differe, auteur)) = etat else {
             return Err(DomainError::NotFound);
         };
         if retire {
             return Ok(InsertionPiece::MessageRetire);
         }
-        if differe {
+        // Un message différé n'est invisible de tout autre : son **auteur** peut y joindre une pièce avant la remise
+        // (elle suit le message : quarantaine, antivirus, puis remise) ; personne d'autre.
+        if differe && auteur != Some(piece.created_by_user_id) {
             return Ok(InsertionPiece::MessageDiffere);
         }
         let (nb,): (i64,) = sqlx::query_as(

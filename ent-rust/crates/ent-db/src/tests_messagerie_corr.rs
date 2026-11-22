@@ -485,7 +485,8 @@ async fn corr_f1_cinq_pieces_sous_verrou_et_message_retire_ou_differe() {
     ent.retirer_message_for_actor(etab, dir, role(Role::Direction), m2, None).await.expect("message retiré");
     let e = deposer(&ent, etab, m2, dir, Role::Direction, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("retiré");
     assert!(est_conflit(&e), "{e:?}");
-    // Message différé : refus.
+    // Message différé : un autre participant est refusé ; l'auteur peut joindre une pièce à son propre message (la
+    // pièce naît en quarantaine, suit le message, et n'est visible de personne d'autre avant la remise).
     assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "Troisième").await);
     let m3 = dernier_message(&ent, etab, fil, dir).await;
     sqlx::query("UPDATE ent_msg SET remise_prevue_le = now() + interval '1 hour' WHERE id = $1")
@@ -493,9 +494,15 @@ async fn corr_f1_cinq_pieces_sous_verrou_et_message_retire_ou_differe() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    let e = deposer(&ent, etab, m3.id, dir, Role::Direction, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("différé");
+    let lily = cast.parent_lea.user_id;
+    let e = deposer(&ent, etab, m3.id, lily, Role::Parent, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("autre auteur");
     assert!(est_conflit(&e), "{e:?}");
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m3.id]).await, 0);
+    let propre = deposer(&ent, etab, m3.id, dir, Role::Direction, "mien.pdf", "application/pdf", PDF_REEL)
+        .await
+        .expect("l'auteur joint une pièce à son message différé");
+    assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m3.id]).await, 1);
+    assert_eq!(propre.message_id, m3.id);
 }
 
 // ───────────────────────── F2 : « lu par » à la première lecture ─────────────────────────

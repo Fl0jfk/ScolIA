@@ -58,6 +58,7 @@ const FILTRE_INTEGRE: &[&str] = &[
     "fils_lisibles_personnel",
     "page_fils_personnel",
     "destinataires_famille_fil",
+    "evenements_depuis",
 ];
 /// B : lecture par identifiant ; l'appelant a déjà appelé `peut_lire_fil` (contrôle 3).
 const PAR_IDENTIFIANT: &[&str] = &[
