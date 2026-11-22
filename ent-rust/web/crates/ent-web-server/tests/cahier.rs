@@ -428,12 +428,18 @@ async fn visa_inspection_archive_et_progressions_refuses_aux_profils_sans_droit(
         anonyme.cdt_tenue(du, au).await,
         Err(ApiError::NonConnecte)
     ));
+    // F3 : hors direction, un visa inconnu et un visa non lisible donnent le même refus (403) ; la direction, elle, sait
+    // qu'il n'existe pas (404). Jamais un contenu.
+    assert!(
+        est_interdit(rogue.cdt_visa_detail(inconnu).await),
+        "un visa inconnu : refus identique à un visa non lisible"
+    );
     assert!(
         matches!(
-            rogue.cdt_visa_detail(inconnu).await,
+            direction.cdt_visa_detail(inconnu).await,
             Err(ApiError::Introuvable(_))
         ),
-        "un visa inconnu : introuvable, jamais un contenu"
+        "un visa inconnu : introuvable pour la direction"
     );
     assert!(est_interdit(harry.cdt_visa_detail(inconnu).await));
     assert!(est_interdit(lily.cdt_visas(None).await));
