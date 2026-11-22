@@ -1579,6 +1579,10 @@ impl PgEnt {
         .await
         .map_err(db)?;
         poser_publics(&mut t, a, id, &saisie.classes, &saisie.groupes).await?;
+        // V3 (D-069, règle 2) : des dates modifiées déplacent les nuits retirées de l'internat, dans cette transaction.
+        if s.debut != saisie.debut || s.fin != saisie.fin || etat_apres != s.etat {
+            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
+        }
         let mut modifies = 0;
         for (champ, avant, apres) in changes {
             if avant != apres {
@@ -1950,6 +1954,11 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
+        // V3 (D-069, règle 2) : annulation, refus, réouverture ou confirmation : l'attendu de l'internat suit l'état
+        // réel de la sortie, dans cette transaction.
+        if etat != s.etat {
+            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
+        }
         let action = evenement.trim_start_matches("voyages.");
         journaliser(
             &mut t,
@@ -2526,6 +2535,8 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
+        // V3 (D-069, règle 2) : l'attendu de l'internat suit la liste, dans cette transaction.
+        crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
         fait_participant(
             &mut t,
             a,
@@ -2660,10 +2671,26 @@ async fn fait_participant(
     motif_code: Option<&str>,
     motif_texte: Option<&str>,
 ) -> Result<(), EntDbError> {
+    fait_participant_a(conn, a, participant, type_fait, avant, apres, motif_code, motif_texte, Utc::now()).await
+}
+
+/// Fait daté d'un participant, instant passé en paramètre (F4).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn fait_participant_a(
+    conn: &mut PgConnection,
+    a: &Acteur<'_>,
+    participant: Uuid,
+    type_fait: &str,
+    avant: Option<&str>,
+    apres: &str,
+    motif_code: Option<&str>,
+    motif_texte: Option<&str>,
+    maintenant: DateTime<Utc>,
+) -> Result<(), EntDbError> {
     sqlx::query(
         "INSERT INTO ent_sortie_participant_fait
-             (id, etablissement_id, participant_id, acteur_user_id, type, etat_avant, etat_apres, motif_code, motif_texte)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+             (id, etablissement_id, participant_id, acteur_user_id, type, etat_avant, etat_apres, motif_code, motif_texte, a)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(Uuid::new_v4())
     .bind(a.etablissement_id)
@@ -2674,6 +2701,7 @@ async fn fait_participant(
     .bind(apres)
     .bind(motif_code)
     .bind(motif_texte)
+    .bind(maintenant)
     .execute(conn)
     .await
     .map_err(db)?;

@@ -455,6 +455,7 @@ pub mod messagerie_m0b;
 pub mod voyages;
 pub mod voyages_argent;
 pub mod voyages_argent_flux;
+pub mod voyages_argent_v3;
 pub mod voyages_argent_repo;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
@@ -816,6 +817,8 @@ mod tests_voyages_v0d;
 mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v2a;
+#[cfg(test)]
+mod tests_voyages_v3;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

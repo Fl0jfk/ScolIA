@@ -12,6 +12,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
+use ent_db::voyages_argent_v3::{
+    AideSaisie, AideVue, DecisionAide, DecisionReport, DecisionValidee, DemandeVue, InternatSynchro, ReportSaisie, ReportVue,
+    StatutDemande, AVERTISSEMENT_MOTIF,
+};
 use ent_db::voyages_argent_repo::{
     AvoirVue, EtatAgrege, ExportFait, FraisSaisie, FraisVue, MaPart, NominatifVue, PaiementsVue, Reglages,
     VersementSaisie, VersementVue,
@@ -49,6 +53,18 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/argent/avoirs", get(avoirs))
         .route("/voyages/{id}/argent/avoirs/annulation-collective", post(avoirs_collectifs))
         .route("/voyages/{id}/argent/avoirs/{aid}/decision", post(avoir_decider))
+        // Lot V3 « argent relié » : aides, reports de versement, internat (socle 41).
+        .route("/voyages/{id}/argent/aides", get(aides).post(aide_accorder))
+        .route("/voyages/{id}/argent/aides/{aid}/annulation", post(aide_annuler))
+        .route("/voyages/{id}/argent/reports", get(reports).post(report_effectuer))
+        .route("/voyages/{id}/argent/reports/{rid}/annulation", post(report_annuler))
+        .route("/voyages/{id}/internat/synchroniser", post(internat_synchroniser))
+        // D-069 : seconde validation, retour anticipé, consigne de motif.
+        .route("/voyages/{id}/argent/demandes", get(demandes))
+        .route("/voyages/{id}/argent/demandes/{did}/validation", post(demande_valider))
+        .route("/voyages/{id}/argent/demandes/{did}/refus", post(demande_refuser))
+        .route("/voyages/{id}/argent/consigne-motif", get(consigne_motif))
+        .route("/voyages/{id}/participants/{pid}/retour-anticipe", post(retour_anticipe))
         .route("/voyages/{id}/argent/export", post(exporter))
         .route("/voyages/{id}/argent/nominatif", post(nominatif_ouvrir).delete(nominatif_fermer))
 }
@@ -325,4 +341,114 @@ async fn nominatif_ouvrir(
 async fn nominatif_fermer(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
     s.ent.voyage_nominatif_fermer(&acteur(&session), id).await.map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ───────────────────────── Lot V3 : aides, reports, internat ─────────────────────────
+
+async fn aides(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<AideVue>>> {
+    Ok(Json(s.ent.voyage_aides(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn aide_accorder(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AideSaisie>,
+) -> Res<(StatusCode, Json<DecisionAide>)> {
+    let d = s.ent.voyage_aide_accorder(&acteur(&session), id, b).await.map_err(map_db)?;
+    // 201 quand l'aide est écrite ; 202 quand elle attend la seconde personne.
+    Ok((statut_http(d.statut), Json(d)))
+}
+
+async fn aide_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, aid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<MotifBody>,
+) -> Res<(StatusCode, Json<AideVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_aide_annuler(&acteur(&session), id, aid, &b.motif).await.map_err(map_db)?)))
+}
+
+async fn reports(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<ReportVue>>> {
+    Ok(Json(s.ent.voyage_reports(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn report_effectuer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ReportSaisie>,
+) -> Res<(StatusCode, Json<DecisionReport>)> {
+    let d = s.ent.voyage_report_effectuer(&acteur(&session), id, b).await.map_err(map_db)?;
+    Ok((statut_http(d.statut), Json(d)))
+}
+
+async fn report_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, rid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<MotifBody>,
+) -> Res<(StatusCode, Json<ReportVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_report_annuler(&acteur(&session), id, rid, &b.motif).await.map_err(map_db)?)))
+}
+
+fn statut_http(s: StatutDemande) -> StatusCode {
+    match s {
+        StatutDemande::Appliquee => StatusCode::CREATED,
+        _ => StatusCode::ACCEPTED,
+    }
+}
+
+async fn demandes(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<DemandeVue>>> {
+    Ok(Json(s.ent.voyage_demandes(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn demande_valider(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, did)): Path<(Uuid, Uuid)>,
+) -> Res<(StatusCode, Json<DecisionValidee>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_demande_valider(&acteur(&session), id, did).await.map_err(map_db)?)))
+}
+
+async fn demande_refuser(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, did)): Path<(Uuid, Uuid)>,
+    Json(b): Json<MotifBody>,
+) -> Res<Json<StatutDemande>> {
+    Ok(Json(s.ent.voyage_demande_refuser(&acteur(&session), id, did, &b.motif).await.map_err(map_db)?))
+}
+
+#[derive(serde::Serialize)]
+struct ConsigneMotif {
+    motif_obligatoire: bool,
+    avertissement: &'static str,
+}
+
+/// F2 : l'écran de saisie du motif d'une aide ou d'un report affiche cet avertissement (aucun détail de situation sociale).
+async fn consigne_motif(session: EntSession, Path(_id): Path<Uuid>) -> Json<ConsigneMotif> {
+    let _ = session;
+    Json(ConsigneMotif {
+        motif_obligatoire: true,
+        avertissement: AVERTISSEMENT_MOTIF,
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct RetourAnticipeBody {
+    motif_code: String,
+}
+
+async fn retour_anticipe(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, pid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<RetourAnticipeBody>,
+) -> Res<Json<InternatSynchro>> {
+    Ok(Json(s.ent.voyage_participant_retour_anticipe(&acteur(&session), id, pid, &b.motif_code).await.map_err(map_db)?))
+}
+
+async fn internat_synchroniser(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<InternatSynchro>> {
+    Ok(Json(s.ent.voyage_internat_synchroniser(&acteur(&session), id).await.map_err(map_db)?))
 }
