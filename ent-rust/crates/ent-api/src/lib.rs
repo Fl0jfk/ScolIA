@@ -7,6 +7,7 @@ pub mod anti_abus;
 pub mod purge;
 mod auth;
 pub mod client_ip;
+pub mod flux_limite;
 mod dossier;
 mod personnels;
 mod personnels_delegations;
@@ -334,6 +335,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_flux_m12;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

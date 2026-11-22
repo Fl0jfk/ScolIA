@@ -157,6 +157,8 @@ pub use msg_m4::{
     LOT_MAX_FILS, PROGRAMMATION_JOURS, RETRAIT_MINUTES,
 };
 mod msg_m5;
+mod msg_m12;
+pub use msg_m12::{FilActif, FluxMessagerie, FLUX_ATTENTE_MAX_SECONDES};
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
@@ -231,6 +233,10 @@ mod tests_messagerie_m5;
 mod tests_messagerie_m6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_corr;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m12;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_revue;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
