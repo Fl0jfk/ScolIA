@@ -24,7 +24,13 @@
 use super::*;
 use ent_types::internat_vie::*;
 
-const MOTIFS_REFUS_DIRECTION: [&str; 5] = ["securite", "encadrement", "calendrier", "reglement", "autre"];
+const MOTIFS_REFUS_DIRECTION: [&str; 5] = [
+    "securite",
+    "encadrement",
+    "calendrier",
+    "reglement",
+    "autre",
+];
 const MOTIFS_ANNULATION: [&str; 5] = ["meteo", "encadrement", "organisateur", "securite", "autre"];
 const BILANS: [&str; 3] = ["sans_incident", "retard", "incident"];
 const CANAUX: [&str; 3] = ["telephone", "papier", "en_personne"];
@@ -70,7 +76,8 @@ type LigneBrute = (
     Option<Uuid>,
 );
 
-const COLONNES_GROUPE: &str = "id, titre, lieu, debut, fin, statut, cree_par_user_id, decide_par_user_id, decide_le, \
+const COLONNES_GROUPE: &str =
+    "id, titre, lieu, debut, fin, statut, cree_par_user_id, decide_par_user_id, decide_le, \
      decision_motif_code, annule_motif_code, bilan_code, modele_id";
 
 fn groupe_de(r: LigneBrute) -> GroupeLigne {
@@ -91,13 +98,22 @@ fn groupe_de(r: LigneBrute) -> GroupeLigne {
     }
 }
 
-pub(super) async fn groupe_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid, verrou: bool) -> Result<GroupeLigne, EntDbError> {
+pub(super) async fn groupe_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+    verrou: bool,
+) -> Result<GroupeLigne, EntDbError> {
     let sql = format!(
         "SELECT {COLONNES_GROUPE} FROM ent_internat_sortie_groupe WHERE etablissement_id = $1 AND id = $2{}",
         if verrou { " FOR UPDATE" } else { "" }
     );
-    let r: Option<LigneBrute> =
-        sqlx::query_as(&sql).bind(etab).bind(id).fetch_optional(&mut *conn).await.map_err(db)?;
+    let r: Option<LigneBrute> = sqlx::query_as(&sql)
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
     r.map(groupe_de).ok_or_else(|| DomainError::NotFound.into())
 }
 
@@ -195,7 +211,12 @@ async fn evt_participant_tx(
     Ok(())
 }
 
-pub(super) async fn est_interne_tx(conn: &mut PgConnection, etab: Uuid, eleve: Uuid, jour: NaiveDate) -> Result<bool, EntDbError> {
+pub(super) async fn est_interne_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    jour: NaiveDate,
+) -> Result<bool, EntDbError> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM ent_internat_sejour s JOIN ent_eleve e \
                           ON e.etablissement_id = s.etablissement_id AND e.id = s.eleve_id \
@@ -211,7 +232,12 @@ pub(super) async fn est_interne_tx(conn: &mut PgConnection, etab: Uuid, eleve: U
 }
 
 /// Compte du personnel de l'établissement (adhésion ouverte, ni parent ni élève) : R-IT25.
-pub(super) async fn est_personnel_tx(conn: &mut PgConnection, etab: Uuid, user: Uuid, jour: NaiveDate) -> Result<bool, EntDbError> {
+pub(super) async fn est_personnel_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    jour: NaiveDate,
+) -> Result<bool, EntDbError> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM ent_membership m WHERE m.etablissement_id = $1 AND m.user_id = $2 \
                           AND m.etat = 'ouvert' AND m.role NOT IN ('parent', 'eleve') \
@@ -225,7 +251,12 @@ pub(super) async fn est_personnel_tx(conn: &mut PgConnection, etab: Uuid, user: 
     .map_err(db)
 }
 
-async fn est_encadrant_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid, user: Uuid) -> Result<bool, EntDbError> {
+async fn est_encadrant_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+    user: Uuid,
+) -> Result<bool, EntDbError> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM ent_internat_sortie_groupe_encadrant \
                          WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND user_id = $3)",
@@ -238,7 +269,11 @@ async fn est_encadrant_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid, use
     .map_err(db)
 }
 
-async fn encadrants_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> Result<Vec<Uuid>, EntDbError> {
+async fn encadrants_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+) -> Result<Vec<Uuid>, EntDbError> {
     sqlx::query_scalar(
         "SELECT user_id FROM ent_internat_sortie_groupe_encadrant \
           WHERE etablissement_id = $1 AND sortie_groupe_id = $2 ORDER BY user_id",
@@ -251,7 +286,11 @@ async fn encadrants_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> Res
 }
 
 /// Élèves « comptés » pour l'encadrement : invités, en attente ou autorisés (un refus ou un retrait n'y entre pas).
-async fn nb_comptes_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> Result<i64, EntDbError> {
+async fn nb_comptes_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+) -> Result<i64, EntDbError> {
     sqlx::query_scalar(
         "SELECT count(*) FROM ent_internat_sortie_groupe_participant \
           WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND etat IN ('invite', 'en_attente', 'autorise', 'parti')",
@@ -265,7 +304,8 @@ async fn nb_comptes_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> Res
 
 /// Encadrement suffisant : au moins un accompagnateur et pas plus d'élèves par accompagnateur que le réglage.
 fn encadrement_suffisant(nb_eleves: i64, nb_encadrants: usize, par_encadrant: i16) -> bool {
-    nb_eleves == 0 || (nb_encadrants > 0 && nb_eleves <= nb_encadrants as i64 * i64::from(par_encadrant))
+    nb_eleves == 0
+        || (nb_encadrants > 0 && nb_eleves <= nb_encadrants as i64 * i64::from(par_encadrant))
 }
 
 /// Ligne participant (brute).
@@ -281,15 +321,25 @@ type PartBrute = (
     Option<DateTime<Utc>>,
 );
 
-const COLONNES_PART: &str = "eleve_id, etat, reponse_qualite, reponse_user_id, reponse_personne_id, reponse_le, \
+const COLONNES_PART: &str =
+    "eleve_id, etat, reponse_qualite, reponse_user_id, reponse_personne_id, reponse_le, \
      motif_code, parti_le, rentre_le";
 
-async fn participants_tx(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> Result<Vec<PartBrute>, EntDbError> {
+async fn participants_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+) -> Result<Vec<PartBrute>, EntDbError> {
     let sql = format!(
         "SELECT {COLONNES_PART} FROM ent_internat_sortie_groupe_participant \
           WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND etat <> 'retire' ORDER BY eleve_id"
     );
-    sqlx::query_as(&sql).bind(etab).bind(sortie).fetch_all(&mut *conn).await.map_err(db)
+    sqlx::query_as(&sql)
+        .bind(etab)
+        .bind(sortie)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)
 }
 
 async fn participant_tx(
@@ -302,7 +352,13 @@ async fn participant_tx(
         "SELECT {COLONNES_PART} FROM ent_internat_sortie_groupe_participant \
           WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3 FOR UPDATE"
     );
-    sqlx::query_as(&sql).bind(etab).bind(sortie).bind(eleve).fetch_optional(&mut *conn).await.map_err(db)
+    sqlx::query_as(&sql)
+        .bind(etab)
+        .bind(sortie)
+        .bind(eleve)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)
 }
 
 /// État d'un participant à l'invitation (au moment de la soumission, ou d'un ajout après). **Refus par défaut** : tout
@@ -360,8 +416,22 @@ async fn appliquer_invitation_tx(
         ("non_autorise", _) => "blocage_interdiction",
         _ => "invitation",
     };
-    fait_groupe_tx(conn, etab, g.id, Some(eleve), acte, Some(actor), maintenant, motif).await?;
-    let cause = motif.unwrap_or(if etat == "autorise" { "accord_annuel" } else { "reponse_attendue" });
+    fait_groupe_tx(
+        conn,
+        etab,
+        g.id,
+        Some(eleve),
+        acte,
+        Some(actor),
+        maintenant,
+        motif,
+    )
+    .await?;
+    let cause = motif.unwrap_or(if etat == "autorise" {
+        "accord_annuel"
+    } else {
+        "reponse_attendue"
+    });
     evt_participant_tx(conn, etab, Some(actor), g, eleve, etat, cause).await
 }
 
@@ -374,8 +444,12 @@ fn participant_dto(
     let cache = caches.contains(&p.0);
     ParticipantGroupeDto {
         eleve_id: p.0,
-        nom: (!cache).then(|| noms.get(&p.0).map(|n| n.0.clone())).flatten(),
-        prenom: (!cache).then(|| noms.get(&p.0).map(|n| n.1.clone())).flatten(),
+        nom: (!cache)
+            .then(|| noms.get(&p.0).map(|n| n.0.clone()))
+            .flatten(),
+        prenom: (!cache)
+            .then(|| noms.get(&p.0).map(|n| n.1.clone()))
+            .flatten(),
         protege: proteges.contains(&p.0),
         etat: p.1.clone(),
         reponse_qualite: p.2.clone(),
@@ -395,14 +469,22 @@ fn valider_horaires(
     maintenant: DateTime<Utc>,
 ) -> Result<(String, String), EntDbError> {
     let (titre, lieu) = (titre.trim(), lieu.trim());
-    if titre.is_empty() || titre.chars().count() > 120 || lieu.is_empty() || lieu.chars().count() > 120 {
+    if titre.is_empty()
+        || titre.chars().count() > 120
+        || lieu.is_empty()
+        || lieu.chars().count() > 120
+    {
         return Err(refus("titre et lieu : 1 à 120 caractères"));
     }
     if evoque_la_sante(titre) || evoque_la_sante(lieu) {
-        return Err(refus("aucune donnée de santé dans l'internat : le texte évoque la santé"));
+        return Err(refus(
+            "aucune donnée de santé dans l'internat : le texte évoque la santé",
+        ));
     }
     if fin <= debut || fin > debut + Duration::days(14) {
-        return Err(refus("horaires invalides (fin après le début, 14 jours au plus)"));
+        return Err(refus(
+            "horaires invalides (fin après le début, 14 jours au plus)",
+        ));
     }
     if debut <= maintenant {
         return Err(refus("une sortie se crée avant son début"));
@@ -429,7 +511,9 @@ impl PgEnt {
             parts.retain(|x| p.contains(&x.0));
         }
         let ids: Vec<Uuid> = parts.iter().map(|p| p.0).collect();
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, conn, &ids).await?;
+        let (noms, proteges, caches) = self
+            .noms_pour_personnel(etab, actor, role, conn, &ids)
+            .await?;
         Ok(SortieGroupeDto {
             id: g.id,
             titre: g.titre.clone(),
@@ -445,14 +529,23 @@ impl PgEnt {
             bilan_code: g.bilan.clone(),
             modele_id: g.modele_id,
             encadrants: encadrants_tx(conn, etab, g.id).await?,
-            participants: parts.iter().map(|p| participant_dto(p, &noms, &proteges, &caches)).collect(),
+            participants: parts
+                .iter()
+                .map(|p| participant_dto(p, &noms, &proteges, &caches))
+                .collect(),
             ecartes,
         })
     }
 
     /// Droit d'organiser : `internat.gerer` d'établissement (INT-170, INT-173, INT-177).
-    async fn groupe_organiser(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<(), EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await
+    async fn groupe_organiser(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await
     }
 
     /// Droit de faire l'appel d'UNE sortie : un de ses accompagnateurs, ou `internat.appel` / `internat.gerer` d'établissement.
@@ -493,19 +586,26 @@ impl PgEnt {
             if !vus.insert(*e) {
                 continue;
             }
-            let existe: bool =
-                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)")
-                    .bind(etab)
-                    .bind(e)
-                    .fetch_one(&mut *conn)
-                    .await
-                    .map_err(db)?;
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etab)
+            .bind(e)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
             if !existe || self.eleve_cache_au_tiers(etab, actor, role, *e).await? {
-                ecartes.push(EcarteDto { eleve_id: *e, motif: "inconnu".into() });
+                ecartes.push(EcarteDto {
+                    eleve_id: *e,
+                    motif: "inconnu".into(),
+                });
                 continue;
             }
             if !est_interne_tx(conn, etab, *e, jour).await? {
-                ecartes.push(EcarteDto { eleve_id: *e, motif: "plus_interne".into() });
+                ecartes.push(EcarteDto {
+                    eleve_id: *e,
+                    motif: "plus_interne".into(),
+                });
                 continue;
             }
             retenus.push(*e);
@@ -525,7 +625,9 @@ impl PgEnt {
         let jour = jour_local_tx(conn, etab, maintenant).await?;
         for u in users {
             if !est_personnel_tx(conn, etab, *u, jour).await? {
-                return Err(refus("un accompagnateur est un compte du personnel de l'établissement"));
+                return Err(refus(
+                    "un accompagnateur est un compte du personnel de l'établissement",
+                ));
             }
             let n = sqlx::query(
                 "INSERT INTO ent_internat_sortie_groupe_encadrant (etablissement_id, sortie_groupe_id, user_id) \
@@ -539,7 +641,17 @@ impl PgEnt {
             .map_err(db)?
             .rows_affected();
             if n > 0 {
-                fait_groupe_tx(conn, etab, g.id, None, "encadrant_ajoute", Some(actor), maintenant, None).await?;
+                fait_groupe_tx(
+                    conn,
+                    etab,
+                    g.id,
+                    None,
+                    "encadrant_ajoute",
+                    Some(actor),
+                    maintenant,
+                    None,
+                )
+                .await?;
             }
         }
         Ok(())
@@ -568,7 +680,17 @@ impl PgEnt {
             .map_err(db)?
             .rows_affected();
             if n > 0 {
-                fait_groupe_tx(conn, etab, g.id, Some(*e), "invitation", Some(actor), maintenant, None).await?;
+                fait_groupe_tx(
+                    conn,
+                    etab,
+                    g.id,
+                    Some(*e),
+                    "invitation",
+                    Some(actor),
+                    maintenant,
+                    None,
+                )
+                .await?;
             }
         }
         Ok(())
@@ -606,13 +728,38 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
-        fait_groupe_tx(&mut tx, etab, id, None, "creation", Some(actor), maintenant, None).await?;
-        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &b.encadrants, actor, maintenant).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "creation",
+            Some(actor),
+            maintenant,
+            None,
+        )
+        .await?;
+        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &b.encadrants, actor, maintenant)
+            .await?;
         let jour = jour_local_tx(&mut tx, etab, b.debut).await?;
-        let (retenus, ecartes) = self.groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves).await?;
-        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_CREEE, &g, "brouillon", "creation").await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes).await?;
+        let (retenus, ecartes) = self
+            .groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves)
+            .await?;
+        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant)
+            .await?;
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_CREEE,
+            &g,
+            "brouillon",
+            "creation",
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -631,7 +778,9 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "brouillon" {
-            return Err(conflit("une sortie soumise ne se modifie plus : l'annuler et la recréer"));
+            return Err(conflit(
+                "une sortie soumise ne se modifie plus : l'annuler et la recréer",
+            ));
         }
         let (titre, lieu) = valider_horaires(&b.titre, &b.lieu, b.debut, b.fin, maintenant)?;
         sqlx::query(
@@ -648,9 +797,21 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, None, "modification", Some(actor), maintenant, None).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "modification",
+            Some(actor),
+            maintenant,
+            None,
+        )
+        .await?;
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -668,14 +829,21 @@ impl PgEnt {
         self.groupe_organiser(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
-        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee") || g.debut <= maintenant {
-            return Err(conflit("cette sortie ne peut plus changer d'accompagnateurs"));
+        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee")
+            || g.debut <= maintenant
+        {
+            return Err(conflit(
+                "cette sortie ne peut plus changer d'accompagnateurs",
+            ));
         }
         if encadrants_tx(&mut tx, etab, id).await?.len() >= GROUPE_MAX_ENCADRANTS {
             return Err(refus("trop d'accompagnateurs"));
         }
-        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &[user], actor, maintenant).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &[user], actor, maintenant)
+            .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -693,12 +861,26 @@ impl PgEnt {
         self.groupe_organiser(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
-        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee") || g.debut <= maintenant {
-            return Err(conflit("cette sortie ne peut plus changer d'accompagnateurs"));
+        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee")
+            || g.debut <= maintenant
+        {
+            return Err(conflit(
+                "cette sortie ne peut plus changer d'accompagnateurs",
+            ));
         }
         let (par_encadrant, _) = parametres_vie_tx(&mut tx, etab).await?;
-        let restants = encadrants_tx(&mut tx, etab, id).await?.into_iter().filter(|u| *u != user).count();
-        if g.statut != "brouillon" && !encadrement_suffisant(nb_comptes_tx(&mut tx, etab, id).await?, restants, par_encadrant) {
+        let restants = encadrants_tx(&mut tx, etab, id)
+            .await?
+            .into_iter()
+            .filter(|u| *u != user)
+            .count();
+        if g.statut != "brouillon"
+            && !encadrement_suffisant(
+                nb_comptes_tx(&mut tx, etab, id).await?,
+                restants,
+                par_encadrant,
+            )
+        {
             return Err(conflit("l'encadrement deviendrait insuffisant"));
         }
         let n = sqlx::query(
@@ -714,8 +896,20 @@ impl PgEnt {
         if n == 0 {
             return Err(DomainError::NotFound.into());
         }
-        fait_groupe_tx(&mut tx, etab, id, None, "encadrant_retire", Some(actor), maintenant, None).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "encadrant_retire",
+            Some(actor),
+            maintenant,
+            None,
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -737,11 +931,15 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
-        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee") || g.debut <= maintenant {
+        if !matches!(g.statut.as_str(), "brouillon" | "soumise" | "acceptee")
+            || g.debut <= maintenant
+        {
             return Err(conflit("cette sortie n'accepte plus d'invités"));
         }
         let jour = jour_local_tx(&mut tx, etab, g.debut).await?;
-        let (retenus, ecartes) = self.groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves).await?;
+        let (retenus, ecartes) = self
+            .groupe_trier_invites(&mut tx, etab, actor, role, jour, &b.eleves)
+            .await?;
         // Un élève déjà retiré ne revient pas : le trigger l'interdit (retiré = définitif pour cette sortie).
         for e in &retenus {
             if let Some(p) = participant_tx(&mut tx, etab, id, *e).await? {
@@ -750,21 +948,36 @@ impl PgEnt {
                 }
             }
         }
-        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant).await?;
+        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant)
+            .await?;
         if g.statut != "brouillon" {
             let (par_encadrant, _) = parametres_vie_tx(&mut tx, etab).await?;
             let nb_enc = encadrants_tx(&mut tx, etab, id).await?.len();
-            let nouveaux: Vec<Uuid> =
-                participants_tx(&mut tx, etab, id).await?.into_iter().filter(|p| p.1 == "invite").map(|p| p.0).collect();
-            if !encadrement_suffisant(nb_comptes_tx(&mut tx, etab, id).await?, nb_enc, par_encadrant) {
+            let nouveaux: Vec<Uuid> = participants_tx(&mut tx, etab, id)
+                .await?
+                .into_iter()
+                .filter(|p| p.1 == "invite")
+                .map(|p| p.0)
+                .collect();
+            if !encadrement_suffisant(
+                nb_comptes_tx(&mut tx, etab, id).await?,
+                nb_enc,
+                par_encadrant,
+            ) {
                 return Err(conflit("l'encadrement serait insuffisant pour ces élèves"));
             }
             for e in nouveaux {
-                let (etat, qualite, motif) = evaluer_invitation_tx(self, &mut tx, etab, e, jour).await?;
-                appliquer_invitation_tx(&mut tx, etab, &g, e, etat, qualite, motif, actor, maintenant).await?;
+                let (etat, qualite, motif) =
+                    evaluer_invitation_tx(self, &mut tx, etab, e, jour).await?;
+                appliquer_invitation_tx(
+                    &mut tx, etab, &g, e, etat, qualite, motif, actor, maintenant,
+                )
+                .await?;
             }
         }
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes).await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -789,7 +1002,9 @@ impl PgEnt {
             return Err(DomainError::NotFound.into());
         };
         if matches!(p.1.as_str(), "parti" | "rentre") {
-            return Err(conflit("cet élève est déjà parti : le retour se pointe, il ne se retire pas"));
+            return Err(conflit(
+                "cet élève est déjà parti : le retour se pointe, il ne se retire pas",
+            ));
         }
         sqlx::query(
             "UPDATE ent_internat_sortie_groupe_participant SET etat = 'retire', motif_code = 'retire_par_organisateur', \
@@ -802,11 +1017,32 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, Some(eleve), "retrait", Some(actor), maintenant, Some("retire_par_organisateur")).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            Some(eleve),
+            "retrait",
+            Some(actor),
+            maintenant,
+            Some("retire_par_organisateur"),
+        )
+        .await?;
         if g.statut != "brouillon" {
-            evt_participant_tx(&mut tx, etab, Some(actor), &g, eleve, "retire", "retire_par_organisateur").await?;
+            evt_participant_tx(
+                &mut tx,
+                etab,
+                Some(actor),
+                &g,
+                eleve,
+                "retire",
+                "retire_par_organisateur",
+            )
+            .await?;
         }
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -837,7 +1073,9 @@ impl PgEnt {
             return Err(refus("aucun élève invité"));
         }
         if !encadrement_suffisant(nb, nb_enc, par_encadrant) {
-            return Err(refus("encadrement insuffisant : ajouter des accompagnateurs"));
+            return Err(refus(
+                "encadrement insuffisant : ajouter des accompagnateurs",
+            ));
         }
         sqlx::query(
             "UPDATE ent_internat_sortie_groupe SET statut = 'soumise', modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
@@ -848,17 +1086,42 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, None, "soumission", Some(actor), maintenant, None).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "soumission",
+            Some(actor),
+            maintenant,
+            None,
+        )
+        .await?;
         let jour = jour_local_tx(&mut tx, etab, g.debut).await?;
         for p in participants_tx(&mut tx, etab, id).await? {
             if p.1 == "invite" {
-                let (etat, qualite, motif) = evaluer_invitation_tx(self, &mut tx, etab, p.0, jour).await?;
-                appliquer_invitation_tx(&mut tx, etab, &g, p.0, etat, qualite, motif, actor, maintenant).await?;
+                let (etat, qualite, motif) =
+                    evaluer_invitation_tx(self, &mut tx, etab, p.0, jour).await?;
+                appliquer_invitation_tx(
+                    &mut tx, etab, &g, p.0, etat, qualite, motif, actor, maintenant,
+                )
+                .await?;
             }
         }
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_CREEE, &g, "soumise", "soumission").await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_CREEE,
+            &g,
+            "soumise",
+            "soumission",
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -874,7 +1137,9 @@ impl PgEnt {
         b: &DecisionGroupeDto,
         maintenant: DateTime<Utc>,
     ) -> Result<SortieGroupeDto, EntDbError> {
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatSortiesDecider]).await?;
+        let portee = self
+            .nuit_portee(etab, actor, role, &[Action::InternatSortiesDecider])
+            .await?;
         let motif = b.motif_code.as_deref();
         if !b.accepte && !motif.is_some_and(|m| MOTIFS_REFUS_DIRECTION.contains(&m)) {
             return Err(refus("un refus s'accompagne d'un motif codé (securite, encadrement, calendrier, reglement, autre)"));
@@ -896,8 +1161,14 @@ impl PgEnt {
         if b.accepte {
             let (par_encadrant, _) = parametres_vie_tx(&mut tx, etab).await?;
             let nb_enc = encadrants_tx(&mut tx, etab, id).await?.len();
-            if !encadrement_suffisant(nb_comptes_tx(&mut tx, etab, id).await?, nb_enc, par_encadrant) {
-                return Err(conflit("encadrement insuffisant : la sortie ne peut pas être acceptée"));
+            if !encadrement_suffisant(
+                nb_comptes_tx(&mut tx, etab, id).await?,
+                nb_enc,
+                par_encadrant,
+            ) {
+                return Err(conflit(
+                    "encadrement insuffisant : la sortie ne peut pas être acceptée",
+                ));
             }
             if g.fin <= maintenant {
                 return Err(conflit("cette sortie est terminée"));
@@ -922,16 +1193,30 @@ impl PgEnt {
             etab,
             id,
             None,
-            if b.accepte { "acceptation" } else { "refus_direction" },
+            if b.accepte {
+                "acceptation"
+            } else {
+                "refus_direction"
+            },
             Some(actor),
             maintenant,
             if b.accepte { None } else { motif },
         )
         .await?;
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_DECIDEE, &g, nouveau, if b.accepte { "acceptee" } else { "refusee" })
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_DECIDEE,
+            &g,
+            nouveau,
+            if b.accepte { "acceptee" } else { "refusee" },
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new())
             .await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new()).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -956,8 +1241,13 @@ impl PgEnt {
             return Err(conflit("cette sortie est terminée"));
         }
         let parts = participants_tx(&mut tx, etab, id).await?;
-        if parts.iter().any(|p| matches!(p.1.as_str(), "parti" | "rentre")) {
-            return Err(conflit("des élèves sont partis : les faire rentrer puis clore la sortie"));
+        if parts
+            .iter()
+            .any(|p| matches!(p.1.as_str(), "parti" | "rentre"))
+        {
+            return Err(conflit(
+                "des élèves sont partis : les faire rentrer puis clore la sortie",
+            ));
         }
         sqlx::query(
             "UPDATE ent_internat_sortie_groupe SET statut = 'annulee', annule_motif_code = $3, modifie_le = $4 \
@@ -970,16 +1260,49 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, None, "annulation", Some(actor), maintenant, Some(&b.motif_code)).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "annulation",
+            Some(actor),
+            maintenant,
+            Some(&b.motif_code),
+        )
+        .await?;
         if g.statut != "brouillon" {
             // Chaque famille interrogée est prévenue, par un événement par élève (identifiants et code seulement).
-            for p in parts.iter().filter(|p| matches!(p.1.as_str(), "en_attente" | "autorise")) {
-                evt_participant_tx(&mut tx, etab, Some(actor), &g, p.0, "annulee", &b.motif_code).await?;
+            for p in parts
+                .iter()
+                .filter(|p| matches!(p.1.as_str(), "en_attente" | "autorise"))
+            {
+                evt_participant_tx(
+                    &mut tx,
+                    etab,
+                    Some(actor),
+                    &g,
+                    p.0,
+                    "annulee",
+                    &b.motif_code,
+                )
+                .await?;
             }
         }
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_ANNULEE, &g, "annulee", &b.motif_code).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_ANNULEE,
+            &g,
+            "annulee",
+            &b.motif_code,
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1016,7 +1339,17 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let g = groupe_tx(&mut tx, etab, nid, true).await?;
-        fait_groupe_tx(&mut tx, etab, nid, None, "duplication", Some(actor), maintenant, None).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            nid,
+            None,
+            "duplication",
+            Some(actor),
+            maintenant,
+            None,
+        )
+        .await?;
         let enc: Vec<Uuid> = encadrants_tx(&mut tx, etab, id).await?;
         let enc_ok = {
             let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
@@ -1028,13 +1361,32 @@ impl PgEnt {
             }
             v
         };
-        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &enc_ok, actor, maintenant).await?;
-        let invites: Vec<Uuid> = participants_tx(&mut tx, etab, id).await?.into_iter().map(|p| p.0).collect();
+        self.groupe_ajouter_encadrants(&mut tx, etab, &g, &enc_ok, actor, maintenant)
+            .await?;
+        let invites: Vec<Uuid> = participants_tx(&mut tx, etab, id)
+            .await?
+            .into_iter()
+            .map(|p| p.0)
+            .collect();
         let jour = jour_local_tx(&mut tx, etab, b.debut).await?;
-        let (retenus, ecartes) = self.groupe_trier_invites(&mut tx, etab, actor, role, jour, &invites).await?;
-        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_CREEE, &g, "brouillon", "duplication").await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes).await?;
+        let (retenus, ecartes) = self
+            .groupe_trier_invites(&mut tx, etab, actor, role, jour, &invites)
+            .await?;
+        self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant)
+            .await?;
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_CREEE,
+            &g,
+            "brouillon",
+            "duplication",
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, ecartes)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1054,11 +1406,23 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?;
+        let famille = self
+            .famille_tx(&mut tx, etab, actor, role, eleve, jour)
+            .await?;
         let qualite = match famille {
-            Some(f @ Famille { qualite: Qualite::Titulaire | Qualite::EleveMajeur, .. }) if f.peut_autoriser => f.qualite,
-            Some(Famille { qualite: Qualite::Titulaire, .. }) => {
-                return Err(refus("votre lien avec l'élève ne vous permet pas d'autoriser une sortie"))
+            Some(
+                f @ Famille {
+                    qualite: Qualite::Titulaire | Qualite::EleveMajeur,
+                    ..
+                },
+            ) if f.peut_autoriser => f.qualite,
+            Some(Famille {
+                qualite: Qualite::Titulaire,
+                ..
+            }) => {
+                return Err(refus(
+                    "votre lien avec l'élève ne vous permet pas d'autoriser une sortie",
+                ))
             }
             _ => return Err(EntDbError::Forbidden),
         };
@@ -1073,7 +1437,11 @@ impl PgEnt {
         };
         match p.1.as_str() {
             "en_attente" | "autorise" => {}
-            "refuse" if b.accord => return Err(conflit("un refus de la famille est définitif pour cette sortie")),
+            "refuse" if b.accord => {
+                return Err(conflit(
+                    "un refus de la famille est définitif pour cette sortie",
+                ))
+            }
             "refuse" => {}
             _ => return Err(conflit("cet élève ne peut pas répondre à cette sortie")),
         }
@@ -1092,8 +1460,27 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                fait_groupe_tx(&mut tx, etab, id, Some(eleve), "blocage_desaccord", Some(actor), maintenant, Some("desaccord_connu")).await?;
-                evt_participant_tx(&mut tx, etab, Some(actor), &g, eleve, "non_autorise", "desaccord_connu").await?;
+                fait_groupe_tx(
+                    &mut tx,
+                    etab,
+                    id,
+                    Some(eleve),
+                    "blocage_desaccord",
+                    Some(actor),
+                    maintenant,
+                    Some("desaccord_connu"),
+                )
+                .await?;
+                evt_participant_tx(
+                    &mut tx,
+                    etab,
+                    Some(actor),
+                    &g,
+                    eleve,
+                    "non_autorise",
+                    "desaccord_connu",
+                )
+                .await?;
             } else {
                 sqlx::query(
                     "UPDATE ent_internat_sortie_groupe_participant SET etat = 'autorise', reponse_qualite = $4, \
@@ -1109,11 +1496,34 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                fait_groupe_tx(&mut tx, etab, id, Some(eleve), "accord_famille", Some(actor), maintenant, None).await?;
-                evt_participant_tx(&mut tx, etab, Some(actor), &g, eleve, "autorise", "accord_famille").await?;
+                fait_groupe_tx(
+                    &mut tx,
+                    etab,
+                    id,
+                    Some(eleve),
+                    "accord_famille",
+                    Some(actor),
+                    maintenant,
+                    None,
+                )
+                .await?;
+                evt_participant_tx(
+                    &mut tx,
+                    etab,
+                    Some(actor),
+                    &g,
+                    eleve,
+                    "autorise",
+                    "accord_famille",
+                )
+                .await?;
             }
         } else if p.1 != "refuse" {
-            let motif = if qualite == Qualite::EleveMajeur { "majeur_refuse" } else { "refus_famille" };
+            let motif = if qualite == Qualite::EleveMajeur {
+                "majeur_refuse"
+            } else {
+                "refus_famille"
+            };
             sqlx::query(
                 "UPDATE ent_internat_sortie_groupe_participant SET etat = 'refuse', reponse_qualite = $4, \
                         reponse_user_id = $5, reponse_le = $6, motif_code = $7, modifie_le = $6 \
@@ -1129,7 +1539,17 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            fait_groupe_tx(&mut tx, etab, id, Some(eleve), "refus_famille", Some(actor), maintenant, Some(motif)).await?;
+            fait_groupe_tx(
+                &mut tx,
+                etab,
+                id,
+                Some(eleve),
+                "refus_famille",
+                Some(actor),
+                maintenant,
+                Some(motif),
+            )
+            .await?;
             evt_participant_tx(&mut tx, etab, Some(actor), &g, eleve, "refuse", motif).await?;
         }
         let dto = famille_dto_tx(&mut tx, etab, &g, eleve, true).await?;
@@ -1150,7 +1570,9 @@ impl PgEnt {
         b: &AccordHorsLigneDto,
         maintenant: DateTime<Utc>,
     ) -> Result<SortieGroupeDto, EntDbError> {
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatSortiesDecider]).await?;
+        let portee = self
+            .nuit_portee(etab, actor, role, &[Action::InternatSortiesDecider])
+            .await?;
         if portee.as_ref().is_some_and(|p| !p.contains(&eleve)) {
             return Err(EntDbError::Forbidden);
         }
@@ -1158,8 +1580,12 @@ impl PgEnt {
         if !CANAUX.contains(&b.canal.as_str()) {
             return Err(refus("canal inconnu (telephone, papier, en_personne)"));
         }
-        if b.recu_le > maintenant || b.recu_le < maintenant - Duration::days(HORS_LIGNE_ANCIENNETE_JOURS) {
-            return Err(refus("la date de réception de l'accord est invalide (ni future, ni de plus de 90 jours)"));
+        if b.recu_le > maintenant
+            || b.recu_le < maintenant - Duration::days(HORS_LIGNE_ANCIENNETE_JOURS)
+        {
+            return Err(refus(
+                "la date de réception de l'accord est invalide (ni future, ni de plus de 90 jours)",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
@@ -1170,14 +1596,20 @@ impl PgEnt {
             return Err(DomainError::NotFound.into());
         };
         if p.1 != "en_attente" {
-            return Err(conflit("cet élève n'attend pas d'accord (déjà répondu, bloqué ou retiré)"));
+            return Err(conflit(
+                "cet élève n'attend pas d'accord (déjà répondu, bloqué ou retiré)",
+            ));
         }
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         if eleve_majeur_tx(&mut tx, etab, eleve, jour).await? {
-            return Err(refus("un élève majeur répond lui-même : aucun accord hors ligne à sa place"));
+            return Err(refus(
+                "un élève majeur répond lui-même : aucun accord hors ligne à sa place",
+            ));
         }
         if desaccord_connu_tx(&mut tx, etab, eleve).await? {
-            return Err(conflit("désaccord connu entre les titulaires : renvoyé au CPE"));
+            return Err(conflit(
+                "désaccord connu entre les titulaires : renvoyé au CPE",
+            ));
         }
         let titulaire: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
@@ -1191,7 +1623,9 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if !titulaire {
-            return Err(refus("cette personne n'est pas un titulaire autorisé à donner un accord pour cet élève"));
+            return Err(refus(
+                "cette personne n'est pas un titulaire autorisé à donner un accord pour cet élève",
+            ));
         }
         if personne_interdite_tx(&mut tx, etab, eleve, b.donne_par_personne_id, jour).await? {
             // Refus par défaut ; la cause n'est jamais détaillée à l'élève ni à la famille.
@@ -1228,9 +1662,30 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, Some(eleve), "accord_hors_ligne", Some(actor), maintenant, Some(&b.canal)).await?;
-        evt_participant_tx(&mut tx, etab, Some(actor), &g, eleve, "autorise", "accord_hors_ligne").await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new()).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            Some(eleve),
+            "accord_hors_ligne",
+            Some(actor),
+            maintenant,
+            Some(&b.canal),
+        )
+        .await?;
+        evt_participant_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            &g,
+            eleve,
+            "autorise",
+            "accord_hors_ligne",
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1249,7 +1704,10 @@ impl PgEnt {
     ) -> Result<bool, EntDbError> {
         match p.2.as_deref() {
             Some("titulaire") => match p.3 {
-                Some(user) => Ok(self.titulaire_tx(conn, etab, user, eleve, jour).await?.is_some_and(|peut| peut)),
+                Some(user) => Ok(self
+                    .titulaire_tx(conn, etab, user, eleve, jour)
+                    .await?
+                    .is_some_and(|peut| peut)),
                 None => Ok(false),
             },
             Some("eleve_majeur") => eleve_majeur_tx(conn, etab, eleve, jour).await,
@@ -1270,7 +1728,9 @@ impl PgEnt {
                 }
                 None => Ok(false),
             },
-            Some("annuelle") => Ok(verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await == "autorise"),
+            Some("annuelle") => Ok(
+                verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await == "autorise",
+            ),
             _ => Ok(false),
         }
     }
@@ -1290,10 +1750,13 @@ impl PgEnt {
             return Err(refus("trop d'élèves en un appel"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id).await?;
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+            .await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
-            return Err(conflit("seule une sortie acceptée par la direction donne lieu à un départ"));
+            return Err(conflit(
+                "seule une sortie acceptée par la direction donne lieu à un départ",
+            ));
         }
         if maintenant < g.debut - Duration::minutes(DEPART_AVANCE_MINUTES) || maintenant >= g.fin {
             return Err(conflit("hors de la plage de départ de cette sortie"));
@@ -1317,7 +1780,10 @@ impl PgEnt {
             if !vus.insert(*e) {
                 continue;
             }
-            let res = |r: &str| ResultatAppelDto { eleve_id: *e, resultat: r.to_string() };
+            let res = |r: &str| ResultatAppelDto {
+                eleve_id: *e,
+                resultat: r.to_string(),
+            };
             let Some(p) = participant_tx(&mut tx, etab, id, *e).await? else {
                 resultats.push(res("pas_invite"));
                 continue;
@@ -1334,17 +1800,47 @@ impl PgEnt {
                 }
             }
             if !est_interne_tx(&mut tx, etab, *e, jour).await? {
-                bloquer_participant_tx(&mut tx, etab, &g, *e, "plus_interne", "blocage_interdiction", actor, maintenant).await?;
+                bloquer_participant_tx(
+                    &mut tx,
+                    etab,
+                    &g,
+                    *e,
+                    "plus_interne",
+                    "blocage_interdiction",
+                    actor,
+                    maintenant,
+                )
+                .await?;
                 resultats.push(res("non_autorise"));
                 continue;
             }
             if desaccord_connu_tx(&mut tx, etab, *e).await? {
-                bloquer_participant_tx(&mut tx, etab, &g, *e, "desaccord_connu", "blocage_desaccord", actor, maintenant).await?;
+                bloquer_participant_tx(
+                    &mut tx,
+                    etab,
+                    &g,
+                    *e,
+                    "desaccord_connu",
+                    "blocage_desaccord",
+                    actor,
+                    maintenant,
+                )
+                .await?;
                 resultats.push(res("non_autorise"));
                 continue;
             }
             if !self.accord_tient_tx(&mut tx, etab, *e, &p, jour).await? {
-                bloquer_participant_tx(&mut tx, etab, &g, *e, "interdiction", "accord_tombe", actor, maintenant).await?;
+                bloquer_participant_tx(
+                    &mut tx,
+                    etab,
+                    &g,
+                    *e,
+                    "interdiction",
+                    "accord_tombe",
+                    actor,
+                    maintenant,
+                )
+                .await?;
                 resultats.push(res("accord_tombe"));
                 continue;
             }
@@ -1365,7 +1861,17 @@ impl PgEnt {
             .await
             .map_err(db)?;
             deja_partis += 1;
-            fait_groupe_tx(&mut tx, etab, id, Some(*e), "depart", Some(actor), maintenant, None).await?;
+            fait_groupe_tx(
+                &mut tx,
+                etab,
+                id,
+                Some(*e),
+                "depart",
+                Some(actor),
+                maintenant,
+                None,
+            )
+            .await?;
             publier(
                 &mut tx,
                 etab,
@@ -1398,7 +1904,8 @@ impl PgEnt {
             return Err(refus("trop d'élèves en un appel"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id).await?;
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+            .await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
             return Err(conflit("cette sortie n'est pas en cours"));
@@ -1409,7 +1916,10 @@ impl PgEnt {
             if !vus.insert(*e) {
                 continue;
             }
-            let res = |r: &str| ResultatAppelDto { eleve_id: *e, resultat: r.to_string() };
+            let res = |r: &str| ResultatAppelDto {
+                eleve_id: *e,
+                resultat: r.to_string(),
+            };
             match participant_tx(&mut tx, etab, id, *e).await? {
                 None => resultats.push(res("pas_invite")),
                 Some(p) if p.1 == "parti" => {
@@ -1426,7 +1936,17 @@ impl PgEnt {
                     .execute(&mut *tx)
                     .await
                     .map_err(db)?;
-                    fait_groupe_tx(&mut tx, etab, id, Some(*e), "retour", Some(actor), maintenant, None).await?;
+                    fait_groupe_tx(
+                        &mut tx,
+                        etab,
+                        id,
+                        Some(*e),
+                        "retour",
+                        Some(actor),
+                        maintenant,
+                        None,
+                    )
+                    .await?;
                     publier(
                         &mut tx,
                         etab,
@@ -1463,7 +1983,8 @@ impl PgEnt {
             return Err(refus("bilan inconnu (sans_incident, retard, incident)"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        self.groupe_appel_exiger(&mut tx, etab, actor, role, id).await?;
+        self.groupe_appel_exiger(&mut tx, etab, actor, role, id)
+            .await?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
         if g.statut != "acceptee" {
             return Err(conflit("seule une sortie acceptée se clôt"));
@@ -1481,7 +2002,9 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if partis > 0 {
-            return Err(conflit("des élèves partis ne sont pas rentrés : pointer leur retour avant de clore"));
+            return Err(conflit(
+                "des élèves partis ne sont pas rentrés : pointer leur retour avant de clore",
+            ));
         }
         sqlx::query(
             "UPDATE ent_internat_sortie_groupe SET statut = 'close', close_le = $3, close_par_user_id = $4, \
@@ -1495,10 +2018,31 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        fait_groupe_tx(&mut tx, etab, id, None, "cloture", Some(actor), maintenant, Some(&b.bilan_code)).await?;
+        fait_groupe_tx(
+            &mut tx,
+            etab,
+            id,
+            None,
+            "cloture",
+            Some(actor),
+            maintenant,
+            Some(&b.bilan_code),
+        )
+        .await?;
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        evt_groupe_tx(&mut tx, etab, Some(actor), types::INTERNAT_SORTIE_GROUPE_CLOSE, &g, "close", &b.bilan_code).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new()).await?;
+        evt_groupe_tx(
+            &mut tx,
+            etab,
+            Some(actor),
+            types::INTERNAT_SORTIE_GROUPE_CLOSE,
+            &g,
+            "close",
+            &b.bilan_code,
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, None, Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1514,10 +2058,23 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
     ) -> Result<SortieGroupeDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let portee = self.groupe_lecture_portee(&mut tx, etab, actor, role, id).await?;
+        let portee = self
+            .groupe_lecture_portee(&mut tx, etab, actor, role, id)
+            .await?;
         let g = groupe_tx(&mut tx, etab, id, false).await?;
-        crate::internat_nuit::journaliser_lecture_tx(&mut tx, etab, actor, "sortie_groupe", None, None, maintenant).await?;
-        let dto = self.groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new()).await?;
+        crate::internat_nuit::journaliser_lecture_tx(
+            &mut tx,
+            etab,
+            actor,
+            "sortie_groupe",
+            None,
+            None,
+            maintenant,
+        )
+        .await?;
+        let dto = self
+            .groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new())
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1534,7 +2091,17 @@ impl PgEnt {
         if est_encadrant_tx(conn, etab, id, actor).await? {
             return Ok(None);
         }
-        self.nuit_portee(etab, actor, role, &[Action::InternatLire, Action::InternatGerer, Action::InternatAppel]).await
+        self.nuit_portee(
+            etab,
+            actor,
+            role,
+            &[
+                Action::InternatLire,
+                Action::InternatGerer,
+                Action::InternatAppel,
+            ],
+        )
+        .await
     }
 
     /// INT-175 : sorties d'une période (autorisés du jour, de la semaine) sans noms d'élèves.
@@ -1549,8 +2116,19 @@ impl PgEnt {
         if au < du || (au - du).num_days() > 366 {
             return Err(refus("période invalide (366 jours au plus)"));
         }
-        let a_le_droit =
-            self.nuit_portee(etab, actor, role, &[Action::InternatLire, Action::InternatGerer, Action::InternatAppel]).await.is_ok();
+        let a_le_droit = self
+            .nuit_portee(
+                etab,
+                actor,
+                role,
+                &[
+                    Action::InternatLire,
+                    Action::InternatGerer,
+                    Action::InternatAppel,
+                ],
+            )
+            .await
+            .is_ok();
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows: Vec<(Uuid, String, String, DateTime<Utc>, DateTime<Utc>, String, i64, i64, i64, bool)> = sqlx::query_as(
             "SELECT g.id, g.titre, g.lieu, g.debut, g.fin, g.statut, \
@@ -1609,10 +2187,14 @@ impl PgEnt {
     ) -> Result<Vec<SortieGroupeFamilleDto>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let Some(f) = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await? else {
+        let Some(f) = self
+            .famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour)
+            .await?
+        else {
             return Err(EntDbError::Forbidden);
         };
-        let peut = f.peut_autoriser && matches!(f.qualite, Qualite::Titulaire | Qualite::EleveMajeur);
+        let peut =
+            f.peut_autoriser && matches!(f.qualite, Qualite::Titulaire | Qualite::EleveMajeur);
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT g.id FROM ent_internat_sortie_groupe g \
                JOIN ent_internat_sortie_groupe_participant p ON p.etablissement_id = g.etablissement_id AND p.sortie_groupe_id = g.id \
@@ -1663,8 +2245,22 @@ async fn bloquer_participant_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    fait_groupe_tx(conn, etab, g.id, Some(eleve), acte, Some(actor), maintenant, Some(motif)).await?;
-    let cause = if motif == "interdiction" { "interdiction_auteur" } else { motif };
+    fait_groupe_tx(
+        conn,
+        etab,
+        g.id,
+        Some(eleve),
+        acte,
+        Some(actor),
+        maintenant,
+        Some(motif),
+    )
+    .await?;
+    let cause = if motif == "interdiction" {
+        "interdiction_auteur"
+    } else {
+        motif
+    };
     evt_participant_tx(conn, etab, Some(actor), g, eleve, "non_autorise", cause).await
 }
 
@@ -1686,8 +2282,11 @@ pub(super) async fn famille_dto_tx(
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    let Some(etat) = etat.filter(|e| !matches!(e.as_str(), "invite" | "retire")) else { return Ok(None) };
-    let attend = matches!(etat.as_str(), "en_attente" | "autorise") && matches!(g.statut.as_str(), "soumise" | "acceptee");
+    let Some(etat) = etat.filter(|e| !matches!(e.as_str(), "invite" | "retire")) else {
+        return Ok(None);
+    };
+    let attend = matches!(etat.as_str(), "en_attente" | "autorise")
+        && matches!(g.statut.as_str(), "soumise" | "acceptee");
     Ok(Some(SortieGroupeFamilleDto {
         sortie_id: g.id,
         eleve_id: eleve,
@@ -1708,7 +2307,10 @@ mod tests_unitaires {
     #[test]
     fn l_encadrement_se_calcule_par_accompagnateur() {
         assert!(encadrement_suffisant(0, 0, 12));
-        assert!(!encadrement_suffisant(1, 0, 12), "un élève sans accompagnateur : insuffisant");
+        assert!(
+            !encadrement_suffisant(1, 0, 12),
+            "un élève sans accompagnateur : insuffisant"
+        );
         assert!(encadrement_suffisant(12, 1, 12));
         assert!(!encadrement_suffisant(13, 1, 12));
         assert!(encadrement_suffisant(24, 2, 12));

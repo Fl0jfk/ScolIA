@@ -16,12 +16,21 @@
 //!
 //! Chaque fonction `*_a` reçoit l'instant (`maintenant`) : aucun test ne dépend de l'heure réelle.
 
+use super::groupes::{
+    est_interne_tx, est_personnel_tx, famille_dto_tx, groupe_tx, GROUPE_HORIZON_JOURS,
+};
 use super::*;
-use super::groupes::{est_interne_tx, est_personnel_tx, famille_dto_tx, groupe_tx, GROUPE_HORIZON_JOURS};
 use ent_types::internat_vie::*;
 
-const NATURES_EVENEMENT: [&str; 7] =
-    ["incident", "comportement", "intrusion", "alarme", "malaise", "degradation", "objet_dangereux"];
+const NATURES_EVENEMENT: [&str; 7] = [
+    "incident",
+    "comportement",
+    "intrusion",
+    "alarme",
+    "malaise",
+    "degradation",
+    "objet_dangereux",
+];
 const NIVEAUX: [&str; 3] = ["information", "important", "critique"];
 const MESURES: [&str; 8] = [
     "aucune",
@@ -34,7 +43,13 @@ const MESURES: [&str; 8] = [
     "autre",
 ];
 const ROLES_EVENEMENT: [&str; 4] = ["auteur_presume", "victime", "temoin", "present"];
-const MOTIFS_MASQUAGE: [&str; 5] = ["erreur", "donnee_sensible", "hors_perimetre", "doublon", "autre"];
+const MOTIFS_MASQUAGE: [&str; 5] = [
+    "erreur",
+    "donnee_sensible",
+    "hors_perimetre",
+    "doublon",
+    "autre",
+];
 /// Un fait de liaison se date de la nuit courante ou de l'une des 7 précédentes (on rattrape, on ne réécrit pas).
 const LIAISON_ANTIDATE_NUITS: i64 = 7;
 /// Un événement se déclare au plus 48 h après les faits, jamais dans le futur (5 minutes d'écart d'horloge tolérées).
@@ -45,35 +60,71 @@ const MAX_PARTICIPANTS_EVENEMENT: usize = 60;
 /// Catalogue par défaut (§11.1) : (code, libellé, pour le jour, valorisation, ordre). Aucune catégorie de santé.
 const CODES_DEFAUT: [(&str, &str, bool, bool, i16); 10] = [
     ("fatigue", "Fatigué, couché tôt", false, false, 1),
-    ("conflit_regle", "Conflit dans la chambre, réglé", false, false, 2),
+    (
+        "conflit_regle",
+        "Conflit dans la chambre, réglé",
+        false,
+        false,
+        2,
+    ),
     ("demande_cpe", "A demandé à parler au CPE", true, false, 3),
-    ("travail_non_fait", "Travail non fait à l'étude", true, false, 4),
-    ("comportement_remarquable", "Comportement remarquable", false, true, 5),
+    (
+        "travail_non_fait",
+        "Travail non fait à l'étude",
+        true,
+        false,
+        4,
+    ),
+    (
+        "comportement_remarquable",
+        "Comportement remarquable",
+        false,
+        true,
+        5,
+    ),
     ("objet_perdu", "Objet perdu", true, false, 6),
-    ("rappeler_famille", "À rappeler à la famille", true, false, 7),
-    ("demande_intervention", "Demande d'intervention technique", false, false, 8),
+    (
+        "rappeler_famille",
+        "À rappeler à la famille",
+        true,
+        false,
+        7,
+    ),
+    (
+        "demande_intervention",
+        "Demande d'intervention technique",
+        false,
+        false,
+        8,
+    ),
     ("exercice_fait", "Exercice fait", false, false, 9),
     ("absence_etude", "Absence à l'étude", true, false, 10),
 ];
 
 /// Texte court d'un fait de liaison : bornes du réglage, aucune donnée de santé (R-IT7) — message d'invite vers le 34.
 fn texte_liaison(t: Option<&str>, max: i16) -> Result<Option<String>, EntDbError> {
-    let Some(t) = t.map(str::trim).filter(|t| !t.is_empty()) else { return Ok(None) };
+    let Some(t) = t.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Ok(None);
+    };
     if t.chars().count() > max as usize {
         return Err(refus("texte trop long (300 caractères au plus)"));
     }
     if evoque_la_sante(t) {
-        return Err(refus("ce texte évoque la santé : utiliser le mouvement du socle santé, jamais la liaison"));
+        return Err(refus(
+            "ce texte évoque la santé : utiliser le mouvement du socle santé, jamais la liaison",
+        ));
     }
     Ok(Some(t.to_string()))
 }
 
 async fn codes_defaut_tx(conn: &mut PgConnection, etab: Uuid) -> Result<(), EntDbError> {
-    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_internat_liaison_code WHERE etablissement_id = $1")
-        .bind(etab)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_internat_liaison_code WHERE etablissement_id = $1",
+    )
+    .bind(etab)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
     if n > 0 {
         return Ok(());
     }
@@ -107,7 +158,14 @@ async fn codes_tx(conn: &mut PgConnection, etab: Uuid) -> Result<Vec<LiaisonCode
     .map_err(db)?;
     Ok(rows
         .into_iter()
-        .map(|r| LiaisonCodeDto { code: r.0, libelle: r.1, pour_le_jour: r.2, valorisation: r.3, ordre: r.4, actif: r.5 })
+        .map(|r| LiaisonCodeDto {
+            code: r.0,
+            libelle: r.1,
+            pour_le_jour: r.2,
+            valorisation: r.3,
+            ordre: r.4,
+            actif: r.5,
+        })
         .collect())
 }
 
@@ -117,7 +175,9 @@ fn libelle_code(l: &str) -> Result<String, EntDbError> {
         return Err(refus("libellé du code : 1 à 80 caractères"));
     }
     if evoque_la_sante(l) {
-        return Err(refus("aucune catégorie de santé dans le catalogue de liaison"));
+        return Err(refus(
+            "aucune catégorie de santé dans le catalogue de liaison",
+        ));
     }
     Ok(l.to_string())
 }
@@ -126,7 +186,8 @@ fn code_valide(c: &str) -> bool {
     let b = c.as_bytes();
     (2..=40).contains(&b.len())
         && b[0].is_ascii_lowercase()
-        && b.iter().all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || *x == b'_')
+        && b.iter()
+            .all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || *x == b'_')
 }
 
 async fn param_texte_max_tx(conn: &mut PgConnection, etab: Uuid) -> Result<i16, EntDbError> {
@@ -135,11 +196,13 @@ async fn param_texte_max_tx(conn: &mut PgConnection, etab: Uuid) -> Result<i16, 
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-    sqlx::query_scalar("SELECT liaison_texte_max FROM ent_internat_parametres_vie WHERE etablissement_id = $1")
-        .bind(etab)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)
+    sqlx::query_scalar(
+        "SELECT liaison_texte_max FROM ent_internat_parametres_vie WHERE etablissement_id = $1",
+    )
+    .bind(etab)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
 }
 
 type LiaisonBrute = (
@@ -157,7 +220,8 @@ type LiaisonBrute = (
     DateTime<Utc>,
 );
 
-const COLONNES_LIAISON: &str = "l.id, l.eleve_id, l.code, c.libelle, l.texte, l.nuit, l.par_user_id, l.pour_le_jour, \
+const COLONNES_LIAISON: &str =
+    "l.id, l.eleve_id, l.code, c.libelle, l.texte, l.nuit, l.par_user_id, l.pour_le_jour, \
      l.masque_le, l.a_revoir_le, l.signale_pp_le, l.cree_le";
 
 const JOINTURE_LIAISON: &str = "FROM ent_internat_liaison l JOIN ent_internat_liaison_code c \
@@ -178,12 +242,20 @@ impl PgEnt {
         LiaisonDto {
             id: r.0,
             eleve_id: r.1,
-            nom: (!cache).then(|| noms.get(&r.1).map(|n| n.0.clone())).flatten(),
-            prenom: (!cache).then(|| noms.get(&r.1).map(|n| n.1.clone())).flatten(),
+            nom: (!cache)
+                .then(|| noms.get(&r.1).map(|n| n.0.clone()))
+                .flatten(),
+            prenom: (!cache)
+                .then(|| noms.get(&r.1).map(|n| n.1.clone()))
+                .flatten(),
             protege: proteges.contains(&r.1),
             code: r.2.clone(),
             libelle: r.3.clone(),
-            texte: if voir_texte && (!masque || voir_masque_texte) { r.4.clone() } else { None },
+            texte: if voir_texte && (!masque || voir_masque_texte) {
+                r.4.clone()
+            } else {
+                None
+            },
             nuit: r.5,
             par_user_id: r.6,
             pour_le_jour: r.7,
@@ -198,12 +270,22 @@ impl PgEnt {
 
     /// Catalogue des faits de liaison de l'établissement (créé à la première lecture). Lecture : tout porteur d'un
     /// droit de liaison (écrire, lire, « pour le jour ») ou de gestion.
-    pub async fn lister_codes_liaison_a(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<Vec<LiaisonCodeDto>, EntDbError> {
+    pub async fn lister_codes_liaison_a(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<Vec<LiaisonCodeDto>, EntDbError> {
         self.nuit_portee(
             etab,
             actor,
             role,
-            &[Action::InternatLiaisonEcrire, Action::InternatLiaisonLire, Action::InternatLiaisonJour, Action::InternatGerer],
+            &[
+                Action::InternatLiaisonEcrire,
+                Action::InternatLiaisonLire,
+                Action::InternatLiaisonJour,
+                Action::InternatGerer,
+            ],
         )
         .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -221,12 +303,17 @@ impl PgEnt {
         b: &LiaisonCodeCreationDto,
         maintenant: DateTime<Utc>,
     ) -> Result<LiaisonCodeDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         if !code_valide(&b.code) {
-            return Err(refus("code invalide (minuscules, chiffres et soulignés, 2 à 40 caractères)"));
+            return Err(refus(
+                "code invalide (minuscules, chiffres et soulignés, 2 à 40 caractères)",
+            ));
         }
         if evoque_la_sante(&b.code.replace('_', " ")) {
-            return Err(refus("aucune catégorie de santé dans le catalogue de liaison"));
+            return Err(refus(
+                "aucune catégorie de santé dans le catalogue de liaison",
+            ));
         }
         let libelle = libelle_code(&b.libelle)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -248,7 +335,10 @@ impl PgEnt {
         if n == 0 {
             return Err(conflit("ce code existe déjà"));
         }
-        let c = codes_tx(&mut tx, etab).await?.into_iter().find(|c| c.code == b.code);
+        let c = codes_tx(&mut tx, etab)
+            .await?
+            .into_iter()
+            .find(|c| c.code == b.code);
         tx.commit().await.map_err(db)?;
         c.ok_or_else(|| DomainError::NotFound.into())
     }
@@ -264,7 +354,8 @@ impl PgEnt {
         b: &LiaisonCodeSaisieDto,
         maintenant: DateTime<Utc>,
     ) -> Result<LiaisonCodeDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         let libelle = b.libelle.as_deref().map(libelle_code).transpose()?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         codes_defaut_tx(&mut tx, etab).await?;
@@ -287,7 +378,10 @@ impl PgEnt {
         if n == 0 {
             return Err(DomainError::NotFound.into());
         }
-        let c = codes_tx(&mut tx, etab).await?.into_iter().find(|c| c.code == code);
+        let c = codes_tx(&mut tx, etab)
+            .await?
+            .into_iter()
+            .find(|c| c.code == code);
         tx.commit().await.map_err(db)?;
         c.ok_or_else(|| DomainError::NotFound.into())
     }
@@ -304,14 +398,23 @@ impl PgEnt {
         b: &LiaisonSaisieDto,
         maintenant: DateTime<Utc>,
     ) -> Result<LiaisonDto, EntDbError> {
-        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonEcrire], b.eleve_id).await?;
+        self.personnel_exiger(
+            etab,
+            actor,
+            role,
+            &[Action::InternatLiaisonEcrire],
+            b.eleve_id,
+        )
+        .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let max = param_texte_max_tx(&mut tx, etab).await?;
         let texte = texte_liaison(b.texte.as_deref(), max)?;
         let courante = nuit_a_tx(&mut tx, etab, maintenant).await?;
         let nuit = b.nuit.unwrap_or(courante);
         if nuit > courante || nuit < courante - Duration::days(LIAISON_ANTIDATE_NUITS) {
-            return Err(refus("la nuit d'un fait de liaison est la nuit courante ou l'une des 7 précédentes"));
+            return Err(refus(
+                "la nuit d'un fait de liaison est la nuit courante ou l'une des 7 précédentes",
+            ));
         }
         codes_defaut_tx(&mut tx, etab).await?;
         let c: Option<(bool, bool)> = sqlx::query_as(
@@ -322,7 +425,9 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((pour_le_jour, actif)) = c else { return Err(refus("code de liaison inconnu")) };
+        let Some((pour_le_jour, actif)) = c else {
+            return Err(refus("code de liaison inconnu"));
+        };
         if !actif {
             return Err(refus("ce code de liaison n'est plus utilisé"));
         }
@@ -358,7 +463,9 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let dto = self.liaison_lire_une_tx(&mut tx, etab, actor, role, id, true).await?;
+        let dto = self
+            .liaison_lire_une_tx(&mut tx, etab, actor, role, id, true)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -380,7 +487,9 @@ impl PgEnt {
             .await
             .map_err(db)?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, conn, &[r.1]).await?;
+        let (noms, proteges, caches) = self
+            .noms_pour_personnel(etab, actor, role, conn, &[r.1])
+            .await?;
         Ok(self.liaison_dto(&r, &noms, &proteges, &caches, voir_texte, true))
     }
 
@@ -394,18 +503,40 @@ impl PgEnt {
         eleve: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<Vec<LiaisonDto>, EntDbError> {
-        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonLire], eleve).await?;
-        let gestion = self.a_action_etablissement(etab, actor, role, Action::InternatGerer).await?;
+        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonLire], eleve)
+            .await?;
+        let gestion = self
+            .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        crate::internat_nuit::journaliser_lecture_tx(&mut tx, etab, actor, "liaison", Some(eleve), None, maintenant).await?;
+        crate::internat_nuit::journaliser_lecture_tx(
+            &mut tx,
+            etab,
+            actor,
+            "liaison",
+            Some(eleve),
+            None,
+            maintenant,
+        )
+        .await?;
         let sql = format!(
             "SELECT {COLONNES_LIAISON} {JOINTURE_LIAISON} WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
               ORDER BY l.nuit DESC, l.cree_le DESC, l.id LIMIT 500"
         );
-        let rows: Vec<LiaisonBrute> = sqlx::query_as(&sql).bind(etab).bind(eleve).fetch_all(&mut *tx).await.map_err(db)?;
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, &mut tx, &[eleve]).await?;
+        let rows: Vec<LiaisonBrute> = sqlx::query_as(&sql)
+            .bind(etab)
+            .bind(eleve)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+        let (noms, proteges, caches) = self
+            .noms_pour_personnel(etab, actor, role, &mut tx, &[eleve])
+            .await?;
         tx.commit().await.map_err(db)?;
-        Ok(rows.iter().map(|r| self.liaison_dto(r, &noms, &proteges, &caches, true, gestion)).collect())
+        Ok(rows
+            .iter()
+            .map(|r| self.liaison_dto(r, &noms, &proteges, &caches, true, gestion))
+            .collect())
     }
 
     /// Faits de liaison d'une nuit. `internat.liaison.lire` : tous les faits de sa portée avec leur texte. Seul
@@ -419,28 +550,50 @@ impl PgEnt {
         nuit: NaiveDate,
         maintenant: DateTime<Utc>,
     ) -> Result<Vec<LiaisonDto>, EntDbError> {
-        let complet = self.nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire]).await;
+        let complet = self
+            .nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire])
+            .await;
         let (portee, voir_texte) = match complet {
             Ok(p) => (p, true),
-            Err(EntDbError::Forbidden) => (self.nuit_portee(etab, actor, role, &[Action::InternatLiaisonJour]).await?, false),
+            Err(EntDbError::Forbidden) => (
+                self.nuit_portee(etab, actor, role, &[Action::InternatLiaisonJour])
+                    .await?,
+                false,
+            ),
             Err(e) => return Err(e),
         };
-        let gestion = voir_texte && self.a_action_etablissement(etab, actor, role, Action::InternatGerer).await?;
+        let gestion = voir_texte
+            && self
+                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let sql = format!(
             "SELECT {COLONNES_LIAISON} {JOINTURE_LIAISON} WHERE l.etablissement_id = $1 AND l.nuit = $2 \
                AND ($3 OR (l.pour_le_jour AND l.masque_le IS NULL)) ORDER BY l.cree_le, l.id LIMIT 1000"
         );
-        let mut rows: Vec<LiaisonBrute> =
-            sqlx::query_as(&sql).bind(etab).bind(nuit).bind(voir_texte).fetch_all(&mut *tx).await.map_err(db)?;
+        let mut rows: Vec<LiaisonBrute> = sqlx::query_as(&sql)
+            .bind(etab)
+            .bind(nuit)
+            .bind(voir_texte)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
         if let Some(p) = &portee {
             rows.retain(|r| p.contains(&r.1));
         }
         let ids: Vec<Uuid> = rows.iter().map(|r| r.1).collect();
-        crate::internat_nuit::journaliser_lecture_eleves_tx(&mut tx, etab, actor, "liaison", None, None, &ids, maintenant).await?;
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, &mut tx, &ids).await?;
+        crate::internat_nuit::journaliser_lecture_eleves_tx(
+            &mut tx, etab, actor, "liaison", None, None, &ids, maintenant,
+        )
+        .await?;
+        let (noms, proteges, caches) = self
+            .noms_pour_personnel(etab, actor, role, &mut tx, &ids)
+            .await?;
         tx.commit().await.map_err(db)?;
-        Ok(rows.iter().map(|r| self.liaison_dto(r, &noms, &proteges, &caches, voir_texte, gestion)).collect())
+        Ok(rows
+            .iter()
+            .map(|r| self.liaison_dto(r, &noms, &proteges, &caches, voir_texte, gestion))
+            .collect())
     }
 
     /// INT-182, INT-183 : gestes du CPE sur un fait (masquer avec motif, « à revoir », signaler au professeur principal
@@ -454,10 +607,14 @@ impl PgEnt {
         b: &LiaisonGesteDto,
         maintenant: DateTime<Utc>,
     ) -> Result<LiaisonDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         let (acte, motif) = match b.geste.as_str() {
             "masquer" => {
-                let m = b.motif_code.as_deref().filter(|m| MOTIFS_MASQUAGE.contains(m));
+                let m = b
+                    .motif_code
+                    .as_deref()
+                    .filter(|m| MOTIFS_MASQUAGE.contains(m));
                 if m.is_none() {
                     return Err(refus("masquer un fait exige un motif codé (erreur, donnee_sensible, hors_perimetre, doublon, autre)"));
                 }
@@ -466,10 +623,19 @@ impl PgEnt {
             "a_revoir" => ("a_revoir", None),
             "lever_a_revoir" => ("a_revoir_leve", None),
             "signaler_pp" => ("signal_pp", None),
-            _ => return Err(refus("geste inconnu (masquer, a_revoir, lever_a_revoir, signaler_pp)")),
+            _ => {
+                return Err(refus(
+                    "geste inconnu (masquer, a_revoir, lever_a_revoir, signaler_pp)",
+                ))
+            }
         };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let r: Option<(Uuid, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        let r: Option<(
+            Uuid,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+        )> = sqlx::query_as(
             "SELECT eleve_id, masque_le, a_revoir_le, signale_pp_le FROM ent_internat_liaison \
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -478,7 +644,9 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((eleve, masque, a_revoir, pp)) = r else { return Err(DomainError::NotFound.into()) };
+        let Some((eleve, masque, a_revoir, pp)) = r else {
+            return Err(DomainError::NotFound.into());
+        };
         self.exiger_eleve_visible(etab, actor, role, eleve).await?;
         if masque.is_some() {
             return Err(conflit("ce fait est masqué : plus aucun geste"));
@@ -487,13 +655,26 @@ impl PgEnt {
             "masquage" => "masque_le = $3, masque_par_user_id = $4",
             "a_revoir" if a_revoir.is_some() => return Err(conflit("ce fait est déjà à revoir")),
             "a_revoir" => "a_revoir_le = $3, a_revoir_par_user_id = $4",
-            "a_revoir_leve" if a_revoir.is_none() => return Err(conflit("ce fait n'est pas à revoir")),
+            "a_revoir_leve" if a_revoir.is_none() => {
+                return Err(conflit("ce fait n'est pas à revoir"))
+            }
             "a_revoir_leve" => "a_revoir_le = NULL, a_revoir_par_user_id = NULL",
-            _ if pp.is_some() => return Err(conflit("ce fait est déjà signalé au professeur principal")),
+            _ if pp.is_some() => {
+                return Err(conflit("ce fait est déjà signalé au professeur principal"))
+            }
             _ => "signale_pp_le = $3, signale_pp_par_user_id = $4",
         };
-        let sql = format!("UPDATE ent_internat_liaison SET {colonnes} WHERE etablissement_id = $1 AND id = $2");
-        sqlx::query(&sql).bind(etab).bind(id).bind(maintenant).bind(actor).execute(&mut *tx).await.map_err(db)?;
+        let sql = format!(
+            "UPDATE ent_internat_liaison SET {colonnes} WHERE etablissement_id = $1 AND id = $2"
+        );
+        sqlx::query(&sql)
+            .bind(etab)
+            .bind(id)
+            .bind(maintenant)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_internat_liaison_fait (id, etablissement_id, liaison_id, acte, motif_code, par_user_id, a) \
              VALUES ($1,$2,$3,$4,$5,$6,$7)",
@@ -509,7 +690,11 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if matches!(acte, "masquage" | "signal_pp") {
-            let nom = if acte == "masquage" { types::INTERNAT_LIAISON_MASQUEE } else { types::INTERNAT_SIGNAL_PP };
+            let nom = if acte == "masquage" {
+                types::INTERNAT_LIAISON_MASQUEE
+            } else {
+                types::INTERNAT_SIGNAL_PP
+            };
             publier(
                 &mut tx,
                 etab,
@@ -523,7 +708,9 @@ impl PgEnt {
             )
             .await?;
         }
-        let dto = self.liaison_lire_une_tx(&mut tx, etab, actor, role, id, true).await?;
+        let dto = self
+            .liaison_lire_une_tx(&mut tx, etab, actor, role, id, true)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -541,7 +728,9 @@ impl PgEnt {
         b: &EvenementSaisieDto,
         maintenant: DateTime<Utc>,
     ) -> Result<EvenementDto, EntDbError> {
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatEvenementDeclarer]).await?;
+        let portee = self
+            .nuit_portee(etab, actor, role, &[Action::InternatEvenementDeclarer])
+            .await?;
         if !NATURES_EVENEMENT.contains(&b.nature.as_str()) {
             return Err(refus("nature d'événement inconnue"));
         }
@@ -549,14 +738,19 @@ impl PgEnt {
         if !NIVEAUX.contains(&niveau) {
             return Err(refus("niveau inconnu (information, important, critique)"));
         }
-        if b.mesures_code.as_deref().is_some_and(|m| !MESURES.contains(&m)) {
+        if b.mesures_code
+            .as_deref()
+            .is_some_and(|m| !MESURES.contains(&m))
+        {
             return Err(refus("mesure inconnue"));
         }
         if b.participants.len() > MAX_PARTICIPANTS_EVENEMENT {
             return Err(refus("trop de participants"));
         }
         let a = b.a.unwrap_or(maintenant);
-        if a > maintenant + Duration::minutes(EVENEMENT_FUTUR_TOLERE_MINUTES) || a < maintenant - Duration::hours(EVENEMENT_ANTIDATE_HEURES) {
+        if a > maintenant + Duration::minutes(EVENEMENT_FUTUR_TOLERE_MINUTES)
+            || a < maintenant - Duration::hours(EVENEMENT_ANTIDATE_HEURES)
+        {
             return Err(refus("l'heure de l'événement est invalide (jamais dans le futur, 48 heures au plus en arrière)"));
         }
         let complement = match (b.nature.as_str(), b.complement.as_deref().map(str::trim).filter(|c| !c.is_empty())) {
@@ -599,32 +793,49 @@ impl PgEnt {
                         return Err(refus("participant en double"));
                     }
                 }
-                _ => return Err(refus("un participant est un élève ou un adulte, jamais les deux")),
+                _ => {
+                    return Err(refus(
+                        "un participant est un élève ou un adulte, jamais les deux",
+                    ))
+                }
             }
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         for u in &vus_u {
             if !est_personnel_tx(&mut tx, etab, *u, jour).await? {
-                return Err(refus("un adulte présent est un compte du personnel de l'établissement"));
+                return Err(refus(
+                    "un adulte présent est un compte du personnel de l'établissement",
+                ));
             }
         }
         for (e, _) in &vus_e {
-            let existe: bool =
-                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)")
-                    .bind(etab)
-                    .bind(e)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etab)
+            .bind(e)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
             if !existe {
                 return Err(DomainError::NotFound.into());
             }
         }
-        for (table, id) in [("ent_internat_zone", b.zone_id), ("ent_internat_chambre", b.chambre_id)] {
+        for (table, id) in [
+            ("ent_internat_zone", b.zone_id),
+            ("ent_internat_chambre", b.chambre_id),
+        ] {
             if let Some(i) = id {
-                let sql = format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE etablissement_id = $1 AND id = $2)");
-                let ok: bool = sqlx::query_scalar(&sql).bind(etab).bind(i).fetch_one(&mut *tx).await.map_err(db)?;
+                let sql = format!(
+                    "SELECT EXISTS (SELECT 1 FROM {table} WHERE etablissement_id = $1 AND id = $2)"
+                );
+                let ok: bool = sqlx::query_scalar(&sql)
+                    .bind(etab)
+                    .bind(i)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db)?;
                 if !ok {
                     return Err(refus("zone ou chambre inconnue"));
                 }
@@ -725,7 +936,9 @@ impl PgEnt {
             )
             .await?;
         }
-        let dto = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+        let dto = self
+            .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -774,7 +987,9 @@ impl PgEnt {
             parts.retain(|x| x.0.is_none_or(|e| p.contains(&e)));
         }
         let ids: Vec<Uuid> = parts.iter().filter_map(|p| p.0).collect();
-        let (noms, proteges, caches) = self.noms_pour_personnel(etab, actor, role, conn, &ids).await?;
+        let (noms, proteges, caches) = self
+            .noms_pour_personnel(etab, actor, role, conn, &ids)
+            .await?;
         let complements: Vec<(Uuid, String, Uuid, DateTime<Utc>)> = sqlx::query_as(
             "SELECT id, texte, par_user_id, cree_le FROM ent_internat_evenement_complement \
               WHERE etablissement_id = $1 AND evenement_id = $2 ORDER BY cree_le, id",
@@ -802,8 +1017,12 @@ impl PgEnt {
                     let cache = el.is_some_and(|x| caches.contains(&x));
                     ParticipantEvenementDto {
                         eleve_id: el,
-                        nom: el.filter(|_| !cache).and_then(|x| noms.get(&x).map(|n| n.0.clone())),
-                        prenom: el.filter(|_| !cache).and_then(|x| noms.get(&x).map(|n| n.1.clone())),
+                        nom: el
+                            .filter(|_| !cache)
+                            .and_then(|x| noms.get(&x).map(|n| n.0.clone())),
+                        prenom: el
+                            .filter(|_| !cache)
+                            .and_then(|x| noms.get(&x).map(|n| n.1.clone())),
                         protege: el.is_some_and(|x| proteges.contains(&x)),
                         user_id: us,
                         role: r,
@@ -812,7 +1031,12 @@ impl PgEnt {
                 .collect(),
             complements: complements
                 .into_iter()
-                .map(|(i, t, p, c)| ComplementDto { id: i, texte: t, par_user_id: p, cree_le: c })
+                .map(|(i, t, p, c)| ComplementDto {
+                    id: i,
+                    texte: t,
+                    par_user_id: p,
+                    cree_le: c,
+                })
                 .collect(),
         })
     }
@@ -827,7 +1051,9 @@ impl PgEnt {
         nuit: NaiveDate,
         maintenant: DateTime<Utc>,
     ) -> Result<Vec<EvenementDto>, EntDbError> {
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire]).await?;
+        let portee = self
+            .nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire])
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_internat_evenement WHERE etablissement_id = $1 AND nuit = $2 ORDER BY a, id LIMIT 500",
@@ -840,15 +1066,30 @@ impl PgEnt {
         let mut out = Vec::new();
         let mut concernes: Vec<Uuid> = Vec::new();
         for id in ids {
-            let d = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+            let d = self
+                .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+                .await?;
             let eleves: Vec<Uuid> = d.participants.iter().filter_map(|p| p.eleve_id).collect();
-            if portee.as_ref().is_some_and(|p| eleves.iter().any(|e| !p.contains(e))) {
+            if portee
+                .as_ref()
+                .is_some_and(|p| eleves.iter().any(|e| !p.contains(e)))
+            {
                 continue;
             }
             concernes.extend(eleves);
             out.push(d);
         }
-        crate::internat_nuit::journaliser_lecture_eleves_tx(&mut tx, etab, actor, "evenement", None, None, &concernes, maintenant).await?;
+        crate::internat_nuit::journaliser_lecture_eleves_tx(
+            &mut tx,
+            etab,
+            actor,
+            "evenement",
+            None,
+            None,
+            &concernes,
+            maintenant,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(out)
     }
@@ -862,14 +1103,31 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<EvenementDto, EntDbError> {
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire]).await?;
+        let portee = self
+            .nuit_portee(etab, actor, role, &[Action::InternatLiaisonLire])
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let d = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+        let d = self
+            .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+            .await?;
         let eleves: Vec<Uuid> = d.participants.iter().filter_map(|p| p.eleve_id).collect();
-        if portee.as_ref().is_some_and(|p| eleves.iter().any(|e| !p.contains(e))) {
+        if portee
+            .as_ref()
+            .is_some_and(|p| eleves.iter().any(|e| !p.contains(e)))
+        {
             return Err(DomainError::NotFound.into());
         }
-        crate::internat_nuit::journaliser_lecture_eleves_tx(&mut tx, etab, actor, "evenement", None, None, &eleves, maintenant).await?;
+        crate::internat_nuit::journaliser_lecture_eleves_tx(
+            &mut tx,
+            etab,
+            actor,
+            "evenement",
+            None,
+            None,
+            &eleves,
+            maintenant,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(d)
     }
@@ -890,7 +1148,9 @@ impl PgEnt {
             return Err(refus("complément : 1 à 1000 caractères"));
         }
         if evoque_la_sante(texte) {
-            return Err(refus("ce texte évoque la santé : utiliser le mouvement du socle santé"));
+            return Err(refus(
+                "ce texte évoque la santé : utiliser le mouvement du socle santé",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let e: Option<(Uuid, String)> = sqlx::query_as(
@@ -901,13 +1161,24 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((auteur, nature)) = e else { return Err(DomainError::NotFound.into()) };
-        let est_auteur = auteur == actor && self.a_action_etablissement(etab, actor, role, Action::InternatEvenementDeclarer).await?;
-        if !est_auteur && !self.a_action_etablissement(etab, actor, role, Action::InternatGerer).await? {
+        let Some((auteur, nature)) = e else {
+            return Err(DomainError::NotFound.into());
+        };
+        let est_auteur = auteur == actor
+            && self
+                .a_action_etablissement(etab, actor, role, Action::InternatEvenementDeclarer)
+                .await?;
+        if !est_auteur
+            && !self
+                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         if nature == "malaise" {
-            return Err(refus("un malaise n'a pas de texte libre : passer par le mouvement du socle santé"));
+            return Err(refus(
+                "un malaise n'a pas de texte libre : passer par le mouvement du socle santé",
+            ));
         }
         sqlx::query(
             "INSERT INTO ent_internat_evenement_complement (id, etablissement_id, evenement_id, texte, par_user_id, cree_le) \
@@ -934,7 +1205,9 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let dto = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+        let dto = self
+            .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -949,7 +1222,8 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<EvenementDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let e: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT nature, transmis_13_le FROM ent_internat_evenement WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -959,9 +1233,13 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((nature, deja)) = e else { return Err(DomainError::NotFound.into()) };
+        let Some((nature, deja)) = e else {
+            return Err(DomainError::NotFound.into());
+        };
         if matches!(nature.as_str(), "malaise" | "alarme") {
-            return Err(refus("ce type d'événement ne se transmet pas à la discipline"));
+            return Err(refus(
+                "ce type d'événement ne se transmet pas à la discipline",
+            ));
         }
         if deja.is_some() {
             return Err(conflit("cet événement est déjà transmis"));
@@ -989,7 +1267,9 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let dto = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+        let dto = self
+            .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1004,7 +1284,13 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<EvenementDto, EntDbError> {
-        self.nuit_portee(etab, actor, role, &[Action::InternatEvenementDeclarer, Action::InternatGerer]).await?;
+        self.nuit_portee(
+            etab,
+            actor,
+            role,
+            &[Action::InternatEvenementDeclarer, Action::InternatGerer],
+        )
+        .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let e: Option<(Option<Uuid>, Option<Uuid>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT zone_id, chambre_id, intervention_demandee_le FROM ent_internat_evenement \
@@ -1015,12 +1301,18 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((zone, chambre, deja)) = e else { return Err(DomainError::NotFound.into()) };
+        let Some((zone, chambre, deja)) = e else {
+            return Err(DomainError::NotFound.into());
+        };
         if zone.is_none() && chambre.is_none() {
-            return Err(refus("une demande d'intervention exige une chambre ou une zone"));
+            return Err(refus(
+                "une demande d'intervention exige une chambre ou une zone",
+            ));
         }
         if deja.is_some() {
-            return Err(conflit("une intervention est déjà demandée pour cet événement"));
+            return Err(conflit(
+                "une intervention est déjà demandée pour cet événement",
+            ));
         }
         sqlx::query(
             "UPDATE ent_internat_evenement SET intervention_demandee_le = $3, intervention_demandee_par_user_id = $4 \
@@ -1045,7 +1337,9 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let dto = self.evenement_dto_tx(&mut tx, etab, actor, role, id, None).await?;
+        let dto = self
+            .evenement_dto_tx(&mut tx, etab, actor, role, id, None)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1059,7 +1353,14 @@ impl PgEnt {
         b: &PreoccupationDto,
         maintenant: DateTime<Utc>,
     ) -> Result<PreoccupationAccuseDto, EntDbError> {
-        self.personnel_exiger(etab, actor, role, &[Action::InternatEvenementDeclarer], b.eleve_id).await?;
+        self.personnel_exiger(
+            etab,
+            actor,
+            role,
+            &[Action::InternatEvenementDeclarer],
+            b.eleve_id,
+        )
+        .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let id = Uuid::new_v4();
         sqlx::query("INSERT INTO ent_internat_preoccupation (id, etablissement_id, eleve_id, par_user_id, a) VALUES ($1,$2,$3,$4,$5)")
@@ -1098,23 +1399,33 @@ impl PgEnt {
         b: &TempsSaisieDto,
         maintenant: DateTime<Utc>,
     ) -> Result<TempsDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         if !matches!(b.nature.as_str(), "etude" | "activite") {
             return Err(refus("nature inconnue (etude, activite)"));
         }
         let libelle = b.libelle.trim();
         let lieu = b.lieu.as_deref().map(str::trim).filter(|l| !l.is_empty());
-        if libelle.is_empty() || libelle.chars().count() > 120 || lieu.is_some_and(|l| l.chars().count() > 80) {
+        if libelle.is_empty()
+            || libelle.chars().count() > 120
+            || lieu.is_some_and(|l| l.chars().count() > 80)
+        {
             return Err(refus("libellé (1 à 120) ou lieu (80) invalide"));
         }
         if evoque_la_sante(libelle) || lieu.is_some_and(evoque_la_sante) {
-            return Err(refus("aucune donnée de santé dans l'internat : le texte évoque la santé"));
+            return Err(refus(
+                "aucune donnée de santé dans l'internat : le texte évoque la santé",
+            ));
         }
         if b.fin <= b.debut || b.fin > b.debut + Duration::hours(12) {
             return Err(refus("horaires invalides (12 heures au plus)"));
         }
-        if b.debut < maintenant - Duration::hours(1) || b.debut > maintenant + Duration::days(GROUPE_HORIZON_JOURS) {
-            return Err(refus("un temps du soir se crée à l'avance (un an au plus), pas rétroactivement"));
+        if b.debut < maintenant - Duration::hours(1)
+            || b.debut > maintenant + Duration::days(GROUPE_HORIZON_JOURS)
+        {
+            return Err(refus(
+                "un temps du soir se crée à l'avance (un an au plus), pas rétroactivement",
+            ));
         }
         if b.places.is_some_and(|p| !(1..=500).contains(&p)) {
             return Err(refus("nombre de places invalide"));
@@ -1123,7 +1434,9 @@ impl PgEnt {
         if let Some(u) = b.encadrant_user_id {
             let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
             if !est_personnel_tx(&mut tx, etab, u, jour).await? {
-                return Err(refus("l'encadrant est un compte du personnel de l'établissement"));
+                return Err(refus(
+                    "l'encadrant est un compte du personnel de l'établissement",
+                ));
             }
         }
         let id = Uuid::new_v4();
@@ -1174,7 +1487,18 @@ impl PgEnt {
         if au < du || (au - du).num_days() > 366 {
             return Err(refus("période invalide (366 jours au plus)"));
         }
-        let portee = self.nuit_portee(etab, actor, role, &[Action::InternatLire, Action::InternatGerer, Action::InternatAppel]).await?;
+        let portee = self
+            .nuit_portee(
+                etab,
+                actor,
+                role,
+                &[
+                    Action::InternatLire,
+                    Action::InternatGerer,
+                    Action::InternatAppel,
+                ],
+            )
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_internat_temps WHERE etablissement_id = $1 \
@@ -1203,7 +1527,8 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<TempsDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (statut, debut, fin) = temps_ligne_tx(&mut tx, etab, id, true).await?;
         if statut != "prevu" {
@@ -1258,10 +1583,17 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let propre = matches!(
-            self.famille_tx(&mut tx, etab, actor, role, b.eleve_id, jour).await?,
-            Some(Famille { qualite: Qualite::Eleve | Qualite::EleveMajeur, .. })
+            self.famille_tx(&mut tx, etab, actor, role, b.eleve_id, jour)
+                .await?,
+            Some(Famille {
+                qualite: Qualite::Eleve | Qualite::EleveMajeur,
+                ..
+            })
         );
-        let gestion = !propre && self.a_action_etablissement(etab, actor, role, Action::InternatGerer).await?;
+        let gestion = !propre
+            && self
+                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .await?;
         if !propre && !gestion {
             return Err(EntDbError::Forbidden);
         }
@@ -1289,12 +1621,14 @@ impl PgEnt {
         if deja {
             return Err(conflit("cet élève est déjà inscrit"));
         }
-        let places: Option<i16> = sqlx::query_scalar("SELECT places FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db)?;
+        let places: Option<i16> = sqlx::query_scalar(
+            "SELECT places FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
         if let Some(p) = places {
             let n: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_internat_temps_participant WHERE etablissement_id = $1 AND temps_id = $2 AND retire_le IS NULL",
@@ -1327,7 +1661,9 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if chevauche {
-            return Err(conflit("cet élève a déjà un temps ou une sortie à ce moment-là"));
+            return Err(conflit(
+                "cet élève a déjà un temps ou une sortie à ce moment-là",
+            ));
         }
         sqlx::query(
             "INSERT INTO ent_internat_temps_participant (id, etablissement_id, temps_id, eleve_id, inscrit_le, inscrit_par_user_id) \
@@ -1372,10 +1708,17 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let propre = matches!(
-            self.famille_tx(&mut tx, etab, actor, role, eleve, jour).await?,
-            Some(Famille { qualite: Qualite::Eleve | Qualite::EleveMajeur, .. })
+            self.famille_tx(&mut tx, etab, actor, role, eleve, jour)
+                .await?,
+            Some(Famille {
+                qualite: Qualite::Eleve | Qualite::EleveMajeur,
+                ..
+            })
         );
-        let gestion = !propre && self.a_action_etablissement(etab, actor, role, Action::InternatGerer).await?;
+        let gestion = !propre
+            && self
+                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .await?;
         if !propre && !gestion {
             return Err(EntDbError::Forbidden);
         }
@@ -1426,7 +1769,14 @@ impl PgEnt {
         b: &InscriptionTempsDto,
         maintenant: DateTime<Utc>,
     ) -> Result<LiaisonDto, EntDbError> {
-        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonEcrire], b.eleve_id).await?;
+        self.personnel_exiger(
+            etab,
+            actor,
+            role,
+            &[Action::InternatLiaisonEcrire],
+            b.eleve_id,
+        )
+        .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let t: Option<(String, String, DateTime<Utc>)> = sqlx::query_as(
             "SELECT nature, statut, debut FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2",
@@ -1436,9 +1786,13 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((nature, statut, debut)) = t else { return Err(DomainError::NotFound.into()) };
+        let Some((nature, statut, debut)) = t else {
+            return Err(DomainError::NotFound.into());
+        };
         if nature != "etude" || statut != "prevu" {
-            return Err(refus("l'absence à l'étude se signale sur une étude non annulée"));
+            return Err(refus(
+                "l'absence à l'étude se signale sur une étude non annulée",
+            ));
         }
         if debut > maintenant {
             return Err(conflit("cette étude n'a pas commencé"));
@@ -1485,7 +1839,9 @@ impl PgEnt {
         .map_err(db)?
         .rows_affected();
         if ins == 0 {
-            return Err(refus("le code « absence à l'étude » n'est pas actif dans le catalogue"));
+            return Err(refus(
+                "le code « absence à l'étude » n'est pas actif dans le catalogue",
+            ));
         }
         publier(
             &mut tx,
@@ -1499,7 +1855,9 @@ impl PgEnt {
             Causalite::default(),
         )
         .await?;
-        let dto = self.liaison_lire_une_tx(&mut tx, etab, actor, role, lid, true).await?;
+        let dto = self
+            .liaison_lire_une_tx(&mut tx, etab, actor, role, lid, true)
+            .await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -1516,11 +1874,22 @@ impl PgEnt {
     ) -> Result<PlanningEleveDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        let famille = self.famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour).await?;
-        let peut_repondre = famille.as_ref().is_some_and(|f| f.peut_autoriser && matches!(f.qualite, Qualite::Titulaire | Qualite::EleveMajeur));
+        let famille = self
+            .famille_lecture_tx(&mut tx, etab, actor, role, eleve, jour)
+            .await?;
+        let peut_repondre = famille.as_ref().is_some_and(|f| {
+            f.peut_autoriser && matches!(f.qualite, Qualite::Titulaire | Qualite::EleveMajeur)
+        });
         if famille.is_none() {
             tx.commit().await.map_err(db)?;
-            self.personnel_exiger(etab, actor, role, &[Action::InternatLire, Action::InternatGerer], eleve).await?;
+            self.personnel_exiger(
+                etab,
+                actor,
+                role,
+                &[Action::InternatLire, Action::InternatGerer],
+                eleve,
+            )
+            .await?;
             tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         }
         let temps: Vec<(Uuid, String, String, Option<String>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
@@ -1561,7 +1930,14 @@ impl PgEnt {
             eleve_id: eleve,
             etudes_et_activites: temps
                 .into_iter()
-                .map(|t| PlanningTempsDto { temps_id: t.0, nature: t.1, libelle: t.2, lieu: t.3, debut: t.4, fin: t.5 })
+                .map(|t| PlanningTempsDto {
+                    temps_id: t.0,
+                    nature: t.1,
+                    libelle: t.2,
+                    lieu: t.3,
+                    debut: t.4,
+                    fin: t.5,
+                })
                 .collect(),
             sorties_groupe: sorties,
         })
@@ -1572,7 +1948,15 @@ const CODES_VIGILANCE: [&str; 3] = ["suivi_rapproche", "premier_mois", "accompag
 /// Une vigilance se revoit chaque semaine.
 const VIGILANCE_REVUE_JOURS: i64 = 7;
 
-type VigilanceBrute = (Uuid, Uuid, String, Option<Uuid>, NaiveDate, Option<NaiveDate>, DateTime<Utc>);
+type VigilanceBrute = (
+    Uuid,
+    Uuid,
+    String,
+    Option<Uuid>,
+    NaiveDate,
+    Option<NaiveDate>,
+    DateTime<Utc>,
+);
 
 fn vigilance_dto(v: VigilanceBrute, jour: NaiveDate, maintenant: DateTime<Utc>) -> VigilanceDto {
     VigilanceDto {
@@ -1599,20 +1983,29 @@ impl PgEnt {
         b: &VigilanceSaisieDto,
         maintenant: DateTime<Utc>,
     ) -> Result<VigilanceDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
-        self.exiger_eleve_visible(etab, actor, role, b.eleve_id).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
+        self.exiger_eleve_visible(etab, actor, role, b.eleve_id)
+            .await?;
         if !CODES_VIGILANCE.contains(&b.code.as_str()) {
-            return Err(refus("code de vigilance inconnu (suivi_rapproche, premier_mois, accompagner_coucher)"));
+            return Err(refus(
+                "code de vigilance inconnu (suivi_rapproche, premier_mois, accompagner_coucher)",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let du = b.du.unwrap_or(jour);
-        if du < jour - Duration::days(30) || du > jour + Duration::days(366) || b.au.is_some_and(|a| a < du || a > du + Duration::days(730)) {
+        if du < jour - Duration::days(30)
+            || du > jour + Duration::days(366)
+            || b.au.is_some_and(|a| a < du || a > du + Duration::days(730))
+        {
             return Err(refus("dates de vigilance invalides"));
         }
         if let Some(r) = b.referent_user_id {
             if !est_personnel_tx(&mut tx, etab, r, jour).await? {
-                return Err(refus("le référent est un compte du personnel de l'établissement"));
+                return Err(refus(
+                    "le référent est un compte du personnel de l'établissement",
+                ));
             }
         }
         if !est_interne_tx(&mut tx, etab, b.eleve_id, du.max(jour)).await? {
@@ -1664,7 +2057,8 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<VigilanceDto, EntDbError> {
-        self.vigilance_maj(etab, actor, role, id, maintenant, false).await
+        self.vigilance_maj(etab, actor, role, id, maintenant, false)
+            .await
     }
 
     /// Lève la vigilance : fin datée d'aujourd'hui (jamais supprimée).
@@ -1676,7 +2070,8 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<VigilanceDto, EntDbError> {
-        self.vigilance_maj(etab, actor, role, id, maintenant, true).await
+        self.vigilance_maj(etab, actor, role, id, maintenant, true)
+            .await
     }
 
     async fn vigilance_maj(
@@ -1688,7 +2083,8 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
         lever: bool,
     ) -> Result<VigilanceDto, EntDbError> {
-        self.fin_exiger(etab, actor, role, Action::InternatGerer).await?;
+        self.fin_exiger(etab, actor, role, Action::InternatGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let v = vigilance_tx(&mut tx, etab, id).await?;
@@ -1742,10 +2138,20 @@ impl PgEnt {
         eleve: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<Vec<VigilanceDto>, EntDbError> {
-        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonLire], eleve).await?;
+        self.personnel_exiger(etab, actor, role, &[Action::InternatLiaisonLire], eleve)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
-        crate::internat_nuit::journaliser_lecture_tx(&mut tx, etab, actor, "liaison", Some(eleve), None, maintenant).await?;
+        crate::internat_nuit::journaliser_lecture_tx(
+            &mut tx,
+            etab,
+            actor,
+            "liaison",
+            Some(eleve),
+            None,
+            maintenant,
+        )
+        .await?;
         let rows: Vec<VigilanceBrute> = sqlx::query_as(
             "SELECT id, eleve_id, code, referent_user_id, du, au, revue_le FROM ent_internat_vigilance \
               WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY du DESC, id",
@@ -1756,11 +2162,18 @@ impl PgEnt {
         .await
         .map_err(db)?;
         tx.commit().await.map_err(db)?;
-        Ok(rows.into_iter().map(|v| vigilance_dto(v, jour, maintenant)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|v| vigilance_dto(v, jour, maintenant))
+            .collect())
     }
 }
 
-async fn vigilance_tx(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<VigilanceBrute, EntDbError> {
+async fn vigilance_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<VigilanceBrute, EntDbError> {
     sqlx::query_as(
         "SELECT id, eleve_id, code, referent_user_id, du, au, revue_le FROM ent_internat_vigilance \
           WHERE etablissement_id = $1 AND id = $2",
@@ -1799,7 +2212,16 @@ async fn temps_dto_tx(
     avec_inscrits: bool,
     portee: Option<&HashSet<Uuid>>,
 ) -> Result<TempsDto, EntDbError> {
-    type T = (String, String, Option<String>, DateTime<Utc>, DateTime<Utc>, Option<Uuid>, Option<i16>, String);
+    type T = (
+        String,
+        String,
+        Option<String>,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        Option<Uuid>,
+        Option<i16>,
+        String,
+    );
     let t: T = sqlx::query_as(
         "SELECT nature, libelle, lieu, debut, fin, encadrant_user_id, places, statut FROM ent_internat_temps \
           WHERE etablissement_id = $1 AND id = $2",
