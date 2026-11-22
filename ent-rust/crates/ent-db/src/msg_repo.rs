@@ -17,6 +17,22 @@ pub enum InsertionPiece {
     MessageDiffere,
 }
 
+/// Fenêtre maximale d'un curseur du flux M12 (secondes) : au-delà, le client doit resynchroniser tout.
+pub const FLUX_FENETRE_SECONDES: u64 = 600;
+
+/// Résultat brut du flux M12 (avant le jugement de lecture) ; voir [`PgMsgRepo::evenements_depuis`].
+#[derive(Debug, Clone)]
+pub struct EvenementsFlux {
+    pub curseur: DateTime<Utc>,
+    /// Second terme de la position quand la liste est tronquée (`None` sinon).
+    pub curseur_fil: Option<Uuid>,
+    pub tronque: bool,
+    /// Curseur plus ancien que la fenêtre maximale : rien n'est rendu, le client recharge tout.
+    pub resynchro: bool,
+    /// `(fil, instant, genre)`, genre = `nouveau` ou `retire`.
+    pub evenements: Vec<(Uuid, DateTime<Utc>, String)>,
+}
+
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
 /// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
 ///
@@ -778,7 +794,7 @@ impl PgMsgRepo {
             INSERT INTO ent_msg (
                 id, etablissement_id, fil_id, auteur_user_id, corps, created_at,
                 remise_prevue_le, derogation_motif, derogation_par
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ) VALUES ($1,$2,$3,$4,$5,now(),$6,$7,$8)
             "#,
         )
         .bind(msg.id)
@@ -786,7 +802,6 @@ impl PgMsgRepo {
         .bind(msg.fil_id)
         .bind(msg.auteur_user_id)
         .bind(&msg.corps)
-        .bind(msg.created_at)
         .bind(remise)
         .bind(derogation.map(|d| d.0))
         .bind(derogation.map(|d| d.1))
@@ -985,6 +1000,84 @@ impl PgMsgRepo {
         Ok(rows.into_iter().map(AccuseRow::into_accuse).collect())
     }
 
+    /// M12 (flux temps réel) : candidats du flux. Seuls les fils où le compte **participe** (vue
+    /// `ent_msg_fil_lisible`, relue à chaque appel) entrent ici ; l'appelant applique ensuite le **jugement de
+    /// lecture** complet (`actor_can_access_fil`, avec le rôle de la session) : le flux ne révèle jamais plus que la
+    /// lecture (règle 1). Aucun contenu : identifiant du fil, instant, genre (`nouveau` ou `retire`).
+    ///
+    /// Les messages **du compte lui-même** n'apparaissent pas (il les connaît) ; un message **retiré** est signalé
+    /// (`retire`, sans contenu) sauf s'il est retiré par ce compte. Un message différé reste muet avant sa remise.
+    ///
+    /// Horloge unique : la base (`created_at` des messages est posé par la base à l'insertion, `retire_le` aussi).
+    /// Ordre total `(instant, fil)` : le curseur rendu ne saute jamais d'événement. Si la liste dépasse `limite`,
+    /// `tronque` vaut vrai et le curseur est la **position du dernier événement rendu** ; sinon c'est
+    /// `min(maintenant − 5 s, début de la plus ancienne transaction en cours)` : un message validé tard dans sa
+    /// transaction n'est pas perdu (un doublon est inoffensif).
+    pub async fn evenements_depuis(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        apres: (DateTime<Utc>, Uuid),
+        limite: i64,
+    ) -> Result<EvenementsFlux, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let (curseur, hors_fenetre): (DateTime<Utc>, bool) = sqlx::query_as(
+            "SELECT least(now() - interval '5 seconds',
+                          coalesce((SELECT min(a.xact_start) FROM pg_stat_activity a
+                                     WHERE a.datname = current_database() AND a.xact_start IS NOT NULL
+                                       AND a.pid <> pg_backend_pid()), now())),
+                    $1 < now() - make_interval(secs => $2)",
+        )
+        .bind(apres.0)
+        .bind(FLUX_FENETRE_SECONDES as f64)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if hors_fenetre {
+            return Ok(EvenementsFlux { curseur, curseur_fil: None, tronque: false, resynchro: true, evenements: Vec::new() });
+        }
+        let rows: Vec<(Uuid, DateTime<Utc>, String)> = sqlx::query_as(
+            r#"
+            WITH ev AS (
+                SELECT m.fil_id, coalesce(m.remise_prevue_le, m.created_at) AS instant, 'nouveau' AS genre
+                  FROM ent_msg_fil_lisible($1, $2) l
+                  JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
+                 WHERE m.auteur_user_id IS DISTINCT FROM $2
+                   AND m.retire_le IS NULL
+                   AND coalesce(m.remise_prevue_le, m.created_at) <= now()
+                UNION ALL
+                SELECT m.fil_id, m.retire_le AS instant, 'retire' AS genre
+                  FROM ent_msg_fil_lisible($1, $2) l
+                  JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
+                 WHERE m.retire_le IS NOT NULL
+                   AND m.retire_par IS DISTINCT FROM $2
+                   AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now())
+            ), agg AS (
+                SELECT fil_id, genre, max(instant) AS instant FROM ev GROUP BY fil_id, genre
+            )
+            SELECT fil_id, instant, genre FROM agg
+             WHERE (instant, fil_id) > ($3, $4)
+             ORDER BY instant ASC, fil_id ASC, genre ASC
+             LIMIT $5
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .bind(apres.0)
+        .bind(apres.1)
+        .bind(limite + 1)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let tronque = rows.len() as i64 > limite;
+        let evenements: Vec<(Uuid, DateTime<Utc>, String)> = rows.into_iter().take(limite.max(0) as usize).collect();
+        let (curseur, curseur_fil) = match (tronque, evenements.last()) {
+            (true, Some((fil, instant, _))) => (*instant, Some(*fil)),
+            _ => (curseur, None),
+        };
+        Ok(EvenementsFlux { curseur, curseur_fil, tronque, resynchro: false, evenements })
+    }
+
     /// Messages non accusés par le lecteur (hors ses propres messages), par fil.
     pub async fn count_non_lus_par_fils(
         &self,
@@ -1022,7 +1115,7 @@ impl PgMsgRepo {
     /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets (clé + empreinte).
     /// Plus aucune écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
     /// Insère une pièce **sous verrou** du message (F1) : le message est verrouillé (`FOR UPDATE`), puis la limite de
-    /// `max` pièces et l'état du message (ni retiré, ni différé) sont contrôlés dans la même transaction que
+    /// `max` pièces et l'état du message (ni retiré, ni différé d'un autre auteur) sont contrôlés dans la même transaction que
     /// l'insertion : deux dépôts simultanés ne dépassent pas la limite.
     pub async fn insert_piece(&self, piece: &MsgPiece, max: i64) -> Result<InsertionPiece, DomainError> {
         let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
@@ -1031,8 +1124,8 @@ impl PgMsgRepo {
         let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id)
             .await
             .map_err(map_sqlx)?;
-        let etat: Option<(bool, bool)> = sqlx::query_as(
-            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false)
+        let etat: Option<(bool, bool, Option<Uuid>)> = sqlx::query_as(
+            "SELECT retire_le IS NOT NULL, coalesce(remise_prevue_le > now(), false), auteur_user_id
                FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(piece.etablissement_id)
@@ -1040,13 +1133,15 @@ impl PgMsgRepo {
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-        let Some((retire, differe)) = etat else {
+        let Some((retire, differe, auteur)) = etat else {
             return Err(DomainError::NotFound);
         };
         if retire {
             return Ok(InsertionPiece::MessageRetire);
         }
-        if differe {
+        // Un message différé n'est invisible de tout autre : son **auteur** peut y joindre une pièce avant la remise
+        // (elle suit le message : quarantaine, antivirus, puis remise) ; personne d'autre.
+        if differe && auteur != Some(piece.created_by_user_id) {
             return Ok(InsertionPiece::MessageDiffere);
         }
         let (nb,): (i64,) = sqlx::query_as(
@@ -1252,6 +1347,27 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(ok)
+    }
+
+    /// Vrai si ce message est **différé et pas encore remis** et que `acteur` n'en est pas l'auteur : pour tout autre
+    /// que l'auteur il n'existe pas encore (l'appelant répond 404, comme pour un identifiant inconnu).
+    pub async fn message_differe_d_autrui(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+        acteur: Uuid,
+    ) -> Result<bool, DomainError> {
+        let r: Option<(bool,)> = sqlx::query_as(
+            "SELECT coalesce(remise_prevue_le > now(), false) AND auteur_user_id IS DISTINCT FROM $3
+               FROM ent_msg WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .bind(acteur)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(r.is_some_and(|(b,)| b))
     }
 
     pub async fn get_message(
