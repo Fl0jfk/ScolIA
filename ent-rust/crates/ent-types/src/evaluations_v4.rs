@@ -142,6 +142,10 @@ pub struct PlanifierRattrapageBody {
     pub modalite: Option<String>,
     /// Date limite pour passer le rattrapage (défaut : le jour prévu).
     pub echeance: Option<NaiveDate>,
+    /// Motif (3 à 500 caractères) exigé de la direction pour convoquer de nouveau quand la convocation annulée du même
+    /// élève avait une échéance déjà dépassée (revue de V5, H3 : jamais une prolongation sans trace).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +156,10 @@ pub struct DeplacerRattrapageBody {
     pub modalite: Option<String>,
     pub echeance: Option<NaiveDate>,
     pub version_attendue: i32,
+    /// V3e (F-4) : motif (3 à 500 caractères) **obligatoire** pour prolonger une échéance déjà dépassée (direction
+    /// seulement, `notes.corriger`) ; la prolongation est tracée (échéance avant et après, motif, auteur).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 /// Résultat d'un rattrapage : une note (ou `nn` / `disp`), **ou** une absence au rattrapage lui-même.

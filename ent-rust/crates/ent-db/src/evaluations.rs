@@ -334,7 +334,10 @@ impl PgEnt {
                FROM ent_affectation a
                JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
               WHERE a.etablissement_id = $1
-                AND (($2::uuid IS NOT NULL AND a.classe_id = $2) OR ($3::uuid IS NOT NULL AND a.groupe_id = $3))
+                AND (($2::uuid IS NOT NULL AND a.classe_id = $2
+                      -- V5 (D15) : un élève n'est dans l'effectif QUE de sa classe de rattachement pour la période.
+                      AND eva_classe_rattachement(a.etablissement_id, a.eleve_id, $4, $5) = $2)
+                     OR ($3::uuid IS NOT NULL AND a.groupe_id = $3))
                 AND a.date_debut <= $5 AND (a.date_fin IS NULL OR a.date_fin >= $4)
                 AND (e.date_sortie IS NULL OR e.date_sortie >= $4)
               ORDER BY e.nom, e.prenom, e.id",
@@ -408,20 +411,16 @@ impl PgEnt {
         debut: NaiveDate,
         fin: NaiveDate,
     ) -> Result<Option<Uuid>, EntDbError> {
-        let row: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT a.classe_id FROM ent_affectation a
-              WHERE a.etablissement_id = $1 AND a.eleve_id = $2 AND a.classe_id IS NOT NULL
-                AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $3)
-              ORDER BY a.date_debut DESC LIMIT 1",
-        )
-        .bind(etab)
-        .bind(eleve_id)
-        .bind(debut)
-        .bind(fin)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        Ok(row.map(|(c,)| c))
+        // V5 : une seule implémentation (SQL `eva_classe_rattachement`), la même que celle de l'effectif.
+        let c: Option<Uuid> = sqlx::query_scalar("SELECT eva_classe_rattachement($1, $2, $3, $4)")
+            .bind(etab)
+            .bind(eleve_id)
+            .bind(debut)
+            .bind(fin)
+            .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
+            .await
+            .map_err(db)?;
+        Ok(c)
     }
 
     // ───────────────────────────── Référentiels ─────────────────────────────
@@ -889,6 +888,20 @@ impl PgEnt {
         let mut par_matiere: HashMap<Uuid, Vec<Rat>> = HashMap::new();
         let mut exactes_generale: Vec<Rat> = Vec::new();
         let mut coefs: HashMap<Uuid, f64> = HashMap::new();
+        // CE-03 : un élève parti avant la fin de la période garde sa moyenne (bulletin de départ sur demande) mais SORT
+        // des statistiques de la classe.
+        let partis: HashSet<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_eleve
+              WHERE etablissement_id = $1 AND id = ANY($2) AND date_sortie IS NOT NULL AND date_sortie < $3",
+        )
+        .bind(etab)
+        .bind(eleves.iter().map(|(e, _, _)| *e).collect::<Vec<_>>())
+        .bind(periode.date_fin)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?
+        .into_iter()
+        .collect();
         if let Some(p) = periode_eva {
             for (eleve, _, _) in &eleves {
                 let r = moyennes_tx(&mut tx, etab, *eleve, p, publiees_seulement).await?;
@@ -899,12 +912,16 @@ impl PgEnt {
                     coefs.entry(m.matiere_id).or_insert(m.coef_m as f64 / 1000.0);
                     if let (Some(x), Some(a)) = (m.moyenne.exacte, m.moyenne.affichee_m) {
                         moyennes.insert((*eleve, m.matiere_id), Aff(a));
-                        par_matiere.entry(m.matiere_id).or_default().push(x);
+                        if !partis.contains(eleve) {
+                            par_matiere.entry(m.matiere_id).or_default().push(x);
+                        }
                     }
                 }
                 if let (Some(x), Some(a)) = (r.generale.exacte, r.generale.affichee_m) {
                     generales.insert(*eleve, Aff(a));
-                    exactes_generale.push(x);
+                    if !partis.contains(eleve) {
+                        exactes_generale.push(x);
+                    }
                 }
             }
         }
@@ -1101,7 +1118,7 @@ impl PgEnt {
                        JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
                       WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note' AND ev.etat = 'ouverte'
                         AND ($4 = false OR ev.publiee_le IS NOT NULL)
-                        AND (SELECT pe.periode_id FROM eva_periode_eleve_jour(ev.etablissement_id, r.eleve_id, ev.date_eval) pe) = $3
+                        AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
                       ORDER BY ev.date_eval, ev.id",
                 )
                 .bind(etab)
@@ -1116,7 +1133,6 @@ impl PgEnt {
             }
             None => Vec::new(),
         };
-        let montrer_stats = staff || (calc.regles.stats_familles && calc.regles.seuil_effectif_stats > 0);
         let matieres = calc
             .matieres
             .iter()
@@ -1137,7 +1153,11 @@ impl PgEnt {
                         })
                     })
                     .collect();
-                let stats = calc.stats_matiere.get(m).filter(|s| staff || (montrer_stats && s.effectif >= calc.regles.seuil_effectif_stats));
+                // V3e : hors personnel, la décision appartient au moteur (`pour_famille` : réglage, seuil et plancher d'effectif).
+                let stats = calc
+                    .stats_matiere
+                    .get(m)
+                    .filter(|s| staff || s.brut.pour_famille(&calc.regles).is_some());
                 ReleveMatiereDto {
                     matiere_id: *m,
                     matiere_libelle: lib.clone(),
