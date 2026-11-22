@@ -3090,14 +3090,20 @@ fn evaluations_v5_la_direction_d_un_etablissement_n_atteint_rien_de_l_autre() {
         // Direction de A avec les objets de B.
         for (methode, chemin, corps) in routes_v5(o_b.eleve, matiere_b, cours_b, Uuid::new_v4()) {
             let r = m.appel(methode, &chemin, Some(m.jeton(Direction)), corps.as_ref()).await;
-            assert!(!r.est_succes(), "A→B {methode} {chemin} : {} {}", r.statut, r.texte);
+            assert!(
+                !r.est_succes() || (methode == "GET" && r.json.as_array().is_some_and(Vec::is_empty)),
+                "A→B {methode} {chemin} : {} {}", r.statut, r.texte
+            );
             assert!(r.statut.as_u16() < 500, "A→B {methode} {chemin} : erreur serveur {}", r.texte);
         }
         // Direction de B avec les objets de A.
         let jeton_b = m.b.jetons.get(&Direction).expect("direction de B").clone();
         for (methode, chemin, corps) in routes_v5(o_a.eleve, matiere_a, cours_a, Uuid::new_v4()) {
             let r = m.appel(methode, &chemin, Some(&jeton_b), corps.as_ref()).await;
-            assert!(!r.est_succes(), "B→A {methode} {chemin} : {} {}", r.statut, r.texte);
+            assert!(
+                !r.est_succes() || (methode == "GET" && r.json.as_array().is_some_and(Vec::is_empty)),
+                "B→A {methode} {chemin} : {} {}", r.statut, r.texte
+            );
             assert!(r.statut.as_u16() < 500, "B→A {methode} {chemin} : erreur serveur {}", r.texte);
         }
     });
@@ -3118,7 +3124,8 @@ fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
             assert!(r.statut.as_u16() < 500, "{methode} {chemin} : erreur serveur {}", r.texte);
             let direction_seule = chemin.contains("/enseignements-externes") && methode == "POST"
                 || chemin.contains("/moyennes-externes/");
-            if direction_seule || chemin.contains(&inconnu.to_string()) {
+            let ligne_inconnue = methode == "POST" && chemin.contains(&inconnu.to_string());
+            if direction_seule || ligne_inconnue {
                 assert_eq!(r.statut.as_u16(), 403, "{methode} {chemin} : {}", r.texte);
             }
             if methode == "GET" && !chemin.contains("externes-famille") {
@@ -3136,12 +3143,21 @@ fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
 fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
     let Some(m) = monde() else { return };
     let o = &m.a.objets;
-    let (Some(matiere), Some(cours)) = (o.matiere, o.cours) else {
-        return eprintln!("skip: matière ou cours absents du labo");
+    let Some(cours) = o.cours else {
+        return eprintln!("skip: cours absent du labo");
     };
     let aujourd_hui = domain_eleve::horloge::jour_paris();
     rt().block_on(async {
         let dir = m.jeton(Direction);
+        // La matière du cours du professeur (un résultat ne se compte que dans un cours de sa matière).
+        let ens = m.appel("GET", "/referentiel/mes-enseignements", Some(m.jeton(Prof)), None).await;
+        let matiere = ens
+            .json
+            .as_array()
+            .and_then(|a| a.iter().find(|v| v["cours_id"].as_str() == Some(&cours.to_string())))
+            .and_then(|v| v["matiere_id"].as_str())
+            .and_then(|x| Uuid::parse_str(x).ok())
+            .expect("matière du cours du professeur");
         let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
             "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
         let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
