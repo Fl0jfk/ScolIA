@@ -592,10 +592,11 @@ impl PgAuthRepo {
             r#"
             UPDATE ent_session
                SET portee = 'complete',
-                   expires_at = CASE client
-                       WHEN 'mobile' THEN now() + make_interval(days => $2)
+                   expires_at = CASE WHEN client = 'mobile' AND assurance = 'passkey'
+                       THEN now() + make_interval(days => $2)
                        ELSE now() + make_interval(hours => $3) END,
-                   inactivite_max_secs = CASE client WHEN 'mobile' THEN NULL ELSE $4 END,
+                   inactivite_max_secs = CASE WHEN client = 'mobile' AND assurance = 'passkey'
+                       THEN NULL ELSE $4 END,
                    last_seen_at = now()
              WHERE id = $1 AND portee = 'enrolement' AND revoked_at IS NULL
             "#,
@@ -934,7 +935,11 @@ impl PgAuthRepo {
         else {
             return Err(AuthError::InvalidSession);
         };
-        let client = ClientSession::parse_client(Some(&client));
+        // F2 : la durée « mobile » dépend de la preuve (passkey), jamais de la déclaration, à la lecture aussi.
+        let client = client_effectif(
+            ClientSession::parse_client(Some(&client)),
+            AssuranceSession::from_db(&assurance),
+        );
         let mut portee = PorteeSession::from_db(&portee);
 
         // Socle 6 (P2) : une session = une casquette. Les droits de la session sont ceux de la
@@ -956,7 +961,7 @@ impl PgAuthRepo {
         // Activité : écriture amortie (au plus une fois par minute). Mobile :
         // prolongation glissante, plafonnée depuis la connexion.
         if now - last_seen_at > Duration::seconds(60) {
-            if client_effectif(client, AssuranceSession::from_db(&assurance)) == ClientSession::Mobile
+            if client == ClientSession::Mobile
                 && portee == PorteeSession::Complete
             {
                 let plafond = created_at + Duration::days(session_mobile_max_jours());

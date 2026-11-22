@@ -775,12 +775,40 @@ async fn socle1_sessions_web_inactivite_mobile_longue_et_appareils() {
     let etab = Uuid::new_v4();
     let c = inscrire(&app, etab, "prof").await;
     let autre = inscrire(&app, etab, "prof").await;
+    // MB0 (DS2) : mot de passe + client déclaré « mobile » = session web (durée web, inactivité).
     let (st, b) = appel(&app, "POST", "/auth/login", None, Some(json!({
         "email": c.email, "password": MDP, "etablissement_id": etab, "client": "mobile"}))).await;
     assert_eq!(st, StatusCode::OK);
+    let declare_mobile = b["token"].as_str().unwrap().to_string();
+    let (_, me) = appel(&app, "GET", "/auth/me", Some(&declare_mobile), None).await;
+    assert_eq!((me["client"].as_str(), me["assurance"].as_str()), (Some("web"), Some("mot_de_passe")));
+    let (st, _) = appel(&app, "POST", "/auth/logout", Some(&declare_mobile), None).await;
+    assert!(st.is_success(), "{st}");
+
+    // Une vraie session mobile exige une passkey : enrôlement (appareil conservé), puis connexion
+    // par passkey avec le client « mobile ».
+    use webauthn_authenticator_rs::prelude::{Url, WebauthnAuthenticator};
+    use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+    let origine = Url::parse("http://localhost:3000").unwrap();
+    let mut dev = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let (st, start) = appel(&app, "POST", "/auth/passkey/register/start", Some(&c.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::OK);
+    let ccr: ent_auth::CreationChallengeResponse = serde_json::from_value(start["options"].clone()).unwrap();
+    let reg = dev.do_registration(origine.clone(), ccr).expect("enregistrement logiciel");
+    let (st, _) = appel(&app, "POST", "/auth/passkey/register/finish", Some(&c.jeton), Some(json!({
+        "token": start["token"], "credential": reg, "name": "Pixel", "current_password": MDP}))).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, defi) = appel(&app, "POST", "/auth/passkey/login/start", None, Some(json!({
+        "email": c.email, "etablissement_id": etab, "client": "mobile"}))).await;
+    assert_eq!(st, StatusCode::OK);
+    let rcr: ent_auth::RequestChallengeResponse = serde_json::from_value(defi["options"].clone()).unwrap();
+    let assertion = dev.do_authentication(origine, rcr).expect("assertion logicielle");
+    let (st, b) = appel(&app, "POST", "/auth/passkey/login/finish", None, Some(json!({
+        "token": defi["token"], "credential": assertion}))).await;
+    assert_eq!(st, StatusCode::OK);
     let mobile = b["token"].as_str().unwrap().to_string();
     let (_, me) = appel(&app, "GET", "/auth/me", Some(&mobile), None).await;
-    assert_eq!((me["client"].as_str(), me["assurance"].as_str()), (Some("mobile"), Some("mot_de_passe")));
+    assert_eq!((me["client"].as_str(), me["assurance"].as_str()), (Some("mobile"), Some("passkey")));
 
     // Liste : 2 sessions (web d'inscription + mobile), la courante marquée.
     let (st, liste) = appel(&app, "GET", "/auth/sessions", Some(&c.jeton), None).await;

@@ -1590,7 +1590,34 @@ impl PgEnt {
         Ok(self.sms_outbox.count_by_kind(etablissement_id, kind).await?)
     }
 
+    /// Inscription d'un appareil : la session qui inscrit est **obligatoire** (DS1) ; elle doit être
+    /// vivante (sinon `AuthError::InvalidSession`, 401).
     pub async fn register_push_device_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        platform: &str,
+        token: &str,
+        app_id: Option<String>,
+        session_id: Uuid,
+    ) -> Result<PushDevice, EntDbError> {
+        self.inscrire_push_device(etablissement_id, user_id, platform, token, app_id, Some(session_id)).await
+    }
+
+    /// Variante explicite **labo et tests** : inscription sans session (l'appareil n'est alors
+    /// éligible à l'envoi que 30 jours après sa dernière inscription). Jamais appelée en production.
+    pub async fn register_push_device_sans_session(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        platform: &str,
+        token: &str,
+        app_id: Option<String>,
+    ) -> Result<PushDevice, EntDbError> {
+        self.inscrire_push_device(etablissement_id, user_id, platform, token, app_id, None).await
+    }
+
+    async fn inscrire_push_device(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
@@ -1610,7 +1637,13 @@ impl PgEnt {
                 app_id,
                 session_id,
             })
-            .await?;
+            .await
+            .map_err(|e| match e {
+                crate::push_repo::PushRepoError::SessionMorte => {
+                    EntDbError::Auth(AuthError::InvalidSession)
+                }
+                crate::push_repo::PushRepoError::Domain(d) => EntDbError::Domain(d),
+            })?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id,
@@ -1793,11 +1826,15 @@ impl PgEnt {
             if actor_user_id == Some(device.user_id) {
                 continue;
             }
+            // Règle 1/3 : le jeton est relu sur la ligne active au moment de l'envoi ; révoquée entre-temps : rien.
+            let Some(token) = self.push_devices.relire_jeton(etablissement_id, device.id).await? else {
+                continue;
+            };
             let platform = PushPlatform::parse(&device.platform).unwrap_or(PushPlatform::Ios);
             let receipt = match self
                 .push
                 .send(OutgoingPush {
-                    token: device.token.clone(),
+                    token,
                     platform,
                     title: title.to_string(),
                     body: body.to_string(),
@@ -1822,7 +1859,7 @@ impl PgEnt {
                             title: title.to_string(),
                             body: body.to_string(),
                             platform: Some(device.platform.clone()),
-                            token: Some(device.token.clone()),
+                            device_id: Some(device.id),
                             status: ent_push::PushSendStatus::Failed,
                             error: Some(e.to_string()),
                             source_aggregate: Some(source_aggregate.to_string()),
@@ -1846,7 +1883,7 @@ impl PgEnt {
                     title: title.to_string(),
                     body: body.to_string(),
                     platform: Some(device.platform.clone()),
-                    token: Some(device.token.clone()),
+                    device_id: Some(device.id),
                     status: receipt.status,
                     error: receipt.error.clone(),
                     source_aggregate: Some(source_aggregate.to_string()),
@@ -1920,6 +1957,10 @@ impl PgEnt {
             if actor_user_id == Some(device.user_id) {
                 continue;
             }
+            // Règle 1/3 : le jeton est relu sur la ligne active au moment de l'envoi ; révoquée entre-temps : rien.
+            let Some(token) = self.push_devices.relire_jeton(etablissement_id, device.id).await? else {
+                continue;
+            };
             let platform = PushPlatform::parse(&device.platform).unwrap_or(PushPlatform::Ios);
             let data_json = match eleve_id {
                 Some(eid) => Some(format!(
@@ -1930,7 +1971,7 @@ impl PgEnt {
             let receipt = match self
                 .push
                 .send(OutgoingPush {
-                    token: device.token.clone(),
+                    token,
                     platform,
                     title: title.to_string(),
                     body: body.to_string(),
@@ -1954,7 +1995,7 @@ impl PgEnt {
                     title: title.to_string(),
                     body: body.to_string(),
                     platform: Some(device.platform.clone()),
-                    token: Some(device.token.clone()),
+                    device_id: Some(device.id),
                     status: receipt.status,
                     error: receipt.error.clone(),
                     source_aggregate: Some(source_aggregate.to_string()),

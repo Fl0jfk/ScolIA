@@ -3051,10 +3051,16 @@ async fn register_push_device(
             &body.platform,
             &body.token,
             body.app_id,
-            Some(session.session_id),
+            session.session_id,
         )
         .await
-        .map_err(map_db)?;
+        .map_err(|e| match e {
+            // M1 : session révoquée ou expirée au moment de l'inscription.
+            ent_db::EntDbError::Auth(ent_auth::AuthError::InvalidSession) => {
+                (StatusCode::UNAUTHORIZED, "Session invalide.".to_string())
+            }
+            e => map_db(e),
+        })?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
