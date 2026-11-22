@@ -3159,13 +3159,18 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
             .fetch_one(&pool)
             .await
             .expect("matière du référentiel");
+        // Le déclencheur « cours public immuable » protège la donnée de production : on le suspend le temps de cette
+        // transaction de préparation (rôle propriétaire de la base de test).
+        let mut tx = pool.begin().await.expect("transaction");
+        sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.expect("réplica");
         sqlx::query("UPDATE ent_cours SET matiere_id = $3 WHERE etablissement_id = $1 AND id = $2")
             .bind(o.etab)
             .bind(cours)
             .bind(matiere)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .expect("matière du cours");
+        tx.commit().await.expect("commit");
         let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
             "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
         let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
