@@ -68,7 +68,10 @@ pub struct LignePaiement {
     pub compte_id: Uuid,
     pub payeur: String,
     pub part_centimes: i64,
+    /// Argent versé par la famille (reports compris), sans les aides.
     pub verse_centimes: i64,
+    /// Aides nettes appliquées à cette part (APEL, fonds social…) : nominatif comptable seulement.
+    pub aides_centimes: i64,
     pub reste_centimes: i64,
     pub retard_centimes: i64,
     pub etat: String,
@@ -116,11 +119,16 @@ pub struct MaPart {
     pub compte_id: Uuid,
     pub payeur: String,
     pub part_centimes: i64,
+    /// Argent versé par ce payeur (reports compris).
     pub verse_centimes: i64,
+    /// Aides appliquées à sa part (sans leur source : la famille voit « une aide », jamais d'où elle vient).
+    pub aides_centimes: i64,
     pub reste_centimes: i64,
     pub etat: String,
     pub echeances: Vec<EcheanceVue>,
     pub versements: Vec<VersementFamille>,
+    /// Reports de versement entre deux enfants de ce même payeur.
+    pub reports: Vec<ReportFamille>,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -130,6 +138,17 @@ pub struct VersementFamille {
     pub moyen: String,
     pub montant_centimes: i64,
     pub date_valeur: NaiveDate,
+}
+
+/// Un report vu par le payeur concerné : son sens et son montant, jamais le nom de l'autre enfant.
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct ReportFamille {
+    pub id: Uuid,
+    pub sens: String,
+    pub montant_centimes: i64,
+    pub decide_le: DateTime<Utc>,
+    /// `true` : l'argent a quitté cet enfant ; `false` : il l'a reçu.
+    pub cede: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -312,16 +331,47 @@ async fn parts_courantes(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) -> R
     .map_err(db)
 }
 
-/// Versé net (versements moins annulations) par couple participant/payeur.
-async fn verses(
+/// Argent réellement versé (versements moins annulations, plus les reports reçus, moins les reports cédés) par
+/// couple participant/payeur : c'est l'argent **du payeur**, celui qu'un avoir peut lui rendre (CF-69).
+pub(crate) async fn verses_cash(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+) -> Result<HashMap<(Uuid, Uuid), i64>, EntDbError> {
+    let rows: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
+        "SELECT participant_id, compte_id, COALESCE(SUM(m), 0)::bigint FROM (
+             SELECT participant_id, compte_id,
+                    CASE WHEN sens = 'versement' THEN montant_centimes ELSE -montant_centimes END AS m
+               FROM ent_sortie_versement WHERE etablissement_id = $1 AND sortie_id = $2
+             UNION ALL
+             SELECT vers_participant_id, compte_id,
+                    CASE WHEN sens = 'report' THEN montant_centimes ELSE -montant_centimes END
+               FROM ent_sortie_report WHERE etablissement_id = $1 AND sortie_id = $2
+             UNION ALL
+             SELECT de_participant_id, compte_id,
+                    CASE WHEN sens = 'report' THEN -montant_centimes ELSE montant_centimes END
+               FROM ent_sortie_report WHERE etablissement_id = $1 AND sortie_id = $2
+         ) x GROUP BY participant_id, compte_id",
+    )
+    .bind(etab)
+    .bind(sortie)
+    .fetch_all(conn)
+    .await
+    .map_err(db)?;
+    Ok(rows.into_iter().map(|(p, c, m)| ((p, c), m)).collect())
+}
+
+/// Aides nettes (aides moins annulations) par couple participant/payeur : elles réduisent la part due, elles ne
+/// sont jamais de l'argent versé par la famille.
+pub(crate) async fn aides_nettes(
     conn: &mut PgConnection,
     etab: Uuid,
     sortie: Uuid,
 ) -> Result<HashMap<(Uuid, Uuid), i64>, EntDbError> {
     let rows: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
         "SELECT participant_id, compte_id,
-                COALESCE(SUM(CASE WHEN sens = 'versement' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
-           FROM ent_sortie_versement WHERE etablissement_id = $1 AND sortie_id = $2
+                COALESCE(SUM(CASE WHEN sens = 'aide' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
+           FROM ent_sortie_aide WHERE etablissement_id = $1 AND sortie_id = $2
           GROUP BY participant_id, compte_id",
     )
     .bind(etab)
@@ -368,7 +418,10 @@ struct Calculee {
     nb: i32,
     plan_long: bool,
     echeances: Vec<Echeance>,
+    /// Ce qui couvre la part : argent versé (reports compris) **plus** les aides.
     verse: i64,
+    /// Dont les aides (V3) ; l'argent versé par la famille est `verse - aides`.
+    aides: i64,
     sit: crate::voyages_argent::Situation,
 }
 
@@ -381,7 +434,8 @@ async fn calculer(
 ) -> Result<(Vec<Calculee>, HashMap<Uuid, String>), EntDbError> {
     let etats = etats_participants(conn, etab, s.id).await?;
     let parts = parts_courantes(conn, etab, s.id).await?;
-    let verse = verses(conn, etab, s.id).await?;
+    let cash = verses_cash(conn, etab, s.id).await?;
+    let aides = aides_nettes(conn, etab, s.id).await?;
     let pl = plans(conn, etab, s.id).await?;
     let depart = jour_etab_a(conn, etab, s.debut).await?;
     let mut out = Vec::new();
@@ -394,9 +448,11 @@ async fn calculer(
         let plan_long = nb > ECHEANCES_STANDARD_MAX;
         let derniere = derniere_echeance(part.premier_jour, depart, plan_long);
         let echeances = echeancier(part.montant_centimes, nb, part.premier_jour, derniere).ok_or_else(invalide)?;
-        let v = verse.get(&(part.participant_id, part.compte_id)).copied().unwrap_or(0);
+        let cle = (part.participant_id, part.compte_id);
+        let aide = aides.get(&cle).copied().unwrap_or(0);
+        let v = somme(cash.get(&cle).copied().unwrap_or(0), aide)?;
         let sit = situation(&echeances, v, jour, plan_long).ok_or_else(invalide)?;
-        out.push(Calculee { part, nb, plan_long, echeances, verse: v, sit });
+        out.push(Calculee { part, nb, plan_long, echeances, verse: v, aides: aide, sit });
     }
     Ok((out, etats))
 }
@@ -431,19 +487,10 @@ async fn depenses_engagees(conn: &mut PgConnection, etab: Uuid, sortie: Uuid) ->
     .map_err(db)
 }
 
-async fn paye_net(conn: &mut PgConnection, etab: Uuid, sortie: Uuid, participant: Uuid, compte: Uuid) -> Result<i64, EntDbError> {
-    sqlx::query_scalar(
-        "SELECT COALESCE(SUM(CASE WHEN sens = 'versement' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
-           FROM ent_sortie_versement
-          WHERE etablissement_id = $1 AND sortie_id = $2 AND participant_id = $3 AND compte_id = $4",
-    )
-    .bind(etab)
-    .bind(sortie)
-    .bind(participant)
-    .bind(compte)
-    .fetch_one(conn)
-    .await
-    .map_err(db)
+/// Argent net du payeur pour un participant : versements, reports reçus moins reports cédés (jamais les aides).
+pub(crate) async fn paye_net(conn: &mut PgConnection, etab: Uuid, sortie: Uuid, participant: Uuid, compte: Uuid) -> Result<i64, EntDbError> {
+    let m = verses_cash(conn, etab, sortie).await?;
+    Ok(m.get(&(participant, compte)).copied().unwrap_or(0))
 }
 
 async fn frais_total(conn: &mut PgConnection, etab: Uuid, sortie: Uuid, participant: Uuid) -> Result<i64, EntDbError> {
@@ -916,7 +963,8 @@ impl PgEnt {
                     compte_id: l.compte_id,
                     payeur: l.payeur,
                     part_centimes: l.part_centimes,
-                    verse_centimes: l.verse_centimes,
+                    // Le responsable voit ce qui couvre la part, sans savoir si c'est une aide (hors liste de la comptabilité).
+                    verse_centimes: l.verse_centimes + l.aides_centimes,
                     reste_centimes: l.reste_centimes,
                     retard_centimes: l.retard_centimes,
                     etat: if l.etat == "plan_en_cours" { "a_jour".to_string() } else { l.etat },
@@ -961,7 +1009,8 @@ impl PgEnt {
                     compte_id: l.part.compte_id,
                     payeur: l.part.libelle,
                     part_centimes: l.part.montant_centimes,
-                    verse_centimes: l.verse,
+                    verse_centimes: l.verse - l.aides,
+                    aides_centimes: l.aides,
                     reste_centimes: l.sit.reste_centimes,
                     retard_centimes: l.sit.retard_centimes,
                     etat: l.sit.etat.code().to_string(),
@@ -1025,17 +1074,34 @@ impl PgEnt {
             .fetch_all(&mut *t)
             .await
             .map_err(db)?;
+            let reports: Vec<ReportFamille> = sqlx::query_as(
+                "SELECT id, sens, montant_centimes, decide_le,
+                        (de_participant_id = $3) AS cede
+                   FROM ent_sortie_report
+                  WHERE etablissement_id = $1 AND sortie_id = $2 AND compte_id = $4
+                    AND (de_participant_id = $3 OR vers_participant_id = $3)
+                  ORDER BY decide_le, id",
+            )
+            .bind(a.etablissement_id)
+            .bind(id)
+            .bind(l.part.participant_id)
+            .bind(l.part.compte_id)
+            .fetch_all(&mut *t)
+            .await
+            .map_err(db)?;
             out.push(MaPart {
                 participant_id: l.part.participant_id,
                 eleve_prenom: prenom,
                 compte_id: l.part.compte_id,
                 payeur: l.part.libelle,
                 part_centimes: l.part.montant_centimes,
-                verse_centimes: l.verse,
+                verse_centimes: l.verse - l.aides,
+                aides_centimes: l.aides,
                 reste_centimes: l.sit.reste_centimes,
                 etat: l.sit.etat.code().to_string(),
                 echeances: vue_echeances(&l.echeances),
                 versements,
+                reports,
             });
         }
         t.commit().await.map_err(db)?;
@@ -1108,6 +1174,15 @@ impl PgEnt {
         .map_err(db)?;
         if deja {
             return Err(conflit());
+        }
+        // M1 : un report cédé s'est appuyé sur ce versement ; l'annuler ferait passer l'argent net du payeur sous zéro
+        // (de l'argent reporté ailleurs ne se rembourse pas deux fois). Le report se défait d'abord.
+        let net = paye_net(&mut t, a.etablissement_id, s.id, o.participant_id, o.compte_id).await?;
+        if net.checked_sub(o.montant_centimes).ok_or_else(invalide)? < 0 {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce versement a servi à un report vers un autre participant : annule d'abord le report.",
+            ));
         }
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let nid = Uuid::new_v4();
@@ -1781,7 +1856,7 @@ async fn controle_participant_parti(conn: &mut PgConnection, a: &Acteur<'_>, sor
 }
 
 /// Recalcule l'avoir d'un participant parti après un frais réel (VOY-273).
-async fn recalculer_depart(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne, participant: Uuid) -> Result<(), EntDbError> {
+pub(crate) async fn recalculer_depart(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne, participant: Uuid) -> Result<(), EntDbError> {
     let (etat, motif): (String, Option<String>) = sqlx::query_as(
         "SELECT sp.etat, (SELECT f.motif_code FROM ent_sortie_participant_fait f
                            WHERE f.etablissement_id = sp.etablissement_id AND f.participant_id = sp.id
@@ -1808,7 +1883,9 @@ async fn recalculer_depart(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLi
 async fn collective_participant(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne, participant: Uuid) -> Result<(), EntDbError> {
     let etab = a.etablissement_id;
     let comptes: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT DISTINCT compte_id FROM ent_sortie_versement WHERE etablissement_id = $1 AND participant_id = $2",
+        "SELECT compte_id FROM ent_sortie_versement WHERE etablissement_id = $1 AND participant_id = $2
+         UNION SELECT compte_id FROM ent_sortie_report
+                WHERE etablissement_id = $1 AND (de_participant_id = $2 OR vers_participant_id = $2)",
     )
     .bind(etab)
     .bind(participant)
@@ -1849,6 +1926,8 @@ pub(crate) async fn pointer_tx(
     if s.nature == "obligatoire" {
         return Err(refus(RefusMetier::Conflit, "Sortie obligatoire : rien n'est dû par les familles."));
     }
+    // M4 : aucun pointage sur une sortie close, annulée ou refusée.
+    crate::voyages_argent_v3::exiger_sortie_ouverte_a_l_argent(s)?;
     if !MOYENS.contains(&v.moyen.as_str()) {
         return Err(invalide());
     }
@@ -1896,7 +1975,8 @@ pub(crate) async fn pointer_tx(
     .map_err(db)?;
     let part = part.ok_or_else(introuvable)?.0;
     let deja = paye_net(conn, etab, s.id, v.participant_id, v.compte_id).await?;
-    if somme(deja, montant)? > part {
+    let aides = aides_nettes(conn, etab, s.id).await?.get(&(v.participant_id, v.compte_id)).copied().unwrap_or(0);
+    if somme(somme(deja, aides)?, montant)? > part {
         return Err(refus(RefusMetier::Conflit, "Ce versement dépasse la part de ce payeur : vérifiez le montant ou le payeur."));
     }
     let vid = Uuid::new_v4();
@@ -1961,7 +2041,8 @@ async fn construire_csv(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne
           WHERE c.etablissement_id = $1
             AND (EXISTS (SELECT 1 FROM ent_sortie_part p WHERE p.etablissement_id = c.etablissement_id AND p.compte_id = c.id AND p.sortie_id = $2)
               OR EXISTS (SELECT 1 FROM ent_sortie_versement v WHERE v.etablissement_id = c.etablissement_id AND v.compte_id = c.id AND v.sortie_id = $2)
-              OR EXISTS (SELECT 1 FROM ent_sortie_avoir_propose x WHERE x.etablissement_id = c.etablissement_id AND x.compte_id = c.id AND x.sortie_id = $2))",
+              OR EXISTS (SELECT 1 FROM ent_sortie_avoir_propose x WHERE x.etablissement_id = c.etablissement_id AND x.compte_id = c.id AND x.sortie_id = $2)
+              OR EXISTS (SELECT 1 FROM ent_sortie_aide y WHERE y.etablissement_id = c.etablissement_id AND y.compte_id = c.id AND y.sortie_id = $2))",
     )
     .bind(etab)
     .bind(s.id)
@@ -2009,6 +2090,35 @@ async fn construire_csv(conn: &mut PgConnection, a: &Acteur<'_>, s: &SortieLigne
         let (nm, pr) = nom(&f.participant_id);
         let t = if f.annule_id.is_some() { "frais_reel_annule" } else { "frais_reel" };
         ligne([t, &s.reference, &nm, &pr, "", "", &f.nature, "", &euros(f.montant_centimes), "", &f.libelle]);
+    }
+    // V3 : aides (la source n'est exportée que pour la comptabilité, qui seule appelle l'export) et reports.
+    let aides: Vec<(Uuid, Uuid, String, String, i64, NaiveDate, Option<String>)> = sqlx::query_as(
+        "SELECT participant_id, compte_id, sens, source, montant_centimes, ent_aujourdhui_etab(etablissement_id, decide_le), motif
+           FROM ent_sortie_aide WHERE etablissement_id = $1 AND sortie_id = $2 ORDER BY decide_le, id",
+    )
+    .bind(etab)
+    .bind(s.id)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for (p, c, sens, source, m, jour_aide, motif) in &aides {
+        let (nm, pr) = nom(p);
+        let t = if sens == "aide" { "aide" } else { "aide_annulee" };
+        ligne([t, &s.reference, &nm, &pr, &payeur(c), &jour_aide.to_string(), source, "", &euros(*m), "", motif.as_deref().unwrap_or("")]);
+    }
+    let reports: Vec<(Uuid, Uuid, String, i64, NaiveDate, String)> = sqlx::query_as(
+        "SELECT de_participant_id, compte_id, sens, montant_centimes, ent_aujourdhui_etab(etablissement_id, decide_le), motif
+           FROM ent_sortie_report WHERE etablissement_id = $1 AND sortie_id = $2 ORDER BY decide_le, id",
+    )
+    .bind(etab)
+    .bind(s.id)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for (p, c, sens, m, jour_report, motif) in &reports {
+        let (nm, pr) = nom(p);
+        let t = if sens == "report" { "report_cede" } else { "report_annule" };
+        ligne([t, &s.reference, &nm, &pr, &payeur(c), &jour_report.to_string(), "", "", &euros(*m), "", motif]);
     }
     for av in lire_avoirs(conn, etab, s.id).await? {
         let (nm, pr) = nom(&av.participant_id);
