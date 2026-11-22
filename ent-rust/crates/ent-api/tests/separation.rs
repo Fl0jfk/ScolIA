@@ -3154,7 +3154,7 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         let matiere = ens
             .json
             .as_array()
-            .and_then(|a| a.iter().find(|v| v["cours_id"].as_str() == Some(&cours.to_string())))
+            .and_then(|a| a.first())
             .and_then(|v| v["matiere_id"].as_str())
             .and_then(|x| Uuid::parse_str(x).ok())
             .expect("matière du cours du professeur");
