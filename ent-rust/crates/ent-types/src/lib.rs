@@ -43,6 +43,7 @@ pub mod fusion;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
+pub mod inscriptions_decisions;
 pub mod inscriptions_pieces;
 pub mod internat;
 pub mod internat_nuit;

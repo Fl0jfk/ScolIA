@@ -1140,6 +1140,7 @@ impl PgEnt {
         id: Uuid,
         b: &TransitionBody,
     ) -> Result<DossierDto, EntDbError> {
+        self.refuser_si_deporte(etab, actor, id).await?;
         let (action, decideur) = match b.action.as_str() {
             "annuler" | "non_reinscription_etablissement" => (b.action.as_str(), true),
             "sans_suite" | "desister" | "reprendre" | "non_presente" | "reaffecte" | "sans_reponse"
@@ -1211,6 +1212,7 @@ impl PgEnt {
         id: Uuid,
         b: &BlocageBody,
     ) -> Result<DossierDto, EntDbError> {
+        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(
             etab,
             actor,
@@ -1480,6 +1482,7 @@ impl PgEnt {
         id: Uuid,
         b: &AnnulationValidationBody,
     ) -> Result<AnnulationValidationDto, EntDbError> {
+        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
@@ -1829,7 +1832,7 @@ impl PgEnt {
 
     /// Met un message d'information en file, une fois par démarche et par adresse, vers les seuls
     /// responsables qui peuvent être sollicités. Renvoie le nombre de familles prévenues.
-    async fn prevenir_familles_tx(
+    pub(crate) async fn prevenir_familles_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         dossiers: &[Uuid],
@@ -2360,6 +2363,7 @@ impl PgEnt {
         // Vue famille : jamais la marque « à ne pas solliciter » (le déposant pourrait être la
         // personne dont l'autre responsable est protégé) ni l'identifiant de la personne créée.
         let mut d = self.demarche_dto(etab, id).await?;
+        self.masquer_resumes_famille(etab, &mut d.dossiers).await?;
         for x in &mut d.declarations {
             x.ne_pas_solliciter = false;
             x.personne_id = None;

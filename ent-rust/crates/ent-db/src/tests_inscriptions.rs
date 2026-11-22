@@ -1770,11 +1770,12 @@ async fn attaque_email_parent_existant_aucun_acces() {
         .await,
         0
     );
-    // Aucun e-mail n'est parti pour un fait annulé.
+    // Aucun e-mail d'invitation n'est parti pour un fait annulé (le message d'une décision publiée, lot I5,
+    // est un autre fait : il ne dit rien de la décision et ne concerne pas ce test).
     assert_eq!(
         compter(
             &ent,
-            "SELECT count(*) FROM ent_inscription_envoi WHERE etablissement_id = $1",
+            "SELECT count(*) FROM ent_inscription_envoi WHERE etablissement_id = $1 AND cle NOT LIKE 'decision-%'",
             etab
         )
         .await,

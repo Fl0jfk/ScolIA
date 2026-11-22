@@ -645,6 +645,7 @@ impl PgEnt {
         role: &str,
         dossier_id: Uuid,
     ) -> Result<AccordsDossierDto, EntDbError> {
+        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
@@ -664,6 +665,7 @@ impl PgEnt {
         dossier_id: Uuid,
         b: &DemanderAccordsBody,
     ) -> Result<usize, EntDbError> {
+        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;

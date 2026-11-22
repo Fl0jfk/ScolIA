@@ -907,6 +907,7 @@ impl PgEnt {
         role: &str,
         dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
+        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = pieces_dossier_tx(&mut tx, etab, dossier_id).await?;
@@ -1242,6 +1243,7 @@ impl PgEnt {
         code: &str,
         b: &ControlePieceBody,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
+        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let motif = b.motif.as_deref().map(str::trim).filter(|m| !m.is_empty());
         let commentaire = b.commentaire.as_deref().map(str::trim).filter(|m| !m.is_empty());
@@ -1413,6 +1415,7 @@ impl PgEnt {
         dossier_id: Uuid,
         code: &str,
     ) -> Result<PieceLue, EntDbError> {
+        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_tx(&mut tx, etab, dossier_id).await?;

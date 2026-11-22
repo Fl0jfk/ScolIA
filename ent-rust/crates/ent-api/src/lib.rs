@@ -29,6 +29,7 @@ mod ical;
 mod finances;
 mod finances_comptes;
 mod inscriptions;
+mod inscriptions_decisions;
 mod inscriptions_pieces;
 mod documents_verif;
 mod internat;
