@@ -456,6 +456,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
     // `MIGRATION_TAG` inchangé (règle 28).
     m!("3200_eleve_e9_pastilles_statut_contraintes"),
+    // Socle 11, lot MB0 (plage 2220–2239) : appareils push liés à la session, révocation en cascade (DS1, DS3) ; sous 3808.
+    m!("2220_mob_mb0_appareils_push"),
     // Messagerie, lots M5 et M6 (plage 488–493 du repli 480–499) : 488 référence `ent_doc_document` (socle 7, 3701) et
     // modifie `ent_msg_piece` (038, 601) ; appliquées donc APRÈS 3701. Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
     m!("488_msg_m5_pieces"),

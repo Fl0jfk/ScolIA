@@ -63,6 +63,15 @@ impl ClientSession {
     }
 }
 
+/// MB0 (DS2) : un client ne se voit accorder la session longue (mobile) que s'il a prouvé un
+/// facteur fort ; la simple déclaration « mobile » n'y suffit jamais.
+pub fn client_effectif(declare: ClientSession, assurance: AssuranceSession) -> ClientSession {
+    match (declare, assurance) {
+        (ClientSession::Mobile, AssuranceSession::Passkey) => ClientSession::Mobile,
+        _ => ClientSession::Web,
+    }
+}
+
 /// Niveau d'assurance de l'authentification qui a ouvert la session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AssuranceSession {
@@ -506,6 +515,13 @@ impl PgAuthRepo {
             );
             return Err(AuthError::NotMember);
         }
+        // MB0 (DS2, MEN-11) : le type de client est une déclaration, jamais une preuve. La durée
+        // mobile exige une authentification par passkey (puis, en MB4, une clé d'appareil
+        // enregistrée) ; sinon la session reçoit la durée standard du web.
+        let opts = &OptionsSession {
+            client: client_effectif(opts.client, opts.assurance),
+            ..opts.clone()
+        };
         let (raw_token, token_hash) = generate_session_token();
         let session_id = Uuid::new_v4();
         let now = Utc::now();
@@ -940,7 +956,9 @@ impl PgAuthRepo {
         // Activité : écriture amortie (au plus une fois par minute). Mobile :
         // prolongation glissante, plafonnée depuis la connexion.
         if now - last_seen_at > Duration::seconds(60) {
-            if client == ClientSession::Mobile && portee == PorteeSession::Complete {
+            if client_effectif(client, AssuranceSession::from_db(&assurance)) == ClientSession::Mobile
+                && portee == PorteeSession::Complete
+            {
                 let plafond = created_at + Duration::days(session_mobile_max_jours());
                 let nouvelle = (now + Duration::days(session_mobile_jours())).min(plafond);
                 if nouvelle > expires_at {

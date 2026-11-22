@@ -21,6 +21,8 @@ pub struct RegisterPushDevice {
     pub platform: PushPlatform,
     pub token: String,
     pub app_id: Option<String>,
+    /// Session qui inscrit le jeton (DS1) ; absente seulement pour les anciens appelants.
+    pub session_id: Option<Uuid>,
 }
 
 pub struct InsertPushOutbox {
@@ -48,43 +50,95 @@ impl PgPushRepo {
         Self { pool }
     }
 
+    /// Inscrit le jeton de notification d'un appareil, lié à la session qui l'inscrit (DS1).
+    /// Un jeton déjà actif pour une autre personne ou une autre session n'est **jamais** réaffecté
+    /// en silence (DS3) : l'ancienne inscription est révoquée (`reaffecte`, avec trace) et la liste
+    /// des anciens titulaires est renvoyée pour l'avis de sécurité.
     pub async fn upsert_device(
         &self,
         cmd: RegisterPushDevice,
-    ) -> Result<PushDevice, DomainError> {
+    ) -> Result<(PushDevice, Vec<Uuid>), DomainError> {
         let token = cmd.token.trim().to_string();
-        if token.is_empty() {
+        if token.is_empty() || token.len() > 4096 {
             return Err(DomainError::EmptyAttributValeur);
         }
-        let id = Uuid::new_v4();
         let platform = cmd.platform.as_str();
+        let empreinte = empreinte_jeton(&token);
         let mut txw = TenantTx::begin(&self.pool, cmd.etablissement_id).await.map_err(map_sqlx)?;
-        let row = sqlx::query_as::<_, DeviceRow>(
-            r#"
-            INSERT INTO ent_push_device (
-                id, etablissement_id, user_id, platform, token, app_id,
-                last_seen_at, created_at, revoked_at
-            ) VALUES ($1,$2,$3,$4,$5,$6, now(), now(), NULL)
-            ON CONFLICT (etablissement_id, token) DO UPDATE SET
-                user_id = EXCLUDED.user_id,
-                platform = EXCLUDED.platform,
-                app_id = EXCLUDED.app_id,
-                last_seen_at = now(),
-                revoked_at = NULL
-            RETURNING id, etablissement_id, user_id, platform, token, app_id
-            "#,
+        let anciens: Vec<(Uuid,)> = sqlx::query_as(
+            r#"UPDATE ent_push_device SET revoked_at = now(), revoque_motif = 'reaffecte'
+                WHERE etablissement_id = $1 AND token = $2 AND revoked_at IS NULL
+                  AND (user_id <> $3 OR session_id IS DISTINCT FROM $4)
+              RETURNING user_id"#,
         )
-        .bind(id)
         .bind(cmd.etablissement_id)
-        .bind(cmd.user_id)
-        .bind(platform)
         .bind(&token)
-        .bind(&cmd.app_id)
-        .fetch_one(&mut *txw)
+        .bind(cmd.user_id)
+        .bind(cmd.session_id)
+        .fetch_all(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        let existant = sqlx::query_as::<_, DeviceRow>(
+            r#"UPDATE ent_push_device SET platform = $3, app_id = $4, last_seen_at = now()
+                WHERE etablissement_id = $1 AND token = $2 AND revoked_at IS NULL
+              RETURNING id, etablissement_id, user_id, platform, token, app_id"#,
+        )
+        .bind(cmd.etablissement_id)
+        .bind(&token)
+        .bind(platform)
+        .bind(&cmd.app_id)
+        .fetch_optional(&mut *txw)
+        .await
+        .map_err(map_sqlx)?;
+        let row = match existant {
+            Some(r) => r,
+            None => sqlx::query_as::<_, DeviceRow>(
+                r#"INSERT INTO ent_push_device (
+                       id, etablissement_id, user_id, platform, token, app_id,
+                       session_id, token_empreinte, last_seen_at, created_at, revoked_at
+                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), NULL)
+                   RETURNING id, etablissement_id, user_id, platform, token, app_id"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(cmd.etablissement_id)
+            .bind(cmd.user_id)
+            .bind(platform)
+            .bind(&token)
+            .bind(&cmd.app_id)
+            .bind(cmd.session_id)
+            .bind(&empreinte)
+            .fetch_one(&mut *txw)
+            .await
+            .map_err(map_sqlx)?,
+        };
         txw.commit().await.map_err(map_sqlx)?;
-        Ok(row.into_device())
+        let mut anciens: Vec<Uuid> = anciens.into_iter().map(|(u,)| u).collect();
+        anciens.sort();
+        anciens.dedup();
+        Ok((row.into_device(), anciens))
+    }
+
+    /// DS4 : désinscription par la personne propriétaire. `false` si rien à révoquer.
+    pub async fn desinscrire_device(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let n = sqlx::query(
+            r#"UPDATE ent_push_device SET revoked_at = now(), revoque_motif = 'desinscription'
+                WHERE id = $1 AND etablissement_id = $2 AND user_id = $3 AND revoked_at IS NULL"#,
+        )
+        .bind(id)
+        .bind(etablissement_id)
+        .bind(user_id)
+        .execute(&mut *txw)
+        .await
+        .map_err(map_sqlx)?
+        .rows_affected();
+        txw.commit().await.map_err(map_sqlx)?;
+        Ok(n > 0)
     }
 
     pub async fn list_active_for_users(
@@ -102,6 +156,7 @@ impl PgPushRepo {
             WHERE etablissement_id = $1
               AND user_id = ANY($2)
               AND revoked_at IS NULL
+              AND (session_id IS NOT NULL OR last_seen_at > now() - interval '30 days')
             "#,
         )
         .bind(etablissement_id)
@@ -188,6 +243,11 @@ impl PgPushRepo {
         Ok(row.0)
     }
 
+}
+
+/// Empreinte SHA-256 (hexadécimal) du jeton : on le retrouve sans le relire (DS3).
+fn empreinte_jeton(token: &str) -> String {
+    ent_auth::hash_token(token)
 }
 
 fn status_str(s: PushSendStatus) -> &'static str {

@@ -143,7 +143,8 @@ pub async fn personnes_de_l_eleve(
                 COALESCE(NULLIF(btrim(u.telephone), ''), p.telephone) AS telephone,
                 EXISTS (SELECT 1 FROM ent_push_device d
                          WHERE d.etablissement_id = l.etablissement_id AND d.user_id = l.user_id
-                           AND d.revoked_at IS NULL) AS push
+                           AND d.revoked_at IS NULL
+                           AND (d.session_id IS NOT NULL OR d.last_seen_at > now() - interval '30 days')) AS push
            FROM ent_eleve_lien l
            JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id
            LEFT JOIN ent_user u ON u.id = l.user_id

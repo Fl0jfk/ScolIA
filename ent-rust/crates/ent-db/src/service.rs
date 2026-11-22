@@ -1597,9 +1597,10 @@ impl PgEnt {
         platform: &str,
         token: &str,
         app_id: Option<String>,
+        session_id: Option<Uuid>,
     ) -> Result<PushDevice, EntDbError> {
         let platform = PushPlatform::parse(platform).ok_or(EntDbError::Forbidden)?;
-        let device = self
+        let (device, anciens_titulaires) = self
             .push_devices
             .upsert_device(RegisterPushDevice {
                 etablissement_id,
@@ -1607,6 +1608,7 @@ impl PgEnt {
                 platform,
                 token: token.to_string(),
                 app_id,
+                session_id,
             })
             .await?;
         self.events
@@ -1619,11 +1621,24 @@ impl PgEnt {
                 payload: json!({
                     "platform": device.platform,
                     "user_id": user_id,
+                    // DS3 : trace de la réaffectation (anciens titulaires révoqués), sans le jeton.
+                    "reaffecte_depuis": anciens_titulaires,
                 }),
                 actor_user_id: Some(user_id.to_string()),
             })
             .await?;
         Ok(device)
+    }
+
+    /// DS4 : désinscrit un appareil de notification (la déconnexion le fait déjà par la révocation
+    /// de la session ; ceci couvre le retrait explicite sans fermer la session).
+    pub async fn desinscrire_push_device(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        Ok(self.push_devices.desinscrire_device(etablissement_id, user_id, id).await?)
     }
 
     /// Push aux parents liés qui ont un device enregistré. Best-effort.

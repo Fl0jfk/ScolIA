@@ -969,7 +969,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_psy_rdv", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_punition", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_punition_type", "vie_scolaire", Portee::Etablissement),
-    t("ent_push_device", "communication_technique", Portee::Etablissement).perso().export(),
+    // MB0 (DS5) : les jetons d'appareils ne partent pas dans la portabilité et sont purgés à la restauration.
+    t("ent_push_device", "communication_technique", Portee::Etablissement).perso().neutralise(N_PURGE),
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
     t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
