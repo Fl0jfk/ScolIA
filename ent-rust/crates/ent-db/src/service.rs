@@ -19030,6 +19030,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_message(cmd.etablissement_id, cmd.message_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // Un message différé d'autrui n'existe pas encore : 404 comme un identifiant inconnu (aucune fuite
+        // d'existence ; seul l'auteur le voit).
+        if self
+            .messages
+            .message_differe_d_autrui(cmd.etablissement_id, cmd.message_id, cmd.actor_user_id)
+            .await?
+        {
+            return Err(DomainError::NotFound.into());
+        }
         let fil = self
             .messages
             .get_fil(cmd.etablissement_id, msg.fil_id)
