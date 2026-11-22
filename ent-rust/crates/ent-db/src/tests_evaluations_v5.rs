@@ -1866,20 +1866,24 @@ async fn revue_f3_f4_periode_de_la_moyenne_externe_et_saisies_concurrentes() {
     }
     // F4 : deux saisies simultanées de la même période (valeurs différentes) : une réussit, l'autre est un conflit (ou
     // une correction sans motif refusée si elle passe après) ; jamais d'erreur de base, une seule ligne.
+    let (c1, c2) = (
+        moy(w.t1, "moyenne", Some(11_000), None, None),
+        moy(w.t1, "moyenne", Some(13_000), None, None),
+    );
     let (r1, r2) = tokio::join!(
         ent.eva_v5_saisir_moyenne_externe_for_actor(
             w.etab,
             w.direction,
             DIR,
             ens.id,
-            &moy(w.t1, "moyenne", Some(11_000), None, None),
+            &c1,
         ),
         ent.eva_v5_saisir_moyenne_externe_for_actor(
             w.etab,
             w.direction,
             DIR,
             ens.id,
-            &moy(w.t1, "moyenne", Some(13_000), None, None),
+            &c2,
         ),
     );
     assert!(r1.is_ok() ^ r2.is_ok(), "{r1:?} / {r2:?}");
