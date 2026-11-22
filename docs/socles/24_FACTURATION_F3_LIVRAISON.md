@@ -56,4 +56,11 @@ Lot suivant non fait lu dans la conception (§25) : **F3** « catalogue, grilles
 
 ## 6. Vérifications
 
-Voir la fin du fichier (mise à jour avec la tête finale et la CI).
+Base locale **neuve** `ent_f3_test` (PostgreSQL 16, `ENT_ENV=test`, `ENT_EXIGER_BASE=1`), un seul `CARGO_TARGET_DIR`, toolchain 1.99.0, `--locked`. Aucune base ni donnée de production, aucune donnée réelle, aucun secret.
+
+- **Formatage ciblé** : `rustfmt` sur les quatre fichiers nouveaux ; `cargo fmt -p ent-types --check` propre ; **aucun `cargo fmt --all`**. `cargo metadata --locked` dans `ent-rust/web` : propre (aucune crate ajoutée au graphe).
+- **Clippy 1.99.0 `-D warnings`** : propre sur les trois passes de la CI (workspace, workspace avec `ent-api/labo,ent-lab/labo`, `-p ent-types`). **Zéro avertissement** rustc et clippy dans les lignes ajoutées ; aucun `#[allow]` ajouté sauf `too_many_arguments` sur la fabrique de modèles (liste statique), avec sa raison dans le code.
+- **Tests du lot** (`tests_finances_f3`, 8 scénarios, base locale) : catalogue et nature figée, émission sous qualification exigée, cycle de vie complet (gel par la base, génération sur la grille en vigueur, correction, publication, événements neutres), second regard / retour en brouillon / abandon, hausse / tranches / contrôles / reprise de l'historique, simulation / familles types / comparaison / export, état des contributions, isolation entre établissements (second jeu de labo, rien n'a changé en base). Plus 7 tests unitaires purs (arrondi, hausse, tranches, contrôles, simulation, CSV, modèles). Les dates sont fixes (année 2030-2031, vote le 20 juin 2030) : **aucune dépendance à l'heure ni au jour UTC** (règle 33).
+- **Non-régression** : 193 tests `ent-db` (finances F0 à F3, comptes F2, registre, conservation, RLS dont le compte de tables, rôles, charges d'événements), gardes `garde_finances_ecritures`, `garde_inscriptions_ecritures`, `isolation_sql_statique`, `jour_utc_interdit` ; `ent-api` : **test d'or de l'historique** (`or_facturation_historique`, identique), `recette_finances_f0` (17), `recette_securite_3` (10), `separation` (58, dont `domaine_finances_grilles`, 32 routes F3 refusées sur les identifiants d'un autre établissement, et la matrice du double membre).
+- **Pas de `#[ignore]`**, aucun test désactivé.
+- **CI** : voir le message au pilote (tête finale et état), après fusion d'`origin/ENT` (règle 36).
