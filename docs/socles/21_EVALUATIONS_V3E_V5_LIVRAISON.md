@@ -90,4 +90,6 @@ Recalculés à partir de la base commune `02659006` : **+1 table avec RLS** (`te
 
 ## 6. Fin : tête, CI
 
-*(complété à la clôture)*
+**Tête finale :** `15b277e1` sur `ent-socle-21-code-v5` ; **PR en brouillon n° 114 vers `ENT`**.
+**CI :** à la clôture du lot, le run « ENT Rust » de cette tête était encore **en file d'attente** (`queued`, plusieurs dizaines de minutes) : **aucun résultat de CI à rapporter**. Le pilote lit le résultat sur la PR 114. Rien n'est affirmé vert côté CI.
+**À surveiller en CI :** `periode_complete_avec_le_client_du_frontend` (non modifié, voir 3.1) ; la suite complète d'`ent-db` (non exécutée localement).
