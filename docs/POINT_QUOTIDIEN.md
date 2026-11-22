@@ -6,6 +6,41 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-22 (dimanche soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT (validé par la CI)**, ENT = **bc69cd0d** (CI 516 verte) :
+- **Faille de dépendance corrigée** (3013e4b9, PR 121) : `url` 2.5.9 (alerte RUSTSEC-2026-0592, dépassement de pile), qui faisait échouer l'audit sur toutes les branches.
+- Socle 16 **messagerie, suite** (bc69cd0d, PR 116) : pièce jointe sur son propre message différé ; **flux en direct M12** (signal « nouveau message » sans contenu). Revue puis contre-revue : le flux applique désormais les mêmes droits que la lecture, une seule horloge (la base) pour ne perdre aucun message, limite de débit, test exigeant le refus exact.
+
+**Prêt mais pas encore sur ENT** (revue et contre-revue sans élevé ; versement dès la CI verte sur la branche fusionnée avec ENT) :
+- Socle 42 **voyages V3** (PR 117) : aides financières, reports de versement entre enfants, lien avec l'internat. Correctifs : un interne n'est retiré de l'attendu qu'à son départ constaté ; l'attendu suit toute annulation ou changement de dates ; personne ne décide une aide pour son propre enfant ; seconde personne au-delà de 150 € ou pour le fonds social (paramètre d'établissement).
+- Socle 21 **notes V5** (PR 114) : parcours des élèves, résultats et moyennes externes (CNED, autre établissement). Correctifs : une moyenne externe n'est jamais vue de la famille avant publication ; portée du professeur limitée à ses cours ; message de refus qui dit la vraie cause.
+- Socle 24 **facturation F3** (PR 118) : catalogue qualifié, grilles tarifaires votées et figées, simulateur, familles types. Correctifs : date de vigueur appliquée ; second regard par une autre personne ; gel complet en base ; aucune ligne qui disparaît en silence ; articles qualifiés exigés par défaut pour les nouveaux établissements.
+- **Test instable** (PR 124) : un test du flux M12 comptait les événements d'un compte de labo partagé.
+
+**En cours** (sessions qui codent) :
+- Socle 11 **mobile MB0**, passe 2 : un accès échu ou suspendu ne reçoit plus de notifications ; aucune information ne traverse les établissements ; fonction privilégiée réservée au rôle applicatif.
+- Socle 3 **inscriptions I5** (décisions, commission, liste d'attente, propositions de place) : correctifs de 2 élevés (un refus jamais publié devenait visible de la famille ; déport d'un membre lié au candidat seulement volontaire).
+- Socle 41 **internat I4** (vie quotidienne : sorties de groupe, études, vigilance, événements) : correctifs de 3 élevés (élève parti non rentré sans alerte ; accord « soirée » valant pour une sortie de plusieurs jours ; cause d'un blocage visible de l'accompagnateur).
+- Socle 20 **cahier C8 + C9**, passe 3 : le gel complet d'une année close bloquait la reprise de l'existant au rejeu des migrations.
+- Socle 16 **suites du flux M12** (PR 123) : curseur sûr face aux transactions longues, temps réel sur plusieurs appareils.
+
+**Conçu mais pas codé** : suites des contre-revues (voyages : seuil cumulé, règle « pas pour son enfant » sur tous les pouvoirs d'argent, départ constaté avant V3b ; V5 : retrait de publication, moteur identique pour famille et personnel, notes ordinaires après fusion de fiches ; F3 : tarif de la période facturée mois par mois) ; mobile **MB1 à MB16** ; 20 C10.
+
+**Tableau d'avancement** (`docs/pilotage/TABLEAU_MATURITE.md`) : messagerie (16) un peu plus épaisse ; mobile (11) passe de « pas commencé » à « conception faite, MB0 en cours ». Mise à jour complète au prochain versement groupé.
+
+**Décisions attendues de Florian** : aucune (D-069). Choix pris par défaut par le pilote, à relire quand tu veux : seuil de seconde validation des aides de voyage (150 €, fonds social toujours) ; délai d'une demande de réouverture du cahier (14 jours) ; tolérance avant alerte d'un élève non rentré d'une sortie (15 min) ; tarif appliqué = celui de la période facturée ; articles qualifiés exigés pour les nouveaux établissements (alerte « à activer avant la rentrée 2027 » pour l'existant).
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) : **F-09** comptes développeur **Apple** et **Google Play** **avant mars 2027** (sinon la démo iOS du printemps se fera sans notifications) ; F-08 (conteneur et base ScolIA séparés chez Scaleway) avant Noël : le pilote te donnera la liste exacte deux semaines avant. Le reste : plus tard.
+
+**Ce qui a coincé** :
+- **File de la CI saturée** (jusqu'à 1 h 30 d'attente avant le premier job) : plusieurs sessions ont atteint la limite de leur attente ; le pilote reprend la main sur leurs verdicts.
+- Une session s'était endormie sur un **réveil qui ne se déclenche jamais** (`ScheduleWakeup`, inopérant hors /loop) avec une CI rouge : interdit dans les consignes (règle 37).
+- Le **gel complet d'une année close** (cahier) bloquait la reprise des anciens devoirs : corrigé par un seul chemin autorisé, celui de la reprise.
+- Un **test instable** versé avec la messagerie (compte de labo partagé) : correctif PR 124.
+
+---
+
 ## 2026-11-21 (samedi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT (validé par la CI)**, ENT = **02659006** (CI 472 verte) :
