@@ -27,7 +27,7 @@ use crate::inscriptions::{
     transitionner_tx, DossierRow,
 };
 use crate::inscriptions_decisions::{
-    decider_tx, dossier_visible_tx, dossiers_deportes, ContexteDecision,
+    decider_tx, dossier_visible_tx, dossiers_ecartes, ContexteDecision,
 };
 use crate::inscriptions_etats::{etat_effectif, Cause};
 use crate::inscriptions_modele;
@@ -130,11 +130,117 @@ pub(crate) async fn annuler_propositions_ouvertes_tx(
     Ok(())
 }
 
+/// Confirmation explicite d'une admission directe qui reprend une place désignée à la liste d'attente.
+#[derive(Clone, Copy)]
+pub(crate) struct PasserDevant<'a> {
+    pub confirmer: bool,
+    pub motif: Option<&'a str>,
+}
+
+/// D-069 M5. Une admission **directe** (hors liste d'attente) sur une offre dont les places libres sont déjà
+/// désignées à des dossiers de la liste ne les consomme pas en silence : il faut une confirmation explicite avec
+/// un motif ; la désignation reprise est alors annulée (tracée, motif), le dossier garde son rang et son tour
+/// reviendra à la prochaine place libre.
+pub(crate) async fn reprendre_place_designee_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    offre: Uuid,
+    dossier: Uuid,
+    disponibles: i64,
+    passer_devant: PasserDevant<'_>,
+) -> Result<(), EntDbError> {
+    let designees: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT id, dossier_id FROM ent_inscription_proposition_place
+          WHERE etablissement_id = $1 AND offre_id = $2 AND origine = 'liste_attente' AND statut = 'designee'
+            AND dossier_id <> $3
+          ORDER BY rang_au_moment DESC NULLS LAST, designee_le DESC, id
+          FOR UPDATE",
+    )
+    .bind(etab)
+    .bind(offre)
+    .bind(dossier)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let a_reprendre = i64::try_from(designees.len()).unwrap_or(0) - (disponibles - 1).max(0);
+    if a_reprendre <= 0 {
+        return Ok(());
+    }
+    let motif = passer_devant.motif.map(str::trim).filter(|m| !m.is_empty());
+    let Some(motif) = motif.filter(|m| passer_devant.confirmer && m.chars().count() >= 3) else {
+        return Err(conflit(
+            "la dernière place est déjà désignée à un dossier de la liste d'attente : \
+             confirmer explicitement (confirmer_passer_devant) avec un motif (motif_passer_devant)",
+        ));
+    };
+    if motif.chars().count() > 400 {
+        return Err(invalide("motif : 400 caractères au plus"));
+    }
+    let texte = format!("Place reprise par une admission directe : {motif}");
+    for (proposition, autre) in designees
+        .into_iter()
+        .take(usize::try_from(a_reprendre).unwrap_or(0))
+    {
+        sqlx::query(
+            "UPDATE ent_inscription_proposition_place SET statut = 'annulee', motif = left($3, 500)
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(proposition)
+        .bind(&texte)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        suivi_tx(
+            conn,
+            etab,
+            autre,
+            "liste_attente",
+            None,
+            Some("Place désignée reprise par une admission directe (motif interne) : le dossier garde son rang"),
+            false,
+            None,
+        )
+        .await?;
+    }
+    suivi_tx(
+        conn,
+        etab,
+        dossier,
+        "liste_attente",
+        None,
+        Some(&format!("Admission directe sur une place désignée à la liste d'attente : {motif}")),
+        false,
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
 /// Position (1, 2, 3…) du dossier sur la liste de son offre.
 pub(crate) async fn position_attente_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     dossier: Uuid,
+) -> Result<Option<i64>, EntDbError> {
+    position_attente_selon_tx(conn, etab, dossier, false).await
+}
+
+/// Position **lue par la famille** (D-069 F2) : calculée sur les seuls dossiers dont la décision la plus récente est
+/// publiée. Un autre dossier dont la décision n'est pas encore publiée ne décale jamais ce rang.
+pub(crate) async fn position_attente_publiee_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+) -> Result<Option<i64>, EntDbError> {
+    position_attente_selon_tx(conn, etab, dossier, true).await
+}
+
+async fn position_attente_selon_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+    publiees_seulement: bool,
 ) -> Result<Option<i64>, EntDbError> {
     sqlx::query_scalar(
         "SELECT r.pos FROM (
@@ -142,6 +248,11 @@ pub(crate) async fn position_attente_tx(
               FROM ent_inscription_dossier x
               JOIN ent_inscription_voeu v ON v.etablissement_id = x.etablissement_id AND v.id = x.voeu_retenu_id
              WHERE x.etablissement_id = $1 AND x.etat = 'liste_attente'
+               AND (NOT $3 OR NOT EXISTS (
+                      SELECT 1 FROM ent_inscription_decision l
+                       WHERE l.etablissement_id = x.etablissement_id AND l.dossier_id = x.id
+                         AND l.publiee_le IS NULL
+                         AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y WHERE y.remplace_decision_id = l.id)))
                AND v.offre_id = (SELECT v2.offre_id FROM ent_inscription_dossier d2
                                    JOIN ent_inscription_voeu v2
                                      ON v2.etablissement_id = d2.etablissement_id AND v2.id = d2.voeu_retenu_id
@@ -150,18 +261,22 @@ pub(crate) async fn position_attente_tx(
     )
     .bind(etab)
     .bind(dossier)
+    .bind(publiees_seulement)
     .fetch_optional(conn)
     .await
     .map_err(db)
 }
 
 /// **Désigne** les suivants de la liste tant qu'il y a des places libres non déjà promises à une désignation.
-/// Ne décide rien, n'envoie rien. Un dossier dont la décision date de cette même transaction (il vient de quitter
-/// l'offre ou d'y être placé en attente) n'est jamais désigné pour la place qu'il vient de libérer.
+/// Ne décide rien, n'envoie rien. `exclure` : les dossiers qui viennent de quitter l'offre, d'y être placés en attente
+/// ou de **passer leur tour** ne sont pas désignés pour la place qui se libère à l'instant. « Passer son tour » ne
+/// vaut que pour **cette** place (D-069 M11) : à une place libérée plus tard, le dossier écarté redevient désignable
+/// à son rang.
 pub(crate) async fn designer_suivants_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     offre: Uuid,
+    exclure: &[Uuid],
 ) -> Result<i64, EntDbError> {
     sqlx::query(
         "SELECT id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -194,16 +309,14 @@ pub(crate) async fn designer_suivants_tx(
               WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
                 AND NOT EXISTS (SELECT 1 FROM ent_inscription_proposition_place p
                                  WHERE p.etablissement_id = d.etablissement_id AND p.dossier_id = d.id
-                                   AND (p.statut IN ('designee', 'envoyee')
-                                        OR (p.statut = 'ecartee' AND p.offre_id = $2)))
-                AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision x
-                                 WHERE x.etablissement_id = d.etablissement_id AND x.dossier_id = d.id
-                                   AND x.decide_le = now())
+                                   AND p.statut IN ('designee', 'envoyee'))
+                AND NOT (d.id = ANY($3))
               ORDER BY d.rang_attente NULLS LAST, d.id LIMIT 1
               FOR UPDATE OF d SKIP LOCKED",
         )
         .bind(etab)
         .bind(offre)
+        .bind(exclure)
         .fetch_optional(&mut *conn)
         .await
         .map_err(db)?;
@@ -275,14 +388,14 @@ pub(crate) async fn apres_transition_tx(
             compacter_rangs_tx(conn, etab, o).await?;
             if vers != "admis" {
                 // Une désignation qui tombe rend sa place : le suivant est désigné.
-                designer_suivants_tx(conn, etab, o).await?;
+                designer_suivants_tx(conn, etab, o, &[d.id]).await?;
             }
         }
     }
     if libere_une_place {
         annuler_propositions_ouvertes_tx(conn, etab, d.id, "place libérée par le dossier").await?;
         if let Some(o) = offre {
-            designer_suivants_tx(conn, etab, o).await?;
+            designer_suivants_tx(conn, etab, o, &[d.id]).await?;
         }
     }
     Ok(())
@@ -298,8 +411,8 @@ pub(crate) async fn preparer_proposition_tx(
     origine: &str,
     decision_id: Uuid,
 ) -> Result<(), EntDbError> {
-    let ouverte: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM ent_inscription_proposition_place
+    let ouverte: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, statut FROM ent_inscription_proposition_place
           WHERE etablissement_id = $1 AND dossier_id = $2 AND statut IN ('designee', 'envoyee') FOR UPDATE",
     )
     .bind(etab)
@@ -307,7 +420,32 @@ pub(crate) async fn preparer_proposition_tx(
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    if let Some(p) = ouverte {
+    if let Some((p, statut)) = ouverte {
+        if statut == "envoyee" {
+            // D-069 M6 : une proposition **envoyée** n'est jamais réécrite (la famille l'a lue, elle a un délai).
+            // Elle est annulée, avec sa trace, et une nouvelle proposition prend sa place.
+            sqlx::query(
+                "UPDATE ent_inscription_proposition_place
+                    SET statut = 'annulee', motif = 'Proposition envoyée remplacée par une nouvelle décision'
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(p)
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+            suivi_tx(
+                conn,
+                etab,
+                d.id,
+                "liste_attente",
+                None,
+                Some("Proposition de place envoyée annulée : remplacée par une nouvelle décision"),
+                false,
+                None,
+            )
+            .await?;
+        } else {
         sqlx::query(
             "UPDATE ent_inscription_proposition_place SET decision_id = $3, offre_id = COALESCE($4, offre_id)
               WHERE etablissement_id = $1 AND id = $2",
@@ -320,6 +458,7 @@ pub(crate) async fn preparer_proposition_tx(
         .await
         .map_err(db)?;
         return Ok(());
+        }
     }
     sqlx::query(
         "INSERT INTO ent_inscription_proposition_place
@@ -339,17 +478,32 @@ pub(crate) async fn preparer_proposition_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    // Une nouvelle proposition (autre offre, nouvelle décision) demande une nouvelle réponse de la famille.
-    sqlx::query(
+    // Une nouvelle proposition (autre offre, nouvelle décision) demande une nouvelle réponse de la famille : la
+    // condition est réinitialisée, explicitement tracée (la levée éventuelle reste au journal, jamais effacée).
+    let reinit = sqlx::query(
         "UPDATE ent_inscription_condition SET remplie = false, remplie_le = NULL, remplie_par = NULL,
                 source = NULL, source_ref = NULL, motif = NULL
-          WHERE etablissement_id = $1 AND dossier_id = $2 AND code = 'reponse_famille'",
+          WHERE etablissement_id = $1 AND dossier_id = $2 AND code = 'reponse_famille' AND remplie",
     )
     .bind(etab)
     .bind(d.id)
     .execute(&mut *conn)
     .await
-    .map_err(db)?;
+    .map_err(db)?
+    .rows_affected();
+    if reinit > 0 {
+        suivi_tx(
+            conn,
+            etab,
+            d.id,
+            "condition",
+            None,
+            Some("Réponse de la famille réinitialisée : une nouvelle proposition demande une nouvelle réponse"),
+            false,
+            None,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -471,7 +625,7 @@ pub(crate) async fn instancier_conditions_tx(
             .map_err(db)?;
         }
         None => {
-            sqlx::query(
+            let retiree = sqlx::query(
                 "DELETE FROM ent_inscription_condition
                   WHERE etablissement_id = $1 AND dossier_id = $2 AND code = 'reserve'",
             )
@@ -479,7 +633,21 @@ pub(crate) async fn instancier_conditions_tx(
             .bind(d.id)
             .execute(&mut *conn)
             .await
-            .map_err(db)?;
+            .map_err(db)?
+            .rows_affected();
+            if retiree > 0 {
+                suivi_tx(
+                    conn,
+                    etab,
+                    d.id,
+                    "condition",
+                    None,
+                    Some("Réserve retirée : la nouvelle décision n'en porte plus"),
+                    false,
+                    None,
+                )
+                .await?;
+            }
         }
     }
     Ok(())
@@ -712,6 +880,56 @@ async fn proposition_tx(
     .ok_or_else(introuvable)
 }
 
+/// Une proposition lue sous verrou, **après** le verrou du dossier.
+struct PropositionVerrouillee {
+    dossier_id: Uuid,
+    offre_id: Option<Uuid>,
+    origine: String,
+    statut: String,
+    rang_au_moment: Option<i32>,
+    repondre_avant: Option<NaiveDate>,
+}
+
+/// Ordre des verrous **unique** (D-069 F1) : le dossier, puis la proposition — partout. Garde de déport/lien
+/// appliquée au passage (une proposition d'un dossier dont on est écarté n'existe pas).
+async fn verrouiller_proposition_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    actor: Uuid,
+    id: Uuid,
+) -> Result<PropositionVerrouillee, EntDbError> {
+    let dossier: Option<Uuid> = sqlx::query_scalar(
+        "SELECT dossier_id FROM ent_inscription_proposition_place WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let dossier = dossier.ok_or_else(introuvable)?;
+    dossier_visible_tx(conn, etab, actor, dossier).await?;
+    dossier_tx(conn, etab, dossier).await?;
+    let p: Option<(Uuid, Option<Uuid>, String, String, Option<i32>, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT dossier_id, offre_id, origine, statut, rang_au_moment, repondre_avant
+           FROM ent_inscription_proposition_place
+          WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    let p = p.ok_or_else(introuvable)?;
+    Ok(PropositionVerrouillee {
+        dossier_id: p.0,
+        offre_id: p.1,
+        origine: p.2,
+        statut: p.3,
+        rang_au_moment: p.4,
+        repondre_avant: p.5,
+    })
+}
+
 async fn jour_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -850,6 +1068,7 @@ impl PgEnt {
         id: Uuid,
         code: &str,
         b: &RemplirConditionBody,
+        maintenant: DateTime<Utc>,
     ) -> Result<ConditionsDossierDto, EntDbError> {
         // Une réserve posée par la direction ne se lève pas au secrétariat (levée avec motif : `lever`).
         let action = if code == "reserve" {
@@ -871,7 +1090,7 @@ impl PgEnt {
         dossier_visible_tx(&mut tx, etab, actor, id).await?;
         let n = sqlx::query(
             "UPDATE ent_inscription_condition
-                SET remplie = true, remplie_le = now(), remplie_par = $4,
+                SET remplie = true, remplie_le = $7, remplie_par = $4,
                     source = CASE WHEN $5::uuid IS NULL THEN 'personnel' ELSE 'evenement' END,
                     source_ref = $5, motif = $6
               WHERE etablissement_id = $1 AND dossier_id = $2 AND code = $3 AND NOT remplie",
@@ -882,6 +1101,7 @@ impl PgEnt {
         .bind(actor)
         .bind(b.source_ref)
         .bind(&motif)
+        .bind(maintenant)
         .execute(&mut *tx)
         .await
         .map_err(db)?
@@ -914,6 +1134,7 @@ impl PgEnt {
         id: Uuid,
         code: &str,
         b: &MotifBody,
+        maintenant: DateTime<Utc>,
     ) -> Result<ConditionsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
             .await?;
@@ -925,7 +1146,7 @@ impl PgEnt {
         dossier_visible_tx(&mut tx, etab, actor, id).await?;
         let n = sqlx::query(
             "UPDATE ent_inscription_condition
-                SET remplie = true, remplie_le = now(), remplie_par = $4, source = 'levee', source_ref = NULL,
+                SET remplie = true, remplie_le = $6, remplie_par = $4, source = 'levee', source_ref = NULL,
                     motif = $5
               WHERE etablissement_id = $1 AND dossier_id = $2 AND code = $3 AND NOT remplie",
         )
@@ -934,6 +1155,7 @@ impl PgEnt {
         .bind(code)
         .bind(actor)
         .bind(motif)
+        .bind(maintenant)
         .execute(&mut *tx)
         .await
         .map_err(db)?
@@ -941,13 +1163,30 @@ impl PgEnt {
         if n == 0 {
             return Err(conflit("condition absente de ce dossier ou déjà remplie"));
         }
+        // D-069 M7 : la levée est **journalisée en ajout seul** (code, motif, auteur). La condition peut être
+        // réinitialisée ensuite (nouvelle proposition, nouvelle réserve) : cette trace, elle, reste.
+        sqlx::query(
+            "INSERT INTO ent_inscription_condition_levee
+                (id, etablissement_id, dossier_id, code, motif, auteur_id, cree_le)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(id)
+        .bind(code)
+        .bind(motif)
+        .bind(actor)
+        .bind(maintenant)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         suivi_tx(
             &mut tx,
             etab,
             id,
             "condition",
             None,
-            Some("Condition de confirmation levée par la direction"),
+            Some(&format!("Condition « {code} » levée par la direction (motif au journal des levées)")),
             false,
             Some(actor),
         )
@@ -983,7 +1222,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         offre_existe_tx(&mut tx, etab, offre).await?;
-        designer_suivants_tx(&mut tx, etab, offre).await?;
+        designer_suivants_tx(&mut tx, etab, offre, &[]).await?;
         let r = liste_attente_tx(&mut tx, etab, actor, offre).await?;
         commit(tx).await?;
         Ok(r)
@@ -1010,7 +1249,7 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let deportes = dossiers_deportes(&mut tx, etab, actor).await?;
+        let deportes = dossiers_ecartes(&mut tx, etab, actor).await?;
         let rows = sqlx::query_as::<_, LignePropositionBrute>(&format!(
             "{SELECT_PROPOSITION}
               WHERE p.etablissement_id = $1 AND ($2::uuid IS NULL OR d.campagne_id = $2)
@@ -1050,23 +1289,14 @@ impl PgEnt {
             ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p: Option<(Uuid, Option<Uuid>, String, String, Option<i32>)> = sqlx::query_as(
-            "SELECT dossier_id, offre_id, origine, statut, rang_au_moment
-               FROM ent_inscription_proposition_place
-              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let (dossier, offre, origine, statut, rang) = p.ok_or_else(introuvable)?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let (dossier, offre, origine, statut, rang) =
+            (p.dossier_id, p.offre_id, p.origine, p.statut, p.rang_au_moment);
         if statut != "designee" || origine != "liste_attente" {
             return Err(conflit(
                 "seule une place désignée depuis la liste d'attente s'envoie",
             ));
         }
-        dossier_visible_tx(&mut tx, etab, actor, dossier).await?;
         let motif_interne = opt(&b.motif_interne).unwrap_or_else(|| {
             format!(
                 "Place libérée : proposition depuis la liste d'attente (rang {})",
@@ -1123,22 +1353,13 @@ impl PgEnt {
             return Err(invalide("motif : de 3 à 500 caractères"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p: Option<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
-            "SELECT dossier_id, offre_id, statut FROM ent_inscription_proposition_place
-              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let (dossier, offre, statut) = p.ok_or_else(introuvable)?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let (dossier, offre, statut) = (p.dossier_id, p.offre_id, p.statut);
         if statut != "designee" {
             return Err(conflit(
                 "seule une place désignée (pas encore envoyée) peut être écartée",
             ));
         }
-        dossier_visible_tx(&mut tx, etab, actor, dossier).await?;
         sqlx::query(
             "UPDATE ent_inscription_proposition_place SET statut = 'ecartee', motif = $3
               WHERE etablissement_id = $1 AND id = $2",
@@ -1161,7 +1382,7 @@ impl PgEnt {
         )
         .await?;
         if let Some(o) = offre {
-            designer_suivants_tx(&mut tx, etab, o).await?;
+            designer_suivants_tx(&mut tx, etab, o, &[dossier]).await?;
         }
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
         let dto = proposition_tx(&mut tx, etab, id, jour).await?;
@@ -1183,16 +1404,8 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let p: Option<(Uuid, String, Option<NaiveDate>)> = sqlx::query_as(
-            "SELECT dossier_id, statut, repondre_avant FROM ent_inscription_proposition_place
-              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let (dossier, statut, avant) = p.ok_or_else(introuvable)?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let (dossier, statut, avant) = (p.dossier_id, p.statut, p.repondre_avant);
         if statut != "envoyee" {
             return Err(conflit(
                 "seule une proposition envoyée et sans réponse peut expirer",
@@ -1250,6 +1463,8 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, d0.id).await?;
+        // Règle 1 : la famille ne répond que sur ce qui est publié ; une décision non publiée en cours ne se révèle pas.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         let p: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_inscription_proposition_place
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut = 'envoyee' FOR UPDATE",
@@ -1381,7 +1596,7 @@ async fn liste_attente_tx(
     .map_err(db)?;
     let (libelle, capacite) = o.ok_or_else(introuvable)?;
     let disponibles = inscriptions_modele::disponibles_tx(conn, etab, offre).await?;
-    let deportes = dossiers_deportes(conn, etab, actor).await?;
+    let deportes = dossiers_ecartes(conn, etab, actor).await?;
     let rows: Vec<(Uuid, String, String, String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
         "SELECT d.id, d.reference, d.eleve_nom, d.eleve_prenom,
                 row_number() OVER (ORDER BY d.rang_attente NULLS LAST, d.id),

@@ -60,3 +60,88 @@ Locales (PostgreSQL 16 jetable `scolia_test_i5`, `ENT_ENV=test`) : `tests_inscri
 `recette_securite_3` (10) verts. `cargo clippy --locked` backend (workspace, labo, tests) et `ent-types` : **0 avertissement** ;
 rustc : 0 ; `cargo metadata --locked` dans `ent-rust/web` : vert ; fmt ciblé sur les fichiers neufs. La suite complète d'ent-db n'a pas été rejouée
 (CI). Les tests I4 `expedier` dépendent d'une file d'envoi partagée : deux rouges en parallèle à 3 fils, verts isolés (même cause qu'avant ce lot).
+
+
+## Correctifs de revue (D-069)
+
+Passe de correctifs sur la branche `ent-socle-3-code-suite` (PR n° 120, brouillon), partie de la tête distante `ee89efed`, fusionnée avec
+`origin/ENT` (règle 28 : compteurs recalculés depuis la base commune ; `Action::TOUTES` et `SOURCES` inchangés, **compte RLS +1**
+dans `tests_rls.rs`, `MIGRATION_TAG` inchangé). **La migration 313 n'étant pas versée, elle est modifiée** (aucune autre migration ne change).
+`Cargo.lock` : `url` 2.5.9 (RUSTSEC-2026-0592), correctif de la PR 121 reproduit à l'identique, commit séparé.
+
+Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ;
+non prêt pilote, non prêt production.
+
+### Règles générales mises en œuvre
+
+| Règle | Mise en œuvre |
+|---|---|
+| 1. Une décision non publiée n'existe pas pour la famille | Chaque ligne de suivi qu'une décision écrit (changement d'état, motif communiqué) est **rattachée** à cette décision (`ent_inscription_suivi_dossier.decision_id`, posée par `decider_tx`) ; la famille ne la lit **que si cette décision est publiée**, aujourd'hui comme après une décision ultérieure. **Une seule fonction d'état visible** (`visibilite_famille_tx`, chaîne de décisions) : elle masque l'état, le rang, l'échéance, la proposition, les conditions **et autorise** les actions de la famille. `ADMISSION_DECIDEE` n'est plus émis qu'à la publication. |
+| 2. Un membre lié est écarté d'office | Fonction SQL `ent_inscription_membre_lie` (compte ou adresse d'un responsable, du déposant, d'une invitation ; compte ayant déjà la charge de l'élève ; fiche de personne identique ou fusionnée) ; **garde unique** `ecarte_tx` (déport déclaré **ou** lien) appelée par chaque route du personnel à identifiant de dossier (`refuser_si_ecarte`, `dossier_visible_tx`, `decider_tx`, publication) ; **garde en base** : déclencheurs sur l'avis et la décision. Le refus est « introuvable » (le dossier n'existe pas pour ce membre). Un déport déclaré **marque** les avis déjà donnés (`auteur_deporte`). En séance, seul un **membre de la commission** décide (membres validés : personnel de l'établissement, en poste). |
+| 3. Inscription définitive après décision publiée et acceptée | `valider` exige la dernière décision de la chaîne **publiée** (sens d'admission) et refuse tant qu'une proposition est `designee` ou `envoyee` (acceptation de la famille attendue). |
+| 4. Ajout seul, ordre certain | L'ordre des décisions suit la chaîne `remplace_decision_id` (une racine par dossier, un seul successeur par décision : index uniques ; lecture récursive), jamais `now()` ; UPDATE, DELETE **et TRUNCATE** gardés sur décisions, avis, déports, levées ; **un seul chemin de purge** : `SET LOCAL ent.purge_etablissement = 'on'` (convention du dépôt, jamais posé par l'application) à la place de `pg_trigger_depth() >= 2`. |
+| 5. Ordre des contrôles | Personnel, droit, existence : le droit précède désormais la garde de déport/lien ; chaque test de refus exige le refus exact avec un compte qui a le droit. |
+
+### Correctifs
+
+| N° | Correctif | Fait |
+|---|---|---|
+| E1 | suivi rattaché à la décision, jamais lu avant (ni après) sa publication | fait, test `r_e1_refus_non_publie_jamais_visible` |
+| E2, M1 | lien = écart d'office sur **toutes** les routes à identifiant (liste ci-dessous), garde en base, séance réservée aux membres | fait, `r_e2_membre_lie_ecarte_de_toutes_les_routes`, `r_e2_seance_membres_et_plafonds` |
+| M2 | actions de la famille (`retirer`, `desister`, pièce, réponse à la place) : tant qu'une décision plus récente que la dernière publiée existe, refus **neutre** (message d'une modification concurrente, rien de l'état) ; rien n'est exécuté | fait, `r_m2_actions_famille_sur_etat_visible` |
+| M3 | règle 3 | fait, `r_m3_…` (les tests I5 existants donnent désormais la réponse de la famille avant la validation) |
+| M4 | lectures de « dernière décision » par la chaîne (`CHAINE`) ; conflit de décisions concurrentes classé en conflit | fait, `r_m4_chaine_et_concurrence` |
+| M5 | admission directe sur une place désignée : confirmation explicite + motif (`confirmer_passer_devant`, `motif_passer_devant`), désignation reprise annulée, tracée sur les deux dossiers, le dossier garde son rang | fait, `r_m5_…` |
+| M6 | proposition `envoyee` jamais réécrite : annulée (motif) et nouvelle proposition `designee` ; réponse de la famille réinitialisée, avec trace | fait, `r_m6_m7_…` |
+| M7 | levée d'une condition journalisée (`ent_inscription_condition_levee`, ajout seul : code, motif, auteur) ; réinitialisation ou retrait de la condition tracés au suivi interne | fait, `r_m6_m7_…` |
+| M8 | `motif_interne` (historique des décisions, `decision_motif` du dossier) réservé à `inscriptions.decider` | fait, `r_m8_…` |
+| M9 | TRUNCATE gardé, chemin de purge explicite, tests d'attaque SQL directs (avis, déport, décision, levée) | fait, `r_m9_ajout_seul_attaques_sql` |
+| M10 | `i5_deport_ferme_toutes_les_routes` exige le refus exact ; tests de concurrence (deux envois, acceptation contre expiration, deux décisions) | fait, `r_m10_…`, `r_m4_…` |
+| M11 | « passer son tour » ne vaut que pour la place concernée (exclusion limitée à la désignation en cours, plus d'exclusion durable) ; un dossier écarté redevient désignable à son rang pour une place ultérieure | fait, `r_m11_…` (documenté) |
+| F1 | ordre des verrous unique : dossier, puis proposition (envoi, passage de tour, constat, réponse, publication) ; 40P01 et 40001 classés en conflit (message neutre) | fait |
+| F2 | rang lu par la famille calculé sur les seules décisions publiées | fait, `r_f2_…` |
+| F3 | plafonds sur `modifier_dossiers_commission` (500 par modification et par séance), membres validés, `publier_le` borné à 90 jours | fait, `r_e2_seance_…` |
+| F4 | `maintenant` en paramètre : constat et levée de condition, date de décision du dossier ; l'exclusion « décidé dans la transaction » (`decide_le = now()`) est remplacée par une liste explicite | fait |
+| F5 | ordre des contrôles : droit avant garde de déport | fait |
+| F6 | récapitulatif de lot : messages de la personne seulement, aucune erreur technique | fait, `r_f6_…` |
+| F7 | `ADMISSION_DECIDEE` émis à la publication seulement | fait |
+| F8 | export à la personne concernée : sans avis, sans motif interne (ni auteurs, rang, motifs de proposition ou de condition, texte du suivi) ; **règles explicites** : le déport (identité d'un agent), les levées de condition et le procès-verbal de commission (document collectif) ne sont pas exportés | fait (registre de données) |
+| F9 | une famille qui répond **après** le délai : la réponse est reçue tant qu'une personne n'a pas constaté l'expiration (le constat n'est jamais automatique, `sans_suite`) ; si le constat passe d'abord, la réponse est refusée | **documenté**, comportement conservé |
+
+Routes à identifiant de dossier couvertes par `r_e2_membre_lie_ecarte_de_toutes_les_routes` (deux variantes de lien : déposant, second
+responsable) : dossier, statut, pièce, commentaire, relance, décision (ancienne et avancée), validation, transition, blocage, ne pas
+solliciter, annulation de validation, correspondances, accords (lecture, demande, papier, désaccord, dispense, levée), pièces (lecture
+attendues, contrôle, lecture, guichet, réutilisation), décisions (lecture, décider, courrier, publier), avis (donner, lire), déport (état, se
+déporter), conditions (lire, réévaluer, remplir, lever) ; propositions et liste d'attente passent par `verrouiller_proposition_tx` /
+`dossier_visible_tx` ; listes de dossiers, de propositions, de séance et d'attente filtrées.
+
+### Limites et points à relire (non faits ou décidés)
+* Pendant qu'une décision plus récente que la dernière publiée existe, **la famille ne peut rien faire** (retrait, désistement, pièce, réponse) :
+  c'est le prix de ne rien révéler ; une décision programmée longtemps à l'avance (jusqu'à 90 jours) bloque donc ces actions.
+* La validation exige toujours l'acceptation de la place par la famille : au guichet, la direction peut **lever** la condition `reponse_famille`
+  (si la campagne l'exige), mais il n'existe pas encore de saisie « accepté au guichet » d'une proposition : à ouvrir avec le lot des droits.
+* Le lien « deux comptes d'une même personne » ne vaut que lorsqu'il est **connu** (même fiche ou fiche fusionnée) ; deux comptes d'adresses
+  différentes sans fiche commune ne sont pas détectables.
+* La liste de dossiers du personnel évalue le lien dossier par dossier (fonction SQL) : à mesurer sur de gros établissements (index sur
+  `lower(email)` à envisager).
+* Les listes des I5 non couvertes restent : recours (INS-66), décisions liées de fratrie (INS-64), dossier de justification (INS-67), courrier en
+  document du socle 7, paiement/contrat par événements (I7).
+
+### Vérifications locales
+PostgreSQL 16 jetable (`scolia_test_i5c`, `ENT_ENV=test`), `--locked`, un seul `CARGO_TARGET_DIR`, 3 fils :
+* `ent-db` (labo) : `tests_inscriptions*` (I0 à I5 : **133 verts**, dont 30 pour I5 = 16 d'origine + 14 de revue), `registre`, `tests_rls`, `migrate`,
+  gardes statiques (`garde_*`, `isolation_sql_statique`, `jour_utc_interdit`) : 0 échec. Les 21 tests I0 à I4 qui validaient juste après l'admission
+  ont reçu un raccourci de test (`famille_a_accepte`) : la validation attend désormais la réponse de la famille (règle 3).
+* `ent-api` (labo) : `separation` (58) et `recette_securite_3` (10) verts.
+* Clippy 1.99.0, les trois commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`) : **0 avertissement** ;
+  rustc : 0 ; `cargo metadata --locked` dans `ent-rust/web` : vert ; fmt ciblé sur le seul fichier neuf (`tests_inscriptions_i5_revue.rs`).
+* La suite complète d'`ent-db` n'est pas rejouée en local (CI). Les tests qui consomment la file d'envoi partagée (`expedier`) restent sensibles au
+  parallélisme (même cause qu'avant ce lot).
+
+### Compteurs (règle 28)
+`Action::TOUTES` inchangé (aucune action ajoutée) ; `SOURCES`/`NOMS_SOURCES` inchangés (70) ; **compte RLS : I5 = +8** (7 d'origine, plus
+`ent_inscription_condition_levee`) ; registre des données : 1 table de plus (`condition_levee`), colonnes hors export déclarées ;
+`MIGRATION_TAG` inchangé (3808) ; migration 313 modifiée (non versée).
+
+### Tête et CI
+TÊTE_À_COMPLÉTER

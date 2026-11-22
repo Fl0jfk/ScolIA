@@ -34,6 +34,19 @@ pub(crate) fn distributeur(ent: &PgEnt, etab: Uuid) -> Distributeur {
     })
 }
 
+/// Les anciens parcours valident juste après l'admission : la famille a **accepté** la place proposée (règle 3 de
+/// D-069 : la validation attend cette réponse). Raccourci de test (le parcours réel : `r_m3_…`, `i5_…`).
+pub(crate) async fn famille_a_accepte(ent: &PgEnt, dossier: Uuid) {
+    sqlx::query(
+        "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le
+          WHERE dossier_id = $1 AND statut = 'envoyee'",
+    )
+    .bind(dossier)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+}
+
 pub(crate) fn dir(c: &LaboCast) -> (Uuid, &'static str) {
     (c.direction.user_id, Role::Direction.as_str())
 }
@@ -439,6 +452,7 @@ async fn parcours_famille_de_bout_en_bout() {
         .await
         .unwrap();
     let classe = classe_courante(&ent, etab, "6A").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -649,6 +663,7 @@ async fn iban_masque_et_nouveau_mandat() {
     )
     .await
     .unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     ent.valider_inscription_for_actor(
         b.etablissement_id,
         d,
@@ -824,6 +839,7 @@ async fn decision_capacite_et_droits() {
     )
     .await
     .unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, d1.id).await;
     // Validation impossible tant que les pièces obligatoires ne sont pas acceptées.
     assert!(matches!(
         ent.valider_inscription_for_actor(etab, d, dr, d1.id, &ValidationBody::default())
@@ -1018,12 +1034,14 @@ async fn reinscription_campagne() {
         .await
         .unwrap();
     assert_eq!(dep.statut, "desistement");
+    crate::tests_inscriptions::famille_a_accepte(&ent, draco.id).await;
     assert!(ent
         .valider_inscription_for_actor(etab, d, dr, draco.id, &ValidationBody::default())
         .await
         .is_err());
     // Validation de Harry, classe de l'année courante.
     let classe = classe_courante(&ent, etab, "5B").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, harry.id).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1111,6 +1129,7 @@ async fn reactions_idempotentes() {
     .await
     .unwrap();
     let classe = classe_courante(&ent, etab, "6C").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1531,6 +1550,7 @@ async fn isolation_etablissements() {
     .await
     .unwrap();
     let classe_b = classe_courante(&ent, b.etablissement_id, "6Z").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     assert!(ent
         .valider_inscription_for_actor(
             a.etablissement_id,
@@ -1545,6 +1565,7 @@ async fn isolation_etablissements() {
         )
         .await
         .is_err());
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     ent.valider_inscription_for_actor(
         a.etablissement_id,
         da,
@@ -1757,6 +1778,7 @@ async fn attaque_email_parent_existant_aucun_acces() {
         !cand.email_masque.as_deref().unwrap_or("").contains(&c.parent_lea.email),
         "adresse masquée"
     );
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let r = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await;
@@ -1784,6 +1806,7 @@ async fn attaque_email_parent_existant_aucun_acces() {
 
     // Une personne de l'établissement confirme le rapprochement.
     let resp2 = resp_id(&ent, dossier, 2).await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1873,6 +1896,7 @@ async fn refus_du_parent_existant_aucun_lien() {
     )
     .await;
     let resp2 = resp_id(&ent, dossier, 2).await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1947,6 +1971,7 @@ async fn fratrie_foyer_existant_confirme() {
         }],
         None,
     );
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     assert!(ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &sans_foyer)
         .await
@@ -1963,6 +1988,7 @@ async fn fratrie_foyer_existant_confirme() {
         }],
         None,
     );
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &avec_foyer)
         .await
@@ -2018,6 +2044,7 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         .await
         .unwrap();
     assert!(corr.eleves.iter().any(|e| e.eleve_id == c.eleve_lea_id));
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     // Choix humain obligatoire.
     assert!(ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
@@ -2025,6 +2052,7 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         .is_err());
     // La fiche a déjà des responsables : sans confirmation explicite, refus (INE copié).
     assert!(corr.eleves.iter().any(|e| e.responsables_lies > 0));
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     assert!(ent
         .valider_inscription_for_actor(
             etab,
@@ -2041,6 +2069,7 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         )
         .await
         .is_err());
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -2104,6 +2133,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
         ent.decider_piece_for_actor(etab, a, ar, dossier.id, &p.code, &PieceDecisionBody { statut: "acceptee".into(), motif: None }).await.unwrap();
     }
     ent.decider_for_actor(etab, d, dr, dossier.id, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier.id).await;
     ent.valider_inscription_for_actor(etab, d, dr, dossier.id, &ValidationBody::default())
         .await
         .unwrap();
@@ -2207,6 +2237,8 @@ async fn second_parent_ne_pas_solliciter_aucune_invitation() {
     assert!(reserve.ne_pas_solliciter && reserve.adresse_a_proteger);
     assert_eq!(reserve.ne_pas_solliciter_ref, None);
 
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
+
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await
         .unwrap();
@@ -2283,6 +2315,7 @@ async fn ne_pas_solliciter_pose_avant_l_envoi_bloque_l_invitation() {
         formulaire(camp, "Hermione", Some(second_parent(&second))),
     )
     .await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await
         .unwrap();
@@ -2378,6 +2411,7 @@ async fn parent_connecte_confirme_le_lien_d_inscription_en_un_geste() {
     )
     .await;
     let resp2 = resp_id(&ent, dossier, 2).await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -2471,6 +2505,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
     let (dossier, _) = dossier_admis(&ent, &c, camp, &email, formulaire(camp, "Rosmerta", None)).await;
     // Une classe de l'année SUIVANTE est proposée : sans effet (constitution des classes = socle 5).
     let future = classe_annee_future(&ent, etab, "6F").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -2578,6 +2613,7 @@ async fn i1_arrivee_en_cours_d_annee_affecte_en_classe() {
     let email = format!("i1b-{}@exemple.test", Uuid::new_v4().simple());
     let (dossier, _) = dossier_admis(&ent, &c, camp, &email, formulaire(camp, "Pomona", None)).await;
     let classe = classe_courante(&ent, etab, "6G").await;
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -2665,6 +2701,7 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
             confirme_responsables_existants: true,
         }),
     );
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     assert!(
         matches!(
             ent.valider_inscription_for_actor(etab, d, dr, dossier, &corps).await,
@@ -2685,6 +2722,7 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &corps)
         .await

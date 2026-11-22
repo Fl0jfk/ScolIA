@@ -38,6 +38,12 @@ pub struct DecisionCompleteBody {
     /// Confirmation d'une publication programmée entre 20 h et 8 h (heure de l'établissement) ou un dimanche.
     #[serde(default)]
     pub confirmer_plage_calme: bool,
+    /// Admettre directement **alors que la dernière place est déjà désignée** au premier de la liste d'attente :
+    /// confirmation explicite, avec son motif (`motif_passer_devant`), tracée sur les deux dossiers (D-069 M5).
+    #[serde(default)]
+    pub confirmer_passer_devant: bool,
+    #[serde(default)]
+    pub motif_passer_devant: Option<String>,
 }
 
 /// Une décision (historique complet, personnel seulement).
@@ -109,6 +115,9 @@ pub struct AvisDto {
     pub sens: String,
     pub texte: String,
     pub cree_le: DateTime<Utc>,
+    /// L'auteur s'est déporté de ce dossier depuis : l'avis est **marqué** (D-069 règle 2), la direction le lit comme tel.
+    #[serde(default)]
+    pub auteur_deporte: bool,
 }
 
 /// Corps de `POST /inscriptions/dossiers/{id}/deport` (INS-63).

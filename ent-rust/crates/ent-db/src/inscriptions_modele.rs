@@ -377,6 +377,7 @@ pub(crate) async fn retenir_voeu_tx(
     offre_voulue: Option<Uuid>,
     admis: bool,
     confirmer_depassement: bool,
+    passer_devant: crate::inscriptions_attente::PasserDevant<'_>,
 ) -> Result<Option<PlaceRetenue>, EntDbError> {
     let offre: Option<Uuid> = match offre_voulue {
         Some(o) => {
@@ -442,6 +443,13 @@ pub(crate) async fn retenir_voeu_tx(
                     ));
                 }
                 depassement = true;
+            } else {
+                // D-069 M5 : une admission directe ne consomme pas la place déjà désignée au premier de la liste
+                // sans confirmation explicite, motivée et tracée.
+                crate::inscriptions_attente::reprendre_place_designee_tx(
+                    conn, etab, offre, d.id, dispo, passer_devant,
+                )
+                .await?;
             }
         }
     }
@@ -1140,7 +1148,7 @@ impl PgEnt {
         id: Uuid,
         b: &TransitionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let (action, decideur) = match b.action.as_str() {
             "annuler" | "non_reinscription_etablissement" => (b.action.as_str(), true),
             "sans_suite" | "desister" | "reprendre" | "non_presente" | "reaffecte" | "sans_reponse"
@@ -1212,7 +1220,6 @@ impl PgEnt {
         id: Uuid,
         b: &BlocageBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(
             etab,
             actor,
@@ -1220,6 +1227,7 @@ impl PgEnt {
             if b.bloquer { Action::InscriptionsGerer } else { Action::InscriptionsDecider },
         )
         .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1309,6 +1317,9 @@ impl PgEnt {
         if d.demarche_id != d0.demarche_id || !matches!(d.nature.as_str(), "admission" | "en_cours_annee") {
             return Err(introuvable());
         }
+        // Action de la famille : seul l'état visible compte (règle 1) ; une décision non publiée en cours ne se
+        // révèle pas (message neutre) et ne s'exécute pas.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         let etat_actif = inscriptions_etats::etat_effectif(&d.etat, d.etat_avant_blocage.as_deref());
         if !depuis.contains(&etat_actif) || d.etat == "bloque_desaccord" {
             return Err(conflit(if vers == "retire" {
@@ -1349,6 +1360,7 @@ impl PgEnt {
         b: &NePasSolliciterBody,
     ) -> Result<NePasSolliciterDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1482,8 +1494,8 @@ impl PgEnt {
         id: Uuid,
         b: &AnnulationValidationBody,
     ) -> Result<AnnulationValidationDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));

@@ -484,7 +484,7 @@ async fn remplir_condition(
     Ok(Json(
         state
             .ent
-            .remplir_condition_for_actor(s.etablissement_id, s.user_id, &s.role, id, &code, &b)
+            .remplir_condition_for_actor(s.etablissement_id, s.user_id, &s.role, id, &code, &b, Utc::now())
             .await
             .map_err(map)?,
     ))
@@ -500,7 +500,7 @@ async fn lever_condition(
     Ok(Json(
         state
             .ent
-            .lever_condition_for_actor(s.etablissement_id, s.user_id, &s.role, id, &code, &b)
+            .lever_condition_for_actor(s.etablissement_id, s.user_id, &s.role, id, &code, &b, Utc::now())
             .await
             .map_err(map)?,
     ))

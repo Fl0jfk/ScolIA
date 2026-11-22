@@ -754,6 +754,7 @@ async fn i2_compteur_de_places_juste() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossiers[1]).await;
     ent.valider_inscription_for_actor(etab, d, dr, dossiers[1], &ValidationBody {
         niveau: Some("6EME".into()),
         ..Default::default()
@@ -904,6 +905,7 @@ async fn i2_blocage_desaccord() {
     ent.blocage_for_actor(etab, a, ar, dossier, &BlocageBody { bloquer: true, motif: "Le père s'oppose".into() }).await.unwrap();
     let b = ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap();
     assert_eq!((b.etat.as_str(), b.statut.as_str()), ("bloque_desaccord", "admis"));
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     assert!(ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.is_err());
     assert!(ent.decider_for_actor(etab, d, dr, dossier, &DecisionBody { decision: "refuse".into(), motif: Some("test motif".into()) }).await.is_err());
     assert!(ent.changer_statut_for_actor(etab, a, ar, dossier, &StatutBody { statut: "en_instruction".into(), motif: None }).await.is_err());
@@ -919,6 +921,7 @@ async fn i2_blocage_desaccord() {
     ent.blocage_for_actor(etab, d, dr, dossier, &BlocageBody { bloquer: false, motif: "Accord écrit reçu".into() }).await.unwrap();
     assert_eq!(ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap().etat, "admis");
     assert!(ent.blocage_for_actor(etab, d, dr, dossier, &BlocageBody { bloquer: false, motif: "Encore".into() }).await.is_err());
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.unwrap();
 }
 
@@ -1030,6 +1033,7 @@ async fn i2_ne_pas_solliciter_apres_le_depot() {
         "SELECT count(*) FROM ent_inscription_envoi WHERE dossier_id = $1 AND lower(destinataire) = lower($2) AND statut = 'a_envoyer'",
     ).bind(dossier).bind(&protege).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(envoi_actif, 0);
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     // La validation n'invite pas la personne marquée ; le déposant, lui, est servi normalement.
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.unwrap();
     distributeur(&ent, etab).distribuer_tout().await.unwrap();
@@ -1091,6 +1095,7 @@ async fn i2_annuler_une_validation_erronee() {
     // Non validé : rien à annuler.
     let corps = AnnulationValidationBody { motif: "Mauvais enfant validé".into() };
     assert!(ent.annuler_validation_for_actor(etab, d, dr, dossier, &corps).await.is_err());
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody { niveau: Some("6EME".into()), ..Default::default() })
         .await
@@ -1132,6 +1137,7 @@ async fn i2_annuler_une_validation_erronee() {
     assert_eq!(events, 1);
     let dto = ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap();
     assert_eq!((dto.etat.as_str(), dto.eleve_id, dto.valide_le), ("confirme", None, None));
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     // Une nouvelle validation, correcte cette fois, est possible. La fiche archivée est un homonyme :
     // le choix humain (jamais implicite) est de créer une nouvelle fiche.
     assert!(ent
@@ -1148,6 +1154,7 @@ async fn i2_annuler_une_validation_erronee() {
             foyer: None,
         });
     }
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let v2 = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody {
             niveau: Some("6EME".into()),

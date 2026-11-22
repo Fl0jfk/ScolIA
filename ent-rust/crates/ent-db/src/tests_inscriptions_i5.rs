@@ -33,16 +33,16 @@ use super::tests_inscriptions::{
 use super::tests_inscriptions_i3_i4::pdf_simple;
 use super::*;
 
-fn t(s: &str) -> DateTime<Utc> {
+pub(super) fn t(s: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
 }
 
 /// Instant de référence des tests (mercredi 3 mars 2027, 9 h à Paris).
-fn maintenant() -> DateTime<Utc> {
+pub(super) fn maintenant() -> DateTime<Utc> {
     t("2027-03-03T08:00:00Z")
 }
 
-fn email(prefixe: &str) -> String {
+pub(super) fn email(prefixe: &str) -> String {
     format!(
         "{}-{}@exemple.test",
         prefixe.to_lowercase(),
@@ -50,14 +50,14 @@ fn email(prefixe: &str) -> String {
     )
 }
 
-struct Dos {
-    id: Uuid,
-    jeton: String,
-    email: String,
+pub(super) struct Dos {
+    pub(super) id: Uuid,
+    pub(super) jeton: String,
+    pub(super) email: String,
 }
 
 /// Campagne d'admission ouverte, offre unique de capacité `capacite` (6e).
-async fn campagne_cap(
+pub(super) async fn campagne_cap(
     ent: &PgEnt,
     c: &LaboCast,
     capacite: Option<i32>,
@@ -86,7 +86,7 @@ async fn campagne_cap(
 }
 
 /// Dossier déposé par un déposant vérifié, pris en charge par le secrétariat.
-async fn dossier(ent: &PgEnt, c: &LaboCast, camp: Uuid, prenom: &str, second: Option<&str>) -> Dos {
+pub(super) async fn dossier(ent: &PgEnt, c: &LaboCast, camp: Uuid, prenom: &str, second: Option<&str>) -> Dos {
     let etab = c.etablissement_id;
     let (a, ar) = adm(c);
     let mail = email(prenom);
@@ -119,7 +119,7 @@ async fn dossier(ent: &PgEnt, c: &LaboCast, camp: Uuid, prenom: &str, second: Op
     }
 }
 
-fn corps(sens: &str, offre: Option<Uuid>, motif: &str) -> DecisionCompleteBody {
+pub(super) fn corps(sens: &str, offre: Option<Uuid>, motif: &str) -> DecisionCompleteBody {
     DecisionCompleteBody {
         sens: sens.into(),
         offre_id: offre,
@@ -128,7 +128,7 @@ fn corps(sens: &str, offre: Option<Uuid>, motif: &str) -> DecisionCompleteBody {
     }
 }
 
-async fn decider(
+pub(super) async fn decider(
     ent: &PgEnt,
     c: &LaboCast,
     d: &Dos,
@@ -139,7 +139,7 @@ async fn decider(
         .await
 }
 
-async fn revoir(
+pub(super) async fn revoir(
     ent: &PgEnt,
     c: &LaboCast,
     d: &Dos,
@@ -150,13 +150,13 @@ async fn revoir(
         .await
 }
 
-async fn expedier(ent: &PgEnt) {
+pub(super) async fn expedier(ent: &PgEnt) {
     for _ in 0..4 {
         ent.expedier_envois_inscriptions(200).await.unwrap();
     }
 }
 
-async fn etat(ent: &PgEnt, etab: Uuid, d: &Dos) -> String {
+pub(super) async fn etat(ent: &PgEnt, etab: Uuid, d: &Dos) -> String {
     sqlx::query_scalar(
         "SELECT etat FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2",
     )
@@ -167,7 +167,7 @@ async fn etat(ent: &PgEnt, etab: Uuid, d: &Dos) -> String {
     .unwrap()
 }
 
-async fn proposition_ouverte(ent: &PgEnt, etab: Uuid, d: &Dos) -> Option<(Uuid, String)> {
+pub(super) async fn proposition_ouverte(ent: &PgEnt, etab: Uuid, d: &Dos) -> Option<(Uuid, String)> {
     sqlx::query_as(
         "SELECT id, statut FROM ent_inscription_proposition_place
           WHERE etablissement_id = $1 AND dossier_id = $2 AND statut IN ('designee', 'envoyee')",
@@ -179,7 +179,7 @@ async fn proposition_ouverte(ent: &PgEnt, etab: Uuid, d: &Dos) -> Option<(Uuid, 
     .unwrap()
 }
 
-fn erreur(e: EntDbError) -> String {
+pub(super) fn erreur(e: EntDbError) -> String {
     e.to_string()
 }
 
@@ -383,6 +383,18 @@ async fn i5_sous_reserve_et_confirmation_mecanique() {
         .conditions
         .iter()
         .any(|x| x.code == "reserve" && !x.remplie));
+    // La famille a accepté la place proposée (D-069 règle 3) ; la réserve, elle, n'est pas levée.
+    ent.repondre_proposition_famille(
+        etab,
+        &d.jeton,
+        d.id,
+        &ReponsePropositionBody {
+            reponse: "acceptee".into(),
+        },
+        maintenant(),
+    )
+    .await
+    .unwrap();
     // Une validation tout de suite est refusée : la réserve n'est pas levée.
     let e = erreur(
         ent.valider_inscription_for_actor(etab, u, r, d.id, &ValidationBody::default())
@@ -398,8 +410,9 @@ async fn i5_sous_reserve_et_confirmation_mecanique() {
             ar,
             d.id,
             "reserve",
-            &RemplirConditionBody::default()
-        )
+            &RemplirConditionBody::default(),
+        maintenant(),
+    )
         .await
         .is_err());
     let c1 = ent
@@ -413,7 +426,8 @@ async fn i5_sous_reserve_et_confirmation_mecanique() {
                 motif: Some("décision reçue".into()),
                 source_ref: None,
             },
-        )
+        maintenant(),
+    )
         .await
         .unwrap();
     assert!(c1.confirme, "toutes les conditions remplies : confirmé");
@@ -720,8 +734,9 @@ async fn i5_passer_son_tour_et_expiration_constatee() {
         .unwrap();
     assert_eq!(p.statut, "expiree");
     assert_eq!(etat(&ent, etab, &d3).await, "sans_suite");
-    // La place est libre : le deuxième, écarté auparavant, n'est pas re-désigné d'office.
-    assert!(proposition_ouverte(&ent, etab, &b).await.is_none());
+    // La place est libre (une place **ultérieure**) : le deuxième, écarté auparavant pour l'autre place, redevient
+    // désignable à son rang (D-069 M11) — désigné, jamais envoyé.
+    assert!(proposition_ouverte(&ent, etab, &b).await.is_some_and(|p| p.1 == "designee"));
     let l = ent
         .liste_attente_for_actor(etab, u, r, offre)
         .await
@@ -940,8 +955,9 @@ async fn i5_conditions_reponse_famille_et_levee() {
             ar,
             d.id,
             "reponse_famille",
-            &RemplirConditionBody::default()
-        )
+            &RemplirConditionBody::default(),
+        maintenant(),
+    )
         .await
         .is_err());
     assert!(ent
@@ -993,6 +1009,7 @@ async fn i5_conditions_reponse_famille_et_levee() {
             motif: Some("contrat reçu en main propre".into()),
             source_ref: None,
         },
+        maintenant(),
     )
     .await
     .unwrap();
@@ -1003,8 +1020,9 @@ async fn i5_conditions_reponse_famille_et_levee() {
             ar,
             d.id,
             "contrat_signe",
-            &RemplirConditionBody::default()
-        )
+            &RemplirConditionBody::default(),
+        maintenant(),
+    )
         .await
         .is_err(),
         "déjà remplie"
@@ -1018,8 +1036,9 @@ async fn i5_conditions_reponse_famille_et_levee() {
             "frais_payes",
             &MotifBody {
                 motif: "geste commercial".into()
-            }
-        )
+            },
+        maintenant(),
+    )
         .await
         .is_err(),
         "levée réservée à la direction"
@@ -1031,8 +1050,9 @@ async fn i5_conditions_reponse_famille_et_levee() {
             r,
             d.id,
             "frais_payes",
-            &MotifBody { motif: "x".into() }
-        )
+            &MotifBody { motif: "x".into() },
+        maintenant(),
+    )
         .await
         .is_err(),
         "motif obligatoire"
@@ -1047,7 +1067,8 @@ async fn i5_conditions_reponse_famille_et_levee() {
             &MotifBody {
                 motif: "Famille en difficulté, échelonnement convenu".into(),
             },
-        )
+        maintenant(),
+    )
         .await
         .unwrap();
     assert!(fin.confirme && fin.toutes_remplies);
@@ -1139,6 +1160,7 @@ async fn i5_piece_en_quarantaine_bloque_la_confirmation() {
         d.id,
         "contrat_signe",
         &RemplirConditionBody::default(),
+        maintenant(),
     )
     .await
     .unwrap();
@@ -1530,12 +1552,11 @@ async fn i5_avis_et_deport() {
     )
     .await
     .unwrap();
-    let e = erreur(
-        decider(&ent, &c, &d, &corps("admis", Some(offre), "Admis"))
-            .await
-            .unwrap_err(),
-    );
-    assert!(e.contains("déporté"), "{e}");
+    // D-069 règle 2 : le dossier n'existe plus pour qui s'en est déporté (refus exact : « introuvable »).
+    assert!(matches!(
+        decider(&ent, &c, &d, &corps("admis", Some(offre), "Admis")).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
+    ));
 }
 
 // ───────────────────────────── Famille ─────────────────────────────
@@ -1927,11 +1948,26 @@ async fn i5_deport_ferme_toutes_les_routes() {
         )
         .await
         .is_err());
-    // La purge d'un dossier (cascade) supprime décisions et propositions sans buter sur l'ajout seul.
+    // La purge d'un dossier (cascade) passe par l'unique chemin de purge du dépôt (`SET LOCAL`), jamais autrement.
+    assert!(
+        sqlx::query("DELETE FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(d.id)
+            .execute(ent.pool_verif())
+            .await
+            .is_err(),
+        "sans le chemin de purge, la cascade est refusée"
+    );
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL ent.purge_etablissement = 'on'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2")
         .bind(etab)
         .bind(d.id)
-        .execute(ent.pool_verif())
+        .execute(&mut *tx)
         .await
         .unwrap();
+    tx.commit().await.unwrap();
 }

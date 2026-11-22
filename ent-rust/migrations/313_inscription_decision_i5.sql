@@ -42,12 +42,24 @@ CREATE INDEX IF NOT EXISTS ent_inscription_decision_a_publier_idx
     ON ent_inscription_decision (etablissement_id, publication_prevue_le) WHERE publiee_le IS NULL;
 
 -- Ajout seul : rien ne s'écrit sur une décision, sauf la publication (une fois) et sa date programmée tant que
--- la décision n'est pas publiée. Une suppression directe est refusée ; seule la purge du dossier (cascade) passe.
+-- la décision n'est pas publiée. Une suppression, une troncature ou une modification directe sont refusées. **Un seul
+-- chemin de purge**, celui du dépôt (voir 2360) : `SET LOCAL ent.purge_etablissement = 'on'` (jamais posé par
+-- l'application) ; la cascade d'une purge de dossier passe, rien d'autre.
+CREATE OR REPLACE FUNCTION ent_inscription_purge_voulue() RETURNS boolean
+LANGUAGE sql STABLE AS $$ SELECT COALESCE(current_setting('ent.purge_etablissement', true), '') = 'on' $$;
+
 CREATE OR REPLACE FUNCTION ent_inscription_ajout_seul() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF TG_OP = 'TRUNCATE' THEN
+        IF ent_inscription_purge_voulue() THEN
+            RETURN NULL;
+        END IF;
+        RAISE EXCEPTION 'historique en ajout seul : troncature refusée (%)', TG_TABLE_NAME
+            USING ERRCODE = 'check_violation';
+    END IF;
     IF TG_OP = 'DELETE' THEN
-        IF pg_trigger_depth() < 2 THEN
+        IF NOT ent_inscription_purge_voulue() THEN
             RAISE EXCEPTION 'historique en ajout seul : suppression refusée (%)', TG_TABLE_NAME
                 USING ERRCODE = 'check_violation';
         END IF;
@@ -71,10 +83,103 @@ BEGIN
         USING ERRCODE = 'check_violation';
 END $$;
 
+-- Ordre certain : la chaîne `remplace_decision_id` (une racine par dossier, un seul successeur par décision) ;
+-- jamais `now()` (début de transaction) pour savoir laquelle est la dernière.
+CREATE UNIQUE INDEX IF NOT EXISTS ent_inscription_decision_racine_uq
+    ON ent_inscription_decision (dossier_id) WHERE remplace_decision_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ent_inscription_decision_successeur_uq
+    ON ent_inscription_decision (remplace_decision_id) WHERE remplace_decision_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION ent_inscription_decision_chaine() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.remplace_decision_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM ent_inscription_decision p
+         WHERE p.id = NEW.remplace_decision_id AND p.dossier_id = NEW.dossier_id
+           AND p.etablissement_id = NEW.etablissement_id) THEN
+        RAISE EXCEPTION 'une décision ne remplace qu''une décision du même dossier'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS ent_inscription_decision_chaine_trg ON ent_inscription_decision;
+CREATE TRIGGER ent_inscription_decision_chaine_trg
+    BEFORE INSERT ON ent_inscription_decision
+    FOR EACH ROW EXECUTE FUNCTION ent_inscription_decision_chaine();
+
+-- Lien entre un membre du personnel et un candidat (INS-63, D-069 règle 2) : compte d'un responsable, du déposant,
+-- adresse d'un responsable, du déposant ou d'une invitation, compte ayant déjà la charge de l'élève, deux comptes
+-- d'une même personne (même fiche, fiche fusionnée). Un membre lié est **écarté d'office** : la garde est ici,
+-- et dans le code (une seule fonction d'accès au dossier).
+CREATE OR REPLACE FUNCTION ent_inscription_membre_lie(p_etab UUID, p_dossier UUID, p_user UUID) RETURNS boolean
+LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM ent_user u
+         WHERE u.id = p_user
+           AND (
+                EXISTS (SELECT 1 FROM ent_inscription_dossier d
+                         WHERE d.etablissement_id = p_etab AND d.id = p_dossier
+                           AND (d.deposant_user_id = u.id
+                                OR (u.email IS NOT NULL AND lower(d.deposant_email) = lower(u.email))
+                                OR EXISTS (SELECT 1 FROM ent_eleve_lien l
+                                            WHERE l.eleve_id = d.eleve_id AND l.user_id = u.id)))
+             OR EXISTS (SELECT 1 FROM ent_inscription_responsable r
+                         WHERE r.etablissement_id = p_etab AND r.dossier_id = p_dossier
+                           AND ((u.email IS NOT NULL AND lower(r.email) = lower(u.email))
+                                OR EXISTS (SELECT 1 FROM ent_personne pr
+                                             JOIN ent_personne pu
+                                               ON pu.etablissement_id = pr.etablissement_id AND pu.user_id = u.id
+                                            WHERE pr.id = r.personne_id
+                                              AND (pu.id = pr.id OR pu.fusionnee_dans = pr.id
+                                                   OR pr.fusionnee_dans = pu.id
+                                                   OR (pu.fusionnee_dans IS NOT NULL
+                                                       AND pu.fusionnee_dans = pr.fusionnee_dans)))))
+             OR EXISTS (SELECT 1 FROM ent_inscription_invitation i
+                         WHERE i.etablissement_id = p_etab AND i.dossier_id = p_dossier
+                           AND (i.user_id = u.id OR (u.email IS NOT NULL AND lower(i.email) = lower(u.email))))
+           )
+    )
+$$;
+
+-- Un membre déporté ou lié ne donne pas d'avis et ne décide pas : refus en base (second verrou).
+CREATE OR REPLACE FUNCTION ent_inscription_ecarte_garde() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_membre UUID;
+BEGIN
+    IF TG_TABLE_NAME = 'ent_inscription_avis' THEN
+        v_membre := NEW.auteur_id;
+    ELSE
+        v_membre := NEW.decide_par;
+    END IF;
+    IF v_membre IS NULL THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (SELECT 1 FROM ent_inscription_deport x
+                WHERE x.etablissement_id = NEW.etablissement_id AND x.dossier_id = NEW.dossier_id
+                  AND x.membre_id = v_membre)
+       OR ent_inscription_membre_lie(NEW.etablissement_id, NEW.dossier_id, v_membre) THEN
+        RAISE EXCEPTION 'membre écarté de ce dossier (déport ou lien avec le candidat)'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS ent_inscription_decision_ecarte_trg ON ent_inscription_decision;
+CREATE TRIGGER ent_inscription_decision_ecarte_trg
+    BEFORE INSERT ON ent_inscription_decision
+    FOR EACH ROW EXECUTE FUNCTION ent_inscription_ecarte_garde();
+
 DROP TRIGGER IF EXISTS ent_inscription_decision_ajout_seul_trg ON ent_inscription_decision;
 CREATE TRIGGER ent_inscription_decision_ajout_seul_trg
     BEFORE UPDATE OR DELETE ON ent_inscription_decision
     FOR EACH ROW EXECUTE FUNCTION ent_inscription_ajout_seul();
+DROP TRIGGER IF EXISTS ent_inscription_decision_truncate_trg ON ent_inscription_decision;
+CREATE TRIGGER ent_inscription_decision_truncate_trg
+    BEFORE TRUNCATE ON ent_inscription_decision
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_inscription_ajout_seul();
+
+-- Suivi lié à une décision : la famille ne le lit qu'une fois cette décision publiée (D-069 règle 1).
+ALTER TABLE ent_inscription_suivi_dossier ADD COLUMN IF NOT EXISTS decision_id UUID;
 
 -- Le journal du dossier connaît les faits du lot (décision publiée, avis, déport, condition, liste d'attente,
 -- réponse de la famille).
@@ -107,6 +212,14 @@ DROP TRIGGER IF EXISTS ent_inscription_avis_ajout_seul_trg ON ent_inscription_av
 CREATE TRIGGER ent_inscription_avis_ajout_seul_trg
     BEFORE UPDATE OR DELETE ON ent_inscription_avis
     FOR EACH ROW EXECUTE FUNCTION ent_inscription_ajout_seul();
+DROP TRIGGER IF EXISTS ent_inscription_avis_truncate_trg ON ent_inscription_avis;
+CREATE TRIGGER ent_inscription_avis_truncate_trg
+    BEFORE TRUNCATE ON ent_inscription_avis
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_inscription_ajout_seul();
+DROP TRIGGER IF EXISTS ent_inscription_avis_ecarte_trg ON ent_inscription_avis;
+CREATE TRIGGER ent_inscription_avis_ecarte_trg
+    BEFORE INSERT ON ent_inscription_avis
+    FOR EACH ROW EXECUTE FUNCTION ent_inscription_ecarte_garde();
 
 -- ───────────────────────────── Déport (INS-63) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS ent_inscription_deport (
@@ -126,6 +239,10 @@ DROP TRIGGER IF EXISTS ent_inscription_deport_ajout_seul_trg ON ent_inscription_
 CREATE TRIGGER ent_inscription_deport_ajout_seul_trg
     BEFORE UPDATE OR DELETE ON ent_inscription_deport
     FOR EACH ROW EXECUTE FUNCTION ent_inscription_ajout_seul();
+DROP TRIGGER IF EXISTS ent_inscription_deport_truncate_trg ON ent_inscription_deport;
+CREATE TRIGGER ent_inscription_deport_truncate_trg
+    BEFORE TRUNCATE ON ent_inscription_deport
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_inscription_ajout_seul();
 
 -- ───────────────────────────── Commissions (INS-32) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS ent_inscription_commission (
@@ -255,7 +372,35 @@ CREATE TABLE IF NOT EXISTS ent_inscription_condition (
         REFERENCES ent_inscription_dossier (etablissement_id, id) ON DELETE CASCADE
 );
 
+-- Levée d'une condition : journal **en ajout seul** (code, motif, auteur). La condition elle-même peut être
+-- réinitialisée (nouvelle proposition, nouvelle réserve) : la trace de la levée, elle, n'est jamais effacée.
+CREATE TABLE IF NOT EXISTS ent_inscription_condition_levee (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    dossier_id UUID NOT NULL,
+    code TEXT NOT NULL CHECK (code IN ('reponse_famille', 'contrat_signe', 'frais_payes', 'acompte_paye',
+                                       'situation_financiere_examinee', 'passage', 'reserve')),
+    motif TEXT NOT NULL CHECK (char_length(btrim(motif)) BETWEEN 3 AND 500),
+    auteur_id UUID NOT NULL,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ent_inscription_condition_levee_dossier_fk
+        FOREIGN KEY (etablissement_id, dossier_id)
+        REFERENCES ent_inscription_dossier (etablissement_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ent_inscription_condition_levee_dossier_idx
+    ON ent_inscription_condition_levee (etablissement_id, dossier_id, cree_le);
+DROP TRIGGER IF EXISTS ent_inscription_condition_levee_ajout_seul_trg ON ent_inscription_condition_levee;
+CREATE TRIGGER ent_inscription_condition_levee_ajout_seul_trg
+    BEFORE UPDATE OR DELETE ON ent_inscription_condition_levee
+    FOR EACH ROW EXECUTE FUNCTION ent_inscription_ajout_seul();
+DROP TRIGGER IF EXISTS ent_inscription_condition_levee_truncate_trg ON ent_inscription_condition_levee;
+CREATE TRIGGER ent_inscription_condition_levee_truncate_trg
+    BEFORE TRUNCATE ON ent_inscription_condition_levee
+    FOR EACH STATEMENT EXECUTE FUNCTION ent_inscription_ajout_seul();
+
 SELECT ent_rls_poser(ARRAY[
+    'ent_inscription_condition_levee',
     'ent_inscription_avis',
     'ent_inscription_deport',
     'ent_inscription_commission',

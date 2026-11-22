@@ -17,7 +17,7 @@
 
 use chrono::{DateTime, Utc};
 use domain_eleve::DomainError;
-use ent_auth::Action;
+use ent_auth::{Action, Role};
 use ent_events::{types, AggregateKind};
 use ent_types::inscriptions_decisions::*;
 use serde_json::json;
@@ -66,6 +66,67 @@ fn longueur(s: &str) -> usize {
     s.chars().count()
 }
 
+/// Une publication programmée ne va pas au-delà de ce délai (borne du logiciel, F3).
+const PUBLICATION_MAX_JOURS: i64 = 90;
+/// Plafonds d'une séance de commission (F3).
+const DOSSIERS_PAR_SEANCE_MAX: usize = 500;
+
+/// Les membres d'une commission sont des **membres du personnel de l'établissement**, en poste (D-069 E2/F3).
+async fn valider_membres_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    membres: &[Uuid],
+) -> Result<(), EntDbError> {
+    let distincts: std::collections::HashSet<&Uuid> = membres.iter().collect();
+    if distincts.is_empty() {
+        return Ok(());
+    }
+    let lignes: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT user_id, role FROM ent_membership
+          WHERE etablissement_id = $1 AND etat = 'ouvert' AND user_id = ANY($2)",
+    )
+    .bind(etab)
+    .bind(membres)
+    .fetch_all(conn)
+    .await
+    .map_err(db)?;
+    let ok = lignes
+        .iter()
+        .filter(|(_, r)| Role::parse(r).is_some_and(|r| r.is_staff()))
+        .count();
+    if ok != distincts.len() {
+        return Err(invalide(
+            "membres : des membres du personnel de l'établissement uniquement (en poste)",
+        ));
+    }
+    Ok(())
+}
+
+fn borner_publication(quand: DateTime<Utc>, maintenant: DateTime<Utc>) -> Result<(), EntDbError> {
+    if quand > maintenant + chrono::Duration::days(PUBLICATION_MAX_JOURS) {
+        return Err(invalide(
+            "publication programmée : 90 jours au plus à l'avance",
+        ));
+    }
+    Ok(())
+}
+
+/// Rattache (ou détache, `None`) les lignes de suivi écrites ensuite dans la transaction à une décision : voir
+/// `suivi_tx`. Réglage local à la transaction ; jamais posé hors de `decider_tx`.
+async fn marquer_suivi_decision_tx(
+    conn: &mut PgConnection,
+    dossier: Uuid,
+    decision: Option<Uuid>,
+) -> Result<(), EntDbError> {
+    let valeur = decision.map_or_else(String::new, |d| format!("{dossier}|{d}"));
+    sqlx::query("SELECT set_config('ent.suivi_decision', $1, true)")
+        .bind(valeur)
+        .execute(conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
 /// Paramètres d'une décision prise dans une transaction (appelant : direction, commission, liste d'attente).
 pub(crate) struct ContexteDecision<'a> {
     pub actor: Uuid,
@@ -85,7 +146,8 @@ pub(crate) struct ContexteDecision<'a> {
     pub communiquer_par_defaut: bool,
 }
 
-pub(crate) async fn deporte_tx(
+/// Le membre a déclaré son **déport** de ce dossier (INS-63).
+pub(crate) async fn deporte_declare_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     dossier: Uuid,
@@ -103,14 +165,49 @@ pub(crate) async fn deporte_tx(
     .map_err(db)
 }
 
-/// Dossiers dont `membre` s'est déporté (filtrés de ses listes).
-pub(crate) async fn dossiers_deportes(
+/// Le membre est **lié** au candidat (compte ou adresse d'un responsable, du déposant ou d'un contact, deux comptes
+/// d'une même personne : fonction SQL `ent_inscription_membre_lie`, migration 313).
+pub(crate) async fn lie_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+    membre: Uuid,
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar("SELECT ent_inscription_membre_lie($1, $2, $3)")
+        .bind(etab)
+        .bind(dossier)
+        .bind(membre)
+        .fetch_one(conn)
+        .await
+        .map_err(db)
+}
+
+/// **Garde unique** (D-069 règle 2) : le membre est écarté d'office d'un dossier s'il s'en est déporté **ou** s'il
+/// est lié au candidat. Toute lecture ou action du personnel sur un dossier passe par ici (code), et la base
+/// refuse en second verrou l'avis et la décision d'un membre écarté.
+pub(crate) async fn ecarte_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+    membre: Uuid,
+) -> Result<bool, EntDbError> {
+    if deporte_declare_tx(conn, etab, dossier, membre).await? {
+        return Ok(true);
+    }
+    lie_tx(conn, etab, dossier, membre).await
+}
+
+/// Dossiers dont `membre` est écarté (déport déclaré ou lien), à retirer de ses listes.
+pub(crate) async fn dossiers_ecartes(
     conn: &mut PgConnection,
     etab: Uuid,
     membre: Uuid,
 ) -> Result<Vec<Uuid>, EntDbError> {
     sqlx::query_scalar(
-        "SELECT dossier_id FROM ent_inscription_deport WHERE etablissement_id = $1 AND membre_id = $2",
+        "SELECT dossier_id FROM ent_inscription_deport WHERE etablissement_id = $1 AND membre_id = $2
+         UNION
+         SELECT d.id FROM ent_inscription_dossier d
+          WHERE d.etablissement_id = $1 AND ent_inscription_membre_lie($1, d.id, $2)",
     )
     .bind(etab)
     .bind(membre)
@@ -210,13 +307,15 @@ pub(crate) async fn decider_tx(
             "dossier bloqué : désaccord des responsables (levée avec pièce par la direction)",
         ));
     }
-    if deporte_tx(conn, etab, id, c.actor).await? {
-        return Err(conflit("vous vous êtes déporté de ce dossier"));
+    // Garde unique (règle 2) : déporté ou lié au candidat, on ne décide pas — et le dossier n'existe pas pour soi.
+    if ecarte_tx(conn, etab, id, c.actor).await? {
+        return Err(introuvable());
     }
+    // Dernière décision = bout de la chaîne `remplace_decision_id` (règle 4), jamais un tri sur `now()`.
     let precedente: Option<(Uuid, String, Option<Uuid>, Option<String>)> = sqlx::query_as(
-        "SELECT id, sens, offre_id, reserve FROM ent_inscription_decision
-          WHERE etablissement_id = $1 AND dossier_id = $2
-          ORDER BY decide_le DESC, id DESC LIMIT 1",
+        "SELECT d.id, d.sens, d.offre_id, d.reserve FROM ent_inscription_decision d
+          WHERE d.etablissement_id = $1 AND d.dossier_id = $2
+            AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y WHERE y.remplace_decision_id = d.id)",
     )
     .bind(etab)
     .bind(id)
@@ -323,6 +422,10 @@ pub(crate) async fn decider_tx(
             b.offre_id,
             prend_une_place(&b.sens),
             b.confirmer_depassement,
+            crate::inscriptions_attente::PasserDevant {
+                confirmer: b.confirmer_passer_devant,
+                motif: b.motif_passer_devant.as_deref(),
+            },
         )
         .await?
     };
@@ -356,14 +459,18 @@ pub(crate) async fn decider_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
+    // Tout ce que cette décision écrit au suivi (changement d'état, motif communiqué) lui est **rattaché** : la
+    // famille ne le lit qu'une fois la décision publiée, ni avant ni après une décision ultérieure (règle 1).
+    marquer_suivi_decision_tx(conn, id, Some(decision_id)).await?;
     sqlx::query(
-        "UPDATE ent_inscription_dossier SET decision_motif = $3, decide_par = $4, decide_le = now()
+        "UPDATE ent_inscription_dossier SET decision_motif = $3, decide_par = $4, decide_le = $5
           WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(id)
     .bind(&motif)
     .bind(c.actor)
+    .bind(c.maintenant)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -407,33 +514,16 @@ pub(crate) async fn decider_tx(
     // Place déplacée par la décision (autre offre) : la liste d'attente de l'ancienne offre avance.
     if let (Some(avant), Some(apres)) = (offre_avant, offre_decision) {
         if avant != apres && matches!(e, "admis" | "confirme") {
-            crate::inscriptions_attente::designer_suivants_tx(conn, etab, avant).await?;
+            crate::inscriptions_attente::designer_suivants_tx(conn, etab, avant, &[id]).await?;
         }
     }
 
-    // Le motif (texte libre) n'entre pas dans l'événement (§4.1-3).
-    publier(
-        conn,
-        etab,
-        types::ADMISSION_DECIDEE,
-        AggregateKind::Admission,
-        id,
-        None,
-        json!({
-            "dossier_id": id,
-            "decision_id": decision_id,
-            "decision": b.sens,
-            "offre_id": offre_decision,
-            "depassement_capacite": place.as_ref().is_some_and(|p| p.depassement),
-            "revue": c.revoir,
-        }),
-        Some(c.actor),
-    )
-    .await?;
+    marquer_suivi_decision_tx(conn, id, None).await?;
 
     // Publication : tout de suite (défaut), ou à l'instant demandé (INS-62).
     match b.publier_le {
         Some(quand) if quand > c.maintenant && !c.publier_tout_de_suite => {
+            borner_publication(quand, c.maintenant)?;
             if en_plage_calme(conn, etab, quand).await? && !b.confirmer_plage_calme {
                 return Err(conflit(
                     "publication entre 20 h et 8 h ou un dimanche : à confirmer (heure de l'établissement)",
@@ -468,12 +558,25 @@ pub(crate) async fn publier_decision_tx(
     par: Option<Uuid>,
     maintenant: DateTime<Utc>,
 ) -> Result<bool, EntDbError> {
-    let publiee: Option<(Uuid, String)> = sqlx::query_as(
+    // Ordre des verrous unique (F1) : le dossier avant la décision et la proposition.
+    sqlx::query(
+        "SELECT id FROM ent_inscription_dossier
+          WHERE etablissement_id = $1
+            AND id = (SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2)
+          FOR UPDATE",
+    )
+    .bind(etab)
+    .bind(decision_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    let publiee: Option<(Uuid, String, Option<Uuid>, bool, bool, Option<Uuid>)> = sqlx::query_as(
         "UPDATE ent_inscription_decision d SET publiee_le = $3, publiee_par = $4
           WHERE d.etablissement_id = $1 AND d.id = $2 AND d.publiee_le IS NULL
             AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
                              WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
-        RETURNING d.dossier_id, d.sens",
+        RETURNING d.dossier_id, d.sens, d.offre_id, d.depassement_capacite, d.remplace_decision_id IS NOT NULL,
+                  d.decide_par",
     )
     .bind(etab)
     .bind(decision_id)
@@ -482,7 +585,7 @@ pub(crate) async fn publier_decision_tx(
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    let Some((dossier, sens)) = publiee else {
+    let Some((dossier, sens, offre, depassement, revue, decide_par)) = publiee else {
         return Ok(false);
     };
     if prend_une_place(&sens) {
@@ -509,6 +612,26 @@ pub(crate) async fn publier_decision_tx(
         "Décision concernant votre dossier d'inscription",
         "Une décision a été prise sur le dossier d'inscription de votre enfant. Vous pouvez la consulter dans votre espace.",
         &format!("decision-{decision_id}"),
+    )
+    .await?;
+    // Le fait « décision prise » n'est émis qu'à la **publication** (F7) : un abonné ne le voit jamais avant la
+    // famille. Le motif (texte libre) n'entre pas dans l'événement (§4.1-3).
+    publier(
+        conn,
+        etab,
+        types::ADMISSION_DECIDEE,
+        AggregateKind::Admission,
+        dossier,
+        None,
+        json!({
+            "dossier_id": dossier,
+            "decision_id": decision_id,
+            "decision": sens,
+            "offre_id": offre,
+            "depassement_capacite": depassement,
+            "revue": revue,
+        }),
+        decide_par.or(par),
     )
     .await?;
     publier(
@@ -545,6 +668,17 @@ type LigneDecision = (
     Option<DateTime<Utc>>,
     Option<DateTime<Utc>>,
 );
+
+/// Chaîne des décisions d'un dossier (`$1` établissement, `$2` dossier), de la première à la plus récente :
+/// l'ordre est celui des **remplacements** (`remplace_decision_id`), jamais celui de l'heure (D-069 règle 4).
+/// `rang_chaine` donne la place dans la chaîne.
+pub(crate) const CHAINE: &str = "WITH RECURSIVE chaine AS (
+    SELECT d.*, 1 AS rang_chaine FROM ent_inscription_decision d
+     WHERE d.etablissement_id = $1 AND d.dossier_id = $2 AND d.remplace_decision_id IS NULL
+    UNION ALL
+    SELECT x.*, c.rang_chaine + 1 FROM ent_inscription_decision x
+      JOIN chaine c ON x.remplace_decision_id = c.id
+     WHERE x.etablissement_id = $1 AND x.dossier_id = $2)";
 
 const COLS_DECISION: &str = "id, dossier_id, sens, offre_id, reserve, motif_interne, motif_communique,
     depassement_capacite, alternative, remplace_decision_id, commission_id, origine, decide_par, decide_le,
@@ -680,19 +814,29 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<Vec<DecisionDto>, EntDbError> {
-        self.ins_personnel(etab, actor, role).await?;
+        let (_, decider, _) = self.ins_personnel(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_visible_tx(&mut tx, etab, actor, id).await?;
+        // Historique dans l'ordre de la **chaîne** des remplacements (règle 4), jamais d'un tri sur l'heure.
         let rows = sqlx::query_as::<_, LigneDecision>(&format!(
-            "SELECT {COLS_DECISION} FROM ent_inscription_decision
-              WHERE etablissement_id = $1 AND dossier_id = $2 ORDER BY decide_le, id"
+            "{CHAINE} SELECT {COLS_DECISION} FROM chaine ORDER BY rang_chaine"
         ))
         .bind(etab)
         .bind(id)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        Ok(rows.into_iter().map(decision_dto).collect())
+        // Le motif interne est réservé à `inscriptions.decider` (M8).
+        Ok(rows
+            .into_iter()
+            .map(decision_dto)
+            .map(|mut d| {
+                if !decider {
+                    d.motif_interne = String::new();
+                }
+                d
+            })
+            .collect())
     }
 
     /// Publie (ou programme) une décision (INS-62). Seule la plus récente d'un dossier se publie.
@@ -837,8 +981,8 @@ impl PgEnt {
         if d.nature != "admission" {
             return Err(conflit("les avis concernent les admissions"));
         }
-        if deporte_tx(&mut tx, etab, id, actor).await? {
-            return Err(conflit("vous vous êtes déporté de ce dossier"));
+        if ecarte_tx(&mut tx, etab, id, actor).await? {
+            return Err(introuvable());
         }
         let aid = Uuid::new_v4();
         let cree_le: DateTime<Utc> = sqlx::query_scalar(
@@ -875,6 +1019,7 @@ impl PgEnt {
             sens: b.sens.clone(),
             texte: texte.to_string(),
             cree_le,
+            auteur_deporte: false,
         })
     }
 
@@ -890,10 +1035,14 @@ impl PgEnt {
         let (_, decider, _) = self.ins_personnel(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_visible_tx(&mut tx, etab, actor, id).await?;
-        let rows: Vec<(Uuid, Uuid, Uuid, String, String, String, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id, dossier_id, auteur_id, contexte, sens, texte, cree_le FROM ent_inscription_avis
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND ($3 OR auteur_id = $4)
-              ORDER BY cree_le, id",
+        let rows: Vec<(Uuid, Uuid, Uuid, String, String, String, DateTime<Utc>, bool)> = sqlx::query_as(
+            "SELECT a.id, a.dossier_id, a.auteur_id, a.contexte, a.sens, a.texte, a.cree_le,
+                    EXISTS (SELECT 1 FROM ent_inscription_deport x
+                             WHERE x.etablissement_id = a.etablissement_id AND x.dossier_id = a.dossier_id
+                               AND x.membre_id = a.auteur_id)
+               FROM ent_inscription_avis a
+              WHERE a.etablissement_id = $1 AND a.dossier_id = $2 AND ($3 OR a.auteur_id = $4)
+              ORDER BY a.cree_le, a.id",
         )
         .bind(etab)
         .bind(id)
@@ -912,6 +1061,8 @@ impl PgEnt {
                 sens: r.4,
                 texte: r.5,
                 cree_le: r.6,
+                // Un déport déclaré depuis marque les avis déjà donnés (règle 2).
+                auteur_deporte: r.7,
             })
             .collect())
     }
@@ -926,28 +1077,13 @@ impl PgEnt {
     ) -> Result<DeportEtatDto, EntDbError> {
         self.ins_personnel(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let deporte = deporte_tx(&mut tx, etab, id, actor).await?;
+        let deporte = deporte_declare_tx(&mut tx, etab, id, actor).await?;
         if !deporte {
-            // Introuvable si le dossier n'est pas de l'établissement.
+            // Introuvable si le dossier n'est pas de l'établissement, ou si le lecteur en est écarté (lien).
             dossier_visible_tx(&mut tx, etab, actor, id).await?;
         }
-        let conflit_possible: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-                SELECT 1 FROM ent_user u
-                 WHERE u.id = $3 AND u.email IS NOT NULL
-                   AND (EXISTS (SELECT 1 FROM ent_inscription_responsable r
-                                 WHERE r.etablissement_id = $1 AND r.dossier_id = $2
-                                   AND lower(r.email) = lower(u.email))
-                     OR EXISTS (SELECT 1 FROM ent_inscription_dossier d
-                                 WHERE d.etablissement_id = $1 AND d.id = $2
-                                   AND lower(d.deposant_email) = lower(u.email))))",
-        )
-        .bind(etab)
-        .bind(id)
-        .bind(actor)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
+        // Le lien est un déport **d'office** (la garde l'applique) : il ne reste ici qu'à le dire.
+        let conflit_possible = lie_tx(&mut tx, etab, id, actor).await?;
         Ok(DeportEtatDto {
             deporte,
             conflit_possible,
@@ -970,7 +1106,7 @@ impl PgEnt {
             return Err(invalide("motif du déport : de 3 à 500 caractères"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        dossier_tx(&mut tx, etab, id).await?;
+        dossier_visible_tx(&mut tx, etab, actor, id).await?;
         sqlx::query(
             "INSERT INTO ent_inscription_deport (id, etablissement_id, dossier_id, membre_id, motif)
              VALUES ($1,$2,$3,$4,$5) ON CONFLICT (dossier_id, membre_id) DO NOTHING",
@@ -1031,10 +1167,11 @@ impl PgEnt {
         if b.membres.len() > 30 {
             return Err(invalide("trente membres au plus"));
         }
-        if b.dossier_ids.len() > 500 {
+        if b.dossier_ids.len() > DOSSIERS_PAR_SEANCE_MAX {
             return Err(invalide("cinq cents dossiers au plus par séance"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        valider_membres_tx(&mut tx, etab, &b.membres).await?;
         let nature: Option<String> = sqlx::query_scalar(
             "SELECT nature FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1119,6 +1256,9 @@ impl PgEnt {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        if b.ajouter.len() > DOSSIERS_PAR_SEANCE_MAX || b.retirer.len() > DOSSIERS_PAR_SEANCE_MAX {
+            return Err(invalide("cinq cents dossiers au plus par modification"));
+        }
         let (campagne, statut) = commission_ouverte_tx(&mut tx, etab, id).await?;
         if statut == "cloturee" {
             return Err(conflit(
@@ -1126,6 +1266,18 @@ impl PgEnt {
             ));
         }
         ajouter_dossiers_tx(&mut tx, etab, id, campagne, &b.ajouter).await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ent_inscription_commission_dossier
+              WHERE etablissement_id = $1 AND commission_id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if total > i64::try_from(DOSSIERS_PAR_SEANCE_MAX).unwrap_or(500) {
+            return Err(invalide("cinq cents dossiers au plus par séance"));
+        }
         if !b.retirer.is_empty() {
             let deja: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_inscription_decision
@@ -1181,6 +1333,18 @@ impl PgEnt {
             if statut == "cloturee" {
                 return Err(conflit("séance clôturée"));
             }
+            // D-069 E2 : en séance, seul un membre de la commission décide.
+            let membres: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT membres FROM ent_inscription_commission WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(commission_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if !membres.contains(&actor) {
+                return Err(EntDbError::Forbidden);
+            }
         }
         let mut recap = RecapitulatifLotDto::default();
         for item in &b.decisions {
@@ -1203,15 +1367,7 @@ impl PgEnt {
                         dossier_id: item.dossier_id,
                         ok: false,
                         decision_id: None,
-                        erreur: Some(match e {
-                            EntDbError::Domain(DomainError::NotFound) => {
-                                "dossier introuvable".to_string()
-                            }
-                            EntDbError::Domain(_) => {
-                                "erreur de traitement : décision non enregistrée".to_string()
-                            }
-                            other => other.to_string(),
-                        }),
+                        erreur: Some(message_lot(&e)),
                     });
                 }
             }
@@ -1295,7 +1451,7 @@ impl PgEnt {
               WHERE d.etablissement_id = $1 AND d.commission_id = $2 AND d.publiee_le IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
                                  WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
-              ORDER BY d.decide_le, d.id",
+              ORDER BY d.id",
         )
         .bind(etab)
         .bind(id)
@@ -1369,11 +1525,13 @@ impl PgEnt {
         let (_, d) = self.dossier_du_deposant(etab, jeton, id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r: Option<(String, Option<String>, Option<String>, Option<String>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT d.sens, o.libelle_public, d.motif_communique, d.reserve, d.publiee_le
-               FROM ent_inscription_decision d
+            &format!(
+            "{CHAINE}
+             SELECT d.sens, o.libelle_public, d.motif_communique, d.reserve, d.publiee_le
+               FROM chaine d
           LEFT JOIN ent_inscription_offre o ON o.etablissement_id = d.etablissement_id AND o.id = d.offre_id
-              WHERE d.etablissement_id = $1 AND d.dossier_id = $2 AND d.publiee_le IS NOT NULL
-              ORDER BY d.decide_le DESC, d.id DESC LIMIT 1",
+              WHERE d.publiee_le IS NOT NULL
+              ORDER BY d.rang_chaine DESC LIMIT 1"),
         )
         .bind(etab)
         .bind(id)
@@ -1389,7 +1547,7 @@ impl PgEnt {
             (None, None, Vec::new(), Vec::new())
         } else {
             let position = if sens == "liste_attente" && d.etat == "liste_attente" {
-                crate::inscriptions_attente::position_attente_tx(&mut tx, etab, id).await?
+                crate::inscriptions_attente::position_attente_publiee_tx(&mut tx, etab, id).await?
             } else {
                 None
             };
@@ -1418,7 +1576,9 @@ impl PgEnt {
     }
 }
 
-/// Décision **prise mais non publiée** : si la dernière décision d'un dossier n'est pas publiée, renvoie l'état que
+/// **État visible** (D-069 règle 1) : la **seule** fonction qui dit à la famille où en est son dossier, pour
+/// l'affichage **et** pour autoriser ses actions (`exiger_dossier_stable_famille_tx`). Décision **prise mais non
+/// publiée** : si la dernière décision d'un dossier n'est pas publiée, renvoie l'état que
 /// la famille peut encore lire (celui de la dernière décision publiée, sinon l'instruction) et l'instant depuis
 /// lequel les changements d'état lui sont cachés (la plus ancienne décision non publiée de la chaîne).
 pub(crate) async fn visibilite_famille_tx(
@@ -1426,10 +1586,9 @@ pub(crate) async fn visibilite_famille_tx(
     etab: Uuid,
     dossier: Uuid,
 ) -> Result<Option<(String, DateTime<Utc>)>, EntDbError> {
-    let derniere_publiee: Option<bool> = sqlx::query_scalar(
-        "SELECT publiee_le IS NOT NULL FROM ent_inscription_decision
-          WHERE etablissement_id = $1 AND dossier_id = $2 ORDER BY decide_le DESC, id DESC LIMIT 1",
-    )
+    let derniere_publiee: Option<bool> = sqlx::query_scalar(&format!(
+        "{CHAINE} SELECT publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1"
+    ))
     .bind(etab)
     .bind(dossier)
     .fetch_optional(&mut *conn)
@@ -1438,24 +1597,21 @@ pub(crate) async fn visibilite_famille_tx(
     if derniere_publiee != Some(false) {
         return Ok(None);
     }
-    let publie: Option<(String, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT sens, decide_le FROM ent_inscription_decision
-          WHERE etablissement_id = $1 AND dossier_id = $2 AND publiee_le IS NOT NULL
-          ORDER BY decide_le DESC, id DESC LIMIT 1",
-    )
+    let publie: Option<(String, i32)> = sqlx::query_as(&format!(
+        "{CHAINE} SELECT sens, rang_chaine FROM chaine WHERE publiee_le IS NOT NULL
+          ORDER BY rang_chaine DESC LIMIT 1"
+    ))
     .bind(etab)
     .bind(dossier)
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    let depuis: DateTime<Utc> = sqlx::query_scalar(
-        "SELECT min(decide_le) FROM ent_inscription_decision
-          WHERE etablissement_id = $1 AND dossier_id = $2 AND publiee_le IS NULL
-            AND ($3::timestamptz IS NULL OR decide_le > $3)",
-    )
+    let depuis: DateTime<Utc> = sqlx::query_scalar(&format!(
+        "{CHAINE} SELECT min(decide_le) FROM chaine WHERE publiee_le IS NULL AND rang_chaine > $3"
+    ))
     .bind(etab)
     .bind(dossier)
-    .bind(publie.as_ref().map(|p| p.1))
+    .bind(publie.as_ref().map_or(0, |p| p.1))
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
@@ -1463,16 +1619,31 @@ pub(crate) async fn visibilite_famille_tx(
     Ok(Some((visible.to_string(), depuis)))
 }
 
+/// Garde des actions de la famille : tant qu'une décision plus récente que la dernière publiée existe, **aucune**
+/// action n'est possible et le refus est celui d'une modification concurrente (message neutre).
+pub(crate) async fn exiger_dossier_stable_famille_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+) -> Result<(), EntDbError> {
+    if visibilite_famille_tx(conn, etab, dossier).await?.is_some() {
+        return Err(EntDbError::ConflitDossier(
+            crate::inscriptions::EN_COURS_DE_MODIFICATION,
+        ));
+    }
+    Ok(())
+}
+
 impl PgEnt {
     /// Un membre du personnel déporté d'un dossier n'y fait plus rien : « introuvable » (INS-63).
-    pub(crate) async fn refuser_si_deporte(
+    pub(crate) async fn refuser_si_ecarte(
         &self,
         etab: Uuid,
         actor: Uuid,
         dossier: Uuid,
     ) -> Result<(), EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        if deporte_tx(&mut tx, etab, dossier, actor).await? {
+        if ecarte_tx(&mut tx, etab, dossier, actor).await? {
             return Err(introuvable());
         }
         Ok(())
@@ -1512,7 +1683,7 @@ pub(crate) async fn dossier_visible_tx(
     .await
     .map_err(db)?
     .ok_or_else(introuvable)?;
-    if deporte_tx(conn, etab, id, actor).await? {
+    if ecarte_tx(conn, etab, id, actor).await? {
         return Err(introuvable());
     }
     Ok(d)
@@ -1529,6 +1700,7 @@ async fn publier_ou_programmer_tx(
     let mut r = PublicationDto::default();
     let programme = b.publier_le.filter(|q| *q > maintenant);
     if let Some(quand) = programme {
+        borner_publication(quand, maintenant)?;
         if en_plage_calme(conn, etab, quand).await? && !b.confirmer_plage_calme {
             return Err(conflit(
                 "publication entre 20 h et 8 h ou un dimanche : à confirmer (heure de l'établissement)",
@@ -1555,7 +1727,7 @@ async fn publier_ou_programmer_tx(
         .fetch_one(&mut *conn)
         .await
         .map_err(db)?;
-        if deporte_tx(conn, etab, dossier_de, actor).await? {
+        if ecarte_tx(conn, etab, dossier_de, actor).await? {
             return Err(introuvable());
         }
         if deja.is_some() {
@@ -1656,13 +1828,14 @@ async fn commission_dto_tx(
     .await
     .map_err(db)?
     .ok_or_else(introuvable)?;
-    let deportes = dossiers_deportes(conn, etab, actor).await?;
+    let deportes = dossiers_ecartes(conn, etab, actor).await?;
     let lignes: Vec<(Uuid, String, String, String, Option<String>, String, Option<String>, Option<DateTime<Utc>>, i64)> =
         sqlx::query_as(
             "SELECT d.id, d.reference, d.eleve_nom, d.eleve_prenom, d.niveau_demande, d.etat,
                     (SELECT x.sens FROM ent_inscription_decision x
                       WHERE x.etablissement_id = d.etablissement_id AND x.dossier_id = d.id
-                      ORDER BY x.decide_le DESC, x.id DESC LIMIT 1),
+                      AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y WHERE y.remplace_decision_id = x.id)
+                      LIMIT 1),
                     cd.examine_le,
                     (SELECT count(*) FROM ent_inscription_avis a
                       WHERE a.etablissement_id = d.etablissement_id AND a.dossier_id = d.id)
@@ -1735,6 +1908,19 @@ pub(crate) async fn places_campagne_tx(
             liste_attente: r.4,
         })
         .collect())
+}
+
+/// Message du récapitulatif de lot (F6) : ce que la personne peut corriger, jamais une erreur technique (SQL,
+/// base, sérialisation) ni un détail interne.
+fn message_lot(e: &EntDbError) -> String {
+    match e {
+        EntDbError::Domain(DomainError::NotFound) => "dossier introuvable".to_string(),
+        EntDbError::SaisieInvalide(m) => (*m).to_string(),
+        EntDbError::ConflitDossier(m) => (*m).to_string(),
+        EntDbError::ConflitDossierDetail(m) => m.clone(),
+        EntDbError::Forbidden => "action non autorisée".to_string(),
+        _ => "décision non enregistrée : réessayez ou contactez l'administrateur".to_string(),
+    }
 }
 
 #[cfg(test)]

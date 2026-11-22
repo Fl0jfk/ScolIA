@@ -76,7 +76,31 @@ pub const STATUTS_DOSSIER: [&str; 9] = [
     "desistement",
 ];
 
+/// Message **neutre** : celui d'une modification concurrente. Il sert aussi à refuser une action de la famille
+/// tant qu'une décision non publiée est en cours sur son dossier : il ne dit rien de cette décision (D-069 règle 1).
+pub(crate) const EN_COURS_DE_MODIFICATION: &str =
+    "le dossier est en cours de modification : réessayez dans quelques instants";
+
 pub(crate) fn db(err: sqlx::Error) -> EntDbError {
+    // Concurrence : interblocage (40P01), échec de sérialisation (40001) et décision concurrente sur la même
+    // chaîne (violation d'unicité sur `ent_inscription_decision_*_uq`) sont un **conflit** à rejouer, jamais une
+    // erreur technique (D-069 F1).
+    if let sqlx::Error::Database(d) = &err {
+        let code = d.code();
+        let code = code.as_deref().unwrap_or("");
+        if code == "40P01" || code == "40001" {
+            return EntDbError::ConflitDossier(EN_COURS_DE_MODIFICATION);
+        }
+        if code == "23505"
+            && d.constraint().is_some_and(|c| {
+                c == "ent_inscription_decision_racine_uq" || c == "ent_inscription_decision_successeur_uq"
+            })
+        {
+            return EntDbError::ConflitDossier(
+                "une autre décision vient d'être prise sur ce dossier : relisez-le",
+            );
+        }
+    }
     EntDbError::Domain(map_sqlx("inscriptions", err))
 }
 
@@ -585,11 +609,16 @@ pub(crate) async fn suivi_tx(
     visible_famille: bool,
     auteur: Option<Uuid>,
 ) -> Result<(), EntDbError> {
+    // Décision en cours d'écriture sur ce dossier (posée par `decider_tx`) : la ligne lui est rattachée, et la
+    // famille ne la lit qu'une fois cette décision publiée (D-069 règle 1).
     sqlx::query(
         "INSERT INTO ent_inscription_suivi_dossier
             (id, etablissement_id, dossier_id, kind, statut_avant, statut_apres, texte,
-             visible_famille, auteur_user_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+             visible_famille, auteur_user_id, decision_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+                 CASE WHEN split_part(COALESCE(current_setting('ent.suivi_decision', true), ''), '|', 1) = $3::text
+                      THEN NULLIF(split_part(current_setting('ent.suivi_decision', true), '|', 2), '')::uuid
+                 END)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -1469,9 +1498,11 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let motif_famille: Option<String> = sqlx::query_scalar(
-            "SELECT motif_communique FROM ent_inscription_decision
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND publiee_le IS NOT NULL
-              ORDER BY decide_le DESC, id DESC LIMIT 1",
+            &format!(
+                "{} SELECT motif_communique FROM chaine WHERE publiee_le IS NOT NULL
+                  ORDER BY rang_chaine DESC LIMIT 1",
+                crate::inscriptions_decisions::CHAINE
+            ),
         )
         .bind(etab)
         .bind(d.id)
@@ -1480,9 +1511,16 @@ impl PgEnt {
         .map_err(db)?
         .flatten();
         let suivi: Vec<(DateTime<Utc>, String, Option<String>, Option<String>, bool)> = sqlx::query_as(
-            "SELECT created_at, kind, statut_apres, texte, visible_famille FROM ent_inscription_suivi_dossier
-              WHERE etablissement_id = $1 AND dossier_id = $2 AND (visible_famille OR NOT $3)
-              ORDER BY created_at, id",
+            "SELECT s.created_at, s.kind, s.statut_apres, s.texte, s.visible_famille
+               FROM ent_inscription_suivi_dossier s
+              WHERE s.etablissement_id = $1 AND s.dossier_id = $2 AND (s.visible_famille OR NOT $3)
+                -- Une ligne rattachée à une décision ne se lit qu'une fois cette décision publiée (règle 1),
+                -- aujourd'hui comme après une décision ultérieure.
+                AND (NOT $3 OR s.decision_id IS NULL
+                     OR EXISTS (SELECT 1 FROM ent_inscription_decision x
+                                 WHERE x.etablissement_id = s.etablissement_id AND x.id = s.decision_id
+                                   AND x.publiee_le IS NOT NULL))
+              ORDER BY s.created_at, s.id",
         )
         .bind(etab)
         .bind(d.id)
@@ -1644,7 +1682,7 @@ impl PgEnt {
                 return Err(invalide("statut de dossier inconnu"));
             }
         }
-        let deportes = crate::inscriptions_decisions::dossiers_deportes(
+        let deportes = crate::inscriptions_decisions::dossiers_ecartes(
             &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
             etab,
             actor,
@@ -1671,7 +1709,7 @@ impl PgEnt {
         let (g, dec, val) = self.ins_personnel(etab, actor, role).await?;
         let d = self.dossier_row(etab, id).await?;
         // Un membre du personnel déporté (conflit d'intérêts, INS-63) ne voit plus le dossier.
-        if crate::inscriptions_decisions::deporte_tx(
+        if crate::inscriptions_decisions::ecarte_tx(
             &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
             etab,
             id,
@@ -1682,7 +1720,12 @@ impl PgEnt {
             return Err(introuvable());
         }
         let actions = actions_personnel(&d.nature, &d.statut, g, dec, val);
-        self.dossier_dto(etab, d, false, actions).await
+        let mut dto = self.dossier_dto(etab, d, false, actions).await?;
+        // Le motif interne de la décision est réservé à `inscriptions.decider` (D-069 M8).
+        if !dec {
+            dto.decision_motif = None;
+        }
+        Ok(dto)
     }
 
     // -- Instruction (INS-03, INS-15) ----------------------------------------
@@ -1695,9 +1738,9 @@ impl PgEnt {
         id: Uuid,
         b: &StatutBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = opt(&b.motif);
         if motif.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif trop long"));
@@ -1752,7 +1795,7 @@ impl PgEnt {
         code: &str,
         b: &PieceDecisionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = opt(&b.motif);
         let controle = match b.statut.as_str() {
             "acceptee" => ent_types::inscriptions_pieces::ControlePieceBody {
@@ -1780,9 +1823,9 @@ impl PgEnt {
         id: Uuid,
         b: &CommentaireBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let t = b.texte.trim();
         if t.is_empty() || t.chars().count() > 2000 {
             return Err(invalide("commentaire vide ou trop long (2000 caractères)"));
@@ -1813,9 +1856,9 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<i64, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         // Fermeture du secrétariat : les délais des familles sont suspendus, donc les relances aussi.
         self.exiger_secretariat_ouvert(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -1985,6 +2028,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     ) -> Result<DossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         if !["admis", "liste_attente", "refuse"].contains(&b.decision.as_str()) {
             return Err(invalide("décision : admis, liste_attente ou refuse"));
         }
@@ -2006,6 +2051,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             alternative: false,
             publier_le: None,
             confirmer_plage_calme: false,
+            ..Default::default()
         };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         crate::inscriptions_decisions::decider_tx(
@@ -2040,9 +2086,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &ValidationBody,
     ) -> Result<ValidationDto, EntDbError> {
-        self.refuser_si_deporte(etab, actor, id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let regime = regime_valide(&b.regime)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
@@ -2060,6 +2106,42 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 "affectes" => "le dossier de l'élève affecté doit être complété par la famille",
                 _ => "le dossier doit être instruit avant la validation",
             }));
+        }
+        if d.nature == "admission" {
+            // D-069 règle 3 : une inscription définitive suit une décision **publiée** et, si une place a été
+            // proposée, **acceptée** par la famille.
+            let derniere: Option<(String, bool)> = sqlx::query_as(&format!(
+                "{} SELECT sens, publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1",
+                crate::inscriptions_decisions::CHAINE
+            ))
+            .bind(etab)
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            match derniere {
+                Some((sens, true)) if matches!(sens.as_str(), "admis" | "admis_sous_reserve") => {}
+                _ => {
+                    return Err(conflit(
+                        "la validation suit une décision d'admission publiée : publiez la décision d'abord",
+                    ))
+                }
+            }
+            let sans_reponse: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_inscription_proposition_place
+                                 WHERE etablissement_id = $1 AND dossier_id = $2
+                                   AND statut IN ('designee', 'envoyee'))",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if sans_reponse {
+                return Err(conflit(
+                    "la famille n'a pas encore accepté la place proposée : la validation attend sa réponse",
+                ));
+            }
         }
         crate::inscriptions_accords::exiger_accords_tx(&mut tx, etab, &d).await?;
         // Conditions de confirmation de la campagne (lot I5) : remplies, ou levées avec motif par la direction.
@@ -2346,6 +2428,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     ) -> Result<CorrespondancesDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
@@ -3103,13 +3186,15 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if nom.is_empty() || nom.chars().count() > 200 || nom.contains(['/', '\\']) {
             return Err(invalide("nom de fichier invalide"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Action de la famille : l'état visible décide (règle 1), jamais un état non publié.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         if !matches!(
             d.statut.as_str(),
             "deposee" | "en_instruction" | "incomplet" | "liste_attente" | "admis"
         ) {
             return Err(conflit("dossier clos"));
         }
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let n = sqlx::query(
             "UPDATE ent_inscription_piece SET statut = 'deposee', nom_fichier = $4, motif_refus = NULL,
                     maj_par = NULL, maj_le = now()

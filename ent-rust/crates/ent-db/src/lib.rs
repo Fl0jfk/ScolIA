@@ -724,6 +724,8 @@ mod tests_inscriptions_i3_i4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i5;
 #[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i5_revue;
+#[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;

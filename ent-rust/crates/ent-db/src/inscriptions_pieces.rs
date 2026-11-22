@@ -907,8 +907,8 @@ impl PgEnt {
         role: &str,
         dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
-        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = pieces_dossier_tx(&mut tx, etab, dossier_id).await?;
         commit(tx).await?;
@@ -942,6 +942,13 @@ impl PgEnt {
         fichiers: Vec<Vec<u8>>,
     ) -> Result<DepotPieceDto, EntDbError> {
         let (v, d) = self.dossier_du_deposant(etab, jeton, dossier_id).await?;
+        // Règle 1 : l'état visible seul autorise l'action de la famille ; une décision non publiée ne se révèle pas.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(
+            &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
+            etab,
+            d.id,
+        )
+        .await?;
         self.deposer_core(etab, d.id, code, fichiers, (v.user_id.unwrap_or_default(), "famille"), None)
             .await
     }
@@ -957,6 +964,7 @@ impl PgEnt {
         fichiers: Vec<Vec<u8>>,
     ) -> Result<DepotPieceDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         self.deposer_core(etab, dossier_id, code, fichiers, (actor, "guichet"), Some((actor, role)))
             .await
     }
@@ -1124,6 +1132,12 @@ impl PgEnt {
         source_dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         let (v, d) = self.dossier_du_deposant(etab, jeton, dossier_id).await?;
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(
+            &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
+            etab,
+            d.id,
+        )
+        .await?;
         self.reutiliser_core(etab, d.id, code, source_dossier_id, v.user_id.unwrap_or_default())
             .await
     }
@@ -1139,6 +1153,8 @@ impl PgEnt {
         source_dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, source_dossier_id).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         self.reutiliser_core(etab, dossier_id, code, source_dossier_id, actor).await
     }
 
@@ -1243,8 +1259,8 @@ impl PgEnt {
         code: &str,
         b: &ControlePieceBody,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
-        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let motif = b.motif.as_deref().map(str::trim).filter(|m| !m.is_empty());
         let commentaire = b.commentaire.as_deref().map(str::trim).filter(|m| !m.is_empty());
         if commentaire.is_some_and(|c| c.chars().count() > 500) {
@@ -1415,8 +1431,8 @@ impl PgEnt {
         dossier_id: Uuid,
         code: &str,
     ) -> Result<PieceLue, EntDbError> {
-        self.refuser_si_deporte(etab, actor, dossier_id).await?;
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_tx(&mut tx, etab, dossier_id).await?;
         synchroniser_dossier_tx(&mut tx, etab, dossier_id).await?;
