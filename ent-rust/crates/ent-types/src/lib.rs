@@ -47,6 +47,7 @@ pub mod inscriptions_pieces;
 pub mod internat;
 pub mod internat_nuit;
 pub mod internat_sorties;
+pub mod internat_vie;
 pub mod palette;
 pub mod personnels;
 pub mod personnels_delegations;

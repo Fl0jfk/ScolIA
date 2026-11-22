@@ -165,6 +165,50 @@ async fn internat_api_aucune_route_sans_session() {
         ("GET", format!("/internat/eleves/{id}/autorisations")),
         ("POST", "/internat/autorisations/demande".into()),
         ("POST", "/internat/autorisations/revocation".into()),
+        // Lot I4 : vie quotidienne (aucune action par lien sans compte, R-IT39).
+        ("POST", "/internat/sorties-groupe".into()),
+        ("GET", "/internat/sorties-groupe?du=2026-04-01&au=2026-04-30".into()),
+        ("GET", format!("/internat/sorties-groupe/{id}")),
+        ("PUT", format!("/internat/sorties-groupe/{id}")),
+        ("POST", format!("/internat/sorties-groupe/{id}/soumission")),
+        ("POST", format!("/internat/sorties-groupe/{id}/decision")),
+        ("POST", format!("/internat/sorties-groupe/{id}/annulation")),
+        ("POST", format!("/internat/sorties-groupe/{id}/duplication")),
+        ("POST", format!("/internat/sorties-groupe/{id}/encadrants")),
+        ("POST", format!("/internat/sorties-groupe/{id}/encadrants/{id}/retrait")),
+        ("POST", format!("/internat/sorties-groupe/{id}/eleves")),
+        ("POST", format!("/internat/sorties-groupe/{id}/eleves/{id}/retrait")),
+        ("POST", format!("/internat/sorties-groupe/{id}/eleves/{id}/reponse")),
+        ("POST", format!("/internat/sorties-groupe/{id}/eleves/{id}/accord-hors-ligne")),
+        ("POST", format!("/internat/sorties-groupe/{id}/depart")),
+        ("POST", format!("/internat/sorties-groupe/{id}/retour")),
+        ("POST", format!("/internat/sorties-groupe/{id}/cloture")),
+        ("GET", format!("/internat/eleves/{id}/sorties-groupe")),
+        ("GET", format!("/internat/eleves/{id}/planning")),
+        ("GET", "/internat/liaison-codes".into()),
+        ("POST", "/internat/liaison-codes".into()),
+        ("PUT", "/internat/liaison-codes/fatigue".into()),
+        ("POST", "/internat/liaison".into()),
+        ("POST", format!("/internat/liaison/{id}/geste")),
+        ("GET", format!("/internat/eleves/{id}/liaison")),
+        ("GET", "/internat/nuits/2026-04-14/liaison".into()),
+        ("POST", "/internat/evenements".into()),
+        ("GET", format!("/internat/evenements/{id}")),
+        ("POST", format!("/internat/evenements/{id}/complement")),
+        ("POST", format!("/internat/evenements/{id}/transmission")),
+        ("POST", format!("/internat/evenements/{id}/intervention")),
+        ("GET", "/internat/nuits/2026-04-14/evenements".into()),
+        ("POST", "/internat/preoccupations".into()),
+        ("POST", "/internat/vigilances".into()),
+        ("POST", format!("/internat/vigilances/{id}/revue")),
+        ("POST", format!("/internat/vigilances/{id}/levee")),
+        ("GET", format!("/internat/eleves/{id}/vigilances")),
+        ("POST", "/internat/temps".into()),
+        ("GET", "/internat/temps?du=2026-04-01&au=2026-04-30".into()),
+        ("POST", format!("/internat/temps/{id}/annulation")),
+        ("POST", format!("/internat/temps/{id}/inscription")),
+        ("POST", format!("/internat/temps/{id}/desinscription")),
+        ("POST", format!("/internat/temps/{id}/absence")),
     ];
     for (methode, uri) in routes {
         let corps = if methode == "GET" || methode == "DELETE" { None } else { Some(json!({})) };
@@ -541,4 +585,120 @@ async fn internat_api_absences_sorties_parcours_cpe_droits_et_bornes() {
         let (st, _) = appel(&app, "POST", &format!("/internat/tiers/{inconnu}/{route}"), Some(&dir.jeton), Some(corps)).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{route}");
     }
+}
+
+/// Lot I4 : parcours HTTP (création d'une sortie de groupe, liaison, événement, temps du soir), droits par rôle, refus
+/// de règle au bon statut, dates hors bornes en 400, et aucune lecture pour les familles. Les règles fines (accords,
+/// interdictions, désaccords) sont éprouvées contre la base dans `ent-db/src/tests_internat_i4.rs`.
+#[tokio::test]
+async fn internat_api_vie_quotidienne_parcours_droits_et_bornes() {
+    let Some((state, ent)) = etat().await else { return };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let cpe = inscrire(&app, etab, "cpe").await;
+    let dir = inscrire(&app, etab, "direction").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let parent = inscrire(&app, etab, "parent").await;
+    let garcon = eleve_interne(&ent, etab, "M").await;
+    let nuit = ent.nuit_courante_internat(etab).await.unwrap();
+
+    // Sortie de groupe : seul `internat.gerer` crée ; le brouillon est lisible de l'accompagnateur et du personnel.
+    let debut = (nuit + Duration::days(5)).and_hms_opt(10, 0, 0).unwrap().and_utc();
+    let corps = json!({"titre": "Sortie cinéma", "lieu": "Cinéma municipal", "debut": debut, "fin": debut + Duration::hours(3),
+                       "encadrants": [prof.id], "eleves": [garcon]});
+    let (st, _) = appel(&app, "POST", "/internat/sorties-groupe", Some(&prof.jeton), Some(corps.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", "/internat/sorties-groupe", Some(&parent.jeton), Some(corps.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, g) = appel(&app, "POST", "/internat/sorties-groupe", Some(&cpe.jeton), Some(corps)).await;
+    assert_eq!(st, StatusCode::CREATED, "{g}");
+    assert_eq!(g["statut"], "brouillon");
+    let gid = g["id"].as_str().unwrap().to_string();
+    let (st, _) = appel(&app, "GET", &format!("/internat/sorties-groupe/{gid}"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "l'accompagnateur lit sa sortie");
+    let (st, _) = appel(&app, "GET", &format!("/internat/sorties-groupe/{gid}"), Some(&parent.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "GET", &format!("/internat/sorties-groupe/{}", Uuid::new_v4()), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Décision : la direction seulement, et jamais sur un brouillon (409) ; l'accompagnateur n'a pas ce droit.
+    let (st, _) = appel(&app, "POST", &format!("/internat/sorties-groupe/{gid}/decision"), Some(&prof.jeton), Some(json!({"accepte": true}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &format!("/internat/sorties-groupe/{gid}/decision"), Some(&dir.jeton), Some(json!({"accepte": true}))).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    // Refus de règle au bon statut : motif d'annulation inconnu = 4xx autre que 403, horaires absurdes = 400.
+    let (st, _) = appel(&app, "POST", &format!("/internat/sorties-groupe/{gid}/annulation"), Some(&cpe.jeton), Some(json!({"motif_code": "pluie"}))).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "{st}");
+    let (st, _) = appel(&app, "POST", "/internat/sorties-groupe", Some(&cpe.jeton), Some(json!({
+        "titre": "X", "lieu": "Y", "debut": "9999-01-01T10:00:00Z", "fin": "9999-01-01T12:00:00Z"
+    }))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, _) = appel(&app, "GET", "/internat/sorties-groupe?du=2026-04-30&au=2026-04-01", Some(&cpe.jeton), None).await;
+    assert!(st.is_client_error(), "{st}");
+    let (st, _) = appel(&app, "GET", "/internat/sorties-groupe?du=0001-01-01&au=0001-01-02", Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // Famille : aucune lecture d'un élève qui n'est pas le sien (ni de la liaison, ni du planning).
+    for chemin in [format!("/internat/eleves/{garcon}/sorties-groupe"), format!("/internat/eleves/{garcon}/planning"), format!("/internat/eleves/{garcon}/liaison")] {
+        let (st, _) = appel(&app, "GET", &chemin, Some(&parent.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{chemin}");
+    }
+
+    // Liaison : le catalogue se lit avec un droit de liaison ; le CPE écrit ; le professeur et la famille, non.
+    let (st, c) = appel(&app, "GET", "/internat/liaison-codes", Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{c}");
+    assert_eq!(c.as_array().map(Vec::len), Some(10));
+    let (st, _) = appel(&app, "GET", "/internat/liaison-codes", Some(&parent.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, l) = appel(&app, "POST", "/internat/liaison", Some(&cpe.jeton), Some(json!({"eleve_id": garcon, "code": "objet_perdu", "texte": "Casquette"}))).await;
+    assert_eq!(st, StatusCode::CREATED, "{l}");
+    let (st, _) = appel(&app, "POST", "/internat/liaison", Some(&prof.jeton), Some(json!({"eleve_id": garcon, "code": "objet_perdu"}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", "/internat/liaison", Some(&cpe.jeton), Some(json!({"eleve_id": garcon, "code": "fatigue", "texte": "Prend un traitement"}))).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "un texte de santé est refusé : {st}");
+    let (st, _) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/liaison"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, h) = appel(&app, "GET", &format!("/internat/eleves/{garcon}/liaison"), Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{h}");
+    assert_eq!(h.as_array().map(Vec::len), Some(1));
+    let (st, _) = appel(&app, "GET", "/internat/nuits/9999-01-01/liaison", Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // Événement de nuit : déclaré par l'internat, jamais lu par le professeur ni la famille.
+    let (st, e) = appel(&app, "POST", "/internat/evenements", Some(&cpe.jeton), Some(json!({
+        "nature": "incident", "participants": [{"eleve_id": garcon, "role": "temoin"}]
+    }))).await;
+    assert_eq!(st, StatusCode::CREATED, "{e}");
+    let eid = e["id"].as_str().unwrap().to_string();
+    for jeton in [&prof.jeton, &parent.jeton] {
+        let (st, _) = appel(&app, "GET", &format!("/internat/evenements/{eid}"), Some(jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "POST", "/internat/evenements", Some(jeton), Some(json!({"nature": "alarme"}))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let (st, _) = appel(&app, "POST", "/internat/evenements", Some(&cpe.jeton), Some(json!({"nature": "malaise", "complement": "a vomi"}))).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "{st}");
+    let (st, _) = appel(&app, "POST", &format!("/internat/evenements/{eid}/transmission"), Some(&prof.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &format!("/internat/evenements/{eid}/transmission"), Some(&cpe.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::OK);
+    // Préoccupation : sans aucun contenu dans le corps (un champ de texte inconnu est ignoré, jamais stocké).
+    let (st, p) = appel(&app, "POST", "/internat/preoccupations", Some(&cpe.jeton), Some(json!({"eleve_id": garcon}))).await;
+    assert_eq!(st, StatusCode::CREATED, "{p}");
+    let (st, _) = appel(&app, "POST", "/internat/preoccupations", Some(&prof.jeton), Some(json!({"eleve_id": garcon}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+
+    // Temps du soir : créé par la gestion, lu par le personnel d'internat, l'élève n'y voit pas les autres.
+    let debut_t = (nuit + Duration::days(2)).and_hms_opt(17, 0, 0).unwrap().and_utc();
+    let corps_t = json!({"nature": "etude", "libelle": "Étude du soir", "debut": debut_t, "fin": debut_t + Duration::hours(2), "places": 10});
+    let (st, _) = appel(&app, "POST", "/internat/temps", Some(&prof.jeton), Some(corps_t.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, t) = appel(&app, "POST", "/internat/temps", Some(&cpe.jeton), Some(corps_t)).await;
+    assert_eq!(st, StatusCode::CREATED, "{t}");
+    let tid = t["id"].as_str().unwrap().to_string();
+    let (st, _) = appel(&app, "POST", &format!("/internat/temps/{tid}/inscription"), Some(&parent.jeton), Some(json!({"eleve_id": garcon}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, i) = appel(&app, "POST", &format!("/internat/temps/{tid}/inscription"), Some(&cpe.jeton), Some(json!({"eleve_id": garcon}))).await;
+    assert_eq!(st, StatusCode::OK, "{i}");
+    let (st, _) = appel(&app, "GET", "/internat/temps?du=0001-01-01&au=0001-01-02", Some(&cpe.jeton), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
 }

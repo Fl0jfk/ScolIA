@@ -42,7 +42,9 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 mod actes;
+mod groupes;
 mod tiers;
+mod vie;
 use actes::{
     actes_qui_tombent_tx, appliquer_absence_tx, appliquer_sortie_tx, comptes_vises_tx, deciders_annuel_tx,
     fin_savepoint_revue, ouvrir_savepoint_revue, suspendre_correspondants_auteur_tx, Objet, RevueBilan,

@@ -1076,7 +1076,7 @@ async fn droits_refuses_hors_equipe_habilitee() {
 
 /// Deux classes de l'année qui couvre la nuit testée (créée au besoin) ; les élèves de la zone A vont dans la classe 1,
 /// ceux de la zone B dans la classe 2. Sert aux rôles à portée « désignés ».
-async fn classes_des_deux_zones(b: &Banc) -> Vec<Uuid> {
+pub(crate) async fn classes_des_deux_zones(b: &Banc) -> Vec<Uuid> {
     let pool = b.ent.pool_verif();
     // L'année qui couvre la nuit testée (créée au besoin, comme dans le banc) et deux classes **de cette année**, créées
     // pour le test : le jeu de labo place ses classes dans l'année courante (2026-2027), et une affectation doit rester

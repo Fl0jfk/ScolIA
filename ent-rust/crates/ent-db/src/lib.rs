@@ -764,6 +764,8 @@ mod tests_internat_i2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat_i3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4;
+#[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;
