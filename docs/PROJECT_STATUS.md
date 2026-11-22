@@ -90,7 +90,7 @@ Testé en local : `tests_eleve_jour_etablissement` (fuseaux Pacific/Kiritimati U
 ## Socle 20 — lots C8 « visa, inspection, archive » et C9 « progressions et reconduction » (2026-11-21, branche `ent-socle-20-code-c8c9`, depuis `origin/ENT` d23a6f66)
 **Niveau : implémenté + testé en local (PostgreSQL 16) ; CI : voir `docs/socles/20_CAHIER_C8_C9_LIVRAISON.md` §8 ; non validé par Florian, pas prêt pilote.**
 - **Migrations 2407 (C8) et 2408 (C9)** : premiers numéros libres de la plage 2400–2419 (2419 reste à C14 ; **C10 n'a plus de numéro libre dans la plage : extension à demander**). 8 tables avec RLS, visa et journaux en ajout seul (TRUNCATE interdit), empreinte des exports recalculée par la base, accès d'inspection borné à 90 jours par CHECK.
-- **Actions** : `cahier.acces_inspection` et `cahier.exporter` (direction, `socle_20_cahier`) ; `Action::TOUTES` 275 → 277.
+- **Actions** : `cahier.acces_inspection`, `cahier.exporter` (direction et administration) et `cahier.cloturer` (clôture, réouverture à double validation, décision d'archive : **direction seule**, revue de sécurité M1) ; `Action::TOUTES` 275 → 278.
 - **Routes** `/cahier/c8/*` (24) et `/cahier/c9/*` (10) ; **écrans Leptos** : tenue et visa, cahier du cours en lecture, accès d'inspection et journal, lecture de l'inspecteur, clôture et archives, progressions.
 - **Non fait** (détail au rapport de livraison §4) : avis du socle 8, PDF/A du socle 7, pièces jointes, destruction effective, compte invité de l'inspecteur, annulation d'une planification.
 

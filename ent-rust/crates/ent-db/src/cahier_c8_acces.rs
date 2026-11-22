@@ -4,7 +4,7 @@
 //! * L'**inspecteur** voit exactement ce qu'on lui ouvre (cours, période du cahier, durée ≤ 90 jours) : entrées et consignes
 //!   publiées, jamais de remise, de retour, de variante, de nom d'élève. Chaque lecture est journalisée **avant** d'être servie
 //!   (si la trace ne s'écrit pas, rien n'est servi) ; le journal est lu de la direction et du professeur concerné.
-//! * Un **export** est un texte figé, sans donnée d'élève, dont l'empreinte SHA-256 est recalculée par la base (CHECK).
+//! * Un **export** est un texte figé, sans donnée structurée d'élève (le texte libre des professeurs est repris tel quel), dont l'empreinte SHA-256 est recalculée par la base (CHECK).
 //!   Il ne contient ni heure de production ni auteur : deux exports du même cahier ont la même empreinte.
 //! * La **clôture** fige le cahier d'une année (plus aucune écriture), produit une archive par cours portant du contenu et
 //!   journalise l'acte. Elle est irréversible sauf **réouverture motivée** de la direction, elle aussi journalisée ; une année
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
 use crate::cahier_c2::{conflit, invalide, texte_borne};
-use crate::cahier_c8::{cours_de_agent, nom, periode_valide};
+use crate::cahier_c8::{cours_de_agent, jour_tx, nom, periode_valide};
 use crate::ref_commun::{db, introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
@@ -98,9 +98,9 @@ pub(crate) async fn contenu_cahier(
     .map_err(db)?;
     let mut out = format!("CAHIER DE TEXTES — {titre}\nPériode : du {du} au {au}\n");
     out.push_str(if brouillons {
-        "Export professionnel : vos entrées et travaux (brouillons compris, signalés). Aucune donnée d'élève.\n"
+        "Export professionnel : vos entrées et travaux (brouillons compris, signalés). Aucune donnée structurée d'élève.\n"
     } else {
-        "Contenu publié uniquement. Aucune donnée d'élève (ni remise, ni retour, ni variante).\n"
+        "Contenu publié uniquement. Aucune donnée structurée d'élève (ni remise, ni retour, ni variante) ; le texte libre des professeurs est repris tel quel.\n"
     });
     let mut ordre: Vec<(Uuid, String, String)> = Vec::new();
     for e in &entrees {
@@ -166,7 +166,7 @@ pub(crate) async fn contenu_cahier(
     Ok((out, entrees.len() as i32, travaux.len() as i32))
 }
 
-async fn inserer_export(
+pub(crate) async fn inserer_export(
     tx: &mut PgConnection,
     etab: Uuid,
     nature: &str,
@@ -179,6 +179,12 @@ async fn inserer_export(
     par: Uuid,
     (contenu, ne, nt): (String, i32, i32),
 ) -> Result<(Uuid, String), EntDbError> {
+    // M2 : taille plafonnée AVANT l'insertion (la contrainte de la base ferait une erreur serveur) : 422, jamais 500.
+    if contenu.chars().count() > EXPORT_TAILLE_MAX {
+        return Err(invalide(
+            "export trop volumineux (4 000 000 caractères au plus) : réduisez la période ou le périmètre",
+        ));
+    }
     let id = Uuid::new_v4();
     let empreinte: String =
         sqlx::query_scalar("SELECT encode(sha256(convert_to($1, 'UTF8')), 'hex')")
@@ -270,7 +276,10 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let (cours_ids, titre, cours, agent) = match (b.cours_id, b.agent_id) {
             (Some(c), None) => {
-                let r = self.c8_cours_ref(etab, c).await?.ok_or_else(introuvable)?;
+                let r = self
+                    .c8_cours_ref(&mut tx, etab, c)
+                    .await?
+                    .ok_or_else(introuvable)?;
                 (
                     vec![c],
                     format!("{} ({})", r.libelle, r.public),
@@ -392,8 +401,42 @@ impl PgEnt {
         })
     }
 
-    /// CDT-223 : le professeur exporte **son** cahier de l'année (entrées et travaux qu'il a signés, sans élève).
+    /// CDT-223, M2 : **aperçu** de l'export du professeur (`GET`) : le texte est rendu et son empreinte calculée, **sans rien
+    /// écrire en base** (un GET ne produit pas de document, et répété il ne remplit pas la table). L'export conservé passe
+    /// par [`PgEnt::cdt_c8_export_professeur_conserver`] (POST).
     pub async fn cdt_c8_export_professeur(
+        &self,
+        a: &Acteur<'_>,
+        annee_id: Uuid,
+    ) -> Result<ExportApercuDto, EntDbError> {
+        if !self.cdt_droit_quelconque(a, Action::CahierEcrire).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        let etab = a.etablissement_id;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let (titre, du, au, contenu) =
+            rendre_export_professeur(&mut tx, etab, a.user_id, annee_id).await?;
+        let empreinte: String =
+            sqlx::query_scalar("SELECT encode(sha256(convert_to($1, 'UTF8')), 'hex')")
+                .bind(&contenu.0)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        Ok(ExportApercuDto {
+            titre,
+            du,
+            au,
+            nb_entrees: contenu.1,
+            nb_travaux: contenu.2,
+            empreinte,
+            contenu: contenu.0,
+        })
+    }
+
+    /// M2 : **conserve** l'export du professeur (`POST`). Un seul export par (auteur, année, empreinte) : le même cahier
+    /// renvoyé deux fois redonne le même export, sans doublon ; un cahier modifié produit une nouvelle empreinte, donc un
+    /// nouvel export.
+    pub async fn cdt_c8_export_professeur_conserver(
         &self,
         a: &Acteur<'_>,
         annee_id: Uuid,
@@ -402,36 +445,60 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let etab = a.etablissement_id;
-        let agent = self.c8_agent_du_compte(a).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let an: Option<(String, NaiveDate, NaiveDate)> =
-            sqlx::query_as("SELECT libelle, date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(annee_id)
-                .fetch_optional(&mut *tx)
+        let agent = self.c8_agent_du_compte(a, &mut tx).await?;
+        let (_, du, au, contenu) =
+            rendre_export_professeur(&mut tx, etab, a.user_id, annee_id).await?;
+        let libelle: String = sqlx::query_scalar(
+            "SELECT libelle FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if contenu.0.chars().count() > EXPORT_TAILLE_MAX {
+            return Err(invalide(
+                "export trop volumineux (4 000 000 caractères au plus) : réduisez la période ou le périmètre",
+            ));
+        }
+        let empreinte: String =
+            sqlx::query_scalar("SELECT encode(sha256(convert_to($1, 'UTF8')), 'hex')")
+                .bind(&contenu.0)
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
-        let Some((libelle, du, au)) = an else {
-            return Err(introuvable());
-        };
-        let n = nom(&mut tx, etab, Some(a.user_id)).await?;
-        let titre = format!("{n}, année {libelle}");
-        let contenu =
-            contenu_cahier(&mut tx, etab, &titre, du, au, &Perimetre::Auteur(a.user_id)).await?;
-        let (id, _) = inserer_export(
-            &mut tx,
-            etab,
-            "professeur",
-            None,
-            agent,
-            Some(annee_id),
-            (du, au),
-            &format!("Mon cahier — {libelle}"),
-            None,
-            a.user_id,
-            contenu.clone(),
+        let existant: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_cdt_export WHERE etablissement_id = $1 AND nature = 'professeur' AND produit_par_user_id = $2
+                AND annee_id = $3 AND empreinte = $4",
         )
-        .await?;
+        .bind(etab)
+        .bind(a.user_id)
+        .bind(annee_id)
+        .bind(&empreinte)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let id = match existant {
+            Some(id) => id,
+            None => {
+                inserer_export(
+                    &mut tx,
+                    etab,
+                    "professeur",
+                    None,
+                    agent,
+                    Some(annee_id),
+                    (du, au),
+                    &format!("Mon cahier — {libelle}"),
+                    None,
+                    a.user_id,
+                    contenu.clone(),
+                )
+                .await?
+                .0
+            }
+        };
         let dto = export_dto(&mut tx, etab, id).await?;
         tx.commit().await.map_err(db)?;
         Ok(ExportContenuDto {
@@ -460,6 +527,10 @@ impl PgEnt {
         let duree = b.duree_jours.unwrap_or(ACCES_DUREE_DEFAUT_JOURS);
         if !(1..=ACCES_DUREE_MAX_JOURS).contains(&duree) {
             return Err(invalide("durée de l'accès : 1 à 90 jours"));
+        }
+        // M1 : un pouvoir = une action. On n'accorde pas un accès d'inspection à soi-même (contrôle du droit, avant l'existence).
+        if b.beneficiaire_user_id == a.user_id {
+            return Err(EntDbError::Forbidden);
         }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -582,17 +653,22 @@ impl PgEnt {
         }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let r: Option<(DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT valable_du, valable_au, revoque_le FROM ent_cdt_acces_inspection WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        let r: Option<(DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>, Uuid)> = sqlx::query_as(
+            "SELECT valable_du, valable_au, revoque_le, beneficiaire_user_id FROM ent_cdt_acces_inspection
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
         .bind(id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((du, au, revoque)) = r else {
+        let Some((du, au, revoque, beneficiaire)) = r else {
             return Err(introuvable());
         };
+        // M1 : le bénéficiaire ne prolonge pas son propre accès (l'accès existe, mais le pouvoir n'est pas le sien).
+        if beneficiaire == a.user_id {
+            return Err(EntDbError::Forbidden);
+        }
         if revoque.is_some() {
             return Err(conflit("accès révoqué : accordez-en un nouveau"));
         }
@@ -669,6 +745,38 @@ impl PgEnt {
         Ok(dto)
     }
 
+    /// F11 : cours que la direction peut ouvrir à un inspecteur (année en cours), sous **son propre droit** (`cahier.acces_inspection`)
+    /// : l'écran d'octroi ne dépend pas de `cahier.viser` (le tableau de tenue en dépendait).
+    pub async fn cdt_c8_cours_ouvrables(
+        &self,
+        a: &Acteur<'_>,
+    ) -> Result<Vec<CoursRefDto>, EntDbError> {
+        self.c8_exiger_etab(a, Action::CahierAccesInspection)
+            .await?;
+        let etab = a.etablissement_id;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let l: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT c.id, c.libelle, COALESCE(cl.code, g.code, '')
+               FROM ent_cours c
+               JOIN ent_annee_scolaire an ON an.etablissement_id = c.etablissement_id AND an.id = c.annee_id
+               LEFT JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.id = c.classe_id
+               LEFT JOIN ent_groupe g ON g.etablissement_id = c.etablissement_id AND g.id = c.groupe_id
+              WHERE c.etablissement_id = $1 AND ent_aujourdhui_etab($1) BETWEEN an.date_debut AND an.date_fin
+              ORDER BY c.libelle, c.id LIMIT 1000",
+        )
+        .bind(etab)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(l.into_iter()
+            .map(|(cours_id, libelle, public)| CoursRefDto {
+                cours_id,
+                libelle,
+                public,
+            })
+            .collect())
+    }
+
     /// Accès accordés : la direction les voit tous ; un professeur ne voit que ceux qui le concernent (visés par son nom, ou sur
     /// un de ses cours) ; personne d'autre.
     pub async fn cdt_c8_acces_lister(
@@ -682,9 +790,9 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let etab = a.etablissement_id;
-        let agent = self.c8_agent_du_compte(a).await?;
-        let jour = self.jour_etab(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let agent = self.c8_agent_du_compte(a, &mut tx).await?;
+        let jour = jour_tx(&mut tx, etab).await?;
         let ids: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT x.id FROM ent_cdt_acces_inspection x
               WHERE x.etablissement_id = $1
@@ -756,6 +864,25 @@ impl PgEnt {
         let Some((du, au, valable_au)) = r else {
             return Err(EntDbError::Forbidden);
         };
+        // F6 : le rôle et l'appartenance se revérifient à CHAQUE lecture, pas seulement à l'octroi : un compte qui a quitté
+        // l'établissement, ou devenu élève ou responsable depuis, ne lit plus rien.
+        let m: Option<(String,)> = sqlx::query_as(
+            "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
+        )
+        .bind(etab)
+        .bind(a.user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let role_ok = m.is_some_and(|(r,)| {
+            !matches!(
+                ent_auth::Role::parse(&r),
+                None | Some(ent_auth::Role::Eleve | ent_auth::Role::Parent)
+            )
+        });
+        if !role_ok {
+            return Err(EntDbError::Forbidden);
+        }
         let (ouvert,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_cdt_acces_inspection_cours WHERE etablissement_id = $1 AND acces_id = $2 AND cours_id = $3)",
         )
@@ -900,9 +1027,9 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let etab = a.etablissement_id;
-        let agent = self.c8_agent_du_compte(a).await?;
-        let jour = self.jour_etab(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let agent = self.c8_agent_du_compte(a, &mut tx).await?;
+        let jour = jour_tx(&mut tx, etab).await?;
         let (existe,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM ent_cdt_acces_inspection WHERE etablissement_id = $1 AND id = $2)")
             .bind(etab)
             .bind(acces_id)
@@ -960,10 +1087,10 @@ impl PgEnt {
         a: &Acteur<'_>,
         annee_id: Uuid,
     ) -> Result<ControleClotureDto, EntDbError> {
-        self.c8_exiger_etab(a, Action::CahierExporter).await?;
+        self.c8_exiger_etab(a, Action::CahierCloturer).await?;
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        controle(&mut tx, etab, annee_id).await
+        controle(&mut tx, etab, annee_id, a.user_id).await
     }
 
     /// CDT-222, CC-60 : clôture le cahier de l'année (plus aucune écriture), une archive figée par cours portant du contenu.
@@ -973,7 +1100,7 @@ impl PgEnt {
         a: &Acteur<'_>,
         b: ClotureBody,
     ) -> Result<ClotureDto, EntDbError> {
-        self.c8_exiger_etab(a, Action::CahierExporter).await?;
+        self.c8_exiger_etab(a, Action::CahierCloturer).await?;
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Verrou de l'année : deux clôtures simultanées se suivent.
@@ -988,7 +1115,7 @@ impl PgEnt {
         let Some((debut, fin)) = an else {
             return Err(introuvable());
         };
-        let c = controle(&mut tx, etab, b.annee_id).await?;
+        let c = controle(&mut tx, etab, b.annee_id, a.user_id).await?;
         if c.deja_fige {
             return Err(conflit("le cahier de cette année est déjà figé"));
         }
@@ -1095,39 +1222,32 @@ impl PgEnt {
             annee_id: b.annee_id,
             archives_produites: n,
             fige: true,
+            reouverture_demandee: false,
         })
     }
 
-    /// CC-63 : réouverture motivée du cahier d'une année (procédure tracée de la direction). Impossible tant que l'année est
-    /// close au socle 5 : c'est cette année qu'il faut rouvrir d'abord.
+    /// CC-63 / M1 : **demande** de réouverture du cahier d'une année (première moitié de la double validation). Motif de
+    /// 20 caractères au moins ; la demande ne rouvre rien : une **autre** personne de la direction doit la valider
+    /// (`cdt_c8_rouvrir_valider`). Impossible tant que l'année est close au socle 5 : c'est cette année qu'il faut rouvrir
+    /// d'abord.
     pub async fn cdt_c8_rouvrir(
         &self,
         a: &Acteur<'_>,
         b: ReouvrirBody,
     ) -> Result<ClotureDto, EntDbError> {
-        self.c8_exiger_etab(a, Action::CahierExporter).await?;
+        self.c8_exiger_etab(a, Action::CahierCloturer).await?;
         let motif = texte_borne(
             &b.motif,
             500,
             true,
             "motif obligatoire (500 caractères au plus)",
         )?;
-        if motif.chars().count() < 10 {
-            return Err(invalide("motif trop court : 10 caractères au moins"));
+        if motif.chars().count() < 20 {
+            return Err(invalide("motif trop court : 20 caractères au moins"));
         }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let an: Option<(bool,)> = sqlx::query_as(
-            "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(etab)
-        .bind(b.annee_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let Some((close5,)) = an else {
-            return Err(introuvable());
-        };
+        let close5 = verrouiller_annee(&mut tx, etab, b.annee_id).await?;
         let (fige,): (bool,) = sqlx::query_as("SELECT ent_cdt_cahier_fige($1, $2)")
             .bind(etab)
             .bind(b.annee_id)
@@ -1140,13 +1260,79 @@ impl PgEnt {
         if close5 {
             return Err(conflit("l'année scolaire est close : rouvrez d'abord l'année (structure) ; le cahier reste figé"));
         }
+        if demande_en_attente(&mut tx, etab, b.annee_id)
+            .await?
+            .is_some()
+        {
+            return Err(conflit("une demande de réouverture est déjà en attente de validation par une autre personne de la direction"));
+        }
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, motif, par_user_id) VALUES ($1, $2, $3, 'reouverture', $4, $5)")
+        sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, motif, par_user_id) VALUES ($1, $2, $3, 'reouverture_demandee', $4, $5)")
             .bind(id)
             .bind(etab)
             .bind(b.annee_id)
             .bind(&motif)
             .bind(a.user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        publier_cdt(
+            &mut tx,
+            a,
+            types::CAHIER_REOUVERTURE_DEMANDEE,
+            id,
+            None,
+            json!({ "annee_id": b.annee_id }),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(ClotureDto {
+            annee_id: b.annee_id,
+            archives_produites: 0,
+            fige: true,
+            reouverture_demandee: true,
+        })
+    }
+
+    /// M1 : **seconde validation** de la réouverture, par une autre personne de la direction que le demandeur (la base
+    /// refuse aussi l'identité, `ent_cdt_cloture_double_chk`). La réouverture reprend le motif de la demande.
+    pub async fn cdt_c8_rouvrir_valider(
+        &self,
+        a: &Acteur<'_>,
+        b: ValiderReouvertureBody,
+    ) -> Result<ClotureDto, EntDbError> {
+        self.c8_exiger_etab(a, Action::CahierCloturer).await?;
+        let etab = a.etablissement_id;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let close5 = verrouiller_annee(&mut tx, etab, b.annee_id).await?;
+        let (fige,): (bool,) = sqlx::query_as("SELECT ent_cdt_cahier_fige($1, $2)")
+            .bind(etab)
+            .bind(b.annee_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        if !fige {
+            return Err(conflit("le cahier de cette année n'est pas clôturé"));
+        }
+        if close5 {
+            return Err(conflit("l'année scolaire est close : rouvrez d'abord l'année (structure) ; le cahier reste figé"));
+        }
+        let Some((motif, demandeur, _, _)) = demande_en_attente(&mut tx, etab, b.annee_id).await?
+        else {
+            return Err(conflit("aucune demande de réouverture en attente : une première personne de la direction doit la demander"));
+        };
+        if demandeur == a.user_id {
+            // Un pouvoir = une action : on ne valide pas sa propre demande.
+            return Err(EntDbError::Forbidden);
+        }
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, motif, par_user_id, demandeur_user_id) VALUES ($1, $2, $3, 'reouverture', $4, $5, $6)")
+            .bind(id)
+            .bind(etab)
+            .bind(b.annee_id)
+            .bind(&motif)
+            .bind(a.user_id)
+            .bind(demandeur)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
@@ -1164,6 +1350,7 @@ impl PgEnt {
             annee_id: b.annee_id,
             archives_produites: 0,
             fige: false,
+            reouverture_demandee: false,
         })
     }
 
@@ -1255,7 +1442,7 @@ impl PgEnt {
         id: Uuid,
         b: ArchiveDecisionBody,
     ) -> Result<ArchiveDto, EntDbError> {
-        self.c8_exiger_etab(a, Action::CahierExporter).await?;
+        self.c8_exiger_etab(a, Action::CahierCloturer).await?;
         if !["versee", "detruite"].contains(&b.decision.as_str()) {
             return Err(invalide("décision : versee ou detruite"));
         }
@@ -1421,6 +1608,7 @@ async fn controle(
     tx: &mut PgConnection,
     etab: Uuid,
     annee_id: Uuid,
+    user: Uuid,
 ) -> Result<ControleClotureDto, EntDbError> {
     let an: Option<(String, NaiveDate)> = sqlx::query_as("SELECT libelle, date_debut FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2")
         .bind(etab)
@@ -1522,5 +1710,77 @@ async fn controle(
         travaux_brouillon,
         non_rendus,
         archives_existantes,
+        reouverture_en_attente: match demande_en_attente(tx, etab, annee_id).await? {
+            Some((motif, par, le, _)) => Some(ReouvertureEnAttenteDto {
+                motif,
+                demandee_par: nom(tx, etab, Some(par)).await?,
+                demandee_le: le,
+                demandee_par_vous: par == user,
+            }),
+            None => None,
+        },
     })
+}
+
+/// Verrou exclusif de l'année (clôture, réouverture : elles se suivent, et les écritures du cahier les attendent). Retourne
+/// « année close au socle 5 ». Année inconnue (ou d'un autre établissement) : introuvable.
+async fn verrouiller_annee(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    annee: Uuid,
+) -> Result<bool, EntDbError> {
+    let an: Option<(bool,)> = sqlx::query_as(
+        "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(etab)
+    .bind(annee)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    an.map(|(c,)| c).ok_or_else(introuvable)
+}
+
+/// Demande de réouverture postérieure à la dernière clôture et à toute réouverture : (motif, demandeur, date, id).
+async fn demande_en_attente(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    annee: Uuid,
+) -> Result<Option<(String, Uuid, DateTime<Utc>, Uuid)>, EntDbError> {
+    sqlx::query_as(
+        "SELECT d.motif, d.par_user_id, d.cree_le, d.id
+           FROM ent_cdt_cloture d
+          WHERE d.etablissement_id = $1 AND d.annee_id = $2 AND d.action = 'reouverture_demandee'
+            AND d.cree_le > COALESCE((SELECT max(c.cree_le) FROM ent_cdt_cloture c
+                                       WHERE c.etablissement_id = d.etablissement_id AND c.annee_id = d.annee_id
+                                         AND c.action IN ('cloture', 'reouverture')), '-infinity'::timestamptz)
+          ORDER BY d.cree_le DESC, d.id DESC LIMIT 1",
+    )
+    .bind(etab)
+    .bind(annee)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)
+}
+
+/// Texte de l'export personnel d'un professeur pour une année : (titre, du, au, (texte, nb entrées, nb travaux)).
+async fn rendre_export_professeur(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    annee_id: Uuid,
+) -> Result<(String, NaiveDate, NaiveDate, (String, i32, i32)), EntDbError> {
+    let an: Option<(String, NaiveDate, NaiveDate)> =
+        sqlx::query_as("SELECT libelle, date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(annee_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+    let Some((libelle, du, au)) = an else {
+        return Err(introuvable());
+    };
+    let n = nom(tx, etab, Some(user)).await?;
+    let titre = format!("{n}, année {libelle}");
+    let contenu = contenu_cahier(tx, etab, &titre, du, au, &Perimetre::Auteur(user)).await?;
+    Ok((titre, du, au, contenu))
 }

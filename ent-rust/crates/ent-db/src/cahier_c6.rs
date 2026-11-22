@@ -175,6 +175,8 @@ impl PgEnt {
         confirmer_avance: bool,
     ) -> Result<(), EntDbError> {
         let cours = r.cours_id.ok_or_else(introuvable)?;
+        // E1 : un report écrit sur le cahier ; une année figée n'en reçoit plus (la base refuse de toute façon).
+        self.cdt_exiger_cours_ouvert_tx(tx, etab, cours).await?;
         let cible = seance_mini(tx, etab, vers).await?;
         if cible.statut == "annulee" {
             return Err(conflit("la séance d'arrivée est annulée"));

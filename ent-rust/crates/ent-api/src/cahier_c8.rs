@@ -3,13 +3,15 @@
 //!
 //! * Direction : `GET /cahier/c8/tenue`, `GET` / `POST /cahier/c8/visas`, `GET /cahier/c8/visas/{id}`,
 //!   `POST /cahier/c8/visas/{id}/observations`, `GET /cahier/c8/cours/{id}/chronologie`.
-//! * Professeur : `POST /cahier/c8/observations/{id}/reponses`, `GET /cahier/c8/mon-export`.
+//! * Professeur : `POST /cahier/c8/observations/{id}/reponses`, `GET /cahier/c8/mon-export` (aperçu, **sans écriture**),
+//!   `POST /cahier/c8/mon-export` (export conservé, un seul par auteur, année et empreinte).
 //! * Accès d'inspection (direction) : `GET` / `POST /cahier/c8/inspections`, `POST /cahier/c8/inspections/{id}/prolonger`,
 //!   `POST /cahier/c8/inspections/{id}/revoquer`, `GET /cahier/c8/inspections/{id}/journal` (aussi du professeur concerné).
 //! * Inspecteur : `GET /cahier/c8/inspection/mes-acces`, `GET /cahier/c8/inspection/{acces}/cours/{cours}`.
 //! * Exports figés (direction) : `GET` / `POST /cahier/c8/exports`, `GET /cahier/c8/exports/{id}`.
 //! * Clôture et archive (direction) : `GET /cahier/c8/cloture/controle`, `POST /cahier/c8/cloture`,
-//!   `POST /cahier/c8/cloture/reouvrir`, `GET /cahier/c8/archives`, `GET /cahier/c8/archives/{id}/contenu`,
+//!   `POST /cahier/c8/cloture/reouvrir` (demande, motif de 20 caractères) puis `POST /cahier/c8/cloture/reouvrir/valider`
+//!   (seconde personne de la direction), `GET /cahier/c8/archives`, `GET /cahier/c8/archives/{id}/contenu`,
 //!   `POST /cahier/c8/archives/{id}/decision`.
 //!
 //! L'établissement vient de la session, jamais de la requête.
@@ -38,11 +40,15 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/c8/visas/{id}/observations", post(observer))
         .route("/cahier/c8/observations/{id}/reponses", post(repondre))
         .route("/cahier/c8/cours/{id}/chronologie", get(chronologie))
-        .route("/cahier/c8/mon-export", get(mon_export))
+        .route(
+            "/cahier/c8/mon-export",
+            get(mon_export).post(mon_export_conserver),
+        )
         .route(
             "/cahier/c8/inspections",
             get(acces_lister).post(acces_accorder),
         )
+        .route("/cahier/c8/inspections/cours", get(cours_ouvrables))
         .route(
             "/cahier/c8/inspections/{id}/prolonger",
             post(acces_prolonger),
@@ -62,6 +68,7 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/c8/cloture/controle", get(cloture_controle))
         .route("/cahier/c8/cloture", post(cloturer))
         .route("/cahier/c8/cloture/reouvrir", post(rouvrir))
+        .route("/cahier/c8/cloture/reouvrir/valider", post(rouvrir_valider))
         .route("/cahier/c8/archives", get(archives))
         .route("/cahier/c8/archives/{id}/contenu", get(archive_contenu))
         .route("/cahier/c8/archives/{id}/decision", post(archive_decider))
@@ -80,6 +87,11 @@ struct VisasQuery {
 
 #[derive(Deserialize)]
 struct AnneeQuery {
+    annee_id: Uuid,
+}
+
+#[derive(Deserialize)]
+struct AnneeBody {
     annee_id: Uuid,
 }
 
@@ -195,10 +207,35 @@ async fn mon_export(
     State(s): State<AppState>,
     session: EntSession,
     Query(q): Query<AnneeQuery>,
-) -> Res<Json<ExportContenuDto>> {
+) -> Res<Json<ExportApercuDto>> {
     Ok(Json(
         s.ent
             .cdt_c8_export_professeur(&acteur(&session), q.annee_id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn mon_export_conserver(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(b): Json<AnneeBody>,
+) -> Res<Json<ExportContenuDto>> {
+    Ok(Json(
+        s.ent
+            .cdt_c8_export_professeur_conserver(&acteur(&session), b.annee_id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn cours_ouvrables(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<CoursRefDto>>> {
+    Ok(Json(
+        s.ent
+            .cdt_c8_cours_ouvrables(&acteur(&session))
             .await
             .map_err(map_db)?,
     ))
@@ -372,6 +409,19 @@ async fn rouvrir(
     Ok(Json(
         s.ent
             .cdt_c8_rouvrir(&acteur(&session), b)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn rouvrir_valider(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(b): Json<ValiderReouvertureBody>,
+) -> Res<Json<ClotureDto>> {
+    Ok(Json(
+        s.ent
+            .cdt_c8_rouvrir_valider(&acteur(&session), b)
             .await
             .map_err(map_db)?,
     ))

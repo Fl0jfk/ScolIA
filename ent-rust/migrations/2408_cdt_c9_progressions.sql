@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS ent_cdt_progression (
     CONSTRAINT ent_cdt_progression_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_cdt_progression_annee_fk FOREIGN KEY (annee_id, etablissement_id)
         REFERENCES ent_annee_scolaire (id, etablissement_id) ON DELETE RESTRICT,
+    -- F9 : matière et niveau sont ceux de l'établissement (clés composites ; un identifiant d'un autre établissement échoue).
+    CONSTRAINT ent_cdt_progression_matiere_fk FOREIGN KEY (matiere_id, etablissement_id)
+        REFERENCES ent_matiere (id, etablissement_id) ON DELETE RESTRICT,
+    CONSTRAINT ent_cdt_progression_niveau_fk FOREIGN KEY (niveau_id, etablissement_id)
+        REFERENCES ent_niveau (id, etablissement_id) ON DELETE RESTRICT,
     CONSTRAINT ent_cdt_progression_copie_fk FOREIGN KEY (etablissement_id, copie_de_id)
         REFERENCES ent_cdt_progression (etablissement_id, id) ON DELETE RESTRICT
 );
@@ -60,6 +65,8 @@ CREATE TABLE IF NOT EXISTS ent_cdt_progression_partage (
     CONSTRAINT ent_cdt_progression_partage_cible_chk CHECK ((cours_id IS NULL) <> (matiere_id IS NULL)),
     CONSTRAINT ent_cdt_progression_partage_fk FOREIGN KEY (etablissement_id, progression_id)
         REFERENCES ent_cdt_progression (etablissement_id, id) ON DELETE RESTRICT,
+    CONSTRAINT ent_cdt_progression_partage_matiere_fk FOREIGN KEY (matiere_id, etablissement_id)
+        REFERENCES ent_matiere (id, etablissement_id) ON DELETE RESTRICT,
     CONSTRAINT ent_cdt_progression_partage_cours_fk FOREIGN KEY (cours_id, etablissement_id)
         REFERENCES ent_cours (id, etablissement_id) ON DELETE RESTRICT
 );

@@ -21,7 +21,8 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
-use crate::cahier_c2::{conflit, invalide, texte_borne};
+use crate::cahier_c2::{conflit, exiger_annee_ouverte_tx, invalide, texte_borne};
+use crate::cahier_c8::jour_tx;
 use crate::ref_commun::{db, introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
@@ -56,7 +57,7 @@ impl PgEnt {
         tx: &mut PgConnection,
         id: Uuid,
     ) -> Result<Option<bool>, EntDbError> {
-        let jour = self.jour_etab(a.etablissement_id).await?;
+        let jour = jour_tx(tx, a.etablissement_id).await?;
         let r: Option<(bool,)> = sqlx::query_as(&format!(
             "SELECT p.auteur_user_id = $3 FROM ent_cdt_progression p WHERE p.etablissement_id = $1 AND p.id = $2 AND ({LISIBLE})"
         ))
@@ -71,8 +72,13 @@ impl PgEnt {
     }
 
     /// Le professeur intervient-il (aujourd'hui) dans ce cours ?
-    async fn c9_intervient(&self, a: &Acteur<'_>, cours: Uuid) -> Result<bool, EntDbError> {
-        self.c8_intervenant(a, cours).await
+    async fn c9_intervient(
+        &self,
+        a: &Acteur<'_>,
+        tx: &mut PgConnection,
+        cours: Uuid,
+    ) -> Result<bool, EntDbError> {
+        self.c8_intervenant(a, tx, cours).await
     }
 
     // ───────────────────────────── lecture et gestion ─────────────────────────────
@@ -189,8 +195,8 @@ impl PgEnt {
     ) -> Result<ProgressionDto, EntDbError> {
         self.c9_exiger_prof(a).await?;
         let etab = a.etablissement_id;
-        let agent = self.c8_agent_du_compte(a).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let agent = self.c8_agent_du_compte(a, &mut tx).await?;
         let etapes = self.c9_valider(&mut tx, etab, &b).await?;
         let id = Uuid::new_v4();
         sqlx::query(
@@ -373,7 +379,7 @@ impl PgEnt {
                 if !existe {
                     return Err(introuvable());
                 }
-                if !self.c9_intervient(a, c).await? {
+                if !self.c9_intervient(a, &mut tx, c).await? {
                     return Err(EntDbError::Forbidden);
                 }
             }
@@ -483,6 +489,22 @@ impl PgEnt {
         if self.c9_lisible(a, &mut tx, id).await?.is_none() {
             return Err(introuvable());
         }
+        // F3 : droit de saisie sur le cours AVANT son existence (un cours inconnu et un cours sans droit : même refus).
+        self.cdt_exiger_saisie(a, b.cours_id, None).await?;
+        // F8 : une progression archivée ne se planifie plus (elle se reconduit).
+        let (archivee,): (bool,) = sqlx::query_as(
+            "SELECT archivee_le IS NOT NULL FROM ent_cdt_progression WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if archivee {
+            return Err(conflit(
+                "progression archivée : reconduisez-la avant de la planifier",
+            ));
+        }
         let annee: Option<(Uuid,)> = sqlx::query_as(
             "SELECT annee_id FROM ent_cours WHERE etablissement_id = $1 AND id = $2",
         )
@@ -494,9 +516,8 @@ impl PgEnt {
         let Some((annee_id,)) = annee else {
             return Err(introuvable());
         };
-        self.cdt_exiger_saisie(a, b.cours_id, None).await?;
-        self.cdt_exiger_annee_ouverte(etab, annee_id).await?;
-        let aujourdhui = self.jour_etab(etab).await?;
+        exiger_annee_ouverte_tx(&mut tx, etab, annee_id).await?;
+        let aujourdhui = jour_tx(&mut tx, etab).await?;
         let debut = b.a_partir_du.unwrap_or(aujourdhui).max(aujourdhui);
         let fin = b
             .jusqu_au
@@ -557,7 +578,7 @@ impl PgEnt {
         }
         let mut creees = 0i64;
         if !b.apercu && !affectations.is_empty() {
-            let agent = self.c8_agent_du_compte(a).await?;
+            let agent = self.c8_agent_du_compte(a, &mut tx).await?;
             for aff in &affectations {
                 let duree = etapes
                     .iter()
@@ -646,8 +667,8 @@ impl PgEnt {
     ) -> Result<ProgressionDto, EntDbError> {
         self.c9_exiger_prof(a).await?;
         let etab = a.etablissement_id;
-        let agent = self.c8_agent_du_compte(a).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let agent = self.c8_agent_du_compte(a, &mut tx).await?;
         if self.c9_lisible(a, &mut tx, id).await?.is_none() {
             return Err(introuvable());
         }
@@ -700,11 +721,6 @@ impl PgEnt {
         b: CopierCoursBody,
     ) -> Result<CopieCoursDto, EntDbError> {
         self.c9_exiger_prof(a).await?;
-        if b.source_cours_id == b.cible_cours_id {
-            return Err(invalide(
-                "le cours source et le cours de destination sont identiques",
-            ));
-        }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let cible: Option<(Uuid,)> = sqlx::query_as(
@@ -723,14 +739,21 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // F3 : droit de saisie sur le cours cible AVANT toute existence (cible ou source inconnues : même refus).
+        self.cdt_exiger_saisie(a, b.cible_cours_id, None).await?;
+        // Ordre des contrôles : personnel, droit, puis la forme de la demande (jamais avant le droit).
+        if b.source_cours_id == b.cible_cours_id {
+            return Err(invalide(
+                "le cours source et le cours de destination sont identiques",
+            ));
+        }
         let Some((annee_id,)) = cible else {
             return Err(introuvable());
         };
         if !source_ok {
-            return Err(introuvable());
+            return Err(EntDbError::Forbidden);
         }
-        self.cdt_exiger_saisie(a, b.cible_cours_id, None).await?;
-        self.cdt_exiger_annee_ouverte(etab, annee_id).await?;
+        exiger_annee_ouverte_tx(&mut tx, etab, annee_id).await?;
         // R4 : n'a le droit de recopier que celui qui a enseigné ce cours (à n'importe quelle date), et seulement ses entrées.
         let (a_enseigne,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (
@@ -752,7 +775,25 @@ impl PgEnt {
         if !a_enseigne {
             return Err(EntDbError::Forbidden);
         }
-        let aujourdhui = self.jour_etab(etab).await?;
+        // F7 : la copie ne se fait qu'entre cours du même niveau (le niveau de la classe du cours ; deux niveaux inconnus, ou
+        // deux cours de groupes sans niveau, restent comparables).
+        let (meme_niveau,): (bool,) = sqlx::query_as(
+            "SELECT (SELECT cl.niveau_id FROM ent_cours c LEFT JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.id = c.classe_id
+                      WHERE c.etablissement_id = $1 AND c.id = $2)
+                    IS NOT DISTINCT FROM
+                    (SELECT cl.niveau_id FROM ent_cours c LEFT JOIN ent_classe cl ON cl.etablissement_id = c.etablissement_id AND cl.id = c.classe_id
+                      WHERE c.etablissement_id = $1 AND c.id = $3)",
+        )
+        .bind(etab)
+        .bind(b.source_cours_id)
+        .bind(b.cible_cours_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if !meme_niveau {
+            return Err(conflit("la copie ne se fait qu'entre cours du même niveau"));
+        }
+        let aujourdhui = jour_tx(&mut tx, etab).await?;
         let debut = b.a_partir_du.unwrap_or(aujourdhui).max(aujourdhui);
         let fin = debut + Duration::days(FENETRE_PLANIFICATION_JOURS);
         #[allow(clippy::type_complexity)]
@@ -781,7 +822,7 @@ impl PgEnt {
         let agent = if b.apercu {
             None
         } else {
-            self.c8_agent_du_compte(a).await?
+            self.c8_agent_du_compte(a, &mut tx).await?
         };
         let n_sources = sources.len();
         for ((src, titre, contenu), (seance, jour)) in sources.into_iter().zip(libres) {

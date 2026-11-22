@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS ent_cdt_acces_inspection (
     -- Durée bornée : 90 jours au plus, prolongations comprises (défaut 30 jours côté application).
     CONSTRAINT ent_cdt_acces_inspection_duree_chk CHECK (valable_au > valable_du AND valable_au - valable_du <= interval '90 days'),
     CONSTRAINT ent_cdt_acces_inspection_revoque_chk CHECK ((revoque_le IS NULL) = (revoque_par_user_id IS NULL)),
+    -- M1 : nul ne s'octroie à lui-même un accès d'inspection (un pouvoir = une action).
+    CONSTRAINT ent_cdt_acces_inspection_pas_soi_chk CHECK (beneficiaire_user_id <> accorde_par_user_id),
     CONSTRAINT ent_cdt_acces_inspection_agent_fk FOREIGN KEY (etablissement_id, agent_cible_id)
         REFERENCES ent_agent (etablissement_id, id) ON DELETE RESTRICT
 );
@@ -98,6 +100,7 @@ BEGIN
         RAISE EXCEPTION 'ent_cdt_acces_inspection : la validité ne raccourcit que par révocation' USING ERRCODE = '23514';
     END IF;
     IF OLD.revoque_le IS NOT NULL AND (NEW.revoque_le IS DISTINCT FROM OLD.revoque_le
+                                       OR NEW.revoque_par_user_id IS DISTINCT FROM OLD.revoque_par_user_id
                                        OR NEW.valable_au IS DISTINCT FROM OLD.valable_au) THEN
         RAISE EXCEPTION 'ent_cdt_acces_inspection : un accès révoqué ne se prolonge pas (en accorder un autre)' USING ERRCODE = '23514';
     END IF;
@@ -161,6 +164,9 @@ CREATE TABLE IF NOT EXISTS ent_cdt_export (
         REFERENCES ent_annee_scolaire (id, etablissement_id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS ent_cdt_export_etab_idx ON ent_cdt_export (etablissement_id, cree_le DESC);
+-- M2 : l'export personnel d'un professeur est conservé une seule fois par (auteur, année, empreinte).
+CREATE UNIQUE INDEX IF NOT EXISTS ent_cdt_export_prof_uq
+    ON ent_cdt_export (etablissement_id, produit_par_user_id, annee_id, empreinte) WHERE nature = 'professeur';
 DROP TRIGGER IF EXISTS ent_cdt_export_ajout_seul ON ent_cdt_export;
 CREATE TRIGGER ent_cdt_export_ajout_seul BEFORE UPDATE OR DELETE ON ent_cdt_export
     FOR EACH ROW EXECUTE FUNCTION ent_cdt_ajout_seul();
@@ -191,12 +197,35 @@ BEGIN
        OR NEW.version IS DISTINCT FROM OLD.version OR NEW.echeance_archive IS DISTINCT FROM OLD.echeance_archive THEN
         RAISE EXCEPTION 'ent_cdt_archive : archive immuable (seule la décision change)' USING ERRCODE = '23514';
     END IF;
-    IF OLD.decision <> 'a_decider' AND NEW.decision IS DISTINCT FROM OLD.decision THEN
-        RAISE EXCEPTION 'ent_cdt_archive : décision déjà prise' USING ERRCODE = '23514';
+    IF OLD.decision <> 'a_decider' AND (NEW.decision IS DISTINCT FROM OLD.decision
+                                        OR NEW.decide_par_user_id IS DISTINCT FROM OLD.decide_par_user_id
+                                        OR NEW.decide_le IS DISTINCT FROM OLD.decide_le) THEN
+        RAISE EXCEPTION 'ent_cdt_archive : décision déjà prise (auteur et date figés)' USING ERRCODE = '23514';
+    END IF;
+    IF OLD.decision = 'a_decider' AND NEW.decision <> 'a_decider' AND NEW.decide_par_user_id IS NULL THEN
+        RAISE EXCEPTION 'ent_cdt_archive : une décision porte son auteur' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
+
+-- F2 : l'empreinte d'une archive est celle de l'export qu'elle désigne (même cours, même année, même contenu figé) : la
+-- base refuse une archive dont le lien d'empreinte ne tient pas.
+CREATE OR REPLACE FUNCTION ent_cdt_archive_lien() RETURNS trigger AS $$
+BEGIN
+    IF NEW.export_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM ent_cdt_export x
+         WHERE x.etablissement_id = NEW.etablissement_id AND x.id = NEW.export_id AND x.nature = 'archive'
+           AND x.empreinte = NEW.empreinte AND x.cours_id IS NOT DISTINCT FROM NEW.cours_id
+           AND x.annee_id IS NOT DISTINCT FROM NEW.annee_id) THEN
+        RAISE EXCEPTION 'ent_cdt_archive : l''empreinte, le cours et l''année doivent être ceux de l''export' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ent_cdt_archive_lien_trg ON ent_cdt_archive;
+CREATE TRIGGER ent_cdt_archive_lien_trg BEFORE INSERT ON ent_cdt_archive
+    FOR EACH ROW EXECUTE FUNCTION ent_cdt_archive_lien();
 
 -- ── Clôture du cahier : journal en ajout seul ────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ent_cdt_cloture (
@@ -204,13 +233,20 @@ CREATE TABLE IF NOT EXISTS ent_cdt_cloture (
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     annee_id UUID NOT NULL,
-    action TEXT NOT NULL CHECK (action IN ('cloture', 'reouverture')),
-    -- Réouverture : procédure tracée de la direction, motif obligatoire (R-C19, CC-63).
-    motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 10 AND 500),
+    -- Réouverture en deux temps (M1, double validation) : `reouverture_demandee` (première personne de la direction), puis
+    -- `reouverture` (seconde personne, jamais le demandeur). Seules `cloture` et `reouverture` changent l'état figé.
+    action TEXT NOT NULL CHECK (action IN ('cloture', 'reouverture_demandee', 'reouverture')),
+    -- Motif de 20 caractères au moins (R-C19, CC-63) ; la réouverture reprend celui de la demande qu'elle valide.
+    motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 20 AND 500),
     nb_archives INTEGER NOT NULL DEFAULT 0 CHECK (nb_archives >= 0),
+    -- `par_user_id` : qui clôt, qui demande la réouverture, ou qui la valide.
     par_user_id UUID NOT NULL REFERENCES ent_user (id),
-    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT ent_cdt_cloture_motif_chk CHECK (action <> 'reouverture' OR motif IS NOT NULL),
+    -- Réouverture : le demandeur de la demande validée (la base refuse qu'il valide lui-même).
+    demandeur_user_id UUID REFERENCES ent_user (id),
+    -- Horloge réelle : l'ordre du journal suit l'ordre des validations, pas l'heure de début des transactions.
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT ent_cdt_cloture_motif_chk CHECK (action = 'cloture' OR motif IS NOT NULL),
+    CONSTRAINT ent_cdt_cloture_double_chk CHECK (action <> 'reouverture' OR (demandeur_user_id IS NOT NULL AND demandeur_user_id <> par_user_id)),
     CONSTRAINT ent_cdt_cloture_annee_fk FOREIGN KEY (annee_id, etablissement_id)
         REFERENCES ent_annee_scolaire (id, etablissement_id) ON DELETE RESTRICT
 );
@@ -223,8 +259,65 @@ CREATE TRIGGER ent_cdt_cloture_ajout_seul BEFORE UPDATE OR DELETE ON ent_cdt_clo
 CREATE OR REPLACE FUNCTION ent_cdt_cahier_fige(p_etab UUID, p_annee UUID) RETURNS BOOLEAN
 LANGUAGE sql STABLE AS $$
     SELECT COALESCE((SELECT c.action = 'cloture' FROM ent_cdt_cloture c
-                      WHERE c.etablissement_id = p_etab AND c.annee_id = p_annee
+                      WHERE c.etablissement_id = p_etab AND c.annee_id = p_annee AND c.action IN ('cloture', 'reouverture')
                       ORDER BY c.cree_le DESC, c.id DESC LIMIT 1), false)
+$$;
+
+-- ── E1 / M5 : une année figée l'est EN BASE, quel que soit le chemin d'écriture ──────────────────────────────────────────
+-- Entrées, travaux, contributions et leurs versions (et les notions d'une entrée) ne s'insèrent ni ne se modifient quand le
+-- cahier de l'année est figé : seule la réouverture (journal `ent_cdt_cloture`) désarme la garde. La garde prend un verrou
+-- partagé sur la ligne de l'année ; la clôture et la réouverture la prennent en exclusif (`FOR UPDATE`) : une écriture et
+-- une clôture ne se croisent donc jamais (l'écriture attend la fin de la clôture et la voit, la clôture attend les écritures
+-- en cours et les archive). Lève 23514.
+CREATE OR REPLACE FUNCTION ent_cdt_ecriture_gardee() RETURNS trigger AS $$
+DECLARE
+    v_etab UUID := NEW.etablissement_id;
+    v_annees UUID[];
+    v_annee UUID;
+    v_fige BOOLEAN;
+BEGIN
+    IF TG_TABLE_NAME IN ('ent_cdt_entree', 'ent_cdt_travail') THEN
+        v_annees := ARRAY[NEW.annee_id];
+        IF TG_OP = 'UPDATE' AND OLD.annee_id IS DISTINCT FROM NEW.annee_id THEN
+            v_annees := v_annees || OLD.annee_id;
+        END IF;
+    ELSIF TG_TABLE_NAME IN ('ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_contribution') THEN
+        SELECT ARRAY[e.annee_id] INTO v_annees FROM ent_cdt_entree e
+         WHERE e.etablissement_id = v_etab AND e.id = NEW.entree_id;
+    ELSIF TG_TABLE_NAME = 'ent_cdt_travail_version' THEN
+        SELECT ARRAY[t.annee_id] INTO v_annees FROM ent_cdt_travail t
+         WHERE t.etablissement_id = v_etab AND t.id = NEW.travail_id;
+    ELSIF TG_TABLE_NAME = 'ent_cdt_contribution_version' THEN
+        SELECT ARRAY[e.annee_id] INTO v_annees FROM ent_cdt_contribution c
+          JOIN ent_cdt_entree e ON e.etablissement_id = c.etablissement_id AND e.id = c.entree_id
+         WHERE c.etablissement_id = v_etab AND c.id = NEW.contribution_id;
+    END IF;
+    FOREACH v_annee IN ARRAY COALESCE(v_annees, ARRAY[]::uuid[])
+    LOOP
+        PERFORM 1 FROM ent_annee_scolaire a WHERE a.etablissement_id = v_etab AND a.id = v_annee FOR SHARE;
+        SELECT COALESCE((SELECT c.action = 'cloture' FROM ent_cdt_cloture c
+                          WHERE c.etablissement_id = v_etab AND c.annee_id = v_annee AND c.action IN ('cloture', 'reouverture')
+                          ORDER BY c.cree_le DESC, c.id DESC LIMIT 1), false) INTO v_fige;
+        IF v_fige THEN
+            RAISE EXCEPTION 'cahier de textes : l''année est figée (clôturée), aucune écriture sans réouverture tracée (R-C28)'
+                USING ERRCODE = '23514';
+        END IF;
+    END LOOP;
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['ent_cdt_entree', 'ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_travail',
+                             'ent_cdt_travail_version', 'ent_cdt_contribution', 'ent_cdt_contribution_version']
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
+        EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION ent_cdt_ecriture_gardee()',
+                       t || '_annee_figee', t);
+    END LOOP;
+END
 $$;
 
 -- ── Gardes TRUNCATE (ajout seul) et RLS ──────────────────────────────────────────────────────────────────────────────
@@ -234,7 +327,9 @@ DECLARE
 BEGIN
     FOREACH t IN ARRAY ARRAY['ent_cdt_visa', 'ent_cdt_visa_element', 'ent_cdt_observation', 'ent_cdt_observation_reponse',
                              'ent_cdt_consultation', 'ent_cdt_acces_inspection_cours', 'ent_cdt_acces_inspection_historique',
-                             'ent_cdt_export', 'ent_cdt_cloture', 'ent_cdt_archive']
+                             'ent_cdt_export', 'ent_cdt_cloture', 'ent_cdt_archive',
+                             -- F1 : l'accès d'inspection n'est pas en ajout seul (prolongation, révocation) mais ne se vide pas.
+                             'ent_cdt_acces_inspection']
     LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_sans_truncate', t);
         EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT '

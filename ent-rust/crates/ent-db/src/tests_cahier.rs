@@ -66,6 +66,14 @@ impl Fx {
     fn direction(&self) -> Acteur<'_> {
         act(self.cast.etablissement_id, &self.cast.direction)
     }
+    /// Seconde personne de la direction (double validation, M1).
+    fn direction2(&self) -> Acteur<'_> {
+        act(self.cast.etablissement_id, &self.cast.directions[1])
+    }
+    /// Administrateur technique (ne clôture ni ne rouvre le cahier par défaut, M1).
+    fn admin(&self) -> Acteur<'_> {
+        act(self.cast.etablissement_id, &self.cast.admin)
+    }
     fn cpe(&self) -> Acteur<'_> {
         act(self.cast.etablissement_id, &self.cast.cpe)
     }

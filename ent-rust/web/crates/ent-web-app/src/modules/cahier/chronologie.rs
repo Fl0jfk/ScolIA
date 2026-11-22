@@ -94,6 +94,7 @@ fn Corps(
                                     <header class="cdt-travail__entete">
                                         <p class="cdt-travail__titre">{format!("{} · {} · {}", date_longue(i.jour), genre, i.titre.clone().unwrap_or_else(|| "(sans titre)".into()))}</p>
                                         {i.modifie_apres_visa.then(|| view! { <Badge libelle="Modifié après visa" ton=TonEtat::Avertissement/> })}
+                                        {i.ajoute_depuis_visa.then(|| view! { <Badge libelle="Ajouté depuis le visa" ton=TonEtat::Avertissement/> })}
                                     </header>
                                     <p class="cdt-travail__consigne">{i.contenu.clone()}</p>
                                     <p class="cdt-travail__detail">{format!("Version {} · {} · modifié le {}", i.version, i.auteur, date_longue(i.modifie_le.date_naive()))}</p>

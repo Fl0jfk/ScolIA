@@ -59,7 +59,7 @@ pub const PROGRESSIONS: &str = "/web/cahier/progressions";
 pub const TENUE_VISA: &str = "/web/cahier/visa";
 /// Lot C8 : accès d'inspection (`cahier.acces_inspection`).
 pub const ACCES_INSPECTION: &str = "/web/cahier/inspection";
-/// Lot C8 : clôture du cahier, archives, exports figés (`cahier.exporter`).
+/// Lot C8 : clôture du cahier (`cahier.cloturer`), archives, exports figés (`cahier.exporter`).
 pub const ARCHIVES_CAHIER: &str = "/web/cahier/archives";
 pub const AGENDA: &str = "/web/agenda";
 /// Cahier de l'élève et de la famille (socle 20, lot C3) : agenda, ce que j'ai manqué, la semaine, calendrier.
@@ -213,7 +213,7 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
             NomIcone::Annonce,
         ));
     }
-    if moteur.a("cahier.exporter") {
+    if moteur.a("cahier.exporter") || moteur.a("cahier.cloturer") {
         v.push(entree(
             "Archives du cahier",
             ARCHIVES_CAHIER,

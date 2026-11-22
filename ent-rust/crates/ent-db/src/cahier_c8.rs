@@ -7,7 +7,8 @@
 //! * L'**observation** est adressée à un cours (ses intervenants à la date) ou à un professeur ; le professeur y répond. Un visa
 //!   de classe n'a pas d'observation (elle n'aurait pas de destinataire précis). Le visa lui-même est visible des intervenants ;
 //!   jamais des familles ni des élèves.
-//! * Aucune donnée d'élève ne passe par ce module (ni nom, ni remise, ni retour, ni variante).
+//! * Aucune donnée **structurée** d'élève ne passe par ce module (ni identifiant, ni remise, ni retour, ni variante) ; un nom
+//!   d'élève écrit par un professeur dans un texte libre (contenu, consigne) y serait lu tel quel : la saisie l'en avertit.
 //! * Ordre des contrôles : personnel (droit du rôle), puis droit de portée, puis existence.
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -26,7 +27,10 @@ use crate::tenant_tx::TenantTx;
 
 /// Plus longue période d'un tableau, d'un visa ou d'un export (jours).
 pub(crate) const PERIODE_MAX_JOURS: i64 = 400;
-const MAX_VISAS: i64 = 200;
+/// Visas rendus au plus (après le filtre de visibilité : F5, la limite ne s'applique jamais avant le filtre).
+const MAX_VISAS: usize = 200;
+/// Visas examinés au plus avant filtrage (garde-fou de coût).
+const MAX_VISAS_ANALYSES: i64 = 5000;
 const MAX_ELEMENTS_DETAIL: i64 = 2000;
 
 pub(crate) fn periode_valide(du: NaiveDate, au: NaiveDate) -> Result<(), EntDbError> {
@@ -47,6 +51,30 @@ const DERNIER_FIGE: &str =
       WHERE ve.etablissement_id = $1
       ORDER BY ve.objet, ve.objet_id, v.vise_le DESC, v.id DESC";
 
+/// Jour de l'établissement dans la transaction de l'appelant (jamais le jour UTC) : M6, pas de seconde transaction sur le pool.
+pub(crate) async fn jour_tx(tx: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
+    sqlx::query_scalar("SELECT ent_aujourdhui_etab($1)")
+        .bind(etab)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)
+}
+
+/// M7 : fragment SQL « objet `o` (objet, id, cours_id, jour) absent du dernier visa qui couvrait son cours et sa date ». Le dernier
+/// visa (date de visa) du cours qui contient la date de l'objet fait foi ; un objet publié après ce visa n'y figure pas.
+const AJOUTE_DEPUIS_VISA: &str = "EXISTS (
+        SELECT 1 FROM ent_cdt_visa lv
+         WHERE lv.id = (
+             SELECT v.id FROM ent_cdt_visa v
+              WHERE v.etablissement_id = $1 AND v.du <= o.jour AND v.au >= o.jour
+                AND (v.cours_id = o.cours_id
+                     OR (v.cible = 'classe' AND v.classe_id = (SELECT c.classe_id FROM ent_cours c WHERE c.etablissement_id = $1 AND c.id = o.cours_id))
+                     OR (v.cible = 'agent' AND ent_prof_sur_cours($1, o.cours_id, v.prof_user_id, o.jour, false)))
+              ORDER BY v.vise_le DESC, v.id DESC LIMIT 1)
+           AND lv.etablissement_id = $1
+           AND NOT EXISTS (SELECT 1 FROM ent_cdt_visa_element ve
+                            WHERE ve.etablissement_id = $1 AND ve.visa_id = lv.id AND ve.objet = o.objet AND ve.objet_id = o.id))";
+
 impl PgEnt {
     /// Direction : le compte porte `action` à portée d'établissement. Sinon refus (ordre : personnel, droit).
     pub(crate) async fn c8_exiger_etab(
@@ -62,18 +90,21 @@ impl PgEnt {
     }
 
     /// Le compte est-il intervenant (toute nature, délai de grâce de lecture compris) du cours à la date de l'action ?
+    ///
+    /// M6 : s'exécute dans la transaction de l'appelant (`tx`), jamais dans une seconde transaction prise sur le pool.
     pub(crate) async fn c8_intervenant(
         &self,
         a: &Acteur<'_>,
+        tx: &mut PgConnection,
         cours: Uuid,
     ) -> Result<bool, EntDbError> {
-        let jour = self.jour_etab(a.etablissement_id).await?;
+        let jour = jour_tx(tx, a.etablissement_id).await?;
         let (ok,): (bool,) = sqlx::query_as("SELECT ent_prof_sur_cours($1, $2, $3, $4, false)")
             .bind(a.etablissement_id)
             .bind(cours)
             .bind(a.user_id)
             .bind(jour)
-            .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
         Ok(ok)
@@ -83,11 +114,12 @@ impl PgEnt {
     pub(crate) async fn c8_agent_du_compte(
         &self,
         a: &Acteur<'_>,
+        tx: &mut PgConnection,
     ) -> Result<Option<Uuid>, EntDbError> {
         sqlx::query_scalar("SELECT ent_cdt_agent_du_compte($1, $2)")
             .bind(a.etablissement_id)
             .bind(a.user_id)
-            .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)
     }
@@ -165,6 +197,24 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        let ajoutes: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
+            "SELECT o.cours_id, count(*) FROM (
+                SELECT 'entree'::text AS objet, e.id, e.cours_id, s.jour
+                  FROM ent_cdt_entree e JOIN ent_edt_seance s ON s.etablissement_id = e.etablissement_id AND s.id = e.seance_id
+                 WHERE e.etablissement_id = $1 AND e.etat = 'publiee' AND s.jour BETWEEN $2 AND $3
+                UNION ALL
+                SELECT 'travail', t.id, t.cours_id, t.donne_le
+                  FROM ent_cdt_travail t
+                 WHERE t.etablissement_id = $1 AND t.etat = 'publie' AND t.donne_le BETWEEN $2 AND $3) o
+              WHERE {AJOUTE_DEPUIS_VISA}
+              GROUP BY o.cours_id"
+        ))
+        .bind(etab)
+        .bind(du)
+        .bind(au)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
         let interv: Vec<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT DISTINCT s.cours_id, pe.user_id
                FROM ent_service_enseignement s
@@ -221,6 +271,10 @@ impl PgEnt {
                         derniere_entree: derniere,
                         dernier_visa_le,
                         modifies_apres_visa: modifies
+                            .iter()
+                            .find(|(c, _)| *c == cours_id)
+                            .map_or(0, |(_, n)| *n),
+                        ajoutes_apres_visa: ajoutes
                             .iter()
                             .find(|(c, _)| *c == cours_id)
                             .map_or(0, |(_, n)| *n),
@@ -394,7 +448,7 @@ impl PgEnt {
         }
         publier_cdt(&mut tx, a, types::CAHIER_VISE, id, None,
             json!({ "cible": b.cible, "du": b.du.to_string(), "au": b.au.to_string(), "elements": nb, "avec_observation": observation.is_some() })).await?;
-        let dto = visa_dto(&mut tx, etab, id, true).await?;
+        let dto = visa_dto(&mut tx, etab, id, true, None).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -441,7 +495,7 @@ impl PgEnt {
             json!({ "visa_id": visa_id }),
         )
         .await?;
-        let dto = visa_dto(&mut tx, etab, visa_id, true).await?;
+        let dto = visa_dto(&mut tx, etab, visa_id, true, None).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -472,8 +526,10 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
+        // F3 : personnel, droit, puis existence : une observation inconnue et une observation d'un autre cours donnent la même
+        // réponse (403), pour ne rien révéler de ce qui existe.
         let Some((visa_id,)) = o else {
-            return Err(introuvable());
+            return Err(EntDbError::Forbidden);
         };
         if !self.c8_destinataire(a, &mut tx, visa_id).await? {
             return Err(EntDbError::Forbidden);
@@ -496,7 +552,7 @@ impl PgEnt {
             json!({ "visa_id": visa_id }),
         )
         .await?;
-        let dto = visa_dto(&mut tx, etab, visa_id, true).await?;
+        let dto = visa_dto(&mut tx, etab, visa_id, true, None).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
     }
@@ -517,7 +573,9 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
         Ok(match v {
-            Some((c, Some(cours), _)) if c == VISA_COURS => self.c8_intervenant(a, cours).await?,
+            Some((c, Some(cours), _)) if c == VISA_COURS => {
+                self.c8_intervenant(a, tx, cours).await?
+            }
             Some((c, _, Some(u))) if c == VISA_AGENT => u == a.user_id,
             _ => false,
         })
@@ -551,53 +609,59 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(cours_id)
-        .bind(MAX_VISAS)
+        .bind(MAX_VISAS_ANALYSES)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut out = Vec::new();
         for (id, cible, cours, classe, prof) in candidats {
-            let (visible, avec_obs) = if direction {
-                (true, true)
+            let (visible, avec_obs, visibles) = if direction {
+                (true, true, None)
             } else {
                 match (cible.as_str(), cours, classe, prof) {
                     (VISA_COURS, Some(c), _, _) => {
-                        let i = self.c8_intervenant(a, c).await?;
-                        (i, i)
+                        let i = self.c8_intervenant(a, &mut tx, c).await?;
+                        (i, i, None)
                     }
-                    (VISA_AGENT, _, _, Some(u)) => (u == a.user_id, u == a.user_id),
+                    (VISA_AGENT, _, _, Some(u)) => (u == a.user_id, u == a.user_id, None),
                     (VISA_CLASSE, _, Some(k), _) => {
-                        (self.c8_intervient_dans_classe(a, &mut tx, k).await?, false)
+                        let l = self.c8_cours_visibles_classe(a, &mut tx, k).await?;
+                        (!l.is_empty(), false, Some(l))
                     }
-                    _ => (false, false),
+                    _ => (false, false, None),
                 }
             };
             if visible {
-                out.push(visa_dto(&mut tx, etab, id, avec_obs).await?);
+                out.push(visa_dto(&mut tx, etab, id, avec_obs, visibles.as_deref()).await?);
+                if out.len() >= MAX_VISAS {
+                    break;
+                }
             }
         }
         Ok(out)
     }
 
-    async fn c8_intervient_dans_classe(
+    /// Cours de la classe où le compte intervient aujourd'hui (F4 : base des comptages d'un visa de classe pour un professeur).
+    async fn c8_cours_visibles_classe(
         &self,
         a: &Acteur<'_>,
         tx: &mut PgConnection,
         classe: Uuid,
-    ) -> Result<bool, EntDbError> {
-        let jour = self.jour_etab(a.etablissement_id).await?;
-        let (ok,): (bool,) = sqlx::query_as(
-            "SELECT EXISTS (SELECT 1 FROM ent_cours c WHERE c.etablissement_id = $1 AND c.classe_id = $2
-                              AND ent_prof_sur_cours($1, c.id, $3, $4, false))",
+    ) -> Result<Vec<Uuid>, EntDbError> {
+        let jour = jour_tx(tx, a.etablissement_id).await?;
+        let l: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT c.id FROM ent_cours c WHERE c.etablissement_id = $1 AND c.classe_id = $2
+                AND ent_prof_sur_cours($1, c.id, $3, $4, false)
+              ORDER BY c.id",
         )
         .bind(a.etablissement_id)
         .bind(classe)
         .bind(a.user_id)
         .bind(jour)
-        .fetch_one(&mut *tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        Ok(ok)
+        Ok(l.into_iter().map(|(i,)| i).collect())
     }
 
     /// CDT-214 : détail d'un visa avec la référence figée et les modifications postérieures (texte vu, texte actuel, auteur,
@@ -621,19 +685,27 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
         let Some((cible, cours, classe, prof)) = v else {
-            return Err(introuvable());
+            // F3 : hors direction, un visa inconnu ou non lisible donne la même réponse (403) ; l'existence ne se déduit pas.
+            return Err(if direction {
+                introuvable()
+            } else {
+                EntDbError::Forbidden
+            });
         };
         let mut tous = direction;
         let mut avec_obs = direction;
+        let mut visibles: Option<Vec<Uuid>> = None;
         if !direction {
             let (ok, obs) = match (cible.as_str(), cours, classe, prof) {
                 (VISA_COURS, Some(c), _, _) => {
-                    let i = self.c8_intervenant(a, c).await?;
+                    let i = self.c8_intervenant(a, &mut tx, c).await?;
                     (i, i)
                 }
                 (VISA_AGENT, _, _, Some(u)) => (u == a.user_id, u == a.user_id),
                 (VISA_CLASSE, _, Some(k), _) => {
-                    (self.c8_intervient_dans_classe(a, &mut tx, k).await?, false)
+                    let l = self.c8_cours_visibles_classe(a, &mut tx, k).await?;
+                    visibles = Some(l.clone());
+                    (!l.is_empty(), false)
                 }
                 _ => (false, false),
             };
@@ -643,8 +715,7 @@ impl PgEnt {
             avec_obs = obs;
             tous = cible == VISA_AGENT || cible == VISA_COURS;
         }
-        let visa = visa_dto(&mut tx, etab, visa_id, avec_obs).await?;
-        let jour = self.jour_etab(etab).await?;
+        let visa = visa_dto(&mut tx, etab, visa_id, avec_obs, visibles.as_deref()).await?;
         #[allow(clippy::type_complexity)]
         let lignes: Vec<(String, Uuid, i32, Uuid, String, Option<NaiveDate>, Option<String>, i32, String)> = sqlx::query_as(
             "SELECT x.objet, x.objet_id, x.version, x.cours_id, x.cours_libelle, x.jour, x.titre, x.version_actuelle, x.etat
@@ -674,7 +745,7 @@ impl PgEnt {
         for (objet, objet_id, v_visee, cours_id, cours_libelle, jour_e, titre, v_actuelle, etat) in
             lignes
         {
-            if !tous && !self.c8_intervenant_cours_tx(a, cours_id, jour).await? {
+            if !tous && !self.c8_intervenant(a, &mut tx, cours_id).await? {
                 continue;
             }
             let modifie = v_actuelle > v_visee;
@@ -754,24 +825,74 @@ impl PgEnt {
                 modifications,
             });
         }
-        Ok(VisaDetailDto { visa, elements })
-    }
-
-    async fn c8_intervenant_cours_tx(
-        &self,
-        a: &Acteur<'_>,
-        cours: Uuid,
-        jour: NaiveDate,
-    ) -> Result<bool, EntDbError> {
-        let (ok,): (bool,) = sqlx::query_as("SELECT ent_prof_sur_cours($1, $2, $3, $4, false)")
-            .bind(a.etablissement_id)
-            .bind(cours)
-            .bind(a.user_id)
-            .bind(jour)
-            .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
-            .await
-            .map_err(db)?;
-        Ok(ok)
+        // M7 : publiés de la période du visa, absents de ses éléments (ajoutés depuis). Le périmètre est celui du visa.
+        let (cible_v, cours_v, classe_v, prof_v, agent_v, du_v, au_v): (String, Option<Uuid>, Option<Uuid>, Option<Uuid>, Option<Uuid>, NaiveDate, NaiveDate) =
+            sqlx::query_as("SELECT cible, cours_id, classe_id, prof_user_id, agent_id, du, au FROM ent_cdt_visa WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(visa_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        let perimetre: Vec<Uuid> = match (cible_v.as_str(), cours_v, classe_v, prof_v, agent_v) {
+            (VISA_COURS, Some(c), _, _, _) => vec![c],
+            (VISA_CLASSE, _, Some(k), _, _) => {
+                let l: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_cours WHERE etablissement_id = $1 AND classe_id = $2 ORDER BY id")
+                    .bind(etab)
+                    .bind(k)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                l.into_iter().map(|(i,)| i).collect()
+            }
+            (VISA_AGENT, _, _, Some(u), Some(ag)) => {
+                cours_de_agent(&mut tx, etab, ag, u, du_v, au_v).await?
+            }
+            _ => Vec::new(),
+        };
+        #[allow(clippy::type_complexity)]
+        let candidats: Vec<(String, Uuid, Uuid, String, NaiveDate, Option<String>, i32)> = sqlx::query_as(
+            "SELECT o.objet, o.id, o.cours_id, c.libelle, o.jour, o.titre, o.version FROM (
+                SELECT 'entree'::text AS objet, e.id, e.cours_id, s.jour, e.titre, e.version
+                  FROM ent_cdt_entree e JOIN ent_edt_seance s ON s.etablissement_id = e.etablissement_id AND s.id = e.seance_id
+                 WHERE e.etablissement_id = $1 AND e.cours_id = ANY($2) AND e.etat = 'publiee' AND s.jour BETWEEN $3 AND $4
+                UNION ALL
+                SELECT 'travail', t.id, t.cours_id, t.donne_le, t.titre, t.version
+                  FROM ent_cdt_travail t
+                 WHERE t.etablissement_id = $1 AND t.cours_id = ANY($2) AND t.etat = 'publie' AND t.donne_le BETWEEN $3 AND $4) o
+               JOIN ent_cours c ON c.etablissement_id = $1 AND c.id = o.cours_id
+              WHERE NOT EXISTS (SELECT 1 FROM ent_cdt_visa_element ve
+                                 WHERE ve.etablissement_id = $1 AND ve.visa_id = $5 AND ve.objet = o.objet AND ve.objet_id = o.id)
+              ORDER BY c.libelle, o.jour, o.objet, o.id LIMIT $6",
+        )
+        .bind(etab)
+        .bind(&perimetre)
+        .bind(du_v)
+        .bind(au_v)
+        .bind(visa_id)
+        .bind(MAX_ELEMENTS_DETAIL)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let mut ajoutes_depuis_visa = Vec::new();
+        for (objet, objet_id, cours_id, cours_libelle, jour, titre, version) in candidats {
+            if !tous && !self.c8_intervenant(a, &mut tx, cours_id).await? {
+                continue;
+            }
+            ajoutes_depuis_visa.push(VisaAjouteDto {
+                objet,
+                objet_id,
+                cours_id,
+                cours_libelle,
+                jour,
+                titre,
+                version,
+            });
+        }
+        Ok(VisaDetailDto {
+            visa,
+            elements,
+            ajoutes_depuis_visa,
+        })
     }
 
     // ───────────────────────────── écran 3 : chronologie du cours ─────────────────────────────
@@ -791,15 +912,17 @@ impl PgEnt {
         }
         periode_valide(du, au)?;
         let etab = a.etablissement_id;
-        let cours = self
-            .c8_cours_ref(etab, cours_id)
-            .await?
-            .ok_or_else(introuvable)?;
-        let intervenant = self.c8_intervenant(a, cours_id).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // Ordre des contrôles : personnel, droit, puis existence (F3) : un non-intervenant reçoit 403, qu'il vise un cours
+        // existant ou non.
+        let intervenant = self.c8_intervenant(a, &mut tx, cours_id).await?;
         if !direction && !intervenant {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let cours = self
+            .c8_cours_ref(&mut tx, etab, cours_id)
+            .await?
+            .ok_or_else(introuvable)?;
         #[allow(clippy::type_complexity)]
         let lignes: Vec<(String, Uuid, NaiveDate, Option<String>, String, String, i32, Option<Uuid>, DateTime<Utc>, Option<i32>)> = sqlx::query_as(&format!(
             "WITH d AS ({DERNIER_FIGE})
@@ -821,10 +944,30 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        // M7 : objets publiés absents du dernier visa qui couvrait leur cours et leur date (ajoutés depuis ce visa).
+        let ajoutes: Vec<(String, Uuid)> = sqlx::query_as(&format!(
+            "SELECT o.objet, o.id FROM (
+                SELECT 'entree'::text AS objet, e.id, e.cours_id, s.jour
+                  FROM ent_cdt_entree e JOIN ent_edt_seance s ON s.etablissement_id = e.etablissement_id AND s.id = e.seance_id
+                 WHERE e.etablissement_id = $1 AND e.cours_id = $2 AND e.etat = 'publiee' AND s.jour BETWEEN $3 AND $4
+                UNION ALL
+                SELECT 'travail', t.id, t.cours_id, t.donne_le
+                  FROM ent_cdt_travail t
+                 WHERE t.etablissement_id = $1 AND t.cours_id = $2 AND t.etat = 'publie' AND t.donne_le BETWEEN $3 AND $4) o
+              WHERE {AJOUTE_DEPUIS_VISA}"
+        ))
+        .bind(etab)
+        .bind(cours_id)
+        .bind(du)
+        .bind(au)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
         let mut items = Vec::new();
         for (objet, objet_id, jour, titre, contenu, etat, version, auteur, modifie_le, visee) in
             lignes
         {
+            let ajoute = ajoutes.contains(&(objet.clone(), objet_id));
             let nom = match auteur {
                 Some(u) => sqlx::query_scalar::<_, String>("SELECT ent_cdt_nom_affichage($1, $2)")
                     .bind(etab)
@@ -845,6 +988,7 @@ impl PgEnt {
                 auteur: nom,
                 modifie_le,
                 modifie_apres_visa: visee.is_some_and(|v| version > v),
+                ajoute_depuis_visa: ajoute,
             });
         }
         drop(tx);
@@ -860,6 +1004,7 @@ impl PgEnt {
 
     pub(crate) async fn c8_cours_ref(
         &self,
+        tx: &mut PgConnection,
         etab: Uuid,
         cours: Uuid,
     ) -> Result<Option<CoursRefDto>, EntDbError> {
@@ -872,7 +1017,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(cours)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         Ok(r.map(|(cours_id, libelle, public)| CoursRefDto {
@@ -935,11 +1080,15 @@ async fn inserer_observation(
 }
 
 /// DTO d'un visa ; `avec_observations` faux pour qui n'est pas destinataire (visa seul).
+///
+/// F4 : `visibles` limite les comptages (éléments figés, modifiés après visa) aux cours que le lecteur peut voir : un
+/// professeur qui lit un visa de classe ne déduit pas de nombres l'activité des cours des collègues.
 pub(crate) async fn visa_dto(
     tx: &mut PgConnection,
     etab: Uuid,
     id: Uuid,
     avec_observations: bool,
+    visibles: Option<&[Uuid]>,
 ) -> Result<VisaCahierDto, EntDbError> {
     #[allow(clippy::type_complexity)]
     let v: (String, NaiveDate, NaiveDate, DateTime<Utc>, Uuid, i32, Option<Uuid>, Option<Uuid>, Option<Uuid>) = sqlx::query_as(
@@ -986,17 +1135,25 @@ pub(crate) async fn visa_dto(
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-    let (modifies,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_cdt_visa_element ve
-           LEFT JOIN ent_cdt_entree e ON ve.objet = 'entree' AND e.id = ve.objet_id
-           LEFT JOIN ent_cdt_travail t ON ve.objet = 'travail' AND t.id = ve.objet_id
-          WHERE ve.etablissement_id = $1 AND ve.visa_id = $2 AND COALESCE(e.version, t.version) > ve.version",
+    let (nb_visibles, modifies): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE COALESCE(e.version, t.version) > ve.version)
+           FROM ent_cdt_visa_element ve
+           LEFT JOIN ent_cdt_entree e ON ve.objet = 'entree' AND e.etablissement_id = ve.etablissement_id AND e.id = ve.objet_id
+           LEFT JOIN ent_cdt_travail t ON ve.objet = 'travail' AND t.etablissement_id = ve.etablissement_id AND t.id = ve.objet_id
+          WHERE ve.etablissement_id = $1 AND ve.visa_id = $2
+            AND ($3::uuid[] IS NULL OR COALESCE(e.cours_id, t.cours_id) = ANY($3))",
     )
     .bind(etab)
     .bind(id)
+    .bind(visibles)
     .fetch_one(&mut *tx)
     .await
     .map_err(db)?;
+    let nb = if visibles.is_some() {
+        nb_visibles as i32
+    } else {
+        nb
+    };
     let mut observations = Vec::new();
     if avec_observations {
         let obs: Vec<(Uuid, String, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(

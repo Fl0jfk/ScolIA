@@ -1,12 +1,15 @@
-//! Écran « Clôture et archives » (`/web/cahier/archives`, direction : `cahier.exporter`) : contrôle de clôture, clôture du cahier
-//! d'une année (irréversible sauf réouverture motivée), archives annuelles à empreinte, exports figés (litige, inspection).
+//! Écran « Clôture et archives » (`/web/cahier/archives`, direction : `cahier.exporter` pour les archives et exports,
+//! `cahier.cloturer` pour la clôture, la réouverture à double validation et la décision d'archive) : contrôle de clôture, clôture
+//! du cahier d'une année (irréversible sauf réouverture motivée et validée par une seconde personne), archives annuelles à
+//! empreinte, exports figés (litige, inspection).
 //!
-//! Tout ce qui est écrit ici est sans donnée d'élève. Le serveur décide : droits, contrôle, irréversibilité, échéance de
+//! Aucune donnée structurée d'élève n'est écrite ici (ni remise, ni retour, ni variante) ; un nom d'élève saisi dans un texte
+//! libre du cahier figurerait dans les archives et les exports. Le serveur décide : droits, contrôle, irréversibilité, échéance de
 //! conservation. L'écran formate (`modele_c8`) et demande confirmation avant la clôture.
 
 use ent_types::referentiel_admin::AnneeStatutDto;
 use ent_web_api::cahier_c8_types::{
-    ArchiveDto, ClotureBody, ExportBody, ExportContenuDto, ReouvrirBody,
+    ArchiveDto, ClotureBody, ExportBody, ExportContenuDto, ReouvrirBody, ValiderReouvertureBody,
 };
 use ent_web_ui::{
     AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation, EnTetePage, EtatVide,
@@ -31,7 +34,7 @@ pub fn PageArchives() -> impl IntoView {
     view! {
         <Title text="Clôture et archives"/>
         {move || {
-            if moteur.get().a("cahier.exporter") {
+            if moteur.get().a("cahier.exporter") || moteur.get().a("cahier.cloturer") {
                 view! { <Contenu/> }.into_any()
             } else {
                 view! { <AccesRefuse message="La clôture, les archives et les exports sont réservés à la direction."/> }.into_any()
@@ -96,10 +99,17 @@ fn Annee(annees: Vec<AnneeStatutDto>) -> impl IntoView {
 
 #[component]
 fn Corps(annee: Uuid, debut: String, fin: String) -> impl IntoView {
+    // Deux droits distincts : `cahier.cloturer` (clôture, réouverture, décision) et `cahier.exporter` (archives, exports).
+    let moteur = use_droits_moteur();
     view! {
-        <Cloture annee=annee/>
-        <Archives annee=annee/>
-        <Exports debut=debut fin=fin/>
+        {move || moteur.get().a("cahier.cloturer").then(|| view! { <Cloture annee=annee/> })}
+        {move || moteur.get().a("cahier.exporter").then(|| {
+            let (d, f) = (debut.clone(), fin.clone());
+            view! {
+                <Archives annee=annee/>
+                <Exports debut=d fin=f/>
+            }
+        })}
     }
 }
 
@@ -133,7 +143,15 @@ fn Cloture(annee: Uuid) -> impl IntoView {
         };
         ecriture.lancer(async move {
             session::client().cdt_rouvrir(&b).await?;
-            Ok("Cahier rouvert : la réouverture est tracée.".to_string())
+            Ok("Demande de réouverture enregistrée : une seconde personne de la direction doit la valider.".to_string())
+        });
+    };
+    let valider = move |_| {
+        ecriture.lancer(async move {
+            session::client()
+                .cdt_rouvrir_valider(&ValiderReouvertureBody { annee_id: annee })
+                .await?;
+            Ok("Cahier rouvert : la réouverture est tracée (demandée et validée par deux personnes).".to_string())
         });
     };
     view! {
@@ -148,6 +166,7 @@ fn Cloture(annee: Uuid) -> impl IntoView {
                     let a_regler = !points.is_empty();
                     let noms = c.cours_non_vises.iter().map(|x| format!("{} ({})", x.libelle, x.public)).collect::<Vec<_>>().join(", ");
                     let fige = c.deja_fige;
+                    let attente = c.reouverture_en_attente.clone();
                     view! {
                         <p class="cdt-resume">{format!("Année {} : {} cours, {} archive(s) déjà produite(s).", c.annee_libelle, c.cours_total, c.archives_existantes)}</p>
                         {a_regler.then(|| view! {
@@ -156,13 +175,25 @@ fn Cloture(annee: Uuid) -> impl IntoView {
                             {(!noms.is_empty()).then(|| view! { <p class="cdt-travail__detail">{format!("Cours non visés : {noms}")}</p> })}
                         })}
                         {if fige {
-                            view! {
-                                <Badge libelle="Cahier figé" ton=TonEtat::Ok/>
-                                <div class="cdt-form">
-                                    <ZoneTexte id="arch-motif" libelle="Motif écrit de la réouverture (10 caractères au moins, tracé)" valeur=motif/>
-                                    <Bouton variante=Variante::Danger en_cours=ecriture.en_cours on_click=Callback::new(rouvrir)>"Rouvrir le cahier"</Bouton>
-                                </div>
-                            }.into_any()
+                            match attente {
+                                Some(d) => view! {
+                                    <Badge libelle="Cahier figé" ton=TonEtat::Ok/>
+                                    <Alerte niveau=Niveau::Avertissement titre="Réouverture demandée, en attente d'une seconde validation"/>
+                                    <p class="cdt-travail__detail">{format!("Demandée par {} : « {} »", d.demandee_par, d.motif)}</p>
+                                    {if d.demandee_par_vous {
+                                        view! { <p class="cdt-resume">"Vous ne pouvez pas valider votre propre demande : une autre personne de la direction doit le faire."</p> }.into_any()
+                                    } else {
+                                        view! { <Bouton variante=Variante::Danger en_cours=ecriture.en_cours on_click=Callback::new(valider)>"Valider la réouverture"</Bouton> }.into_any()
+                                    }}
+                                }.into_any(),
+                                None => view! {
+                                    <Badge libelle="Cahier figé" ton=TonEtat::Ok/>
+                                    <div class="cdt-form">
+                                        <ZoneTexte id="arch-motif" libelle="Motif écrit de la demande de réouverture (20 caractères au moins, tracé ; une seconde personne de la direction devra la valider)" valeur=motif/>
+                                        <Bouton variante=Variante::Danger en_cours=ecriture.en_cours on_click=Callback::new(rouvrir)>"Demander la réouverture"</Bouton>
+                                    </div>
+                                }.into_any(),
+                            }
                         } else {
                             view! {
                                 <div class="cdt-form">
@@ -178,7 +209,7 @@ fn Cloture(annee: Uuid) -> impl IntoView {
                 ouvert=dialogue
                 id="arch-confirmation"
                 titre="Clôturer le cahier de l'année ?"
-                message="Plus aucune écriture ne sera possible. Une archive datée est produite pour chaque cours. Seule une réouverture motivée, tracée, permet de revenir en arrière."
+                message="Plus aucune écriture ne sera possible. Une archive datée est produite pour chaque cours. Seule une réouverture motivée, demandée par une personne de la direction et validée par une autre, permet de revenir en arrière."
                 libelle_confirmer="Clôturer"
                 danger=true
                 on_confirmer=cloturer
@@ -219,7 +250,9 @@ fn LigneArchive(
     lecture: RwSignal<Option<ExportContenuDto>>,
 ) -> impl IntoView {
     let id = a.id;
-    let a_decider = a.decision == "a_decider";
+    // La décision d'archive relève de `cahier.cloturer` (et non du simple droit de lire les archives).
+    let a_decider =
+        a.decision == "a_decider" && use_droits_moteur().get_untracked().a("cahier.cloturer");
     let titre = format!(
         "{} — {} (version {})",
         a.cours.libelle, a.cours.public, a.version
@@ -322,7 +355,7 @@ fn Exports(debut: String, fin: String) -> impl IntoView {
     view! {
         <section class="cdt-seance" aria-label="Exports figés">
             <h2 class="cdt-travail__titre">"Exports figés"</h2>
-            <p class="cdt-resume">"Entrées et travaux publiés, sans aucune donnée d'élève, avec une empreinte : le même cahier donne toujours la même empreinte."</p>
+            <p class="cdt-resume">"Entrées et travaux publiés, aucune donnée structurée d'élève (ni remise, ni retour, ni variante), avec une empreinte : le même cahier donne toujours la même empreinte. Un nom d'élève écrit dans un texte libre y figurerait."</p>
             <RetourEcriture ecriture=ecriture/>
             {move || match liste.get() {
                 None => view! { <Squelette lignes=2 libelle="Chargement des exports…"/> }.into_any(),

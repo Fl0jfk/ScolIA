@@ -1,6 +1,6 @@
 //! Écran « Progressions » (`/web/cahier/progressions`, professeur, lot C9) : le plan privé de l'année (étapes, notions, durée en
 //! séances), son partage avec un cours ou une discipline, sa planification sur les séances d'un cours (brouillons, jamais publiés) et
-//! la reconduction d'une année à l'autre. Aucune donnée d'élève n'existe dans une progression.
+//! la reconduction d'une année à l'autre. Aucune donnée structurée d'élève n'existe dans une progression.
 //!
 //! Confidentialité, séances libres, idempotence et non-copie des données d'élèves sont décidées par le serveur (`modele_c9`).
 
@@ -176,7 +176,7 @@ fn Ligne(p: ProgressionResumeDto, cours: Vec<CoursSaisieDto>, ecriture: Ecriture
     }
 }
 
-/// Copie des entrées d'un ancien cours vers un nouveau : brouillons, les vôtres seulement, aucune donnée d'élève.
+/// Copie des entrées d'un ancien cours vers un nouveau : brouillons, les vôtres seulement, aucune donnée structurée d'élève.
 #[component]
 fn Copie(cours: Vec<CoursSaisieDto>, ecriture: Ecriture) -> impl IntoView {
     let options: Vec<(String, String)> = cours

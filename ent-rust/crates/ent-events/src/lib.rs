@@ -170,6 +170,7 @@ pub mod types {
     pub const CAHIER_EXPORT_PRODUIT: &str = "cahier.export_produit";
     pub const CAHIER_ANNEE_FIGEE: &str = "cahier.annee_figee";
     pub const CAHIER_ANNEE_ROUVERTE: &str = "cahier.annee_rouverte";
+    pub const CAHIER_REOUVERTURE_DEMANDEE: &str = "cahier.reouverture_demandee";
     pub const CAHIER_ARCHIVE_DECIDEE: &str = "cahier.archive_decidee";
     // Lot C9 : progressions.
     pub const CAHIER_PROGRESSION_PLANIFIEE: &str = "cahier.progression_planifiee";

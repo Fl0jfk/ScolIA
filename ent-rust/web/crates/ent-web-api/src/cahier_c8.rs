@@ -84,14 +84,33 @@ impl ApiClient {
         .await
     }
 
-    /// `GET /cahier/c8/mon-export` (professeur).
-    pub async fn cdt_mon_export(&self, annee: Uuid) -> Result<ExportContenuDto, ApiError> {
+    /// `GET /cahier/c8/mon-export` (professeur) : aperçu, aucune écriture en base.
+    pub async fn cdt_mon_export(&self, annee: Uuid) -> Result<ExportApercuDto, ApiError> {
         self.appel(
             Methode::Get,
             &format!("/cahier/c8/mon-export?annee_id={annee}"),
             None,
         )
         .await
+    }
+
+    /// `POST /cahier/c8/mon-export` (professeur) : export conservé (un seul par auteur, année et empreinte).
+    pub async fn cdt_mon_export_conserver(
+        &self,
+        annee: Uuid,
+    ) -> Result<ExportContenuDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            "/cahier/c8/mon-export",
+            corps(&ValiderReouvertureBody { annee_id: annee })?,
+        )
+        .await
+    }
+
+    /// `GET /cahier/c8/inspections/cours` : cours ouvrables à un inspecteur (droit `cahier.acces_inspection`, indépendant du visa).
+    pub async fn cdt_cours_ouvrables(&self) -> Result<Vec<CoursRefDto>, ApiError> {
+        self.appel(Methode::Get, "/cahier/c8/inspections/cours", None)
+            .await
     }
 
     /// `GET /cahier/c8/inspections`.
@@ -196,10 +215,23 @@ impl ApiClient {
             .await
     }
 
-    /// `POST /cahier/c8/cloture/reouvrir`.
+    /// `POST /cahier/c8/cloture/reouvrir` : **demande** de réouverture (motif de 20 caractères au moins).
     pub async fn cdt_rouvrir(&self, b: &ReouvrirBody) -> Result<ClotureDto, ApiError> {
         self.appel(Methode::Post, "/cahier/c8/cloture/reouvrir", corps(b)?)
             .await
+    }
+
+    /// `POST /cahier/c8/cloture/reouvrir/valider` : seconde validation, par une autre personne de la direction.
+    pub async fn cdt_rouvrir_valider(
+        &self,
+        b: &ValiderReouvertureBody,
+    ) -> Result<ClotureDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            "/cahier/c8/cloture/reouvrir/valider",
+            corps(b)?,
+        )
+        .await
     }
 
     /// `GET /cahier/c8/archives`.

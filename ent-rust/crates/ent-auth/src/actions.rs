@@ -649,6 +649,9 @@ pub enum Action {
     CahierAccesInspection,
     /// Produire un export figé du cahier (litige, inspection), clôturer l'année du cahier et décider du sort des archives.
     CahierExporter,
+    /// Clôturer l'année du cahier, la rouvrir (motif de 20 caractères au moins, double validation par une seconde personne
+    /// de la direction) et décider du sort des archives. Direction seule : l'administrateur technique ne l'a pas par défaut.
+    CahierCloturer,
 }
 
 /// Sur quoi une action s'applique.
@@ -673,7 +676,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 277] = [
+    pub const TOUTES: [Action; 278] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -973,6 +976,7 @@ impl Action {
         // Socle 20, lot C8 (en fin de catalogue).
         Action::CahierAccesInspection,
         Action::CahierExporter,
+        Action::CahierCloturer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -1245,6 +1249,7 @@ impl Action {
             Self::CahierParametrer => "cahier.parametrer",
             Self::CahierAccesInspection => "cahier.acces_inspection",
             Self::CahierExporter => "cahier.exporter",
+            Self::CahierCloturer => "cahier.cloturer",
             Self::EquipesGerer => "equipes.gerer",
             Self::SignatureHabiliter => "signature.habiliter",
             Self::StructureGerer => "structure.gerer",
@@ -1529,7 +1534,8 @@ impl Action {
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
             Self::CahierAccesInspection => "Accorder, prolonger ou révoquer un accès d'inspection au cahier de textes (durée bornée, journalisé)",
-            Self::CahierExporter => "Exporter le cahier de textes (litige, inspection), clôturer l'année du cahier et décider du sort des archives",
+            Self::CahierExporter => "Produire un export figé du cahier de textes (litige, inspection) et lire les exports et archives",
+            Self::CahierCloturer => "Clôturer l'année du cahier de textes, la rouvrir (motif et double validation) et décider du sort des archives",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
             Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
             Self::StructureGerer => "Gérer les groupes et leurs classes d'origine (créer, générer, modifier, fermer)",
@@ -1668,7 +1674,8 @@ impl Action {
             | Self::ConseilsGerer
             | Self::DocsSignerPublier
             | Self::CahierAccesInspection
-            | Self::CahierExporter => &[Portee::Etablissement],
+            | Self::CahierExporter
+            | Self::CahierCloturer => &[Portee::Etablissement],
             // Socle 41, lot I2 (R-IT30) : une direction de formation (collège, lycée) lit et valide
             // seulement ses élèves : portée « désignés » (classes de la formation) en plus de l'établissement.
             Self::InternatLire
@@ -2789,6 +2796,11 @@ fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
         // rôle paramétrable : D-017).
         d.push((CahierAccesInspection, Portee::Etablissement));
         d.push((CahierExporter, Portee::Etablissement));
+    }
+    // Clôture, réouverture et décision d'archive : direction seule (l'administrateur technique ne l'a pas par défaut ;
+    // M1 de la revue : la réouverture exige en plus une seconde personne de la direction).
+    if role == Role::Direction {
+        d.push((CahierCloturer, Portee::Etablissement));
     }
     if role == Role::Prof {
         d.push((CahierRetirer, Portee::MesClasses));
@@ -4185,12 +4197,13 @@ mod f1_droits_fins {
         // `voyages.argent` et `voyages.remise`) puis les 2 du socle 20 (lot C8, `cahier.acces_inspection` et
         // `cahier.exporter`) sont ajoutés après eux.
         let n = Action::TOUTES.len();
-        assert_eq!(Action::TOUTES[n - 20], Action::FacturationGuichet);
-        assert_eq!(Action::TOUTES[n - 5], Action::FacturationPublier);
-        assert_eq!(Action::TOUTES[n - 4], Action::VoyagesArgent);
-        assert_eq!(Action::TOUTES[n - 3], Action::VoyagesRemise);
-        assert_eq!(Action::TOUTES[n - 2], Action::CahierAccesInspection);
-        assert_eq!(Action::TOUTES[n - 1], Action::CahierExporter);
+        assert_eq!(Action::TOUTES[n - 21], Action::FacturationGuichet);
+        assert_eq!(Action::TOUTES[n - 6], Action::FacturationPublier);
+        assert_eq!(Action::TOUTES[n - 5], Action::VoyagesArgent);
+        assert_eq!(Action::TOUTES[n - 4], Action::VoyagesRemise);
+        assert_eq!(Action::TOUTES[n - 3], Action::CahierAccesInspection);
+        assert_eq!(Action::TOUTES[n - 2], Action::CahierExporter);
+        assert_eq!(Action::TOUTES[n - 1], Action::CahierCloturer);
     }
 
     /// R-F37 : le secrétariat n'a que la vue guichet et les engagements ; l'accueil que la vue guichet.

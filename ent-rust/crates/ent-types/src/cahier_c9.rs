@@ -1,7 +1,7 @@
 //! Cahier de textes, lot C9 : **progressions et reconduction** (`20_CAHIER_DE_TEXTES.md` §16).
 //!
 //! Contrat JSON des routes `/cahier/c9/*` d'`ent-api`. Une progression est le plan **privé** d'un professeur : étapes (titre,
-//! notions, durée en séances). Elle ne contient aucune donnée d'élève ; son partage (avec un cours ou une discipline) n'ouvre
+//! notions, durée en séances). Elle ne contient aucune donnée structurée d'élève (le texte libre d'une étape reste celui de l'auteur) ; son partage (avec un cours ou une discipline) n'ouvre
 //! jamais le cahier d'un autre cours.
 
 use chrono::{DateTime, NaiveDate, Utc};

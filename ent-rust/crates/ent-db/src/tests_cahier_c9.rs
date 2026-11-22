@@ -547,7 +547,7 @@ async fn c9_planifier_cree_des_brouillons_sur_les_seances_libres_sans_rien_publi
             }
         )
         .await
-        .is_err_and(|e| est_introuvable(&e)));
+        .is_err_and(|e| est_interdit(&e)));
     // Aperçu : rien n'est écrit.
     let a = fx
         .ent
@@ -946,7 +946,7 @@ async fn c9_copier_les_entrees_d_un_cours_a_l_autre_en_brouillon_sans_donnee_d_e
             }
         )
         .await
-        .is_err_and(|e| est_introuvable(&e)));
+        .is_err_and(|e| est_interdit(&e)));
     assert!(fx
         .ent
         .cdt_c9_copier_cours(
@@ -959,7 +959,7 @@ async fn c9_copier_les_entrees_d_un_cours_a_l_autre_en_brouillon_sans_donnee_d_e
             }
         )
         .await
-        .is_err_and(|e| est_introuvable(&e)));
+        .is_err_and(|e| est_interdit(&e)));
     // Aperçu : rien n'est écrit ; 3 entrées à copier pour 2 séances libres.
     let a = fx
         .ent
@@ -1028,4 +1028,51 @@ async fn c9_copier_les_entrees_d_un_cours_a_l_autre_en_brouillon_sans_donnee_d_e
         .await
         .unwrap();
     assert_eq!((r2.copiees.len(), r2.sans_seance), (0, 3));
+}
+
+#[tokio::test]
+async fn c9_progression_archivee_non_planifiable_et_copie_limitee_au_meme_niveau() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_de(&fx, fx.service_a).await;
+    let p = fx
+        .ent
+        .cdt_c9_progression_creer(&fx.prof(), progression("Plan", vec![etape("Étape", 1)]))
+        .await
+        .unwrap();
+    fx.ent
+        .cdt_c9_progression_archiver(&fx.prof(), p.resume.id)
+        .await
+        .unwrap();
+    // F8 : archivée, elle ne se planifie plus.
+    assert!(fx
+        .ent
+        .cdt_c9_planifier(
+            &fx.prof(),
+            p.resume.id,
+            PlanifierBody {
+                cours_id: cours,
+                a_partir_du: None,
+                jusqu_au: None,
+                apercu: true
+            }
+        )
+        .await
+        .is_err_and(|e| est_refus(&e, RefusMetier::Conflit)));
+    // F9 : la matière d'une progression est une matière de l'établissement (clé composite).
+    let autre_matiere = Uuid::new_v4();
+    let r = sqlx::query("INSERT INTO ent_cdt_progression (id, etablissement_id, auteur_user_id, titre, matiere_id) VALUES ($1, $2, $3, 'x', $4)")
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(fx.cast.profs[0].user_id)
+        .bind(autre_matiere)
+        .execute(fx.ent.pool())
+        .await;
+    assert!(
+        r.is_err(),
+        "matière inconnue de l'établissement : clé étrangère composite"
+    );
 }

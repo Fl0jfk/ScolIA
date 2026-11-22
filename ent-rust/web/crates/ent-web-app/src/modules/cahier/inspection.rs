@@ -153,13 +153,9 @@ fn Journal(j: Vec<ConsultationDto>) -> impl IntoView {
 /// Formulaire d'octroi (direction) : compte, cours, période du cahier, durée, motif.
 #[component]
 fn Octroi(ecriture: Ecriture) -> impl IntoView {
-    let tenue_cours = LocalResource::new(|| async {
-        let (d, a) = periode_par_defaut(aujourdhui());
-        session::client()
-            .cdt_tenue(d - chrono::Duration::days(200), a)
-            .await
-            .map(|t| t.lignes)
-    });
+    // F11 : les cours viennent du droit d'octroi lui-même, pas du tableau de tenue (qui exige `cahier.viser`).
+    let tenue_cours =
+        LocalResource::new(|| async { session::client().cdt_cours_ouvrables().await });
     let compte = RwSignal::new(String::new());
     let (d0, a0) = periode_par_defaut(aujourdhui());
     let du = RwSignal::new(d0.to_string());
@@ -185,7 +181,7 @@ fn Octroi(ecriture: Ecriture) -> impl IntoView {
             Err(m) => ecriture.erreur.set(Some(m)),
             Ok(b) => ecriture.lancer(async move {
                 session::client().cdt_acces_accorder(&b).await?;
-                Ok("Accès accordé : le professeur concerné est prévenu.".to_string())
+                Ok("Accès accordé et journalisé. Aucun avis n'est encore envoyé au professeur concerné (socle 8) : il retrouve cet accès, et chaque lecture, dans son journal d'inspection. Prévenez-le vous-même.".to_string())
             }),
         }
     };
@@ -195,12 +191,13 @@ fn Octroi(ecriture: Ecriture) -> impl IntoView {
             <div class="cdt-form">
                 <ChampTexte id="insp-compte" libelle="Identifiant du compte invité de l'inspecteur" valeur=compte requis=true/>
                 <Selection id="insp-motif" libelle="Motif" valeur=motif options=vec![("inspection".to_string(), "Inspection".to_string()), ("rdv_carriere".to_string(), "Rendez-vous de carrière".to_string()), ("autre".to_string(), "Autre".to_string())]/>
+                <p class="cdt-resume">"Pour un rendez-vous de carrière, prévenez vous-même le professeur : l'avis automatique (socle 8) n'est pas encore branché, il est un prérequis à l'usage courant de ce motif."</p>
                 <ChampTexte id="insp-du" libelle="Cahier : du" valeur=du genre="date"/>
                 <ChampTexte id="insp-au" libelle="Cahier : au" valeur=au genre="date"/>
                 <ChampTexte id="insp-duree" libelle="Durée de l'accès en jours (90 au plus)" valeur=duree genre="number"/>
                 {move || match tenue_cours.get() {
                     Some(Ok(l)) => {
-                        let liste: Vec<(CoursRefDto, RwSignal<bool>)> = l.into_iter().map(|x| (CoursRefDto { cours_id: x.cours_id, libelle: x.libelle, public: x.public }, RwSignal::new(false))).collect();
+                        let liste: Vec<(CoursRefDto, RwSignal<bool>)> = l.into_iter().map(|x| (x, RwSignal::new(false))).collect();
                         cochees.set(liste.iter().map(|(c, s)| (c.cours_id, *s)).collect());
                         view! {
                             <fieldset class="cdt-form">

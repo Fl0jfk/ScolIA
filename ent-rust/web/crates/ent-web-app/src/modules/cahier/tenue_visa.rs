@@ -120,6 +120,7 @@ fn LigneCours(
         ligne.intervenants.join(", ")
     };
     let apres = ligne.modifies_apres_visa;
+    let ajoutes = ligne.ajoutes_apres_visa;
     let observation = RwSignal::new(String::new());
     let vide = RwSignal::new(false);
     let ouvert = RwSignal::new(false);
@@ -151,6 +152,7 @@ fn LigneCours(
             <p class="cdt-travail__detail">{detail}</p>
             <p class="cdt-travail__detail">{dates}</p>
             {(apres > 0).then(|| view! { <p class="cdt-resume" role="status">{format!("{apres} élément(s) modifié(s) depuis le dernier visa.")}</p> })}
+            {(ajoutes > 0).then(|| view! { <p class="cdt-resume" role="status">{format!("{ajoutes} élément(s) publié(s) depuis le dernier visa, absents de ce visa.")}</p> })}
             <div class="cdt-actions">
                 <LienBouton href=href variante=Variante::Secondaire taille=Taille::Compacte>"Lire le cahier"</LienBouton>
                 <Bouton taille=Taille::Compacte libelle_accessible=aria on_click=Callback::new(move |_| ouvert.update(|o| *o = !*o))>"Viser…"</Bouton>

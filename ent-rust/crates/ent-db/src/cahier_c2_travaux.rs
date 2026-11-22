@@ -333,7 +333,7 @@ impl PgEnt {
         let rows: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT id, auteur_user_id, rendu FROM ent_cdt_travail
               WHERE etablissement_id = $1 AND ancien_id IS NULL AND public = 'cours'
-                AND etat IN ('programme', 'publie') AND visible_a <= now()
+                AND etat IN ('programme', 'publie') AND visible_a <= now() AND NOT ent_cdt_cahier_fige(etablissement_id, annee_id)
               ORDER BY visible_a LIMIT 200 FOR UPDATE SKIP LOCKED",
         )
         .bind(etab)

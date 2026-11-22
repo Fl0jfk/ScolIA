@@ -45,6 +45,9 @@ pub fn phrase_taux(l: &TenueLigneDto) -> String {
 pub fn etat_ligne(l: &TenueLigneDto) -> (&'static str, Ton) {
     if l.modifies_apres_visa > 0 {
         ("Modifié après visa", Ton::Avertissement)
+    } else if l.ajoutes_apres_visa > 0 {
+        // M7 : ce qui est ajouté après un visa est aussi visible que ce qui est modifié.
+        ("Complété après visa", Ton::Avertissement)
     } else if l.a_viser {
         ("À viser", Ton::Info)
     } else {
@@ -251,6 +254,7 @@ mod tests {
             derniere_entree: Some(j(11, 12)),
             dernier_visa_le: None,
             modifies_apres_visa: modifies,
+            ajoutes_apres_visa: 0,
             a_viser,
         }
     }
@@ -369,6 +373,7 @@ mod tests {
             travaux_brouillon: 0,
             non_rendus: 0,
             archives_existantes: 0,
+            reouverture_en_attente: None,
         };
         assert!(points_controle(&c).is_empty());
         c.cours_non_vises = vec![CoursRefDto {

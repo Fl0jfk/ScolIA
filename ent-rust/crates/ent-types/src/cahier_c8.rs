@@ -1,6 +1,6 @@
 //! Cahier de textes, lot C8 : **tenue, visa, inspection, exports figés, clôture et archive** (`20_CAHIER_DE_TEXTES.md` §14).
 //!
-//! Contrat JSON des routes `/cahier/c8/*` d'`ent-api`. Aucune donnée d'élève n'y figure : ni nom, ni remise, ni retour, ni
+//! Contrat JSON des routes `/cahier/c8/*` d'`ent-api`. Aucune donnée structurée d'élève n'y figure : ni nom, ni remise, ni retour, ni
 //! variante (R-C18, §19.4). Les noms de professeurs sont des noms d'affichage. Jours et heures de l'établissement.
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
@@ -53,6 +53,9 @@ pub struct TenueLigneDto {
     pub dernier_visa_le: Option<DateTime<Utc>>,
     /// Éléments modifiés depuis le dernier visa du cours.
     pub modifies_apres_visa: i64,
+    /// M7 : entrées et travaux publiés ajoutés depuis le dernier visa qui couvrait leur date (absents de ses éléments).
+    #[serde(default)]
+    pub ajoutes_apres_visa: i64,
     /// Aucun visa, ou visa plus ancien que le seuil.
     pub a_viser: bool,
 }
@@ -149,6 +152,23 @@ pub struct VisaElementDto {
 pub struct VisaDetailDto {
     pub visa: VisaCahierDto,
     pub elements: Vec<VisaElementDto>,
+    /// M7 : entrées et travaux **publiés** de la période du visa qui n'étaient pas dans ce visa : ajoutés depuis. Ce qui
+    /// change après un visa (modifié **ou ajouté**) est toujours visible du viseur.
+    #[serde(default)]
+    pub ajoutes_depuis_visa: Vec<VisaAjouteDto>,
+}
+
+/// Objet publié de la période d'un visa et absent des éléments figés par ce visa.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisaAjouteDto {
+    /// `entree` ou `travail`.
+    pub objet: String,
+    pub objet_id: Uuid,
+    pub cours_id: Uuid,
+    pub cours_libelle: String,
+    pub jour: NaiveDate,
+    pub titre: Option<String>,
+    pub version: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +192,9 @@ pub struct ChronoItemDto {
     pub modifie_le: DateTime<Utc>,
     /// Modifié depuis le dernier visa qui couvrait cet élément.
     pub modifie_apres_visa: bool,
+    /// M7 : publié dans la période d'un visa du cours, mais absent des éléments de ce visa (ajouté depuis le visa).
+    #[serde(default)]
+    pub ajoute_depuis_visa: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,6 +326,22 @@ pub struct ExportContenuDto {
     pub contenu: String,
 }
 
+/// Rendu **sans stockage** de l'export personnel d'un professeur (`GET /cahier/c8/mon-export`) : rien n'est écrit en base ;
+/// l'empreinte est celle qu'aurait l'export conservé par `POST /cahier/c8/mon-export`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportApercuDto {
+    pub titre: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    pub nb_entrees: i32,
+    pub nb_travaux: i32,
+    pub empreinte: String,
+    pub contenu: String,
+}
+
+/// Plus long texte d'un export figé (caractères) : au-delà, 422 avant toute insertion (jamais une erreur serveur).
+pub const EXPORT_TAILLE_MAX: usize = 4_000_000;
+
 // ───────────────────────────── clôture et archive ─────────────────────────────
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,6 +358,19 @@ pub struct ControleClotureDto {
     /// Constats « non rendu » en cours (nombre seulement) : l'élève garde ses dépôts après la clôture.
     pub non_rendus: i64,
     pub archives_existantes: i64,
+    /// Demande de réouverture en attente de la seconde validation (double validation, M1), s'il y en a une.
+    pub reouverture_en_attente: Option<ReouvertureEnAttenteDto>,
+}
+
+/// Première moitié de la double validation : un membre de la direction a demandé la réouverture, motif à l'appui ; un
+/// **autre** membre de la direction doit la valider.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReouvertureEnAttenteDto {
+    pub motif: String,
+    pub demandee_par: String,
+    pub demandee_le: DateTime<Utc>,
+    /// La demande est la vôtre : vous ne pouvez pas la valider.
+    pub demandee_par_vous: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -334,13 +386,22 @@ pub struct ClotureDto {
     pub annee_id: Uuid,
     pub archives_produites: i64,
     pub fige: bool,
+    /// Réouverture demandée, en attente de la validation d'une seconde personne de la direction.
+    #[serde(default)]
+    pub reouverture_demandee: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReouvrirBody {
     pub annee_id: Uuid,
-    /// Motif écrit (10 caractères au moins) : la réouverture est une procédure tracée de la direction.
+    /// Motif écrit (20 caractères au moins) : la réouverture est une procédure tracée de la direction, à double validation.
     pub motif: String,
+}
+
+/// Seconde validation d'une réouverture demandée par une autre personne de la direction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValiderReouvertureBody {
+    pub annee_id: Uuid,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
