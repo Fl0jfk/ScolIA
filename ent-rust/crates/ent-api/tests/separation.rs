@@ -3149,15 +3149,23 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
     let aujourd_hui = domain_eleve::horloge::jour_paris();
     rt().block_on(async {
         let dir = m.jeton(Direction);
-        // La matière du cours du professeur (un résultat ne se compte que dans un cours de sa matière).
-        let ens = m.appel("GET", "/referentiel/mes-enseignements", Some(m.jeton(Prof)), None).await;
-        let matiere = ens
-            .json
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|v| v["matiere_id"].as_str())
-            .and_then(|x| Uuid::parse_str(x).ok())
-            .unwrap_or_else(|| panic!("matière du cours du professeur : {}", ens.texte));
+        // Le cours du labo n'a pas de matière du référentiel : on lui en donne une (base de test, propriétaire) pour que le
+        // résultat externe puisse y être compté (un résultat ne se compte que dans un cours de sa matière).
+        let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL"))
+            .await
+            .expect("connexion propriétaire");
+        let matiere: Uuid = sqlx::query_scalar("SELECT id FROM ent_matiere WHERE etablissement_id = $1 ORDER BY id LIMIT 1")
+            .bind(o.etab)
+            .fetch_one(&pool)
+            .await
+            .expect("matière du référentiel");
+        sqlx::query("UPDATE ent_cours SET matiere_id = $3 WHERE etablissement_id = $1 AND id = $2")
+            .bind(o.etab)
+            .bind(cours)
+            .bind(matiere)
+            .execute(&pool)
+            .await
+            .expect("matière du cours");
         let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
             "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
         let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
