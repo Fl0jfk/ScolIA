@@ -549,3 +549,8 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
   - « cahier C8 + C9 correctifs » (session_01KZCbFGt2AADgZsCTZqzsXu, branche `ent-socle-20-code-c8c9`, PR 110) ;
   - « 21 V3e + V5 » (session_01KZCbFHn6Eu1cbWvugap4rG, branche `ent-socle-21-code-v5`) : suites de la revue de V3d, puis parcours (public à la date, changements de classe et d'option, résultats externes, double cursus, bulletin de rattachement).
   - Les deux consignes portent la nouvelle clause « ne reste jamais en attente ». **Sessions qui codent : 2 sur 2.**
+- **22-11, 7 h 25 UTC, Florian : « lance encore des sessions »** → 4 sessions actives :
+  - « conception socle 11 applications mobiles » (Opus, session_01KZCbFEL8CQMcXRHkuy7Z1B, branche `ent-socle-11-conception`, documentation seule, sans CI) ;
+  - « semis du labo relatif à l'année » (session_01KZCbFH5fsrHyfgWyvm7FS3, branche `ent-semis-labo-relatif`, sans migration) ;
+  - plus C8+C9 correctifs et 21 V3e+V5.
+  - Charge de la CI : 3 lots de code en parallèle (la conception n'en lance pas) ; surveiller la file (règle 32 : saturation vue à 7 runs en attente).
