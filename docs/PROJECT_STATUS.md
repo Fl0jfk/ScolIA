@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
+- **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).
+- **Grilles versionnées** brouillon → proposée → votée → en vigueur → close : gel tenu **par la base** (déclencheurs), une seule en vigueur par année, correction par nouvelle version, second regard (proposer ≠ voter), publication neutre ; la génération ne facture que la grille en vigueur.
+- **Simulateur** (hausse %, montant, arrondi, effectifs, familles types, comparaison, export CSV protégé) et **état des contributions par nature légale** (FAC-196). 33 opérations HTTP.
+- **Non fait** : écrans, effet rétroactif d'une correction (F4), pièces numérotées et documents (F5), site public (socle 17), gel au décès (à passer avant toute relance automatique).
+
 ## Socle 21 — lots V1 « modèle et reprise » et V2 « moteur de calcul étendu » (2026-11-18, branche `ent-socle-21-code-v1v2`, base `origin/ENT` 86f03b82) — PARTIEL
 
 **Implémenté + testé en local (modes normal et RLS stricte) ; CI sur la pull request en brouillon ; non validé par Florian ; non prêt pilote.** Décision D-068 / idée I-032 : « comme de l'officiel », comparaison avec Charlemagne.

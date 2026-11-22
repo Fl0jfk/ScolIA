@@ -107,6 +107,17 @@ async fn finances_http_droits_isolation_famille() {
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 
+    // Établissement antérieur à la 523 : qualification non exigée (valeur transitoire), articles « à l'ancienne ».
+    let (st, corps) = appel(
+        &app,
+        "POST",
+        "/finances/grilles/reglages",
+        Some(compta),
+        Some(json!({ "exiger_qualification_articles": false })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+
     // Article : 201, doublon 409, catégorie inconnue 400, prof 403.
     let art = json!({ "code": "SCOL", "libelle": "Scolarité", "categorie": "scolarite" });
     let (st, corps) = appel(

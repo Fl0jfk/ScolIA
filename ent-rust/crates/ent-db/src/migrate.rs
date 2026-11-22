@@ -265,6 +265,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot F2 : comptes débiteurs, désignations datées, prises en charge, tâches, reprise MIG-4. Référence
     // `ent_personne` (120, 260), `ent_foyer` (007, 260), `ent_eleve` (482) : placée après eux, avant les lots RLS 58x.
     m!("522_finances_f2_comptes_payeurs"),
+    m!("523_finances_f3_catalogue_grilles"),
     m!("560_delegation_droits_normalises"),
     m!("561_inscription_resolution"),
     m!("562_inscription_scolarite_actuelle"),

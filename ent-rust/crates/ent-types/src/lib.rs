@@ -40,6 +40,7 @@ pub mod evaluations_v4;
 pub mod evaluations_v5;
 pub mod finances;
 pub mod finances_comptes;
+pub mod finances_grilles;
 pub mod fusion;
 pub mod identifiants;
 pub mod identite;
