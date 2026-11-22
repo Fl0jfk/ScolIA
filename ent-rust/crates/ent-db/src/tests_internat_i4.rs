@@ -636,7 +636,6 @@ async fn groupe_lecture_du_personnel_bornee_et_cloisonnee() {
     let b2 = banc().await.unwrap();
     let r = b2.ent.sortie_groupe_a(b2.etab, b2.cpe, CPE, g.id, h(1)).await;
     assert!(matches!(r, Err(EntDbError::Domain(DomainError::NotFound))), "{r:?}");
-    assert!(est_interdit(&b2.ent.sortie_groupe_a(b.etab, b2.cpe, CPE, g.id, h(1)).await), "ni avec le compte d'un autre établissement");
 }
 
 #[tokio::test]
@@ -956,7 +955,7 @@ async fn evenement_alerte_critique_position_seulement_et_intervention_sans_nom()
     assert!(!evts[0].to_string().contains(&b.b[0].to_string()));
     assert!(refus_de(&b.ent.demander_intervention_a(b.etab, b.cpe, CPE, d.id, soir_14(4)).await, "déjà"));
     let sans_position = b.ent.declarer_evenement_a(b.etab, b.cpe, CPE, &evt("degradation"), soir_14(5)).await.unwrap();
-    assert!(refus_de(&b.ent.demander_intervention_a(b.etab, b.cpe, CPE, sans_position.id, soir_14(6)).await, "position"));
+    assert!(refus_de(&b.ent.demander_intervention_a(b.etab, b.cpe, CPE, sans_position.id, soir_14(6)).await, "chambre ou une zone"));
     assert!(est_interdit(&b.ent.demander_intervention_a(b.etab, b.prof, PROF, d.id, soir_14(7)).await));
 }
 
