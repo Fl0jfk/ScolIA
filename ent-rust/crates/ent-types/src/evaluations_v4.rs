@@ -162,6 +162,9 @@ pub struct NoterRattrapageBody {
     /// `justifiee` ou `non_justifiee` : l'élève était absent au rattrapage.
     pub absence: Option<String>,
     pub version_attendue: i32,
+    /// V3d (F-4) : motif (3 à 500 caractères) **obligatoire** pour noter après l'échéance (direction seulement).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +188,10 @@ pub struct AttribuerZeroBody {
     /// La direction confirme avoir lu la référence réglementaire (`REFERENCE_ZERO`).
     pub confirme: bool,
     pub version_attendue: i32,
+    /// V3d (M-4) : motif (3 à 500 caractères), **obligatoire** quand c'est le professeur du cours qui attribue le zéro
+    /// (période ouverte) ; facultatif pour la direction (la correction après l'arrêt porte déjà un motif fixe).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

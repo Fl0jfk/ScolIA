@@ -222,11 +222,16 @@ async fn periode_complete_avec_le_client_du_frontend() {
         .eva3_periodes(cours)
         .await
         .expect("périodes du cours");
-    let periode_eva = periodes_cours
+    // « La période du jour » : l'historique peut porter PLUSIEURS périodes qui couvrent ce jour (la projection de la période
+    // de notes `W…` créée plus haut recouvre le trimestre du labo). La base départage par la plus précise (la plus courte),
+    // puis la plus ancienne (migration 476 : cause du rouge intermittent de la CI 463 d'ENT, où elle rendait l'une ou
+    // l'autre selon le plan d'exécution) : le test choisit de la même façon, au lieu de prendre « la première trouvée ».
+    let mut du_jour: Vec<_> = periodes_cours
         .iter()
-        .find(|p| p.date_debut <= t && t <= p.date_fin)
-        .expect("la période du jour")
-        .clone();
+        .filter(|p| p.date_debut <= t && t <= p.date_fin)
+        .collect();
+    du_jour.sort_by_key(|p| (p.date_fin - p.date_debut, p.date_debut, p.date_fin, p.id));
+    let periode_eva = (*du_jour.first().expect("la période du jour")).clone();
     let mut evaluations = Vec::new();
     for (titre, coef_m, bareme_m) in [("Contrôle", 1_000, 20_000), ("Exposé", 2_000, 10_000)] {
         evaluations.push(

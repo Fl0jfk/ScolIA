@@ -7,7 +7,7 @@
 use super::*;
 use crate::ntf::catalogue::ABSENCE_CONSTATEE;
 use crate::tests_notifications_n1::{basculer, config, distribuer};
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{DomainError, PoserEdtException};
 use uuid::Uuid;
 
@@ -43,6 +43,26 @@ fn conflit<T: std::fmt::Debug>(r: Result<T, EntDbError>) -> bool {
 
 async fn aujourdhui(ent: &PgEnt, cast: &LaboCast) -> NaiveDate {
     ent.aujourdhui_etablissement(cast.etablissement_id).await.unwrap()
+}
+
+/// Dernier **jour de cours** (calendrier du socle 5) à la date de l'établissement ou avant : aujourd'hui en semaine,
+/// le vendredi un samedi ou un dimanche. Règle 33 : les scénarios de vérification (`verifier_jour_systeme`) reçoivent
+/// l'instant en paramètre ; leur jour de référence ne doit donc dépendre que du calendrier, jamais de ce que le test
+/// tourne un jour sans cours (le moteur ne relance ni n'alerte un jour fermé, à raison).
+async fn jour_ouvre(ent: &PgEnt, cast: &LaboCast) -> NaiveDate {
+    let mut jour = aujourdhui(ent, cast).await;
+    let cible = crate::structure_calendrier::Cible { site_id: None, niveau_id: None, classe_id: None, groupe_id: None };
+    let mut conn = ent.pool_verif().acquire().await.unwrap();
+    for _ in 0..400 {
+        let ouvres = crate::structure_calendrier::calendrier::jours_ouvres(&mut conn, cast.etablissement_id, jour, jour, &cible)
+            .await
+            .unwrap();
+        if !ouvres.is_empty() {
+            return jour;
+        }
+        jour -= Duration::days(1);
+    }
+    panic!("aucun jour de cours dans les 400 derniers jours : calendrier du jeu de labo vide ?");
 }
 
 /// Instant UTC d'une heure murale de l'établissement (même fonction SQL que le service).
@@ -188,7 +208,7 @@ async fn as6_relance_automatique_unique_a_debut_plus_delai() {
     };
     let etab = cast.etablissement_id;
     poser_regle(&ent, etab, 10, 15).await;
-    let jour = aujourdhui(&ent, &cast).await;
+    let jour = jour_ouvre(&ent, &cast).await;
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     // 14 minutes après le début : trop tôt.
     ent.verifier_jour_systeme(etab, instant(&ent, &cast, jour, 8, 14).await).await.unwrap();
@@ -263,7 +283,7 @@ async fn as6_aucune_relance_pour_une_seance_annulee_validee_ou_reprise() {
     };
     let etab = cast.etablissement_id;
     poser_regle(&ent, etab, 10, 15).await;
-    let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
+    let (jour, lea) = (jour_ouvre(&ent, &cast).await, cast.eleve_lea_id);
     // Témoin : séance de 8 h sans appel.
     let temoin = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     // Annulée : exception d'annulation de l'emploi du temps.
@@ -288,7 +308,7 @@ async fn as6_aucune_relance_pour_une_seance_annulee_validee_ou_reprise() {
     // Reprise par la vie scolaire (appel ouvert à sa place) : relance éteinte.
     let reprise = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let r = ent
-        .appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", reprise, jour, "oubli")
+        .appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", reprise, jour, "oubli", Some(jour))
         .await
         .unwrap();
     assert!(!r.intervenant_lui_meme && !r.deja_ouvert);
@@ -308,7 +328,7 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
     };
     let etab = cast.etablissement_id;
     poser_regle(&ent, etab, 10, 15).await;
-    let jour = aujourdhui(&ent, &cast).await;
+    let jour = jour_ouvre(&ent, &cast).await;
     let non_assuree = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let assuree = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     // Séance du socle 10 « non assurée » (préparation par le propriétaire) rattachée à l'année du jeu de labo.
@@ -355,19 +375,16 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
     let maintenant = instant(&ent, &cast, jour, 8, 40).await;
     ent.verifier_jour_systeme(etab, maintenant).await.unwrap();
     assert_eq!(relances_auto(&ent, &cast, non_assuree).await, 0, "séance non assurée : aucune relance");
-    // Témoin : si le jour est ouvert, la séance assurée est relancée ; sinon (week-end : calendrier du socle 5)
-    // personne ne l'est, ce qui est précisément la règle « jour sans cours ».
-    let ouvert: bool = !crate::structure_calendrier::calendrier::jours_ouvres(
-        &mut ent.pool_verif().acquire().await.unwrap(),
-        etab,
-        jour,
-        jour,
-        &crate::structure_calendrier::Cible { site_id: None, niveau_id: None, classe_id: None, groupe_id: None },
-    )
-    .await
-    .unwrap()
-    .is_empty();
-    assert_eq!(relances_auto(&ent, &cast, assuree).await, i64::from(ouvert), "ouvert = {ouvert}");
+    // Témoin : `jour` est un jour de cours (`jour_ouvre`), la séance assurée est donc relancée.
+    assert_eq!(relances_auto(&ent, &cast, assuree).await, 1, "jour de cours : la séance assurée est relancée");
+    // Jour sans cours (calendrier du socle 5) : le samedi qui suit, même séance à la même heure, aucune relance.
+    let mut samedi = jour;
+    while samedi.weekday() != chrono::Weekday::Sat {
+        samedi += Duration::days(1);
+    }
+    let ferme = creneau(&ent, &cast, samedi, (8, 0), (9, 0)).await;
+    ent.verifier_jour_systeme(etab, instant(&ent, &cast, samedi, 8, 40).await).await.unwrap();
+    assert_eq!(relances_auto(&ent, &cast, ferme).await, 0, "jour sans cours : aucune relance");
     // Un jour fermé (vacances déclarées) : plus aucune relance. On vérifie la règle sur le calendrier.
     sqlx::query("DELETE FROM ent_appel_relance WHERE etablissement_id = $1").bind(etab).execute(ent.pool_verif()).await.unwrap();
 }
@@ -381,7 +398,7 @@ async fn as6_faire_l_appel_a_la_place_droit_trace_et_relance_eteinte() {
     };
     let etab = cast.etablissement_id;
     poser_regle(&ent, etab, 10, 15).await;
-    let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
+    let (jour, lea) = (jour_ouvre(&ent, &cast).await, cast.eleve_lea_id);
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     // Le professeur n'a pas `appel.faire_tout` ; la famille, la comptabilité non plus.
     for (u, r) in [
@@ -389,14 +406,18 @@ async fn as6_faire_l_appel_a_la_place_droit_trace_et_relance_eteinte() {
         (cast.parent_lea.user_id, "parent"),
         (cast.compta.user_id, "compta"),
     ] {
-        assert!(interdit(ent.appel_a_la_place_for_actor(etab, u, r, c, jour, "oubli").await), "{r}");
+        assert!(interdit(ent.appel_a_la_place_au(etab, u, r, c, jour, "oubli", Some(jour)).await), "{r}");
     }
     // Raison inconnue, jour futur, séance inconnue.
-    assert!(invalide(ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", c, jour, "parce que").await));
-    assert!(invalide(ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", c, jour + Duration::days(1), "oubli").await));
-    assert!(introuvable(ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", Uuid::new_v4(), jour, "oubli").await));
+    assert!(invalide(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour, "parce que", Some(jour)).await));
+    assert!(invalide(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour + Duration::days(1), "oubli", Some(jour)).await));
+    assert!(introuvable(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", Uuid::new_v4(), jour, "oubli", Some(jour)).await));
+    // Règle « le jour même ou la veille », éprouvée avec une horloge fixée : la veille passe (séance d'un autre jour
+    // ouvert, ici hors sujet : `introuvable`, pas `invalide`), deux jours avant est refusé.
+    assert!(invalide(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour - Duration::days(2), "oubli", Some(jour)).await));
+    assert!(!invalide(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour - Duration::days(1), "oubli", Some(jour)).await));
     // La CPE fait l'appel à la place : appel ouvert, substitution tracée.
-    let r = ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", c, jour, "intervenant_injoignable").await.unwrap();
+    let r = ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour, "intervenant_injoignable", Some(jour)).await.unwrap();
     assert_eq!(r.intervenant_user_id, Some(cast.prof.user_id));
     assert!(!r.intervenant_lui_meme && !r.deja_ouvert);
     let (auteur, intervenant, raison): (Uuid, Option<Uuid>, String) = sqlx::query_as(
@@ -411,7 +432,7 @@ async fn as6_faire_l_appel_a_la_place_droit_trace_et_relance_eteinte() {
     assert_eq!((auteur, intervenant, raison.as_str()), (cast.cpe.user_id, Some(cast.prof.user_id), "intervenant_injoignable"));
     assert_eq!(evenements_type(&ent, etab, types_as6::APPEL_A_LA_PLACE).await, 1);
     // Idempotent : une seconde demande ne double ni la trace ni l'événement.
-    let r2 = ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", c, jour, "oubli").await.unwrap();
+    let r2 = ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour, "oubli", Some(jour)).await.unwrap();
     assert_eq!((r2.appel_id, r2.deja_ouvert), (r.appel_id, true));
     assert_eq!(compte(&ent, "SELECT count(*) FROM ent_asd_appel_substitution WHERE etablissement_id = $1 AND appel_id = $2", etab, r.appel_id).await, 1);
     assert_eq!(evenements_type(&ent, etab, types_as6::APPEL_A_LA_PLACE).await, 1);
@@ -439,14 +460,14 @@ async fn as6_faire_l_appel_a_la_place_droit_trace_et_relance_eteinte() {
     .unwrap();
     assert_eq!((auteur_appel, valide_par), (cast.cpe.user_id, Some(cast.cpe.user_id)));
     // Appel déjà validé : on ne le refait pas à la place de personne.
-    assert!(conflit(ent.appel_a_la_place_for_actor(etab, cast.cpe.user_id, "cpe", c, jour, "oubli").await));
+    assert!(conflit(ent.appel_a_la_place_au(etab, cast.cpe.user_id, "cpe", c, jour, "oubli", Some(jour)).await));
     // Un élève d'un autre établissement n'apparaît pas : la séance d'un autre établissement est introuvable.
-    assert!(introuvable(ent.appel_a_la_place_for_actor(Uuid::new_v4(), cast.cpe.user_id, "cpe", c, jour, "oubli").await)
-        || interdit(ent.appel_a_la_place_for_actor(Uuid::new_v4(), cast.cpe.user_id, "cpe", c, jour, "oubli").await));
+    assert!(introuvable(ent.appel_a_la_place_au(Uuid::new_v4(), cast.cpe.user_id, "cpe", c, jour, "oubli", Some(jour)).await)
+        || interdit(ent.appel_a_la_place_au(Uuid::new_v4(), cast.cpe.user_id, "cpe", c, jour, "oubli", Some(jour)).await));
     // L'intervenant qui fait lui-même l'appel n'est pas une substitution.
     let c2 = creneau(&ent, &cast, jour, (10, 0), (11, 0)).await;
     // (le professeur n'a pas `appel.faire_tout` : seule une personne qui l'a peut passer par cette route)
-    let r3 = ent.appel_a_la_place_for_actor(etab, cast.direction.user_id, "direction", c2, jour, "oubli").await.unwrap();
+    let r3 = ent.appel_a_la_place_au(etab, cast.direction.user_id, "direction", c2, jour, "oubli", Some(jour)).await.unwrap();
     assert!(!r3.intervenant_lui_meme);
 }
 
@@ -554,7 +575,7 @@ async fn as6_eleve_exclu_de_cours_non_arrive_alerte_a_dix_minutes() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
+    let (jour, lea) = (jour_ouvre(&ent, &cast).await, cast.eleve_lea_id);
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
     ent.exclure_du_cours_for_actor(etab, a.id, lea, cast.prof.user_id, "prof", "web").await.unwrap();

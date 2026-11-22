@@ -23,6 +23,31 @@ pub(crate) fn maintenant_t() -> DateTime<Utc> {
     Utc::now()
 }
 
+/// Fenêtre d'une période de notes de test autour de `jour`, **sans jamais chevaucher la fin du premier trimestre du
+/// jeu de labo** (20 décembre, `seed.rs`) : une période de notes qui déborde de ce trimestre est rattachée à une autre
+/// période du référentiel que celle où tombent les devoirs du jour, et les moyennes disparaissent. L'ancienne
+/// fenêtre `jour − 10 … jour + 30` franchissait le 20 décembre à partir du 21 novembre (règle 33 : le test dépendait
+/// de la date à laquelle il tournait, pas du jour de la semaine). Avant le 20 décembre la fenêtre finit au plus tard
+/// le 20 et commence au plus tôt le 2 septembre ; après, elle commence au plus tôt le 21.
+pub(crate) fn fenetre_periode_note(annee_debut: NaiveDate, annee_fin: NaiveDate, jour: NaiveDate) -> (NaiveDate, NaiveDate) {
+    use chrono::Datelike;
+    let debut_t1 = domain_eleve::debut_annee_scolaire(jour);
+    let fin_t1 = NaiveDate::from_ymd_opt(debut_t1.year(), 12, 20).expect("20 décembre");
+    let (mut debut, mut fin) = (jour - Duration::days(10), jour + Duration::days(30));
+    if jour <= fin_t1 {
+        // Début strictement après celui du T1 du jeu : deux périodes du même référentiel qui commencent le même jour
+        // se départagent par un UUID aléatoire (test instable en début d'année, constaté un 5 septembre simulé).
+        // Seul le jour de la rentrée lui-même (la fenêtre doit contenir `jour`) reste exposé à cet aléa : un jour par an.
+        if jour > debut_t1 {
+            debut = debut.max(debut_t1 + Duration::days(1));
+        }
+        fin = fin.min(fin_t1);
+    } else {
+        debut = debut.max(fin_t1 + Duration::days(1));
+    }
+    (debut.max(annee_debut), fin.min(annee_fin))
+}
+
 pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
@@ -194,13 +219,14 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
         .await
         .unwrap();
     }
+    let (fenetre_debut, fenetre_fin) = fenetre_periode_note(annee.date_debut, annee.date_fin, today_utc());
     let periode = ent
         .creer_note_periode(CreerNotePeriode {
             etablissement_id: etab,
             code: format!("T{suffixe}"),
             libelle: "Trimestre S2-7".into(),
-            date_debut: (today_utc() - Duration::days(10)).max(annee.date_debut),
-            date_fin: (today_utc() + Duration::days(30)).min(annee.date_fin),
+            date_debut: fenetre_debut,
+            date_fin: fenetre_fin,
             actor_user_id: None,
         })
         .await

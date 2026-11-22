@@ -340,6 +340,24 @@ async fn c4_charge_de_l_eleve_famille_reperes_a_trois_positions_et_calendrier_de
     assert!(mats.contains(&"Chimie") && mats.contains(&"Latin"), "l'équipe de la classe voit les matières : {mats:?}");
     assert_eq!(jc.evaluations_max_par_eleve, 2);
     assert!(cal.nb_eleves >= 3);
+    // V3d (F-10) : le libellé dit si l'évaluation est annoncée ; l'équipe voit aussi celles qui ne le sont pas encore.
+    let nature = |cal: &CalendrierClasseDto, titre: &str| {
+        cal.jours
+            .iter()
+            .flat_map(|x| x.lignes.iter())
+            .find(|l| l.titre == titre)
+            .map(|l| l.nature.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(nature(&cal, "Version latine"), "Évaluation");
+    sqlx::query("UPDATE eva_evaluation SET annoncee = false WHERE etablissement_id = $1 AND titre = 'Version latine' AND publiee_le IS NULL")
+        .bind(fx.cast.etablissement_id)
+        .execute(fx.ent.pool_verif())
+        .await
+        .unwrap();
+    let cal2 = fx.ent.cdt_calendrier_classe(&fx.prof(), fx.classe_a, du, au).await.unwrap();
+    assert_eq!(nature(&cal2, "Version latine"), "Évaluation (non annoncée)");
+    assert_eq!(nature(&cal2, "Contrôle de chimie"), "Évaluation");
     // Un professeur qui n'est pas de la classe, l'élève, la famille : refusés ; la direction lit.
     assert!(est_interdit(&fx.ent.cdt_calendrier_classe(&fx.prof2(), fx.classe_a, du, au).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cdt_calendrier_classe(&fx.eleve(&fx.x), fx.classe_a, du, au).await.unwrap_err()));

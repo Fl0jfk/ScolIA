@@ -13,8 +13,9 @@
 
 use std::net::SocketAddr;
 
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 use ent_types::assiduite::{DeposerJustificatifBody, PointerLigneBody, QualifierEpisodeBody};
+use ent_types::edt_s2::CreneauSaisieDto;
 use ent_web_api::{ApiClient, ApiError, Connexion, FiltreEpisodesApi};
 use ent_web_app::modules::assiduite_vs::dossier_modele::{
     chronologie, corps_requalification, grouper_par_mois, lignes_dossier_signalement, EtatSeuil,
@@ -419,13 +420,49 @@ async fn as14d_dossier_qualification_requalification_et_droits() {
     assert!(rect_b.map(|v| v.is_empty()).unwrap_or(true));
 }
 
-/// Les quatre dernières occurrences (mêmes jours de semaine qu'aujourd'hui) du mois précédent, pour
-/// avoir un mois **terminé** que la direction peut arrêter.
+/// Jour de semaine fixe des appels de ce test (règle 33) : un jour de cours, quel que soit le jour où le test tourne.
+/// Le créneau 4B du seed de labo est posé au jour de semaine de « aujourd'hui » (un samedi, il tombe sur un jour sans
+/// cours du calendrier et le décompte ne compte rien) : le test crée donc le sien, ce jour-là, par l'administration.
+const JOUR_DES_APPELS: Weekday = Weekday::Tue;
+
+/// Crée (ou retrouve) le créneau 4B du mardi 15 h–16 h du professeur du labo, par l'administrateur.
+async fn creneau_4b_des_appels(admin: &ApiClient, prof_user_id: Uuid) {
+    let h = |heure| NaiveTime::from_hms_opt(heure, 0, 0).expect("heure");
+    let jour_semaine = JOUR_DES_APPELS.number_from_monday() as i16;
+    let saisie = CreneauSaisieDto {
+        classe: "4B".into(),
+        groupe_id: None,
+        matiere_libelle: "AS14e".into(),
+        prof_user_id,
+        jour_semaine,
+        heure_debut: h(15),
+        heure_fin: h(16),
+        salle: None,
+        site: String::new(),
+        semaine_ab: "toutes".into(),
+    };
+    let existants = admin
+        .creneaux_admin(Some("4B"), Some(prof_user_id), None)
+        .await
+        .expect("créneaux");
+    if !existants
+        .iter()
+        .any(|c| c.matiere_libelle == saisie.matiere_libelle && c.jour_semaine == jour_semaine)
+    {
+        admin
+            .creer_creneau(&saisie, false)
+            .await
+            .expect("créneau 4B créé");
+    }
+}
+
+/// Les quatre derniers mardis du mois précédent (voir [`JOUR_DES_APPELS`]), pour avoir un mois **terminé** que la
+/// direction peut arrêter.
 fn quatre_jours_du_mois_precedent() -> (NaiveDate, [NaiveDate; 4]) {
     let aujourd = ent_db::jour_paris();
     let mois = premier_du_mois(premier_du_mois(aujourd) - Duration::days(1));
     let mut j = mois;
-    while j.weekday() != aujourd.weekday() {
+    while j.weekday() != JOUR_DES_APPELS {
         j += Duration::days(1);
     }
     (
@@ -452,6 +489,9 @@ async fn as14e_seuil_proposition_decision_et_rectification() {
     let direction = personnel(&base, &l, "direction").await;
     let lily = parent_de(&base, &l, "Harry").await;
     let (mois, jours) = quatre_jours_du_mois_precedent();
+    let prof_id = l.premier("prof").expect("professeur de labo").user_id;
+    let admin = personnel(&base, &l, "admin").await;
+    creneau_4b_des_appels(&admin, prof_id).await;
 
     for j in jours {
         appel_fait(&prof, j, &[hermione]).await;

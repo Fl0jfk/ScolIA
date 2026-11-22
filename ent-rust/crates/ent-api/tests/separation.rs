@@ -3023,3 +3023,42 @@ fn n0a_accueil_refuse_sur_mails_et_sms() {
         }
     });
 }
+
+/// V3d (M-6) : les 14 routes `/eva/v4/*` (propositions, rattrapages, remplacement, zéro, dispenses, aménagements, absences
+/// répétées) sont réservées au personnel : la famille et l'élève reçoivent **403** d'entrée, sur toutes les routes et quel
+/// que soit le corps (avant toute lecture : une évaluation inconnue ne répond pas 404 à un parent). Les écritures n'ont
+/// aucun effet (aucune convocation créée).
+#[test]
+fn evaluations_v4_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
+    let Some(m) = monde() else { return };
+    let id = Uuid::new_v4();
+    let eleve = Uuid::new_v4();
+    let plan = json!({"evaluation_id": id, "eleves": [eleve], "prevu_le": "2031-10-27", "heure": null, "lieu": null, "modalite": null, "echeance": null});
+    let deplacer = json!({"prevu_le": "2031-10-27", "heure": null, "lieu": null, "modalite": null, "echeance": null, "version_attendue": 1});
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", format!("/eva/v4/evaluations/{id}/propositions"), None),
+        ("POST", "/eva/v4/propositions/appliquer".into(), Some(json!({"cours_id": id, "evaluation_id": id, "eleves": null}))),
+        ("GET", format!("/eva/v4/evaluations/{id}/amenagements"), None),
+        ("GET", format!("/eva/v4/evaluations/{id}/rattrapages"), None),
+        ("POST", "/eva/v4/rattrapages".into(), Some(plan.clone())),
+        ("PUT", format!("/eva/v4/rattrapages/{id}"), Some(deplacer)),
+        ("POST", format!("/eva/v4/rattrapages/{id}/resultat"), Some(json!({"texte": "12", "absence": null, "version_attendue": 1}))),
+        ("POST", format!("/eva/v4/rattrapages/{id}/annuler"), Some(json!({"motif": "essai de la famille", "version_attendue": 1}))),
+        ("POST", format!("/eva/v4/rattrapages/{id}/reconvoquer"), Some(json!({"prevu_le": "2031-10-31", "heure": null, "lieu": null, "modalite": null, "echeance": null}))),
+        ("POST", "/eva/v4/remplacements".into(), Some(plan)),
+        ("POST", format!("/eva/v4/rattrapages/{id}/zero"), Some(json!({"confirme": true, "version_attendue": 1}))),
+        ("POST", "/eva/v4/dispenses".into(), Some(json!({"eleve_id": eleve, "matiere_id": null, "nature": "dispense", "du": "2031-10-01", "au": null}))),
+        ("GET", format!("/eva/v4/dispenses?eleve_id={eleve}"), None),
+        ("POST", format!("/eva/v4/dispenses/{id}/retirer"), None),
+        ("GET", format!("/eva/v4/absences-repetees?periode_id={id}"), None),
+    ];
+    assert_eq!(routes.len(), 15, "toutes les routes /eva/v4 de routes.rs sont couvertes");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}
