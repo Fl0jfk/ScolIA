@@ -9,13 +9,13 @@ Branche `ent-socle-11-code-mb0` (base `origin/ENT`). Conception : `11_APPLICATIO
 | **DS1** | `ent_push_device.session_id` ; un déclencheur SQL révoque, **dans la même transaction**, les appareils d'une session révoquée (déconnexion, appareil perdu, accès fermé, révocation globale : tous les chemins). | 2220 |
 | **DS3** | `POST /devices/push` ne renvoie plus le jeton ; empreinte SHA-256 (`token_empreinte`) ; un jeton déjà actif pour une autre personne/session est **révoqué avec trace** (`revoque_motif = reaffecte`), jamais réaffecté en silence ; l'événement métier porte `reaffecte_depuis` (sans le jeton). | `push_repo.rs`, `service.rs`, `routes.rs`, 2220 |
 | **DS4** | `DELETE /devices/push/{id}` (propriétaire seul, 404 sinon) ; la déconnexion coupe l'inscription par DS1. | `routes.rs`, `service.rs` |
-| **DS5** | `ent_push_device` : hors portabilité, **purgé** à la restauration (registre). | `registre_donnees.rs` |
+| **DS5** | `ent_push_device` : métadonnées exportées sans jeton, **révoqué** à la restauration (neutralisation `Maj`) (registre). | `registre_donnees.rs` |
 | — | Les inscriptions sans session ne sont plus utilisées pour l'envoi après 30 jours sans réinscription (requêtes d'envoi et de disponibilité du canal). | `notifications.rs`, `ntf/destinataires.rs`, `campagnes.rs`, `push_repo.rs` |
 
 Migration **2220** (plage 2220–2239 ; 2221–2239 libres). Aucune table nouvelle ; aucune migration versée modifiée. Tests existants adaptés : deux `INSERT … ON CONFLICT (etablissement_id, token)` deviennent `… WHERE revoked_at IS NULL` (index d'unicité désormais partiel).
 
 ## Non fait (et pourquoi)
-- **Chiffrement du jeton** (`token_chiffre`, `enc:v2`) : aucune brique de chiffrement (E11) n'existe dans le dépôt ; le jeton reste en clair en base (jamais renvoyé, exclu de l'export, purgé à la restauration). À reprendre quand la brique existera (socle 8, N7).
+- **Chiffrement du jeton** (`token_chiffre`, `enc:v2`) : aucune brique de chiffrement (E11) n'existe dans le dépôt ; le jeton reste en clair en base (jamais renvoyé, exclu de l'export, révoqués à la restauration (neutralisation)). À reprendre quand la brique existera (socle 8, N7).
 - **Avis de sécurité à l'ancien titulaire** (R-MO17) : seule la trace (`reaffecte_depuis`) est écrite ; l'avis dépend du socle 8 (N7).
 - **DA1** (expiration des caches), **DA2** (`targetSdk 36`), **retrait d'OkHttp** (D-062) : correctifs d'appli Kotlin, dans la branche `ent-mobile-app` (absente de `ENT`), non vérifiables dans ce lot. À faire en MB1 avec la CI de l'appli.
 - **Enveloppe d'erreur codée** : MB1, pas MB0.
@@ -55,7 +55,7 @@ Base : tête distante `159ca4ed`, puis fusion de `origin/ENT` (`ebac1517`, semis
 | **F2** | `resolve_bearer` applique `client_effectif` à la lecture | même test passkey (ligne forgée lue « web ») |
 | **F3** | `LEAST(expires_at, created_at + 12 h)` ; au-delà, session close (appareils révoqués par le déclencheur) | test de migration |
 | **F4** | l'empreinte (tenue à jour par déclencheur) est le critère de recherche et d'unicité ; index sur `token` supprimé | tests ci-dessus |
-| **F5** | `ON CONFLICT` puis relecture : trois inscriptions simultanées → jamais de 500 ; portabilité : métadonnées de l'appareil exportées sans jeton ni empreinte, purge à la restauration | `inscriptions_simultanees…`, `registre_jetons_non_exportes_et_purges` |
+| **F5** | `ON CONFLICT` puis relecture : trois inscriptions simultanées → jamais de 500 ; portabilité : métadonnées de l'appareil exportées sans jeton ni empreinte, révocation de tous les appareils actifs à la restauration | `inscriptions_simultanees…`, `registre_jetons_non_exportes_et_purges` |
 
 ### Non fait / risques connus
 - **F1** (passkey + client déclaré « mobile » depuis un navigateur) : reste pour **MB4** (clé d'appareil) ; risque connu, réf. MEN-11.

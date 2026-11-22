@@ -302,7 +302,7 @@ async fn desinscription_reservee_au_proprietaire() {
         .expect("déjà fait"));
 }
 
-/// DS5 / F5 : le registre exporte les métadonnées de l'appareil sans le jeton ni l'empreinte, et purge à la restauration.
+/// DS5 / F5 : le registre exporte les métadonnées de l'appareil sans le jeton ni l'empreinte, et révoque tout à la restauration.
 #[test]
 fn registre_jetons_non_exportes_et_purges() {
     let t = crate::registre_donnees::REGISTRE
@@ -317,7 +317,7 @@ fn registre_jetons_non_exportes_et_purges() {
     assert!(t.colonnes_hors_export.contains(&"token_empreinte"));
     assert!(matches!(
         t.neutralisation,
-        crate::registre_donnees::Neutralisation::Purge
+        crate::registre_donnees::Neutralisation::Maj { set, .. } if set.contains("revoked_at")
     ));
 }
 
@@ -333,7 +333,7 @@ fn jeton() -> String {
 
 /// Appareils retenus pour l'envoi (fonction SQL unique `ent_push_actif`, règle 1).
 async fn eligibles(ent: &PgEnt, etab: Uuid, user: Uuid) -> usize {
-    repo(&ent)
+    repo(ent)
         .list_active_for_users(etab, &[user])
         .await
         .expect("liste")
