@@ -64,6 +64,8 @@ const MAX_CONVOQUES: usize = 300;
 
 /// Plafond d'élèves examinés et rendus par la lecture des absences répétées (F-5, coût borné).
 const MAX_ABSENCES_REPETEES: i64 = 500;
+/// Nombre maximal de lots de candidats examinés par une lecture (coût borné, jamais de troncature silencieuse).
+const MAX_LOTS_ABSENCES_REPETEES: usize = 20;
 
 /// Aménagements qui demandent une aide humaine (AESH) le jour de l'évaluation (CE-37).
 const AMENAGEMENTS_AIDE_HUMAINE: [&str; 4] = [
@@ -977,11 +979,44 @@ impl PgEnt {
                     }
                 }
             }
+            // Revue de V5 (H3) : convoquer de nouveau quand la convocation ANNULÉE du même élève avait une échéance déjà
+            // dépassée repousse de fait cette échéance : même règle que la prolongation (direction seule, avec un motif,
+            // tracé au journal). Sans cela, annuler puis re-planifier contournait la prolongation tracée.
+            let echu: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM eva_rattrapage z
+                                 WHERE z.etablissement_id = $1 AND z.evaluation_id = $2 AND z.eleve_id = $3
+                                   AND z.nature = $4 AND z.etat = 'annule' AND z.echeance < $5)",
+            )
+            .bind(etab)
+            .bind(body.evaluation_id)
+            .bind(eleve)
+            .bind(nature)
+            .bind(jour)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            let motif_echu = if echu {
+                if !acces.corriger {
+                    return Err(refus(
+                        "la convocation annulée avait une échéance dépassée : seule la direction peut convoquer de nouveau, avec un motif",
+                    ));
+                }
+                let m = body.motif.as_deref().map(str::trim).unwrap_or("");
+                if m.chars().count() < 3 || m.chars().count() > 500 {
+                    return Err(refus(
+                        "échéance précédente dépassée : un motif de 3 à 500 caractères est requis",
+                    ));
+                }
+                Some(m.to_string())
+            } else {
+                None
+            };
             let id = Uuid::new_v4();
             sqlx::query(
                 "INSERT INTO eva_rattrapage (id, etablissement_id, evaluation_id, eleve_id, nature, seance_id, precedent_id,
-                                             prevu_le, heure, lieu, modalite, echeance, cree_par, modifie_par)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)",
+                                             prevu_le, heure, lieu, modalite, echeance, cree_par, modifie_par,
+                                             dernier_motif_prolongation)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14)",
             )
             .bind(id)
             .bind(etab)
@@ -996,6 +1031,7 @@ impl PgEnt {
             .bind(modalite)
             .bind(echeance)
             .bind(acteur)
+            .bind(&motif_echu)
             .execute(&mut *tx)
             .await
             .map_err(|e| match e.as_database_error().and_then(|d| d.code()).as_deref() {
@@ -1289,7 +1325,8 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let n = sqlx::query(
-            "UPDATE eva_rattrapage SET etat = 'annule', motif_annulation = $3, modifie_par = $4
+            "UPDATE eva_rattrapage SET etat = 'annule', motif_annulation = $3, modifie_par = $4,
+                    dernier_motif_prolongation = NULL
               WHERE etablissement_id = $1 AND id = $2 AND version = $5 AND etat = 'convoque'",
         )
         .bind(etab)
@@ -1364,7 +1401,12 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        let motif_apres_echeance = if body.absence.is_none() && echeance < jour {
+        // Revue de V5 (H3) : constater une absence JUSTIFIÉE après l'échéance ouvre la reconvocation (nouvelle échéance) :
+        // c'est une prolongation déguisée, soumise à la même règle (direction, motif, trace). Le constat d'une absence non
+        // justifiée, lui, ne rouvre rien : il reste ouvert.
+        let apres_echeance_a_encadrer = echeance < jour
+            && (body.absence.is_none() || body.absence.as_deref() == Some("justifiee"));
+        let motif_apres_echeance = if apres_echeance_a_encadrer {
             if !acces.corriger {
                 return Err(refus(
                     "l'échéance du rattrapage est dépassée : seule la direction peut encore noter, avec un motif",
@@ -1377,6 +1419,12 @@ impl PgEnt {
                 ));
             }
             Some(m.to_string())
+        } else {
+            None
+        };
+        // Le motif d'une absence justifiée constatée après l'échéance est tracé au journal des convocations.
+        let motif_trace = if body.absence.as_deref() == Some("justifiee") {
+            motif_apres_echeance.clone()
         } else {
             None
         };
@@ -1441,7 +1489,7 @@ impl PgEnt {
             }
         };
         let n = sqlx::query(
-            "UPDATE eva_rattrapage SET etat = $3, modifie_par = $4
+            "UPDATE eva_rattrapage SET etat = $3, modifie_par = $4, dernier_motif_prolongation = $6
               WHERE etablissement_id = $1 AND id = $2 AND version = $5 AND etat = 'convoque'",
         )
         .bind(etab)
@@ -1449,6 +1497,7 @@ impl PgEnt {
         .bind(nouvel_etat)
         .bind(acteur)
         .bind(body.version_attendue)
+        .bind(motif_trace.as_deref())
         .execute(&mut *tx)
         .await
         .map_err(db)?
@@ -1535,6 +1584,7 @@ impl PgEnt {
             lieu: body.lieu.clone(),
             modalite: body.modalite.clone(),
             echeance: body.echeance,
+            motif: None,
         };
         let mut v = self
             .eva_v4_convoquer(
@@ -1784,6 +1834,31 @@ impl PgEnt {
         periode_id: Uuid,
         cours_id: Option<Uuid>,
     ) -> Result<Vec<AbsenceRepeteeDto>, EntDbError> {
+        self.eva_v4_absences_repetees_plafonnees(
+            etab,
+            acteur,
+            role,
+            jour,
+            periode_id,
+            cours_id,
+            MAX_ABSENCES_REPETEES,
+        )
+        .await
+    }
+
+    /// Lecture des absences répétées avec un plafond explicite (le plafond de production est `MAX_ABSENCES_REPETEES` ;
+    /// un test le réduit pour éprouver le refus sans fabriquer 500 élèves).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn eva_v4_absences_repetees_plafonnees(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        jour: NaiveDate,
+        periode_id: Uuid,
+        cours_id: Option<Uuid>,
+        plafond: i64,
+    ) -> Result<Vec<AbsenceRepeteeDto>, EntDbError> {
         Self::exiger_staff(role)?;
         match cours_id {
             Some(c) => {
@@ -1810,84 +1885,106 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         let (du, au) = bornes.ok_or_else(introuvable)?;
         // F-5 : coût borné. L'étape 1 ne regarde que les cases (aucun appel au socle 12) et retient les élèves qui ont au
-        // moins `$5` cases absentes dans la période ; l'assiduité n'est interrogée que pour ces élèves-là, et la réponse est
-        // plafonnée. Faux positifs : une absence justifiée l'est à la séance du cours, ou, pour une évaluation hors séance
-        // (aucune séance du cours ce jour-là), par une absence justifiée du jour (séance ou demi-journée).
-        // V3e : le plafond ne tronque JAMAIS en silence. L'étape 1 est lue avec un élève de plus que le plafond ; au-delà, la
-        // lecture est refusée (préciser le cours) au lieu de rendre une liste incomplète ; la justification et la
-        // visibilité s'appliquent ensuite à des candidats tous examinés.
-        let candidats: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT r.eleve_id
-               FROM eva_resultat r
-               JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
-              WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
-                AND e.date_eval BETWEEN $2 AND $3
-                AND ($4::uuid IS NULL OR e.cours_id = $4)
-                AND r.statut IN ('absent', 'a_rattraper')
-              GROUP BY r.eleve_id
-             HAVING count(DISTINCT r.evaluation_id) >= $5
-              ORDER BY r.eleve_id
-              LIMIT $6",
-        )
-        .bind(etab)
-        .bind(du)
-        .bind(au)
-        .bind(cours_id)
-        .bind(SEUIL_ABSENCES_REPETEES as i32)
-        .bind(MAX_ABSENCES_REPETEES + 1)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        if i64::try_from(candidats.len()).unwrap_or(i64::MAX) > MAX_ABSENCES_REPETEES {
-            return Err(refus(
-                "trop d'élèves à examiner pour une seule lecture : préciser le cours ou la période",
-            ));
-        }
-        let rows = sqlx::query(
-            "SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
-                    EXISTS (SELECT 1 FROM eva_rattrapage z WHERE z.etablissement_id = r.etablissement_id
-                               AND z.eleve_id = r.eleve_id AND z.nature = 'remplacement' AND z.etat <> 'annule') AS rempl
-               FROM eva_resultat r
-               JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
-               LEFT JOIN LATERAL eva_absence_a_la_seance(r.etablissement_id, r.eleve_id, e.cours_id, e.date_eval) AS ab(v) ON true
-              WHERE r.etablissement_id = $1 AND r.eleve_id = ANY($6) AND e.mode = 'note' AND e.etat = 'ouverte'
-                AND e.date_eval BETWEEN $2 AND $3
-                AND ($4::uuid IS NULL OR e.cours_id = $4)
-                AND r.statut IN ('absent', 'a_rattraper')
-                AND COALESCE(ab.v, 'sans') <> 'justifiee'
-                AND NOT (ab.v IS NULL AND eva_absence_justifiee_ce_jour(r.etablissement_id, r.eleve_id, e.date_eval))
-              GROUP BY r.etablissement_id, r.eleve_id
-             HAVING count(DISTINCT r.evaluation_id) >= $5
-              ORDER BY r.eleve_id",
-        )
-        .bind(etab)
-        .bind(du)
-        .bind(au)
-        .bind(cours_id)
-        .bind(SEUIL_ABSENCES_REPETEES as i32)
-        .bind(&candidats)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        tx.commit().await.map_err(db)?;
-        let ids: Vec<Uuid> = rows
-            .iter()
-            .filter_map(|r| r.try_get("eleve_id").ok())
-            .collect();
-        let caches = self.eva_v4_caches(etab, acteur, role, &ids).await?;
-        let mut sortie = Vec::new();
-        for r in &rows {
-            let eleve_id: Uuid = r.try_get("eleve_id").map_err(db)?;
-            if caches.contains(&eleve_id) {
-                continue;
+        // moins `$5` cases absentes dans la période ; l'assiduité n'est interrogée que pour ces élèves-là. Faux positifs :
+        // une absence justifiée l'est à la séance du cours, ou, pour une évaluation hors séance (aucune séance du cours ce
+        // jour-là), par une absence justifiée du jour (séance ou demi-journée).
+        // V3e/F2 : le plafond ne tronque JAMAIS en silence et ne s'applique qu'APRÈS les filtres (justification, visibilité).
+        // Les candidats sont lus par lots de `MAX_ABSENCES_REPETEES` (pagination par élève) ; chaque lot subit la
+        // justification et la visibilité ; la lecture est refusée (préciser le cours ou la période) quand la liste
+        // FILTRÉE dépasse le plafond, ou quand le nombre de lots examinés dépasse `MAX_LOTS_ABSENCES_REPETEES`.
+        let mut sortie: Vec<AbsenceRepeteeDto> = Vec::new();
+        let mut apres: Option<Uuid> = None;
+        let mut lots = 0;
+        loop {
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            let candidats: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT r.eleve_id
+                   FROM eva_resultat r
+                   JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
+                  WHERE r.etablissement_id = $1 AND e.mode = 'note' AND e.etat = 'ouverte'
+                    AND e.date_eval BETWEEN $2 AND $3
+                    AND ($4::uuid IS NULL OR e.cours_id = $4)
+                    AND r.statut IN ('absent', 'a_rattraper')
+                    AND ($7::uuid IS NULL OR r.eleve_id > $7)
+                  GROUP BY r.eleve_id
+                 HAVING count(DISTINCT r.evaluation_id) >= $5
+                  ORDER BY r.eleve_id
+                  LIMIT $6",
+            )
+            .bind(etab)
+            .bind(du)
+            .bind(au)
+            .bind(cours_id)
+            .bind(SEUIL_ABSENCES_REPETEES as i32)
+            .bind(plafond)
+            .bind(apres)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            let rows = sqlx::query(
+                "SELECT r.eleve_id, count(DISTINCT r.evaluation_id)::int AS nb,
+                        EXISTS (SELECT 1 FROM eva_rattrapage z WHERE z.etablissement_id = r.etablissement_id
+                                   AND z.eleve_id = r.eleve_id AND z.nature = 'remplacement' AND z.etat <> 'annule') AS rempl
+                   FROM eva_resultat r
+                   JOIN eva_evaluation e ON e.id = r.evaluation_id AND e.etablissement_id = r.etablissement_id
+                   LEFT JOIN LATERAL eva_absence_a_la_seance(r.etablissement_id, r.eleve_id, e.cours_id, e.date_eval) AS ab(v) ON true
+                  WHERE r.etablissement_id = $1 AND r.eleve_id = ANY($6) AND e.mode = 'note' AND e.etat = 'ouverte'
+                    AND e.date_eval BETWEEN $2 AND $3
+                    AND ($4::uuid IS NULL OR e.cours_id = $4)
+                    AND r.statut IN ('absent', 'a_rattraper')
+                    AND COALESCE(ab.v, 'sans') <> 'justifiee'
+                    AND NOT (ab.v IS NULL AND eva_absence_justifiee_ce_jour(r.etablissement_id, r.eleve_id, e.date_eval))
+                  GROUP BY r.etablissement_id, r.eleve_id
+                 HAVING count(DISTINCT r.evaluation_id) >= $5
+                  ORDER BY r.eleve_id",
+            )
+            .bind(etab)
+            .bind(du)
+            .bind(au)
+            .bind(cours_id)
+            .bind(SEUIL_ABSENCES_REPETEES as i32)
+            .bind(&candidats)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            let ids: Vec<Uuid> = rows
+                .iter()
+                .filter_map(|r| r.try_get("eleve_id").ok())
+                .collect();
+            let caches = self.eva_v4_caches(etab, acteur, role, &ids).await?;
+            for r in &rows {
+                let eleve_id: Uuid = r.try_get("eleve_id").map_err(db)?;
+                if caches.contains(&eleve_id) {
+                    continue;
+                }
+                sortie.push(AbsenceRepeteeDto {
+                    eleve_id,
+                    nb_evaluations: u32::try_from(r.try_get::<i32, _>("nb").map_err(db)?)
+                        .unwrap_or(0),
+                    remplacement_convoque: r.try_get("rempl").map_err(db)?,
+                });
             }
-            sortie.push(AbsenceRepeteeDto {
-                eleve_id,
-                nb_evaluations: u32::try_from(r.try_get::<i32, _>("nb").map_err(db)?).unwrap_or(0),
-                remplacement_convoque: r.try_get("rempl").map_err(db)?,
-            });
+            if i64::try_from(sortie.len()).unwrap_or(i64::MAX) > plafond {
+                return Err(refus(
+                    "trop d'élèves à examiner pour une seule lecture : préciser le cours ou la période",
+                ));
+            }
+            lots += 1;
+            match candidats.last() {
+                Some(dernier) if i64::try_from(candidats.len()).unwrap_or(i64::MAX) >= plafond => {
+                    if lots >= MAX_LOTS_ABSENCES_REPETEES {
+                        return Err(refus(
+                            "trop d'élèves à examiner pour une seule lecture : préciser le cours ou la période",
+                        ));
+                    }
+                    apres = Some(*dernier);
+                }
+                _ => break,
+            }
         }
         Ok(sortie)
     }

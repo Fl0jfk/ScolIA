@@ -136,6 +136,9 @@ pub struct SaisirMoyenneExterneBody {
     pub bareme_m: Option<i64>,
     pub appreciation_transcrite: Option<String>,
     pub document_id: Option<Uuid>,
+    /// Motif de 3 à 500 caractères, **obligatoire** pour corriger une moyenne déjà saisie (journalisé).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +149,8 @@ pub struct MoyenneExterneDto {
     pub valeur_m: Option<i64>,
     pub bareme_m: i64,
     pub appreciation_transcrite: Option<String>,
+    /// Publiée à la famille et à l'élève (second geste de la direction) ; une moyenne non publiée n'existe pas pour eux.
+    pub publiee: bool,
 }
 
 // ───────────────────────────── Parcours d'un élève dans une période ─────────────────────────────

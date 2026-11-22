@@ -647,6 +647,7 @@ async fn v5_ce06_une_moyenne_externe_vaut_moyenne_de_matiere_sans_double_compte(
         bareme_m: None,
         appreciation_transcrite: None,
         document_id: None,
+        motif: None,
     };
     // Le professeur ne déclare pas : direction seulement.
     let r = ent
@@ -732,12 +733,29 @@ async fn v5_ce06_une_moyenne_externe_vaut_moyenne_de_matiere_sans_double_compte(
     );
     assert_eq!(moyenne(&ent, &w, a, w.maths, w.t1, false).await, None);
     // Correction : journalisée en ajout seul (avant, après, auteur).
+    // Revue de V5 (M3) : une correction porte un motif.
+    let r = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            fr.id,
+            &saisie(Some(16_000), "moyenne"),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("motif")),
+        "{r:?}"
+    );
     ent.eva_v5_saisir_moyenne_externe_for_actor(
         w.etab,
         w.direction,
         DIR,
         fr.id,
-        &saisie(Some(16_000), "moyenne"),
+        &SaisirMoyenneExterneBody {
+            motif: Some("Rectification du relevé CNED".into()),
+            ..saisie(Some(16_000), "moyenne")
+        },
     )
     .await
     .unwrap();
@@ -1499,4 +1517,801 @@ async fn v5_cas_limite_un_eleve_qui_quitte_puis_revient_ne_perd_ni_ne_double_auc
         1,
         "une seule fois dans l'effectif"
     );
+}
+
+// ───────────────────────── Revue de V5 : correctifs E1, M1 à M5, F3, F4, H1, H2 ─────────────────────────
+
+async fn lier_parent(ent: &PgEnt, w: &W, eleve: Uuid, user: Uuid, voit_notes: bool) {
+    ent.link_parent(crate::foyer_repo::CreateLien {
+        etablissement_id: w.etab,
+        eleve_id: eleve,
+        user_id: user,
+        foyer_id: None,
+        lien: "responsable".into(),
+        peut_voir_notes: voit_notes,
+        peut_voir_vs: true,
+        peut_justifier_absence: false,
+        peut_autoriser_sorties: false,
+        est_payeur: false,
+        part_paiement: None,
+    })
+    .await
+    .unwrap();
+}
+
+/// Une pièce du socle 7 déposée pour `eleve` (document minimal, sans version).
+async fn piece(ent: &PgEnt, w: &W, eleve: Uuid) -> Uuid {
+    let entite = Uuid::new_v4();
+    exec(
+        ent,
+        "INSERT INTO ent_doc_entite (id, etablissement_id, type, raison_sociale) VALUES ($1, $2, 'ensemble', 'Entité de test')",
+        vec![u(entite), u(w.etab)],
+    )
+    .await;
+    let doc = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_doc_document (id, etablissement_id, nature_code, entite_id, sujet_type, sujet_id, eleve_id, origine,
+                                       sensibilite, domaine, titre, titre_neutre, categorie_conservation)
+         VALUES ($1, $2, 'scolarite.releve', $3, 'eleve', $4, $4, 'depose', 'C1', 'scolarite', 'Relevé externe',
+                 'Document au dossier', 'dossier_scolaire')",
+    )
+    .bind(doc)
+    .bind(w.etab)
+    .bind(entite)
+    .bind(eleve)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    doc
+}
+
+async fn enseignement(
+    ent: &PgEnt,
+    w: &W,
+    eleve: Uuid,
+    matiere: Uuid,
+    compte: bool,
+) -> EnseignementExterneDto {
+    ent.eva_v5_declarer_enseignement_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        &DeclarerEnseignementExterneBody {
+            eleve_id: eleve,
+            matiere_id: matiere,
+            organisme: "cned".into(),
+            organisme_libelle: Some("CNED".into()),
+            du: d(2031, 9, 1),
+            au: None,
+            referent: None,
+            compte_moyenne_generale: compte,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+fn moy(
+    periode: Uuid,
+    statut: &str,
+    valeur: Option<i64>,
+    motif: Option<&str>,
+    document: Option<Uuid>,
+) -> SaisirMoyenneExterneBody {
+    SaisirMoyenneExterneBody {
+        periode_id: periode,
+        statut: statut.into(),
+        valeur_m: valeur,
+        bareme_m: None,
+        appreciation_transcrite: None,
+        document_id: document,
+        motif: motif.map(str::to_string),
+    }
+}
+
+/// E1, M3, M5 : une moyenne externe n'existe pour la famille qu'après publication ; sa correction porte un motif ; le journal
+/// ne trace que ce qui change (événement, motif, pièce, auteur exact).
+#[tokio::test]
+async fn revue_e1_m3_m5_une_moyenne_externe_se_publie_se_corrige_avec_motif_et_se_journalise() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b) = (w.eleves_a[0], w.eleves_a[1]);
+    lier_parent(&ent, &w, a, cast.parent_lea.user_id, true).await;
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            fr.id,
+            &moy(w.t1, "moyenne", Some(15_000), None, None),
+        )
+        .await
+        .unwrap();
+    assert!(!saisi.moyennes[0].publiee);
+    // E1 : personnel = 15 ; famille = rien tant que la moyenne n'est pas publiée (une note non publiée n'existe pas).
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, false).await, Some(15_000));
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, None);
+    let famille = ent
+        .eva_v1_moyennes_famille_for_actor(w.etab, cast.parent_lea.user_id, "parent", a, w.t1)
+        .await
+        .unwrap();
+    assert!(famille.matieres.iter().all(|m| m.matiere_id != w.francais));
+    // Publier : direction seule ; une seule fois.
+    let moyenne_id = saisi.moyennes[0].id;
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.prof, PROF, moyenne_id)
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.prof, PROF, Uuid::new_v4())
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "ligne inconnue : droit refusé : {r:?}");
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, Uuid::new_v4())
+        .await;
+    assert!(matches!(r, Err(EntDbError::Domain(DomainError::NotFound))), "{r:?}");
+    let publiee = ent
+        .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, moyenne_id)
+        .await
+        .unwrap();
+    assert!(publiee.moyennes[0].publiee);
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(w.etab, w.direction, DIR, moyenne_id)
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, Some(15_000));
+    let famille = ent
+        .eva_v1_moyennes_famille_for_actor(w.etab, cast.parent_lea.user_id, "parent", a, w.t1)
+        .await
+        .unwrap();
+    assert!(famille.matieres.iter().any(|m| m.matiere_id == w.francais));
+    // M3 : correction sans motif, ou avec un motif trop court / trop long : refusée.
+    for motif in [None, Some("ab"), Some("x".repeat(501).as_str())] {
+        let r = ent
+            .eva_v5_saisir_moyenne_externe_for_actor(
+                w.etab,
+                w.direction,
+                DIR,
+                fr.id,
+                &moy(w.t1, "moyenne", Some(16_000), motif, None),
+            )
+            .await;
+        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{motif:?} : {r:?}");
+    }
+    // Rien ne change : aucune écriture, aucun journal, aucun motif exigé (idempotent).
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        fr.id,
+        &moy(w.t1, "moyenne", Some(15_000), None, None),
+    )
+    .await
+    .unwrap();
+    let nb = |ent: &PgEnt| {
+        let ent = ent.pool_verif().clone();
+        let (etab, id) = (w.etab, fr.id);
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM eva_moyenne_externe_historique WHERE etablissement_id = $1 AND enseignement_externe_id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&ent)
+            .await
+            .unwrap()
+        }
+    };
+    assert_eq!(nb(&ent).await, 2, "saisie + publication, pas de ligne pour un geste sans effet");
+    // Correction motivée : la famille voit la nouvelle valeur (la moyenne reste publiée), le journal garde l'ancienne.
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        fr.id,
+        &moy(w.t1, "moyenne", Some(16_000), Some("Rectification du relevé CNED"), None),
+    )
+    .await
+    .unwrap();
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, Some(16_000));
+    // M5 : la pièce d'un autre élève, ou inconnue, est refusée ; la pièce de l'élève est journalisée avec le motif.
+    let autre = piece(&ent, &w, b).await;
+    for faux in [autre, Uuid::new_v4()] {
+        let r = ent
+            .eva_v5_saisir_moyenne_externe_for_actor(
+                w.etab,
+                w.direction,
+                DIR,
+                fr.id,
+                &moy(w.t1, "moyenne", Some(16_000), Some("Ajout de la pièce"), Some(faux)),
+            )
+            .await;
+        assert!(
+            matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("pièce")),
+            "{r:?}"
+        );
+    }
+    let mienne = piece(&ent, &w, a).await;
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        fr.id,
+        &moy(w.t1, "moyenne", Some(16_000), Some("Ajout de la pièce"), Some(mienne)),
+    )
+    .await
+    .unwrap();
+    type Ligne = (String, Option<i64>, Option<i64>, Option<String>, Option<Uuid>, Option<Uuid>, Uuid);
+    let histo: Vec<Ligne> = sqlx::query_as(
+        "SELECT evenement, (valeur_avant * 1000)::bigint, (valeur_apres * 1000)::bigint, motif, document_avant, document_apres, par
+           FROM eva_moyenne_externe_historique WHERE etablissement_id = $1 AND enseignement_externe_id = $2 ORDER BY le, id",
+    )
+    .bind(w.etab)
+    .bind(fr.id)
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap();
+    let evenements: Vec<&str> = histo.iter().map(|h| h.0.as_str()).collect();
+    assert_eq!(evenements, ["saisie", "publication", "correction", "correction"]);
+    assert_eq!((histo[2].1, histo[2].2), (Some(15_000), Some(16_000)));
+    assert_eq!(histo[2].3.as_deref(), Some("Rectification du relevé CNED"));
+    assert_eq!((histo[3].4, histo[3].5), (None, Some(mienne)));
+    assert_eq!(histo[3].3.as_deref(), Some("Ajout de la pièce"));
+    assert!(histo.iter().all(|h| h.6 == w.direction), "auteur exact");
+    // Même garde en base : une pièce de l'élève absente, un résultat externe avec la pièce d'un autre.
+    let mut ext = externe(a, w.maths, 10_000, d(2031, 10, 15));
+    ext.document_id = Some(autre);
+    let r = ent
+        .eva_v5_declarer_externe_for_actor(w.etab, w.direction, DIR, jour(), &ext)
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("pièce")),
+        "{r:?}"
+    );
+    ext.document_id = Some(mienne);
+    ent.eva_v5_declarer_externe_for_actor(w.etab, w.direction, DIR, jour(), &ext)
+        .await
+        .unwrap();
+    // Défense en profondeur : la base refuse aussi un INSERT direct avec la pièce d'un autre élève.
+    let r = sqlx::query(
+        "INSERT INTO eva_resultat_externe (id, etablissement_id, eleve_id, matiere_id, origine, valeur, bareme, coef, document_id,
+                                           saisi_par, date_resultat)
+         VALUES ($1, $2, $3, $4, 'cned', 10, 20, 1, $5, $6, '2031-10-15')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(w.etab)
+    .bind(a)
+    .bind(w.maths)
+    .bind(autre)
+    .bind(w.direction)
+    .execute(ent.pool_verif())
+    .await;
+    assert!(r.is_err(), "pièce d'un autre élève refusée par la base");
+}
+
+/// F3, F4 : la période d'une moyenne externe est de l'année et de la périodisation de l'élève, dans les dates de
+/// l'enseignement ; deux saisies concurrentes de la même période : un conflit, jamais une erreur serveur.
+#[tokio::test]
+async fn revue_f3_f4_periode_de_la_moyenne_externe_et_saisies_concurrentes() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    // Une périodisation de semestres que la classe de a (classe A) n'utilise pas : cible la classe D seulement.
+    let pz = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO ent_periodisation (id, etablissement_id, annee_id, code, libelle, usage) VALUES ($1, $2, $3, 'SEM', 'Semestres', 'evaluation')",
+        vec![u(pz), u(w.etab), u(w.annee)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO ent_periodisation_cible (id, etablissement_id, annee_id, usage, periodisation_id, classe_id)
+         VALUES ($1, $2, $3, 'evaluation', $4, $5)",
+        vec![u(Uuid::new_v4()), u(w.etab), u(w.annee), u(pz), u(w.classe_d)],
+    )
+    .await;
+    let s1 = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_periode (id, etablissement_id, annee_id, periodisation_id, code, libelle, kind, ordre,
+                                  date_debut, date_fin, date_arret_notes, origine)
+         VALUES ($1, $2, $3, $4, 'S1', 'Semestre 1', 'semestre', 1, '2031-09-01', '2032-01-31', '2032-01-20', 'service')",
+    )
+    .bind(s1)
+    .bind(w.etab)
+    .bind(w.annee)
+    .bind(pz)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    // Enseignement suivi du 1er septembre au 30 novembre : le T2 (21 décembre → 31 mars) est hors de ses dates.
+    let ens = ent
+        .eva_v5_declarer_enseignement_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            &DeclarerEnseignementExterneBody {
+                eleve_id: a,
+                matiere_id: w.francais,
+                organisme: "cned".into(),
+                organisme_libelle: None,
+                du: d(2031, 9, 1),
+                au: Some(d(2031, 11, 30)),
+                referent: None,
+                compte_moyenne_generale: true,
+            },
+        )
+        .await
+        .unwrap();
+    for (periode, pourquoi) in [
+        (s1, "périodisation que l'élève n'utilise pas"),
+        (w.t2, "hors des dates de l'enseignement"),
+        (Uuid::new_v4(), "période inconnue"),
+    ] {
+        let r = ent
+            .eva_v5_saisir_moyenne_externe_for_actor(
+                w.etab,
+                w.direction,
+                DIR,
+                ens.id,
+                &moy(periode, "moyenne", Some(12_000), None, None),
+            )
+            .await;
+        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{pourquoi} : {r:?}");
+    }
+    // F4 : deux saisies simultanées de la même période (valeurs différentes) : une réussit, l'autre est un conflit (ou
+    // une correction sans motif refusée si elle passe après) ; jamais d'erreur de base, une seule ligne.
+    let (r1, r2) = tokio::join!(
+        ent.eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            ens.id,
+            &moy(w.t1, "moyenne", Some(11_000), None, None),
+        ),
+        ent.eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            ens.id,
+            &moy(w.t1, "moyenne", Some(13_000), None, None),
+        ),
+    );
+    assert!(r1.is_ok() ^ r2.is_ok(), "{r1:?} / {r2:?}");
+    for r in [r1.err(), r2.err()].into_iter().flatten() {
+        assert!(
+            matches!(r, EntDbError::ConflitDossier(_) | EntDbError::SaisieInvalide(_)),
+            "{r:?}"
+        );
+    }
+    let lignes: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM eva_moyenne_externe WHERE etablissement_id = $1 AND enseignement_externe_id = $2",
+    )
+    .bind(w.etab)
+    .bind(ens.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(lignes, 1);
+}
+
+/// M1 : publier ou retirer un résultat COMPTÉ après l'arrêt de la période de l'élève : direction seule, comme « compter ».
+#[tokio::test]
+async fn revue_m1_publier_et_retirer_apres_l_arret_seule_la_direction() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let mut ids = Vec::new();
+    for _ in 0..2 {
+        let x = ent
+            .eva_v5_declarer_externe_for_actor(
+                w.etab,
+                w.prof,
+                PROF,
+                jour(),
+                &externe(a, w.maths, 16_000, d(2031, 10, 12)),
+            )
+            .await
+            .unwrap();
+        ent.eva_v5_compter_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            x.id,
+            &CompterExterneBody {
+                cours_id: w.cours_maths,
+                motif: "Relevé du lycée d'origine".into(),
+            },
+        )
+        .await
+        .unwrap();
+        ids.push(x.id);
+    }
+    arreter(&ent, &w, w.t1, w.classe_a).await;
+    let r = ent
+        .eva_v5_publier_externe_for_actor(w.etab, w.prof, PROF, jour(), ids[0])
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("arrêtée")),
+        "{r:?}"
+    );
+    let r = ent
+        .eva_v5_retirer_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            ids[0],
+            &RetirerExterneBody {
+                motif: "Erreur de saisie".into(),
+            },
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("arrêtée")),
+        "{r:?}"
+    );
+    // La direction publie et retire.
+    assert!(
+        ent.eva_v5_publier_externe_for_actor(w.etab, w.direction, DIR, jour(), ids[0])
+            .await
+            .unwrap()
+            .publiee
+    );
+    assert!(
+        ent.eva_v5_retirer_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            ids[1],
+            &RetirerExterneBody {
+                motif: "Erreur de saisie".into(),
+            },
+        )
+        .await
+        .unwrap()
+        .retiree
+    );
+}
+
+/// M2 : un professeur ne lit que les cours et les matières qu'il enseigne ; jamais `dispense` ni les motifs hors direction.
+#[tokio::test]
+async fn revue_m2_un_professeur_ne_voit_que_ses_matieres_ni_dispense_ni_motifs() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let prof_fr = autre_prof(&cast, &w);
+    // Une évaluation dans chaque cours.
+    let ev_m = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS maths", false).await;
+    let ev_f = eval(&ent, &w, w.cours_fr, d(2031, 10, 11), "Dictée", false).await;
+    ecrire(&ent, &w, ev_m, a, 10_000).await;
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, prof_fr, PROF, &note(ev_f, a, 12_000))
+        .await
+        .unwrap();
+    // Un résultat externe en maths (compté, motif), un en français (non compté) ; un enseignement externe de français
+    // « dispensé » (statut sensible) et un de maths.
+    let x_m = ent
+        .eva_v5_declarer_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &externe(a, w.maths, 18_000, d(2031, 10, 15)),
+        )
+        .await
+        .unwrap();
+    ent.eva_v5_compter_externe_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        jour(),
+        x_m.id,
+        &CompterExterneBody {
+            cours_id: w.cours_maths,
+            motif: "Motif réservé à la direction".into(),
+        },
+    )
+    .await
+    .unwrap();
+    ent.eva_v5_declarer_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        &externe(a, w.francais, 9_000, d(2031, 10, 15)),
+    )
+    .await
+    .unwrap();
+    let ens_fr = enseignement(&ent, &w, a, w.francais, false).await;
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        ens_fr.id,
+        &moy(w.t1, "dispense", None, None, None),
+    )
+    .await
+    .unwrap();
+    let ens_ma = enseignement(&ent, &w, a, w.maths, false).await;
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        ens_ma.id,
+        &moy(w.t1, "dispense", None, None, None),
+    )
+    .await
+    .unwrap();
+    // Le professeur de maths : ses seules matières, aucun motif, aucune dispense.
+    let ext = ent
+        .eva_v5_externes_eleve_for_actor(w.etab, w.prof, PROF, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(ext.len(), 1);
+    assert_eq!(ext[0].matiere_id, w.maths);
+    assert!(ext[0].compte_motif.is_none() && ext[0].motif_retrait.is_none(), "{:?}", ext[0]);
+    let ens = ent
+        .eva_v5_enseignements_externes_for_actor(w.etab, w.prof, PROF, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(ens.len(), 1, "l'enseignement de français n'existe pas pour lui");
+    assert_eq!(ens[0].matiere_id, w.maths);
+    assert!(ens[0].moyennes.iter().all(|m| m.statut != "dispense"), "{:?}", ens[0].moyennes);
+    let p = ent
+        .eva_v5_parcours_for_actor(w.etab, w.prof, PROF, jour(), a, w.t1)
+        .await
+        .unwrap();
+    assert_eq!(p.enseignements.len(), 1);
+    assert_eq!(p.enseignements[0].cours_id, w.cours_maths);
+    assert_eq!(p.evaluations.len(), 1);
+    assert_eq!(p.evaluations[0].evaluation_id, ev_m);
+    assert!(p.resultats_externes.iter().all(|x| x.matiere_id == w.maths && x.compte_motif.is_none()));
+    // Le professeur de français voit l'inverse (jamais la matière de l'autre), sans le motif de maths.
+    let ext = ent
+        .eva_v5_externes_eleve_for_actor(w.etab, prof_fr, PROF, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(ext.len(), 1);
+    assert_eq!(ext[0].matiere_id, w.francais);
+    // La direction voit tout, avec les motifs et le statut `dispense`.
+    let tous = ent
+        .eva_v5_externes_eleve_for_actor(w.etab, w.direction, DIR, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(tous.len(), 2);
+    assert!(tous.iter().any(|x| x.compte_motif.as_deref() == Some("Motif réservé à la direction")));
+    let ens = ent
+        .eva_v5_enseignements_externes_for_actor(w.etab, w.direction, DIR, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(ens.len(), 2);
+    assert!(ens.iter().flat_map(|e| &e.moyennes).any(|m| m.statut == "dispense"));
+    // Déclarer : un professeur ne déclare que dans une matière qu'il enseigne.
+    let r = ent
+        .eva_v5_declarer_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &externe(a, w.francais, 10_000, d(2031, 10, 15)),
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    // F1 : un cours inconnu ne se distingue pas d'un cours qu'on ne peut pas décider (droit refusé pour le professeur).
+    let r = ent
+        .eva_v5_compter_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            x_m.id,
+            &CompterExterneBody {
+                cours_id: Uuid::new_v4(),
+                motif: "Cours inconnu".into(),
+            },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+}
+
+/// M4 : une moyenne externe ne compte jamais avec des notes de l'établissement dans la matière ; deux moyennes externes
+/// d'une même matière sur la période : aucune n'est comptée, avertissement exact (jamais le message des notes de
+/// l'établissement).
+#[tokio::test]
+async fn revue_m4_plusieurs_moyennes_externes_d_une_matiere_et_presence_de_notes_de_l_etablissement() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b) = (w.eleves_a[0], w.eleves_a[1]);
+    // a : deux déclarations en français, une moyenne chacune sur T1, aucune note de l'établissement.
+    for v in [12_000, 16_000] {
+        let e = enseignement(&ent, &w, a, w.francais, true).await;
+        ent.eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            e.id,
+            &moy(w.t1, "moyenne", Some(v), None, None),
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, false).await, None);
+    let g = ent
+        .eva_v1_moyennes_eleve_periode(w.etab, a, w.t1, false)
+        .await
+        .unwrap()
+        .generale;
+    assert!(
+        g.avertissements.iter().any(|m| m.contains("2 moyennes externes") && m.contains("aucune n'est comptée")),
+        "{:?}",
+        g.avertissements
+    );
+    assert!(
+        !g.avertissements.iter().any(|m| m.contains("l'emportent")),
+        "un autre message que celui des notes de l'établissement : {:?}",
+        g.avertissements
+    );
+    // b : une seule moyenne externe, sans note de l'établissement : elle compte, sans avertissement.
+    let e = enseignement(&ent, &w, b, w.francais, true).await;
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        e.id,
+        &moy(w.t1, "moyenne", Some(14_000), None, None),
+    )
+    .await
+    .unwrap();
+    assert_eq!(moyenne(&ent, &w, b, w.francais, w.t1, false).await, Some(14_000));
+    let gb = ent
+        .eva_v1_moyennes_eleve_periode(w.etab, b, w.t1, false)
+        .await
+        .unwrap()
+        .generale;
+    assert!(gb.avertissements.iter().all(|m| !m.contains("moyenne")), "{:?}", gb.avertissements);
+    // b a ensuite une note de l'établissement en français : elle l'emporte, avertissement nommant la matière.
+    let ev = eval(&ent, &w, w.cours_fr, d(2031, 10, 10), "Dictée", false).await;
+    ent.eva_v1_ecrire_resultat_for_actor(w.etab, autre_prof(&cast, &w), PROF, &note(ev, b, 8_000))
+        .await
+        .unwrap();
+    assert_eq!(moyenne(&ent, &w, b, w.francais, w.t1, false).await, Some(8_000));
+    let gb = ent
+        .eva_v1_moyennes_eleve_periode(w.etab, b, w.t1, false)
+        .await
+        .unwrap()
+        .generale;
+    assert!(
+        gb.avertissements.iter().any(|m| m.contains("l'emportent")),
+        "{:?}",
+        gb.avertissements
+    );
+}
+
+/// H1 : une période annuelle (nature « periode ») qui englobe ses trimestres dans la même périodisation porte leurs notes
+/// (avant : aucune note) ; chaque note compte une fois dans son trimestre et une fois dans l'année.
+#[tokio::test]
+async fn revue_h1_une_periode_annuelle_chevauchante_porte_les_notes_de_ses_trimestres() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let pz: Uuid = sqlx::query_scalar(
+        "SELECT periodisation_id FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.etab)
+    .bind(w.t1)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    let annee = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_periode (id, etablissement_id, annee_id, periodisation_id, code, libelle, kind, ordre,
+                                  date_debut, date_fin, date_arret_notes, origine)
+         VALUES ($1, $2, $3, $4, 'AN', 'Année', 'periode', 9, '2031-09-01', '2032-06-30', '2032-06-20', 'reprise')",
+    )
+    .bind(annee)
+    .bind(w.etab)
+    .bind(w.annee)
+    .bind(pz)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    let e1 = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS 1", false).await;
+    let e2 = eval(&ent, &w, w.cours_maths, d(2031, 10, 13), "DS 2", false).await;
+    ecrire(&ent, &w, e1, a, 10_000).await;
+    ecrire(&ent, &w, e2, a, 14_000).await;
+    // T1 : deux notes comptées UNE fois chacune ; année : les mêmes (avant : aucune note, la période était « sans notes »).
+    assert_eq!(moyenne(&ent, &w, a, w.maths, w.t1, false).await, Some(12_000));
+    assert_eq!(moyenne(&ent, &w, a, w.maths, annee, false).await, Some(12_000));
+    // La note du 10 octobre est dans l'année ET dans le T1 ; jamais deux fois dans la même période.
+    let (dans_t1, dans_an): (bool, bool) = sqlx::query_as("SELECT eva_periode_dans($1, $2, '2031-10-10'), eva_periode_dans($1, $3, '2031-10-10')")
+        .bind(w.etab)
+        .bind(w.t1)
+        .bind(annee)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(dans_t1 && dans_an);
+    let t2_dans_t1: bool = sqlx::query_scalar("SELECT eva_periode_dans($1, $2, '2032-01-10')")
+        .bind(w.etab)
+        .bind(w.t1)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(!t2_dans_t1, "une note de janvier n'est pas dans le T1");
+    let t2_dans_an: bool = sqlx::query_scalar("SELECT eva_periode_dans($1, $2, '2032-01-10')")
+        .bind(w.etab)
+        .bind(annee)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(t2_dans_an, "mais elle est dans l'année");
+}
+
+/// H2 : après la fusion de deux fiches, les résultats externes COMPTÉS de la fiche absorbée entrent dans la moyenne de
+/// l'élève conservé (ils restent lisibles et comptés, jamais perdus).
+#[tokio::test]
+async fn revue_h2_une_fusion_de_fiches_ne_fait_pas_disparaitre_un_resultat_externe_compte() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (absorbe, garde) = (w.eleves_a[0], w.eleves_a[1]);
+    let ev = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS 1", false).await;
+    ecrire(&ent, &w, ev, garde, 10_000).await;
+    let x = ent
+        .eva_v5_declarer_externe_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &externe(absorbe, w.maths, 18_000, d(2031, 10, 15)),
+        )
+        .await
+        .unwrap();
+    ent.eva_v5_compter_externe_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        jour(),
+        x.id,
+        &CompterExterneBody {
+            cours_id: w.cours_maths,
+            motif: "Relevé vérifié".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(moyenne(&ent, &w, garde, w.maths, w.t1, false).await, Some(10_000));
+    // Fusion de la fiche `absorbe` dans `garde` (marque du socle 2).
+    exec(
+        &ent,
+        "UPDATE ent_eleve SET fusionne_dans = $3 WHERE etablissement_id = $1 AND id = $2",
+        vec![u(w.etab), u(absorbe), u(garde)],
+    )
+    .await;
+    assert_eq!(
+        moyenne(&ent, &w, garde, w.maths, w.t1, false).await,
+        Some(14_000),
+        "le résultat externe compté de la fiche absorbée compte pour l'élève conservé"
+    );
+    let lus = ent
+        .eva_v5_externes_eleve_for_actor(w.etab, w.direction, DIR, jour(), garde)
+        .await
+        .unwrap();
+    assert!(lus.iter().any(|y| y.id == x.id));
 }

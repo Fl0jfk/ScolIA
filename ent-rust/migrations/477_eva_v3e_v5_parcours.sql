@@ -174,9 +174,32 @@ $$;
 -- périodes d'une périodisation ne comptent un jour qu'une fois, par `ent_periode_choisir`).
 CREATE OR REPLACE FUNCTION eva_periode_dans(p_etab uuid, p_periode uuid, p_jour date)
 RETURNS boolean LANGUAGE sql STABLE AS $$
-    SELECT COALESCE((SELECT ent_periode_choisir(p.etablissement_id, p.periodisation_id, p_jour, p_jour, p.annee_id) = p.id
+    -- Le jour relève de la période demandée quand elle EST la période choisie pour ce jour, ou quand elle est une période
+    -- de nature « periode » (annuelle) qui ENGLOBE STRICTEMENT la période choisie (un trimestre ou un semestre) de la même
+    -- périodisation (revue de V5, H1 : sans cela, une période annuelle qui chevauche ses trimestres n'avait aucune note).
+    -- Une note compte une fois dans la période annuelle et une fois dans son trimestre, jamais deux fois dans la même ;
+    -- deux trimestres ou semestres qui se recouvrent gardent UN seul propriétaire (V3e-5).
+    SELECT COALESCE((SELECT c.id = p.id
+                            OR (c.id <> p.id AND p.kind = 'periode' AND c.kind IN ('trimestre', 'semestre')
+                                AND c.date_debut >= p.date_debut AND c.date_fin <= p.date_fin
+                                AND (c.date_debut > p.date_debut OR c.date_fin < p.date_fin))
                        FROM ent_periode p
+                       JOIN ent_periode c ON c.etablissement_id = p.etablissement_id
+                        AND c.id = ent_periode_choisir(p.etablissement_id, p.periodisation_id, p_jour, p_jour, p.annee_id)
                       WHERE p.etablissement_id = p_etab AND p.id = p_periode), false)
+$$;
+
+-- Revue de V5 (H2) : les fiches d'un élève = la sienne et celles absorbées DANS elle (fusion, socle 2). Les résultats
+-- externes restent sur la fiche où ils ont été saisis ; le moteur et les lectures les rattachent à l'élève conservé,
+-- sans quoi une fusion faisait disparaître des résultats comptés de sa moyenne.
+CREATE OR REPLACE FUNCTION eva_fiches_de_l_eleve(p_etab uuid, p_eleve uuid)
+RETURNS SETOF uuid LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE f(id, profondeur) AS (
+        SELECT p_eleve, 0
+        UNION
+        SELECT e.id, f.profondeur + 1 FROM ent_eleve e JOIN f ON e.fusionne_dans = f.id
+         WHERE e.etablissement_id = p_etab AND f.profondeur < 10)
+    SELECT id FROM f
 $$;
 
 -- ── V3e-4 : prolongation d'échéance tracée ───────────────────────────────────────────────────────────────────────
@@ -223,7 +246,9 @@ BEGIN
         RETURN OLD;
     END IF;
     -- V3e (item 4) : le motif d'une prolongation ne vaut que pour l'écriture qui déplace l'échéance (jamais périmé).
-    IF NEW.echeance IS NOT DISTINCT FROM OLD.echeance THEN
+    -- Revue de V5 (H3) : ou qui constate, après l'échéance, une absence justifiée (les services écrivent le motif ou NULL
+    -- à chaque changement d'état).
+    IF NEW.echeance IS NOT DISTINCT FROM OLD.echeance AND NEW.etat IS NOT DISTINCT FROM OLD.etat THEN
         NEW.dernier_motif_prolongation := NULL;
     END IF;
     NEW.version := OLD.version + 1;
@@ -273,6 +298,13 @@ ALTER TABLE eva_resultat_externe ADD CONSTRAINT eva_resultat_externe_decision_ch
     AND (publiee_le IS NULL OR compte_dans_cours_id IS NOT NULL)
     AND (compte_dans_cours_id IS NULL OR date_resultat IS NOT NULL OR periode_id IS NOT NULL));
 
+-- M5 : une pièce jointe (socle 7) appartient à l'établissement ET à l'élève (jamais le document d'un autre).
+CREATE OR REPLACE FUNCTION eva_document_de_l_eleve(p_etab uuid, p_eleve uuid, p_document uuid)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT p_document IS NULL OR EXISTS (SELECT 1 FROM ent_doc_document d
+                                          WHERE d.etablissement_id = p_etab AND d.id = p_document AND d.eleve_id = p_eleve)
+$$;
+
 CREATE OR REPLACE FUNCTION ent_trg_eva_resultat_externe() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
@@ -282,6 +314,10 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         IF NEW.compte_dans_cours_id IS NOT NULL OR NEW.publiee_le IS NOT NULL OR NEW.retiree_le IS NOT NULL THEN
             RAISE EXCEPTION 'eva_resultat_externe : un résultat externe naît non compté, non publié et non retiré'
+                USING ERRCODE = '23514';
+        END IF;
+        IF NOT eva_document_de_l_eleve(NEW.etablissement_id, NEW.eleve_id, NEW.document_id) THEN
+            RAISE EXCEPTION 'eva_resultat_externe : la pièce n''appartient pas à cet élève dans cet établissement'
                 USING ERRCODE = '23514';
         END IF;
         RETURN NEW;
@@ -350,51 +386,126 @@ DROP TRIGGER IF EXISTS eva_enseignement_externe_garde ON eva_enseignement_extern
 CREATE TRIGGER eva_enseignement_externe_garde BEFORE UPDATE OR DELETE ON eva_enseignement_externe
     FOR EACH ROW EXECUTE FUNCTION ent_trg_eva_enseignement_externe();
 
+-- Revue de V5 (E1, M3, M5) : une moyenne externe se PUBLIE (second geste, comme un résultat externe : une note non publiée
+-- n'existe pas pour la famille ni l'élève) ; sa correction porte un motif ; le journal ne trace que ce qui change, avec
+-- le motif, la pièce avant/après et l'auteur exact.
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS publiee_le TIMESTAMPTZ;
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS publiee_par UUID;
+-- `motif_correction` est une ENTRÉE (remise à NULL à chaque écriture) ; `dernier_motif_correction` garde le dernier motif.
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS motif_correction TEXT;
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS dernier_motif_correction TEXT
+    CHECK (dernier_motif_correction IS NULL OR char_length(btrim(dernier_motif_correction)) BETWEEN 3 AND 500);
+ALTER TABLE eva_moyenne_externe DROP CONSTRAINT IF EXISTS eva_moyenne_externe_publication_chk;
+ALTER TABLE eva_moyenne_externe ADD CONSTRAINT eva_moyenne_externe_publication_chk
+    CHECK ((publiee_le IS NULL) = (publiee_par IS NULL));
+
 CREATE TABLE IF NOT EXISTS eva_moyenne_externe_historique (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     moyenne_id UUID NOT NULL,
     enseignement_externe_id UUID NOT NULL,
+    evenement TEXT NOT NULL DEFAULT 'saisie' CHECK (evenement IN ('saisie', 'correction', 'publication')),
     statut_avant TEXT,
     valeur_avant NUMERIC(7, 3),
     statut_apres TEXT NOT NULL,
     valeur_apres NUMERIC(7, 3),
+    document_avant UUID,
+    document_apres UUID,
+    motif TEXT CHECK (motif IS NULL OR char_length(btrim(motif)) BETWEEN 3 AND 500),
     par UUID NOT NULL,
     le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT eva_moyenne_externe_histo_fk FOREIGN KEY (moyenne_id) REFERENCES eva_moyenne_externe (id)
+    CONSTRAINT eva_moyenne_externe_histo_fk FOREIGN KEY (moyenne_id) REFERENCES eva_moyenne_externe (id),
+    CONSTRAINT eva_moyenne_externe_histo_motif_chk CHECK (evenement <> 'correction' OR motif IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS eva_moyenne_externe_histo_idx ON eva_moyenne_externe_historique (etablissement_id, moyenne_id, le);
 
 CREATE OR REPLACE FUNCTION ent_trg_eva_moyenne_externe() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_eleve uuid;
+    v_motif text;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'eva_moyenne_externe : suppression physique interdite' USING ERRCODE = '23514';
     END IF;
-    IF TG_OP = 'UPDATE' THEN
-        IF NEW.id IS DISTINCT FROM OLD.id OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
-           OR NEW.enseignement_externe_id IS DISTINCT FROM OLD.enseignement_externe_id
-           OR NEW.periode_id IS DISTINCT FROM OLD.periode_id OR NEW.bareme IS DISTINCT FROM OLD.bareme
-           OR NEW.cree_le IS DISTINCT FROM OLD.cree_le THEN
-            RAISE EXCEPTION 'eva_moyenne_externe : enseignement, période et barème ne changent pas' USING ERRCODE = '23514';
+    SELECT e.eleve_id INTO v_eleve FROM eva_enseignement_externe e
+     WHERE e.etablissement_id = NEW.etablissement_id AND e.id = NEW.enseignement_externe_id;
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.publiee_le IS NOT NULL OR NEW.publiee_par IS NOT NULL THEN
+            RAISE EXCEPTION 'eva_moyenne_externe : une moyenne externe naît non publiée' USING ERRCODE = '23514';
         END IF;
-        IF NEW.statut IS NOT DISTINCT FROM OLD.statut AND NEW.valeur IS NOT DISTINCT FROM OLD.valeur
-           AND NEW.appreciation_transcrite IS NOT DISTINCT FROM OLD.appreciation_transcrite
-           AND NEW.document_id IS NOT DISTINCT FROM OLD.document_id THEN
-            RETURN OLD;
+        IF NOT eva_document_de_l_eleve(NEW.etablissement_id, v_eleve, NEW.document_id) THEN
+            RAISE EXCEPTION 'eva_moyenne_externe : la pièce n''appartient pas à cet élève dans cet établissement'
+                USING ERRCODE = '23514';
         END IF;
+        NEW.motif_correction := NULL;
+        NEW.dernier_motif_correction := NULL;
+        RETURN NEW;
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
+       OR NEW.enseignement_externe_id IS DISTINCT FROM OLD.enseignement_externe_id
+       OR NEW.periode_id IS DISTINCT FROM OLD.periode_id OR NEW.bareme IS DISTINCT FROM OLD.bareme
+       OR NEW.cree_le IS DISTINCT FROM OLD.cree_le THEN
+        RAISE EXCEPTION 'eva_moyenne_externe : enseignement, période et barème ne changent pas' USING ERRCODE = '23514';
+    END IF;
+    IF OLD.publiee_le IS NOT NULL AND (NEW.publiee_le IS DISTINCT FROM OLD.publiee_le
+                                       OR NEW.publiee_par IS DISTINCT FROM OLD.publiee_par) THEN
+        RAISE EXCEPTION 'eva_moyenne_externe : la publication ne se modifie pas' USING ERRCODE = '23514';
+    END IF;
+    v_motif := NEW.motif_correction;
+    NEW.motif_correction := NULL;
+    -- Rien ne change (la valeur, le statut, l'appréciation, la pièce, la publication) : aucune écriture, aucun journal.
+    IF NEW.statut IS NOT DISTINCT FROM OLD.statut AND NEW.valeur IS NOT DISTINCT FROM OLD.valeur
+       AND NEW.appreciation_transcrite IS NOT DISTINCT FROM OLD.appreciation_transcrite
+       AND NEW.document_id IS NOT DISTINCT FROM OLD.document_id
+       AND NEW.publiee_le IS NOT DISTINCT FROM OLD.publiee_le THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.statut IS DISTINCT FROM OLD.statut OR NEW.valeur IS DISTINCT FROM OLD.valeur
+       OR NEW.appreciation_transcrite IS DISTINCT FROM OLD.appreciation_transcrite
+       OR NEW.document_id IS DISTINCT FROM OLD.document_id THEN
+        -- Une correction porte un motif de 3 à 500 caractères, journalisé ; la publication d'une correction n'est pas
+        -- un second geste : une moyenne corrigée garde son état de publication (le motif trace ce que la famille voit).
+        IF v_motif IS NULL OR char_length(btrim(v_motif)) NOT BETWEEN 3 AND 500 THEN
+            RAISE EXCEPTION 'eva_moyenne_externe : une correction porte un motif de 3 à 500 caractères' USING ERRCODE = '23514';
+        END IF;
+        IF NEW.publiee_le IS DISTINCT FROM OLD.publiee_le THEN
+            RAISE EXCEPTION 'eva_moyenne_externe : on ne corrige pas et ne publie pas dans le même geste' USING ERRCODE = '23514';
+        END IF;
+        IF NEW.document_id IS DISTINCT FROM OLD.document_id
+           AND NOT eva_document_de_l_eleve(NEW.etablissement_id, v_eleve, NEW.document_id) THEN
+            RAISE EXCEPTION 'eva_moyenne_externe : la pièce n''appartient pas à cet élève dans cet établissement'
+                USING ERRCODE = '23514';
+        END IF;
+        NEW.dernier_motif_correction := btrim(v_motif);
     END IF;
     RETURN NEW;
 END
 $$;
--- Le journal s'écrit APRÈS la ligne (la clé étrangère du journal vise la ligne, qui doit exister).
+-- Le journal s'écrit APRÈS la ligne (la clé étrangère du journal vise la ligne, qui doit exister) et seulement quand
+-- une écriture a eu lieu : la garde ci-dessus supprime les écritures sans changement (RETURN NULL).
 CREATE OR REPLACE FUNCTION ent_trg_eva_moyenne_externe_historique() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_evt text;
 BEGIN
-    INSERT INTO eva_moyenne_externe_historique (id, etablissement_id, moyenne_id, enseignement_externe_id,
-                                                statut_avant, valeur_avant, statut_apres, valeur_apres, par)
-    VALUES (gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.enseignement_externe_id,
+    IF TG_OP = 'INSERT' THEN
+        v_evt := 'saisie';
+    ELSIF NEW.statut IS DISTINCT FROM OLD.statut OR NEW.valeur IS DISTINCT FROM OLD.valeur
+       OR NEW.appreciation_transcrite IS DISTINCT FROM OLD.appreciation_transcrite
+       OR NEW.document_id IS DISTINCT FROM OLD.document_id THEN
+        v_evt := 'correction';
+    ELSE
+        v_evt := 'publication';
+    END IF;
+    INSERT INTO eva_moyenne_externe_historique (id, etablissement_id, moyenne_id, enseignement_externe_id, evenement,
+                                                statut_avant, valeur_avant, statut_apres, valeur_apres,
+                                                document_avant, document_apres, motif, par)
+    VALUES (gen_random_uuid(), NEW.etablissement_id, NEW.id, NEW.enseignement_externe_id, v_evt,
             CASE WHEN TG_OP = 'UPDATE' THEN OLD.statut END, CASE WHEN TG_OP = 'UPDATE' THEN OLD.valeur END,
-            NEW.statut, NEW.valeur, NEW.saisi_par);
+            NEW.statut, NEW.valeur,
+            CASE WHEN TG_OP = 'UPDATE' THEN OLD.document_id END, NEW.document_id,
+            CASE WHEN v_evt = 'correction' THEN NEW.dernier_motif_correction END,
+            CASE WHEN v_evt = 'publication' THEN NEW.publiee_par ELSE NEW.saisi_par END);
     RETURN NULL;
 END
 $$;

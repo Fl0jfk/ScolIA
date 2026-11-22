@@ -3027,7 +3027,7 @@ fn evaluations_v4_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
     });
 }
 
-/// V3e/V5 : les 10 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
+/// V3e/V5 : les 11 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
 /// à l'élève sur un élève qu'ils ne peuvent pas lire, quel que soit le corps, avant toute lecture (aucune écriture, aucun
 /// oracle d'existence). La lecture `externes-famille` n'est ouverte qu'avec le lien « voir les notes ».
 #[test]
@@ -3044,10 +3044,11 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
         ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
         ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "organisme": "cned", "organisme_libelle": null, "du": "2031-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
         ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
     ];
-    assert_eq!(routes.len(), 10, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
+    assert_eq!(routes.len(), 11, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
     rt().block_on(async {
         for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
             for (methode, chemin, corps) in &routes {
@@ -3055,5 +3056,120 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
                 assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
             }
         }
+    });
+}
+
+/// Les 11 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
+fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
+    vec![
+        ("POST", "/eva/v5/externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "origine": "cned", "libelle": null, "date_resultat": "2020-10-10", "periode_id": null, "valeur_m": 10000, "bareme_m": 20000, "document_id": null}))),
+        ("POST", format!("/eva/v5/externes/{id}/compter"), Some(json!({"cours_id": cours, "motif": "essai hors établissement"}))),
+        ("POST", format!("/eva/v5/externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/externes/{id}/retirer"), Some(json!({"motif": "essai hors établissement"}))),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
+        ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "organisme": "cned", "organisme_libelle": null, "du": "2020-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
+        ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null, "motif": null}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
+    ]
+}
+
+/// Revue de V5 (F5) : séparation entre établissements sur les 11 routes `/eva/v5/*` : la direction de A, avec des
+/// identifiants de B, et la direction de B, avec des identifiants de A, n'obtiennent jamais un 2xx ni une donnée de l'autre.
+#[test]
+fn evaluations_v5_la_direction_d_un_etablissement_n_atteint_rien_de_l_autre() {
+    let Some(m) = monde() else { return };
+    let (o_a, o_b) = (&m.a.objets, &m.b.objets);
+    let matiere_a = o_a.matiere.unwrap_or_else(Uuid::new_v4);
+    let matiere_b = o_b.matiere.unwrap_or_else(Uuid::new_v4);
+    let cours_a = o_a.cours.unwrap_or_else(Uuid::new_v4);
+    let cours_b = o_b.cours.unwrap_or_else(Uuid::new_v4);
+    rt().block_on(async {
+        // Direction de A avec les objets de B.
+        for (methode, chemin, corps) in routes_v5(o_b.eleve, matiere_b, cours_b, Uuid::new_v4()) {
+            let r = m.appel(methode, &chemin, Some(m.jeton(Direction)), corps.as_ref()).await;
+            assert!(!r.est_succes(), "A→B {methode} {chemin} : {} {}", r.statut, r.texte);
+            assert!(r.statut.as_u16() < 500, "A→B {methode} {chemin} : erreur serveur {}", r.texte);
+        }
+        // Direction de B avec les objets de A.
+        let jeton_b = m.b.jetons.get(&Direction).expect("direction de B").clone();
+        for (methode, chemin, corps) in routes_v5(o_a.eleve, matiere_a, cours_a, Uuid::new_v4()) {
+            let r = m.appel(methode, &chemin, Some(&jeton_b), corps.as_ref()).await;
+            assert!(!r.est_succes(), "B→A {methode} {chemin} : {} {}", r.statut, r.texte);
+            assert!(r.statut.as_u16() < 500, "B→A {methode} {chemin} : erreur serveur {}", r.texte);
+        }
+    });
+}
+
+/// Revue de V5 (F5) : portée du professeur sur les 11 routes. Les actions de la direction (déclarer un enseignement,
+/// saisir ou publier une moyenne) lui répondent 403 ; une ligne inconnue lui répond 403 (jamais 404 : aucun oracle) ; ses
+/// lectures ne rendent rien d'une matière qu'il n'enseigne pas (liste vide ou refus).
+#[test]
+fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let (matiere, cours) = (o.matiere.unwrap_or_else(Uuid::new_v4), o.cours.unwrap_or_else(Uuid::new_v4));
+    let inconnu = Uuid::new_v4();
+    rt().block_on(async {
+        for (methode, chemin, corps) in routes_v5(o.eleve, matiere, cours, inconnu) {
+            let r = m.appel(methode, &chemin, Some(m.jeton(Prof)), corps.as_ref()).await;
+            assert!(r.statut.as_u16() < 500, "{methode} {chemin} : erreur serveur {}", r.texte);
+            let direction_seule = chemin.contains("/enseignements-externes") && methode == "POST"
+                || chemin.contains("/moyennes-externes/");
+            if direction_seule || chemin.contains(&inconnu.to_string()) {
+                assert_eq!(r.statut.as_u16(), 403, "{methode} {chemin} : {}", r.texte);
+            }
+            if methode == "GET" && !chemin.contains("externes-famille") {
+                assert!(r.est_refus() || r.est_vide() || r.json.as_array().is_some_and(Vec::is_empty) || r.json.is_object(),
+                    "{methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}
+
+/// Revue de V5 (F5) : succès de bout en bout de `externes-famille` : la direction déclare, compte et publie un résultat
+/// externe ; le parent lié (avec « voir les notes ») le lit, sans auteur ni motif, avec la mention neutre ; un parent sans
+/// le drapeau « notes » reçoit 403.
+#[test]
+fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let (Some(matiere), Some(cours)) = (o.matiere, o.cours) else {
+        return eprintln!("skip: matière ou cours absents du labo");
+    };
+    let aujourd_hui = domain_eleve::horloge::jour_paris();
+    rt().block_on(async {
+        let dir = m.jeton(Direction);
+        let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
+            "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
+        let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
+        assert_eq!(r.statut.as_u16(), 201, "déclarer : {}", r.texte);
+        let id = r.json["id"].as_str().expect("id").to_string();
+        // Non compté, non publié : la famille ne voit rien.
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes() && r.json.as_array().is_some_and(Vec::is_empty), "avant : {} {}", r.statut, r.texte);
+        let r = m
+            .appel("POST", &format!("/eva/v5/externes/{id}/compter"), Some(dir),
+                   Some(&json!({"cours_id": cours, "motif": "Relevé vérifié par la direction"})))
+            .await;
+        assert!(r.est_succes(), "compter : {} {}", r.statut, r.texte);
+        // Compté mais pas publié : toujours rien pour la famille (règle 1).
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes() && r.json.as_array().is_some_and(Vec::is_empty), "compté : {} {}", r.statut, r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/externes/{id}/publier"), Some(dir), None).await;
+        assert!(r.est_succes(), "publier : {} {}", r.statut, r.texte);
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes(), "après : {} {}", r.statut, r.texte);
+        let liste = r.json.as_array().expect("liste");
+        assert_eq!(liste.len(), 1, "{}", r.texte);
+        assert_eq!(liste[0]["valeur_m"], 15000);
+        assert!(liste[0]["mention"].as_str().is_some_and(|x| x.contains("autre organisme")), "{}", r.texte);
+        assert!(!r.texte.contains("Relevé vérifié"), "aucun motif servi à la famille : {}", r.texte);
+        assert!(!r.texte.contains("saisi_par") && !r.texte.contains("compte_motif"), "{}", r.texte);
+        // Un parent d’un autre foyer, non lié à cet élève, reçoit 403.
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(ParentAutreFoyer)), None).await;
+        assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }

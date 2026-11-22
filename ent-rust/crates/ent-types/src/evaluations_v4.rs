@@ -142,6 +142,10 @@ pub struct PlanifierRattrapageBody {
     pub modalite: Option<String>,
     /// Date limite pour passer le rattrapage (défaut : le jour prévu).
     pub echeance: Option<NaiveDate>,
+    /// Motif (3 à 500 caractères) exigé de la direction pour convoquer de nouveau quand la convocation annulée du même
+    /// élève avait une échéance déjà dépassée (revue de V5, H3 : jamais une prolongation sans trace).
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

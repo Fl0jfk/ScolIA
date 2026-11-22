@@ -198,6 +198,7 @@ fn plan(ev: Uuid, eleves: Vec<Uuid>, prevu: NaiveDate) -> PlanifierRattrapageBod
         lieu: Some("Salle 12".into()),
         modalite: None,
         echeance: None,
+        motif: None,
     }
 }
 
@@ -3164,4 +3165,278 @@ async fn v3e_item5_la_periode_d_un_jour_est_unique_et_les_lecteurs_s_accordent()
             assert_eq!(dans, doit, "le {jour_test} appartient à une seule période");
         }
     }
+}
+
+// ───────────────────────── Revue de V5 : H3 (contournement de la prolongation) et F2 (plafond après filtres) ─────────
+
+/// H3 : constater une absence JUSTIFIÉE après l'échéance rouvre la reconvocation (nouvelle échéance) : c'était une
+/// prolongation sans direction ni motif. Désormais : direction seule, avec un motif, tracé au journal.
+#[tokio::test]
+async fn revue_h3_constater_une_absence_justifiee_apres_l_echeance_ne_contourne_pas_la_prolongation() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, "DS 1", d(2031, 10, 10)).await;
+    saisir(&ent, &w, ev, a, "abs").await;
+    let rs = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &plan(ev, vec![a], d(2031, 10, 22)),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    let apres = d(2031, 10, 25); // après l'échéance du 22
+    // Le professeur ne constate plus l'absence justifiée après l'échéance (avant : possible, puis reconvocation libre).
+    let r = ent
+        .eva_v4_noter_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            apres,
+            rs.id,
+            &absence_corps("justifiee", rs.version),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("échéance")),
+        "{r:?}"
+    );
+    // La direction : sans motif refusée, avec un motif acceptée et tracée.
+    let r = ent
+        .eva_v4_noter_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            rs.id,
+            &absence_corps("justifiee", rs.version),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("motif")),
+        "{r:?}"
+    );
+    ent.eva_v4_noter_rattrapage_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        apres,
+        rs.id,
+        &NoterRattrapageBody {
+            motif: Some("Certificat médical remis en retard".into()),
+            ..absence_corps("justifiee", rs.version)
+        },
+    )
+    .await
+    .unwrap();
+    let (motif, par): (Option<String>, Uuid) = sqlx::query_as(
+        "SELECT motif, par FROM eva_rattrapage_historique
+          WHERE etablissement_id = $1 AND rattrapage_id = $2 AND etat_apres = 'absent_justifie'",
+    )
+    .bind(w.etab)
+    .bind(rs.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        motif.as_deref(),
+        Some("Certificat médical remis en retard")
+    );
+    assert_eq!(par, w.direction);
+    // Le constat d'une absence NON justifiée après l'échéance ne rouvre rien : il reste ouvert au professeur.
+    let ev2 = creer(&ent, &w, "DS 2", d(2031, 10, 11)).await;
+    saisir(&ent, &w, ev2, a, "abs").await;
+    let r2 = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &plan(ev2, vec![a], d(2031, 10, 22)),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    ent.eva_v4_noter_rattrapage_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        apres,
+        r2.id,
+        &absence_corps("non_justifiee", r2.version),
+    )
+    .await
+    .unwrap();
+}
+
+/// H3 : annuler la convocation puis en planifier une nouvelle, quand l'échéance de l'annulée est dépassée, repousse de fait
+/// cette échéance : même règle que la prolongation.
+#[tokio::test]
+async fn revue_h3_annuler_puis_replanifier_apres_l_echeance_exige_la_direction_et_un_motif() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let ev = creer(&ent, &w, "DS 1", d(2031, 10, 10)).await;
+    saisir(&ent, &w, ev, a, "abs").await;
+    let rs = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &plan(ev, vec![a], d(2031, 10, 22)),
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    ent.eva_v4_annuler_rattrapage_for_actor(
+        w.etab,
+        w.prof,
+        PROF,
+        jour(),
+        rs.id,
+        &AnnulerRattrapageBody {
+            motif: "Salle indisponible".into(),
+            version_attendue: rs.version,
+        },
+    )
+    .await
+    .unwrap();
+    // Avant l'échéance (le 20 < le 22) : le professeur replanifie librement.
+    let apres = d(2031, 10, 25);
+    let r = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            apres,
+            &plan(ev, vec![a], d(2031, 10, 28)),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("seule la direction")),
+        "après l'échéance de l'annulée : {r:?}"
+    );
+    let r = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            &plan(ev, vec![a], d(2031, 10, 28)),
+        )
+        .await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("motif")),
+        "{r:?}"
+    );
+    let nouveau = ent
+        .eva_v4_planifier_rattrapage_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            apres,
+            &PlanifierRattrapageBody {
+                motif: Some("Élève hospitalisé, nouvelle date accordée".into()),
+                ..plan(ev, vec![a], d(2031, 10, 28))
+            },
+        )
+        .await
+        .unwrap()
+        .remove(0);
+    let (motif, par): (Option<String>, Uuid) = sqlx::query_as(
+        "SELECT motif, par FROM eva_rattrapage_historique WHERE etablissement_id = $1 AND rattrapage_id = $2",
+    )
+    .bind(w.etab)
+    .bind(nouveau.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        motif.as_deref(),
+        Some("Élève hospitalisé, nouvelle date accordée")
+    );
+    assert_eq!(par, w.direction);
+}
+
+/// F2 : le refus « trop d'élèves » s'applique APRÈS les filtres (justification, visibilité), pas aux candidats bruts.
+/// Plafond réduit à 2 pour l'éprouver sans fabriquer 500 élèves.
+#[tokio::test]
+async fn revue_f2_le_plafond_des_absences_repetees_s_applique_apres_les_filtres() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b, c) = (w.eleves_a[0], w.eleves_a[1], w.eleves_a[2]);
+    for (i, jd) in [d(2031, 10, 6), d(2031, 10, 8), d(2031, 10, 13)]
+        .into_iter()
+        .enumerate()
+    {
+        let ev = creer(&ent, &w, &format!("DM {i}"), jd).await; // aucune séance : hors séance
+        for e in [a, b, c] {
+            saisir(&ent, &w, ev, e, "abs").await;
+        }
+    }
+    let lire = |plafond: i64| {
+        ent.eva_v4_absences_repetees_plafonnees(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            w.t1,
+            None,
+            plafond,
+        )
+    };
+    // Trois élèves réellement concernés, plafond 2 : refus explicite, jamais une liste tronquée.
+    let r = lire(2).await;
+    assert!(
+        matches!(&r, Err(EntDbError::SaisieInvalide(m)) if m.contains("trop d'élèves")),
+        "{r:?}"
+    );
+    // Plafond 3 : exactement le plafond, aucun refus, les trois sont rendus.
+    assert_eq!(lire(3).await.unwrap().len(), 3);
+    // a et b ont chacun un justificatif valable (demi-journée du 8 octobre) : une absence sur trois justifiée = deux
+    // seulement sans justification, sous le seuil. Les candidats bruts restent trois, la liste FILTRÉE n'en compte plus
+    // qu'un : le plafond 2 ne refuse plus.
+    for e in [a, b] {
+        let abs = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_asd_absence (id, etablissement_id, eleve_id, jour_debut, jour_fin, etat, qualification)
+             VALUES ($1, $2, $3, '2031-10-08', '2031-10-08', 'qualifie', 'excuse_valable')",
+        )
+        .bind(abs)
+        .bind(w.etab)
+        .bind(e)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO ent_asd_absence_seance (id, etablissement_id, absence_id, eleve_id, jour, kind, periode, source)
+             VALUES ($1, $2, $3, $4, '2031-10-08', 'demi_journee', 'matin', 'vie_scolaire')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(w.etab)
+        .bind(abs)
+        .bind(e)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    let filtre = lire(2).await.unwrap();
+    assert_eq!(
+        filtre.iter().map(|x| x.eleve_id).collect::<Vec<_>>(),
+        vec![c],
+        "le plafond suit la liste filtrée"
+    );
+    // Pagination : plafond 1 (un lot par candidat) rend le même résultat, sans troncature ni refus.
+    assert_eq!(lire(1).await.unwrap().len(), 1);
 }

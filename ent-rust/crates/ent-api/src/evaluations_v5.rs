@@ -44,6 +44,7 @@ pub fn routes() -> Router<AppState> {
             "/eva/v5/enseignements-externes/{id}/moyennes",
             post(saisir_moyenne),
         )
+        .route("/eva/v5/moyennes-externes/{id}/publier", post(publier_moyenne))
         .route(
             "/eva/v5/eleves/{id}/enseignements-externes",
             get(enseignements_eleve),
@@ -204,6 +205,23 @@ async fn saisir_moyenne(
             &session.role,
             id,
             &b,
+        )
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn publier_moyenne(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<EnseignementExterneDto>> {
+    s.ent
+        .eva_v5_publier_moyenne_externe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
         )
         .await
         .map(Json)

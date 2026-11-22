@@ -68,7 +68,74 @@ fn motif_valide(m: &str) -> Result<String, EntDbError> {
     texte_borne(m, 500)
 }
 
+/// Ce que le droit personnel sur un élève ouvre (règle 3 : moindre privilège).
+struct Droit {
+    /// `notes.corriger` : la direction.
+    corriger: bool,
+    /// Portée établissement sur l'une des actions demandées (ou direction) : voit et agit sur toutes les matières.
+    /// Sinon (un professeur), le droit se limite aux cours qu'il enseigne et à leurs matières.
+    large: bool,
+}
+
+/// Cours et matières qu'un professeur enseigne au jour de référence.
+struct Enseigne {
+    matieres: Vec<Uuid>,
+    cours: Vec<Uuid>,
+}
+
+impl Droit {
+    fn matiere_ok(&self, e: &Enseigne, m: Uuid) -> bool {
+        self.large || e.matieres.contains(&m)
+    }
+    fn cours_ok(&self, e: &Enseigne, c: Uuid) -> bool {
+        self.large || e.cours.contains(&c)
+    }
+}
+
+/// Un motif ou un statut `dispense` ne se servent qu'à la direction (jamais d'indice sur la santé ni sur un autre cours).
+fn masquer_externe(mut x: ResultatExterneDto, corriger: bool) -> ResultatExterneDto {
+    if !corriger {
+        x.compte_motif = None;
+        x.motif_retrait = None;
+    }
+    x
+}
+
 impl PgEnt {
+    /// Cours (et matières) que l'acteur enseigne au jour `jour` : lecture ou saisie sur le cours.
+    async fn eva_v5_enseigne(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Enseigne, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let rows = sqlx::query(
+            "SELECT c.id, c.matiere_id FROM ent_cours c
+               JOIN ent_annee_scolaire y ON y.id = c.annee_id AND y.etablissement_id = c.etablissement_id
+              WHERE c.etablissement_id = $1 AND y.date_debut <= $3 AND y.date_fin >= $3
+                AND ent_prof_sur_cours($1, c.id, $2, $3, false)",
+        )
+        .bind(etab)
+        .bind(acteur)
+        .bind(jour)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        let mut e = Enseigne {
+            matieres: Vec::new(),
+            cours: Vec::new(),
+        };
+        for r in &rows {
+            e.cours.push(r.try_get("id").map_err(db)?);
+            if let Some(m) = r.try_get::<Option<Uuid>, _>("matiere_id").map_err(db)? {
+                e.matieres.push(m);
+            }
+        }
+        Ok(e)
+    }
+
     /// Droit personnel sur un élève, puis garde de visibilité (règle 5). Rend vrai si l'acteur porte `notes.corriger`.
     ///
     /// Le droit vient, dans l'ordre : de la portée établissement d'une des actions demandées ; d'un cours **dont le public
@@ -83,7 +150,7 @@ impl PgEnt {
         eleve: Uuid,
         jour: NaiveDate,
         actions: &[Action],
-    ) -> Result<bool, EntDbError> {
+    ) -> Result<Droit, EntDbError> {
         Self::exiger_staff(role)?;
         let corriger = self
             .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
@@ -94,6 +161,8 @@ impl PgEnt {
                 autorise = true;
             }
         }
+        // Portée établissement (ou direction) : pas de limite de matière. Sinon : les cours du professeur seulement.
+        let large = autorise || corriger;
         if !autorise && actions.iter().any(|a| *a != Action::NotesCorriger) {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             autorise = sqlx::query_scalar(
@@ -120,7 +189,7 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
-        Ok(corriger)
+        Ok(Droit { corriger, large })
     }
 
     /// Une ligne externe : introuvable pour qui porte `notes.corriger`, droit refusé pour tout autre (aucun oracle).
@@ -168,11 +237,68 @@ impl PgEnt {
         cours: Uuid,
         jour: NaiveDate,
     ) -> Result<bool, EntDbError> {
-        let a = self.eva_v3_acces(etab, acteur, role, cours, jour).await?;
+        let a = match self.eva_v3_acces(etab, acteur, role, cours, jour).await {
+            Ok(a) => a,
+            // F1 : un cours inconnu ne se distingue pas d'un cours qu'on n'a pas le droit de décider (existence en dernier).
+            Err(EntDbError::Domain(domain_eleve::DomainError::NotFound)) => {
+                return Err(
+                    if self
+                        .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+                        .await?
+                    {
+                        introuvable()
+                    } else {
+                        EntDbError::Forbidden
+                    },
+                )
+            }
+            Err(e) => return Err(e),
+        };
         if !(a.corriger || (a.saisie && !a.suppleant)) {
             return Err(EntDbError::Forbidden);
         }
         Ok(a.corriger)
+    }
+
+    /// Garde de période (M1), la MÊME pour compter, publier et retirer un résultat compté : tant que la période de
+    /// l'élève est ouverte, le professeur du cours décide ; une fois arrêtée, la direction seule (motif exigé par
+    /// l'appelant). La date de référence est celle du résultat, à défaut le début de sa période.
+    async fn eva_v5_garde_periode(
+        tx: &mut TenantTx<'_>,
+        etab: Uuid,
+        eleve: Uuid,
+        date_resultat: Option<NaiveDate>,
+        periode_id: Option<Uuid>,
+        a_la_direction: bool,
+    ) -> Result<(), EntDbError> {
+        let date_ref = match (date_resultat, periode_id) {
+            (Some(d), _) => Some(d),
+            (None, Some(p)) => sqlx::query_scalar(
+                "SELECT date_debut FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(p)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db)?,
+            (None, None) => None,
+        };
+        if let Some(d) = date_ref {
+            let etat: Option<String> =
+                sqlx::query_scalar("SELECT etat FROM eva_periode_eleve_jour($1, $2, $3)")
+                    .bind(etab)
+                    .bind(eleve)
+                    .bind(d)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(db)?;
+            if etat.as_deref() != Some("ouverte") && !a_la_direction {
+                return Err(refus(
+                    "période de l'élève arrêtée pour ce résultat : la direction décide, avec un motif",
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Déclare un résultat externe. Naît non compté, non publié. Secrétariat, professeur ou direction (`notes.saisir`
@@ -185,15 +311,26 @@ impl PgEnt {
         jour: NaiveDate,
         body: &DeclarerResultatExterneBody,
     ) -> Result<ResultatExterneDto, EntDbError> {
-        self.eva_v5_droit_eleve(
-            etab,
-            acteur,
-            role,
-            body.eleve_id,
-            jour,
-            &[Action::NotesSaisir, Action::NotesCorriger],
-        )
-        .await?;
+        let droit = self
+            .eva_v5_droit_eleve(
+                etab,
+                acteur,
+                role,
+                body.eleve_id,
+                jour,
+                &[Action::NotesSaisir, Action::NotesCorriger],
+            )
+            .await?;
+        // Moindre privilège : un professeur ne déclare que dans une matière qu'il enseigne.
+        if !droit.large
+            && !self
+                .eva_v5_enseigne(etab, acteur, jour)
+                .await?
+                .matieres
+                .contains(&body.matiere_id)
+        {
+            return Err(EntDbError::Forbidden);
+        }
         if !ORIGINES_EXTERNES.contains(&body.origine.as_str()) {
             return Err(refus(
                 "origine inconnue : etablissement, cned, etranger, reprise ou autre",
@@ -231,6 +368,17 @@ impl PgEnt {
         .map_err(db)?;
         if !matiere_ok {
             return Err(refus("matière inconnue"));
+        }
+        // M5 : la pièce appartient à l'établissement ET à l'élève (jamais l'identifiant d'un autre dossier).
+        let piece_ok: bool = sqlx::query_scalar("SELECT eva_document_de_l_eleve($1, $2, $3)")
+            .bind(etab)
+            .bind(body.eleve_id)
+            .bind(body.document_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        if !piece_ok {
+            return Err(refus("pièce inconnue pour cet élève"));
         }
         if let Some(p) = body.periode_id {
             let ok: bool = sqlx::query_scalar(
@@ -338,33 +486,8 @@ impl PgEnt {
             return Err(refus("l'élève ne suit pas ce cours aujourd'hui"));
         }
         // Après l'arrêt de la période de l'élève, compter un résultat change une moyenne arrêtée : direction seulement.
-        let date_ref = match (date_resultat, periode_id) {
-            (Some(d), _) => Some(d),
-            (None, Some(p)) => sqlx::query_scalar(
-                "SELECT date_debut FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(p)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?,
-            (None, None) => None,
-        };
-        if let Some(d) = date_ref {
-            let etat: Option<String> =
-                sqlx::query_scalar("SELECT etat FROM eva_periode_eleve_jour($1, $2, $3)")
-                    .bind(etab)
-                    .bind(eleve)
-                    .bind(d)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(db)?;
-            if etat.as_deref() != Some("ouverte") && !a_la_direction {
-                return Err(refus(
-                    "période de l'élève arrêtée pour ce résultat : la direction décide, avec un motif",
-                ));
-            }
-        }
+        Self::eva_v5_garde_periode(&mut tx, etab, eleve, date_resultat, periode_id, a_la_direction)
+            .await?;
         let n = sqlx::query(
             "UPDATE eva_resultat_externe
                 SET compte_dans_cours_id = $3, compte_decide_par = $4, compte_decide_le = now(), compte_motif = $5
@@ -425,13 +548,24 @@ impl PgEnt {
                 "seul un résultat compté se publie : décider d'abord de le compter",
             ));
         };
-        self.eva_v5_droit_decision_cours(etab, acteur, role, cours, jour)
+        let a_la_direction = self
+            .eva_v5_droit_decision_cours(etab, acteur, role, cours, jour)
             .await?;
         self.exiger_eleve_visible(etab, acteur, role, eleve).await?;
         if l.try_get::<bool, _>("retiree").map_err(db)? {
             return Err(conflit("ce résultat a été retiré"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // M1 : publier un résultat compté change ce que la famille lit d'une période ; même garde que « compter ».
+        Self::eva_v5_garde_periode(
+            &mut tx,
+            etab,
+            eleve,
+            l.try_get("date_resultat").map_err(db)?,
+            l.try_get("periode_id").map_err(db)?,
+            a_la_direction,
+        )
+        .await?;
         let n = sqlx::query(
             "UPDATE eva_resultat_externe SET publiee_le = now(), publiee_par = $3
               WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NULL AND retiree_le IS NULL
@@ -486,21 +620,36 @@ impl PgEnt {
                 jour,
                 &[Action::NotesSaisir, Action::NotesCorriger],
             )
-            .await?;
-        if let Some(cours) = l
+            .await?
+            .corriger;
+        let compte = l
             .try_get::<Option<Uuid>, _>("compte_dans_cours_id")
-            .map_err(db)?
-        {
+            .map_err(db)?;
+        let a_la_direction = if let Some(cours) = compte {
             self.eva_v5_droit_decision_cours(etab, acteur, role, cours, jour)
-                .await?;
+                .await?
         } else if !(corriger || auteur == acteur) {
             return Err(EntDbError::Forbidden);
-        }
+        } else {
+            corriger
+        };
         let motif = motif_valide(&body.motif)?;
         if l.try_get::<bool, _>("retiree").map_err(db)? {
             return Err(conflit("ce résultat est déjà retiré"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // M1 : retirer un résultat COMPTÉ change une moyenne ; même garde de période que « compter ».
+        if compte.is_some() {
+            Self::eva_v5_garde_periode(
+                &mut tx,
+                etab,
+                eleve,
+                l.try_get("date_resultat").map_err(db)?,
+                l.try_get("periode_id").map_err(db)?,
+                a_la_direction,
+            )
+            .await?;
+        }
         let n = sqlx::query(
             "UPDATE eva_resultat_externe SET retiree_le = now(), retiree_par = $3, motif_retrait = $4
               WHERE etablissement_id = $1 AND id = $2 AND retiree_le IS NULL",
@@ -538,7 +687,7 @@ impl PgEnt {
         let rows = sqlx::query(&format!(
             "SELECT {COLONNES_EXTERNE} FROM eva_resultat_externe x
                JOIN ent_matiere m ON m.id = x.matiere_id AND m.etablissement_id = x.etablissement_id
-              WHERE x.etablissement_id = $1 AND x.eleve_id = $2
+              WHERE x.etablissement_id = $1 AND x.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
               ORDER BY x.date_resultat NULLS LAST, x.cree_le, x.id"
         ))
         .bind(etab)
@@ -558,12 +707,26 @@ impl PgEnt {
         jour: NaiveDate,
         eleve: Uuid,
     ) -> Result<Vec<ResultatExterneDto>, EntDbError> {
-        self.eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
+        let droit = self
+            .eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
             .await?;
+        let enseigne = if droit.large {
+            None
+        } else {
+            Some(self.eva_v5_enseigne(etab, acteur, jour).await?)
+        };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let v = Self::eva_v5_externes_eleve_tx(&mut tx, etab, eleve).await?;
         tx.commit().await.map_err(db)?;
-        Ok(v)
+        // Moindre privilège : un professeur ne lit que les matières qu'il enseigne ; les motifs, à la direction seule.
+        Ok(v.into_iter()
+            .filter(|x| {
+                enseigne
+                    .as_ref()
+                    .is_none_or(|e| droit.matiere_ok(e, x.matiere_id))
+            })
+            .map(|x| masquer_externe(x, droit.corriger))
+            .collect())
     }
 
     /// Résultats externes vus par la **famille** ou l'élève : publiés, comptés, non retirés ; ni auteur ni motif.
@@ -584,7 +747,8 @@ impl PgEnt {
                     (x.valeur * 1000)::bigint AS valeur_m, (x.bareme * 1000)::bigint AS bareme_m
                FROM eva_resultat_externe x
                JOIN ent_matiere m ON m.id = x.matiere_id AND m.etablissement_id = x.etablissement_id
-              WHERE x.etablissement_id = $1 AND x.eleve_id = $2 AND x.publiee_le IS NOT NULL
+              WHERE x.etablissement_id = $1 AND x.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
+                AND x.publiee_le IS NOT NULL
                 AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL
               ORDER BY x.date_resultat NULLS LAST, x.id",
         )
@@ -676,15 +840,17 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let v = Self::eva_v5_enseignement_tx(&mut tx, etab, id).await?;
+        let v = Self::eva_v5_enseignement_tx(&mut tx, etab, id, true).await?;
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
 
+    /// `voit_dispense` : seule la direction lit un statut `dispense` (jamais d'indice de santé hors direction).
     async fn eva_v5_enseignement_tx(
         tx: &mut TenantTx<'_>,
         etab: Uuid,
         id: Uuid,
+        voit_dispense: bool,
     ) -> Result<EnseignementExterneDto, EntDbError> {
         let e = sqlx::query(
             "SELECT id, eleve_id, matiere_id, organisme, organisme_libelle, du, au, compte_moyenne_generale
@@ -697,12 +863,14 @@ impl PgEnt {
         .map_err(db)?;
         let ms = sqlx::query(
             "SELECT id, periode_id, statut, (valeur * 1000)::bigint AS valeur_m, (bareme * 1000)::bigint AS bareme_m,
-                    appreciation_transcrite
+                    appreciation_transcrite, (publiee_le IS NOT NULL) AS publiee
                FROM eva_moyenne_externe WHERE etablissement_id = $1 AND enseignement_externe_id = $2
+                AND ($3 OR statut <> 'dispense')
               ORDER BY cree_le, id",
         )
         .bind(etab)
         .bind(id)
+        .bind(voit_dispense)
         .fetch_all(&mut **tx)
         .await
         .map_err(db)?;
@@ -727,6 +895,7 @@ impl PgEnt {
                         appreciation_transcrite: m
                             .try_get("appreciation_transcrite")
                             .map_err(db)?,
+                        publiee: m.try_get("publiee").map_err(db)?,
                     })
                 })
                 .collect::<Result<_, EntDbError>>()?,
@@ -800,19 +969,52 @@ impl PgEnt {
             _ => None,
         };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // F3 : la période visée est une période de l'année et de la périodisation de l'élève (celle d'une de ses classes),
+        // et touche les dates de l'enseignement suivi ailleurs.
         let periode_ok: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_periode WHERE etablissement_id = $1 AND id = $2)",
+            "SELECT EXISTS (
+                 SELECT 1 FROM ent_periode p
+                   JOIN eva_enseignement_externe ens ON ens.etablissement_id = p.etablissement_id AND ens.id = $3
+                  WHERE p.etablissement_id = $1 AND p.id = $2
+                    AND p.date_debut <= COALESCE(ens.au, 'infinity'::date) AND p.date_fin >= ens.du
+                    AND EXISTS (SELECT 1 FROM ent_affectation a
+                                 WHERE a.etablissement_id = p.etablissement_id AND a.eleve_id = ens.eleve_id
+                                   AND a.annee_id = p.annee_id AND a.classe_id IS NOT NULL
+                                   AND ent_periodisation_pour_classe(a.etablissement_id, a.classe_id) = p.periodisation_id))",
         )
         .bind(etab)
         .bind(body.periode_id)
+        .bind(enseignement_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         if !periode_ok {
-            return Err(refus("période inconnue"));
+            return Err(refus(
+                "période inconnue, ou hors de l'année et de la périodisation de l'élève, ou hors des dates de l'enseignement",
+            ));
         }
-        let existante: Option<(Uuid, i64)> = sqlx::query_as(
-            "SELECT id, (bareme * 1000)::bigint FROM eva_moyenne_externe
+        // M5 : la pièce appartient à l'établissement ET à l'élève.
+        let piece_ok: bool = sqlx::query_scalar("SELECT eva_document_de_l_eleve($1, $2, $3)")
+            .bind(etab)
+            .bind(eleve)
+            .bind(body.document_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        if !piece_ok {
+            return Err(refus("pièce inconnue pour cet élève"));
+        }
+        type Existante = (
+            Uuid,
+            i64,
+            String,
+            Option<i64>,
+            Option<String>,
+            Option<Uuid>,
+        );
+        let existante: Option<Existante> = sqlx::query_as(
+            "SELECT id, (bareme * 1000)::bigint, statut, (valeur * 1000)::bigint, appreciation_transcrite, document_id
+               FROM eva_moyenne_externe
               WHERE etablissement_id = $1 AND enseignement_externe_id = $2 AND periode_id = $3 FOR UPDATE",
         )
         .bind(etab)
@@ -822,32 +1024,47 @@ impl PgEnt {
         .await
         .map_err(db)?;
         match existante {
-            Some((m, bareme_actuel)) => {
+            Some((m, bareme_actuel, statut, valeur, apprec, document)) => {
                 if bareme_actuel != bareme_m {
                     return Err(refus("le barème d'une moyenne externe ne change pas"));
                 }
-                sqlx::query(
-                    "UPDATE eva_moyenne_externe
-                        SET statut = $3, valeur = ($4::bigint)::numeric / 1000, appreciation_transcrite = $5,
-                            document_id = $6, saisi_par = $7
-                      WHERE etablissement_id = $1 AND id = $2",
-                )
-                .bind(etab)
-                .bind(m)
-                .bind(&body.statut)
-                .bind(body.valeur_m)
-                .bind(&appreciation)
-                .bind(body.document_id)
-                .bind(acteur)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
+                // Rien ne change : aucune écriture, aucun journal, aucun motif exigé.
+                let change = statut != body.statut
+                    || valeur != body.valeur_m
+                    || apprec != appreciation
+                    || document != body.document_id;
+                if change {
+                    // M3 : une correction porte un motif de 3 à 500 caractères, journalisé avec l'auteur.
+                    let motif = match body.motif.as_deref() {
+                        Some(m) => motif_valide(m)?,
+                        None => return Err(refus("motif de 3 à 500 caractères requis")),
+                    };
+                    sqlx::query(
+                        "UPDATE eva_moyenne_externe
+                            SET statut = $3, valeur = ($4::bigint)::numeric / 1000, appreciation_transcrite = $5,
+                                document_id = $6, saisi_par = $7, motif_correction = $8
+                          WHERE etablissement_id = $1 AND id = $2",
+                    )
+                    .bind(etab)
+                    .bind(m)
+                    .bind(&body.statut)
+                    .bind(body.valeur_m)
+                    .bind(&appreciation)
+                    .bind(body.document_id)
+                    .bind(acteur)
+                    .bind(&motif)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                }
             }
             None => {
-                sqlx::query(
+                // F4 : deux saisies concurrentes de la même période : la seconde reçoit un conflit, jamais une erreur 500.
+                let n = sqlx::query(
                     "INSERT INTO eva_moyenne_externe (id, etablissement_id, enseignement_externe_id, periode_id, valeur, bareme,
                                                       appreciation_transcrite, statut, document_id, saisi_par)
-                     VALUES ($1, $2, $3, $4, ($5::bigint)::numeric / 1000, ($6::bigint)::numeric / 1000, $7, $8, $9, $10)",
+                     VALUES ($1, $2, $3, $4, ($5::bigint)::numeric / 1000, ($6::bigint)::numeric / 1000, $7, $8, $9, $10)
+                     ON CONFLICT (enseignement_externe_id, periode_id) DO NOTHING",
                 )
                 .bind(Uuid::new_v4())
                 .bind(etab)
@@ -861,10 +1078,85 @@ impl PgEnt {
                 .bind(acteur)
                 .execute(&mut *tx)
                 .await
-                .map_err(db)?;
+                .map_err(db)?
+                .rows_affected();
+                if n == 0 {
+                    return Err(conflit(
+                        "une moyenne vient d'être saisie pour cette période : relire, puis corriger avec un motif",
+                    ));
+                }
             }
         }
-        let v = Self::eva_v5_enseignement_tx(&mut tx, etab, enseignement_id).await?;
+        let v = Self::eva_v5_enseignement_tx(&mut tx, etab, enseignement_id, true).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(v)
+    }
+
+    /// Publie à la famille et à l'élève une moyenne externe saisie (second geste, distinct de la saisie ; une fois).
+    /// Direction (`notes.corriger`) : c'est elle qui a déclaré que la moyenne externe vaut moyenne de matière.
+    pub async fn eva_v5_publier_moyenne_externe_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        moyenne_id: Uuid,
+    ) -> Result<EnseignementExterneDto, EntDbError> {
+        Self::exiger_staff(role)?;
+        let ligne: Option<(Uuid, Uuid)> = {
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            let e = sqlx::query_as(
+                "SELECT m.enseignement_externe_id, ens.eleve_id FROM eva_moyenne_externe m
+                   JOIN eva_enseignement_externe ens ON ens.etablissement_id = m.etablissement_id
+                    AND ens.id = m.enseignement_externe_id
+                  WHERE m.etablissement_id = $1 AND m.id = $2",
+            )
+            .bind(etab)
+            .bind(moyenne_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            e
+        };
+        let Some((enseignement, eleve)) = ligne else {
+            return Err(
+                if self
+                    .a_action_etablissement(etab, acteur, role, Action::NotesCorriger)
+                    .await?
+                {
+                    introuvable()
+                } else {
+                    EntDbError::Forbidden
+                },
+            );
+        };
+        self.eva_v5_droit_eleve(
+            etab,
+            acteur,
+            role,
+            eleve,
+            SANS_JOUR,
+            &[Action::NotesCorriger],
+        )
+        .await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let n = sqlx::query(
+            "UPDATE eva_moyenne_externe SET publiee_le = now(), publiee_par = $3
+              WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NULL AND statut = 'moyenne'",
+        )
+        .bind(etab)
+        .bind(moyenne_id)
+        .bind(acteur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?
+        .rows_affected();
+        if n == 0 {
+            return Err(conflit(
+                "la moyenne est déjà publiée, ou n'est pas une moyenne (seule une moyenne se publie)",
+            ));
+        }
+        let v = Self::eva_v5_enseignement_tx(&mut tx, etab, enseignement, true).await?;
         tx.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -878,11 +1170,14 @@ impl PgEnt {
         jour: NaiveDate,
         eleve: Uuid,
     ) -> Result<Vec<EnseignementExterneDto>, EntDbError> {
-        self.eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
+        let droit = self
+            .eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
             .await?;
+        let enseigne = self.eva_v5_enseigne(etab, acteur, jour).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let ids: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM eva_enseignement_externe WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY du, id",
+        let ids: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT id, matiere_id FROM eva_enseignement_externe
+              WHERE etablissement_id = $1 AND eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2)) ORDER BY du, id",
         )
         .bind(etab)
         .bind(eleve)
@@ -890,8 +1185,11 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let mut v = Vec::new();
-        for id in ids {
-            v.push(Self::eva_v5_enseignement_tx(&mut tx, etab, id).await?);
+        for (id, matiere) in ids {
+            // Moindre privilège : un professeur ne lit que les matières qu'il enseigne.
+            if droit.matiere_ok(&enseigne, matiere) {
+                v.push(Self::eva_v5_enseignement_tx(&mut tx, etab, id, droit.corriger).await?);
+            }
         }
         tx.commit().await.map_err(db)?;
         Ok(v)
@@ -911,8 +1209,10 @@ impl PgEnt {
         eleve: Uuid,
         periode_id: Uuid,
     ) -> Result<ParcoursPeriodeDto, EntDbError> {
-        self.eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
+        let droit = self
+            .eva_v5_droit_eleve(etab, acteur, role, eleve, jour, &[Action::NotesLire])
             .await?;
+        let enseigne = self.eva_v5_enseigne(etab, acteur, jour).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (debut, fin, annee): (NaiveDate, NaiveDate, Uuid) = sqlx::query_as(
             "SELECT date_debut, date_fin, annee_id FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
@@ -1033,7 +1333,11 @@ impl PgEnt {
                 abandonne_le: r.try_get("abandonne_le").map_err(db)?,
             })
         })
-        .collect::<Result<_, EntDbError>>()?;
+        .collect::<Result<Vec<EnseignementSuiviDto>, EntDbError>>()?
+        .into_iter()
+        // Moindre privilège (M2) : un professeur ne voit que ses propres cours (et leurs matières), jamais ceux des autres.
+        .filter(|e| droit.cours_ok(&enseigne, e.cours_id))
+        .collect();
         // Évaluations des cours de l'élève dans la période, et sa place à leur date.
         let cours_ids: Vec<Uuid> = enseignements.iter().map(|e| e.cours_id).collect();
         let evaluations: Vec<EvaluationParcoursDto> = sqlx::query(
@@ -1066,7 +1370,11 @@ impl PgEnt {
                 matiere_libelle: r.try_get("matiere_libelle").map_err(db)?,
                 classe_code: r.try_get("classe_code").map_err(db)?,
                 concerne: r.try_get("concerne").map_err(db)?,
-                statut: r.try_get("statut").map_err(db)?,
+                // Un statut `dispense` ne se sert qu'à la direction.
+                statut: r
+                    .try_get::<Option<String>, _>("statut")
+                    .map_err(db)?
+                    .filter(|st| droit.corriger || st != "dispense"),
             })
         })
         .collect::<Result<_, EntDbError>>()?;
@@ -1079,6 +1387,8 @@ impl PgEnt {
                         .map(|d| d >= debut && d <= fin)
                         .unwrap_or(x.periode_id == Some(periode_id))
                 })
+                .filter(|x| droit.matiere_ok(&enseigne, x.matiere_id))
+                .map(|x| masquer_externe(x, droit.corriger))
                 .collect();
         tx.commit().await.map_err(db)?;
         Ok(ParcoursPeriodeDto {
