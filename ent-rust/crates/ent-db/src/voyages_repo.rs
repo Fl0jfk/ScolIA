@@ -2526,6 +2526,8 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
+        // V3 : un participant qui ne part plus est rétabli dans l'attendu de l'internat (retrait de séjour annulé).
+        crate::voyages_argent_v3::internat_liberer_participant(&mut t, a, participant_id).await?;
         fait_participant(
             &mut t,
             a,

@@ -12,6 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
+use ent_db::voyages_argent_v3::{AideSaisie, AideVue, InternatSynchro, ReportSaisie, ReportVue};
 use ent_db::voyages_argent_repo::{
     AvoirVue, EtatAgrege, ExportFait, FraisSaisie, FraisVue, MaPart, NominatifVue, PaiementsVue, Reglages,
     VersementSaisie, VersementVue,
@@ -49,6 +50,12 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/argent/avoirs", get(avoirs))
         .route("/voyages/{id}/argent/avoirs/annulation-collective", post(avoirs_collectifs))
         .route("/voyages/{id}/argent/avoirs/{aid}/decision", post(avoir_decider))
+        // Lot V3 « argent relié » : aides, reports de versement, internat (socle 41).
+        .route("/voyages/{id}/argent/aides", get(aides).post(aide_accorder))
+        .route("/voyages/{id}/argent/aides/{aid}/annulation", post(aide_annuler))
+        .route("/voyages/{id}/argent/reports", get(reports).post(report_effectuer))
+        .route("/voyages/{id}/argent/reports/{rid}/annulation", post(report_annuler))
+        .route("/voyages/{id}/internat/synchroniser", post(internat_synchroniser))
         .route("/voyages/{id}/argent/export", post(exporter))
         .route("/voyages/{id}/argent/nominatif", post(nominatif_ouvrir).delete(nominatif_fermer))
 }
@@ -325,4 +332,54 @@ async fn nominatif_ouvrir(
 async fn nominatif_fermer(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
     s.ent.voyage_nominatif_fermer(&acteur(&session), id).await.map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ───────────────────────── Lot V3 : aides, reports, internat ─────────────────────────
+
+async fn aides(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<AideVue>>> {
+    Ok(Json(s.ent.voyage_aides(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn aide_accorder(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AideSaisie>,
+) -> Res<(StatusCode, Json<AideVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_aide_accorder(&acteur(&session), id, b).await.map_err(map_db)?)))
+}
+
+async fn aide_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, aid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<MotifBody>,
+) -> Res<(StatusCode, Json<AideVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_aide_annuler(&acteur(&session), id, aid, &b.motif).await.map_err(map_db)?)))
+}
+
+async fn reports(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<ReportVue>>> {
+    Ok(Json(s.ent.voyage_reports(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn report_effectuer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ReportSaisie>,
+) -> Res<(StatusCode, Json<ReportVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_report_effectuer(&acteur(&session), id, b).await.map_err(map_db)?)))
+}
+
+async fn report_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, rid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<MotifBody>,
+) -> Res<(StatusCode, Json<ReportVue>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_report_annuler(&acteur(&session), id, rid, &b.motif).await.map_err(map_db)?)))
+}
+
+async fn internat_synchroniser(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<InternatSynchro>> {
+    Ok(Json(s.ent.voyage_internat_synchroniser(&acteur(&session), id).await.map_err(map_db)?))
 }
