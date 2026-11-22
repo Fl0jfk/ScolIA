@@ -10473,18 +10473,33 @@ async fn lecture_du_fil(
 #[derive(serde::Deserialize)]
 struct FluxQuery {
     apres: Option<chrono::DateTime<chrono::Utc>>,
+    /// Second terme du curseur quand la réponse précédente était tronquée.
+    apres_fil: Option<Uuid>,
     attente: Option<u64>,
 }
 
-/// Fils lisibles par ce compte où un message est apparu depuis `apres` ; jamais de contenu (M12).
+/// Fils lisibles par ce compte où un message est apparu depuis `apres` ; jamais de contenu (M12). Le jugement de
+/// lecture reçoit le **rôle de la session** (règle 1) ; un appel à la fois et au plus un par seconde par compte (F1).
 async fn flux_messagerie(
     State(state): State<AppState>,
     session: EntSession,
     axum::extract::Query(q): axum::extract::Query<FluxQuery>,
 ) -> Result<Json<ent_db::FluxMessagerie>, (StatusCode, String)> {
+    let _place = crate::flux_limite::limite_flux().entrer(session.user_id).map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Trop d'interrogations du flux : patientez avant de recommencer.".to_string(),
+        )
+    })?;
     let flux = state
         .ent
-        .flux_messagerie_for_actor(session.etablissement_id, session.user_id, q.apres, q.attente.unwrap_or(0))
+        .flux_messagerie_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            q.apres.map(|a| (a, q.apres_fil)),
+            q.attente.unwrap_or(0),
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(flux))

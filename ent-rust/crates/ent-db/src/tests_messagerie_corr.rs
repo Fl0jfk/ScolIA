@@ -497,18 +497,23 @@ async fn corr_f1_cinq_pieces_sous_verrou_et_message_retire_ou_differe() {
         .unwrap();
     let lily = cast.parent_lea.user_id;
     let e = deposer(&ent, etab, m3.id, lily, Role::Parent, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("autre auteur");
-    // Un autre que l'auteur est refusé dès le domaine (jamais atteint le dépôt) ; le repli du dépôt (« différé » ->
-    // conflit) reste une seconde barrière.
-    assert!(
-        matches!(e, EntDbError::Domain(DomainError::MsgPiecePasAuteur)) || est_conflit(&e),
-        "{e:?}"
-    );
+    // Règle 3 : le refus exact. Un message différé d'autrui n'existe pas encore pour lui : 404 comme un identifiant
+    // inconnu (aucune fuite d'existence) ; le refus d'auteur (`MsgPiecePasAuteur`) vaut pour un message visible
+    // (voir la fin du test) ; le repli du dépôt (`MessageDiffere`) est éprouvé au niveau du dépôt
+    // (`tests_messagerie_revue::revue_f1_depot_direct_…`).
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m3.id]).await, 0);
     let propre = deposer(&ent, etab, m3.id, dir, Role::Direction, "mien.pdf", "application/pdf", PDF_REEL)
         .await
         .expect("l'auteur joint une pièce à son message différé");
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m3.id]).await, 1);
     assert_eq!(propre.message_id, m3.id);
+    // Message ordinaire (remis) : un autre que l'auteur est refusé par le domaine, exactement `MsgPiecePasAuteur`.
+    assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "Quatrième").await);
+    let m4 = dernier_message(&ent, etab, fil, dir).await;
+    let e = deposer(&ent, etab, m4.id, lily, Role::Parent, "x.pdf", "application/pdf", PDF_REEL).await.expect_err("pas l'auteur");
+    assert!(matches!(e, EntDbError::Domain(DomainError::MsgPiecePasAuteur)), "{e:?}");
+    assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg_piece WHERE message_id = $1", &[m4.id]).await, 0);
 }
 
 // ───────────────────────── F2 : « lu par » à la première lecture ─────────────────────────

@@ -67,6 +67,8 @@ const PAR_IDENTIFIANT: &[&str] = &[
     "list_accuses_fil",
     "list_pieces_meta_fil",
     "get_message",
+    // Prédicat d'existence : l'appelant répond 404 (aucune lecture de contenu).
+    "message_differe_d_autrui",
     "message_remis_pour",
     "count_pieces_message",
     "count_non_lus_par_fils",

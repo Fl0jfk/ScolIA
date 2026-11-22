@@ -15,8 +15,8 @@ async fn maintenant(ent: &super::PgEnt) -> DateTime<Utc> {
         .0
 }
 
-async fn ids(ent: &super::PgEnt, etab: Uuid, user: Uuid, apres: DateTime<Utc>) -> Vec<Uuid> {
-    ent.flux_messagerie_for_actor(etab, user, Some(apres), 0)
+async fn ids(ent: &super::PgEnt, etab: Uuid, user: Uuid, r: Role, apres: DateTime<Utc>) -> Vec<Uuid> {
+    ent.flux_messagerie_for_actor(etab, user, r.as_str(), Some((apres, None)), 0)
         .await
         .expect("flux")
         .fils
@@ -39,21 +39,21 @@ async fn m12_flux_participants_seulement_sans_contenu_et_retrait() {
     let (fil, _) = fil_de_lily(&ent, &cast, "Flux").await;
     let avant = maintenant(&ent).await;
     // Rien de nouveau depuis « maintenant » : flux vide, curseur rendu.
-    assert!(ids(&ent, etab, lily, avant).await.is_empty());
+    assert!(ids(&ent, etab, lily, Role::Parent, avant).await.is_empty());
 
     assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "Message secret du flux").await);
     // La famille participante est avertie ; un personnel non participant ne reçoit rien (R-M2).
-    assert_eq!(ids(&ent, etab, lily, avant).await, vec![fil]);
-    assert!(ids(&ent, etab, cpe, avant).await.is_empty());
+    assert_eq!(ids(&ent, etab, lily, Role::Parent, avant).await, vec![fil]);
+    assert!(ids(&ent, etab, cpe, Role::Cpe, avant).await.is_empty());
     // Aucun contenu : seul un identifiant de fil et un instant sont sérialisés.
-    let flux = ent.flux_messagerie_for_actor(etab, lily, Some(avant), 0).await.unwrap();
+    let flux = ent.flux_messagerie_for_actor(etab, lily, Role::Parent.as_str(), Some((avant, None)), 0).await.unwrap();
     let json = serde_json::to_string(&flux).unwrap();
     assert!(!json.contains("secret") && !json.contains("Flux"), "{json}");
     // Sans curseur : aucun événement, seulement le curseur de départ.
-    let depart = ent.flux_messagerie_for_actor(etab, lily, None, 0).await.unwrap();
+    let depart = ent.flux_messagerie_for_actor(etab, lily, Role::Parent.as_str(), None, 0).await.unwrap();
     assert!(depart.fils.is_empty());
     // Un curseur d'avenir : rien.
-    assert!(ids(&ent, etab, lily, avant + chrono::Duration::hours(1)).await.is_empty());
+    assert!(ids(&ent, etab, lily, Role::Parent, avant + chrono::Duration::hours(1)).await.is_empty());
 
     // Participant retiré : le flux se tait aussitôt (la vue est relue à chaque appel).
     sqlx::query(
@@ -65,7 +65,7 @@ async fn m12_flux_participants_seulement_sans_contenu_et_retrait() {
     .execute(ent.pool_verif())
     .await
     .unwrap();
-    assert!(ids(&ent, etab, lily, avant).await.is_empty());
+    assert!(ids(&ent, etab, lily, Role::Parent, avant).await.is_empty());
 }
 
 #[tokio::test]
@@ -87,5 +87,5 @@ async fn m12_flux_message_differe_invisible_avant_remise() {
     .execute(ent.pool_verif())
     .await
     .unwrap();
-    assert!(ids(&ent, etab, lily, avant).await.is_empty(), "un message différé ne fait aucun bruit avant sa remise");
+    assert!(ids(&ent, etab, lily, Role::Parent, avant).await.is_empty(), "un message différé ne fait aucun bruit avant sa remise");
 }
