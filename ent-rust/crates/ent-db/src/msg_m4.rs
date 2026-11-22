@@ -520,8 +520,8 @@ impl PgEnt {
 
     /// Règle 4 : l'instant des délais de la messagerie (15 min de correction, 10 min de retrait) est celui de la
     /// base, comme `created_at` et `remise_prevue_le` (jamais l'horloge de l'application).
-    async fn maintenant_base(&self) -> Result<DateTime<Utc>, EntDbError> {
-        Ok(sqlx::query_scalar("SELECT now()").fetch_one(self.pool()).await?)
+    async fn maintenant_base(&self, etab: Uuid) -> Result<DateTime<Utc>, EntDbError> {
+        Ok(sqlx::query_scalar("SELECT now()").fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?).await?)
     }
 
     async fn message_de_l_auteur(
@@ -573,7 +573,7 @@ impl PgEnt {
         message: Uuid,
         nouveau_corps: &str,
     ) -> Result<(), EntDbError> {
-        let maintenant = self.maintenant_base().await?;
+        let maintenant = self.maintenant_base(etab).await?;
         self.corriger_message_fil_a(etab, user, role, message, nouveau_corps, maintenant).await
     }
 
@@ -660,7 +660,7 @@ impl PgEnt {
         message: Uuid,
         motif_code: Option<&str>,
     ) -> Result<(), EntDbError> {
-        let maintenant = self.maintenant_base().await?;
+        let maintenant = self.maintenant_base(etab).await?;
         self.retirer_message_a(etab, user, role, message, motif_code, maintenant).await
     }
 
