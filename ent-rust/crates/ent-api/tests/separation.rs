@@ -809,6 +809,60 @@ fn domaine_finances_comptes() {
     jouer("finances : comptes, payeurs, conséquences", &specs_domaine_finances_comptes());
 }
 
+/// Socle 24, lot F3 : catalogue qualifié, versions de grille, simulateur, familles types, état des contributions.
+/// Lectures bornées à A (aucune donnée de B) ; toute route visant un identifiant de B (grille, article,
+/// simulation, famille type) répond un refus exact : l'identifiant de compte de B tient lieu d'identifiant
+/// inconnu de A (aucune de ces ressources n'existe dans le seed, ni dans A ni dans B).
+fn specs_domaine_finances_grilles() -> Vec<Spec> {
+    vec![
+        borne_a("f3-modeles", "GET", "/finances/catalogue/modeles", None, &[]),
+        borne_a("f3-catalogue", "GET", "/finances/catalogue/articles", None, &[]),
+        borne_a("f3-reglages", "GET", "/finances/grilles/reglages", None, &[]),
+        borne_a("f3-grilles", "GET", "/finances/grilles", None, &[]),
+        borne_a("f3-familles-types", "GET", "/finances/familles-types", None, &[]),
+        borne_a("f3-simulations", "GET", "/finances/simulations", None, &[]),
+        borne_a("f3-contributions", "GET", "/finances/contributions?annee=2030-2031", None, &[]),
+        refuse_sur_b("f3-qualifier-B", "POST", "/finances/catalogue/articles/{compte}/qualifier",
+            Some(r#"{"nature_legale":"internat","regime_tva":"hors_champ","unite":"annee"}"#)),
+        refuse_sur_b("f3-usage-B", "GET", "/finances/catalogue/articles/{compte}/usage", None),
+        refuse_sur_b("f3-grille-B", "GET", "/finances/grilles/{compte}", None),
+        refuse_sur_b("f3-tarif-B", "POST", "/finances/grilles/{compte}/tarifs",
+            Some(r#"{"article_id":"{compte}","montant_annuel_centimes":1000}"#)),
+        refuse_sur_b("f3-tarif-modifier-B", "PUT", "/finances/grilles/{compte}/tarifs/{compte}",
+            Some(r#"{"article_id":"{compte}","montant_annuel_centimes":1000}"#)),
+        refuse_sur_b("f3-tarif-retirer-B", "DELETE", "/finances/grilles/{compte}/tarifs/{compte}", None),
+        refuse_sur_b("f3-tranches-B", "PUT", "/finances/grilles/{compte}/tranches", Some(r#"{"tranches":[]}"#)),
+        refuse_sur_b("f3-hausse-B", "POST", "/finances/grilles/{compte}/hausse",
+            Some(r#"{"mode":"montant","valeur":100,"arrondi":"aucun","apercu":true}"#)),
+        refuse_sur_b("f3-controles-B", "GET", "/finances/grilles/{compte}/controles", None),
+        refuse_sur_b("f3-proposer-B", "POST", "/finances/grilles/{compte}/proposer", Some("{}")),
+        refuse_sur_b("f3-retour-B", "POST", "/finances/grilles/{compte}/retour-brouillon", Some(r#"{"motif":"test"}"#)),
+        refuse_sur_b("f3-abandonner-B", "POST", "/finances/grilles/{compte}/abandonner", Some(r#"{"motif":"test"}"#)),
+        refuse_sur_b("f3-voter-B", "POST", "/finances/grilles/{compte}/voter",
+            Some(r#"{"vote_le":"2030-06-20","reference":"CA"}"#)),
+        refuse_sur_b("f3-vigueur-B", "POST", "/finances/grilles/{compte}/mise-en-vigueur", Some(r#"{"du":"2030-09-01"}"#)),
+        refuse_sur_b("f3-correction-B", "POST", "/finances/grilles/{compte}/correction",
+            Some(r#"{"motif":"test","effet_retroactif":false}"#)),
+        refuse_sur_b("f3-publier-B", "POST", "/finances/grilles/{compte}/publier", Some("{}")),
+        refuse_sur_b("f3-effet-familles-B", "GET", "/finances/grilles/{compte}/familles-types", None),
+        refuse_sur_b("f3-famille-desactiver-B", "POST", "/finances/familles-types/{compte}/desactiver", Some("{}")),
+        refuse_sur_b("f3-famille-supprimer-B", "DELETE", "/finances/familles-types/{compte}", None),
+        refuse_sur_b("f3-simulation-supprimer-B", "DELETE", "/finances/simulations/{compte}", None),
+        refuse_sur_b("f3-simulation-calculer-B", "POST", "/finances/simulations/{compte}/calculer", Some("{}")),
+        refuse_sur_b("f3-simulation-export-B", "GET", "/finances/simulations/{compte}/export", None),
+        refuse_sur_b("f3-comparaison-B", "GET", "/finances/simulations/comparaison?a={compte}&b={compte}", None),
+        refuse_sur_b("f3-simulation-creer-B", "POST", "/finances/simulations",
+            Some(r#"{"annee_scolaire":"2030-2031","libelle":"S","base_version_id":"{compte}","regles":[],"effectifs":[]}"#)),
+        refuse_sur_b("f3-grille-creer-copie-B", "POST", "/finances/grilles",
+            Some(r#"{"annee_scolaire":"2030-2031","copier_de":"{compte}"}"#)),
+    ]
+}
+
+#[test]
+fn domaine_finances_grilles() {
+    jouer("finances : catalogue, grilles, simulateur", &specs_domaine_finances_grilles());
+}
+
 fn specs_domaine_appel() -> Vec<Spec> {
     vec![
             // Appel ouvert par le professeur : visible de lui et de la gestion, pas des familles.
@@ -2356,6 +2410,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_finances_comptes());
+    v.extend(specs_domaine_finances_grilles());
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
     v.extend(specs_domaine_espaces());
@@ -3062,5 +3117,175 @@ fn evaluations_v4_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
                 assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
             }
         }
+    });
+}
+
+/// V3e/V5 : les 11 routes `/eva/v5/*` (résultats externes, enseignements externes, parcours) répondent **403** à la famille et
+/// à l'élève sur un élève qu'ils ne peuvent pas lire, quel que soit le corps, avant toute lecture (aucune écriture, aucun
+/// oracle d'existence). La lecture `externes-famille` n'est ouverte qu'avec le lien « voir les notes ».
+#[test]
+fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_un_inconnu() {
+    let Some(m) = monde() else { return };
+    let id = Uuid::new_v4();
+    let eleve = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("POST", "/eva/v5/externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "origine": "cned", "libelle": null, "date_resultat": "2031-10-10", "periode_id": null, "valeur_m": 10000, "bareme_m": 20000, "document_id": null}))),
+        ("POST", format!("/eva/v5/externes/{id}/compter"), Some(json!({"cours_id": id, "motif": "essai de la famille"}))),
+        ("POST", format!("/eva/v5/externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/externes/{id}/retirer"), Some(json!({"motif": "essai de la famille"}))),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
+        ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "organisme": "cned", "organisme_libelle": null, "du": "2031-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
+        ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
+    ];
+    assert_eq!(routes.len(), 11, "toutes les routes /eva/v5 de evaluations_v5.rs sont couvertes");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}
+
+/// Les 11 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
+fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
+    vec![
+        ("POST", "/eva/v5/externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "origine": "cned", "libelle": null, "date_resultat": "2020-10-10", "periode_id": null, "valeur_m": 10000, "bareme_m": 20000, "document_id": null}))),
+        ("POST", format!("/eva/v5/externes/{id}/compter"), Some(json!({"cours_id": cours, "motif": "essai hors établissement"}))),
+        ("POST", format!("/eva/v5/externes/{id}/publier"), None),
+        ("POST", format!("/eva/v5/externes/{id}/retirer"), Some(json!({"motif": "essai hors établissement"}))),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
+        ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "organisme": "cned", "organisme_libelle": null, "du": "2020-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
+        ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null, "motif": null}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
+        ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
+    ]
+}
+
+/// Revue de V5 (F5) : séparation entre établissements sur les 11 routes `/eva/v5/*` : la direction de A, avec des
+/// identifiants de B, et la direction de B, avec des identifiants de A, n'obtiennent jamais un 2xx ni une donnée de l'autre.
+#[test]
+fn evaluations_v5_la_direction_d_un_etablissement_n_atteint_rien_de_l_autre() {
+    let Some(m) = monde() else { return };
+    let (o_a, o_b) = (&m.a.objets, &m.b.objets);
+    let matiere_a = o_a.matiere.unwrap_or_else(Uuid::new_v4);
+    let matiere_b = o_b.matiere.unwrap_or_else(Uuid::new_v4);
+    let cours_a = o_a.cours.unwrap_or_else(Uuid::new_v4);
+    let cours_b = o_b.cours.unwrap_or_else(Uuid::new_v4);
+    rt().block_on(async {
+        // Direction de A avec les objets de B.
+        for (methode, chemin, corps) in routes_v5(o_b.eleve, matiere_b, cours_b, Uuid::new_v4()) {
+            let r = m.appel(methode, &chemin, Some(m.jeton(Direction)), corps.as_ref()).await;
+            assert!(
+                !r.est_succes() || (methode == "GET" && r.json.as_array().is_some_and(Vec::is_empty)),
+                "A→B {methode} {chemin} : {} {}", r.statut, r.texte
+            );
+            assert!(r.statut.as_u16() < 500, "A→B {methode} {chemin} : erreur serveur {}", r.texte);
+        }
+        // Direction de B avec les objets de A.
+        let jeton_b = m.b.jetons.get(&Direction).expect("direction de B").clone();
+        for (methode, chemin, corps) in routes_v5(o_a.eleve, matiere_a, cours_a, Uuid::new_v4()) {
+            let r = m.appel(methode, &chemin, Some(&jeton_b), corps.as_ref()).await;
+            assert!(
+                !r.est_succes() || (methode == "GET" && r.json.as_array().is_some_and(Vec::is_empty)),
+                "B→A {methode} {chemin} : {} {}", r.statut, r.texte
+            );
+            assert!(r.statut.as_u16() < 500, "B→A {methode} {chemin} : erreur serveur {}", r.texte);
+        }
+    });
+}
+
+/// Revue de V5 (F5) : portée du professeur sur les 11 routes. Les actions de la direction (déclarer un enseignement,
+/// saisir ou publier une moyenne) lui répondent 403 ; une ligne inconnue lui répond 403 (jamais 404 : aucun oracle) ; ses
+/// lectures ne rendent rien d'une matière qu'il n'enseigne pas (liste vide ou refus).
+#[test]
+fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let (matiere, cours) = (o.matiere.unwrap_or_else(Uuid::new_v4), o.cours.unwrap_or_else(Uuid::new_v4));
+    let inconnu = Uuid::new_v4();
+    rt().block_on(async {
+        for (methode, chemin, corps) in routes_v5(o.eleve, matiere, cours, inconnu) {
+            let r = m.appel(methode, &chemin, Some(m.jeton(Prof)), corps.as_ref()).await;
+            assert!(r.statut.as_u16() < 500, "{methode} {chemin} : erreur serveur {}", r.texte);
+            let direction_seule = chemin.contains("/enseignements-externes") && methode == "POST"
+                || chemin.contains("/moyennes-externes/");
+            let ligne_inconnue = methode == "POST" && chemin.contains(&inconnu.to_string());
+            if direction_seule || ligne_inconnue {
+                assert_eq!(r.statut.as_u16(), 403, "{methode} {chemin} : {}", r.texte);
+            }
+            if methode == "GET" && !chemin.contains("externes-famille") {
+                assert!(r.est_refus() || r.est_vide() || r.json.as_array().is_some_and(Vec::is_empty) || r.json.is_object(),
+                    "{methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}
+
+/// Revue de V5 (F5) : succès de bout en bout de `externes-famille` : la direction déclare, compte et publie un résultat
+/// externe ; le parent lié (avec « voir les notes ») le lit, sans auteur ni motif, avec la mention neutre ; un parent sans
+/// le drapeau « notes » reçoit 403.
+#[test]
+fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let Some(cours) = o.cours else {
+        return eprintln!("skip: cours absent du labo");
+    };
+    let aujourd_hui = domain_eleve::horloge::jour_paris();
+    rt().block_on(async {
+        let dir = m.jeton(Direction);
+        // Le cours du professeur du labo n'a pas de matière du référentiel : on compte le résultat dans un autre cours de la
+        // même classe qui en a une (un résultat ne se compte que dans un cours de sa matière).
+        let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL"))
+            .await
+            .expect("connexion propriétaire");
+        let (cours, matiere): (Uuid, Uuid) = sqlx::query_as(
+            "SELECT c2.id, c2.matiere_id FROM ent_cours c1
+               JOIN ent_cours c2 ON c2.etablissement_id = c1.etablissement_id AND c2.classe_id = c1.classe_id
+                AND c2.matiere_id IS NOT NULL
+              WHERE c1.etablissement_id = $1 AND c1.id = $2 ORDER BY c2.id LIMIT 1",
+        )
+        .bind(o.etab)
+        .bind(cours)
+        .fetch_one(&pool)
+        .await
+        .expect("autre cours de la classe avec une matière");
+        let corps = json!({"eleve_id": o.eleve, "matiere_id": matiere, "origine": "cned", "libelle": "Devoir CNED de test",
+            "date_resultat": aujourd_hui.to_string(), "periode_id": null, "valeur_m": 15000, "bareme_m": 20000, "document_id": null});
+        let r = m.appel("POST", "/eva/v5/externes", Some(dir), Some(&corps)).await;
+        assert_eq!(r.statut.as_u16(), 201, "déclarer : {}", r.texte);
+        let id = r.json["id"].as_str().expect("id").to_string();
+        // Non compté, non publié : la famille ne voit rien.
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes() && r.json.as_array().is_some_and(Vec::is_empty), "avant : {} {}", r.statut, r.texte);
+        let r = m
+            .appel("POST", &format!("/eva/v5/externes/{id}/compter"), Some(dir),
+                   Some(&json!({"cours_id": cours, "motif": "Relevé vérifié par la direction"})))
+            .await;
+        assert!(r.est_succes(), "compter : {} {}", r.statut, r.texte);
+        // Compté mais pas publié : toujours rien pour la famille (règle 1).
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes() && r.json.as_array().is_some_and(Vec::is_empty), "compté : {} {}", r.statut, r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/externes/{id}/publier"), Some(dir), None).await;
+        assert!(r.est_succes(), "publier : {} {}", r.statut, r.texte);
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(Parent)), None).await;
+        assert!(r.est_succes(), "après : {} {}", r.statut, r.texte);
+        let liste = r.json.as_array().expect("liste");
+        assert_eq!(liste.len(), 1, "{}", r.texte);
+        assert_eq!(liste[0]["valeur_m"], 15000);
+        assert!(liste[0]["mention"].as_str().is_some_and(|x| x.contains("autre organisme")), "{}", r.texte);
+        assert!(!r.texte.contains("Relevé vérifié"), "aucun motif servi à la famille : {}", r.texte);
+        assert!(!r.texte.contains("saisi_par") && !r.texte.contains("compte_motif"), "{}", r.texte);
+        // Un parent d’un autre foyer, non lié à cet élève, reçoit 403.
+        let r = m.appel("GET", &format!("/eva/v5/eleves/{}/externes-famille", o.eleve), Some(m.jeton(ParentAutreFoyer)), None).await;
+        assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }

@@ -284,6 +284,14 @@ pub mod types {
     pub const FACTURATION_QUOTIENT_DEFINI: &str = "facturation.quotient_defini";
     pub const FACTURATION_TAUX_TVA_DEFINI: &str = "facturation.taux_tva_defini";
     pub const FACTURATION_IBAN_HISTORISE: &str = "facturation.iban_historise";
+    // Lot F3 : catalogue qualifié, grilles votées, simulateur.
+    pub const FACTURATION_ARTICLE_QUALIFIE: &str = "facturation.article_qualifie";
+    pub const FACTURATION_GRILLE_CREEE: &str = "facturation.grille_creee";
+    pub const FACTURATION_GRILLE_PROPOSEE: &str = "facturation.grille_proposee";
+    pub const FACTURATION_GRILLE_VOTEE: &str = "facturation.grille_votee";
+    pub const FACTURATION_GRILLE_EN_VIGUEUR: &str = "facturation.grille_en_vigueur";
+    pub const FACTURATION_GRILLE_PUBLIEE: &str = "facturation.grille_publiee";
+    pub const FACTURATION_SIMULATION_CALCULEE: &str = "facturation.simulation_calculee";
     pub const INFIRMERIE_PASSAGE: &str = "infirmerie.passage";
     pub const INFIRMERIE_FICHE_SANTE: &str = "infirmerie.fiche_sante";
     pub const INFIRMERIE_FICHE_SANTE_PDF: &str = "infirmerie.fiche_sante_pdf";

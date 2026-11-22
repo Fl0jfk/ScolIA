@@ -39,7 +39,8 @@ pub fn map_sqlx(scope: &str, err: sqlx::Error) -> DomainError {
 /// Classification pure d'un SQLSTATE (testable sans base).
 pub fn classer_sqlstate(code: &str) -> DomainError {
     match code {
-        "23505" => DomainError::Conflit,
+        // 23505 unicité, 23001 restriction (RESTRICT), 23P01 exclusion (tranches qui se chevauchent) : conflit
+        "23505" | "23001" | "23P01" => DomainError::Conflit,
         "23503" => DomainError::ReferenceInconnue,
         "23514" | "23502" => DomainError::ValeurInvalide,
         // Classe 22 : donnée invalide (chaîne trop longue, hors plage, date,
@@ -76,7 +77,10 @@ mod tests {
         for c in ["40001", "40P01"] {
             assert!(matches!(classer_sqlstate(c), DomainError::Reessayer), "{c}");
         }
-        assert!(matches!(classer_sqlstate("23505"), DomainError::Conflit));
+        // 23505 unicité, 23001 restriction, 23P01 exclusion : conflits (409), jamais une panne
+        for c in ["23505", "23001", "23P01"] {
+            assert!(matches!(classer_sqlstate(c), DomainError::Conflit), "{c}");
+        }
         assert!(matches!(classer_sqlstate("23503"), DomainError::ReferenceInconnue));
         for c in ["", "08006", "42P01", "53300", "57P01", "XX000"] {
             assert!(matches!(classer_sqlstate(c), DomainError::Infrastructure), "{c}");

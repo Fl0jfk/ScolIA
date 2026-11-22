@@ -112,6 +112,29 @@ async fn parcours_comptabilite_et_famille_contre_le_backend() {
         Err(ApiError::Interdit(_))
     ));
 
+    // Établissement de labo antérieur à la 523 : qualification des articles non exigée (valeur transitoire,
+    // D-069), pour créer un article « à l'ancienne » ; le réglage passe par le service, comme la comptabilité.
+    {
+        let url = std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL");
+        let ent = ent_db::PgEnt::connect(&url).await.expect("base de test");
+        let pc = l
+            .personnel
+            .iter()
+            .find(|p| p.role == "compta")
+            .expect("compta de labo");
+        ent.definir_reglages_grilles_for_actor(
+            l.etablissement_id,
+            pc.user_id,
+            &pc.role,
+            &ent_types::finances_grilles::ReglagesGrillesBody {
+                exiger_qualification_articles: Some(false),
+                grille_second_regard: None,
+            },
+        )
+        .await
+        .expect("réglage de qualification");
+    }
+
     // Article et tarif sur une année lointaine (code unique à chaque exécution).
     let suffixe = chrono::Utc::now().timestamp_micros() % 1_000_000;
     let article = compta

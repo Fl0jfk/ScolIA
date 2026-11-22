@@ -899,6 +899,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::evaluations::routes());
     let r = r.merge(crate::evaluations_v3::routes());
     let r = r.merge(crate::evaluations_v4::routes());
+    let r = r.merge(crate::evaluations_v5::routes());
     // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).
     let r = r.merge(crate::eleve_propositions::routes());
     // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).
@@ -918,6 +919,7 @@ pub fn router() -> Router<AppState> {
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
     let r = r.merge(crate::finances_comptes::routes());
+    let r = r.merge(crate::finances_grilles::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
     // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
