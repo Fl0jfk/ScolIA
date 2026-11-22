@@ -1448,10 +1448,13 @@ impl PgEnt {
                 .iter()
                 .filter_map(|e| e.classe_code.as_deref())
                 .collect();
-            let fenetre = enseignements.iter().fold(None, |acc: Option<(NaiveDate, NaiveDate)>, e| {
-                let (du, au) = (e.du, e.au.unwrap_or(fin));
-                Some(acc.map_or((du, au), |(a, b)| (a.min(du), b.max(au))))
-            });
+            let fenetre =
+                enseignements
+                    .iter()
+                    .fold(None, |acc: Option<(NaiveDate, NaiveDate)>, e| {
+                        let (du, au) = (e.du, e.au.unwrap_or(fin));
+                        Some(acc.map_or((du, au), |(a, b)| (a.min(du), b.max(au))))
+                    });
             let dedans = |d: &NaiveDate| fenetre.is_some_and(|(a, b)| *d >= a && *d <= b);
             let segments: Vec<SegmentClasseDto> = match fenetre {
                 None => Vec::new(),

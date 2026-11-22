@@ -537,7 +537,7 @@ async fn eleve_protege_signale_et_mesure_conservee() {
 #[tokio::test]
 async fn fiche_absorbee_protegee_vers_conservee_non_protegee_refusee_sans_g6() {
     let Some((ent, cast)) = labo().await else { return };
-    let (etab, admin) = (Uuid::new_v4(), cast.admin.user_id);
+    let (etab, admin) = (cast.etablissement_id, cast.admin.user_id);
     let a = eleve(&ent, etab, &format!("Prot{}", alea(4)), "Mia", None, None, Some(jour(2025, 9, 1)), None).await;
     let b = eleve(&ent, etab, &format!("Prot{}", alea(4)), "Mia", None, None, Some(jour(2024, 9, 1)), Some(jour(2025, 7, 1))).await;
     sqlx::query(

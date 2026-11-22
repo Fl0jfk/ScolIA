@@ -2543,7 +2543,13 @@ async fn contre_revue_ma_une_correction_remet_la_moyenne_en_non_publiee_et_le_re
     let evenements: Vec<&str> = histo.iter().map(|h| h.0.as_str()).collect();
     assert_eq!(
         evenements,
-        ["saisie", "publication", "correction", "publication", "retrait"]
+        [
+            "saisie",
+            "publication",
+            "correction",
+            "publication",
+            "retrait"
+        ]
     );
     assert!(!histo[0].2 && histo[2].2 && histo[4].2, "{histo:?}");
     assert_eq!(histo[2].1.as_deref(), Some("Relevé corrigé"));
@@ -2610,7 +2616,10 @@ async fn contre_revue_mb_le_moteur_decide_sur_toutes_les_lignes_seul_l_affichage
         .unwrap()
         .generale;
     assert!(
-        perso.avertissements.iter().any(|m| m.contains("2 moyennes externes")),
+        perso
+            .avertissements
+            .iter()
+            .any(|m| m.contains("2 moyennes externes")),
         "{:?}",
         perso.avertissements
     );
@@ -2620,7 +2629,10 @@ async fn contre_revue_mb_le_moteur_decide_sur_toutes_les_lignes_seul_l_affichage
         .unwrap()
         .generale;
     assert!(
-        famille.avertissements.iter().all(|m| !m.contains("2 moyennes") && !m.contains("l'emportent")),
+        famille
+            .avertissements
+            .iter()
+            .all(|m| !m.contains("2 moyennes") && !m.contains("l'emportent")),
         "la famille n'apprend ni le nombre ni l'existence de ce qui n'est pas publié : {:?}",
         famille.avertissements
     );
@@ -2752,7 +2764,8 @@ async fn contre_revue_f1_le_professeur_ne_voit_du_parcours_que_ce_qui_concerne_s
 /// F-2 : un assistant ou un intervenant (lecture seule) ne déclare pas de résultat externe, mais lit ; un professeur ne
 /// déclare pas pour une année précédente (la direction, si).
 #[tokio::test]
-async fn contre_revue_f2_un_assistant_ne_declare_pas_et_pas_d_annee_precedente_pour_le_professeur() {
+async fn contre_revue_f2_un_assistant_ne_declare_pas_et_pas_d_annee_precedente_pour_le_professeur()
+{
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
@@ -2868,7 +2881,10 @@ async fn contre_revue_md_dispense_et_portee_designee_sans_cours_dans_le_parcours
         .await
         .unwrap();
     assert_eq!(prof.evaluations.len(), 1);
-    assert_eq!(prof.evaluations[0].statut, None, "jamais `dispense` au professeur");
+    assert_eq!(
+        prof.evaluations[0].statut, None,
+        "jamais `dispense` au professeur"
+    );
     let dir = ent
         .eva_v5_parcours_for_actor(w.etab, w.direction, DIR, jour(), a, w.t1)
         .await
@@ -2889,7 +2905,10 @@ async fn contre_revue_md_dispense_et_portee_designee_sans_cours_dans_le_parcours
             cast.admin.user_id,
             "admin",
             crate::droits_repo::RoleSaisie {
-                nom: format!("Vie scolaire désignée {}", &Uuid::new_v4().simple().to_string()[..4]),
+                nom: format!(
+                    "Vie scolaire désignée {}",
+                    &Uuid::new_v4().simple().to_string()[..4]
+                ),
                 description: None,
                 modele: None,
                 droits: vec![crate::droits_repo::Droit {
@@ -2902,9 +2921,16 @@ async fn contre_revue_md_dispense_et_portee_designee_sans_cours_dans_le_parcours
         .await
         .unwrap();
     let vie_scolaire = cast.compta.user_id;
-    ent.attribuer_role_for_actor(w.etab, cast.admin.user_id, "admin", role.id, vie_scolaire, None)
-        .await
-        .unwrap();
+    ent.attribuer_role_for_actor(
+        w.etab,
+        cast.admin.user_id,
+        "admin",
+        role.id,
+        vie_scolaire,
+        None,
+    )
+    .await
+    .unwrap();
     let p = ent
         .eva_v5_parcours_for_actor(w.etab, vie_scolaire, "compta", jour(), a, w.t1)
         .await
