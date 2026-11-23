@@ -1465,22 +1465,25 @@ pub(crate) async fn moyennes_tx(
     // l'élève ce jour-là : un changement de classe ou de périodisation ne fait ni disparaître ni compter deux fois une note.
     // Jamais `eva_evaluation.periode_id` (période indicative).
     let lignes = sqlx::query(
-        "SELECT r.evaluation_id, ev.titre, (ev.bareme * 1000)::bigint AS bareme_m, (ev.coef * 1000)::bigint AS coef_m,
+        "SELECT q.* FROM (
+           SELECT DISTINCT ON (r.evaluation_id)
+                r.evaluation_id, ev.titre, (ev.bareme * 1000)::bigint AS bareme_m, (ev.coef * 1000)::bigint AS coef_m,
                 ev.comptage, ev.hors_bareme_autorise, ev.etat, ev.cours_id, ev.matiere_id AS sous_matiere_id,
-                co.matiere_id AS matiere_id, co.classe_id AS cours_classe_id, r.statut, (r.valeur * 1000)::bigint AS valeur_m
+                co.matiere_id AS matiere_id, co.classe_id AS cours_classe_id, r.statut, (r.valeur * 1000)::bigint AS valeur_m,
+                ev.date_eval
            FROM eva_resultat r
            JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
            JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
           WHERE r.etablissement_id = $1 AND r.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2)) AND ev.mode = 'note'
-            -- M-C : la note suit l'élève CONSERVÉ après une fusion de fiches ; si la fiche conservée a elle-même un
-            -- résultat pour la même évaluation, celui de la fiche absorbée ne compte pas (jamais deux fois).
-            AND (r.eleve_id = $2 OR NOT EXISTS (SELECT 1 FROM eva_resultat r2
-                                                 WHERE r2.etablissement_id = r.etablissement_id
-                                                   AND r2.evaluation_id = r.evaluation_id AND r2.eleve_id = $2))
             AND ev.etat IN ('ouverte', 'annulee')
             AND ($4 = false OR ev.publiee_le IS NOT NULL)
             AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
-          ORDER BY ev.date_eval, ev.id",
+          -- M-C, passe 3 : la note suit l'élève CONSERVÉ après une fusion de fiches, et une évaluation ne compte JAMAIS
+          -- deux fois (fusions en chaîne : A et B absorbées dans C, chacune avec un résultat pour la même évaluation).
+          -- Priorité : la fiche conservée ; à défaut, la saisie la plus récente (puis l'identifiant, pour un ordre stable).
+          ORDER BY r.evaluation_id, (r.eleve_id = $2) DESC, r.saisi_le DESC, r.id
+          ) q
+          ORDER BY q.date_eval, q.evaluation_id",
     )
     .bind(etab)
     .bind(eleve_id)
