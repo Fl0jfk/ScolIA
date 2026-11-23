@@ -1024,27 +1024,27 @@ mod tests {
         );
     }
 
-    /// Règle 38 (T1) : l'ordre des migrations qui précèdent 690 est **figé**. Une base déjà migrée ne rejoue pas 690 après
-    /// une migration insérée avant elle : les fonctions de cette migration resteraient sans `search_path`. Toute migration
-    /// nouvelle s'ajoute donc À LA FIN du tableau `MIGRATIONS`, après `690_t1_search_path_fonctions` et celles qui la
-    /// suivent déjà. La liste de référence est `migrations_avant_690.txt` (les 427 noms versés sur `ENT` avant 690).
+    /// Règle 38 (T1) : l'ordre des migrations **versées sur `ENT`** est figé. Une base déjà migrée n'applique une migration
+    /// nouvelle qu'à la suite de celles qu'elle a déjà : insérée au milieu du tableau, elle passerait après 690 sur une base
+    /// migrée mais avant sur une base neuve (fonctions sans `search_path`, ordre de rejeu faux). Toute migration nouvelle
+    /// s'ajoute donc À LA FIN du tableau `MIGRATIONS`. La référence est `migrations_versees.txt`, **préfixe obligatoire** du
+    /// tableau ; le pilote y ajoute, au versement, les migrations du lot versé (dans l'ordre du tableau).
     #[test]
-    fn l_ordre_des_migrations_avant_690_est_fige_regle_38() {
-        let figees: Vec<&str> = include_str!("migrations_avant_690.txt").lines().collect();
-        let position = MIGRATIONS
-            .iter()
-            .position(|(nom, _)| *nom == "690_t1_search_path_fonctions")
-            .expect("690_t1_search_path_fonctions doit rester dans le tableau MIGRATIONS");
-        let avant: Vec<&str> = MIGRATIONS[..position].iter().map(|(n, _)| *n).collect();
+    fn l_ordre_des_migrations_versees_est_fige_regle_38() {
+        let figees: Vec<&str> = include_str!("migrations_versees.txt").lines().filter(|l| !l.trim().is_empty()).collect();
+        let tableau: Vec<&str> = MIGRATIONS.iter().map(|(n, _)| *n).collect();
         let regle = "Règle 38 (docs/securite/T1_SEARCH_PATH.md, PILOTAGE) : une migration nouvelle s'ajoute À LA FIN du tableau \
-                     MIGRATIONS, APRÈS 690_t1_search_path_fonctions, jamais avant. Une base déjà migrée ne rejouerait pas 690 après \
-                     une migration insérée avant elle : les fonctions créées par celle-ci resteraient sans `search_path` (une table \
-                     temporaire pourrait tromper leurs gardes). ";
-        let inseree: Vec<&&str> = avant.iter().filter(|n| !figees.contains(n)).collect();
-        assert!(inseree.is_empty(), "{regle}Migration(s) insérée(s) avant 690 : {inseree:?}");
-        let retiree: Vec<&&str> = figees.iter().filter(|n| !avant.contains(n)).collect();
-        assert!(retiree.is_empty(), "{regle}Migration(s) versée(s) retirée(s) ou déplacée(s) après 690 : {retiree:?}");
-        assert_eq!(avant, figees, "{regle}L'ordre des migrations qui précèdent 690 a changé");
+                     MIGRATIONS, après toutes les migrations versées (migrations_versees.txt), jamais au milieu. Une base déjà \
+                     migrée l'appliquerait dans un autre ordre qu'une base neuve (et après 690 : fonctions sans `search_path`). ";
+        assert!(figees.contains(&"690_t1_search_path_fonctions"), "{regle}la liste de référence doit contenir 690");
+        assert!(tableau.len() >= figees.len(), "{regle}des migrations versées ont disparu du tableau");
+        for (i, attendue) in figees.iter().enumerate() {
+            assert_eq!(
+                tableau[i], *attendue,
+                "{regle}position {i} : `{}` trouvée là où la migration versée `{attendue}` est attendue (insertion, déplacement ou retrait)",
+                tableau[i]
+            );
+        }
     }
 
     /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
