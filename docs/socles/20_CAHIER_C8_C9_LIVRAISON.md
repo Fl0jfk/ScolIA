@@ -180,13 +180,13 @@ HTTP de séparation (`ent-api`, labo) : **57 verts**. Frontend : le test d'inté
 
 ## 11. Passe 3 (2026-11-22) : reprise sur année figée, restes de la passe 2
 
-Branche `ent-socle-20-code-c8c9` (PR n° 110, brouillon), partie de sa tête distante `de331683`, puis fusion d'`origin/ENT` (commit `8001d97a`, aucun conflit). **Compteurs (règle 28) recalculés** : `Action::TOUTES` 278 (ENT 275 + 3 du lot, inchangé par la fusion), `MIGRATION_TAG` 3808 inchangé, aucune migration nouvelle (**2407 et 2412 modifiées**) ; `registre_donnees`, `tests_rls`, `migrate` verts dans la suite complète.
+Branche `ent-socle-20-code-c8c9` (PR n° 110, brouillon), partie de sa tête distante `de331683`, puis fusion d'`origin/ENT` (commit `8001d97a`, aucun conflit). **Compteurs (règle 28) recalculés** : `Action::TOUTES` 278 (ENT 275 + 3 du lot, inchangé par la fusion), `MIGRATION_TAG` 3808 inchangé, aucune migration nouvelle (**2407 modifiée** ; 2412, modifiée à tort par cette passe, remise à l’identique par le pilote) ; `registre_donnees`, `tests_rls`, `migrate` verts dans la suite complète.
 
 ### Échecs de la CI (run 45030673191)
 
 | Échec | Cause | Correctif | État |
 |---|---|---|---|
-| 5 tests de **rejeu des migrations** (`tests_d036`, `tests_personnels_p1`, `tests_eleve_identite`, `tests_inscriptions_i2`, `tests_structure_s4`) | `ent_cdt_reprise` (2412) insère dans `ent_cdt_travail` une année N-1 close au socle 5 : la garde `ent_cdt_ecriture_gardee` refuse (23514) | **La reprise est le seul chemin qui écrit dans une année figée**, et en INSERT seulement. 2412 pose `ent.cdt_reprise = 'on'` pour la transaction (`set_config(…, true)`), le retire en sortie et journalise les compteurs avant/après (`RAISE LOG`) ; 2407 : la garde laisse passer un INSERT si le drapeau est posé **et** si la pile d'appel (`PG_CONTEXT`) passe par `ent_cdt_reprise(uuid)`. UPDATE et DELETE restent refusés ; la reprise reste idempotente (`ON CONFLICT DO NOTHING`, aucune ligne existante modifiée). Poser le drapeau à la main ne désarme pas la garde. | fait et testé |
+| 5 tests de **rejeu des migrations** (`tests_d036`, `tests_personnels_p1`, `tests_eleve_identite`, `tests_inscriptions_i2`, `tests_structure_s4`) | `ent_cdt_reprise` (2412) insère dans `ent_cdt_travail` une année N-1 close au socle 5 : la garde `ent_cdt_ecriture_gardee` refuse (23514) | **Correctif du pilote** (voir « Correctif du pilote après contre-revue ») : le gel n'a **aucune exception** ; au rejeu des tests seulement, `GARDES_DE_REJEU` (`migrate.rs`) retire les déclencheurs de gel juste avant 2412 et 2407 les recrée. 2412 (versée) n'est pas modifiée. | fait et testé |
 | `e9c_majorite_proche_est_un_booleen_sans_date` | **Non reproduit** : passe seul, sur base neuve, à 16 h 28 UTC le 22-11 (la CI l'a vu échouer à 15 h 51 UTC le même jour). Il utilise le jour de l'établissement (`jour_etablissement`) et des naissances relatives à ce jour : il ne dépend pas d'une date fixe. Hypothèse (non prouvée) : état laissé par un autre test de la tranche. | aucun changement de code ; à resurveiller sur la CI | **non résolu** |
 | Tranches frontend | Non terminées dans ce run | Voir « Vérifications » | voir CI |
 
@@ -200,8 +200,39 @@ Limite déclarée de la garde : la base de test n'a qu'un rôle ; le contrôle r
 | Octroi `croise` | **testé** : `c8_octroi_croise_est_signale_sur_le_second_octroi_seulement` |
 | Clôturer sans exporter | **testé** : `c8_cloturer_sans_exporter_decide_et_liste_les_archives_sans_lire_leur_texte` (rôle libre `cahier.cloturer` seul : liste et décision permises, lecture du texte refusée) |
 | `c4_..._performance` (200 ms) | critère de 200 ms **vérifié seul** (passe) ; sous charge 250 à 284 ms : le test garde un **garde-fou de 500 ms** (meilleur de trois passages), qui attrape une régression d'ordre de grandeur sans dépendre de la charge ; justification écrite dans le test |
-| Test de reprise sur année figée | `c1_reprise_sur_annee_figee_insere_les_manquants_sans_rien_alterer` : cahier clôturé puis année close au socle 5 ; insertion du manquant, lignes existantes inchangées (empreinte MD5), rejeu identique, écritures directes refusées, drapeau posé à la main inopérant, drapeau retiré en sortie |
+| Test de l'année figée | `c1_annee_figee_sans_exception_pas_meme_la_reprise` : cahier clôturé ; écriture directe, reprise, bloc `DO` imitant la pile d'appel de la reprise et table temporaire homonyme du journal de clôture **refusés par le gel** (SQLSTATE 23514 et message « figée ») ; rien d'écrit, empreinte inchangée |
 
 ### Vérifications locales
 
 PostgreSQL 16 local, base neuve dont le nom contient « test » (`ent_ci_test`), `ENT_ENV=test`, **sans** `ENT_RLS_MODE=strict` (la CI ne le pose pas pour le job labo ; avec lui, 5 tests `a0bis` échouent), `--locked`, un seul `CARGO_TARGET_DIR`. Suite complète `ent-db --features labo --lib` en `--test-threads=4` : **2504 verts, 11 rouges**. Les 11 (`a1_port_absences_validees_non_remplacees`, `statut_de_tous_les_eleves_du_labo…`, `sortie_future_puis_tache_quotidienne`, `e2_aucune_variable_de_session…`, trois `i4_*`, `correspondance_stable_rejouable…`, `la_simulation_n_ecrit_rien…`, deux `r3_*`) sont des **artefacts d'exécution en un seul processus sur une base partagée** (comptages globaux de tables, base de 13 000 élèves) : rejoués **un par un sur base neuve**, ils passent tous (la CI isole chaque test, nextest). Aucun test n'est ignoré (`#[ignore]`).
+
+## Correctif du pilote après contre-revue (2026-11-23)
+
+**Constat.** La passe 3 modifiait **2412, versée** (règle 25 enfreinte), pour poser un drapeau de transaction ; la garde de gel de 2407
+laissait alors passer un INSERT si le drapeau était posé et si la pile d'appel (`PG_CONTEXT`) passait par `ent_cdt_reprise(uuid)`. La
+contre-revue indépendante a montré que cette exception est **contournable** par le rôle applicatif : le texte d'une requête exécutée en
+SPI figure dans la pile (un commentaire `/* … function ent_cdt_reprise(uuid) */` dans un bloc `DO` suffit), une fonction homonyme d'un
+schéma présent dans le `search_path` apparaît non qualifiée, et `ent_cdt_reprise` est exécutable par PUBLIC. Elle a aussi montré qu'une
+**table temporaire homonyme** (`ent_cdt_cloture`, `ent_annee_scolaire`) masquait les tables réelles lues par les fonctions de gel, faute de
+`search_path` fixé (privilège TEMP de PUBLIC par défaut).
+
+**Correctif.**
+- 2412 remise **à l'identique** de `ENT` (aucune migration versée ne change).
+- 2407 (non versée) : la garde de gel n'a **plus aucune exception**. En installation, 2412 passe avant 2407 : le gel n'existe pas encore
+  pendant la reprise. La production n'exécute jamais de rejeu (registre à empreinte, une application par fichier).
+- `migrate.rs`, `GARDES_DE_REJEU` (test seulement) : avant le rejeu de 2412, retrait des 14 déclencheurs `*_annee_figee` ; 2407, rejouée
+  ensuite dans le même rejeu, les recrée.
+- 2407 : `search_path = pg_catalog, public, pg_temp` fixé sur les 13 fonctions du fichier (gardes, gel, clôture, archive, inspection).
+- Test réécrit (voir le tableau) ; il couvre les deux contournements.
+
+**Conséquence assumée.** Une saisie faite dans l'ancien modèle **après** la clôture d'une année n'est pas reprise dans cette année (la
+reprise échoue sans rien écrire) : l'année close reste close ; la réouverture tracée est le seul chemin.
+
+**Reste à faire (hors lot, en file).**
+- Transverse : `REVOKE TEMP ON DATABASE … FROM PUBLIC` au provisionnement et `search_path` fixé sur **toutes** les fonctions de garde du
+  dépôt (le même masquage par table temporaire vaut pour les autres domaines).
+- `REVOKE EXECUTE ON FUNCTION ent_cdt_reprise(uuid) FROM PUBLIC` (dans une migration nouvelle : 2412 est versée).
+- Contre-revue, faibles : F2 tables filles non classées (`ent_cdt_groupe`, `ent_cdt_groupe_membre`, `ent_cdt_continuite_cours`,
+  `ent_cdt_note_accompagnement`) ; F3 gel « ouvert » si la ligne de l'année est invisible (à faire échouer fermé) ; F4 garde-fou de
+  performance à l'horloge (500 ms) au lieu d'un compte de requêtes.
+- Toute base de labo ou de développement qui a reçu une version antérieure de 2407 refuse de démarrer (`FichierModifie`) : la recréer.

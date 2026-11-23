@@ -356,6 +356,10 @@ LANGUAGE sql STABLE AS $$
     END -- dépôt, retour : activité d'élève, hors gel (NULL)
 $$;
 
+-- Aucune exception, pas même pour la reprise de l'existant (2412) : une exception fondée sur la pile d'appel (PG_CONTEXT)
+-- est contournable (le texte d'une requête SPI, commentaire compris, figure dans la pile) et un drapeau de transaction
+-- est posé par qui veut. En installation, 2412 passe avant 2407 (le gel n'existe pas encore pendant la reprise) ; au
+-- rejeu des tests, `GARDES_DE_REJEU` (migrate.rs) retire les déclencheurs de gel juste avant 2412 et 2407 les recrée.
 -- Les champs de `r` ne sont lus que dans la branche de leur table (évaluation paresseuse de plpgsql) ; une ligne dont le
 -- parent n'existe pas n'a pas d'année : la clé étrangère tranche.
 CREATE OR REPLACE FUNCTION ent_cdt_ecriture_gardee() RETURNS trigger AS $$
@@ -365,17 +369,7 @@ DECLARE
     v_annee UUID;
     r RECORD;
     i INTEGER;
-    v_pile TEXT;
 BEGIN
-    -- Reprise de l'existant (2412) : SEUL chemin autorisé à écrire dans une année figée, et en INSERT seulement (aucune
-    -- modification ni suppression d'une ligne existante). Double condition : le drapeau de transaction posé par
-    -- `ent_cdt_reprise` ET une pile d'appel qui passe par cette fonction ; poser le drapeau ailleurs ne désarme pas la garde.
-    IF TG_OP = 'INSERT' AND COALESCE(current_setting('ent.cdt_reprise', true), '') = 'on' THEN
-        GET DIAGNOSTICS v_pile = PG_CONTEXT;
-        IF v_pile ~ '(function|fonction) ent_cdt_reprise\(uuid\)' THEN
-            RETURN NEW;
-        END IF;
-    END IF;
     FOR i IN 1..2
     LOOP
         IF i = 1 THEN
@@ -431,6 +425,27 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
         EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION ent_cdt_ecriture_gardee()',
                        t || '_annee_figee', t);
+    END LOOP;
+END
+$$;
+
+-- search_path fixé sur toutes les fonctions de ce fichier : une table temporaire homonyme (`CREATE TEMP TABLE
+-- ent_cdt_cloture …`, privilège TEMP de PUBLIC) masquerait sinon la table réelle et désarmerait le gel en silence.
+-- `pg_temp` est placé en dernier : les noms non qualifiés se résolvent dans `public` avant lui. (Rejoué en fin de
+-- fichier : un CREATE OR REPLACE efface la clause SET.)
+DO $$
+DECLARE
+    f regprocedure;
+BEGIN
+    FOR f IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public'
+                AND p.proname IN ('ent_cdt_sans_truncate', 'ent_cdt_visa_fige', 'ent_cdt_acces_inspection_garde',
+                                  'ent_cdt_archive_garde', 'ent_cdt_archive_lien', 'ent_cdt_cahier_fige',
+                                  'ent_cdt_annee_gelee', 'ent_cdt_demande_reouverture', 'ent_cdt_cloture_coherence',
+                                  'ent_cdt_annee_de_travail', 'ent_cdt_annee_de_entree', 'ent_cdt_annee_de_porteur',
+                                  'ent_cdt_ecriture_gardee')
+    LOOP
+        EXECUTE format('ALTER FUNCTION %s SET search_path = pg_catalog, public, pg_temp', f);
     END LOOP;
 END
 $$;

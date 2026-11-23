@@ -1975,80 +1975,70 @@ async fn c1_reprise_compteurs_quarantaine_et_rejouabilite() {
     let _ = sc.travail_orphelin;
 }
 
-/// Passe 3 : la reprise de l'existant est le SEUL chemin qui écrit dans une année figée (on ne perd pas l'historique des
-/// devoirs d'une année close) : elle insère les manquants, n'altère rien d'existant ; une écriture applicative directe reste
-/// refusée ; poser le drapeau hors de la fonction ne désarme pas la garde.
+/// Passe 3 (correctif du pilote) : le gel d'une année close n'a AUCUNE exception, pas même la reprise de l'existant.
+/// Une saisie de l'ancien modèle arrivée après la clôture n'est pas reprise (la reprise échoue, sans rien écrire) ;
+/// les contournements connus d'une exception (commentaire dans un bloc `DO` qui imite la pile d'appel de la reprise,
+/// table temporaire homonyme qui masquerait le journal de clôture) sont refusés. Au rejeu des tests, la reprise passe
+/// grâce à `GARDES_DE_REJEU` (migrate.rs), qui retire le gel juste avant 2412.
 #[tokio::test]
-async fn c1_reprise_sur_annee_figee_insere_les_manquants_sans_rien_alterer() {
+async fn c1_annee_figee_sans_exception_pas_meme_la_reprise() {
     let Some(fx) = fixture().await else {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
     let e = fx.cast.etablissement_id;
     let sc = ancien_scenario(&fx).await;
-    reprendre(&fx).await;
+    let c = reprendre(&fx).await;
     let annee = fx.ent.referentiel_annee_courante_assuree(e).await.unwrap().id;
-    // Une saisie de l'ancien modèle arrive APRÈS la première reprise, puis l'année est close.
+    // Une saisie de l'ancien modèle arrive APRÈS la première reprise, puis le cahier est clôturé.
     fx.publier_travail(&fx.prof(), fx.cible_a(), |t| {
         t.seance_id = Some(sc.seance_avec_cours);
         t.titre = "Devoir de l'année close".into();
     })
     .await
     .unwrap();
-    let hash_existant = || async {
+    let empreinte = || async {
         sqlx::query_scalar::<_, String>(
-            "SELECT md5(string_agg(t::text, '|' ORDER BY t.id)) FROM ent_cdt_travail t WHERE t.etablissement_id = $1 AND t.ancien_id IS NOT NULL AND t.titre <> 'Devoir de l''année close'")
+            "SELECT md5(string_agg(t::text, '|' ORDER BY t.id)) FROM ent_cdt_travail t WHERE t.etablissement_id = $1")
             .bind(e).fetch_one(fx.ent.pool()).await.unwrap()
     };
-    let avant = hash_existant().await;
     let nb_avant = nb(&fx, "ent_cdt_travail").await;
-    // Cahier clôturé (journal du cahier) ; l'année du socle 5 est close plus bas (irréversible, propre à ce test).
     sqlx::query("INSERT INTO ent_cdt_cloture (id, etablissement_id, annee_id, action, par_user_id) VALUES (gen_random_uuid(), $1, $2, 'cloture', $3)")
         .bind(e).bind(annee).bind(fx.cast.direction.user_id).execute(fx.ent.pool()).await.unwrap();
+    let avant = empreinte().await;
+    let refus_du_gel = |err: sqlx::Error, quoi: &str| {
+        let d = err.as_database_error().unwrap_or_else(|| panic!("{quoi} : erreur non base : {err}"));
+        assert_eq!(d.code().as_deref(), Some("23514"), "{quoi} : {d}");
+        assert!(d.message().contains("figée"), "{quoi} : refus attendu du gel, reçu : {}", d.message());
+    };
 
-    // Écriture applicative directe : refusée (23514), même en posant le drapeau soi-même (la pile d'appel ne passe pas par la reprise).
-    let mut tx = fx.ent.pool().begin().await.unwrap();
-    sqlx::query("SELECT set_config('ent.cdt_reprise', 'on', true)").execute(&mut *tx).await.unwrap();
-    let err = sqlx::query(
-        "UPDATE ent_cdt_travail SET titre = titre || ' (modifié)' WHERE etablissement_id = $1 AND ancien_id IS NOT NULL")
-        .bind(e).execute(&mut *tx).await.unwrap_err();
-    assert_eq!(err.as_database_error().and_then(|d| d.code()).as_deref(), Some("23514"), "UPDATE refusé, drapeau posé ou non");
-    tx.rollback().await.unwrap();
-    let mut tx = fx.ent.pool().begin().await.unwrap();
-    sqlx::query("SELECT set_config('ent.cdt_reprise', 'on', true)").execute(&mut *tx).await.unwrap();
-    let err = sqlx::query(
-        "INSERT INTO ent_cdt_coche (etablissement_id, travail_id, eleve_id, fait_le)
-         SELECT etablissement_id, id, gen_random_uuid(), now() FROM ent_cdt_travail WHERE etablissement_id = $1 LIMIT 1")
-        .bind(e).execute(&mut *tx).await;
-    assert!(err.is_err(), "le drapeau posé hors de la fonction ne désarme pas la garde (ou la clé étrangère tranche)");
-    tx.rollback().await.unwrap();
-    let mut tx = fx.ent.pool().begin().await.unwrap();
-    sqlx::query("SELECT set_config('ent.cdt_reprise', 'on', true)").execute(&mut *tx).await.unwrap();
-    let err = sqlx::query(
-        "INSERT INTO ent_cdt_travail_format (etablissement_id, travail_id, format_code)
-         SELECT etablissement_id, id, 'png' FROM ent_cdt_travail WHERE etablissement_id = $1 AND ancien_id IS NOT NULL LIMIT 1")
-        .bind(e).execute(&mut *tx).await.unwrap_err();
-    assert_eq!(err.as_database_error().and_then(|d| d.code()).as_deref(), Some("23514"), "INSERT avec drapeau posé à la main refusé");
-    tx.rollback().await.unwrap();
+    // 1. Écriture applicative directe : refusée par le gel.
     let err = sqlx::query("UPDATE ent_cdt_travail SET titre = titre WHERE etablissement_id = $1 AND ancien_id IS NOT NULL")
         .bind(e).execute(fx.ent.pool()).await.unwrap_err();
-    assert_eq!(err.as_database_error().and_then(|d| d.code()).as_deref(), Some("23514"), "écriture applicative directe refusée");
+    refus_du_gel(err, "UPDATE direct");
+    // 2. La reprise elle-même : le devoir manquant appartient à une année figée, elle échoue sans rien écrire.
+    let err = sqlx::query("SELECT count(*) FROM ent_cdt_reprise($1)").bind(e).execute(fx.ent.pool()).await.unwrap_err();
+    refus_du_gel(err, "reprise sur année figée");
+    // 3. Imitation de la pile d'appel de la reprise par un commentaire dans un bloc DO : aucun effet.
+    let err = sqlx::query(&format!(
+        "DO $x$ BEGIN INSERT INTO ent_cdt_travail_format (etablissement_id, travail_id, format_code)
+           SELECT etablissement_id, id, 'png' FROM ent_cdt_travail WHERE etablissement_id = '{e}' AND ancien_id IS NOT NULL LIMIT 1
+           /* PL/pgSQL function ent_cdt_reprise(uuid) line 1 ; fonction ent_cdt_reprise(uuid) */; END $x$"))
+        .execute(fx.ent.pool()).await.unwrap_err();
+    refus_du_gel(err, "DO imitant la reprise");
+    // 4. Table temporaire homonyme du journal de clôture (vide) : la garde lit toujours la vraie table.
+    let mut tx = fx.ent.pool().begin().await.unwrap();
+    sqlx::query("CREATE TEMP TABLE ent_cdt_cloture (LIKE public.ent_cdt_cloture) ON COMMIT DROP").execute(&mut *tx).await.unwrap();
+    sqlx::query("CREATE TEMP TABLE ent_annee_scolaire (LIKE public.ent_annee_scolaire) ON COMMIT DROP").execute(&mut *tx).await.unwrap();
+    let err = sqlx::query("UPDATE ent_cdt_travail SET titre = titre WHERE etablissement_id = $1 AND ancien_id IS NOT NULL")
+        .bind(e).execute(&mut *tx).await.unwrap_err();
+    refus_du_gel(err, "table temporaire homonyme");
+    tx.rollback().await.unwrap();
 
-    // La reprise, elle, passe : insère le manquant, ne touche à rien d'existant, et reste idempotente.
-    let c = reprendre(&fx).await;
-    assert_eq!(nb(&fx, "ent_cdt_travail").await, nb_avant + 1, "le devoir manquant est repris dans l'année figée");
-    assert!(c.iter().all(|(_, anciens, repris, quarantaine)| anciens == &(repris + quarantaine)));
-    assert_eq!(hash_existant().await, avant, "aucune ligne existante n'est altérée");
-    assert_eq!(reprendre(&fx).await, c, "rejeu identique");
-    assert_eq!(nb(&fx, "ent_cdt_travail").await, nb_avant + 1);
-    // Le drapeau est retiré en sortie : l'application ne le trouve pas armé.
-    let drapeau: Option<String> = sqlx::query_scalar("SELECT current_setting('ent.cdt_reprise', true)").fetch_one(fx.ent.pool()).await.unwrap();
-    assert!(matches!(drapeau.as_deref(), None | Some("") | Some("off")));
-    // Année close au socle 5 : même règle.
-    sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2")
-        .bind(e).bind(annee).execute(fx.ent.pool()).await.unwrap();
-    assert_eq!(reprendre(&fx).await, c, "rejeu sur année close au socle 5 : identique, sans erreur");
-    assert_eq!(nb(&fx, "ent_cdt_travail").await, nb_avant + 1);
+    assert_eq!(nb(&fx, "ent_cdt_travail").await, nb_avant, "rien n'a été écrit dans l'année figée");
+    assert_eq!(empreinte().await, avant, "aucune ligne existante n'est altérée");
+    // La première reprise (avant clôture) avait tout compté : repris ou mis en quarantaine.
+    assert!(c.iter().all(|(_, anciens, repris, quarantaine)| anciens == &(repris + quarantaine)), "{c:?}");
 }
 
 #[tokio::test]

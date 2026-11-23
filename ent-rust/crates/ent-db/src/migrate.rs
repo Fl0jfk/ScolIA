@@ -672,6 +672,27 @@ const GARDES_DE_REJEU: &[(&str, &str)] = &[
         END IF;
     END $$",
     ),
+    // 2412 rejoue la reprise de l'ancien cahier (`SELECT … FROM ent_cdt_reprise(NULL)`) ; en installation elle passe
+    // avant 2407, mais au rejeu le gel des années closes (2407) existe déjà et refuserait, à raison, ses INSERT dans une
+    // année figée : le gel n'a AUCUNE exception (une exception par pile d'appel ou par drapeau est contournable). On
+    // retire donc ses déclencheurs juste avant 2412 ; 2407, rejouée plus loin dans le même rejeu, les recrée.
+    (
+        "2412_cdt_reprise",
+        "DO $$
+    DECLARE
+        t TEXT;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['ent_cdt_entree', 'ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_travail',
+                                 'ent_cdt_travail_version', 'ent_cdt_travail_cible', 'ent_cdt_travail_format', 'ent_cdt_variante',
+                                 'ent_cdt_variante_eleve', 'ent_cdt_contribution', 'ent_cdt_contribution_version', 'ent_cdt_lien',
+                                 'ent_cdt_piece_jointe', 'ent_cdt_report']
+        LOOP
+            IF to_regclass(t) IS NOT NULL THEN
+                EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
+            END IF;
+        END LOOP;
+    END $$",
+    ),
 ];
 
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
