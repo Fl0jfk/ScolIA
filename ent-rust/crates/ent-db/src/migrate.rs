@@ -544,6 +544,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("315_inscription_decision_i5_passe4"),
+    // Socle 42, V3 suites (plage 640–659) : instant d'annulation d'une sortie, retrait « séjour » à source unique (M-1),
+    // règle « jamais pour son propre enfant » étendue à tout pouvoir sur l'argent (M-3), cohérences de base (F-d).
+    // 653 et 654 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses fonctions portent leur
+    // `search_path` (la fonction d'attendu, SQL inlinée, a ses relations qualifiées `public.`). `MIGRATION_TAG` inchangé.
+    m!("655_sortie_voyages_v3_suites"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

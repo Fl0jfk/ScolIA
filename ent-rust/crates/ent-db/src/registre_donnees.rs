@@ -1111,6 +1111,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_argent_demande", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_export", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_issue", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_refus", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_reglage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_autorisation", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_sortie_avenant", "sorties_voyages", Portee::Etablissement),

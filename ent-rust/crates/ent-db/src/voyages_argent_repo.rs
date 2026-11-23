@@ -1126,7 +1126,25 @@ impl PgEnt {
     // ───────────────────────── Versements (VOY-267) ─────────────────────────
 
     /// Pointe un versement sur la part d'un payeur, **sans facture**. `voyages.argent` (comptabilité, direction).
-    pub async fn voyage_versement_pointer(&self, a: &Acteur<'_>, id: Uuid, v: VersementSaisie) -> Result<VersementVue, EntDbError> {
+    pub async fn voyage_versement_pointer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: VersementSaisie,
+    ) -> Result<VersementVue, EntDbError> {
+        let r = self.voyage_versement_pointer_corps(a, id, v).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_versement_pointer", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_versement_pointer_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: VersementSaisie,
+    ) -> Result<VersementVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let mut t = tx(self, a).await?;
         // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
         verrou_sortie(&mut t, id).await?;
@@ -1140,7 +1158,27 @@ impl PgEnt {
     }
 
     /// Annule un versement par une écriture **inverse motivée** : l'original n'est jamais modifié.
-    pub async fn voyage_versement_annuler(&self, a: &Acteur<'_>, id: Uuid, versement_id: Uuid, motif: &str) -> Result<VersementVue, EntDbError> {
+    pub async fn voyage_versement_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        versement_id: Uuid,
+        motif: &str,
+    ) -> Result<VersementVue, EntDbError> {
+        let r = self.voyage_versement_annuler_corps(a, id, versement_id, motif).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_versement_annuler", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_versement_annuler_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        versement_id: Uuid,
+        motif: &str,
+    ) -> Result<VersementVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
@@ -1164,6 +1202,8 @@ impl PgEnt {
         if o.sens != "versement" {
             return Err(invalide());
         }
+        // M-3 : annuler un versement est un pouvoir sur l'argent.
+        crate::voyages_argent_v3::exiger_decideur_libre(&mut t, a.etablissement_id, a.user_id, o.compte_id, &[o.participant_id]).await?;
         let deja: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_sortie_versement WHERE etablissement_id = $1 AND annule_id = $2)",
         )
@@ -1258,6 +1298,22 @@ impl PgEnt {
         nb_echeances: i32,
         motif: Option<&str>,
     ) -> Result<(), EntDbError> {
+        let r = self.voyage_plan_accorder_corps(a, id, participant_id, compte_id, nb_echeances, motif).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_plan_accorder", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_plan_accorder_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        participant_id: Uuid,
+        compte_id: Uuid,
+        nb_echeances: i32,
+        motif: Option<&str>,
+    ) -> Result<(), EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         if !(1..=ECHEANCES_MAX).contains(&nb_echeances) {
             return Err(invalide());
         }
@@ -1273,6 +1329,8 @@ impl PgEnt {
             return Err(interdit());
         }
         verrou_sortie(&mut t, s.id).await?;
+        // M-3 : accorder un plan de paiement est un pouvoir sur l'argent.
+        crate::voyages_argent_v3::exiger_decideur_libre(&mut t, a.etablissement_id, a.user_id, compte_id, &[participant_id]).await?;
         synchroniser(&mut t, a, &s).await?;
         let existe: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_sortie_part
@@ -1314,7 +1372,25 @@ impl PgEnt {
     // ───────────────────────── Frais réels et avoirs proposés (VOY-273, §12.5) ─────────────────────────
 
     /// VOY-273 : enregistre un frais réel d'un désistement (billet nominatif, pénalité) ; recalcule l'avoir proposé.
-    pub async fn voyage_frais_saisir(&self, a: &Acteur<'_>, id: Uuid, f: FraisSaisie) -> Result<FraisVue, EntDbError> {
+    pub async fn voyage_frais_saisir(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        f: FraisSaisie,
+    ) -> Result<FraisVue, EntDbError> {
+        let r = self.voyage_frais_saisir_corps(a, id, f).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_frais_saisir", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_frais_saisir_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        f: FraisSaisie,
+    ) -> Result<FraisVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let montant = centimes_de_texte(&f.montant).filter(|m| *m > 0 && *m <= 100_000_000_000).ok_or_else(invalide)?;
         if !["billet_nominatif", "penalite_prestataire", "hebergement_non_remboursable", "autre"].contains(&f.nature.as_str()) {
             return Err(invalide());
@@ -1328,6 +1404,8 @@ impl PgEnt {
             return Err(interdit());
         }
         verrou_sortie(&mut t, s.id).await?;
+        // M-3 : un frais réel fonde un avoir : pouvoir sur l'argent, jamais pour son propre enfant.
+        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &[f.participant_id]).await?;
         controle_participant_parti(&mut t, a, s.id, f.participant_id).await?;
         let fid = Uuid::new_v4();
         sqlx::query(
@@ -1361,7 +1439,27 @@ impl PgEnt {
     }
 
     /// Annule un frais réel (écriture inverse motivée) et recalcule l'avoir proposé.
-    pub async fn voyage_frais_annuler(&self, a: &Acteur<'_>, id: Uuid, frais_id: Uuid, motif: &str) -> Result<(), EntDbError> {
+    pub async fn voyage_frais_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        frais_id: Uuid,
+        motif: &str,
+    ) -> Result<(), EntDbError> {
+        let r = self.voyage_frais_annuler_corps(a, id, frais_id, motif).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_frais_annuler", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_frais_annuler_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        frais_id: Uuid,
+        motif: &str,
+    ) -> Result<(), EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
@@ -1382,6 +1480,8 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (participant, nature, libelle, montant, annule) = o.ok_or_else(introuvable)?;
+        // M-3 : annuler un frais réel est un pouvoir sur l'argent.
+        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &[participant]).await?;
         if annule.is_some() {
             return Err(invalide());
         }
@@ -1463,6 +1563,23 @@ impl PgEnt {
         motif_code: Option<&str>,
         motif: &str,
     ) -> Result<AvoirVue, EntDbError> {
+        let r = self.voyage_avoir_decider_corps(a, id, avoir_id, retenir, montant_retenu, motif_code, motif).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_avoir_decider", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_avoir_decider_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        avoir_id: Uuid,
+        retenir: bool,
+        montant_retenu: Option<&str>,
+        motif_code: Option<&str>,
+        motif: &str,
+    ) -> Result<AvoirVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
@@ -1485,6 +1602,8 @@ impl PgEnt {
         if !matches!(statut.as_str(), "propose" | "a_revoir") {
             return Err(conflit());
         }
+        // M-3 : retenir ou écarter un avoir est un pouvoir sur l'argent : jamais pour son propre enfant ni son compte.
+        crate::voyages_argent_v3::exiger_decideur_libre(&mut t, a.etablissement_id, a.user_id, compte, &[participant]).await?;
         let code = match motif_code.map(str::trim).filter(|c| !c.is_empty()) {
             None => None,
             Some(c @ ("frais_non_dus" | "erreur_de_calcul" | "geste_commercial" | "autre_justifie")) => Some(c.to_string()),
@@ -1530,7 +1649,23 @@ impl PgEnt {
 
     /// Annulation collective par l'établissement : avoir total proposé à chaque payeur ayant versé (§12.5).
     /// Réservé aux sorties **annulées**.
-    pub async fn voyage_avoirs_annulation_collective(&self, a: &Acteur<'_>, id: Uuid) -> Result<usize, EntDbError> {
+    pub async fn voyage_avoirs_annulation_collective(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<usize, EntDbError> {
+        let r = self.voyage_avoirs_annulation_collective_corps(a, id).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_avoirs_annulation_collective", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_avoirs_annulation_collective_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<usize, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
         let mut t = tx(self, a).await?;
         // M1 : un seul ordre de verrous partout : le verrou consultatif de la sortie AVANT tout FOR UPDATE.
         verrou_sortie(&mut t, id).await?;
@@ -1556,6 +1691,8 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
+        // M-3 : l'annulation collective décide pour tous les participants qui ont versé : la personne n'est liée à aucun.
+        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &ps).await?;
         for p in ps {
             // Les cles « collective » sont idempotentes : un second appel n'ajoute rien.
             collective_participant(&mut t, a, &s, p).await?;
@@ -1938,6 +2075,8 @@ pub(crate) async fn pointer_tx(
         return Err(refus(RefusMetier::Interdit, "Les chèques-vacances ne sont acceptés que si l'établissement est agréé ANCV."));
     }
     verrou_sortie(conn, s.id).await?;
+    // M-3 (D-069) : pointer un versement est un pouvoir sur l'argent : jamais pour son propre enfant ni son propre compte.
+    crate::voyages_argent_v3::exiger_decideur_libre(conn, etab, a.user_id, v.compte_id, &[v.participant_id]).await?;
     synchroniser(conn, a, s).await?;
     let jour = jour_etab(conn, etab).await?;
     let date = v.date_valeur.unwrap_or(jour);
