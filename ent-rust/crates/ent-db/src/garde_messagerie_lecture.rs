@@ -71,6 +71,7 @@ const PAR_IDENTIFIANT: &[&str] = &[
     // Prédicat d'existence : l'appelant répond 404 (aucune lecture de contenu).
     "message_differe_d_autrui",
     "message_remis_pour",
+    "message_existe_sous_verrou",
     "count_pieces_message",
     "count_non_lus_par_fils",
     "list_fils_eleve",

@@ -10502,7 +10502,7 @@ async fn lecture_du_fil(
 
 #[derive(serde::Deserialize)]
 struct FluxQuery {
-    /// Curseur **opaque** rendu par l'appel précédent (format `v2`, M1) ; un ancien format provoque `resynchro`.
+    /// Curseur **opaque** rendu par l'appel précédent (format `v3`, M1 puis F-1) ; un ancien format provoque `resynchro`.
     apres: Option<String>,
     attente: Option<u64>,
 }
@@ -10517,7 +10517,7 @@ async fn flux_messagerie(
     use axum::response::IntoResponse;
     // M-D : limite **par session** (un compte a plusieurs appareils), plafond par compte, `Retry-After` sur 429 ;
     // un rappel de pagination (réponse précédente tronquée) n'est jamais refusé (F2 : plafond compris).
-    let mut place = match state.flux_limite.entrer(session.user_id, session.session_id) {
+    let mut place = match state.flux_limite.entrer(session.user_id, session.session_id, q.apres.as_deref()) {
         Ok(place) => place,
         Err(refus) => {
             return (
@@ -10546,7 +10546,7 @@ async fn flux_messagerie(
         Ok(flux) => flux,
         Err(e) => return map_db(e).into_response(),
     };
-    place.marquer_tronque(flux.tronque);
+    place.marquer_rendu(flux.tronque, &flux.curseur);
     Json(flux).into_response()
 }
 

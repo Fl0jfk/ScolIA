@@ -17,11 +17,11 @@ use ent_auth::Role;
 use uuid::Uuid;
 
 /// Curseur de départ du flux : tout ce qui est sous la borne `xmin` est connu. Aucune horloge de l'appelant.
-async fn depart(ent: &PgEnt, etab: Uuid) -> String {
+pub(super) async fn depart(ent: &PgEnt, etab: Uuid) -> String {
     ent.messages.position_depart_flux(etab).await.expect("position de départ").encoder()
 }
 
-async fn flux(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, apres: &str) -> crate::FluxMessagerie {
+pub(super) async fn flux(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, apres: &str) -> crate::FluxMessagerie {
     ent.flux_messagerie_for_actor(etab, user, role(r), Some(apres), 0).await.expect("flux")
 }
 
@@ -31,7 +31,7 @@ async fn fils_du_flux(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, apres: &str)
 
 /// Réglages de test : une « seconde » du flux dure `ms` millisecondes (temps injecté, aucune attente réelle de 25 s) ;
 /// `fils_max` petit pour provoquer la troncature.
-fn reglages(ms: u64, fils_max: i64) -> crate::ReglagesFlux {
+pub(super) fn reglages(ms: u64, fils_max: i64) -> crate::ReglagesFlux {
     crate::ReglagesFlux { seconde: std::time::Duration::from_millis(ms), fils_max }
 }
 
@@ -71,7 +71,7 @@ mod compte_requetes {
 }
 
 /// Un message différé (remise dans une heure) de la direction dans le fil de Lily ; rend l'identifiant du message.
-async fn message_differe(ent: &PgEnt, etab: Uuid, dir: Uuid, fil: Uuid, corps: &str) -> Uuid {
+pub(super) async fn message_differe(ent: &PgEnt, etab: Uuid, dir: Uuid, fil: Uuid, corps: &str) -> Uuid {
     assert!(ecrit(ent, etab, dir, Role::Direction, fil, corps).await);
     let m = dernier_message(ent, etab, fil, dir).await;
     sqlx::query("UPDATE ent_msg SET remise_prevue_le = now() + interval '1 hour' WHERE id = $1")
@@ -264,11 +264,12 @@ async fn revue_m2_transaction_longue_valide_tard_est_servie_au_tour_suivant_avec
     assert!(!r1.fils.iter().any(|f| f.fil_id == f_court), "pas servi tant qu'un xid plus ancien est ouvert : {r1:?}");
     assert!(!r1.fils.iter().any(|f| f.fil_id == f_long), "le message non validé est invisible");
     let p1 = crate::PositionFlux::decoder(&r1.curseur).unwrap();
-    let borne_xid: i64 = sqlx::query_scalar("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint")
-        .fetch_one(ent.pool_verif())
+    // F-2 : le xid de la transaction ouverte, lu **à l'intérieur** de celle-ci : le curseur ne peut pas le dépasser.
+    let xid_ouverte: i64 = sqlx::query_scalar("SELECT pg_current_xact_id()::text::bigint")
+        .fetch_one(&mut *longue)
         .await
         .unwrap();
-    assert!(p1.xid as i64 <= borne_xid, "le curseur reste sous la plus ancienne transaction ouverte");
+    assert!(p1.xid as i64 <= xid_ouverte, "le curseur ({}) reste sous la transaction ouverte ({xid_ouverte})", p1.xid);
 
     // La transaction valide : au tour suivant, **les deux** sont servis, dans l'ordre des xid, malgré une troncature
     // à un événement par réponse (le message écrit tôt d'abord, rien ne saute).
@@ -300,6 +301,8 @@ async fn revue_m2_transaction_longue_valide_tard_est_servie_au_tour_suivant_avec
         pos = r.curseur;
     }
     assert_eq!(ordre, vec![f_long, f_court], "écrit tôt, validé tard : servi, avant le plus récent ({tronquees} troncatures)");
+    // F-2 : le titre « avec troncature » est prouvé, pas seulement affiché.
+    assert!(tronquees >= 1, "la troncature a eu lieu au moins une fois (fils_max = 1), vue : {tronquees}");
 }
 
 // ───────────────────────── M3 : plus de répétition, plus de boucle serrée ─────────────────────────
@@ -810,12 +813,12 @@ async fn revue_f6_jugement_groupe_equivaut_a_la_boucle_sur_tous_les_cas_et_sans_
 
 // ───────────────────────── E1 : corriger puis annuler un différé ─────────────────────────
 
-fn conflit_exact(e: &EntDbError, texte: &str) -> bool {
+pub(super) fn conflit_exact(e: &EntDbError, texte: &str) -> bool {
     matches!(e, EntDbError::ConflitDossier(m) if *m == texte)
 }
 
 /// Tout ce que l'annulation doit avoir fait disparaître pour ce message.
-async fn restes(ent: &PgEnt, message: Uuid) -> Vec<(&'static str, i64)> {
+pub(super) async fn restes(ent: &PgEnt, message: Uuid) -> Vec<(&'static str, i64)> {
     let mut v = Vec::new();
     for (nom, sql) in [
         ("message", "SELECT count(*) FROM ent_msg WHERE id = $1"),
@@ -924,7 +927,11 @@ async fn e1_corriger_deux_fois_puis_annuler() {
     let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("SELECT set_config('ent.msg_annulation', $1, true)").bind(remis.to_string()).execute(&mut *tx).await.unwrap();
     let r = sqlx::query("DELETE FROM ent_msg_version WHERE message_id = $1").bind(remis).execute(&mut *tx).await;
-    assert!(r.is_err(), "l'exception ne couvre pas un message déjà remis");
+    // F-3 : le refus exact (23514 et le texte), pas n'importe quelle erreur (connexion, droit).
+    let e = r.expect_err("l'exception ne couvre pas un message déjà remis");
+    let d = e.as_database_error().expect("erreur de la base");
+    assert_eq!(d.code().as_deref(), Some("23514"));
+    assert!(d.message().contains("ajout seul"), "{}", d.message());
 }
 
 #[tokio::test]
@@ -967,8 +974,10 @@ async fn e1_si_la_base_refuse_l_annulation_elle_n_a_pas_lieu_et_l_auteur_le_sait
     .await
     .unwrap();
     sqlx::query(&format!("INSERT INTO {table} VALUES ($1, $2)")).bind(etab).bind(m).execute(ent.pool_verif()).await.unwrap();
-    let e = ent.annuler_message_differe_for_actor(etab, dir, role(Role::Direction), m).await.expect_err("refus");
+    let e = ent.annuler_message_differe_for_actor(etab, dir, role(Role::Direction), m).await.err();
+    // F-3 : la table de test est supprimée avant toute assertion (aucun reste dans la base partagée en cas d'échec).
     sqlx::query(&format!("DROP TABLE {table}")).execute(ent.pool_verif()).await.unwrap();
+    let e = e.expect("refus");
     assert!(
         conflit_exact(&e, "annulation refusée : le message n'a pas été annulé et sera remis normalement"),
         "erreur métier exploitable, pas ReferenceInconnue : {e:?}"

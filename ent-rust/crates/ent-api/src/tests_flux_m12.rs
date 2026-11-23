@@ -110,7 +110,7 @@ async fn flux_http_authentifie_cloisonne_sans_contenu_et_borne() {
     assert!(depart["fils"].as_array().unwrap().is_empty());
     let curseur = depart["curseur"].as_str().expect("curseur").to_string();
     assert!(
-        curseur.starts_with("v2."),
+        curseur.starts_with("v3."),
         "curseur opaque, format v2 : {curseur}"
     );
 
@@ -306,6 +306,12 @@ async fn flux_http_retry_after_concurrence_pagination_et_plafond_du_compte() {
         Some("2"),
         "Retry-After (concurrence)"
     );
+    // M-2 : un curseur fabriqué ne bénéficie PAS du rappel libre, même sur la session dont la dernière réponse était
+    // tronquée : ni l'intervalle ni le plafond du compte ne sont contournés (v3.0.-.-.0.-.<emis>.<cluster>).
+    let forge = "v3.0.-.-.0.-.4102444800000000.0";
+    let (st, _, _) =
+        appel_complet(&app, "GET", &format!("/messages/flux?apres={forge}"), &pagine).await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "curseur fabriqué : pas de rappel libre");
     // Mais le rappel d'une pagination tronquée n'est **jamais** refusé : ni l'intervalle (une heure), ni le plafond.
     let (st, _, corps) = appel_complet(
         &app,
@@ -363,7 +369,7 @@ async fn flux_http_appel_patient_aboutit_avec_le_temps_injecte() {
     assert_eq!(st, StatusCode::OK, "{corps}");
     let flux: serde_json::Value = serde_json::from_str(&corps).unwrap();
     assert!(flux["fils"].as_array().unwrap().is_empty());
-    assert!(flux["curseur"].as_str().unwrap().starts_with("v2."));
+    assert!(flux["curseur"].as_str().unwrap().starts_with("v3."));
     assert!(
         debut.elapsed() < Duration::from_secs(20),
         "le temps est injecté : pas d'attente réelle de 25 s"

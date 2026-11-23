@@ -160,10 +160,25 @@ impl PgEnt {
         action: Action,
         eleve_id: Uuid,
     ) -> Result<bool, EntDbError> {
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        self.autoriser_eleve_le(etablissement_id, user_id, role_base, action, eleve_id, jour)
+            .await
+    }
+
+    /// Comme [`Self::autoriser_eleve`], mais **au jour `jour`** donné par l'appelant (aucune horloge) : pour les gestes
+    /// dont le jour de référence est explicite (évaluations V5).
+    pub async fn autoriser_eleve_le(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role_base: &str,
+        action: Action,
+        eleve_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<bool, EntDbError> {
         let droits = self
             .droits_effectifs(etablissement_id, user_id, role_base)
             .await?;
-        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
         for d in droits.iter().filter(|d| accorde(d.action, action)) {
