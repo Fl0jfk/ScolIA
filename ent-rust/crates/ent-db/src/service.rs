@@ -18002,6 +18002,88 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .contains(&fil.id))
     }
 
+    /// Jugement de lecture **groupé** (F-6) : les identifiants de `fils` que `actor_can_access_fil` autoriserait, avec
+    /// un nombre de requêtes qui ne dépend plus du nombre de fils (les droits de l'acteur sont calculés une fois ;
+    /// la lecture des fils, des boîtes, des élèves protégés et de la participation est groupée). Même résultat que la
+    /// boucle sur `actor_can_access_fil` (test d'équivalence).
+    pub(crate) async fn actor_can_access_fils_lot(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        fils: &[MsgFil],
+    ) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+        use std::collections::{HashMap, HashSet};
+        let mut ok: HashSet<Uuid> = HashSet::new();
+        let Some(parsed) = Role::parse(role) else {
+            return Ok(ok);
+        };
+        if fils.is_empty() {
+            return Ok(ok);
+        }
+        let mut restants: Vec<&MsgFil> = fils.iter().collect();
+        if parsed.is_staff() {
+            // Fils de boîte : décidés par la seule participation.
+            let ids: Vec<Uuid> = restants.iter().map(|f| f.id).collect();
+            let boites = self
+                .acces_personnel_fils_boite_lot(etablissement_id, actor_user_id, &ids)
+                .await?;
+            restants.retain(|f| match boites.get(&f.id) {
+                Some(acces) => {
+                    if *acces {
+                        ok.insert(f.id);
+                    }
+                    false
+                }
+                None => true,
+            });
+        }
+        if restants.is_empty() {
+            return Ok(ok);
+        }
+        // Droit sur l'élève du fil (une fois par élève distinct pour la famille ; groupé pour le personnel).
+        let eleves: Vec<Uuid> = {
+            let mut v: Vec<Uuid> = restants.iter().map(|f| f.eleve_id).collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        let mut eleve_ok: HashMap<Uuid, bool> = HashMap::new();
+        if parsed.is_staff() {
+            let profil = self.profil_champs(etablissement_id, actor_user_id, role).await?;
+            let caches = self.proteges_caches(etablissement_id, role, &profil, &eleves).await?;
+            let perimetre = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+                .await?;
+            for e in &eleves {
+                let dans = perimetre.as_ref().is_none_or(|s| s.contains(e));
+                eleve_ok.insert(*e, dans && !caches.contains(e));
+            }
+        } else {
+            for e in &eleves {
+                let r = self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, *e).await?;
+                eleve_ok.insert(*e, r);
+            }
+        }
+        restants.retain(|f| eleve_ok.get(&f.eleve_id).copied().unwrap_or(false));
+        if restants.is_empty() {
+            return Ok(ok);
+        }
+        let ids: Vec<Uuid> = restants.iter().map(|f| f.id).collect();
+        let lisibles = if matches!(parsed, Role::Parent | Role::Eleve) {
+            self.messages
+                .fils_lisibles_famille(etablissement_id, actor_user_id, parsed == Role::Parent, &ids)
+                .await?
+        } else {
+            let (reserve_ok, foyer_ok) = self.lit_fils_reserves(etablissement_id, actor_user_id, role).await?;
+            self.messages
+                .fils_lisibles_personnel(etablissement_id, actor_user_id, reserve_ok, foyer_ok, &ids)
+                .await?
+        };
+        ok.extend(lisibles);
+        Ok(ok)
+    }
+
     /// Ne garde que les fils lisibles par un compte famille (D-014, RP1-11).
     async fn filtrer_fils_famille(
         &self,
@@ -18723,6 +18805,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_message(etablissement_id, message_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // Règle 3 : un différé d'autrui est un 404, identique à un identifiant inconnu, avant tout jugement d'auteur.
+        if self
+            .messages
+            .message_differe_d_autrui(etablissement_id, message_id, actor_user_id)
+            .await?
+        {
+            return Err(DomainError::NotFound.into());
+        }
         let fil = self
             .messages
             .get_fil(etablissement_id, msg.fil_id)

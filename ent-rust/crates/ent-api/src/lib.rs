@@ -305,6 +305,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         .await
         .map_err(|e| format!("connect: {e}"))?;
     ent.migrate().await.map_err(|e| format!("migrate: {e}"))?;
+    // Messagerie M12 : le curseur du flux a besoin de voir les transactions des autres sessions (journal d'erreur sinon).
+    ent.verifier_flux_messagerie().await;
     ent.install_brain_p0();
     if let Ok(purged) = ent.purge_expired_sessions().await {
         if purged > 0 {

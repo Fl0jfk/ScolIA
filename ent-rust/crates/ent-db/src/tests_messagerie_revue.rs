@@ -27,11 +27,29 @@ async fn flux(
     r: Role,
     apres: DateTime<Utc>,
 ) -> crate::FluxMessagerie {
-    ent.flux_messagerie_for_actor(etab, user, role(r), Some((apres, None)), 0).await.expect("flux")
+    ent.flux_messagerie_for_actor(etab, user, role(r), Some((apres, None, None)), 0).await.expect("flux")
 }
 
 async fn fils_du_flux(ent: &PgEnt, etab: Uuid, user: Uuid, r: Role, apres: DateTime<Utc>) -> Vec<Uuid> {
     flux(ent, etab, user, r, apres).await.fils.into_iter().map(|f| f.fil_id).collect()
+}
+
+/// Recule **tous** les messages de ces fils (l'événement d'un fil est celui de son dernier message) à `maintenant − secondes + i s` (i = rang du fil) : des instants
+/// distincts, déjà stables (au-delà de la marge de 5 s) ; remplace l'attente du temps réel.
+async fn reculer_nouveaux(ent: &PgEnt, etab: Uuid, fils: &[Uuid], secondes: i64) {
+    for (i, f) in fils.iter().enumerate() {
+        sqlx::query(
+            "UPDATE ent_msg SET created_at = now() - make_interval(secs => $4) + make_interval(secs => $3)
+              WHERE etablissement_id = $1 AND fil_id = $2",
+        )
+        .bind(etab)
+        .bind(f)
+        .bind(i as f64)
+        .bind(secondes as f64)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
 }
 
 /// Un message différé (remise dans une heure) de la direction dans le fil de Lily ; rend l'identifiant du message.
@@ -55,9 +73,16 @@ async fn revue_m1_flux_suit_le_jugement_de_lecture_avec_le_role() {
     };
     let (etab, dir, lily, harry) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id, cast.eleve_lea_id);
     let (fil, _) = fil_de_lily(&ent, &cast, "Flux et droits").await;
-    let prof = cast.prof.user_id;
-    // Le professeur devient participant du fil sans y avoir le droit de lecture (participation seule : ni l'élève
-    // suivi, ni le pont des rôles réservés) : la vue de participation le voit, le jugement de lecture le refuse.
+    // Participant **sans droit de lecture**, construit explicitement : un professeur d'une autre classe que celle de
+    // l'élève du fil (le labo en compte plusieurs), ajouté à la participation. La vue de participation le voit, le
+    // jugement de lecture le refuse : la précondition est affirmée, jamais supposée.
+    let prof = cast
+        .profs
+        .iter()
+        .map(|p| p.user_id)
+        .find(|u| *u != cast.prof.user_id)
+        .expect("un second professeur dans le labo");
+    assert!(!lit(&ent, etab, prof, Role::Prof, fil).await, "précondition : ce professeur n'a pas le droit de lire ce fil");
     sqlx::query("SELECT ent_msg_ajouter_participant($1, $2, 'ajoute', 'a_ecrit')")
         .bind(fil)
         .bind(prof)
@@ -75,9 +100,8 @@ async fn revue_m1_flux_suit_le_jugement_de_lecture_avec_le_role() {
         let recu = fils_du_flux(&ent, etab, qui, r, avant).await.contains(&fil);
         assert!(!recu || peut_lire, "le flux révèle un fil que la lecture refuse ({r:?})");
     }
-    if !lit(&ent, etab, prof, Role::Prof, fil).await {
-        assert!(fils_du_flux(&ent, etab, prof, Role::Prof, avant).await.is_empty(), "participant sans droit : rien");
-    }
+    assert!(!lit(&ent, etab, prof, Role::Prof, fil).await, "toujours sans droit après l'ajout");
+    assert!(fils_du_flux(&ent, etab, prof, Role::Prof, avant).await.is_empty(), "participant sans droit : rien");
     // Le même compte avec un rôle de session qui n'est pas celui de sa lecture ne reçoit rien non plus : le rôle
     // transmis est celui de la session (un compte « parent » n'est pas jugé comme un personnel).
     assert!(fils_du_flux(&ent, etab, prof, Role::Parent, avant).await.is_empty());
@@ -100,15 +124,20 @@ async fn revue_m2_liste_tronquee_le_curseur_ne_saute_aucun_evenement() {
     for i in 0..4 {
         fils.push(fil_de_lily(&ent, &cast, &format!("Troncature {i}")).await.0);
     }
-    let avant = maintenant(&ent).await;
+    let avant = maintenant(&ent).await - Duration::seconds(120);
     for f in &fils {
         assert!(ecrit(&ent, etab, dir, Role::Direction, *f, "Nouveau").await);
     }
+    // Instants explicites et distincts, au-delà de la marge de 5 s (aucune dépendance au temps qui passe).
+    reculer_nouveaux(&ent, etab, &fils, 60).await;
     // Pagination par limite 2 : chaque appel rend la position du dernier événement rendu et `tronque`.
     let mut vus = Vec::new();
-    let mut pos = (avant, None);
+    let mut pos = (avant, None, None);
     let mut tours = 0;
-    loop {
+    let mut tronquees = 0;
+    // Le client reprend toujours depuis la position rendue (tronquée ou non) jusqu'à avoir tout reçu ; le labo est
+    // partagé : d'autres fils d'autres tests défilent aussi, on s'arrête quand les nôtres sont tous passés.
+    while fils.iter().any(|f| !vus.contains(f)) {
         let r = ent
             .flux_messagerie_limite(etab, lily, role(Role::Parent), Some(pos), 0, 2)
             .await
@@ -116,16 +145,16 @@ async fn revue_m2_liste_tronquee_le_curseur_ne_saute_aucun_evenement() {
         assert!(r.fils.len() <= 2);
         vus.extend(r.fils.iter().map(|f| f.fil_id));
         tours += 1;
-        if !r.tronque {
-            break;
+        assert!(tours < 400, "pas de boucle (le curseur progresse toujours)");
+        if r.tronque {
+            tronquees += 1;
+            assert_eq!(r.fils.len(), 2, "une liste tronquée est pleine");
+            assert!(r.curseur_fil.is_some(), "la position porte le fil du dernier événement rendu");
+            assert_eq!(r.curseur, r.fils.last().unwrap().instant, "curseur = instant du dernier événement rendu");
         }
-        assert_eq!(r.fils.len(), 2, "une liste tronquée est pleine");
-        assert!(r.curseur_fil.is_some(), "la position porte le fil du dernier événement rendu");
-        assert_eq!(r.curseur, r.fils.last().unwrap().instant, "curseur = instant du dernier événement rendu");
-        pos = (r.curseur, r.curseur_fil);
-        assert!(tours < 50, "pas de boucle");
+        pos = (r.curseur, r.curseur_fil, r.curseur_genre.clone());
     }
-    assert!(tours >= 2, "la liste a bien été tronquée");
+    assert!(tronquees >= 1, "la liste a bien été tronquée");
     let mut attendus = fils.clone();
     attendus.sort();
     vus.retain(|f| attendus.contains(f)); // le labo est partagé : d'autres tests écrivent dans d'autres fils
@@ -133,8 +162,8 @@ async fn revue_m2_liste_tronquee_le_curseur_ne_saute_aucun_evenement() {
     assert_eq!(vus, attendus, "aucun événement sauté, aucun doublon");
 
     // Égalité d'instant : quatre messages posés au même instant exact ne se perdent pas à la coupure.
-    let t = maintenant(&ent).await;
-    sqlx::query("UPDATE ent_msg SET created_at = $2 WHERE etablissement_id = $1 AND fil_id = ANY($3) AND corps = 'Nouveau'")
+    let t = maintenant(&ent).await - Duration::seconds(30);
+    sqlx::query("UPDATE ent_msg SET created_at = $2 WHERE etablissement_id = $1 AND fil_id = ANY($3)")
         .bind(etab)
         .bind(t)
         .bind(&fils)
@@ -142,14 +171,15 @@ async fn revue_m2_liste_tronquee_le_curseur_ne_saute_aucun_evenement() {
         .await
         .unwrap();
     let mut vus = Vec::new();
-    let mut pos = (avant, None);
-    for _ in 0..50 {
-        let r = ent.flux_messagerie_limite(etab, lily, role(Role::Parent), Some(pos), 0, 1).await.unwrap();
-        vus.extend(r.fils.iter().map(|f| f.fil_id));
-        if !r.tronque {
+    let mut pos = (avant, None, None);
+    for tour in 0..400 {
+        if fils.iter().all(|f| vus.contains(f)) {
             break;
         }
-        pos = (r.curseur, r.curseur_fil);
+        assert!(tour < 399, "pas de boucle");
+        let r = ent.flux_messagerie_limite(etab, lily, role(Role::Parent), Some(pos), 0, 1).await.unwrap();
+        vus.extend(r.fils.iter().map(|f| f.fil_id));
+        pos = (r.curseur, r.curseur_fil, r.curseur_genre.clone());
     }
     vus.retain(|f| attendus.contains(f));
     vus.sort();
@@ -198,13 +228,17 @@ async fn revue_m3_message_valide_tard_n_est_pas_perdu() {
     // (le fil a un premier message déjà remis : on regarde l'instant, jamais le seul identifiant du fil)
     assert!(r1.fils.iter().filter(|f| f.fil_id == fil).all(|f| f.instant < debut_tx));
     assert!(r1.curseur <= debut_tx, "le curseur ne dépasse pas le début de la plus ancienne transaction en cours");
-    tokio::time::sleep(std::time::Duration::from_secs(6)).await; // plus que la marge de 5 s
+    // La plus ancienne transaction en cours est **visible** du rôle de l'application et débute au plus tard avec ce
+    // message : la borne sûre ne peut donc pas la dépasser (la marge de 5 s ne sert que de plancher). Aucune attente.
+    let ancienne = ent.messages.debut_plus_ancienne_transaction().await.unwrap();
+    assert!(ancienne.is_some_and(|t| t <= debut_tx), "transaction en cours visible : {ancienne:?} / {debut_tx}");
+    assert!(ent.verifier_flux_messagerie().await, "le rôle de l'application voit les transactions des autres sessions");
     let r2 = flux(&ent, etab, lily, Role::Parent, r1.curseur).await;
     assert!(
         r2.fils.iter().filter(|f| f.fil_id == fil).all(|f| f.instant < debut_tx),
         "le message en cours de validation reste invisible : {r2:?}"
     );
-    assert!(r2.curseur <= debut_tx, "le curseur reste au début de la transaction en cours : {} > {debut_tx}", r2.curseur);
+    assert!(r2.curseur <= debut_tx, "le curseur reste au plus au début de la transaction en cours : {} > {debut_tx}", r2.curseur);
     tx.commit().await.unwrap();
     // Après la validation, le message paraît à partir du curseur rendu pendant la transaction.
     let r3 = flux(&ent, etab, lily, Role::Parent, r2.curseur).await;
@@ -407,4 +441,267 @@ async fn revue_differe_plafond_de_cinq_pieces_et_annulation_detruit_les_objets()
     for c in &cles {
         assert!(!ent.objet_existe(c).await.unwrap(), "objet détruit : {c}");
     }
+}
+
+// ───────────────────────── M-A : une transaction longue ne fige pas le curseur ─────────────────────────
+
+#[test]
+fn borne_sure_progresse_toujours_et_ne_depasse_jamais_la_fenetre() {
+    use crate::msg_repo::{borne_sure, FLUX_FENETRE_SECONDES};
+    let t = Utc::now(); // instant quelconque : la fonction est pure, aucune horloge n'est lue
+    let s = Duration::seconds;
+    assert_eq!(borne_sure(t, None), t - s(5), "aucune transaction visible : marge de 5 s");
+    assert_eq!(borne_sure(t, Some(t - s(2))), t - s(5), "transaction récente : la marge");
+    assert_eq!(borne_sure(t, Some(t - s(30))), t - s(30), "transaction de 30 s : la borne la suit (rien n'est sauté)");
+    // Transaction plus vieille que la fenêtre (autovacuum, sauvegarde, session « idle in transaction ») : la borne
+    // ne recule pas au-delà du plancher, donc un curseur rendu reste **dans** la fenêtre et ne déclenche pas de
+    // resynchronisation en boucle.
+    for age in [FLUX_FENETRE_SECONDES as i64 + 1, 3_600, 86_400] {
+        let b = borne_sure(t, Some(t - s(age)));
+        assert!(b > t - s(FLUX_FENETRE_SECONDES as i64), "borne dans la fenêtre ({age} s) : {}", (t - b).num_seconds());
+        assert!(b <= t - s(5));
+    }
+}
+
+#[tokio::test]
+async fn revue_ma_curseur_progresse_avec_une_transaction_ouverte_sans_resynchro_en_boucle() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, lily) = (cast.etablissement_id, cast.parent_lea.user_id);
+    // Une transaction reste ouverte (aucune écriture) pendant tout le test.
+    let mut longue = ent.pool().begin().await.unwrap();
+    sqlx::query("SELECT 1").execute(&mut *longue).await.unwrap();
+    let mut position = maintenant(&ent).await - Duration::seconds(300);
+    let mut tours = 0;
+    loop {
+        let r = flux(&ent, etab, lily, Role::Parent, position).await;
+        assert!(!r.resynchro, "une transaction ouverte ne provoque pas de resynchronisation");
+        assert!(r.curseur >= position, "le curseur ne recule pas : {} < {position}", r.curseur);
+        let progresse = r.curseur > position;
+        position = r.curseur;
+        tours += 1;
+        if progresse || tours >= 3 {
+            assert!(progresse, "le curseur progresse malgré la transaction ouverte");
+            break;
+        }
+    }
+    longue.rollback().await.unwrap();
+}
+
+// ───────────────────────── M-B : la troncature ne saute jamais un message validé tard ─────────────────────────
+
+#[tokio::test]
+async fn revue_mb_troncature_borne_le_curseur_par_la_limite_sure() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let mut fils = Vec::new();
+    for i in 0..4 {
+        fils.push(fil_de_lily(&ent, &cast, &format!("Borne {i}")).await.0);
+    }
+    let avant = maintenant(&ent).await - Duration::seconds(120);
+    for f in &fils {
+        assert!(ecrit(&ent, etab, dir, Role::Direction, *f, "Nouveau").await);
+    }
+    // Les quatre événements sont **dans la marge de 5 s** (instants récents, après la limite sûre) : une liste
+    // tronquée ne peut pas rendre un curseur qui les dépasse (un message plus ancien, validé plus tard, serait sauté).
+    let r = ent.flux_messagerie_limite(etab, lily, role(Role::Parent), Some((avant, None, None)), 0, 2).await.unwrap();
+    let borne_max = maintenant(&ent).await - Duration::seconds(5);
+    assert!(r.curseur <= borne_max, "curseur borné par la limite sûre : {} > {borne_max}", r.curseur);
+    assert!(r.fils.iter().all(|f| f.instant <= r.curseur), "rien au-delà du curseur rendu");
+    // Le temps passe (instants reculés : aucune attente) : tout paraît, une fois, jusqu'au bout, sans boucle.
+    reculer_nouveaux(&ent, etab, &fils, 60).await;
+    let mut vus = Vec::new();
+    let mut pos = (avant, None, None);
+    for tour in 0..400 {
+        if fils.iter().all(|f| vus.contains(f)) {
+            break;
+        }
+        assert!(tour < 399, "pas de boucle");
+        let r = ent.flux_messagerie_limite(etab, lily, role(Role::Parent), Some(pos), 0, 2).await.unwrap();
+        vus.extend(r.fils.iter().map(|f| f.fil_id));
+        pos = (r.curseur, r.curseur_fil, r.curseur_genre.clone());
+    }
+    vus.retain(|f| fils.contains(f));
+    vus.sort();
+    let mut attendus = fils.clone();
+    attendus.sort();
+    assert_eq!(vus, attendus, "aucun événement sauté");
+}
+
+// ───────────────────────── F-4 : curseur (instant, fil, genre) complet ─────────────────────────
+
+#[tokio::test]
+async fn revue_f4_curseur_a_trois_termes_aucun_saut_entre_genres() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Genres").await;
+    let avant = maintenant(&ent).await - Duration::seconds(120);
+    assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "Nouveau").await);
+    let nouveau = dernier_message(&ent, etab, fil, dir).await.id;
+    assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "À retirer").await);
+    let a_retirer = dernier_message(&ent, etab, fil, dir).await.id;
+    ent.retirer_message_for_actor(etab, dir, role(Role::Direction), a_retirer, None).await.expect("retrait");
+    // Un événement « nouveau » et un événement « retiré » au **même instant et pour le même fil**.
+    let t = maintenant(&ent).await - Duration::seconds(30);
+    // Tous les autres messages du fil au même instant : l'agrégat (dernier instant par fil et genre) vaut `t`.
+    sqlx::query("UPDATE ent_msg SET created_at = $2 WHERE fil_id = $1 AND id <> $3")
+        .bind(fil)
+        .bind(t)
+        .bind(a_retirer)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(nouveau != a_retirer);
+    sqlx::query("UPDATE ent_msg SET created_at = $2 - interval '1 hour', retire_le = $2 WHERE id = $1")
+        .bind(a_retirer)
+        .bind(t)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let mut genres = Vec::new();
+    let mut pos = (avant, None, None);
+    for tour in 0..400 {
+        if genres.len() >= 2 {
+            break;
+        }
+        assert!(tour < 399, "pas de boucle");
+        let r = ent.flux_messagerie_limite(etab, lily, role(Role::Parent), Some(pos), 0, 1).await.unwrap();
+        genres.extend(r.fils.iter().filter(|f| f.fil_id == fil && f.instant == t).map(|f| f.genre.clone()));
+        pos = (r.curseur, r.curseur_fil, r.curseur_genre.clone());
+    }
+    genres.sort();
+    assert_eq!(genres, vec!["nouveau".to_string(), "retire".to_string()], "les deux genres au même (instant, fil) sont rendus");
+}
+
+// ───────────────────────── M-C : règle 3 sur annuler, corriger, retirer ─────────────────────────
+
+#[tokio::test]
+async fn revue_mc_differe_d_autrui_est_un_404_sur_annuler_corriger_et_retirer() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Règle 3").await;
+    let differe = message_differe(&ent, etab, dir, fil, "Programmé").await;
+    let r = role(Role::Parent);
+    let inconnu = Uuid::new_v4();
+    // Annuler.
+    let e_differe = ent.annuler_message_differe_for_actor(etab, lily, r, differe).await.expect_err("refus");
+    let e_inconnu = ent.annuler_message_differe_for_actor(etab, lily, r, inconnu).await.expect_err("refus");
+    assert!(matches!(e_differe, EntDbError::Domain(DomainError::NotFound)), "annuler : {e_differe:?}");
+    assert!(matches!(e_inconnu, EntDbError::Domain(DomainError::NotFound)), "annuler : {e_inconnu:?}");
+    // Corriger.
+    let e_differe = ent.corriger_message_fil_for_actor(etab, lily, r, differe, "Autre texte").await.expect_err("refus");
+    let e_inconnu = ent.corriger_message_fil_for_actor(etab, lily, r, inconnu, "Autre texte").await.expect_err("refus");
+    assert!(matches!(e_differe, EntDbError::Domain(DomainError::NotFound)), "corriger : {e_differe:?}");
+    assert!(matches!(e_inconnu, EntDbError::Domain(DomainError::NotFound)), "corriger : {e_inconnu:?}");
+    // Retirer.
+    let e_differe = ent.retirer_message_for_actor(etab, lily, r, differe, None).await.expect_err("refus");
+    let e_inconnu = ent.retirer_message_for_actor(etab, lily, r, inconnu, None).await.expect_err("refus");
+    assert!(matches!(e_differe, EntDbError::Domain(DomainError::NotFound)), "retirer : {e_differe:?}");
+    assert!(matches!(e_inconnu, EntDbError::Domain(DomainError::NotFound)), "retirer : {e_inconnu:?}");
+    // Le différé n'a pas bougé ; l'auteur, lui, garde la main (témoin).
+    assert_eq!(compter(&ent, "SELECT count(*) FROM ent_msg WHERE id = $1 AND retire_le IS NULL AND corps = 'Programmé'", &[differe]).await, 1);
+    ent.annuler_message_differe_for_actor(etab, dir, role(Role::Direction), differe).await.expect("l'auteur annule");
+    // Sur un message **remis** et visible du non-auteur, le refus d'auteur reste exact (`Forbidden`).
+    assert!(ecrit(&ent, etab, dir, Role::Direction, fil, "Remis").await);
+    let remis = dernier_message(&ent, etab, fil, dir).await.id;
+    let e = ent.retirer_message_for_actor(etab, lily, r, remis, None).await.expect_err("refus");
+    assert!(matches!(e, EntDbError::Forbidden), "retirer un message remis d'autrui : {e:?}");
+    let e = ent.corriger_message_fil_for_actor(etab, lily, r, remis, "x").await.expect_err("refus");
+    assert!(matches!(e, EntDbError::Forbidden), "corriger un message remis d'autrui : {e:?}");
+}
+
+// ───────────────────────── F-5 : une seule horloge, ordre stable ─────────────────────────
+
+#[tokio::test]
+async fn revue_f5_delais_sur_l_horloge_de_la_base_et_ordre_stable() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Une horloge").await;
+    for corps in ["Un", "Deux", "Trois"] {
+        assert!(ecrit(&ent, etab, dir, Role::Direction, fil, corps).await);
+    }
+    // Ordre : insertion strictement croissante (instant propre à chaque message, identifiant en second critère).
+    let (_, lus) = ent.list_messages_for_actor(etab, dir, role(Role::Direction), fil).await.unwrap();
+    let corps: Vec<&str> = lus.iter().map(|m| m.message.corps.as_str()).collect();
+    let rang = |c: &str| corps.iter().position(|x| *x == c).unwrap();
+    assert!(rang("Un") < rang("Deux") && rang("Deux") < rang("Trois"), "{corps:?}");
+    let instants: Vec<_> = lus.iter().map(|m| m.message.created_at).collect();
+    assert!(instants.windows(2).all(|w| w[0] < w[1]), "instants distincts et croissants : {instants:?}");
+    // Délais : le retrait (10 min) et la correction (15 min) se mesurent sur l'horloge de la base. Un message
+    // dont `created_at` (base) a 12 minutes : correction encore possible, retrait refusé — sans horloge d'application.
+    let m = dernier_message(&ent, etab, fil, dir).await.id;
+    sqlx::query("UPDATE ent_msg SET created_at = now() - interval '12 minutes' WHERE id = $1")
+        .bind(m)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let e = ent.retirer_message_for_actor(etab, dir, role(Role::Direction), m, None).await.expect_err("12 min : retrait refusé");
+    assert!(matches!(e, EntDbError::ConflitDossier(_)), "{e:?}");
+    ent.corriger_message_fil_for_actor(etab, dir, role(Role::Direction), m, "Trois, corrigé").await.expect("12 min : correction permise");
+    sqlx::query("UPDATE ent_msg SET created_at = now() - interval '16 minutes' WHERE id = $1")
+        .bind(m)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(ent.corriger_message_fil_for_actor(etab, dir, role(Role::Direction), m, "Trop tard").await.is_err(), "16 min : correction refusée");
+}
+
+// ───────────────────────── F-6 : jugement de lecture groupé, sans N+1 ─────────────────────────
+
+#[tokio::test]
+async fn revue_f6_jugement_groupe_equivaut_a_la_boucle_et_va_plus_vite() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let mut ids = Vec::new();
+    for i in 0..200 {
+        ids.push(fil_de_lily(&ent, &cast, &format!("Candidat {i}")).await.0);
+    }
+    // Un fil d'un autre élève (Tom) : un parent de Léa ne le lit pas.
+    let acteurs: Vec<(Uuid, Role)> = vec![
+        (cast.parent_lea.user_id, Role::Parent),
+        (cast.parent_tom.user_id, Role::Parent),
+        (dir, Role::Direction),
+        (cast.prof.user_id, Role::Prof),
+        (cast.profs.iter().map(|p| p.user_id).find(|u| *u != cast.prof.user_id).unwrap(), Role::Prof),
+        (cast.cpe.user_id, Role::Cpe),
+        (cast.administratif.user_id, Role::Administratif),
+    ];
+    let candidats = ent.messages.get_fils_lot(etab, &ids).await.unwrap();
+    assert_eq!(candidats.len(), 200, "une requête rend les 200 fils");
+    // Équivalence avec le jugement individuel, pour chaque type d'acteur, sur 30 fils.
+    for (user, r) in &acteurs {
+        let echantillon = &candidats[..30];
+        let lot = ent.actor_can_access_fils_lot(etab, *user, role(*r), echantillon).await.unwrap();
+        for f in echantillon {
+            let seul = ent.actor_can_access_fil(etab, *user, role(*r), f).await.unwrap();
+            assert_eq!(lot.contains(&f.id), seul, "lot ≠ individuel pour {r:?} sur le fil {}", f.id);
+        }
+    }
+    // Temps mesuré pour 200 candidats : le jugement groupé est nettement plus rapide que la boucle (N+1).
+    let t0 = std::time::Instant::now();
+    let lot = ent.actor_can_access_fils_lot(etab, dir, role(Role::Direction), &candidats).await.unwrap();
+    let duree_lot = t0.elapsed();
+    let t1 = std::time::Instant::now();
+    let mut seuls = 0;
+    for f in &candidats {
+        if ent.actor_can_access_fil(etab, dir, role(Role::Direction), f).await.unwrap() {
+            seuls += 1;
+        }
+    }
+    let duree_boucle = t1.elapsed();
+    eprintln!("F-6 : 200 candidats, groupé {duree_lot:?}, boucle {duree_boucle:?}");
+    assert_eq!(lot.len(), seuls);
+    assert!(duree_lot < duree_boucle, "groupé {duree_lot:?} doit battre la boucle {duree_boucle:?}");
+    assert!(duree_lot < std::time::Duration::from_secs(2), "200 candidats en moins de 2 s : {duree_lot:?}");
 }
