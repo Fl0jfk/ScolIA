@@ -6,6 +6,82 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-23 (lundi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT, validé par la CI.** ENT = **4bbdfa69** (CI 596 verte) ; **7e606667** est versé, sa CI d'ENT est en cours. Onze lots ont été versés depuis hier soir, et chacun a passé une contre-revue indépendante sans point élevé restant.
+- **Socle 16, messagerie**
+  - **Suites du flux M12** (PR 123) : curseur sûr, temps réel sur plusieurs appareils.
+  - **E1** (PR 126) : un message différé corrigé puis annulé ne part plus. Le curseur du flux repose sur les numéros de transaction (migration 491).
+  - **E1 passe 2** (PR 128) : l'avis push est annulé dans la même transaction que le message. Le curseur est borné et lié à la base. La garde d'annulation utilise un jeton de transaction (492). Correctif du pilote : la relance « réponse attendue », qui ne partait plus, repart.
+- **Socle 3, inscriptions I5**
+  - **Passe 2** (PR 120) : la famille ne voit que les décisions publiées, rang compris. « Passer son tour » vaut pour une seule place.
+  - **Passe 3** (PR 127, migration 314) : décision devenue caduque, export RGPD, acceptation au guichet. Celle-ci reste sans contrôle par une deuxième personne, mais elle est refusée après le délai, et la famille est prévenue.
+- **Socle 20, cahier C8 + C9** (PR 110) : visa, inspection, archives, progressions. Correctif du pilote : le gel d'une année close n'a plus aucune exception, et la migration 2412, déjà versée, a été remise à l'identique.
+- **Socle 41, internat I4**
+  - **Lot principal** (PR 122) : sorties de groupe, temps du soir, veille des non-rentrés.
+  - **Suites** (PR 131, migration 2830) :
+    - un élève protégé peut être pointé par l'encadrant ;
+    - un cas « non rentré » ne se rouvre plus chaque nuit ;
+    - un refus d'un parent reçu après le départ est tracé et déclenche le retour.
+  - **Correctifs du pilote** : une contrainte d'intégrité supprimée par erreur est rétablie ; un retour annulé relance l'alerte ; la demande de retour et l'alerte critique ne sont jamais regroupées ni écartées.
+- **Socle 21, évaluations**
+  - **Suites V5** (PR 125, migration 478) : la famille ne calcule que sur le publié ; publier et retirer comparent ce qui a été vu avant d'écrire.
+  - **Suites V5, passe 3** (PR 132, migration 700) : export RGPD limité au publié ; export LSU/LSL sur le seul publié ; jeton de version ; fusions de fiches en chaîne.
+  - **Correctifs du pilote** : une moyenne corrigée sous 477 est dépubliée ; l'export ne contient plus de champs internes (note privée, « aménagé »).
+- **Transverse T1** (PR 129, migration 690) : aucune fonction de la base ne peut plus être trompée par une table temporaire. Trois fonctions exécutées avec les droits du propriétaire étaient exposées. Nouvelle **règle 38** : toute migration s'ajoute après 690, et toute fonction SQL fixe son chemin de recherche.
+
+**Prêt mais pas encore sur ENT**
+- Socle 3, **inscriptions I5 passe 4** (PR 130) : **nouveau modèle de verrous**, décidé après trois passes qui n'avaient pas fermé les interblocages. Le rang d'attente est calculé à la lecture, et toute écriture prend d'abord un verrou unique par offre. Les tests de concurrence sont déterministes : 11 sur 14 échouent sur l'ancien code.
+- La contre-revue n'a trouvé aucun point élevé. Correctif du pilote : le verrou de la commission empêche désormais l'interblocage entre une publication de séance et une décision de la même séance.
+- CI en cours sur ae6e4fc1 ; versement dès qu'elle est verte.
+
+**En cours** (deux sessions qui codent, selon ta directive)
+- Socle 16, **suites E1** (migration 493). Priorité : un fil dont le seul message a été annulé reste visible de la famille avec son sujet, **à corriger avant tout pilote réel**. Puis le jeton d'annulation, à rendre infalsifiable, et le contrôle d'existence, à faire juste avant chaque envoi.
+- **Suites T1** : un test fige l'ordre des migrations (trois erreurs d'ordre aujourd'hui) ; vérification que le rôle de l'application ne peut rien créer dans `public` ; banc d'écriture.
+
+**Conçu mais pas codé** (file d'attente)
+1. Suites I4 : faibles.
+2. Suites V5 : les autres tables d'évaluation exportées sans condition, à fermer avant le lot G3.
+3. Suites I5 : sentinelle en base pour l'ordre des verrous, réponse à un accord.
+4. Suites des voyages.
+5. Suites de la facturation F3.
+6. Suites du cahier.
+7. Lots neufs (mobile MB1…).
+
+**Tableau d'avancement** (`docs/pilotage/TABLEAU_MATURITE.md`) :
+- inscriptions (3), messagerie (16), cahier (20), évaluations (21) et internat (41) s'épaississent nettement ;
+- le transverse de sécurité gagne une garde du catalogue des fonctions ;
+- le frontend et le mobile avancent moins vite que le backend. Tu l'as noté, et c'est accepté.
+
+**Décisions attendues de Florian** : aucune (D-069). Choix pris par défaut par le pilote, à relire quand tu veux :
+- acceptation de place au guichet sans deuxième personne, mais refusée après le délai, et famille prévenue ;
+- refus d'un parent après le départ : tracé, il déclenche le retour sans annuler le départ ;
+- élève protégé affiché « élève protégé » ;
+- export LSU/LSL sur le seul publié ;
+- jeton de version des moyennes externes ;
+- curseur du flux de messagerie borné sans signature ;
+- ancre de nuit de l'internat à 22 h : un accord « soirée » ne couvre aucune sortie qui commence avant 6 h.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`) :
+- **F-09** : comptes développeur **Apple** et **Google Play**, **avant mars 2027**. Sans eux, la démo iOS du printemps se fera sans notifications.
+- Le reste n'est pas urgent : exports anonymisés Charlemagne et SIECLE (F-01 à F-07), au moment de la reprise de données.
+- **Nouveau, au déploiement** (pas un fichier, deux réglages à appliquer sur chaque base) :
+  - retirer le droit TEMP à PUBLIC (`REVOKE TEMP`) ;
+  - vérifier que le rôle de l'application ne peut rien créer dans `public` (`docs/RLS_ISOLATION.md` §3.1).
+- L'incident GitGuardian 39716183 est un **faux positif**, la constante publique du labo : à classer dans le tableau de bord GitGuardian.
+
+**Ce qui a coincé**
+- **Ordre des migrations** :
+  - une migration déjà versée (2412) a été modifiée ;
+  - trois lots ont placé leur migration au mauvais endroit dans le tableau.
+  - Tout a été corrigé par le pilote, et le test qui fige l'ordre est en cours.
+- **PR en conflit sans aucune CI** (T1) : vue à temps grâce à la règle 37.
+- **Deux régressions introduites par des lots**, attrapées en contre-revue avant versement : une relance de messagerie qui ne partait plus, une contrainte d'internat supprimée.
+- **Ordre des verrous d'I5** : trois passes sans résultat, puis changement de modèle (règle « trois tentatives »).
+- **Disque plein** une fois (dossier de compilation du pilote) : 18 Go libérés.
+
+---
+
 ## 2026-11-22 (dimanche soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT (validé par la CI)**, ENT = **bc69cd0d** (CI 516 verte) :
