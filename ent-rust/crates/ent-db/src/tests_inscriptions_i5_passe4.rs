@@ -903,15 +903,35 @@ async fn p4_export_chaque_table_condition_executee() {
     )
     .await
     .unwrap();
+    // Une offre que la famille n'a pas choisie : la décision crée le vœu (origine « decision »).
+    let offre_decision = ent
+        .creer_offre_for_actor(
+            etab,
+            u,
+            r,
+            camp,
+            &OffreBody {
+                niveau_code: "5EME".into(),
+                parcours_code: Some("latin".into()),
+                libelle_public: "5ᵉ latin".into(),
+                capacite: None,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let _ = offre;
     let d = dossier(&ent, &c, camp, "ExportM3", None).await;
-    let mut b = corps("admis_sous_reserve", Some(offre), "Admission avec réserve interne");
+    let mut b = corps("admis_sous_reserve", Some(offre_decision), "Admission avec réserve interne");
     b.reserve = Some("Réserve confidentielle".into());
     b.publier_le = Some(maintenant() + jours(7));
     ent.decider_complete_for_actor(etab, u, r, d.id, &b, false, maintenant()).await.unwrap();
 
     // Le vœu créé par la décision porte son origine.
-    let origine: String = sqlx::query_scalar("SELECT origine FROM ent_inscription_voeu WHERE dossier_id = $1")
+    let origine: String = sqlx::query_scalar("SELECT origine FROM ent_inscription_voeu WHERE dossier_id = $1 AND offre_id = $2")
         .bind(d.id)
+        .bind(offre_decision)
         .fetch_one(ent.pool_verif())
         .await
         .unwrap();
@@ -1000,9 +1020,9 @@ async fn p4_export_des_conditions_bout_de_chaine() {
         .unwrap();
     assert!(exportables(&ent, "ent_inscription_condition", d.id).await > 0, "admission publiée : conditions exportables");
     // 2. Revue programmée (non publiée) : elle bloque l'export tant qu'elle est le bout de la chaîne.
-    let mut b2 = corps("admis", Some(offre), "Revue programmée");
+    let mut b2 = corps("admis_sous_reserve", Some(offre), "Revue programmée");
     b2.publier_le = Some(maintenant() + jours(7));
-    b2.reserve = None;
+    b2.reserve = Some("Réserve A".into());
     ent.decider_complete_for_actor(etab, u, r, d.id, &b2, true, maintenant()).await.unwrap();
     assert_eq!(
         exportables(&ent, "ent_inscription_condition", d.id).await,
@@ -1011,7 +1031,11 @@ async fn p4_export_des_conditions_bout_de_chaine() {
     );
     // 3. Elle est remplacée avant publication par une autre, publiée tout de suite : la remplacée (ni publiée ni caduque, mais
     //    **avec successeur**) ne bloque plus rien.
-    ent.decider_complete_for_actor(etab, u, r, d.id, &corps("admis", Some(offre), "Revue publiée"), true, maintenant())
+    ent.decider_complete_for_actor(etab, u, r, d.id, &{
+            let mut b3 = corps("admis_sous_reserve", Some(offre), "Revue publiée");
+            b3.reserve = Some("Réserve B".into());
+            b3
+        }, true, maintenant())
         .await
         .unwrap();
     let remplacee_non_publiee: i64 = nombre(
@@ -1131,7 +1155,6 @@ async fn p4_caducite_famille_d_etats_et_alerte_direction() {
     };
     let etab = c.etablissement_id;
     let (u, r) = dir(&c);
-    let (a, ar) = super::tests_inscriptions::adm(&c);
     let (camp, offre) = campagne_cap(&ent, &c, None, "2027-2028").await;
 
     // 1. `admis` programmée ; le dossier devient `confirme` avant l'échéance : décision toujours publiable.
@@ -1150,15 +1173,11 @@ async fn p4_caducite_famille_d_etats_et_alerte_direction() {
     let mut b = corps("ajourne", None, "Ajournement programmé");
     b.publier_le = Some(maintenant() + jours(7));
     let d2 = ent.decider_complete_for_actor(etab, u, r, ajourne.id, &b, false, maintenant()).await.unwrap();
-    ent.changer_statut_for_actor(
-        etab,
-        a,
-        ar,
-        ajourne.id,
-        &StatutBody { statut: "attente_famille".into(), motif: None },
-    )
-    .await
-    .unwrap();
+    sqlx::query("UPDATE ent_inscription_dossier SET etat = 'attente_famille' WHERE id = $1")
+        .bind(ajourne.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
 
     // 3. `ajourne` programmée ; le dossier est annulé : caduque, direction alertée.
     let annule = dossier(&ent, &c, camp, "AjourneAnnule", None).await;
