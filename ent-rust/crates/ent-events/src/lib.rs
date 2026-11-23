@@ -395,6 +395,9 @@ pub mod types {
     pub const INTERNAT_TEMPS_ANNULE: &str = "internat.temps_annule";
     pub const INTERNAT_TEMPS_INSCRIPTION: &str = "internat.temps_inscription";
     pub const INTERNAT_ETUDE_NON_POINTEE: &str = "internat.etude_non_pointee";
+    /// Suites d'I4 (F-g, D-069) : un parent a refusé après le départ de l'élève ; le retour est demandé. Charge : dates et
+    /// cause ; jamais de nom, de motif libre ni d'identité du parent.
+    pub const INTERNAT_RETOUR_DEMANDE: &str = "internat.retour_demande";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";

@@ -2452,8 +2452,9 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
-        self.exiger_eleve_visible(etab, actor, role, b.eleve_id)
-            .await?;
+        // Pas de `exiger_eleve_visible` ici : un élève protégé INSCRIT au temps doit pouvoir être pointé par l'encadrant
+        // (il est compté et marqué « protégé », sans nom). Le contrôle est celui de l'inscription ci-dessous ; envers un tiers
+        // non inscrit, l'opacité reste assurée par « n'est pas inscrit ».
         let t: Option<(String, String, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
             "SELECT nature, statut, debut, fin FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -2476,13 +2477,11 @@ impl PgEnt {
         }
         let p: Option<(Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT pointage, rentre_le FROM ent_internat_temps_participant WHERE etablissement_id = $1 AND temps_id = $2 \
-                AND eleve_id = $3 AND (retire_le IS NULL OR $4) \
-              ORDER BY retire_le DESC NULLS FIRST LIMIT 1 FOR UPDATE",
+                AND eleve_id = $3 AND retire_le IS NULL FOR UPDATE",
         )
         .bind(etab)
         .bind(id)
         .bind(b.eleve_id)
-        .bind(retour)
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;

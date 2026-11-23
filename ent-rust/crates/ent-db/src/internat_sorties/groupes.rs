@@ -595,7 +595,8 @@ fn participant_dto(
         prenom: (!cache)
             .then(|| noms.get(&p.0).map(|n| n.1.clone()))
             .flatten(),
-        protege: proteges.contains(&p.0),
+        // Même marquage que les temps du soir : protégé ou masqué (l'accompagnateur compte ses élèves).
+        protege: proteges.contains(&p.0) || cache,
         etat: p.1.clone(),
         reponse_qualite: p.2.clone(),
         reponse_le: p.5,
@@ -1821,20 +1822,23 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let g = groupe_tx(&mut tx, etab, id, true).await?;
-        if !matches!(g.statut.as_str(), "soumise" | "acceptee") || maintenant >= g.debut {
+        // Un ACCORD ne se reçoit qu'avant le début ; un REFUS (plus restrictif) se reçoit tant que la sortie n'est pas
+        // terminée (D-069, F-g).
+        if !matches!(g.statut.as_str(), "soumise" | "acceptee")
+            || (b.accord && maintenant >= g.debut)
+        {
             return Err(conflit("cette sortie n'attend plus d'accord"));
         }
         let Some(p) = participant_tx(&mut tx, etab, id, eleve).await? else {
             return Err(DomainError::NotFound.into());
         };
         // Un accord vaut pour un élève qui attend ; un refus (le plus restrictif l'emporte) aussi pour un élève déjà
-        // autorisé par un autre titulaire.
-        let admis = if b.accord {
-            p.1 == "en_attente"
-        } else {
-            matches!(p.1.as_str(), "en_attente" | "autorise")
-        };
-        if !admis {
+        // autorisé par un autre titulaire. **F-g (D-069)** : un refus reçu pour un élève dans un autre état (déjà parti,
+        // rentré, bloqué, retiré) s'enregistre comme **fait tracé** (auteur, date, canal) sans rien changer à l'état ; pour
+        // un élève « parti », il déclenche en plus le retour (événement `internat.retour_demande`). Il n'annule pas le départ
+        // après coup.
+        let trace_seule = !b.accord && !matches!(p.1.as_str(), "en_attente" | "autorise");
+        if b.accord && p.1 != "en_attente" {
             return Err(conflit(
                 "cet élève n'attend pas de réponse (déjà répondu, bloqué ou retiré)",
             ));
@@ -1918,7 +1922,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        if b.accord {
+        if trace_seule {
+            // Rien ne change à l'état du participant : le fait et, pour un parti, la demande de retour.
+        } else if b.accord {
             sqlx::query(
                 "UPDATE ent_internat_sortie_groupe_participant SET etat = 'autorise', reponse_qualite = 'hors_ligne', \
                         reponse_user_id = $4, reponse_personne_id = $5, reponse_le = $6, motif_code = NULL, modifie_le = $6 \
@@ -1957,6 +1963,8 @@ impl PgEnt {
             Some(eleve),
             if b.accord {
                 "accord_hors_ligne"
+            } else if trace_seule {
+                "refus_apres_depart"
             } else {
                 "refus_hors_ligne"
             },
@@ -1965,20 +1973,37 @@ impl PgEnt {
             Some(&b.canal),
         )
         .await?;
-        evt_participant_tx(
-            &mut tx,
-            etab,
-            Some(actor),
-            &g,
-            eleve,
-            if b.accord { "autorise" } else { "refuse" },
-            if b.accord {
-                "accord_hors_ligne"
-            } else {
-                "refus_hors_ligne"
-            },
-        )
-        .await?;
+        if trace_seule {
+            if p.1 == "parti" {
+                publier(
+                    &mut tx,
+                    etab,
+                    types::INTERNAT_RETOUR_DEMANDE,
+                    AggregateKind::Internat,
+                    g.id,
+                    Some(eleve),
+                    json!({ "debut": g.debut.to_rfc3339(), "fin": g.fin.to_rfc3339(), "cause": "refus_apres_depart" }),
+                    Some(actor),
+                    Causalite::default(),
+                )
+                .await?;
+            }
+        } else {
+            evt_participant_tx(
+                &mut tx,
+                etab,
+                Some(actor),
+                &g,
+                eleve,
+                if b.accord { "autorise" } else { "refuse" },
+                if b.accord {
+                    "accord_hors_ligne"
+                } else {
+                    "refus_hors_ligne"
+                },
+            )
+            .await?;
+        }
         let dto = self
             .groupe_dto_tx(&mut tx, etab, actor, role, &g, portee.as_ref(), Vec::new())
             .await?;
@@ -2422,8 +2447,10 @@ impl PgEnt {
             return Err(conflit("cet élève n'est pas pointé rentré"));
         }
         sqlx::query(
+            // `parti_le` repart de l'annulation : l'élève est de nouveau dehors, et la veille, qui n'ouvre pas de second cas
+            // pour un cas clos APRÈS le départ (M1), doit pouvoir rouvrir l'alerte. L'heure du départ réel reste au journal.
             "UPDATE ent_internat_sortie_groupe_participant SET etat = 'parti', rentre_le = NULL, rentre_par_user_id = NULL, \
-                    modifie_le = $4 WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
+                    parti_le = $4, modifie_le = $4 WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
         )
         .bind(etab)
         .bind(id)
@@ -3064,13 +3091,46 @@ impl PgEnt {
         depart: DateTime<Utc>,
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
-        // Un cas de cette nuit déjà lié à cette sortie ou à ce temps (quelle que soit son issue), ou un cas sans origine
-        // (ouvert par l'appel) encore ouvert ou fermé depuis le départ de l'élève : la veille ne rouvre rien.
+        // Course veille / retour : l'état est relu SOUS VERROU de la ligne ; un élève rentré entre la lecture de la liste et
+        // ici n'ouvre aucun cas (fausse alerte évitée).
+        let toujours_dehors: Option<bool> = if let Some(s) = sortie {
+            sqlx::query_scalar(
+                "SELECT etat = 'parti' AND rentre_le IS NULL FROM ent_internat_sortie_groupe_participant \
+                  WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3 FOR UPDATE",
+            )
+            .bind(etab)
+            .bind(s)
+            .bind(eleve)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+        } else {
+            sqlx::query_scalar(
+                "SELECT pointage = 'present' AND rentre_le IS NULL FROM ent_internat_temps_participant \
+                  WHERE etablissement_id = $1 AND temps_id = $2 AND eleve_id = $3 AND pointage = 'present' \
+                  ORDER BY retire_le DESC NULLS FIRST LIMIT 1 FOR UPDATE",
+            )
+            .bind(etab)
+            .bind(temps)
+            .bind(eleve)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+        };
+        if toujours_dehors != Some(true) {
+            return Ok(false);
+        }
+        // M1 : un cas déjà lié à cette sortie ou à ce temps ne se rouvre pas, **toutes nuits confondues** : ouvert, ou clos
+        // depuis le départ de l'élève (seul un fait nouveau, un nouveau départ, en rouvre un) ; la nuit change à midi, donc
+        // sans cette règle la veille rouvrirait un cas chaque jour tant que le retour n'est pas pointé. Un cas clos AVANT le
+        // départ courant ne compte pas (un retour pointé puis annulé remet `parti_le` à l'annulation : l'alerte se rouvre).
+        // Un cas sans origine (ouvert par l'appel) de cette nuit, ouvert ou clos depuis le départ, compte aussi.
         let existants: Vec<(Uuid, bool, bool)> = sqlx::query_as(
             "SELECT id, issue IS NULL, (sortie_groupe_id IS NULL AND temps_id IS NULL) FROM ent_internat_cas \
-              WHERE etablissement_id = $1 AND eleve_id = $2 AND nuit = $3 \
-                AND ((sortie_groupe_id IS NOT DISTINCT FROM $4 AND temps_id IS NOT DISTINCT FROM $5) \
-                     OR (sortie_groupe_id IS NULL AND temps_id IS NULL AND (issue IS NULL OR issue_le >= $6))) \
+              WHERE etablissement_id = $1 AND eleve_id = $2 \
+                AND ((sortie_groupe_id IS NOT DISTINCT FROM $4 AND temps_id IS NOT DISTINCT FROM $5 \
+                      AND (issue IS NULL OR issue_le >= $6)) \
+                     OR (nuit = $3 AND sortie_groupe_id IS NULL AND temps_id IS NULL AND (issue IS NULL OR issue_le >= $6))) \
               FOR UPDATE",
         )
         .bind(etab)

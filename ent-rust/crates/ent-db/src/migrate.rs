@@ -533,6 +533,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
     // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("690_t1_search_path_fonctions"),
+    // Suites d'I4 (passe 3) : contraintes nommées (motif du participant, acte des faits) ; 2828-2829 sont versées.
+    // Règle 38 : APRÈS 690 (aucune fonction créée ici). `MIGRATION_TAG` inchangé (3808).
+    m!("2830_internat_i4_suites"),
     // Socle 21, suites V5 passe 3 (plage d'extension 700–719) : compteur `version` des moyennes externes (jeton de
     // compare-et-écrit de la publication et du retrait). APRÈS 690 (règle 38) ; sa fonction porte son `search_path`.
     m!("700_eva_v5_suites_jeton_version"),
