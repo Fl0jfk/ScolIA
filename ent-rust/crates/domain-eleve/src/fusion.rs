@@ -39,6 +39,10 @@ pub struct TableEleve {
     pub strategie: Strategie,
     /// Pourquoi la table reste sur l'absorbé (vide pour `Deplacer`).
     pub raison: &'static str,
+    /// Condition SQL (alias `t`) : seules les lignes qui la vérifient passent à l'élève conservé ; les autres (historique)
+    /// restent sur l'absorbé. Vide : toutes les lignes (cas général). Réservé aux tables dont seule la partie « vivante »
+    /// doit suivre l'élève (vigilance active, inscription en cours, participation à une sortie non close).
+    pub condition: &'static str,
 }
 
 impl TableEleve {
@@ -49,11 +53,16 @@ impl TableEleve {
 }
 
 const fn d(table: &'static str, cle: &'static [&'static str]) -> TableEleve {
-    TableEleve { table, cle, strategie: Strategie::Deplacer, raison: "" }
+    TableEleve { table, cle, strategie: Strategie::Deplacer, raison: "", condition: "" }
+}
+
+/// Déplace seulement les lignes qui vérifient `condition` (SQL, alias `t`) ; le reste demeure sur l'absorbé.
+const fn dc(table: &'static str, cle: &'static [&'static str], condition: &'static str) -> TableEleve {
+    TableEleve { table, cle, strategie: Strategie::Deplacer, raison: "", condition }
 }
 
 const fn r(table: &'static str, cle: &'static [&'static str], raison: &'static str) -> TableEleve {
-    TableEleve { table, cle, strategie: Strategie::Reste, raison }
+    TableEleve { table, cle, strategie: Strategie::Reste, raison, condition: "" }
 }
 
 /// Registre de toutes les tables qui portent `eleve_id` (ordre alphabétique).
@@ -185,17 +194,29 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("ent_internat_cas", &["id"], "cas de nuit (non retrouvé, retour tardif) : procédure, étapes et issue datées, jamais supprimés, ils restent sur la fiche concernée"),
     r("ent_internat_correspondant", &["id"], "correspondant d'internat désigné par la famille (personne, jours, suspension) : désignation datée qui reste sur la fiche pour laquelle elle a été faite"),
     r("ent_internat_derogation", &["id"], "dérogation de la direction en ajout seul : décision datée qui reste sur la fiche pour laquelle elle a été prise"),
+    r("ent_internat_evenement_participant", &["id"], "élève participant à un événement de nuit (auteur présumé, victime, témoin) : fait daté en ajout seul, il reste sur la fiche concernée"),
     r("ent_internat_i3_fait", &["id"], "faits d'absence, de sortie, de correspondant et de requalification de contact en ajout seul : historique daté qui reste sur la fiche concernée"),
     r("ent_internat_lecture_sensible", &["id"], "journal des lectures sensibles de l'internat en ajout seul : trace d'accès, elle reste sur la fiche lue"),
+    r("ent_internat_liaison", &["id"], "fait de liaison jour / nuit codé (jamais supprimé, masquage tracé) : il reste sur la fiche concernée"),
     r("ent_internat_nuit_exceptionnelle", &["id"], "nuit exceptionnelle datée (élève accueilli une nuit de plus) : décision qui reste sur la fiche pour laquelle elle a été prise"),
     r("ent_internat_perte_droit_fait", &["id"], "faits de perte de droit sur un lien en ajout seul : date immuable de la perte, elle reste sur la fiche concernée"),
+    r("ent_internat_preoccupation", &["id"], "ouverture du circuit de préoccupation sans aucun contenu (adulte, élève, instant) en ajout seul : trace qui reste sur la fiche concernée"),
     d("ent_internat_presence", &["id"]),
     r("ent_internat_presence_fait", &["id"], "faits de présence en ajout seul (R-IT13) : l'historique de la nuit reste sur la fiche où il a été écrit"),
     r("ent_internat_retrait", &["id"], "retrait de l'attendu de nuit, motif codé, annulable seulement : historique qui reste sur la fiche concernée"),
     r("ent_internat_sejour", &["id"], "séjour d'hébergement daté, sans chevauchement par élève : reste sur la fiche absorbée (le séjour de la fiche gardée se resynchronise sur le régime)"),
     r("ent_internat_sortie", &["id"], "sortie individuelle de l'internat (week-end, mercredi, soirée, correspondant) : engagement daté, départ et retour contrôlés, jamais supprimé, il reste sur la fiche concernée"),
+    r("ent_internat_sortie_groupe_accord_hors_ligne", &["id"], "accord reçu hors ligne avec son auteur et sa date (R-IT24), en ajout seul : preuve qui reste sur la fiche pour laquelle elle a été donnée"),
+    r("ent_internat_sortie_groupe_fait", &["id"], "journal des faits d'une sortie de groupe en ajout seul : historique daté qui reste sur la fiche concernée"),
+    // M5 : une participation à une sortie NON CLOSE (brouillon, soumise, acceptée) suit l'élève conservé ; l'historique (sorties
+    // closes, annulées, refusées) reste sur la fiche concernée. En cas de doublon, la ligne du conservé l'emporte.
+    dc("ent_internat_sortie_groupe_participant", &["id"], "EXISTS (SELECT 1 FROM ent_internat_sortie_groupe g WHERE g.etablissement_id = t.etablissement_id AND g.id = t.sortie_groupe_id AND g.statut IN ('brouillon', 'soumise', 'acceptee'))"),
     d("ent_internat_suivi", &["id"]),
+    // M5 : une inscription EN COURS (non retirée, temps prévu et non terminé) suit l'élève conservé ; le reste est de l'historique.
+    dc("ent_internat_temps_participant", &["id"], "t.retire_le IS NULL AND EXISTS (SELECT 1 FROM ent_internat_temps x WHERE x.etablissement_id = t.etablissement_id AND x.id = t.temps_id AND x.statut = 'prevu' AND x.fin > now())"),
     r("ent_internat_tiers_autorise", &["id"], "tiers autorisé à récupérer l'élève (posé par le personnel à la demande écrite d'un titulaire, daté, révocable) : décision tracée qui reste sur la fiche pour laquelle elle a été prise"),
+    // M5 : une vigilance ACTIVE (non levée, non échue) suit l'élève conservé ; les vigilances terminées restent sur la fiche concernée.
+    dc("ent_internat_vigilance", &["id"], "t.au IS NULL OR t.au >= (now() AT TIME ZONE ent_internat_fuseau(t.etablissement_id))::date"),
     r("ent_journal_modif", &["id"], "journal d'audit en ajout seul : l'historique reste sur la fiche où il a été écrit"),
     d("ent_lien_attente", &["id"]),
     r("ent_mail_outbox", &["id"], "file d'envoi : messages déjà adressés"),

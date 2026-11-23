@@ -1292,6 +1292,16 @@ impl PgEnt {
         if figes_attendus != nb_attendus {
             return Err(conflit("l'attendu a changé pendant l'ouverture de l'appel : recommencer"));
         }
+        // Règle 1 (I4) : les élèves attendus qui sont partis en sortie de groupe ou en activité sont « en activité ».
+        if nuit == courante {
+            let attendus: Vec<Uuid> = figes
+                .iter()
+                .filter(|(_, st)| st == "attendu" || st == "ajoute")
+                .map(|(e, _)| *e)
+                .collect();
+            self.marquer_en_activite_ouverture_tx(&mut tx, etab, actor, id, &attendus, maintenant)
+                .await?;
+        }
         publier(
             &mut tx,
             etab,

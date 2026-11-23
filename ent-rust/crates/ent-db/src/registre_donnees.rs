@@ -871,20 +871,33 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_appel", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel_attendu", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel_rappel", "vie_pratique", Portee::Etablissement),
-    t("ent_internat_cas", "vie_pratique", Portee::Etablissement).perso().export(),
+    // Passe 2 (M5) : la nature « interdiction_auteur » et la note de clôture révèlent la cause d'un blocage (donnée de protection).
+    t("ent_internat_cas", "vie_pratique", Portee::Etablissement).perso().export().hors_export(&["nature", "issue_note"]),
     t("ent_internat_cas_etape", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_chambre", "vie_pratique", Portee::Etablissement),
     t("ent_internat_correspondant", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_derogation", "vie_pratique", Portee::Etablissement).perso().export(),
+    // M10 (règle 3) : l'export de portabilité d'une personne ne contient ni texte libre ni autre élève. Un événement de nuit
+    // (nature, niveau, mesures : circonstances impliquant d'autres élèves) et ses compléments (texte libre) n'en font pas
+    // partie ; la participation propre de l'élève (`ent_internat_evenement_participant`) reste exportée.
+    t("ent_internat_evenement", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_evenement_complement", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_evenement_participant", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_i3_fait", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_interdiction_contact", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_lecture_sensible", "vie_pratique", Portee::Etablissement).perso(),
+    // M10 : le fait de liaison (code, nuit) est exporté, jamais son texte libre.
+    t("ent_internat_liaison", "vie_pratique", Portee::Etablissement).perso().export().hors_export(&["texte"]),
+    t("ent_internat_liaison_code", "vie_pratique", Portee::Etablissement),
+    t("ent_internat_liaison_fait", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_liste", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_liste_chambre", "vie_pratique", Portee::Etablissement),
     t("ent_internat_lit", "vie_pratique", Portee::Etablissement),
     t("ent_internat_nuit_exceptionnelle", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_parametres", "vie_pratique", Portee::Etablissement),
+    t("ent_internat_parametres_vie", "vie_pratique", Portee::Etablissement),
     t("ent_internat_perte_droit_fait", "vie_pratique", Portee::Etablissement).perso(),
+    t("ent_internat_preoccupation", "vie_pratique", Portee::Etablissement).perso(),
     t("ent_internat_presence", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_presence_fait", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_procedure_etape", "vie_pratique", Portee::Etablissement),
@@ -893,15 +906,28 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_rythme", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_sejour", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_sortie", "vie_pratique", Portee::Etablissement).perso().export(),
+    t("ent_internat_sortie_groupe", "vie_pratique", Portee::Etablissement).perso().export(),
+    t("ent_internat_sortie_groupe_accord_hors_ligne", "vie_pratique", Portee::Etablissement).perso().export(),
+    t("ent_internat_sortie_groupe_encadrant", "vie_pratique", Portee::Etablissement),
+    t("ent_internat_sortie_groupe_fait", "vie_pratique", Portee::Etablissement).perso(),
+    // Passe 2 (M5) : `motif_code` (interdiction, désaccord connu, majorité) est la cause d'un blocage, `reponse_user_id` le
+    // compte qui a répondu : ni l'un ni l'autre ne sortent dans l'export de portabilité.
+    t("ent_internat_sortie_groupe_participant", "vie_pratique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["motif_code", "reponse_user_id"]),
     t("ent_internat_sortie_type", "vie_pratique", Portee::Etablissement),
     t("ent_internat_suivi", "vie_pratique", Portee::Etablissement).perso().export(),
     // F5 : le tiers reçoit sa propre fiche (personne, dates, état), jamais le motif écrit ni le titulaire qui l'a demandé.
+    t("ent_internat_temps", "vie_pratique", Portee::Etablissement),
+    t("ent_internat_temps_participant", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_tiers_autorise", "vie_pratique", Portee::Etablissement)
         .perso()
         .export()
         .hors_export(&["motif", "demande_par_personne_id"]),
     t("ent_internat_transmission", "vie_pratique", Portee::Etablissement),
     t("ent_internat_type_appel_actif", "vie_pratique", Portee::Etablissement),
+    t("ent_internat_vigilance", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_zone", "vie_pratique", Portee::Etablissement),
     t("ent_jour_calendrier", "emploi_du_temps_structure", Portee::Etablissement),
     t("ent_journal_modif", "dossier_eleve", Portee::Etablissement).perso(),

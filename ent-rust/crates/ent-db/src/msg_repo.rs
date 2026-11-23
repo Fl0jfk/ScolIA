@@ -7,6 +7,18 @@ use sqlx::PgPool;
 use crate::tenant_tx::TenantTx;
 use uuid::Uuid;
 
+/// Issue de l'annulation d'un message différé (E1) : totale, ou refusée avec une raison exploitable par l'API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnnulationDiffere {
+    /// Message supprimé (avec ses versions, cartes, accès, lectures, accusés et pièces) ; clés d'objets à détruire.
+    Annule(Vec<String>),
+    /// Le message est déjà remis (ou absent, ou d'un autre auteur) : l'annulation n'a pas lieu.
+    DejaRemis,
+    /// La base a refusé la suppression (clé étrangère ou garde en ajout seul) : rien n'est supprimé, le message part
+    /// normalement. L'appelant le dit à l'auteur ; jamais d'erreur technique opaque.
+    Refusee,
+}
+
 /// Issue d'un dépôt de pièce sous verrou (F1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertionPiece {
@@ -20,38 +32,106 @@ pub enum InsertionPiece {
 /// Fenêtre maximale d'un curseur du flux M12 (secondes) : au-delà, le client doit resynchroniser tout.
 pub const FLUX_FENETRE_SECONDES: u64 = 600;
 
-/// Marge minimale sous l'instant présent (secondes) : plancher de la borne sûre.
-const FLUX_MARGE_SECONDES: i64 = 5;
-/// La borne sûre n'est jamais plus vieille que la fenêtre moins cette réserve (secondes) : le curseur progresse
-/// toujours et ne provoque jamais la resynchronisation à lui seul.
-const FLUX_RESERVE_FENETRE_SECONDES: i64 = 60;
+/// Position de reprise du flux M12 (M1). **Opaque pour le client** : il la rend telle quelle (`apres`).
+///
+/// Deux flux d'événements, chacun avec sa propre position, parce qu'ils n'ont pas la même cause :
+/// - **immédiats** (message remis à l'écriture, retrait) : ordre `(xid, fil, genre)` où `xid` est l'identifiant (`xid8`)
+///   de la transaction qui a écrit la ligne. Tout est servi sous la borne `pg_snapshot_xmin(pg_current_snapshot())` :
+///   une transaction d'identifiant inférieur est terminée, donc rien ne peut plus apparaître sous la borne (aucune
+///   horloge, aucune lecture du catalogue). Position « rattrapée » : `(borne, nil, "")` ;
+/// - **différés** (message dont la remise est programmée) : l'événement naît de l'**échéance** `remise_prevue_le`, pas
+///   d'une validation ; ordre `(instant, fil)`, la position est celle du dernier événement servi.
+///
+/// `emis` (heure de la base à l'émission) ne sert qu'à borner l'âge du curseur (resynchronisation), jamais à ordonner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionFlux {
+    pub xid: u64,
+    pub fil: Option<Uuid>,
+    /// `nouveau` ou `retire` (avec `fil`) ; `None` : position rattrapée.
+    pub genre: Option<String>,
+    pub differe: DateTime<Utc>,
+    pub differe_fil: Option<Uuid>,
+    pub emis: DateTime<Utc>,
+}
 
-/// Limite sûre du curseur (règle 1) : `min(maintenant − 5 s, début de la plus ancienne transaction en cours)`,
-/// mais **jamais plus vieille que la fenêtre de resynchronisation moins une réserve**. Une transaction très longue
-/// (autovacuum, sauvegarde, session « idle in transaction ») ne fige donc plus le curseur ; au-delà de ce plancher
-/// un message validé encore plus tard n'est pas rattrapé (limite documentée). `plus_ancienne` vient de
-/// `pg_stat_activity` : il n'est visible que si le rôle a `pg_read_all_stats` (voir
-/// [`PgMsgRepo::verifier_visibilite_transactions`]) ; sinon `None` et la marge de 5 s s'applique seule.
-pub(crate) fn borne_sure(maintenant: DateTime<Utc>, plus_ancienne: Option<DateTime<Utc>>) -> DateTime<Utc> {
-    let marge = maintenant - chrono::Duration::seconds(FLUX_MARGE_SECONDES);
-    let borne = plus_ancienne.map_or(marge, |t| t.min(marge));
-    let plancher = maintenant - chrono::Duration::seconds(FLUX_FENETRE_SECONDES as i64 - FLUX_RESERVE_FENETRE_SECONDES);
-    borne.max(plancher)
+impl PositionFlux {
+    const PREFIXE: &'static str = "v2";
+
+    /// Forme transmise au client (opaque) : `v2.<xid>.<fil|->.<n|r|->.<µs>.<fil|->.<µs>`.
+    pub fn encoder(&self) -> String {
+        let fil = |f: &Option<Uuid>| f.map_or_else(|| "-".to_string(), |u| u.to_string());
+        let genre = match self.genre.as_deref() {
+            Some("nouveau") => "n",
+            Some("retire") => "r",
+            _ => "-",
+        };
+        format!(
+            "{}.{}.{}.{}.{}.{}.{}",
+            Self::PREFIXE,
+            self.xid,
+            fil(&self.fil),
+            genre,
+            self.differe.timestamp_micros(),
+            fil(&self.differe_fil),
+            self.emis.timestamp_micros()
+        )
+    }
+
+    /// Lit un curseur ; `None` si le format est inconnu (ancien format, valeur fabriquée) : le client resynchronise.
+    pub fn decoder(texte: &str) -> Option<Self> {
+        let p: Vec<&str> = texte.split('.').collect();
+        if p.len() != 7 || p[0] != Self::PREFIXE {
+            return None;
+        }
+        let fil = |t: &str| -> Option<Option<Uuid>> {
+            if t == "-" { Some(None) } else { Uuid::parse_str(t).ok().map(Some) }
+        };
+        let genre = match p[3] {
+            "n" => Some("nouveau".to_string()),
+            "r" => Some("retire".to_string()),
+            "-" => None,
+            _ => return None,
+        };
+        let instant = |t: &str| DateTime::<Utc>::from_timestamp_micros(t.parse::<i64>().ok()?);
+        Some(Self {
+            xid: p[1].parse().ok()?,
+            fil: fil(p[2])?,
+            genre,
+            differe: instant(p[4])?,
+            differe_fil: fil(p[5])?,
+            emis: instant(p[6])?,
+        })
+    }
+
+    /// Position de départ : tout ce qui est antérieur à la borne `xid` et à `maintenant` est considéré comme connu.
+    pub fn depart(xid: u64, maintenant: DateTime<Utc>) -> Self {
+        Self { xid, fil: None, genre: None, differe: maintenant, differe_fil: None, emis: maintenant }
+    }
 }
 
 /// Résultat brut du flux M12 (avant le jugement de lecture) ; voir [`PgMsgRepo::evenements_depuis`].
 #[derive(Debug, Clone)]
 pub struct EvenementsFlux {
-    pub curseur: DateTime<Utc>,
-    /// Second terme de la position quand la liste est tronquée (`None` sinon).
-    pub curseur_fil: Option<Uuid>,
-    /// Troisième terme de la position quand la liste est tronquée (`nouveau` ou `retire`).
-    pub curseur_genre: Option<String>,
+    /// Position à rendre au prochain appel.
+    pub position: PositionFlux,
     pub tronque: bool,
-    /// Curseur plus ancien que la fenêtre maximale : rien n'est rendu, le client recharge tout.
+    /// Curseur plus ancien que la fenêtre maximale ou illisible : rien n'est rendu, le client recharge tout.
     pub resynchro: bool,
     /// `(fil, instant, genre)`, genre = `nouveau` ou `retire`.
     pub evenements: Vec<(Uuid, DateTime<Utc>, String)>,
+}
+
+/// Heure de la base et borne du curseur : `pg_snapshot_xmin(pg_current_snapshot())`, l'identifiant de la plus ancienne
+/// transaction **encore ouverte** (toute transaction d'identifiant inférieur est terminée). Les deux dans la même
+/// transaction : c'est la base (`TenantTx`, donc le contexte d'établissement), aucune lecture du catalogue.
+async fn lire_borne(tx: &mut TenantTx<'_>) -> Result<(DateTime<Utc>, u64), DomainError> {
+    let (maintenant, xmin): (DateTime<Utc>, String) =
+        sqlx::query_as("SELECT now(), pg_snapshot_xmin(pg_current_snapshot())::text")
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(map_sqlx)?;
+    let xmin = xmin.parse::<u64>().map_err(|_| DomainError::ReferenceInconnue)?;
+    Ok((maintenant, xmin))
 }
 
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
@@ -1047,6 +1127,13 @@ impl PgMsgRepo {
         Ok(rows.into_iter().map(AccuseRow::into_accuse).collect())
     }
 
+    /// Position de départ du flux : borne `xid` courante et heure de la base.
+    pub async fn position_depart_flux(&self, etablissement_id: Uuid) -> Result<PositionFlux, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let (maintenant, xmin) = lire_borne(&mut tx).await?;
+        Ok(PositionFlux::depart(xmin, maintenant))
+    }
+
     /// M12 (flux temps réel) : candidats du flux. Seuls les fils où le compte **participe** (vue
     /// `ent_msg_fil_lisible`, relue à chaque appel) entrent ici ; l'appelant applique ensuite le **jugement de
     /// lecture** complet (`actor_can_access_fil`, avec le rôle de la session) : le flux ne révèle jamais plus que la
@@ -1055,155 +1142,141 @@ impl PgMsgRepo {
     /// Les messages **du compte lui-même** n'apparaissent pas (il les connaît) ; un message **retiré** est signalé
     /// (`retire`, sans contenu) sauf s'il est retiré par ce compte. Un message différé reste muet avant sa remise.
     ///
-    /// Horloge unique : la base (`created_at` des messages est posé par la base à l'insertion, `retire_le` aussi).
-    /// Ordre total `(instant, fil)` : le curseur rendu ne saute jamais d'événement. Si la liste dépasse `limite`,
-    /// `tronque` vaut vrai et le curseur est la **position du dernier événement rendu** ; sinon c'est
-    /// `min(maintenant − 5 s, début de la plus ancienne transaction en cours)` : un message validé tard dans sa
-    /// transaction n'est pas perdu (un doublon est inoffensif).
+    /// Positions (M1) : voir [`PositionFlux`]. Les événements immédiats sont servis **sous la borne `xmin`** et
+    /// dans l'ordre `(xid, fil, genre)` : un message validé tard (transaction longue) porte un `xid` inférieur ou égal
+    /// à celui de ses voisins, donc n'est jamais dépassé par le curseur. Les événements différés sont servis par
+    /// échéance `(remise, fil)`. Chaque flux est limité à `limite` événements ; `tronque` si l'un des deux l'est, et
+    /// la position de ce flux est alors celle du dernier événement rendu.
     pub async fn evenements_depuis(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
-        apres: (DateTime<Utc>, Uuid, &str),
+        apres: &PositionFlux,
         limite: i64,
     ) -> Result<EvenementsFlux, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        // Une seule horloge, celle de la base : `now()` (constant dans la transaction) et le début de la plus
-        // ancienne transaction **visible** en cours. La borne sûre se calcule en Rust (fonction pure, testée).
-        let (maintenant, plus_ancienne, hors_fenetre): (DateTime<Utc>, Option<DateTime<Utc>>, bool) = sqlx::query_as(
-            "SELECT now(),
-                    (SELECT min(a.xact_start) FROM pg_stat_activity a
-                      WHERE a.datname = current_database() AND a.xact_start IS NOT NULL
-                        AND a.pid <> pg_backend_pid()),
-                    $1 < now() - make_interval(secs => $2)",
-        )
-        .bind(apres.0)
-        .bind(FLUX_FENETRE_SECONDES as f64)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        let borne = borne_sure(maintenant, plus_ancienne);
-        if hors_fenetre {
+        let (maintenant, xmin) = lire_borne(&mut tx).await?;
+        let age = maintenant - apres.emis;
+        if age > chrono::Duration::seconds(FLUX_FENETRE_SECONDES as i64) {
             return Ok(EvenementsFlux {
-                curseur: borne,
-                curseur_fil: None,
-                curseur_genre: None,
+                position: PositionFlux::depart(xmin, maintenant),
                 tronque: false,
                 resynchro: true,
                 evenements: Vec::new(),
             });
         }
-        let mut rows = self.evenements_apres(&mut tx, etablissement_id, user_id, apres, limite + 1, maintenant).await?;
-        let mut tronque = rows.len() as i64 > limite;
-        rows.truncate(limite.max(0) as usize);
-        let (mut curseur, mut curseur_fil, mut curseur_genre) = (borne, None, None);
-        if tronque {
-            if let Some((fil, instant, genre)) = rows.last() {
-                if *instant <= borne {
-                    (curseur, curseur_fil, curseur_genre) = (*instant, Some(*fil), Some(genre.clone()));
-                } else {
-                    // Le dernier événement rendu dépasse la limite sûre : une transaction encore ouverte pourrait
-                    // valider plus tard un événement plus ancien. On ne rend que le stable (≤ borne) ; le
-                    // reste sera relu à l'appel suivant, à partir de la borne (qui progresse toujours).
-                    rows = self.evenements_apres(&mut tx, etablissement_id, user_id, apres, limite + 1, borne).await?;
-                    tronque = rows.len() as i64 > limite;
-                    rows.truncate(limite.max(0) as usize);
-                    if tronque {
-                        if let Some((fil, instant, genre)) = rows.last() {
-                            (curseur, curseur_fil, curseur_genre) = (*instant, Some(*fil), Some(genre.clone()));
-                        }
-                    }
-                    // Non tronqué sur le stable : curseur = borne ; le client rappelle (la suite est au-delà).
-                }
+        let limite = limite.max(0);
+        let mut immediats = self
+            .evenements_immediats(&mut tx, etablissement_id, user_id, apres, xmin, limite + 1)
+            .await?;
+        let tronque_i = immediats.len() as i64 > limite;
+        immediats.truncate(limite as usize);
+        let mut differes = self
+            .evenements_differes(&mut tx, etablissement_id, user_id, apres, limite + 1)
+            .await?;
+        let tronque_d = differes.len() as i64 > limite;
+        differes.truncate(limite as usize);
+
+        let mut position = PositionFlux { emis: maintenant, ..apres.clone() };
+        if tronque_i {
+            if let Some((fil, _, genre, xid)) = immediats.last() {
+                (position.xid, position.fil, position.genre) = (*xid, Some(*fil), Some(genre.clone()));
             }
+        } else {
+            // Rattrapé : tout ce qui est sous la borne est servi ; la suite est strictement au-delà.
+            (position.xid, position.fil, position.genre) = (xmin.max(apres.xid), None, None);
         }
-        Ok(EvenementsFlux { curseur, curseur_fil, curseur_genre, tronque, resynchro: false, evenements: rows })
-    }
-
-    /// Début de la plus ancienne transaction visible en cours (hors la nôtre), tel que le curseur l'utilise.
-    #[cfg(all(test, feature = "labo"))]
-    pub(crate) async fn debut_plus_ancienne_transaction(&self) -> Result<Option<DateTime<Utc>>, DomainError> {
-        sqlx::query_scalar(
-            "SELECT min(a.xact_start) FROM pg_stat_activity a
-              WHERE a.datname = current_database() AND a.xact_start IS NOT NULL AND a.pid <> pg_backend_pid()",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(map_sqlx)
-    }
-
-    /// M-E : le curseur du flux s'appuie sur `pg_stat_activity.xact_start` des **autres** sessions, visible
-    /// seulement pour un rôle qui a `pg_read_all_stats` (ou superutilisateur). Sans ce droit, la borne retombe sur la
-    /// marge de 5 s (un message validé tard dans une transaction longue pourrait être raté). À appeler au démarrage ;
-    /// rend `true` si la visibilité est assurée, sinon journalise une **erreur** explicite.
-    pub async fn verifier_visibilite_transactions(&self) -> bool {
-        let r: Result<(bool, String), sqlx::Error> = sqlx::query_as(
-            "SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member')
-                    OR coalesce((SELECT rolsuper FROM pg_roles WHERE rolname = current_user), false),
-                    current_user::text",
-        )
-        .fetch_one(&self.pool)
-        .await;
-        match r {
-            Ok((true, _)) => true,
-            Ok((false, role)) => {
-                tracing::error!(
-                    canal = "messagerie",
-                    role = %role,
-                    "le rôle de l'application n'a pas pg_read_all_stats : le curseur du flux temps réel M12 ne voit pas les \
-                     transactions des autres sessions (marge de 5 s seule). Accorder : GRANT pg_read_all_stats TO <rôle>"
-                );
-                false
-            }
-            Err(e) => {
-                tracing::error!(canal = "messagerie", error = %e, "vérification de pg_read_all_stats impossible");
-                false
-            }
+        if let Some((fil, instant, _)) = differes.last() {
+            (position.differe, position.differe_fil) = (*instant, Some(*fil));
         }
+        let mut evenements: Vec<(Uuid, DateTime<Utc>, String)> =
+            immediats.into_iter().map(|(f, i, g, _)| (f, i, g)).collect();
+        evenements.extend(differes);
+        Ok(EvenementsFlux { position, tronque: tronque_i || tronque_d, resynchro: false, evenements })
     }
 
-    /// Événements strictement après `apres` (ordre total `(instant, fil, genre)`), instants ≤ `plafond`.
-    async fn evenements_apres(
+    /// Événements **immédiats** strictement après `(xid, fil, genre)` et sous `xmin` : ordre `(xid, fil, genre)`.
+    async fn evenements_immediats(
         &self,
         tx: &mut TenantTx<'_>,
         etablissement_id: Uuid,
         user_id: Uuid,
-        apres: (DateTime<Utc>, Uuid, &str),
+        apres: &PositionFlux,
+        xmin: u64,
         limite: i64,
-        plafond: DateTime<Utc>,
-    ) -> Result<Vec<(Uuid, DateTime<Utc>, String)>, DomainError> {
-        sqlx::query_as(
+    ) -> Result<Vec<(Uuid, DateTime<Utc>, String, u64)>, DomainError> {
+        let rows: Vec<(Uuid, DateTime<Utc>, String, String)> = sqlx::query_as(
             r#"
             WITH ev AS (
-                SELECT m.fil_id, coalesce(m.remise_prevue_le, m.created_at) AS instant, 'nouveau' AS genre
+                SELECT m.fil_id, m.created_at AS instant, m.msg_xid AS xid, 'nouveau' AS genre
                   FROM ent_msg_fil_lisible($1, $2) l
                   JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
                  WHERE m.auteur_user_id IS DISTINCT FROM $2
                    AND m.retire_le IS NULL
-                   AND coalesce(m.remise_prevue_le, m.created_at) <= now()
+                   AND m.remise_prevue_le IS NULL
+                   AND m.msg_xid >= $3::text::xid8 AND m.msg_xid < $7::text::xid8
                 UNION ALL
-                SELECT m.fil_id, m.retire_le AS instant, 'retire' AS genre
+                SELECT m.fil_id, m.retire_le AS instant, coalesce(m.retire_xid, m.msg_xid) AS xid, 'retire' AS genre
                   FROM ent_msg_fil_lisible($1, $2) l
                   JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
                  WHERE m.retire_le IS NOT NULL
                    AND m.retire_par IS DISTINCT FROM $2
                    AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now())
+                   AND coalesce(m.retire_xid, m.msg_xid) >= $3::text::xid8
+                   AND coalesce(m.retire_xid, m.msg_xid) < $7::text::xid8
             ), agg AS (
-                SELECT fil_id, genre, max(instant) AS instant FROM ev GROUP BY fil_id, genre
+                SELECT fil_id, genre, max(xid) AS xid, max(instant) AS instant FROM ev GROUP BY fil_id, genre
             )
-            SELECT fil_id, instant, genre FROM agg
-             WHERE (instant, fil_id, genre) > ($3, $4, $6) AND instant <= $7
-             ORDER BY instant ASC, fil_id ASC, genre ASC
+            SELECT fil_id, instant, genre, xid::text FROM agg
+             WHERE (xid, fil_id, genre) > ($3::text::xid8, $4, $6)
+             ORDER BY xid ASC, fil_id ASC, genre ASC
              LIMIT $5
             "#,
         )
         .bind(etablissement_id)
         .bind(user_id)
-        .bind(apres.0)
-        .bind(apres.1)
+        .bind(apres.xid.to_string())
+        .bind(apres.fil.unwrap_or_else(Uuid::nil))
         .bind(limite)
-        .bind(apres.2)
-        .bind(plafond)
+        .bind(apres.genre.as_deref().unwrap_or(""))
+        .bind(xmin.to_string())
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter()
+            .map(|(f, i, g, x)| x.parse::<u64>().map(|x| (f, i, g, x)).map_err(|_| DomainError::ReferenceInconnue))
+            .collect()
+    }
+
+    /// Événements **différés** : messages dont l'échéance est passée, strictement après `(instant, fil)`.
+    async fn evenements_differes(
+        &self,
+        tx: &mut TenantTx<'_>,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        apres: &PositionFlux,
+        limite: i64,
+    ) -> Result<Vec<(Uuid, DateTime<Utc>, String)>, DomainError> {
+        sqlx::query_as(
+            r#"
+            SELECT m.fil_id, max(m.remise_prevue_le) AS instant, 'nouveau' AS genre
+              FROM ent_msg_fil_lisible($1, $2) l
+              JOIN ent_msg m ON m.etablissement_id = $1 AND m.fil_id = l.fil_id
+             WHERE m.auteur_user_id IS DISTINCT FROM $2
+               AND m.retire_le IS NULL
+               AND m.remise_prevue_le IS NOT NULL
+               AND m.remise_prevue_le >= $3 AND m.remise_prevue_le <= now()
+             GROUP BY m.fil_id
+            HAVING (max(m.remise_prevue_le), m.fil_id) > ($3, $4)
+             ORDER BY max(m.remise_prevue_le) ASC, m.fil_id ASC
+             LIMIT $5
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .bind(apres.differe)
+        .bind(apres.differe_fil.unwrap_or_else(Uuid::nil))
+        .bind(limite)
         .fetch_all(&mut **tx)
         .await
         .map_err(map_sqlx)
@@ -1371,20 +1444,21 @@ impl PgMsgRepo {
         Ok(groupes)
     }
 
-    /// Supprime un message dont la remise est encore à venir (R-M48), s'il est de `auteur`.
-    /// `None` si le message est déjà remis, d'un autre auteur ou absent ; sinon les clés d'objets des pièces supprimées
-    /// (original et fichier servi) : l'appelant détruit les objets **après** le commit.
+    /// Supprime un message dont la remise est encore à venir (R-M48), s'il est de `auteur` : **totalement ou pas du
+    /// tout** (E1). Voir [`AnnulationDiffere`] ; les clés d'objets des pièces supprimées (original et fichier servi)
+    /// sont rendues : l'appelant détruit les objets **après** le commit.
     ///
-    /// Tout se passe dans **une** transaction. Les cartes « document » et le journal d'accès aux pièces sont en ajout
-    /// seul : la suppression n'est permise que par l'exception bornée du déclencheur (réglage local
-    /// `ent.msg_annulation` = ce message, jamais remis, migration 490). Un message jamais remis n'a pas de lecteur : ses
-    /// cartes, accès et lectures disparaissent avec lui.
+    /// Tout se passe dans **une** transaction. Les cartes « document », le journal d'accès aux pièces et les versions
+    /// d'un message corrigé sont en ajout seul : la suppression n'est permise que par l'exception bornée du
+    /// déclencheur (réglage local `ent.msg_annulation` = ce message, jamais remis, migrations 490 et 491). Un message
+    /// jamais remis n'a pas de lecteur : ses cartes, accès, versions et lectures disparaissent avec lui. Si la base
+    /// refuse une suppression (23503 clé étrangère, 23514 ou 42501 garde), la transaction est défaite en entier.
     pub async fn annuler_message_differe(
         &self,
         etablissement_id: Uuid,
         message_id: Uuid,
         auteur: Uuid,
-    ) -> Result<Option<Vec<String>>, DomainError> {
+    ) -> Result<AnnulationDiffere, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let ok: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_msg
@@ -1398,27 +1472,32 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         if ok.is_none() {
-            return Ok(None);
+            return Ok(AnnulationDiffere::DejaRemis);
         }
         sqlx::query("SELECT set_config('ent.msg_annulation', $1, true)")
             .bind(message_id.to_string())
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx)?;
+        let refus_base = |e: &sqlx::Error| {
+            matches!(
+                e.as_database_error().and_then(|d| d.code()).as_deref(),
+                Some("23503" | "23514" | "42501")
+            )
+        };
         for requete in [
             "DELETE FROM ent_msg_carte_document WHERE etablissement_id = $1 AND message_id = $2",
             "DELETE FROM ent_msg_piece_acces WHERE etablissement_id = $1
                AND piece_id IN (SELECT id FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2)",
             "DELETE FROM ent_msg_lecture WHERE etablissement_id = $1 AND lu_jusqua_message_id = $2",
         ] {
-            sqlx::query(requete)
-                .bind(etablissement_id)
-                .bind(message_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(map_sqlx)?;
+            match sqlx::query(requete).bind(etablissement_id).bind(message_id).execute(&mut *tx).await {
+                Ok(_) => {}
+                Err(e) if refus_base(&e) => return Ok(AnnulationDiffere::Refusee),
+                Err(e) => return Err(map_sqlx(e)),
+            }
         }
-        let cles: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+        let cles: Vec<(Option<String>, Option<String>)> = match sqlx::query_as(
             "DELETE FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2
              RETURNING storage_key, cle_objet_servi",
         )
@@ -1426,21 +1505,25 @@ impl PgMsgRepo {
         .bind(message_id)
         .fetch_all(&mut *tx)
         .await
-        .map_err(map_sqlx)?;
-        sqlx::query("DELETE FROM ent_msg_accuse WHERE etablissement_id = $1 AND message_id = $2")
-            .bind(etablissement_id)
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-        sqlx::query("DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2")
-            .bind(etablissement_id)
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
+        {
+            Ok(c) => c,
+            Err(e) if refus_base(&e) => return Ok(AnnulationDiffere::Refusee),
+            Err(e) => return Err(map_sqlx(e)),
+        };
+        // Versions d'un message corrigé avant sa remise, puis accusés : dans la même transaction, avant le message.
+        for requete in [
+            "DELETE FROM ent_msg_version WHERE etablissement_id = $1 AND message_id = $2",
+            "DELETE FROM ent_msg_accuse WHERE etablissement_id = $1 AND message_id = $2",
+            "DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2",
+        ] {
+            match sqlx::query(requete).bind(etablissement_id).bind(message_id).execute(&mut *tx).await {
+                Ok(_) => {}
+                Err(e) if refus_base(&e) => return Ok(AnnulationDiffere::Refusee),
+                Err(e) => return Err(map_sqlx(e)),
+            }
+        }
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(Some(cles.into_iter().flat_map(|(a, b)| [a, b]).flatten().collect()))
+        Ok(AnnulationDiffere::Annule(cles.into_iter().flat_map(|(a, b)| [a, b]).flatten().collect()))
     }
 
     pub async fn count_pieces_message(

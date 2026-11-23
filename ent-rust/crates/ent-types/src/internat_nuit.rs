@@ -302,6 +302,10 @@ pub struct CasVueDto {
     /// Note écrite à la clôture du cas (motif d'une annulation, précision d'un retour en famille…).
     #[serde(default)]
     pub issue_note: Option<String>,
+    /// Cas ouvert par une sortie de groupe ou une activité du soir non rentrée (règle générale 1, I4) : l'heure prévue
+    /// et les comptes à joindre.
+    #[serde(default)]
+    pub origine: Option<crate::internat_vie::CasOrigineDto>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

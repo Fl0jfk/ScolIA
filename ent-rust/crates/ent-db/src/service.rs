@@ -18818,19 +18818,32 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_fil(etablissement_id, msg.fil_id)
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
-        if msg.auteur_user_id != actor_user_id
-            || !self
-                .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
-                .await?
+        // F6 : même ordre que `message_de_l_auteur` : d'abord la lisibilité du fil (un message d'un fil que l'acteur ne
+        // lit pas est un 404, comme un identifiant inconnu), ensuite seulement l'auteur.
+        if !self
+            .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
+            .await?
         {
+            return Err(DomainError::NotFound.into());
+        }
+        if msg.auteur_user_id != actor_user_id {
             return Err(EntDbError::Forbidden);
         }
-        let Some(cles) = self
+        let cles = match self
             .messages
             .annuler_message_differe(etablissement_id, message_id, actor_user_id)
             .await?
-        else {
-            return Err(EntDbError::ConflitDossier("message déjà remis ou introuvable"));
+        {
+            crate::msg_repo::AnnulationDiffere::Annule(cles) => cles,
+            // E1 : refus explicite et exploitable (409), jamais une erreur technique opaque.
+            crate::msg_repo::AnnulationDiffere::DejaRemis => {
+                return Err(EntDbError::ConflitDossier("message déjà remis : retire-le"));
+            }
+            crate::msg_repo::AnnulationDiffere::Refusee => {
+                return Err(EntDbError::ConflitDossier(
+                    "annulation refusée : le message n'a pas été annulé et sera remis normalement",
+                ));
+            }
         };
         // Les pièces d'un message jamais remis n'ont plus d'objet à garder : on détruit l'original et le fichier servi.
         self.detruire_objets_messagerie(etablissement_id, &cles).await;
