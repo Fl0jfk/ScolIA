@@ -1625,12 +1625,12 @@ async fn p2_ma_rang_famille_sortie_de_liste_non_publiee() {
     let mut refus = corps("refuse", Some(offre), "Refus programmé");
     refus.publier_le = Some(t("2027-03-10T09:00:00Z"));
     revoir(&ent, &c, &b, &refus).await.unwrap();
-    let reel: Option<i32> =
-        sqlx::query_scalar("SELECT rang_attente FROM ent_inscription_dossier WHERE id = $1")
-            .bind(cc.id)
-            .fetch_one(ent.pool_verif())
-            .await
-            .unwrap();
+    let reel: Option<i64> = sqlx::query_scalar("SELECT ent_inscription_rang_attente($1, $2, false)")
+        .bind(etab)
+        .bind(cc.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
     assert_eq!(reel, Some(2), "le rang réel (personnel) a bougé");
     assert_eq!(
         rang_vu(&ent, etab, &cc).await,

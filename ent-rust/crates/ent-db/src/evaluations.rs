@@ -1111,15 +1111,22 @@ impl PgEnt {
             Some(p) => {
                 let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
                 let r = sqlx::query(
-                    "SELECT ev.titre, ev.date_eval, (ev.coef * 1000)::bigint AS coef_m, (ev.bareme * 1000)::bigint AS bareme_m,
-                            co.matiere_id, r.statut, (r.valeur * 1000)::bigint AS valeur_m
+                    "SELECT q.titre, q.date_eval, q.coef_m, q.bareme_m, q.matiere_id, q.statut, q.valeur_m FROM (
+                       SELECT DISTINCT ON (r.evaluation_id)
+                            ev.titre, ev.date_eval, ev.id AS evaluation_id, (ev.coef * 1000)::bigint AS coef_m,
+                            (ev.bareme * 1000)::bigint AS bareme_m, co.matiere_id, r.statut, (r.valeur * 1000)::bigint AS valeur_m
                        FROM eva_resultat r
                        JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
                        JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
-                      WHERE r.etablissement_id = $1 AND r.eleve_id = $2 AND ev.mode = 'note' AND ev.etat = 'ouverte'
+                      WHERE r.etablissement_id = $1 AND r.eleve_id IN (SELECT eva_fiches_de_l_eleve($1, $2))
+                        AND ev.mode = 'note' AND ev.etat = 'ouverte'
                         AND ($4 = false OR ev.publiee_le IS NOT NULL)
                         AND eva_periode_dans(ev.etablissement_id, $3, ev.date_eval)
-                      ORDER BY ev.date_eval, ev.id",
+                      -- Comme le moteur (`moyennes_tx`) : la note suit l'élève conservé ; une évaluation ne ressort qu'une fois
+                      -- (priorité à la fiche conservée, puis saisie la plus récente).
+                      ORDER BY r.evaluation_id, (r.eleve_id = $2) DESC, r.saisi_le DESC, r.id
+                      ) q
+                      ORDER BY q.date_eval, q.evaluation_id",
                 )
                 .bind(etab)
                 .bind(eleve_id)

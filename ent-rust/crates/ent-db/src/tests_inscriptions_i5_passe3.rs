@@ -293,29 +293,8 @@ async fn p3_export_ne_rend_que_le_publie() {
         .await,
         0
     );
-    for col in ["voeu_retenu_id", "clos_le", "motif_cloture", "decide_le"] {
-        assert!(
-            get("ent_inscription_dossier")
-                .colonnes_hors_export
-                .contains(&col),
-            "dossier.{col}"
-        );
-    }
-    for col in [
-        "remplace_decision_id",
-        "depassement_capacite",
-        "alternative",
-    ] {
-        assert!(
-            get("ent_inscription_decision")
-                .colonnes_hors_export
-                .contains(&col),
-            "decision.{col}"
-        );
-    }
-    assert!(get("ent_inscription_voeu")
-        .colonnes_hors_export
-        .contains(&"statut"));
+    // Les colonnes retirées de l'export existent réellement et les conditions s'exécutent : voir `p4_export_chaque_table_condition_executee`
+    // (passe 4, M3) et `r_m4_…` ; aucune vérification « la liste contient le nom » ici.
     // Publication à l'échéance : les lignes deviennent exportables.
     assert!(
         ent.publier_decisions_echues_tache(maintenant() + jours(8))

@@ -2726,7 +2726,7 @@ async fn contre_revue_m2_publier_et_retirer_comparent_la_version_vue() {
             w.direction,
             DIR,
             mid,
-            &PublierMoyenneExterneBody { vue: vue_a },
+            &PublierMoyenneExterneBody { vue: vue_a.clone() },
         )
         .await;
     assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
@@ -2734,9 +2734,7 @@ async fn contre_revue_m2_publier_et_retirer_comparent_la_version_vue() {
     // Publication de v2, puis retrait fondé sur une version périmée (v1) : refusé, la moyenne reste publiée.
     pub_moy(&ent, w.etab, w.direction, DIR, mid).await.unwrap();
     let perimee = VueMoyenneExterne {
-        statut: "moyenne".into(),
-        valeur_m: Some(15_000),
-        bareme_m: 20_000,
+        version: vue_a.version,
     };
     let r = ent
         .eva_v5_retirer_publication_moyenne_externe_for_actor(
@@ -3165,8 +3163,9 @@ async fn contre_revue_md_dispense_et_portee_designee_sans_cours_dans_le_parcours
         .unwrap();
     assert_eq!(dir.evaluations[0].statut.as_deref(), Some("dispense"));
     // Personnel à portée désignée (classe A) sans aucun cours : un rôle « lecture des notes » désigné, sur un compte de
-    // comptabilité (qui n'a aucun droit de notes par défaut). Le droit désigné se calcule au JOUR du parcours (règle 33 :
-    // aucune horloge) : l'affectation de l'élève est bornée explicitement autour de ce jour.
+    // comptabilité (qui n'a aucun droit de notes par défaut). Le lien avec l'élève se calcule au JOUR du parcours (règle 33),
+    // mais l'attribution du rôle et sa cible sont lues au jour de l'établissement (`droits_effectifs`) : l'affectation de
+    // l'élève est bornée autour du jour fixé, et l'attribution reste ouverte à la date réelle.
     exec(
         &ent,
         "UPDATE ent_affectation SET date_debut = '2031-09-01', date_fin = '2031-12-31' WHERE etablissement_id = $1 AND eleve_id = $2",
@@ -3224,22 +3223,18 @@ async fn contre_revue_md_dispense_et_portee_designee_sans_cours_dans_le_parcours
     assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
 }
 
-/// La version d'une moyenne externe telle qu'une direction la lirait (valeur, statut, barème), lue en base.
+/// La version (compteur) d'une moyenne externe telle qu'une direction la lirait, lue en base.
 async fn vue_moy(ent: &PgEnt, etab: Uuid, id: Uuid) -> VueMoyenneExterne {
-    let l: Option<(String, Option<i64>, i64)> = sqlx::query_as(
-        "SELECT statut, (valeur * 1000)::bigint, (bareme * 1000)::bigint FROM eva_moyenne_externe
-          WHERE etablissement_id = $1 AND id = $2",
+    let version: Option<i32> = sqlx::query_scalar(
+        "SELECT version FROM eva_moyenne_externe WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(id)
     .fetch_optional(ent.pool_verif())
     .await
     .unwrap();
-    let (statut, valeur_m, bareme_m) = l.unwrap_or(("moyenne".into(), Some(0), 20_000));
     VueMoyenneExterne {
-        statut,
-        valeur_m,
-        bareme_m,
+        version: version.unwrap_or(1),
     }
 }
 
@@ -3283,4 +3278,582 @@ async fn ret_moy(
         },
     )
     .await
+}
+
+// ───────────────────────────── Passe 3 (suites V5, D-069) ─────────────────────────────
+
+/// Compte les lignes d'une table que la condition d'export du registre laisse passer (la VRAIE condition SQL, exécutée),
+/// pour la sélection `filtre` (alias `x`).
+async fn exportables(ent: &PgEnt, nom: &str, filtre: &str, id: Uuid) -> i64 {
+    let classe = crate::registre_donnees::REGISTRE
+        .iter()
+        .find(|t| t.nom == nom)
+        .unwrap_or_else(|| panic!("{nom} absent du registre"));
+    assert!(classe.export_portabilite, "{nom} : exportable");
+    let cond = classe
+        .export_si
+        .unwrap_or_else(|| panic!("{nom} : une condition d'export est déclarée"));
+    sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {nom} x WHERE ({filtre}) AND ({cond})"
+    ))
+    .bind(id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap_or_else(|e| panic!("{nom} : condition d'export invalide : {e}"))
+}
+
+async fn compter_sql(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap()
+}
+
+/// Passe 3, correctif 1 : rien de non publié n'est jamais exporté (portabilité). La condition SQL de chaque table est
+/// exécutée après des données non publiées : note d'une évaluation non publiée, résultat externe non compté puis compté
+/// mais non publié, moyenne externe non publiée, puis corrigée après publication. Les journaux sont hors export.
+#[tokio::test]
+async fn passe3_l_export_de_portabilite_ne_rend_que_le_publie() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    // eva_resultat : une évaluation non publiée et une publiée.
+    let ev_np = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS non publié", false).await;
+    let ev_p = eval(&ent, &w, w.cours_maths, d(2031, 10, 12), "DS publié", true).await;
+    ecrire(&ent, &w, ev_np, a, 7_000).await;
+    ecrire(&ent, &w, ev_p, a, 12_000).await;
+    let par_eleve = "x.eleve_id = $1";
+    assert_eq!(
+        compter_sql(&ent, "SELECT count(*) FROM eva_resultat WHERE eleve_id = $1", a).await,
+        2
+    );
+    assert_eq!(
+        exportables(&ent, "eva_resultat", par_eleve, a).await,
+        1,
+        "seule la note de l'évaluation publiée sort"
+    );
+    // La condition d'item est exécutable (aucune ligne d'item ici) et le journal des résultats n'est pas exporté.
+    assert_eq!(
+        exportables(
+            &ent,
+            "eva_resultat_item",
+            "x.resultat_id IN (SELECT id FROM eva_resultat WHERE eleve_id = $1)",
+            a
+        )
+        .await,
+        0
+    );
+    for nom in ["eva_resultat_historique", "eva_moyenne_externe_historique"] {
+        let c = crate::registre_donnees::REGISTRE
+            .iter()
+            .find(|t| t.nom == nom)
+            .unwrap();
+        assert!(!c.export_portabilite, "{nom} : journal interne, jamais exporté");
+    }
+    // eva_resultat_externe : déclaré, compté, publié, retiré.
+    let x = ent
+        .eva_v5_declarer_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            &externe(a, w.maths, 16_000, d(2031, 10, 15)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exportables(&ent, "eva_resultat_externe", par_eleve, a).await, 0, "non compté, non publié");
+    ent.eva_v5_compter_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        x.id,
+        &CompterExterneBody {
+            cours_id: w.cours_maths,
+            motif: "Relevé vérifié".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(exportables(&ent, "eva_resultat_externe", par_eleve, a).await, 0, "compté mais non publié");
+    ent.eva_v5_publier_externe_for_actor(w.etab, w.direction, DIR, jour(), x.id)
+        .await
+        .unwrap();
+    assert_eq!(exportables(&ent, "eva_resultat_externe", par_eleve, a).await, 1, "publié");
+    ent.eva_v5_retirer_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        x.id,
+        &RetirerExterneBody {
+            motif: "Erreur de report".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(exportables(&ent, "eva_resultat_externe", par_eleve, a).await, 0, "retiré : la famille ne le lit plus, l'export non plus");
+    // eva_moyenne_externe : non publiée, publiée, corrigée (redevient non publiée).
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            fr.id,
+            &moy(w.t1, "moyenne", Some(15_000), None, None),
+        )
+        .await
+        .unwrap();
+    let mid = saisi.moyennes[0].id;
+    let filtre_m = "x.enseignement_externe_id = $1";
+    assert_eq!(
+        exportables(&ent, "eva_moyenne_externe", filtre_m, fr.id).await,
+        0,
+        "non publiée"
+    );
+    pub_moy(&ent, w.etab, w.direction, DIR, mid).await.unwrap();
+    assert_eq!(
+        exportables(&ent, "eva_moyenne_externe", filtre_m, fr.id).await,
+        1,
+        "publiée"
+    );
+    ent.eva_v5_saisir_moyenne_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        fr.id,
+        &moy(w.t1, "moyenne", Some(9_000), Some("Relevé corrigé"), None),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        exportables(&ent, "eva_moyenne_externe", filtre_m, fr.id).await,
+        0,
+        "corrigée : non publiée de nouveau"
+    );
+    // Les colonnes retirées de l'export existent bien (une faute de frappe laisserait fuir l'auteur ou le motif).
+    for nom in ["eva_moyenne_externe", "eva_resultat_externe"] {
+        let c = crate::registre_donnees::REGISTRE
+            .iter()
+            .find(|t| t.nom == nom)
+            .unwrap();
+        assert!(!c.colonnes_hors_export.is_empty());
+        for col in c.colonnes_hors_export {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM information_schema.columns
+                  WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
+            )
+            .bind(nom)
+            .bind(*col)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+            assert_eq!(n, 1, "{nom}.{col}");
+        }
+    }
+}
+
+/// Passe 3, correctif 2 : la direction saisit une moyenne externe, un AUTRE compte `notes.corriger` en retire la
+/// publication : `saisi_par` reste celui de la valeur (en base), l'auteur du retrait est le second compte (colonnes de
+/// 478 et journal).
+#[tokio::test]
+async fn passe3_le_retrait_par_un_second_compte_laisse_saisi_par_et_nomme_l_auteur_du_retrait() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let second = cast.directions[1].user_id;
+    assert_ne!(second, w.direction);
+    let a = w.eleves_a[0];
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            fr.id,
+            &moy(w.t1, "moyenne", Some(14_000), None, None),
+        )
+        .await
+        .unwrap();
+    let mid = saisi.moyennes[0].id;
+    pub_moy(&ent, w.etab, w.direction, DIR, mid).await.unwrap();
+    ret_moy(&ent, w.etab, second, DIR, mid, "Retrait par la seconde direction")
+        .await
+        .unwrap();
+    let (saisi_par, retrait_par, publiee): (Uuid, Option<Uuid>, bool) = sqlx::query_as(
+        "SELECT saisi_par, dernier_retrait_par, publiee_le IS NOT NULL FROM eva_moyenne_externe
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.etab)
+    .bind(mid)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(saisi_par, w.direction, "saisi_par reste l'auteur de la valeur");
+    assert_eq!(retrait_par, Some(second));
+    assert!(!publiee);
+    let (par,): (Uuid,) = sqlx::query_as(
+        "SELECT par FROM eva_moyenne_externe_historique
+          WHERE etablissement_id = $1 AND moyenne_id = $2 AND evenement = 'retrait'",
+    )
+    .bind(w.etab)
+    .bind(mid)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(par, second, "le journal nomme l'auteur du retrait");
+}
+
+/// Passe 3, correctif 3 (contrôle positif du professeur, à jour fixé) : un résultat externe dans une matière qu'il
+/// enseigne est servi au professeur ; celui d'une matière qu'il n'enseigne pas ne l'est pas.
+#[tokio::test]
+async fn passe3_le_professeur_voit_un_resultat_externe_de_sa_matiere() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    ent.eva_v5_declarer_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        &externe(a, w.maths, 17_000, d(2031, 10, 15)),
+    )
+    .await
+    .unwrap();
+    ent.eva_v5_declarer_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        &externe(a, w.francais, 5_000, d(2031, 10, 15)),
+    )
+    .await
+    .unwrap();
+    let vus = ent
+        .eva_v5_externes_eleve_for_actor(w.etab, w.prof, PROF, jour(), a)
+        .await
+        .unwrap();
+    assert_eq!(vus.len(), 1, "{vus:?}");
+    assert_eq!(vus[0].matiere_id, w.maths);
+    assert_eq!(vus[0].valeur_m, 17_000);
+}
+
+/// Passe 3, correctif 5 : deux fiches absorbées A et B dans C (fusions en chaîne), avec chacune un résultat pour la MÊME
+/// évaluation : une seule ligne compte, dans le moteur et dans le relevé. Priorité à la fiche conservée ; sinon la saisie
+/// la plus récente.
+#[tokio::test]
+async fn passe3_fusions_en_chaine_une_evaluation_ne_compte_qu_une_fois() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let (a, b, c) = (w.eleves_a[0], w.eleves_a[1], w.eleves_a[2]);
+    let np = note_periode(&ent, &w, w.t1, d(2031, 9, 1), d(2031, 12, 20)).await;
+    let ev = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS unique", true).await;
+    ecrire(&ent, &w, ev, a, 4_000).await;
+    ecrire(&ent, &w, ev, b, 8_000).await;
+    for absorbe in [a, b] {
+        exec(
+            &ent,
+            "UPDATE ent_eleve SET fusionne_dans = $3 WHERE etablissement_id = $1 AND id = $2",
+            vec![u(w.etab), u(absorbe), u(c)],
+        )
+        .await;
+    }
+    // Aucun résultat sur la fiche conservée : l'une des deux saisies compte, jamais les deux (la moyenne de 4 et 8 serait 6).
+    // La plus récente (B, 8) est retenue.
+    for publiees in [false, true] {
+        assert_eq!(
+            moyenne(&ent, &w, c, w.maths, w.t1, publiees).await,
+            Some(8_000),
+            "moteur, publiées = {publiees}"
+        );
+    }
+    let releve = ent
+        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, np)
+        .await
+        .unwrap();
+    let maths = releve
+        .matieres
+        .iter()
+        .find(|m| m.matiere_id == w.maths)
+        .expect("matière maths");
+    assert_eq!(maths.evaluations.len(), 1, "relevé : une seule ligne {maths:?}");
+    assert_eq!(maths.evaluations[0].valeur, Some(8.0));
+    // La fiche conservée a elle-même un résultat : il l'emporte, sur le moteur comme sur le relevé.
+    ecrire(&ent, &w, ev, c, 10_000).await;
+    assert_eq!(
+        moyenne(&ent, &w, c, w.maths, w.t1, true).await,
+        Some(10_000)
+    );
+    let releve = ent
+        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, np)
+        .await
+        .unwrap();
+    let maths = releve
+        .matieres
+        .iter()
+        .find(|m| m.matiere_id == w.maths)
+        .unwrap();
+    assert_eq!(maths.evaluations.len(), 1);
+    assert_eq!(maths.evaluations[0].valeur, Some(10.0));
+}
+
+/// Passe 3, correctif 7 : le jeton de version est un COMPTEUR (migration 700), incrémenté à chaque écriture. Une
+/// correction A → B → A (valeur revenue à l'identique), une correction de l'appréciation seule ou de la pièce seule sont
+/// détectées : publier ou retirer sur la version lue avant est refusé (409), rien n'est écrit.
+#[tokio::test]
+async fn passe3_le_jeton_de_version_detecte_une_correction_a_b_a_l_appreciation_et_la_piece() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            fr.id,
+            &moy(w.t1, "moyenne", Some(15_000), None, None),
+        )
+        .await
+        .unwrap();
+    let mid = saisi.moyennes[0].id;
+    assert_eq!(saisi.moyennes[0].version, 1, "la saisie naît en version 1");
+    let corriger = |valeur: i64, motif: &'static str, appreciation: Option<&'static str>, doc: Option<Uuid>| {
+        let ent = &ent;
+        let (etab, dir, t1, fid) = (w.etab, w.direction, w.t1, fr.id);
+        async move {
+            let mut corps = moy(t1, "moyenne", Some(valeur), Some(motif), doc);
+            corps.appreciation_transcrite = appreciation.map(str::to_string);
+            ent.eva_v5_saisir_moyenne_externe_for_actor(etab, dir, DIR, fid, &corps)
+                .await
+                .unwrap()
+        }
+    };
+    // A → B → A : la valeur est revenue à 15, mais la version a avancé de deux crans.
+    let vue_lue = vue_moy(&ent, w.etab, mid).await;
+    corriger(9_000, "Première correction", None, None).await;
+    corriger(15_000, "Retour à la valeur initiale", None, None).await;
+    let apres = vue_moy(&ent, w.etab, mid).await;
+    assert_eq!(apres.version, vue_lue.version + 2);
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            mid,
+            &PublierMoyenneExterneBody { vue: vue_lue },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "A→B→A : {r:?}");
+    // Appréciation seule : la valeur et le statut ne changent pas, la version si.
+    let vue_lue = vue_moy(&ent, w.etab, mid).await;
+    corriger(15_000, "Appréciation recopiée", Some("Bon trimestre"), None).await;
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            mid,
+            &PublierMoyenneExterneBody { vue: vue_lue },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "appréciation : {r:?}");
+    // Pièce seule.
+    let vue_lue = vue_moy(&ent, w.etab, mid).await;
+    let doc = piece(&ent, &w, a).await;
+    corriger(15_000, "Pièce déposée", Some("Bon trimestre"), Some(doc)).await;
+    let r = ent
+        .eva_v5_publier_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            mid,
+            &PublierMoyenneExterneBody { vue: vue_lue },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "pièce : {r:?}");
+    // Rien n'a été publié par ces refus ; sur la version lue à l'instant, la publication passe et fait avancer le compteur.
+    assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, None);
+    let avant = vue_moy(&ent, w.etab, mid).await;
+    let p = pub_moy(&ent, w.etab, w.direction, DIR, mid).await.unwrap();
+    assert!(p.moyennes[0].publiee);
+    assert_eq!(p.moyennes[0].version, avant.version + 1, "publier est une écriture");
+    // Un retrait sur la version d'avant la publication est refusé ; sur la version lue, il passe.
+    let r = ent
+        .eva_v5_retirer_publication_moyenne_externe_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            mid,
+            &RetirerMoyenneExterneBody {
+                motif: "Version périmée".into(),
+                vue: avant.clone(),
+            },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
+    ret_moy(&ent, w.etab, w.direction, DIR, mid, "Retrait sur la version lue")
+        .await
+        .unwrap();
+    // Le client ne fixe jamais la version : une écriture SQL qui touche aussi le contenu ne la pose pas à sa guise.
+    let avant_sql = vue_moy(&ent, w.etab, mid).await;
+    sqlx::query(
+        "UPDATE eva_moyenne_externe SET version = 1, valeur = 11, motif_correction = 'Écriture directe'
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(w.etab)
+    .bind(mid)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        vue_moy(&ent, w.etab, mid).await.version,
+        avant_sql.version + 1,
+        "le déclencheur impose le compteur"
+    );
+}
+
+/// Passe 3, correctif 6 (D-069) : l'export LSU / LSL est calculé sur le SEUL PUBLIÉ, comme le bulletin : une note non
+/// publiée ne change pas l'export, et le personnel en est averti.
+#[tokio::test]
+async fn passe3_l_export_lsu_lsl_ne_compte_que_le_publie() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let admin = cast.administratif.user_id;
+    let np = note_periode(&ent, &w, w.t1, d(2031, 9, 1), d(2031, 12, 20)).await;
+    let ev_p = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS publié", true).await;
+    ecrire(&ent, &w, ev_p, a, 12_000).await;
+    let exporter = |format: &'static str| {
+        let ent = &ent;
+        let (etab, classe, periode) = (w.etab, w.classe_a, np);
+        async move {
+            ent.exporter_livret_for_actor(etab, admin, "administratif", format, classe, periode)
+                .await
+                .unwrap()
+        }
+    };
+    let lsu_avant = exporter("lsu").await;
+    let lsl_avant = exporter("lsl").await;
+    assert!(
+        lsu_avant.avertissement.contains("notes non publiées ne sont pas comptées"),
+        "{}",
+        lsu_avant.avertissement
+    );
+    assert!(lsu_avant.contenu.contains("12.00/20") || lsu_avant.contenu.contains("12/20"), "{}", lsu_avant.contenu);
+    // Une note non publiée (4/20) dans la même matière : l'export ne change pas.
+    let ev_np = eval(&ent, &w, w.cours_maths, d(2031, 10, 12), "DS non publié", false).await;
+    ecrire(&ent, &w, ev_np, a, 4_000).await;
+    let lsu_apres = exporter("lsu").await;
+    let lsl_apres = exporter("lsl").await;
+    assert_eq!(
+        lsu_avant.contenu, lsu_apres.contenu,
+        "une note non publiée ne change pas l'export LSU"
+    );
+    assert_eq!(
+        lsl_avant.contenu, lsl_apres.contenu,
+        "une note non publiée ne change pas l'export LSL"
+    );
+    // Contrôle : le moteur du personnel, lui, compte la note non publiée (la moyenne diffère).
+    assert_eq!(moyenne(&ent, &w, a, w.maths, w.t1, false).await, Some(8_000));
+    assert_eq!(moyenne(&ent, &w, a, w.maths, w.t1, true).await, Some(12_000));
+}
+
+/// Passe 3, F-1 : la fenêtre du professeur se compose d'INTERVALLES DISJOINTS : titulaire en septembre, absent jusqu'au
+/// 15 octobre, titulaire de nouveau ensuite. Le passage de l'élève entre ces deux périodes (et leur enveloppe) n'est pas vu.
+#[tokio::test]
+async fn passe3_f1_la_fenetre_du_professeur_est_faite_d_intervalles_disjoints() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let service: Uuid = sqlx::query_scalar(
+        "SELECT id FROM ent_service_enseignement WHERE etablissement_id = $1 AND cours_id = $2",
+    )
+    .bind(w.etab)
+    .bind(w.cours_maths)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    let agent: Option<Uuid> = sqlx::query_scalar(
+        "SELECT ag.id FROM ent_agent ag JOIN ent_personne pe ON pe.id = ag.personne_id AND pe.etablissement_id = ag.etablissement_id
+          WHERE ag.etablissement_id = $1 AND pe.user_id = $2 AND ag.fusionne_dans_agent_id IS NULL",
+    )
+    .bind(w.etab)
+    .bind(w.prof)
+    .fetch_optional(ent.pool_verif())
+    .await
+    .unwrap();
+    let Some(agent) = agent else {
+        return eprintln!("skip: pas d'agent pour le professeur du labo");
+    };
+    sqlx::query(
+        "UPDATE ent_service_intervenant SET annule_le = now(), annule_motif = 'erreur_saisie', annule_par_user_id = $4
+          WHERE etablissement_id = $1 AND service_id = $2 AND agent_id = $3 AND annule_le IS NULL",
+    )
+    .bind(w.etab)
+    .bind(service)
+    .bind(agent)
+    .bind(w.direction)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    for (du, au) in [("2031-09-01", Some("2031-09-10")), ("2031-10-15", None)] {
+        sqlx::query(
+            "INSERT INTO ent_service_intervenant (id, etablissement_id, service_id, agent_id, nature, du, au, saisie, origine)
+             VALUES ($1, $2, $3, $4, 'titulaire', $5::date, $6::date, true, 'saisie')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(w.etab)
+        .bind(service)
+        .bind(agent)
+        .bind(du)
+        .bind(au)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    let e = w.eleves_a[0];
+    changer_de_classe(&ent, &w, e, w.classe_a, w.classe_d, d(2031, 10, 1)).await;
+    changer_de_classe(&ent, &w, e, w.classe_d, w.classe_a, d(2031, 10, 11)).await;
+    let prof = ent
+        .eva_v5_parcours_for_actor(w.etab, w.prof, PROF, jour(), e, w.t1)
+        .await
+        .unwrap();
+    let a_seulement: Vec<_> = prof
+        .segments
+        .iter()
+        .map(|s| (s.classe_id, s.du, s.au))
+        .collect();
+    assert_eq!(prof.segments.len(), 2, "{a_seulement:?}");
+    assert!(prof.segments.iter().all(|s| s.classe_id == w.classe_a));
+    assert_eq!(
+        prof.segments[0].au,
+        Some(d(2031, 9, 10)),
+        "le premier passage est tronqué à la fin de la première intervenance : {a_seulement:?}"
+    );
+    assert_eq!(
+        prof.segments[1].du,
+        d(2031, 10, 15),
+        "le second commence à la reprise : {a_seulement:?}"
+    );
+    // La direction voit les trois passages entiers.
+    let dir = ent
+        .eva_v5_parcours_for_actor(w.etab, w.direction, DIR, jour(), e, w.t1)
+        .await
+        .unwrap();
+    assert_eq!(dir.segments.len(), 3);
 }

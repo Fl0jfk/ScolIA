@@ -817,8 +817,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_condition", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "remplie_par", "source_ref"])
         // Passe 3 (M-D) : une condition naît d'une décision d'admission ; elle n'est exportée qu'une fois **cette
         // décision publiée** et tant qu'aucune décision plus récente n'attend sa publication (le `libelle` d'une
-        // réserve ne quitte jamais une décision que la famille n'a pas lue).
-        .export_si("EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.dossier_id = x.dossier_id AND d.publiee_le IS NOT NULL AND d.sens IN ('admis', 'admis_sous_reserve')) AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision p WHERE p.etablissement_id = x.etablissement_id AND p.dossier_id = x.dossier_id AND p.publiee_le IS NULL AND p.caduque_le IS NULL)"),
+        // réserve ne quitte jamais une décision que la famille n'a pas lue). Passe 4 (M4) : seul le **bout de chaîne**
+        // compte (décision sans successeur) ; une décision remplacée avant publication ne bloque plus rien.
+        .export_si("EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.dossier_id = x.dossier_id AND d.publiee_le IS NOT NULL AND d.sens IN ('admis', 'admis_sous_reserve')) AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision p WHERE p.etablissement_id = x.etablissement_id AND p.dossier_id = x.dossier_id AND p.publiee_le IS NULL AND p.caduque_le IS NULL AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision s WHERE s.etablissement_id = p.etablissement_id AND s.remplace_decision_id = p.id))"),
     // Journal des levées (motif, auteur) : interne, jamais exporté.
     t("ent_inscription_condition_levee", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_condition_param", "inscriptions", Portee::Etablissement),
@@ -850,7 +851,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_piece_regle", "inscriptions", Portee::Etablissement).export(),
     t("ent_inscription_piece_regle_condition", "inscriptions", Portee::Etablissement).export().exc(Exception::SansHorodatage, "ligne fille : datée par la règle de pièce"),
     t("ent_inscription_prolongation", "inscriptions", Portee::Etablissement).perso().export(),
-    t("ent_inscription_proposition_place", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "envoyee_par", "rang_au_moment"])
+    t("ent_inscription_proposition_place", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "envoyee_par", "rang_au_moment", "place_no", "origine", "designee_le"])
         // Passe 3 (M-D) : la famille ne lit que les propositions **envoyées** et leur suite ; une place désignée, écartée
         // ou annulée est interne (elle porte une décision parfois non publiée).
         .export_si("x.statut IN ('envoyee', 'acceptee', 'declinee', 'expiree')"),
@@ -865,7 +866,10 @@ pub const REGISTRE: &[ClasseTable] = &[
         .export_si("x.visible_famille AND (x.decision_id IS NULL OR EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.decision_id AND d.publiee_le IS NOT NULL))"),
     t("ent_inscription_voeu", "inscriptions", Portee::Etablissement).perso().export()
         // Passe 3 (M-D) : `retenu` / `non_retenu` est posé par la décision, avant sa publication ; le statut sort en entier.
-        .hors_export(&["statut"]),
+        .hors_export(&["statut"])
+        // Passe 4 (M3) : un vœu **créé par une décision** (`origine = 'decision'`) porte l'offre et le rang que la famille n'a
+        // pas encore lus ; il n'est exporté qu'une fois **une décision publiée** du dossier retient cette offre.
+        .export_si("x.origine = 'famille' OR EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.dossier_id = x.dossier_id AND d.offre_id = x.offre_id AND d.publiee_le IS NOT NULL)"),
     t("ent_internat_absence", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_affectation", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel", "vie_pratique", Portee::Etablissement).perso().export(),
@@ -1202,8 +1206,12 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_import_journal", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane_ligne", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_moyenne_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_moyenne_externe_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Passe 3 (D-069) : rien de non publié n'est jamais exporté. Une moyenne externe ne sort que publiée ; ni auteur, ni motif.
+    t("eva_moyenne_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par", "publiee_par", "retrait_par", "dernier_retrait_par", "motif_correction", "dernier_motif_correction"])
+        .export_si("x.publiee_le IS NOT NULL"),
+    // Journal en ajout seul (valeurs avant correction, motifs, auteurs, lignes non publiées) : interne, jamais exporté.
+    t("eva_moyenne_externe_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_moyenne_statut", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("eva_nature", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_periode_etat", "evaluations_pedagogie", Portee::Etablissement),
@@ -1216,10 +1224,20 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_reprise_compte", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_execution", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_ligne", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Une note ne sort que si son évaluation est publiée (même condition que la vue `eva_resultat_publie`).
+    // Résultat d'une évaluation publiée, sans les champs internes (note privée du professeur, marque « aménagé » jamais
+    // imprimée à un tiers, auteur, motifs de correction) — comme la vue `eva_resultat_publie` que lit la famille.
+    t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction"])
+        .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
+    // Résultat externe : publié, compté et non retiré (ce que lit la famille), sans auteur ni motif.
+    t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par", "compte_decide_par", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
+        .export_si("x.publiee_le IS NOT NULL AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL"),
+    // Journal en ajout seul des résultats (valeurs successives, motifs, auteurs, y compris avant publication) : interne.
+    t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .export_si("EXISTS (SELECT 1 FROM eva_resultat r JOIN eva_evaluation e ON e.etablissement_id = r.etablissement_id AND e.id = r.evaluation_id WHERE r.etablissement_id = x.etablissement_id AND r.id = x.resultat_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),
