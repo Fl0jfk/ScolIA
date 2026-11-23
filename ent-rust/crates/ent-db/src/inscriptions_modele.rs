@@ -366,19 +366,16 @@ pub(crate) struct PlaceRetenue {
     pub depassement: bool,
 }
 
-/// Retient le vœu d'une décision (admis ou liste d'attente) : trouve l'offre, vérifie la capacité
-/// sous verrou (un dépassement n'est jamais silencieux : il se confirme et se trace), crée ou
-/// retient le vœu, fixe le rang d'attente. `None` : la campagne n'a pas d'offre pour ce dossier
-/// (aucune capacité à tenir).
-pub(crate) async fn retenir_voeu_tx(
+/// Offre qu'une décision retient pour ce dossier (l'offre voulue, sinon son premier vœu, sinon l'offre de son
+/// niveau). **Lecture seule** : sert aussi à calculer, avant tout verrou, les offres à verrouiller (ordre unique).
+pub(crate) async fn offre_cible_tx(
     conn: &mut PgConnection,
     etab: Uuid,
-    d: &DossierRow,
+    dossier_id: Uuid,
+    campagne_id: Uuid,
+    niveau_demande: Option<&str>,
     offre_voulue: Option<Uuid>,
-    admis: bool,
-    confirmer_depassement: bool,
-    passer_devant: crate::inscriptions_attente::PasserDevant<'_>,
-) -> Result<Option<PlaceRetenue>, EntDbError> {
+) -> Result<Option<Uuid>, EntDbError> {
     let offre: Option<Uuid> = match offre_voulue {
         Some(o) => {
             let ok: Option<Uuid> = sqlx::query_scalar(
@@ -387,7 +384,7 @@ pub(crate) async fn retenir_voeu_tx(
             )
             .bind(etab)
             .bind(o)
-            .bind(d.campagne_id)
+            .bind(campagne_id)
             .fetch_optional(&mut *conn)
             .await
             .map_err(db)?;
@@ -402,11 +399,11 @@ pub(crate) async fn retenir_voeu_tx(
                   ORDER BY v.rang LIMIT 1",
             )
             .bind(etab)
-            .bind(d.id)
+            .bind(dossier_id)
             .fetch_optional(&mut *conn)
             .await
             .map_err(db)?;
-            match (premier, &d.niveau_demande) {
+            match (premier, &niveau_demande) {
                 (Some(o), _) => Some(o),
                 (None, Some(niveau)) => sqlx::query_scalar(
                     "SELECT id FROM ent_inscription_offre
@@ -414,7 +411,7 @@ pub(crate) async fn retenir_voeu_tx(
                         AND parcours_code = '' AND regime IS NULL AND archivee_le IS NULL",
                 )
                 .bind(etab)
-                .bind(d.campagne_id)
+                .bind(campagne_id)
                 .bind(niveau)
                 .fetch_optional(&mut *conn)
                 .await
@@ -423,6 +420,23 @@ pub(crate) async fn retenir_voeu_tx(
             }
         }
     };
+    Ok(offre)
+}
+
+/// Retient le vœu d'une décision (admis ou liste d'attente) : trouve l'offre, vérifie la capacité
+/// sous verrou (un dépassement n'est jamais silencieux : il se confirme et se trace), crée ou
+/// retient le vœu, fixe le rang d'attente. `None` : la campagne n'a pas d'offre pour ce dossier
+/// (aucune capacité à tenir).
+pub(crate) async fn retenir_voeu_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    d: &DossierRow,
+    offre_voulue: Option<Uuid>,
+    admis: bool,
+    confirmer_depassement: bool,
+    passer_devant: crate::inscriptions_attente::PasserDevant<'_>,
+) -> Result<Option<PlaceRetenue>, EntDbError> {
+    let offre = offre_cible_tx(conn, etab, d.id, d.campagne_id, d.niveau_demande.as_deref(), offre_voulue).await?;
     let Some(offre) = offre else {
         return Ok(None);
     };
@@ -466,7 +480,7 @@ pub(crate) async fn retenir_voeu_tx(
         Some(v) => v,
         None => {
             let rang: i16 = sqlx::query_scalar(
-                "SELECT COALESCE(max(rang), 0)::smallint + 1 FROM ent_inscription_voeu
+                "SELECT (COALESCE(max(rang), 0) + 1)::smallint FROM ent_inscription_voeu
                   WHERE etablissement_id = $1 AND dossier_id = $2",
             )
             .bind(etab)
@@ -582,7 +596,7 @@ pub(crate) async fn synchroniser_offres_niveaux_tx(
                         "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now(),
                                 liberations = liberations
                                     + CASE WHEN capacite IS NOT NULL AND ($3::int IS NULL OR $3 > capacite)
-                                           THEN 1 ELSE 0 END
+                                           THEN COALESCE($3::int - capacite, 1)::bigint ELSE 0 END
                           WHERE etablissement_id = $1 AND id = $2",
                     )
                     .bind(etab)
@@ -948,8 +962,11 @@ impl PgEnt {
                     -- Une place ajoutée (capacité en hausse, réserve de réinscription en baisse) est une **nouvelle**
                     -- place : « passer son tour » ne valait que pour les précédentes (D-069 M-C).
                     liberations = liberations
-                        + CASE WHEN (capacite IS NOT NULL AND ($4::int IS NULL OR $4 > capacite))
-                                 OR COALESCE($5, places_reservees_reinscription) < places_reservees_reinscription
+                        -- Autant de numéros que de places ajoutées (+3 de capacité = 3 places nouvelles).
+                        + CASE WHEN capacite IS NOT NULL AND ($4::int IS NULL OR $4 > capacite)
+                               THEN COALESCE($4::int - capacite, 1)::bigint ELSE 0 END
+                        -- La réserve de réinscription est un booléen : la lever ouvre au moins une place.
+                        + CASE WHEN COALESCE($5, places_reservees_reinscription) < places_reservees_reinscription
                                THEN 1 ELSE 0 END
               WHERE etablissement_id = $1 AND id = $2",
         )

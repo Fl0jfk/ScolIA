@@ -1168,6 +1168,9 @@ impl PgEnt {
             return Err(invalide("la pièce à reprendre est celle d'un autre enfant"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Deux dossiers : verrouillés dans l'ordre des UUID (deux réutilisations croisées ne s'interbloquent pas).
+        crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(&mut tx, etab, &[dossier_id, source_dossier_id], None, &[], true)
+            .await?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
         let src = dossier_tx(&mut tx, etab, source_dossier_id).await?;
         if famille {

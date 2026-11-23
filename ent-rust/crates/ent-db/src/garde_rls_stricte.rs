@@ -63,7 +63,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
 fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
     let motifs = ["&self.pool", "self.pool()", "self.pool.", "&pool", "(pool)", "(pool,", "(&*pool", "pool.begin(", "pool.acquire("];
     let ok = [
-        "TenantTx::begin(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
+        "TenantTx::begin(", "TenantTx::begin_lecture_coherente(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
         "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ", "from_pool(", "pool_verif", "pool.size()", "pool.num_idle()", "pool.options()",
     ];
     let appelants = ["lire_par_etablissement(", "appeler_par_etablissement(", "etablissements_systeme(", "TenantTx::begin(", "tenant("];

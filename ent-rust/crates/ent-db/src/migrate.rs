@@ -458,6 +458,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("312_inscription_accord"),
     // Socle 3, lot I5 (plage 313–329) : décisions en ajout seul, avis, commissions, liste d'attente, propositions, conditions.
     m!("313_inscription_decision_i5"),
+    // Passe 3 du lot I5 (314) : décision caduque, séquence de l'ordre d'attente, réparation de la chaîne, gardes à
+    // `search_path` fixé. 313 est versée et ne change pas (règle 25). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("314_inscription_decision_i5_passe3"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
@@ -521,6 +524,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lots V3e + V5 « parcours » : motif conservé, fonction unique de période, prolongation d'échéance tracée, résultats
     // externes (décision de compter, publication, retrait) et moyennes externes gardés en base.
     m!("477_eva_v3e_v5_parcours"),
+    // Contre-revue de V5 : une correction d'une moyenne externe publiée la remet en « non publiée », retrait de publication
+    // tracé, seule une moyenne se publie (en base).
+    m!("478_eva_v5_contre_revue_publication"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -560,7 +566,12 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
 }
 
 /// Contraintes dont la validation est attendue (posées NOT VALID par une migration, validées après reprise).
-pub const CONTRAINTES_A_VALIDER: [&str; 2] = ["ent_eleve_confidentialite_regles_chk", "ent_eleve_statut_chk"];
+pub const CONTRAINTES_A_VALIDER: [&str; 3] = [
+    "ent_eleve_confidentialite_regles_chk",
+    "ent_eleve_statut_chk",
+    // 478 : posée NOT VALID, validée dans la même migration après dépublication des lignes publiées hors « moyenne ».
+    "eva_moyenne_externe_publication_statut_chk",
+];
 
 /// Noms des contraintes de `CONTRAINTES_A_VALIDER` qui sont encore NOT VALID ; chacune est **journalisée en
 /// erreur** (au démarrage) avec son nom : les écritures futures sont contrôlées, mais des lignes existantes

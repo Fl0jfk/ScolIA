@@ -120,6 +120,30 @@ impl TenantTx<'static> {
     }
 }
 
+impl TenantTx<'static> {
+    /// Lecture **cohérente** : une seule transaction `REPEATABLE READ` en lecture seule (un seul instant pour toutes les
+    /// lectures, ex. l'état d'un dossier et son rang). L'isolation se pose avant toute requête, puis l'établissement.
+    pub async fn begin_lecture_coherente(pool: &PgPool, etablissement_id: Uuid) -> Result<Self, sqlx::Error> {
+        let mode = RlsMode::from_env();
+        let mut tx = pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        if mode != RlsMode::Off {
+            sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+                .bind(etablissement_id.to_string())
+                .execute(&mut *tx)
+                .await?;
+            if mode == RlsMode::Strict {
+                sqlx::query("SELECT set_config('app.rls_strict', 'on', true)")
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        Ok(Self { tx })
+    }
+}
+
 impl TenantTx<'_> {
     pub async fn commit(self) -> Result<(), sqlx::Error> {
         self.tx.commit().await

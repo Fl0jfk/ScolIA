@@ -303,6 +303,36 @@ pub(crate) async fn decider_tx(
         return Err(invalide("motif communiqué trop long"));
     }
 
+    // Ordre des verrous unique (passe 3, règle 1) : **dossiers → campagne → offres**, le dossier décidé compris, en un
+    // seul lot trié, **avant** de tenir quoi que ce soit. Les offres et les dossiers de la liste que la décision peut
+    // toucher se calculent d'abord en lecture : celle que le dossier quitte, celle qu'il retient (deux déplacements
+    // croisés A→B et B→A se verrouillent dans le même ordre, une décision sur le suivant d'une place qui se libère
+    // aussi).
+    if let Some((campagne_id, niveau)) = sqlx::query_as::<_, (Uuid, Option<String>)>(
+        "SELECT campagne_id, niveau_demande FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?
+    {
+        let mut offres: Vec<Uuid> = crate::inscriptions_attente::offre_du_dossier_tx(conn, etab, id)
+            .await?
+            .into_iter()
+            .collect();
+        if !matches!(b.sens.as_str(), "refuse" | "ajourne") {
+            // Une offre voulue invalide se refuse plus loin, à sa place dans l'ordre des refus : ici on ne fait que
+            // calculer ce qu'il faut verrouiller.
+            if let Ok(Some(o)) =
+                inscriptions_modele::offre_cible_tx(conn, etab, id, campagne_id, niveau.as_deref(), b.offre_id).await
+            {
+                offres.push(o);
+            }
+        }
+        crate::inscriptions_attente::verrouiller_pour_offres_tx(conn, etab, &[id], Some(campagne_id), &offres, true)
+            .await?;
+    }
     let d = dossier_tx(conn, etab, id).await?;
     // Garde unique (règle 2) : déporté ou lié au candidat, on ne décide pas — et le dossier n'existe pas pour soi.
     // Elle précède tout constat sur le dossier (nature, blocage) : un membre écarté n'en apprend rien.
@@ -557,6 +587,17 @@ pub(crate) async fn decider_tx(
     Ok(decision_id)
 }
 
+/// Issue d'une tentative de publication (passe 3, correctif 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Publication {
+    /// La décision est publiée (famille prévenue, événement émis).
+    Publiee,
+    /// L'état du dossier ne correspond plus à la décision : elle est **caduque**, tracée, jamais publiée ni notifiée.
+    Caduque,
+    /// Rien à publier (déjà publiée, remplacée ou déjà caduque).
+    Aucune,
+}
+
 /// Rend une décision visible de la famille : proposition envoyée, suivi visible, message **sans le contenu** de
 /// la décision (la famille la lit dans son espace). Seule la décision la plus récente d'un dossier se publie ;
 /// une décision remplacée avant publication ne sera jamais lue. Renvoie vrai si une publication a eu lieu.
@@ -566,7 +607,7 @@ pub(crate) async fn publier_decision_tx(
     decision_id: Uuid,
     par: Option<Uuid>,
     maintenant: DateTime<Utc>,
-) -> Result<bool, EntDbError> {
+) -> Result<Publication, EntDbError> {
     // Ordre des verrous unique (F1) : le dossier avant la décision et la proposition.
     sqlx::query(
         "SELECT id FROM ent_inscription_dossier
@@ -579,9 +620,52 @@ pub(crate) async fn publier_decision_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
+    // Garde de l'état courant (passe 3, correctif 3) : une décision prise puis programmée correspondait à l'état du
+    // dossier **à ce moment** ; si le dossier a bougé depuis (annulé, retiré, repris), elle est caduque. Le dossier
+    // est verrouillé ci-dessus : l'état lu ne change plus jusqu'à la fin de la transaction.
+    let a_publier: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT d.sens, dos.etat, dos.etat_avant_blocage
+           FROM ent_inscription_decision d
+           JOIN ent_inscription_dossier dos ON dos.etablissement_id = d.etablissement_id AND dos.id = d.dossier_id
+          WHERE d.etablissement_id = $1 AND d.id = $2 AND d.publiee_le IS NULL AND d.caduque_le IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
+                             WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)",
+    )
+    .bind(etab)
+    .bind(decision_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some((sens_lu, etat_lu, avant_blocage)) = a_publier else {
+        return Ok(Publication::Aucune);
+    };
+    let etat_actuel = crate::inscriptions_etats::etat_effectif(&etat_lu, avant_blocage.as_deref());
+    if etat_actuel != etat_cible(&sens_lu) {
+        let motif = format!(
+            "Décision caduque : le dossier est à l'état « {etat_actuel} », la décision « {sens_lu} » supposait « {} »",
+            etat_cible(&sens_lu)
+        );
+        let dossier: Uuid = sqlx::query_scalar(
+            "UPDATE ent_inscription_decision SET caduque_le = $3, caduque_motif = $4
+              WHERE etablissement_id = $1 AND id = $2 RETURNING dossier_id",
+        )
+        .bind(etab)
+        .bind(decision_id)
+        .bind(maintenant)
+        .bind(&motif)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        // Une place désignée pour cette décision ne part jamais : la proposition ouverte tombe, avec sa trace.
+        crate::inscriptions_attente::annuler_propositions_ouvertes_tx(conn, etab, dossier, "décision caduque")
+            .await?;
+        // Interne seulement : la famille ne lit rien d'une décision qu'elle n'a jamais vue.
+        suivi_tx(conn, etab, dossier, "decision", None, Some(&motif), false, par).await?;
+        return Ok(Publication::Caduque);
+    }
     let publiee: Option<(Uuid, String, Option<Uuid>, bool, bool, Option<Uuid>)> = sqlx::query_as(
         "UPDATE ent_inscription_decision d SET publiee_le = $3, publiee_par = $4
-          WHERE d.etablissement_id = $1 AND d.id = $2 AND d.publiee_le IS NULL
+          WHERE d.etablissement_id = $1 AND d.id = $2 AND d.publiee_le IS NULL AND d.caduque_le IS NULL
             AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
                              WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
         RETURNING d.dossier_id, d.sens, d.offre_id, d.depassement_capacite, d.remplace_decision_id IS NOT NULL,
@@ -595,7 +679,7 @@ pub(crate) async fn publier_decision_tx(
     .await
     .map_err(db)?;
     let Some((dossier, sens, offre, depassement, revue, decide_par)) = publiee else {
-        return Ok(false);
+        return Ok(Publication::Aucune);
     };
     if prend_une_place(&sens) {
         crate::inscriptions_attente::envoyer_proposition_publiee_tx(
@@ -654,7 +738,7 @@ pub(crate) async fn publier_decision_tx(
         par,
     )
     .await?;
-    Ok(true)
+    Ok(Publication::Publiee)
 }
 
 // ───────────────────────────── Lecture ─────────────────────────────
@@ -878,7 +962,7 @@ impl PgEnt {
             self.pool(),
             crate::tenant_tx::ContexteSysteme::JobPlanifie("decisions_inscription_publication"),
             "SELECT DISTINCT etablissement_id FROM ent_inscription_decision
-              WHERE publiee_le IS NULL AND publication_prevue_le IS NOT NULL",
+              WHERE publiee_le IS NULL AND caduque_le IS NULL AND publication_prevue_le IS NOT NULL",
         )
         .await
         .map_err(db)?;
@@ -887,7 +971,8 @@ impl PgEnt {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let ids: Vec<Uuid> = sqlx::query_scalar(
                 "SELECT d.id FROM ent_inscription_decision d
-                  WHERE d.etablissement_id = $1 AND d.publiee_le IS NULL AND d.publication_prevue_le <= $2
+                  WHERE d.etablissement_id = $1 AND d.publiee_le IS NULL AND d.caduque_le IS NULL
+                    AND d.publication_prevue_le <= $2
                     AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
                                      WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
                   ORDER BY d.publication_prevue_le, d.id",
@@ -902,11 +987,13 @@ impl PgEnt {
             for id in ids {
                 let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
                 match publier_decision_tx(&mut tx, etab, id, None, maintenant).await {
-                    Ok(true) => {
+                    Ok(Publication::Publiee) => {
                         commit(tx).await?;
                         total += 1;
                     }
-                    Ok(false) => {}
+                    // Caduque : la trace s'écrit (et la décision ne reviendra plus dans la tâche).
+                    Ok(Publication::Caduque) => commit(tx).await?,
+                    Ok(Publication::Aucune) => {}
                     Err(e) => tracing::warn!("publication d'une décision d'inscription : {e}"),
                 }
             }
@@ -1463,6 +1550,7 @@ impl PgEnt {
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT d.id FROM ent_inscription_decision d
               WHERE d.etablissement_id = $1 AND d.commission_id = $2 AND d.publiee_le IS NULL
+                AND d.caduque_le IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y
                                  WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
               ORDER BY d.id",
@@ -1560,11 +1648,8 @@ impl PgEnt {
         let (position, proposition, conditions, actions) = if masque {
             (None, None, Vec::new(), Vec::new())
         } else {
-            let position = if sens == "liste_attente" && d.etat == "liste_attente" {
-                crate::inscriptions_attente::rang_famille_tx(&mut tx, etab, id).await?
-            } else {
-                None
-            };
+            let position =
+                crate::inscriptions_attente::rang_lu_par_la_famille_tx(&mut tx, etab, id, &d.etat).await?;
             let proposition =
                 crate::inscriptions_attente::proposition_famille_tx(&mut tx, etab, id).await?;
             let conditions =
@@ -1602,7 +1687,8 @@ pub(crate) async fn visibilite_famille_tx(
     dossier: Uuid,
 ) -> Result<Option<String>, EntDbError> {
     let derniere_publiee: Option<bool> = sqlx::query_scalar(&format!(
-        "{CHAINE} SELECT publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1"
+        "{CHAINE} SELECT (publiee_le IS NOT NULL OR caduque_le IS NOT NULL) FROM chaine
+          ORDER BY rang_chaine DESC LIMIT 1"
     ))
     .bind(etab)
     .bind(dossier)
@@ -1714,8 +1800,8 @@ async fn publier_ou_programmer_tx(
         }
     }
     for id in ids {
-        let etat: Option<(Option<DateTime<Utc>>, bool)> = sqlx::query_as(
-            "SELECT d.publiee_le, EXISTS (SELECT 1 FROM ent_inscription_decision y
+        let etat: Option<(Option<DateTime<Utc>>, bool, bool)> = sqlx::query_as(
+            "SELECT d.publiee_le, d.caduque_le IS NOT NULL, EXISTS (SELECT 1 FROM ent_inscription_decision y
                                            WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
                FROM ent_inscription_decision d WHERE d.etablissement_id = $1 AND d.id = $2",
         )
@@ -1724,7 +1810,7 @@ async fn publier_ou_programmer_tx(
         .fetch_optional(&mut *conn)
         .await
         .map_err(db)?;
-        let (deja, remplacee) = etat.ok_or_else(introuvable)?;
+        let (deja, caduque, remplacee) = etat.ok_or_else(introuvable)?;
         let dossier_de: Uuid = sqlx::query_scalar(
             "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1745,6 +1831,9 @@ async fn publier_ou_programmer_tx(
         if deja.is_some() {
             return Err(conflit("décision déjà publiée"));
         }
+        if caduque {
+            return Err(conflit("décision caduque : l'état du dossier a changé, elle ne se publie plus"));
+        }
         if remplacee {
             return Err(conflit("décision remplacée : elle ne se publie plus"));
         }
@@ -1760,9 +1849,15 @@ async fn publier_ou_programmer_tx(
             .await
             .map_err(db)?;
             r.programmees += 1;
-        } else if publier_decision_tx(conn, etab, *id, Some(actor), maintenant).await? {
-            r.publiees += 1;
-            r.familles_prevenues += 1;
+        } else {
+            match publier_decision_tx(conn, etab, *id, Some(actor), maintenant).await? {
+                Publication::Publiee => {
+                    r.publiees += 1;
+                    r.familles_prevenues += 1;
+                }
+                Publication::Caduque => r.caduques += 1,
+                Publication::Aucune => {}
+            }
         }
     }
     Ok(r)

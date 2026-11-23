@@ -241,3 +241,89 @@ fonction SQL) ; registre des données : aucune table nouvelle, colonnes hors exp
 * **CI sur `cf878246` : verte** (39 jobs en succès, 2 sautés : la RLS stricte, réservée à `ENT`, et un job conditionnel ; aucun échec, aucune relance).
 * Statut : **implémenté, testé, CI verte** ; non validé par la relecture du pilote ; non prêt pilote, non prêt production.
 
+
+## Passe 3 (contre-revue de la passe 2, tête cf878246) — branche `ent-socle-3-code-i5-p3`
+
+Départ : `origin/ENT` (I5 versé). **313 est versée et ne change pas** (règle 25) : tout passe par la **314**
+(`314_inscription_decision_i5_passe3`, après 313 dans `migrate.rs`). Statut : **implémenté et testé en local** (PostgreSQL 16 jetable,
+base `ent_test_p3`, neuve) ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+
+### Règles tenues
+1. **Un seul ordre des verrous, posé en un point unique** : `inscriptions_attente::verrouiller_dans_l_ordre_tx`
+   (**dossiers → campagne → offres → propositions**). Plusieurs dossiers : **un seul lot trié par UUID** ; plusieurs offres : par UUID. Un appelant calcule
+   d'abord **en lecture** ce qu'il touchera (`verrouiller_pour_offres_tx` : le dossier, les premiers dossiers de la liste, les dossiers qui portent une place
+   désignée, la campagne, les offres), puis verrouille ; il ne tient **jamais** un dossier avant d'avoir pris tout le lot. `designer_suivants_tx` n'**attend**
+   plus aucun dossier : l'offre et la fenêtre sont tenues par l'appelant, un dossier hors fenêtre se prend en `NOWAIT` (55P03 → conflit réessayable, jamais
+   un interblocage, jamais un autre dossier désigné à sa place).
+2. **Ce que voit la famille ne dépend que des décisions publiées**, export RGPD compris (registre complété, vérifié par des lignes réellement exportables).
+3. **Une décision publiée correspond à l'état du dossier à la publication**, sinon elle est **caduque** et tracée.
+
+### Correctifs (numéros de la contre-revue)
+| N° | Correctif | Fait / test |
+|---|---|---|
+| 1 | ordre des verrous : `decider_tx` (lot dossiers + campagne + offres `avant` et `cible`, **avant** `dossier_tx`), `verrouiller_proposition_tx` (écarter, envoyer, constat, guichet), réponse de la famille, `apres_transition_tx` (dossier déjà tenu : `NOWAIT`), `designer_suivants_for_actor`, `reutiliser_core` (dossier cible / source triés) ; `offre_cible_tx` extrait de `retenir_voeu_tx` (lecture seule) ; la campagne se prend avant l'offre dans le chemin « envoyer une place » (même ordre que `decider_tx`) | fait ; `p3_verrous_refus_famille_et_decision_sur_le_suivant` (6 tours : refus de la famille sur X / décision sur Y), `p3_verrous_deplacements_croises` (6 tours A→B / B→A), `p3_verrous_reutilisations_croisees` : **chaque opération doit réussir** (le 40P01 est mappé en conflit, donc un conflit est un échec du test) |
+| 2 | registre : `export_si` ajoutés (propositions `envoyee`/`acceptee`/`declinee`/`expiree` ; conditions d'une décision d'admission publiée sans décision plus récente en attente ; suivi `visible_famille` et décision nulle ou publiée) ; `hors_export` étendu (dossier : `voeu_retenu_id`, `clos_le`, `motif_cloture`, `decide_le` **en entier**, aucune règle de ligne ne séparant le cas ; vœu : `statut` en entier ; décision : `remplace_decision_id`, `depassement_capacite`, `alternative`, `caduque_*`) | fait ; `p3_export_ne_rend_que_le_publie` (la condition SQL de chaque `export_si` **exécutée** après une décision non publiée : 0 ligne de décision, de proposition, de condition ; aucune ligne interne ni rattachée du suivi ; puis publiée : les lignes apparaissent) |
+| 3 | publication caduque : `publier_decision_tx` renvoie `Publication::{Publiee, Caduque, Aucune}` ; état du dossier ≠ `etat_cible(sens)` (blocage pris en compte) → `caduque_le` / `caduque_motif` (écrits une fois, trigger), proposition ouverte annulée, suivi **interne**, **ni publiée ni notifiée, aucun `ADMISSION_DECIDEE`** ; la tâche de fond valide la transaction de la caducité ; `publier_ou_programmer_tx` la compte (`PublicationDto.caduques`) ; une décision caduque n'est plus une « décision en attente » côté famille (`visibilite_famille_tx`, `ent_inscription_en_liste_visible`, rattachement du suivi) | fait ; `p3_publication_caduque_dossier_annule_avant_l_echeance` (programmée à J+7, annulée à J+3 : rien publié, caducité tracée, 0 événement, 0 courriel, famille ne lit rien, publication manuelle refusée) |
+| 4 | 314 : `setval('ent_inscription_attente_ordre_seq', GREATEST(max(ordre_attente), dernière valeur de la séquence, 1))` — **la séquence ne recule jamais** (rejeu) | fait ; `p3_sequence_ordre_attente_reprise_puis_nouvel_entrant` (dossier repris d'ordre élevé, puis entrant : derrière côté famille **et** côté désignation) |
+| 5 | écarter : seulement `origine = liste_attente AND decision_id IS NULL`, sinon refus exact « cette place est rattachée à une décision : passer par une nouvelle décision pour la modifier » | fait ; `p3_ecarter_seulement_une_designation_de_la_liste` (le refus exact, la décision reste publiable, sa proposition part à la publication) |
+| 6 | 314 rechaîne tout dossier à plusieurs racines ou à double successeur (ordre `decide_le`, puis `id`), **avant** la pose des index uniques (`IF NOT EXISTS`, les deux index recréés) ; l'ajout seul est suspendu le temps de la réparation | fait ; `p3_314_repare_une_chaine_partielle` (d1 racine, d2 remplace d1, d3 racine → d1, d2→d1, d3→d2, ordre vérifié, index revenus) |
+
+**Gardes à `search_path` fixé (314).** Les six fonctions de garde de 313 sont **recréées** avec `SET search_path = pg_catalog, public, pg_temp` :
+`ent_inscription_purge_voulue`, `ent_inscription_ajout_seul` (qui apprend la caducité), `ent_inscription_decision_chaine`,
+`ent_inscription_membre_lie`, `ent_inscription_ecarte_garde`, `ent_inscription_en_liste_visible`. Vérifié dans `p3_314_repare_une_chaine_partielle` :
+aucune fonction sans réglage, et une table temporaire `ent_inscription_decision` homonyme ne trompe pas la garde de chaîne (refus `23514` exact).
+
+### Acceptation au guichet (D-069, F15)
+Conservée **sans « deux personnes »** (motif obligatoire, journal en ajout seul). Désormais : **refusée après `repondre_avant`** tant que l'expiration n'est pas
+constatée ; la proposition passe à `acceptee` (l'action « répondre » disparaît côté famille) ; la **famille est notifiée** ; refus **distincts** :
+« le dossier n'est plus à l'état admis », « proposition déjà répondue », « place désignée, pas encore envoyée », « proposition expirée », « proposition annulée ou
+écartée », « le délai de réponse est dépassé ». Test : `p3_guichet_refus_distincts_notification_et_delai` (403 sans droit, `designee`, `expiree`, `declinee`,
+`annulee`, acteur écarté → introuvable, délai dépassé, succès : statut, plus d'action « répondre », courriel, motif de proposition masqué, seconde saisie refusée).
+
+### Faibles
+| Point | État |
+|---|---|
+| motif de proposition masqué hors `inscriptions.decider` | **fait** (`proposition_dto(voit_motif)`) ; `p3_motif_masque_et_ecartes_avant_la_limite` |
+| filtre des écartés **avant** le `LIMIT` | **fait** (les dossiers écartés sont retirés par la requête, avant `LIMIT 500`) ; même test |
+| `liberations` incrémenté du nombre de places ajoutées | **fait pour la capacité** (+3 de capacité = 3 numéros) ; `p3_liberations_autant_que_de_places`. **Non fait pour la réserve de réinscription** : c'est un booléen, la lever ouvre « au moins une » place (inconnue) : +1 conservé |
+| désignation relancée si la ligne verrouillée a changé | **fait** (relance bornée à 5 si la lecture simple voit encore un candidat, plus de `break` silencieux) |
+| `dossier_dto` lu dans une seule transaction | **fait** (une transaction `REPEATABLE READ` en lecture seule, `TenantTx::begin_lecture_coherente` : un seul instant pour l'état, les pièces, le suivi et le rang) |
+| rang lu d'une seule façon | **fait** (`rang_lu_par_la_famille_tx`, utilisé par `dossier_famille` et `decision_famille` ; `p2_ma…` et `rang_vu` comparent les deux) |
+| `information_schema` filtré par `table_schema` | **fait dans le test** (`p2_md…`). **Non fait dans 313** (versée, règle 25) |
+| `r_m4_…` : assertion exacte | **fait** (au moins une revue passe, chaque refus est un conflit de dossier, la chaîne compte exactement `1 + revues réussies`) |
+
+### Non fait / limites (à relire)
+* **Réparation de chaîne avant 313 impossible.** 313 (versée) pose les index uniques **sans** réparer l'historique partiel : une base où 313 n'a jamais abouti
+  à cause d'un tel historique s'arrête sur 313 avant d'atteindre 314. La 314 répare tout dossier **déjà** passé par 313 (état intermédiaire) et rend les index
+  jamais bloquants pour ses propres rejeux ; le cas « 313 jamais appliquée sur historique partiel » demande une décision du pilote (réparer à la main avant la
+  première application, ou autoriser un fichier numéroté avant 313).
+* Les dossiers hors de la **fenêtre** de verrouillage (premiers de la liste, plus une marge de 5) se prennent en `NOWAIT` : sous forte concurrence, une désignation
+  peut rendre un **conflit réessayable** (409) au lieu d'attendre. C'est le prix de l'absence d'interblocage ; jamais une désignation hors rang.
+* `apres_transition_tx` (appelée depuis des transitions où l'appelant tient déjà son dossier) prend aussi les autres dossiers de la liste en `NOWAIT` : même
+  conséquence. Les routes qui verrouillent le lot **d'abord** (décision, réponse de la famille, écarter, envoyer, désigner) attendent normalement.
+* Les tests de concurrence rejouent chaque scénario 6 fois ; **ils n'ont pas été vus rouges sur le code d'avant** (non rejoué faute de budget) : ils prouvent
+  l'absence d'échec avec le nouvel ordre, pas la reproduction de l'ancien interblocage.
+* **Bogue préexistant trouvé et corrigé** (`inscriptions_modele.rs`) : déplacer un dossier vers **une autre offre** que celle de son vœu échouait en erreur 500
+  (`COALESCE(max(rang), 0)::smallint + 1` rend un `INT4` lu en `i16`) ; mis au jour par le test des déplacements croisés.
+* `pg_err.rs` : aucune modification conservée (une trace de débogage a été retirée).
+
+### Vérifications locales (passe 3)
+* Base locale **neuve** `ent_test_p3` (PostgreSQL 16, nom contenant « test »), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0.
+* `ent-db` (feature `labo`) : les **11** tests de `tests_inscriptions_i5_passe3` verts ; **141 + 1** tests d'inscriptions (`inscriptions`) verts, puis **150** (`r_m4`, `registre`,
+  `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`) verts, dont `tests_d036` (le registre des migrations compte 314) et `r_m4` (assertion exacte). Pas de `#[ignore]`.
+* **Tests du frontend contre le backend rejoués** (`ent-web-server`, `--features ent-web-server/labo,ent-api/labo`, `ENT_ENV=lab`, base neuve `ent_test_web`) :
+  `inscriptions` **4 verts**, `demo_p1` **2 verts**.
+* **clippy 1.99.0, zéro avertissement** sur les trois commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo` — `ent-lab` compris —,
+  `-p ent-types`), `--locked` ; relancé après la fusion d'`origin/ENT`. fmt **ciblé** : le fichier neuf `tests_inscriptions_i5_passe3.rs` est formaté ; aucun autre
+  fichier n'est reformaté (jamais `cargo fmt --all`). `cargo metadata --locked` dans `ent-rust/web` : vert, `Cargo.lock` inchangé.
+* Ni `#[ignore]`, ni heure réelle, ni jour UTC dans les tests (instants posés en 2027).
+
+### Compteurs (règle 28, passe 3)
+Aucune table, aucune action, aucune source de séparation nouvelle : **compte RLS (`tests_rls.rs`) inchangé**, `Action::TOUTES` inchangé, `SOURCES`/`NOMS_SOURCES`
+inchangés, registre des tables inchangé (colonnes hors export et conditions de ligne ajoutées) ; `MIGRATION_TAG` inchangé (3808) ; `MIGRATIONS` : **+1** (314, après 313).
+Fusion d'`origin/ENT` (`f298bc7a`, internat I4, messagerie M12/E1, cahier C8/C9) **sans conflit** ; compteurs de la base relus, rien à recalculer de notre côté.
+`ent-types` : `PublicationDto.caduques` ajouté (`#[serde(default)]`, aucun autre consommateur : `web/` ne construit pas ce type).
+
+### Tête et CI (passe 3)
+* PR n° 127, **brouillon**, vers `ENT`. Première CI (`06be5c4e`) : rouge, **cause unique** — la garde statique `garde_rls_stricte` refusait `TenantTx::begin_lecture_coherente` (accès « direct » au pool) ; déclarée dans la garde, test rejoué en local.
+* Tête de code finale : **`d495fe98`**. **CI verte** sur cette tête (41 jobs, aucun échec). Statut : **implémenté, testé, CI verte** ; non validé par la relecture du pilote ; non prêt pilote, non prêt production.
