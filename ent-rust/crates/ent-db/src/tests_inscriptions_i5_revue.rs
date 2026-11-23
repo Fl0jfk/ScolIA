@@ -47,7 +47,7 @@ macro_rules! refus_introuvable {
 }
 
 /// Membre du personnel (rôle direction : tous les droits d'inscription) créé pour le test, avec cette adresse.
-async fn agent_direction(ent: &PgEnt, etab: Uuid, mail: &str) -> Uuid {
+pub(super) async fn agent_direction(ent: &PgEnt, etab: Uuid, mail: &str) -> Uuid {
     let user = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
@@ -69,7 +69,7 @@ async fn agent_direction(ent: &PgEnt, etab: Uuid, mail: &str) -> Uuid {
     user
 }
 
-async fn nombre(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
+pub(super) async fn nombre(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     sqlx::query_scalar(sql)
         .bind(id)
         .fetch_one(ent.pool_verif())
@@ -78,7 +78,7 @@ async fn nombre(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
 }
 
 /// Code SQLSTATE d'un refus de la base (D-069 règle 3 : un refus se prouve par son code exact, jamais par « une erreur »).
-fn sqlstate<T>(r: &Result<T, sqlx::Error>) -> String {
+pub(super) fn sqlstate<T>(r: &Result<T, sqlx::Error>) -> String {
     match r {
         Err(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()).unwrap_or_default(),
         Err(autre) => format!("autre erreur : {autre}"),
@@ -806,7 +806,17 @@ async fn r_m4_chaine_et_concurrence() {
         corps("liste_attente", Some(offre), "Revu B"),
     );
     let (r3, r4) = tokio::join!(revoir(&ent, &c, &d, &ba), revoir(&ent, &c, &d, &bb));
-    assert!(r3.is_ok() || r4.is_ok());
+    // Assertion exacte (passe 3) : au moins une revue passe, chaque refus est un conflit de dossier (jamais une erreur
+    // technique), et la chaîne compte exactement la décision initiale (une seule des deux décisions concurrentes passe) et chaque revue réussie.
+    let revues_reussies = [&r3, &r4].iter().filter(|r| r.is_ok()).count();
+    assert!(revues_reussies >= 1, "au moins une revue passe : {r3:?} / {r4:?}");
+    for r in [&r3, &r4] {
+        if let Err(e) = r {
+            assert!(matches!(e, EntDbError::ConflitDossier(_)), "refus exact attendu (conflit de dossier) : {e:?}");
+        }
+    }
+    let longueur_chaine = nombre(&ent, "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = $1", d.id).await;
+    assert_eq!(longueur_chaine, 1 + i64::try_from(revues_reussies).unwrap());
     let doubles = nombre(
         &ent,
         "SELECT count(*) FROM (SELECT remplace_decision_id FROM ent_inscription_decision
@@ -1541,7 +1551,7 @@ async fn r_f6_recapitulatif_sans_erreur_technique() {
 // | F16 : 313 rejouable sur une base de l'ancienne version | `p2_f16_313_rejouable_sur_ancienne_version` |
 
 /// Membre du personnel créé pour le test, avec ce rôle et cette adresse.
-async fn agent_role(ent: &PgEnt, etab: Uuid, mail: &str, role: &str) -> Uuid {
+pub(super) async fn agent_role(ent: &PgEnt, etab: Uuid, mail: &str, role: &str) -> Uuid {
     let user = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
@@ -1565,7 +1575,7 @@ async fn agent_role(ent: &PgEnt, etab: Uuid, mail: &str, role: &str) -> Uuid {
 }
 
 /// Rang vu par la famille par les deux lectures : `dossier_famille` et `decision_famille` (un seul calcul).
-async fn rang_vu(ent: &PgEnt, etab: Uuid, d: &super::tests_inscriptions_i5::Dos) -> Option<i64> {
+pub(super) async fn rang_vu(ent: &PgEnt, etab: Uuid, d: &super::tests_inscriptions_i5::Dos) -> Option<i64> {
     let dossier = ent.dossier_famille(etab, &d.jeton, d.id).await.unwrap();
     let decision = ent.decision_famille(etab, &d.jeton, d.id).await.unwrap();
     assert_eq!(
@@ -1950,7 +1960,8 @@ async fn p2_md_registre_export_publie_seulement() {
     for classe in [dossier, decision, suivi] {
         for col in classe.colonnes_hors_export {
             let n: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2",
+                "SELECT count(*) FROM information_schema.columns
+                  WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
             )
             .bind(classe.nom)
             .bind(*col)

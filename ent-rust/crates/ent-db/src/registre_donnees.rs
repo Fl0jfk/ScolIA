@@ -814,14 +814,19 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_campagne_version", "inscriptions", Portee::Etablissement),
     t("ent_inscription_commission", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_commission_dossier", "inscriptions", Portee::Etablissement).perso(),
-    t("ent_inscription_condition", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "remplie_par", "source_ref"]),
+    t("ent_inscription_condition", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "remplie_par", "source_ref"])
+        // Passe 3 (M-D) : une condition naît d'une décision d'admission ; elle n'est exportée qu'une fois **cette
+        // décision publiée** et tant qu'aucune décision plus récente n'attend sa publication (le `libelle` d'une
+        // réserve ne quitte jamais une décision que la famille n'a pas lue).
+        .export_si("EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.dossier_id = x.dossier_id AND d.publiee_le IS NOT NULL AND d.sens IN ('admis', 'admis_sous_reserve')) AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision p WHERE p.etablissement_id = x.etablissement_id AND p.dossier_id = x.dossier_id AND p.publiee_le IS NULL AND p.caduque_le IS NULL)"),
     // Journal des levées (motif, auteur) : interne, jamais exporté.
     t("ent_inscription_condition_levee", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_condition_param", "inscriptions", Portee::Etablissement),
     // F8 : le motif interne ne quitte jamais le personnel ; le déport (identité d'un agent) et le procès-verbal de
     // commission (document collectif de l'établissement) ne sont pas exportés non plus.
     t("ent_inscription_decision", "inscriptions", Portee::Etablissement).perso().export()
-        .hors_export(&["motif_interne", "decide_par", "publiee_par", "commission_id", "publication_prevue_le", "origine"])
+        .hors_export(&["motif_interne", "decide_par", "publiee_par", "commission_id", "publication_prevue_le", "origine",
+                       "remplace_decision_id", "depassement_capacite", "alternative", "caduque_le", "caduque_motif"])
         .export_si("x.publiee_le IS NOT NULL"),
     t("ent_inscription_declaration_responsable", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_demarche", "inscriptions", Portee::Etablissement),
@@ -829,7 +834,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_dossier", "inscriptions", Portee::Etablissement).perso().export()
         // État interne, rang brut, motif et auteur de la décision : ce que la famille lit est l'état **visible**
         // (`visibilite_famille_tx`, rang `rang_famille_tx`), assemblé par l'extrait, jamais ces colonnes (D-069 M-D).
-        .hors_export(&["decision_motif", "decide_par", "etat", "etat_avant_blocage", "statut", "rang_attente", "ordre_attente", "offre_attente_id", "echeance_famille"]),
+        .hors_export(&["decision_motif", "decide_par", "etat", "etat_avant_blocage", "statut", "rang_attente", "ordre_attente", "offre_attente_id", "echeance_famille",
+                       // Passe 3 : posés par les transitions d'une décision (motif communiqué, vœu retenu, date) avant
+                       // sa publication ; aucune règle de ligne ne sépare le cas, la colonne sort en entier.
+                       "voeu_retenu_id", "clos_le", "motif_cloture", "decide_le"]),
     t("ent_inscription_envoi", "inscriptions", Portee::Etablissement).perso().neutralise(N_INSENVOI).exc(Exception::SansRls, "worker d'envoi des e-mails d'inscription : relève les envois dus de tous les établissements en un lot (`FOR UPDATE SKIP LOCKED`)"),
     t("ent_inscription_fermeture", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_invitation", "inscriptions", Portee::Etablissement).perso().neutralise(N_INSINV).exc(Exception::SansRls, "jeton d'invitation résolu avant de connaître l'établissement (lien reçu par e-mail) ; relue aussi par le worker d'envoi transverse"),
@@ -842,17 +850,22 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_piece_regle", "inscriptions", Portee::Etablissement).export(),
     t("ent_inscription_piece_regle_condition", "inscriptions", Portee::Etablissement).export().exc(Exception::SansHorodatage, "ligne fille : datée par la règle de pièce"),
     t("ent_inscription_prolongation", "inscriptions", Portee::Etablissement).perso().export(),
-    t("ent_inscription_proposition_place", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "envoyee_par", "rang_au_moment"]),
+    t("ent_inscription_proposition_place", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "envoyee_par", "rang_au_moment"])
+        // Passe 3 (M-D) : la famille ne lit que les propositions **envoyées** et leur suite ; une place désignée, écartée
+        // ou annulée est interne (elle porte une décision parfois non publiée).
+        .export_si("x.statut IN ('envoyee', 'acceptee', 'declinee', 'expiree')"),
     t("ent_inscription_reference_compteur", "inscriptions", Portee::Etablissement).exc(Exception::SansHorodatage, "compteur technique (références de dossier), valeur seule"),
     t("ent_inscription_reprise_rapport", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_resolution", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_responsable", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_suivi", "inscriptions", Portee::Etablissement).perso().export(),
-    t("ent_inscription_suivi_dossier", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["texte", "auteur_user_id", "decision_id"])
+    t("ent_inscription_suivi_dossier", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["texte", "auteur_user_id", "decision_id", "visible_famille"])
         // Une ligne rattachée à une décision n'est exportée qu'une fois cette décision publiée : ni `statut_avant` ni
         // `statut_apres` d'un changement d'état encore caché à la famille (D-069 M-D).
-        .export_si("x.decision_id IS NULL OR EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.decision_id AND d.publiee_le IS NOT NULL)"),
-    t("ent_inscription_voeu", "inscriptions", Portee::Etablissement).perso().export(),
+        .export_si("x.visible_famille AND (x.decision_id IS NULL OR EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.decision_id AND d.publiee_le IS NOT NULL))"),
+    t("ent_inscription_voeu", "inscriptions", Portee::Etablissement).perso().export()
+        // Passe 3 (M-D) : `retenu` / `non_retenu` est posé par la décision, avant sa publication ; le statut sort en entier.
+        .hors_export(&["statut"]),
     t("ent_internat_absence", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_affectation", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel", "vie_pratique", Portee::Etablissement).perso().export(),

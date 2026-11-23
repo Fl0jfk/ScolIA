@@ -452,6 +452,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("312_inscription_accord"),
     // Socle 3, lot I5 (plage 313–329) : décisions en ajout seul, avis, commissions, liste d'attente, propositions, conditions.
     m!("313_inscription_decision_i5"),
+    // Passe 3 du lot I5 (314) : décision caduque, séquence de l'ordre d'attente, réparation de la chaîne, gardes à
+    // `search_path` fixé. 313 est versée et ne change pas (règle 25). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("314_inscription_decision_i5_passe3"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.

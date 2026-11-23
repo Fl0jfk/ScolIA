@@ -88,7 +88,8 @@ pub(crate) fn db(err: sqlx::Error) -> EntDbError {
     if let sqlx::Error::Database(d) = &err {
         let code = d.code();
         let code = code.as_deref().unwrap_or("");
-        if code == "40P01" || code == "40001" {
+        // 55P03 : verrou non obtenu (`NOWAIT`) — jamais d'attente après l'offre, donc jamais d'interblocage.
+        if code == "40P01" || code == "40001" || code == "55P03" {
             return EntDbError::ConflitDossier(EN_COURS_DE_MODIFICATION);
         }
         if code == "23505"
@@ -624,6 +625,7 @@ pub(crate) async fn suivi_tx(
                     -- chaîne** (s'il y en a une) et ne se lit qu'avec elle (D-069 F4).
                     (SELECT x.id FROM ent_inscription_decision x
                       WHERE x.etablissement_id = $2 AND x.dossier_id = $3 AND x.publiee_le IS NULL
+                        AND x.caduque_le IS NULL
                         AND NOT EXISTS (SELECT 1 FROM ent_inscription_decision y WHERE y.remplace_decision_id = x.id))))",
     )
     .bind(Uuid::new_v4())
@@ -1451,6 +1453,8 @@ impl PgEnt {
         actions: Vec<String>,
     ) -> Result<DossierDto, EntDbError> {
         let campagne = self.campagne_row(etab, d.campagne_id).await?;
+        // Une seule transaction, un seul instant : l'état, les pièces, le suivi et le rang se lisent ensemble.
+        let mut tx = TenantTx::begin_lecture_coherente(self.pool(), etab).await.map_err(db)?;
         let invitations: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT responsable_id, statut FROM ent_inscription_invitation
               WHERE etablissement_id = $1 AND dossier_id = $2",
@@ -1500,7 +1504,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(d.id)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let motif_famille: Option<String> = sqlx::query_scalar(
@@ -1512,7 +1516,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(d.id)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .flatten();
@@ -1531,7 +1535,7 @@ impl PgEnt {
         .bind(etab)
         .bind(d.id)
         .bind(famille)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         // Lot I5 : une décision prise mais **pas encore publiée** (publication programmée, INS-62) ne se lit pas :
@@ -1539,12 +1543,7 @@ impl PgEnt {
         let mut d = d;
         let mut actions = actions;
         if famille {
-            let masque = crate::inscriptions_decisions::visibilite_famille_tx(
-                &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
-                etab,
-                d.id,
-            )
-            .await?;
+            let masque = crate::inscriptions_decisions::visibilite_famille_tx(&mut tx, etab, d.id).await?;
             if let Some(visible) = masque {
                 d.etat = visible.clone();
                 d.statut = visible;
@@ -1553,13 +1552,9 @@ impl PgEnt {
                 // Le suivi n'est pas filtré par date : chaque ligne écrite pendant une décision non publiée lui est
                 // rattachée (`suivi_tx`) et la requête ci-dessus ne la lit qu'avec cette décision (D-069 F4).
                 actions.clear();
-            } else if d.etat == "liste_attente" {
-                // Rang lu par la famille : **un seul calcul**, celui de `decision_famille` (règle 1, M-A).
-                d.rang_attente = crate::inscriptions_attente::rang_famille_tx(
-                    &mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?,
-                    etab,
-                    d.id,
-                )
+            } else {
+                // Rang lu par la famille : **une seule règle**, celle de `decision_famille` (règle 1, M-A).
+                d.rang_attente = crate::inscriptions_attente::rang_lu_par_la_famille_tx(&mut tx, etab, d.id, &d.etat)
                 .await?
                 .and_then(|p| i32::try_from(p).ok());
             }
@@ -2129,7 +2124,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             // D-069 règle 3 : une inscription définitive suit une décision **publiée** et, si une place a été
             // proposée, **acceptée** par la famille.
             let derniere: Option<(String, bool)> = sqlx::query_as(&format!(
-                "{} SELECT sens, publiee_le IS NOT NULL FROM chaine ORDER BY rang_chaine DESC LIMIT 1",
+                "{} SELECT sens, publiee_le IS NOT NULL FROM chaine WHERE caduque_le IS NULL
+                 ORDER BY rang_chaine DESC LIMIT 1",
                 crate::inscriptions_decisions::CHAINE
             ))
             .bind(etab)

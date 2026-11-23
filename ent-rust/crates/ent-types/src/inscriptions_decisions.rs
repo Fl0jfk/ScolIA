@@ -90,6 +90,10 @@ pub struct PublicationDto {
     /// à sa place. Un nombre seulement, jamais le dossier (D-069 F10).
     #[serde(default)]
     pub ignorees: i64,
+    /// Décisions devenues **caduques** à la publication (l'état du dossier ne correspond plus à la décision) : ni
+    /// publiées ni notifiées, tracées (passe 3).
+    #[serde(default)]
+    pub caduques: i64,
 }
 
 /// Projet de courrier (jamais envoyé tel quel : la direction le relit, le publie par l'espace de la famille).
