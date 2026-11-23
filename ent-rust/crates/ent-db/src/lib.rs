@@ -84,6 +84,8 @@ pub mod documents_repo;
 pub mod documents_signature;
 pub mod documents_signature_repo;
 pub mod documents_signature_signer;
+#[cfg(all(test, feature = "labo"))]
+mod tests_mobile_mb0;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -161,7 +163,7 @@ pub use msg_m4::{
 };
 mod msg_m5;
 mod msg_m12;
-pub use msg_m12::{FilActif, FluxMessagerie, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_m12::{FilActif, FluxMessagerie, PositionFlux, FLUX_ATTENTE_MAX_SECONDES};
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
@@ -340,6 +342,7 @@ pub mod inscriptions_reactions;
 pub mod imports;
 // Finances reliées (socle 2, lot S2-9).
 pub mod facturation_comptes;
+pub mod facturation_grilles;
 mod facturation_consequences;
 pub mod facturation_payeurs;
 pub mod facturation_service;
@@ -442,7 +445,7 @@ pub use assiduite_tableau::{
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
-    AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
+    client_effectif, AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
     SessionAppareil, SessionInfo, StaffMember,
 };
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
@@ -453,6 +456,7 @@ pub mod messagerie_m0b;
 pub mod voyages;
 pub mod voyages_argent;
 pub mod voyages_argent_flux;
+pub mod voyages_argent_v3;
 pub mod voyages_argent_repo;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
@@ -735,6 +739,8 @@ mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances_f2;
 #[cfg(all(test, feature = "labo"))]
+mod tests_finances_f3;
+#[cfg(all(test, feature = "labo"))]
 mod tests_sante;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_socle;
@@ -818,6 +824,8 @@ mod tests_voyages_v0d;
 mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v2a;
+#[cfg(test)]
+mod tests_voyages_v3;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

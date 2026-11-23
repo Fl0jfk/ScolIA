@@ -265,6 +265,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot F2 : comptes débiteurs, désignations datées, prises en charge, tâches, reprise MIG-4. Référence
     // `ent_personne` (120, 260), `ent_foyer` (007, 260), `ent_eleve` (482) : placée après eux, avant les lots RLS 58x.
     m!("522_finances_f2_comptes_payeurs"),
+    m!("523_finances_f3_catalogue_grilles"),
     m!("560_delegation_droits_normalises"),
     m!("561_inscription_resolution"),
     m!("562_inscription_scolarite_actuelle"),
@@ -296,6 +297,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("650_sortie_argent_suivi"),
     m!("651_sortie_argent_bordereaux"),
     m!("652_sortie_contournement_devis_code"),
+    m!("653_sortie_argent_aides_reports"),
     m!("661_d036_corrections_lot1"),
     m!("662_d036_profil_jours_ouvres"),
     m!("663_d036_parametre_type"),
@@ -397,6 +399,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // préoccupation (2829). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2828_internat_i4_sorties_groupe"),
     m!("2829_internat_i4_vie_quotidienne"),
+    // Socle 42, lot V3 : lien séjour ↔ internat ; référence `ent_internat_retrait` (2824), d'où l'ordre APRÈS le socle 41.
+    m!("654_sortie_internat_lien"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),
@@ -460,6 +464,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
     // `MIGRATION_TAG` inchangé (règle 28).
     m!("3200_eleve_e9_pastilles_statut_contraintes"),
+    // Socle 11, lot MB0 (plage 2220–2239) : appareils push liés à la session, révocation en cascade (DS1, DS3) ; sous 3808.
+    m!("2220_mob_mb0_appareils_push"),
     // Messagerie, lots M5 et M6 (plage 488–493 du repli 480–499) : 488 référence `ent_doc_document` (socle 7, 3701) et
     // modifie `ent_msg_piece` (038, 601) ; appliquées donc APRÈS 3701. Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
     m!("488_msg_m5_pieces"),

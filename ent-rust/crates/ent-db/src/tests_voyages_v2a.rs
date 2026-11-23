@@ -36,7 +36,7 @@ fn ligne_budget(sens: &str, poste: &str, libelle: &str, montant: &str) -> crate:
     }
 }
 
-fn code_sql<T>(r: &Result<T, sqlx::Error>) -> Option<String> {
+pub(crate) fn code_sql<T>(r: &Result<T, sqlx::Error>) -> Option<String> {
     match r {
         Err(sqlx::Error::Database(d)) => d.code().map(|x| x.to_string()),
         _ => None,
@@ -46,20 +46,20 @@ fn code_sql<T>(r: &Result<T, sqlx::Error>) -> Option<String> {
 /// Une sortie ouverte (budget validé : un car de 1 500 € pour trois payants, soit **500 €** par famille) avec quatre
 /// payeurs réels : l'élève 0 a deux parents séparés (50 % chacun, deux foyers), l'élève 1 un seul payeur, l'élève 2
 /// **aucun** payeur désigné.
-struct Suivi {
-    c: Cadre,
-    s: SortieLigne,
-    parent_a: Uuid,
-    parent_b: Uuid,
-    parent_c: Uuid,
-    compte_a: Uuid,
-    compte_b: Uuid,
-    compte_c: Uuid,
-    p0: Uuid,
-    p1: Uuid,
+pub(crate) struct Suivi {
+    pub(crate) c: Cadre,
+    pub(crate) s: SortieLigne,
+    pub(crate) parent_a: Uuid,
+    pub(crate) parent_b: Uuid,
+    pub(crate) parent_c: Uuid,
+    pub(crate) compte_a: Uuid,
+    pub(crate) compte_b: Uuid,
+    pub(crate) compte_c: Uuid,
+    pub(crate) p0: Uuid,
+    pub(crate) p1: Uuid,
 }
 
-async fn foyer(c: &Cadre) -> Uuid {
+pub(crate) async fn foyer(c: &Cadre) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1, $2, 'Foyer V2a')")
         .bind(id)
@@ -70,7 +70,7 @@ async fn foyer(c: &Cadre) -> Uuid {
     id
 }
 
-async fn payeur(c: &Cadre, eleve: Uuid, user: Uuid, foyer: Uuid, part: i16) {
+pub(crate) async fn payeur(c: &Cadre, eleve: Uuid, user: Uuid, foyer: Uuid, part: i16) {
     sqlx::query(
         "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, foyer_id, lien, est_payeur, part_paiement)
          VALUES ($1, $2, $3, $4, $5, 'mere', true, $6)",
@@ -86,7 +86,7 @@ async fn payeur(c: &Cadre, eleve: Uuid, user: Uuid, foyer: Uuid, part: i16) {
     .unwrap();
 }
 
-async fn compte_du_foyer(c: &Cadre, foyer: Uuid) -> Uuid {
+pub(crate) async fn compte_du_foyer(c: &Cadre, foyer: Uuid) -> Uuid {
     sqlx::query_scalar("SELECT ent_fin_compte_du_foyer($1, $2, NULL, 'manuel')")
         .bind(c.etab)
         .bind(foyer)
@@ -97,7 +97,7 @@ async fn compte_du_foyer(c: &Cadre, foyer: Uuid) -> Uuid {
 
 impl Cadre {
     /// Jour de l'établissement (jamais UTC : règle 33).
-    async fn jour_etab(&self) -> chrono::NaiveDate {
+    pub(crate) async fn jour_etab(&self) -> chrono::NaiveDate {
         self.ent.jour_etablissement(self.etab).await.unwrap()
     }
 
@@ -112,7 +112,7 @@ impl Cadre {
     }
 }
 
-async fn suivi() -> Option<Suivi> {
+pub(crate) async fn suivi() -> Option<Suivi> {
     let c = cadre().await?;
     let s = c.voyage_a_budget("Voyage à Rome").await;
     c.ent.voyage_participants_ajouter(&c.a(c.prof, Role::Prof), s.id, c.eleves.clone()).await.expect("participants");
@@ -129,23 +129,23 @@ async fn suivi() -> Option<Suivi> {
 }
 
 impl Suivi {
-    fn compta(&self) -> Acteur<'static> {
+    pub(crate) fn compta(&self) -> Acteur<'static> {
         self.c.a(self.c.compta, Role::Compta)
     }
-    fn dir(&self) -> Acteur<'static> {
+    pub(crate) fn dir(&self) -> Acteur<'static> {
         self.c.a(self.c.dir, Role::Direction)
     }
-    fn sec(&self) -> Acteur<'static> {
+    pub(crate) fn sec(&self) -> Acteur<'static> {
         self.c.a(self.c.sec, Role::Administratif)
     }
-    fn porteur(&self) -> Acteur<'static> {
+    pub(crate) fn porteur(&self) -> Acteur<'static> {
         self.c.a(self.c.prof, Role::Prof)
     }
-    fn parent(&self, user: Uuid) -> Acteur<'static> {
+    pub(crate) fn parent(&self, user: Uuid) -> Acteur<'static> {
         self.c.a(user, Role::Parent)
     }
 
-    async fn verser(&self, participant: Uuid, compte: Uuid, moyen: &str, montant: &str) -> Result<crate::voyages_argent_repo::VersementVue, EntDbError> {
+    pub(crate) async fn verser(&self, participant: Uuid, compte: Uuid, moyen: &str, montant: &str) -> Result<crate::voyages_argent_repo::VersementVue, EntDbError> {
         self.c
             .ent
             .voyage_versement_pointer(
@@ -163,7 +163,7 @@ impl Suivi {
             .await
     }
 
-    async fn sync(&self) {
+    pub(crate) async fn sync(&self) {
         self.c.ent.voyage_argent_synchroniser(&self.compta(), self.s.id).await.expect("parts");
     }
 }

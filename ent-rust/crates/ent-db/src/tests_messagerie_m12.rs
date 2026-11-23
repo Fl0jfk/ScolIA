@@ -16,7 +16,7 @@ async fn maintenant(ent: &super::PgEnt) -> DateTime<Utc> {
 }
 
 async fn ids(ent: &super::PgEnt, etab: Uuid, user: Uuid, r: Role, apres: DateTime<Utc>) -> Vec<Uuid> {
-    ent.flux_messagerie_for_actor(etab, user, r.as_str(), Some((apres, None)), 0)
+    ent.flux_messagerie_for_actor(etab, user, r.as_str(), Some((apres, None, None)), 0)
         .await
         .expect("flux")
         .fils
@@ -46,7 +46,7 @@ async fn m12_flux_participants_seulement_sans_contenu_et_retrait() {
     assert_eq!(ids(&ent, etab, lily, Role::Parent, avant).await, vec![fil]);
     assert!(ids(&ent, etab, cpe, Role::Cpe, avant).await.is_empty());
     // Aucun contenu : seul un identifiant de fil et un instant sont sérialisés.
-    let flux = ent.flux_messagerie_for_actor(etab, lily, Role::Parent.as_str(), Some((avant, None)), 0).await.unwrap();
+    let flux = ent.flux_messagerie_for_actor(etab, lily, Role::Parent.as_str(), Some((avant, None, None)), 0).await.unwrap();
     let json = serde_json::to_string(&flux).unwrap();
     assert!(!json.contains("secret") && !json.contains("Flux"), "{json}");
     // Sans curseur : aucun événement, seulement le curseur de départ.

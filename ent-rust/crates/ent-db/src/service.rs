@@ -1625,6 +1625,8 @@ impl PgEnt {
         Ok(self.sms_outbox.count_by_kind(etablissement_id, kind).await?)
     }
 
+    /// Inscription d'un appareil : la session qui inscrit est **obligatoire** (DS1) ; elle doit être
+    /// vivante (sinon `AuthError::InvalidSession`, 401).
     pub async fn register_push_device_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -1632,18 +1634,57 @@ impl PgEnt {
         platform: &str,
         token: &str,
         app_id: Option<String>,
+        session_id: Uuid,
     ) -> Result<PushDevice, EntDbError> {
-        let platform = PushPlatform::parse(platform).ok_or(EntDbError::Forbidden)?;
-        let device = self
+        self.inscrire_push_device(etablissement_id, user_id, platform, token, app_id, Some(session_id)).await
+    }
+
+    /// Variante explicite **labo et tests** : inscription sans session (l'appareil n'est alors
+    /// éligible à l'envoi que 30 jours après sa dernière inscription). Absente des binaires de
+    /// production (F-2) : seuls les tests et la feature `labo` la compilent.
+    #[cfg(any(test, feature = "labo"))]
+    pub async fn register_push_device_sans_session(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        platform: &str,
+        token: &str,
+        app_id: Option<String>,
+    ) -> Result<PushDevice, EntDbError> {
+        self.inscrire_push_device(etablissement_id, user_id, platform, token, app_id, None).await
+    }
+
+    async fn inscrire_push_device(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        platform: &str,
+        token: &str,
+        app_id: Option<String>,
+        session_id: Option<Uuid>,
+    ) -> Result<PushDevice, EntDbError> {
+        let (device, anciens_titulaires) = self
             .push_devices
             .upsert_device(RegisterPushDevice {
                 etablissement_id,
                 user_id,
-                platform,
+                platform: platform.to_string(),
                 token: token.to_string(),
                 app_id,
+                session_id,
             })
-            .await?;
+            .await
+            .map_err(|e| match e {
+                crate::push_repo::PushRepoError::SessionMorte => {
+                    EntDbError::Auth(AuthError::InvalidSession)
+                }
+                crate::push_repo::PushRepoError::PlateformeInconnue => EntDbError::Forbidden,
+                crate::push_repo::PushRepoError::Conflit => EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "ce jeton de notification est déjà utilisé par une autre personne",
+                ),
+                crate::push_repo::PushRepoError::Domain(d) => EntDbError::Domain(d),
+            })?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id,
@@ -1654,11 +1695,25 @@ impl PgEnt {
                 payload: json!({
                     "platform": device.platform,
                     "user_id": user_id,
+                    // DS3 : trace de la réaffectation, sans le jeton. Règle 2 : seulement les anciens
+                    // titulaires de CET établissement (ceux des autres ne traversent pas la frontière).
+                    "reaffecte_depuis": anciens_titulaires,
                 }),
                 actor_user_id: Some(user_id.to_string()),
             })
             .await?;
         Ok(device)
+    }
+
+    /// DS4 : désinscrit un appareil de notification (la déconnexion le fait déjà par la révocation
+    /// de la session ; ceci couvre le retrait explicite sans fermer la session).
+    pub async fn desinscrire_push_device(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        Ok(self.push_devices.desinscrire_device(etablissement_id, user_id, id).await?)
     }
 
     /// Push aux parents liés qui ont un device enregistré. Best-effort.
@@ -1813,11 +1868,15 @@ impl PgEnt {
             if actor_user_id == Some(device.user_id) {
                 continue;
             }
+            // Règle 1/3 : le jeton est relu sur la ligne active au moment de l'envoi ; révoquée entre-temps : rien.
+            let Some(token) = self.push_devices.relire_jeton(etablissement_id, device.id).await? else {
+                continue;
+            };
             let platform = PushPlatform::parse(&device.platform).unwrap_or(PushPlatform::Ios);
             let receipt = match self
                 .push
                 .send(OutgoingPush {
-                    token: device.token.clone(),
+                    token,
                     platform,
                     title: title.to_string(),
                     body: body.to_string(),
@@ -1842,7 +1901,7 @@ impl PgEnt {
                             title: title.to_string(),
                             body: body.to_string(),
                             platform: Some(device.platform.clone()),
-                            token: Some(device.token.clone()),
+                            device_id: Some(device.id),
                             status: ent_push::PushSendStatus::Failed,
                             error: Some(e.to_string()),
                             source_aggregate: Some(source_aggregate.to_string()),
@@ -1866,7 +1925,7 @@ impl PgEnt {
                     title: title.to_string(),
                     body: body.to_string(),
                     platform: Some(device.platform.clone()),
-                    token: Some(device.token.clone()),
+                    device_id: Some(device.id),
                     status: receipt.status,
                     error: receipt.error.clone(),
                     source_aggregate: Some(source_aggregate.to_string()),
@@ -1940,6 +1999,10 @@ impl PgEnt {
             if actor_user_id == Some(device.user_id) {
                 continue;
             }
+            // Règle 1/3 : le jeton est relu sur la ligne active au moment de l'envoi ; révoquée entre-temps : rien.
+            let Some(token) = self.push_devices.relire_jeton(etablissement_id, device.id).await? else {
+                continue;
+            };
             let platform = PushPlatform::parse(&device.platform).unwrap_or(PushPlatform::Ios);
             let data_json = match eleve_id {
                 Some(eid) => Some(format!(
@@ -1950,7 +2013,7 @@ impl PgEnt {
             let receipt = match self
                 .push
                 .send(OutgoingPush {
-                    token: device.token.clone(),
+                    token,
                     platform,
                     title: title.to_string(),
                     body: body.to_string(),
@@ -1974,7 +2037,7 @@ impl PgEnt {
                     title: title.to_string(),
                     body: body.to_string(),
                     platform: Some(device.platform.clone()),
-                    token: Some(device.token.clone()),
+                    device_id: Some(device.id),
                     status: receipt.status,
                     error: receipt.error.clone(),
                     source_aggregate: Some(source_aggregate.to_string()),
@@ -17939,6 +18002,88 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .contains(&fil.id))
     }
 
+    /// Jugement de lecture **groupé** (F-6) : les identifiants de `fils` que `actor_can_access_fil` autoriserait, avec
+    /// un nombre de requêtes qui ne dépend plus du nombre de fils (les droits de l'acteur sont calculés une fois ;
+    /// la lecture des fils, des boîtes, des élèves protégés et de la participation est groupée). Même résultat que la
+    /// boucle sur `actor_can_access_fil` (test d'équivalence).
+    pub(crate) async fn actor_can_access_fils_lot(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        fils: &[MsgFil],
+    ) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+        use std::collections::{HashMap, HashSet};
+        let mut ok: HashSet<Uuid> = HashSet::new();
+        let Some(parsed) = Role::parse(role) else {
+            return Ok(ok);
+        };
+        if fils.is_empty() {
+            return Ok(ok);
+        }
+        let mut restants: Vec<&MsgFil> = fils.iter().collect();
+        if parsed.is_staff() {
+            // Fils de boîte : décidés par la seule participation.
+            let ids: Vec<Uuid> = restants.iter().map(|f| f.id).collect();
+            let boites = self
+                .acces_personnel_fils_boite_lot(etablissement_id, actor_user_id, &ids)
+                .await?;
+            restants.retain(|f| match boites.get(&f.id) {
+                Some(acces) => {
+                    if *acces {
+                        ok.insert(f.id);
+                    }
+                    false
+                }
+                None => true,
+            });
+        }
+        if restants.is_empty() {
+            return Ok(ok);
+        }
+        // Droit sur l'élève du fil (une fois par élève distinct pour la famille ; groupé pour le personnel).
+        let eleves: Vec<Uuid> = {
+            let mut v: Vec<Uuid> = restants.iter().map(|f| f.eleve_id).collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        let mut eleve_ok: HashMap<Uuid, bool> = HashMap::new();
+        if parsed.is_staff() {
+            let profil = self.profil_champs(etablissement_id, actor_user_id, role).await?;
+            let caches = self.proteges_caches(etablissement_id, role, &profil, &eleves).await?;
+            let perimetre = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+                .await?;
+            for e in &eleves {
+                let dans = perimetre.as_ref().is_none_or(|s| s.contains(e));
+                eleve_ok.insert(*e, dans && !caches.contains(e));
+            }
+        } else {
+            for e in &eleves {
+                let r = self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, *e).await?;
+                eleve_ok.insert(*e, r);
+            }
+        }
+        restants.retain(|f| eleve_ok.get(&f.eleve_id).copied().unwrap_or(false));
+        if restants.is_empty() {
+            return Ok(ok);
+        }
+        let ids: Vec<Uuid> = restants.iter().map(|f| f.id).collect();
+        let lisibles = if matches!(parsed, Role::Parent | Role::Eleve) {
+            self.messages
+                .fils_lisibles_famille(etablissement_id, actor_user_id, parsed == Role::Parent, &ids)
+                .await?
+        } else {
+            let (reserve_ok, foyer_ok) = self.lit_fils_reserves(etablissement_id, actor_user_id, role).await?;
+            self.messages
+                .fils_lisibles_personnel(etablissement_id, actor_user_id, reserve_ok, foyer_ok, &ids)
+                .await?
+        };
+        ok.extend(lisibles);
+        Ok(ok)
+    }
+
     /// Ne garde que les fils lisibles par un compte famille (D-014, RP1-11).
     async fn filtrer_fils_famille(
         &self,
@@ -18660,6 +18805,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_message(etablissement_id, message_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // Règle 3 : un différé d'autrui est un 404, identique à un identifiant inconnu, avant tout jugement d'auteur.
+        if self
+            .messages
+            .message_differe_d_autrui(etablissement_id, message_id, actor_user_id)
+            .await?
+        {
+            return Err(DomainError::NotFound.into());
+        }
         let fil = self
             .messages
             .get_fil(etablissement_id, msg.fil_id)

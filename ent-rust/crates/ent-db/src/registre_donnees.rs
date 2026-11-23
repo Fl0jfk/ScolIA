@@ -206,6 +206,10 @@ const N_ESPACE_RESERVATION: Neutralisation = Neutralisation::Maj {
     set: "liberee_le = now(), liberee_motif = 'restauration'",
     ou: "confirmee_le IS NULL AND liberee_le IS NULL",
 };
+const N_PUSH_DEVICE: Neutralisation = Neutralisation::Maj {
+    set: "revoked_at = now(), revoque_motif = 'restauration'",
+    ou: "revoked_at IS NULL",
+};
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {
     set: "statut = 'echec', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_distribuer'",
@@ -723,6 +727,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_fin_entite_facturation", "finances", Portee::Etablissement),
     t("ent_fin_export", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_export_piece", "finances", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : datée par ent_fin_export"),
+    t("ent_fin_famille_type", "finances", Portee::Etablissement),
+    t("ent_fin_famille_type_enfant", "finances", Portee::Etablissement),
+    t("ent_fin_grille_version", "finances", Portee::Etablissement),
     t("ent_fin_journal", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_lettrage", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_palier_relance", "finances", Portee::Etablissement).exc(Exception::SansHorodatage, "paramétrage financier sans historique"),
@@ -735,8 +742,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_fin_rejet", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_relance", "finances", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("les relances sont proposées puis décidées par un humain : aucun envoi automatique")),
     t("ent_fin_reprise_rapport", "finances", Portee::Etablissement),
+    t("ent_fin_simulation", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_calcul", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_effectif", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_regle", "finances", Portee::Etablissement),
     t("ent_fin_tache", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_tarif", "finances", Portee::Etablissement),
+    t("ent_fin_tranche_qf", "finances", Portee::Etablissement),
     t("ent_fonction", "personnels", Portee::Etablissement).exc(Exception::EtabNullable, "fonctions nationales/communes sans établissement (etablissement_id NULL autorisé)"),
     t("ent_formulaire", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_formulaire_reponse", "dossier_eleve", Portee::Etablissement).perso().export(),
@@ -989,7 +1001,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_psy_rdv", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_punition", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_punition_type", "vie_scolaire", Portee::Etablissement),
-    t("ent_push_device", "communication_technique", Portee::Etablissement).perso().export(),
+    // MB0 (DS5, F5) : la personne reçoit les métadonnées de ses appareils (plateforme, dates, état), jamais le
+    // jeton ni son empreinte ; à la restauration, tous les appareils actifs sont révoqués (plus aucun envoi).
+    t("ent_push_device", "communication_technique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["token", "token_empreinte"])
+        .neutralise(N_PUSH_DEVICE),
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
     t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
@@ -1026,8 +1044,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sms_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_sortie", "sorties_voyages", Portee::Etablissement).perso().export(),
     t("ent_sortie_acompte_fournisseur", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_aide", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_acces", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_demande", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_export", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_issue", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_reglage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_autorisation", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_sortie_avenant", "sorties_voyages", Portee::Etablissement),
@@ -1050,6 +1071,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_exigence", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_exigence_fait", "sorties_voyages", Portee::Etablissement).perso().fichiers(Fichiers::Objet),
     t("ent_sortie_frais_reel", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_internat_retrait", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_internat_retrait_fin", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal_delegue", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal_lien", "sorties_voyages", Portee::Etablissement).perso(),
@@ -1076,6 +1099,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_repas_externe", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_repas_ligne", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_reponse_cle", "sorties_voyages", Portee::Etablissement).neutralise(N_REPONSE_CLE),
+    t("ent_sortie_report", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_reprise_ecart", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_reprise_participant", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_reprise_sejour", "sorties_voyages", Portee::Etablissement).perso(),

@@ -20,12 +20,33 @@ pub enum InsertionPiece {
 /// Fenêtre maximale d'un curseur du flux M12 (secondes) : au-delà, le client doit resynchroniser tout.
 pub const FLUX_FENETRE_SECONDES: u64 = 600;
 
+/// Marge minimale sous l'instant présent (secondes) : plancher de la borne sûre.
+const FLUX_MARGE_SECONDES: i64 = 5;
+/// La borne sûre n'est jamais plus vieille que la fenêtre moins cette réserve (secondes) : le curseur progresse
+/// toujours et ne provoque jamais la resynchronisation à lui seul.
+const FLUX_RESERVE_FENETRE_SECONDES: i64 = 60;
+
+/// Limite sûre du curseur (règle 1) : `min(maintenant − 5 s, début de la plus ancienne transaction en cours)`,
+/// mais **jamais plus vieille que la fenêtre de resynchronisation moins une réserve**. Une transaction très longue
+/// (autovacuum, sauvegarde, session « idle in transaction ») ne fige donc plus le curseur ; au-delà de ce plancher
+/// un message validé encore plus tard n'est pas rattrapé (limite documentée). `plus_ancienne` vient de
+/// `pg_stat_activity` : il n'est visible que si le rôle a `pg_read_all_stats` (voir
+/// [`PgMsgRepo::verifier_visibilite_transactions`]) ; sinon `None` et la marge de 5 s s'applique seule.
+pub(crate) fn borne_sure(maintenant: DateTime<Utc>, plus_ancienne: Option<DateTime<Utc>>) -> DateTime<Utc> {
+    let marge = maintenant - chrono::Duration::seconds(FLUX_MARGE_SECONDES);
+    let borne = plus_ancienne.map_or(marge, |t| t.min(marge));
+    let plancher = maintenant - chrono::Duration::seconds(FLUX_FENETRE_SECONDES as i64 - FLUX_RESERVE_FENETRE_SECONDES);
+    borne.max(plancher)
+}
+
 /// Résultat brut du flux M12 (avant le jugement de lecture) ; voir [`PgMsgRepo::evenements_depuis`].
 #[derive(Debug, Clone)]
 pub struct EvenementsFlux {
     pub curseur: DateTime<Utc>,
     /// Second terme de la position quand la liste est tronquée (`None` sinon).
     pub curseur_fil: Option<Uuid>,
+    /// Troisième terme de la position quand la liste est tronquée (`nouveau` ou `retire`).
+    pub curseur_genre: Option<String>,
     pub tronque: bool,
     /// Curseur plus ancien que la fenêtre maximale : rien n'est rendu, le client recharge tout.
     pub resynchro: bool,
@@ -794,7 +815,7 @@ impl PgMsgRepo {
             INSERT INTO ent_msg (
                 id, etablissement_id, fil_id, auteur_user_id, corps, created_at,
                 remise_prevue_le, derogation_motif, derogation_par
-            ) VALUES ($1,$2,$3,$4,$5,now(),$6,$7,$8)
+            ) VALUES ($1,$2,$3,$4,$5,clock_timestamp(),$6,$7,$8)
             "#,
         )
         .bind(msg.id)
@@ -877,6 +898,32 @@ impl PgMsgRepo {
         Ok(row.and_then(FilRow::into_fil))
     }
 
+    /// Fils par identifiants, en **une** requête (les inconnus sont absents). Lecture par identifiant : l'appelant
+    /// applique ensuite le jugement de lecture groupé (`actor_can_access_fils_lot`).
+    pub async fn get_fils_lot(
+        &self,
+        etablissement_id: Uuid,
+        fil_ids: &[Uuid],
+    ) -> Result<Vec<MsgFil>, DomainError> {
+        if fil_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_as::<_, FilRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, sujet, created_by_user_id,
+                   created_at, last_message_at, archive, modele_id, priorite, dossier
+            FROM ent_msg_fil
+            WHERE etablissement_id = $1 AND id = ANY($2)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(fil_ids)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
+    }
+
     pub async fn list_fils_eleve(
         &self,
         etablissement_id: Uuid,
@@ -940,7 +987,7 @@ impl PgMsgRepo {
             FROM ent_msg
             WHERE etablissement_id = $1 AND fil_id = $2
               AND (remise_prevue_le IS NULL OR remise_prevue_le <= now() OR auteur_user_id = $3)
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, id ASC
             "#,
         )
         .bind(etablissement_id)
@@ -1017,15 +1064,17 @@ impl PgMsgRepo {
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
-        apres: (DateTime<Utc>, Uuid),
+        apres: (DateTime<Utc>, Uuid, &str),
         limite: i64,
     ) -> Result<EvenementsFlux, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        let (curseur, hors_fenetre): (DateTime<Utc>, bool) = sqlx::query_as(
-            "SELECT least(now() - interval '5 seconds',
-                          coalesce((SELECT min(a.xact_start) FROM pg_stat_activity a
-                                     WHERE a.datname = current_database() AND a.xact_start IS NOT NULL
-                                       AND a.pid <> pg_backend_pid()), now())),
+        // Une seule horloge, celle de la base : `now()` (constant dans la transaction) et le début de la plus
+        // ancienne transaction **visible** en cours. La borne sûre se calcule en Rust (fonction pure, testée).
+        let (maintenant, plus_ancienne, hors_fenetre): (DateTime<Utc>, Option<DateTime<Utc>>, bool) = sqlx::query_as(
+            "SELECT now(),
+                    (SELECT min(a.xact_start) FROM pg_stat_activity a
+                      WHERE a.datname = current_database() AND a.xact_start IS NOT NULL
+                        AND a.pid <> pg_backend_pid()),
                     $1 < now() - make_interval(secs => $2)",
         )
         .bind(apres.0)
@@ -1033,10 +1082,97 @@ impl PgMsgRepo {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        let borne = borne_sure(maintenant, plus_ancienne);
         if hors_fenetre {
-            return Ok(EvenementsFlux { curseur, curseur_fil: None, tronque: false, resynchro: true, evenements: Vec::new() });
+            return Ok(EvenementsFlux {
+                curseur: borne,
+                curseur_fil: None,
+                curseur_genre: None,
+                tronque: false,
+                resynchro: true,
+                evenements: Vec::new(),
+            });
         }
-        let rows: Vec<(Uuid, DateTime<Utc>, String)> = sqlx::query_as(
+        let mut rows = self.evenements_apres(&mut tx, etablissement_id, user_id, apres, limite + 1, maintenant).await?;
+        let mut tronque = rows.len() as i64 > limite;
+        rows.truncate(limite.max(0) as usize);
+        let (mut curseur, mut curseur_fil, mut curseur_genre) = (borne, None, None);
+        if tronque {
+            if let Some((fil, instant, genre)) = rows.last() {
+                if *instant <= borne {
+                    (curseur, curseur_fil, curseur_genre) = (*instant, Some(*fil), Some(genre.clone()));
+                } else {
+                    // Le dernier événement rendu dépasse la limite sûre : une transaction encore ouverte pourrait
+                    // valider plus tard un événement plus ancien. On ne rend que le stable (≤ borne) ; le
+                    // reste sera relu à l'appel suivant, à partir de la borne (qui progresse toujours).
+                    rows = self.evenements_apres(&mut tx, etablissement_id, user_id, apres, limite + 1, borne).await?;
+                    tronque = rows.len() as i64 > limite;
+                    rows.truncate(limite.max(0) as usize);
+                    if tronque {
+                        if let Some((fil, instant, genre)) = rows.last() {
+                            (curseur, curseur_fil, curseur_genre) = (*instant, Some(*fil), Some(genre.clone()));
+                        }
+                    }
+                    // Non tronqué sur le stable : curseur = borne ; le client rappelle (la suite est au-delà).
+                }
+            }
+        }
+        Ok(EvenementsFlux { curseur, curseur_fil, curseur_genre, tronque, resynchro: false, evenements: rows })
+    }
+
+    /// Début de la plus ancienne transaction visible en cours (hors la nôtre), tel que le curseur l'utilise.
+    #[cfg(all(test, feature = "labo"))]
+    pub(crate) async fn debut_plus_ancienne_transaction(&self) -> Result<Option<DateTime<Utc>>, DomainError> {
+        sqlx::query_scalar(
+            "SELECT min(a.xact_start) FROM pg_stat_activity a
+              WHERE a.datname = current_database() AND a.xact_start IS NOT NULL AND a.pid <> pg_backend_pid()",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)
+    }
+
+    /// M-E : le curseur du flux s'appuie sur `pg_stat_activity.xact_start` des **autres** sessions, visible
+    /// seulement pour un rôle qui a `pg_read_all_stats` (ou superutilisateur). Sans ce droit, la borne retombe sur la
+    /// marge de 5 s (un message validé tard dans une transaction longue pourrait être raté). À appeler au démarrage ;
+    /// rend `true` si la visibilité est assurée, sinon journalise une **erreur** explicite.
+    pub async fn verifier_visibilite_transactions(&self) -> bool {
+        let r: Result<(bool, String), sqlx::Error> = sqlx::query_as(
+            "SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member')
+                    OR coalesce((SELECT rolsuper FROM pg_roles WHERE rolname = current_user), false),
+                    current_user::text",
+        )
+        .fetch_one(&self.pool)
+        .await;
+        match r {
+            Ok((true, _)) => true,
+            Ok((false, role)) => {
+                tracing::error!(
+                    canal = "messagerie",
+                    role = %role,
+                    "le rôle de l'application n'a pas pg_read_all_stats : le curseur du flux temps réel M12 ne voit pas les \
+                     transactions des autres sessions (marge de 5 s seule). Accorder : GRANT pg_read_all_stats TO <rôle>"
+                );
+                false
+            }
+            Err(e) => {
+                tracing::error!(canal = "messagerie", error = %e, "vérification de pg_read_all_stats impossible");
+                false
+            }
+        }
+    }
+
+    /// Événements strictement après `apres` (ordre total `(instant, fil, genre)`), instants ≤ `plafond`.
+    async fn evenements_apres(
+        &self,
+        tx: &mut TenantTx<'_>,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        apres: (DateTime<Utc>, Uuid, &str),
+        limite: i64,
+        plafond: DateTime<Utc>,
+    ) -> Result<Vec<(Uuid, DateTime<Utc>, String)>, DomainError> {
+        sqlx::query_as(
             r#"
             WITH ev AS (
                 SELECT m.fil_id, coalesce(m.remise_prevue_le, m.created_at) AS instant, 'nouveau' AS genre
@@ -1056,7 +1192,7 @@ impl PgMsgRepo {
                 SELECT fil_id, genre, max(instant) AS instant FROM ev GROUP BY fil_id, genre
             )
             SELECT fil_id, instant, genre FROM agg
-             WHERE (instant, fil_id) > ($3, $4)
+             WHERE (instant, fil_id, genre) > ($3, $4, $6) AND instant <= $7
              ORDER BY instant ASC, fil_id ASC, genre ASC
              LIMIT $5
             "#,
@@ -1065,17 +1201,12 @@ impl PgMsgRepo {
         .bind(user_id)
         .bind(apres.0)
         .bind(apres.1)
-        .bind(limite + 1)
-        .fetch_all(&mut *tx)
+        .bind(limite)
+        .bind(apres.2)
+        .bind(plafond)
+        .fetch_all(&mut **tx)
         .await
-        .map_err(map_sqlx)?;
-        let tronque = rows.len() as i64 > limite;
-        let evenements: Vec<(Uuid, DateTime<Utc>, String)> = rows.into_iter().take(limite.max(0) as usize).collect();
-        let (curseur, curseur_fil) = match (tronque, evenements.last()) {
-            (true, Some((fil, instant, _))) => (*instant, Some(*fil)),
-            _ => (curseur, None),
-        };
-        Ok(EvenementsFlux { curseur, curseur_fil, tronque, resynchro: false, evenements })
+        .map_err(map_sqlx)
     }
 
     /// Messages non accusés par le lecteur (hors ses propres messages), par fil.

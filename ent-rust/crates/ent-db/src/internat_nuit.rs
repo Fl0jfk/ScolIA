@@ -841,6 +841,11 @@ impl PgEnt {
         })
     }
 
+    /// Annule un retrait. **Retrait « voyage » (socle 42, D-069, M2)** : le CPE qui voit à l'internat un élève que le
+    /// voyage disait parti peut l'annuler ici ; la synchronisation du voyage (`internat_resynchroniser`) distingue cette
+    /// annulation de la sienne (elle écrit une trace de fin, pas le CPE), la **mémorise et la respecte** : l'élève n'est
+    /// pas retiré de nouveau, il reste attendu et appelé. Choix le plus sûr pour l'enfant : un élève attendu à tort se
+    /// retrouve en quelques minutes, un élève retiré à tort n'est cherché par personne.
     pub async fn annuler_retrait_a(
         &self,
         etab: Uuid,
