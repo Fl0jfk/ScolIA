@@ -1221,7 +1221,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_reprise_execution", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_ligne", "evaluations_pedagogie", Portee::Etablissement),
     // Une note ne sort que si son évaluation est publiée (même condition que la vue `eva_resultat_publie`).
+    // Résultat d'une évaluation publiée, sans les champs internes (note privée du professeur, marque « aménagé » jamais
+    // imprimée à un tiers, auteur, motifs de correction) — comme la vue `eva_resultat_publie` que lit la famille.
     t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction"])
         .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     // Résultat externe : publié, compté et non retiré (ce que lit la famille), sans auteur ni motif.
     t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
