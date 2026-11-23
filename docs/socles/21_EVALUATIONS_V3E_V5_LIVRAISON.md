@@ -298,3 +298,7 @@ Les tables `ent_note_*` (hors préfixe `eva_`) ne sont pas dans le champ du test
 * **Nouveaux : 3** (2 de registre, 1 de bout en bout). Locaux, verts sur base neuve : `registre_donnees`, `tests_evaluations_v5`, `extrait_personne`, `tests_rls::`, `migrate::`, `garde_` : **124/124** avec `labo` ; gardes statiques et registre rejoués **sans** `labo` : 29/29.
 * **Compteurs (règle 28)** : 0 table, 0 migration (`migrate.rs` et `MIGRATION_TAG` inchangés), `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES` inchangés ; le registre ne change que par des règles d'export et le champ `export_integral`.
 * **Clippy 1.99.0 : 0 avertissement** sur les deux commandes de la CI (`--workspace --all-targets`, avec et sans `ent-api/labo,ent-lab/labo`, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` : OK. rustfmt : les fichiers touchés n'étaient pas conformes avant ce lot (aucun `cargo fmt --all`) ; lignes ajoutées écrites au format.
+
+### 11.3 Tête et CI
+* **Tête du code :** `8da928b0d51d3133416d1a4e17c4657ab798c5ed` (PR brouillon #136, `ent-socle-21-code-v5-suites-4` → `ENT`).
+* **CI « ENT Rust » sur cette tête : verte** (run 45270353066, `completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**` : la CI de référence reste celle de `8da928b0`.
