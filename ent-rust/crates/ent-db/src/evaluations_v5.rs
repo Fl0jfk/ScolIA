@@ -1529,7 +1529,9 @@ impl PgEnt {
             let mut fenetres: Vec<(Uuid, NaiveDate, NaiveDate)> = Vec::new();
             for f in brutes {
                 match fenetres.last_mut() {
-                    Some(l) if l.0 == f.0 && f.1 <= l.2.succ_opt().unwrap_or(l.2) => l.2 = l.2.max(f.2),
+                    Some(l) if l.0 == f.0 && f.1 <= l.2.succ_opt().unwrap_or(l.2) => {
+                        l.2 = l.2.max(f.2)
+                    }
                     _ => fenetres.push(f),
                 }
             }
