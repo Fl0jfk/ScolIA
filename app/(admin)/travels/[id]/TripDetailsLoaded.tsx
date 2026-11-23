@@ -774,7 +774,38 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
-  const requestAmendedBusQuote = async (opts?: { skipConfirm?: boolean; tripRef?: any }) => {
+  const cancelSignedBusQuote = async () => {
+    if (!canSign && !isGlobalAdmin) {
+      return alert("Seule la direction de l'établissement concerné peut annuler un devis signé.");
+    }
+    const provider = String(trip.data?.selectedBusQuote?.providerName || "le transporteur");
+    if (
+      !confirm(
+        `Annuler le devis signé de ${provider} ? Un e-mail d'annulation lui sera envoyé et vous pourrez choisir un autre devis.`,
+      )
+    ) {
+      return;
+    }
+    const reason = (prompt("Motif de l'annulation (facultatif, transmis au transporteur) :") || "").trim();
+    setLoadingAction("cancel-signed-quote");
+    try {
+      const res = await fetch("/api/travels/cancel-signed-bus-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: trip.id, reason }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Annulation impossible.");
+      setTrip(payload.trip);
+      setEditedData(payload.trip?.data);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur lors de l'annulation du devis signé.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const requestAmendedBusQuote = async (opts?:{ skipConfirm?: boolean; tripRef?: any }) => {
     if (!isOwner && !canSign && !isAdministratif && !isGlobalAdmin) {
       return alert("Vous n'êtes pas autorisé(e) à relancer une demande de devis.");
     }
@@ -1923,6 +1954,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           setTransportReplyBody={setTransportReplyBody}
           transportReplyBusy={transportReplyBusy}
           setTransportReplyBusy={setTransportReplyBusy}
+          canCancelSignedQuote={canSign || isGlobalAdmin}
+          cancelSignedBusQuote={cancelSignedBusQuote}
         />
       )}
       {hubTab === "overview" && (

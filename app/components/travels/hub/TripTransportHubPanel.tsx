@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { busLogisticsActive } from "@/app/lib/travels-trip-helpers";
+import { busQuoteCancelWindow } from "@/app/lib/travels-bus-quote-cancel";
 import {
   buildTransportReplyRecap,
   type TransportReplyQuoteLike,
@@ -53,6 +54,9 @@ type TripTransportHubPanelProps = {
   setTransportReplyBody: (v: string) => void;
   transportReplyBusy: boolean;
   setTransportReplyBusy: (v: boolean) => void;
+  /** Direction ou admin général : peut annuler le devis signé (dans le délai). */
+  canCancelSignedQuote: boolean;
+  cancelSignedBusQuote: () => void;
 };
 
 export function TripTransportHubPanel({
@@ -89,6 +93,8 @@ export function TripTransportHubPanel({
   setTransportReplyBody,
   transportReplyBusy,
   setTransportReplyBusy,
+  canCancelSignedQuote,
+  cancelSignedBusQuote,
 }: TripTransportHubPanelProps) {
   const receivedQuotes = useMemo(
     () => (Array.isArray(trip.receivedDevis) ? trip.receivedDevis : []),
@@ -100,6 +106,11 @@ export function TripTransportHubPanel({
     const first = receivedQuotes[0] as { id?: string } | undefined;
     return String(first?.id || "");
   });
+
+  const cancelWindow = useMemo(
+    () => busQuoteCancelWindow(String(trip.data?.startDate || trip.data?.date || "")),
+    [trip.data?.startDate, trip.data?.date],
+  );
 
   const replyRecap = useMemo(
     () => buildTransportReplyRecap(trip, replyQuoteId || null),
@@ -161,6 +172,30 @@ export function TripTransportHubPanel({
                   </>
                 ) : null}
               </p>
+            </TripAlert>
+          )}
+          {trip.data.signedQuoteUrl && (
+            <TripAlert
+              tone={cancelWindow.open ? "warning" : "info"}
+              title={cancelWindow.open ? "Devis signé — annulation possible" : "Devis signé — verrouillé"}
+              icon={cancelWindow.open ? "↩️" : "🔒"}
+            >
+              <p className="text-xs leading-relaxed">
+                {cancelWindow.open
+                  ? `La commande peut être annulée (un e-mail d'annulation part au transporteur) puis un autre devis choisi, jusqu'au ${cancelWindow.lastDay ? new Date(`${cancelWindow.lastDay}T12:00:00`).toLocaleDateString("fr-FR") : "—"} (7 jours avant le départ).`
+                  : cancelWindow.reason}
+              </p>
+              {cancelWindow.open && canCancelSignedQuote && (
+                <TripButton
+                  variant="danger"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => cancelSignedBusQuote()}
+                  disabled={!!loadingAction}
+                >
+                  {loadingAction === "cancel-signed-quote" ? "Annulation…" : "Annuler le devis signé"}
+                </TripButton>
+              )}
             </TripAlert>
           )}
           {trip.data.pendingAmendedQuote && trip.status === "PROF_LOGISTICS" && (

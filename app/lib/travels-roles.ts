@@ -21,6 +21,14 @@ export function canReassignTravelsOwner(
   return hasRole(roles, "administratif") || hasGlobalAdminRole(roles);
 }
 
+/** Administrateur général (rôle `admin`, flag org_admin…). */
+export function isGlobalAdminUser(
+  user: { publicMetadata?: Record<string, unknown> | null } | null | undefined,
+): boolean {
+  const meta = user?.publicMetadata;
+  return isOrgAdminFromPublicMetadata(meta) || hasGlobalAdminRole(intranetRolesFromMetadata(meta));
+}
+
 export function userHasComptaRoleFromMetadata(
   publicMetadata?: Record<string, unknown> | null,
 ): boolean {
