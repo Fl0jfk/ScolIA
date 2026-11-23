@@ -193,6 +193,7 @@ pub fn router() -> Router<AppState> {
         .route("/copilote/ask", post(copilote_ask))
         .route("/copilote/capacites", get(copilote_capacites))
         .route("/devices/push", post(register_push_device))
+        .route("/devices/push/{id}", delete(desinscrire_push_device))
         .route("/eleves", post(create_eleve))
         .route("/eleves/search", get(search_eleves))
         .route("/eleves/labels", get(eleve_labels_batch))
@@ -3055,17 +3056,41 @@ async fn register_push_device(
             &body.platform,
             &body.token,
             body.app_id,
+            session.session_id,
         )
         .await
-        .map_err(map_db)?;
+        .map_err(|e| match e {
+            // M1 : session révoquée ou expirée au moment de l'inscription.
+            ent_db::EntDbError::Auth(ent_auth::AuthError::InvalidSession) => {
+                (StatusCode::UNAUTHORIZED, "Session invalide.".to_string())
+            }
+            e => map_db(e),
+        })?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
             "id": device.id,
             "platform": device.platform,
-            "token": device.token,
         })),
     ))
+}
+
+/// DS4 : retire l'inscription de notification d'un appareil de la personne connectée.
+async fn desinscrire_push_device(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let ok = state
+        .ent
+        .desinscrire_push_device(session.etablissement_id, session.user_id, id)
+        .await
+        .map_err(map_db)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "appareil introuvable".into()))
+    }
 }
 
 async fn me(

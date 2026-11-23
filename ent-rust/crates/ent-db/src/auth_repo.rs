@@ -63,6 +63,15 @@ impl ClientSession {
     }
 }
 
+/// MB0 (DS2) : un client ne se voit accorder la session longue (mobile) que s'il a prouvé un
+/// facteur fort ; la simple déclaration « mobile » n'y suffit jamais.
+pub fn client_effectif(declare: ClientSession, assurance: AssuranceSession) -> ClientSession {
+    match (declare, assurance) {
+        (ClientSession::Mobile, AssuranceSession::Passkey) => ClientSession::Mobile,
+        _ => ClientSession::Web,
+    }
+}
+
 /// Niveau d'assurance de l'authentification qui a ouvert la session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AssuranceSession {
@@ -506,6 +515,13 @@ impl PgAuthRepo {
             );
             return Err(AuthError::NotMember);
         }
+        // MB0 (DS2, MEN-11) : le type de client est une déclaration, jamais une preuve. La durée
+        // mobile exige une authentification par passkey (puis, en MB4, une clé d'appareil
+        // enregistrée) ; sinon la session reçoit la durée standard du web.
+        let opts = &OptionsSession {
+            client: client_effectif(opts.client, opts.assurance),
+            ..opts.clone()
+        };
         let (raw_token, token_hash) = generate_session_token();
         let session_id = Uuid::new_v4();
         let now = Utc::now();
@@ -576,10 +592,11 @@ impl PgAuthRepo {
             r#"
             UPDATE ent_session
                SET portee = 'complete',
-                   expires_at = CASE client
-                       WHEN 'mobile' THEN now() + make_interval(days => $2)
+                   expires_at = CASE WHEN client = 'mobile' AND assurance = 'passkey'
+                       THEN now() + make_interval(days => $2)
                        ELSE now() + make_interval(hours => $3) END,
-                   inactivite_max_secs = CASE client WHEN 'mobile' THEN NULL ELSE $4 END,
+                   inactivite_max_secs = CASE WHEN client = 'mobile' AND assurance = 'passkey'
+                       THEN NULL ELSE $4 END,
                    last_seen_at = now()
              WHERE id = $1 AND portee = 'enrolement' AND revoked_at IS NULL
             "#,
@@ -918,7 +935,11 @@ impl PgAuthRepo {
         else {
             return Err(AuthError::InvalidSession);
         };
-        let client = ClientSession::parse_client(Some(&client));
+        // F2 : la durée « mobile » dépend de la preuve (passkey), jamais de la déclaration, à la lecture aussi.
+        let client = client_effectif(
+            ClientSession::parse_client(Some(&client)),
+            AssuranceSession::from_db(&assurance),
+        );
         let mut portee = PorteeSession::from_db(&portee);
 
         // Socle 6 (P2) : une session = une casquette. Les droits de la session sont ceux de la
@@ -940,7 +961,9 @@ impl PgAuthRepo {
         // Activité : écriture amortie (au plus une fois par minute). Mobile :
         // prolongation glissante, plafonnée depuis la connexion.
         if now - last_seen_at > Duration::seconds(60) {
-            if client == ClientSession::Mobile && portee == PorteeSession::Complete {
+            if client == ClientSession::Mobile
+                && portee == PorteeSession::Complete
+            {
                 let plafond = created_at + Duration::days(session_mobile_max_jours());
                 let nouvelle = (now + Duration::days(session_mobile_jours())).min(plafond);
                 if nouvelle > expires_at {

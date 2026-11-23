@@ -185,7 +185,7 @@ async fn run() -> Result<(), String> {
     ent.install_mail_dry_run();
     let cast = ent.seed_labo_cast().await.map_err(|e| e.to_string())?;
     // Device push Lily (app native simulée) — pour messagerie / carnet / seuil.
-    ent.register_push_device_for_actor(
+    ent.register_push_device_sans_session(
         cast.etablissement_id,
         cast.parent_lea.user_id,
         "ios",

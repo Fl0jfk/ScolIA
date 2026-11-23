@@ -220,6 +220,16 @@ async fn sso_rattachement_par_email_exige_email_verified_true() {
         LoginOutcome::Session(s) => assert_eq!(s.user_id, user),
         other => panic!("session attendue : {other:?}"),
     }
+    // MB0 (M5) : le SSO est toujours une session web (durée web, délai d'inactivité), jamais « mobile ».
+    let (state, lien) = c.demarrer().await;
+    match c.ent.oidc_complete("code", &state, &lien).await.expect("SSO") {
+        LoginOutcome::Session(s) => {
+            assert_eq!(s.client, ClientSession::Web);
+            assert_eq!(s.assurance, AssuranceSession::Sso);
+            assert!(s.expires_at - chrono::Utc::now() <= chrono::Duration::hours(13));
+        }
+        other => panic!("session attendue : {other:?}"),
+    }
     // Rattachement explicite existant par `sub` : l'état de l'e-mail n'a plus d'importance.
     c.transport.set_email_verified(None);
     let (state, lien) = c.demarrer().await;
