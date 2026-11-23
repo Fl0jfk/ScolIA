@@ -537,6 +537,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
     // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("690_t1_search_path_fonctions"),
+    // Suites d'I4 (passe 3) : contraintes nommées (motif du participant, acte des faits) ; 2828-2829 sont versées.
+    // Règle 38 : APRÈS 690 (aucune fonction créée ici). `MIGRATION_TAG` inchangé (3808).
+    m!("2830_internat_i4_suites"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
