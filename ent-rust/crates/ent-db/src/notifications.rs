@@ -795,7 +795,13 @@ struct EnvoiReclame {
     regroupable: bool,
     source_type: Option<String>,
     source_id: Option<Uuid>,
+    cle_dedup: Option<String>,
 }
+
+/// Préfixes de `cle_dedup` des avis dont la source (`source_id`) est un **message** : avis d'un différé (`msg-avis:`),
+/// nouveau message à une famille (`msgfam:`) ou à une boîte (`msgboite:`). Les autres avis de messagerie ont une autre
+/// source (la relance « réponse attendue », `msgreponse:`, porte un **fil**) et ne sont pas soumis au contrôle d'existence.
+const PREFIXES_AVIS_DE_MESSAGE: &[&str] = &["msg-avis:", "msgfam:", "msgboite:"];
 
 #[derive(Clone)]
 enum Issue {
@@ -935,7 +941,7 @@ impl Expediteur {
                      FOR UPDATE SKIP LOCKED)
               RETURNING e.id, e.etablissement_id, e.destinataire_user_id, e.canal, e.kind,
                         e.titre, e.corps, e.eleve_id,
-                        e.droit_requis, e.regroupable, e.source_type, e.source_id",
+                        e.droit_requis, e.regroupable, e.source_type, e.source_id, e.cle_dedup",
         )
         .bind(maintenant)
         .bind(Some(etab))
@@ -1066,7 +1072,11 @@ impl Expediteur {
         let Some(id) = e.source_id else {
             return Ok(true);
         };
-        if !e.kind.starts_with("messagerie") || e.source_type.as_deref() != Some("systeme") {
+        // La source n'est un message que pour les avis dont la clé l'annonce (le `kind` ne suffit pas : la relance
+        // « réponse attendue » est aussi `messagerie_famille`, mais sa source est un fil).
+        let de_message = e.source_type.as_deref() == Some("systeme")
+            && e.cle_dedup.as_deref().is_some_and(|c| PREFIXES_AVIS_DE_MESSAGE.iter().any(|p| c.starts_with(p)));
+        if !de_message {
             return Ok(true);
         }
         crate::msg_repo::PgMsgRepo::new(self.pool.clone())

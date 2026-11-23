@@ -659,3 +659,51 @@ async fn p2_f6_constat_le_fil_vide_apres_annulation_reste_liste_a_la_famille() {
         "constat F-6 : le fil vide reste listé (voir le commentaire)"
     );
 }
+
+// ───────────── E-1 (contre-revue de la passe 2, correctif du pilote) : seules les sources « message » sont contrôlées ─────────────
+
+/// Avis planifié (dans deux heures) de clé et de genre donnés, dont la source est `source`.
+async fn avis_de(ent: &PgEnt, etab: Uuid, user: Uuid, kind: &str, source: Uuid, cle: String) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_notification_envoi
+            (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
+             source_type, source_id, cle_dedup, droit_requis, planifie_pour)
+         VALUES ($1,$2,$3,'push',$4,'Nouveau message','Ouvrez le portail famille',NULL,'systeme',$5,$6,NULL,
+                 now() + interval '2 hours')",
+    )
+    .bind(id)
+    .bind(etab)
+    .bind(user)
+    .bind(kind)
+    .bind(source)
+    .bind(cle)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    id
+}
+
+/// La relance « réponse attendue » (`msgreponse:`, source = un **fil**) n'est jamais écartée comme « message annulé » :
+/// le distributeur la traite. Témoin : un avis `msgfam:` dont le message n'existe pas est, lui, écarté.
+#[tokio::test]
+async fn p2_e1_la_relance_reponse_attendue_n_est_pas_ecartee_comme_message_annule() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, lily) = (cast.etablissement_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Relance réponse attendue").await;
+    let relance = avis_de(&ent, etab, lily, "messagerie_famille", fil, format!("msgreponse:{fil}:{lily}")).await;
+    let absent = Uuid::new_v4();
+    let temoin = avis_de(&ent, etab, lily, "messagerie_famille", absent, format!("msgfam:{absent}")).await;
+    let apres = apres_l_echeance(&ent).await;
+    expediteur(&ent, etab).expedier(apres).await.unwrap();
+    let (statut, motif) = statut_avis(&ent, relance).await;
+    assert_ne!(statut, "en_attente", "la relance a été traitée par le distributeur");
+    assert_ne!(motif.as_deref(), Some("message_annule"), "la source d'une relance est un fil, pas un message : {statut}");
+    assert_eq!(
+        statut_avis(&ent, temoin).await,
+        ("ignore".to_string(), Some("message_annule".to_string())),
+        "témoin : un avis de message dont le message n'existe plus est écarté"
+    );
+}
