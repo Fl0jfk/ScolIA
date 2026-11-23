@@ -16,7 +16,8 @@ DECLARE
 BEGIN
     FOR c IN SELECT conname FROM pg_constraint
               WHERE conrelid = 'ent_internat_sortie_groupe_participant'::regclass AND contype = 'c'
-                AND pg_get_constraintdef(oid) LIKE '%motif_code%' LOOP
+                AND pg_get_constraintdef(oid) LIKE '%motif_code%'
+                AND conname <> 'ent_internat_sg_part_bloque_chk' LOOP
         EXECUTE format('ALTER TABLE ent_internat_sortie_groupe_participant DROP CONSTRAINT IF EXISTS %I', c);
     END LOOP;
     ALTER TABLE ent_internat_sortie_groupe_participant DROP CONSTRAINT IF EXISTS ent_internat_sg_part_motif_code_chk;
@@ -24,6 +25,12 @@ BEGIN
         motif_code IS NULL OR motif_code IN (
             'refus_famille', 'desaccord_connu', 'interdiction', 'plus_interne', 'retire_par_organisateur', 'majeur_refuse',
             'majorite', 'chevauchement', 'accord_annuel_tombe'));
+    -- La contrainte « un participant refusé, non autorisé ou retiré porte un motif » (2828) cite aussi `motif_code` : elle
+    -- n'est jamais retirée par la boucle ci-dessus, et elle est reposée à l'identique (rejouable, et réparation d'une base
+    -- où une version antérieure de ce fichier l'aurait retirée).
+    ALTER TABLE ent_internat_sortie_groupe_participant DROP CONSTRAINT IF EXISTS ent_internat_sg_part_bloque_chk;
+    ALTER TABLE ent_internat_sortie_groupe_participant ADD CONSTRAINT ent_internat_sg_part_bloque_chk CHECK (
+        etat NOT IN ('refuse', 'non_autorise', 'retire') OR motif_code IS NOT NULL);
 
     FOR c IN SELECT conname FROM pg_constraint
               WHERE conrelid = 'ent_internat_sortie_groupe_fait'::regclass AND contype = 'c'

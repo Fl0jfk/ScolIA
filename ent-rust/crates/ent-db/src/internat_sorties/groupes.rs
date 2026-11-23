@@ -2447,8 +2447,10 @@ impl PgEnt {
             return Err(conflit("cet élève n'est pas pointé rentré"));
         }
         sqlx::query(
+            // `parti_le` repart de l'annulation : l'élève est de nouveau dehors, et la veille, qui n'ouvre pas de second cas
+            // pour un cas clos APRÈS le départ (M1), doit pouvoir rouvrir l'alerte. L'heure du départ réel reste au journal.
             "UPDATE ent_internat_sortie_groupe_participant SET etat = 'parti', rentre_le = NULL, rentre_par_user_id = NULL, \
-                    modifie_le = $4 WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
+                    parti_le = $4, modifie_le = $4 WHERE etablissement_id = $1 AND sortie_groupe_id = $2 AND eleve_id = $3",
         )
         .bind(etab)
         .bind(id)
@@ -3120,14 +3122,14 @@ impl PgEnt {
         }
         // M1 : un cas déjà lié à cette sortie ou à ce temps ne se rouvre pas, **toutes nuits confondues** : ouvert, ou clos
         // depuis le départ de l'élève (seul un fait nouveau, un nouveau départ, en rouvre un) ; la nuit change à midi, donc
-        // sans cette règle la veille rouvrirait un cas chaque jour tant que le retour n'est pas pointé. Même nuit : quelle
-        // que soit l'issue. Un cas sans origine (ouvert par l'appel) de cette nuit, ouvert ou clos depuis le départ, compte
-        // aussi.
+        // sans cette règle la veille rouvrirait un cas chaque jour tant que le retour n'est pas pointé. Un cas clos AVANT le
+        // départ courant ne compte pas (un retour pointé puis annulé remet `parti_le` à l'annulation : l'alerte se rouvre).
+        // Un cas sans origine (ouvert par l'appel) de cette nuit, ouvert ou clos depuis le départ, compte aussi.
         let existants: Vec<(Uuid, bool, bool)> = sqlx::query_as(
             "SELECT id, issue IS NULL, (sortie_groupe_id IS NULL AND temps_id IS NULL) FROM ent_internat_cas \
               WHERE etablissement_id = $1 AND eleve_id = $2 \
                 AND ((sortie_groupe_id IS NOT DISTINCT FROM $4 AND temps_id IS NOT DISTINCT FROM $5 \
-                      AND (nuit = $3 OR issue IS NULL OR issue_le >= $6)) \
+                      AND (issue IS NULL OR issue_le >= $6)) \
                      OR (nuit = $3 AND sortie_groupe_id IS NULL AND temps_id IS NULL AND (issue IS NULL OR issue_le >= $6))) \
               FOR UPDATE",
         )

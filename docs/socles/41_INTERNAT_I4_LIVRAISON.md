@@ -193,3 +193,20 @@ Branche `ent-socle-41-code-i4-suites` (base `origin/ENT`, PR en brouillon vers `
 
 - Tête de code poussée : `ce0438d9` ; PR n° 131, laissée en brouillon vers `ENT`. `origin/ENT` n'a pas bougé depuis la base : aucune fusion, aucun compteur à recalculer.
 - CI « ENT Rust » sur `ce0438d9` : **verte** (run 45183332228), y compris clippy 1.99 sur le workspace et `ent-lab`. Les commits suivants ne touchent que cette documentation.
+
+### Correctifs du pilote après contre-revue des suites (2026-11-23)
+- **M-1 (régression du lot)** : la boucle de 2830 retirait aussi `ent_internat_sg_part_bloque_chk` (« refusé, non autorisé ou retiré ⇒ motif »), qui cite `motif_code`. Elle l'épargne désormais, et 2830 la repose à l'identique. Le test de rejeu vérifie sa présence.
+- **M-2** : un retour pointé puis annulé ne relançait jamais l'alerte (« même nuit, quelle que soit l'issue »).
+  - `annuler_retour_groupe_a` remet `parti_le` à l'heure de l'annulation ; le départ réel reste au journal.
+  - La veille ne compte plus que les cas ouverts, ou clos **depuis le départ en cours**.
+  - Test : `s3_m2_un_retour_annule_rouvre_l_alerte`.
+- **M-3** : la demande de retour (refus d'un parent après le départ) n'est jamais regroupée, comme l'alerte critique.
+- **M-4** : l'alerte critique est toujours relayée, même au-delà de 24 h. Les autres avis trop anciens sont écartés avec un `tracing::warn!`, plus jamais en silence.
+- **Ordre** : 2830 placée après 690 (règle 38).
+- **Local** : `tests_internat*` (249 verts), `garde_search_path`, `migrate`. Clippy 1.99, trois commandes, `ent-lab` compris : sans avertissement.
+- **Reste en file (faibles)** :
+  - tests F-g plus serrés (`refus_de` seul, contenu de l'avis, cas limites) ;
+  - encadrant d'un autre temps et autre établissement testés ;
+  - portée `InternatAppel` sans droit de confidentialité : confirmer, ou restreindre à l'encadrant ;
+  - `internat_sorties_tache_etab_a` en `pub(crate)` ;
+  - avis de retour aussi aux accompagnateurs, avec la sortie désignée.

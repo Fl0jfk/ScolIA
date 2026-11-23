@@ -70,6 +70,18 @@ async fn s3_le_rejeu_de_2830_remplace_l_ancien_check_et_l_accord_annuel_tombe_sa
     );
     // Le rejeu est idempotent (une seconde fois : même résultat).
     crate::migrate::rejouer_tout(p).await.unwrap();
+    // La contrainte « refusé, non autorisé ou retiré ⇒ motif » (2828) cite `motif_code` : elle n'est pas emportée.
+    let bloque: Option<String> = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint
+          WHERE conrelid = 'ent_internat_sortie_groupe_participant'::regclass AND conname = 'ent_internat_sg_part_bloque_chk'",
+    )
+    .fetch_optional(p)
+    .await
+    .unwrap();
+    assert!(
+        bloque.as_deref().is_some_and(|d| d.contains("motif_code IS NOT NULL")),
+        "la contrainte bloque_chk est conservée : {bloque:?}"
+    );
     // L'accord annuel « tombe » sans violer le CHECK (23514).
     let e = b.a[0];
     let (par, _) = parent(&b, e, true).await;
@@ -277,6 +289,43 @@ async fn s3_m1_un_cas_clos_n_est_pas_rouvert_la_nuit_suivante() {
         );
     }
     assert_eq!(cas_de(&b, e).await.len(), 1);
+}
+
+/// Contre-revue de la passe 3 (M-2, correctif du pilote) : un retour pointé puis ANNULÉ remet l'élève dehors ; la veille,
+/// qui ne rouvre pas un cas clos après le départ, doit rouvrir l'alerte (le départ repart de l'annulation).
+#[tokio::test]
+async fn s3_m2_un_retour_annule_rouvre_l_alerte() {
+    let Some(b) = banc().await else { return };
+    let e = b.a[0];
+    let (p, _) = parent(&b, e, true).await;
+    let g = sortie_prete(&b, &[(e, p)]).await;
+    depart(&b, g.id, vec![e]).await;
+    assert_eq!(b.ent.veille_non_rentres_a(b.etab, apres_fin(16)).await.unwrap(), 1);
+    // Retour pointé (le cas de la sortie se ferme), puis annulé par erreur de pointage.
+    b.ent
+        .retour_groupe_a(b.etab, b.prof, PROF, g.id, &AppelGroupeDto { eleves: vec![e], ..Default::default() }, apres_fin(17))
+        .await
+        .unwrap();
+    assert_eq!(b.ent.veille_non_rentres_a(b.etab, apres_fin(18)).await.unwrap(), 0, "rentré : aucune alerte");
+    b.ent
+        .annuler_retour_groupe_a(
+            b.etab,
+            b.prof,
+            PROF,
+            g.id,
+            &AnnulationRetourDto { eleve_id: e, motif_code: "erreur_pointage".into() },
+            apres_fin(18),
+        )
+        .await
+        .unwrap();
+    assert_eq!(etat_de(&detail(&b, g.id).await, e), "parti");
+    // Après la tolérance, l'élève de nouveau dehors a son alerte : un nouveau cas.
+    let mut ouverts = 0;
+    for mi in [40, 60, 120] {
+        ouverts += b.ent.veille_non_rentres_a(b.etab, apres_fin(mi)).await.unwrap();
+    }
+    assert_eq!(ouverts, 1, "un seul nouveau cas, ouvert après l'annulation du retour");
+    assert_eq!(cas_de(&b, e).await.len(), 2, "le cas d'origine (clos) et le nouveau");
 }
 
 async fn nuit_de_veille(b: &Banc, a: DateTime<Utc>) -> chrono::NaiveDate {

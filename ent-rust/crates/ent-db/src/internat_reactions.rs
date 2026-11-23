@@ -97,7 +97,10 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
         return Ok(());
     };
     let maintenant = Utc::now();
-    if trop_ancien(e.created_at, maintenant) {
+    // Borne du rattrapage : un avis trop ancien n'est plus envoyé, sauf l'alerte critique (malaise…), toujours relayée ;
+    // la perte est journalisée, jamais silencieuse.
+    if e.type_name != types::INTERNAT_ALERTE && trop_ancien(e.created_at, maintenant) {
+        tracing::warn!(evenement = %e.id, genre = %e.type_name, "avis d'internat trop ancien : non envoyé");
         return Ok(());
     }
     sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
@@ -127,9 +130,11 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
     .await
     .map_err(|x| x.to_string())?;
     // Avis regroupés : un seul avis par établissement, par nature et par minute (une rafale de cas ou de signaux ne sature
-    // pas les responsables), avec le nombre d'élèves concernés et jamais un nom. L'alerte critique, elle, n'est jamais
-    // regroupée : un avis par événement.
-    let regroupe = e.type_name != types::INTERNAT_ALERTE;
+    // pas les responsables), avec le nombre d'élèves concernés et jamais un nom. L'alerte critique et la demande de retour,
+    // elles, ne sont jamais regroupées : un avis par événement.
+    // Une demande de retour (refus d'un parent après le départ) n'est jamais regroupée non plus : chacune est un mineur
+    // dehors contre l'avis d'un parent.
+    let regroupe = e.type_name != types::INTERNAT_ALERTE && e.type_name != types::INTERNAT_RETOUR_DEMANDE;
     let minute = e.created_at.timestamp().div_euclid(60);
     let debut_minute = DateTime::<Utc>::from_timestamp(minute * 60, 0).unwrap_or(e.created_at);
     let mut corps_avis = corps.to_string();
