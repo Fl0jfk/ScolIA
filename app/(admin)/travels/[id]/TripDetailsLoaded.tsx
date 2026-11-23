@@ -694,7 +694,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
   const handleCancelModificationRequest = async () => {
     if (trip.status !== "BESOIN_MODIFICATION" || loadingAction) return;
-    if (!canSign && !isCompta) return;
+    if (!canSign && !isCompta && !isAdministratif && !isGlobalAdmin) return;
     const restoreStatus = trip.data?.previousStatus || "EN_ATTENTE_DIR_INITIAL";
     const stepLabel = TRAVELS_STATUS_LABELS[restoreStatus] || restoreStatus;
     if (
@@ -775,7 +775,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   };
 
   const requestAmendedBusQuote = async (opts?: { skipConfirm?: boolean; tripRef?: any }) => {
-    if (!isOwner && !canSign) return alert("Vous n'êtes pas autorisé(e) à relancer une demande de devis.");
+    if (!isOwner && !canSign && !isAdministratif && !isGlobalAdmin) {
+      return alert("Vous n'êtes pas autorisé(e) à relancer une demande de devis.");
+    }
     const tripRef = opts?.tripRef || trip;
     if (isEditing && !opts?.skipConfirm) {
       return alert("Enregistrez d'abord les modifications d'effectif avant d'envoyer l'avenant.");
@@ -1567,7 +1569,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const datesChanged = datesChangedSinceSnapshot(trip.data, trip.data.transportDateSnapshot);
   const canRequestAmendedQuote =
     withBusLogistics &&
-    (isOwner || canSign) &&
+    (isOwner || canSign || isAdministratif || isGlobalAdmin) &&
     Boolean(transportSnapshot || trip.data?.selectedBusQuote || trip.data?.signedQuoteUrl);
   const canRemindTransportQuotes =
     withBusLogistics &&
@@ -1696,14 +1698,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           icon="⚠️"
           title="Modifications demandées"
           action={
-            isOwner || canSign || isCompta ? (
+            isOwner || canSign || isCompta || isAdministratif || isGlobalAdmin ? (
               <div className="flex flex-wrap gap-2 shrink-0">
-                {isOwner && (
+                {(isOwner || isAdministratif || isGlobalAdmin) && (
                   <TripButton variant="warning" onClick={() => setIsEditing(true)}>
-                    Modifier mon dossier
+                    {isOwner ? "Modifier mon dossier" : "Modifier le dossier"}
                   </TripButton>
                 )}
-                {(canSign || isCompta) && (
+                {(canSign || isCompta || isAdministratif || isGlobalAdmin) && (
                   <TripButton variant="secondary" onClick={handleCancelModificationRequest}>
                     Annuler la demande
                   </TripButton>

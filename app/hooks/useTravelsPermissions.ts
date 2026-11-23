@@ -54,7 +54,7 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
       hasGlobalAdminRole(roles);
     const canReassignTripOwner = isAdministratif || isGlobalAdmin;
     const isOwner = trip ? isTripOwnerOrCreator(trip, user) : false;
-    const canManageFiles = isOwner || isDirection || isCompta;
+    const canManageFiles = isOwner || isDirection || isCompta || isAdministratif || isGlobalAdmin;
     const canAddDocuments = canManageFiles || isAdministratif;
     const canUseInternalThread = isOwner || isDirection || isCompta;
     const canSeeTravelDocHoverActions = isDirection || isAdministratif || isCompta;
