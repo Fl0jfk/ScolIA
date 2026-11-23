@@ -240,3 +240,9 @@ Branche `ent-socle-41-code-i4-suites-2` (base `origin/ENT`, PR en brouillon vers
 ### Tête et CI (suites 2)
 - Tête de code : `8a5a086e` ; PR n° 135, en brouillon vers `ENT`. Aucune fusion d'`ENT` nécessaire.
 - CI « ENT Rust » sur `8a5a086e` : **verte**. Les commits suivants ne touchent que cette documentation.
+
+### Correctifs du pilote après contre-revue des suites 2
+- **M1** (protégé discernable d'un non-inscrit) : dans `pointer_temps_a`, l'inscription et la protection se contrôlent désormais **avant** l'état et la fenêtre du temps, par le même refus « n'est pas inscrit » ; un temps annulé ou hors fenêtre ne distingue plus un protégé d'un élève non inscrit. Test `s4_pointage_un_protege_est_indiscernable_d_un_non_inscrit_hors_fenetre_ou_temps_annule`.
+- **M2** (titre de sortie libre en clair hors de l'ENT) : `internat_retour_demande` rejoint `canal_externe_neutre` : e-mail, push et SMS neutres, détail dans l'ENT seulement. Test `s4_la_demande_de_retour_est_neutre_hors_de_l_ent`.
+- Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_internat_i4*` : 105 verts.
+- **En file** : F1 (cas d'une minute dont l'avis est déjà lu : remettre à non lu ou documenter), F2 (envoi externe déjà parti non mis à jour : à documenter), F4 (test d'avis regroupé : preuve que le 3e événement est consommé ; `notifier_personne` inchangé ; envoi `envoye` non réécrit), F6 (libellé `refus_apres_depart`), F7 (connexion supplémentaire de `eleve_cache_au_tiers` dans une transaction ouverte).

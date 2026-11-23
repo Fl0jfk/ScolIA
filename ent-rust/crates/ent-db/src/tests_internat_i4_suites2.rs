@@ -410,6 +410,62 @@ async fn s4_pointage_un_protege_n_est_pointe_que_par_l_encadrant_ou_le_droit_de_
     );
 }
 
+async fn pointer_a(
+    b: &Banc,
+    acteur: Uuid,
+    temps: Uuid,
+    e: Uuid,
+    quand: DateTime<Utc>,
+) -> Result<TempsDto, EntDbError> {
+    b.ent
+        .pointer_temps_a(
+            b.etab,
+            acteur,
+            PERSONNEL,
+            temps,
+            &PointageTempsDto {
+                eleve_id: e,
+                etat: "present".into(),
+            },
+            quand,
+        )
+        .await
+}
+
+/// Contre-revue des suites 2 (M1) : pour un détenteur de portée sans droit de confidentialité, un protégé inscrit et un
+/// élève non inscrit reçoivent le **même** refus, que le temps soit en cours, hors fenêtre ou annulé (le contrôle
+/// d'inscription et de protection précède celui de l'état et de la fenêtre du temps).
+#[tokio::test]
+async fn s4_pointage_un_protege_est_indiscernable_d_un_non_inscrit_hors_fenetre_ou_temps_annule() {
+    let Some(b) = banc().await else { return };
+    let (prot, absent) = (b.a[0], b.a[2]);
+    let t = creer_etude(&b, None).await;
+    inscrire(&b, t.id, prot).await;
+    proteger(&b, prot).await;
+    let porteur = personnel_avec(&b, &[Action::InternatAppel]).await;
+    // Hors fenêtre (le matin du jour de l'étude) : même refus pour les deux.
+    for e in [prot, absent] {
+        let r = pointer_a(&b, porteur, t.id, e, paris(avril(15), 10, 0)).await;
+        assert!(refus_de(&r, "n'est pas inscrit"), "hors fenêtre, {e}: {r:?}");
+    }
+    // Temps annulé : même refus pour les deux.
+    b.ent
+        .annuler_temps_a(b.etab, b.cpe, CPE, t.id, mi_etude(10))
+        .await
+        .unwrap();
+    for e in [prot, absent] {
+        let r = pointer_a(&b, porteur, t.id, e, paris(avril(15), 19, 5)).await;
+        assert!(refus_de(&r, "n'est pas inscrit"), "temps annulé, {e}: {r:?}");
+    }
+}
+
+/// Contre-revue des suites 2 (M2) : la demande de retour part neutre sur les canaux externes (le titre de sortie, saisi
+/// librement, peut nommer un élève).
+#[test]
+fn s4_la_demande_de_retour_est_neutre_hors_de_l_ent() {
+    assert!(crate::notifications::canal_externe_neutre("internat_retour_demande"));
+}
+
 // ───────────────────────── Avis regroupé : le nombre est mis à jour ─────────────────────────
 
 #[tokio::test]

@@ -563,7 +563,12 @@ const COLONNES_ENVOI_VU: &str =
 /// consentements (socle 18, FD-08, R-FC37) en font partie : le titre (« Consentement suivi
 /// psychologique ») ne quitte jamais l'ENT.
 pub(crate) fn canal_externe_neutre(kind: &str) -> bool {
-    matches!(kind, "campagne" | "annonce" | "messagerie_famille" | "formulaire")
+    // `internat_retour_demande` (contre-revue I4 suites 2, M2) : le titre de sortie est saisi librement et peut nommer un
+    // élève ; l'avis externe reste neutre, le détail est dans l'ENT.
+    matches!(
+        kind,
+        "campagne" | "annonce" | "messagerie_famille" | "formulaire" | "internat_retour_demande"
+    )
 }
 const SUJET_NEUTRE_EMAIL: &str = "Message de l'établissement";
 const TEXTE_NEUTRE_EMAIL: &str =

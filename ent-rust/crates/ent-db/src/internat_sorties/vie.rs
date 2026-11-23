@@ -2452,15 +2452,6 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
-        // D-069 : un élève protégé n'est pointé que par l'encadrant du temps ou par un détenteur du droit de confidentialité.
-        // Un détenteur de portée (`internat.appel` / `internat.gerer`) sans ce droit reçoit « n'est pas inscrit », comme un tiers.
-        if !encadrant
-            && self
-                .eleve_cache_au_tiers(etab, actor, role, b.eleve_id)
-                .await?
-        {
-            return Err(refus("cet élève n'est pas inscrit à ce temps"));
-        }
         // Pas de `exiger_eleve_visible` ici : un élève protégé INSCRIT au temps doit pouvoir être pointé par l'encadrant
         // (il est compté et marqué « protégé », sans nom). Le contrôle est celui de l'inscription ci-dessous ; envers un tiers
         // non inscrit, l'opacité reste assurée par « n'est pas inscrit ».
@@ -2475,15 +2466,10 @@ impl PgEnt {
         let Some((nature, statut, debut, fin)) = t else {
             return Err(DomainError::NotFound.into());
         };
-        // É1 : un temps annulé ne reçoit plus de départ, mais le RETOUR d'un élève déjà parti se pointe toujours (il ferme le
-        // cas), sans fenêtre horaire.
-        let retour = b.etat == "rentre";
-        if statut != "prevu" && !retour {
-            return Err(conflit("ce temps est annulé"));
-        }
-        if statut == "prevu" && (maintenant < debut || maintenant >= fin + Duration::hours(6)) {
-            return Err(conflit("ce temps n'est pas en cours : le pointage se fait de son début à six heures après sa fin"));
-        }
+        // D-069 : un élève protégé n'est pointé que par l'encadrant du temps ou par un détenteur du droit de confidentialité.
+        // Un détenteur de portée (`internat.appel` / `internat.gerer`) sans ce droit reçoit « n'est pas inscrit », comme un tiers.
+        // Contre-revue (M1) : l'inscription et la protection se contrôlent AVANT l'état et la fenêtre du temps, par le même refus,
+        // pour qu'un temps annulé ou hors fenêtre ne distingue pas un protégé d'un non-inscrit.
         let p: Option<(Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT pointage, rentre_le FROM ent_internat_temps_participant WHERE etablissement_id = $1 AND temps_id = $2 \
                 AND eleve_id = $3 AND retire_le IS NULL FOR UPDATE",
@@ -2497,6 +2483,22 @@ impl PgEnt {
         let Some((pointage, rentre)) = p else {
             return Err(refus("cet élève n'est pas inscrit à ce temps"));
         };
+        if !encadrant
+            && self
+                .eleve_cache_au_tiers(etab, actor, role, b.eleve_id)
+                .await?
+        {
+            return Err(refus("cet élève n'est pas inscrit à ce temps"));
+        }
+        // É1 : un temps annulé ne reçoit plus de départ, mais le RETOUR d'un élève déjà parti se pointe toujours (il ferme le
+        // cas), sans fenêtre horaire.
+        let retour = b.etat == "rentre";
+        if statut != "prevu" && !retour {
+            return Err(conflit("ce temps est annulé"));
+        }
+        if statut == "prevu" && (maintenant < debut || maintenant >= fin + Duration::hours(6)) {
+            return Err(conflit("ce temps n'est pas en cours : le pointage se fait de son début à six heures après sa fin"));
+        }
         match b.etat.as_str() {
             "rentre" => {
                 if nature != "activite"
