@@ -3555,6 +3555,7 @@ async fn passe3_fusions_en_chaine_une_evaluation_ne_compte_qu_une_fois() {
     };
     let w = monde_v1(&ent, &cast).await;
     let (a, b, c) = (w.eleves_a[0], w.eleves_a[1], w.eleves_a[2]);
+    let np = note_periode(&ent, &w, w.t1, d(2031, 9, 1), d(2031, 12, 20)).await;
     let ev = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS unique", true).await;
     ecrire(&ent, &w, ev, a, 4_000).await;
     ecrire(&ent, &w, ev, b, 8_000).await;
@@ -3576,7 +3577,7 @@ async fn passe3_fusions_en_chaine_une_evaluation_ne_compte_qu_une_fois() {
         );
     }
     let releve = ent
-        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, w.t1)
+        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, np)
         .await
         .unwrap();
     let maths = releve
@@ -3593,7 +3594,7 @@ async fn passe3_fusions_en_chaine_une_evaluation_ne_compte_qu_une_fois() {
         Some(10_000)
     );
     let releve = ent
-        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, w.t1)
+        .releve_eleve_for_actor(w.etab, w.direction, DIR, c, np)
         .await
         .unwrap();
     let maths = releve
@@ -3733,11 +3734,12 @@ async fn passe3_l_export_lsu_lsl_ne_compte_que_le_publie() {
     let w = monde_v1(&ent, &cast).await;
     let a = w.eleves_a[0];
     let admin = cast.administratif.user_id;
+    let np = note_periode(&ent, &w, w.t1, d(2031, 9, 1), d(2031, 12, 20)).await;
     let ev_p = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS publié", true).await;
     ecrire(&ent, &w, ev_p, a, 12_000).await;
     let exporter = |format: &'static str| {
         let ent = &ent;
-        let (etab, classe, periode) = (w.etab, w.classe_a, w.t1);
+        let (etab, classe, periode) = (w.etab, w.classe_a, np);
         async move {
             ent.exporter_livret_for_actor(etab, admin, "administratif", format, classe, periode)
                 .await
