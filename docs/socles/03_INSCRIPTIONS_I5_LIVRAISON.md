@@ -438,3 +438,8 @@ Explication : chacun entre par un **point d'entrée qui prenait déjà le verrou
 ### Vérifications locales (passe 5)
 * Base neuve dont le nom contient « test » (`ent_test_i5b`), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0, `ENT_ENV=lab`. **Leçon** : modifier le fichier d'une migration déjà appliquée sur la base locale donne `FichierModifie` : recréer la base.
 * `ent-db` (labo), filtres `inscription`, `r_m4`, `registre`, `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`, `p3_`, `p4_`, `i3_`, `i4_`, `garde_search_path` : **381 tests**, 379 verts à quatre fils + les 2 relancés seuls verts ; dont les 9 de la passe 5.
+
+### Suites (passe 5) — compteurs, tête et CI
+- **Compteurs** : `MIGRATIONS` +1 (316) ; aucune nouvelle table, action ni source ; compte RLS, `Action::TOUTES`, `SOURCES` et `MIGRATION_TAG` (3808) inchangés.
+- **Qualité** : clippy 1.99 sans avertissement sur les 3 commandes de la CI (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` ; gardes statiques vertes sans et avec `labo`.
+- **CI de la tête `7a040a70`** (PR 137) : workflow « ENT Rust » (run 45279958095) **vert**. Le commit suivant ne change que cette section de documentation.
