@@ -12,6 +12,13 @@
 //!   curseur reçu est **exactement** celui que le serveur a rendu à cette session ; un curseur fabriqué ou rejoué
 //!   (même une valeur valide d'une autre réponse) est soumis à l'intervalle et au plafond du compte.
 //!
+//! **Derrière un répartiteur de charge** : l'état est local à l'instance. Le curseur exempté (dernière réponse tronquée)
+//! n'est connu que de l'instance qui l'a rendu. Si le rappel tombe sur une autre instance, il n'est pas exempté : il est
+//! soumis à l'intervalle et au plafond du compte, et au pire refusé en `429` avec `Retry-After` ; le client rappelle
+//! avec le **même** curseur, ce qui ne perd aucun événement (le curseur ne bouge pas tant qu'il n'est pas servi).
+//! Recommandation : affinité de session (même instance par session) ; sans elle, le comportement reste correct, seulement
+//! plus lent à rattraper une pagination.
+//!
 //! État en mémoire de l'instance de [`LimiteFlux`] (une par `AppState`, comme l'anti-abus de connexion, jamais un état
 //! global partagé entre tests) ; les entrées inactives sont purgées.
 

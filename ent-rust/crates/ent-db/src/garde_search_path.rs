@@ -162,10 +162,19 @@ pub(crate) async fn violations(pool: &sqlx::PgPool) -> Vec<String> {
 }
 
 async fn violations_sans_verrou(pool: &sqlx::PgPool) -> Vec<String> {
-    let fonctions: Vec<(String, String, String, bool, bool, String)> =
-        sqlx::query_as(SQL_FONCTIONS).fetch_all(pool).await.unwrap();
     let pures: Vec<&str> = PURES.iter().map(|(n, _)| *n).collect();
     let qualifiees: Vec<&str> = QUALIFIEES.iter().map(|(n, _)| *n).collect();
+    violations_des_listes(pool, &pures, &qualifiees).await
+}
+
+/// Le contrôle proprement dit, avec les listes en paramètre : les tests négatifs y glissent des entrées de fortune.
+async fn violations_des_listes(
+    pool: &sqlx::PgPool,
+    pures: &[&str],
+    qualifiees: &[&str],
+) -> Vec<String> {
+    let fonctions: Vec<(String, String, String, bool, bool, String)> =
+        sqlx::query_as(SQL_FONCTIONS).fetch_all(pool).await.unwrap();
     let mut v = Vec::new();
     for (sig, nom, langue, secdef, retset, sp) in &fonctions {
         let nom = nom.as_str();
@@ -200,7 +209,7 @@ async fn violations_sans_verrou(pool: &sqlx::PgPool) -> Vec<String> {
         }
     }
     // La liste ne ment jamais : aucune entrée disparue du catalogue.
-    for (nom, _) in PURES.iter().chain(QUALIFIEES.iter()) {
+    for nom in pures.iter().chain(qualifiees.iter()) {
         if !fonctions.iter().any(|(_, n, ..)| n == nom) {
             v.push(format!("{nom} : listée dans PURES ou QUALIFIEES mais absente du catalogue (entrée obsolète, à retirer aussi de 690)"));
         }
@@ -244,7 +253,11 @@ fn les_listes_sont_celles_de_la_migration_690_et_justifiees() {
 
 /// Les relations d'une fonction qualifiée sont masquées par des tables temporaires homonymes : le plan n'en lit aucune
 /// et la fonction reste inlinée.
-async fn plan_sous_masque(pool: &sqlx::PgPool, signature: &str, nom: &str) -> String {
+async fn plan_sous_masque(
+    pool: &sqlx::PgPool,
+    signature: &str,
+    nom: &str,
+) -> (String, Vec<String>) {
     let (re,): (String,) = sqlx::query_as(&format!("SELECT ({SQL_RELATIONS})"))
         .fetch_one(pool)
         .await
@@ -290,7 +303,7 @@ async fn plan_sous_masque(pool: &sqlx::PgPool, signature: &str, nom: &str) -> St
     .await
     .unwrap();
     tx.rollback().await.unwrap();
-    plan.join("\n")
+    (plan.join("\n"), relations)
 }
 
 /// Vérifie les 25 fonctions qualifiées sous masque total, avec un témoin non qualifié qui doit, lui, être détourné.
@@ -316,29 +329,158 @@ async fn verifier_qualifiees(pool: &sqlx::PgPool) {
     );
 
     for (nom, _) in QUALIFIEES {
-        let sigs: Vec<String> = sqlx::query_scalar(
-            "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = $1",
-        )
-        .bind(nom)
+        let sigs = signatures(pool, nom).await;
+        assert!(!sigs.is_empty(), "{nom} : absente du catalogue");
+        for sig in sigs {
+            let defauts = defauts_qualifiee(pool, &sig, nom).await;
+            assert!(defauts.is_empty(), "{}", defauts.join("\n"));
+        }
+    }
+    negatif_qualifiee(pool).await;
+}
+
+async fn signatures(pool: &sqlx::PgPool, nom: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = $1",
+    )
+    .bind(nom)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// Défauts d'une fonction qualifiée sous masque total : le plan ne lit aucune table temporaire, **cite chaque relation du
+/// corps en `public.<rel>`** (sinon la preuve serait vide : une relation absente du plan n'est pas éprouvée) et la fonction
+/// reste inlinée. Vide si tout va bien.
+async fn defauts_qualifiee(pool: &sqlx::PgPool, sig: &str, nom: &str) -> Vec<String> {
+    let (plan, relations) = plan_sous_masque(pool, sig, nom).await;
+    let mut d = Vec::new();
+    if plan.contains("pg_temp") {
+        d.push(format!(
+            "{sig} lit une table temporaire (relation non qualifiée) :\n{plan}"
+        ));
+    }
+    if plan
+        .lines()
+        .any(|l| l.contains("Function Scan on") && l.contains(nom))
+    {
+        d.push(format!(
+            "{sig} n'est plus inlinée (une clause SET a été posée ?) :\n{plan}"
+        ));
+    }
+    // Les vues sont développées dans le plan (leur corps est lié par identifiant à la création) : seul leur contenu paraît,
+    // jamais leur nom. La preuve « citée en `public.<rel>` » porte donc sur les tables, tables partitionnées, vues
+    // matérialisées et tables distantes.
+    let vues: Vec<String> = sqlx::query_scalar("SELECT relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'v'")
         .fetch_all(pool)
         .await
         .unwrap();
-        assert!(!sigs.is_empty(), "{nom} : absente du catalogue");
-        for sig in sigs {
-            let plan = plan_sous_masque(pool, &sig, nom).await;
-            assert!(
-                !plan.contains("pg_temp"),
-                "{sig} lit une table temporaire (relation non qualifiée) :\n{plan}"
-            );
-            let non_inlinee = plan
-                .lines()
-                .any(|l| l.contains("Function Scan on") && l.contains(nom));
-            assert!(
-                !non_inlinee,
-                "{sig} n'est plus inlinée (une clause SET a été posée ?) :\n{plan}"
-            );
+    for r in relations.iter().filter(|r| !vues.contains(r)) {
+        // Le plan écrit `public.<rel>` (EXPLAIN VERBOSE) ; une relation seulement citée dans une branche que le plan élague
+        // n'est pas éprouvée : à exécuter avec des données plutôt qu'à planifier.
+        if !plan.contains(&format!("public.{r}")) {
+            d.push(format!("{sig} : la relation `{r}` est citée par le corps mais absente du plan sous masque — preuve vide ({plan})"));
         }
     }
+    d
+}
+
+/// Parmi les violations, celles qui visent la fonction de fortune `nom` (les listes de test sont volontairement réduites).
+async fn violations_de(
+    pool: &sqlx::PgPool,
+    nom: &str,
+    pures: &[&str],
+    qualifiees: &[&str],
+) -> Vec<String> {
+    violations_des_listes(pool, pures, qualifiees)
+        .await
+        .into_iter()
+        .filter(|m| m.contains(nom))
+        .collect()
+}
+
+/// Négatif : une fonction qualifiée qui **perd** une qualification est vue, par la garde statique comme par le plan.
+async fn negatif_qualifiee(pool: &sqlx::PgPool) {
+    let propre = "CREATE OR REPLACE FUNCTION public.t1_qualifiee_negative(p uuid) RETURNS TABLE (id uuid) LANGUAGE sql STABLE AS \
+                  $f$ SELECT f.id FROM public.ent_msg_fil f JOIN public.ent_msg m ON m.fil_id = f.id WHERE f.etablissement_id = p $f$";
+    let perdue = "CREATE OR REPLACE FUNCTION public.t1_qualifiee_negative(p uuid) RETURNS TABLE (id uuid) LANGUAGE sql STABLE AS \
+                  $f$ SELECT f.id FROM public.ent_msg_fil f JOIN ent_msg m ON m.fil_id = f.id WHERE f.etablissement_id = p $f$";
+    sqlx::query(propre).execute(pool).await.unwrap();
+    let sig = signatures(pool, "t1_qualifiee_negative").await.remove(0);
+    let v = violations_de(
+        pool,
+        "t1_qualifiee_negative",
+        &[],
+        &["t1_qualifiee_negative"],
+    )
+    .await;
+    let d = defauts_qualifiee(pool, &sig, "t1_qualifiee_negative").await;
+    let (v_ok, d_ok) = (v.clone(), d.clone());
+    sqlx::query(perdue).execute(pool).await.unwrap();
+    let v_perdue = violations_de(
+        pool,
+        "t1_qualifiee_negative",
+        &[],
+        &["t1_qualifiee_negative"],
+    )
+    .await;
+    let d_perdue = defauts_qualifiee(pool, &sig, "t1_qualifiee_negative").await;
+    sqlx::query("DROP FUNCTION public.t1_qualifiee_negative(uuid)")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        v_ok.is_empty(),
+        "témoin positif : tout est qualifié, la garde ne doit rien voir : {v_ok:?}"
+    );
+    assert!(
+        d_ok.is_empty(),
+        "témoin positif : le plan doit être propre : {d_ok:?}"
+    );
+    assert!(
+        v_perdue
+            .iter()
+            .any(|m| m.contains("relations non qualifiées") && m.contains("ent_msg")),
+        "une qualification perdue doit être vue par la garde statique : {v_perdue:?}"
+    );
+    assert!(
+        d_perdue.iter().any(|m| m.contains("table temporaire")),
+        "une qualification perdue doit être vue par le plan sous masque : {d_perdue:?}"
+    );
+}
+
+/// Négatifs des listes : une relation ajoutée au corps d'une fonction « pure » est vue ; une relation non qualifiée dans
+/// une fonction « qualifiée » est vue (voir aussi `negatif_qualifiee`) ; une entrée dont la fonction a disparu est vue.
+/// Chaque négatif a son témoin positif (la même fonction sans la relation n'est pas signalée).
+async fn negatifs_des_listes(pool: &sqlx::PgPool) {
+    sqlx::query("CREATE FUNCTION public.t1_pure_negative(x int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT x + 1'")
+        .execute(pool)
+        .await
+        .unwrap();
+    let propre = violations_de(pool, "t1_pure_negative", &["t1_pure_negative"], &[]).await;
+    sqlx::query("CREATE OR REPLACE FUNCTION public.t1_pure_negative(x int) RETURNS int LANGUAGE sql STABLE AS 'SELECT x + (SELECT count(*)::int FROM ent_msg_fil f WHERE f.etablissement_id IS NOT NULL)'")
+        .execute(pool)
+        .await
+        .unwrap();
+    let cite = violations_de(pool, "t1_pure_negative", &["t1_pure_negative"], &[]).await;
+    sqlx::query("DROP FUNCTION public.t1_pure_negative(int)")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(propre.is_empty(), "témoin positif de PURES : {propre:?}");
+    assert!(
+        cite.iter()
+            .any(|m| m.contains("listée dans PURES") && m.contains("ent_msg_fil")),
+        "une relation ajoutée au corps d'une fonction « pure » doit être vue : {cite:?}"
+    );
+    let obsolete =
+        violations_des_listes(pool, &["t1_fonction_disparue"], &["t1_autre_disparue"]).await;
+    let obsolete: Vec<String> = obsolete.into_iter().filter(|m| m.contains("t1_")).collect();
+    assert_eq!(
+        obsolete.iter().filter(|m| m.contains("entrée obsolète")).count(),
+        2,
+        "une entrée de PURES ou de QUALIFIEES dont la fonction a disparu doit être vue : {obsolete:?}"
+    );
 }
 
 /// Message d'échec de la garde : dit quoi faire.
@@ -400,7 +542,7 @@ impl BaseNeuve {
 #[tokio::test]
 async fn la_garde_du_catalogue_sur_une_base_neuve_puis_apres_rejeu() {
     let Some(base) = BaseNeuve::creer().await else {
-        return;
+        return eprintln!("skip: ENT_DATABASE_URL (la garde du catalogue n'a PAS été éprouvée)");
     };
     let resultat = tokio::spawn({
         let url = base.url.clone();
@@ -469,6 +611,10 @@ async fn la_garde_du_catalogue_sur_une_base_neuve_puis_apres_rejeu() {
                 .unwrap();
             let v = violations(ent.pool()).await;
             assert!(v.len() == 1 && v[0].contains("pg_temp"), "{v:?}");
+            // On remet la clause : les négatifs ci-dessous partent d'une base conforme.
+            sqlx::query("ALTER FUNCTION public.ent_msg_retire_xid() SET search_path = pg_catalog, public, pg_temp").execute(ent.pool()).await.unwrap();
+            exiger_zero("avant les négatifs des listes", &violations(ent.pool()).await);
+            negatifs_des_listes(ent.pool()).await;
             ent.pool().close().await;
         }
     })
