@@ -461,10 +461,6 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Passe 3 du lot I5 (314) : décision caduque, séquence de l'ordre d'attente, réparation de la chaîne, gardes à
     // `search_path` fixé. 313 est versée et ne change pas (règle 25). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("314_inscription_decision_i5_passe3"),
-    // Passe 4 du lot I5 (315) : rang d'attente calculé en lecture (`rang_attente` en lecture seule), clé du verrou
-    // consultatif par offre, origine d'un vœu. 313 et 314 sont versées et ne changent pas (règle 25). Sous 3808 :
-    // `MIGRATION_TAG` inchangé.
-    m!("315_inscription_decision_i5_passe4"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
@@ -540,6 +536,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Suites d'I4 (passe 3) : contraintes nommées (motif du participant, acte des faits) ; 2828-2829 sont versées.
     // Règle 38 : APRÈS 690 (aucune fonction créée ici). `MIGRATION_TAG` inchangé (3808).
     m!("2830_internat_i4_suites"),
+    // Passe 4 du lot I5 (315) : rang d'attente calculé en lecture (`rang_attente` en lecture seule), clé du verrou
+    // consultatif par offre, origine d'un vœu. 313 et 314 sont versées et ne changent pas (règle 25). Règle 38 : en fin
+    // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("315_inscription_decision_i5_passe4"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
