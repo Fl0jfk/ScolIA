@@ -822,7 +822,7 @@ impl PgEnt {
         valider_regles(regles)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let statut: Option<(String,)> = sqlx::query_as(
-            "SELECT statut FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+            "SELECT statut FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
         )
         .bind(etab)
         .bind(campagne_id)
@@ -1168,8 +1168,9 @@ impl PgEnt {
             return Err(invalide("la pièce à reprendre est celle d'un autre enfant"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        // Deux dossiers : verrouillés dans l'ordre des UUID (deux réutilisations croisées ne s'interbloquent pas).
-        crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(&mut tx, etab, &[dossier_id, source_dossier_id], None, &[], true)
+        // Deux dossiers : leurs offres, puis les dossiers dans l'ordre des UUID (deux réutilisations croisées ne
+        // s'interbloquent pas), en un seul lot.
+        crate::inscriptions_attente::verrouiller_dossiers_tx(&mut tx, etab, None, &[dossier_id, source_dossier_id], &[])
             .await?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
         let src = dossier_tx(&mut tx, etab, source_dossier_id).await?;

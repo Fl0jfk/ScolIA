@@ -539,6 +539,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle 21, suites V5 passe 3 (plage d'extension 700–719) : compteur `version` des moyennes externes (jeton de
     // compare-et-écrit de la publication et du retrait). APRÈS 690 (règle 38) ; sa fonction porte son `search_path`.
     m!("700_eva_v5_suites_jeton_version"),
+    // Passe 4 du lot I5 (315) : rang d'attente calculé en lecture (`rang_attente` en lecture seule), clé du verrou
+    // consultatif par offre, origine d'un vœu. 313 et 314 sont versées et ne changent pas (règle 25). Règle 38 : en fin
+    // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("315_inscription_decision_i5_passe4"),
     // Suites E1 (493, plage 482–499 du socle 16, **après 690**, règle 38) : un fil dont le seul message est annulé n'est plus
     // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
     // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.

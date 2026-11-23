@@ -727,7 +727,9 @@ async fn i2_compteur_de_places_juste() {
     // La liste d'attente ne consomme rien et reçoit un rang.
     decider(dossiers[2], "liste_attente", false).await.unwrap();
     assert_eq!(places(&ent).await, (2, 0, 0, 1, 0, 1));
-    let (rang,): (Option<i32>,) = sqlx::query_as("SELECT rang_attente FROM ent_inscription_dossier WHERE id = $1")
+    // Passe 4 : le rang se **calcule** en lecture (la colonne stockée n'est plus écrite).
+    let (rang,): (Option<i64>,) = sqlx::query_as("SELECT ent_inscription_rang_attente($1, $2, false)")
+        .bind(etab)
         .bind(dossiers[2])
         .fetch_one(ent.pool_verif())
         .await

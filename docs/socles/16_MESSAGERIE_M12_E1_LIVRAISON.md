@@ -140,3 +140,6 @@ La PR n'a eu **aucune CI au bout de 10 min** (conflit avec ENT) : `origin/ENT` (
 
 ### CI, premier passage (ead821ca) : rouge, corrigé
 Un seul test en échec (tranche 7) : `ent-api::recette_personas_1::rp1_c11_bis_documents_famille_cloisonnes_par_foyer` — il posait en base un fil de relance **sans aucun message** et attendait que la famille (non créatrice) le voie ; c'est précisément ce que F-6 retire (un fil réel naît toujours avec son premier message). Le test donne maintenant son message à la relance (`ent_msg` du fil) ; rejoué en local : vert. (Le second job rouge, « Aucun test ne disparaît », est la conséquence du premier.) Le job `ent-api` n'était pas dans mes filtres locaux : à retenir pour une migration qui change `ent_msg_fil_lisible`.
+
+### Seconde fusion d'ENT (ae6e4fc1, I5 passe 4)
+Le correctif ci-dessus (b529b2f9) n'a eu aucune CI : ENT avait de nouveau avancé (PR « dirty »). `origin/ENT` ae6e4fc1 fusionné ; conflit `migrate.rs` seul : ordre final **690, 2830, 700, 315, 493** (493 en dernier, après toutes les migrations versées). Rejeu après fusion (base neuve) : `p3_`, `garde_`, `migrate`, `p2_f6` : **101 verts**.

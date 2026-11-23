@@ -82,14 +82,15 @@ pub(crate) const EN_COURS_DE_MODIFICATION: &str =
     "le dossier est en cours de modification : réessayez dans quelques instants";
 
 pub(crate) fn db(err: sqlx::Error) -> EntDbError {
-    // Concurrence : interblocage (40P01), échec de sérialisation (40001) et décision concurrente sur la même
-    // chaîne (violation d'unicité sur `ent_inscription_decision_*_uq`) sont un **conflit** à rejouer, jamais une
-    // erreur technique (D-069 F1).
+    // Concurrence : un échec de sérialisation (40001) et un verrou refusé (55P03) sont un **conflit** à rejouer. Un
+    // **interblocage (40P01)** n'en est plus un (passe 4, F5) : l'ordre des verrous étant unique, il signale un défaut
+    // technique ; il garde sa classe SQLSTATE (`DomainError::Reessayer`, 503), distincte d'un conflit métier, et aucun test
+    // ne l'accepte. Décision concurrente sur la même chaîne (violation d'unicité sur `ent_inscription_decision_*_uq`) :
+    // conflit à rejouer, jamais une erreur technique (D-069 F1).
     if let sqlx::Error::Database(d) = &err {
         let code = d.code();
         let code = code.as_deref().unwrap_or("");
-        // 55P03 : verrou non obtenu (`NOWAIT`) — jamais d'attente après l'offre, donc jamais d'interblocage.
-        if code == "40P01" || code == "40001" || code == "55P03" {
+        if code == "40001" || code == "55P03" {
             return EntDbError::ConflitDossier(EN_COURS_DE_MODIFICATION);
         }
         if code == "23505"
@@ -464,7 +465,7 @@ pub(crate) const COLS_DOSSIER: &str = "id, campagne_id, nature, statut, eleve_id
     eleve_date_naissance, eleve_sexe, eleve_ine, niveau_demande, regime_demande,
     parcours_demande, etablissement_origine, classe_cible_id, deposant_email,
     reutilise_identite, decision_motif, depose_le, valide_le, derniere_relance_le,
-    etat, etat_avant_blocage, reference, demarche_id, echeance_famille, rang_attente";
+    etat, etat_avant_blocage, reference, demarche_id, echeance_famille, NULL::int AS rang_attente";
 
 #[derive(sqlx::FromRow, Clone)]
 pub(crate) struct ResponsableRow {
@@ -648,9 +649,12 @@ pub(crate) async fn dossier_tx(
     etab: Uuid,
     id: Uuid,
 ) -> Result<DossierRow, EntDbError> {
+    // Passe 4 : les offres du dossier d'abord (verrou consultatif), puis le dossier (`FOR NO KEY UPDATE`) — l'ordre unique
+    // est posé en **un seul point** (`verrouiller_dans_l_ordre_tx`). Un dossier qui n'existe pas ne verrouille rien.
+    crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &[id], &[]).await?;
     sqlx::query_as::<_, DossierRow>(&format!(
         "SELECT {COLS_DOSSIER} FROM ent_inscription_dossier
-          WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+          WHERE etablissement_id = $1 AND id = $2"
     ))
     .bind(etab)
     .bind(id)
@@ -902,12 +906,22 @@ impl PgEnt {
     }
 
     pub(crate) async fn campagne_row(&self, etab: Uuid, id: Uuid) -> Result<CampagneRow, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        Self::campagne_row_tx(&mut tx, etab, id).await
+    }
+
+    /// Campagne lue sur la connexion de l'appelant (lecture cohérente : aucune autre connexion n'est ouverte).
+    pub(crate) async fn campagne_row_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        id: Uuid,
+    ) -> Result<CampagneRow, EntDbError> {
         sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2"
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .fetch_optional(conn)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -1427,8 +1441,8 @@ impl PgEnt {
         .ok_or_else(introuvable)
     }
 
-    async fn responsables_dossier(
-        &self,
+    async fn responsables_dossier_tx(
+        conn: &mut PgConnection,
         etab: Uuid,
         id: Uuid,
     ) -> Result<Vec<ResponsableRow>, EntDbError> {
@@ -1439,7 +1453,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(id)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .fetch_all(conn)
         .await
         .map_err(db)
     }
@@ -1452,20 +1466,30 @@ impl PgEnt {
         famille: bool,
         actions: Vec<String>,
     ) -> Result<DossierDto, EntDbError> {
-        let campagne = self.campagne_row(etab, d.campagne_id).await?;
-        // Une seule transaction, un seul instant : l'état, les pièces, le suivi et le rang se lisent ensemble.
+        // Une seule transaction, un seul instant, **une seule connexion** (passe 4, F1) : l'état du dossier (relu ici, dans le
+        // snapshot), la campagne, les responsables, les invitations, les pièces, le suivi, le rang et la fermeture se lisent
+        // ensemble. Aucune lecture n'ouvre une autre connexion pendant que celle-ci est tenue.
         let mut tx = TenantTx::begin_lecture_coherente(self.pool(), etab).await.map_err(db)?;
+        let d = sqlx::query_as::<_, DossierRow>(&format!(
+            "SELECT {COLS_DOSSIER} FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2"
+        ))
+        .bind(etab)
+        .bind(d.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        let campagne = Self::campagne_row_tx(&mut tx, etab, d.campagne_id).await?;
         let invitations: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT responsable_id, statut FROM ent_inscription_invitation
               WHERE etablissement_id = $1 AND dossier_id = $2",
         )
         .bind(etab)
         .bind(d.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let responsables = self
-            .responsables_dossier(etab, d.id)
+        let responsables = Self::responsables_dossier_tx(&mut tx, etab, d.id)
             .await?
             .into_iter()
             .map(|r| ResponsableDossierDto {
@@ -1558,6 +1582,11 @@ impl PgEnt {
                 .await?
                 .and_then(|p| i32::try_from(p).ok());
             }
+        } else if d.etat == "liste_attente" {
+            // Rang du personnel : calculé en lecture (passe 4), jamais lu d'une colonne.
+            d.rang_attente = crate::inscriptions_attente::position_attente_tx(&mut tx, etab, d.id)
+                .await?
+                .and_then(|p| i32::try_from(p).ok());
         }
         Ok(DossierDto {
             id: d.id,
@@ -1617,7 +1646,7 @@ impl PgEnt {
             demarche_id: Some(d.demarche_id),
             echeance_famille: d.echeance_famille,
             rang_attente: d.rang_attente,
-            fermeture: inscriptions_modele::fermeture_en_cours(self.pool(), etab).await?,
+            fermeture: inscriptions_modele::fermeture_en_cours_tx(&mut tx, etab).await?,
         })
     }
 
