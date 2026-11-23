@@ -85,3 +85,6 @@ Tables avec RLS **+1** (`ent_msg_annulation_garde` ; terme `+ 1` ajouté au comp
 - **ent-api** (labo) : `flux_limite` (7) et `tests_flux_m12` (4) : **11 tests, 0 échec**.
 - **clippy 1.99.0 `-D warnings`**, les trois commandes de la CI, `--locked` : **0 avertissement**, code retour 0 chacune. `cargo metadata --locked` dans `ent-rust/web` : réussi, `Cargo.lock` inchangés. fmt **ciblé** (`rustfmt` sur `flux_limite.rs`, `msg_xmin_gele.rs`, `tests_messagerie_p2.rs`) ; jamais `cargo fmt --all`.
 - Aucun `#[ignore]` ; aucune heure réelle ni jour UTC dans les tests (heure de la base, instants fixes pour les tests purs, « maintenant » de l'expéditeur = heure de la base + 3 h).
+
+### Tête et CI (passe 2)
+Tête testée par la CI : `db4db57d` (PR 128, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (run 45149627993). Le commit suivant ne touche que ce fichier de documentation.
