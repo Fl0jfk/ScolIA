@@ -143,3 +143,6 @@ Un seul test en échec (tranche 7) : `ent-api::recette_personas_1::rp1_c11_bis_d
 
 ### Seconde fusion d'ENT (ae6e4fc1, I5 passe 4)
 Le correctif ci-dessus (b529b2f9) n'a eu aucune CI : ENT avait de nouveau avancé (PR « dirty »). `origin/ENT` ae6e4fc1 fusionné ; conflit `migrate.rs` seul : ordre final **690, 2830, 700, 315, 493** (493 en dernier, après toutes les migrations versées). Rejeu après fusion (base neuve) : `p3_`, `garde_`, `migrate`, `p2_f6` : **101 verts**.
+
+### Tête et CI (passe 3)
+Tête testée par la CI : `a9aa9b06` (PR 133, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (tous les jobs, PostgreSQL 18). Les commits suivants ne touchent que ce fichier de documentation.
