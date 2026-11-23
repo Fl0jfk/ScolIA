@@ -235,3 +235,8 @@ Branche `ent-socle-41-code-i4-suites-2` (base `origin/ENT`, PR en brouillon vers
 
 ### Tests, compteurs, vérifications (suites 2)
 - **9 tests nouveaux** (`tests_internat_i4_suites2.rs` : `s4_fg_*` ×6, `s4_pointage_*` ×2, `s4_avis_regroupe_*` ×1) ; 1 test existant resserré (`s3_fg_*`). Compteurs (règle 28) : migrations +0, `MIGRATION_TAG`, `Action::TOUTES`, RLS, registre, `TABLES_ELEVE`, `SOURCES`, routes, événements, consommateurs : **inchangés**.
+- **Local** : base neuve `ent_i4s4_test` (PostgreSQL 16, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, série) : 9 tests `s4_*` verts, puis 388 tests (`internat`, `notif`, `migrat`, `garde_search_path`, `tests_rls`, `registre`) verts. `rustfmt` ciblé sur les fichiers propres à l'origine (pas de `cargo fmt --all`). Écart d'outillage : le conteneur n'a que rustc/clippy 1.97 ; clippy 1.99 (trois commandes, `ent-lab` compris) est celui de la CI.
+
+### Tête et CI (suites 2)
+- Tête de code : `8a5a086e` ; PR n° 135, en brouillon vers `ENT`. Aucune fusion d'`ENT` nécessaire.
+- CI « ENT Rust » sur `8a5a086e` : **verte**. Les commits suivants ne touchent que cette documentation.
