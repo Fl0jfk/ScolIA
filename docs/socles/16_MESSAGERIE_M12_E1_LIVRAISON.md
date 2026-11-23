@@ -51,5 +51,5 @@ Tables avec RLS **+0** ; registre des données inchangé (2 colonnes dans une ta
 - Mémoire : `CARGO_BUILD_JOBS=2` ou 3, `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_CODEGEN_UNITS=64` (une compilation d'`ent-api` a été tuée une fois par manque de mémoire, relancée avec 2 jobs).
 
 ## Tête et CI
-TETE_ET_CI
+Tête testée par la CI : `2351f28b` (PR 126, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (tous les jobs, PostgreSQL 18). Le commit suivant ne touche que ce fichier de documentation.
 
