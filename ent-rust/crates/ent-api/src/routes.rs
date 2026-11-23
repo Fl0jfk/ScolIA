@@ -193,6 +193,7 @@ pub fn router() -> Router<AppState> {
         .route("/copilote/ask", post(copilote_ask))
         .route("/copilote/capacites", get(copilote_capacites))
         .route("/devices/push", post(register_push_device))
+        .route("/devices/push/{id}", delete(desinscrire_push_device))
         .route("/eleves", post(create_eleve))
         .route("/eleves/search", get(search_eleves))
         .route("/eleves/labels", get(eleve_labels_batch))
@@ -872,6 +873,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::cahier_c5::routes());
     let r = r.merge(crate::cahier_c6::routes());
     let r = r.merge(crate::cahier_c7::routes());
+    let r = r.merge(crate::cahier_c8::routes());
+    let r = r.merge(crate::cahier_c9::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
     let r = r.merge(crate::dossier::routes());
@@ -890,6 +893,7 @@ pub fn router() -> Router<AppState> {
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     let r = r.merge(crate::inscriptions_pieces::routes());
+    let r = r.merge(crate::inscriptions_decisions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
     let r = r.merge(crate::edt_s2::routes());
     let r = r.merge(crate::edt_t5::routes());
@@ -917,6 +921,7 @@ pub fn router() -> Router<AppState> {
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
     let r = r.merge(crate::finances_comptes::routes());
+    let r = r.merge(crate::finances_grilles::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
     // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
@@ -3053,17 +3058,41 @@ async fn register_push_device(
             &body.platform,
             &body.token,
             body.app_id,
+            session.session_id,
         )
         .await
-        .map_err(map_db)?;
+        .map_err(|e| match e {
+            // M1 : session révoquée ou expirée au moment de l'inscription.
+            ent_db::EntDbError::Auth(ent_auth::AuthError::InvalidSession) => {
+                (StatusCode::UNAUTHORIZED, "Session invalide.".to_string())
+            }
+            e => map_db(e),
+        })?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
             "id": device.id,
             "platform": device.platform,
-            "token": device.token,
         })),
     ))
+}
+
+/// DS4 : retire l'inscription de notification d'un appareil de la personne connectée.
+async fn desinscrire_push_device(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let ok = state
+        .ent
+        .desinscrire_push_device(session.etablissement_id, session.user_id, id)
+        .await
+        .map_err(map_db)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "appareil introuvable".into()))
+    }
 }
 
 async fn me(
@@ -10476,34 +10505,48 @@ struct FluxQuery {
     apres: Option<chrono::DateTime<chrono::Utc>>,
     /// Second terme du curseur quand la réponse précédente était tronquée.
     apres_fil: Option<Uuid>,
+    /// Troisième terme du curseur (`nouveau` ou `retire`) quand la réponse précédente était tronquée.
+    apres_genre: Option<String>,
     attente: Option<u64>,
 }
 
 /// Fils lisibles par ce compte où un message est apparu depuis `apres` ; jamais de contenu (M12). Le jugement de
-/// lecture reçoit le **rôle de la session** (règle 1) ; un appel à la fois et au plus un par seconde par compte (F1).
+/// lecture reçoit le **rôle de la session** (règle 1) ; un appel à la fois et au plus un par seconde **par session** (F1, M-D).
 async fn flux_messagerie(
     State(state): State<AppState>,
     session: EntSession,
     axum::extract::Query(q): axum::extract::Query<FluxQuery>,
-) -> Result<Json<ent_db::FluxMessagerie>, (StatusCode, String)> {
-    let _place = crate::flux_limite::limite_flux().entrer(session.user_id).map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "Trop d'interrogations du flux : patientez avant de recommencer.".to_string(),
-        )
-    })?;
-    let flux = state
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // M-D : limite **par session** (un compte a plusieurs appareils), plafond par compte, `Retry-After` sur 429 ;
+    // un rappel de pagination (réponse précédente tronquée) n'est jamais refusé.
+    let mut place = match crate::flux_limite::limite_flux().entrer(session.user_id, session.session_id) {
+        Ok(place) => place,
+        Err(refus) => {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(axum::http::header::RETRY_AFTER, refus.retry_after_secondes().to_string())],
+                "Trop d'interrogations du flux : patientez avant de recommencer.".to_string(),
+            )
+                .into_response();
+        }
+    };
+    let flux = match state
         .ent
         .flux_messagerie_for_actor(
             session.etablissement_id,
             session.user_id,
             &session.role,
-            q.apres.map(|a| (a, q.apres_fil)),
+            q.apres.map(|a| (a, q.apres_fil, q.apres_genre.clone())),
             q.attente.unwrap_or(0),
         )
         .await
-        .map_err(map_db)?;
-    Ok(Json(flux))
+    {
+        Ok(flux) => flux,
+        Err(e) => return map_db(e).into_response(),
+    };
+    place.marquer_tronque(flux.tronque);
+    Json(flux).into_response()
 }
 
 async fn marquer_fil_lu(

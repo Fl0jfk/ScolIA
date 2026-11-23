@@ -52,12 +52,12 @@ Niveau : **implémenté et testé en local, non validé par Florian, non prêt p
 **Premier échec de `corr_f1` sur base neuve (diagnostic).** Cause : le test attendait un **conflit** pour « un autre que l'auteur » alors que le domaine (`plan_attacher_piece`) refuse avant le dépôt par `MsgPiecePasAuteur` ; ce n'était ni l'ordre des migrations ni une course. Ce n'était donc pas « à surveiller » : une attente fausse, remplacée par l'erreur exacte (voir ci-dessus). Sur la base neuve `ent_s16_test`, `corr_f1` réussit dès le premier lancement.
 
 ### Contrat du flux (modifié)
-`GET /messages/flux?apres=<instant>&apres_fil=<uuid>&attente=<s ≤ 25>` → `{ curseur, curseur_fil, tronque, resynchro, fils: [{ fil_id, instant, genre }] }`. Sans `apres` : curseur de départ seulement. `tronque` : rappeler aussitôt avec `curseur` et `curseur_fil`. `resynchro` : recharger les listes, puis repartir de `curseur`. Aucun contenu.
+`GET /messages/flux?apres=<instant>&apres_fil=<uuid>&apres_genre=<nouveau|retire>&attente=<s ≤ 25>` → `{ curseur, curseur_fil, curseur_genre, tronque, resynchro, fils: [{ fil_id, instant, genre }] }` (position = `(instant, fil, genre)` complète). Sans `apres` : curseur de départ seulement. `tronque` : rappeler aussitôt avec `curseur`, `curseur_fil` et `curseur_genre` (jamais refusé, voir « Suites du flux M12 »). Réponse 429 : en-tête `Retry-After`. `resynchro` : recharger les listes, puis repartir de `curseur`. Aucun contenu.
 
 ### Non fait / limites connues
 1. **Toujours pas de SSE ni de `LISTEN/NOTIFY`** (voir plus haut).
-2. Le curseur d'une réponse **non tronquée** peut rester en arrière d'une transaction longue d'un autre traitement (doublons inoffensifs, pas de perte) ; combiné à ≥ 200 événements en attente, le client est ramené par `resynchro` passé 600 s. La visibilité de `xact_start` suppose que le rôle de l'application soit celui des transactions de messagerie (même rôle partout ici) ; sans cela, retour à la seule marge de 5 s (comportement antérieur).
-3. Le limiteur est **en mémoire du processus** (comme l'anti-abus de connexion) : avec plusieurs instances, la limite est par instance.
+2. *(Remplacé par « Suites du flux M12 » : la borne ne recule plus au-delà de la fenêtre moins 60 s ; la visibilité de `xact_start` est vérifiée au démarrage.)*
+3. Le limiteur est **en mémoire du processus** (comme l'anti-abus de connexion) : avec plusieurs instances, la limite est par instance. *(Depuis « Suites du flux M12 » : par session, plus par compte.)*
 4. `created_at` rendu par l'insertion d'un message (objet `Message` du service) reste l'horodatage d'application ; seul l'horodatage **stocké** vient de la base. Aucun appelant ne s'en sert pour le flux.
 5. Le labo est partagé entre les tests d'un même processus : les tests de flux filtrent sur leurs propres fils (CI : un test à la fois par job).
 6. Toujours non faits : brouillons hors ligne, dictée, M7–M11, M13–M17, écran Leptos.
@@ -74,3 +74,42 @@ Tables avec RLS : **+0** ; `Action::TOUTES` inchangé ; routes **+0** (la route 
 ### Résultat final (local)
 - ent-db (labo, base neuve, un test à la fois) : filtres `tests_messagerie`, `garde_messagerie`, `isolation_sql_statique`, `jour_utc_interdit` : **128 tests, 0 échec** (127 au premier passage ; le seul échec était une hypothèse fausse de mon test M3 — le fil avait déjà un premier message remis —, corrigée en comparant les **instants**, puis les 9 tests `revue_*` rejoués verts). ent-api : `flux` (3 tests dont le test HTTP) verts.
 - clippy 1.99.0 `-D warnings`, les trois commandes de la CI (`--workspace --all-targets` ; avec `ent-api/labo,ent-lab/labo` ; `-p ent-types`) : **0 avertissement**, code retour 0 ; compilation des tests : 0 avertissement. `cargo metadata --locked` dans `ent-rust/web` : réussi.
+
+## Suites du flux M12 (contre-revue du pilote, 2026-11-22)
+
+Niveau : **implémenté et testé en local, non validé par Florian, non prêt pilote.** Branche `ent-socle-16-code-m12-suites`, partie d'`origin/ENT` (bc69cd0d). Base PostgreSQL 16 locale neuve `ent_s16m12_test` (nom « test », rôle superutilisateur local, mot de passe de test), `ENT_EXIGER_BASE=1`, `RUST_MIN_STACK=16777216`. **Aucune migration** (plage 491–497 toujours libre) ; aucune donnée ni secret de production.
+
+Règles tenues : (1) le curseur ne saute jamais un événement et progresse toujours ; (2) le temps réel marche sur plusieurs appareils ; (3) un non-auteur ne distingue jamais un différé d'autrui d'un identifiant inconnu ; (4) une seule horloge, la base.
+
+### Fait
+| Point | Correctif | Test |
+|---|---|---|
+| **M-A** | `msg_repo::borne_sure` (fonction pure) : `min(maintenant − 5 s, début de la plus ancienne transaction visible)`, **jamais plus vieille que la fenêtre − 60 s (540 s)**. Une transaction de plusieurs heures (autovacuum, sauvegarde, « idle in transaction ») ne fige plus le curseur : il reste dans la fenêtre, donc plus de `resynchro` en boucle. Limite assumée : un message validé par une transaction de plus de 540 s peut être raté (la fenêtre de 600 s l'aurait de toute façon rejeté) | `borne_sure_progresse_toujours_…` (instants injectés : 2 s, 30 s, 601 s, 1 h, 24 h) ; `revue_ma_curseur_progresse_avec_une_transaction_ouverte_…` (transaction ouverte : pas de `resynchro`, le curseur avance) |
+| **M-B** | Liste tronquée : le curseur rendu est la position du dernier événement **si elle est ≤ la borne sûre** ; sinon on ne rend que le stable (≤ borne) et le curseur est la borne (le reste est relu à l'appel suivant, la borne progresse). La troncature est donc bornée par la limite sûre | `revue_mb_troncature_borne_le_curseur_par_la_limite_sure` |
+| **M-C** | `annuler_message_differe_for_actor`, `message_de_l_auteur` (corriger, retirer) : `message_differe_d_autrui` **avant** le jugement d'auteur → `NotFound` identique à un identifiant inconnu ; message remis d'autrui : `Forbidden` exact | `revue_mc_differe_d_autrui_est_un_404_sur_annuler_corriger_et_retirer` |
+| **M-D** | Limiteur **par session** (`session_id`) : un appel à la fois et un début par seconde par session ; plafond de 8 appels simultanés par compte ; `Retry-After` sur tout 429 ; une réponse `tronque` libère le rappel immédiat de la session (c'est le serveur qui s'en souvient, pas un paramètre contournable) : la pagination n'est jamais refusée | `flux_limite::tests` (horloge injectée : deux sessions d'un compte, plafond, pagination tronquée ×50 sans refus, `Retry-After`) ; HTTP : deux sessions d'un même compte reçoivent toutes deux l'événement, seconde session servie pendant qu'un appel de la première attend |
+| **M-E** | `PgEnt::verifier_flux_messagerie` appelé au démarrage (`boot_from_env`) : si le rôle de l'application n'a ni `pg_read_all_stats` ni le droit superutilisateur, **erreur journalisée** (« GRANT pg_read_all_stats TO <rôle> ») ; la borne retombe alors sur la marge de 5 s. La dépendance reste, mais elle est vérifiée et le curseur progresse sans elle (M-A) | `revue_m3_message_valide_tard_n_est_pas_perdu` affirme que la transaction ouverte est visible et que la vérification réussit |
+| **F-1** | Le test HTTP de concurrence passe `apres=<instant>` (futur : l'appel attend vraiment) : refus `Concurrent`, pas `TropVite` | `tests_flux_m12` |
+| **F-2** | Plus de `sleep` comme preuve : le test M3 (attente de 6 s) devient une vérification de visibilité de la transaction ; M2/MB reculent explicitement les instants ; le test HTTP attend une **barrière** (place du compte prise), plus 500 ms ni 1,2 s ; limiteur à horloge injectée | idem |
+| **F-3** | Le participant sans droit est **construit** (professeur d'une autre classe que celle de l'élève), la précondition « ne peut pas lire » est affirmée sans condition | `revue_m1_…` |
+| **F-4** | Position complète `(instant, fil, genre)` : `curseur_genre` rendu, `apres_genre` accepté (compatible : absent = pas de genre) | `revue_f4_curseur_a_trois_termes_aucun_saut_entre_genres` |
+| **F-5** | Règle 4 : les délais de correction (15 min) et de retrait (10 min) se mesurent sur `now()` de la base (`maintenant_base`), comme `created_at`. `created_at` d'un message = `clock_timestamp()` (distinct par message, même dans une transaction) et la lecture trie `created_at, id` : ordre stable | `revue_f5_delais_sur_l_horloge_de_la_base_et_ordre_stable` |
+| **F-6** | Le flux juge **tous** les candidats en un seul passage : `get_fils_lot` (1 requête) + `actor_can_access_fils_lot` (droits de l'acteur calculés une fois ; boîtes, élèves protégés, périmètre et participation groupés) au lieu de `get_fil` + `actor_can_access_fil` par fil | `revue_f6_jugement_groupe_equivaut_a_la_boucle_et_va_plus_vite` : équivalence avec le jugement individuel pour 7 acteurs (famille ×2, direction, deux professeurs, CPE, administratif) et temps mesuré pour 200 candidats |
+| **F-7** | Documentation à jour (contrat du flux, limites 2 et 3 ci-dessus) | — |
+
+### Découvert, non corrigé (hors périmètre)
+Corriger son message **différé** puis l'**annuler** échoue (`Domain(ReferenceInconnue)`) : la version conservée (`ent_msg_version`, ajout seul) empêche la suppression du message. À traiter avec M4 (annulation : conserver ou purger les versions d'un message jamais remis, décision de conception).
+
+### Non fait / limites
+1. Toujours pas de SSE ni de `LISTEN/NOTIFY`. 2. Le limiteur reste en mémoire du processus (par instance). 3. Pas de test HTTP d'une pagination tronquée (il faudrait plus de 200 événements) : couverte au niveau du limiteur et du dépôt. 4. Pas de test HTTP du rappel immédiat refusé (dépendrait de l'horloge réelle) : couvert avec horloge injectée. 5. Un message validé par une transaction de plus de 540 s peut être raté (voir M-A). 6. Brouillons hors ligne, dictée, M7–M11, M13–M17, écran Leptos : non faits.
+
+### Compteurs (règle 28, depuis `origin/ENT` bc69cd0d)
+Tables avec RLS : **+0** ; `Action::TOUTES` inchangé ; routes **+0** ; `MIGRATION_TAG` inchangé ; migrations **0**. Garde de lecture : `get_fils_lot` classée « par identifiant ».
+
+### Résultats
+- **ent-db** (labo, base neuve, un test à la fois) : filtres `tests_messagerie`, `garde_messagerie`, `isolation_sql_statique`, `jour_utc_interdit`, `borne_sure` : **135 tests, 0 échec** (134 au premier passage complet ; le seul échec était une entrée périmée de la garde de lecture, corrigée, `garde_messagerie` rejoué : 6 verts). Avant cela, deux passes ont fait échouer mes propres tests neufs (instants récents : l'événement d'un fil est celui de son dernier message, donc tous les messages du fil doivent être reculés ; borne de comparaison calculée avant l'appel) : défauts de test, pas du code.
+- **ent-api** : filtre `flux` : **7 tests verts** (limiteur ×5 dont horloge injectée, HTTP flux 1, dont deux sessions d'un compte).
+- **clippy 1.99.0 `-D warnings`**, les trois commandes de la CI (`--workspace --all-targets` ; avec `ent-api/labo,ent-lab/labo` ; `-p ent-types`) : **0 avertissement**, code retour 0 chacune. Un premier passage avait relevé deux erreurs (méthode de test non utilisée hors labo ; `Err` de 128 octets dans le gestionnaire) : corrigées. `cargo metadata --locked` dans `ent-rust/web` : réussi. fmt **ciblé** (`rustfmt` sur `flux_limite.rs` et `tests_flux_m12.rs`, fichiers neufs d'`ent-api`) ; pas de `cargo fmt --all`.
+- Temps de F-6 (200 candidats) : voir la sortie `--nocapture` du test ; l'assertion exige groupé < boucle et < 2 s.
+- Tête et CI : voir ci-dessous (complétés après la CI).
+

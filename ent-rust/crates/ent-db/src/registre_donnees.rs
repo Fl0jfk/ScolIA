@@ -111,6 +111,10 @@ pub struct ClasseTable {
     /// Colonnes que l'export de la personne ne rend JAMAIS (motif écrit, demandeur… : elles révèlent un tiers ou une
     /// décision interne). Vide pour la plupart des tables ; l'assemblage de l'extrait les retire (lot G3).
     pub colonnes_hors_export: &'static [&'static str],
+    /// Condition SQL (alias `x`) que doit remplir une ligne pour entrer dans l'export de la personne : ce qui n'est pas
+    /// encore **publié** à la famille n'est jamais exporté (décision prise mais non publiée, suivi qui la révèle).
+    /// L'assemblage de l'extrait (lot G3) l'applique ; vide pour la plupart des tables.
+    pub export_si: Option<&'static str>,
     pub neutralisation: Neutralisation,
     pub retention: Retention,
     exceptions: [Option<&'static str>; 3],
@@ -146,6 +150,7 @@ const fn t(nom: &'static str, domaine: &'static str, portee: Portee) -> ClasseTa
         fichiers: Fichiers::Aucun,
         export_portabilite: false,
         colonnes_hors_export: &[],
+        export_si: None,
         neutralisation: Neutralisation::Aucune,
         retention: Retention::ADefinir,
         exceptions: [None; 3],
@@ -173,6 +178,11 @@ impl ClasseTable {
     /// Colonnes retirées de l'export de portabilité de la personne (voir [`ClasseTable::colonnes_hors_export`]).
     const fn hors_export(mut self, colonnes: &'static [&'static str]) -> Self {
         self.colonnes_hors_export = colonnes;
+        self
+    }
+    /// Condition de ligne de l'export de portabilité (voir [`ClasseTable::export_si`]).
+    const fn export_si(mut self, condition: &'static str) -> Self {
+        self.export_si = Some(condition);
         self
     }
     /// Table hors « par établissement » qui porte tout de même `etablissement_id`.
@@ -205,6 +215,10 @@ const N_DEM_ECHEANCE: Neutralisation = Neutralisation::Maj {
 const N_ESPACE_RESERVATION: Neutralisation = Neutralisation::Maj {
     set: "liberee_le = now(), liberee_motif = 'restauration'",
     ou: "confirmee_le IS NULL AND liberee_le IS NULL",
+};
+const N_PUSH_DEVICE: Neutralisation = Neutralisation::Maj {
+    set: "revoked_at = now(), revoque_motif = 'restauration'",
+    ou: "revoked_at IS NULL",
 };
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {
     set: "statut = 'echec', derniere_erreur = 'neutralise_restauration'",
@@ -433,13 +447,17 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_carnet_entree", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_catalogue_indicateur", "dossier_eleve", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "catalogue du logiciel (pastilles de l'élève), égal à `domain_eleve::CATALOGUE_INDICATEURS`, évolue par migration, jamais modifié par un établissement"),
     t("ent_cdt_abonnement", "cahier_textes", Portee::Etablissement).perso().export(),
+    t("ent_cdt_acces_inspection", "cahier_textes", Portee::Etablissement).perso().export(),
+    t("ent_cdt_acces_inspection_cours", "cahier_textes", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : datée par l'accès d'inspection"),
+    t("ent_cdt_acces_inspection_historique", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_affichage", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_alerte_charge", "cahier_textes", Portee::Etablissement),
     t("ent_cdt_amenagement_simule", "cahier_textes", Portee::Etablissement).perso(),
     t("ent_cdt_archive", "cahier_textes", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),
+    t("ent_cdt_cloture", "cahier_textes", Portee::Etablissement).perso(),
     t("ent_cdt_coche", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_consentement_exemple", "cahier_textes", Portee::Etablissement).perso().export(),
-    t("ent_cdt_consultation", "cahier_textes", Portee::Etablissement).perso(),
+    t("ent_cdt_consultation", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_continuite", "cahier_textes", Portee::Etablissement).perso(),
     t("ent_cdt_continuite_cours", "cahier_textes", Portee::Etablissement).perso(),
     t("ent_cdt_contribution", "cahier_textes", Portee::Etablissement).perso().export(),
@@ -452,6 +470,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_cdt_entree", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_entree_notion", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_entree_version", "cahier_textes", Portee::Etablissement).perso().export(),
+    t("ent_cdt_export", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_groupe", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_groupe_membre", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
@@ -463,6 +482,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_cdt_panne", "cahier_textes", Portee::Etablissement),
     t("ent_cdt_piece", "evaluations_pedagogie", Portee::Etablissement).perso().fichiers(Fichiers::Objet).export(),
     t("ent_cdt_piece_jointe", "cahier_textes", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),
+    t("ent_cdt_progression", "cahier_textes", Portee::Etablissement).perso().export(),
+    t("ent_cdt_progression_etape", "cahier_textes", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : datée par la progression"),
+    t("ent_cdt_progression_partage", "cahier_textes", Portee::Etablissement).perso().export(),
     t("ent_cdt_quarantaine", "cahier_textes", Portee::Etablissement),
     t("ent_cdt_reglage", "cahier_textes", Portee::Etablissement),
     t("ent_cdt_reglage_format", "cahier_textes", Portee::Etablissement),
@@ -723,6 +745,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_fin_entite_facturation", "finances", Portee::Etablissement),
     t("ent_fin_export", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_export_piece", "finances", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : datée par ent_fin_export"),
+    t("ent_fin_famille_type", "finances", Portee::Etablissement),
+    t("ent_fin_famille_type_enfant", "finances", Portee::Etablissement),
+    t("ent_fin_grille_version", "finances", Portee::Etablissement),
     t("ent_fin_journal", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_lettrage", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_palier_relance", "finances", Portee::Etablissement).exc(Exception::SansHorodatage, "paramétrage financier sans historique"),
@@ -735,8 +760,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_fin_rejet", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_relance", "finances", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("les relances sont proposées puis décidées par un humain : aucun envoi automatique")),
     t("ent_fin_reprise_rapport", "finances", Portee::Etablissement),
+    t("ent_fin_simulation", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_calcul", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_effectif", "finances", Portee::Etablissement),
+    t("ent_fin_simulation_regle", "finances", Portee::Etablissement),
     t("ent_fin_tache", "finances", Portee::Etablissement).perso().export(),
     t("ent_fin_tarif", "finances", Portee::Etablissement),
+    t("ent_fin_tranche_qf", "finances", Portee::Etablissement),
     t("ent_fonction", "personnels", Portee::Etablissement).exc(Exception::EtabNullable, "fonctions nationales/communes sans établissement (etablissement_id NULL autorisé)"),
     t("ent_formulaire", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_formulaire_reponse", "dossier_eleve", Portee::Etablissement).perso().export(),
@@ -776,14 +806,30 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_accord", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_accord_demande", "inscriptions", Portee::Etablissement).perso().neutralise(N_PURGE),
     t("ent_inscription_accord_trace", "inscriptions", Portee::Etablissement).perso().export(),
+    // F8 : un avis interne n'est jamais rendu à la personne concernée (ni famille, ni candidat majeur).
+    t("ent_inscription_avis", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_campagne", "inscriptions", Portee::Etablissement),
     t("ent_inscription_campagne_niveau", "inscriptions", Portee::Etablissement).exc(Exception::SansHorodatage, "ligne fille : datée par la campagne d'inscription"),
     t("ent_inscription_campagne_piece", "inscriptions", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : datée par la campagne d'inscription"),
     t("ent_inscription_campagne_version", "inscriptions", Portee::Etablissement),
-    t("ent_inscription_decision", "inscriptions", Portee::Etablissement).perso().export(),
+    t("ent_inscription_commission", "inscriptions", Portee::Etablissement).perso(),
+    t("ent_inscription_commission_dossier", "inscriptions", Portee::Etablissement).perso(),
+    t("ent_inscription_condition", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "remplie_par", "source_ref"]),
+    // Journal des levées (motif, auteur) : interne, jamais exporté.
+    t("ent_inscription_condition_levee", "inscriptions", Portee::Etablissement).perso(),
+    t("ent_inscription_condition_param", "inscriptions", Portee::Etablissement),
+    // F8 : le motif interne ne quitte jamais le personnel ; le déport (identité d'un agent) et le procès-verbal de
+    // commission (document collectif de l'établissement) ne sont pas exportés non plus.
+    t("ent_inscription_decision", "inscriptions", Portee::Etablissement).perso().export()
+        .hors_export(&["motif_interne", "decide_par", "publiee_par", "commission_id", "publication_prevue_le", "origine"])
+        .export_si("x.publiee_le IS NOT NULL"),
     t("ent_inscription_declaration_responsable", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_demarche", "inscriptions", Portee::Etablissement),
-    t("ent_inscription_dossier", "inscriptions", Portee::Etablissement).perso().export(),
+    t("ent_inscription_deport", "inscriptions", Portee::Etablissement).perso(),
+    t("ent_inscription_dossier", "inscriptions", Portee::Etablissement).perso().export()
+        // État interne, rang brut, motif et auteur de la décision : ce que la famille lit est l'état **visible**
+        // (`visibilite_famille_tx`, rang `rang_famille_tx`), assemblé par l'extrait, jamais ces colonnes (D-069 M-D).
+        .hors_export(&["decision_motif", "decide_par", "etat", "etat_avant_blocage", "statut", "rang_attente", "ordre_attente", "offre_attente_id", "echeance_famille"]),
     t("ent_inscription_envoi", "inscriptions", Portee::Etablissement).perso().neutralise(N_INSENVOI).exc(Exception::SansRls, "worker d'envoi des e-mails d'inscription : relève les envois dus de tous les établissements en un lot (`FOR UPDATE SKIP LOCKED`)"),
     t("ent_inscription_fermeture", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_invitation", "inscriptions", Portee::Etablissement).perso().neutralise(N_INSINV).exc(Exception::SansRls, "jeton d'invitation résolu avant de connaître l'établissement (lien reçu par e-mail) ; relue aussi par le worker d'envoi transverse"),
@@ -796,12 +842,16 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_inscription_piece_regle", "inscriptions", Portee::Etablissement).export(),
     t("ent_inscription_piece_regle_condition", "inscriptions", Portee::Etablissement).export().exc(Exception::SansHorodatage, "ligne fille : datée par la règle de pièce"),
     t("ent_inscription_prolongation", "inscriptions", Portee::Etablissement).perso().export(),
+    t("ent_inscription_proposition_place", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["motif", "envoyee_par", "rang_au_moment"]),
     t("ent_inscription_reference_compteur", "inscriptions", Portee::Etablissement).exc(Exception::SansHorodatage, "compteur technique (références de dossier), valeur seule"),
     t("ent_inscription_reprise_rapport", "inscriptions", Portee::Etablissement).perso(),
     t("ent_inscription_resolution", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_responsable", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_inscription_suivi", "inscriptions", Portee::Etablissement).perso().export(),
-    t("ent_inscription_suivi_dossier", "inscriptions", Portee::Etablissement).perso().export(),
+    t("ent_inscription_suivi_dossier", "inscriptions", Portee::Etablissement).perso().export().hors_export(&["texte", "auteur_user_id", "decision_id"])
+        // Une ligne rattachée à une décision n'est exportée qu'une fois cette décision publiée : ni `statut_avant` ni
+        // `statut_apres` d'un changement d'état encore caché à la famille (D-069 M-D).
+        .export_si("x.decision_id IS NULL OR EXISTS (SELECT 1 FROM ent_inscription_decision d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.decision_id AND d.publiee_le IS NOT NULL)"),
     t("ent_inscription_voeu", "inscriptions", Portee::Etablissement).perso().export(),
     t("ent_internat_absence", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_affectation", "vie_pratique", Portee::Etablissement).perso().export(),
@@ -969,7 +1019,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_psy_rdv", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_punition", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_punition_type", "vie_scolaire", Portee::Etablissement),
-    t("ent_push_device", "communication_technique", Portee::Etablissement).perso().export(),
+    // MB0 (DS5, F5) : la personne reçoit les métadonnées de ses appareils (plateforme, dates, état), jamais le
+    // jeton ni son empreinte ; à la restauration, tous les appareils actifs sont révoqués (plus aucun envoi).
+    t("ent_push_device", "communication_technique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["token", "token_empreinte"])
+        .neutralise(N_PUSH_DEVICE),
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
     t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
@@ -1006,8 +1062,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sms_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_sortie", "sorties_voyages", Portee::Etablissement).perso().export(),
     t("ent_sortie_acompte_fournisseur", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_aide", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_acces", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_demande", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_export", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_issue", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_reglage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_autorisation", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_sortie_avenant", "sorties_voyages", Portee::Etablissement),
@@ -1030,6 +1089,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_exigence", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_exigence_fait", "sorties_voyages", Portee::Etablissement).perso().fichiers(Fichiers::Objet),
     t("ent_sortie_frais_reel", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_internat_retrait", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_internat_retrait_fin", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal_delegue", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_journal_lien", "sorties_voyages", Portee::Etablissement).perso(),
@@ -1056,6 +1117,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_repas_externe", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_repas_ligne", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_reponse_cle", "sorties_voyages", Portee::Etablissement).neutralise(N_REPONSE_CLE),
+    t("ent_sortie_report", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_reprise_ecart", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_reprise_participant", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_reprise_sejour", "sorties_voyages", Portee::Etablissement).perso(),

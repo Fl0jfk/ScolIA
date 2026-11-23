@@ -29,7 +29,7 @@ use crate::routes::map_db;
 use crate::tenant::{mode_tenant, ModeTenant, TenantHote};
 use crate::AppState;
 
-type Res<T> = Result<T, (StatusCode, String)>;
+pub(crate) type Res<T> = Result<T, (StatusCode, String)>;
 
 /// Corps maximal d'un dépôt : 45 Mio de fichiers (limite du socle 7) en base64.
 const DEPOT_CORPS_MAX: usize = 64 * 1024 * 1024;
@@ -71,7 +71,7 @@ pub fn routes() -> Router<AppState> {
         .route("/accords/{id}/repondre", post(accord_repondre))
 }
 
-fn map(err: ent_db::EntDbError) -> (StatusCode, String) {
+pub(crate) fn map(err: ent_db::EntDbError) -> (StatusCode, String) {
     match &err {
         ent_db::EntDbError::Auth(ent_auth::AuthError::InvalidSession) => (
             StatusCode::UNAUTHORIZED,
@@ -81,7 +81,7 @@ fn map(err: ent_db::EntDbError) -> (StatusCode, String) {
     }
 }
 
-fn jeton(headers: &HeaderMap) -> Res<String> {
+pub(crate) fn jeton(headers: &HeaderMap) -> Res<String> {
     headers
         .get(ENTETE_JETON)
         .and_then(|v| v.to_str().ok())
@@ -94,11 +94,11 @@ fn jeton(headers: &HeaderMap) -> Res<String> {
         ))
 }
 
-fn corps<T>(b: Result<Json<T>, JsonRejection>) -> Res<T> {
+pub(crate) fn corps<T>(b: Result<Json<T>, JsonRejection>) -> Res<T> {
     b.map(|Json(v)| v).map_err(|e| (e.status(), e.body_text()))
 }
 
-async fn etab_jeton(state: &AppState, tenant: &TenantHote, j: &str) -> Res<Uuid> {
+pub(crate) async fn etab_jeton(state: &AppState, tenant: &TenantHote, j: &str) -> Res<Uuid> {
     if let Some(e) = tenant.etablissement_id {
         return Ok(e);
     }

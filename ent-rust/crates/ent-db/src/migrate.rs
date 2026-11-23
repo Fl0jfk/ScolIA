@@ -265,6 +265,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot F2 : comptes débiteurs, désignations datées, prises en charge, tâches, reprise MIG-4. Référence
     // `ent_personne` (120, 260), `ent_foyer` (007, 260), `ent_eleve` (482) : placée après eux, avant les lots RLS 58x.
     m!("522_finances_f2_comptes_payeurs"),
+    m!("523_finances_f3_catalogue_grilles"),
     m!("560_delegation_droits_normalises"),
     m!("561_inscription_resolution"),
     m!("562_inscription_scolarite_actuelle"),
@@ -296,6 +297,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("650_sortie_argent_suivi"),
     m!("651_sortie_argent_bordereaux"),
     m!("652_sortie_contournement_devis_code"),
+    m!("653_sortie_argent_aides_reports"),
     m!("661_d036_corrections_lot1"),
     m!("662_d036_profil_jours_ouvres"),
     m!("663_d036_parametre_type"),
@@ -355,6 +357,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2416_cdt_c5_rendu_retour"),
     m!("2417_cdt_c6_continuite"),
     m!("2418_cdt_c7_adaptations"),
+    // Socle 20, C8 et C9 : premiers numéros libres de la plage 2400–2419 (2407 et 2408, jamais utilisés) ; placés après 2418
+    // car elles s'appuient sur 2410 (visa) et 2411 (archive). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2407_cdt_c8_visa_inspection_archive"),
+    m!("2408_cdt_c9_progressions"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
     // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
@@ -393,6 +399,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // « soir » complémentaire, attendu qui lit les absences et les sorties. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2826_internat_i3_absences_sorties"),
     m!("2827_internat_i3_suites"),
+    // Socle 42, lot V3 : lien séjour ↔ internat ; référence `ent_internat_retrait` (2824), d'où l'ordre APRÈS le socle 41.
+    m!("654_sortie_internat_lien"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),
@@ -442,6 +450,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("310_inscription_piece_regle"),
     m!("311_inscription_piece_fichier"),
     m!("312_inscription_accord"),
+    // Socle 3, lot I5 (plage 313–329) : décisions en ajout seul, avis, commissions, liste d'attente, propositions, conditions.
+    m!("313_inscription_decision_i5"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
@@ -456,6 +466,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // en dernier (elle remplace des fonctions de 299 et lit des tables de plusieurs socles) ; sous 3808, donc
     // `MIGRATION_TAG` inchangé (règle 28).
     m!("3200_eleve_e9_pastilles_statut_contraintes"),
+    // Socle 11, lot MB0 (plage 2220–2239) : appareils push liés à la session, révocation en cascade (DS1, DS3) ; sous 3808.
+    m!("2220_mob_mb0_appareils_push"),
     // Messagerie, lots M5 et M6 (plage 488–493 du repli 480–499) : 488 référence `ent_doc_document` (socle 7, 3701) et
     // modifie `ent_msg_piece` (038, 601) ; appliquées donc APRÈS 3701. Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
     m!("488_msg_m5_pieces"),
@@ -665,6 +677,27 @@ const GARDES_DE_REJEU: &[(&str, &str)] = &[
         END IF;
     END $$",
     ),
+    // 2412 rejoue la reprise de l'ancien cahier (`SELECT … FROM ent_cdt_reprise(NULL)`) ; en installation elle passe
+    // avant 2407, mais au rejeu le gel des années closes (2407) existe déjà et refuserait, à raison, ses INSERT dans une
+    // année figée : le gel n'a AUCUNE exception (une exception par pile d'appel ou par drapeau est contournable). On
+    // retire donc ses déclencheurs juste avant 2412 ; 2407, rejouée plus loin dans le même rejeu, les recrée.
+    (
+        "2412_cdt_reprise",
+        "DO $$
+    DECLARE
+        t TEXT;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['ent_cdt_entree', 'ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_travail',
+                                 'ent_cdt_travail_version', 'ent_cdt_travail_cible', 'ent_cdt_travail_format', 'ent_cdt_variante',
+                                 'ent_cdt_variante_eleve', 'ent_cdt_contribution', 'ent_cdt_contribution_version', 'ent_cdt_lien',
+                                 'ent_cdt_piece_jointe', 'ent_cdt_report']
+        LOOP
+            IF to_regclass(t) IS NOT NULL THEN
+                EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
+            END IF;
+        END LOOP;
+    END $$",
+    ),
 ];
 
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
@@ -756,7 +789,7 @@ impl GardeRejeu {
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
 /// commentaire deviendrait une « requête »), blocs `$$ … $$` préservés.
-fn ordres(sql: &str) -> Vec<String> {
+pub(crate) fn ordres(sql: &str) -> Vec<String> {
     let sans_commentaires: String = sql
         .lines()
         .filter(|l| !l.trim_start().starts_with("--"))

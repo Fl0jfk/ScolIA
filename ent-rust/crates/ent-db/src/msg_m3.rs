@@ -396,6 +396,30 @@ impl PgEnt {
         })
     }
 
+    /// Version groupée d'[`Self::acces_personnel_fil_boite`] : pour chaque fil **de boîte** de `fils`, l'accès du
+    /// personnel (participation relue par `ent_msg_fil_lisible`) ; les fils ordinaires sont absents du résultat.
+    pub(crate) async fn acces_personnel_fils_boite_lot(
+        &self,
+        etab: Uuid,
+        user: Uuid,
+        fils: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, bool>, EntDbError> {
+        if fils.is_empty() {
+            return Ok(Default::default());
+        }
+        let lignes: Vec<(Uuid, bool)> = sqlx::query_as(
+            "SELECT f.id, EXISTS (SELECT 1 FROM ent_msg_fil_lisible($1, $3) l WHERE l.fil_id = f.id)
+               FROM ent_msg_fil f
+              WHERE f.etablissement_id = $1 AND f.id = ANY($2) AND f.nature = 'boite'",
+        )
+        .bind(etab)
+        .bind(fils)
+        .bind(user)
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .await?;
+        Ok(lignes.into_iter().collect())
+    }
+
     /// Boîte participante d'un fil et sa sensibilité (None si ce n'est pas un fil de boîte).
     async fn boite_du_fil(&self, etab: Uuid, fil: Uuid) -> Result<Option<(Uuid, String)>, EntDbError> {
         Ok(sqlx::query_as(

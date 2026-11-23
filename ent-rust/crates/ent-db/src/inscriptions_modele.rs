@@ -377,6 +377,7 @@ pub(crate) async fn retenir_voeu_tx(
     offre_voulue: Option<Uuid>,
     admis: bool,
     confirmer_depassement: bool,
+    passer_devant: crate::inscriptions_attente::PasserDevant<'_>,
 ) -> Result<Option<PlaceRetenue>, EntDbError> {
     let offre: Option<Uuid> = match offre_voulue {
         Some(o) => {
@@ -442,6 +443,13 @@ pub(crate) async fn retenir_voeu_tx(
                     ));
                 }
                 depassement = true;
+            } else {
+                // D-069 M5 : une admission directe ne consomme pas la place déjà désignée au premier de la liste
+                // sans confirmation explicite, motivée et tracée.
+                crate::inscriptions_attente::reprendre_place_designee_tx(
+                    conn, etab, offre, d.id, dispo, passer_devant,
+                )
+                .await?;
             }
         }
     }
@@ -513,14 +521,21 @@ pub(crate) async fn retenir_voeu_tx(
             .map_err(db)?,
         )
     };
+    // Entrée sur la liste : ordre d'entrée jamais renuméroté et offre de la liste (D-069 M-A). Une admission ne
+    // touche pas ces deux colonnes : elles gardent la trace de la liste que le dossier quitte.
     sqlx::query(
-        "UPDATE ent_inscription_dossier SET voeu_retenu_id = $3, rang_attente = $4, updated_at = now()
+        "UPDATE ent_inscription_dossier
+            SET voeu_retenu_id = $3, rang_attente = $4, updated_at = now(),
+                ordre_attente = CASE WHEN $4::int IS NULL THEN ordre_attente
+                                     ELSE nextval('ent_inscription_attente_ordre_seq') END,
+                offre_attente_id = CASE WHEN $4::int IS NULL THEN offre_attente_id ELSE $5 END
           WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(d.id)
     .bind(voeu)
     .bind(rang_attente)
+    .bind(offre)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -564,7 +579,10 @@ pub(crate) async fn synchroniser_offres_niveaux_tx(
             Some((id, avant)) => {
                 if avant != n.capacite {
                     sqlx::query(
-                        "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now()
+                        "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now(),
+                                liberations = liberations
+                                    + CASE WHEN capacite IS NOT NULL AND ($3::int IS NULL OR $3 > capacite)
+                                           THEN 1 ELSE 0 END
                           WHERE etablissement_id = $1 AND id = $2",
                     )
                     .bind(etab)
@@ -926,7 +944,13 @@ impl PgEnt {
             "UPDATE ent_inscription_offre SET libelle_public = $3, capacite = $4,
                     places_reservees_reinscription = COALESCE($5, places_reservees_reinscription),
                     ouverte_candidature = COALESCE($6, ouverte_candidature),
-                    conditions_acces = $7, modifie_le = now()
+                    conditions_acces = $7, modifie_le = now(),
+                    -- Une place ajoutée (capacité en hausse, réserve de réinscription en baisse) est une **nouvelle**
+                    -- place : « passer son tour » ne valait que pour les précédentes (D-069 M-C).
+                    liberations = liberations
+                        + CASE WHEN (capacite IS NOT NULL AND ($4::int IS NULL OR $4 > capacite))
+                                 OR COALESCE($5, places_reservees_reinscription) < places_reservees_reinscription
+                               THEN 1 ELSE 0 END
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -1140,11 +1164,12 @@ impl PgEnt {
         id: Uuid,
         b: &TransitionBody,
     ) -> Result<DossierDto, EntDbError> {
+        // Règle 2 : personnel, droit, puis existence (la garde d'écart d'un membre lié vient après le droit).
         let (action, decideur) = match b.action.as_str() {
-            "annuler" | "non_reinscription_etablissement" => (b.action.as_str(), true),
+            "annuler" | "non_reinscription_etablissement" => (Some(b.action.as_str()), true),
             "sans_suite" | "desister" | "reprendre" | "non_presente" | "reaffecte" | "sans_reponse"
-            | "reouvrir" | "en_attente_passage" => (b.action.as_str(), false),
-            _ => return Err(invalide("action de transition inconnue")),
+            | "reouvrir" | "en_attente_passage" => (Some(b.action.as_str()), false),
+            _ => (None, false),
         };
         self.ins_exiger(
             etab,
@@ -1153,6 +1178,10 @@ impl PgEnt {
             if decideur { Action::InscriptionsDecider } else { Action::InscriptionsGerer },
         )
         .await?;
+        let Some(action) = action else {
+            return Err(invalide("action de transition inconnue"));
+        };
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1218,6 +1247,7 @@ impl PgEnt {
             if b.bloquer { Action::InscriptionsGerer } else { Action::InscriptionsDecider },
         )
         .await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1307,6 +1337,9 @@ impl PgEnt {
         if d.demarche_id != d0.demarche_id || !matches!(d.nature.as_str(), "admission" | "en_cours_annee") {
             return Err(introuvable());
         }
+        // Action de la famille : seul l'état visible compte (règle 1) ; une décision non publiée en cours ne se
+        // révèle pas (message neutre) et ne s'exécute pas.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         let etat_actif = inscriptions_etats::etat_effectif(&d.etat, d.etat_avant_blocage.as_deref());
         if !depuis.contains(&etat_actif) || d.etat == "bloque_desaccord" {
             return Err(conflit(if vers == "retire" {
@@ -1347,6 +1380,7 @@ impl PgEnt {
         b: &NePasSolliciterBody,
     ) -> Result<NePasSolliciterDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1481,6 +1515,7 @@ impl PgEnt {
         b: &AnnulationValidationBody,
     ) -> Result<AnnulationValidationDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -1829,7 +1864,7 @@ impl PgEnt {
 
     /// Met un message d'information en file, une fois par démarche et par adresse, vers les seuls
     /// responsables qui peuvent être sollicités. Renvoie le nombre de familles prévenues.
-    async fn prevenir_familles_tx(
+    pub(crate) async fn prevenir_familles_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         dossiers: &[Uuid],
@@ -2360,6 +2395,7 @@ impl PgEnt {
         // Vue famille : jamais la marque « à ne pas solliciter » (le déposant pourrait être la
         // personne dont l'autre responsable est protégé) ni l'identifiant de la personne créée.
         let mut d = self.demarche_dto(etab, id).await?;
+        self.masquer_resumes_famille(etab, &mut d.dossiers).await?;
         for x in &mut d.declarations {
             x.ne_pas_solliciter = false;
             x.personne_id = None;

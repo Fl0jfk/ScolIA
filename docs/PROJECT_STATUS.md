@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
+- **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).
+- **Grilles versionnées** brouillon → proposée → votée → en vigueur → close : gel tenu **par la base** (déclencheurs), une seule en vigueur par année, correction par nouvelle version, second regard (proposer ≠ voter), publication neutre ; la génération ne facture que la grille en vigueur.
+- **Simulateur** (hausse %, montant, arrondi, effectifs, familles types, comparaison, export CSV protégé) et **état des contributions par nature légale** (FAC-196). 33 opérations HTTP.
+- **Non fait** : écrans, effet rétroactif d'une correction (F4), pièces numérotées et documents (F5), site public (socle 17), gel au décès (à passer avant toute relance automatique).
+
 ## Socle 21 — lots V1 « modèle et reprise » et V2 « moteur de calcul étendu » (2026-11-18, branche `ent-socle-21-code-v1v2`, base `origin/ENT` 86f03b82) — PARTIEL
 
 **Implémenté + testé en local (modes normal et RLS stricte) ; CI sur la pull request en brouillon ; non validé par Florian ; non prêt pilote.** Décision D-068 / idée I-032 : « comme de l'officiel », comparaison avec Charlemagne.
@@ -86,6 +93,13 @@ Testé en local : `tests_eleve_jour_etablissement` (fuseaux Pacific/Kiritimati U
 
 **Avis déclarés** : `AVIS_CAHIER` passe de 4 à 12 (accusé de dépôt, copie rendue, retour mis à jour, difficulté de dépôt, demande de délai, délai accordé, report appliqué) ; consommateur du socle 8 toujours absent de `ENT`.
 **Garde** : `cdt_projeter_echus` (appelée à chaque lecture) calcule aussi les propositions de report et applique celles dont l'heure est passée.
+
+## Socle 20 — lots C8 « visa, inspection, archive » et C9 « progressions et reconduction » (2026-11-21, branche `ent-socle-20-code-c8c9`, depuis `origin/ENT` d23a6f66)
+**Niveau : implémenté + testé en local (PostgreSQL 16) ; CI : voir `docs/socles/20_CAHIER_C8_C9_LIVRAISON.md` §8 ; non validé par Florian, pas prêt pilote.**
+- **Migrations 2407 (C8) et 2408 (C9)** : premiers numéros libres de la plage 2400–2419 (2419 reste à C14 ; **C10 n'a plus de numéro libre dans la plage : extension à demander**). 8 tables avec RLS, visa et journaux en ajout seul (TRUNCATE interdit), empreinte des exports recalculée par la base, accès d'inspection borné à 90 jours par CHECK.
+- **Actions** : `cahier.acces_inspection`, `cahier.exporter` (direction et administration) et `cahier.cloturer` (clôture, réouverture à double validation, décision d'archive : **direction seule**, revue de sécurité M1) ; `Action::TOUTES` 275 → 278.
+- **Routes** `/cahier/c8/*` (24) et `/cahier/c9/*` (10) ; **écrans Leptos** : tenue et visa, cahier du cours en lecture, accès d'inspection et journal, lecture de l'inspecteur, clôture et archives, progressions.
+- **Non fait** (détail au rapport de livraison §4) : avis du socle 8, PDF/A du socle 7, pièces jointes, destruction effective, compte invité de l'inspecteur, annulation d'une planification.
 
 ## Socle 20 — lot C4 « charge de travail » (2026-11-14, branche `ent-socle-20-code-4`, depuis la tête de C3) — PARTIEL
 **Niveau : implémenté + testé en local (PostgreSQL 16) ; CI : à lancer ; non validé par Florian, pas prêt pilote.**

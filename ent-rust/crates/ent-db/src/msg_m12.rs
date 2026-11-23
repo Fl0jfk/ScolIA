@@ -19,6 +19,10 @@ pub const FLUX_ATTENTE_MAX_SECONDES: u64 = 25;
 const FLUX_PAS: Duration = Duration::from_secs(2);
 const FLUX_FILS_MAX: i64 = 200;
 
+/// Position de reprise du flux : `(instant, fil, genre)`, les deux derniers termes seulement après une réponse
+/// tronquée.
+pub type PositionFlux = (DateTime<Utc>, Option<Uuid>, Option<String>);
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct FilActif {
     pub fil_id: Uuid,
@@ -33,6 +37,8 @@ pub struct FluxMessagerie {
     pub curseur: DateTime<Utc>,
     /// À rendre comme `apres_fil` quand `tronque` (sinon absent).
     pub curseur_fil: Option<Uuid>,
+    /// À rendre comme `apres_genre` quand `tronque` (sinon absent) : la position est `(instant, fil, genre)`.
+    pub curseur_genre: Option<String>,
     /// Plus d'événements que la limite : rappeler aussitôt avec ce curseur.
     pub tronque: bool,
     /// Curseur trop ancien (au-delà de la fenêtre maximale) : le client recharge tout, puis repart du curseur.
@@ -41,6 +47,12 @@ pub struct FluxMessagerie {
 }
 
 impl PgEnt {
+    /// M-E : à appeler au démarrage ; journalise une erreur claire si le rôle de l'application ne voit pas les
+    /// transactions des autres sessions (voir `PgMsgRepo::verifier_visibilite_transactions`).
+    pub async fn verifier_flux_messagerie(&self) -> bool {
+        self.messages.verifier_visibilite_transactions().await
+    }
+
     /// Fils où un message est devenu visible (ou a été retiré) après `apres`. Sans `apres` : aucun événement,
     /// seulement le curseur de départ. `attente_s` (borné à [`FLUX_ATTENTE_MAX_SECONDES`]) : tant que rien ne s'est
     /// passé, l'appel patiente et relit (droits compris) toutes les deux secondes.
@@ -52,7 +64,7 @@ impl PgEnt {
         etablissement_id: Uuid,
         user_id: Uuid,
         role: &str,
-        apres: Option<(DateTime<Utc>, Option<Uuid>)>,
+        apres: Option<PositionFlux>,
         attente_s: u64,
     ) -> Result<FluxMessagerie, EntDbError> {
         self.flux_messagerie_limite(etablissement_id, user_id, role, apres, attente_s, FLUX_FILS_MAX).await
@@ -63,48 +75,54 @@ impl PgEnt {
         etablissement_id: Uuid,
         user_id: Uuid,
         role: &str,
-        apres: Option<(DateTime<Utc>, Option<Uuid>)>,
+        apres: Option<PositionFlux>,
         attente_s: u64,
         limite: i64,
     ) -> Result<FluxMessagerie, EntDbError> {
-        let Some((instant, fil)) = apres else {
+        let Some((instant, fil, genre)) = apres else {
             let r = self
                 .messages
-                .evenements_depuis(etablissement_id, user_id, (Utc::now(), Uuid::nil()), 1)
+                .evenements_depuis(etablissement_id, user_id, (Utc::now(), Uuid::nil(), ""), 1)
                 .await?;
             return Ok(FluxMessagerie {
                 curseur: r.curseur,
                 curseur_fil: None,
+                curseur_genre: None,
                 tronque: false,
                 resynchro: false,
                 fils: Vec::new(),
             });
         };
-        let mut depuis = (instant, fil.unwrap_or_else(Uuid::nil));
+        let mut depuis = (instant, fil.unwrap_or_else(Uuid::nil), genre.unwrap_or_default());
         let fin = tokio::time::Instant::now() + Duration::from_secs(attente_s.min(FLUX_ATTENTE_MAX_SECONDES));
         loop {
-            let r = self.messages.evenements_depuis(etablissement_id, user_id, depuis, limite).await?;
-            let mut fils = Vec::new();
-            for (fil_id, instant, genre) in &r.evenements {
-                let Some(fil) = self.messages.get_fil(etablissement_id, *fil_id).await? else {
-                    continue;
-                };
-                if self.actor_can_access_fil(etablissement_id, user_id, role, &fil).await? {
-                    fils.push(FilActif { fil_id: *fil_id, instant: *instant, genre: genre.clone() });
-                }
-            }
+            let r = self
+                .messages
+                .evenements_depuis(etablissement_id, user_id, (depuis.0, depuis.1, depuis.2.as_str()), limite)
+                .await?;
+            // Jugement de lecture groupé (une série de requêtes pour tous les candidats, pas une par fil).
+            let ids: Vec<Uuid> = r.evenements.iter().map(|(f, _, _)| *f).collect();
+            let candidats = self.messages.get_fils_lot(etablissement_id, &ids).await?;
+            let lisibles = self.actor_can_access_fils_lot(etablissement_id, user_id, role, &candidats).await?;
+            let fils: Vec<FilActif> = r
+                .evenements
+                .iter()
+                .filter(|(f, _, _)| lisibles.contains(f))
+                .map(|(fil_id, instant, genre)| FilActif { fil_id: *fil_id, instant: *instant, genre: genre.clone() })
+                .collect();
             if !fils.is_empty() || r.resynchro || r.tronque || tokio::time::Instant::now() >= fin {
                 return Ok(FluxMessagerie {
                     curseur: r.curseur,
                     curseur_fil: r.curseur_fil,
+                    curseur_genre: r.curseur_genre,
                     tronque: r.tronque,
                     resynchro: r.resynchro,
                     fils,
                 });
             }
             // Candidats tous écartés par le jugement de lecture : ne pas les rejuger à chaque tour.
-            if let Some((f, i, _)) = r.evenements.last() {
-                depuis = (*i, *f);
+            if let Some((f, i, g)) = r.evenements.last() {
+                depuis = (*i, *f, g.clone());
             }
             tokio::time::sleep(FLUX_PAS).await;
         }

@@ -164,15 +164,20 @@ async fn acces_ferme_refuse_connexion_session_et_jeton_sans_toucher_aux_autres_e
         .await
         .expect("session B intacte");
     connexion(&ent, b, prof).await.expect("connexion B intacte");
-    let (appareils,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_push_device WHERE etablissement_id = $1 AND user_id = $2",
+    // Règle 4 : la fermeture de l'accès révoque les appareils (trace gardée), elle ne les efface jamais.
+    let (actifs, traces, motifs): (i64, i64, Vec<String>) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE revoked_at IS NULL), count(*) FILTER (WHERE revoked_at IS NOT NULL),
+                COALESCE(array_agg(revoque_motif) FILTER (WHERE revoked_at IS NOT NULL), '{}')
+           FROM ent_push_device WHERE etablissement_id = $1 AND user_id = $2",
     )
     .bind(a)
     .bind(prof)
     .fetch_one(ent.pool())
     .await
     .unwrap();
-    assert_eq!(appareils, 0, "appareils de notification de A supprimés");
+    assert_eq!(actifs, 0, "plus aucun appareil de notification actif sur A");
+    assert_eq!(traces, 1, "l'appareil de A est révoqué, pas effacé");
+    assert_eq!(motifs, vec!["acces_ferme".to_string()]);
     // Aucune session ne peut être rouverte par un autre chemin que la connexion.
     assert!(!ent.auth_repo().is_member(a, prof).await.unwrap());
     assert!(ent.auth_repo().is_member(b, prof).await.unwrap());
