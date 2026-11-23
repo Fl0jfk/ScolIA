@@ -165,9 +165,13 @@ impl PgEnt {
             .await
     }
 
-    /// Comme [`Self::autoriser_eleve`], mais **au jour `jour`** donné par l'appelant (aucune horloge) : pour les gestes
-    /// dont le jour de référence est explicite (évaluations V5).
-    pub async fn autoriser_eleve_le(
+    /// Comme [`Self::autoriser_eleve`], mais le jour des **liens avec l'élève** (suivi par classe, groupes, portées
+    /// désignées, lecture seule) est celui que donne l'appelant : pour les gestes dont le jour de référence est explicite
+    /// (évaluations V5). **Ce n'est pas une fonction sans horloge** : `droits_effectifs` lit encore le jour de
+    /// l'établissement (`aujourdhui_etablissement`) pour décider si une attribution de rôle, une cible de périmètre ou
+    /// une délégation est **en cours aujourd'hui**. Un test qui fixe `jour` doit donc donner à l'attribution un rôle
+    /// valide à la date réelle (début passé, fin ouverte), et ne fixer que le lien avec l'élève.
+    pub(crate) async fn autoriser_eleve_le(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
