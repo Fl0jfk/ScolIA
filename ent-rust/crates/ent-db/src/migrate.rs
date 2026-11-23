@@ -1016,6 +1016,29 @@ mod tests {
         );
     }
 
+    /// Règle 38 (T1) : l'ordre des migrations qui précèdent 690 est **figé**. Une base déjà migrée ne rejoue pas 690 après
+    /// une migration insérée avant elle : les fonctions de cette migration resteraient sans `search_path`. Toute migration
+    /// nouvelle s'ajoute donc À LA FIN du tableau `MIGRATIONS`, après `690_t1_search_path_fonctions` et celles qui la
+    /// suivent déjà. La liste de référence est `migrations_avant_690.txt` (les 427 noms versés sur `ENT` avant 690).
+    #[test]
+    fn l_ordre_des_migrations_avant_690_est_fige_regle_38() {
+        let figees: Vec<&str> = include_str!("migrations_avant_690.txt").lines().collect();
+        let position = MIGRATIONS
+            .iter()
+            .position(|(nom, _)| *nom == "690_t1_search_path_fonctions")
+            .expect("690_t1_search_path_fonctions doit rester dans le tableau MIGRATIONS");
+        let avant: Vec<&str> = MIGRATIONS[..position].iter().map(|(n, _)| *n).collect();
+        let regle = "Règle 38 (docs/securite/T1_SEARCH_PATH.md, PILOTAGE) : une migration nouvelle s'ajoute À LA FIN du tableau \
+                     MIGRATIONS, APRÈS 690_t1_search_path_fonctions, jamais avant. Une base déjà migrée ne rejouerait pas 690 après \
+                     une migration insérée avant elle : les fonctions créées par celle-ci resteraient sans `search_path` (une table \
+                     temporaire pourrait tromper leurs gardes). ";
+        let inseree: Vec<&&str> = avant.iter().filter(|n| !figees.contains(n)).collect();
+        assert!(inseree.is_empty(), "{regle}Migration(s) insérée(s) avant 690 : {inseree:?}");
+        let retiree: Vec<&&str> = figees.iter().filter(|n| !avant.contains(n)).collect();
+        assert!(retiree.is_empty(), "{regle}Migration(s) versée(s) retirée(s) ou déplacée(s) après 690 : {retiree:?}");
+        assert_eq!(avant, figees, "{regle}L'ordre des migrations qui précèdent 690 a changé");
+    }
+
     /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
     /// Catégories : `exception` (permise par D-036) et `dette` (à normaliser, lot suivant ; voir
     /// `docs/D036_INVENTAIRE_JSON.md`). Les 13 colonnes normalisées (lots 1 et 2) ont été retirées par
