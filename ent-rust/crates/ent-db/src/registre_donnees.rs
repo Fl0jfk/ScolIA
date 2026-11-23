@@ -949,6 +949,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_module_etablissement", "etablissement", Portee::Etablissement),
     t("ent_msg", "messagerie", Portee::Etablissement).perso().export(),
     t("ent_msg_accuse", "messagerie", Portee::Etablissement).perso().export(),
+    t("ent_msg_annulation_garde", "messagerie", Portee::Etablissement),
     t("ent_msg_astreinte", "messagerie", Portee::Etablissement).perso(),
     t("ent_msg_boite", "messagerie", Portee::Etablissement),
     t("ent_msg_boite_designation", "messagerie", Portee::Etablissement).perso(),

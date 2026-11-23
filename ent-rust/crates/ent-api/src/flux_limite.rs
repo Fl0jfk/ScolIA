@@ -8,7 +8,9 @@
 //!   (protège la base d'un compte aux nombreuses sessions) ; il ne s'applique **pas** à un rappel de pagination (F2) ;
 //! - **jamais de refus de pagination** : quand la dernière réponse d'une session était `tronque`, le rappel
 //!   immédiat est accepté sans attendre l'intervalle (c'est le serveur qui s'en souvient, pas un paramètre du
-//!   client, donc aucun contournement par `apres_fil`).
+//!   client, donc aucun contournement par `apres_fil`). M-2 (contre-revue E1) : le rappel n'est libre que si le
+//!   curseur reçu est **exactement** celui que le serveur a rendu à cette session ; un curseur fabriqué ou rejoué
+//!   (même une valeur valide d'une autre réponse) est soumis à l'intervalle et au plafond du compte.
 //!
 //! État en mémoire de l'instance de [`LimiteFlux`] (une par `AppState`, comme l'anti-abus de connexion, jamais un état
 //! global partagé entre tests) ; les entrées inactives sont purgées.
@@ -35,8 +37,9 @@ pub enum RefusFlux {
 struct EtatSession {
     en_cours: bool,
     dernier: Instant,
-    /// La dernière réponse était tronquée : le rappel immédiat est la pagination, jamais refusée.
-    rappel_libre: bool,
+    /// Curseur rendu avec la dernière réponse **tronquée** : un rappel qui le présente à l'identique est la
+    /// pagination, jamais refusée. `None` : dernière réponse non tronquée, ou aucune.
+    curseur_pagine: Option<String>,
 }
 
 #[derive(Default)]
@@ -64,13 +67,14 @@ pub struct PlaceFlux {
     limite: LimiteFlux,
     user: Uuid,
     session: Uuid,
-    tronque: bool,
+    curseur_pagine: Option<String>,
 }
 
 impl PlaceFlux {
-    /// Signale que la réponse rendue est tronquée : le prochain appel de la session n'attend pas l'intervalle.
-    pub fn marquer_tronque(&mut self, tronque: bool) {
-        self.tronque = tronque;
+    /// Signale la réponse rendue : tronquée, le prochain appel de la session qui présente **ce curseur** n'attend pas
+    /// l'intervalle (M-2) ; sinon, aucun appel n'est exempté.
+    pub fn marquer_rendu(&mut self, tronque: bool, curseur: &str) {
+        self.curseur_pagine = tronque.then(|| curseur.to_string());
     }
 }
 
@@ -79,7 +83,7 @@ impl Drop for PlaceFlux {
         if let Ok(mut m) = self.limite.inner.lock() {
             if let Some(e) = m.sessions.get_mut(&self.session) {
                 e.en_cours = false;
-                e.rappel_libre = self.tronque;
+                e.curseur_pagine = self.curseur_pagine.take();
             }
             if let Some(n) = m.par_compte.get_mut(&self.user) {
                 *n = n.saturating_sub(1);
@@ -108,8 +112,14 @@ impl LimiteFlux {
         }
     }
 
-    pub fn entrer(&self, user: Uuid, session: Uuid) -> Result<PlaceFlux, RefusFlux> {
-        self.entrer_a(user, session, Instant::now())
+    /// `curseur` : le curseur **reçu** de ce client (paramètre `apres`), jamais cru sur parole : voir M-2.
+    pub fn entrer(
+        &self,
+        user: Uuid,
+        session: Uuid,
+        curseur: Option<&str>,
+    ) -> Result<PlaceFlux, RefusFlux> {
+        self.entrer_a(user, session, curseur, Instant::now())
     }
 
     /// Variante à horloge injectée (tests sans attente).
@@ -117,6 +127,7 @@ impl LimiteFlux {
         &self,
         user: Uuid,
         session: Uuid,
+        curseur: Option<&str>,
         maintenant: Instant,
     ) -> Result<PlaceFlux, RefusFlux> {
         let mut m = self.inner.lock().map_err(|_| RefusFlux::Concurrent)?;
@@ -129,10 +140,9 @@ impl LimiteFlux {
         }
         // F2 : le rappel d'une pagination (dernière réponse de cette session tronquée, aucun appel en cours) n'est jamais
         // refusé, plafond du compte compris.
-        let rappel_libre = m
-            .sessions
-            .get(&session)
-            .is_some_and(|e| !e.en_cours && e.rappel_libre);
+        let rappel_libre = m.sessions.get(&session).is_some_and(|e| {
+            !e.en_cours && curseur.is_some() && e.curseur_pagine.as_deref() == curseur
+        });
         if !rappel_libre
             && m.par_compte.get(&user).copied().unwrap_or(0) >= FLUX_APPELS_MAX_PAR_COMPTE
         {
@@ -142,12 +152,11 @@ impl LimiteFlux {
             if e.en_cours {
                 return Err(RefusFlux::Concurrent);
             }
-            if !e.rappel_libre && maintenant.saturating_duration_since(e.dernier) < self.intervalle
-            {
+            if !rappel_libre && maintenant.saturating_duration_since(e.dernier) < self.intervalle {
                 return Err(RefusFlux::TropVite);
             }
             e.en_cours = true;
-            e.rappel_libre = false;
+            e.curseur_pagine = None;
             e.dernier = maintenant;
         } else {
             m.sessions.insert(
@@ -155,7 +164,7 @@ impl LimiteFlux {
                 EtatSession {
                     en_cours: true,
                     dernier: maintenant,
-                    rappel_libre: false,
+                    curseur_pagine: None,
                 },
             );
         }
@@ -165,7 +174,7 @@ impl LimiteFlux {
             limite: self.clone(),
             user,
             session,
-            tronque: false,
+            curseur_pagine: None,
         })
     }
 
@@ -197,24 +206,24 @@ mod tests {
         let l = LimiteFlux::default();
         let (u, a, b) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         let t0 = Instant::now();
-        let place = l.entrer_a(u, a, t0).expect("premier appel");
+        let place = l.entrer_a(u, a, None, t0).expect("premier appel");
         assert_eq!(
-            l.entrer_a(u, a, t0).err(),
+            l.entrer_a(u, a, None, t0).err(),
             Some(RefusFlux::Concurrent),
             "second appel de la même session"
         );
         assert!(
-            l.entrer_a(u, b, t0).is_ok(),
+            l.entrer_a(u, b, None, t0).is_ok(),
             "une autre session du même compte n'est pas gênée (M-D)"
         );
         drop(place);
         assert_eq!(
-            l.entrer_a(u, a, t0).err(),
+            l.entrer_a(u, a, None, t0).err(),
             Some(RefusFlux::TropVite),
             "rappel immédiat (attente=0)"
         );
         assert!(
-            l.entrer_a(u, a, t0 + FLUX_INTERVALLE_MIN).is_ok(),
+            l.entrer_a(u, a, None, t0 + FLUX_INTERVALLE_MIN).is_ok(),
             "après l'intervalle minimal"
         );
     }
@@ -224,11 +233,13 @@ mod tests {
         let l = LimiteFlux::default();
         let (u, s1, s2) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         let t0 = Instant::now();
-        let p1 = l.entrer_a(u, s1, t0).expect("appareil 1");
-        let p2 = l.entrer_a(u, s2, t0).expect("appareil 2 en même temps");
+        let p1 = l.entrer_a(u, s1, None, t0).expect("appareil 1");
+        let p2 = l
+            .entrer_a(u, s2, None, t0)
+            .expect("appareil 2 en même temps");
         drop((p1, p2));
         let t1 = t0 + FLUX_INTERVALLE_MIN;
-        assert!(l.entrer_a(u, s1, t1).is_ok() && l.entrer_a(u, s2, t1).is_ok());
+        assert!(l.entrer_a(u, s1, None, t1).is_ok() && l.entrer_a(u, s2, None, t1).is_ok());
     }
 
     #[test]
@@ -237,19 +248,22 @@ mod tests {
         let u = Uuid::new_v4();
         let t0 = Instant::now();
         let places: Vec<_> = (0..FLUX_APPELS_MAX_PAR_COMPTE)
-            .map(|_| l.entrer_a(u, Uuid::new_v4(), t0).expect("sous le plafond"))
+            .map(|_| {
+                l.entrer_a(u, Uuid::new_v4(), None, t0)
+                    .expect("sous le plafond")
+            })
             .collect();
         assert_eq!(
-            l.entrer_a(u, Uuid::new_v4(), t0).err(),
+            l.entrer_a(u, Uuid::new_v4(), None, t0).err(),
             Some(RefusFlux::Concurrent),
             "plafond du compte"
         );
         assert!(
-            l.entrer_a(Uuid::new_v4(), Uuid::new_v4(), t0).is_ok(),
+            l.entrer_a(Uuid::new_v4(), Uuid::new_v4(), None, t0).is_ok(),
             "un autre compte n'est pas gêné"
         );
         drop(places);
-        assert!(l.entrer_a(u, Uuid::new_v4(), t0).is_ok(), "libéré");
+        assert!(l.entrer_a(u, Uuid::new_v4(), None, t0).is_ok(), "libéré");
     }
 
     #[test]
@@ -257,18 +271,55 @@ mod tests {
         let l = LimiteFlux::default();
         let (u, s) = (Uuid::new_v4(), Uuid::new_v4());
         let t0 = Instant::now();
-        for _ in 0..50 {
+        let mut recu: Option<String> = None;
+        for i in 0..50 {
             let mut place = l
-                .entrer_a(u, s, t0)
+                .entrer_a(u, s, recu.as_deref(), t0)
                 .expect("rappel d'une réponse tronquée : jamais de 429");
-            place.marquer_tronque(true);
+            let rendu = format!("v3.page{i}");
+            place.marquer_rendu(true, &rendu);
+            recu = Some(rendu);
         }
         // Dès qu'une réponse n'est plus tronquée, l'intervalle s'applique de nouveau.
         let place = l
-            .entrer_a(u, s, t0)
+            .entrer_a(u, s, recu.as_deref(), t0)
             .expect("dernier appel de la pagination");
         drop(place);
-        assert_eq!(l.entrer_a(u, s, t0).err(), Some(RefusFlux::TropVite));
+        assert_eq!(
+            l.entrer_a(u, s, recu.as_deref(), t0).err(),
+            Some(RefusFlux::TropVite)
+        );
+    }
+
+    #[test]
+    fn m2_un_curseur_fabrique_ou_rejoue_n_ouvre_aucun_rappel_libre() {
+        // Contre-revue E1, M-2 : seul le curseur exactement rendu à la session exempte le rappel.
+        let l = LimiteFlux::default();
+        let (u, s) = (Uuid::new_v4(), Uuid::new_v4());
+        let t0 = Instant::now();
+        let mut p = l.entrer_a(u, s, None, t0).expect("premier appel");
+        p.marquer_rendu(true, "v3.rendu");
+        drop(p);
+        // Curseur fabriqué, ancien (rejoué) ou absent : l'intervalle s'applique.
+        for faux in [Some("v3.forge"), Some("v3.ancien"), Some(""), None] {
+            assert_eq!(
+                l.entrer_a(u, s, faux, t0).err(),
+                Some(RefusFlux::TropVite),
+                "{faux:?}"
+            );
+        }
+        // Un refus ne consomme pas le droit : le vrai curseur passe encore.
+        assert!(l.entrer_a(u, s, Some("v3.rendu"), t0).is_ok());
+        // Boucle d'un curseur fabriqué : jamais exempté, même si chaque réponse est tronquée (le serveur rend un autre
+        // curseur que celui que le client répète).
+        let l = LimiteFlux::default();
+        let mut p = l.entrer_a(u, s, None, t0).expect("premier appel");
+        p.marquer_rendu(true, "v3.rendu-1");
+        drop(p);
+        assert_eq!(
+            l.entrer_a(u, s, Some("v3.forge"), t0).err(),
+            Some(RefusFlux::TropVite)
+        );
     }
 
     #[test]
@@ -287,19 +338,22 @@ mod tests {
         let l = LimiteFlux::default();
         let (u, pagine, autre) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         let t0 = Instant::now();
-        let mut p = l.entrer_a(u, pagine, t0).expect("premier appel");
-        p.marquer_tronque(true);
+        let mut p = l.entrer_a(u, pagine, None, t0).expect("premier appel");
+        p.marquer_rendu(true, "v3.page");
         drop(p);
         let longs: Vec<_> = (0..FLUX_APPELS_MAX_PAR_COMPTE)
-            .map(|_| l.entrer_a(u, Uuid::new_v4(), t0).expect("sous le plafond"))
+            .map(|_| {
+                l.entrer_a(u, Uuid::new_v4(), None, t0)
+                    .expect("sous le plafond")
+            })
             .collect();
         assert_eq!(
-            l.entrer_a(u, autre, t0).err(),
+            l.entrer_a(u, autre, None, t0).err(),
             Some(RefusFlux::Concurrent),
             "témoin : une session sans pagination est refusée au plafond"
         );
         let suite = l
-            .entrer_a(u, pagine, t0)
+            .entrer_a(u, pagine, Some("v3.page"), t0)
             .expect("le rappel d'une pagination passe au-dessus du plafond");
         drop(suite);
         drop(longs);

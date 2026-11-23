@@ -154,3 +154,76 @@ Un `Forbidden` inattendu garde un message de droit (« droit insuffisant pour sa
 **Alerte RUSTSEC-2026-0592.** `origin/ENT` portait encore `url` 2.5.8 : correctif de la PR 121 appliqué à l'identique (`cargo +1.99.0 update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web` : `url` 2.5.9, `form_urlencoded` 1.2.3, rien d'autre dans les deux `Cargo.lock`).
 
 **Tête et CI :** tête du code et de la correction `947ceb8c` ; **CI « ENT Rust » verte** (run 45029868708 : tous les jobs réussis, un seul sauté par conception — la RLS stricte ne tourne que sur `ENT`, règle 27 ; aucun rejeu nécessaire). La PR 114 reste en brouillon. Niveau : implémenté + testé (local et CI) ; **non validé par Florian, non prêt pilote**. Le présent complément de documentation est poussé dans un commit suivant (documentation seule).
+
+## 8. Suites de la contre-revue (branche `ent-socle-21-code-v5-suites`, depuis `origin/ENT` bfc95c00, PR 125 en brouillon)
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `ent_v5s_test`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`). **CI : voir la fin. Non validé par Florian ; non prêt pilote.** La migration 477 (versée) n'est **pas** modifiée : tout le SQL est dans la nouvelle **478** `eva_v5_contre_revue_publication` (479 reste réservée).
+
+### 8.1 Fait / non fait
+
+| Point | Réalisation | Test |
+|---|---|---|
+| **M-A** (D-069) | une correction d'une moyenne externe **publiée** la remet en « non publiée » (déclencheur, `publiee_le/par` à NULL) : la famille ne voit plus rien jusqu'à la nouvelle publication ; événement « correction » avec `etait_publiee = true` et le motif. Route `POST /eva/v5/moyennes-externes/{id}/retirer-publication` (direction, motif 3–500, événement « retrait », journal) ; professeur : 403 ; ligne inconnue : droit refusé / introuvable (direction) ; double retrait : conflit | `contre_revue_ma_…` ; `revue_e1_…` adapté (la correction ne laisse plus la moyenne visible) |
+| **M-B** | `moyennes_tx` : « notes d'établissement présentes » (ordinaires et résultats externes comptés) et « plusieurs moyennes externes » se décident sur **toutes** les lignes, publiées ou non ; seul l'affichage est filtré. Pour la famille, l'avertissement est neutre (« pas comptée pour le moment ») : ni nombre ni existence de ce qui n'est pas publié | `contre_revue_mb_…` (deux externes dont une publiée ; notes non publiées + externe publiée) |
+| **M-C** | résultats ordinaires lus par `eva_fiches_de_l_eleve` (la note suit l'élève conservé) ; si la fiche conservée a un résultat pour la même évaluation, celui de l'absorbée ne compte pas ; annonce de `domain-eleve/src/fusion.rs` corrigée. **Fusion protégée** : une absorbée protégée vers une conservée non protégée est **introuvable** (aperçu et fusion) pour qui n'a pas G6 (`verrouiller_paire`) ; avec G6 elle est permise et la mesure suit la fiche conservée (test existant) | `contre_revue_mc_…` ; `fiche_absorbee_protegee_vers_conservee_non_protegee_refusee_sans_g6` (compte de comptabilité + rôle « fusionner » sans G6) |
+| **M-D** | test HTTP `evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes` **réécrit avec données réelles** (résultat externe, enseignement externe, moyenne, dans une matière qu'il n'enseigne pas) et **absence vérifiée dans le corps** ; test d'un personnel à portée **désignée** sans cours ; test d'un résultat `dispense` dans le parcours (masqué au professeur, servi à la direction) | `contre_revue_md_…` ; test HTTP |
+| **F-1** | parcours du professeur : segments de classe, rattachement, arrivée et départ **limités aux classes où il enseigne et à la période de ses cours** (segments bornés à cette fenêtre) | `contre_revue_f1_…` |
+| **F-2** | un assistant ou un intervenant (saisie non effective) **ne déclare pas** de résultat externe (lecture seule conservée) ; un professeur ne déclare pas pour une **année précédente** (direction seule) | `contre_revue_f2_…` |
+| **F-3** | `publier` d'une moyenne : seule une ligne `statut = 'moyenne'`, vérifié **en base** (déclencheur + contrainte) | `contre_revue_ma_…` (UPDATE direct refusé) |
+| **F-5** | jour de référence fixe : tests HTTP touchés (`2020-10-10`), aucun `jour_paris()` ajouté | — |
+| **F-6** | **la publication n'a pas d'écran** : API seule (résultat externe, moyenne externe, retrait). Ajoutée au reste à faire ci-dessous | — |
+
+**Décisions (D-069, valeurs prudentes).** (1) Une correction d'une moyenne publiée **ne publie rien** : la direction republie après vérification (second geste). (2) **Personnel à portée désignée sans cours** (vie scolaire, CPE de niveau) : autorisé (200) mais **parcours vide** (aucun segment, enseignement, évaluation ni résultat externe) ; le parcours reste un outil pédagogique, la vie scolaire s'informe par ses propres vues ; à rouvrir si la vie scolaire demande les segments de classe. (3) Un cours de groupe sans classe ne justifie aucun segment pour un professeur.
+
+**Reste à faire / limites.** Écrans (aucune UI) pour publier ou retirer une publication, corriger une moyenne externe, consulter le journal ; le journal des moyennes n'est lu par aucune route ; les évaluations du parcours (`eva_resultat`) ne suivent pas encore la fiche conservée (seul le moteur de moyennes le fait) ; deux fiches absorbées portant chacune un résultat pour la même évaluation comptent toutes deux ; le test du personnel désigné suppose l'affectation ouverte à la date réelle (affectation datée de 2020), car le droit désigné se calcule au jour réel de l'établissement ; clippy du frontend non relancé (aucun fichier de `web/` ni d'`ent-types` modifié ; `cargo metadata --locked` dans `web/` : vert).
+
+### 8.2 Tests et compteurs
+* **Nouveaux : 8** — `tests_evaluations_v5` : `contre_revue_ma`, `_mb`, `_mc`, `_f1`, `_f2`, `_md` (6) ; `tests_eleve_fusion` : 1 ; `separation.rs` : 1 réécrit (+ le test des 12 routes en 403 et celui de la séparation entre établissements étendus à la nouvelle route). **Ajusté :** `revue_e1_m3_m5_…`.
+* **Locaux, verts :** `tests_evaluations_v5` 27/27 ; `tests_evaluations*`, `migrate::`, `registre_donnees`, `tests_rls::`, `tests_eleve_fusion`, `tests_d036` **183/183** ; séparation `evaluations_v5` **4/4**. Clippy 1.99.0 `-D warnings` : `--workspace --all-targets` (sans et avec `ent-db/labo,ent-api/labo`) et `-p ent-types` : **0 avertissement**. `rustfmt` ciblé sur les fichiers touchés ; `cargo fmt --all` non utilisé. **Relèvent de la CI :** suite complète d'`ent-db`, matrice de séparation complète, frontend.
+* **Compteurs (règle 28)**, base `bfc95c00` : aucune table, aucune action, `TABLES_ELEVE` inchangé, registre inchangé, sources de routes 70 (12 routes dans `evaluations_v5.rs`), `migrate.rs` +1 (478), `MIGRATION_TAG` inchangé.
+
+### 8.3 Tête et CI
+Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de code testée : `9ba9fd67` ; CI (run 45061808763) : verte (success). Le run précédent (6a848cfc) a été annulé par le push suivant. Les commits de documentation qui suivent ne changent pas le code.
+
+## 9. Passe 2 (correctifs de la contre-revue, décisions D-069 du pilote ; branche `ent-socle-21-code-v5-suites`, depuis fe33a3ac + fusion d'`origin/ENT`)
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `ent_test_p2`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`, un seul `CARGO_TARGET_DIR`). Non validé par Florian ; non prêt pilote. **478 n'est pas versée : elle est modifiée ; 479 (V13) et toute autre migration versée : intactes.**
+
+### 9.1 Fait / non fait
+
+| Point | Réalisation | Test |
+|---|---|---|
+| **M1** (oracle côté famille) | `moyennes_tx` : le moteur est le même pour tous, mais la famille et l'élève ne **voient que les lignes publiées** (notes d'établissement, moyennes externes, résultats externes). La moyenne externe publiée reste visible tant que rien de **publié** ne la remplace ; plus aucun avertissement côté famille sur ce qui n'est pas publié. Côté personnel : avertissement « la famille voit aujourd'hui la moyenne externe publiée ; la publication d'une note (ou d'une seconde moyenne externe) la masquera ». Remplace la décision de M-B (section 8). | `contre_revue_m1_…` : famille avant/après la saisie d'une note non publiée → vues **égales** et sans avertissement ; après publication de la note → moyenne externe masquée (la note compte) ; avertissement personnel présent ; cas de deux moyennes externes dont une publiée |
+| **M2** (compare-et-écrit) | `publier` et `retirer-publication` portent la **version vue** (`vue` : statut, valeur, barème) comparée dans le `WHERE` ; écart → **409**, aucune écriture. Les deux corps JSON changent (`vue` obligatoire). | `contre_revue_m2_…` (A lit v1, B corrige en v2, la publication de A est refusée ; retrait sur version périmée refusé) ; HTTP : 409 dans `evaluations_v5_le_professeur_…` |
+| **M3** (478) | contrainte `…_publication_statut_chk` posée **`NOT VALID`** ; lignes publiées hors « moyenne » (corrigées sous 477) **dépubliées** par 478 via le déclencheur (journal : « retrait », motif « correction antérieure à 478 ») ; contrainte validée ensuite ; ajoutée à `CONTRAINTES_A_VALIDER` (constat `tracing::error!` au démarrage si elle restait `NOT VALID`). Aucune valeur modifiée. | `contre_revue_m3_…` (geste rejoué, trace au journal) ; `tests_eleve_e9` (constat : liste vide, contrainte validée) |
+| **Règle 33** | nouvelle `autoriser_eleve_le(…, jour)` ; `autoriser_eleve` la délègue avec le jour de l'établissement ; `eva_v5_droit_eleve` passe son `jour` (branche « portée désignée »). Gestes de direction sans jour métier (`SANS_JOUR`) : jour de l'établissement, comme avant. Le commentaire « aucune horloge » est vrai. | test CPE à portée désignée : jour fixé (2031-10-20), affectation **bornée explicitement** (2031-09-01 → 2031-12-31) |
+| **F-1** | fenêtre **par classe** (`classe_id`, plus `classe_code`) et bornée par la période d'enseignement **réelle** du professeur dans la classe (présence de l'élève ∩ cours ∩ intervenance `du/au`), plus l'enveloppe de tous ses cours | `contre_revue_f1_la_fenetre_…` : un passage de la classe A avant l'enseignement du professeur dans A n'est pas vu, le suivant est tronqué à la date de début |
+| **Tests faibles** | branche `sans` du test F-1 : refus exact (`Forbidden`) ; test HTTP : la direction saisit une moyenne réelle, la publie, **retire la publication (2xx)** ; le commentaire de `separation.rs` est donc vrai ; `contre_revue_mb` (devenu `m1`) asserte l'absence d'avertissement famille dans le cas b | — |
+| **Retrait et `saisi_par`** | le retrait n'écrase plus `saisi_par` ; l'auteur du retrait est dans `retrait_par` / `dernier_retrait_par` (478) et dans le journal | `contre_revue_ma_…` (journal : auteur de chaque événement) |
+| **Autres faibles** | **Non faits, volontairement :** (a) couplage `saisie = !NotesLire` dans `eva_v5_droit_eleve` : un paramètre explicite touche tous les appelants (hors périmètre de cette passe, aucun défaut) ; (b) lignes de journal antérieures avec `etait_publiee = false` : précision perdue, pas une erreur, rien à rejouer ; (c) usages de `jour_paris()` préexistants (`separation.rs` ~165, ~2417) : hors des tests touchés, à traiter par le lot qui les possède. | — |
+
+### 9.2 Tests, compteurs
+* **Nouveaux :** `contre_revue_m1` (remplace `_mb`), `contre_revue_m2`, `contre_revue_m3`, `contre_revue_f1_la_fenetre_…` ; adaptés : tous les appels de publication/retrait de moyenne (helpers `pub_moy`, `ret_moy`), `contre_revue_md` (jour fixé), `contre_revue_f1` (refus exact), `separation.rs` (corps `vue`, succès direction).
+* **Compteurs (règle 28)** recalculés depuis la base commune : **0 table**, `tests_rls.rs` inchangé, registre des données inchangé, `TABLES_ELEVE` inchangé, `Action::TOUTES` inchangé, sources de routes 70 (12 routes), liste de `migrate.rs` +1 (478, en dernier), `CONTRAINTES_A_VALIDER` 2 → 3, `MIGRATION_TAG` inchangé. Fusion d'`origin/ENT` sans conflit.
+* **Locaux, verts :** `tests_evaluations_v5` + `tests_eleve_e9` + `tests_eleve_fusion` + `migrate::` **62/62 au premier passage hors 2 de mes nouveaux tests, corrigés** (assertion trop stricte sur un avertissement de coefficient, intervention immuable à annuler puis recréer) ; puis `tests_evaluations*`, `tests_droits`, `droits`, `registre_donnees`, `tests_rls::`, `migrate::` **263/263** ; séparation `evaluations_v5` **4/4**. Clippy 1.99.0 : `ent-db`, `ent-api`, `ent-types` (`--tests`, `labo`) **0 avertissement** ; rustfmt ciblé sur les fichiers déjà conformes (`evaluations_v5.rs` ×2, tests, types) ; `cargo metadata --locked` dans `ent-rust/web` : OK.
+* **Non exécuté en local :** les tests du frontend contre le backend (`ent-web-server`, `--features labo`, `evaluations.rs`, `grille_v3.rs`) : l'édition de liens du binaire échoue ici (`rust-lld` : relocations de `ring`, puis `bfd`/`gold` tués faute de mémoire). Ils sont laissés à la CI. Aucun code du frontend ne change ; seul `ent-types` gagne trois structures.
+
+**Passe 2 — tête et CI.** Tête de code : `4965ab8a` (fusion d'`origin/ENT` a39f0892 ; règle 28 : 478 ajoute 0 table, `CONTRAINTES_A_VALIDER` = 3). CI « ENT Rust » : **verte** sur cette tête (run 45143473378). Les tests `ent-web-server` (evaluations, grille_v3) n'ont été exécutés que par la CI (édition de liens impossible localement faute de mémoire).
+
+### Correctif du pilote après contre-revue de la passe 2 (2026-11-23)
+- **Correctif (moyen 1 de la contre-revue)** :
+  - 478 dépublie aussi une moyenne de statut « moyenne » corrigée **après** sa publication sous 477, d'après la date de la correction au journal (`eva_moyenne_externe_historique`, `evenement = 'correction'`, `le > publiee_le`).
+  - Une moyenne republiée après sa correction n'est pas touchée, et un nouveau passage de la migration n'a aucun effet.
+- **Tests** :
+  - `contre_revue_m3_une_moyenne_corrigee_sous_477_est_depubliee` est nouveau.
+  - Les deux tests M3 exécutent désormais **le texte même** de l'ordre de 478 (`include_str!`), au lieu d'une copie.
+  - Résultat en local : suite `tests_evaluations_v5` et `migrate::`, 34 verts sur base neuve ; clippy `ent-db` labo sans avertissement.
+- **Reste en file** (suites V5) :
+  - `export_si` des tables d'évaluation (non publié jamais exporté, avant le lot G3) ;
+  - test du retrait par un second compte (`saisi_par` inchangé) ;
+  - contrôle positif du professeur dans `separation.rs` ;
+  - `autoriser_eleve_le` en `pub(crate)` ;
+  - dédoublonnage après fusions en chaîne (`DISTINCT ON`) et relevé aligné sur `eva_fiches_de_l_eleve` ;
+  - export LSU/LSL calculé sur le seul publié (à trancher) ;
+  - jeton de version complet (appréciation, pièce) ;
+  - `search_path` des déclencheurs de 478 (couvert par le transverse T1).

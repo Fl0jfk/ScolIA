@@ -486,6 +486,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Correctifs de la revue des suites M12 (491) : annulation d'un différé corrigé (versions), curseur du flux en `xid8`.
     // Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
     m!("491_msg_annulation_versions_flux_xid"),
+    // Passe 2 de la contre-revue E1 (492) : garde d'annulation à jeton de transaction et `search_path` fixé. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("492_msg_garde_annulation_jeton"),
     // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
     m!("3201_jour_etablissement_unique"),
     // Socle 21 (évaluations), lot V1 « modèle et reprise » (plage 461–479 ; 460 = V0) : règles de calcul, évaluations,
@@ -522,6 +524,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lots V3e + V5 « parcours » : motif conservé, fonction unique de période, prolongation d'échéance tracée, résultats
     // externes (décision de compter, publication, retrait) et moyennes externes gardés en base.
     m!("477_eva_v3e_v5_parcours"),
+    // Contre-revue de V5 : une correction d'une moyenne externe publiée la remet en « non publiée », retrait de publication
+    // tracé, seule une moyenne se publie (en base).
+    m!("478_eva_v5_contre_revue_publication"),
     // Chantier transverse T1 (plage 690–699, sécurité transverse) : `search_path` fixé sur toutes les fonctions de `public`
     // (une table temporaire homonyme ne trompe plus aucune garde). **EN DERNIER, et à rester le dernier tant que le tableau
     // est rejoué** : un `CREATE OR REPLACE FUNCTION` efface la clause ; `rejouer_tout` rejoue ce fichier après tous les autres.
@@ -566,7 +571,12 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
 }
 
 /// Contraintes dont la validation est attendue (posées NOT VALID par une migration, validées après reprise).
-pub const CONTRAINTES_A_VALIDER: [&str; 2] = ["ent_eleve_confidentialite_regles_chk", "ent_eleve_statut_chk"];
+pub const CONTRAINTES_A_VALIDER: [&str; 3] = [
+    "ent_eleve_confidentialite_regles_chk",
+    "ent_eleve_statut_chk",
+    // 478 : posée NOT VALID, validée dans la même migration après dépublication des lignes publiées hors « moyenne ».
+    "eva_moyenne_externe_publication_statut_chk",
+];
 
 /// Noms des contraintes de `CONTRAINTES_A_VALIDER` qui sont encore NOT VALID ; chacune est **journalisée en
 /// erreur** (au démarrage) avec son nom : les écritures futures sont contrôlées, mais des lignes existantes

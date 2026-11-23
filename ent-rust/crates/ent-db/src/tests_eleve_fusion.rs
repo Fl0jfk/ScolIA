@@ -531,6 +531,57 @@ async fn eleve_protege_signale_et_mesure_conservee() {
     assert!(!protege_a, "après défusion, la mesure est revenue à B");
 }
 
+/// Contre-revue de V5 (M-C) : une fiche absorbée PROTÉGÉE vers une fiche conservée non protégée n'existe pas pour qui
+/// n'a pas G6 (réponse « introuvable », aperçu comme fusion, rien n'est écrit ; l'ordre : droit de fusion, puis existence) ; la mesure ne « fuit » donc jamais vers
+/// une fiche que cet acteur voit.
+#[tokio::test]
+async fn fiche_absorbee_protegee_vers_conservee_non_protegee_refusee_sans_g6() {
+    let Some((ent, cast)) = labo().await else { return };
+    let (etab, admin) = (cast.etablissement_id, cast.admin.user_id);
+    let a = eleve(&ent, etab, &format!("Prot{}", alea(4)), "Mia", None, None, Some(jour(2025, 9, 1)), None).await;
+    let b = eleve(&ent, etab, &format!("Prot{}", alea(4)), "Mia", None, None, Some(jour(2024, 9, 1)), Some(jour(2025, 7, 1))).await;
+    sqlx::query(
+        "INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du)
+         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], ent_aujourdhui() - 1)",
+    )
+    .bind(etab)
+    .bind(b.id)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    // `b` (absorbée) est protégée, `a` (conservée) ne l'est pas. L'acteur : un compte de comptabilité, auquel un rôle
+    // paramétré ouvre « fusionner des élèves » (établissement) sans lui donner G6 (champs sensibles).
+    let role = ent
+        .creer_role_for_actor(etab, admin, "admin", crate::droits_repo::RoleSaisie {
+            nom: format!("Fusion sans G6 {}", alea(4)),
+            description: None,
+            modele: None,
+            droits: vec![crate::droits_repo::Droit {
+                action: ent_auth::Action::ElevesFusionner,
+                portee: ent_auth::Portee::Etablissement,
+                cibles: vec![],
+            }],
+        })
+        .await
+        .unwrap();
+    let acteur = cast.compta.user_id;
+    ent.attribuer_role_for_actor(etab, admin, "admin", role.id, acteur, None).await.unwrap();
+    let profil = ent.profil_champs(etab, acteur, "compta").await.unwrap();
+    assert!(!profil.ouvert_partout(domain_eleve::GroupeChamps::Sensible), "le compte ne détient pas G6");
+    assert!(matches!(
+        ent.fusionner_eleves_pour_acteur("compta", demande(etab, b.id, a.id, acteur)).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
+    ));
+    assert!(matches!(
+        ent.apercu_fusion_pour_acteur("compta", etab, acteur, b.id, a.id).await,
+        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
+    ));
+    let protege_a: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert!(!protege_a, "rien n'a été fait");
+    let fusionne: Option<Uuid> = sqlx::query_scalar("SELECT fusionne_dans FROM ent_eleve WHERE etablissement_id = $1 AND id = $2").bind(etab).bind(b.id).fetch_one(ent.pool_verif()).await.unwrap();
+    assert!(fusionne.is_none());
+}
+
 /// **Test de garde du registre** : toute table qui porte `eleve_id` est déclarée dans
 /// `TABLES_ELEVE` avec sa vraie clé primaire ; toute table déclarée existe. Une migration qui
 /// ajoute une table avec `eleve_id` sans la déclarer fait échouer ce test.
