@@ -228,3 +228,16 @@ fonction SQL) ; registre des données : aucune table nouvelle, colonnes hors exp
 `MIGRATION_TAG` inchangé (3808) ; migration 313 modifiée (non versée) ; `ent-types` : `DeportEtatDto.conflit_possible` supprimé,
 `PublicationDto.ignorees` et `DecisionDto.motif_interne: Option` ajoutés (aucun autre consommateur : le frontend `web/` ne les lit pas).
 
+### Tête et CI (passe 2)
+* `3e8c5689` (correctifs) → fusions d'`origin/ENT` à trois reprises (la base a avancé pendant la passe : messagerie, évaluations V5, voyages V3) ; à chaque
+  fusion, **compte RLS** (`tests_rls.rs`) et **`SOURCES`/`NOMS_SOURCES`** (`separation`) recomptés depuis la base commune : le compte RLS a conflité (final
+  **820**, dont +8 de I5), `SOURCES` a fusionné faux deux fois (70 → 71 → **72**), attrapé par la compilation ; `Action::TOUTES` (275) et `MIGRATION_TAG` relus.
+* Première CI de la passe (`6c13ad5d`) : tout vert sauf **deux tranches du frontend** (1 et 2 sur 6), cause unique : les parcours web contre le backend
+  (`ent-web-server`, `inscriptions` et `demo_p1`) validaient l'inscription sans acceptation de la place par la famille (règle 3). Ils n'avaient pas été
+  rejoués en local (**les tests du frontend contre le backend, avec `--features labo`, sont à rejouer pour tout lot qui change une règle d'inscription**).
+  Correction : méthode `repondre_proposition` au client typé `ent-web-api` (route de la famille) et vraie acceptation dans les deux parcours ; rejoués
+  en local (4 + 2 verts, profil sans débogage comme la CI, 2 fils pour la mémoire).
+* Tête de code finale : **`cf878246`** ; PR n° 120 laissée en **brouillon**.
+* **CI sur `cf878246` : verte** (39 jobs en succès, 2 sautés : la RLS stricte, réservée à `ENT`, et un job conditionnel ; aucun échec, aucune relance).
+* Statut : **implémenté, testé, CI verte** ; non validé par la relecture du pilote ; non prêt pilote, non prêt production.
+
