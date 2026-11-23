@@ -1202,8 +1202,12 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_import_journal", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane_ligne", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_moyenne_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_moyenne_externe_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Passe 3 (D-069) : rien de non publié n'est jamais exporté. Une moyenne externe ne sort que publiée ; ni auteur, ni motif.
+    t("eva_moyenne_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par", "publiee_par", "retrait_par", "dernier_retrait_par", "motif_correction", "dernier_motif_correction"])
+        .export_si("x.publiee_le IS NOT NULL"),
+    // Journal en ajout seul (valeurs avant correction, motifs, auteurs, lignes non publiées) : interne, jamais exporté.
+    t("eva_moyenne_externe_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_moyenne_statut", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("eva_nature", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_periode_etat", "evaluations_pedagogie", Portee::Etablissement),
@@ -1216,10 +1220,20 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_reprise_compte", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_execution", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_ligne", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Une note ne sort que si son évaluation est publiée (même condition que la vue `eva_resultat_publie`).
+    // Résultat d'une évaluation publiée, sans les champs internes (note privée du professeur, marque « aménagé » jamais
+    // imprimée à un tiers, auteur, motifs de correction) — comme la vue `eva_resultat_publie` que lit la famille.
+    t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction"])
+        .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
+    // Résultat externe : publié, compté et non retiré (ce que lit la famille), sans auteur ni motif.
+    t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par", "compte_decide_par", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
+        .export_si("x.publiee_le IS NOT NULL AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL"),
+    // Journal en ajout seul des résultats (valeurs successives, motifs, auteurs, y compris avant publication) : interne.
+    t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .export_si("EXISTS (SELECT 1 FROM eva_resultat r JOIN eva_evaluation e ON e.etablissement_id = r.etablissement_id AND e.id = r.evaluation_id WHERE r.etablissement_id = x.etablissement_id AND r.id = x.resultat_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),

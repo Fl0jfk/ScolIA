@@ -4568,43 +4568,51 @@ impl PgEnt {
         .await
         .map_err(db)?
         {
-            // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
-            // M2 : chaque veille a ses propres points de reprise ; les trois alimentent ensemble le suivi des échecs
-            // répétés de l'établissement (une veille réussie ne remet pas à zéro l'échec d'une autre).
-            let mut echec = false;
-            match self.veille_non_rentres_bilan_a(etab, maintenant()).await {
-                Ok((n, echecs)) => {
-                    total += n;
-                    echec |= echecs > 0;
-                }
-                Err(e) => {
-                    tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement");
-                    echec = true;
-                }
-            }
-            match self.veille_etudes_bilan_a(etab, maintenant()).await {
-                Ok((n, echecs)) => {
-                    total += n;
-                    echec |= echecs > 0;
-                }
-                Err(e) => {
-                    tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement");
-                    echec = true;
-                }
-            }
-            match self.veille_sorties_bilan_a(etab, maintenant()).await {
-                Ok((v, bilan)) => {
-                    total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;
-                    echec |= bilan.echecs > 0;
-                }
-                Err(e) => {
-                    tracing::warn!(nature = %nature_erreur(&e), "veille des sorties d'internat non faite pour un établissement");
-                    echec = true;
-                }
-            }
-            suivre_echecs_veille(etab, echec);
+            total += self.internat_sorties_tache_etab_a(etab, &maintenant).await;
         }
         Ok(total)
+    }
+
+    /// La tâche planifiée pour **un seul** établissement (exploitation : relance ciblée ; tests : ne touche pas les autres
+    /// établissements d'une base partagée). Renvoie le nombre d'effets des trois veilles.
+    pub async fn internat_sorties_tache_etab_a(&self, etab: Uuid, maintenant: &impl Fn() -> DateTime<Utc>) -> usize {
+        let mut total = 0;
+        // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
+        // M2 : chaque veille a ses propres points de reprise ; les trois alimentent ensemble le suivi des échecs
+        // répétés de l'établissement (une veille réussie ne remet pas à zéro l'échec d'une autre).
+        let mut echec = false;
+        match self.veille_non_rentres_bilan_a(etab, maintenant()).await {
+            Ok((n, echecs)) => {
+                total += n;
+                echec |= echecs > 0;
+            }
+            Err(e) => {
+                tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement");
+                echec = true;
+            }
+        }
+        match self.veille_etudes_bilan_a(etab, maintenant()).await {
+            Ok((n, echecs)) => {
+                total += n;
+                echec |= echecs > 0;
+            }
+            Err(e) => {
+                tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement");
+                echec = true;
+            }
+        }
+        match self.veille_sorties_bilan_a(etab, maintenant()).await {
+            Ok((v, bilan)) => {
+                total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;
+                echec |= bilan.echecs > 0;
+            }
+            Err(e) => {
+                tracing::warn!(nature = %nature_erreur(&e), "veille des sorties d'internat non faite pour un établissement");
+                echec = true;
+            }
+        }
+        suivre_echecs_veille(etab, echec);
+        total
     }
 }
 

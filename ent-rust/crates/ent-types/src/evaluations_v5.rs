@@ -59,14 +59,13 @@ pub struct RetirerExterneBody {
     pub motif: String,
 }
 
-/// La moyenne externe **telle que la direction l'a lue** : publier ou retirer la publication compare cette version à celle
-/// de la base (compare-et-écrit) ; si elle a changé entre-temps (correction), le geste est refusé (409).
+/// La moyenne externe **telle que la direction l'a lue** : publier ou retirer la publication compare ce **compteur de
+/// version** (incrémenté à chaque écriture, migration 700) à celui de la base (compare-et-écrit) ; si la moyenne a été
+/// écrite entre-temps (correction de la valeur, de l'appréciation ou de la pièce, même revenue à l'identique), le geste est
+/// refusé (409).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VueMoyenneExterne {
-    pub statut: String,
-    /// En millièmes ; absente si le statut n'est pas `moyenne`.
-    pub valeur_m: Option<i64>,
-    pub bareme_m: i64,
+    pub version: i32,
 }
 
 /// Publier une moyenne externe : porte la version vue.
@@ -175,6 +174,8 @@ pub struct MoyenneExterneDto {
     pub appreciation_transcrite: Option<String>,
     /// Publiée à la famille et à l'élève (second geste de la direction) ; une moyenne non publiée n'existe pas pour eux.
     pub publiee: bool,
+    /// Compteur de version : à rendre tel quel dans `vue` pour publier ou retirer la publication.
+    pub version: i32,
 }
 
 // ───────────────────────────── Parcours d'un élève dans une période ─────────────────────────────

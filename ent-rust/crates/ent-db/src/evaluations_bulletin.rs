@@ -813,7 +813,9 @@ impl PgEnt {
         if !matches!(format, "lsu" | "lsl") {
             return Err(refus("format attendu : lsu ou lsl"));
         }
-        let calc = self.eva_calculer_classe(etab, classe_id, periode_id, false).await?;
+        // D-069 (passe 3) : l'export part vers un système national visible des familles ; comme le bulletin, il est
+        // calculé sur le SEUL PUBLIÉ (`publiees_seulement = true`). Le personnel en est averti dans la réponse.
+        let calc = self.eva_calculer_classe(etab, classe_id, periode_id, true).await?;
         let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ines: Vec<(Uuid, Option<String>)> =
@@ -993,13 +995,16 @@ impl PgEnt {
                 nettoyer_nom(&calc.periode.code)
             ),
             contenu,
-            avertissement: AVERTISSEMENT_LIVRETS.to_string(),
+            avertissement: format!("{AVERTISSEMENT_LIVRETS} {AVERTISSEMENT_NON_PUBLIE}"),
             anomalies,
             nb_eleves: livret.eleves.len() as u32,
             empreinte: emp,
         })
     }
 }
+
+/// Mention ajoutée à l'avertissement de l'export LSU / LSL (D-069) : l'export est calculé sur le seul publié.
+const AVERTISSEMENT_NON_PUBLIE: &str = "Les notes non publiées ne sont pas comptées dans cet export.";
 
 /// Nom de fichier sûr : lettres ASCII, chiffres et tirets.
 fn nettoyer_nom(s: &str) -> String {
