@@ -129,3 +129,17 @@ Passe de correctifs sur la même branche (PR n° 122, brouillon), partie de la t
 | **F-f** accord annuel sans contrôle de majorité | **limite notée** | Sans conséquence de protection (l'accord annuel est celui du socle 18, qui relève de ses propres règles de majorité) ; contrôle à étudier au socle 18. | |
 
 ### Tests, compteurs, vérifications
+
+- **17 tests nouveaux** (`tests_internat_i4_passe2.rs`), **2 adaptés** (`m8_*` : le protégé reste compté et marqué ; `m9_*` : l'absent à l'étude est signalé). En local, base **neuve** `ent_ci_test_p2` (PostgreSQL 16, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`, Rust 1.99.0) : les 17 tests de la passe 2 verts ; tous les tests `tests_internat*` (i2, i3, i4, correctifs) verts, hors deux tests de rejeu / d'attendu qui échouaient en exécution **parallèle** et sont verts en série (voir ci-dessous) ; RLS, registre, migrations et réactions verts ; `tests_voyages_v3` vert (les règles de 654 tiennent).
+- **Constat fait en fusionnant `origin/ENT`** : 654 (socle 42) et 2829 redéfinissent toutes deux `ent_internat_attendu_calcule`. Avec 654 après 2829, la branche des sorties de groupe d'I4 disparaissait de la base (échec de `e2_sortie_de_plusieurs_jours…` et du test de rejeu). Correctif : 654 passe avant 2828-2829 dans `migrate.rs`, et 2829 reprend les deux ajouts de 654. Garde : `m6_l_attendu_garde_la_branche…`.
+- Compteurs (règle 28), recalculés **depuis la base commune** (`c941d680`) : RLS = base + 14 (ENT : F3 +8, V3 +6) + 16 (I4) ; la valeur de ENT (+1 V5 déjà dans la base) n'est pas comptée deux fois ; `SOURCES` / `NOMS_SOURCES` 70 → **72** (`finances_grilles.rs` d'ENT, `internat_vie.rs` d'I4) ; `MIGRATION_TAG` inchangé (3808) ; `Action::TOUTES` inchangé (279 + ce qu'ENT apporte : la compilation l'atteste) ; événements : aucun nouveau ; consommateurs : +1 (`i4.internat_alertes`).
+- Clippy 1.99.0, les trois commandes de la CI (dont `ent-lab`), `--locked`, `-D warnings` : **0 avertissement**. `cargo metadata --locked` dans `ent-rust/web` : OK. `rustfmt` ciblé sur les fichiers de la passe qui étaient déjà propres (pas de `cargo fmt --all`).
+
+### Non fait, limites (passe 2)
+
+- **F-d** (fusion, ligne « parti » chez l'absorbé) et **F-f** : voir le tableau.
+- **M4** : écart sur l'ancre (22 h), à confirmer par le pilote.
+- Le retrait d'une inscription à un temps ne peut pas, en l'état, laisser un élève pointé en activité sans retour (la désinscription est refusée) ; la veille et le retour ne dépendent pourtant pas de ce retrait (garde-fou pour une donnée ancienne ou un autre chemin) : ce garde-fou n'est pas testé en base (le journal d'ajout seul interdit de forger cet état par SQL).
+- La désinscription n'est refusée que pour une **activité** (l'étude n'a pas de retour) ; l'élève pointé présent à une étude se désinscrit normalement.
+- Les avis `i4.internat_alertes` partent à tout compte `internat.gerer` de l'établissement (pas encore filtrés par périmètre d'internat) : à affiner avec le socle 8 si l'établissement a plusieurs internats.
+- Un cas fermé par l'appel **avant** le départ de l'élève ne bloque pas la veille (l'élève peut partir plus tard dans la nuit et ne pas rentrer).
