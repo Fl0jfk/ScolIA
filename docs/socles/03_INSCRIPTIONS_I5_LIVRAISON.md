@@ -366,3 +366,9 @@ Les mêmes tests lancés sur une copie d'`origin/ENT` (base neuve `ent_test_p4_r
 ### Vérifications locales
 * Base neuve `ent_test_p4` (nom contenant « test »), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0. **Leçon** : après avoir bâti une copie de référence dans le même répertoire de compilation, `touch` des sources avant de rejouer (règle 22) — un binaire de l'ancien code a faussé un rejeu.
 * `ent-db` (labo) : 278 tests (`inscriptions`, `r_m4`, `registre`, `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`, `p3_`) verts ; les 14 de la passe 4 verts.
+
+### Passe 4 — compteurs, tête et CI
+
+- **Compteurs** : aucune nouvelle table, action ni source. `MIGRATIONS` +1 (315) ; compte RLS, `Action::TOUTES`, `SOURCES` et `MIGRATION_TAG` (3808) inchangés par la passe (après fusion d'`ENT` : SOURCES 75, TOUTES 282).
+- **CI de la tête `770a7016` : rouge**, une seule cause — la garde `garde_rls_stricte::aucun_acces_direct_au_pool_hors_exception` signalait deux exceptions devenues inutiles (`inscriptions : .fetch_all(self.pool())` et `fermeture_en_cours(self.pool(), etab)`), car `dossier_dto` n'emploie plus le pool (une seule connexion, F1). Correctif : exceptions retirées (`081f09d9`). Les 20 tranches labo hors tranche 11 et tous les autres jobs étaient verts ; la tranche 11 échouait sur la même garde.
+- Vérification locale après correctif : `cargo test --locked -p ent-db -p ent-api` (sans labo) vert, 754 tests `ent-db`.
