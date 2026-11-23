@@ -85,7 +85,7 @@ Ordre de propriétaire, hors migration : `REVOKE TEMP ON DATABASE <base> FROM PU
 - Base locale **neuve dont le nom contient « test »** (`ent_t1_neuve_test`) ; un seul `CARGO_TARGET_DIR` ; rustc/clippy 1.99.0 ; `--locked`.
 - Suites rejouées en local : `garde_search_path` (2), `tests_search_path_t1` (3), `migrate::` (3), `tests_rls_stricte::` (3), en mode permissif **et** en `ENT_RLS_MODE=strict` ; en plus, les suites messagerie, internat, cahier, évaluations et `tests_rls::` : 654 tests, 650 verts en parallèle sur une base partagée ; les 4 échecs (deux « seed cast » `Reessayer` / `InvalidCredentials`, un flux de messagerie, un compteur de requêtes) sont des interférences entre fils d'une base partagée (la CI exécute un seul fil par tranche) : **les 4 passent** relancés un par un (`--test-threads=1`).
 - Clippy 1.99.0 : **0 avertissement** sur les 3 commandes de la CI (`--workspace --all-targets`, `--features ent-api/labo,ent-lab/labo`, `-p ent-types`), `ent-lab` compris ; `cargo +1.99.0 metadata --locked` dans `ent-rust/web` : OK ; rustfmt ciblé sur les deux fichiers neufs (jamais `cargo fmt --all`).
-- Tête, CI : (renseignés à la fin de la livraison, §11).
+- Tête : `accc3bff`, PR #129 en brouillon vers `ENT`. **CI : aucun run n'était visible** pour cette tête ni pour la branche (API `actions/runs` : 0 run) au moment de la rédaction ; la CI n'est donc **pas vérifiée**. Seules les vérifications locales ci-dessus sont acquises.
 
 ## 10. Annexe — fonctions qui reçoivent `SET search_path = pg_catalog, public, pg_temp` (433)
 
