@@ -163,7 +163,8 @@ pub use msg_m4::{
 };
 mod msg_m5;
 mod msg_m12;
-pub use msg_m12::{FilActif, FluxMessagerie, PositionFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_m12::{FilActif, FluxMessagerie, ReglagesFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_repo::PositionFlux;
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,

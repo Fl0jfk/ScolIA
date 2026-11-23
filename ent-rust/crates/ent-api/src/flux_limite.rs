@@ -5,15 +5,16 @@
 //! - **par session** (et non par compte : un compte a un appareil par session, tous doivent recevoir le temps réel) :
 //!   un seul appel à la fois et au plus un début d'appel par seconde ; dépassement : `429` avec `Retry-After` ;
 //! - **plafond par compte** : au plus [`FLUX_APPELS_MAX_PAR_COMPTE`] appels simultanés sur l'ensemble des sessions
-//!   (protège la base d'un compte aux nombreuses sessions) ;
+//!   (protège la base d'un compte aux nombreuses sessions) ; il ne s'applique **pas** à un rappel de pagination (F2) ;
 //! - **jamais de refus de pagination** : quand la dernière réponse d'une session était `tronque`, le rappel
 //!   immédiat est accepté sans attendre l'intervalle (c'est le serveur qui s'en souvient, pas un paramètre du
 //!   client, donc aucun contournement par `apres_fil`).
 //!
-//! État en mémoire du processus (comme l'anti-abus de connexion) ; les entrées inactives sont purgées.
+//! État en mémoire de l'instance de [`LimiteFlux`] (une par `AppState`, comme l'anti-abus de connexion, jamais un état
+//! global partagé entre tests) ; les entrées inactives sont purgées.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -31,16 +32,6 @@ pub enum RefusFlux {
     TropVite,
 }
 
-impl RefusFlux {
-    /// Valeur de l'en-tête `Retry-After` (secondes).
-    pub fn retry_after_secondes(&self) -> u64 {
-        match self {
-            RefusFlux::Concurrent => 2,
-            RefusFlux::TropVite => FLUX_INTERVALLE_MIN.as_secs().max(1),
-        }
-    }
-}
-
 struct EtatSession {
     en_cours: bool,
     dernier: Instant,
@@ -54,9 +45,18 @@ struct Etat {
     par_compte: HashMap<Uuid, usize>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct LimiteFlux {
     inner: Arc<Mutex<Etat>>,
+    /// Intervalle minimal entre deux débuts d'appel d'une même session (réglable : les tests HTTP en fixent un très
+    /// long pour que « trop vite » ne dépende d'aucune horloge).
+    intervalle: Duration,
+}
+
+impl Default for LimiteFlux {
+    fn default() -> Self {
+        Self::avec_intervalle(FLUX_INTERVALLE_MIN)
+    }
 }
 
 /// Jeton rendu à l'entrée ; la place est libérée à sa chute (y compris sur erreur ou annulation de la requête).
@@ -92,6 +92,22 @@ impl Drop for PlaceFlux {
 }
 
 impl LimiteFlux {
+    /// Limiteur à intervalle minimal réglé.
+    pub fn avec_intervalle(intervalle: Duration) -> Self {
+        Self {
+            inner: Arc::default(),
+            intervalle,
+        }
+    }
+
+    /// Valeur de l'en-tête `Retry-After` (secondes) d'un refus.
+    pub fn retry_after_secondes(&self, refus: &RefusFlux) -> u64 {
+        match refus {
+            RefusFlux::Concurrent => 2,
+            RefusFlux::TropVite => self.intervalle.as_secs().max(1),
+        }
+    }
+
     pub fn entrer(&self, user: Uuid, session: Uuid) -> Result<PlaceFlux, RefusFlux> {
         self.entrer_a(user, session, Instant::now())
     }
@@ -111,15 +127,22 @@ impl LimiteFlux {
                     || maintenant.saturating_duration_since(e.dernier) < Duration::from_secs(60)
             });
         }
-        if m.par_compte.get(&user).copied().unwrap_or(0) >= FLUX_APPELS_MAX_PAR_COMPTE {
+        // F2 : le rappel d'une pagination (dernière réponse de cette session tronquée, aucun appel en cours) n'est jamais
+        // refusé, plafond du compte compris.
+        let rappel_libre = m
+            .sessions
+            .get(&session)
+            .is_some_and(|e| !e.en_cours && e.rappel_libre);
+        if !rappel_libre
+            && m.par_compte.get(&user).copied().unwrap_or(0) >= FLUX_APPELS_MAX_PAR_COMPTE
+        {
             return Err(RefusFlux::Concurrent);
         }
         if let Some(e) = m.sessions.get_mut(&session) {
             if e.en_cours {
                 return Err(RefusFlux::Concurrent);
             }
-            if !e.rappel_libre
-                && maintenant.saturating_duration_since(e.dernier) < FLUX_INTERVALLE_MIN
+            if !e.rappel_libre && maintenant.saturating_duration_since(e.dernier) < self.intervalle
             {
                 return Err(RefusFlux::TropVite);
             }
@@ -163,21 +186,6 @@ impl LimiteFlux {
             .map(|m| m.par_compte.get(&user).copied().unwrap_or(0))
             .unwrap_or(0)
     }
-
-    /// Oublie tout l'état (tests HTTP : le limiteur du processus est partagé).
-    #[cfg(test)]
-    pub fn vider(&self) {
-        if let Ok(mut m) = self.inner.lock() {
-            m.sessions.clear();
-            m.par_compte.clear();
-        }
-    }
-}
-
-/// Limiteur du processus (une seule instance).
-pub fn limite_flux() -> &'static LimiteFlux {
-    static L: OnceLock<LimiteFlux> = OnceLock::new();
-    L.get_or_init(LimiteFlux::default)
 }
 
 #[cfg(test)]
@@ -265,7 +273,35 @@ mod tests {
 
     #[test]
     fn retry_after_est_fourni() {
-        assert!(RefusFlux::TropVite.retry_after_secondes() >= 1);
-        assert!(RefusFlux::Concurrent.retry_after_secondes() >= 1);
+        let l = LimiteFlux::default();
+        assert_eq!(l.retry_after_secondes(&RefusFlux::TropVite), 1);
+        assert!(l.retry_after_secondes(&RefusFlux::Concurrent) >= 1);
+        let long = LimiteFlux::avec_intervalle(Duration::from_secs(3600));
+        assert_eq!(long.retry_after_secondes(&RefusFlux::TropVite), 3600);
+    }
+
+    #[test]
+    fn le_plafond_du_compte_n_ecrase_pas_une_pagination() {
+        // F2 : un compte au plafond (8 appels longs en cours) ne refuse pas le rappel d'une pagination tronquée ;
+        // une session sans pagination en cours, elle, est refusée.
+        let l = LimiteFlux::default();
+        let (u, pagine, autre) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let t0 = Instant::now();
+        let mut p = l.entrer_a(u, pagine, t0).expect("premier appel");
+        p.marquer_tronque(true);
+        drop(p);
+        let longs: Vec<_> = (0..FLUX_APPELS_MAX_PAR_COMPTE)
+            .map(|_| l.entrer_a(u, Uuid::new_v4(), t0).expect("sous le plafond"))
+            .collect();
+        assert_eq!(
+            l.entrer_a(u, autre, t0).err(),
+            Some(RefusFlux::Concurrent),
+            "témoin : une session sans pagination est refusée au plafond"
+        );
+        let suite = l
+            .entrer_a(u, pagine, t0)
+            .expect("le rappel d'une pagination passe au-dessus du plafond");
+        drop(suite);
+        drop(longs);
     }
 }

@@ -468,6 +468,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("489_msg_m6_lecture"),
     // Correctifs de la revue de sécurité de M5-M6 (490 : annulation d'un message différé, journal d'ouverture des liens).
     m!("490_msg_correctifs_revue"),
+    // Correctifs de la revue des suites M12 (491) : annulation d'un différé corrigé (versions), curseur du flux en `xid8`.
+    // Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
+    m!("491_msg_annulation_versions_flux_xid"),
     // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
     m!("3201_jour_etablissement_unique"),
     // Socle 21 (évaluations), lot V1 « modèle et reprise » (plage 461–479 ; 460 = V0) : règles de calcul, évaluations,
