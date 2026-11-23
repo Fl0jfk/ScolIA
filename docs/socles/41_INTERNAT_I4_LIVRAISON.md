@@ -143,3 +143,9 @@ Passe de correctifs sur la même branche (PR n° 122, brouillon), partie de la t
 - La désinscription n'est refusée que pour une **activité** (l'étude n'a pas de retour) ; l'élève pointé présent à une étude se désinscrit normalement.
 - Les avis `i4.internat_alertes` partent à tout compte `internat.gerer` de l'établissement (pas encore filtrés par périmètre d'internat) : à affiner avec le socle 8 si l'établissement a plusieurs internats.
 - Un cas fermé par l'appel **avant** le départ de l'élève ne bloque pas la veille (l'élève peut partir plus tard dans la nuit et ne pas rentrer).
+
+### Intégration (passe 2)
+
+- Tête de code poussée : `17e7d872` (fusion d'`origin/ENT` incluse, compteurs recalculés selon la règle 28).
+- CI « ENT Rust » sur `17e7d872` : **verte** (run 45107606805). Les commits suivants ne touchent que cette documentation.
+- PR n° 122 laissée en brouillon.
