@@ -255,3 +255,8 @@ Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de co
 * **Locaux, verts :** `tests_evaluations*`, `migrate::`, `registre_donnees`, `tests_rls::`, `garde_search_path`, `tests_eleve_fusion`, `tests_eleve_e9`, `extrait_personne`, `droits` : **304/304** (un échec de semis parallèle `seed cast: Event(Infrastructure)`, vert au rejeu isolé).
 * **Compteurs (règle 28)** : 0 table (`tests_rls.rs` inchangé), registre des tables inchangé (règles d'export seulement), `TABLES_ELEVE` et `Action::TOUTES` inchangés, sources de routes inchangées, `migrate.rs` +1 (700 après 690), `MIGRATION_TAG` inchangé.
 * **Non exécuté en local :** `separation.rs` et les tests `ent-web-server` (édition de liens / mémoire), laissés à la CI.
+
+### 10.3 Tête et CI
+* **Tête du code :** `4f834e20ac72470d77ae90e6ac6fcadb98f83242` (PR brouillon #132, `ent-socle-21-code-v5-suites-3` → `ENT`).
+* **CI « ENT Rust » sur cette tête : verte** (`completed/success`, y compris `separation.rs` et les tests `ent-web-server` non exécutés en local).
+* Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**` : le filtre de chemins de la CI ne le relance pas ; la CI de référence reste celle de `4f834e20`.
