@@ -533,6 +533,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
     // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("690_t1_search_path_fonctions"),
+    // Suites E1 (493, plage 482–499 du socle 16, **après 690**, règle 38) : un fil dont le seul message est annulé n'est plus
+    // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
+    // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("493_msg_fil_vide_et_garde_proprietaire"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
