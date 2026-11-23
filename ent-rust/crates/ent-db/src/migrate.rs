@@ -531,6 +531,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Contre-revue de V5 : une correction d'une moyenne externe publiée la remet en « non publiée », retrait de publication
     // tracé, seule une moyenne se publie (en base).
     m!("478_eva_v5_contre_revue_publication"),
+    // Chantier transverse T1 (plage 690–699, sécurité transverse) : `search_path` fixé sur toutes les fonctions de `public`
+    // (une table temporaire homonyme ne trompe plus aucune garde). **Règle des lots suivants** : toute migration nouvelle
+    // s'ajoute APRÈS 690 (jamais avant : une base déjà migrée ne rejouerait pas 690 après elle), et chacun de ses
+    // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
+    // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("690_t1_search_path_fonctions"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -778,6 +784,33 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         }
     }
     Ok(())
+}
+
+/// Tests (chantier T1) : remet les clauses `search_path` en rejouant **690 seule**, sous les verrous des rejeux. D'autres
+/// tests rejouent des fichiers de migration isolés dans la base commune, et chaque `CREATE OR REPLACE FUNCTION` efface la
+/// clause ; les preuves de T1 (table temporaire homonyme sous le rôle applicatif) veulent l'état d'une installation.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+pub(crate) async fn remettre_search_path(pool: &PgPool) -> Result<(), MigrateError> {
+    let (_, sql) = MIGRATIONS
+        .iter()
+        .find(|(nom, _)| *nom == "690_t1_search_path_fonctions")
+        .expect("690 est dans le tableau des migrations");
+    let mut verrou = pool.acquire().await?.detach();
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut verrou).await?;
+    sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
+    let mut tentative = 0u64;
+    loop {
+        match apply_sql_file_rejeu(pool, sql).await {
+            Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
+                if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
+            {
+                tentative += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
+            }
+            r => break r,
+        }
+    }
 }
 
 /// Verrou consultatif entre les rejeux de migrations (exclusif) et les tests qui vérifient un déclencheur ou une

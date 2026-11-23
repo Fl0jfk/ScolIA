@@ -28,6 +28,7 @@ const FICHIERS_SANS_CONTEXTE: &[(&str, &str)] = &[
     ("pg_err", "traduction d'erreurs"),
     ("url_guard", "garde d'URL"),
     ("garde_rls_stricte", "ce fichier (motifs recherchés)"),
+    ("garde_search_path", "garde du catalogue (module de test, chantier T1) : lit pg_proc / pg_class d'une base neuve créée pour le test, rôle propriétaire, aucune donnée métier"),
 ];
 
 /// (fichier, extrait de la ligne, justification) : accès directs au pool **autorisés**. Une exception inutilisée

@@ -121,6 +121,29 @@ ALTER ROLE ent_app SET app.rls_strict = 'on';
 Variables d'environnement correspondantes : `ENT_DATABASE_MIGRATION_URL=postgres://ent_owner:…@…/ent` ; `ENT_DATABASE_URL=postgres://ent_app:…@…/ent` ; `ENT_RLS_MODE=strict`.
 Procédure d'activation (hypothèse de séquence, à valider avant production) : 1) créer les rôles et rejouer les migrations avec le propriétaire (`ENT_DATABASE_MIGRATION_URL`) ; 2) démarrer en `permissif` sur un environnement de recette, mesurer, corriger ; 3) passer en `strict` ; 4) seulement ensuite, réglage de rôle. Retour arrière : `ENT_RLS_MODE=off` et `ALTER ROLE ent_app RESET app.rls_strict` ; les politiques restent permissives sans variable.
 
+### 3.1 Tables temporaires : `REVOKE TEMP` (chantier T1, `docs/securite/T1_SEARCH_PATH.md`)
+**Pourquoi.** PostgreSQL cherche les relations dans `pg_temp` **en premier**, et le privilège `TEMP` sur la base est accordé à `PUBLIC` par défaut : une session du rôle applicatif capable d'exécuter du SQL peut masquer une table par une table temporaire homonyme (`CREATE TEMP TABLE ent_xxx (LIKE public.ent_xxx)`). La migration 690 fixe `search_path = pg_catalog, public, pg_temp` sur toutes les fonctions de `public` (sauf les exclusions nommées, dont le corps est sans relation ou qualifié `public.`), donc **aucune garde en base n'est trompée**. Le `REVOKE` ci-dessous est la défense en profondeur : il retire la possibilité même de créer la table, pour les requêtes applicatives (`SELECT`/`UPDATE` non qualifiés, politiques, vues) que le code écrit sans `public.`.
+
+**Ordre de propriétaire, propre à chaque base, hors migration** (à exécuter par le propriétaire de la base, après la création des rôles de la section 3 ; `<base>` est le nom exact de la base ; jamais en production sans revue) :
+```sql
+REVOKE TEMP ON DATABASE <base> FROM PUBLIC;
+-- Le propriétaire des migrations et les outils d'exploitation gardent TEMP s'ils en ont besoin :
+GRANT TEMP ON DATABASE <base> TO ent_owner;
+-- Le rôle applicatif ne l'a pas : ni directement, ni par PUBLIC.
+```
+**Vérification** (doit rendre `f` pour le rôle applicatif, `t` pour le propriétaire) :
+```sql
+SELECT has_database_privilege('ent_app',   '<base>', 'TEMP') AS applicatif,   -- attendu : f
+       has_database_privilege('ent_owner', '<base>', 'TEMP') AS proprietaire; -- attendu : t (ou f s'il n'en a pas l'usage)
+-- Preuve par l'essai, connecté en ent_app : doit échouer avec « permission denied to create temporary tables ».
+CREATE TEMP TABLE t1_essai (x int);
+```
+Un `REVOKE … FROM PUBLIC` ne retire pas le privilège d'un rôle qui l'a reçu **nommément** : relire `\l+ <base>` après coup. Une base restaurée ou recréée (PRA) **perd** ce réglage : l'ajouter à la liste de contrôle de restauration.
+
+**Le code applicatif ne crée aucune table temporaire** (vérifié le 2026-11-23 : `git grep -n -i "TEMP TABLE\|CREATE TEMP\|TEMPORARY TABLE\|ON COMMIT DROP" -- ent-rust ':!ent-rust/crates/ent-db/src/tests_*'` ne rend aucune ligne hors commentaire de la migration 2407 ; aucune migration n'en crée non plus). Le `REVOKE` ne casse donc aucun chemin applicatif.
+
+**Tests qui créent des tables temporaires** (à connaître avant d'appliquer le `REVOKE` à une base de test) : `tests_cahier.rs` (gel du cahier), `tests_inscriptions_i5_passe3.rs`, `tests_internat_i3.rs`, `garde_search_path.rs` et `tests_search_path_t1.rs`. Ils tournent sous le rôle du harnais : le propriétaire de la base de test (superutilisateur local, CI : `ent_ci`) en mode permissif, `ent_suite_stricte` en mode `ENT_RLS_MODE=strict` ; les preuves de `tests_search_path_t1.rs` utilisent explicitement `ent_suite_stricte` (non propriétaire, sans `BYPASSRLS`). La base de test **ne reçoit pas** le `REVOKE` : les preuves ont besoin du privilège `TEMP` pour montrer que l'attaque échoue **malgré** lui. En production le `REVOKE` s'ajoute ; la migration 690 ne dépend pas de lui.
+
 ## 4. Tests (implémentés, base locale de test)
 `ent-db/src/tests_rls.rs` (feature `labo`) crée dans la base locale le rôle `ent_rls_app` (non propriétaire, sans `BYPASSRLS`, `app.rls_strict = on` au niveau du rôle) et vérifie : sans `app.etablissement_id` (absent ou vide) lecture 0 ligne et insertion refusée ; avec A posé aucune ligne de B (lecture, `UPDATE`, `DELETE` : 0 ligne touchée, vérité terrain côté propriétaire) et insertion d'une ligne de B refusée (`42501`) ; la variable ne survit pas à la transaction ; mode permissif ; mode `off` ne pose rien ; les 22 tables ont RLS activée + forcée + politique ; le rôle applicatif ne peut ni désactiver le trigger du journal, ni désactiver la RLS, ni supprimer une politique ; `ENT_DATABASE_MIGRATION_URL` (absente, vide, locale, distante refusée).
 Un superutilisateur contourne toujours la RLS, même avec `FORCE` : en CI, la connexion de test habituelle est superutilisateur, d'où l'utilisation d'un rôle dédié.
