@@ -97,6 +97,25 @@ fn uuid(v: &Value) -> Uuid {
 }
 
 impl Scene {
+    /// Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée. **Vraie** acceptation :
+    /// la route de la famille (`POST /preinscription/dossiers/{id}/proposition/repondre`, jeton de préinscription).
+    async fn famille_a_accepte(&self, dossier: Uuid, jeton: &str) {
+        let r = self
+            .appel_avec(
+                "POST",
+                &format!("/preinscription/dossiers/{dossier}/proposition/repondre"),
+                &[("x-preinscription", jeton.to_string())],
+                Some(&json!({"reponse":"acceptee"})),
+            )
+            .await;
+        assert_eq!(
+            r.statut,
+            StatusCode::OK,
+            "acceptation de la place : {}",
+            r.texte
+        );
+    }
+
     /// Bootstrap d'un établissement frais. `None` = SKIP (pas de base, labo fermé).
     async fn nouvelle() -> Option<Scene> {
         let r = routeur().await?;
@@ -533,6 +552,7 @@ fn rp2_t02_ne_pas_solliciter_et_adresse_protegee_de_bout_en_bout() {
             })
             .collect();
         assert_eq!(resp.len(), 2, "deux responsables attendus : {}", co.texte);
+        s.famille_a_accepte(dossier, &jeton).await;
         let v = s
             .req(
                 "POST",

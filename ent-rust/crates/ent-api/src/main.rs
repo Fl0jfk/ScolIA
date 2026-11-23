@@ -319,6 +319,13 @@ async fn run_api() {
         let ent = state.ent.clone();
         tokio::spawn(async move {
             loop {
+                // Socle 3 (I5) : publie les décisions dont l'heure programmée par la direction est venue
+                // (aucune décision n'est prise ici), puis expédie les messages qu'elles mettent en file.
+                match ent.publier_decisions_echues_tache(chrono::Utc::now()).await {
+                    Ok(n) if n > 0 => tracing::info!(n, "décisions d'inscription publiées à l'heure programmée"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("publication des décisions d'inscription : {e}"),
+                }
                 if let Err(e) = ent.expedier_envois_inscriptions(50).await {
                     tracing::warn!("expédition des envois d'inscription : {e}");
                 }

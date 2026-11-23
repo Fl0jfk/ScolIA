@@ -31,6 +31,7 @@ mod finances;
 mod finances_comptes;
 mod finances_grilles;
 mod inscriptions;
+mod inscriptions_decisions;
 mod inscriptions_pieces;
 mod documents_verif;
 mod internat;

@@ -908,6 +908,7 @@ impl PgEnt {
         dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = pieces_dossier_tx(&mut tx, etab, dossier_id).await?;
         commit(tx).await?;
@@ -941,7 +942,9 @@ impl PgEnt {
         fichiers: Vec<Vec<u8>>,
     ) -> Result<DepotPieceDto, EntDbError> {
         let (v, d) = self.dossier_du_deposant(etab, jeton, dossier_id).await?;
-        self.deposer_core(etab, d.id, code, fichiers, (v.user_id.unwrap_or_default(), "famille"), None)
+        // Règle 1 : l'état visible seul autorise l'action de la famille ; une décision non publiée ne se révèle pas.
+        // Le contrôle se fait **sous le verrou du dossier**, dans la transaction du dépôt (D-069 F12), jamais avant.
+        self.deposer_core(etab, d.id, code, fichiers, (v.user_id.unwrap_or_default(), "famille"), None, true)
             .await
     }
 
@@ -956,7 +959,8 @@ impl PgEnt {
         fichiers: Vec<Vec<u8>>,
     ) -> Result<DepotPieceDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
-        self.deposer_core(etab, dossier_id, code, fichiers, (actor, "guichet"), Some((actor, role)))
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
+        self.deposer_core(etab, dossier_id, code, fichiers, (actor, "guichet"), Some((actor, role)), false)
             .await
     }
 
@@ -968,11 +972,15 @@ impl PgEnt {
         fichiers: Vec<Vec<u8>>,
         deposant: (Uuid, &str),
         agent: Option<(Uuid, &str)>,
+        famille: bool,
     ) -> Result<DepotPieceDto, EntDbError> {
         // Contrôle de forme à l'entrée (type réel sur le contenu, taille, nombre) : celui du socle 7.
         let (original, mime) = preparer_depot(&fichiers)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
+        if famille {
+            crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, dossier_id).await?;
+        }
         let eff = etat_effectif(&d.etat, d.etat_avant_blocage.as_deref()).to_string();
         if !depot_ouvert(&d.nature, &eff) {
             return Err(conflit("le dépôt de pièces n'est plus ouvert pour ce dossier"));
@@ -1123,7 +1131,8 @@ impl PgEnt {
         source_dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         let (v, d) = self.dossier_du_deposant(etab, jeton, dossier_id).await?;
-        self.reutiliser_core(etab, d.id, code, source_dossier_id, v.user_id.unwrap_or_default())
+        // Contrôle de l'état visible sous le verrou du dossier, dans la transaction de la reprise (D-069 F12).
+        self.reutiliser_core(etab, d.id, code, source_dossier_id, v.user_id.unwrap_or_default(), true)
             .await
     }
 
@@ -1138,7 +1147,9 @@ impl PgEnt {
         source_dossier_id: Uuid,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
-        self.reutiliser_core(etab, dossier_id, code, source_dossier_id, actor).await
+        self.refuser_si_ecarte(etab, actor, source_dossier_id).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
+        self.reutiliser_core(etab, dossier_id, code, source_dossier_id, actor, false).await
     }
 
     async fn reutiliser_core(
@@ -1148,6 +1159,7 @@ impl PgEnt {
         code: &str,
         source_dossier_id: Uuid,
         acteur: Uuid,
+        famille: bool,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         let decl = type_piece(code).filter(|t| t.portee == PortePiece::Foyer).ok_or_else(|| {
             conflit("cette pièce est propre à chaque enfant : elle ne se réutilise pas")
@@ -1158,6 +1170,9 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
         let src = dossier_tx(&mut tx, etab, source_dossier_id).await?;
+        if famille {
+            crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, dossier_id).await?;
+        }
         if d.demarche_id != src.demarche_id {
             // Aucun indice sur l'existence du dossier d'une autre démarche.
             return Err(introuvable());
@@ -1243,6 +1258,7 @@ impl PgEnt {
         b: &ControlePieceBody,
     ) -> Result<Vec<PieceAttendueDto>, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let motif = b.motif.as_deref().map(str::trim).filter(|m| !m.is_empty());
         let commentaire = b.commentaire.as_deref().map(str::trim).filter(|m| !m.is_empty());
         if commentaire.is_some_and(|c| c.chars().count() > 500) {
@@ -1414,6 +1430,7 @@ impl PgEnt {
         code: &str,
     ) -> Result<PieceLue, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_tx(&mut tx, etab, dossier_id).await?;
         synchroniser_dossier_tx(&mut tx, etab, dossier_id).await?;

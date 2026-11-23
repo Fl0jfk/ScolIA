@@ -574,6 +574,7 @@ async fn i3_validation_pieces_bloquantes_et_rattachement() {
     // « Bulletins » déposé mais pas contrôlé : bloquant.
     ent.deposer_reel(etab, &jeton, dossier, "bulletins_anterieurs").await;
     ent.decider_for_actor(etab, d, dr, dossier, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, dossier).await;
     let e = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await
@@ -659,6 +660,7 @@ async fn i3_purge_des_non_aboutis() {
     ent.deposer_reel(etab, &jv, valide, "livret_famille").await;
     ent.controler_piece_inscription_for_actor(etab, a, ar, valide, "livret_famille", &controle("accepter", None)).await.unwrap();
     ent.decider_for_actor(etab, d, dr, valide, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();
+    crate::tests_inscriptions::famille_a_accepte(&ent, valide).await;
     ent.valider_inscription_for_actor(etab, d, dr, valide, &ValidationBody::default()).await.unwrap();
     // Délai non atteint : rien n'est purgé.
     let b = ent.purger_pieces_non_aboutis(etab, 3650).await.unwrap();
