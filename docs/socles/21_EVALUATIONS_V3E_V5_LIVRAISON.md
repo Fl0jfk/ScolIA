@@ -227,3 +227,31 @@ Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de co
   - export LSU/LSL calculé sur le seul publié (à trancher) ;
   - jeton de version complet (appréciation, pièce) ;
   - `search_path` des déclencheurs de 478 (couvert par le transverse T1).
+
+## 10. Suites (passe 3) — branche `ent-socle-21-code-v5-suites-3`, depuis `origin/ENT`, décisions D-069 du pilote
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `ent_test_p3`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`, un seul `CARGO_TARGET_DIR`). Non validé par Florian ; non prêt pilote. **Migration 700** (plage d'extension 700–719 ouverte par le pilote) ; 477 et 478 (versées) **intactes** ; 479 reste réservée à V13.
+
+### 10.1 Fait / non fait
+
+| Point | Réalisation | Test |
+|---|---|---|
+| **1. Export de portabilité** | `export_si` sur `eva_moyenne_externe` (publiée), `eva_resultat_externe` (publié, compté, non retiré : ce que lit la famille), `eva_resultat` (évaluation publiée, comme la vue `eva_resultat_publie`), `eva_resultat_item` (idem via le résultat). Les deux journaux `eva_moyenne_externe_historique` et `eva_resultat_historique` **sortent de l'export** (valeurs antérieures, motifs, auteurs). Colonnes `hors_export` : auteurs et motifs internes des deux tables externes. | `passe3_l_export_de_portabilite_ne_rend_que_le_publie` : la VRAIE condition SQL exécutée après note non publiée, résultat externe non compté / compté / publié / retiré, moyenne non publiée / publiée / corrigée |
+| **2. Retrait par un second compte** | test seul (le code était déjà juste) | `passe3_le_retrait_par_un_second_compte_…` : `saisi_par` inchangé en base, `dernier_retrait_par` et `par` du journal = second compte |
+| **3. Contrôle positif du professeur** | test de service à jour fixé (le cours du professeur du labo HTTP n'a pas de matière ; lui en donner une changerait un labo partagé) ; renvoi en commentaire dans `separation.rs` | `passe3_le_professeur_voit_un_resultat_externe_de_sa_matiere` |
+| **4. `autoriser_eleve_le`** | `pub(crate)` ; commentaires corrigés : `droits_effectifs` lit encore le jour de l'établissement (attribution de rôle, cibles de périmètre, délégations) | — |
+| **5. Fusions en chaîne** | `DISTINCT ON (evaluation_id)` dans `moyennes_tx` ; priorité à la fiche conservée, puis saisie la plus récente (`saisi_le DESC`, `id`). Le relevé suit `eva_fiches_de_l_eleve` avec la même règle. | `passe3_fusions_en_chaine_…` (A et B dans C : une seule ligne, moteur et relevé ; avec résultat de C : C l'emporte) |
+| **6. Export LSU/LSL** | calculé sur le seul publié (`eva_calculer_classe(…, true)`) ; l'avertissement rendu au personnel ajoute « Les notes non publiées ne sont pas comptées dans cet export. » | `passe3_l_export_lsu_lsl_ne_compte_que_le_publie` : une note non publiée ne change pas l'export (LSU et LSL) |
+| **7. Jeton de version** | colonne `version` (700) incrémentée par déclencheur à chaque écriture effective ; `vue` = `{version}` ; comparé dans le `WHERE` de publier et de retirer ; `MoyenneExterneDto.version` ; un client ne fixe jamais la version | `passe3_le_jeton_de_version_detecte_…` (A→B→A, appréciation seule, pièce seule, publication = écriture, version imposée par le déclencheur) ; HTTP : 409 sur jeton périmé |
+| **8a. Fenêtre F-1** | intervalles **disjoints** (une fenêtre par intervenance, fusion seulement des intervalles qui se touchent) | `passe3_f1_la_fenetre_du_professeur_est_faite_d_intervalles_disjoints` |
+| **8b. Cours sans ligne d'intervenance** | **documenté** (code) : sa fenêtre est celle de la présence de l'élève dans le cours, non bornée | — |
+| **8c. `RAISE NOTICE` des lignes dépubliées** | **non fait** : la dépublication est dans 478, versée donc intouchable ; 700 ne dépublie rien | — |
+| **8d. Auteur « système » du retrait de rattrapage** | **non fait** : le déclencheur de 478 exige un auteur (`retrait_par` non nul) ; la dépublication de rattrapage de 478 porte `saisi_par`, et 478 est versée | — |
+
+**Limites restantes.** Les tables historiques `ent_note_*`, `eva_instantane_ligne`, `eva_moyenne_statut` et `eva_revision_demande` n'ont pas de règle `export_si` : à traiter au lot G3 avec l'assemblage de l'extrait. Les évaluations du parcours (`eva_resultat`) ne suivent pas encore la fiche conservée (seuls le moteur et le relevé le font). Toujours aucun écran pour publier ou retirer.
+
+### 10.2 Tests, compteurs
+* **Nouveaux : 7** (`passe3_*`, `tests_evaluations_v5.rs`) ; **adaptés :** `vue_moy`, `contre_revue_m2`, `separation.rs` (corps `vue`, jeton lu dans la réponse, 409 sur ancien jeton).
+* **Locaux, verts :** `tests_evaluations*`, `migrate::`, `registre_donnees`, `tests_rls::`, `garde_search_path`, `tests_eleve_fusion`, `tests_eleve_e9`, `extrait_personne`, `droits` : **304/304** (un échec de semis parallèle `seed cast: Event(Infrastructure)`, vert au rejeu isolé).
+* **Compteurs (règle 28)** : 0 table (`tests_rls.rs` inchangé), registre des tables inchangé (règles d'export seulement), `TABLES_ELEVE` et `Action::TOUTES` inchangés, sources de routes inchangées, `migrate.rs` +1 (700 après 690), `MIGRATION_TAG` inchangé.
+* **Non exécuté en local :** `separation.rs` et les tests `ent-web-server` (édition de liens / mémoire), laissés à la CI.
