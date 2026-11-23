@@ -84,6 +84,8 @@ pub mod documents_repo;
 pub mod documents_signature;
 pub mod documents_signature_repo;
 pub mod documents_signature_signer;
+#[cfg(all(test, feature = "labo"))]
+mod tests_mobile_mb0;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -443,7 +445,7 @@ pub use assiduite_tableau::{
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
-    AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
+    client_effectif, AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
     SessionAppareil, SessionInfo, StaffMember,
 };
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
