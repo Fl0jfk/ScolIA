@@ -125,21 +125,21 @@ async fn foyer_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, libelle:
 
 /// Lance le moteur de génération pour un élève (même chemin que FIN-02 et que l'inscription validée).
 async fn facturer(ent: &PgEnt, etab: Uuid, eleve: Uuid) {
-    facturer_au(ent, etab, eleve, d(2030, 10, 1)).await;
+    facturer_depuis(ent, etab, eleve, None).await;
 }
 
-/// Même génération à un jour fixé : seule la grille applicable ce jour-là tarife (règle 2).
-async fn facturer_au(ent: &PgEnt, etab: Uuid, eleve: Uuid, jour: NaiveDate) {
+/// Même génération pour un élève entré à `depuis` : le tarif se choisit **mois par mois**, au premier jour de chaque
+/// mois dû (D-069, M-A) ; le jour de la génération n'intervient pas (donc aucune horloge dans les tests).
+async fn facturer_depuis(ent: &PgEnt, etab: Uuid, eleve: Uuid, depuis: Option<NaiveDate>) {
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    crate::finances::facturer_annee_eleve_au(
+    crate::finances::facturer_annee_eleve(
         &mut tx,
         etab,
         ANNEE,
         eleve,
-        None,
+        depuis,
         None,
         Default::default(),
-        jour,
     )
     .await
     .unwrap()
@@ -2296,13 +2296,17 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
             .await
             .unwrap();
     assert_eq!(statut_v1.0, "close");
-    // Génération : juillet → historique (1 000 €) ; septembre et décembre → v1 (1 200 €) ; janvier → v2 (1 300 €).
+    // Génération mois par mois (M-A, D-069) : le tarif est celui du premier jour de chaque mois dû.
+    // Année facturée de septembre à juin (10 mois) : v1 (1 200 €) de septembre à décembre, v2 (1 300 €) ensuite.
+    //   - année entière : 1 200 × 4/10 + 1 300 × 6/10 = 480 + 780 = 1 260 € ;
+    //   - entré en novembre : 1 200 × 2/10 + 780 = 240 + 780 = 1 020 € ;
+    //   - entré en janvier : 780 € (tout au tarif v2).
     let mut attendu = Vec::new();
-    for (prenom, jour, montant) in [
-        ("Jul", d(2030, 7, 15), 100_000),
-        ("Sep", d(2030, 9, 1), 120_000),
-        ("Dec", d(2030, 12, 31), 120_000),
-        ("Jan", d(2031, 1, 1), 130_000),
+    for (prenom, depuis, montant) in [
+        ("Ann", None, 126_000),
+        ("Sep", Some(d(2030, 9, 1)), 126_000),
+        ("Nov", Some(d(2030, 11, 15)), 102_000),
+        ("Jan", Some(d(2031, 1, 1)), 78_000),
     ] {
         let el = eleve(&ent, etab, prenom, "externe").await;
         let _ = foyer_payeur(
@@ -2313,12 +2317,98 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
             &format!("Foyer {prenom}"),
         )
         .await;
-        facturer_au(&ent, etab, el, jour).await;
+        facturer_depuis(&ent, etab, el, depuis).await;
         attendu.push((el, montant));
     }
+    let premier = attendu[0].0;
     for (el, montant) in attendu {
         assert_eq!(total_scolarite(&ent, el).await, montant);
     }
+    // Rejouer la génération ne double rien (clés de source stables par segment).
+    let (rejoue,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND categorie = 'scolarite'",
+    )
+    .bind(premier)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(rejoue, 2, "deux segments : deux lignes");
+
+    // M-A : la liste des tarifs accepte une date (jamais l'horloge réelle dans ce test).
+    let montants_au = |jour: NaiveDate| {
+        let ent = &ent;
+        async move {
+            let rows = ent
+                .tarifs_for_actor(etab, u, r, Some(ANNEE.into()), Some(jour))
+                .await
+                .unwrap();
+            rows.iter()
+                .filter(|t| t.article_id == contrib.id)
+                .map(|t| t.montant_annuel_centimes)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(montants_au(d(2030, 8, 31)).await, vec![100_000], "la veille de v1 : historique");
+    assert_eq!(montants_au(d(2030, 9, 1)).await, vec![120_000], "v1 le 1er septembre");
+    assert_eq!(montants_au(d(2030, 12, 31)).await, vec![120_000], "v1 la veille de v2");
+    assert_eq!(montants_au(d(2031, 1, 1)).await, vec![130_000], "v2 le 1er janvier");
+
+    // M-B : une version votée mise en vigueur le même jour qu'une version déjà appliquée est refusée.
+    let v3 = ent
+        .corriger_grille_for_actor(
+            etab,
+            ud,
+            rd,
+            v2.id,
+            &CorrectionGrilleBody {
+                motif: "essai du même jour".into(),
+                effet_retroactif: false,
+            },
+        )
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v3.id).await.unwrap();
+    ent.voter_grille_au_jour(
+        etab,
+        ua,
+        ra,
+        v3.id,
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 11),
+            reference: "CA du 11 décembre".into(),
+            document_id: None,
+        },
+        d(2030, 12, 20),
+    )
+    .await
+    .unwrap();
+    assert!(invalide(
+        ent.mettre_en_vigueur_for_actor(etab, u, r, v3.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
+            .await
+    ));
+    // … et la base le refuse aussi (déclencheur), SQLSTATE 23514, sans passer par le service
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let e = sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'en_vigueur', en_vigueur_du = $2, en_vigueur_par = $3 WHERE id = $1",
+    )
+    .bind(v3.id)
+    .bind(d(2031, 1, 1))
+    .bind(ua)
+    .execute(&mut *tx)
+    .await
+    .unwrap_err();
+    let msg = e.to_string();
+    assert_eq!(
+        e.as_database_error().and_then(|x| x.code()).as_deref(),
+        Some("23514"),
+        "{msg}"
+    );
+    assert!(msg.contains("antérieure ou égale"), "{msg}");
+    drop(tx);
+    // un jour plus tard : accepté
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v3.id, &MiseEnVigueurBody { du: d(2031, 1, 2) })
+        .await
+        .unwrap();
 }
 
 /// M2 (règle 3) : le second regard est une autre personne que l'auteur réel ; il ne se désactive pas pendant

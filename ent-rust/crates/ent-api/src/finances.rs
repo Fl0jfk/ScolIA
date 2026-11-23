@@ -90,6 +90,14 @@ struct FiltreAnnee {
     annee: Option<String>,
 }
 
+/// Liste des tarifs : `a_la_date` (jour, défaut : jour de l'établissement) montre les tarifs applicables ce
+/// jour-là, donc ceux d'une année future déjà votée (D-069, M-A).
+#[derive(Deserialize)]
+struct FiltreTarifs {
+    annee: Option<String>,
+    a_la_date: Option<NaiveDate>,
+}
+
 #[derive(Deserialize)]
 struct FiltreFactures {
     statut: Option<String>,
@@ -171,11 +179,11 @@ async fn modifier_article(
 async fn tarifs(
     State(st): State<AppState>,
     s: EntSession,
-    Query(f): Query<FiltreAnnee>,
+    Query(f): Query<FiltreTarifs>,
 ) -> Res<Json<Vec<TarifDto>>> {
     Ok(Json(
         st.ent
-            .tarifs_for_actor(s.etablissement_id, s.user_id, &s.role, f.annee)
+            .tarifs_for_actor(s.etablissement_id, s.user_id, &s.role, f.annee, f.a_la_date)
             .await
             .map_err(map_db)?,
     ))

@@ -544,6 +544,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("315_inscription_decision_i5_passe4"),
+    // Socle 24, suites du lot F3 (contre-revue, D-069 ; réserve 531–537 de la plage 520–539) : égalité de date de
+    // vigueur refusée, contributeurs du second regard, publication d'une version close, année d'un tarif versionné
+    // figée, historique des calculs supprimé seulement avec sa simulation. 520 à 523 sont versées et ne changent pas.
+    // Règle 38 : en fin de tableau ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("531_finances_f3_suites"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
