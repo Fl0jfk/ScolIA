@@ -2431,17 +2431,17 @@ impl PgEnt {
         };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
+        let encadrant: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2 AND encadrant_user_id = $3)",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
         if portee.is_none() {
             // Sans droit d'établissement : seul l'encadrant du temps (encore du personnel) pointe.
-            let encadrant: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2 AND encadrant_user_id = $3)",
-            )
-            .bind(etab)
-            .bind(id)
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db)?;
             if !encadrant || !est_personnel_tx(&mut tx, etab, actor, jour).await? {
                 return Err(EntDbError::Forbidden);
             }
@@ -2451,6 +2451,15 @@ impl PgEnt {
             .is_some_and(|p| !p.contains(&b.eleve_id))
         {
             return Err(EntDbError::Forbidden);
+        }
+        // D-069 : un élève protégé n'est pointé que par l'encadrant du temps ou par un détenteur du droit de confidentialité.
+        // Un détenteur de portée (`internat.appel` / `internat.gerer`) sans ce droit reçoit « n'est pas inscrit », comme un tiers.
+        if !encadrant
+            && self
+                .eleve_cache_au_tiers(etab, actor, role, b.eleve_id)
+                .await?
+        {
+            return Err(refus("cet élève n'est pas inscrit à ce temps"));
         }
         // Pas de `exiger_eleve_visible` ici : un élève protégé INSCRIT au temps doit pouvoir être pointé par l'encadrant
         // (il est compté et marqué « protégé », sans nom). Le contrôle est celui de l'inscription ci-dessous ; envers un tiers
