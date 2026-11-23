@@ -58,6 +58,23 @@ pub fn etat_cible(sens: &str) -> &'static str {
     }
 }
 
+/// **Famille d'états compatibles** avec un sens de décision (D-069, M6) : la décision programmée reste publiable tant que
+/// l'état **effectif** du dossier (blocage pris en compte) est dans cette famille ; sinon elle est caduque. Une égalité
+/// stricte avec `etat_cible` déclarait caduque une décision que rien n'avait contredite.
+/// * `admis`, `admis_sous_reserve` → `admis` ou `confirme` : la famille qui a répondu à la place, ou dont les conditions sont
+///   remplies, n'invalide pas l'admission qu'on s'apprête à lui annoncer ;
+/// * `liste_attente` → `liste_attente` ; `refuse` → `refuse` : aucun autre état ne les porte ;
+/// * `ajourne` → `en_instruction` ou `attente_famille` : l'ajournement reporte l'examen ; que le dossier attende une pièce de
+///   la famille ou reste en instruction ne le contredit pas. Tout autre état (admis, refusé, clos, annulé…) le rend caduc.
+pub(crate) fn etats_compatibles(sens: &str) -> &'static [&'static str] {
+    match sens {
+        "admis" | "admis_sous_reserve" => &["admis", "confirme"],
+        "liste_attente" => &["liste_attente"],
+        "refuse" => &["refuse"],
+        _ => &["en_instruction", "attente_famille"],
+    }
+}
+
 fn prend_une_place(sens: &str) -> bool {
     matches!(sens, "admis" | "admis_sous_reserve")
 }
@@ -303,11 +320,10 @@ pub(crate) async fn decider_tx(
         return Err(invalide("motif communiqué trop long"));
     }
 
-    // Ordre des verrous unique (passe 3, règle 1) : **dossiers → campagne → offres**, le dossier décidé compris, en un
-    // seul lot trié, **avant** de tenir quoi que ce soit. Les offres et les dossiers de la liste que la décision peut
-    // toucher se calculent d'abord en lecture : celle que le dossier quitte, celle qu'il retient (deux déplacements
-    // croisés A→B et B→A se verrouillent dans le même ordre, une décision sur le suivant d'une place qui se libère
-    // aussi).
+    // Ordre des verrous unique (passe 4) : **offres → dossier**, posé par `verrouiller_dossiers_tx` (un seul point). Les
+    // offres touchées sont celles du dossier (qu'il quitte) et celle qu'il retient (deux déplacements croisés A→B et B→A,
+    // même entre deux campagnes, se verrouillent dans le même ordre). Le contrôle d'écart passe **avant** tout verrou : un
+    // acteur écarté reçoit « introuvable » sans avoir tenu aucun verrou de lot.
     if let Some((campagne_id, niveau)) = sqlx::query_as::<_, (Uuid, Option<String>)>(
         "SELECT campagne_id, niveau_demande FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2",
     )
@@ -317,21 +333,32 @@ pub(crate) async fn decider_tx(
     .await
     .map_err(db)?
     {
-        let mut offres: Vec<Uuid> = crate::inscriptions_attente::offre_du_dossier_tx(conn, etab, id)
-            .await?
-            .into_iter()
-            .collect();
-        if !matches!(b.sens.as_str(), "refuse" | "ajourne") {
-            // Une offre voulue invalide se refuse plus loin, à sa place dans l'ordre des refus : ici on ne fait que
-            // calculer ce qu'il faut verrouiller.
-            if let Ok(Some(o)) =
-                inscriptions_modele::offre_cible_tx(conn, etab, id, campagne_id, niveau.as_deref(), b.offre_id).await
-            {
-                offres.push(o);
+        if ecarte_tx(conn, etab, id, c.actor).await? {
+            return Err(introuvable());
+        }
+        let cible_voulue = !matches!(b.sens.as_str(), "refuse" | "ajourne");
+        // Une offre voulue invalide se refuse plus loin, à sa place dans l'ordre des refus : ici on ne fait que calculer ce
+        // qu'il faut verrouiller.
+        let cible: Option<Uuid> = if cible_voulue {
+            inscriptions_modele::offre_cible_tx(conn, etab, id, campagne_id, niveau.as_deref(), b.offre_id)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        let en_plus: Vec<Uuid> = cible.into_iter().collect();
+        crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &[id], &en_plus).await?;
+        // Relue sous verrou : une offre cible qui a changé entre-temps (vœux modifiés) se rejoue, jamais d'attente hors ordre.
+        if cible_voulue {
+            let relue = inscriptions_modele::offre_cible_tx(conn, etab, id, campagne_id, niveau.as_deref(), b.offre_id)
+                .await
+                .ok()
+                .flatten();
+            if relue != cible {
+                return Err(conflit(crate::inscriptions::EN_COURS_DE_MODIFICATION));
             }
         }
-        crate::inscriptions_attente::verrouiller_pour_offres_tx(conn, etab, &[id], Some(campagne_id), &offres, true)
-            .await?;
     }
     let d = dossier_tx(conn, etab, id).await?;
     // Garde unique (règle 2) : déporté ou lié au candidat, on ne décide pas — et le dossier n'existe pas pour soi.
@@ -402,7 +429,7 @@ pub(crate) async fn decider_tx(
 
     let campagne = sqlx::query_as::<_, CampagneRow>(&format!(
         "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
-          WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+          WHERE etablissement_id = $1 AND id = $2"
     ))
     .bind(etab)
     .bind(d.campagne_id)
@@ -598,6 +625,48 @@ pub(crate) enum Publication {
     Aucune,
 }
 
+/// **Alerte la direction** (D-069, M6) : une décision programmée n'a pas pu être publiée, la famille n'en sait rien et ne
+/// la saura jamais : une personne doit reprendre le dossier. Avis **interne** dans l'ENT (aucun envoi externe), un par
+/// décision et par destinataire (idempotent) ; le titre ne porte **aucun nom d'élève**, le corps seulement la référence du
+/// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision.
+async fn alerter_direction_caduque_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    decision_id: Uuid,
+    dossier: Uuid,
+) -> Result<(), EntDbError> {
+    let reference: String = sqlx::query_scalar(
+        "SELECT reference FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(dossier)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    sqlx::query(
+        "INSERT INTO ent_notification
+            (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id)
+         SELECT gen_random_uuid(), $1, u.user_id, NULL, 'inscription_decision_caduque',
+                'Décision d''inscription programmée non publiée',
+                'Une décision programmée n''a pas été publiée : l''état du dossier ' || $3 || ' a changé depuis. \
+                 La famille n''en a rien su ; le dossier est à reprendre (décisions caduques de la campagne).',
+                $2
+           FROM (SELECT m.user_id FROM ent_membership m
+                  WHERE m.etablissement_id = $1 AND m.role = 'direction'
+                 UNION
+                 SELECT d.decide_par FROM ent_inscription_decision d
+                  WHERE d.etablissement_id = $1 AND d.id = $2 AND d.decide_par IS NOT NULL) u
+         ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING",
+    )
+    .bind(etab)
+    .bind(decision_id)
+    .bind(&reference)
+    .execute(conn)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
 /// Rend une décision visible de la famille : proposition envoyée, suivi visible, message **sans le contenu** de
 /// la décision (la famille la lit dans son espace). Seule la décision la plus récente d'un dossier se publie ;
 /// une décision remplacée avant publication ne sera jamais lue. Renvoie vrai si une publication a eu lieu.
@@ -608,18 +677,18 @@ pub(crate) async fn publier_decision_tx(
     par: Option<Uuid>,
     maintenant: DateTime<Utc>,
 ) -> Result<Publication, EntDbError> {
-    // Ordre des verrous unique (F1) : le dossier avant la décision et la proposition.
-    sqlx::query(
-        "SELECT id FROM ent_inscription_dossier
-          WHERE etablissement_id = $1
-            AND id = (SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2)
-          FOR UPDATE",
+    // Ordre des verrous unique (passe 4) : les offres du dossier, puis le dossier, avant la décision et la proposition.
+    let dossier_lu: Option<Uuid> = sqlx::query_scalar(
+        "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(decision_id)
-    .execute(&mut *conn)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
+    if let Some(dossier) = dossier_lu {
+        crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &[dossier], &[]).await?;
+    }
     // Garde de l'état courant (passe 3, correctif 3) : une décision prise puis programmée correspondait à l'état du
     // dossier **à ce moment** ; si le dossier a bougé depuis (annulé, retiré, repris), elle est caduque. Le dossier
     // est verrouillé ci-dessus : l'état lu ne change plus jusqu'à la fin de la transaction.
@@ -640,10 +709,10 @@ pub(crate) async fn publier_decision_tx(
         return Ok(Publication::Aucune);
     };
     let etat_actuel = crate::inscriptions_etats::etat_effectif(&etat_lu, avant_blocage.as_deref());
-    if etat_actuel != etat_cible(&sens_lu) {
+    if !etats_compatibles(&sens_lu).contains(&etat_actuel) {
         let motif = format!(
             "Décision caduque : le dossier est à l'état « {etat_actuel} », la décision « {sens_lu} » supposait « {} »",
-            etat_cible(&sens_lu)
+            etats_compatibles(&sens_lu).join(" ou ")
         );
         let dossier: Uuid = sqlx::query_scalar(
             "UPDATE ent_inscription_decision SET caduque_le = $3, caduque_motif = $4
@@ -661,6 +730,7 @@ pub(crate) async fn publier_decision_tx(
             .await?;
         // Interne seulement : la famille ne lit rien d'une décision qu'elle n'a jamais vue.
         suivi_tx(conn, etab, dossier, "decision", None, Some(&motif), false, par).await?;
+        alerter_direction_caduque_tx(conn, etab, decision_id, dossier).await?;
         return Ok(Publication::Caduque);
     }
     let publiee: Option<(Uuid, String, Option<Uuid>, bool, bool, Option<Uuid>)> = sqlx::query_as(
@@ -1799,7 +1869,30 @@ async fn publier_ou_programmer_tx(
             ));
         }
     }
+    // Passe 4 (M1b) : on **résout d'abord** les dossiers de toutes les décisions, on écarte ceux dont l'acteur est écarté
+    // (contrôle d'écart **avant** tout verrou de lot), puis on verrouille **une seule fois**, offres puis dossiers triés par
+    // UUID. Ensuite seulement on publie : aucune publication ne prend un verrou de plus.
+    let mut dossier_de_decision: Vec<(Uuid, Uuid)> = Vec::with_capacity(ids.len());
     for id in ids {
+        let dossier: Uuid = sqlx::query_scalar(
+            "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        dossier_de_decision.push((*id, dossier));
+    }
+    let tous: Vec<Uuid> = dossier_de_decision.iter().map(|(_, d)| *d).collect();
+    let ecartes = ecartes_parmi(conn, etab, actor, &tous).await?;
+    if !ignorer_ecartes && !ecartes.is_empty() {
+        return Err(introuvable());
+    }
+    let a_verrouiller: Vec<Uuid> = tous.iter().copied().filter(|d| !ecartes.contains(d)).collect();
+    crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &a_verrouiller, &[]).await?;
+    for (id, dossier_de) in &dossier_de_decision {
         let etat: Option<(Option<DateTime<Utc>>, bool, bool)> = sqlx::query_as(
             "SELECT d.publiee_le, d.caduque_le IS NOT NULL, EXISTS (SELECT 1 FROM ent_inscription_decision y
                                            WHERE y.etablissement_id = d.etablissement_id AND y.remplace_decision_id = d.id)
@@ -1811,22 +1904,11 @@ async fn publier_ou_programmer_tx(
         .await
         .map_err(db)?;
         let (deja, caduque, remplacee) = etat.ok_or_else(introuvable)?;
-        let dossier_de: Uuid = sqlx::query_scalar(
-            "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
-        if ecarte_tx(conn, etab, dossier_de, actor).await? {
-            if ignorer_ecartes {
-                // Publication d'une séance (D-069 F10) : une décision dont l'acteur est écarté ne se publie pas à
-                // sa place, mais n'empêche pas les autres ; le récapitulatif la signale par un nombre.
-                r.ignorees += 1;
-                continue;
-            }
-            return Err(introuvable());
+        if ecartes.contains(dossier_de) {
+            // Publication d'une séance (D-069 F10) : une décision dont l'acteur est écarté ne se publie pas à sa place, mais
+            // n'empêche pas les autres ; le récapitulatif la signale par un nombre.
+            r.ignorees += 1;
+            continue;
         }
         if deja.is_some() {
             return Err(conflit("décision déjà publiée"));

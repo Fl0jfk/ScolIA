@@ -88,28 +88,6 @@ pub(crate) async fn offre_du_dossier_tx(
     .map(Option::flatten)
 }
 
-/// Remet les rangs d'attente d'une offre en suite 1, 2, 3… (un départ ne laisse pas de trou).
-async fn compacter_rangs_tx(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    offre: Uuid,
-) -> Result<(), EntDbError> {
-    sqlx::query(
-        "UPDATE ent_inscription_dossier d SET rang_attente = r.rn
-           FROM (SELECT x.id, row_number() OVER (ORDER BY x.rang_attente NULLS LAST, x.id)::int AS rn
-                   FROM ent_inscription_dossier x
-                   JOIN ent_inscription_voeu v ON v.etablissement_id = x.etablissement_id AND v.id = x.voeu_retenu_id
-                  WHERE x.etablissement_id = $1 AND v.offre_id = $2 AND x.etat = 'liste_attente') r
-          WHERE d.etablissement_id = $1 AND d.id = r.id AND d.rang_attente IS DISTINCT FROM r.rn",
-    )
-    .bind(etab)
-    .bind(offre)
-    .execute(conn)
-    .await
-    .map_err(db)?;
-    Ok(())
-}
-
 /// Ferme les propositions ouvertes (désignée ou envoyée) d'un dossier : `annulee`, avec le motif.
 pub(crate) async fn annuler_propositions_ouvertes_tx(
     conn: &mut PgConnection,
@@ -217,6 +195,25 @@ pub(crate) async fn reprendre_place_designee_tx(
     Ok(())
 }
 
+/// **Le** calcul du rang (passe 4) : le rang n'est plus stocké, il se **calcule en lecture** par la fonction SQL
+/// `ent_inscription_rang_attente` (`row_number()` sur `ordre_attente`, jamais renuméroté). Tous les appelants passent par ici.
+/// `famille = false` : le rang réel vu par le personnel, parmi les dossiers en liste. `famille = true` : le rang vu par la
+/// famille, parmi les seuls dossiers dont l'entrée ou la sortie est **publiée** (`ent_inscription_en_liste_visible`).
+async fn rang_calcule_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+    famille: bool,
+) -> Result<Option<i64>, EntDbError> {
+    sqlx::query_scalar("SELECT ent_inscription_rang_attente($1, $2, $3)")
+        .bind(etab)
+        .bind(dossier)
+        .bind(famille)
+        .fetch_one(conn)
+        .await
+        .map_err(db)
+}
+
 /// Position (1, 2, 3…) du dossier sur la liste **réelle** de son offre (lue par le personnel, jamais par la famille :
 /// voir [`rang_famille_tx`]).
 pub(crate) async fn position_attente_tx(
@@ -224,23 +221,7 @@ pub(crate) async fn position_attente_tx(
     etab: Uuid,
     dossier: Uuid,
 ) -> Result<Option<i64>, EntDbError> {
-    sqlx::query_scalar(
-        "SELECT r.pos FROM (
-            SELECT x.id, row_number() OVER (ORDER BY x.rang_attente NULLS LAST, x.id) AS pos
-              FROM ent_inscription_dossier x
-              JOIN ent_inscription_voeu v ON v.etablissement_id = x.etablissement_id AND v.id = x.voeu_retenu_id
-             WHERE x.etablissement_id = $1 AND x.etat = 'liste_attente'
-               AND v.offre_id = (SELECT v2.offre_id FROM ent_inscription_dossier d2
-                                   JOIN ent_inscription_voeu v2
-                                     ON v2.etablissement_id = d2.etablissement_id AND v2.id = d2.voeu_retenu_id
-                                  WHERE d2.etablissement_id = $1 AND d2.id = $2)) r
-          WHERE r.id = $2",
-    )
-    .bind(etab)
-    .bind(dossier)
-    .fetch_optional(conn)
-    .await
-    .map_err(db)
+    rang_calcule_tx(conn, etab, dossier, false).await
 }
 
 /// **Rang lu par la famille** (D-069 règle 1, M-A) : l'**unique** calcul, utilisé partout où la famille lit son rang
@@ -260,26 +241,7 @@ pub(crate) async fn rang_famille_tx(
     {
         return Ok(None);
     }
-    sqlx::query_scalar(
-        "SELECT r.pos FROM (
-            SELECT x.id, row_number() OVER (ORDER BY COALESCE(x.ordre_attente, x.rang_attente::bigint) NULLS LAST, x.id) AS pos
-              FROM ent_inscription_dossier x
-             WHERE x.etablissement_id = $1
-               AND COALESCE(x.offre_attente_id,
-                            (SELECT v.offre_id FROM ent_inscription_voeu v
-                              WHERE v.etablissement_id = x.etablissement_id AND v.id = x.voeu_retenu_id))
-                   = (SELECT COALESCE(m.offre_attente_id, v2.offre_id) FROM ent_inscription_dossier m
-                        LEFT JOIN ent_inscription_voeu v2
-                               ON v2.etablissement_id = m.etablissement_id AND v2.id = m.voeu_retenu_id
-                       WHERE m.etablissement_id = $1 AND m.id = $2)
-               AND ent_inscription_en_liste_visible(x.etablissement_id, x.id, x.etat)) r
-          WHERE r.id = $2",
-    )
-    .bind(etab)
-    .bind(dossier)
-    .fetch_optional(conn)
-    .await
-    .map_err(db)
+    rang_calcule_tx(conn, etab, dossier, true).await
 }
 
 /// **La** règle de lecture du rang par la famille (passe 3) : seul un dossier réellement en liste d'attente a un rang, lu
@@ -298,7 +260,8 @@ pub(crate) async fn rang_lu_par_la_famille_tx(
 }
 
 /// Premier dossier de la liste à désigner (`$1` établissement, `$2` offre, `$3` exclus, `$4` numéro de la place
-/// courante) ; le verrou du dossier s'ajoute en queue de requête, selon l'ordre des verrous (D-069 F5).
+/// courante), dans l'ordre d'entrée sur la liste (`ordre_attente`). Aucun verrou de dossier : l'appelant tient le verrou
+/// **de l'offre**, que toute écriture de la liste prend d'abord (passe 4).
 const SUIVANT_A_DESIGNER: &str = "SELECT d.id FROM ent_inscription_dossier d
        JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
       WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
@@ -309,7 +272,7 @@ const SUIVANT_A_DESIGNER: &str = "SELECT d.id FROM ent_inscription_dossier d
                          WHERE e.etablissement_id = d.etablissement_id AND e.dossier_id = d.id
                            AND e.offre_id = $2 AND e.statut = 'ecartee' AND e.place_no = $4)
         AND NOT (d.id = ANY($3))
-      ORDER BY d.rang_attente NULLS LAST, d.id LIMIT 1";
+      ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id LIMIT 1";
 
 /// Journal **en ajout seul** des levées, constats et acceptations au guichet (`ent_inscription_condition_levee`).
 #[allow(clippy::too_many_arguments)] // une ligne de journal : chaque champ est une colonne
@@ -344,55 +307,79 @@ async fn journaliser_condition_tx(
     Ok(())
 }
 
-/// **Point unique de l'ordre des verrous** (D-069 F5, passe 3, règle 1) : **dossiers → campagne → offres → propositions**.
-/// Plusieurs dossiers : en **un seul lot trié** par UUID ; plusieurs offres : par ordre d'UUID. Un appelant ne tient
-/// **jamais** un dossier avant d'avoir pris tout le lot (le sien compris) : il calcule d'abord en lecture ce qu'il
-/// touchera, puis appelle ici. `attendre_dossiers = false` : l'appelant tient déjà un dossier (sa transition vient de
-/// l'écrire) ; les autres dossiers se prennent alors en `NOWAIT` — un verrou tenu par un autre donne un conflit
-/// réessayable (55P03), jamais un interblocage. Les verrous déjà tenus ne coûtent rien (réentrants).
-pub(crate) async fn verrouiller_dans_l_ordre_tx(
+/// Offres que touche un dossier : celle de son vœu retenu et celle de la liste où il est (ou a été) placé. Lues **sans verrou**.
+async fn offres_des_dossiers_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     dossiers: &[Uuid],
+) -> Result<Vec<Uuid>, EntDbError> {
+    let mut offres: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT o FROM (
+            SELECT v.offre_id AS o FROM ent_inscription_dossier d
+              JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
+             WHERE d.etablissement_id = $1 AND d.id = ANY($2)
+            UNION
+            SELECT d.offre_attente_id FROM ent_inscription_dossier d
+             WHERE d.etablissement_id = $1 AND d.id = ANY($2)) t
+          WHERE o IS NOT NULL",
+    )
+    .bind(etab)
+    .bind(dossiers)
+    .fetch_all(conn)
+    .await
+    .map_err(db)?;
+    offres.sort_unstable();
+    offres.dedup();
+    Ok(offres)
+}
+
+/// **L'unique fonction qui pose l'ordre des verrous** (passe 4) : **campagne → offres → dossiers**.
+/// * la campagne (si l'appelant en a besoin) en `FOR NO KEY UPDATE`, **avant** les offres ;
+/// * **un verrou unique et grossier par offre** : `pg_advisory_xact_lock` sur la clé dérivée de l'identifiant de l'offre
+///   (`ent_inscription_offre_cle`), offres triées par UUID. Toute écriture qui touche la liste d'attente, les places, les
+///   propositions ou la désignation d'une offre commence par là ; le rang ne se stocke plus, aucune écriture n'a donc à
+///   toucher les autres dossiers de la liste ;
+/// * les dossiers ensuite, triés par UUID, en `FOR NO KEY UPDATE` (comme un `UPDATE` ordinaire) ;
+/// * les propositions en dernier (par `verrouiller_proposition_tx`).
+/// On **attend** : l'ordre étant unique, attendre ne produit jamais d'interblocage. Les verrous déjà tenus ne coûtent rien
+/// (réentrants). Aucun autre `FOR UPDATE` sur une offre ou un dossier n'existe dans les fichiers d'inscription (garde statique).
+pub(crate) async fn verrouiller_dans_l_ordre_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
     campagne: Option<Uuid>,
     offres: &[Uuid],
-    attendre_dossiers: bool,
+    dossiers: &[Uuid],
 ) -> Result<(), EntDbError> {
-    let mut dossiers = dossiers.to_vec();
-    dossiers.sort_unstable();
-    dossiers.dedup();
-    if !dossiers.is_empty() {
-        sqlx::query(if attendre_dossiers {
-            "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = ANY($2)
-              ORDER BY id FOR UPDATE"
-        } else {
-            "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = ANY($2)
-              ORDER BY id FOR UPDATE NOWAIT"
-        })
+    if let Some(c) = campagne {
+        sqlx::query(
+            "SELECT id FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
+        )
         .bind(etab)
-        .bind(&dossiers)
+        .bind(c)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
     }
-    if let Some(c) = campagne {
-        sqlx::query("SELECT id FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-            .bind(etab)
-            .bind(c)
+    let mut offres = offres.to_vec();
+    offres.sort_unstable();
+    offres.dedup();
+    for o in offres {
+        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+            .bind(o)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
     }
-    let mut offres = offres.to_vec();
-    offres.sort_unstable();
-    offres.dedup();
-    if !offres.is_empty() {
+    let mut dossiers = dossiers.to_vec();
+    dossiers.sort_unstable();
+    dossiers.dedup();
+    if !dossiers.is_empty() {
         sqlx::query(
-            "SELECT id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = ANY($2)
-              ORDER BY id FOR UPDATE",
+            "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = ANY($2)
+              ORDER BY id FOR NO KEY UPDATE",
         )
         .bind(etab)
-        .bind(&offres)
+        .bind(&dossiers)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
@@ -400,49 +387,26 @@ pub(crate) async fn verrouiller_dans_l_ordre_tx(
     Ok(())
 }
 
-/// Dossiers que la désignation ou la reprise d'une place sur `offre` peut toucher, **lus sans verrou** : les premiers
-/// de la liste (autant que de places à pourvoir, plus une marge) et les dossiers qui portent déjà une place désignée.
-async fn dossiers_de_l_offre_tx(
+/// Verrouille des `dossiers` **avec** les offres qu'ils touchent (lues d'abord sans verrou, plus `offres_en_plus` : l'offre
+/// que l'appelant va retenir) : offres, puis dossiers, par [`verrouiller_dans_l_ordre_tx`]. Les offres sont relues sous
+/// verrou : un dossier déplacé entre-temps vers une offre non verrouillée donne un **conflit réessayable** (la transaction
+/// s'arrête, elle n'attend jamais hors ordre). `dossier_tx` passe par ici : tout verrou de dossier est précédé du verrou de
+/// ses offres.
+pub(crate) async fn verrouiller_dossiers_tx(
     conn: &mut PgConnection,
     etab: Uuid,
-    offre: Uuid,
-) -> Result<Vec<Uuid>, EntDbError> {
-    let dispo = inscriptions_modele::disponibles_tx(conn, etab, offre).await?;
-    let fenetre = dispo.unwrap_or(0).clamp(0, 50) + 5;
-    sqlx::query_scalar(
-        "(SELECT d.id FROM ent_inscription_dossier d
-           JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
-          WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
-          ORDER BY d.rang_attente NULLS LAST, d.id LIMIT $3)
-         UNION
-         (SELECT p.dossier_id FROM ent_inscription_proposition_place p
-           WHERE p.etablissement_id = $1 AND p.offre_id = $2 AND p.origine = 'liste_attente'
-             AND p.statut = 'designee')",
-    )
-    .bind(etab)
-    .bind(offre)
-    .bind(fenetre)
-    .fetch_all(conn)
-    .await
-    .map_err(db)
-}
-
-/// Verrouille, dans l'ordre unique, les `dossiers` connus de l'appelant, les dossiers qu'une désignation sur ces
-/// `offres` peut toucher (lus sans verrou), la `campagne` éventuelle puis les offres. À appeler **avant** toute
-/// désignation ou reprise de place, et avant de tenir un autre dossier.
-pub(crate) async fn verrouiller_pour_offres_tx(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    dossiers_connus: &[Uuid],
     campagne: Option<Uuid>,
-    offres: &[Uuid],
-    attendre_dossiers: bool,
+    dossiers: &[Uuid],
+    offres_en_plus: &[Uuid],
 ) -> Result<(), EntDbError> {
-    let mut dossiers = dossiers_connus.to_vec();
-    for o in offres {
-        dossiers.extend(dossiers_de_l_offre_tx(conn, etab, *o).await?);
+    let mut offres = offres_des_dossiers_tx(conn, etab, dossiers).await?;
+    offres.extend_from_slice(offres_en_plus);
+    verrouiller_dans_l_ordre_tx(conn, etab, campagne, &offres, dossiers).await?;
+    let relues = offres_des_dossiers_tx(conn, etab, dossiers).await?;
+    if relues.iter().any(|o| !offres.contains(o)) {
+        return Err(conflit(crate::inscriptions::EN_COURS_DE_MODIFICATION));
     }
-    verrouiller_dans_l_ordre_tx(conn, etab, &dossiers, campagne, offres, attendre_dossiers).await
+    Ok(())
 }
 
 /// Une **nouvelle** place est libre sur l'offre (place rendue, capacité en hausse) : nouveau numéro de place. Les
@@ -475,13 +439,13 @@ pub(crate) async fn designer_suivants_tx(
     offre: Uuid,
     exclure: &[Uuid],
 ) -> Result<i64, EntDbError> {
-    // Ordre des verrous unique (D-069 F5, passe 3 règle 1) : dossier → offre → propositions. L'**appelant** a déjà
-    // verrouillé l'offre et les premiers dossiers de la liste, dans l'ordre (`verrouiller_pour_offres_tx`) : ici, aucun
-    // dossier n'est jamais **attendu** après l'offre. Un dossier hors de cette fenêtre est pris en `NOWAIT` : un verrou
-    // tenu par un autre se classe en conflit réessayable (jamais en attente, donc jamais d'interblocage), et un autre
-    // dossier n'est jamais désigné à sa place (pas de « SKIP LOCKED »).
+    // Passe 4 : le verrou de l'offre est pris **en premier** par tout appelant (`verrouiller_dossiers_tx`,
+    // `verrouiller_dans_l_ordre_tx`) ; le reprendre ici ne coûte rien s'il est déjà tenu (réentrant) et garantit l'exclusion
+    // sinon. Aucun dossier n'est verrouillé : toute écriture qui change la place d'un dossier dans la liste tient d'abord ce
+    // verrou, la liste lue ici est donc stable ; le rang ne se stocke plus.
+    verrouiller_dans_l_ordre_tx(conn, etab, None, &[offre], &[]).await?;
     let place_no: i64 = sqlx::query_scalar(
-        "SELECT liberations FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        "SELECT liberations FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(offre)
@@ -489,7 +453,6 @@ pub(crate) async fn designer_suivants_tx(
     .await
     .map_err(db)?;
     let mut designes = 0;
-    let mut relances = 0;
     for _ in 0..100 {
         let Some(dispo) = inscriptions_modele::disponibles_tx(conn, etab, offre).await? else {
             break;
@@ -506,7 +469,7 @@ pub(crate) async fn designer_suivants_tx(
         if dispo - promises < 1 {
             break;
         }
-        let suivant: Option<Uuid> = sqlx::query_scalar(&format!("{SUIVANT_A_DESIGNER} FOR UPDATE OF d NOWAIT"))
+        let suivant: Option<Uuid> = sqlx::query_scalar(SUIVANT_A_DESIGNER)
             .bind(etab)
             .bind(offre)
             .bind(exclure)
@@ -515,20 +478,6 @@ pub(crate) async fn designer_suivants_tx(
             .await
             .map_err(db)?;
         let Some(suivant) = suivant else {
-            // Sous READ COMMITTED, une ligne verrouillée qui a changé entre-temps ne renvoie rien alors que d'autres
-            // dossiers sont éligibles : on relance (borné), on ne s'arrête que si la lecture simple ne voit plus personne.
-            let encore: Option<Uuid> = sqlx::query_scalar(SUIVANT_A_DESIGNER)
-                .bind(etab)
-                .bind(offre)
-                .bind(exclure)
-                .bind(place_no)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?;
-            if encore.is_some() && relances < 5 {
-                relances += 1;
-                continue;
-            }
             break;
         };
         let pos = position_attente_tx(conn, etab, suivant).await?;
@@ -563,7 +512,7 @@ pub(crate) async fn designer_suivants_tx(
 }
 
 /// Appelé par [`transitionner_tx`] après chaque changement d'état : ferme les propositions devenues sans objet,
-/// remet les rangs en suite, **désigne** le suivant quand une place se libère.
+/// **désigne** le suivant quand une place se libère (le rang n'est plus stocké : rien à remettre en suite).
 pub(crate) async fn apres_transition_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -583,10 +532,11 @@ pub(crate) async fn apres_transition_tx(
         return Ok(());
     }
     let offre = offre_du_dossier_tx(conn, etab, d.id).await?;
-    // Ordre des verrous (D-069 F5, passe 3) : le dossier est déjà tenu par l'appelant ; les autres dossiers de la liste
-    // se prennent en `NOWAIT` (jamais d'attente derrière l'offre ni derrière notre dossier), puis l'offre.
+    // Passe 4 : le verrou de l'offre est déjà tenu (`dossier_tx` le prend avant le dossier) ; le reprendre ne coûte rien. Le
+    // rang ne se stocke plus : un départ ne touche aucun autre dossier de la liste, il n'y a donc rien à compacter ni à
+    // verrouiller en plus.
     if let Some(o) = offre {
-        verrouiller_pour_offres_tx(conn, etab, &[], None, &[o], false).await?;
+        verrouiller_dans_l_ordre_tx(conn, etab, None, &[o], &[]).await?;
     }
     if quitte_la_liste {
         if vers != "admis" {
@@ -599,7 +549,6 @@ pub(crate) async fn apres_transition_tx(
             .await?;
         }
         if let Some(o) = offre {
-            compacter_rangs_tx(conn, etab, o).await?;
             if vers != "admis" {
                 // Une désignation qui tombe rend sa place : le suivant est désigné.
                 designer_suivants_tx(conn, etab, o, &[d.id]).await?;
@@ -1109,14 +1058,14 @@ struct PropositionVerrouillee {
     decision_id: Option<Uuid>,
 }
 
-/// Ordre des verrous **unique** (D-069 F1, F5) : le dossier, puis l'offre, puis la proposition — partout. Garde de déport/lien
-/// appliquée au passage (une proposition d'un dossier dont on est écarté n'existe pas).
+/// Ordre des verrous **unique** (passe 4) : le contrôle d'écart d'abord (**avant** tout verrou de lot : un acteur écarté
+/// reçoit « introuvable » sans avoir rien tenu), puis les offres et le dossier (`verrouiller_dossiers_tx`), la proposition en
+/// dernier. Garde de déport/lien appliquée au passage (une proposition d'un dossier dont on est écarté n'existe pas).
 async fn verrouiller_proposition_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     actor: Uuid,
     id: Uuid,
-    avec_campagne: bool,
 ) -> Result<PropositionVerrouillee, EntDbError> {
     let dossier: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
         "SELECT dossier_id, offre_id FROM ent_inscription_proposition_place WHERE etablissement_id = $1 AND id = $2",
@@ -1127,20 +1076,9 @@ async fn verrouiller_proposition_tx(
     .await
     .map_err(db)?;
     let (dossier, offre) = dossier.ok_or_else(introuvable)?;
-    // Ordre unique (passe 3) : le dossier et ceux de la liste en un lot trié, la campagne (si une décision suit), l'offre.
-    let campagne: Option<Uuid> = if avec_campagne {
-        sqlx::query_scalar("SELECT campagne_id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(dossier)
-            .fetch_optional(&mut *conn)
-            .await
-            .map_err(db)?
-    } else {
-        None
-    };
-    let offres: Vec<Uuid> = offre.into_iter().collect();
-    verrouiller_pour_offres_tx(conn, etab, &[dossier], campagne, &offres, true).await?;
     dossier_visible_tx(conn, etab, actor, dossier).await?;
+    let offres: Vec<Uuid> = offre.into_iter().collect();
+    verrouiller_dossiers_tx(conn, etab, None, &[dossier], &offres).await?;
     dossier_tx(conn, etab, dossier).await?;
     let p: Option<(Uuid, Option<Uuid>, String, String, Option<i32>, Option<NaiveDate>, Option<Uuid>)> = sqlx::query_as(
         "SELECT dossier_id, offre_id, origine, statut, rang_au_moment, repondre_avant, decision_id
@@ -1455,7 +1393,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         offre_existe_tx(&mut tx, etab, offre).await?;
-        verrouiller_pour_offres_tx(&mut tx, etab, &[], None, &[offre], true).await?;
+        verrouiller_dans_l_ordre_tx(&mut tx, etab, None, &[offre], &[]).await?;
         designer_suivants_tx(&mut tx, etab, offre, &[]).await?;
         let r = liste_attente_tx(&mut tx, etab, actor, offre).await?;
         commit(tx).await?;
@@ -1537,7 +1475,7 @@ impl PgEnt {
             ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, true).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
         let (dossier, offre, origine, statut, rang) =
             (p.dossier_id, p.offre_id, p.origine, p.statut, p.rang_au_moment);
         if statut != "designee" || origine != "liste_attente" {
@@ -1601,7 +1539,7 @@ impl PgEnt {
             return Err(invalide("motif : de 3 à 500 caractères"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
         let (dossier, offre, statut) = (p.dossier_id, p.offre_id, p.statut);
         if statut != "designee" {
             return Err(conflit(
@@ -1667,7 +1605,7 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
         // Refus **distincts** (D-069 F15, passe 3) : chaque cas a son message exact.
         match p.statut.as_str() {
             "envoyee" => {}
@@ -1774,7 +1712,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
         let (dossier, statut, avant) = (p.dossier_id, p.statut, p.repondre_avant);
         if statut != "envoyee" {
             return Err(conflit(
@@ -1832,7 +1770,7 @@ impl PgEnt {
             return Err(invalide("réponse : acceptee ou declinee"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        // Ordre des verrous (D-069 F5, passe 3) : le dossier et ceux de la liste en un lot trié, puis l'offre, puis la
+        // Ordre des verrous (passe 4) : l'offre de la proposition envoyée et celles du dossier, puis le dossier, puis la
         // proposition — avant toute autre lecture sous verrou.
         let offre_p: Option<Option<Uuid>> = sqlx::query_scalar(
             "SELECT offre_id FROM ent_inscription_proposition_place
@@ -1844,7 +1782,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let offres: Vec<Uuid> = offre_p.flatten().into_iter().collect();
-        verrouiller_pour_offres_tx(&mut tx, etab, &[d0.id], None, &offres, true).await?;
+        verrouiller_dossiers_tx(&mut tx, etab, None, &[d0.id], &offres).await?;
         let d = dossier_tx(&mut tx, etab, d0.id).await?;
         // Règle 1 : la famille ne répond que sur ce qui est publié ; une décision non publiée en cours ne se révèle pas.
         crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
@@ -1981,14 +1919,14 @@ async fn liste_attente_tx(
     let disponibles = inscriptions_modele::disponibles_tx(conn, etab, offre).await?;
     let rows: Vec<(Uuid, String, String, String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
         "SELECT d.id, d.reference, d.eleve_nom, d.eleve_prenom,
-                row_number() OVER (ORDER BY d.rang_attente NULLS LAST, d.id),
+                row_number() OVER (ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id),
                 p.id, p.statut
            FROM ent_inscription_dossier d
            JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
       LEFT JOIN ent_inscription_proposition_place p
              ON p.etablissement_id = d.etablissement_id AND p.dossier_id = d.id AND p.statut IN ('designee', 'envoyee')
           WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
-          ORDER BY d.rang_attente NULLS LAST, d.id",
+          ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id",
     )
     .bind(etab)
     .bind(offre)

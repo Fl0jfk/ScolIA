@@ -80,6 +80,15 @@ pub(crate) async fn fermeture_en_cours(
     pool: &PgPool,
     etab: Uuid,
 ) -> Result<Option<FermetureDto>, EntDbError> {
+    let mut tx = crate::tenant_tx::TenantTx::begin(pool, etab).await.map_err(db)?;
+    fermeture_en_cours_tx(&mut tx, etab).await
+}
+
+/// Fermeture en cours, lue **sur la connexion de l'appelant** (une lecture cohérente n'en ouvre pas une autre).
+pub(crate) async fn fermeture_en_cours_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+) -> Result<Option<FermetureDto>, EntDbError> {
     let r: Option<(Uuid, NaiveDate, NaiveDate, i16, String, Option<String>, i32)> = sqlx::query_as(
         "SELECT id, date_debut, date_fin, report_jours, motif_public, contact_urgence, echeances_reportees
            FROM ent_inscription_fermeture
@@ -88,7 +97,7 @@ pub(crate) async fn fermeture_en_cours(
           ORDER BY date_fin DESC LIMIT 1",
     )
     .bind(etab)
-    .fetch_optional(&mut *crate::tenant_tx::TenantTx::begin(pool, etab).await.map_err(db)?)
+    .fetch_optional(conn)
     .await
     .map_err(db)?;
     Ok(r.map(|r| FermetureDto {
@@ -440,13 +449,9 @@ pub(crate) async fn retenir_voeu_tx(
     let Some(offre) = offre else {
         return Ok(None);
     };
-    // Verrou : deux admissions concurrentes sur la même offre ne dépassent pas la capacité.
-    sqlx::query("SELECT id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-        .bind(etab)
-        .bind(offre)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
+    // Verrou : deux admissions concurrentes sur la même offre ne dépassent pas la capacité. L'appelant (`decider_tx`) tient
+    // déjà ce verrou d'offre (pris avant son dossier) ; le reprendre ne coûte rien et garde la fonction sûre seule.
+    crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(conn, etab, None, &[offre], &[]).await?;
     let mut depassement = false;
     if admis {
         if let Some(dispo) = disponibles_tx(conn, etab, offre).await? {
@@ -493,8 +498,8 @@ pub(crate) async fn retenir_voeu_tx(
             }
             let id = Uuid::new_v4();
             sqlx::query(
-                "INSERT INTO ent_inscription_voeu (id, etablissement_id, dossier_id, rang, offre_id)
-                 VALUES ($1,$2,$3,$4,$5)",
+                "INSERT INTO ent_inscription_voeu (id, etablissement_id, dossier_id, rang, offre_id, origine)
+                 VALUES ($1,$2,$3,$4,$5,'decision')",
             )
             .bind(id)
             .bind(etab)
@@ -518,37 +523,20 @@ pub(crate) async fn retenir_voeu_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    let rang_attente: Option<i32> = if admis {
-        None
-    } else {
-        Some(
-            sqlx::query_scalar(
-                "SELECT COALESCE(max(d.rang_attente), 0)::int + 1 FROM ent_inscription_dossier d
-                   JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
-                  WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente' AND d.id <> $3",
-            )
-            .bind(etab)
-            .bind(offre)
-            .bind(d.id)
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(db)?,
-        )
-    };
-    // Entrée sur la liste : ordre d'entrée jamais renuméroté et offre de la liste (D-069 M-A). Une admission ne
-    // touche pas ces deux colonnes : elles gardent la trace de la liste que le dossier quitte.
+    // Entrée sur la liste : ordre d'entrée jamais renuméroté et offre de la liste (D-069 M-A). Le rang ne se stocke plus
+    // (passe 4) : il se calcule en lecture (`ent_inscription_rang_attente`). Une admission ne touche pas ces deux colonnes :
+    // elles gardent la trace de la liste que le dossier quitte.
     sqlx::query(
         "UPDATE ent_inscription_dossier
-            SET voeu_retenu_id = $3, rang_attente = $4, updated_at = now(),
-                ordre_attente = CASE WHEN $4::int IS NULL THEN ordre_attente
-                                     ELSE nextval('ent_inscription_attente_ordre_seq') END,
-                offre_attente_id = CASE WHEN $4::int IS NULL THEN offre_attente_id ELSE $5 END
+            SET voeu_retenu_id = $3, updated_at = now(),
+                ordre_attente = CASE WHEN $4 THEN ordre_attente ELSE nextval('ent_inscription_attente_ordre_seq') END,
+                offre_attente_id = CASE WHEN $4 THEN offre_attente_id ELSE $5 END
           WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(d.id)
     .bind(voeu)
-    .bind(rang_attente)
+    .bind(admis)
     .bind(offre)
     .execute(&mut *conn)
     .await
@@ -935,10 +923,23 @@ impl PgEnt {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         valider_offre(b)?;
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Ordre unique (passe 4) : la campagne (`FOR NO KEY UPDATE`), puis l'offre, comme partout — jamais l'offre puis la
+        // campagne. La campagne se lit d'abord sans verrou ; l'offre est relue sous verrou.
+        let campagne_lue: Uuid = sqlx::query_scalar(
+            "SELECT campagne_id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(offre_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(&mut tx, etab, Some(campagne_lue), &[offre_id], &[])
+            .await?;
         let (campagne_id, niveau, parcours, regime, avant): (Uuid, String, String, Option<String>, Option<i32>) =
             sqlx::query_as(
                 "SELECT campagne_id, niveau_code, parcours_code, regime, capacite FROM ent_inscription_offre
-                  WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL FOR UPDATE",
+                  WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL",
             )
             .bind(etab)
             .bind(offre_id)
@@ -1120,7 +1121,7 @@ impl PgEnt {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (de,): (String,) = sqlx::query_as(
-            "SELECT statut FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+            "SELECT statut FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
         )
         .bind(etab)
         .bind(id)
@@ -1728,7 +1729,7 @@ impl PgEnt {
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let c = sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
-              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+              WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE"
         ))
         .bind(etab)
         .bind(campagne_id)
