@@ -793,6 +793,8 @@ struct EnvoiReclame {
     eleve_id: Option<Uuid>,
     droit_requis: Option<String>,
     regroupable: bool,
+    source_type: Option<String>,
+    source_id: Option<Uuid>,
 }
 
 #[derive(Clone)]
@@ -933,7 +935,7 @@ impl Expediteur {
                      FOR UPDATE SKIP LOCKED)
               RETURNING e.id, e.etablissement_id, e.destinataire_user_id, e.canal, e.kind,
                         e.titre, e.corps, e.eleve_id,
-                        e.droit_requis, e.regroupable",
+                        e.droit_requis, e.regroupable, e.source_type, e.source_id",
         )
         .bind(maintenant)
         .bind(Some(etab))
@@ -947,6 +949,12 @@ impl Expediteur {
         // 3. Droits relus, puis regroupement en résumé ou envoi individuel.
         let mut a_envoyer: Vec<EnvoiReclame> = Vec::new();
         for e in lot {
+            // M-1 : un avis de messagerie dont le message n'existe plus (annulé avant sa remise) ne part jamais.
+            if !self.message_source_existe(&e).await? {
+                self.finaliser(&e, Issue::Ignore("message_annule"), None, &mut bilan, maintenant)
+                    .await?;
+                continue;
+            }
             if !self.droit_toujours_valide(&e).await? {
                 self.finaliser(&e, Issue::Ignore("droit_retire"), None, &mut bilan, maintenant)
                     .await?;
@@ -1048,6 +1056,23 @@ impl Expediteur {
             MailSendStatus::SkippedNoConfig => IssueDirecte::Ignore("canal_non_configure"),
             MailSendStatus::Failed => IssueDirecte::Echec(erreur.unwrap_or_else(|| "échec d'envoi".into())),
         }
+    }
+
+    /// Le message d'un avis `messagerie*` existe-t-il encore ? Lu `FOR KEY SHARE` : une annulation en cours
+    /// (`FOR UPDATE` du message) est **attendue**, puis la ligne a disparu et l'avis est écarté. Les autres avis (sans
+    /// message pour source) passent. Reste la fenêtre entre cette lecture et l'envoi lui-même, que l'annulation ne peut
+    /// plus rattraper (l'avis est déjà `envoi`) ; elle est documentée dans la livraison.
+    async fn message_source_existe(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {
+        let Some(id) = e.source_id else {
+            return Ok(true);
+        };
+        if !e.kind.starts_with("messagerie") || e.source_type.as_deref() != Some("systeme") {
+            return Ok(true);
+        }
+        crate::msg_repo::PgMsgRepo::new(self.pool.clone())
+            .message_existe_sous_verrou(e.etablissement_id, id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn droit_toujours_valide(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {

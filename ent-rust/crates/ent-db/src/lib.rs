@@ -145,6 +145,7 @@ mod sms_repo;
 mod push_repo;
 mod bank_repo;
 mod msg_repo;
+mod msg_xmin_gele;
 #[cfg(test)]
 mod garde_messagerie_lecture;
 pub mod msg_matrice;
@@ -243,6 +244,8 @@ mod tests_messagerie_corr;
 mod tests_messagerie_m12;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_revue;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_p2;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;

@@ -18847,18 +18847,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         };
         // Les pièces d'un message jamais remis n'ont plus d'objet à garder : on détruit l'original et le fichier servi.
         self.detruire_objets_messagerie(etablissement_id, &cles).await;
-        // L'avis différé, s'il était planifié, n'a plus d'objet.
-        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await?;
-        sqlx::query(
-            "UPDATE ent_notification_envoi SET statut = 'annule', traite_le = now()
-              WHERE etablissement_id = $1 AND source_type = 'systeme' AND source_id = $2
-                AND statut = 'en_attente'",
-        )
-        .bind(etablissement_id)
-        .bind(message_id)
-        .execute(&mut *txw)
-        .await?;
-        txw.commit().await?;
+        // L'avis différé (planifié ou déjà pris) a été annulé dans la transaction de l'annulation (M-1).
         Ok(())
     }
 
