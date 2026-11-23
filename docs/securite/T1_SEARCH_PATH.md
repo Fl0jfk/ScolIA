@@ -149,4 +149,4 @@ Premier passage à 2 000 lignes, cinq essais : 2 211 ms avant, 2 426 ms après (
 - `garde_search_path` (2), `tests_search_path_t1` (3), `migrate::tests::l_ordre_des_migrations_avant_690_est_fige_regle_38`, `migration_tag_suit_la_derniere_migration`, `aucune_colonne_json_hors_liste_d036` : verts en mode permissif **et** en `ENT_RLS_MODE=strict`.
 - Gardes statiques (`isolation_sql_statique`, `jour_utc_interdit`) **sans** et **avec** la feature `labo` : verts. (Un premier passage a vu `isolation_sql_statique` refuser une requête de test sans filtre d'établissement dans `garde_search_path.rs` : corrigée.)
 - Clippy 1.99.0 : **0 avertissement** sur les 3 commandes de la CI (`--workspace --all-targets`, `--features ent-api/labo,ent-lab/labo`, `-p ent-types`), `ent-lab` compris ; `cargo +1.99.0 metadata --locked` dans `ent-rust/web` : OK ; rustfmt ciblé sur les deux fichiers de test (jamais `cargo fmt --all`).
-- Tête et CI : voir le message de fin de session (renseignés après le push).
+- Tête vérifiée : `6089f54a` (PR #134, brouillon vers `ENT`). **CI : workflow « ENT Rust » vert** (run 45233085696). Le commit qui ajoute cette ligne ne touche que la documentation.
