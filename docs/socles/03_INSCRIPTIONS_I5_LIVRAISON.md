@@ -306,3 +306,20 @@ constatée ; la proposition passe à `acceptee` (l'action « répondre » dispar
 * **Bogue préexistant trouvé et corrigé** (`inscriptions_modele.rs`) : déplacer un dossier vers **une autre offre** que celle de son vœu échouait en erreur 500
   (`COALESCE(max(rang), 0)::smallint + 1` rend un `INT4` lu en `i16`) ; mis au jour par le test des déplacements croisés.
 * `pg_err.rs` : aucune modification conservée (une trace de débogage a été retirée).
+
+### Vérifications locales (passe 3)
+* Base locale **neuve** `ent_test_p3` (PostgreSQL 16, nom contenant « test »), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0.
+* `ent-db` (feature `labo`) : les **11** tests de `tests_inscriptions_i5_passe3` verts ; **141 + 1** tests d'inscriptions (`inscriptions`) verts, puis **150** (`r_m4`, `registre`,
+  `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`) verts, dont `tests_d036` (le registre des migrations compte 314) et `r_m4` (assertion exacte). Pas de `#[ignore]`.
+* **Tests du frontend contre le backend rejoués** (`ent-web-server`, `--features ent-web-server/labo,ent-api/labo`, `ENT_ENV=lab`, base neuve `ent_test_web`) :
+  `inscriptions` **4 verts**, `demo_p1` **2 verts**.
+* **clippy 1.99.0, zéro avertissement** sur les trois commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo` — `ent-lab` compris —,
+  `-p ent-types`), `--locked` ; relancé après la fusion d'`origin/ENT`. fmt **ciblé** : le fichier neuf `tests_inscriptions_i5_passe3.rs` est formaté ; aucun autre
+  fichier n'est reformaté (jamais `cargo fmt --all`). `cargo metadata --locked` dans `ent-rust/web` : vert, `Cargo.lock` inchangé.
+* Ni `#[ignore]`, ni heure réelle, ni jour UTC dans les tests (instants posés en 2027).
+
+### Compteurs (règle 28, passe 3)
+Aucune table, aucune action, aucune source de séparation nouvelle : **compte RLS (`tests_rls.rs`) inchangé**, `Action::TOUTES` inchangé, `SOURCES`/`NOMS_SOURCES`
+inchangés, registre des tables inchangé (colonnes hors export et conditions de ligne ajoutées) ; `MIGRATION_TAG` inchangé (3808) ; `MIGRATIONS` : **+1** (314, après 313).
+Fusion d'`origin/ENT` (`f298bc7a`, internat I4, messagerie M12/E1, cahier C8/C9) **sans conflit** ; compteurs de la base relus, rien à recalculer de notre côté.
+`ent-types` : `PublicationDto.caduques` ajouté (`#[serde(default)]`, aucun autre consommateur : `web/` ne construit pas ce type).
