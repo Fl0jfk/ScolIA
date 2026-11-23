@@ -3176,8 +3176,8 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
         ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
         ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": id, "organisme": "cned", "organisme_libelle": null, "du": "2031-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
         ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null}))),
-        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
-        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement"}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), Some(json!({"vue": {"statut": "moyenne", "valeur_m": 10000, "bareme_m": 20000}}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement", "vue": {"statut": "moyenne", "valeur_m": 10000, "bareme_m": 20000}}))),
         ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
     ];
@@ -3203,8 +3203,8 @@ fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static
         ("GET", format!("/eva/v5/eleves/{eleve}/externes-famille"), None),
         ("POST", "/eva/v5/enseignements-externes".into(), Some(json!({"eleve_id": eleve, "matiere_id": matiere, "organisme": "cned", "organisme_libelle": null, "du": "2020-09-01", "au": null, "referent": null, "compte_moyenne_generale": true}))),
         ("POST", format!("/eva/v5/enseignements-externes/{id}/moyennes"), Some(json!({"periode_id": id, "statut": "moyenne", "valeur_m": 10000, "appreciation_transcrite": null, "document_id": null, "motif": null}))),
-        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), None),
-        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement"}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/publier"), Some(json!({"vue": {"statut": "moyenne", "valeur_m": 10000, "bareme_m": 20000}}))),
+        ("POST", format!("/eva/v5/moyennes-externes/{id}/retirer-publication"), Some(json!({"motif": "essai hors établissement", "vue": {"statut": "moyenne", "valeur_m": 10000, "bareme_m": 20000}}))),
         ("GET", format!("/eva/v5/eleves/{eleve}/enseignements-externes"), None),
         ("GET", format!("/eva/v5/eleves/{eleve}/parcours?periode_id={id}"), None),
     ]
@@ -3323,6 +3323,33 @@ fn evaluations_v5_le_professeur_n_a_que_sa_portee_sur_les_routes() {
         assert_eq!(r.statut.as_u16(), 403, "retrait par un professeur d'une autre matière : {}", r.texte);
         let r = m.appel("POST", &format!("/eva/v5/externes/{externe}/publier"), Some(m.jeton(Prof)), None).await;
         assert_eq!(r.statut.as_u16(), 403, "publier par un professeur : {}", r.texte);
+        // La direction saisit une VRAIE moyenne, la publie, puis en retire la publication (succès HTTP) ; le professeur reste
+        // à 403 sur la ligne réelle ; une version périmée est refusée (409, compare-et-écrit).
+        let periode: Uuid = sqlx::query_scalar("SELECT p.id FROM ent_periode p JOIN ent_affectation a ON a.etablissement_id = p.etablissement_id AND a.annee_id = p.annee_id
+              WHERE p.etablissement_id = $1 AND a.eleve_id = $2 ORDER BY p.date_debut, p.id LIMIT 1")
+            .bind(o.etab)
+            .bind(o.eleve)
+            .fetch_one(&pool)
+            .await
+            .expect("une période");
+        let r = m.appel("POST", &format!("/eva/v5/enseignements-externes/{enseignement}/moyennes"), Some(dir),
+                        Some(&json!({"periode_id": periode, "statut": "moyenne", "valeur_m": 12000, "appreciation_transcrite": null, "document_id": null, "motif": null}))).await;
+        assert!(r.est_succes(), "moyenne réelle : {} {}", r.statut, r.texte);
+        let moyenne_id = r.json["moyennes"][0]["id"].as_str().expect("id de moyenne").to_string();
+        let vue = json!({"statut": "moyenne", "valeur_m": 12000, "bareme_m": 20000});
+        let r = m.appel("POST", &format!("/eva/v5/moyennes-externes/{moyenne_id}/publier"), Some(m.jeton(Prof)), Some(&json!({"vue": vue}))).await;
+        assert_eq!(r.statut.as_u16(), 403, "publier une moyenne réelle par un professeur : {}", r.texte);
+        let perimee = json!({"statut": "moyenne", "valeur_m": 11000, "bareme_m": 20000});
+        let r = m.appel("POST", &format!("/eva/v5/moyennes-externes/{moyenne_id}/publier"), Some(dir), Some(&json!({"vue": perimee}))).await;
+        assert_eq!(r.statut.as_u16(), 409, "version périmée : {}", r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/moyennes-externes/{moyenne_id}/publier"), Some(dir), Some(&json!({"vue": vue}))).await;
+        assert!(r.est_succes() && r.json["moyennes"][0]["publiee"] == true, "la direction publie : {} {}", r.statut, r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/moyennes-externes/{moyenne_id}/retirer-publication"), Some(m.jeton(Prof)),
+                        Some(&json!({"motif": "Retrait par un professeur", "vue": vue}))).await;
+        assert_eq!(r.statut.as_u16(), 403, "retirer une publication réelle par un professeur : {}", r.texte);
+        let r = m.appel("POST", &format!("/eva/v5/moyennes-externes/{moyenne_id}/retirer-publication"), Some(dir),
+                        Some(&json!({"motif": "Publiée avant vérification", "vue": vue}))).await;
+        assert!(r.est_succes() && r.json["moyennes"][0]["publiee"] == false, "la direction retire la publication : {} {}", r.statut, r.texte);
     });
 }
 

@@ -13,8 +13,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use ent_types::evaluations_v5::{
     CompterExterneBody, DeclarerEnseignementExterneBody, DeclarerResultatExterneBody,
-    EnseignementExterneDto, ParcoursPeriodeDto, ResultatExterneDto, ResultatExterneFamilleDto,
-    RetirerExterneBody, SaisirMoyenneExterneBody,
+    EnseignementExterneDto, ParcoursPeriodeDto, PublierMoyenneExterneBody, ResultatExterneDto,
+    ResultatExterneFamilleDto, RetirerExterneBody, RetirerMoyenneExterneBody,
+    SaisirMoyenneExterneBody,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -222,6 +223,7 @@ async fn publier_moyenne(
     State(s): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
+    Json(b): Json<PublierMoyenneExterneBody>,
 ) -> Res<Json<EnseignementExterneDto>> {
     s.ent
         .eva_v5_publier_moyenne_externe_for_actor(
@@ -229,6 +231,7 @@ async fn publier_moyenne(
             session.user_id,
             &session.role,
             id,
+            &b,
         )
         .await
         .map(Json)
@@ -239,7 +242,7 @@ async fn retirer_publication_moyenne(
     State(s): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
-    Json(b): Json<RetirerExterneBody>,
+    Json(b): Json<RetirerMoyenneExterneBody>,
 ) -> Res<Json<EnseignementExterneDto>> {
     s.ent
         .eva_v5_retirer_publication_moyenne_externe_for_actor(

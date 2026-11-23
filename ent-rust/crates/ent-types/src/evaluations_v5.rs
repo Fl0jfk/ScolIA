@@ -59,6 +59,30 @@ pub struct RetirerExterneBody {
     pub motif: String,
 }
 
+/// La moyenne externe **telle que la direction l'a lue** : publier ou retirer la publication compare cette version à celle
+/// de la base (compare-et-écrit) ; si elle a changé entre-temps (correction), le geste est refusé (409).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VueMoyenneExterne {
+    pub statut: String,
+    /// En millièmes ; absente si le statut n'est pas `moyenne`.
+    pub valeur_m: Option<i64>,
+    pub bareme_m: i64,
+}
+
+/// Publier une moyenne externe : porte la version vue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublierMoyenneExterneBody {
+    pub vue: VueMoyenneExterne,
+}
+
+/// Retirer la publication d'une moyenne externe : motif de 3 à 500 caractères et version vue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetirerMoyenneExterneBody {
+    /// 3 à 500 caractères.
+    pub motif: String,
+    pub vue: VueMoyenneExterne,
+}
+
 /// Un résultat externe tel que le voit le **personnel**.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResultatExterneDto {

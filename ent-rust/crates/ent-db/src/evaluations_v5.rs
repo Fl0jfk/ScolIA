@@ -18,9 +18,9 @@ use ent_auth::Action;
 use ent_types::evaluations_v5::{
     CompterExterneBody, DeclarerEnseignementExterneBody, DeclarerResultatExterneBody,
     EnseignementExterneDto, EnseignementSuiviDto, EvaluationParcoursDto, MoyenneExterneDto,
-    ParcoursPeriodeDto, ResultatExterneDto, ResultatExterneFamilleDto, RetirerExterneBody,
-    SaisirMoyenneExterneBody, SegmentClasseDto, MENTION_AUTRE_ORGANISME, ORGANISMES_EXTERNES,
-    ORIGINES_EXTERNES,
+    ParcoursPeriodeDto, PublierMoyenneExterneBody, ResultatExterneDto, ResultatExterneFamilleDto,
+    RetirerExterneBody, RetirerMoyenneExterneBody, SaisirMoyenneExterneBody, SegmentClasseDto,
+    MENTION_AUTRE_ORGANISME, ORGANISMES_EXTERNES, ORIGINES_EXTERNES,
 };
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -142,7 +142,7 @@ impl PgEnt {
     ///
     /// Le droit vient, dans l'ordre : de la portée établissement d'une des actions demandées ; d'un cours **dont le public
     /// du jour** `jour` compte l'élève et que l'acteur enseigne (professeur ou co-enseignant : pour `notes.saisir` et
-    /// `notes.lire` seulement) ; enfin des portées désignées du socle 3 (`autoriser_eleve`). Le jour est explicite : aucune
+    /// `notes.lire` seulement) ; enfin des portées désignées du socle 3 (`autoriser_eleve_le`). Le jour est explicite : aucune
     /// horloge n'intervient dans le droit du professeur.
     async fn eva_v5_droit_eleve(
         &self,
@@ -184,8 +184,17 @@ impl PgEnt {
             tx.commit().await.map_err(db)?;
         }
         if !autorise {
+            // Gestes de la direction (`SANS_JOUR`, aucune date métier) : jour de l'établissement, comme avant.
+            let jour_droit = if jour == SANS_JOUR {
+                self.aujourdhui_etablissement(etab).await?
+            } else {
+                jour
+            };
             for a in actions {
-                if self.autoriser_eleve(etab, acteur, role, *a, eleve).await? {
+                if self
+                    .autoriser_eleve_le(etab, acteur, role, *a, eleve, jour_droit)
+                    .await?
+                {
                     autorise = true;
                     break;
                 }
@@ -1197,25 +1206,32 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
         moyenne_id: Uuid,
+        body: &PublierMoyenneExterneBody,
     ) -> Result<EnseignementExterneDto, EntDbError> {
+        let vue = &body.vue;
         let (enseignement, _eleve) = self
             .eva_v5_charger_moyenne(etab, acteur, role, moyenne_id)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let n = sqlx::query(
             "UPDATE eva_moyenne_externe SET publiee_le = now(), publiee_par = $3
-              WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NULL AND statut = 'moyenne'",
+              WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NULL AND statut = 'moyenne'
+                -- Compare-et-écrit : on ne publie que la version que la direction a vue.
+                AND statut = $4 AND (valeur * 1000)::bigint IS NOT DISTINCT FROM $5 AND (bareme * 1000)::bigint = $6",
         )
         .bind(etab)
         .bind(moyenne_id)
         .bind(acteur)
+        .bind(&vue.statut)
+        .bind(vue.valeur_m)
+        .bind(vue.bareme_m)
         .execute(&mut *tx)
         .await
         .map_err(db)?
         .rows_affected();
         if n == 0 {
             return Err(conflit(
-                "la moyenne est déjà publiée, ou n'est pas une moyenne (seule une moyenne se publie)",
+                "la moyenne est déjà publiée, n'est pas une moyenne, ou a été corrigée depuis votre lecture : relisez-la",
             ));
         }
         let v = Self::eva_v5_enseignement_tx(&mut tx, etab, enseignement, true).await?;
@@ -1232,8 +1248,9 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
         moyenne_id: Uuid,
-        body: &RetirerExterneBody,
+        body: &RetirerMoyenneExterneBody,
     ) -> Result<EnseignementExterneDto, EntDbError> {
+        let vue = &body.vue;
         let (enseignement, _eleve) = self
             .eva_v5_charger_moyenne(etab, acteur, role, moyenne_id)
             .await?;
@@ -1241,19 +1258,26 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let n = sqlx::query(
             "UPDATE eva_moyenne_externe
-                SET publiee_le = NULL, publiee_par = NULL, saisi_par = $3, motif_correction = $4
-              WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NOT NULL",
+                SET publiee_le = NULL, publiee_par = NULL, motif_correction = $3, retrait_par = $7
+              WHERE etablissement_id = $1 AND id = $2 AND publiee_le IS NOT NULL
+                -- Compare-et-écrit : on ne retire que la version que la direction a vue.
+                AND statut = $4 AND (valeur * 1000)::bigint IS NOT DISTINCT FROM $5 AND (bareme * 1000)::bigint = $6",
         )
         .bind(etab)
         .bind(moyenne_id)
-        .bind(acteur)
         .bind(&motif)
+        .bind(&vue.statut)
+        .bind(vue.valeur_m)
+        .bind(vue.bareme_m)
+        .bind(acteur)
         .execute(&mut *tx)
         .await
         .map_err(db)?
         .rows_affected();
         if n == 0 {
-            return Err(conflit("la moyenne n'est pas publiée"));
+            return Err(conflit(
+                "la moyenne n'est pas publiée, ou a été corrigée depuis votre lecture : relisez-la",
+            ));
         }
         let v = Self::eva_v5_enseignement_tx(&mut tx, etab, enseignement, true).await?;
         tx.commit().await.map_err(db)?;
@@ -1377,7 +1401,7 @@ impl PgEnt {
         .map_err(db)?;
         let parti_le = sortie.filter(|d| *d >= debut && *d <= fin);
         // Enseignements : cours de la classe ou du groupe de l'élève (affectations) ou d'une inclusion, sur la période.
-        let enseignements: Vec<EnseignementSuiviDto> = sqlx::query(
+        let enseignements: Vec<(EnseignementSuiviDto, Option<Uuid>)> = sqlx::query(
             "WITH suivis AS (
                  SELECT c.id AS cours_id, c.matiere_id, c.classe_id AS classe_cours, c.groupe_id,
                         greatest(a.date_debut, c.ouvert_le, $3) AS du,
@@ -1398,7 +1422,7 @@ impl PgEnt {
                   WHERE m.etablissement_id = $1 AND m.eleve_id = $2 AND m.nature = 'inclusion' AND m.annulee_le IS NULL
                     AND c.annee_id = $5 AND m.du <= $4 AND (m.au IS NULL OR m.au >= $3)
                     AND c.ouvert_le <= $4 AND (c.ferme_le IS NULL OR c.ferme_le >= $3))
-             SELECT s.cours_id, mt.libelle AS matiere_libelle, cl.code AS classe_code, s.du, s.au,
+             SELECT s.cours_id, mt.libelle AS matiere_libelle, cl.code AS classe_code, s.classe_cours AS classe_cours_id, s.du, s.au,
                     -- Option abandonnée : le suivi s'arrête dans la période alors que l'élève reste dans la MÊME classe.
                     CASE WHEN s.au IS NOT NULL AND s.au < $4 AND (s.groupe_id IS NOT NULL OR s.classe_aff IS NULL)
                               AND EXISTS (SELECT 1 FROM ent_affectation z
@@ -1423,20 +1447,26 @@ impl PgEnt {
         .map_err(db)?
         .iter()
         .map(|r| {
-            Ok(EnseignementSuiviDto {
-                cours_id: r.try_get("cours_id").map_err(db)?,
-                matiere_libelle: r.try_get("matiere_libelle").map_err(db)?,
-                classe_code: r.try_get("classe_code").map_err(db)?,
-                du: r.try_get("du").map_err(db)?,
-                au: r.try_get("au").map_err(db)?,
-                abandonne_le: r.try_get("abandonne_le").map_err(db)?,
-            })
+            Ok((
+                EnseignementSuiviDto {
+                    cours_id: r.try_get("cours_id").map_err(db)?,
+                    matiere_libelle: r.try_get("matiere_libelle").map_err(db)?,
+                    classe_code: r.try_get("classe_code").map_err(db)?,
+                    du: r.try_get("du").map_err(db)?,
+                    au: r.try_get("au").map_err(db)?,
+                    abandonne_le: r.try_get("abandonne_le").map_err(db)?,
+                },
+                r.try_get::<Option<Uuid>, _>("classe_cours_id").map_err(db)?,
+            ))
         })
-        .collect::<Result<Vec<EnseignementSuiviDto>, EntDbError>>()?
+        .collect::<Result<Vec<(EnseignementSuiviDto, Option<Uuid>)>, EntDbError>>()?
         .into_iter()
         // Moindre privilège (M2) : un professeur ne voit que ses propres cours (et leurs matières), jamais ceux des autres.
-        .filter(|e| droit.cours_ok(&enseigne, e.cours_id))
+        .filter(|(e, _)| droit.cours_ok(&enseigne, e.cours_id))
         .collect();
+        let classe_du_cours: Vec<Option<Uuid>> = enseignements.iter().map(|(_, c)| *c).collect();
+        let enseignements: Vec<EnseignementSuiviDto> =
+            enseignements.into_iter().map(|(e, _)| e).collect();
         // F-1 (moindre privilège) : un professeur ne voit du parcours que ce qui concerne SES cours. Fenêtre = période de
         // ses cours ; segments de classe, rattachement, arrivée et départ ne sont servis que pour les classes où il
         // enseigne et dans cette fenêtre (jamais l'historique de classes d'un élève dans d'autres classes). Un cours de
@@ -1444,34 +1474,78 @@ impl PgEnt {
         let (segments, rattachement, arrive_le, parti_le) = if droit.large {
             (segments, rattachement, arrive_le, parti_le)
         } else {
-            let classes: Vec<&str> = enseignements
+            // Période d'enseignement RÉELLE de l'acteur par cours (intervenance : du/au) ; un cours sans ligne
+            // d'intervenance (professeur du service seul) n'est pas borné.
+            let cours_pf: Vec<Uuid> = enseignements.iter().map(|e| e.cours_id).collect();
+            let bornes: std::collections::HashMap<Uuid, (NaiveDate, Option<NaiveDate>)> =
+                sqlx::query(
+                    "SELECT s.cours_id, min(i.du) AS du,
+                            CASE WHEN bool_or(i.au IS NULL) THEN NULL ELSE max(i.au) END AS au
+                       FROM ent_service_enseignement s
+                       JOIN ent_service_intervenant i ON i.etablissement_id = s.etablissement_id AND i.service_id = s.id
+                       JOIN ent_agent ag ON ag.etablissement_id = i.etablissement_id AND ag.id = i.agent_id
+                       JOIN ent_personne pe ON pe.etablissement_id = ag.etablissement_id AND pe.id = ag.personne_id
+                      WHERE s.etablissement_id = $1 AND s.cours_id = ANY($2) AND pe.user_id = $3
+                        AND i.annule_le IS NULL
+                        AND i.nature IN ('titulaire', 'co_enseignant', 'suppleant', 'intervenant', 'assistant')
+                      GROUP BY s.cours_id",
+                )
+                .bind(etab)
+                .bind(&cours_pf)
+                .bind(acteur)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(db)?
                 .iter()
-                .filter_map(|e| e.classe_code.as_deref())
+                .map(|r| {
+                    Ok((
+                        r.try_get::<Uuid, _>("cours_id").map_err(db)?,
+                        (
+                            r.try_get::<NaiveDate, _>("du").map_err(db)?,
+                            r.try_get::<Option<NaiveDate>, _>("au").map_err(db)?,
+                        ),
+                    ))
+                })
+                .collect::<Result<_, EntDbError>>()?;
+            // F-1 : fenêtre PAR CLASSE (identifiant, jamais le code), bornée par la période où l'acteur enseigne
+            // réellement dans cette classe (présence de l'élève ∩ cours ∩ intervenance), pas par l'enveloppe de ses cours.
+            let mut fenetres: Vec<(Uuid, NaiveDate, NaiveDate)> = Vec::new();
+            for (e, classe) in enseignements.iter().zip(&classe_du_cours) {
+                let Some(classe) = classe else { continue };
+                let (mut a, mut b) = (e.du, e.au.unwrap_or(fin));
+                if let Some((pdu, pau)) = bornes.get(&e.cours_id) {
+                    a = a.max(*pdu);
+                    if let Some(pau) = pau {
+                        b = b.min(*pau);
+                    }
+                }
+                if a > b {
+                    continue;
+                }
+                match fenetres.iter_mut().find(|f| f.0 == *classe) {
+                    Some(f) => {
+                        f.1 = f.1.min(a);
+                        f.2 = f.2.max(b);
+                    }
+                    None => fenetres.push((*classe, a, b)),
+                }
+            }
+            let dedans = |d: &NaiveDate| fenetres.iter().any(|(_, a, b)| *d >= *a && *d <= *b);
+            let segments: Vec<SegmentClasseDto> = segments
+                .into_iter()
+                .filter_map(|mut sg| {
+                    let (_, a, b) = *fenetres.iter().find(|f| f.0 == sg.classe_id)?;
+                    if sg.du > b || sg.au.is_some_and(|x| x < a) {
+                        return None;
+                    }
+                    sg.du = sg.du.max(a);
+                    sg.au = Some(sg.au.map_or(b, |x| x.min(b)));
+                    Some(sg)
+                })
                 .collect();
-            let fenetre =
-                enseignements
-                    .iter()
-                    .fold(None, |acc: Option<(NaiveDate, NaiveDate)>, e| {
-                        let (du, au) = (e.du, e.au.unwrap_or(fin));
-                        Some(acc.map_or((du, au), |(a, b)| (a.min(du), b.max(au))))
-                    });
-            let dedans = |d: &NaiveDate| fenetre.is_some_and(|(a, b)| *d >= a && *d <= b);
-            let segments: Vec<SegmentClasseDto> = match fenetre {
-                None => Vec::new(),
-                Some((a, b)) => segments
-                    .into_iter()
-                    .filter(|sg| classes.contains(&sg.classe_code.as_str()))
-                    .filter(|sg| sg.du <= b && sg.au.is_none_or(|x| x >= a))
-                    .map(|mut sg| {
-                        sg.du = sg.du.max(a);
-                        sg.au = Some(sg.au.map_or(b, |x| x.min(b)));
-                        sg
-                    })
-                    .collect(),
-            };
             (
                 segments,
-                rattachement.filter(|r| classes.contains(&r.1.as_str())),
+                rattachement.filter(|r| fenetres.iter().any(|f| f.0 == r.0)),
                 arrive_le.filter(dedans),
                 parti_le.filter(dedans),
             )

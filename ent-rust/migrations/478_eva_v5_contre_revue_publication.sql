@@ -14,9 +14,18 @@ ALTER TABLE eva_moyenne_externe_historique DROP CONSTRAINT IF EXISTS eva_moyenne
 ALTER TABLE eva_moyenne_externe_historique ADD CONSTRAINT eva_moyenne_externe_histo_motif_chk
     CHECK (evenement NOT IN ('correction', 'retrait') OR motif IS NOT NULL);
 
+-- L'auteur d'un retrait de publication est porté par une colonne dédiée : `saisi_par` reste l'auteur de la VALEUR.
+-- `retrait_par` est une ENTRÉE (remise à NULL à chaque écriture, comme `motif_correction`) ; `dernier_retrait_par` la garde.
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS retrait_par UUID;
+ALTER TABLE eva_moyenne_externe ADD COLUMN IF NOT EXISTS dernier_retrait_par UUID;
+
+-- La contrainte est posée NOT VALID : sous 477, une correction GARDAIT la publication, donc une ligne publiée puis
+-- corrigée en « en_attente » ou « dispense » peut déjà exister quelque part ; la migration ne doit pas échouer. Elle
+-- s'applique à toute écriture nouvelle ; les lignes hors règle sont dépubliées plus bas, et constatées au démarrage
+-- (`migrate.rs` : journal `tracing::error!`).
 ALTER TABLE eva_moyenne_externe DROP CONSTRAINT IF EXISTS eva_moyenne_externe_publication_statut_chk;
 ALTER TABLE eva_moyenne_externe ADD CONSTRAINT eva_moyenne_externe_publication_statut_chk
-    CHECK (publiee_le IS NULL OR statut = 'moyenne');
+    CHECK (publiee_le IS NULL OR statut = 'moyenne') NOT VALID;
 
 CREATE OR REPLACE FUNCTION ent_trg_eva_moyenne_externe() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -24,6 +33,7 @@ DECLARE
     v_motif text;
     v_contenu boolean;
     v_publication boolean;
+    v_retrait_par uuid;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'eva_moyenne_externe : suppression physique interdite' USING ERRCODE = '23514';
@@ -40,6 +50,8 @@ BEGIN
         END IF;
         NEW.motif_correction := NULL;
         NEW.dernier_motif_correction := NULL;
+        NEW.retrait_par := NULL;
+        NEW.dernier_retrait_par := NULL;
         RETURN NEW;
     END IF;
     IF NEW.id IS DISTINCT FROM OLD.id OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
@@ -49,7 +61,9 @@ BEGIN
         RAISE EXCEPTION 'eva_moyenne_externe : enseignement, période et barème ne changent pas' USING ERRCODE = '23514';
     END IF;
     v_motif := NEW.motif_correction;
+    v_retrait_par := NEW.retrait_par;
     NEW.motif_correction := NULL;
+    NEW.retrait_par := NULL;
     v_contenu := NEW.statut IS DISTINCT FROM OLD.statut OR NEW.valeur IS DISTINCT FROM OLD.valeur
               OR NEW.appreciation_transcrite IS DISTINCT FROM OLD.appreciation_transcrite
               OR NEW.document_id IS DISTINCT FROM OLD.document_id;
@@ -79,7 +93,11 @@ BEGIN
                 RAISE EXCEPTION 'eva_moyenne_externe : un retrait de publication porte un motif de 3 à 500 caractères'
                     USING ERRCODE = '23514';
             END IF;
+            IF v_retrait_par IS NULL THEN
+                RAISE EXCEPTION 'eva_moyenne_externe : un retrait de publication porte son auteur' USING ERRCODE = '23514';
+            END IF;
             NEW.dernier_motif_correction := btrim(v_motif);
+            NEW.dernier_retrait_par := v_retrait_par;
         END IF;
         RETURN NEW;
     END IF;
@@ -123,8 +141,22 @@ BEGIN
             NEW.statut, NEW.valeur,
             CASE WHEN TG_OP = 'UPDATE' THEN OLD.document_id END, NEW.document_id,
             CASE WHEN v_evt IN ('correction', 'retrait') THEN NEW.dernier_motif_correction END,
-            CASE WHEN v_evt = 'publication' THEN NEW.publiee_par ELSE NEW.saisi_par END,
+            CASE v_evt WHEN 'publication' THEN NEW.publiee_par WHEN 'retrait' THEN NEW.dernier_retrait_par ELSE NEW.saisi_par END,
             TG_OP = 'UPDATE' AND OLD.publiee_le IS NOT NULL);
     RETURN NULL;
 END
 $$;
+
+-- Lignes hors règle héritées de 477 (publiées, puis corrigées en « en_attente » / « dispense » alors que la publication
+-- était gardée) : DÉPUBLIÉES, pour qu'une valeur corrigée et non republiée ne reste jamais visible de la famille. Le
+-- geste passe par le déclencheur ci-dessus comme un retrait ordinaire : le journal reçoit l'événement « retrait »
+-- (motif « correction antérieure à 478 », auteur = dernier auteur de la valeur). Aucune valeur n'est modifiée.
+-- Rejouable : une fois dépubliées, plus aucune ligne n'est concernée.
+UPDATE eva_moyenne_externe
+   SET publiee_le = NULL, publiee_par = NULL,
+       motif_correction = 'correction antérieure à 478', retrait_par = saisi_par
+ WHERE publiee_le IS NOT NULL AND statut <> 'moyenne';
+
+-- Plus aucune ligne hors règle : la contrainte est validée. Si une ligne échappait au geste ci-dessus, la migration
+-- s'arrête ici plutôt que de laisser une valeur non republiée visible.
+ALTER TABLE eva_moyenne_externe VALIDATE CONSTRAINT eva_moyenne_externe_publication_statut_chk;

@@ -552,7 +552,12 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
 }
 
 /// Contraintes dont la validation est attendue (posées NOT VALID par une migration, validées après reprise).
-pub const CONTRAINTES_A_VALIDER: [&str; 2] = ["ent_eleve_confidentialite_regles_chk", "ent_eleve_statut_chk"];
+pub const CONTRAINTES_A_VALIDER: [&str; 3] = [
+    "ent_eleve_confidentialite_regles_chk",
+    "ent_eleve_statut_chk",
+    // 478 : posée NOT VALID, validée dans la même migration après dépublication des lignes publiées hors « moyenne ».
+    "eva_moyenne_externe_publication_statut_chk",
+];
 
 /// Noms des contraintes de `CONTRAINTES_A_VALIDER` qui sont encore NOT VALID ; chacune est **journalisée en
 /// erreur** (au démarrage) avec son nom : les écritures futures sont contrôlées, mais des lignes existantes
