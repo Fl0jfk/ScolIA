@@ -1233,10 +1233,106 @@ type PoArchiveSummary = {
   archivedByName: string | null;
 };
 
+type ArchRow = Record<string, unknown>;
+
+/** Relecture (lecture seule) d'une session archivée : inscrits par créneau + équipes. */
+function PoArchiveDetail({ id }: { id: string }) {
+  const [data, setData] = useState<{
+    slots: ArchRow[];
+    registrations: ArchRow[];
+    staff: ArchRow[];
+  } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/toolbox/portes-ouvertes/archive?id=${encodeURIComponent(id)}`,
+          { cache: "no-store" },
+        );
+        const j = (await res.json()) as { error?: string; archive?: typeof data };
+        if (!res.ok || !j.archive) throw new Error(j.error || "Archive introuvable.");
+        if (alive) setData(j.archive);
+      } catch (e) {
+        if (alive) setErr(e instanceof Error ? e.message : "Erreur.");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (err) return <p className="mt-2 text-red-700">{err}</p>;
+  if (!data) return <p className="mt-2">Chargement…</p>;
+
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  const when = (v: unknown) =>
+    s(v)
+      ? new Date(s(v)).toLocaleString("fr-FR", {
+          timeZone: "Europe/Paris",
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
+  const slots = [...data.slots].sort((a, b) => s(a.startAt).localeCompare(s(b.startAt)));
+  const known = new Set(slots.map((x) => s(x.id)));
+  const orphanRegs = data.registrations.filter((r) => !known.has(s(r.slotId)));
+
+  return (
+    <div className="mt-2 space-y-3 rounded-lg border border-amber-200 bg-white p-3 text-xs text-slate-800">
+      {slots.map((sl) => {
+        const regs = data.registrations.filter((r) => s(r.slotId) === s(sl.id));
+        const team = data.staff.filter((m) => s(m.slotId) === s(sl.id));
+        if (regs.length === 0 && team.length === 0) return null;
+        return (
+          <div key={s(sl.id)}>
+            <p className="font-bold">
+              {when(sl.startAt)} — {s(sl.label)} ({s(sl.cycle)})
+            </p>
+            {team.length > 0 ? (
+              <p className="text-slate-600">
+                Équipe :{" "}
+                {team.map((m) => `${s(m.displayName)} (${s(m.role)})`).join(", ")}
+              </p>
+            ) : null}
+            <ul className="list-disc pl-5">
+              {regs.map((r) => (
+                <li key={s(r.id)}>
+                  {s(r.lastName)} {s(r.firstName)} — {s(r.email)}
+                  {s(r.phone) ? ` — ${s(r.phone)}` : ""}
+                  {s(r.classeSouhaitee) ? ` — ${s(r.classeSouhaitee)}` : ""}
+                  {r.visitedAt ? " — venu" : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+      {orphanRegs.length > 0 ? (
+        <div>
+          <p className="font-bold">Autres inscrits</p>
+          <ul className="list-disc pl-5">
+            {orphanRegs.map((r) => (
+              <li key={s(r.id)}>
+                {s(r.lastName)} {s(r.firstName)} — {s(r.email)} ({s(r.slotLabel)})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** Archive la session terminée (inscrits + équipes) et décale les créneaux sur une nouvelle date. */
 function PoArchivePanel({ onDone }: { onDone: () => Promise<void> }) {
   const [archives, setArchives] = useState<PoArchiveSummary[]>([]);
   const [newDay, setNewDay] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1335,7 +1431,15 @@ function PoArchivePanel({ onDone }: { onDone: () => Promise<void> }) {
                   : ""}{" "}
                 — {a.registrationsCount} inscrit(s), {a.staffCount} membre(s) d’équipe, archivée le{" "}
                 {fmt(a.archivedAt)}
-                {a.archivedByName ? ` par ${a.archivedByName}` : ""}
+                {a.archivedByName ? ` par ${a.archivedByName}` : ""}{" "}
+                <button
+                  type="button"
+                  className="font-bold text-violet-800 underline"
+                  onClick={() => setOpenId(openId === a.id ? null : a.id)}
+                >
+                  {openId === a.id ? "Masquer" : "Voir le détail"}
+                </button>
+                {openId === a.id ? <PoArchiveDetail id={a.id} /> : null}
               </li>
             ))}
           </ul>
