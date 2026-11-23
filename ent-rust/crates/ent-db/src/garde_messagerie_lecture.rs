@@ -288,7 +288,7 @@ fn chaque_lecture_du_depot_de_messagerie_est_classee() {
     let mut non_classees = Vec::new();
     let mut lues = Vec::new();
     for (n, corps) in fonctions(src) {
-        if !corps.contains("pub async fn") || !lit_une_table_msg(&corps) {
+        if !(corps.contains("pub async fn") || corps.contains("pub(crate) async fn")) || !lit_une_table_msg(&corps) {
             continue;
         }
         lues.push(n.clone());

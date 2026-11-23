@@ -3857,3 +3857,150 @@ async fn passe3_f1_la_fenetre_du_professeur_est_faite_d_intervalles_disjoints() 
         .unwrap();
     assert_eq!(dir.segments.len(), 3);
 }
+
+/// Suites V5 passe 4 (M2, RGPD art. 15) — export de bout en bout. Un élève avec : une évaluation NON publiée (note + note
+/// privée), une publiée, un brouillon d'appréciation interne, une appréciation validée, une demande de correction décidée.
+/// L'extrait est assemblé comme le fera G3 (condition `export_si`, retrait des colonnes `hors_export`, pour **toutes** les
+/// tables `eva_*` exportées) : il ne contient ni la note non publiée, ni un champ interne (auteurs, motifs, note privée).
+#[tokio::test]
+async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_interne() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let second = cast.directions[1].user_id;
+    assert!(second != w.prof && second != w.direction);
+    let ev_np = eval(&ent, &w, w.cours_maths, d(2031, 10, 10), "DS non publié", false).await;
+    let ev_p = eval(&ent, &w, w.cours_maths, d(2031, 10, 12), "DS publié", true).await;
+    ecrire(&ent, &w, ev_np, a, 7_000).await;
+    ecrire(&ent, &w, ev_p, a, 12_000).await;
+    exec(
+        &ent,
+        "UPDATE eva_resultat SET note_privee = 'MARQUEUR-NOTE-PRIVEE' WHERE eleve_id = $1",
+        vec![u(a)],
+    )
+    .await;
+    // Appréciations : un brouillon interne, une validée (auteur et éditeur internes).
+    exec(
+        &ent,
+        "INSERT INTO eva_appreciation (id, etablissement_id, periode_id, eleve_id, type, texte, etat, auteur, modifie_par)
+         VALUES ($1, $2, $3, $4, 'vie_scolaire', 'MARQUEUR-BROUILLON-INTERNE', 'brouillon', $5, $5)",
+        vec![u(Uuid::new_v4()), u(w.etab), u(w.t1), u(a), u(second)],
+    )
+    .await;
+    let valid = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO eva_appreciation (id, etablissement_id, periode_id, eleve_id, type, texte, etat, auteur, modifie_par)
+         VALUES ($1, $2, $3, $4, 'generale', 'APPRECIATION-VALIDEE-REMISE', 'validee', $5, $5)",
+        vec![u(valid), u(w.etab), u(w.t1), u(a), u(second)],
+    )
+    .await;
+    // Demande de correction de la famille (sur la note publiée), refusée par un compte interne.
+    let resultat_p: Uuid = sqlx::query_scalar("SELECT id FROM eva_resultat WHERE eleve_id = $1 AND evaluation_id = $2")
+        .bind(a)
+        .bind(ev_p)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    exec(
+        &ent,
+        "INSERT INTO eva_correction_demande (id, etablissement_id, resultat_id, demandeur, motif, etat, decide_par, decide_le)
+         VALUES ($1, $2, $3, $4, 'MOTIF-DE-LA-FAMILLE', 'refusee', $5, now())",
+        vec![u(Uuid::new_v4()), u(w.etab), u(resultat_p), u(w.direction), u(second)],
+    )
+    .await;
+
+    // Appréciation validée d'un type jamais montré à la famille (dispositif) : ne sort jamais.
+    exec(
+        &ent,
+        "INSERT INTO eva_appreciation (id, etablissement_id, periode_id, eleve_id, type, texte, etat, auteur, modifie_par)
+         VALUES ($1, $2, $3, $4, 'dispositif', 'MARQUEUR-VS-VALIDEE', 'validee', $5, $5)",
+        vec![u(Uuid::new_v4()), u(w.etab), u(w.t1), u(a), u(second)],
+    )
+    .await;
+
+    // Contre-revue (E1/E2) : validée ne veut pas dire publiée. Tant que les appréciations de la période ne sont pas closes
+    // pour la classe de l'élève, l'appréciation validée ne sort pas (même règle que la vue `ent_note_appreciation_v`).
+    let (avant, _) = extrait_eleve(&ent, a).await;
+    assert!(
+        !avant.contains("APPRECIATION-VALIDEE-REMISE"),
+        "période ouverte : l'appréciation validée ne doit pas sortir :\n{avant}"
+    );
+    for cible in ["notes_arretees", "appreciations_closes"] {
+        ent.eva_v1_changer_etat_periode_for_actor(w.etab, w.direction, DIR, w.t1, w.classe_a, cible, None, Some(d(2031, 12, 5)))
+            .await
+            .unwrap();
+    }
+    let (extrait, tables_vues) = extrait_eleve(&ent, a).await;
+    // Contrôle positif : ce que la famille a reçu sort bien.
+    for (attendu, quoi) in [
+        (ev_p.to_string(), "la note publiée"),
+        ("APPRECIATION-VALIDEE-REMISE".to_string(), "l'appréciation validée"),
+        ("MOTIF-DE-LA-FAMILLE".to_string(), "la demande de la famille"),
+    ] {
+        assert!(extrait.contains(&attendu), "{quoi} doit sortir ({tables_vues:?})");
+    }
+    // Rien de non publié, rien d'interne.
+    for (interdit, quoi) in [
+        (ev_np.to_string(), "la note non publiée"),
+        ("MARQUEUR-NOTE-PRIVEE".to_string(), "la note privée"),
+        ("MARQUEUR-BROUILLON-INTERNE".to_string(), "le brouillon d'appréciation"),
+        ("MARQUEUR-VS-VALIDEE".to_string(), "une appréciation d'un type jamais montré à la famille"),
+        (second.to_string(), "l'auteur interne de l'appréciation ou de la décision"),
+        (w.prof.to_string(), "l'auteur de la saisie des notes"),
+    ] {
+        assert!(!extrait.contains(&interdit), "{quoi} ne doit pas sortir :\n{extrait}");
+    }
+}
+
+/// Assemble l'extrait d'un élève comme le fera G3 : pour chaque table `eva_*` exportée, les lignes de l'élève qui
+/// remplissent `export_si`, moins les colonnes `hors_export`.
+async fn extrait_eleve(ent: &PgEnt, a: Uuid) -> (String, Vec<&'static str>) {
+    let mut extrait = String::new();
+    let mut tables_vues = Vec::new();
+    // Assemblage de l'extrait (comme G3) : pour chaque table `eva_*` exportée, les lignes de l'élève qui remplissent
+    // `export_si`, moins les colonnes `hors_export`.
+    for c in crate::registre_donnees::REGISTRE
+        .iter()
+        .filter(|c| c.export_portabilite && (c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_")))
+    {
+        let colonnes: Vec<String> = sqlx::query_scalar(
+            "SELECT column_name::text FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1",
+        )
+        .bind(c.nom)
+        .fetch_all(ent.pool_verif())
+        .await
+        .unwrap();
+        for col in c.colonnes_hors_export {
+            assert!(colonnes.iter().any(|x| x == col), "{}.{col} : la colonne retirée de l'export existe", c.nom);
+        }
+        let filtre = if colonnes.iter().any(|x| x == "eleve_id") {
+            "x.eleve_id = $1"
+        } else if colonnes.iter().any(|x| x == "resultat_id") {
+            "x.resultat_id IN (SELECT id FROM eva_resultat WHERE eleve_id = $1)"
+        } else {
+            continue; // journal du personnel (ent_eva_export) : sans élève
+        };
+        let cond = c.export_si.unwrap_or("true");
+        let retirees: Vec<String> = c.colonnes_hors_export.iter().map(|s| s.to_string()).collect();
+        let lignes: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT (to_jsonb(x) - $2::text[])::text FROM {} x WHERE ({filtre}) AND ({cond})",
+            c.nom
+        ))
+        .bind(a)
+        .bind(&retirees)
+        .fetch_all(ent.pool_verif())
+        .await
+        .unwrap_or_else(|e| panic!("{} : extrait impossible : {e}", c.nom));
+        if !lignes.is_empty() {
+            tables_vues.push(c.nom);
+        }
+        for l in lignes {
+            extrait.push_str(&l);
+            extrait.push('\n');
+        }
+    }
+    (extrait, tables_vues)
+}
