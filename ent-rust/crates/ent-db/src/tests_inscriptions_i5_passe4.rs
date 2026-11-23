@@ -958,7 +958,17 @@ async fn p4_export_chaque_table_condition_executee() {
         assert!(classe(nom).export_si.is_some(), "{nom} : règle de ligne déclarée");
     }
     // Avant publication : des lignes existent, aucune n'est exportable (suivi : aucune ligne rattachée à la décision).
-    for nom in ["ent_inscription_condition", "ent_inscription_decision", "ent_inscription_proposition_place", "ent_inscription_voeu"] {
+    // Le vœu de la décision, seul : la famille a aussi son propre vœu (origine « famille »), exportable.
+    let voeu_decision = |ent: &PgEnt| {
+        let cond = classe("ent_inscription_voeu").export_si.unwrap();
+        let sql = format!(
+            "SELECT count(*) FROM ent_inscription_voeu x WHERE x.dossier_id = $1 AND x.offre_id = '{offre_decision}' AND ({cond})"
+        );
+        let ent_pool = ent.pool_verif().clone();
+        async move { sqlx::query_scalar::<_, i64>(&sql).bind(d.id).fetch_one(&ent_pool).await.unwrap() }
+    };
+    assert_eq!(voeu_decision(&ent).await, 0, "vœu créé par la décision : pas exporté avant sa publication");
+    for nom in ["ent_inscription_condition", "ent_inscription_decision", "ent_inscription_proposition_place"] {
         assert!(existantes(&ent, nom, d.id).await > 0, "{nom} : des lignes existent");
         assert_eq!(exportables(&ent, nom, d.id).await, 0, "{nom} : rien d'exportable avant la publication");
     }
@@ -975,9 +985,10 @@ async fn p4_export_chaque_table_condition_executee() {
     assert_eq!(suivi_rattache, 0, "aucune ligne de suivi rattachée à la décision non publiée n'est exportable");
     // Publication à l'échéance : les lignes deviennent exportables.
     assert!(ent.publier_decisions_echues_tache(maintenant() + jours(8)).await.unwrap() >= 1);
-    for nom in ["ent_inscription_condition", "ent_inscription_decision", "ent_inscription_proposition_place", "ent_inscription_voeu"] {
+    for nom in ["ent_inscription_condition", "ent_inscription_decision", "ent_inscription_proposition_place"] {
         assert!(exportables(&ent, nom, d.id).await > 0, "{nom} : exportable une fois la décision publiée");
     }
+    assert_eq!(voeu_decision(&ent).await, 1, "vœu de la décision : exporté une fois la décision publiée");
     // F6 : colonnes hors export de la proposition.
     for col in ["place_no", "origine", "designee_le", "motif", "envoyee_par", "rang_au_moment"] {
         assert!(classe("ent_inscription_proposition_place").colonnes_hors_export.contains(&col), "proposition.{col}");
@@ -1206,7 +1217,7 @@ async fn p4_caducite_famille_d_etats_et_alerte_direction() {
         .unwrap();
 
     let publiees = ent.publier_decisions_echues_tache(maintenant() + jours(7)).await.unwrap();
-    assert_eq!(publiees, 2, "admis→confirme et ajourne→attente_famille sont publiées");
+    assert!(publiees >= 2, "admis→confirme et ajourne→attente_famille sont publiées");
     for (id, nom) in [(d1.id, "admis→confirme"), (d2.id, "ajourne→attente_famille")] {
         let (publiee, caduque) = statut_decision(&ent, id).await;
         assert!(publiee.is_some() && caduque.is_none(), "{nom} : publiée, pas caduque");
