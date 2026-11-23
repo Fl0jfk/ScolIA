@@ -803,6 +803,13 @@ async fn p4_controle_d_ecart_avant_les_verrous() {
         .await
         .unwrap();
     let verrou = tenir(&ent, &[offre]).await;
+    // Le dossier est aussi tenu par l'extérieur : un acteur écarté ne doit attendre ni l'offre ni le dossier.
+    let mut tenu = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SELECT id FROM ent_inscription_dossier WHERE id = $1 FOR UPDATE")
+        .bind(d.id)
+        .execute(&mut *tenu)
+        .await
+        .unwrap();
     let (e, id) = (ent.clone(), d.id);
     let b = corps("refuse", Some(offre), "Refus d'un écarté");
     let appel = tokio::spawn(async move {
@@ -817,6 +824,7 @@ async fn p4_controle_d_ecart_avant_les_verrous() {
         "refus exact : introuvable, obtenu {resultat:?}"
     );
     assert_eq!(en_attente(&ent, cle_offre(&ent, offre).await).await, 0);
+    tenu.rollback().await.unwrap();
     verrou.relacher().await;
 }
 
