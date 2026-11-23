@@ -1028,6 +1028,29 @@ mod tests {
         );
     }
 
+    /// Règle 38 (T1) : l'ordre des migrations **versées sur `ENT`** est figé. Une base déjà migrée n'applique une migration
+    /// nouvelle qu'à la suite de celles qu'elle a déjà : insérée au milieu du tableau, elle passerait après 690 sur une base
+    /// migrée mais avant sur une base neuve (fonctions sans `search_path`, ordre de rejeu faux). Toute migration nouvelle
+    /// s'ajoute donc À LA FIN du tableau `MIGRATIONS`. La référence est `migrations_versees.txt`, **préfixe obligatoire** du
+    /// tableau ; le pilote y ajoute, au versement, les migrations du lot versé (dans l'ordre du tableau).
+    #[test]
+    fn l_ordre_des_migrations_versees_est_fige_regle_38() {
+        let figees: Vec<&str> = include_str!("migrations_versees.txt").lines().filter(|l| !l.trim().is_empty()).collect();
+        let tableau: Vec<&str> = MIGRATIONS.iter().map(|(n, _)| *n).collect();
+        let regle = "Règle 38 (docs/securite/T1_SEARCH_PATH.md, PILOTAGE) : une migration nouvelle s'ajoute À LA FIN du tableau \
+                     MIGRATIONS, après toutes les migrations versées (migrations_versees.txt), jamais au milieu. Une base déjà \
+                     migrée l'appliquerait dans un autre ordre qu'une base neuve (et après 690 : fonctions sans `search_path`). ";
+        assert!(figees.contains(&"690_t1_search_path_fonctions"), "{regle}la liste de référence doit contenir 690");
+        assert!(tableau.len() >= figees.len(), "{regle}des migrations versées ont disparu du tableau");
+        for (i, attendue) in figees.iter().enumerate() {
+            assert_eq!(
+                tableau[i], *attendue,
+                "{regle}position {i} : `{}` trouvée là où la migration versée `{attendue}` est attendue (insertion, déplacement ou retrait)",
+                tableau[i]
+            );
+        }
+    }
+
     /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
     /// Catégories : `exception` (permise par D-036) et `dette` (à normaliser, lot suivant ; voir
     /// `docs/D036_INVENTAIRE_JSON.md`). Les 13 colonnes normalisées (lots 1 et 2) ont été retirées par
