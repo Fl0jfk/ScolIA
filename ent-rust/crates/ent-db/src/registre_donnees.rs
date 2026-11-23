@@ -1201,12 +1201,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_vs_commission_dossier", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_vs_regle_assiduite", "assiduite", Portee::Etablissement),
     t("eva_aesh_indisponibilite_port", "evaluations_pedagogie", Portee::Etablissement).perso(),
-    // Suites V5 passe 4 (M2, RGPD art. 15) : seule l'appréciation validée sort (jamais un brouillon ni une appréciation
-    // jetée) ; ni auteur, ni dernier éditeur, ni origine (interne). `aide_ia` reste : la famille a le droit de savoir
-    // qu'un texte a été assisté. Pas encore d'état « publiée » en base : à resserrer avec la publication du bulletin (G3).
+    // Suites V5 passe 4 (M2, RGPD art. 15) : n'est exportée que l'appréciation **que la famille voit**, même règle que la
+    // vue `ent_note_appreciation_v` (468, M5) : validée, de type cours ou générale, et appréciations closes pour la classe de
+    // l'élève (rang d'état de période ≥ 2). Validée par le professeur ne veut pas dire publiée (contre-revue, E1). Ni auteur,
+    // ni dernier éditeur, ni origine (interne). `aide_ia` reste : la famille a le droit de savoir qu'un texte a été assisté.
     t("eva_appreciation", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .hors_export(&["auteur", "modifie_par", "origine_appreciation_id"])
-        .export_si("x.etat = 'validee'"),
+        .export_si("x.etat = 'validee' AND x.type IN ('cours', 'generale') AND EXISTS (SELECT 1 FROM ent_periode p WHERE p.id = x.periode_id AND p.etablissement_id = x.etablissement_id AND EXISTS (SELECT 1 FROM eva_periode_eleve_jour(x.etablissement_id, x.eleve_id, p.date_fin) pe WHERE pe.periode_id = x.periode_id AND eva_etat_rang(pe.etat) >= 2))"),
     // Journal en ajout seul : versions successives (brouillons, textes écartés) et éditeur de chacune : interne.
     t("eva_appreciation_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_banque_phrase", "evaluations_pedagogie", Portee::Etablissement).perso(),
@@ -1265,11 +1266,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Résultat d'une évaluation publiée, sans les champs internes (note privée du professeur, marque « aménagé » jamais
     // imprimée à un tiers, auteur, motifs de correction) — comme la vue `eva_resultat_publie` que lit la famille.
     t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export()
-        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction"])
+        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction", "derniere_ecriture_correction", "source", "version"])
         .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     // Résultat externe : publié, compté et non retiré (ce que lit la famille), sans auteur ni motif.
     t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
-        .hors_export(&["saisi_par", "compte_decide_par", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
+        .hors_export(&["saisi_par", "compte_decide_par", "compte_decide_le", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
         .export_si("x.publiee_le IS NOT NULL AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL"),
     // Journal en ajout seul des résultats (valeurs successives, motifs, auteurs, y compris avant publication) : interne.
     t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),

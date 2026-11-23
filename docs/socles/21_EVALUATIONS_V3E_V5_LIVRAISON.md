@@ -279,7 +279,7 @@ Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de co
 | Table | Choix |
 |---|---|
 | `ent_eva_export` | **Tout exportable**, raison écrite : journal des exports faits par la personne (format, classe, période, effectif, empreinte) ; aucune note, aucun élève nommé. |
-| `eva_appreciation` | `export_si x.etat = 'validee'` (jamais brouillon ni jetée) ; `hors_export` : `auteur`, `modifie_par`, `origine_appreciation_id`. `aide_ia` reste (transparence). **Limite :** pas d'état « publiée » en base ; à resserrer avec la publication du bulletin (G3). |
+| `eva_appreciation` | **Corrigé par le pilote (contre-revue, E1)** : `export_si` = la règle de la vue famille `ent_note_appreciation_v` (468, M5) : validée, type `cours` ou `generale`, appréciations closes pour la classe de l'élève (rang d'état de période ≥ 2). La version initiale (`x.etat = 'validee'`) aurait livré à une demande d'accès un texte que la famille ne voit pas encore. `hors_export` : `auteur`, `modifie_par`, `origine_appreciation_id`. `aide_ia` reste (transparence). |
 | `eva_appreciation_historique` | **Retirée de l'export** : versions successives (brouillons, textes écartés) et éditeur de chacune ; interne. |
 | `eva_correction_demande` | `hors_export` : `decide_par` (la demande, le motif et la décision sont ceux de la famille). |
 | `eva_dispense_port` | `hors_export` : `saisi_par`, `retiree_par`. |
@@ -302,3 +302,8 @@ Les tables `ent_note_*` (hors préfixe `eva_`) ne sont pas dans le champ du test
 ### 11.3 Tête et CI
 * **Tête du code :** `8da928b0d51d3133416d1a4e17c4657ab798c5ed` (PR brouillon #136, `ent-socle-21-code-v5-suites-4` → `ENT`).
 * **CI « ENT Rust » sur cette tête : verte** (run 45270353066, `completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**` : la CI de référence reste celle de `8da928b0`.
+
+### Correctifs du pilote après contre-revue (passe 4)
+- **E1 (élevé)** : `eva_appreciation` n'est exportée qu'aux conditions de la vue famille (validée, type `cours`/`generale`, appréciations closes) ; **E2** : le test de bout en bout, qui exigeait la sortie d'une appréciation validée en période ouverte, vérifie désormais son **absence** avant clôture, sa présence après `appreciations_closes`, et l'absence d'une appréciation `vie_scolaire` validée.
+- **F1, F2** : `eva_resultat` retire aussi `derniere_ecriture_correction`, `source`, `version` ; `eva_resultat_externe` retire `compte_decide_le`.
+- **En file (suites V5, passe 5)** : M1 (test de registre : `hors_export` seul n'est pas une décision pour une table à état), M2 (extrait de bout en bout : une ligne marquée par table exportée, échec si une table n'est pas filtrable, p. ex. `eva_moyenne_externe`), M3 (`eva_moyenne_statut` sans condition de publication), M4 (`eva_rattrapage_historique` exporté, incohérent avec le retrait de l'historique des appréciations), M5 (`eva_rattrapage*` sans condition d'état), F3 (déclarations externes et dispenses : communication à confirmer), **F4** (`ent_note_appreciation`, table de reprise, exportée sans condition : contourne E1 jusqu'à G3), réserve DPO sur l'historique d'une appréciation publiée puis modifiée.

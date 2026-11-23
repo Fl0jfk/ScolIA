@@ -3912,10 +3912,56 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
     )
     .await;
 
-    // Assemblage de l'extrait (comme G3) : pour chaque table `eva_*` exportée, les lignes de l'élève qui remplissent
-    // `export_si`, moins les colonnes `hors_export`.
+    // Appréciation validée d'un type jamais montré à la famille (dispositif) : ne sort jamais.
+    exec(
+        &ent,
+        "INSERT INTO eva_appreciation (id, etablissement_id, periode_id, eleve_id, type, texte, etat, auteur, modifie_par)
+         VALUES ($1, $2, $3, $4, 'dispositif', 'MARQUEUR-VS-VALIDEE', 'validee', $5, $5)",
+        vec![u(Uuid::new_v4()), u(w.etab), u(w.t1), u(a), u(second)],
+    )
+    .await;
+
+    // Contre-revue (E1/E2) : validée ne veut pas dire publiée. Tant que les appréciations de la période ne sont pas closes
+    // pour la classe de l'élève, l'appréciation validée ne sort pas (même règle que la vue `ent_note_appreciation_v`).
+    let (avant, _) = extrait_eleve(&ent, a).await;
+    assert!(
+        !avant.contains("APPRECIATION-VALIDEE-REMISE"),
+        "période ouverte : l'appréciation validée ne doit pas sortir :\n{avant}"
+    );
+    for cible in ["notes_arretees", "appreciations_closes"] {
+        ent.eva_v1_changer_etat_periode_for_actor(w.etab, w.direction, DIR, w.t1, w.classe_a, cible, None, Some(d(2031, 12, 5)))
+            .await
+            .unwrap();
+    }
+    let (extrait, tables_vues) = extrait_eleve(&ent, a).await;
+    // Contrôle positif : ce que la famille a reçu sort bien.
+    for (attendu, quoi) in [
+        (ev_p.to_string(), "la note publiée"),
+        ("APPRECIATION-VALIDEE-REMISE".to_string(), "l'appréciation validée"),
+        ("MOTIF-DE-LA-FAMILLE".to_string(), "la demande de la famille"),
+    ] {
+        assert!(extrait.contains(&attendu), "{quoi} doit sortir ({tables_vues:?})");
+    }
+    // Rien de non publié, rien d'interne.
+    for (interdit, quoi) in [
+        (ev_np.to_string(), "la note non publiée"),
+        ("MARQUEUR-NOTE-PRIVEE".to_string(), "la note privée"),
+        ("MARQUEUR-BROUILLON-INTERNE".to_string(), "le brouillon d'appréciation"),
+        ("MARQUEUR-VS-VALIDEE".to_string(), "une appréciation d'un type jamais montré à la famille"),
+        (second.to_string(), "l'auteur interne de l'appréciation ou de la décision"),
+        (w.prof.to_string(), "l'auteur de la saisie des notes"),
+    ] {
+        assert!(!extrait.contains(&interdit), "{quoi} ne doit pas sortir :\n{extrait}");
+    }
+}
+
+/// Assemble l'extrait d'un élève comme le fera G3 : pour chaque table `eva_*` exportée, les lignes de l'élève qui
+/// remplissent `export_si`, moins les colonnes `hors_export`.
+async fn extrait_eleve(ent: &PgEnt, a: Uuid) -> (String, Vec<&'static str>) {
     let mut extrait = String::new();
     let mut tables_vues = Vec::new();
+    // Assemblage de l'extrait (comme G3) : pour chaque table `eva_*` exportée, les lignes de l'élève qui remplissent
+    // `export_si`, moins les colonnes `hors_export`.
     for c in crate::registre_donnees::REGISTRE
         .iter()
         .filter(|c| c.export_portabilite && (c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_")))
@@ -3956,22 +4002,5 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
             extrait.push('\n');
         }
     }
-    // Contrôle positif : ce que la famille a reçu sort bien.
-    for (attendu, quoi) in [
-        (ev_p.to_string(), "la note publiée"),
-        ("APPRECIATION-VALIDEE-REMISE".to_string(), "l'appréciation validée"),
-        ("MOTIF-DE-LA-FAMILLE".to_string(), "la demande de la famille"),
-    ] {
-        assert!(extrait.contains(&attendu), "{quoi} doit sortir ({tables_vues:?})");
-    }
-    // Rien de non publié, rien d'interne.
-    for (interdit, quoi) in [
-        (ev_np.to_string(), "la note non publiée"),
-        ("MARQUEUR-NOTE-PRIVEE".to_string(), "la note privée"),
-        ("MARQUEUR-BROUILLON-INTERNE".to_string(), "le brouillon d'appréciation"),
-        (second.to_string(), "l'auteur interne de l'appréciation ou de la décision"),
-        (w.prof.to_string(), "l'auteur de la saisie des notes"),
-    ] {
-        assert!(!extrait.contains(&interdit), "{quoi} ne doit pas sortir :\n{extrait}");
-    }
+    (extrait, tables_vues)
 }
