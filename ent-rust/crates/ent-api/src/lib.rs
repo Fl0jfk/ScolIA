@@ -46,6 +46,8 @@ mod cahier_c4;
 mod cahier_c5;
 mod cahier_c6;
 mod cahier_c7;
+mod cahier_c8;
+mod cahier_c9;
 mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
@@ -126,6 +128,10 @@ pub struct AppState {
     pub metrics_acces: obs::MetricsAcces,
     /// Tâches de fond lancées par des handlers (compteur de tâches en cours).
     taches: Arc<std::sync::atomic::AtomicUsize>,
+    /// Limiteur de `GET /messages/flux` : **une instance par état** (donc par test), pas d'état global du processus.
+    pub flux_limite: flux_limite::LimiteFlux,
+    /// Temps et taille d'une réponse du flux (production : valeurs par défaut ; les tests les réduisent).
+    pub flux_reglages: ent_db::ReglagesFlux,
 }
 
 impl AppState {
@@ -166,6 +172,8 @@ impl AppState {
             obs,
             metrics_acces: obs::MetricsAcces::depuis_env(),
             taches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            flux_limite: flux_limite::LimiteFlux::default(),
+            flux_reglages: ent_db::ReglagesFlux::default(),
         }
     }
 }
@@ -305,8 +313,6 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         .await
         .map_err(|e| format!("connect: {e}"))?;
     ent.migrate().await.map_err(|e| format!("migrate: {e}"))?;
-    // Messagerie M12 : le curseur du flux a besoin de voir les transactions des autres sessions (journal d'erreur sinon).
-    ent.verifier_flux_messagerie().await;
     ent.install_brain_p0();
     if let Ok(purged) = ent.purge_expired_sessions().await {
         if purged > 0 {

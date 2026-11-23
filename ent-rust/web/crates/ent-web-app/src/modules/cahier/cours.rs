@@ -320,7 +320,7 @@ fn FormulaireEntree(
         <form class="cdt-form" on:submit=envoyer novalidate=true>
             <ChampTexte id=format!("{pref}-titre") libelle="Titre (facultatif)" valeur=titre erreur=e_titre/>
             <ZoneTexte id=format!("{pref}-contenu") libelle="Contenu de la séance" valeur=contenu erreur=e_contenu requis=true
-                aide="Texte simple : titres, listes, liens https. Aucun nom d'élève."/>
+                aide="Texte simple : titres, listes, liens https. N'écrivez aucun nom d'élève : ce texte est lu par les inspecteurs à qui la direction ouvre le cahier, et figure dans les exports et les archives."/>
             <ZoneTexte id=format!("{pref}-notions") libelle="Notions travaillées (une par ligne)" valeur=notions erreur=e_notions/>
             <GroupeChoix nom=format!("{pref}-publication") legende="Publication" valeur=publication options=options/>
             {move || (publication.get() == "programmer").then(|| view! {
@@ -581,7 +581,8 @@ fn EditionTravail(travail: TravailC2Dto, ecriture: Ecriture) -> impl IntoView {
     view! {
         <form class="cdt-form" on:submit=envoyer novalidate=true>
             <ChampTexte id=format!("{pref}-titre") libelle="Titre" valeur=titre erreur=e_titre requis=true/>
-            <ZoneTexte id=format!("{pref}-consigne") libelle="Consigne" valeur=consigne erreur=e_consigne requis=true/>
+            <ZoneTexte id=format!("{pref}-consigne") libelle="Consigne" valeur=consigne erreur=e_consigne requis=true
+                aide="N'écrivez aucun nom d'élève : cette consigne est lue par les inspecteurs à qui la direction ouvre le cahier, et figure dans les exports et les archives."/>
             <ChampTexte id=format!("{pref}-jour") libelle="Échéance : jour" valeur=jour genre="date" erreur=e_jour/>
             <ChampTexte id=format!("{pref}-heure") libelle="Échéance : heure" valeur=heure genre="time" erreur=e_heure/>
             {publie.then(|| view! {

@@ -177,7 +177,8 @@ impl PgEnt {
         }
         let empreinte = self.empreinte_sql(etab, &contenu_lot(sujet, corps, &eleves)).await?;
         let id = Uuid::new_v4();
-        let expire = Utc::now() + Duration::minutes(LOT_VALIDITE_MINUTES);
+        // F7 : une seule horloge, celle de la base (l'expiration est relue contre `now()` de la base à la confirmation).
+        let expire = self.maintenant_base(etab).await? + Duration::minutes(LOT_VALIDITE_MINUTES);
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         sqlx::query(
             "INSERT INTO ent_msg_lot
@@ -227,7 +228,8 @@ impl PgEnt {
         sujet: &str,
         corps: &str,
     ) -> Result<Vec<Uuid>, EntDbError> {
-        self.confirmer_lot_a(etab, user, role, lot, sujet, corps, Utc::now()).await
+        let maintenant = self.maintenant_base(etab).await?;
+        self.confirmer_lot_a(etab, user, role, lot, sujet, corps, maintenant).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -482,7 +484,9 @@ impl PgEnt {
         cmd: RepondreFil,
         programme_le: DateTime<Utc>,
     ) -> Result<(domain_eleve::Message, Option<DateTime<Utc>>), EntDbError> {
-        self.repondre_programme_a(role, cmd, programme_le, Utc::now()).await
+        // F7 : la remise est comparée ensuite à `now()` de la base : même horloge.
+        let maintenant = self.maintenant_base(cmd.etablissement_id).await?;
+        self.repondre_programme_a(role, cmd, programme_le, maintenant).await
     }
 
     pub(crate) async fn repondre_programme_a(

@@ -286,6 +286,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 2 du lot C3 (migration 2414 : abonnement au calendrier, envoi unique du résumé hebdomadaire).
     // + 2 du lot C5 (migration 2416 : pannes déclarées, relances des non-rendus).
     // + 1 du lot C7 (migration 2418 : réglages d'affichage de l'élève).
+    // + 5 du lot C8 (migration 2407 : accès d'inspection, cours ouverts, historique, exports figés, journal de clôture)
+    // + 3 du lot C9 (migration 2408 : progressions, étapes, partages).
     // + 2 du lot C6 (migration 2417 : décisions sur les copies en attente d'une suppléance, simulation du port d'aménagements du socle 35).
     // + 7 du socle 29 (lot P2, migrations 2580–2582 : index des tâches, journal des prises, réglages).
     // + 4 du socle 15 (A2, migration 2303 : pièces, lectures de pièces, fil de messages, gels de conservation).
@@ -362,10 +364,11 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 1 du socle 21 (lot V5, migration 477 : journal des moyennes externes).
     // + 8 du socle 3, lot I5 (migration 313 : avis, déports, commissions et leurs dossiers, propositions de place, conditions
     // par campagne et par dossier, journal des levées de condition).
+    // + 8 du socle 20 (lots C8 et C9, migrations 2407-2408 : visa, inspection, exports, clôtures, progressions).
     // + 6 du socle 41, lot I4 (migration 2828 : réglages de vie quotidienne, sorties de groupe, accompagnateurs, participants,
     // accords hors ligne, journal des faits) + 10 (migration 2829 : catalogue et faits de liaison, journal de liaison,
     // événements, participants, compléments, temps du soir, inscriptions, préoccupations, vigilances).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10, "tables avec RLS activée et forcée");
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10 + 5 + 3, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

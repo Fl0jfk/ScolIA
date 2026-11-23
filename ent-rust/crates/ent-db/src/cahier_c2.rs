@@ -25,7 +25,8 @@ use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::cahier::publier_cdt;
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::db;
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::tenant_tx::TenantTx;
 
@@ -37,6 +38,29 @@ pub(crate) fn invalide(message: &'static str) -> EntDbError {
 }
 pub(crate) fn conflit(message: &'static str) -> EntDbError {
     refus(RefusMetier::Conflit, message)
+}
+
+/// Année close au socle 5, ou cahier clôturé : plus aucune écriture (R-C28). Dans la transaction de l'appelant.
+pub(crate) async fn exiger_annee_ouverte_tx(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    annee_id: Uuid,
+) -> Result<(), EntDbError> {
+    let (close,): (bool,) = sqlx::query_as(
+        "SELECT ent_cdt_annee_gelee(etablissement_id, id)
+           FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(annee_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)?;
+    if close {
+        return Err(conflit(
+            "l'année scolaire est close : le cahier n'est plus modifiable",
+        ));
+    }
+    Ok(())
 }
 
 /// Texte de remplacement servi aux anciens lecteurs quand une entrée est retirée (l'élève qui l'avait vue lit ceci).
@@ -409,7 +433,7 @@ impl PgEnt {
         let entrees: Vec<(Uuid, Option<Uuid>, Uuid, String)> = sqlx::query_as(
             "SELECT id, auteur_user_id, seance_id, etat FROM ent_cdt_entree
               WHERE etablissement_id = $1 AND ancien_id IS NULL AND etat IN ('programmee', 'publiee')
-                AND visible_a <= now()
+                AND visible_a <= now() AND NOT ent_cdt_annee_gelee(etablissement_id, annee_id)
               ORDER BY visible_a LIMIT 200 FOR UPDATE SKIP LOCKED",
         )
         .bind(etab)
@@ -478,7 +502,7 @@ impl PgEnt {
     }
 
     /// Le compte porte-t-il `action` à portée d'établissement (direction) ?
-    async fn cdt_droit_etab(&self, a: &Acteur<'_>, action: Action) -> Result<bool, EntDbError> {
+    pub(crate) async fn cdt_droit_etab(&self, a: &Acteur<'_>, action: Action) -> Result<bool, EntDbError> {
         Ok(self
             .droits_effectifs(a.etablissement_id, a.user_id, a.role)
             .await?
@@ -487,7 +511,7 @@ impl PgEnt {
     }
 
     /// Le compte porte-t-il `action`, à n'importe quelle portée ? (la portée réelle se contrôle à part)
-    async fn cdt_droit_quelconque(
+    pub(crate) async fn cdt_droit_quelconque(
         &self,
         a: &Acteur<'_>,
         action: Action,
@@ -531,26 +555,34 @@ impl PgEnt {
             .ok_or_else(introuvable)
     }
 
-    /// Une année close ne se modifie plus (R-C28) : lecture seule, archive.
+    /// Une année close ne se modifie plus (R-C28) : lecture seule, archive. Contrôle de confort (message clair, 409) : la
+    /// garde qui fait foi est le déclencheur de la base (`ent_cdt_ecriture_gardee`, E1 / M5).
     pub(crate) async fn cdt_exiger_annee_ouverte(
         &self,
         etab: Uuid,
         annee_id: Uuid,
     ) -> Result<(), EntDbError> {
-        let (close,): (bool,) = sqlx::query_as(
-            "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(annee_id)
-        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
-        .await
-        .map_err(db)?;
-        if close {
-            return Err(conflit(
-                "l'année scolaire est close : le cahier n'est plus modifiable",
-            ));
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        exiger_annee_ouverte_tx(&mut tx, etab, annee_id).await
+    }
+
+    /// Cahier du cours figé ? Même contrôle que [`exiger_annee_ouverte_tx`], pour une écriture qui part d'un cours.
+    pub(crate) async fn cdt_exiger_cours_ouvert_tx(
+        &self,
+        tx: &mut PgConnection,
+        etab: Uuid,
+        cours_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let annee: Option<(Uuid,)> = sqlx::query_as("SELECT annee_id FROM ent_cours WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(cours_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+        match annee {
+            Some((a,)) => exiger_annee_ouverte_tx(tx, etab, a).await,
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// Cours dans lesquels l'acteur écrit aujourd'hui (jour de l'établissement).
@@ -1188,6 +1220,8 @@ impl PgEnt {
         if e.etat == "retiree" {
             return Err(conflit("l'entrée est déjà retirée"));
         }
+        // E1 : le retrait écrit sur le cahier ; une année figée n'en reçoit plus (message clair ; la base refuse de toute façon).
+        self.cdt_exiger_cours_ouvert_tx(&mut tx, a.etablissement_id, e.cours_id).await?;
         rafraichir_entree(&mut tx, a, &e).await?;
         let e: EntreeRow = sqlx::query_as(&format!("{SELECT_ENTREE} AND e.id = $2"))
             .bind(a.etablissement_id)
@@ -1391,6 +1425,7 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
             .await
             .map_err(db)?;
+        self.cdt_exiger_cours_ouvert_tx(&mut tx, a.etablissement_id, e.cours_id).await?;
         let agent: Option<Uuid> = sqlx::query_scalar("SELECT ent_cdt_agent_du_compte($1, $2)")
             .bind(a.etablissement_id)
             .bind(a.user_id)

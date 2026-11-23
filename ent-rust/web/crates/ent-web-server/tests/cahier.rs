@@ -97,6 +97,20 @@ async fn pages_rendues_par_le_serveur() {
             "Adaptations",
         ),
         ("/web/cahier/aesh".to_string(), "Élèves accompagnés"),
+        // Lots C8 et C9 : tenue et visa, cahier du cours en lecture, accès d'inspection (direction, puis lecture de l'inspecteur),
+        // clôture et archives, progressions.
+        ("/web/cahier/visa".to_string(), "Tenue et visa"),
+        (
+            format!("/web/cahier/chronologie?cours={inconnu}"),
+            "Cahier du cours",
+        ),
+        ("/web/cahier/inspection".to_string(), "Accès d'inspection"),
+        (
+            "/web/cahier/inspection/lecture".to_string(),
+            "Lecture d'inspection",
+        ),
+        ("/web/cahier/archives".to_string(), "Clôture et archives"),
+        ("/web/cahier/progressions".to_string(), "Progressions"),
     ] {
         let r = http.get(format!("{base}{chemin}")).send().await.unwrap();
         assert_eq!(r.status(), 200, "{chemin}");
@@ -385,4 +399,119 @@ async fn routes_protegees_sans_session() {
         anonyme.cahier_lien_piece(Uuid::from_u128(2)).await,
         Err(ApiError::NonConnecte)
     ));
+}
+
+/// Lots C8 et C9 contre le vrai backend : chaque route est refusée (403) aux profils sans le droit, sans session (401), et la
+/// direction n'obtient jamais le plan privé d'un professeur. L'inspecteur n'a pas de droit du moteur : sans accès accordé, sa
+/// liste est vide et toute lecture est refusée.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn visa_inspection_archive_et_progressions_refuses_aux_profils_sans_droit() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let admin = persona(&base, &l, "admin", "").await;
+    admin.amorcer_referentiel().await.expect("amorçage");
+    let direction = persona(&base, &l, "direction", "").await;
+    let rogue = persona(&base, &l, "prof", "Rogue").await;
+    let harry = persona(&base, &l, "eleve", "Harry").await;
+    let lily = persona(&base, &l, "parent", "Harry").await;
+    let anonyme = ApiClient::new(&base, None);
+    let j = aujourd_hui();
+    let (du, au) = (j - Duration::days(30), j);
+    let inconnu = Uuid::from_u128(7);
+
+    // Tableau de tenue et visa : direction seulement.
+    assert!(direction.cdt_tenue(du, au).await.is_ok());
+    assert!(est_interdit(rogue.cdt_tenue(du, au).await));
+    assert!(est_interdit(harry.cdt_tenue(du, au).await));
+    assert!(est_interdit(lily.cdt_tenue(du, au).await));
+    assert!(matches!(
+        anonyme.cdt_tenue(du, au).await,
+        Err(ApiError::NonConnecte)
+    ));
+    // F3 : hors direction, un visa inconnu et un visa non lisible donnent le même refus (403) ; la direction, elle, sait
+    // qu'il n'existe pas (404). Jamais un contenu.
+    assert!(
+        est_interdit(rogue.cdt_visa_detail(inconnu).await),
+        "un visa inconnu : refus identique à un visa non lisible"
+    );
+    assert!(
+        matches!(
+            direction.cdt_visa_detail(inconnu).await,
+            Err(ApiError::Introuvable(_))
+        ),
+        "un visa inconnu : introuvable pour la direction"
+    );
+    assert!(est_interdit(harry.cdt_visa_detail(inconnu).await));
+    assert!(est_interdit(lily.cdt_visas(None).await));
+
+    // Accès d'inspection : la direction les gère, le professeur lit ceux qui le concernent, élèves et familles rien.
+    assert!(direction.cdt_acces_inspection().await.is_ok());
+    assert!(rogue
+        .cdt_acces_inspection()
+        .await
+        .is_ok_and(|l| l.is_empty()));
+    assert!(est_interdit(harry.cdt_acces_inspection().await));
+    assert!(est_interdit(lily.cdt_acces_inspection().await));
+    assert!(est_interdit(rogue.cdt_acces_revoquer(inconnu).await));
+    assert!(est_interdit(rogue.cdt_acces_prolonger(inconnu, 5).await));
+    // Sans accès accordé : la liste de l'inspecteur est vide et la lecture refusée (403, jamais un contenu).
+    assert!(harry
+        .cdt_mes_acces_inspection()
+        .await
+        .is_ok_and(|l| l.is_empty()));
+    assert!(est_interdit(
+        harry.cdt_inspection_lire(inconnu, inconnu).await
+    ));
+    assert!(est_interdit(
+        lily.cdt_inspection_lire(inconnu, inconnu).await
+    ));
+
+    // Exports, clôture et archives : direction seulement ; l'export personnel est celui d'un professeur.
+    assert!(direction.cdt_exports().await.is_ok());
+    assert!(est_interdit(rogue.cdt_exports().await));
+    assert!(est_interdit(harry.cdt_exports().await));
+    assert!(est_interdit(rogue.cdt_cloture_controle(inconnu).await));
+    assert!(est_interdit(lily.cdt_archives(None).await));
+    assert!(est_interdit(harry.cdt_mon_export(inconnu).await));
+    assert!(matches!(
+        anonyme.cdt_exports().await,
+        Err(ApiError::NonConnecte)
+    ));
+
+    // Progressions : plan privé du professeur ; la direction n'en lit aucune d'autrui, élèves et familles non.
+    assert!(rogue.cdt_progressions().await.is_ok());
+    assert!(est_interdit(harry.cdt_progressions().await));
+    assert!(est_interdit(lily.cdt_progressions().await));
+    assert!(matches!(
+        anonyme.cdt_progressions().await,
+        Err(ApiError::NonConnecte)
+    ));
+    let cree = rogue
+        .cdt_progression_creer(&ent_web_api::cahier_c9_types::ProgressionBody {
+            titre: "Potions : l'année".into(),
+            matiere_id: None,
+            niveau_id: None,
+            annee_id: None,
+            etapes: vec![ent_web_api::cahier_c9_types::EtapeBody {
+                id: None,
+                titre: "Philtres".into(),
+                notions: String::new(),
+                duree_seances: 2,
+            }],
+        })
+        .await
+        .expect("création");
+    assert!(rogue.cdt_progression(cree.resume.id).await.is_ok());
+    assert!(
+        direction
+            .cdt_progression(cree.resume.id)
+            .await
+            .is_err_and(|e| matches!(e, ApiError::Introuvable(_))),
+        "le plan est privé, même pour la direction"
+    );
+    assert!(est_interdit(harry.cdt_progression(cree.resume.id).await));
+    assert!(direction
+        .cdt_progressions()
+        .await
+        .is_ok_and(|p| p.mes.is_empty() && p.partagees.is_empty()));
 }

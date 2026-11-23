@@ -163,7 +163,8 @@ pub use msg_m4::{
 };
 mod msg_m5;
 mod msg_m12;
-pub use msg_m12::{FilActif, FluxMessagerie, PositionFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_m12::{FilActif, FluxMessagerie, ReglagesFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_repo::PositionFlux;
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
@@ -185,6 +186,9 @@ mod cahier_c5_prof;
 pub mod cahier_c6;
 mod cahier_amenagements;
 pub mod cahier_c7;
+pub mod cahier_c8;
+pub mod cahier_c8_acces;
+pub mod cahier_c9;
 mod charge_calcul;
 mod evaluations_calendrier;
 pub mod cahier_reactions;

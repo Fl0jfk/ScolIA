@@ -283,7 +283,8 @@ fn FormulaireContenu(seance: SeanceCahierDto, on_change: Callback<()>) -> impl I
     view! {
         <form class="cdt-form" on:submit=envoyer novalidate=true>
             {move || erreur.get().map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })}
-            <ZoneTexte id=format!("{pref}-contenu") libelle="Contenu de la séance" valeur=contenu erreur=err_contenu requis=true/>
+            <ZoneTexte id=format!("{pref}-contenu") libelle="Contenu de la séance" valeur=contenu erreur=err_contenu requis=true
+                aide="N'écrivez aucun nom d'élève : ce texte est lu par les inspecteurs à qui la direction ouvre le cahier, et figure dans les exports et les archives."/>
             <ZoneTexte id=format!("{pref}-ressources") libelle="Ressources (facultatif)" valeur=ressources erreur=err_ressources
                 aide="Liens, pages du manuel… Les fichiers se joignent depuis la fiche de la séance."/>
             <Bouton soumettre=true en_cours=en_cours>"Enregistrer"</Bouton>
@@ -398,7 +399,8 @@ fn FormulaireTravail(
                 ]
             />
             <ChampTexte id=format!("{pref}-titre") libelle="Titre" valeur=titre erreur=e_titre requis=true/>
-            <ZoneTexte id=format!("{pref}-consigne") libelle="Consigne" valeur=consigne erreur=e_consigne requis=true/>
+            <ZoneTexte id=format!("{pref}-consigne") libelle="Consigne" valeur=consigne erreur=e_consigne requis=true
+                aide="N'écrivez aucun nom d'élève : cette consigne est lue par les inspecteurs à qui la direction ouvre le cahier, et figure dans les exports et les archives."/>
             <ChampTexte id=format!("{pref}-pour-le") libelle="Pour le" genre="date" valeur=pour_le erreur=e_pour_le requis=true/>
             <ChampTexte id=format!("{pref}-duree") libelle="Durée estimée (minutes)" genre="number" inputmode="numeric"
                 valeur=duree erreur=e_duree aide="Facultative. Sert à repérer les jours trop chargés pour la classe."/>
