@@ -323,3 +323,7 @@ Aucune table, aucune action, aucune source de séparation nouvelle : **compte RL
 inchangés, registre des tables inchangé (colonnes hors export et conditions de ligne ajoutées) ; `MIGRATION_TAG` inchangé (3808) ; `MIGRATIONS` : **+1** (314, après 313).
 Fusion d'`origin/ENT` (`f298bc7a`, internat I4, messagerie M12/E1, cahier C8/C9) **sans conflit** ; compteurs de la base relus, rien à recalculer de notre côté.
 `ent-types` : `PublicationDto.caduques` ajouté (`#[serde(default)]`, aucun autre consommateur : `web/` ne construit pas ce type).
+
+### Tête et CI (passe 3)
+* PR n° 127, **brouillon**, vers `ENT`. Première CI (`06be5c4e`) : rouge, **cause unique** — la garde statique `garde_rls_stricte` refusait `TenantTx::begin_lecture_coherente` (accès « direct » au pool) ; déclarée dans la garde, test rejoué en local.
+* Tête de code finale : **`d495fe98`**. **CI verte** sur cette tête (41 jobs, aucun échec). Statut : **implémenté, testé, CI verte** ; non validé par la relecture du pilote ; non prêt pilote, non prêt production.
