@@ -209,3 +209,21 @@ Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de co
 * **Non exécuté en local :** les tests du frontend contre le backend (`ent-web-server`, `--features labo`, `evaluations.rs`, `grille_v3.rs`) : l'édition de liens du binaire échoue ici (`rust-lld` : relocations de `ring`, puis `bfd`/`gold` tués faute de mémoire). Ils sont laissés à la CI. Aucun code du frontend ne change ; seul `ent-types` gagne trois structures.
 
 **Passe 2 — tête et CI.** Tête de code : `4965ab8a` (fusion d'`origin/ENT` a39f0892 ; règle 28 : 478 ajoute 0 table, `CONTRAINTES_A_VALIDER` = 3). CI « ENT Rust » : **verte** sur cette tête (run 45143473378). Les tests `ent-web-server` (evaluations, grille_v3) n'ont été exécutés que par la CI (édition de liens impossible localement faute de mémoire).
+
+### Correctif du pilote après contre-revue de la passe 2 (2026-11-23)
+- **Correctif (moyen 1 de la contre-revue)** :
+  - 478 dépublie aussi une moyenne de statut « moyenne » corrigée **après** sa publication sous 477, d'après la date de la correction au journal (`eva_moyenne_externe_historique`, `evenement = 'correction'`, `le > publiee_le`).
+  - Une moyenne republiée après sa correction n'est pas touchée, et un nouveau passage de la migration n'a aucun effet.
+- **Tests** :
+  - `contre_revue_m3_une_moyenne_corrigee_sous_477_est_depubliee` est nouveau.
+  - Les deux tests M3 exécutent désormais **le texte même** de l'ordre de 478 (`include_str!`), au lieu d'une copie.
+  - Résultat en local : suite `tests_evaluations_v5` et `migrate::`, 34 verts sur base neuve ; clippy `ent-db` labo sans avertissement.
+- **Reste en file** (suites V5) :
+  - `export_si` des tables d'évaluation (non publié jamais exporté, avant le lot G3) ;
+  - test du retrait par un second compte (`saisi_par` inchangé) ;
+  - contrôle positif du professeur dans `separation.rs` ;
+  - `autoriser_eleve_le` en `pub(crate)` ;
+  - dédoublonnage après fusions en chaîne (`DISTINCT ON`) et relevé aligné sur `eva_fiches_de_l_eleve` ;
+  - export LSU/LSL calculé sur le seul publié (à trancher) ;
+  - jeton de version complet (appréciation, pièce) ;
+  - `search_path` des déclencheurs de 478 (couvert par le transverse T1).

@@ -147,15 +147,21 @@ BEGIN
 END
 $$;
 
--- Lignes hors règle héritées de 477 (publiées, puis corrigées en « en_attente » / « dispense » alors que la publication
--- était gardée) : DÉPUBLIÉES, pour qu'une valeur corrigée et non republiée ne reste jamais visible de la famille. Le
+-- Lignes hors règle héritées de 477 (publiées, puis corrigées alors que la publication était gardée : en « en_attente » /
+-- « dispense », ou en « moyenne » avec une autre valeur, que le journal date APRÈS la publication) : DÉPUBLIÉES, pour qu'une valeur corrigée et non republiée ne reste jamais visible de la famille. Le
 -- geste passe par le déclencheur ci-dessus comme un retrait ordinaire : le journal reçoit l'événement « retrait »
 -- (motif « correction antérieure à 478 », auteur = dernier auteur de la valeur). Aucune valeur n'est modifiée.
 -- Rejouable : une fois dépubliées, plus aucune ligne n'est concernée.
 UPDATE eva_moyenne_externe
    SET publiee_le = NULL, publiee_par = NULL,
        motif_correction = 'correction antérieure à 478', retrait_par = saisi_par
- WHERE publiee_le IS NOT NULL AND statut <> 'moyenne';
+ WHERE publiee_le IS NOT NULL
+   AND (statut <> 'moyenne'
+        OR EXISTS (SELECT 1 FROM public.eva_moyenne_externe_historique h
+                    WHERE h.etablissement_id = eva_moyenne_externe.etablissement_id
+                      AND h.moyenne_id = eva_moyenne_externe.id
+                      AND h.evenement = 'correction'
+                      AND h.le > eva_moyenne_externe.publiee_le));
 
 -- Plus aucune ligne hors règle : la contrainte est validée. Si une ligne échappait au geste ci-dessus, la migration
 -- s'arrête ici plutôt que de laisser une valeur non republiée visible.

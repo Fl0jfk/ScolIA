@@ -2762,6 +2762,63 @@ async fn contre_revue_m2_publier_et_retirer_comparent_la_version_vue() {
     assert_eq!(moyenne(&ent, &w, a, w.francais, w.t1, true).await, None);
 }
 
+/// Le geste de rattrapage de 478 tel qu'il est écrit dans la migration (et non recopié), restreint à une ligne.
+fn geste_478_sur(id: Uuid) -> String {
+    let sql = include_str!("../../../migrations/478_eva_v5_contre_revue_publication.sql");
+    let debut = sql.find("UPDATE eva_moyenne_externe\n   SET publiee_le = NULL").expect("geste de 478");
+    let fin = debut + sql[debut..].find(';').expect("fin du geste");
+    format!("{} AND id = '{id}'", &sql[debut..fin])
+}
+
+/// M3 (478, correctif du pilote) : une moyenne publiée à 15 puis CORRIGÉE à 9 sous 477 (statut « moyenne », publication
+/// gardée) est dépubliée par le geste de 478 : la famille ne voit jamais une valeur corrigée non republiée. Une moyenne
+/// republiée après sa correction n'est pas touchée (rejeu sans effet).
+#[tokio::test]
+async fn contre_revue_m3_une_moyenne_corrigee_sous_477_est_depubliee() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let w = monde_v1(&ent, &cast).await;
+    let a = w.eleves_a[0];
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, fr.id, &moy(w.t1, "moyenne", Some(9_000), None, None))
+        .await
+        .unwrap();
+    let mid = saisi.moyennes[0].id;
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    for t in ["eva_moyenne_externe", "eva_moyenne_externe_historique"] {
+        sqlx::query(&format!("ALTER TABLE {t} DISABLE TRIGGER USER")).execute(&mut *tx).await.unwrap();
+    }
+    // État hérité de 477 : publiée il y a deux heures, corrigée il y a une heure (journal), publication gardée.
+    sqlx::query("UPDATE eva_moyenne_externe SET publiee_le = now() - interval '2 hours', publiee_par = $2 WHERE id = $1")
+        .bind(mid).bind(w.direction).execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO eva_moyenne_externe_historique (id, etablissement_id, moyenne_id, enseignement_externe_id, evenement,
+                statut_avant, valeur_avant, statut_apres, valeur_apres, motif, par, le)
+         VALUES (gen_random_uuid(), $1, $2, $3, 'correction', 'moyenne', 15, 'moyenne', 9, 'erreur de report', $4,
+                 now() - interval '1 hour')",
+    )
+    .bind(w.etab).bind(mid).bind(fr.id).bind(w.direction).execute(&mut *tx).await.unwrap();
+    for t in ["eva_moyenne_externe", "eva_moyenne_externe_historique"] {
+        sqlx::query(&format!("ALTER TABLE {t} ENABLE TRIGGER USER")).execute(&mut *tx).await.unwrap();
+    }
+    let n = sqlx::query(&geste_478_sur(mid)).execute(&mut *tx).await.unwrap().rows_affected();
+    assert_eq!(n, 1, "la moyenne corrigée après publication est dépubliée");
+    let publiee: bool = sqlx::query_scalar("SELECT publiee_le IS NOT NULL FROM eva_moyenne_externe WHERE id = $1")
+        .bind(mid).fetch_one(&mut *tx).await.unwrap();
+    assert!(!publiee);
+    let retrait: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM eva_moyenne_externe_historique WHERE moyenne_id = $1 AND evenement = 'retrait'
+            AND motif = 'correction antérieure à 478'",
+    )
+    .bind(mid).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(retrait, 1, "le retrait est tracé au journal");
+    // Rejeu : plus rien à dépublier.
+    assert_eq!(sqlx::query(&geste_478_sur(mid)).execute(&mut *tx).await.unwrap().rows_affected(), 0);
+    tx.rollback().await.unwrap();
+}
+
 /// M3 (478) : une ligne publiée puis corrigée en « en_attente » sous 477 (publication gardée) est dépubliée par la
 /// migration, avec une trace au journal ; la contrainte est ensuite validée. Rejoué ici sur la logique de la migration.
 #[tokio::test]
@@ -2815,13 +2872,7 @@ async fn contre_revue_m3_les_lignes_publiees_hors_regle_sont_depubliees_avec_tra
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE eva_moyenne_externe
-            SET publiee_le = NULL, publiee_par = NULL,
-                motif_correction = 'correction antérieure à 478', retrait_par = saisi_par
-          WHERE publiee_le IS NOT NULL AND statut <> 'moyenne' AND id = $1",
-    )
-    .bind(mid)
+    sqlx::query(&geste_478_sur(mid))
     .execute(&mut *tx)
     .await
     .unwrap();
