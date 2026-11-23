@@ -893,6 +893,7 @@ pub fn router() -> Router<AppState> {
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     let r = r.merge(crate::inscriptions_pieces::routes());
+    let r = r.merge(crate::inscriptions_decisions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
     let r = r.merge(crate::edt_s2::routes());
     let r = r.merge(crate::edt_t5::routes());

@@ -212,6 +212,17 @@ async fn parcours_admission_et_reinscription_contre_le_backend() {
         .await
         .expect("admis");
     assert!(peut(&vu, "valider"));
+    // Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée (vraie route de la famille).
+    let reponse = famille
+        .repondre_proposition(
+            d.id,
+            &ent_types::inscriptions_decisions::ReponsePropositionBody {
+                reponse: "acceptee".into(),
+            },
+        )
+        .await
+        .expect("la famille accepte la place");
+    assert!(reponse.publiee);
     // Rapprochement humain (I0) : les correspondances sont présentées, la direction confirme
     // chacune ; sans ce choix, la validation est refusée.
     assert!(direction

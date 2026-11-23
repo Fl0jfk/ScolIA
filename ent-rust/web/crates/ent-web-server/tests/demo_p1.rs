@@ -223,6 +223,17 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
             .expect("préparation de l'année suivante");
     }
 
+    // 3 bis. Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée (vraie route de la famille).
+    famille
+        .repondre_proposition(
+            d.id,
+            &ent_types::inscriptions_decisions::ReponsePropositionBody {
+                reponse: "acceptee".into(),
+            },
+        )
+        .await
+        .expect("la famille accepte la place");
+
     // 4. Secrétariat : valide avec le rapprochement humain construit par le modèle de l'écran.
     let corr = secretariat
         .correspondances_dossier(d.id)

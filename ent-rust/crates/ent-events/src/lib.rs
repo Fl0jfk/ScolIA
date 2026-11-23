@@ -511,6 +511,13 @@ pub mod types {
     pub const INSCRIPTION_ECHEANCE_PROLONGEE: &str = "inscription.echeance_prolongee";
     pub const INSCRIPTION_FERMETURE_DECLAREE: &str = "inscription.fermeture_declaree";
     pub const INSCRIPTION_DOSSIER_CLOS: &str = "inscription.dossier_clos";
+    /// Socle 3, lot I5 : décisions publiées à la famille, place proposée, réponse de la famille, séance de
+    /// commission clôturée, déport d'un membre du personnel (aucune donnée personnelle dans la charge utile).
+    pub const INSCRIPTION_DECISIONS_PUBLIEES: &str = "inscription.decisions_publiees";
+    pub const INSCRIPTION_PLACE_PROPOSEE: &str = "inscription.place_proposee";
+    pub const INSCRIPTION_REPONSE_FAMILLE: &str = "inscription.reponse_famille";
+    pub const INSCRIPTION_COMMISSION_TENUE: &str = "inscription.commission_tenue";
+    pub const INSCRIPTION_DEPORT: &str = "inscription.deport";
     /// Socle 2 : création d'élève annulée (ELV-02, commande appelée par INS-68).
     pub const ELEVE_CREATION_ANNULEE: &str = "eleve.creation_annulee";
     pub const SCOLARITE_DEPART_ANNONCE: &str = "scolarite.depart_annonce";

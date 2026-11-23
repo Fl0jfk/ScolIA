@@ -237,6 +237,26 @@ impl Scene {
             .expect("connexion SQL de test")
     }
 
+    /// Règle 3 de D-069 : la validation attend que la famille ait accepté la place proposée. **Vraie** acceptation :
+    /// la route de la famille (`POST /preinscription/dossiers/{id}/proposition/repondre`, jeton de préinscription).
+    async fn famille_a_accepte(&self, dossier: Uuid, jeton: &str) {
+        let r = self
+            .appel_en_tetes(
+                "POST",
+                &format!("/preinscription/dossiers/{dossier}/proposition/repondre"),
+                None,
+                &[("x-preinscription", jeton)],
+                Some(&json!({"reponse":"acceptee"})),
+            )
+            .await;
+        assert!(
+            r.statut.is_success(),
+            "acceptation de la place : {} {}",
+            r.statut,
+            r.texte
+        );
+    }
+
     /// Donne à `email` le mot de passe de la Direction (base de test, comptes créés sans mot de passe).
     async fn mot_de_passe_de_labo(&self, email: &str) {
         let pool = self.pool().await;
@@ -549,6 +569,7 @@ impl Scene {
             c.texte
         );
         let resp = uuid(&c.json["responsables"][0]["responsable_id"]);
+        self.famille_a_accepte(dossier, &jeton).await;
         (dossier, resp)
     }
 

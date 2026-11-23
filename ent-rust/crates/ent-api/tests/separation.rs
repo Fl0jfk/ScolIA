@@ -1302,6 +1302,45 @@ fn domaine_inscriptions_i3_i4() {
     jouer("inscriptions I3 et I4 (pièces et accords de B)", &specs_domaine_inscriptions_i3_i4());
 }
 
+/// Lot I5 (socle 3) : décisions, avis, déport, commissions, conditions, liste d'attente, propositions. Toutes les
+/// routes à identifiant visent un objet de B avec la session de A : jamais un 2xx, et aucune ne confirme qu'un objet
+/// existe chez l'autre établissement.
+fn specs_domaine_inscriptions_i5() -> Vec<Spec> {
+    vec![
+        ecrire_sur_b("decisions-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions", None),
+        ecrire_sur_b("decision-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions", Some(r#"{"sens":"refuse","motif_interne":"essai de séparation"}"#)),
+        ecrire_sur_b("revue-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions/revoir", Some(r#"{"sens":"admis","motif_interne":"essai de séparation"}"#)),
+        ecrire_sur_b("courrier-de-B", "GET", "/inscriptions/decisions/00000000-0000-0000-0000-0000000000b2/courrier", None),
+        ecrire_sur_b("publication-sur-B", "POST", "/inscriptions/decisions/00000000-0000-0000-0000-0000000000b2/publier", Some(r#"{}"#)),
+        ecrire_sur_b("avis-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/avis", None),
+        ecrire_sur_b("avis-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/avis", Some(r#"{"contexte":"entretien","sens":"favorable","texte":"essai de séparation"}"#)),
+        ecrire_sur_b("deport-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/deport", None),
+        ecrire_sur_b("deport-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/deport", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("commission-de-B", "GET", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2", None),
+        ecrire_sur_b("dossiers-de-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/dossiers", Some(r#"{"ajouter":[],"retirer":[]}"#)),
+        ecrire_sur_b("lot-sur-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/decisions", Some(r#"{"decisions":[]}"#)),
+        ecrire_sur_b("publication-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/publier", Some(r#"{}"#)),
+        ecrire_sur_b("cloture-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/cloturer", Some(r#"{}"#)),
+        ecrire_sur_b("conditions-campagne-de-B", "GET", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/conditions", None),
+        ecrire_sur_b("conditions-campagne-modifiees-sur-B", "PUT", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/conditions", Some(r#"{"codes":[]}"#)),
+        ecrire_sur_b("conditions-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions", None),
+        ecrire_sur_b("reevaluation-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/reevaluer", Some(r#"{}"#)),
+        ecrire_sur_b("condition-remplie-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/contrat_signe/remplir", Some(r#"{}"#)),
+        ecrire_sur_b("condition-levee-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/contrat_signe/lever", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("liste-attente-de-B", "GET", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2/liste-attente", None),
+        ecrire_sur_b("designation-sur-B", "POST", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2/liste-attente/designer", Some(r#"{}"#)),
+        ecrire_sur_b("envoi-proposition-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/envoyer", Some(r#"{"confirmer":true}"#)),
+        ecrire_sur_b("proposition-ecartee-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/ecarter", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("acceptation-au-guichet-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/accepter-au-guichet", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("expiration-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/constater-expiration", Some(r#"{}"#)),
+    ]
+}
+
+#[test]
+fn domaine_inscriptions_i5() {
+    jouer("inscriptions I5 (décisions, commissions, attente de B)", &specs_domaine_inscriptions_i5());
+}
+
 // ───────────────────────── Invariants transverses ─────────────────────────
 
 /// Routes publiques : la **seule** liste d'exceptions à « sans session ⇒ 401 ».
