@@ -22,7 +22,7 @@ pub(crate) fn mode_strict_demande() -> bool {
 }
 
 /// Rôle applicatif strict (idempotent, sérialisé : plusieurs processus de test partagent la base).
-async fn assurer_role_strict(proprietaire: &sqlx::PgPool) {
+pub(crate) async fn assurer_role_strict(proprietaire: &sqlx::PgPool) {
     let mut c = proprietaire.acquire().await.unwrap();
     sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut *c).await.unwrap();
     for sql in [
