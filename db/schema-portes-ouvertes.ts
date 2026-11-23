@@ -145,9 +145,36 @@ export const portesOuvertesSlotStaff = pgTable(
   ],
 );
 
+/** Archive d'une session terminée : inscrits, équipes et créneaux figés (lecture seule). */
+export const portesOuvertesArchive = pgTable(
+  "portes_ouvertes_archive",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(""),
+    sessionStartAt: timestamp("session_start_at", { withTimezone: true }),
+    sessionEndAt: timestamp("session_end_at", { withTimezone: true }),
+    registrationsCount: integer("registrations_count").notNull().default(0),
+    staffCount: integer("staff_count").notNull().default(0),
+    slots: jsonb("slots").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    registrations: jsonb("registrations")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    staff: jsonb("staff").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    archivedByUserId: text("archived_by_user_id"),
+    archivedByName: text("archived_by_name"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("portes_ouvertes_archive_etab_idx").on(t.etablissementId, t.archivedAt)],
+);
+
 export const portesOuvertesSchema = {
   portesOuvertesConfig,
   portesOuvertesSlot,
   portesOuvertesRegistration,
   portesOuvertesSlotStaff,
+  portesOuvertesArchive,
 };

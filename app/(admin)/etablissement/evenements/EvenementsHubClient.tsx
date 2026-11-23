@@ -979,6 +979,8 @@ export default function EvenementsHubClient() {
                   </a>
                 </div>
 
+                <PoArchivePanel onDone={loadPo} />
+
                 {activeCycles.map((cycle) => {
                   const g = gridFor(cycle);
                   const cycleSlots = slotsByCycle[cycle];
@@ -1218,6 +1220,128 @@ export default function EvenementsHubClient() {
         </p>
       </ModulePageShell>
     </RequireModuleAccess>
+  );
+}
+
+type PoArchiveSummary = {
+  id: string;
+  sessionStartAt: string | null;
+  sessionEndAt: string | null;
+  registrationsCount: number;
+  staffCount: number;
+  archivedAt: string;
+  archivedByName: string | null;
+};
+
+/** Archive la session terminée (inscrits + équipes) et décale les créneaux sur une nouvelle date. */
+function PoArchivePanel({ onDone }: { onDone: () => Promise<void> }) {
+  const [archives, setArchives] = useState<PoArchiveSummary[]>([]);
+  const [newDay, setNewDay] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadArchives = useCallback(async () => {
+    try {
+      const res = await fetch("/api/toolbox/portes-ouvertes/archive", { cache: "no-store" });
+      const j = (await res.json()) as { archives?: PoArchiveSummary[] };
+      if (res.ok) setArchives(j.archives ?? []);
+    } catch {
+      /* liste facultative */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadArchives();
+  }, [loadArchives]);
+
+  async function archiveAndReset() {
+    setErr(null);
+    setNote(null);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDay)) {
+      setErr("Choisissez la date du premier jour de la prochaine session.");
+      return;
+    }
+    const ok = window.confirm(
+      "Archiver la session en cours ?\n\n" +
+        "• Les inscrits et les équipes (profs, ambassadeurs, personnel) sont retirés de la session active et conservés dans l’archive.\n" +
+        "• Les créneaux (horaires, cycles, places max) sont gardés et décalés sur la nouvelle date.\n\n" +
+        "Les visiteurs ne reçoivent aucun e-mail.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/toolbox/portes-ouvertes/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newFirstDay: newDay, confirm: true }),
+      });
+      const j = (await res.json()) as {
+        error?: string;
+        registrationsArchived?: number;
+        staffArchived?: number;
+        slotsShifted?: number;
+      };
+      if (!res.ok) throw new Error(j.error || "Archivage impossible.");
+      setNote(
+        `Session archivée : ${j.registrationsArchived ?? 0} inscrit(s) et ${j.staffArchived ?? 0} membre(s) d’équipe conservés ; ${j.slotsShifted ?? 0} créneau(x) décalé(s).`,
+      );
+      setNewDay("");
+      await Promise.all([onDone(), loadArchives()]);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Archivage impossible.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmt = (iso: string | null) =>
+    iso
+      ? new Date(iso).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })
+      : "—";
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+      <h3 className="font-bold text-amber-950">Session terminée ? Archiver et préparer la suivante</h3>
+      <p className="text-sm text-amber-950">
+        Les inscrits et les équipes partent dans l’archive. Les créneaux (heures, cycles, places
+        max) restent tels quels, décalés sur la nouvelle date.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs font-semibold text-amber-900">
+          Date du premier jour de la prochaine session
+          <input
+            type="date"
+            className="mt-1 block rounded-xl border px-3 py-2 text-sm"
+            value={newDay}
+            onChange={(e) => setNewDay(e.target.value)}
+          />
+        </label>
+        <ModuleButton onClick={() => void archiveAndReset()} disabled={busy}>
+          {busy ? "Archivage…" : "Archiver et décaler"}
+        </ModuleButton>
+      </div>
+      {note ? <p className="text-sm font-semibold text-emerald-800">{note}</p> : null}
+      {err ? <p className="text-sm font-semibold text-red-700">{err}</p> : null}
+      {archives.length > 0 ? (
+        <div className="text-xs text-amber-950">
+          <p className="font-bold">Sessions archivées</p>
+          <ul className="mt-1 space-y-1">
+            {archives.map((a) => (
+              <li key={a.id}>
+                {fmt(a.sessionStartAt)}
+                {a.sessionEndAt && fmt(a.sessionEndAt) !== fmt(a.sessionStartAt)
+                  ? ` → ${fmt(a.sessionEndAt)}`
+                  : ""}{" "}
+                — {a.registrationsCount} inscrit(s), {a.staffCount} membre(s) d’équipe, archivée le{" "}
+                {fmt(a.archivedAt)}
+                {a.archivedByName ? ` par ${a.archivedByName}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
