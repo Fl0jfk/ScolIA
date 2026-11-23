@@ -628,6 +628,10 @@ mod tests_rls_lots;
 #[cfg(test)]
 mod garde_rls_stricte;
 #[cfg(all(test, feature = "labo"))]
+mod garde_search_path;
+#[cfg(all(test, feature = "labo"))]
+mod tests_search_path_t1;
+#[cfg(all(test, feature = "labo"))]
 mod tests_rls_stricte;
 #[cfg(all(test, feature = "labo"))]
 mod tests_objets;
