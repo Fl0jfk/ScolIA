@@ -107,7 +107,9 @@ BEGIN
     END IF;
     PERFORM public.ent_inscription_exiger_verrou_offre(v_offre, TG_TABLE_NAME::text);
     IF TG_OP = 'UPDATE' THEN
-        v_ancienne := OLD.offre_id;
+        -- L'offre d'avant : sa colonne, à défaut celle de la liste de son ancien dossier (contre-revue, M1 : une ligne qui
+        -- passe d'une offre déduite du dossier à une offre propre, ou qui change de dossier, exige aussi l'ancien verrou).
+        v_ancienne := COALESCE(OLD.offre_id, public.ent_inscription_offre_du_dossier(OLD.etablissement_id, OLD.dossier_id));
         IF v_ancienne IS NOT NULL AND v_ancienne IS DISTINCT FROM v_offre THEN
             PERFORM public.ent_inscription_exiger_verrou_offre(v_ancienne, TG_TABLE_NAME::text);
         END IF;

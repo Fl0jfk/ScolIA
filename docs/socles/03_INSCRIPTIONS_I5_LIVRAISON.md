@@ -443,3 +443,10 @@ Explication : chacun entre par un **point d'entrée qui prenait déjà le verrou
 - **Compteurs** : `MIGRATIONS` +1 (316) ; aucune nouvelle table, action ni source ; compte RLS, `Action::TOUTES`, `SOURCES` et `MIGRATION_TAG` (3808) inchangés.
 - **Qualité** : clippy 1.99 sans avertissement sur les 3 commandes de la CI (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` ; gardes statiques vertes sans et avec `labo`.
 - **CI de la tête `7a040a70`** (PR 137) : workflow « ENT Rust » (run 45279958095) **vert**. Le commit suivant ne change que cette section de documentation.
+
+### Correctifs du pilote après contre-revue des suites (passe 5)
+- **M1** : la sentinelle contrôle aussi, sur un UPDATE, l'ancienne offre **déduite du dossier** (`OLD.offre_id` nul) ou d'un ancien dossier ; test `s5_sentinelle_changement_d_offre_exige_l_ancienne_et_la_nouvelle` (nouvelle seule refusée, ancienne seule refusée, les deux acceptées). 316 n'était pas versée : modifiée en place.
+- **M3** : `publier_decision_tx` et la publication de séance verrouillent aussi l'offre **portée par la décision** (`offres_en_plus`), sans supposer qu'elle coïncide avec le vœu retenu.
+- **F4** : la neutralisation de la sentinelle dans deux fixtures (`passe3`, `revue`) échoue franchement si le déclencheur n'existe plus.
+- Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_inscriptions*` : 137 verts.
+- **En file (suites I5, passe 6)** : **M2** (rejeu de 304 et restauration de données : la sentinelle bloque un INSERT de reprise sans verrou → garde de rejeu ou procédure de restauration, test de rejeu sur une base avec un dossier admis sans décision), M4 (coût de `pg_locks` sous charge : mesure en pilote, `FOR EACH STATEMENT` si besoin), F1 (`ENABLE ALWAYS TRIGGER` ; la sentinelle est un filet, pas un contrôle de sécurité), F2 (phrase sur `set_config` : `purge_voulue` le lit), F3 (`ent_inscription_liste_attente` sur 10 000 dossiers), F5 (en-tête « aucune heure réelle » à adoucir), F6 (alerte sans destinataire : repli ou trace), F7 (archivage d'offre sans verrou, antérieur).

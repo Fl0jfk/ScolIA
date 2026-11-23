@@ -681,16 +681,19 @@ pub(crate) async fn publier_decision_tx(
     maintenant: DateTime<Utc>,
 ) -> Result<Publication, EntDbError> {
     // Ordre des verrous unique (passe 4) : les offres du dossier, puis le dossier, avant la décision et la proposition.
-    let dossier_lu: Option<Uuid> = sqlx::query_scalar(
-        "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
+    // Contre-revue des suites (M3) : l'offre portée par la décision elle-même est verrouillée aussi (la sentinelle de 316
+    // la contrôle à la publication), sans supposer qu'elle coïncide avec le vœu retenu du dossier.
+    let dossier_lu: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT dossier_id, offre_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(decision_id)
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
-    if let Some(dossier) = dossier_lu {
-        crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &[dossier], &[]).await?;
+    if let Some((dossier, offre)) = dossier_lu {
+        let offres_en_plus: Vec<Uuid> = offre.into_iter().collect();
+        crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &[dossier], &offres_en_plus).await?;
     }
     // Garde de l'état courant (passe 3, correctif 3) : une décision prise puis programmée correspondait à l'état du
     // dossier **à ce moment** ; si le dossier a bougé depuis (annulé, retiré, repris), elle est caduque. Le dossier
@@ -1876,9 +1879,11 @@ async fn publier_ou_programmer_tx(
     // (contrôle d'écart **avant** tout verrou de lot), puis on verrouille **une seule fois**, offres puis dossiers triés par
     // UUID. Ensuite seulement on publie : aucune publication ne prend un verrou de plus.
     let mut dossier_de_decision: Vec<(Uuid, Uuid)> = Vec::with_capacity(ids.len());
+    // Contre-revue des suites (M3) : l'offre propre de chaque décision publiée est verrouillée avec celles des dossiers.
+    let mut offre_de_decision: Vec<(Uuid, Uuid)> = Vec::new();
     for id in ids {
-        let dossier: Uuid = sqlx::query_scalar(
-            "SELECT dossier_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
+        let (dossier, offre): (Uuid, Option<Uuid>) = sqlx::query_as(
+            "SELECT dossier_id, offre_id FROM ent_inscription_decision WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(id)
@@ -1887,6 +1892,9 @@ async fn publier_ou_programmer_tx(
         .map_err(db)?
         .ok_or_else(introuvable)?;
         dossier_de_decision.push((*id, dossier));
+        if let Some(o) = offre {
+            offre_de_decision.push((dossier, o));
+        }
     }
     let tous: Vec<Uuid> = dossier_de_decision.iter().map(|(_, d)| *d).collect();
     let ecartes = ecartes_parmi(conn, etab, actor, &tous).await?;
@@ -1894,7 +1902,12 @@ async fn publier_ou_programmer_tx(
         return Err(introuvable());
     }
     let a_verrouiller: Vec<Uuid> = tous.iter().copied().filter(|d| !ecartes.contains(d)).collect();
-    crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &a_verrouiller, &[]).await?;
+    let offres_en_plus: Vec<Uuid> = offre_de_decision
+        .iter()
+        .filter(|(d, _)| !ecartes.contains(d))
+        .map(|(_, o)| *o)
+        .collect();
+    crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &a_verrouiller, &offres_en_plus).await?;
     for (id, dossier_de) in &dossier_de_decision {
         let etat: Option<(Option<DateTime<Utc>>, bool, bool)> = sqlx::query_as(
             "SELECT d.publiee_le, d.caduque_le IS NOT NULL, EXISTS (SELECT 1 FROM ent_inscription_decision y

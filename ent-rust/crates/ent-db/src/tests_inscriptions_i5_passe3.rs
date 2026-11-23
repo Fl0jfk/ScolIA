@@ -613,7 +613,7 @@ async fn p3_314_repare_une_chaine_partielle() {
     sqlx::query("ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_sentinelle_decision_trg")
         .execute(&mut *tx)
         .await
-        .ok();
+        .expect("la sentinelle de 316 doit exister (nom du déclencheur)");
     let (d1, d2, d3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
     for (id, remplace, minute) in [(d1, None, 1), (d2, Some(d1), 2), (d3, None, 3)] {
         sqlx::query(

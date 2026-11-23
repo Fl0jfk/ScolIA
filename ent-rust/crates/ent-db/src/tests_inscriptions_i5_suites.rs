@@ -159,6 +159,50 @@ async fn s5_sentinelle_refuse_l_ecriture_hors_verrou() {
     ecrire(&ent, Some(offre), supprimer, d.id).await.unwrap();
 }
 
+/// Contre-revue des suites (M1) : une proposition dont l'offre était **déduite du dossier** (A) et qui reçoit une offre propre
+/// (B) exige les **deux** verrous : B seul est refusé, A seul aussi, A et B passent.
+#[tokio::test]
+async fn s5_sentinelle_changement_d_offre_exige_l_ancienne_et_la_nouvelle() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (camp, offre_a) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
+    let (_, offre_b) = campagne_cap(&ent, &c, Some(3), "2028-2029").await;
+    let d = dossier(&ent, &c, camp, "Changement", None).await;
+    decider(&ent, &c, &d, &corps("admis", Some(offre_a), "Admis"))
+        .await
+        .unwrap();
+    let sans_offre = format!(
+        "INSERT INTO ent_inscription_proposition_place (id, etablissement_id, dossier_id, origine, statut)
+         VALUES (gen_random_uuid(), '{etab}', $1, 'liste_attente', 'annulee')"
+    );
+    ecrire(&ent, Some(offre_a), &sans_offre, d.id).await.unwrap();
+    let vers_b = format!(
+        "UPDATE ent_inscription_proposition_place SET offre_id = '{offre_b}' WHERE dossier_id = $1 AND offre_id IS NULL"
+    );
+    refus_sentinelle(
+        &ecrire(&ent, Some(offre_b), &vers_b, d.id).await,
+        "nouvelle offre seule : l'ancienne (déduite du dossier) manque",
+    );
+    refus_sentinelle(
+        &ecrire(&ent, Some(offre_a), &vers_b, d.id).await,
+        "ancienne offre seule : la nouvelle manque",
+    );
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    for o in [offre_a.min(offre_b), offre_a.max(offre_b)] {
+        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+            .bind(o)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    let n = sqlx::query(&vers_b).bind(d.id).execute(&mut *tx).await.expect("les deux verrous suffisent");
+    assert_eq!(n.rows_affected(), 1);
+    tx.rollback().await.unwrap();
+}
+
 /// La sentinelle ne se falsifie pas : le verrou d'**une autre offre**, le verrou **d'une autre session**, un réglage de session
 /// ou une table temporaire du même nom ne la satisfont pas. Seul le verrou consultatif réellement accordé à cette session, pour
 /// cette offre, la satisfait.
