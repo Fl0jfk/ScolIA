@@ -255,7 +255,8 @@ fn le_sql_de_messagerie_n_existe_que_dans_les_fichiers_declares() {
     let mut vus = std::collections::BTreeSet::new();
     for f in tous {
         let n = nom(&f);
-        if n.starts_with("tests_") || n == "tests.rs" {
+        // `garde_search_path.rs` : module de test (T1) qui nomme des tables `ent_msg*` dans ses preuves sur le catalogue.
+        if n.starts_with("tests_") || n == "tests.rs" || n == "garde_search_path.rs" {
             continue;
         }
         let src = std::fs::read_to_string(&f).unwrap();
