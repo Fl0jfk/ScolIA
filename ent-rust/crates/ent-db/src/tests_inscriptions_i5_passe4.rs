@@ -33,6 +33,7 @@ use std::time::Duration;
 
 use ent_types::inscriptions::*;
 use ent_types::inscriptions_decisions::*;
+use domain_eleve::DomainError;
 use uuid::Uuid;
 
 use super::tests_inscriptions::{dir, labo};
@@ -1099,6 +1100,17 @@ async fn p4_garde_search_path_table_temporaire_remplie() {
 
 // ───────────────────────────── M6 : caducité et alerte ─────────────────────────────
 
+async fn statut_decision(
+    ent: &PgEnt,
+    id: Uuid,
+) -> (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>) {
+    sqlx::query_as("SELECT publiee_le, caduque_le FROM ent_inscription_decision WHERE id = $1")
+        .bind(id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap()
+}
+
 async fn notifications_caduque(ent: &PgEnt, decision: Uuid) -> Vec<(String, String)> {
     sqlx::query_as(
         "SELECT titre, corps FROM ent_notification WHERE source_event_id = $1 AND kind = 'inscription_decision_caduque'",
@@ -1176,22 +1188,13 @@ async fn p4_caducite_famille_d_etats_et_alerte_direction() {
 
     let publiees = ent.publier_decisions_echues_tache(maintenant() + jours(7)).await.unwrap();
     assert_eq!(publiees, 2, "admis→confirme et ajourne→attente_famille sont publiées");
-    let statut = |id: Uuid| async move {
-        sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)>(
-            "SELECT publiee_le, caduque_le FROM ent_inscription_decision WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap()
-    };
     for (id, nom) in [(d1.id, "admis→confirme"), (d2.id, "ajourne→attente_famille")] {
-        let (publiee, caduque) = statut(id).await;
+        let (publiee, caduque) = statut_decision(&ent, id).await;
         assert!(publiee.is_some() && caduque.is_none(), "{nom} : publiée, pas caduque");
         assert!(notifications_caduque(&ent, id).await.is_empty(), "{nom} : aucune alerte");
     }
     for (id, nom, prenom) in [(d3.id, "ajourne→annule", "AjourneAnnule"), (d4.id, "liste_attente→refuse", "AttenteRefusee")] {
-        let (publiee, caduque) = statut(id).await;
+        let (publiee, caduque) = statut_decision(&ent, id).await;
         assert!(publiee.is_none() && caduque.is_some(), "{nom} : caduque, jamais publiée");
         let alertes = notifications_caduque(&ent, id).await;
         assert!(!alertes.is_empty(), "{nom} : la direction est alertée");
