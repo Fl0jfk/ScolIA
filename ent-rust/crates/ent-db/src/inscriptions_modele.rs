@@ -580,6 +580,9 @@ pub(crate) async fn synchroniser_offres_niveaux_tx(
         match existante {
             Some((id, avant)) => {
                 if avant != n.capacite {
+                    // F-a (passe 5) : la capacité et les places rendues d'une offre ne s'écrivent que sous son verrou
+                    // (la campagne est déjà tenue par l'appelant : campagne → offre, comme `modifier_offre`).
+                    crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(conn, etab, None, &[id], &[]).await?;
                     sqlx::query(
                         "UPDATE ent_inscription_offre SET capacite = $3, modifie_le = now(),
                                 liberations = liberations
@@ -1861,19 +1864,37 @@ impl PgEnt {
             .filter(|e| inscriptions_etats::est_ouvert(nature, e))
             .map(|e| e.to_string())
             .collect();
+        // F-b (passe 5) : écriture de masse **sous l'ordre unique** (campagne déjà tenue par l'appelant → offres → dossiers).
+        // Les dossiers visés sont lus sans verrou, puis verrouillés avec leurs offres (`verrouiller_dossiers_tx`), puis
+        // modifiés ; les conditions sont rejouées dans l'`UPDATE` (un dossier qui a bougé entre-temps n'est pas touché).
+        let candidats: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_inscription_dossier
+              WHERE etablissement_id = $1 AND campagne_id = $2 AND etat = ANY($3)
+                AND (echeance_famille IS NULL OR echeance_famille < $4)
+                AND ($5::uuid[] IS NULL OR id = ANY($5))",
+        )
+        .bind(etab)
+        .bind(campagne_id)
+        .bind(&ouverts)
+        .bind(nouvelle)
+        .bind(selection)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        crate::inscriptions_attente::verrouiller_dossiers_tx(conn, etab, None, &candidats, &[]).await?;
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "UPDATE ent_inscription_dossier
                 SET echeance_famille = $3, derniere_relance_le = now(), updated_at = now()
               WHERE etablissement_id = $1 AND campagne_id = $2 AND etat = ANY($4)
                 AND (echeance_famille IS NULL OR echeance_famille < $3)
-                AND ($5::uuid[] IS NULL OR id = ANY($5))
+                AND id = ANY($5)
              RETURNING id",
         )
         .bind(etab)
         .bind(campagne_id)
         .bind(nouvelle)
         .bind(&ouverts)
-        .bind(selection)
+        .bind(&candidats)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
@@ -1960,21 +1981,6 @@ impl PgEnt {
         let reouverture = b.date_fin + Duration::days(1 + i64::from(report));
         let id = Uuid::new_v4();
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        // Dossiers ouverts dont l'échéance tombe pendant la fermeture.
-        let ids: Vec<Uuid> = sqlx::query_scalar(
-            "UPDATE ent_inscription_dossier SET echeance_famille = $4, updated_at = now()
-              WHERE etablissement_id = $1 AND echeance_famille BETWEEN $2 AND $3
-                AND etat NOT IN ('validee','refuse','sans_suite','desiste','retire','annule','non_presente',
-                                 'reaffecte','non_reinscription_famille','non_reinscription_etablissement')
-             RETURNING id",
-        )
-        .bind(etab)
-        .bind(b.date_debut)
-        .bind(b.date_fin)
-        .bind(reouverture)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
         // Dates limites de famille des campagnes non closes qui tombent pendant la fermeture.
         let campagnes: Vec<Uuid> = sqlx::query_scalar(
             "UPDATE ent_inscription_campagne SET date_limite_famille = $4, version = version + 1, updated_at = now()
@@ -1986,6 +1992,37 @@ impl PgEnt {
         .bind(b.date_debut)
         .bind(b.date_fin)
         .bind(reouverture)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        // F-b (passe 5) : écriture de masse sous l'ordre unique **campagnes → offres → dossiers** (les campagnes ci-dessus
+        // d'abord, comme `modifier_offre`). Dossiers ouverts dont l'échéance tombe pendant la fermeture : lus sans verrou,
+        // verrouillés avec leurs offres, puis modifiés (conditions rejouées dans l'`UPDATE`).
+        let candidats: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_inscription_dossier
+              WHERE etablissement_id = $1 AND echeance_famille BETWEEN $2 AND $3
+                AND etat NOT IN ('validee','refuse','sans_suite','desiste','retire','annule','non_presente',
+                                 'reaffecte','non_reinscription_famille','non_reinscription_etablissement')",
+        )
+        .bind(etab)
+        .bind(b.date_debut)
+        .bind(b.date_fin)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        crate::inscriptions_attente::verrouiller_dossiers_tx(&mut tx, etab, None, &candidats, &[]).await?;
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE ent_inscription_dossier SET echeance_famille = $4, updated_at = now()
+              WHERE etablissement_id = $1 AND echeance_famille BETWEEN $2 AND $3 AND id = ANY($5)
+                AND etat NOT IN ('validee','refuse','sans_suite','desiste','retire','annule','non_presente',
+                                 'reaffecte','non_reinscription_famille','non_reinscription_etablissement')
+             RETURNING id",
+        )
+        .bind(etab)
+        .bind(b.date_debut)
+        .bind(b.date_fin)
+        .bind(reouverture)
+        .bind(&candidats)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

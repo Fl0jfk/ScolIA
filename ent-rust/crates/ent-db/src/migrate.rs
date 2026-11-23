@@ -544,6 +544,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("315_inscription_decision_i5_passe4"),
+    // Suites I5 (316) : sentinelle en base de l'ordre des verrous (déclencheur qui exige le verrou consultatif de l'offre),
+    // source unique du rang (liste ordonnée d'une offre). Règle 38 : en fin de tableau ; chaque fonction porte son
+    // `search_path`. 313 à 315 sont versées et ne changent pas. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("316_inscription_i5_suites_sentinelle"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

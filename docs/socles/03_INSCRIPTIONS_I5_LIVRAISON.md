@@ -373,3 +373,68 @@ Les mêmes tests lancés sur une copie d'`origin/ENT` (base neuve `ent_test_p4_r
 - **CI de la tête `770a7016` : rouge**, une seule cause — la garde `garde_rls_stricte::aucun_acces_direct_au_pool_hors_exception` signalait deux exceptions devenues inutiles (`inscriptions : .fetch_all(self.pool())` et `fermeture_en_cours(self.pool(), etab)`), car `dossier_dto` n'emploie plus le pool (une seule connexion, F1). Correctif : exceptions retirées (`081f09d9`). Les 20 tranches labo hors tranche 11 et tous les autres jobs étaient verts ; la tranche 11 échouait sur la même garde.
 - Vérification locale après correctif : `cargo test --locked -p ent-db -p ent-api` (sans labo) vert, 754 tests `ent-db`.
 - **CI de la tête `9352f9e3` (correctif + fusion d'`ENT`, garde `search_path` T1 incluse) : verte** (workflow « ENT Rust », succès). Tests locaux de la tête fusionnée : 103 tests ciblés (`garde_search_path`, `p4_`, `t1_`, `migrat`, `registre`) verts sur base neuve.
+
+## Suites (passe 5) — contre-revue de la passe 4 — branche `ent-socle-3-code-i5-suites`
+
+Départ : `origin/ENT` (passe 4 versée, ae6e4fc1). **313 à 315 ne changent pas** (règles 25 et 38) ; tout passe par la **316** (`316_inscription_i5_suites_sentinelle`), ajoutée **à la fin** du tableau de `migrate.rs` (après 315). Chaque fonction créée porte `SET search_path = pg_catalog, public, pg_temp`, relations qualifiées `public.` ; **aucune** garde ne lit `PG_CONTEXT` ni `set_config`. Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve dont le nom contient « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+
+### Fait
+
+| N° | Fait |
+|---|---|
+| **M-2** | **Sentinelle en base.** Déclencheurs `AFTER` sur `ent_inscription_proposition_place` (insertion, mise à jour, suppression), `ent_inscription_decision` (idem) et `ent_inscription_offre` (mise à jour qui change `capacite` ou `liberations`). Chacun exige que la **transaction tienne le verrou consultatif de l'offre concernée** : lecture de `pg_locks` filtrée sur `locktype = 'advisory'`, `granted`, `objsubid = 1`, la base courante, la clé `ent_inscription_offre_cle(offre)` et **`pid = pg_backend_pid()`**. Sinon : erreur **nommée** `ent_inscription_verrou_offre_manquant` (SQLSTATE `55000`). L'offre d'une ligne est son `offre_id`, à défaut celle de la liste de son dossier (`ent_inscription_offre_du_dossier`). Offre inconnue : rien à protéger. Suppression en cascade d'un dossier purgé (`ent_inscription_purge_voulue()`) : exemptée. Les déclencheurs sont **après** la ligne : une écriture déjà refusée par une contrainte ou par une garde de la table (unicité, écart, ajout seul) garde son refus d'origine. |
+| **M-2 (parcours)** | Tous les `inscriptions*.rs` parcourus (liste des écritures des trois tables relevée par `grep`, puis tests). **Une écriture hors verrou trouvée par la sentinelle** : `synchroniser_offres_niveaux_tx` (capacité et places rendues d'une offre, via `modifier_campagne`) — voir F-a. Toutes les autres écritures des trois tables passent déjà par `verrouiller_dossiers_tx` / `verrouiller_dans_l_ordre_tx`. |
+| **M-3** | `repondre_accord` : l'offre se prend **avant** la demande. La demande est lue **sans verrou** (pour connaître son dossier), puis `verrouiller_dossiers_tx` (offres → dossier), puis la demande est verrouillée **et relue**. Ordre : offres → dossiers → propositions, la demande en dernier. |
+| **F-a** | `synchroniser_offres_niveaux_tx` prend le verrou de l'offre avant d'écrire `capacite` / `liberations` (la campagne est déjà tenue : campagne → offre, comme `modifier_offre`). **Trouvé par la sentinelle**, pas par la lecture : `i2_campagne_regles_annee_et_offres_des_niveaux` est devenu rouge sur ce chemin. |
+| **F-b** | Écritures de masse sous l'ordre unique : `prolonger_dossiers_tx` (échéances de dossiers) et `declarer_fermeture_for_actor` (échéances qui tombent dans la fermeture) lisent les dossiers visés **sans verrou**, les verrouillent **avec leurs offres** (`verrouiller_dossiers_tx`), puis modifient ; les conditions sont rejouées dans l'`UPDATE` (un dossier qui a bougé n'est pas touché). La fermeture met à jour les **campagnes avant** les dossiers (campagne → offres → dossiers, comme `modifier_offre`). |
+| **F-c** | **Une seule formule du rang** : fonctions SQL `ent_inscription_liste_attente(etab, offre, famille)` (la liste ordonnée avec sa position) et `ent_inscription_offre_du_dossier`. `ent_inscription_rang_attente` (rang d'un dossier), la **liste d'attente affichée** (`liste_attente_tx`) et la **désignation du suivant** (`SUIVANT_A_DESIGNER`) lisent la même fonction ; `COALESCE(ordre_attente, rang_attente) … row_number()` n'existe plus que dans la migration 316. Au passage, la liste affichée utilisait l'offre du **vœu** quand le rang utilisait `offre_attente_id` (deux définitions de « l'offre de la liste ») : il n'y en a plus qu'une. |
+| **F-e** | L'avis « décision programmée non publiée » ne va qu'aux accès **ouverts aujourd'hui** (`ent_acces_ouvert`, définition unique : accès `ouvert`, date de fin non dépassée), pour la direction **et** pour l'auteur de la décision. Un directeur dont l'accès est fermé (fin de fonction), suspendu ou dont la date de fin est dépassée n'est plus alerté. |
+
+### Tests (`tests_inscriptions_i5_suites.rs`, 9)
+
+| Test | Prouve |
+|---|---|
+| `s5_sentinelle_refuse_l_ecriture_hors_verrou` | chaque écriture directe (offre : places rendues, capacité ; décision ; proposition : insertion avec ou sans offre propre, mise à jour, suppression) est **refusée** sans verrou (SQLSTATE `55000` **et** nom de l'erreur), **acceptée** avec le verrou de **cette** offre ; une colonne hors places ou une capacité inchangée ne sont pas gênées |
+| `s5_sentinelle_ne_se_falsifie_pas` | le verrou d'une **autre offre**, d'une **autre session**, un `set_config`, une **table temporaire `pg_locks`** ne satisfont pas la sentinelle ; un verrou réellement tenu (session) la satisfait |
+| `s5_cycle_complet_sous_sentinelle` | dépôt, décisions, liste, désistement, désignation, retrait, hausse de capacité : aucune écriture du service n'est refusée |
+| `s5_repondre_accord_dans_l_ordre_contre_une_decision` | **M-3, concurrence déterministe** : une connexion externe tient l'offre ; la réponse d'accord **et** une décision de séance attendent (`pg_locks`, `wait_event_type = 'Lock'`) ; la demande (`FOR UPDATE NOWAIT`) et les dossiers sont **libres** pendant l'attente ; on relâche : les deux aboutissent, sans interblocage ni erreur technique |
+| `s5_prolongation_sous_le_verrou_d_offre`, `s5_fermeture_sous_le_verrou_d_offre` | **F-b** : l'écriture de masse **attend l'offre**, ne tient **aucun dossier** pendant l'attente, aboutit ; échéances recalculées (dates fixes 2099) |
+| `s5_rang_une_seule_formule` | **F-c** : après un départ au milieu, rang SQL = position affichée = position dans la liste SQL ; hors liste : pas de rang ; le suivant désigné est la position 1 |
+| `s5_garde_statique_formule_de_rang` | **F-c** : aucune requête des fichiers d'inscription n'écrit la formule d'ordre (`ordre_attente` / `row_number()` dans un `ORDER BY` ou `OVER`) |
+| `s5_directeurs_partis_non_alertes` | **F-e** : directeur en poste, à fin lointaine et auteur alertés **une fois** ; accès fermé, suspendu, date de fin dépassée (2020) **non** alertés |
+
+Aucun test ne dépend de l'heure réelle ni du jour UTC : instants posés (2027), dates fixes (2099 pour les échéances, 2020 pour une fin dépassée).
+
+**Fixtures des tests existants** : trois écritures directes (SQL de fixture) des tests de passes précédentes prenaient leurs lignes sans le verrou de l'offre ; elles passent maintenant par `tx_sous_verrou_offres` (même clé que le service) ; deux tests qui rejouent 313/314 sur un état ancien neutralisent la sentinelle le temps de poser l'historique (transaction annulée).
+
+### Preuve rouge (code d'avant, migration 316 conservée)
+Les deux fichiers corrigés (`inscriptions_accords.rs`, `inscriptions_modele.rs`) remis à leur état d'`origin/ENT`, les mêmes tests : **rouges** — `s5_repondre_accord_…` (la demande est tenue pendant l'attente de l'offre : ordre inversé), `s5_prolongation_…` et `s5_fermeture_…` (l'écriture de masse n'attend pas l'offre), `i2_campagne_regles_annee_et_offres_des_niveaux` (la sentinelle refuse l'écriture de capacité hors verrou). Verts sur l'ancien code, comme attendu : les deux tests de sentinelle (ils éprouvent la base, pas le service) et `s5_cycle_complet_sous_sentinelle` (garde de non-régression).
+
+### Mesure : surcoût de la sentinelle par écriture
+Banc court, PostgreSQL 16 local, 20 000 appels de la fonction que le déclencheur exécute (boucle PL/pgSQL, hors écriture), trois séries :
+* **sans autre verrou consultatif dans l'instance : 45 à 52 µs par écriture** ;
+* avec **500 verrous consultatifs** tenus par une autre session : **225 à 300 µs par écriture** — la lecture de `pg_locks` parcourt tous les verrous de l'instance et prend les verrous internes de la table des verrous.
+Le chiffre est faible pour le volume de ce domaine (quelques écritures de places par décision), mais **il croît avec le nombre de verrous de l'instance** : à surveiller en pilote. Une mesure bout en bout (`UPDATE` d'offre) est trop bruitée par les versions mortes d'une même ligne pour être donnée.
+
+### Liste nominative : tests de concurrence verts sur l'ancien code, et pourquoi
+Les sept scénarios de concurrence de la passe 4 sont **verts** sur le code d'avant cette passe, alors que celui-ci contenait M-3, F-a et F-b :
+1. `p4_desistement_rang_3_pendant_decision_rang_20`
+2. `p4_deplacements_croises_et_campagnes_independantes`
+3. `p4_publication_de_seance_concurrente_d_une_decision`
+4. `p4_capacite_concurrente_d_une_decision`
+5. `p4_reutilisations_croisees`
+6. `p4_controle_d_ecart_avant_les_verrous`
+7. `p4_interblocage_n_est_pas_un_conflit`
+
+Explication : chacun entre par un **point d'entrée qui prenait déjà le verrou d'offre** (décision, publication, déplacement, capacité par `modifier_offre`, désistement) et observe l'attente **de ce point d'entrée** ; aucun ne fait entrer `repondre_accord` (qui prenait la demande avant l'offre), `modifier_campagne` (capacité sans verrou d'offre) ni une écriture de masse. La garde statique ne voyait ni l'ordre des verrous **d'autres tables** (la demande), ni une écriture **sans aucun verrou**. Un test de concurrence ne prouve l'ordre que des chemins qu'il exerce : d'où la sentinelle, qui vaut pour **tout** chemin qui écrit les places, propositions et décisions, exercé ou non.
+
+### Non fait / limites
+* « **Compte désactivé** » : le modèle n'a pas de drapeau de compte désactivé au niveau utilisateur ; l'accès à l'établissement porte l'état (`ouvert` / `suspendu` / `ferme`) et la date de fin, lus par `ent_acces_ouvert`. C'est cette définition qui fait foi pour F-e. Une « fin de fonction » sans fermeture de l'accès (une fonction d'agent qui se termine, l'accès restant ouvert) **n'est pas** lue : les fonctions d'agent (`ent_agent_fonction.au`) ne gouvernent pas l'accès.
+* La sentinelle protège **les places, propositions et décisions** (et la capacité de l'offre) ; elle ne couvre pas les écritures de **dossier** (état, `ordre_attente`, `offre_attente_id`) ni de **vœu** : l'ordre de ces chemins reste garanti par `verrouiller_dossiers_tx` et par les tests de concurrence.
+* La sentinelle lit `pg_locks` : coût linéaire en nombre de verrous de l'instance (mesure ci-dessus). Une écriture **hors transaction applicative** (SQL de maintenance) doit prendre le verrou de l'offre elle aussi : c'est voulu.
+* `migrations_versees.txt` (règle 38) n'existe pas encore sur `ENT` : 316 est en fin de tableau, le pilote l'ajoutera au versement.
+* Deux tests (`echec_d_envoi_trace_et_code_hmac`, `p3_export_ne_rend_que_le_publie`) ont échoué **une fois** à quatre fils en parallèle (file d'envoi et tâche d'échéance communes à tous les établissements, déjà documentées) : verts seuls, à un fil (réglage de la CI).
+
+### Vérifications locales (passe 5)
+* Base neuve dont le nom contient « test » (`ent_test_i5b`), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0, `ENT_ENV=lab`. **Leçon** : modifier le fichier d'une migration déjà appliquée sur la base locale donne `FichierModifie` : recréer la base.
+* `ent-db` (labo), filtres `inscription`, `r_m4`, `registre`, `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`, `p3_`, `p4_`, `i3_`, `i4_`, `garde_search_path` : **381 tests**, 379 verts à quatre fils + les 2 relancés seuls verts ; dont les 9 de la passe 5.

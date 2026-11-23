@@ -628,7 +628,7 @@ pub(crate) enum Publication {
 /// **Alerte la direction** (D-069, M6) : une décision programmée n'a pas pu être publiée, la famille n'en sait rien et ne
 /// la saura jamais : une personne doit reprendre le dossier. Avis **interne** dans l'ENT (aucun envoi externe), un par
 /// décision et par destinataire (idempotent) ; le titre ne porte **aucun nom d'élève**, le corps seulement la référence du
-/// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision.
+/// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision, **tant que leur accès est ouvert** (F-e).
 async fn alerter_direction_caduque_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -656,6 +656,9 @@ async fn alerter_direction_caduque_tx(
                  UNION
                  SELECT d.decide_par FROM ent_inscription_decision d
                   WHERE d.etablissement_id = $1 AND d.id = $2 AND d.decide_par IS NOT NULL) u
+          -- F-e : seuls les accès **ouverts aujourd'hui** (définition unique `ent_acces_ouvert` : accès ouvert, date de fin
+          -- non dépassée) reçoivent l'avis ; un directeur parti, suspendu ou fermé n'est jamais alerté.
+          WHERE ent_acces_ouvert(u.user_id, $1)
          ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING",
     )
     .bind(etab)
