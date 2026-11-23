@@ -149,3 +149,43 @@ Passe de correctifs sur la même branche (PR n° 122, brouillon), partie de la t
 - Tête de code poussée : `17e7d872` (fusion d'`origin/ENT` incluse, compteurs recalculés selon la règle 28).
 - CI « ENT Rust » sur `17e7d872` : **verte** (run 45107606805). Les commits suivants ne touchent que cette documentation.
 - PR n° 122 laissée en brouillon.
+
+## Suites (passe 3)
+
+Branche `ent-socle-41-code-i4-suites` (base `origin/ENT`, PR en brouillon vers `ENT`) ; la passe 2 est versée sur ENT. Migrations **2820 à 2829 inchangées** (règle 25) ; nouvelle **2830** (plage 2820–2839 du socle 41). Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend non touché (règle 27). Aucun test ne dépend de l'heure réelle (jours fixes d'avril 2026 ; les seuls instants posés « par la base » règlent l'âge d'un événement par rapport à `now()` de la base, sans lire l'horloge du test).
+
+### Correctifs moyens
+
+| Constat | État | Ce qui a été fait | Tests (`tests_internat_i4_passe3.rs` sauf mention) |
+|---|---|---|---|
+| **1** contrainte `motif_code` de 2828 posée en ligne | fait | **2830** remplace les CHECK en ligne par des contraintes **nommées** (`ent_internat_sg_part_motif_code_chk` : toutes les valeurs du code, dont `accord_annuel_tombe` ; `ent_internat_sg_fait_acte_chk` : ajout de `refus_apres_depart`). Retrait de toute contrainte de contrôle de la colonne (ancien nom automatique ou rejeu), puis ajout ; rejouable. | `s3_le_rejeu_de_2830_*` (base portant l'ancien CHECK, rejeu deux fois, puis l'accord annuel « tombe » sans 23514) |
+| **2** protégé du temps du soir | fait | `pointer_temps_a` ne passe plus par `exiger_eleve_visible` : pour un élève **inscrit au temps** il contrôle l'inscription ; envers un tiers non inscrit, l'opacité reste « n'est pas inscrit ». | `s3_un_encadrant_sans_droit_*` (absence d'une étude, départ, veille et retour d'une activité, cas fermé ; tiers protégé non inscrit : « n'est pas inscrit ») |
+| **3** `m6_la_tâche_planifiée…` | fait | Nouvelle variante **limitée à un établissement**, `internat_sorties_tache_etab_a` (publique : relance ciblée utile en exploitation) ; la tâche générale la boucle. Le test l'appelle pour son établissement seulement. | `m6_la_tâche_planifiée_*` (adapté) |
+| **4** É1, marque « en activité » sur un temps annulé | fait | Test d'ouverture d'appel après l'annulation d'une activité avec un élève pointé présent sans retour : marque « activité » + retour attendu. | `s3_e1_*` |
+| **5** M1, pas de réouverture chaque nuit | fait | Un cas lié à la sortie ou au temps ne se rouvre pas, **toutes nuits confondues**, tant qu'il est ouvert ou clos depuis le départ de l'élève ; seul un fait nouveau (un départ postérieur à la clôture) en rouvre un. Même nuit : toute issue bloque, comme avant. | `s3_m1_*` (deux nuits, plusieurs minutes) ; `m1_*` inchangé et vert |
+
+### Faibles
+
+| Point | État | Détail |
+|---|---|---|
+| Code mort `retire_le IS NULL OR $4` ; ligne en cas de réinscription | fait | La lecture du pointage ne vise que la ligne **active** (`retire_le IS NULL`, le déclencheur 2829 interdit toute modification d'une inscription retirée, la désinscription d'un élève en activité est refusée). La veille choisit la ligne active d'abord (`ORDER BY retire_le DESC NULLS FIRST`). |
+| Course veille / retour | fait | `ouvrir_cas_non_rentre_tx` relit l'état de l'élève **sous verrou de ligne** (`parti` sans retour, ou pointé présent sans retour) avant d'ouvrir ; un élève rentré entre la liste et l'ouverture n'ouvre aucun cas. |
+| Avis M3 regroupés | fait | Un avis **par établissement, par nature et par minute** (`cas_ouvert`, `etude_non_pointee`, `retour_demande`), avec le nombre d'élèves, **sans nom** (l'avis dans l'ENT est idempotent sur un identifiant dérivé de la clé de regroupement). L'alerte critique n'est **jamais** regroupée. Limite : le nombre est celui connu au traitement du premier événement de la minute. Test : `s3_avis_*`. |
+| Marquage « protégé » identique | fait | Sorties : `protege` = protégé ou masqué, comme les temps du soir. Test : `s3_le_marquage_*`. |
+| **F-g (D-069)** | fait | Un refus téléphonique reçu **après le départ**, ou pour un participant ni `en_attente` ni `autorise`, est enregistré comme **fait tracé** (`refus_apres_depart` : auteur, date, canal ; ligne d'accord hors ligne `accord = false`) **sans changer l'état** ; pour un élève « parti », il émet `internat.retour_demande` (sans nom ni identité du parent) et un avis aux responsables. Il n'annule pas le départ. Un accord reçu après le départ reste refusé. Test : `s3_fg_*`. |
+| Tests lâches | fait | `fg_*` vérifie `refuse` ; `m3_*` vérifie l'absence de nom et d'identifiant dans l'avis ; `m5_*` : plus de `unwrap_or(true)`. |
+| Consommateur `i4.internat_alertes` | fait | Au premier passage il ne reçoit que les événements encore **en attente** dans l'outbox (la distribution ne rejoue pas l'historique déjà distribué). Garde supplémentaire : un événement de **plus de 24 h** ne produit aucun avis. Test : `s3_avis_*` + test unitaire. |
+
+### Non fait / limites
+
+- `search_path` des gardes de 2828 et 2829 et de `ent_internat_attendu_calcule` : chantier transverse (inchangé). 2830 ne crée aucune fonction.
+- M5 : restent exportables `ent_internat_cas_etape.note`, `accord_hors_ligne` (refus d'un parent) et `reponse_qualite` → lot G3 (inchangé). Le refus tardif ajoute une ligne `accord = false` à la table hors ligne : même régime.
+- F-d (fusion, ligne « parti » chez l'absorbé) et F-f (accord annuel sans contrôle de majorité) : inchangés (passe 2).
+- Le consommateur d'avis n'est pas filtré par périmètre d'internat (inchangé).
+
+### Tests, compteurs, vérifications (passe 3)
+
+- **9 tests nouveaux** : 7 d'intégration (`tests_internat_i4_passe3.rs`) et 2 unitaires (`internat_reactions.rs`) ; **4 adaptés** (`m6_la_tâche_planifiée…`, `fg_*`, `m3_*`, `m5_*`). En local, base **neuve** `ent_i4s3_test` (PostgreSQL 16, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`, exécution en série) : tous les tests dont le nom contient `internat`, `migrat`, `tests_rls` ou `registre` (317) verts après correction du seul test de rejeu 2830 (la base partagée portait déjà des lignes `accord_annuel_tombe` : l'ancien CHECK est posé `NOT VALID` pour reproduire l'état d'une base migrée), puis les 9 nouveaux rejoués verts.
+- Compteurs (règle 28) : migrations +1 (**2830**) ; `MIGRATION_TAG` inchangé (3808) ; `Action::TOUTES`, RLS, registre des tables, `TABLES_ELEVE`, `SOURCES` : **inchangés** (aucune table, aucune action, aucune route) ; événements +1 (`internat.retour_demande`) ; consommateurs +0 (`i4.internat_alertes` écoute un type de plus) ; routes +0.
+- `cargo metadata --locked` dans `ent-rust/web` : OK (aucun `Cargo.lock` modifié). `rustfmt` ciblé sur les fichiers déjà propres (pas de `cargo fmt --all`).
+- **Écart d'outillage, à lire** : le conteneur ne fournit que **rustc/clippy 1.97.0**, pas 1.99.0. Clippy 1.97 `-D warnings` sur `ent-db` (bibliothèque, avec et sans `labo`) : **0 avertissement** ; sur les cibles de test il ne signale que deux `unwrap_err` après `is_err` dans `tests_voyages_v2a.rs:865,877` (fichier non touché, lint propre à 1.97). Le workspace entier et `ent-lab` n'ont pas pu être linté en local (mémoire du conteneur, arrêts par le noyau) : c'est la CI (1.99) qui fait foi pour les trois commandes.

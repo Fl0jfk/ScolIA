@@ -7,7 +7,7 @@
 //! Consommateur `i0.internat`, **rejouable** : la synchronisation des séjours est idempotente et
 //! l'affectation n'est close qu'une fois (RI-05, INT-112).
 
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use ent_auth::Action;
 use ent_events::{types, AggregateKind};
 use serde_json::json;
@@ -40,7 +40,26 @@ const TYPES_ALERTES: &[&str] = &[
     types::INTERNAT_CAS_OUVERT,
     types::INTERNAT_ETUDE_NON_POINTEE,
     types::INTERNAT_ALERTE,
+    types::INTERNAT_RETOUR_DEMANDE,
 ];
+
+/// Un événement plus ancien que cette limite n'est plus signalé : au premier passage du consommateur, l'historique encore
+/// en attente dans l'outbox ne déclenche pas une rafale d'avis périmés.
+const AGE_MAX_AVIS_HEURES: i64 = 24;
+
+/// Identifiant déterministe d'une clé de regroupement (empreinte SHA-256 tronquée à 128 bits).
+fn uuid_de_cle(cle: &str) -> Uuid {
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(cle.as_bytes());
+    let mut o = [0u8; 16];
+    o.copy_from_slice(&h[..16]);
+    Uuid::from_bytes(o)
+}
+
+/// Vrai si l'événement est trop ancien pour justifier un avis (pur : l'instant est fourni).
+fn trop_ancien(cree_le: DateTime<Utc>, maintenant: DateTime<Utc>) -> bool {
+    cree_le < maintenant - Duration::hours(AGE_MAX_AVIS_HEURES)
+}
 
 struct AlertesInternat;
 
@@ -62,6 +81,11 @@ fn avis_pour(type_name: &str) -> Option<(&'static str, &'static str, &'static st
             "Alerte à l'internat",
             "Une alerte a été déclarée à l'internat : ouvrez les événements de la nuit.",
         )),
+        t if t == types::INTERNAT_RETOUR_DEMANDE => Some((
+            "internat_retour_demande",
+            "Retour demandé : refus d'un parent",
+            "Un parent a refusé une sortie de groupe après le départ de l'élève : le retour est demandé, ouvrez la sortie.",
+        )),
         _ => None,
     }
 }
@@ -72,6 +96,10 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
     let Some((nature, titre, corps)) = avis_pour(&e.type_name) else {
         return Ok(());
     };
+    let maintenant = Utc::now();
+    if trop_ancien(e.created_at, maintenant) {
+        return Ok(());
+    }
     sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
         .bind(etab.to_string())
         .execute(&mut *tx)
@@ -98,6 +126,38 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
     .fetch_all(&mut *tx)
     .await
     .map_err(|x| x.to_string())?;
+    // Avis regroupés : un seul avis par établissement, par nature et par minute (une rafale de cas ou de signaux ne sature
+    // pas les responsables), avec le nombre d'élèves concernés et jamais un nom. L'alerte critique, elle, n'est jamais
+    // regroupée : un avis par événement.
+    let regroupe = e.type_name != types::INTERNAT_ALERTE;
+    let minute = e.created_at.timestamp().div_euclid(60);
+    let debut_minute = DateTime::<Utc>::from_timestamp(minute * 60, 0).unwrap_or(e.created_at);
+    let mut corps_avis = corps.to_string();
+    if regroupe {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT COALESCE(eleve_id, id)) FROM ent_metier_event \
+              WHERE etablissement_id = $1 AND type = $2 AND created_at >= $3 AND created_at < $4",
+        )
+        .bind(etab)
+        .bind(&e.type_name)
+        .bind(debut_minute)
+        .bind(debut_minute + Duration::minutes(1))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|x| x.to_string())?;
+        if n > 1 {
+            corps_avis = format!("{corps} ({n} élèves concernés cette minute.)");
+        }
+    }
+    // Clé de regroupement : l'avis dans l'ENT est idempotent sur (événement source, destinataire, nature) ; l'événement
+    // source d'un avis regroupé est donc un identifiant dérivé de (établissement, nature, minute), le même pour toute la
+    // rafale.
+    let (cle_dedup, source_avis) = if regroupe {
+        let cle = format!("i4:{etab}:{nature}:{minute}");
+        (cle.clone(), uuid_de_cle(&cle))
+    } else {
+        (format!("evt:{}:{}", e.id, nature), e.id)
+    };
     for user_id in destinataires {
         notifier_personne(
             &mut *tx,
@@ -106,18 +166,18 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
                 user_id,
                 kind: nature,
                 titre,
-                corps,
+                corps: &corps_avis,
                 eleve_id: None,
                 notification_id: None,
                 source_type: "evenement",
                 source_id: e.id,
-                cle_dedup: format!("evt:{}:{}", e.id, nature),
+                cle_dedup: cle_dedup.clone(),
                 droit_requis: None,
                 regroupable: false,
                 canaux_voulus: &["email", "push"],
             },
-            e.id,
-            Utc::now(),
+            source_avis,
+            maintenant,
         )
         .await
         .map_err(|x| x.to_string())?;
@@ -239,5 +299,26 @@ impl Consommateur for Internat {
         evt: &'a EvenementDistribue,
     ) -> FutureTraitement<'a> {
         Box::pin(traiter(tx, evt))
+    }
+}
+
+#[cfg(test)]
+mod tests_unitaires {
+    use super::*;
+
+    #[test]
+    fn un_evenement_de_plus_de_vingt_quatre_heures_ne_declenche_pas_d_avis() {
+        let t = DateTime::parse_from_rfc3339("2026-04-10T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(!trop_ancien(t - Duration::hours(23), t));
+        assert!(trop_ancien(t - Duration::hours(25), t));
+        assert!(!trop_ancien(t, t));
+    }
+
+    #[test]
+    fn la_cle_de_regroupement_est_stable_et_distincte_d_une_minute_a_l_autre() {
+        assert_eq!(uuid_de_cle("i4:x:n:1"), uuid_de_cle("i4:x:n:1"));
+        assert_ne!(uuid_de_cle("i4:x:n:1"), uuid_de_cle("i4:x:n:2"));
     }
 }

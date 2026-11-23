@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 /// Une activité du soir de 20 h 30 à 21 h 30 (15 avril), encadrée par `b.prof`, où `eleves` sont inscrits et pointés
 /// « en activité » à 20 h 40.
-async fn activite_en_cours(b: &Banc, eleves: &[Uuid]) -> TempsDto {
+pub(crate) async fn activite_en_cours(b: &Banc, eleves: &[Uuid]) -> TempsDto {
     let mut a = etude(None);
     a.nature = "activite".into();
     a.libelle = "Atelier théâtre".into();
@@ -59,7 +59,7 @@ async fn activite_en_cours(b: &Banc, eleves: &[Uuid]) -> TempsDto {
     act
 }
 
-async fn pointer_temps(
+pub(crate) async fn pointer_temps(
     b: &Banc,
     temps: Uuid,
     e: Uuid,
@@ -83,7 +83,7 @@ async fn pointer_temps(
 }
 
 /// Distribue les événements de l'établissement de test (consommateurs standard).
-async fn distribuer(b: &Banc) {
+pub(crate) async fn distribuer(b: &Banc) {
     b.ent
         .distributeur(crate::outbox::ConfigDistribution {
             taille_lot: 100,
@@ -98,7 +98,7 @@ async fn distribuer(b: &Banc) {
         .unwrap();
 }
 
-fn fin_activite() -> DateTime<Utc> {
+pub(crate) fn fin_activite() -> DateTime<Utc> {
     paris(avril(15), 21, 30)
 }
 
@@ -243,11 +243,11 @@ async fn e1_la_desinscription_d_un_eleve_en_activite_est_refusee_jusqu_a_son_ret
 
 // ───────────────────────── M1 ─────────────────────────
 
-fn apres_fin(mi: i64) -> DateTime<Utc> {
+pub(crate) fn apres_fin(mi: i64) -> DateTime<Utc> {
     fin() + Duration::minutes(mi)
 }
 
-async fn nuit_de(b: &Banc, a: DateTime<Utc>) -> chrono::NaiveDate {
+pub(crate) async fn nuit_de(b: &Banc, a: DateTime<Utc>) -> chrono::NaiveDate {
     let mut tx = crate::tenant_tx::TenantTx::begin(b.ent.pool(), b.etab)
         .await
         .unwrap();
@@ -551,9 +551,20 @@ async fn m3_un_inscrit_pointe_absent_est_signale_et_les_responsables_recoivent_u
         !dest.contains(&b.prof),
         "un professeur sans droit de gestion ne reçoit rien"
     );
-    assert!(avis
-        .iter()
-        .all(|a| !a.1.contains("Élève") || !a.2.contains(&e1.to_string())));
+    let nom: String =
+        sqlx::query_scalar("SELECT nom FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
+            .bind(b.etab)
+            .bind(e1)
+            .fetch_one(b.ent.pool_verif())
+            .await
+            .unwrap();
+    assert!(!avis.is_empty());
+    for (_, titre, corps) in &avis {
+        assert!(
+            !titre.contains(&nom) && !corps.contains(&nom) && !corps.contains(&e1.to_string()),
+            "aucun nom ni identifiant d'élève dans l'avis : {titre} / {corps}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -670,10 +681,9 @@ async fn m5_les_colonnes_qui_portent_la_cause_d_un_blocage_ne_sortent_pas_de_l_e
         "SELECT pg_get_constraintdef(c.oid) LIKE '%interdiction_auteur%' FROM pg_constraint c \
           WHERE c.conrelid = 'ent_internat_cas'::regclass AND c.conname = 'ent_internat_cas_nature_check'",
     )
-    .fetch_optional(b.ent.pool_verif())
+    .fetch_one(b.ent.pool_verif())
     .await
-    .unwrap()
-    .unwrap_or(true);
+    .expect("la contrainte `ent_internat_cas_nature_check` existe");
     assert!(nature_cas);
 }
 
@@ -700,19 +710,18 @@ async fn m6_la_tache_planifiee_lance_les_deux_nouvelles_veilles() {
         .unwrap();
     // Un seul instant, fixe : 16 minutes après la fin de la sortie (veille des non-rentrés). L'étude du 15 avril est
     // vérifiée à son propre instant, avec la même tâche.
+    // La tâche est lancée pour CET établissement seulement : elle n'agit pas sur ceux des tests voisins (base partagée).
     b.ent
-        .internat_sorties_tache_a(|| apres_fin(16))
-        .await
-        .unwrap();
+        .internat_sorties_tache_etab_a(b.etab, &|| apres_fin(16))
+        .await;
     assert_eq!(
         cas_de(&b, e1).await.len(),
         1,
         "la tâche lance la veille des élèves non rentrés"
     );
     b.ent
-        .internat_sorties_tache_a(|| paris(avril(15), 19, 16))
-        .await
-        .unwrap();
+        .internat_sorties_tache_etab_a(b.etab, &|| paris(avril(15), 19, 16))
+        .await;
     let signale: Option<DateTime<Utc>> = sqlx::query_scalar(
         "SELECT signale_le FROM ent_internat_temps_participant WHERE etablissement_id = $1 AND eleve_id = $2",
     )
@@ -1012,7 +1021,11 @@ async fn fg_un_refus_hors_ligne_s_enregistre_meme_pour_un_parent_interdit() {
     .await
     .unwrap();
     assert_eq!((n, par), (1, b.cpe), "refus tracé avec son auteur");
-    assert_ne!(etat_de(&detail(&b, g.id).await, e), "autorise");
+    assert_eq!(
+        etat_de(&detail(&b, g.id).await, e),
+        "refuse",
+        "le refus du parent interdit s'applique : l'élève ne part pas"
+    );
 }
 
 // ───────────────────────── Fusion d'ENT : l'attendu porte les deux ajouts ─────────────────────────
