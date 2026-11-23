@@ -100,6 +100,9 @@ struct Preuve<'a> {
     ecriture: String,
     code: &'a str,
     message: &'a str,
+    /// La garde qualifie-t-elle elle-même ses relations (`public.`) ? Alors, même sans clause, le masque est sans effet :
+    /// le témoin vérifie ce **refus** au lieu d'un désarmement.
+    qualifiee: bool,
 }
 
 async fn prouver(proprietaire: &PgPool, p: Preuve<'_>) {
@@ -138,10 +141,18 @@ async fn prouver(proprietaire: &PgPool, p: Preuve<'_>) {
     let mut prep = desarmer(p.fonctions);
     prep.extend(p.masque.iter().cloned());
     let r = tenter(proprietaire, p.etab, &prep, &p.ecriture).await;
-    assert!(
-        r.is_ok(),
-        "{nom} : témoin — sans `search_path` la table temporaire devait désarmer la garde (sinon la preuve ne prouve rien) : {r:?}"
-    );
+    if p.qualifiee {
+        assert_eq!(
+            r.as_ref().map_err(|e| (e.0.as_str(), e.1.as_str())),
+            Err((p.code, p.message)),
+            "{nom} : garde qualifiée — même sans `search_path`, la table temporaire ne doit rien désarmer"
+        );
+    } else {
+        assert!(
+            r.is_ok(),
+            "{nom} : témoin — sans `search_path` la table temporaire devait désarmer la garde (sinon la preuve ne prouve rien) : {r:?}"
+        );
+    }
 }
 
 /// Gel du cahier de textes (2407) : une année dont le cahier est clos ne se clôt pas deux fois. Le masque : un journal
@@ -200,6 +211,7 @@ async fn t1_gel_du_cahier_une_table_temporaire_ne_le_desarme_pas() {
             ),
             code: "23514",
             message: "journal de clôture : le cahier de cette année est déjà clôturé",
+            qualifiee: false,
         },
     )
     .await;
@@ -247,6 +259,9 @@ async fn t1_messagerie_la_garde_d_annulation_n_est_pas_trompee_par_une_table_tem
             ecriture: format!("DELETE FROM public.ent_msg_version WHERE message_id = '{remis}'"),
             code: "23514",
             message: "ent_msg_version : ajout seul (ni modification ni suppression)",
+            // 492 (passe 2 de la contre-revue E1) a recréé la garde avec ses relations qualifiées `public.` et un jeton
+            // de transaction : la table temporaire ne la trompe pas, même sans clause.
+            qualifiee: true,
         },
     )
     .await;
@@ -292,6 +307,7 @@ async fn t1_internat_la_garde_d_une_sortie_de_groupe_n_est_pas_trompee_par_une_t
             ),
             code: "42501",
             message: "sortie de groupe : des élèves sont partis, l'annulation est refusée",
+            qualifiee: false,
         },
     )
     .await;

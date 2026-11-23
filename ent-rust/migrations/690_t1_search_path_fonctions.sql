@@ -31,6 +31,7 @@
 DO $$
 DECLARE
     f regprocedure;
+    g RECORD;
     v_def TEXT;
     v_a INTEGER;
     v_z INTEGER;
@@ -126,8 +127,8 @@ BEGIN
     END LOOP;
 
     -- (1) `search_path` fixé sur tout le reste.
-    FOR f IN
-        SELECT p.oid::regprocedure
+    FOR g IN
+        SELECT p.oid::regprocedure AS sig, p.prokind AS genre
           FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public'
@@ -142,7 +143,9 @@ BEGIN
                             WHERE c ~ '^search_path=pg_catalog, .*pg_temp$')
          ORDER BY p.oid
     LOOP
-        EXECUTE format('ALTER FUNCTION %s SET search_path = pg_catalog, public, pg_temp', f);
+        -- Une procédure (`prokind = 'p'`) se modifie par ALTER PROCEDURE (ALTER FUNCTION la refuse).
+        EXECUTE format('ALTER %s %s SET search_path = pg_catalog, public, pg_temp',
+                       CASE g.genre WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END, g.sig);
     END LOOP;
 END
 $$;

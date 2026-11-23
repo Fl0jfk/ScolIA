@@ -528,9 +528,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // tracé, seule une moyenne se publie (en base).
     m!("478_eva_v5_contre_revue_publication"),
     // Chantier transverse T1 (plage 690–699, sécurité transverse) : `search_path` fixé sur toutes les fonctions de `public`
-    // (une table temporaire homonyme ne trompe plus aucune garde). **EN DERNIER, et à rester le dernier tant que le tableau
-    // est rejoué** : un `CREATE OR REPLACE FUNCTION` efface la clause ; `rejouer_tout` rejoue ce fichier après tous les autres.
-    // Sous 3808 : `MIGRATION_TAG` inchangé.
+    // (une table temporaire homonyme ne trompe plus aucune garde). **Règle des lots suivants** : toute migration nouvelle
+    // s'ajoute APRÈS 690 (jamais avant : une base déjà migrée ne rejouerait pas 690 après elle), et chacun de ses
+    // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
+    // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("690_t1_search_path_fonctions"),
 ];
 
