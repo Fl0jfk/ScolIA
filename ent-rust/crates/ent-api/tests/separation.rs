@@ -1048,6 +1048,36 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c7-aesh-agenda-B", "GET", "/cahier/c7/aesh/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", None),
         ecrire_sur_b("cahier-c7-aesh-cahier-B", "GET", "/cahier/c7/aesh/cahier?eleve_id={eleve}&cours_id={cours}", None),
         ecrire_sur_b("cahier-c7-aesh-note-B", "POST", "/cahier/c7/aesh/notes", Some(r#"{"travail_id":"{cours}","eleve_id":"{eleve}","texte":"x"}"#)),
+        // Socle 20, lot C8 : visa, inspection, exports, clôture. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx.
+        refuse_sur_b("cahier-c8-visa-detail-B", "GET", "/cahier/c8/visas/{cours}", None),
+        refuse_sur_b("cahier-c8-visa-observer-B", "POST", "/cahier/c8/visas/{cours}/observations", Some(r#"{"texte":"x"}"#)),
+        refuse_sur_b("cahier-c8-visa-repondre-B", "POST", "/cahier/c8/observations/{cours}/reponses", Some(r#"{"texte":"x"}"#)),
+        refuse_sur_b("cahier-c8-viser-B", "POST", "/cahier/c8/visas", Some(r#"{"cible":"cours","cours_id":"{cours}","du":"2031-03-01","au":"2031-03-12","confirmer_vide":true}"#)),
+        refuse_sur_b("cahier-c8-chronologie-B", "GET", "/cahier/c8/cours/{cours}/chronologie?du=2031-03-01&au=2031-03-12", None),
+        refuse_sur_b("cahier-c8-inspection-lire-B", "GET", "/cahier/c8/inspection/{cours}/cours/{cours}", None),
+        refuse_sur_b("cahier-c8-acces-accorder-B", "POST", "/cahier/c8/inspections", Some(r#"{"beneficiaire_user_id":"{eleve}","cours_ids":["{cours}"],"du_cahier":"2031-03-01","au_cahier":"2031-03-12","motif":"inspection"}"#)),
+        refuse_sur_b("cahier-c8-acces-prolonger-B", "POST", "/cahier/c8/inspections/{cours}/prolonger", Some(r#"{"jours":5}"#)),
+        refuse_sur_b("cahier-c8-acces-revoquer-B", "POST", "/cahier/c8/inspections/{cours}/revoquer", Some("{}")),
+        refuse_sur_b("cahier-c8-acces-journal-B", "GET", "/cahier/c8/inspections/{cours}/journal", None),
+        refuse_sur_b("cahier-c8-export-lire-B", "GET", "/cahier/c8/exports/{cours}", None),
+        refuse_sur_b("cahier-c8-export-produire-B", "POST", "/cahier/c8/exports", Some(r#"{"nature":"autre","cours_id":"{cours}","du":"2031-03-01","au":"2031-03-12"}"#)),
+        refuse_sur_b("cahier-c8-cloture-controle-B", "GET", "/cahier/c8/cloture/controle?annee_id={cours}", None),
+        refuse_sur_b("cahier-c8-cloturer-B", "POST", "/cahier/c8/cloture", Some(r#"{"annee_id":"{cours}","confirmer":true}"#)),
+        refuse_sur_b("cahier-c8-rouvrir-B", "POST", "/cahier/c8/cloture/reouvrir", Some(r#"{"annee_id":"{cours}","motif":"motif assez long pour la demande de réouverture"}"#)),
+        refuse_sur_b("cahier-c8-archive-contenu-B", "GET", "/cahier/c8/archives/{cours}/contenu", None),
+        refuse_sur_b("cahier-c8-archive-decision-B", "POST", "/cahier/c8/archives/{cours}/decision", Some(r#"{"decision":"versee"}"#)),
+        refuse_sur_b("cahier-c8-mon-export-B", "GET", "/cahier/c8/mon-export?annee_id={cours}", None),
+        refuse_sur_b("cahier-c8-mon-export-conserver-B", "POST", "/cahier/c8/mon-export", Some(r#"{"annee_id":"{cours}"}"#)),
+        refuse_sur_b("cahier-c8-rouvrir-valider-B", "POST", "/cahier/c8/cloture/reouvrir/valider", Some(r#"{"annee_id":"{cours}"}"#)),
+        // Socle 20, lot C9 : progressions privées. Le jeton de A n'obtient jamais une progression, un cours ni une copie de B.
+        refuse_sur_b("cahier-c9-progression-lire-B", "GET", "/cahier/c9/progressions/{cours}", None),
+        refuse_sur_b("cahier-c9-progression-modifier-B", "PUT", "/cahier/c9/progressions/{cours}", Some(r#"{"titre":"x","etapes":[{"titre":"e","duree_seances":1}]}"#)),
+        refuse_sur_b("cahier-c9-progression-archiver-B", "POST", "/cahier/c9/progressions/{cours}/archiver", Some("{}")),
+        refuse_sur_b("cahier-c9-partager-B", "POST", "/cahier/c9/progressions/{cours}/partages", Some(r#"{"cours_id":"{cours}"}"#)),
+        refuse_sur_b("cahier-c9-partage-retirer-B", "DELETE", "/cahier/c9/progressions/{cours}/partages/{cours}", None),
+        refuse_sur_b("cahier-c9-planifier-B", "POST", "/cahier/c9/progressions/{cours}/planifier", Some(r#"{"cours_id":"{cours}","apercu":true}"#)),
+        refuse_sur_b("cahier-c9-reconduire-B", "POST", "/cahier/c9/progressions/{cours}/reconduire", Some("{}")),
+        refuse_sur_b("cahier-c9-copier-cours-B", "POST", "/cahier/c9/cours/copier", Some(r#"{"source_cours_id":"{cours}","cible_cours_id":"{cours}","apercu":true}"#)),
         ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
         ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
         ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),
@@ -1145,6 +1175,14 @@ fn routes_sans_identifiant_bornees_a_l_etablissement_de_la_session() {
         borne_a("cahier-c6-vacants-B", "GET", "/cahier/c6/vacants", None, interdits),
         borne_a("cahier-c7-aesh-eleves-B", "GET", "/cahier/c7/aesh/eleves", None, interdits),
         borne_a("cahier-c7-affichage-B", "GET", "/cahier/c7/affichage", None, interdits),
+        borne_a("cahier-c8-tenue-B", "GET", "/cahier/c8/tenue?du=2031-03-01&au=2031-03-12", None, interdits),
+        borne_a("cahier-c8-visas-B", "GET", "/cahier/c8/visas", None, interdits),
+        borne_a("cahier-c8-inspections-B", "GET", "/cahier/c8/inspections", None, interdits),
+        borne_a("cahier-c8-mes-acces-B", "GET", "/cahier/c8/inspection/mes-acces", None, interdits),
+        borne_a("cahier-c8-exports-B", "GET", "/cahier/c8/exports", None, interdits),
+        borne_a("cahier-c8-archives-B", "GET", "/cahier/c8/archives", None, interdits),
+        borne_a("cahier-c9-progressions-B", "GET", "/cahier/c9/progressions", None, interdits),
+        borne_a("cahier-c9-progression-creer-B", "POST", "/cahier/c9/progressions", Some(r#"{"titre":"x","etapes":[{"titre":"e","duree_seances":1}]}"#), interdits),
         borne_a("cahier-c7-affichage-regler-B", "PUT", "/cahier/c7/affichage", Some(r#"{"taille_police":"grande","interligne":"large","lecture_audio":false,"animations_reduites":false}"#), interdits),
     ];
     jouer("cahier : routes sans identifiant, session de A", &specs);
@@ -1262,6 +1300,45 @@ fn specs_domaine_inscriptions_i3_i4() -> Vec<Spec> {
 #[test]
 fn domaine_inscriptions_i3_i4() {
     jouer("inscriptions I3 et I4 (pièces et accords de B)", &specs_domaine_inscriptions_i3_i4());
+}
+
+/// Lot I5 (socle 3) : décisions, avis, déport, commissions, conditions, liste d'attente, propositions. Toutes les
+/// routes à identifiant visent un objet de B avec la session de A : jamais un 2xx, et aucune ne confirme qu'un objet
+/// existe chez l'autre établissement.
+fn specs_domaine_inscriptions_i5() -> Vec<Spec> {
+    vec![
+        ecrire_sur_b("decisions-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions", None),
+        ecrire_sur_b("decision-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions", Some(r#"{"sens":"refuse","motif_interne":"essai de séparation"}"#)),
+        ecrire_sur_b("revue-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/decisions/revoir", Some(r#"{"sens":"admis","motif_interne":"essai de séparation"}"#)),
+        ecrire_sur_b("courrier-de-B", "GET", "/inscriptions/decisions/00000000-0000-0000-0000-0000000000b2/courrier", None),
+        ecrire_sur_b("publication-sur-B", "POST", "/inscriptions/decisions/00000000-0000-0000-0000-0000000000b2/publier", Some(r#"{}"#)),
+        ecrire_sur_b("avis-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/avis", None),
+        ecrire_sur_b("avis-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/avis", Some(r#"{"contexte":"entretien","sens":"favorable","texte":"essai de séparation"}"#)),
+        ecrire_sur_b("deport-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/deport", None),
+        ecrire_sur_b("deport-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/deport", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("commission-de-B", "GET", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2", None),
+        ecrire_sur_b("dossiers-de-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/dossiers", Some(r#"{"ajouter":[],"retirer":[]}"#)),
+        ecrire_sur_b("lot-sur-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/decisions", Some(r#"{"decisions":[]}"#)),
+        ecrire_sur_b("publication-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/publier", Some(r#"{}"#)),
+        ecrire_sur_b("cloture-commission-de-B", "POST", "/inscriptions/commissions/00000000-0000-0000-0000-0000000000b2/cloturer", Some(r#"{}"#)),
+        ecrire_sur_b("conditions-campagne-de-B", "GET", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/conditions", None),
+        ecrire_sur_b("conditions-campagne-modifiees-sur-B", "PUT", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/conditions", Some(r#"{"codes":[]}"#)),
+        ecrire_sur_b("conditions-de-B", "GET", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions", None),
+        ecrire_sur_b("reevaluation-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/reevaluer", Some(r#"{}"#)),
+        ecrire_sur_b("condition-remplie-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/contrat_signe/remplir", Some(r#"{}"#)),
+        ecrire_sur_b("condition-levee-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/conditions/contrat_signe/lever", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("liste-attente-de-B", "GET", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2/liste-attente", None),
+        ecrire_sur_b("designation-sur-B", "POST", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2/liste-attente/designer", Some(r#"{}"#)),
+        ecrire_sur_b("envoi-proposition-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/envoyer", Some(r#"{"confirmer":true}"#)),
+        ecrire_sur_b("proposition-ecartee-de-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/ecarter", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("acceptation-au-guichet-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/accepter-au-guichet", Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("expiration-sur-B", "POST", "/inscriptions/propositions/00000000-0000-0000-0000-0000000000b2/constater-expiration", Some(r#"{}"#)),
+    ]
+}
+
+#[test]
+fn domaine_inscriptions_i5() {
+    jouer("inscriptions I5 (décisions, commissions, attente de B)", &specs_domaine_inscriptions_i5());
 }
 
 // ───────────────────────── Invariants transverses ─────────────────────────

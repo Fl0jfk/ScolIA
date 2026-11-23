@@ -31,6 +31,8 @@ mod cahier_c4;
 mod cahier_c5;
 mod cahier_c6;
 mod cahier_c7;
+mod cahier_c8;
+mod cahier_c9;
 mod communication;
 mod communication_s28;
 mod demandes;
@@ -111,6 +113,8 @@ pub use ent_types::cahier_c4 as cahier_c4_types;
 pub use ent_types::cahier_c5 as cahier_c5_types;
 pub use ent_types::cahier_c6 as cahier_c6_types;
 pub use ent_types::cahier_c7 as cahier_c7_types;
+pub use ent_types::cahier_c8 as cahier_c8_types;
+pub use ent_types::cahier_c9 as cahier_c9_types;
 pub use ent_types::dossier::{
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody,
     AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,

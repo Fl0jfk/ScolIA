@@ -357,6 +357,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2416_cdt_c5_rendu_retour"),
     m!("2417_cdt_c6_continuite"),
     m!("2418_cdt_c7_adaptations"),
+    // Socle 20, C8 et C9 : premiers numéros libres de la plage 2400–2419 (2407 et 2408, jamais utilisés) ; placés après 2418
+    // car elles s'appuient sur 2410 (visa) et 2411 (archive). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2407_cdt_c8_visa_inspection_archive"),
+    m!("2408_cdt_c9_progressions"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
     // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
@@ -446,6 +450,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("310_inscription_piece_regle"),
     m!("311_inscription_piece_fichier"),
     m!("312_inscription_accord"),
+    // Socle 3, lot I5 (plage 313–329) : décisions en ajout seul, avis, commissions, liste d'attente, propositions, conditions.
+    m!("313_inscription_decision_i5"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
@@ -671,6 +677,27 @@ const GARDES_DE_REJEU: &[(&str, &str)] = &[
         END IF;
     END $$",
     ),
+    // 2412 rejoue la reprise de l'ancien cahier (`SELECT … FROM ent_cdt_reprise(NULL)`) ; en installation elle passe
+    // avant 2407, mais au rejeu le gel des années closes (2407) existe déjà et refuserait, à raison, ses INSERT dans une
+    // année figée : le gel n'a AUCUNE exception (une exception par pile d'appel ou par drapeau est contournable). On
+    // retire donc ses déclencheurs juste avant 2412 ; 2407, rejouée plus loin dans le même rejeu, les recrée.
+    (
+        "2412_cdt_reprise",
+        "DO $$
+    DECLARE
+        t TEXT;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['ent_cdt_entree', 'ent_cdt_entree_version', 'ent_cdt_entree_notion', 'ent_cdt_travail',
+                                 'ent_cdt_travail_version', 'ent_cdt_travail_cible', 'ent_cdt_travail_format', 'ent_cdt_variante',
+                                 'ent_cdt_variante_eleve', 'ent_cdt_contribution', 'ent_cdt_contribution_version', 'ent_cdt_lien',
+                                 'ent_cdt_piece_jointe', 'ent_cdt_report']
+        LOOP
+            IF to_regclass(t) IS NOT NULL THEN
+                EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_annee_figee', t);
+            END IF;
+        END LOOP;
+    END $$",
+    ),
 ];
 
 /// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
@@ -762,7 +789,7 @@ impl GardeRejeu {
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
 /// commentaire deviendrait une « requête »), blocs `$$ … $$` préservés.
-fn ordres(sql: &str) -> Vec<String> {
+pub(crate) fn ordres(sql: &str) -> Vec<String> {
     let sans_commentaires: String = sql
         .lines()
         .filter(|l| !l.trim_start().starts_with("--"))

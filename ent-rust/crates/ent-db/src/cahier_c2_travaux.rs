@@ -17,7 +17,8 @@ use crate::cahier::publier_cdt;
 use crate::cahier_c2::{
     conflit, instant_programme, invalide, texte_borne, SeanceInfo, SELECT_SEANCE_INFO,
 };
-use crate::ref_commun::{db, introuvable, Acteur};
+use crate::cahier_c8::db;
+use crate::ref_commun::{introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -333,7 +334,7 @@ impl PgEnt {
         let rows: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT id, auteur_user_id, rendu FROM ent_cdt_travail
               WHERE etablissement_id = $1 AND ancien_id IS NULL AND public = 'cours'
-                AND etat IN ('programme', 'publie') AND visible_a <= now()
+                AND etat IN ('programme', 'publie') AND visible_a <= now() AND NOT ent_cdt_annee_gelee(etablissement_id, annee_id)
               ORDER BY visible_a LIMIT 200 FOR UPDATE SKIP LOCKED",
         )
         .bind(etab)

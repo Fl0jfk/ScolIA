@@ -646,6 +646,7 @@ impl PgEnt {
         dossier_id: Uuid,
     ) -> Result<AccordsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
         let r = accords_dossier_tx(&mut tx, etab, &d).await?;
@@ -665,6 +666,7 @@ impl PgEnt {
         b: &DemanderAccordsBody,
     ) -> Result<usize, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, dossier_id).await?;
         let eff = etat_effectif(&d.etat, d.etat_avant_blocage.as_deref());
@@ -719,6 +721,7 @@ impl PgEnt {
         b: &AccordPapierBody,
     ) -> Result<AccordsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         if !matches!(b.reponse.as_str(), "donne" | "refuse") {
             return Err(invalide("réponse : donne ou refuse"));
         }
@@ -756,6 +759,7 @@ impl PgEnt {
         b: &DesaccordBody,
     ) -> Result<AccordsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -789,6 +793,7 @@ impl PgEnt {
         b: &DispenseAccordBody,
     ) -> Result<AccordsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
@@ -841,6 +846,7 @@ impl PgEnt {
         b: &LeverDesaccordBody,
     ) -> Result<AccordsDossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.refuser_si_ecarte(etab, actor, dossier_id).await?;
         let motif = b.motif.trim();
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));

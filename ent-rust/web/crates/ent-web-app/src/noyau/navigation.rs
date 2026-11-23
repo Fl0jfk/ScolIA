@@ -53,6 +53,14 @@ pub const PARAMETRAGE_ABSENCES: &str = "/web/personnel/parametrage-absences";
 pub const CAHIER: &str = "/web/cahier";
 /// Lot C6 : reports proposés, élèves en continuité.
 pub const CONTINUITE: &str = "/web/cahier/continuite";
+/// Lot C9 : progressions (plan privé de l'année, partage, planification, reconduction).
+pub const PROGRESSIONS: &str = "/web/cahier/progressions";
+/// Lot C8 : tenue des cahiers et visa de la direction (`cahier.viser`).
+pub const TENUE_VISA: &str = "/web/cahier/visa";
+/// Lot C8 : accès d'inspection (`cahier.acces_inspection`).
+pub const ACCES_INSPECTION: &str = "/web/cahier/inspection";
+/// Lot C8 : clôture du cahier (`cahier.cloturer`), archives, exports figés (`cahier.exporter`).
+pub const ARCHIVES_CAHIER: &str = "/web/cahier/archives";
 pub const AGENDA: &str = "/web/agenda";
 /// Cahier de l'élève et de la famille (socle 20, lot C3) : agenda, ce que j'ai manqué, la semaine, calendrier.
 pub const MON_CAHIER: &str = "/web/cahier/agenda";
@@ -191,6 +199,26 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.cahier_ecrire {
         v.push(entree("Cahier de textes", CAHIER, NomIcone::Annonce));
         v.push(entree("Continuité", CONTINUITE, NomIcone::Annonce));
+        v.push(entree("Progressions", PROGRESSIONS, NomIcone::Annonce));
+    }
+    // Lot C8 : la direction lit la tenue des cahiers, vise, accorde les accès d'inspection, clôture et archive. Le serveur
+    // revérifie chaque route ; l'inspecteur n'a pas d'entrée de menu (il arrive par le lien de son accès).
+    if moteur.a("cahier.viser") {
+        v.push(entree("Tenue et visa", TENUE_VISA, NomIcone::Annonce));
+    }
+    if moteur.a("cahier.acces_inspection") {
+        v.push(entree(
+            "Accès d'inspection",
+            ACCES_INSPECTION,
+            NomIcone::Annonce,
+        ));
+    }
+    if moteur.a("cahier.exporter") || moteur.a("cahier.cloturer") {
+        v.push(entree(
+            "Archives du cahier",
+            ARCHIVES_CAHIER,
+            NomIcone::Annonce,
+        ));
     }
     if droits.agenda {
         v.push(entree("Travail à faire", AGENDA, NomIcone::Agenda));
@@ -406,6 +434,7 @@ mod tests {
                 APPEL,
                 CAHIER,
                 CONTINUITE,
+                PROGRESSIONS,
                 MES_CLASSES,
                 DELEGATIONS,
                 MES_ABSENCES_PERSONNEL,

@@ -342,6 +342,21 @@ impl ClientPreinscription {
         .await
     }
 
+    /// La famille répond à la place qui lui est proposée (`acceptee` ou `declinee`). Tant qu'elle n'a pas accepté,
+    /// le serveur refuse la validation de l'inscription (D-069 règle 3) ; la décision reste celle du serveur.
+    pub async fn repondre_proposition(
+        &self,
+        id: Uuid,
+        b: &ent_types::inscriptions_decisions::ReponsePropositionBody,
+    ) -> Result<ent_types::inscriptions_decisions::DecisionFamilleDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/preinscription/dossiers/{id}/proposition/repondre"),
+            Some(corps(b)?),
+        )
+        .await
+    }
+
     /// Invitation reçue par e-mail (publique).
     pub async fn accepter_invitation(
         &self,
