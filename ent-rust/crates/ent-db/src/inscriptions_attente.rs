@@ -282,6 +282,21 @@ pub(crate) async fn rang_famille_tx(
     .map_err(db)
 }
 
+/// **La** règle de lecture du rang par la famille (passe 3) : seul un dossier réellement en liste d'attente a un rang, lu
+/// par [`rang_famille_tx`] (qui masque tout ce que la famille n'a pas lu). Utilisée par `dossier_famille` **et** par
+/// `decision_famille` : un dossier en liste sans aucune décision n'a pas un rang d'un côté et pas de l'autre.
+pub(crate) async fn rang_lu_par_la_famille_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossier: Uuid,
+    etat_reel: &str,
+) -> Result<Option<i64>, EntDbError> {
+    if etat_reel != "liste_attente" {
+        return Ok(None);
+    }
+    rang_famille_tx(conn, etab, dossier).await
+}
+
 /// Premier dossier de la liste à désigner (`$1` établissement, `$2` offre, `$3` exclus, `$4` numéro de la place
 /// courante) ; le verrou du dossier s'ajoute en queue de requête, selon l'ordre des verrous (D-069 F5).
 const SUIVANT_A_DESIGNER: &str = "SELECT d.id FROM ent_inscription_dossier d
@@ -329,19 +344,105 @@ async fn journaliser_condition_tx(
     Ok(())
 }
 
-/// Verrou de l'offre (D-069 F5) : **après** le dossier, **avant** les propositions, partout.
-pub(crate) async fn verrouiller_offre_tx(
+/// **Point unique de l'ordre des verrous** (D-069 F5, passe 3, règle 1) : **dossiers → campagne → offres → propositions**.
+/// Plusieurs dossiers : en **un seul lot trié** par UUID ; plusieurs offres : par ordre d'UUID. Un appelant ne tient
+/// **jamais** un dossier avant d'avoir pris tout le lot (le sien compris) : il calcule d'abord en lecture ce qu'il
+/// touchera, puis appelle ici. `attendre_dossiers = false` : l'appelant tient déjà un dossier (sa transition vient de
+/// l'écrire) ; les autres dossiers se prennent alors en `NOWAIT` — un verrou tenu par un autre donne un conflit
+/// réessayable (55P03), jamais un interblocage. Les verrous déjà tenus ne coûtent rien (réentrants).
+pub(crate) async fn verrouiller_dans_l_ordre_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossiers: &[Uuid],
+    campagne: Option<Uuid>,
+    offres: &[Uuid],
+    attendre_dossiers: bool,
+) -> Result<(), EntDbError> {
+    let mut dossiers = dossiers.to_vec();
+    dossiers.sort_unstable();
+    dossiers.dedup();
+    if !dossiers.is_empty() {
+        sqlx::query(if attendre_dossiers {
+            "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = ANY($2)
+              ORDER BY id FOR UPDATE"
+        } else {
+            "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = ANY($2)
+              ORDER BY id FOR UPDATE NOWAIT"
+        })
+        .bind(etab)
+        .bind(&dossiers)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
+    if let Some(c) = campagne {
+        sqlx::query("SELECT id FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
+            .bind(etab)
+            .bind(c)
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+    }
+    let mut offres = offres.to_vec();
+    offres.sort_unstable();
+    offres.dedup();
+    if !offres.is_empty() {
+        sqlx::query(
+            "SELECT id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = ANY($2)
+              ORDER BY id FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(&offres)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
+    Ok(())
+}
+
+/// Dossiers que la désignation ou la reprise d'une place sur `offre` peut toucher, **lus sans verrou** : les premiers
+/// de la liste (autant que de places à pourvoir, plus une marge) et les dossiers qui portent déjà une place désignée.
+async fn dossiers_de_l_offre_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     offre: Uuid,
+) -> Result<Vec<Uuid>, EntDbError> {
+    let dispo = inscriptions_modele::disponibles_tx(conn, etab, offre).await?;
+    let fenetre = dispo.unwrap_or(0).clamp(0, 50) + 5;
+    sqlx::query_scalar(
+        "(SELECT d.id FROM ent_inscription_dossier d
+           JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
+          WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
+          ORDER BY d.rang_attente NULLS LAST, d.id LIMIT $3)
+         UNION
+         (SELECT p.dossier_id FROM ent_inscription_proposition_place p
+           WHERE p.etablissement_id = $1 AND p.offre_id = $2 AND p.origine = 'liste_attente'
+             AND p.statut = 'designee')",
+    )
+    .bind(etab)
+    .bind(offre)
+    .bind(fenetre)
+    .fetch_all(conn)
+    .await
+    .map_err(db)
+}
+
+/// Verrouille, dans l'ordre unique, les `dossiers` connus de l'appelant, les dossiers qu'une désignation sur ces
+/// `offres` peut toucher (lus sans verrou), la `campagne` éventuelle puis les offres. À appeler **avant** toute
+/// désignation ou reprise de place, et avant de tenir un autre dossier.
+pub(crate) async fn verrouiller_pour_offres_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    dossiers_connus: &[Uuid],
+    campagne: Option<Uuid>,
+    offres: &[Uuid],
+    attendre_dossiers: bool,
 ) -> Result<(), EntDbError> {
-    sqlx::query("SELECT id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-        .bind(etab)
-        .bind(offre)
-        .execute(conn)
-        .await
-        .map_err(db)?;
-    Ok(())
+    let mut dossiers = dossiers_connus.to_vec();
+    for o in offres {
+        dossiers.extend(dossiers_de_l_offre_tx(conn, etab, *o).await?);
+    }
+    verrouiller_dans_l_ordre_tx(conn, etab, &dossiers, campagne, offres, attendre_dossiers).await
 }
 
 /// Une **nouvelle** place est libre sur l'offre (place rendue, capacité en hausse) : nouveau numéro de place. Les
@@ -374,34 +475,11 @@ pub(crate) async fn designer_suivants_tx(
     offre: Uuid,
     exclure: &[Uuid],
 ) -> Result<i64, EntDbError> {
-    // Ordre des verrous unique (D-069 F5) : le **dossier**, puis l'offre, puis les propositions. Le premier suivant est
-    // donc verrouillé **avant** l'offre (lecture sans verrou pour le trouver) ; les suivants éventuels le sont sous le
-    // verrou de l'offre, en attente (jamais « SKIP LOCKED » : sauter un dossier désignerait un autre à sa place) ; un
-    // interblocage rare est classé en conflit (40P01), jamais en désignation hors rang.
-    let numero: i64 = sqlx::query_scalar(
-        "SELECT liberations FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2",
-    )
-    .bind(etab)
-    .bind(offre)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(db)?;
-    let premier: Option<Uuid> = sqlx::query_scalar(SUIVANT_A_DESIGNER)
-        .bind(etab)
-        .bind(offre)
-        .bind(exclure)
-        .bind(numero)
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(db)?;
-    if let Some(premier) = premier {
-        sqlx::query("SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-            .bind(etab)
-            .bind(premier)
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
-    }
+    // Ordre des verrous unique (D-069 F5, passe 3 règle 1) : dossier → offre → propositions. L'**appelant** a déjà
+    // verrouillé l'offre et les premiers dossiers de la liste, dans l'ordre (`verrouiller_pour_offres_tx`) : ici, aucun
+    // dossier n'est jamais **attendu** après l'offre. Un dossier hors de cette fenêtre est pris en `NOWAIT` : un verrou
+    // tenu par un autre se classe en conflit réessayable (jamais en attente, donc jamais d'interblocage), et un autre
+    // dossier n'est jamais désigné à sa place (pas de « SKIP LOCKED »).
     let place_no: i64 = sqlx::query_scalar(
         "SELECT liberations FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
     )
@@ -411,6 +489,7 @@ pub(crate) async fn designer_suivants_tx(
     .await
     .map_err(db)?;
     let mut designes = 0;
+    let mut relances = 0;
     for _ in 0..100 {
         let Some(dispo) = inscriptions_modele::disponibles_tx(conn, etab, offre).await? else {
             break;
@@ -427,7 +506,7 @@ pub(crate) async fn designer_suivants_tx(
         if dispo - promises < 1 {
             break;
         }
-        let suivant: Option<Uuid> = sqlx::query_scalar(&format!("{SUIVANT_A_DESIGNER} FOR UPDATE OF d"))
+        let suivant: Option<Uuid> = sqlx::query_scalar(&format!("{SUIVANT_A_DESIGNER} FOR UPDATE OF d NOWAIT"))
             .bind(etab)
             .bind(offre)
             .bind(exclure)
@@ -436,6 +515,20 @@ pub(crate) async fn designer_suivants_tx(
             .await
             .map_err(db)?;
         let Some(suivant) = suivant else {
+            // Sous READ COMMITTED, une ligne verrouillée qui a changé entre-temps ne renvoie rien alors que d'autres
+            // dossiers sont éligibles : on relance (borné), on ne s'arrête que si la lecture simple ne voit plus personne.
+            let encore: Option<Uuid> = sqlx::query_scalar(SUIVANT_A_DESIGNER)
+                .bind(etab)
+                .bind(offre)
+                .bind(exclure)
+                .bind(place_no)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db)?;
+            if encore.is_some() && relances < 5 {
+                relances += 1;
+                continue;
+            }
             break;
         };
         let pos = position_attente_tx(conn, etab, suivant).await?;
@@ -490,9 +583,10 @@ pub(crate) async fn apres_transition_tx(
         return Ok(());
     }
     let offre = offre_du_dossier_tx(conn, etab, d.id).await?;
-    // Ordre des verrous (D-069 F5) : dossier (déjà verrouillé par l'appelant), offre, puis propositions.
+    // Ordre des verrous (D-069 F5, passe 3) : le dossier est déjà tenu par l'appelant ; les autres dossiers de la liste
+    // se prennent en `NOWAIT` (jamais d'attente derrière l'offre ni derrière notre dossier), puis l'offre.
     if let Some(o) = offre {
-        verrouiller_offre_tx(conn, etab, o).await?;
+        verrouiller_pour_offres_tx(conn, etab, &[], None, &[o], false).await?;
     }
     if quitte_la_liste {
         if vers != "admis" {
@@ -956,7 +1050,9 @@ type LignePropositionBrute = (
     Option<String>,
 );
 
-fn proposition_dto(r: LignePropositionBrute, jour: NaiveDate) -> PropositionDto {
+/// `voit_motif` : le motif d'une proposition (« Tour passé… », « Place reprise par une admission directe : … ») peut
+/// parler d'un autre candidat : il ne se lit qu'avec `inscriptions.decider`, comme le motif interne des décisions.
+fn proposition_dto(r: LignePropositionBrute, jour: NaiveDate, voit_motif: bool) -> PropositionDto {
     let a_constater = r.7 == "envoyee" && r.11.is_some_and(|j| j < jour);
     PropositionDto {
         id: r.0,
@@ -973,7 +1069,7 @@ fn proposition_dto(r: LignePropositionBrute, jour: NaiveDate) -> PropositionDto 
         repondre_avant: r.11,
         repondu_le: r.12,
         expiree_a_constater: a_constater,
-        motif: r.13,
+        motif: if voit_motif { r.13 } else { None },
     }
 }
 
@@ -988,6 +1084,7 @@ async fn proposition_tx(
     etab: Uuid,
     id: Uuid,
     jour: NaiveDate,
+    voit_motif: bool,
 ) -> Result<PropositionDto, EntDbError> {
     sqlx::query_as::<_, LignePropositionBrute>(&format!(
         "{SELECT_PROPOSITION} WHERE p.etablissement_id = $1 AND p.id = $2"
@@ -997,7 +1094,7 @@ async fn proposition_tx(
     .fetch_optional(conn)
     .await
     .map_err(db)?
-    .map(|r| proposition_dto(r, jour))
+    .map(|r| proposition_dto(r, jour, voit_motif))
     .ok_or_else(introuvable)
 }
 
@@ -1009,6 +1106,7 @@ struct PropositionVerrouillee {
     statut: String,
     rang_au_moment: Option<i32>,
     repondre_avant: Option<NaiveDate>,
+    decision_id: Option<Uuid>,
 }
 
 /// Ordre des verrous **unique** (D-069 F1, F5) : le dossier, puis l'offre, puis la proposition — partout. Garde de déport/lien
@@ -1018,6 +1116,7 @@ async fn verrouiller_proposition_tx(
     etab: Uuid,
     actor: Uuid,
     id: Uuid,
+    avec_campagne: bool,
 ) -> Result<PropositionVerrouillee, EntDbError> {
     let dossier: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
         "SELECT dossier_id, offre_id FROM ent_inscription_proposition_place WHERE etablissement_id = $1 AND id = $2",
@@ -1028,13 +1127,23 @@ async fn verrouiller_proposition_tx(
     .await
     .map_err(db)?;
     let (dossier, offre) = dossier.ok_or_else(introuvable)?;
+    // Ordre unique (passe 3) : le dossier et ceux de la liste en un lot trié, la campagne (si une décision suit), l'offre.
+    let campagne: Option<Uuid> = if avec_campagne {
+        sqlx::query_scalar("SELECT campagne_id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(dossier)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+    } else {
+        None
+    };
+    let offres: Vec<Uuid> = offre.into_iter().collect();
+    verrouiller_pour_offres_tx(conn, etab, &[dossier], campagne, &offres, true).await?;
     dossier_visible_tx(conn, etab, actor, dossier).await?;
     dossier_tx(conn, etab, dossier).await?;
-    if let Some(o) = offre {
-        verrouiller_offre_tx(conn, etab, o).await?;
-    }
-    let p: Option<(Uuid, Option<Uuid>, String, String, Option<i32>, Option<NaiveDate>)> = sqlx::query_as(
-        "SELECT dossier_id, offre_id, origine, statut, rang_au_moment, repondre_avant
+    let p: Option<(Uuid, Option<Uuid>, String, String, Option<i32>, Option<NaiveDate>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT dossier_id, offre_id, origine, statut, rang_au_moment, repondre_avant, decision_id
            FROM ent_inscription_proposition_place
           WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
     )
@@ -1051,6 +1160,7 @@ async fn verrouiller_proposition_tx(
         statut: p.3,
         rang_au_moment: p.4,
         repondre_avant: p.5,
+        decision_id: p.6,
     })
 }
 
@@ -1345,6 +1455,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         offre_existe_tx(&mut tx, etab, offre).await?;
+        verrouiller_pour_offres_tx(&mut tx, etab, &[], None, &[offre], true).await?;
         designer_suivants_tx(&mut tx, etab, offre, &[]).await?;
         let r = liste_attente_tx(&mut tx, etab, actor, offre).await?;
         commit(tx).await?;
@@ -1360,7 +1471,7 @@ impl PgEnt {
         statut: Option<String>,
         maintenant: DateTime<Utc>,
     ) -> Result<Vec<PropositionDto>, EntDbError> {
-        self.ins_personnel(etab, actor, role).await?;
+        let (_, voit_motif, _) = self.ins_personnel(etab, actor, role).await?;
         if let Some(s) = &statut {
             if ![
                 "designee", "envoyee", "acceptee", "declinee", "expiree", "ecartee", "annulee",
@@ -1372,24 +1483,37 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
+        // Les dossiers dont l'acteur est écarté sont retirés **avant** la limite : une liste tronquée ne cache jamais une
+        // proposition qui lui est due derrière des lignes qu'il n'a pas le droit de voir.
+        let candidats: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT p.dossier_id FROM ent_inscription_proposition_place p
+               JOIN ent_inscription_dossier d ON d.etablissement_id = p.etablissement_id AND d.id = p.dossier_id
+              WHERE p.etablissement_id = $1 AND ($2::uuid IS NULL OR d.campagne_id = $2)
+                AND ($3::text IS NULL OR p.statut = $3)",
+        )
+        .bind(etab)
+        .bind(campagne)
+        .bind(&statut)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let deportes: Vec<Uuid> = ecartes_parmi(&mut tx, etab, actor, &candidats).await?.into_iter().collect();
         let rows = sqlx::query_as::<_, LignePropositionBrute>(&format!(
             "{SELECT_PROPOSITION}
               WHERE p.etablissement_id = $1 AND ($2::uuid IS NULL OR d.campagne_id = $2)
-                AND ($3::text IS NULL OR p.statut = $3)
+                AND ($3::text IS NULL OR p.statut = $3) AND NOT (p.dossier_id = ANY($4))
               ORDER BY p.designee_le DESC, p.id LIMIT 500"
         ))
         .bind(etab)
         .bind(campagne)
         .bind(statut)
+        .bind(&deportes)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let ids: Vec<Uuid> = rows.iter().map(|r| r.1).collect();
-        let deportes = ecartes_parmi(&mut tx, etab, actor, &ids).await?;
         Ok(rows
             .into_iter()
-            .filter(|r| !deportes.contains(&r.1))
-            .map(|r| proposition_dto(r, jour))
+            .map(|r| proposition_dto(r, jour, voit_motif))
             .collect())
     }
 
@@ -1413,7 +1537,7 @@ impl PgEnt {
             ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, true).await?;
         let (dossier, offre, origine, statut, rang) =
             (p.dossier_id, p.offre_id, p.origine, p.statut, p.rang_au_moment);
         if statut != "designee" || origine != "liste_attente" {
@@ -1454,7 +1578,7 @@ impl PgEnt {
         )
         .await?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let dto = proposition_tx(&mut tx, etab, id, jour).await?;
+        let dto = proposition_tx(&mut tx, etab, id, jour, true).await?;
         commit(tx).await?;
         Ok(dto)
     }
@@ -1477,11 +1601,18 @@ impl PgEnt {
             return Err(invalide("motif : de 3 à 500 caractères"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
         let (dossier, offre, statut) = (p.dossier_id, p.offre_id, p.statut);
         if statut != "designee" {
             return Err(conflit(
                 "seule une place désignée (pas encore envoyée) peut être écartée",
+            ));
+        }
+        // Passe 3 (6.5) : seule une désignation de la liste d'attente, sans décision attachée, se passe. Une place
+        // rattachée à une décision (admission directe, programmée ou non publiée) se défait par une nouvelle décision.
+        if p.origine != "liste_attente" || p.decision_id.is_some() {
+            return Err(conflit(
+                "cette place est rattachée à une décision : passer par une nouvelle décision pour la modifier",
             ));
         }
         sqlx::query(
@@ -1509,7 +1640,7 @@ impl PgEnt {
             designer_suivants_tx(&mut tx, etab, o, &[dossier]).await?;
         }
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let dto = proposition_tx(&mut tx, etab, id, jour).await?;
+        let dto = proposition_tx(&mut tx, etab, id, jour, true).await?;
         commit(tx).await?;
         Ok(dto)
     }
@@ -1529,19 +1660,32 @@ impl PgEnt {
         maintenant: DateTime<Utc>,
     ) -> Result<PropositionDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        let voit_motif = self.ins_peut(etab, actor, role, Action::InscriptionsDecider).await?;
         let motif = b.motif.trim();
         if motif.chars().count() < 3 || motif.chars().count() > 500 {
             return Err(invalide("motif : de 3 à 500 caractères (comment la famille a répondu)"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
-        if p.statut != "envoyee" {
-            return Err(conflit("seule une place proposée à la famille (envoyée, sans réponse) peut être acceptée"));
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
+        // Refus **distincts** (D-069 F15, passe 3) : chaque cas a son message exact.
+        match p.statut.as_str() {
+            "envoyee" => {}
+            "acceptee" | "declinee" => return Err(conflit("proposition déjà répondue")),
+            "designee" => return Err(conflit("place désignée, pas encore envoyée à la famille : rien à accepter")),
+            "expiree" => return Err(conflit("proposition expirée : le délai de réponse a été constaté dépassé")),
+            _ => return Err(conflit("proposition annulée ou écartée : rien à accepter")),
         }
         let d = dossier_visible_tx(&mut tx, etab, actor, p.dossier_id).await?;
         if d.etat != "admis" {
-            return Err(conflit("aucune place proposée à laquelle répondre"));
+            return Err(conflit("le dossier n'est plus à l'état admis : aucune place à accepter"));
+        }
+        // Passé `repondre_avant`, le guichet n'accepte plus tant que l'expiration n'est pas constatée : la direction la
+        // constate (puis décide), le secrétariat n'efface pas un délai par un motif.
+        if p.repondre_avant.is_some_and(|j| j < jour) {
+            return Err(conflit(
+                "le délai de réponse est dépassé : l'expiration est à constater avant toute autre suite",
+            ));
         }
         sqlx::query(
             "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = $3
@@ -1601,7 +1745,17 @@ impl PgEnt {
         )
         .await?;
         reevaluer_tx(&mut tx, etab, p.dossier_id, Some(actor), false).await?;
-        let dto = proposition_tx(&mut tx, etab, id, jour).await?;
+        // La famille est prévenue : sa proposition n'est plus « à répondre » (statut `acceptee`) et elle lit la suite.
+        PgEnt::prevenir_familles_tx(
+            &mut tx,
+            etab,
+            &[p.dossier_id],
+            "Votre réponse à la place proposée a été enregistrée",
+            "Le secrétariat a enregistré votre acceptation de la place proposée à votre enfant. Vous pouvez suivre la suite dans votre espace.",
+            &format!("guichet-{id}"),
+        )
+        .await?;
+        let dto = proposition_tx(&mut tx, etab, id, jour, voit_motif).await?;
         commit(tx).await?;
         Ok(dto)
     }
@@ -1620,7 +1774,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_tx(&mut tx, etab, maintenant).await?;
-        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id).await?;
+        let p = verrouiller_proposition_tx(&mut tx, etab, actor, id, false).await?;
         let (dossier, statut, avant) = (p.dossier_id, p.statut, p.repondre_avant);
         if statut != "envoyee" {
             return Err(conflit(
@@ -1658,7 +1812,7 @@ impl PgEnt {
             )
             .await?;
         }
-        let dto = proposition_tx(&mut tx, etab, id, jour).await?;
+        let dto = proposition_tx(&mut tx, etab, id, jour, true).await?;
         commit(tx).await?;
         Ok(dto)
     }
@@ -1678,10 +1832,8 @@ impl PgEnt {
             return Err(invalide("réponse : acceptee ou declinee"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let d = dossier_tx(&mut tx, etab, d0.id).await?;
-        // Règle 1 : la famille ne répond que sur ce qui est publié ; une décision non publiée en cours ne se révèle pas.
-        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
-        // Ordre des verrous (D-069 F5) : dossier (ci-dessus), offre, puis proposition.
+        // Ordre des verrous (D-069 F5, passe 3) : le dossier et ceux de la liste en un lot trié, puis l'offre, puis la
+        // proposition — avant toute autre lecture sous verrou.
         let offre_p: Option<Option<Uuid>> = sqlx::query_scalar(
             "SELECT offre_id FROM ent_inscription_proposition_place
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut = 'envoyee'",
@@ -1691,9 +1843,11 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        if let Some(Some(o)) = offre_p {
-            verrouiller_offre_tx(&mut tx, etab, o).await?;
-        }
+        let offres: Vec<Uuid> = offre_p.flatten().into_iter().collect();
+        verrouiller_pour_offres_tx(&mut tx, etab, &[d0.id], None, &offres, true).await?;
+        let d = dossier_tx(&mut tx, etab, d0.id).await?;
+        // Règle 1 : la famille ne répond que sur ce qui est publié ; une décision non publiée en cours ne se révèle pas.
+        crate::inscriptions_decisions::exiger_dossier_stable_famille_tx(&mut tx, etab, id).await?;
         let p: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_inscription_proposition_place
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut = 'envoyee' FOR UPDATE",

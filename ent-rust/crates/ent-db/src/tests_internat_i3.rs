@@ -26,17 +26,17 @@ use ent_types::internat_sorties::*;
 use uuid::Uuid;
 
 /// Instant en heure d'été de Paris (UTC + 2) : avril 2026 est après le passage du 29 mars.
-fn paris(jour: NaiveDate, h: u32, mi: u32) -> DateTime<Utc> {
+pub(crate) fn paris(jour: NaiveDate, h: u32, mi: u32) -> DateTime<Utc> {
     utc(jour.year(), jour.month(), jour.day(), h - 2, mi)
 }
 
 /// Un jour d'avril 2026 : le 14 est un mardi, le 17 un vendredi, le 19 un dimanche, le 20 un lundi.
-fn avril(d: u32) -> NaiveDate {
+pub(crate) fn avril(d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 4, d).unwrap()
 }
 
-const PARENT: &str = "parent";
-const ELEVE: &str = "eleve";
+pub(crate) const PARENT: &str = "parent";
+pub(crate) const ELEVE: &str = "eleve";
 
 async fn statut_attendu(b: &Banc, nuit: NaiveDate, eleve: Uuid) -> Option<(String, Option<String>)> {
     sqlx::query_as("SELECT statut, motif_code FROM ent_internat_attendu_calcule($1, $2) WHERE eleve_id = $3")
@@ -57,7 +57,7 @@ async fn est_retire(b: &Banc, nuit: NaiveDate, eleve: Uuid, motif: &str) -> bool
 }
 
 /// Titulaire avec compte (autorité parentale, garde non « aucune ») : (compte, personne).
-async fn parent(b: &Banc, eleve: Uuid, sorties: bool) -> (Uuid, Uuid) {
+pub(crate) async fn parent(b: &Banc, eleve: Uuid, sorties: bool) -> (Uuid, Uuid) {
     let user = compte(&b.ent, b.etab, PARENT).await;
     let pers = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,$3,'Parent',$4,'compte')")
@@ -85,7 +85,7 @@ async fn parent(b: &Banc, eleve: Uuid, sorties: bool) -> (Uuid, Uuid) {
 }
 
 /// Personne sans compte (grand-parent, voisine, correspondant…).
-async fn tiers(b: &Banc, prenom: &str) -> Uuid {
+pub(crate) async fn tiers(b: &Banc, prenom: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, source) VALUES ($1,$2,$3,$4,'saisie')")
         .bind(id)
@@ -114,7 +114,7 @@ async fn autoriser_recuperer(b: &Banc, eleve: Uuid, personne: Uuid) {
 }
 
 /// Interdiction de remise (socle 4) visant une personne identifiée ou un simple libellé.
-async fn interdire(b: &Banc, eleve: Uuid, personne: Option<Uuid>) {
+pub(crate) async fn interdire(b: &Banc, eleve: Uuid, personne: Option<Uuid>) {
     sqlx::query(
         "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, personne_libelle, objet, fondement, consigne, du, decide_par) \
          VALUES ($1,$2,$3,$4,$5,ARRAY['remise'],'decision_etablissement','Appeler la direction','2026-01-01',$6)",
@@ -131,7 +131,7 @@ async fn interdire(b: &Banc, eleve: Uuid, personne: Option<Uuid>) {
 }
 
 /// Désaccord connu entre titulaires (socle 18), non levé.
-async fn desaccord_connu(b: &Banc, eleve: Uuid, declarant: Uuid) {
+pub(crate) async fn desaccord_connu(b: &Banc, eleve: Uuid, declarant: Uuid) {
     sqlx::query(
         "INSERT INTO ent_acc_desaccord (id, etablissement_id, sujet_eleve_id, objet, source, declarant_user_id) \
          VALUES ($1,$2,$3,'sortie','declaration',$4)",
@@ -146,7 +146,7 @@ async fn desaccord_connu(b: &Banc, eleve: Uuid, declarant: Uuid) {
 }
 
 /// Compte de l'élève lui-même (élève majeur si sa naissance le dit).
-async fn compte_eleve(b: &Banc, eleve: Uuid, naissance: NaiveDate) -> Uuid {
+pub(crate) async fn compte_eleve(b: &Banc, eleve: Uuid, naissance: NaiveDate) -> Uuid {
     let user = compte(&b.ent, b.etab, ELEVE).await;
     sqlx::query("INSERT INTO ent_eleve_compte (etablissement_id, eleve_id, user_id) VALUES ($1,$2,$3)")
         .bind(b.etab)
@@ -928,7 +928,7 @@ fn depart(personne: Option<Uuid>, a: DateTime<Utc>) -> ControleDepartDto {
 }
 
 /// Active l'objet « sortie_internat » du socle 18 et fait accorder `usages` par `parent` pour `eleve`.
-async fn accorder_annuellement(b: &Banc, parent: Uuid, eleve: Uuid, usages: &[&str]) {
+pub(crate) async fn accorder_annuellement(b: &Banc, parent: Uuid, eleve: Uuid, usages: &[&str]) {
     b.ent.accords_activer_objet(b.etab, b.dir, DIR, "sortie_internat").await.expect("objet activé");
     b.ent.accords_publier_version(b.etab, b.dir, DIR, "sortie_internat", None).await.expect("version publiée");
     // L'accord date de l'instant réel de la décision (socle 18) : pour des jours fixes d'avril 2026, la validité « année
@@ -1665,7 +1665,7 @@ async fn historique_des_faits_visible_selon_le_role() {
 // | Faibles (antidate, doublons, liste de remise protégée, F-1, M-1) | `faible_*` |
 
 /// Interdiction de `personne` pour un objet précis (remise, visite, contact_eleve…), éventuellement terminée (`au`).
-async fn interdire_objet(b: &Banc, eleve: Uuid, personne: Uuid, objet: &str, au: Option<&str>) {
+pub(crate) async fn interdire_objet(b: &Banc, eleve: Uuid, personne: Uuid, objet: &str, au: Option<&str>) {
     sqlx::query(
         "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, au, decide_par) \
          VALUES ($1,$2,$3,$4,ARRAY[$5],'decision_etablissement','Appeler la direction','2026-01-01',$6::date,$7)",

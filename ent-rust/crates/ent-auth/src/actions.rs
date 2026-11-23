@@ -172,6 +172,14 @@ pub enum Action {
     /// Socle 41, lot I3 : décider des absences annoncées et des sorties des internes (accepter, refuser,
     /// traiter une annonce tardive, régulariser, trancher un désaccord entre titulaires).
     InternatSortiesDecider,
+    /// Socle 41, lot I4 : écrire un fait de liaison codé (jour / nuit) sur un interne de son périmètre.
+    InternatLiaisonEcrire,
+    /// Socle 41, lot I4 : lire la liaison et les événements de nuit (équipe d'internat, CPE, direction ; R-IT8).
+    InternatLiaisonLire,
+    /// Socle 41, lot I4 : lire, le matin, les seuls faits de liaison marqués « pour le jour » (vie scolaire de jour).
+    InternatLiaisonJour,
+    /// Socle 41, lot I4 : déclarer et compléter un événement de nuit, ouvrir une préoccupation.
+    InternatEvenementDeclarer,
     /// Gérer les sorties (règles, autorisations, demandes exceptionnelles).
     SortiesGerer,
     /// Contrôler les sorties au portail (scan de badge).
@@ -676,7 +684,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 278] = [
+    pub const TOUTES: [Action; 282] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -954,6 +962,10 @@ impl Action {
         Action::InternatAppel,
         Action::InternatAppelValider,
         Action::InternatSortiesDecider,
+        Action::InternatLiaisonEcrire,
+        Action::InternatLiaisonLire,
+        Action::InternatLiaisonJour,
+        Action::InternatEvenementDeclarer,
         Action::FacturationGuichet,
         Action::FacturationEmettre,
         Action::FacturationAvoirs,
@@ -1057,6 +1069,10 @@ impl Action {
             Self::InternatAppel => "internat.appel",
             Self::InternatAppelValider => "internat.appel.valider",
             Self::InternatSortiesDecider => "internat.sorties.decider",
+            Self::InternatLiaisonEcrire => "internat.liaison.ecrire",
+            Self::InternatLiaisonLire => "internat.liaison.lire",
+            Self::InternatLiaisonJour => "internat.liaison.jour",
+            Self::InternatEvenementDeclarer => "internat.evenement.declarer",
             Self::SortiesGerer => "sorties.gerer",
             Self::SortiesControler => "sorties.controler",
             Self::ElevesGerer => "eleves.gerer",
@@ -1341,6 +1357,10 @@ impl Action {
             Self::InternatAppel => "Ouvrir un appel de nuit et pointer les internes de son périmètre",
             Self::InternatAppelValider => "Clore, valider et corriger un appel de nuit ; tenir un cas",
             Self::InternatSortiesDecider => "Décider des absences annoncées et des sorties des internes",
+            Self::InternatLiaisonEcrire => "Écrire un fait de liaison codé sur un interne",
+            Self::InternatLiaisonLire => "Lire la liaison et les événements de nuit de l'internat",
+            Self::InternatLiaisonJour => "Lire, le matin, les faits de liaison marqués pour le jour",
+            Self::InternatEvenementDeclarer => "Déclarer un événement de nuit ou ouvrir une préoccupation",
             Self::SortiesGerer => "Gérer les sorties (règles, autorisations, demandes)",
             Self::SortiesControler => "Contrôler les sorties au portail",
             Self::ElevesGerer => "Gérer les élèves, foyers, liens et comptes",
@@ -1681,7 +1701,11 @@ impl Action {
             Self::InternatLire
             | Self::InternatAppel
             | Self::InternatAppelValider
-            | Self::InternatSortiesDecider => {
+            | Self::InternatSortiesDecider
+            | Self::InternatLiaisonEcrire
+            | Self::InternatLiaisonLire
+            | Self::InternatLiaisonJour
+            | Self::InternatEvenementDeclarer => {
                 &[Portee::Etablissement, Portee::Designes]
             }
             // E1 : lectures d'identité par groupe, 4 portées (comme `_` ci-dessous) ;
@@ -2721,7 +2745,16 @@ fn socle_8_notifications(role: Role, d: &mut Vec<(Action, Portee)>) {
 fn socle_41_internat(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
-        for a in [InternatLire, InternatAppel, InternatAppelValider, InternatSortiesDecider] {
+        for a in [
+            InternatLire,
+            InternatAppel,
+            InternatAppelValider,
+            InternatSortiesDecider,
+            InternatLiaisonEcrire,
+            InternatLiaisonLire,
+            InternatLiaisonJour,
+            InternatEvenementDeclarer,
+        ] {
             d.push((a, Portee::Etablissement));
         }
     }

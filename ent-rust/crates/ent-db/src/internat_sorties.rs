@@ -42,7 +42,9 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 mod actes;
+mod groupes;
 mod tiers;
+mod vie;
 use actes::{
     actes_qui_tombent_tx, appliquer_absence_tx, appliquer_sortie_tx, comptes_vises_tx, deciders_annuel_tx,
     fin_savepoint_revue, ouvrir_savepoint_revue, suspendre_correspondants_auteur_tx, Objet, RevueBilan,
@@ -908,6 +910,13 @@ fn absence_en_vigueur(statut: &str) -> bool {
 
 // ───────────────────────── Service : acteur, types, absences ─────────────────────────
 
+/// Pour qui s'évalue la qualité de titulaire : un compte, ou une personne du socle 4 (accord hors ligne).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum QuiTitulaire {
+    Compte(Uuid),
+    Personne(Uuid),
+}
+
 impl PgEnt {
     /// Lien de titulaire du compte pour l'élève : lien communicant, autorité parentale, garde non « aucune », et
     /// **personne non visée par une interdiction** de remise, de visite ou de contact (C-1) : un parent interdit de
@@ -922,9 +931,28 @@ impl PgEnt {
         eleve: Uuid,
         jour: NaiveDate,
     ) -> Result<Option<bool>, EntDbError> {
+        self.titulaire_pour_tx(conn, etab, QuiTitulaire::Compte(user), eleve, jour).await
+    }
+
+    /// **Une seule fonction pour la règle de titulaire** (règle générale 4, I4) : la qualité s'évalue pour un COMPTE
+    /// (réponse en ligne) ou pour une PERSONNE du socle 4 (accord reçu hors ligne, qui n'a pas forcément de compte) ; les
+    /// deux passent par le même contrôle (autorité parentale, garde, interdictions, règle M-A, chaîne de fusions).
+    pub(crate) async fn titulaire_pour_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        qui: QuiTitulaire,
+        eleve: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<bool>, EntDbError> {
+        let (user, personne) = match qui {
+            QuiTitulaire::Compte(u) => (Some(u), None),
+            QuiTitulaire::Personne(p) => (None, Some(p)),
+        };
         let liens: Vec<(bool, Uuid)> = sqlx::query_as(
             "SELECT l.peut_autoriser_sorties, l.personne_id FROM ent_eleve_lien_communicant l \
-              WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 \
+              WHERE l.etablissement_id = $1 AND l.eleve_id = $3 \
+                AND (($2::uuid IS NOT NULL AND l.user_id = $2) OR ($5::uuid IS NOT NULL AND l.personne_id = $5)) \
                 AND l.autorite_parentale AND COALESCE(l.garde, '') <> 'aucune' \
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_interdiction i \
                                  WHERE i.etablissement_id = l.etablissement_id AND i.eleve_id = l.eleve_id \
@@ -940,6 +968,7 @@ impl PgEnt {
         .bind(user)
         .bind(eleve)
         .bind(jour)
+        .bind(personne)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
@@ -4525,6 +4554,12 @@ impl PgEnt {
 
     /// Tâche planifiée (chaque minute) : veille des sorties de chaque établissement, à l'heure murale de son fuseau.
     pub async fn internat_sorties_tache(&self) -> Result<usize, EntDbError> {
+        self.internat_sorties_tache_a(Utc::now).await
+    }
+
+    /// Comme [`Self::internat_sorties_tache`], avec l'horloge en paramètre (règle 33 : un test fixe son instant ; seul le
+    /// planificateur passe l'heure réelle).
+    pub(crate) async fn internat_sorties_tache_a(&self, maintenant: impl Fn() -> DateTime<Utc>) -> Result<usize, EntDbError> {
         let mut total = 0;
         for etab in crate::tenant_tx::etablissements_systeme(
             self.pool(),
@@ -4533,16 +4568,41 @@ impl PgEnt {
         .await
         .map_err(db)?
         {
-            match self.veille_sorties_bilan_a(etab, Utc::now()).await {
+            // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
+            // M2 : chaque veille a ses propres points de reprise ; les trois alimentent ensemble le suivi des échecs
+            // répétés de l'établissement (une veille réussie ne remet pas à zéro l'échec d'une autre).
+            let mut echec = false;
+            match self.veille_non_rentres_bilan_a(etab, maintenant()).await {
+                Ok((n, echecs)) => {
+                    total += n;
+                    echec |= echecs > 0;
+                }
+                Err(e) => {
+                    tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement");
+                    echec = true;
+                }
+            }
+            match self.veille_etudes_bilan_a(etab, maintenant()).await {
+                Ok((n, echecs)) => {
+                    total += n;
+                    echec |= echecs > 0;
+                }
+                Err(e) => {
+                    tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement");
+                    echec = true;
+                }
+            }
+            match self.veille_sorties_bilan_a(etab, maintenant()).await {
                 Ok((v, bilan)) => {
                     total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;
-                    suivre_echecs_veille(etab, bilan.echecs > 0);
+                    echec |= bilan.echecs > 0;
                 }
                 Err(e) => {
                     tracing::warn!(nature = %nature_erreur(&e), "veille des sorties d'internat non faite pour un établissement");
-                    suivre_echecs_veille(etab, true);
+                    echec = true;
                 }
             }
+            suivre_echecs_veille(etab, echec);
         }
         Ok(total)
     }

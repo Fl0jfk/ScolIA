@@ -163,7 +163,8 @@ pub use msg_m4::{
 };
 mod msg_m5;
 mod msg_m12;
-pub use msg_m12::{FilActif, FluxMessagerie, PositionFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_m12::{FilActif, FluxMessagerie, ReglagesFlux, FLUX_ATTENTE_MAX_SECONDES};
+pub use msg_repo::PositionFlux;
 mod msg_m6;
 pub use msg_m6::{
     disponibilite_a, libelle_ouverture, Disponibilite, DisponibiliteVue, LectureMessage, LectureParticipant,
@@ -742,6 +743,8 @@ mod tests_inscriptions_i5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i5_revue;
 #[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i5_passe3;
+#[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
@@ -787,6 +790,12 @@ mod tests_internat;
 mod tests_internat_i2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat_i3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4_correctifs;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4_passe2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]

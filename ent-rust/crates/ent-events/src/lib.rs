@@ -371,6 +371,30 @@ pub mod types {
     pub const INTERNAT_TIERS: &str = "internat.tiers";
     pub const INTERNAT_DESACCORD_TRANCHE: &str = "internat.desaccord_tranche";
     pub const INTERNAT_MAJEUR_INFORME: &str = "internat.majeur_informe";
+    // Socle 41, lot I4 : vie quotidienne. Mêmes règles : identifiants, dates, codes ; jamais de texte libre, de nom
+    // ni de donnée de santé. Les événements vers les socles 13, 34, 36 et 44 sont émis par le 41 sous son nom ;
+    // les socles destinataires les consomment (leurs lots ne sont pas encore livrés).
+    pub const INTERNAT_SORTIE_GROUPE_CREEE: &str = "internat.sortie_groupe_creee";
+    pub const INTERNAT_SORTIE_GROUPE_DECIDEE: &str = "internat.sortie_groupe_decidee";
+    pub const INTERNAT_SORTIE_GROUPE_ANNULEE: &str = "internat.sortie_groupe_annulee";
+    pub const INTERNAT_SORTIE_GROUPE_CLOSE: &str = "internat.sortie_groupe_close";
+    pub const INTERNAT_SORTIE_GROUPE_AUTORISATION: &str = "internat.sortie_groupe_autorisation";
+    pub const INTERNAT_SORTIE_GROUPE_PRESENCE: &str = "internat.sortie_groupe_presence";
+    pub const INTERNAT_LIAISON_ECRITE: &str = "internat.liaison_ecrite";
+    pub const INTERNAT_LIAISON_MASQUEE: &str = "internat.liaison_masquee";
+    pub const INTERNAT_SIGNAL_PP: &str = "internat.signal_pp";
+    pub const INTERNAT_EVENEMENT_DECLARE: &str = "internat.evenement_declare";
+    pub const INTERNAT_EVENEMENT_COMPLETE: &str = "internat.evenement_complete";
+    pub const INTERNAT_EVENEMENT_TRANSMIS: &str = "internat.evenement_transmis";
+    pub const INTERNAT_INTERVENTION_DEMANDEE: &str = "internat.intervention_demandee";
+    pub const INTERNAT_MALAISE_SIGNALE: &str = "internat.malaise_signale";
+    pub const INTERNAT_ALERTE: &str = "internat.alerte";
+    pub const INTERNAT_PREOCCUPATION_SIGNALEE: &str = "internat.preoccupation_signalee";
+    pub const INTERNAT_VIGILANCE: &str = "internat.vigilance";
+    pub const INTERNAT_TEMPS_CREE: &str = "internat.temps_cree";
+    pub const INTERNAT_TEMPS_ANNULE: &str = "internat.temps_annule";
+    pub const INTERNAT_TEMPS_INSCRIPTION: &str = "internat.temps_inscription";
+    pub const INTERNAT_ETUDE_NON_POINTEE: &str = "internat.etude_non_pointee";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";

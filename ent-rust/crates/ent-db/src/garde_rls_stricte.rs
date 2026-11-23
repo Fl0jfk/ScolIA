@@ -55,7 +55,6 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("assiduite_as1", ".fetch_all(self.pool())", "ref_asd_nature_motif, ref_asd_profil_academique, ref_asd_profil_niveau : référentiels globaux sans établissement ni RLS (socle 12, AS1)"),
     ("gouvernance_rgpd", "self.pool().begin()", "rgp_soustraitant, rgp_soustraitant_donnee : tables de plateforme sans établissement ni RLS (socle 27, G2) ; appel système réservé à la console plateforme"),
     ("gouvernance_rgpd", ".execute(self.pool())", "rgp_soustraitant_annonce : table de plateforme sans établissement ni RLS (socle 27, G2) ; appel système"),
-    ("msg_repo", ".fetch_one(&self.pool)", "catalogue Postgres seul (pg_roles, pg_stat_activity, pas de table d'établissement) : vérification au démarrage du flux messagerie et sonde de test de la borne du curseur (M-A, M-E)"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
 ];
 
@@ -64,7 +63,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
 fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
     let motifs = ["&self.pool", "self.pool()", "self.pool.", "&pool", "(pool)", "(pool,", "(&*pool", "pool.begin(", "pool.acquire("];
     let ok = [
-        "TenantTx::begin(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
+        "TenantTx::begin(", "TenantTx::begin_lecture_coherente(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
         "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ", "from_pool(", "pool_verif", "pool.size()", "pool.num_idle()", "pool.options()",
     ];
     let appelants = ["lire_par_etablissement(", "appeler_par_etablissement(", "etablissements_systeme(", "TenantTx::begin(", "tenant("];

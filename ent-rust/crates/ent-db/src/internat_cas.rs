@@ -434,14 +434,57 @@ impl PgEnt {
         if portee.as_ref().is_some_and(|s| !s.contains(&ligne.0)) {
             return Err(EntDbError::Forbidden);
         }
-        let (version, issue_note): (Uuid, Option<String>) = sqlx::query_as(
-            "SELECT procedure_version_id, issue_note FROM ent_internat_cas WHERE etablissement_id = $1 AND id = $2",
+        #[allow(clippy::type_complexity)]
+        let (version, issue_note, sortie_groupe_id, temps_id, heure_prevue): (
+            Uuid,
+            Option<String>,
+            Option<Uuid>,
+            Option<Uuid>,
+            Option<DateTime<Utc>>,
+        ) = sqlx::query_as(
+            "SELECT procedure_version_id, issue_note, sortie_groupe_id, temps_id, heure_prevue FROM ent_internat_cas \
+              WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(cas_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // Règle 1 (I4) : un cas ouvert par une sortie ou une activité non rentrée garde l'heure prévue et les comptes à joindre
+        // (accompagnateurs de la sortie, encadrant du temps).
+        let origine = match heure_prevue {
+            Some(prevue) => {
+                let a_joindre: Vec<Uuid> = if let Some(sg) = sortie_groupe_id {
+                    sqlx::query_scalar(
+                        "SELECT user_id FROM ent_internat_sortie_groupe_encadrant WHERE etablissement_id = $1 \
+                            AND sortie_groupe_id = $2 ORDER BY user_id",
+                    )
+                    .bind(etab)
+                    .bind(sg)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(db)?
+                } else if let Some(t) = temps_id {
+                    sqlx::query_scalar(
+                        "SELECT encadrant_user_id FROM ent_internat_temps WHERE etablissement_id = $1 AND id = $2",
+                    )
+                    .bind(etab)
+                    .bind(t)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(db)?
+                } else {
+                    Vec::new()
+                };
+                Some(ent_types::internat_vie::CasOrigineDto {
+                    sortie_groupe_id,
+                    temps_id,
+                    heure_prevue: prevue,
+                    a_joindre,
+                })
+            }
+            None => None,
+        };
         let proc = procedure_tx(&mut tx, etab, version).await?;
         #[allow(clippy::type_complexity)]
         let etapes: Vec<(Uuid, i16, String, String, i16, String)> = sqlx::query_as(
@@ -490,6 +533,7 @@ impl PgEnt {
             numeros_masques,
             astreinte_branchee: false,
             issue_note,
+            origine,
             cas,
         })
     }

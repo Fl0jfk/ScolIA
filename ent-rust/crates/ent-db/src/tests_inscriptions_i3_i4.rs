@@ -117,7 +117,7 @@ fn controle(decision: &str, motif: Option<&str>) -> ControlePieceBody {
     }
 }
 
-fn regle(code: &str, libelle: &str, bloquante: bool, portee: &str, conditions: Vec<(&str, &str)>) -> ReglePieceDto {
+pub(super) fn regle(code: &str, libelle: &str, bloquante: bool, portee: &str, conditions: Vec<(&str, &str)>) -> ReglePieceDto {
     ReglePieceDto {
         code_type: code.into(),
         libelle: libelle.into(),
@@ -133,7 +133,7 @@ fn regle(code: &str, libelle: &str, bloquante: bool, portee: &str, conditions: V
 }
 
 /// Campagne d'admission ouverte avec la règle d'accord donnée et des règles de pièces posées explicitement.
-async fn campagne_avec(
+pub(super) async fn campagne_avec(
     ent: &PgEnt,
     c: &LaboCast,
     accord: &str,
@@ -407,7 +407,7 @@ async fn i3_regles_conditionnelles_et_reapplication() {
     assert!(ent.definir_regles_pieces_for_actor(etab, d, dr, camp, &mauvaises).await.is_err());
 }
 
-fn demarche_deux_enfants(camp: Uuid, second: Option<ResponsableFormulaireDto>) -> DemarcheBody {
+pub(super) fn demarche_deux_enfants(camp: Uuid, second: Option<ResponsableFormulaireDto>) -> DemarcheBody {
     let enfant = |prenom: &str| EnfantDemarcheBody {
         eleve: EleveFormulaireDto {
             nom: "Weasley".into(),

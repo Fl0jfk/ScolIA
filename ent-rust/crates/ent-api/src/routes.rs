@@ -10502,11 +10502,8 @@ async fn lecture_du_fil(
 
 #[derive(serde::Deserialize)]
 struct FluxQuery {
-    apres: Option<chrono::DateTime<chrono::Utc>>,
-    /// Second terme du curseur quand la réponse précédente était tronquée.
-    apres_fil: Option<Uuid>,
-    /// Troisième terme du curseur (`nouveau` ou `retire`) quand la réponse précédente était tronquée.
-    apres_genre: Option<String>,
+    /// Curseur **opaque** rendu par l'appel précédent (format `v2`, M1) ; un ancien format provoque `resynchro`.
+    apres: Option<String>,
     attente: Option<u64>,
 }
 
@@ -10519,13 +10516,16 @@ async fn flux_messagerie(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     // M-D : limite **par session** (un compte a plusieurs appareils), plafond par compte, `Retry-After` sur 429 ;
-    // un rappel de pagination (réponse précédente tronquée) n'est jamais refusé.
-    let mut place = match crate::flux_limite::limite_flux().entrer(session.user_id, session.session_id) {
+    // un rappel de pagination (réponse précédente tronquée) n'est jamais refusé (F2 : plafond compris).
+    let mut place = match state.flux_limite.entrer(session.user_id, session.session_id) {
         Ok(place) => place,
         Err(refus) => {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
-                [(axum::http::header::RETRY_AFTER, refus.retry_after_secondes().to_string())],
+                [(
+                    axum::http::header::RETRY_AFTER,
+                    state.flux_limite.retry_after_secondes(&refus).to_string(),
+                )],
                 "Trop d'interrogations du flux : patientez avant de recommencer.".to_string(),
             )
                 .into_response();
@@ -10533,12 +10533,13 @@ async fn flux_messagerie(
     };
     let flux = match state
         .ent
-        .flux_messagerie_for_actor(
+        .flux_messagerie_reglages(
             session.etablissement_id,
             session.user_id,
             &session.role,
-            q.apres.map(|a| (a, q.apres_fil, q.apres_genre.clone())),
+            q.apres.as_deref(),
             q.attente.unwrap_or(0),
+            state.flux_reglages,
         )
         .await
     {

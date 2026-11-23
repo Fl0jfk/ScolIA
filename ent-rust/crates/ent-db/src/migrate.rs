@@ -399,8 +399,14 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // « soir » complémentaire, attendu qui lit les absences et les sorties. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2826_internat_i3_absences_sorties"),
     m!("2827_internat_i3_suites"),
-    // Socle 42, lot V3 : lien séjour ↔ internat ; référence `ent_internat_retrait` (2824), d'où l'ordre APRÈS le socle 41.
+    // Socle 42, lot V3 : lien séjour ↔ internat ; référence `ent_internat_retrait` (2824), d'où l'ordre APRÈS le socle 41 (I3).
+    // Elle redéfinit `ent_internat_attendu_calcule` : la version de 2829 (I4) en reprend le texte et y ajoute sa branche, d'où
+    // l'ordre 654 AVANT 2828-2829 (sans quoi 654 écraserait la branche des sorties de groupe).
     m!("654_sortie_internat_lien"),
+    // Socle 41, lot I4 (vie quotidienne) : sorties de groupe (2828) ; liaison codée, événements de nuit, temps du soir,
+    // préoccupation (2829, qui reprend l'attendu de 654). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2828_internat_i4_sorties_groupe"),
+    m!("2829_internat_i4_vie_quotidienne"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),
@@ -452,6 +458,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("312_inscription_accord"),
     // Socle 3, lot I5 (plage 313–329) : décisions en ajout seul, avis, commissions, liste d'attente, propositions, conditions.
     m!("313_inscription_decision_i5"),
+    // Passe 3 du lot I5 (314) : décision caduque, séquence de l'ordre d'attente, réparation de la chaîne, gardes à
+    // `search_path` fixé. 313 est versée et ne change pas (règle 25). Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("314_inscription_decision_i5_passe3"),
     // Socle 32 (espaces de travail), lots ET0 et ET1 (plage 2640–2643) : ces migrations référencent `ent_personne`
     // (120), `ent_objet` (500, index unique de 2402) et `ent_rls_poser` (580) ; elles sont appliquées après eux.
     // Leur numéro reste sous 3808 : `MIGRATION_TAG` (plus haut numéro du répertoire) est inchangé.
@@ -474,6 +483,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("489_msg_m6_lecture"),
     // Correctifs de la revue de sécurité de M5-M6 (490 : annulation d'un message différé, journal d'ouverture des liens).
     m!("490_msg_correctifs_revue"),
+    // Correctifs de la revue des suites M12 (491) : annulation d'un différé corrigé (versions), curseur du flux en `xid8`.
+    // Sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
+    m!("491_msg_annulation_versions_flux_xid"),
     // Socle 2 (3201) : un seul jour de l'établissement (réglage officiel du fuseau d'abord) ; sous 3808.
     m!("3201_jour_etablissement_unique"),
     // Socle 21 (évaluations), lot V1 « modèle et reprise » (plage 461–479 ; 460 = V0) : règles de calcul, évaluations,

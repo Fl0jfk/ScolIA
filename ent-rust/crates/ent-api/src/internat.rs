@@ -51,6 +51,7 @@ pub fn routes() -> Router<AppState> {
         .route("/internat/parametres", get(parametres).put(modifier_parametres))
         .merge(crate::internat_nuit::routes())
         .merge(crate::internat_sorties::routes())
+        .merge(crate::internat_vie::routes())
 }
 
 #[derive(Debug, Deserialize)]
