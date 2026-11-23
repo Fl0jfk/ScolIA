@@ -341,6 +341,7 @@ async fn offres_des_dossiers_tx(
 ///   toucher les autres dossiers de la liste ;
 /// * les dossiers ensuite, triés par UUID, en `FOR NO KEY UPDATE` (comme un `UPDATE` ordinaire) ;
 /// * les propositions en dernier (par `verrouiller_proposition_tx`).
+///
 /// On **attend** : l'ordre étant unique, attendre ne produit jamais d'interblocage. Les verrous déjà tenus ne coûtent rien
 /// (réentrants). Aucun autre `FOR UPDATE` sur une offre ou un dossier n'existe dans les fichiers d'inscription (garde statique).
 pub(crate) async fn verrouiller_dans_l_ordre_tx(
