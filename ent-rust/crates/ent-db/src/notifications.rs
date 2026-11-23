@@ -1117,13 +1117,15 @@ impl Expediteur {
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
         let existe = match controle.derniere {
-            Some((id, existe)) if e.source_id == Some(id) => Ok(existe),
+            // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque
+            // envoi (contre-revue, F3 : une annulation pendant le lot rattrape aussi le SMS qui suit le push).
+            Some((id, false)) if e.source_id == Some(id) => Ok(false),
             _ => self.message_source_existe(e).await,
         };
         match existe {
             Ok(existe) => {
-                if let Some(id) = e.source_id {
-                    controle.derniere = Some((id, existe));
+                if let (Some(id), false) = (e.source_id, existe) {
+                    controle.derniere = Some((id, false));
                 }
                 if !existe {
                     self.finaliser(e, Issue::Ignore("message_annule"), None, bilan, maintenant).await?;
@@ -1133,18 +1135,29 @@ impl Expediteur {
             Err(err) => {
                 controle.derniere = None;
                 tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté");
-                let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
-                sqlx::query(
-                    "UPDATE ent_notification_envoi SET statut = 'en_attente', tentative_le = NULL
-                      WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'",
-                )
-                .bind(e.etablissement_id)
-                .bind(e.id)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-                tx.commit().await.map_err(db)?;
-                bilan.reportes += 1;
+                // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
+                // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
+                let reporte: Result<(), EntDbError> = async {
+                    let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
+                    sqlx::query(
+                        "UPDATE ent_notification_envoi SET statut = 'en_attente', tentative_le = NULL
+                          WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'",
+                    )
+                    .bind(e.etablissement_id)
+                    .bind(e.id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    tx.commit().await.map_err(db)?;
+                    Ok(())
+                }
+                .await;
+                match reporte {
+                    Ok(()) => bilan.reportes += 1,
+                    Err(err) => {
+                        tracing::error!(error = %err, avis = %e.id, "expéditeur : report de l'avis impossible, avis laissé en envoi")
+                    }
+                }
                 Ok(false)
             }
         }

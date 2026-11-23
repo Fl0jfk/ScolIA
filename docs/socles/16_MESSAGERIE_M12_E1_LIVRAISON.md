@@ -146,3 +146,9 @@ Le correctif ci-dessus (b529b2f9) n'a eu aucune CI : ENT avait de nouveau avanc�
 
 ### Tête et CI (passe 3)
 Tête testée par la CI : `a9aa9b06` (PR 133, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (tous les jobs, PostgreSQL 18). Les commits suivants ne touchent que ce fichier de documentation.
+
+### Correctifs du pilote après contre-revue des suites (passe 3)
+- **M2** : un échec du report d'un avis (base indisponible pendant la remise en `en_attente`) n'interrompt plus le lot ; il est journalisé (`tracing::error!`) et l'avis, resté `envoi`, est traité au passage suivant comme un envoi interrompu.
+- **F3** : seul le résultat « message inexistant » est gardé en cache dans un lot ; « existe » se relit avant **chaque** envoi (une annulation pendant le lot rattrape aussi le SMS qui suit le push).
+- Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_messagerie_p*` : 14 verts.
+- **En file (suites E1, passe 4)** : M1 (jeton d'annulation : `p_auteur` libre ; documenter, `REVOKE EXECUTE … FROM PUBLIC` + `GRANT` au rôle applicatif), F1 (attente de verrou cumulée au-delà de `perime_apres`), F5 (test `message_existe_sous_verrou` sous rôle applicatif non propriétaire), F6 (observation `xmin` hors flux, mutex empoisonné journalisé), F7 (F-6 : vrai flux famille, co-parent), F8 (filtre `pg_stat_activity` du test de course).
