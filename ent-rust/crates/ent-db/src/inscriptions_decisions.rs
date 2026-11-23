@@ -1951,8 +1951,11 @@ async fn commission_ouverte_tx(
     id: Uuid,
 ) -> Result<(Uuid, String), EntDbError> {
     sqlx::query_as(
+        // FOR NO KEY UPDATE (contre-revue de la passe 4, M-1) : compatible avec le KEY SHARE de la clé étrangère
+        // `commission_id` d'une décision de la même séance ; FOR UPDATE formait un cycle avec une décision qui tient
+        // l'offre et le dossier (publication de séance ↔ décision de séance).
         "SELECT campagne_id, statut FROM ent_inscription_commission
-          WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+          WHERE etablissement_id = $1 AND id = $2 FOR NO KEY UPDATE",
     )
     .bind(etab)
     .bind(id)
