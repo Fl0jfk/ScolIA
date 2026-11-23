@@ -327,3 +327,42 @@ Fusion d'`origin/ENT` (`f298bc7a`, internat I4, messagerie M12/E1, cahier C8/C9)
 ### Tête et CI (passe 3)
 * PR n° 127, **brouillon**, vers `ENT`. Première CI (`06be5c4e`) : rouge, **cause unique** — la garde statique `garde_rls_stricte` refusait `TenantTx::begin_lecture_coherente` (accès « direct » au pool) ; déclarée dans la garde, test rejoué en local.
 * Tête de code finale : **`d495fe98`**. **CI verte** sur cette tête (41 jobs, aucun échec). Statut : **implémenté, testé, CI verte** ; non validé par la relecture du pilote ; non prêt pilote, non prêt production.
+
+
+## Passe 4 (nouveau modèle de verrous) — branche `ent-socle-3-code-i5-p4`
+
+Départ : `origin/ENT` (passe 3 versée). **313 et 314 ne changent pas** (règle 25) ; tout passe par la **315** (`315_inscription_decision_i5_passe4`, après 314 dans `migrate.rs`).
+Trois passes n'ayant pas fermé l'ordre des verrous, la passe 4 **change de modèle** au lieu de recoller des verrous. Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve `ent_test_p4`) ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+
+### Le modèle
+1. **Le rang n'est plus stocké, il se calcule en lecture.** `compacter_rangs_tx` disparaît. Fonction SQL unique `ent_inscription_rang_attente(etab, dossier, famille)` : `row_number()` sur `ordre_attente` (jamais renuméroté), parmi les dossiers en liste (personnel) ou parmi les seules entrées et sorties **publiées** (`ent_inscription_en_liste_visible`, famille). Tous les appelants passent par `rang_calcule_tx`. `rang_attente` est conservée **en lecture seule** pour la reprise (déclencheur ; `COLS_DOSSIER` ne la lit plus). La désignation (`SUIVANT_A_DESIGNER`), la liste d'attente et les propositions trient sur `ordre_attente`.
+2. **Un verrou unique et grossier par offre, pris en premier.** `verrouiller_dans_l_ordre_tx` (**seul** point du dépôt) : campagne (`FOR NO KEY UPDATE`, seulement `modifier_offre_for_actor`) → offres (`pg_advisory_xact_lock(ent_inscription_offre_cle(offre))`, triées par UUID) → dossiers (triés par UUID, `FOR NO KEY UPDATE`) → propositions. `verrouiller_dossiers_tx` lit les offres d'un dossier, verrouille, relit : un dossier déplacé entre-temps donne un **conflit réessayable** (la transaction s'arrête, elle n'attend jamais hors ordre). `dossier_tx` passe par là : **tout** verrou de dossier est précédé du verrou de ses offres. Plus de `NOWAIT`, plus de fenêtre de dossiers, plus de verrou de campagne en décision. Garde statique (`p4_garde_statique_un_seul_point_de_verrou`) : aucun `FOR UPDATE` / `FOR NO KEY UPDATE` sur une offre ou un dossier, aucun `pg_advisory`, `NOWAIT`, `SKIP LOCKED` sur la liste, `compacter_rangs` ou écriture de `rang_attente` hors de la fonction.
+3. **Contrôle d'écart avant les verrous de lot (F3)** : `decider_tx`, `verrouiller_proposition_tx`, `publier_ou_programmer_tx` (qui résout d'abord offres et dossiers de la séance, écarte les dossiers écartés, puis verrouille **une seule fois**).
+
+### Correctifs de la contre-revue
+| N° | Fait |
+|---|---|
+| M1, M1b, M1c | ordre unique ; publication de séance en un lot ; `modifier_offre` : campagne puis offre |
+| M3 | vœu créé par une décision : `origine = 'decision'`, exporté seulement quand une décision publiée du dossier retient l'offre ; test qui **exécute la vraie condition de chaque table** à règle de ligne (et échoue si une table nouvelle n'a pas de cas) |
+| M4 | export des conditions : seul le bout de chaîne (sans successeur) bloque |
+| M5 | test `search_path` : table temporaire **remplie**, deux sens (prédécesseur seulement temporaire → refusé ; prédécesseur réel → accepté) |
+| M6 (D-069) | `etats_compatibles(sens)` : `admis`/`admis_sous_reserve` → {admis, confirme} ; `liste_attente` → {liste_attente} ; `refuse` → {refuse} ; `ajourne` → {en_instruction, attente_famille} (l'ajournement reporte l'examen, que le dossier attende la famille ne le contredit pas) ; décision caduque → **avis interne** à la direction et à l'auteur (`ent_notification`, titre sans nom d'élève, référence seulement, idempotent) |
+| F1 | `dossier_dto` : une transaction, **une connexion** (campagne, responsables, invitations, fermeture comprises), état du dossier relu dans le snapshot ; test avec un pool d'une connexion |
+| F5 | `40P01` n'est plus un conflit métier : `DomainError::Reessayer` (classe 40, 503) ; test avec un vrai interblocage ; aucun test ne l'accepte |
+| F6 | `place_no`, `origine`, `designee_le` hors export (colonnes vérifiées réelles) |
+
+### Tests (tests_inscriptions_i5_passe4.rs, 14)
+Concurrence **déterministe** : une connexion externe tient le verrou de l'offre ; l'opération attend (`pg_locks` non accordé + `wait_event_type = 'Lock'`) ; **aucun dossier n'est tenu** pendant l'attente (`FOR UPDATE NOWAIT` externe réussit) ; on relâche ; elle aboutit. Scénarios : désistement du rang 3 pendant une décision sur le rang 20 (25 dossiers) ; déplacements croisés A→B / B→A (les deux attendent d'abord la plus petite offre) et campagne indépendante qui n'attend pas ; publication de séance concurrente d'une décision ; capacité concurrente d'une décision ; deux réutilisations croisées ; contrôle d'écart (offre **et** dossier tenus par l'extérieur : « introuvable » immédiat).
+Point d'interprétation : « entre deux campagnes » — une offre voulue doit appartenir à la campagne du dossier, un croisement A→B / B→A a donc lieu dans une campagne ; le verrou de campagne qui le sérialisait a disparu, et une seconde campagne est testée comme n'attendant pas.
+
+### Preuve rouge sur le code d'avant
+Les mêmes tests lancés sur une copie d'`origin/ENT` (base neuve `ent_test_p4_ref`) : **11 rouges sur 14** — les 5 scénarios de concurrence échouent parce que l'opération **n'attend pas** le verrou de l'offre (0 attente) ; rang/clé, export (colonne `origine`), caducité, garde statique, `dossier_dto` (pool d'une connexion : erreur d'infrastructure) et interblocage échouent aussi ; le contrôle d'écart attend le dossier tenu (délai dépassé) ; seul `p4_garde_search_path_table_temporaire_remplie` est vert sur les deux (314 était déjà juste : c'est une garde de non-régression, **non démontrée rouge**).
+
+### Non fait / limites
+* Les dossiers modifiés en masse par un `UPDATE` (prolongation, fermeture) ne passent pas par `verrouiller_dossiers_tx` : ils tiennent des verrous de ligne sans verrou d'offre (non couvert par la garde, risque résiduel faible : aucun ne prend ensuite un verrou d'offre).
+* Un dossier déplacé entre la lecture de ses offres et leur verrouillage rend un conflit réessayable (409) : rare, jamais d'attente hors ordre.
+* 313 versée : `information_schema` non filtré par schéma dans ses tests historiques (inchangé).
+
+### Vérifications locales
+* Base neuve `ent_test_p4` (nom contenant « test »), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0. **Leçon** : après avoir bâti une copie de référence dans le même répertoire de compilation, `touch` des sources avant de rejouer (règle 22) — un binaire de l'ancien code a faussé un rejeu.
+* `ent-db` (labo) : 278 tests (`inscriptions`, `r_m4`, `registre`, `migrat`, `d036`, `export`, `rgpd`, `p2_`, `i5_`, `p3_`) verts ; les 14 de la passe 4 verts.
