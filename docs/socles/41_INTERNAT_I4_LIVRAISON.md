@@ -189,3 +189,7 @@ Branche `ent-socle-41-code-i4-suites` (base `origin/ENT`, PR en brouillon vers `
 - Compteurs (règle 28) : migrations +1 (**2830**) ; `MIGRATION_TAG` inchangé (3808) ; `Action::TOUTES`, RLS, registre des tables, `TABLES_ELEVE`, `SOURCES` : **inchangés** (aucune table, aucune action, aucune route) ; événements +1 (`internat.retour_demande`) ; consommateurs +0 (`i4.internat_alertes` écoute un type de plus) ; routes +0.
 - `cargo metadata --locked` dans `ent-rust/web` : OK (aucun `Cargo.lock` modifié). `rustfmt` ciblé sur les fichiers déjà propres (pas de `cargo fmt --all`).
 - **Écart d'outillage, à lire** : le conteneur ne fournit que **rustc/clippy 1.97.0**, pas 1.99.0. Clippy 1.97 `-D warnings` sur `ent-db` (bibliothèque, avec et sans `labo`) : **0 avertissement** ; sur les cibles de test il ne signale que deux `unwrap_err` après `is_err` dans `tests_voyages_v2a.rs:865,877` (fichier non touché, lint propre à 1.97). Le workspace entier et `ent-lab` n'ont pas pu être linté en local (mémoire du conteneur, arrêts par le noyau) : c'est la CI (1.99) qui fait foi pour les trois commandes.
+### Tête et CI (passe 3)
+
+- Tête de code poussée : `ce0438d9` ; PR n° 131, laissée en brouillon vers `ENT`. `origin/ENT` n'a pas bougé depuis la base : aucune fusion, aucun compteur à recalculer.
+- CI « ENT Rust » sur `ce0438d9` : **verte** (run 45183332228), y compris clippy 1.99 sur le workspace et `ent-lab`. Les commits suivants ne touchent que cette documentation.
