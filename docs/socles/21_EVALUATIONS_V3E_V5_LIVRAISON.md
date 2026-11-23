@@ -260,3 +260,41 @@ Branche `ent-socle-21-code-v5-suites`, PR brouillon #125 vers `ENT`. Tête de co
 * **Tête du code :** `4f834e20ac72470d77ae90e6ac6fcadb98f83242` (PR brouillon #132, `ent-socle-21-code-v5-suites-3` → `ENT`).
 * **CI « ENT Rust » sur cette tête : verte** (`completed/success`, y compris `separation.rs` et les tests `ent-web-server` non exécutés en local).
 * Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**` : le filtre de chemins de la CI ne le relance pas ; la CI de référence reste celle de `4f834e20`.
+
+## 11. Suites (passe 4) — branche `ent-socle-21-code-v5-suites-4`, depuis `origin/ENT` ae6e4fc1
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `ent_p4_test`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`, un seul `CARGO_TARGET_DIR`). Non validé par Florian ; non prêt pilote. **Aucune migration** (règles d'export seulement, dans `registre_donnees.rs`).
+
+### 11.1 Fait / non fait
+
+| Point | Réalisation |
+|---|---|
+| **1. M2 : export des autres tables `eva_*`** | Décision table par table ci-dessous (droit d'accès de la famille ou de l'élève, RGPD art. 15 ; D-069 : seul le publié). |
+| **2. Test de registre** | `toute_table_eva_exportee_est_declaree` : toute table `eva_*` / `ent_eva_*` exportée porte `export_si`, `hors_export`, ou une mention `tout_exportable("raison")` (nouveau champ `export_integral`, raison d'au moins 20 caractères). Négatif : `une_table_eva_exportee_sans_declaration_est_vue` (table nue et raison vide vues ; table déclarée, non exportée et hors domaine ignorées). |
+| **3. Export de bout en bout** | `passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_interne` : sur un élève (note non publiée avec note privée, note publiée, brouillon d'appréciation, appréciation validée, demande de correction décidée), l'extrait est assemblé comme le fera G3 (`export_si`, retrait de `hors_export`, **pour toutes** les tables `eva_*` exportées ; chaque colonne retirée existe). Contrôle positif (note publiée, appréciation validée, demande de la famille) ; absents : évaluation non publiée, note privée, brouillon, auteurs et décideur internes. |
+| **4. Faibles F1–F3** | **Non traités** : le texte de l'entrée du pilote (« Faibles F1-F3 en file ») ne les détaille pas et la revue n'est pas versée dans les documents accessibles ; les deviner serait inventer. Le pilote est prié de les détailler pour une prochaine passe. (Rappel : les 8c/8d de la passe 3 restent non faits, 478 étant versée.) |
+
+**Choix table par table**
+
+| Table | Choix |
+|---|---|
+| `ent_eva_export` | **Tout exportable**, raison écrite : journal des exports faits par la personne (format, classe, période, effectif, empreinte) ; aucune note, aucun élève nommé. |
+| `eva_appreciation` | `export_si x.etat = 'validee'` (jamais brouillon ni jetée) ; `hors_export` : `auteur`, `modifie_par`, `origine_appreciation_id`. `aide_ia` reste (transparence). **Limite :** pas d'état « publiée » en base ; à resserrer avec la publication du bulletin (G3). |
+| `eva_appreciation_historique` | **Retirée de l'export** : versions successives (brouillons, textes écartés) et éditeur de chacune ; interne. |
+| `eva_correction_demande` | `hors_export` : `decide_par` (la demande, le motif et la décision sont ceux de la famille). |
+| `eva_dispense_port` | `hors_export` : `saisi_par`, `retiree_par`. |
+| `eva_enseignement_externe` | `hors_export` : `declare_par`, `referent` (tiers). |
+| `eva_evaluation_restriction` | `export_si` : évaluation publiée (sinon elle révèle une évaluation non annoncée). |
+| `eva_instantane_ligne` | **Retirée de l'export** : dérivé pris avant la publication, calculé sur des notes pas toutes publiées ; le bulletin figé (G3) porte ce que la famille a reçu. |
+| `eva_moyenne_statut` | `hors_export` : `motif_interne`, `par`. |
+| `eva_rattrapage` | `hors_export` : `cree_par`, `modifie_par`, `motif_annulation`, `dernier_motif_prolongation`, `zero_attribue_le`, `zero_attribue_par` (le zéro est une note non publiée). La convocation (date, lieu, modalité, échéance, état) sort. |
+| `eva_rattrapage_autorise` | `hors_export` : `motif`, `par`. |
+| `eva_rattrapage_historique` | `hors_export` : `par`, `motif`. |
+| `eva_revision_demande` | **Tout exportable**, raison écrite : message de la famille et réponse qui lui a été adressée (`reponse` n'existe que si l'état est « repondue »). |
+
+Les tables `ent_note_*` (hors préfixe `eva_`) ne sont pas dans le champ du test de registre ; elles restent à traiter au lot G3.
+
+### 11.2 Tests, compteurs, vérifications
+* **Nouveaux : 3** (2 de registre, 1 de bout en bout). Locaux, verts sur base neuve : `registre_donnees`, `tests_evaluations_v5`, `extrait_personne`, `tests_rls::`, `migrate::`, `garde_` : **124/124** avec `labo` ; gardes statiques et registre rejoués **sans** `labo` : 29/29.
+* **Compteurs (règle 28)** : 0 table, 0 migration (`migrate.rs` et `MIGRATION_TAG` inchangés), `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES` inchangés ; le registre ne change que par des règles d'export et le champ `export_integral`.
+* **Clippy 1.99.0 : 0 avertissement** sur les deux commandes de la CI (`--workspace --all-targets`, avec et sans `ent-api/labo,ent-lab/labo`, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` : OK. rustfmt : les fichiers touchés n'étaient pas conformes avant ce lot (aucun `cargo fmt --all`) ; lignes ajoutées écrites au format.
