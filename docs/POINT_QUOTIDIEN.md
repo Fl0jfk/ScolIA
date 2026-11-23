@@ -30,7 +30,9 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
   - **Correctifs du pilote** : une moyenne corrigée sous 477 est dépubliée ; l'export ne contient plus de champs internes (note privée, « aménagé »).
 - **Transverse T1** (PR 129, migration 690) : aucune fonction de la base ne peut plus être trompée par une table temporaire. Trois fonctions exécutées avec les droits du propriétaire étaient exposées. Nouvelle **règle 38** : toute migration s'ajoute après 690, et toute fonction SQL fixe son chemin de recherche.
 
-**Prêt mais pas encore sur ENT**
+**Versé depuis (19 h 45)** : I5 passe 4 (PR 130, ENT = ae6e4fc1).
+
+**Prêt mais pas encore sur ENT** (au moment du point)
 - Socle 3, **inscriptions I5 passe 4** (PR 130) : **nouveau modèle de verrous**, décidé après trois passes qui n'avaient pas fermé les interblocages. Le rang d'attente est calculé à la lecture, et toute écriture prend d'abord un verrou unique par offre. Les tests de concurrence sont déterministes : 11 sur 14 échouent sur l'ancien code.
 - La contre-revue n'a trouvé aucun point élevé. Correctif du pilote : le verrou de la commission empêche désormais l'interblocage entre une publication de séance et une décision de la même séance.
 - CI en cours sur ae6e4fc1 ; versement dès qu'elle est verte.
