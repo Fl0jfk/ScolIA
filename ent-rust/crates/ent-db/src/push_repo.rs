@@ -18,9 +18,13 @@ pub struct PushDevice {
 pub struct RegisterPushDevice {
     pub etablissement_id: Uuid,
     pub user_id: Uuid,
-    pub platform: PushPlatform,
+    /// Plateforme déclarée (validée par le dépôt, APRÈS le contrôle de session : F-3).
+    pub platform: String,
     pub token: String,
     pub app_id: Option<String>,
+    /// Session qui inscrit le jeton (DS1). `None` seulement par la variante explicite du labo et des
+    /// tests (inscription sans session : réinscription de moins de 30 jours exigée pour l'envoi).
+    pub session_id: Option<Uuid>,
 }
 
 pub struct InsertPushOutbox {
@@ -31,7 +35,8 @@ pub struct InsertPushOutbox {
     pub title: String,
     pub body: String,
     pub platform: Option<String>,
-    pub token: Option<String>,
+    /// Appareil visé (référence) ; l'empreinte du jeton en est déduite. Jamais le jeton (règle 3).
+    pub device_id: Option<Uuid>,
     pub status: PushSendStatus,
     pub error: Option<String>,
     pub source_aggregate: Option<String>,
@@ -48,43 +53,131 @@ impl PgPushRepo {
         Self { pool }
     }
 
+    /// Inscrit le jeton de notification d'un appareil, lié à la session qui l'inscrit (DS1).
+    /// Règle 2 : un jeton physique n'a qu'un titulaire. L'inscription d'un jeton actif pour une
+    /// **autre personne** (tous établissements) révoque l'ancienne (`reaffecte`, avec trace) et
+    /// renvoie les anciens titulaires pour l'avis de sécurité. La même personne avec une nouvelle
+    /// session met à jour `session_id` sans révocation (M3). Refus (`InvalidSession`) si la session
+    /// n'est plus vivante au moment de l'inscription (M1 : verrou partagé contre la course à la
+    /// révocation).
     pub async fn upsert_device(
         &self,
         cmd: RegisterPushDevice,
-    ) -> Result<PushDevice, DomainError> {
-        let token = cmd.token.trim().to_string();
-        if token.is_empty() {
-            return Err(DomainError::EmptyAttributValeur);
-        }
-        let id = Uuid::new_v4();
-        let platform = cmd.platform.as_str();
+    ) -> Result<(PushDevice, Vec<Uuid>), PushRepoError> {
         let mut txw = TenantTx::begin(&self.pool, cmd.etablissement_id).await.map_err(map_sqlx)?;
+        if let Some(sid) = cmd.session_id {
+            // Règle 1 : la même définition que l'envoi (`ent_session_vivante`, = `resolve_session`).
+            let vivante: Option<(i32,)> = sqlx::query_as(
+                r#"SELECT 1 FROM ent_session
+                    WHERE id = $1 AND user_id = $2 AND etablissement_id = $3
+                      AND ent_session_vivante(id)
+                    FOR SHARE"#,
+            )
+            .bind(sid)
+            .bind(cmd.user_id)
+            .bind(cmd.etablissement_id)
+            .fetch_optional(&mut *txw)
+            .await
+            .map_err(map_sqlx)?;
+            if vivante.is_none() {
+                return Err(PushRepoError::SessionMorte);
+            }
+        }
+        // F-3 : le corps n'est validé qu'APRÈS le contrôle de session (une session morte : 401 d'abord).
+        let token = cmd.token.trim().to_string();
+        if token.is_empty() || token.len() > 4096 {
+            return Err(PushRepoError::Domain(DomainError::EmptyAttributValeur));
+        }
+        let platform = PushPlatform::parse(&cmd.platform).ok_or(PushRepoError::PlateformeInconnue)?;
+        let platform = platform.as_str();
+        let empreinte = empreinte_jeton(&token);
+        let anciens: Vec<(Uuid,)> = sqlx::query_as("SELECT ent_push_reaffecter($1, $2, $3)")
+            .bind(&empreinte)
+            .bind(cmd.user_id)
+            .bind(cmd.etablissement_id)
+            .fetch_all(&mut *txw)
+            .await
+            .map_err(map_sqlx)?;
+        // F5 : l'insertion concurrente du même jeton ne donne jamais d'erreur d'unicité.
         let row = sqlx::query_as::<_, DeviceRow>(
-            r#"
-            INSERT INTO ent_push_device (
-                id, etablissement_id, user_id, platform, token, app_id,
-                last_seen_at, created_at, revoked_at
-            ) VALUES ($1,$2,$3,$4,$5,$6, now(), now(), NULL)
-            ON CONFLICT (etablissement_id, token) DO UPDATE SET
-                user_id = EXCLUDED.user_id,
-                platform = EXCLUDED.platform,
-                app_id = EXCLUDED.app_id,
-                last_seen_at = now(),
-                revoked_at = NULL
-            RETURNING id, etablissement_id, user_id, platform, token, app_id
-            "#,
+            r#"INSERT INTO ent_push_device (
+                   id, etablissement_id, user_id, platform, token, app_id,
+                   session_id, token_empreinte, last_seen_at, created_at, revoked_at
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), NULL)
+               ON CONFLICT (etablissement_id, token_empreinte) WHERE revoked_at IS NULL
+               DO UPDATE SET platform = EXCLUDED.platform, app_id = EXCLUDED.app_id,
+                             session_id = EXCLUDED.session_id, last_seen_at = now()
+                  WHERE ent_push_device.user_id = EXCLUDED.user_id
+               RETURNING id, etablissement_id, user_id, platform, token, app_id"#,
         )
-        .bind(id)
+        .bind(Uuid::new_v4())
         .bind(cmd.etablissement_id)
         .bind(cmd.user_id)
         .bind(platform)
         .bind(&token)
         .bind(&cmd.app_id)
-        .fetch_one(&mut *txw)
+        .bind(cmd.session_id)
+        .bind(&empreinte)
+        .fetch_optional(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        // Aucune ligne : une autre personne détient une inscription active de ce jeton dans cet
+        // établissement ET ne l'a pas passée par `ent_push_reaffecter` (écriture directe concurrente :
+        // toute inscription de l'API prend le même verrou consultatif, donc ne peut pas s'intercaler ;
+        // la ligne rivale ne peut être qu'une écriture hors API non encore validée). On refuse plutôt
+        // que de réaffecter en silence : conflit (409), jamais une erreur serveur (F-3).
+        let Some(row) = row else {
+            return Err(PushRepoError::Conflit);
+        };
         txw.commit().await.map_err(map_sqlx)?;
-        Ok(row.into_device())
+        let mut anciens: Vec<Uuid> = anciens.into_iter().map(|(u,)| u).collect();
+        anciens.sort();
+        anciens.dedup();
+        Ok((row.into_device(), anciens))
+    }
+
+    /// Relit le jeton d'un appareil **au moment de l'envoi** : `None` si l'inscription n'est plus
+    /// active (révoquée, session morte) entre la sélection et l'envoi : rien n'est alors envoyé.
+    pub async fn relire_jeton(
+        &self,
+        etablissement_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<Option<String>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let r: Option<(String,)> = sqlx::query_as(
+            r#"SELECT token FROM ent_push_device
+                WHERE id = $1 AND etablissement_id = $2
+                  AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id)"#,
+        )
+        .bind(device_id)
+        .bind(etablissement_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(r.map(|(t,)| t))
+    }
+
+    /// DS4 : désinscription par la personne propriétaire. `false` si rien à révoquer.
+    pub async fn desinscrire_device(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let n = sqlx::query(
+            r#"UPDATE ent_push_device SET revoked_at = now(), revoque_motif = 'desinscription'
+                WHERE id = $1 AND etablissement_id = $2 AND user_id = $3 AND revoked_at IS NULL"#,
+        )
+        .bind(id)
+        .bind(etablissement_id)
+        .bind(user_id)
+        .execute(&mut *txw)
+        .await
+        .map_err(map_sqlx)?
+        .rows_affected();
+        txw.commit().await.map_err(map_sqlx)?;
+        Ok(n > 0)
     }
 
     pub async fn list_active_for_users(
@@ -101,7 +194,7 @@ impl PgPushRepo {
             FROM ent_push_device
             WHERE etablissement_id = $1
               AND user_id = ANY($2)
-              AND revoked_at IS NULL
+              AND ent_push_actif(revoked_at, session_id, last_seen_at, user_id, etablissement_id)
             "#,
         )
         .bind(etablissement_id)
@@ -122,9 +215,11 @@ impl PgPushRepo {
             r#"
             INSERT INTO ent_push_outbox (
                 id, etablissement_id, eleve_id, user_id, kind, title, body,
-                platform, token, status, error, source_aggregate, source_id,
+                platform, device_id, token_empreinte, status, error, source_aggregate, source_id,
                 message_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+                (SELECT token_empreinte FROM ent_push_device WHERE id = $9 AND etablissement_id = $2),
+                $10,$11,$12,$13,$14, now())
             "#,
         )
         .bind(id)
@@ -135,7 +230,7 @@ impl PgPushRepo {
         .bind(&row.title)
         .bind(&row.body)
         .bind(&row.platform)
-        .bind(&row.token)
+        .bind(row.device_id)
         .bind(status_str(row.status))
         .bind(&row.error)
         .bind(&row.source_aggregate)
@@ -188,6 +283,28 @@ impl PgPushRepo {
         Ok(row.0)
     }
 
+}
+
+/// Échec d'inscription : session morte (401) ou erreur de domaine.
+#[derive(Debug)]
+pub enum PushRepoError {
+    SessionMorte,
+    /// Plateforme non reconnue (403, comme avant).
+    PlateformeInconnue,
+    /// Une autre personne détient déjà ce jeton (409) : voir `upsert_device`.
+    Conflit,
+    Domain(DomainError),
+}
+
+impl From<DomainError> for PushRepoError {
+    fn from(e: DomainError) -> Self {
+        Self::Domain(e)
+    }
+}
+
+/// Empreinte SHA-256 (hexadécimal) du jeton : on le retrouve sans le relire (DS3).
+fn empreinte_jeton(token: &str) -> String {
+    ent_auth::hash_token(token)
 }
 
 fn status_str(s: PushSendStatus) -> &'static str {

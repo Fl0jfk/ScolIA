@@ -206,6 +206,10 @@ const N_ESPACE_RESERVATION: Neutralisation = Neutralisation::Maj {
     set: "liberee_le = now(), liberee_motif = 'restauration'",
     ou: "confirmee_le IS NULL AND liberee_le IS NULL",
 };
+const N_PUSH_DEVICE: Neutralisation = Neutralisation::Maj {
+    set: "revoked_at = now(), revoque_motif = 'restauration'",
+    ou: "revoked_at IS NULL",
+};
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {
     set: "statut = 'echec', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_distribuer'",
@@ -985,7 +989,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_psy_rdv", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_punition", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_punition_type", "vie_scolaire", Portee::Etablissement),
-    t("ent_push_device", "communication_technique", Portee::Etablissement).perso().export(),
+    // MB0 (DS5, F5) : la personne reçoit les métadonnées de ses appareils (plateforme, dates, état), jamais le
+    // jeton ni son empreinte ; à la restauration, tous les appareils actifs sont révoqués (plus aucun envoi).
+    t("ent_push_device", "communication_technique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["token", "token_empreinte"])
+        .neutralise(N_PUSH_DEVICE),
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
     t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
