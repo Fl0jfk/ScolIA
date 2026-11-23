@@ -407,9 +407,6 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // préoccupation (2829, qui reprend l'attendu de 654). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2828_internat_i4_sorties_groupe"),
     m!("2829_internat_i4_vie_quotidienne"),
-    // Suites d'I4 (passe 3) : contraintes nommées (motif du participant, acte des faits) ; 2828-2829 sont versées. `MIGRATION_TAG`
-    // inchangé (3808). Si 690 (T1) est versée : elle reste la dernière du tableau, 2830 la précède.
-    m!("2830_internat_i4_suites"),
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),
@@ -536,6 +533,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // `CREATE OR REPLACE FUNCTION` porte `SET search_path = pg_catalog, public, pg_temp` (la garde `garde_search_path`
     // l'exige sur base neuve et après `rejouer_tout`). Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("690_t1_search_path_fonctions"),
+    // Suites d'I4 (passe 3) : contraintes nommées (motif du participant, acte des faits) ; 2828-2829 sont versées.
+    // Règle 38 : APRÈS 690 (aucune fonction créée ici). `MIGRATION_TAG` inchangé (3808).
+    m!("2830_internat_i4_suites"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
