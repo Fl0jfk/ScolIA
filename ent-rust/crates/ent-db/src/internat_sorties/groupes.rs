@@ -21,6 +21,7 @@
 //!
 //! Chaque fonction `*_a` reçoit l'instant (`maintenant`) : aucun test ne dépend de l'heure réelle.
 
+use super::actes::{fin_savepoint_revue, ouvrir_savepoint_revue};
 use super::*;
 use ent_types::internat_vie::*;
 
@@ -128,6 +129,35 @@ async fn parametres_vie_tx(conn: &mut PgConnection, etab: Uuid) -> Result<(i16, 
         .await
         .map_err(db)?;
     sqlx::query_as("SELECT groupe_eleves_par_encadrant, groupe_preavis_heures FROM ent_internat_parametres_vie WHERE etablissement_id = $1")
+        .bind(etab)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)
+}
+
+/// F-e : lit un réglage de vie quotidienne et ne crée la ligne de l'établissement que si elle manque (les veilles passent
+/// chaque minute : aucune écriture quand les réglages existent). `colonne` est une constante du code, jamais une saisie.
+pub(super) async fn reglage_vie_ou_creer_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    colonne: &'static str,
+) -> Result<i16, EntDbError> {
+    let requete =
+        format!("SELECT {colonne} FROM ent_internat_parametres_vie WHERE etablissement_id = $1");
+    if let Some(v) = sqlx::query_scalar(&requete)
+        .bind(etab)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?
+    {
+        return Ok(v);
+    }
+    sqlx::query("INSERT INTO ent_internat_parametres_vie (etablissement_id) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(etab)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    sqlx::query_scalar(&requete)
         .bind(etab)
         .fetch_one(&mut *conn)
         .await
@@ -394,7 +424,7 @@ async fn participant_tx(
 }
 
 /// Une sortie de groupe est-elle dans les bornes du type « soirée » ? (règle générale 2) : durée au plus égale à
-/// `duree_max_heures` du type, même jour local, aucune nuit couverte. Hors de ces bornes, l'accord annuel « sortie de
+/// `duree_max_heures` du type, même jour local, aucune part dans la nuit (début avant 6 h) ni nuit couverte. Hors de ces bornes, l'accord annuel « sortie de
 /// soirée » ne vaut pas : la famille répond explicitement.
 async fn dans_les_bornes_soiree_tx(
     conn: &mut PgConnection,
@@ -405,9 +435,14 @@ async fn dans_les_bornes_soiree_tx(
     if !t.actif || g.fin - g.debut > Duration::hours(i64::from(t.duree_max_heures)) {
         return Ok(false);
     }
-    let meme_jour: bool = sqlx::query_scalar(
+    // Même jour local ET aucune part dans la nuit : la sortie ne commence pas dans les heures de sommeil (de minuit au matin
+    // 6 h). Une sortie de 0 h 30 à 2 h 00 reste sur un seul jour local, mais elle recoupe la nuit (M4) ; une sortie de
+    // 21 h à 23 h, qui rentre avant minuit, reste une soirée. Les sorties qui franchissent minuit sont déjà exclues par
+    // « même jour ».
+    let (meme_jour, dans_la_nuit): (bool, bool) = sqlx::query_as(
         "SELECT ($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date \
-              = ($3::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date",
+              = ($3::timestamptz AT TIME ZONE ent_internat_fuseau($1))::date, \
+                ($2::timestamptz AT TIME ZONE ent_internat_fuseau($1))::time < TIME '06:00'",
     )
     .bind(etab)
     .bind(g.debut)
@@ -415,7 +450,7 @@ async fn dans_les_bornes_soiree_tx(
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
-    Ok(meme_jour && nuits_couvertes_tx(conn, etab, g.debut, g.fin).await? == 0)
+    Ok(meme_jour && !dans_la_nuit && nuits_couvertes_tx(conn, etab, g.debut, g.fin).await? == 0)
 }
 
 /// Un élève ne peut pas être à deux endroits à la fois (F9) : un temps du soir où il est inscrit, ou une autre sortie de
@@ -1087,6 +1122,21 @@ impl PgEnt {
                 if p.1 == "retire" {
                     return Err(conflit("un élève retiré de cette sortie n'y revient pas : créer une nouvelle sortie"));
                 }
+            }
+        }
+        // F-c : une sortie acceptée dont des élèves sont déjà partis ne repasse pas « soumise » (la base l'interdit) : on le
+        // dit clairement plutôt que de laisser remonter une erreur de base.
+        if g.statut == "acceptee" && !retenus.is_empty() {
+            let existants = participants_tx(&mut tx, etab, id).await?;
+            let nouveau = retenus.iter().any(|e| !existants.iter().any(|p| p.0 == *e));
+            if nouveau
+                && existants
+                    .iter()
+                    .any(|p| matches!(p.1.as_str(), "parti" | "rentre"))
+            {
+                return Err(conflit(
+                    "des élèves sont déjà partis : on n'ajoute plus d'invités à cette sortie, créer une nouvelle sortie pour eux",
+                ));
             }
         }
         self.groupe_inviter(&mut tx, etab, &g, &retenus, actor, maintenant)
@@ -1811,7 +1861,25 @@ impl PgEnt {
                 jour,
             )
             .await?;
-        if !titulaire.is_some_and(|peut| peut) {
+        // F-g : un REFUS est plus restrictif : il s'enregistre toujours pour un parent ayant l'autorité parentale, même interdit (la trace
+        // nomme l'auteur et la date) ; seul un ACCORD exige un titulaire qui peut agir. Une personne qui n'est pas titulaire
+        // de l'élève ne bloque rien.
+        let admis_a_saisir = if b.accord {
+            titulaire.is_some_and(|peut| peut)
+        } else {
+            titulaire.is_some()
+                || sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l WHERE l.etablissement_id = $1 AND l.eleve_id = $2 \
+                                      AND l.personne_id = $3 AND l.autorite_parentale)",
+                )
+                .bind(etab)
+                .bind(eleve)
+                .bind(b.donne_par_personne_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?
+        };
+        if !admis_a_saisir {
             return Err(refus("cet accord ne peut pas être enregistré"));
         }
         // F3 : la pièce justificative existe, dans cet établissement, et concerne cet élève ou cette personne.
@@ -1956,10 +2024,30 @@ impl PgEnt {
                 tombe
             }),
             Some("annuelle") => {
-                let tient = dans_les_bornes_soiree_tx(conn, etab, g).await?
-                    && verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await
-                        == "autorise";
-                Ok(if tient { None } else { tombe })
+                if !dans_les_bornes_soiree_tx(conn, etab, g).await? {
+                    // F-a : hors des bornes « soirée » (durée, jour, nuit, type désactivé), ce n'est pas une interdiction.
+                    return Ok(Some("accord_annuel_tombe"));
+                }
+                if verdict_annuel(self, conn, etab, eleve, "sortie_soiree", jour).await
+                    == "autorise"
+                {
+                    return Ok(None);
+                }
+                // Le verdict n'est plus « autorisé » : « interdiction » seulement si un décideur de l'accord est visé par
+                // une interdiction ; sinon l'accord annuel a simplement été retiré ou n'a plus de décideur valable.
+                let deciders = deciders_annuel_tx(conn, etab, "sortie_soiree", &[eleve]).await?;
+                let couples: Vec<(Uuid, Uuid)> = deciders
+                    .get(&eleve)
+                    .into_iter()
+                    .flatten()
+                    .map(|u| (eleve, *u))
+                    .collect();
+                let vises = comptes_vises_tx(conn, etab, &couples, jour).await?;
+                Ok(Some(if vises.is_empty() {
+                    "accord_annuel_tombe"
+                } else {
+                    "interdiction"
+                }))
             }
             _ => Ok(tombe),
         }
@@ -2815,8 +2903,8 @@ impl PgEnt {
                SELECT tp.eleve_id, t.fin, 'activité du soir'::text \
                  FROM ent_internat_temps_participant tp \
                  JOIN ent_internat_temps t ON t.etablissement_id = tp.etablissement_id AND t.id = tp.temps_id \
-                WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL AND tp.retire_le IS NULL \
-                  AND t.nature = 'activite' AND t.statut = 'prevu' AND tp.eleve_id = ANY($2)) x \
+                WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL \
+                  AND t.nature = 'activite' AND tp.eleve_id = ANY($2)) x \
               ORDER BY eleve_id, retour",
         )
         .bind(etab)
@@ -2899,36 +2987,45 @@ impl PgEnt {
     /// Règle 1 (tâche périodique, pas un point de lecture) : tout élève « parti » d'une sortie de groupe ou en activité du
     /// soir et non rentré à l'heure de fin prévue + tolérance de l'établissement ouvre **automatiquement** un cas de nuit
     /// (procédure d'I3, nature « non rentré ») qui garde la sortie ou le temps d'origine et l'heure prévue ; les
-    /// accompagnateurs à joindre se lisent sur la sortie. Idempotent (un seul cas ouvert par élève et par nuit). Renvoie
-    /// le nombre de cas ouverts.
+    /// accompagnateurs à joindre se lisent sur la sortie. Renvoie le nombre de cas ouverts.
+    ///
+    /// * **É1** : l'élève reste suivi jusqu'à son retour pointé, quel que soit le statut du temps (annulé compris) ou le
+    ///   retrait de son inscription.
+    /// * **M1** : aucun nouveau cas si un cas existe déjà pour le même triplet (élève, sortie ou temps, nuit), quelle que
+    ///   soit son issue ; un cas ouvert par l'appel (sans origine) est rattaché à la sortie ou au temps, pour que le retour
+    ///   le ferme ; un cas fermé par l'appel depuis le départ de l'élève compte aussi.
     pub async fn veille_non_rentres_a(
         &self,
         etab: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<usize, EntDbError> {
+        Ok(self.veille_non_rentres_bilan_a(etab, maintenant).await?.0)
+    }
+
+    /// Comme [`Self::veille_non_rentres_a`], avec le nombre d'élèves dont la veille a échoué (M2 : un point de reprise par
+    /// élève, une ligne en erreur ne bloque pas l'établissement).
+    pub(crate) async fn veille_non_rentres_bilan_a(
+        &self,
+        etab: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(usize, i32), EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let tolerance: i16 = {
-            let _ = parametres_vie_tx(&mut tx, etab).await?;
-            sqlx::query_scalar(
-                "SELECT groupe_tolerance_retour_minutes FROM ent_internat_parametres_vie WHERE etablissement_id = $1",
-            )
-            .bind(etab)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db)?
-        };
+        let tolerance =
+            reglage_vie_ou_creer_tx(&mut tx, etab, "groupe_tolerance_retour_minutes").await?;
         let limite = maintenant - Duration::minutes(i64::from(tolerance));
-        // (élève, sortie, temps, heure prévue) : sorties de groupe acceptées dont un élève est encore « parti », activités
-        // du soir où l'élève est pointé « en activité » sans retour.
-        let lignes: Vec<(Uuid, Option<Uuid>, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT p.eleve_id, g.id, NULL::uuid, g.fin FROM ent_internat_sortie_groupe_participant p \
+        // (élève, sortie, temps, heure prévue, départ constaté) : sorties de groupe acceptées dont un élève est encore
+        // « parti », activités du soir où l'élève est pointé « en activité » sans retour (É1 : ni le statut du temps, ni le
+        // retrait de l'inscription n'y changent rien).
+        #[allow(clippy::type_complexity)]
+        let lignes: Vec<(Uuid, Option<Uuid>, Option<Uuid>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT p.eleve_id, g.id, NULL::uuid, g.fin, p.parti_le FROM ent_internat_sortie_groupe_participant p \
                JOIN ent_internat_sortie_groupe g ON g.etablissement_id = p.etablissement_id AND g.id = p.sortie_groupe_id \
               WHERE p.etablissement_id = $1 AND p.etat = 'parti' AND g.statut = 'acceptee' AND g.fin < $2 \
              UNION ALL \
-             SELECT tp.eleve_id, NULL::uuid, t.id, t.fin FROM ent_internat_temps_participant tp \
+             SELECT tp.eleve_id, NULL::uuid, t.id, t.fin, tp.pointe_le FROM ent_internat_temps_participant tp \
                JOIN ent_internat_temps t ON t.etablissement_id = tp.etablissement_id AND t.id = tp.temps_id \
-              WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL AND tp.retire_le IS NULL \
-                AND t.nature = 'activite' AND t.statut = 'prevu' AND t.fin < $2 \
+              WHERE tp.etablissement_id = $1 AND tp.pointage = 'present' AND tp.rentre_le IS NULL \
+                AND t.nature = 'activite' AND t.fin < $2 \
               ORDER BY 4, 1",
         )
         .bind(etab)
@@ -2938,37 +3035,101 @@ impl PgEnt {
         .map_err(db)?;
         let nuit = nuit_a_tx(&mut tx, etab, maintenant).await?;
         let mut ouverts = 0;
-        for (eleve, sortie, temps, prevue) in lignes {
-            if let Some(cas) = self
-                .ouvrir_cas_tx(
-                    &mut tx,
-                    etab,
-                    None,
-                    None,
-                    eleve,
-                    nuit,
-                    "non_rentre",
-                    maintenant,
+        let mut echecs = 0;
+        for (eleve, sortie, temps, prevue, depart) in lignes {
+            let mut ouvert = false;
+            ouvrir_savepoint_revue(&mut tx, &mut ouvert).await?;
+            let r = self
+                .ouvrir_cas_non_rentre_tx(
+                    &mut tx, etab, eleve, nuit, sortie, temps, prevue, depart, maintenant,
                 )
-                .await?
-            {
-                sqlx::query(
-                    "UPDATE ent_internat_cas SET sortie_groupe_id = $3, temps_id = $4, heure_prevue = $5 \
-                      WHERE etablissement_id = $1 AND id = $2",
-                )
-                .bind(etab)
-                .bind(cas)
-                .bind(sortie)
-                .bind(temps)
-                .bind(prevue)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-                ouverts += 1;
-            }
+                .await;
+            fin_savepoint_revue(&mut tx, ouvert, r, &mut ouverts, &mut echecs).await?;
         }
         tx.commit().await.map_err(db)?;
-        Ok(ouverts)
+        Ok((ouverts as usize, echecs))
+    }
+
+    /// Un élève non rentré : ouvre le cas, sauf s'il en existe déjà un pour cette origine (M1). `true` : un cas a été ouvert.
+    #[allow(clippy::too_many_arguments)]
+    async fn ouvrir_cas_non_rentre_tx(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        eleve: Uuid,
+        nuit: NaiveDate,
+        sortie: Option<Uuid>,
+        temps: Option<Uuid>,
+        prevue: DateTime<Utc>,
+        depart: DateTime<Utc>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<bool, EntDbError> {
+        // Un cas de cette nuit déjà lié à cette sortie ou à ce temps (quelle que soit son issue), ou un cas sans origine
+        // (ouvert par l'appel) encore ouvert ou fermé depuis le départ de l'élève : la veille ne rouvre rien.
+        let existants: Vec<(Uuid, bool, bool)> = sqlx::query_as(
+            "SELECT id, issue IS NULL, (sortie_groupe_id IS NULL AND temps_id IS NULL) FROM ent_internat_cas \
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND nuit = $3 \
+                AND ((sortie_groupe_id IS NOT DISTINCT FROM $4 AND temps_id IS NOT DISTINCT FROM $5) \
+                     OR (sortie_groupe_id IS NULL AND temps_id IS NULL AND (issue IS NULL OR issue_le >= $6))) \
+              FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(eleve)
+        .bind(nuit)
+        .bind(sortie)
+        .bind(temps)
+        .bind(depart)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        if !existants.is_empty() {
+            // Un cas ouvert sans origine (ouvert par l'appel) : on lui rattache la sortie ou le temps et l'heure prévue.
+            for (cas, ouvert, sans_origine) in existants {
+                if ouvert && sans_origine {
+                    sqlx::query(
+                        "UPDATE ent_internat_cas SET sortie_groupe_id = $3, temps_id = $4, heure_prevue = $5 \
+                          WHERE etablissement_id = $1 AND id = $2",
+                    )
+                    .bind(etab)
+                    .bind(cas)
+                    .bind(sortie)
+                    .bind(temps)
+                    .bind(prevue)
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(db)?;
+                }
+            }
+            return Ok(false);
+        }
+        let Some(cas) = self
+            .ouvrir_cas_tx(
+                conn,
+                etab,
+                None,
+                None,
+                eleve,
+                nuit,
+                "non_rentre",
+                maintenant,
+            )
+            .await?
+        else {
+            return Ok(false);
+        };
+        sqlx::query(
+            "UPDATE ent_internat_cas SET sortie_groupe_id = $3, temps_id = $4, heure_prevue = $5 \
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(cas)
+        .bind(sortie)
+        .bind(temps)
+        .bind(prevue)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        Ok(true)
     }
 }
 

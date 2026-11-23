@@ -431,6 +431,10 @@ pub struct PointageInscritDto {
     pub rentre_le: Option<DateTime<Utc>>,
     /// Non pointé au-delà du délai : signalé à l'équipe.
     pub signale: bool,
+    /// Élève protégé : il est compté et suivi (état, retour) mais présenté comme « élève protégé », sans nom (règle générale
+    /// 6, M7 : l'accompagnateur compte ses élèves).
+    #[serde(default)]
+    pub protege: bool,
 }
 
 /// Pointage d'un inscrit à une étude ou une activité du soir.

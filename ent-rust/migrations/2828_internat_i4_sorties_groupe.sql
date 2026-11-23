@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS ent_internat_sortie_groupe_participant (
     reponse_le TIMESTAMPTZ,
     motif_code TEXT CHECK (motif_code IS NULL OR motif_code IN (
         'refus_famille', 'desaccord_connu', 'interdiction', 'plus_interne', 'retire_par_organisateur', 'majeur_refuse',
-        'majorite', 'chevauchement')),
+        'majorite', 'chevauchement', 'accord_annuel_tombe')),
     parti_le TIMESTAMPTZ,
     parti_par_user_id UUID REFERENCES ent_user (id),
     rentre_le TIMESTAMPTZ,

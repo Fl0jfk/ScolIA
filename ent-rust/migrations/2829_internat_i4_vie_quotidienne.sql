@@ -496,6 +496,8 @@ LANGUAGE sql STABLE AS $$
     retraits AS (
         SELECT r.eleve_id, r.motif_code AS motif FROM ent_internat_retrait r
          WHERE r.etablissement_id = etab AND r.annule_le IS NULL AND r.du_nuit <= nuit AND r.au_nuit >= nuit
+           -- 654 (D-069, règle 1) : un retrait posé pour un voyage ne vaut qu'à partir du DÉPART CONSTATÉ du participant.
+           AND (r.source <> 'voyage' OR ent_sortie_retrait_effectif(etab, r.id))
         UNION ALL
         SELECT ab.eleve_id, 'absence_annoncee' FROM ent_internat_absence ab, ancre
          WHERE ab.etablissement_id = etab AND ab.du_nuit <= nuit AND ab.au_nuit >= nuit
@@ -552,7 +554,15 @@ LANGUAGE sql STABLE AS $$
           JOIN ent_sortie_participant p ON p.etablissement_id = so.etablissement_id AND p.sortie_id = so.id
           CROSS JOIN ancre
          WHERE so.etablissement_id = etab AND so.etat IN ('prete', 'en_cours')
-           AND p.etat IN ('pret', 'parti', 'remis', 'parti_seul_autorise')
+           -- 654 (D-069, règle 1) : « prêt » n'est pas « parti » ; seul le départ constaté retire l'élève de l'attendu.
+           AND p.etat IN ('parti', 'remis', 'parti_seul_autorise')
+           -- 654 (M2) : une annulation du CPE (retrait « voyage » annulé hors synchronisation) est mémorisée et respectée.
+           AND NOT EXISTS (SELECT 1 FROM ent_sortie_internat_retrait l
+                             JOIN ent_internat_retrait rl ON rl.etablissement_id = l.etablissement_id AND rl.id = l.retrait_id
+                            WHERE l.etablissement_id = so.etablissement_id AND l.sortie_id = so.id
+                              AND l.participant_id = p.id AND rl.annule_le IS NOT NULL
+                              AND NOT EXISTS (SELECT 1 FROM ent_sortie_internat_retrait_fin fi
+                                               WHERE fi.etablissement_id = l.etablissement_id AND fi.retrait_id = l.retrait_id))
            AND so.debut <= ancre.t AND ancre.t < so.fin
         UNION ALL
         SELECT d.eleve_id, 'fermeture'

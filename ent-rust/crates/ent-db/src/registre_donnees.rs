@@ -820,7 +820,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_appel", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel_attendu", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_appel_rappel", "vie_pratique", Portee::Etablissement),
-    t("ent_internat_cas", "vie_pratique", Portee::Etablissement).perso().export(),
+    // Passe 2 (M5) : la nature « interdiction_auteur » et la note de clôture révèlent la cause d'un blocage (donnée de protection).
+    t("ent_internat_cas", "vie_pratique", Portee::Etablissement).perso().export().hors_export(&["nature", "issue_note"]),
     t("ent_internat_cas_etape", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_chambre", "vie_pratique", Portee::Etablissement),
     t("ent_internat_correspondant", "vie_pratique", Portee::Etablissement).perso().export(),
@@ -858,7 +859,12 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_internat_sortie_groupe_accord_hors_ligne", "vie_pratique", Portee::Etablissement).perso().export(),
     t("ent_internat_sortie_groupe_encadrant", "vie_pratique", Portee::Etablissement),
     t("ent_internat_sortie_groupe_fait", "vie_pratique", Portee::Etablissement).perso(),
-    t("ent_internat_sortie_groupe_participant", "vie_pratique", Portee::Etablissement).perso().export(),
+    // Passe 2 (M5) : `motif_code` (interdiction, désaccord connu, majorité) est la cause d'un blocage, `reponse_user_id` le
+    // compte qui a répondu : ni l'un ni l'autre ne sortent dans l'export de portabilité.
+    t("ent_internat_sortie_groupe_participant", "vie_pratique", Portee::Etablissement)
+        .perso()
+        .export()
+        .hors_export(&["motif_code", "reponse_user_id"]),
     t("ent_internat_sortie_type", "vie_pratique", Portee::Etablissement),
     t("ent_internat_suivi", "vie_pratique", Portee::Etablissement).perso().export(),
     // F5 : le tiers reçoit sa propre fiche (personne, dates, état), jamais le motif écrit ni le titulaire qui l'a demandé.

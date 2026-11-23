@@ -32,12 +32,12 @@ use ent_types::internat_vie::*;
 use uuid::Uuid;
 
 /// Heure locale (Paris, UTC + 2 en avril) sans dépasser minuit vers l'arrière : `paris` retranche deux heures.
-fn local(jour: NaiveDate, h: u32, mi: u32) -> DateTime<Utc> {
+pub(crate) fn local(jour: NaiveDate, h: u32, mi: u32) -> DateTime<Utc> {
     paris(jour, h + 2, mi) - Duration::hours(2)
 }
 
 /// Participe, répond et fait accepter une sortie pour un élève (un parent déjà créé).
-async fn sortie_prete(b: &Banc, eleves: &[(Uuid, Uuid)]) -> SortieGroupeDto {
+pub(crate) async fn sortie_prete(b: &Banc, eleves: &[(Uuid, Uuid)]) -> SortieGroupeDto {
     let g = soumettre(
         b,
         brouillon(b, vec![b.prof], eleves.iter().map(|e| e.0).collect())
@@ -52,7 +52,7 @@ async fn sortie_prete(b: &Banc, eleves: &[(Uuid, Uuid)]) -> SortieGroupeDto {
     g
 }
 
-async fn cas_de(
+pub(crate) async fn cas_de(
     b: &Banc,
     eleve: Uuid,
 ) -> Vec<(
@@ -239,7 +239,12 @@ async fn depart_a(b: &Banc, id: Uuid, eleves: Vec<Uuid>, mi: i64) {
 
 // ───────────────────────── E2 : un accord ne vaut que pour ce qu'il couvre ─────────────────────────
 
-fn sortie_de(debut: DateTime<Utc>, fin: DateTime<Utc>, b: &Banc, e: Uuid) -> SortieGroupeSaisieDto {
+pub(crate) fn sortie_de(
+    debut: DateTime<Utc>,
+    fin: DateTime<Utc>,
+    b: &Banc,
+    e: Uuid,
+) -> SortieGroupeSaisieDto {
     SortieGroupeSaisieDto {
         titre: "Sortie".into(),
         lieu: "Ville".into(),
@@ -1359,13 +1364,24 @@ async fn m8_l_inscription_a_un_temps_ne_revele_pas_un_eleve_protege() {
         matches!(r, Err(EntDbError::Domain(DomainError::NotFound))),
         "{r:?}"
     );
-    // Le protégé n'apparaît jamais dans la liste des inscrits du personnel sans droit sur la confidentialité.
+    // M7 (D-069) : l'accompagnateur compte ses élèves : le protégé reste dans la liste, marqué « protégé », sans nom ; le
+    // visible, lui, ne l'est pas.
     let liste = b
         .ent
         .lister_temps_a(b.etab, u, PERSONNEL, avril(15), avril(15))
         .await
         .unwrap();
-    assert!(!liste[0].inscrits.contains(&protege) && liste[0].inscrits.contains(&visible));
+    assert!(liste[0].inscrits.contains(&protege) && liste[0].inscrits.contains(&visible));
+    let marque = |e: Uuid| {
+        liste[0]
+            .pointages
+            .iter()
+            .find(|p| p.eleve_id == e)
+            .map(|p| p.protege)
+    };
+    assert_eq!(marque(protege), Some(true));
+    assert_eq!(marque(visible), Some(false));
+    assert_eq!(liste[0].nb_inscrits, Some(3));
 }
 
 #[tokio::test]
@@ -1418,7 +1434,8 @@ async fn m9_etude_non_pointee_signalee_activite_non_rentree_cas_de_nuit() {
             .veille_etudes_a(b.etab, debut_etude + Duration::minutes(16))
             .await
             .unwrap(),
-        1
+        2,
+        "e3 non pointé ET e2 pointé absent (passe 2, M3)"
     );
     assert_eq!(
         b.ent
@@ -1429,19 +1446,22 @@ async fn m9_etude_non_pointee_signalee_activite_non_rentree_cas_de_nuit() {
         "signalé une seule fois"
     );
     let evts = b.evenements("internat.etude_non_pointee").await;
-    assert_eq!(evts.len(), 1);
+    assert_eq!(evts.len(), 2);
     let vue = b
         .ent
         .lister_temps_a(b.etab, b.cpe, CPE, avril(15), avril(15))
         .await
         .unwrap();
-    let signale: Vec<Uuid> = vue[0]
+    let mut signale: Vec<Uuid> = vue[0]
         .pointages
         .iter()
         .filter(|p| p.signale)
         .map(|p| p.eleve_id)
         .collect();
-    assert_eq!(signale, vec![e3]);
+    signale.sort();
+    let mut attendu = vec![e2, e3];
+    attendu.sort();
+    assert_eq!(signale, attendu);
     // Un inscrit pointé deux fois : refusé ; pointage d'un non-inscrit : refusé ; sans droit ni encadrement : interdit.
     assert!(refus_de(&pointer(e1, "absent", 13).await, "déjà pointé"));
     assert!(est_interdit(

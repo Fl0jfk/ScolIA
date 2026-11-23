@@ -4554,6 +4554,12 @@ impl PgEnt {
 
     /// Tâche planifiée (chaque minute) : veille des sorties de chaque établissement, à l'heure murale de son fuseau.
     pub async fn internat_sorties_tache(&self) -> Result<usize, EntDbError> {
+        self.internat_sorties_tache_a(Utc::now).await
+    }
+
+    /// Comme [`Self::internat_sorties_tache`], avec l'horloge en paramètre (règle 33 : un test fixe son instant ; seul le
+    /// planificateur passe l'heure réelle).
+    pub(crate) async fn internat_sorties_tache_a(&self, maintenant: impl Fn() -> DateTime<Utc>) -> Result<usize, EntDbError> {
         let mut total = 0;
         for etab in crate::tenant_tx::etablissements_systeme(
             self.pool(),
@@ -4563,24 +4569,40 @@ impl PgEnt {
         .map_err(db)?
         {
             // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
-            match self.veille_non_rentres_a(etab, Utc::now()).await {
-                Ok(n) => total += n,
-                Err(e) => tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement"),
+            // M2 : chaque veille a ses propres points de reprise ; les trois alimentent ensemble le suivi des échecs
+            // répétés de l'établissement (une veille réussie ne remet pas à zéro l'échec d'une autre).
+            let mut echec = false;
+            match self.veille_non_rentres_bilan_a(etab, maintenant()).await {
+                Ok((n, echecs)) => {
+                    total += n;
+                    echec |= echecs > 0;
+                }
+                Err(e) => {
+                    tracing::warn!(nature = %nature_erreur(&e), "veille des sorties de groupe non rentrées non faite pour un établissement");
+                    echec = true;
+                }
             }
-            match self.veille_etudes_a(etab, Utc::now()).await {
-                Ok(n) => total += n,
-                Err(e) => tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement"),
+            match self.veille_etudes_bilan_a(etab, maintenant()).await {
+                Ok((n, echecs)) => {
+                    total += n;
+                    echec |= echecs > 0;
+                }
+                Err(e) => {
+                    tracing::warn!(nature = %nature_erreur(&e), "veille des études non pointées non faite pour un établissement");
+                    echec = true;
+                }
             }
-            match self.veille_sorties_bilan_a(etab, Utc::now()).await {
+            match self.veille_sorties_bilan_a(etab, maintenant()).await {
                 Ok((v, bilan)) => {
                     total += (v.cas_retard_retour + v.cas_non_recupere + v.sorties_expirees + bilan.suspendues) as usize;
-                    suivre_echecs_veille(etab, bilan.echecs > 0);
+                    echec |= bilan.echecs > 0;
                 }
                 Err(e) => {
                     tracing::warn!(nature = %nature_erreur(&e), "veille des sorties d'internat non faite pour un établissement");
-                    suivre_echecs_veille(etab, true);
+                    echec = true;
                 }
             }
+            suivre_echecs_veille(etab, echec);
         }
         Ok(total)
     }
