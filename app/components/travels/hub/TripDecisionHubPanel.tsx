@@ -69,7 +69,7 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
                 </TripButton>
               </>
             )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type === "COMPLEX" && (
+            {canFinalValidate && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type === "COMPLEX" && (
               <TripButton
                 variant="primary"
                 size="sm"
@@ -95,12 +95,12 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
                   Passer aux finances sans devis signé
                 </TripButton>
               )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && !seriesId && (
+            {canFinalValidate && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && !seriesId && (
               <TripButton variant="primary" size="sm" onClick={() => handleAction("EN_ATTENTE_COMPTA", "Pédagogie validée")}>
                 Valider pédagogie
               </TripButton>
             )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && seriesId && (
+            {canFinalValidate && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && seriesId && (
               <TripButton variant="primary" size="sm" onClick={validateSeriesPedagogy}>
                 {loadingAction ? "Validation série…" : "Valider toute la série"}
               </TripButton>

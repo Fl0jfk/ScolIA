@@ -7,6 +7,17 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
 
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
+import { hasGlobalAdminRole } from "@/app/lib/intranet-role-utils";
+import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+
+function isGlobalAdminUser(
+  user: { publicMetadata?: Record<string, unknown> | null } | null | undefined,
+): boolean {
+  const meta = user?.publicMetadata;
+  return isOrgAdminFromPublicMetadata(meta) || hasGlobalAdminRole(intranetRolesFromMetadata(meta));
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function tripSummaryFromFullTrip(tripId: string, t: any) {
   const inner = t.data || {};
@@ -89,7 +100,11 @@ export async function POST(req: Request) {
       if (!me?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
       const firstHit = await getJson<{ data?: { etablissement?: string } }>( `travels/${ids[0]}.json`);
       if (!firstHit?.data) return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
-      if (!(await canSignTravelsDirectionForEtab(me,  firstHit.data?.data?.etablissement))) {
+      // Pédagogie : la direction de l'établissement ou un administrateur général.
+      if (
+        !(await canSignTravelsDirectionForEtab(me, firstHit.data?.data?.etablissement)) &&
+        !isGlobalAdminUser(me)
+      ) {
         return NextResponse.json({ error: "Droits insuffisants" }, { status: 403 });
       }
       const now = new Date().toISOString();
