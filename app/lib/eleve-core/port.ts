@@ -11,7 +11,7 @@ import {
   foyer,
 } from "@/db/schema";
 import { METIER_EVENT_TYPES } from "@/app/lib/eleve-core/events";
-import { runEleveCoreHooks } from "@/app/lib/eleve-core/hooks";
+import { runEleveCoreHooks, syncStageConventionsForEleve } from "@/app/lib/eleve-core/hooks";
 import {
   assertDifferentYears,
   assertIsoDate,
@@ -449,6 +449,13 @@ export async function applyClasseCourante(
         },
         write,
       );
+    } else if (!write?.skipHooks) {
+      // Classe inchangée : on réaligne quand même les conventions de stage restées sur une ancienne classe.
+      await syncStageConventionsForEleve({
+        etablissementId: opts.etablissementId,
+        eleveId: opts.eleveId,
+        classe,
+      });
     }
     return { scolariteId: targetId };
   }
