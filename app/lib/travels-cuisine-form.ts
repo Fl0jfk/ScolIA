@@ -57,3 +57,14 @@ export function getTotalMeals(details: {
   const legacy = Number(details.picnicTotal || 0);
   return Number.isFinite(legacy) ? legacy : 0;
 }
+
+/**
+ * Nombre de jours de restauration cochés. Dès qu'il y a des clés de date ISO (circuit v2), seules les dates réelles
+ * comptent : le miroir « jour de semaine » (`vendredi`…) recopie la même date et ne doit pas la compter deux fois.
+ * Structure historique (v1, séries) : jours de semaine uniquement, inchangé.
+ */
+export function countCuisineDays(daysSelection: Record<string, boolean> | null | undefined): number {
+  const checked = Object.entries(daysSelection || {}).filter(([, v]) => Boolean(v));
+  const iso = checked.filter(([k]) => /^\d{4}-\d{2}-\d{2}$/.test(k));
+  return iso.length > 0 ? iso.length : checked.length;
+}

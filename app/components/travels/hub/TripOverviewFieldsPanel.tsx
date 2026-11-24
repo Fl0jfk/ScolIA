@@ -6,7 +6,7 @@ import TripAccompagnateursSelect, {
   accompagnateursToFormFields,
   formFieldsToAccompagnateurs,
 } from "@/app/components/travels/TripAccompagnateursSelect";
-import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-form";
+import { countCuisineDays, emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
@@ -150,7 +150,7 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
     ? getTotalMeals(trip.data.piqueNiqueDetails ?? emptyCuisineDetails())
     : 0;
   const cuisineDays = cuisineActive
-    ? Object.values(trip.data.piqueNiqueDetails?.daysSelection || {}).filter(Boolean).length
+    ? countCuisineDays(trip.data.piqueNiqueDetails?.daysSelection as Record<string, boolean> | undefined)
     : 0;
 
   const accompagnateursLabel = trip.data.nomsAccompagnateurs
