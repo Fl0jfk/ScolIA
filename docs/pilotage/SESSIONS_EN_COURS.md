@@ -731,3 +731,5 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **T2** : contre-revue faite (aucun bloquant ; M1 corrigé par le pilote : commentaire et compte rendu), fusion d'ENT, tête **268f776a**, CI en attente. Faibles 1 à 4 en file.
 - **Versé** : correctif de test a4_cap31 (PR 149, bf102297, CI 45438192464 verte) sur ENT rouge (667, test instable) : **ENT = bf102297**. Gel jusqu'au verdict.
 - **Chaîne** : PR 148 (V5 passe 6) = c4ad35ed (fusion de 149) ; PR 147 (T2) = 7c64e36b (fusion de 148). CI en attente ; versement 148 puis 147 après CI d'ENT verte. Aucune migration dans la chaîne.
+- **Livré** : correctifs V3b (PR 145, code 125bd85a CI verte, tête 6ead853b doc) ; contre-revue en cours sur `wt-v3b`. Points à vérifier au versement : borne `rentree_le` à now()+7 j ; habilitation en base par rôle (plus stricte que l'application) ; 656 à inscrire à `migrations_versees.txt`.
+- **Lancé** : I5 suites passe 7 (session_01KZCbFDNkgLsqf19MwiynAA, Sonnet, branche `ent-socle-3-code-i5-suites-7`, migration 318 réservée), consigne `03_I5_SUITES_7.md`. Sessions qui codent : F3 suites 3 + I5 passe 7.
