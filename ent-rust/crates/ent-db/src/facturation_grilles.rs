@@ -1166,8 +1166,8 @@ async fn reglages_tx(conn: &mut PgConnection, etab: Uuid) -> Result<(bool, bool)
     Ok(r.unwrap_or((true, true)))
 }
 
-/// Alertes de réglage visibles de la direction : qualification non exigée (établissement antérieur à la 523,
-/// à activer avant la rentrée 2027) ; second regard désactivé (auteur et date).
+/// Alertes de réglage visibles de la direction : qualification non exigée (établissement antérieur à la 523) ;
+/// second regard désactivé (auteur et date). Jamais l'adresse e-mail de l'auteur (D-069, faible a).
 async fn alertes_reglages_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -1177,7 +1177,7 @@ async fn alertes_reglages_tx(
     let mut v = Vec::new();
     if !exiger {
         v.push(
-            "qualification des articles non exigée à l'émission : à activer avant la rentrée 2027"
+            "qualification des articles non exigée à l'émission : à activer (une pièce émise avec un article non qualifié n'a pas de nature légale ni de TVA)"
                 .to_string(),
         );
     }
@@ -1187,7 +1187,7 @@ async fn alertes_reglages_tx(
             "SELECT to_char(p.second_regard_desactive_le AT TIME ZONE COALESCE(
                         (SELECT e.fuseau FROM ent_etablissement_parametre e WHERE e.etablissement_id = p.etablissement_id),
                         'Europe/Paris'), 'DD/MM/YYYY à HH24:MI'),
-                    COALESCE(NULLIF(btrim(u.display_name), ''), u.email)
+                    COALESCE(NULLIF(btrim(u.display_name), ''), 'un compte sans nom')
                FROM ent_fin_parametres p LEFT JOIN ent_user u ON u.id = p.second_regard_desactive_par
               WHERE p.etablissement_id = $1",
         )
@@ -1604,10 +1604,23 @@ impl PgEnt {
     ) -> Result<ReglagesGrillesDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationLire)
             .await?;
+        // les alertes (qui a désactivé le second regard, quand) ne sont servies qu'à ceux qui règlent ou votent
+        let destinataire = self
+            .fin_exiger(etab, actor, role, Action::FacturationParametrer)
+            .await
+            .is_ok()
+            || self
+                .fin_exiger(etab, actor, role, Action::FacturationVoter)
+                .await
+                .is_ok();
         let mut tx = self.fin_tx(etab).await?;
         let (exiger, second) = reglages_tx(&mut tx, etab).await?;
         let n = nb_non_qualifies_tx(&mut tx, etab).await?;
-        let alertes = alertes_reglages_tx(&mut tx, etab, exiger, second).await?;
+        let alertes = if destinataire {
+            alertes_reglages_tx(&mut tx, etab, exiger, second).await?
+        } else {
+            Vec::new()
+        };
         tx.commit().await.map_err(db)?;
         Ok(ReglagesGrillesDto {
             exiger_qualification_articles: exiger,
@@ -2794,17 +2807,55 @@ impl PgEnt {
         role: &str,
         version: Uuid,
     ) -> Result<PublicationGrilleDto, EntDbError> {
+        let jour = self.jour_etablissement(etab).await?;
+        self.publier_grille_au_jour(etab, actor, role, version, jour)
+            .await
+    }
+
+    /// Publication au jour de référence donné (le service lit le jour de l'établissement ; les tests le fixent).
+    ///
+    /// Une version `close` reste applicable jusqu'à la veille de la suivante : les familles doivent la voir. Mais
+    /// une version **supplantée** (une version plus récente de l'année est déjà entrée en vigueur à ce jour) ne se
+    /// publie plus : seule la version applicable la plus récente se publie (D-069).
+    pub(crate) async fn publier_grille_au_jour(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        version: Uuid,
+        jour: NaiveDate,
+    ) -> Result<PublicationGrilleDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationPublier)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
-        // une version `close` reste applicable jusqu'à la veille de la suivante : les familles doivent la voir
         let encore_applicable = v.statut == "close" && v.en_vigueur_du.is_some();
         if !(matches!(v.statut.as_str(), "votee" | "en_vigueur") || encore_applicable) {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
                 "seule une grille votée, en vigueur ou encore applicable (close) se publie",
             ));
+        }
+        if encore_applicable {
+            let (supplantee,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_fin_grille_version w
+                                 WHERE w.etablissement_id = $1 AND w.annee_scolaire = $2
+                                   AND w.statut IN ('en_vigueur', 'close')
+                                   AND w.en_vigueur_du > $3 AND w.en_vigueur_du <= $4)",
+            )
+            .bind(etab)
+            .bind(&v.annee_scolaire)
+            .bind(v.en_vigueur_du)
+            .bind(jour)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if supplantee {
+                return Err(EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "cette grille est supplantée par une version plus récente déjà en vigueur : seule la version applicable la plus récente se publie",
+                ));
+            }
         }
         let premiere = v.publiee_le.is_none();
         if premiere {
