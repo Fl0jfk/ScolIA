@@ -16,4 +16,6 @@ Branche `ent-transverse-t2-fiabilite` (depuis `origin/ENT`). Aucune migration, a
 Clippy local en 1.97 (1.99 non installable ici). Commandes 1 et 3 : 0 avertissement. Commande 2 : 2 avertissements, tous deux **antérieurs au lot** et hors de ses lignes (`tests_voyages_v2a.rs:865` et `:877`, `unwrap_err` après `is_err`) ; non corrigés ici (hors périmètre). Aucun avertissement dans les lignes du lot.
 
 ## Tête et CI
-À compléter après le push.
+Tête testée par la CI : `7907cddec1d36b96c2d08ca2f0ae85ad6a6e98e0` — workflow « ENT Rust » : **succès**.
+Un premier passage (tête `ac38ca23`) était rouge pour deux causes propres au lot, corrigées : mise en forme de `assiduite_tableau.rs`, et garde RLS (`controle_demarrage` déclaré dans `FICHIERS_SANS_CONTEXTE` : il ne lit que le catalogue). Un échec de `a4_cap31_…` (`Reessayer`, test de concurrence non modifié) n'est pas réapparu sur la tête finale.
+La PR #147 reste en brouillon vers `ENT`.
