@@ -746,3 +746,5 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **I5 passe 7** : contre-revue (aucun élevé) ; 4 moyens corrigés par le pilote ; fusion d'ENT 711347ea (conflit migrate.rs : 656 puis 318), 318 inscrite ; tête **21af9df0**, CI en attente.
 - **Livré** : E1 suites passe 5 (PR 152, code 1b530a53 CI verte, tête 13074f49 doc, sans migration) ; contre-revue en cours sur `wt-e1s5`.
 - **Lancé** : voyages V3b suites 2 (session_01KZCbFELYkKgFHTaaiMnCfv, Sonnet, branche `ent-socle-42-code-v3b-suites-2`, migration 657 réservée), consigne `42_VOYAGES_V3B_SUITES_2.md`. Sessions qui codent : F3 3 correctifs + V3b suites 2.
+- **Versé** : I5 suites passe 7 + correctifs du pilote (PR 151, 21af9df0, migration 318, CI 45505493798 verte) après CI d'ENT verte sur 711347ea (691) : **ENT = 21af9df0**. Gel jusqu'au verdict.
+- **E1 passe 5** : contre-revue (aucun élevé) ; M1 et F1 corrigés par le pilote ; fusion d'ENT 21af9df0 ; tête **53ed4604**, CI en attente (sans migration).
