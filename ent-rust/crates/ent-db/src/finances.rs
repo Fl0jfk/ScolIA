@@ -1466,6 +1466,50 @@ pub(crate) async fn lignes_annuelles(
             eleve.niveau.as_deref().unwrap_or("inconnu")
         )));
     }
+    // Contre-revue du pilote (Moyen 1, D-069) : un mois dû sans aucun tarif applicable n'est jamais gratuit en silence.
+    if !aucun_tarif && categories.is_none() {
+        if let Some(seg) = segments.iter().find(|s| s.ids.is_empty()) {
+            return Ok(Err(format!(
+                "aucun tarif applicable à partir du {} (niveau {}, régime {regime}) : mettez une grille en vigueur pour ces mois",
+                seg.debut.format("%d/%m/%Y"),
+                eleve.niveau.as_deref().unwrap_or("inconnu")
+            )));
+        }
+    }
+    // Contre-revue du pilote (Élevé 1, D-069) : le découpage mois par mois ne regarde pas les lignes déjà posées. Si un
+    // article de cet élève est déjà facturé pour l'année et que le découpage d'aujourd'hui produit une clé nouvelle
+    // (tarif mis en vigueur depuis la génération précédente), rien n'est écrit : les mois seraient facturés deux fois.
+    // L'écart se règle par un complément ou un avoir (F4).
+    let mut prefixes: Vec<String> = lignes
+        .iter()
+        .filter_map(|l| l.article_id.map(|a| format!("{prefixe}:{eleve_id}:{a}")))
+        .collect();
+    prefixes.sort();
+    prefixes.dedup();
+    if !prefixes.is_empty() {
+        let posees: Vec<String> = sqlx::query_scalar(
+            "SELECT l.source_cle FROM ent_fac_ligne l, unnest($2::text[]) AS p(prefixe)
+              WHERE l.etablissement_id = $1 AND left(l.source_cle, length(p.prefixe)) = p.prefixe",
+        )
+        .bind(etab)
+        .bind(&prefixes)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for pre in &prefixes {
+            if !posees.iter().any(|c| c.starts_with(pre.as_str())) {
+                continue;
+            }
+            let nouvelle = lignes
+                .iter()
+                .any(|l| l.source_cle.starts_with(pre.as_str()) && !posees.contains(&l.source_cle));
+            if nouvelle {
+                return Ok(Err(
+                    "le tarif a changé depuis la génération précédente pour un article déjà facturé : rien n'est refacturé, régularisez par un complément ou un avoir".into(),
+                ));
+            }
+        }
+    }
     Ok(Ok(lignes))
 }
 

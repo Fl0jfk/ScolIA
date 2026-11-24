@@ -2238,6 +2238,12 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     ent.mettre_en_vigueur_for_actor(etab, u, r, b1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
         .await
         .unwrap();
+    // Contre-revue du pilote (Élevé 1) : un élève facturé AVANT la mise en vigueur de v2 (une seule ligne, v1 sur
+    // l'année entière). La génération rejouée après v2 ne doit rien refacturer (sinon janvier-juin deux fois).
+    let avant = eleve(&ent, etab, "Avant", "externe").await;
+    let _ = foyer_payeur(&ent, etab, avant, c.parent_lea.user_id, "Foyer Avant").await;
+    facturer_depuis(&ent, etab, avant, None).await;
+    assert_eq!(total_scolarite(&ent, avant).await, 120_000);
     // v2 : correction de v1 (+100 €), votée le 10 décembre, en vigueur le 1er janvier.
     let v2 = ent
         .corriger_grille_for_actor(
@@ -2342,6 +2348,26 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     .await
     .unwrap();
     assert_eq!(rejoue, 2, "deux segments : deux lignes");
+    // Rejeu réel : la même génération, une seconde fois, ne crée rien.
+    facturer_depuis(&ent, etab, premier, None).await;
+    let (rejoue,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND categorie = 'scolarite'",
+    )
+    .bind(premier)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(rejoue, 2, "le rejeu ne double rien");
+    assert_eq!(total_scolarite(&ent, premier).await, 126_000);
+    // Élève facturé avant v2 : la génération après v2 est refusée (anomalie), rien n'est écrit ni doublé.
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let refus = crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, avant, None, None, Default::default())
+        .await
+        .unwrap()
+        .expect_err("tarif changé depuis la génération : anomalie");
+    tx.commit().await.unwrap();
+    assert!(refus.contains("le tarif a changé depuis la génération précédente"), "{refus}");
+    assert_eq!(total_scolarite(&ent, avant).await, 120_000, "aucun mois facturé deux fois");
 
     // M-A : la liste des tarifs accepte une date (jamais l'horloge réelle dans ce test).
     let montants_au = |jour: NaiveDate| {

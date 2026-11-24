@@ -134,7 +134,7 @@ Branche `ent-socle-24-code-f3-suites` (partie d'`origin/ENT`), PR en brouillon. 
 
 | Réf. | Correctif | Test |
 |---|---|---|
-| **M-A** | Tarif choisi **mois par mois**, au 1er jour de chaque mois dû (génération annuelle et changement de régime). Les mois voisins tarifés par les mêmes lignes forment un segment (prorata de ses mois) ; le premier segment garde la clé de source historique, les suivants `:m<AAAA-MM>`. `jour_de_l_etablissement` et `facturer_annee_eleve_au` supprimés. `tarifs_tx` / `GET /finances/tarifs` acceptent `a_la_date` (défaut : jour de l'établissement). | `f3s_ma_rentree_votee_en_juin…` (grille du 1er sept. votée en juin, élève facturé) ; `f3r_m1` : année entière 1 260 €, entrée en novembre 1 020 €, en janvier 780 €, `tarifs_tx` aux 31/08, 01/09, 31/12, 01/01, rejeu sans doublon |
+| **M-A** | Tarif choisi **mois par mois**, au 1er jour de chaque mois dû (génération annuelle et changement de régime). Les mois voisins tarifés par les mêmes lignes forment un segment (prorata de ses mois) ; le premier segment garde la clé de source historique, les suivants `:m<AAAA-MM>`. `jour_de_l_etablissement` et `facturer_annee_eleve_au` supprimés. `tarifs_tx` / `GET /finances/tarifs` acceptent `a_la_date` (défaut : jour de l'établissement). | `f3s_ma_rentree_votee_en_juin…` (grille du 1er sept. votée en juin, élève facturé) ; `f3r_m1` : année entière 1 260 €, entrée en novembre 1 020 €, en janvier 780 €, `tarifs_tx` aux 31/08, 01/09, 31/12, 01/01, rejeu réel sans doublon (ajouté par le pilote) |
 | **M-B** | Égalité de date de vigueur refusée (service et déclencheur, 23514). | `f3r_m1` (service puis SQL direct, SQLSTATE et message) |
 | **M-C** | Verrou `pg_advisory_xact_lock` d'établissement `fin:grille_second_regard:<étab>` dans la proposition et le réglage du second regard. | `f3s_mc_…` : deux connexions, ordre imposé par le verrou et `pg_locks`, sans `sleep` |
 | **M-D** | Refus de création d'article et d'émission sous qualification exigée par défaut (messages exacts) ; `f3r_m2` vérifie SQLSTATE et message. | `f3s_md_…`, `f3r_m2` |
@@ -156,10 +156,23 @@ Branche `ent-socle-24-code-f3-suites` (partie d'`origin/ENT`), PR en brouillon. 
 - **2** : le basculement de l'exigence de qualification reste journalisé sous `grille.reglages`, sans distinction « établissement antérieur ».
 
 ### 8.3 Compteurs (règle 28)
-`Action::TOUTES` 269 (inchangé) ; tables RLS inchangées (aucune table) ; migrations : +531 (`MIGRATION_TAG` inchangé) ; `SOURCES` 70. Le pilote ajoutera `531_finances_f3_suites` à `migrations_versees.txt`.
+`Action::TOUTES` **282** (inchangé ; « 269 » était une valeur périmée, corrigée par le pilote) ; tables RLS inchangées (aucune table) ; migrations : +531 (`MIGRATION_TAG` inchangé) ; `SOURCES` **75** (inchangé). Le pilote ajoutera `531_finances_f3_suites` à `migrations_versees.txt`.
 
 ### 8.4 Vérifications
 Base locale neuve `ent_f3s_test` (PostgreSQL 16), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`. `tests_finances_f3` : 23 tests verts. `ent-db` élargi (338 tests) : 336 verts ; deux `tests_search_path_t1` ont échoué sur « statement timeout » sous charge (contention des rejeux de migration en parallèle) et passent isolés (le troisième `t1_gel_du_cahier…` est passé isolé à la 2e exécution) ; `ent-api` : `separation` 63, `recette_finances_f0` 17, `recette_securite_3` 10 (un timeout parallèle, vert isolé). Clippy 1.99.0 `-D warnings` : 3 commandes de la CI propres (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` propre ; rustfmt ciblé sur `tests_finances_f3.rs` (`finances.rs` n'était déjà pas formaté sur ENT : non reformaté) ; pas de `cargo fmt --all`, pas de `#[ignore]`. Dates fixes, aucune horloge réelle.
 
 ### 8.5 Tête et CI
 Tête de code : `9cbc5542` (fusion d'`origin/ENT` : migration 493 d'ENT puis 531, conflits d'ajout en fin de liste). **CI « ENT Rust » verte** (run 45303329656, tentative 2) : à la première tentative, seul le job « Backend — clippy, compilation production, séparation L4 » avait été annulé en cours de compilation (runner), les 37 autres jobs étaient verts ; ses jobs en échec ont été relancés une fois. PR n° 139 laissée en brouillon. Le commit suivant ne touche que ce document.
+
+## Correctifs du pilote après contre-revue des suites (2026-11-24)
+Rapport complet : `docs/pilotage/revues/24_FACTURATION_F3_SUITES_CONTRE_REVUE.md` (branche `ent-mc0hoe`).
+- **Élevé 1, double facturation à la régénération** : le découpage mois par mois ne regardait pas les lignes déjà posées ; une
+  génération faite avec v1 seule puis rejouée après la mise en vigueur de v2 facturait janvier-juin deux fois. Désormais
+  (`lignes_annuelles`), si un article de l'élève est déjà facturé pour l'année et que le découpage produit une clé nouvelle,
+  **rien n'est écrit** : anomalie « le tarif a changé depuis la génération précédente … régularisez par un complément ou un
+  avoir » (D-069 : la régularisation reste une décision humaine, F4). Tests dans `f3r_m1` : élève facturé avant v2 puis
+  régénéré (refus, 1 200 € inchangés) ; vrai rejeu de la même génération (2 lignes, 1 260 €).
+- **Moyen 1, mois sans tarif** : un mois dû sans aucun tarif applicable rend l'anomalie « aucun tarif applicable à partir du
+  … » au lieu d'être gratuit en silence. Limite : un trou propre à un seul article n'est pas détecté (en file).
+- Compteurs corrigés ci-dessus (`Action::TOUTES` 282, `SOURCES` 75). Autres constats : en file (rapport).
+- `531_finances_f3_suites` inscrite à `migrations_versees.txt` au versement.
