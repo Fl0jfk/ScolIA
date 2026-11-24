@@ -349,3 +349,44 @@ Rapport complet : `docs/pilotage/revues/21_V5_SUITES_5_CONTRE_REVUE.md` (branche
 - En file (avant G3) : Moyen 2 (alignement de `eva_moyenne_externe` sur le bulletin), Moyen 5 (`ent_note_correction`,
   `ent_note_archive`, `ent_note_doublon_archive` exportées sans condition ; M1/M2 étendus aux `ent_note_*`), faibles 6 à 9.
 - Local : `tests_evaluations_v5` et `registre` : 68 verts.
+
+## 13. Suites, passe 6 — branche `ent-socle-21-code-v5-suites-6`, depuis `origin/ENT`
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `scolia_test_v5s6`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`, un seul `CARGO_TARGET_DIR`). Non validé par Florian ; non prêt pilote. **Aucune migration** (règles d'export dans `registre_donnees.rs`, tests) : 701 non consommée, `migrations_versees.txt` intact.
+
+Principe inchangé (D-069) : l'export ne rend que ce que la famille peut voir ; aucune donnée personnelle visible ne disparaît.
+
+### 13.1 Fait / non fait (points « en file » du rapport de contre-revue de la passe 5)
+
+| Point | Réalisation |
+|---|---|
+| **Moyen 5** | `ent_note_correction` (motifs, auteurs) et `ent_note_doublon_archive` (copies écartées) : **hors export**. `ent_note_archive` : `export_si` = `devoir_id` non nul et devoir historique **publié** (`NOT publication_explicite OR publie_le IS NOT NULL`, la règle de la reprise 472) ; `hors_export` : `auteur_user_id`, `updated_by_user_id`. `ent_note_periode` (sans `eleve_id`) et `ent_eva_export` (journal du personnel) : **hors extrait par élève**, par un nouveau champ du registre `hors_export_par_eleve(raison)` qui remplace la constante `TABLES_SANS_ELEVE` du test ; la base vérifie qu'ils n'ont aucune colonne d'élève (`hors_export_par_eleve_est_justifie_et_sans_eleve`). M1 et M2 couvrent désormais les `ent_note_*` (`est_table_evaluation`). |
+| **Moyen 2** | `eva_moyenne_externe` **alignée sur le bulletin** (`evaluations_v1.rs`) : publiée, `statut = 'moyenne'`, enseignement qui compte dans la moyenne générale ; `eva_enseignement_externe` suit la même condition. Une ligne « en attente » / « dispense » ou d'un enseignement qui ne compte pas n'est pas exportée (elle n'est pas au bulletin). |
+| **Moyen 3** | Commentaires de `eva_rattrapage` et `eva_moyenne_statut` reformulés : exportées au titre du **droit d'accès (art. 15)**, sans prétendre à une « communication à la famille » ; la condition garantit qu'elles ne révèlent rien de non publié. |
+| **Faible 6** | Marqueurs « non publié » : note par item (`eva_resultat_item`) et restriction de public (`eva_evaluation_restriction`) sur une évaluation non publiée, absentes de l'extrait. Les identifiants de la direction (`w.direction`) n'apparaissent que comme `demandeur` (contrôle JSON clé par clé, avec contrôle positif). |
+| **Faible 7** | M1 : le test n'est plus silencieux sans base (message `SAUT`), la justification « tout exportable » est contrôlée sur le contenu (≥ 4 mots **et** qui a reçu/rédigé : famille, élève, personne…), et la détection d'état par nom de colonne est élargie (`publi`, `retir`, `retrait`, `annul`, `clotur`, `supprim`, `archiv`…). Négatifs ajoutés (prose longue creuse, `ent_note_*`). |
+| **Faible 8** | `ent_eva_export` déclarée hors extrait par élève (voir Moyen 5). |
+| **Faible 9** | Test `la_table_de_reprise_des_appreciations_n_est_pas_exportee_sans_condition` : n'est plus tautologique ; il vérifie le registre et **éprouve la garde** par mutation (table exportée sans condition → signalée). |
+
+**Non fait / signalé.**
+- `ent_devoir_archive` est encore exportée **sans condition** (`perso().export()`) : titre et date d'un devoir historique non publié en publication explicite. Hors du champ de la consigne (préfixe `ent_devoir_`, sans `eleve_id`, donc non filtrable par élève) ; à traiter avec G3.
+- Réserve DPO sur `eva_dispense_port` (Moyen 4, passe 5) : inchangée, à acter par le pilote.
+
+### 13.2 Tests, compteurs
+* **Local : 261/261** verts (`registre_donnees`, `tests_evaluations*`, `extrait_personne`, `tests_rls::`, `migrate::`, `garde_`, `tests_eleve_fusion`, avec `labo`, un fil).
+* **Nouveaux : 3** de registre (`les_tables_ent_note_et_le_journal_du_personnel_sont_classes`, `hors_export_par_eleve_est_justifie_et_sans_eleve`, et la garde par mutation de F9, qui remplace l'ancien test) ; **étendus :** `hors_export_seul_sur_une_table_a_etat_est_vu`, `passe4_l_export_de_l_eleve_…` (notes de reprise, devoir non publié, note sans devoir, correction, doublon, item et restriction non publiés, contrôle `direction`).
+* **Compteurs (règle 28)** : 0 table, 0 migration, `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES`, `MIGRATION_TAG` inchangés (vérifiés).
+* **Clippy 1.99.0 : 0 avertissement** sur les 3 commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` : OK ; rustfmt appliqué **aux seules lignes touchées** (aucun `cargo fmt --all`).
+
+### 13.3 Tête et CI
+* **Tête du code :** `ecb77e6acc31e067dfc57e86f7f64a02298c10bb` (PR brouillon #148, `ent-socle-21-code-v5-suites-6` → `ENT`).
+* **CI « ENT Rust » sur cette tête : verte** (`completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**`.
+
+## 14. Correctifs du pilote après contre-revue de la passe 6
+Rapport : `docs/pilotage/revues/21_V5_SUITES_6_CONTRE_REVUE.md` (branche `ent-mc0hoe`).
+- **M-B** : `ent_devoir_archive` retirée de l'export (sans `eleve_id`, elle couvre tous les devoirs, publiés ou non) ; `est_table_evaluation` couvre `ent_devoir_*`.
+- **M-D** : `ent_note_archive` ne sort plus si l'évaluation reprise (même identifiant) existe et n'est plus publiée ; un devoir refusé par la reprise garde sa note publiée exportée (D-069).
+- **M-A** : le garde « hors extrait par élève » refuse aussi les colonnes de rattachement (`resultat_id`, `enseignement_externe_id`, `rattrapage_id`, `user_id`, `personne_id`, `beneficiaire_id`, `enfant_id`, `responsable_id`) ; sans base sous GitHub Actions, il échoue au lieu de sauter.
+- **M-C** : la moyenne externe d'un enseignement qui ne compte pas est désormais publiée dans le test et reste absente de l'extrait. Le critère `statut = 'moyenne'` est une défense en profondeur : le service refuse de publier une « dispense » ou une ligne « en attente ».
+- **F-1** (D-069) : journaux de correction (`ent_note_correction`, `eva_resultat_historique`) maintenus hors export, réserve DPO. F-2 à F-5 en file.
+- Local : tests `registre_donnees` et `tests_evaluations_v5` verts, clippy 1.99 vert.
