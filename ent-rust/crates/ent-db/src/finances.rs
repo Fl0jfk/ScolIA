@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use crate::facturation_payeurs::{
-    categorie_de_designation, ouvrir_tache, payeurs_pour_facturer, resoudre_taches, PartPayeur,
+    categorie_de_designation, ouvrir_tache_evenement, payeurs_pour_facturer, resoudre_taches_evenement, PartPayeur,
 };
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances_calcul::{self as calcul, Calendrier, TarifCandidat};
@@ -968,8 +968,10 @@ pub(crate) async fn verrouiller_foyer(conn: &mut PgConnection, etab: Uuid, foyer
     Ok(())
 }
 
-/// Prises en charge **actives** d'un compte d'organisme pour cet élève, couvrant `jour` et la catégorie
-/// (ou `toutes`). Vide : l'organisme n'est pas facturé (E2).
+/// Prises en charge d'un compte d'organisme pour cet élève, couvrant `jour` et la catégorie (ou `toutes`) : **active
+/// ou échue** (M1, suites 3 : une prise échue reste valide pour les mois de sa période, c'est la date qui borne, le
+/// statut `echue` n'est posé qu'après son terme) ; seule une prise **annulée** est exclue. Vide : l'organisme n'est
+/// pas facturé (E2).
 pub(crate) async fn prises_couvrantes(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -980,7 +982,7 @@ pub(crate) async fn prises_couvrantes(
 ) -> Result<Vec<PriseCouvrante>, EntDbError> {
     let rows: Vec<(Uuid, Option<i64>, Vec<String>, NaiveDate, NaiveDate)> = sqlx::query_as(
         "SELECT id, plafond_centimes, categories, du, au FROM ent_fin_prise_en_charge
-          WHERE etablissement_id = $1 AND eleve_id = $2 AND compte_id = $3 AND statut = 'active'
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND compte_id = $3 AND statut IN ('active', 'echue')
             AND du <= $4 AND au >= $4 AND (categories && ARRAY[$5, 'toutes']::text[])
           ORDER BY du, id",
     )
@@ -1229,9 +1231,10 @@ pub(crate) async fn lignes_annuelles(
     // foyers (un article ou un foyer inchangé n'est ni coupé ni arrondi deux fois). Le premier tronçon garde la clé de
     // source historique, les suivants portent le suffixe `:m<AAAA-MM>` de leur premier mois.
     // Un article tarifé certains mois seulement n'est jamais gratuit en silence : anomalie bloquante.
-    // Arrondi : chaque tronçon est arrondi **au centime inférieur** (prorata, réduction) ; la somme de plusieurs
-    // tronçons peut donc différer de 1 centime au plus par tronçon supplémentaire du prorata d'une année entière, en
-    // faveur de la famille (D-069, faible 1 : valeur prudente, jamais un centime facturé en trop).
+    // Arrondi (D-069, faible 1 et M3) : chaque tronçon est arrondi **au centime inférieur** (prorata) et chaque
+    // remise **au centime supérieur** : la famille ne paie jamais un centime en trop (somme des tronçons inférieure ou
+    // égale au prorata de l'année entière, remises supérieures ou égales à leur valeur exacte), l'écart reste de moins
+    // d'un centime par tronçon.
     let mut couvertures: HashMap<(Uuid, String, NaiveDate), Vec<Uuid>> = HashMap::new();
     let mut travaux: Vec<(usize, usize, usize, usize, Uuid)> = Vec::new();
     for (ai, (art_id, art_libelle, art_categorie, retire)) in articles.iter().enumerate() {
@@ -1499,7 +1502,7 @@ pub(crate) async fn lignes_annuelles(
                 .iter()
                 .filter(|r| r.2 != "fratrie" && r.6 && r.5.contains(art_categorie));
             for r in fratrie.into_iter().chain(individuelles) {
-                let remise = calcul::taux(part, r.4);
+                let remise = calcul::remise_haute(part, r.4);
                 if remise == 0 {
                     continue;
                 }
@@ -1595,41 +1598,211 @@ pub(crate) async fn lignes_annuelles(
             )));
         }
     }
-    // Contre-revue du pilote (Élevé 1, D-069) : le découpage mois par mois ne regarde pas les lignes déjà posées. Si un
-    // article de cet élève est déjà facturé pour l'année et que le découpage d'aujourd'hui produit une clé nouvelle
-    // (tarif mis en vigueur depuis la génération précédente), rien n'est écrit : les mois seraient facturés deux fois.
-    // L'écart se règle par un complément ou un avoir (F4).
+    // Garde anti double facturation, **par périodes** (suites 3, E1 + E2 ; D-069) : voir `garde_periodes`.
+    let libelles: HashMap<Uuid, String> = articles.iter().map(|a| (a.0, a.1.clone())).collect();
+    garde_periodes(conn, etab, eleve_id, prefixe, lignes, &libelles).await
+}
+
+/// Une ligne déjà posée pour (élève, article), lue pour la garde par périodes.
+struct LignePosee {
+    cle: String,
+    groupe: String,
+    queue: String,
+    periode: Option<(NaiveDate, NaiveDate)>,
+    montant: i64,
+}
+
+/// `(groupe, queue)` d'une clé de ligne annuelle : la queue est ce qui suit `{prefixe}:{eleve}:{article}` sans le
+/// suffixe de tronçon (`:m<AAAA-MM>`) ni de complément (`:c<AAAA-MM>`) ; le groupe rassemble la ligne principale d'un
+/// foyer et ses lignes `:suivant:` (un même mois est porté par l'une ou par l'autre, jamais par les deux).
+fn groupe_de_cle(cle: &str, pre: &str) -> Option<(String, String)> {
+    let reste = cle.strip_prefix(pre)?;
+    let b = reste.as_bytes();
+    let reste = if reste.len() >= 9
+        && b[0] == b':'
+        && (b[1] == b'm' || b[1] == b'c')
+        && b[2..6].iter().all(u8::is_ascii_digit)
+        && b[6] == b'-'
+        && b[7..9].iter().all(u8::is_ascii_digit)
+    {
+        &reste[9..]
+    } else {
+        reste
+    };
+    let groupe = match reste.strip_prefix(":suivant:") {
+        Some(origine) => format!(":{}", origine.split(':').next().unwrap_or("")),
+        None => reste.to_string(),
+    };
+    Some((groupe, reste.to_string()))
+}
+
+fn indice_mois(d: NaiveDate) -> i32 {
+    d.year() * 12 + d.month0() as i32
+}
+
+fn premier_du_mois(i: i32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(i.div_euclid(12), i.rem_euclid(12) as u32 + 1, 1).expect("date valide")
+}
+
+/// Garde anti double facturation fondée sur le **chevauchement des périodes** et le **montant** des lignes déjà
+/// posées pour (élève, article, foyer), réductions et `:suivant:` compris (E1, E2 des suites 3 ; D-069).
+///
+/// Pour chaque ligne à poser :
+/// - période **disjointe** de tout ce qui est posé (renouvellement d'une prise, nouveau tronçon) : facturable telle quelle ;
+/// - **même clé, même période** : rejeu, laissée telle quelle (la base l'ignore ; un montant plus faible vient d'un
+///   plafond de prise consumé, un montant plus fort est refusé ; une ligne `:suivant:` n'est jamais comparée) ;
+/// - période **déjà en partie couverte** (prolongation d'une prise, mois déjà posés sous une autre clé) : seuls les
+///   **mois manquants** sont facturés, sous une clé nouvelle `:c<mois de début>` ; aucune ligne posée n'est refacturée ;
+/// - mois couverts **à un autre tarif** que celui d'aujourd'hui : refus explicite (régularisation par complément ou
+///   avoir, F4), jamais d'ignorance silencieuse.
+async fn garde_periodes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    prefixe: &str,
+    lignes: Vec<LigneAFacturer>,
+    libelles: &HashMap<Uuid, String>,
+) -> Result<Result<Vec<LigneAFacturer>, String>, EntDbError> {
     let mut prefixes: Vec<String> = lignes
         .iter()
         .filter_map(|l| l.article_id.map(|a| format!("{prefixe}:{eleve_id}:{a}")))
         .collect();
     prefixes.sort();
     prefixes.dedup();
-    if !prefixes.is_empty() {
-        let posees: Vec<String> = sqlx::query_scalar(
-            "SELECT l.source_cle FROM ent_fac_ligne l, unnest($2::text[]) AS p(prefixe)
-              WHERE l.etablissement_id = $1 AND left(l.source_cle, length(p.prefixe)) = p.prefixe",
-        )
-        .bind(etab)
-        .bind(&prefixes)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db)?;
-        for pre in &prefixes {
-            if !posees.iter().any(|c| c.starts_with(pre.as_str())) {
-                continue;
-            }
-            let nouvelle = lignes
-                .iter()
-                .any(|l| l.source_cle.starts_with(pre.as_str()) && !posees.contains(&l.source_cle));
-            if nouvelle {
-                return Ok(Err(
-                    "le tarif a changé depuis la génération précédente pour un article déjà facturé : rien n'est refacturé, régularisez par un complément ou un avoir".into(),
-                ));
+    if prefixes.is_empty() {
+        return Ok(Ok(lignes));
+    }
+    let rows: Vec<(String, Option<NaiveDate>, Option<NaiveDate>, i64)> = sqlx::query_as(
+        "SELECT l.source_cle, l.periode_debut, l.periode_fin, (l.quantite::BIGINT * l.montant_unitaire_centimes)
+           FROM ent_fac_ligne l, unnest($2::text[]) AS p(prefixe)
+          WHERE l.etablissement_id = $1 AND left(l.source_cle, length(p.prefixe)) = p.prefixe",
+    )
+    .bind(etab)
+    .bind(&prefixes)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut posees: HashMap<String, Vec<LignePosee>> = HashMap::new();
+    for (cle, debut, fin, montant) in rows {
+        let Some(pre) = prefixes.iter().find(|p| cle.starts_with(p.as_str())) else { continue };
+        let Some((groupe, queue)) = groupe_de_cle(&cle, pre) else { continue };
+        posees.entry(pre.clone()).or_default().push(LignePosee {
+            cle,
+            groupe,
+            queue,
+            periode: debut.zip(fin),
+            montant,
+        });
+    }
+    let mut sortie = Vec::with_capacity(lignes.len());
+    for l in lignes {
+        let (Some(art), Some((d, f))) = (l.article_id, l.periode) else {
+            sortie.push(l);
+            continue;
+        };
+        let pre = format!("{prefixe}:{eleve_id}:{art}");
+        let Some(deja) = posees.get(&pre) else {
+            sortie.push(l);
+            continue;
+        };
+        let Some((groupe, queue)) = groupe_de_cle(&l.source_cle, &pre) else {
+            sortie.push(l);
+            continue;
+        };
+        let cle_posee = deja.iter().find(|p| p.cle == l.source_cle);
+        if let Some(p) = cle_posee {
+            match p.periode {
+                // ligne sans période (ancienne) : traitée comme un rejeu
+                None => {
+                    sortie.push(l);
+                    continue;
+                }
+                Some((pd, pf)) if (pd, pf) == (d, f) => {
+                    // même clé, même période : rejeu. Plus faible = plafond de prise consumé (la part passe au payeur
+                    // suivant) ; plus fort = le montant a monté depuis la génération : refus, jamais ignoré.
+                    // Une ligne `:suivant:` n'est pas comparée : son montant suit le restant des plafonds, qui varie.
+                    if !queue.starts_with(":suivant:") && l.unitaire.abs() > p.montant.abs() + 1 {
+                        return Ok(Err(refus_tarif(libelles, art, p, &l)));
+                    }
+                    sortie.push(l);
+                    continue;
+                }
+                Some(_) => {}
             }
         }
+        let nl = i64::from(indice_mois(f) - indice_mois(d) + 1);
+        let a = l.unitaire;
+        let memes: Vec<&LignePosee> = deja.iter().filter(|p| p.groupe == groupe && p.periode.is_some()).collect();
+        let mois_l = indice_mois(d)..=indice_mois(f);
+        let couverts: std::collections::BTreeSet<i32> = memes
+            .iter()
+            .filter_map(|p| p.periode)
+            .flat_map(|(pd, pf)| indice_mois(pd)..=indice_mois(pf))
+            .filter(|m| mois_l.contains(m))
+            .collect();
+        if couverts.is_empty() && cle_posee.is_none() {
+            sortie.push(l); // période disjointe : facturable
+            continue;
+        }
+        // mois déjà couverts par une ligne de **même nature** : même tarif au mois, aux arrondis près
+        for p in memes.iter().filter(|p| p.queue == queue && !queue.starts_with(":suivant:")) {
+            let Some((pd, pf)) = p.periode else { continue };
+            let (lo, hi) = (indice_mois(pd).max(indice_mois(d)), indice_mois(pf).min(indice_mois(f)));
+            if lo > hi {
+                continue;
+            }
+            let np = i64::from(indice_mois(pf) - indice_mois(pd) + 1);
+            let ecart = (i128::from(p.montant) * i128::from(nl) - i128::from(a) * i128::from(np)).abs();
+            if ecart > 3 * i128::from(nl + np) {
+                return Ok(Err(refus_tarif(libelles, art, p, &l)));
+            }
+        }
+        if cle_posee.is_some() {
+            sortie.push(l.clone()); // la clé existe : la base ignore cette ligne, les mois manquants suivent
+        }
+        // mois manquants, par suites ininterrompues : une ligne chacune, clé nouvelle `:c<AAAA-MM>`
+        let est_remise = queue.starts_with(":red:");
+        let mut m = *mois_l.start();
+        while m <= *mois_l.end() {
+            if couverts.contains(&m) {
+                m += 1;
+                continue;
+            }
+            let debut = m;
+            while m <= *mois_l.end() && !couverts.contains(&m) {
+                m += 1;
+            }
+            let nb = i64::from(m - debut);
+            let part = calcul::proportion(a.abs(), nb, nl);
+            let part = if est_remise && part * nl < a.abs() * nb { part + 1 } else { part };
+            let part = if a < 0 { -part } else { part };
+            if part == 0 {
+                continue;
+            }
+            let (d2, f2) = (premier_du_mois(debut), calcul::fin_de_mois(premier_du_mois(m - 1).year(), premier_du_mois(m - 1).month()));
+            let reste = l.source_cle.strip_prefix(pre.as_str()).unwrap_or("");
+            let reste = if reste.len() >= 9 && matches!(&reste[..2], ":m" | ":c") { &reste[9..] } else { reste };
+            let mut c = l.clone();
+            c.unitaire = part;
+            c.periode = Some((d2, f2));
+            c.source_cle = format!("{pre}:c{}{reste}", d2.format("%Y-%m"));
+            c.libelle = format!("{} — complément {}", l.libelle, d2.format("%m/%Y"));
+            sortie.push(c);
+        }
     }
-    Ok(Ok(lignes))
+    Ok(Ok(sortie))
+}
+
+fn refus_tarif(libelles: &HashMap<Uuid, String>, art: Uuid, p: &LignePosee, l: &LigneAFacturer) -> String {
+    let nom = libelles.get(&art).map(String::as_str).unwrap_or("?");
+    let periode = p
+        .periode
+        .map(|(a, b)| format!(" (période du {} au {})", a.format("%d/%m/%Y"), b.format("%d/%m/%Y")))
+        .unwrap_or_default();
+    format!(
+        "le tarif de l'article « {nom} » a changé depuis la génération précédente pour des mois déjà facturés{periode} : {} c déjà posés, {} c aujourd'hui ; rien n'est refacturé, régularisez par un complément ou un avoir",
+        p.montant, l.unitaire
+    )
 }
 
 /// Facturation annuelle d'un élève (inscription validée, génération FIN-02). Le tarif se choisit mois par mois,
@@ -1822,7 +1995,7 @@ pub(crate) async fn facturer_changement_regime(
                     date.format("%d/%m/%Y"),
                     gagnees.join(", ")
                 );
-                ouvrir_tache(
+                ouvrir_tache_evenement(
                     conn,
                     etab,
                     NATURE_TACHE_REGIME_NON_FACTURE,
@@ -1832,6 +2005,7 @@ pub(crate) async fn facturer_changement_regime(
                     date,
                     &detail,
                     actor,
+                    Some(evenement),
                 )
                 .await?;
             }
@@ -1849,7 +2023,7 @@ pub(crate) async fn facturer_changement_regime(
                     )
                     .await?,
                 );
-                resoudre_taches(conn, etab, NATURE_TACHE_REGIME_NON_FACTURE, eleve_id, None, actor).await?;
+                resoudre_taches_evenement(conn, etab, NATURE_TACHE_REGIME_NON_FACTURE, eleve_id, evenement, actor).await?;
             }
         }
     }

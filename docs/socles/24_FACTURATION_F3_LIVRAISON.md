@@ -264,3 +264,40 @@ Route HTTP de la fin de tarif datée (service et type `RetraitArticleBody` seule
 ### Tête de code et CI
 - Tête de code testée : `89537860e5249670f06ee85204ca5a370f0c60ad` (PR n° 150, brouillon, vers `ENT`).
 - CI « ENT Rust » sur cette tête : **verte** (run 45451407819). Le commit de documentation qui suit ne change aucun code.
+
+## Suites, 3, correctifs (contre-revue `24_F3_SUITES_3_CONTRE_REVUE.md`, 2026-11-24)
+
+Branche `ent-socle-24-code-f3-suites-3` (PR n° 150, brouillon, retenue), `origin/ENT` fusionné d'abord (règle 28). **Migration 532 corrigée en place** (non versée) : colonne `ent_fin_tache.evenement_id` et index d'unicité des tâches ouvertes recréé avec elle (NULL pour toutes les autres natures : comportement inchangé) ; aucune fonction créée, aucune migration de plus, `migrations_versees.txt` non touché. **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.**
+
+### Fait
+
+| Réf. | Correctif | Tests |
+|---|---|---|
+| **E1 + E2 (garde par périodes)** | La garde « le tarif a changé » (clé nouvelle refusée) est remplacée par `garde_periodes` (`finances.rs`), fondée sur le **chevauchement des périodes** et le **montant** des lignes déjà posées pour (élève, article, foyer), réductions et `:suivant:` compris (le groupe d'un foyer = sa ligne principale et ses `:suivant:`, un même mois étant porté par l'une ou l'autre). Période **disjointe** → facturable telle quelle (renouvellement par une nouvelle prise). **Même clé, même période** → rejeu (ligne laissée, la base l'ignore ; montant plus fort refusé explicitement, `:suivant:` jamais comparé car il suit le restant des plafonds). **Même clé, période différente** ou période en partie couverte (prolongation) → seuls les **mois manquants** sont facturés, par suites ininterrompues, sous une clé nouvelle `:c<AAAA-MM>` ; aucune ligne posée n'est refacturée. Mois déjà couverts à un **autre tarif** (au mois, aux arrondis près) → **refus explicite** (« a changé depuis la génération précédente pour des mois déjà facturés… régularisez par un complément ou un avoir », F4), jamais d'ignorance silencieuse. | `f3s4_e1_prolongation_de_prise_puis_rejeu_facture_les_six_mois_manquants` (180 € + 270 €, rejeu et double rejeu inchangés) ; `f3s4_e2_renouvellement_par_une_nouvelle_prise_est_facturable` (180 € + 270 €, clé `:m2031-01`, rejeu inchangé) ; `f3r_m1` (changement de tarif sur des mois facturés : refus, 1 200 € inchangés) ; `f3s3_prise_*` (rejeu sans modification) |
+| **M1** | `prises_couvrantes` : statut `active` **ou** `echue` ; seule `annulee` est exclue. La date borne (`du ≤ jour ≤ au`). `e2_m1_organisme_…` (suite F2) corrigé : sa prise « échue » avait été forcée sur une période encore valide ; elle a maintenant une période révolue. | `f3s4_m1_prise_echue_valide_pour_ses_mois_annulee_exclue` (alerte passée avant la génération : 180 € à l'organisme ; prise annulée : 0 et tâche) |
+| **M2** | Tâche `regularisation_regime_non_facturee` liée à l'**événement** (`evenement_id`) ; `ouvrir_tache_evenement` / `resoudre_taches_evenement` ; une tâche ouverte par (élève, événement) ; close uniquement par la régularisation de **son** événement. | `f3s4_m2_tache_de_regime_close_par_la_regularisation_de_son_evenement` (A échoue, B réussit : la tâche de A reste ouverte, seul le rejeu de A la ferme) ; `f3s3_changement_de_regime_…` (inchangé, vert) |
+| **M3** | Remise arrondie **vers le haut** (`finances_calcul::remise_haute`, bornée au montant), en faveur de la famille ; commentaire du moteur, doc et test alignés (le prorata d'un tronçon reste tronqué). | test unitaire `taux_et_regimes` ; `f3s3_troncature_…` (remises 1 350 + 2 251) |
+| **M4** | Test de cloisonnement SQL discriminant : pool du **rôle applicatif strict** (non propriétaire, sans BYPASSRLS), contexte de l'autre établissement → **0** ligne, contexte propre → 1 (contrôle positif). L'ancien `let _ = autre;` est supprimé. | `f3s4_m4_cloisonnement_sql_des_taches_sous_le_role_strict` |
+| **Faible 1** | Contrôles de proposition : avertissement non bloquant `article_retire_tarife` quand une grille tarifie un article à fin de tarif datée (la date ne porte pas d'année, elle peut être périmée). | `f3s4_faible1_avertissement_grille_qui_tarifie_un_article_retire` |
+| **Faible 2** | Fin de tarif : retrait au 01/03 avec trou de grille dès janvier = bloquant (message sur le 01/01/2031, rien d'écrit) ; tous les articles retirés dès septembre = refus explicite, rien d'écrit. | `f3s4_faible2_fin_de_tarif_au_premier_mars_…` |
+| **Faible 4** | Plafond consommé au rejeu en deux tronçons avec payeur suivant (plafond 400 € : 180 € puis 220 € à l'organisme, 80 € au payeur suivant) : rejeu et double rejeu sans aucune ligne de plus ; les lignes `:suivant:` du premier tronçon, reformées à neuf, sont couvertes par le principal et écartées. | `f3s4_faible4_plafond_consomme_au_rejeu_en_deux_troncons` |
+
+### Règles métier non tranchées : valeur par défaut prudente (D-069)
+- **Faible 3** (prise commençant le 15 du mois) : un mois n'est couvert que si la prise est valide le **premier jour** ; la prise commençant le 15 ne couvre le mois qu'à partir du mois suivant (part non couverte → tâche). Règle prudente à valider.
+- **Prolongation** : les mois manquants sont facturés au tarif d'aujourd'hui (prorata de la ligne générée, arrondi inférieur ; remises arrondies vers le haut) ; si le tarif des mois déjà posés diffère au-delà des arrondis (3 centimes par mois cumulés), refus explicite plutôt que complément (régularisation = F4).
+- **Montant plus fort à clé et période identiques** (plafond relevé, par exemple) : refus explicite ; plus faible : rejeu (plafond consommé).
+- **Lignes sans période** (anciennes) : traitées comme un rejeu.
+- **Faible 5** (détail de tâche figé au premier motif) : assumé ; désormais un détail par événement.
+- La réactivation d'une prise échue exige une nouvelle fin postérieure à l'horloge réelle (`aujourd_hui()`) : le test utilise 2031, aucune dépendance au jour d'exécution jusque-là.
+
+### Non fait
+Route HTTP de la fin de tarif datée et écrans Leptos (hors lot) ; régularisation des écarts déjà facturés (F4).
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; migrations : +532 (`MIGRATION_TAG` inchangé) ; `SOURCES` **75** (inchangé). Le pilote ajoutera `532_finances_f3_suites3` à `migrations_versees.txt`.
+
+### Vérifications
+Base locale neuve `ent_f3v_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `tests_finances_f3` : **42 tests verts** (35 + 7 `f3s4_*`) ; régression ent-db (`finances factur garde_search migrations rls payeurs comptes`) : **197 passés, 0 échec** ; `tests_finances_f2::e2_m1_…` adapté (voir M1) et vert. Hors périmètre : deux tests d'inscriptions (`i4_refus_bloque_…`, `i4_reponse_en_ligne_sans_compte`) échouent en local sur « aucun lien d'accord envoyé » (courriel de démonstration, sans lien avec la facturation) ; à confirmer par la CI. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI (`ent-lab` compris) : 0 avertissement ; `cargo metadata --locked` (`ent-rust/web`) : OK. rustfmt ciblé uniquement ; pas de `cargo fmt --all`, pas de `#[ignore]`.
+
+### Tête de code et CI
+(à compléter après la CI)

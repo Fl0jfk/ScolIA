@@ -3888,6 +3888,31 @@ async fn controles_tx(
     if !tarifs.is_empty() {
         anomalies.extend(controler_continuite(&precedents, &tarifs, &facturees));
     }
+    // Suites 3 (faible 1) : la fin de tarif datée ne porte pas d'année ; une grille qui tarifie encore un article retiré
+    // est signalée (avertissement, jamais bloquant) : la date est peut-être périmée (retrait d'une année précédente).
+    let retires: Vec<(Uuid, String, NaiveDate)> = sqlx::query_as(
+        "SELECT DISTINCT a.id, a.code, a.retire_a_partir_du FROM ent_fin_tarif t
+           JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
+          WHERE t.etablissement_id = $1 AND t.grille_version_id = $2 AND t.actif AND a.actif
+            AND a.retire_a_partir_du IS NOT NULL
+          ORDER BY a.code",
+    )
+    .bind(etab)
+    .bind(version)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for (id, code, date) in retires {
+        anomalies.push(AnomalieGrilleDto {
+            code: "article_retire_tarife".into(),
+            message: format!(
+                "l'article « {code} » est retiré à partir du {} (fin de tarif datée) mais cette grille le tarifie : vérifiez que la date n'est pas périmée",
+                date.format("%d/%m/%Y")
+            ),
+            article_id: Some(id),
+            bloquante: false,
+        });
+    }
     let proposable = !anomalies.iter().any(|a| a.bloquante);
     Ok(ControlesGrilleDto {
         anomalies,

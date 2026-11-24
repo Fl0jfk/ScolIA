@@ -1212,10 +1212,12 @@ async fn e2_m1_organisme_sans_prise_en_charge_active_n_est_pas_facture() {
     let el2 = eleve(&ent, etab, "Bao", d(2018, 3, 1), "demi_pension").await;
     lien_non_payeur(&ent, etab, el2, fm).await;
     ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
-        compte_id: org.id, eleve_id: el2, reference: "PEC-E2b".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        compte_id: org.id, eleve_id: el2, reference: "PEC-E2b".into(), du: d(2030, 1, 1), au: d(2030, 8, 31),
         categories: vec!["restauration".into()], plafond_centimes: None }).await.unwrap();
     piece_accord(&ent, &c, el2, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
     piece_accord(&ent, &c, el2, "restauration", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
+    // Suites 3 (M1) : une prise échue reste valide pour les mois de sa période ; ici la période est révolue (avant la
+    // rentrée) : aucun mois de l'année n'est couvert.
     sqlx::query("UPDATE ent_fin_prise_en_charge SET statut = 'echue' WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el2).execute(ent.pool_verif()).await.unwrap();
     facturer(&ent, etab, el2).await.unwrap();
     assert_eq!(somme(&lignes(&ent, etab, fe.0).await, "restauration"), 300_000, "l'organisme n'est plus facturé pour el2");

@@ -574,7 +574,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // sont versées et ne changent pas (règle 25) ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("317_inscription_i5_suites_passe6"),
     // Socle 24, suites 3 du lot F3 (D-069 ; réserve 532–537 de la plage 520–539) : nature de tâche « régularisation de
-    // changement de régime non facturée » et fin de tarif datée d'un article. 520 à 523 et 531 sont versées et ne
+    // changement de régime non facturée » (liée à l'événement : `evenement_id`, index d'unicité recréé) et fin de tarif
+    // datée d'un article. 520 à 523 et 531 sont versées et ne
     // changent pas (règle 25). Règle 38 : en fin de tableau ; aucune fonction. `MIGRATION_TAG` inchangé.
     m!("532_finances_f3_suites3"),
 ];
