@@ -432,6 +432,32 @@ export function engagementKeys(inv: FamilyInvitation): string[] {
  * Enregistrement d'engagement minimal : identité de l'élève, signataire, montants, fichier d'engagement.
  * Plus aucun e-mail, jeton, code, réponse pratique, pièce, tracé, ni motif de désaccord.
  */
+/** Nombre maximal d'envois échoués avant que le filet de sécurité horaire abandonne une invitation. */
+export const MAX_INVITE_SEND_FAILURES = 3;
+
+/**
+ * Filet de sécurité des liens d'invitation (voyage ouvert) : classe les invitations qui n'ont jamais été envoyées.
+ * - `send` : jamais envoyée, aucune tentative échouée ;
+ * - `retry` : jamais envoyée, déjà en échec mais sous le plafond d'essais ;
+ * - `abandoned` : plafond atteint (reste relançable à la main depuis la vue Inscriptions).
+ * Ignore les invitations déjà envoyées, signées, purgées, désistées ou sans e-mail.
+ * Une invitation en échec créée avant l'ajout du compteur (`lastSendError` sans `sendFailures`) compte pour un échec.
+ */
+export function selectInvitationsToSend(
+  invs: FamilyInvitation[],
+  maxFailures: number = MAX_INVITE_SEND_FAILURES,
+): { send: string[]; retry: string[]; abandoned: string[] } {
+  const out = { send: [] as string[], retry: [] as string[], abandoned: [] as string[] };
+  for (const i of invs) {
+    if (i.firstSentAt || i.signature || i.purgedAt || i.withdrawal || !i.email) continue;
+    const failures = i.sendFailures ?? (i.lastSendError ? 1 : 0);
+    if (failures >= maxFailures) out.abandoned.push(i.id);
+    else if (failures > 0) out.retry.push(i.id);
+    else out.send.push(i.id);
+  }
+  return out;
+}
+
 export function archiveInvitation(inv: FamilyInvitation, caseRec?: StudentCase | null, nowIso?: string): FamilyInvitation {
   const sig = inv.signature;
   const retired = caseRec?.decision?.kind === "retirer";

@@ -113,9 +113,29 @@ export async function GET(req: Request) {
   });
 }
 
+/** Journal des lenteurs (sans donnée personnelle) : étape par étape, seulement au-delà de 3 s. */
+function makeSlowLog(label: string) {
+  const t0 = Date.now();
+  let last = t0;
+  const steps: string[] = [];
+  return {
+    mark(step: string) {
+      const now = Date.now();
+      steps.push(`${step}=${now - last}ms`);
+      last = now;
+    },
+    done() {
+      const total = Date.now() - t0;
+      if (total > 3000) console.warn(`[travels/compta-sheet] ${label} lent: ${total}ms (${steps.join(", ")})`);
+    },
+  };
+}
+
 export async function POST(req: Request) {
+  const slow = makeSlowLog("POST");
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
+  slow.mark("auth");
 
   let body: { tripId?: string; action?: string; sheet?: TravelsComptaSheet; forceBusOcr?: boolean };
   try {
@@ -129,9 +149,11 @@ export async function POST(req: Request) {
   if (!tripId) return NextResponse.json({ error: "tripId requis." }, { status: 400 });
 
   const trip = await loadTrip(tripId);
+  slow.mark("lecture");
   if (!trip) return NextResponse.json({ error: "Dossier introuvable." }, { status: 404 });
 
   const access = await assertTravelsTripAccess(trip);
+  slow.mark("droits");
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   if (!userHasComptaRole(access.user)) {
@@ -141,7 +163,10 @@ export async function POST(req: Request) {
   if (action === "save") {
     if (!body.sheet) return NextResponse.json({ error: "sheet requis." }, { status: 400 });
     const sheet = finalizeComptaSheetForPersist(trip, body.sheet);
+    slow.mark("calcul");
     await persistComptaSheet(tripId, trip, sheet);
+    slow.mark("ecriture");
+    slow.done();
     return NextResponse.json({ ok: true, sheet });
   }
 
@@ -150,7 +175,10 @@ export async function POST(req: Request) {
     const result = await syncComptaSheetWithDocuments(trip, existing, {
       forceBusOcr: Boolean(body.forceBusOcr),
     });
+    slow.mark("synchro-ocr-ia");
     await persistComptaSheet(tripId, trip, result.sheet);
+    slow.mark("ecriture");
+    slow.done();
 
     return NextResponse.json({
       ok: true,

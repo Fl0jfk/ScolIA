@@ -44,9 +44,9 @@ async function runPass(): Promise<void> {
             const locked = await withNamedLock("jobs", "voyages-v2-cycle", 55 * 60, () => runLifecycleForTenant());
             if (locked.busy) return;
             const r = locked.value;
-            if (r.closed || r.proposed || r.blocked || r.purged || r.retried) {
+            if (r.closed || r.proposed || r.blocked || r.purged || r.retried || r.invited) {
               console.info(
-                `[voyages-v2-cycle] ${tenant.slug}: ${r.closed} clôturé(s), ${r.proposed} proposition(s), ${r.blocked} blocage(s), ${r.purged} purgé(s), ${r.retried} reprise(s)`,
+                `[voyages-v2-cycle] ${tenant.slug}: ${r.closed} clôturé(s), ${r.proposed} proposition(s), ${r.blocked} blocage(s), ${r.purged} purgé(s), ${r.retried} reprise(s), ${r.invited} invitation(s) envoyée(s)`,
               );
             }
           });

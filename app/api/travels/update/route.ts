@@ -22,6 +22,20 @@ import { buildTravelsBusQuoteSelectionCtx } from "@/app/lib/travels-bus-quote-pe
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 /** Le client fait foi (suppressions incluses) ; on n'ajoute depuis S3 que si le client n'envoie pas la liste. */
+/** Délai maximal d'attente de l'image automatique avant de répondre. */
+const COVER_WAIT_MS = 3000;
+
+type CoverImage = NonNullable<Awaited<ReturnType<typeof selectTravelCoverImage>>>;
+
+function applyCoverToTrip(target: Record<string, unknown>, matchedImage: CoverImage): void {
+  target.imageUrl = normalizePublicImageUrl(matchedImage.url);
+  target.imageConfigId = matchedImage.id;
+  target.imageAttribution = formatTravelImageAttribution(matchedImage);
+  target.imageAuthor = matchedImage.author ?? null;
+  target.imageLicense = matchedImage.license ?? null;
+  target.imageAttributionUrl = matchedImage.attributionUrl ?? null;
+}
+
 function mergeReceivedDevis(fromClient: unknown, fromS3: unknown): unknown[] {
   if (Array.isArray(fromClient)) return fromClient;
   return Array.isArray(fromS3) ? fromS3 : [];
@@ -38,19 +52,38 @@ export async function POST(req: Request) {
     const title = innerData.title || "Titre introuvable";
     const destination = innerData.destination || "Destination introuvable";
     const objectToSave = body.data; 
-    if (!objectToSave.imageUrl) {
-      try {
-        const matchedImage = await selectTravelCoverImage({ title, destination });
-        if (matchedImage?.url) {
-          objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
-          objectToSave.imageConfigId = matchedImage.id;
-          objectToSave.imageAttribution = formatTravelImageAttribution(matchedImage);
-          objectToSave.imageAuthor = matchedImage.author ?? null;
-          objectToSave.imageLicense = matchedImage.license ?? null;
-          objectToSave.imageAttributionUrl = matchedImage.attributionUrl ?? null;
+    const { getTenant, runWithTenant } = await import("@/app/lib/tenant-context");
+    // Tenant capturé AVANT la réponse : les effets de bord différés (`after`) s'exécutent hors requête.
+    const tenant = await getTenant();
+    const afterTenant = (label: string, fn: () => Promise<void>) =>
+      after(async () => {
+        try {
+          await runWithTenant(tenant, fn);
+        } catch (err) {
+          console.error(`[travels/update] ${label}:`, err instanceof Error ? err.message : err);
         }
-      } catch (err) {
+      });
+    /** Image de couverture trouvée trop tard pour la réponse : appliquée après coup (voir plus bas). */
+    let deferredCover: Promise<Awaited<ReturnType<typeof selectTravelCoverImage>>> | null = null;
+    if (!objectToSave.imageUrl) {
+      // Recherche IA + web : parfois > 15 s. On attend au plus COVER_WAIT_MS ; au-delà l'enregistrement n'attend plus et
+      // l'image est posée juste après (même résultat, sans bloquer la création).
+      const coverSearch = runWithTenant(tenant, () => selectTravelCoverImage({ title, destination })).catch((err) => {
         console.error("Erreur IA:", err);
+        return null;
+      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const raced = await Promise.race([
+        coverSearch,
+        new Promise<"slow">((resolve) => {
+          timer = setTimeout(() => resolve("slow"), COVER_WAIT_MS);
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (raced === "slow") {
+        deferredCover = coverSearch;
+      } else if (raced?.url) {
+        applyCoverToTrip(objectToSave, raced);
       }
     } else if (typeof objectToSave.imageUrl === "string") {
       objectToSave.imageUrl = normalizePublicImageUrl(objectToSave.imageUrl);
@@ -417,9 +450,8 @@ export async function POST(req: Request) {
     if (openRegistrationsNow) {
       // Invitations créées tout de suite ; e-mails envoyés après la réponse (relançables depuis la vue Inscriptions).
       try {
-        const { getTenant, getTenantAppUrl, runWithTenant } = await import("@/app/lib/tenant-context");
+        const { getTenantAppUrl } = await import("@/app/lib/tenant-context");
         const { openRegistrationsForTrip } = await import("@/app/lib/travels-v2-registration-store");
-        const tenant = await getTenant();
         const baseUrl = await getTenantAppUrl();
         const tripForInvites = { ...(objectToSave as Record<string, unknown>), id: String(tripId) } as unknown as TravelsTrip;
         after(async () => {
@@ -438,61 +470,86 @@ export async function POST(req: Request) {
       }
     }
     if (newStatus === "EN_ATTENTE_COMPTA" && previousStatus !== "EN_ATTENTE_COMPTA") {
-      try {
-        await notifyComptaTravelsPhase({ tripId,
-          trip: objectToSave as TravelsTripForNotify,
-          previousStatus,
-        });
-      } catch (mailErr) {
-        console.error("Erreur notification compta Travels:", mailErr);
-      }
+      // E-mail à la compta : envoyé après la réponse (mêmes destinataires, même contenu).
+      const tripForNotify = objectToSave as TravelsTripForNotify;
+      afterTenant("notification compta", async () => {
+        try {
+          await notifyComptaTravelsPhase({ tripId, trip: tripForNotify, previousStatus });
+        } catch (mailErr) {
+          console.error("Erreur notification compta Travels:", mailErr);
+        }
+      });
     }
     if (
       newStatus === "FINALISE_DIR_ATTENTE_ELEVES" &&
       previousStatus !== "FINALISE_DIR_ATTENTE_ELEVES"
     ) {
-      try {
-        const { notifyOrganizerListeElevesNeeded } = await import("@/app/lib/travels-notify");
-        await notifyOrganizerListeElevesNeeded({
-          tripId,
-          trip: objectToSave as TravelsTripForNotify,
-        });
-      } catch (mailErr) {
-        console.error("Erreur notification liste élèves Travels:", mailErr);
-      }
+      const tripForNotify = objectToSave as TravelsTripForNotify;
+      afterTenant("notification liste élèves", async () => {
+        try {
+          const { notifyOrganizerListeElevesNeeded } = await import("@/app/lib/travels-notify");
+          await notifyOrganizerListeElevesNeeded({ tripId, trip: tripForNotify });
+        } catch (mailErr) {
+          console.error("Erreur notification liste élèves Travels:", mailErr);
+        }
+      });
     }
     if (isNewProject && !suppressNewTripEmail) {
-      try {
-        const director = await resolveDirectorForEstablishment( innerData.etablissement);
-        const smtp = await getTenantSmtpConfig();
-        const transporter = smtp ? await createTenantTransporter() : null;
-        if (transporter && smtp) {
-        const creatorName = objectToSave.ownerName || "Enseignant";
-        const dateInfo = innerData.startDate || innerData.endDate ? `du ${innerData.startDate || innerData.date || "—"} au ${innerData.endDate || innerData.date || "—"}` : (innerData.date || "—");
-        await transporter.sendMail({
-          from: `"Plateforme Voyages" <${smtp.user}>`,
-          to: director.email,
-          subject: `Nouvelle demande de sortie — ${innerData.etablissement || "Groupe Scolaire"} — ${title}`,
-          text: [
-            `Bonjour ${director.directrice},`,
-            ``,
-            `Un nouveau projet de sortie a été créé sur DocsLapro et nécessite votre suivi.`,
-            ``,
-            `Établissement ciblé : ${innerData.etablissement || "Groupe Scolaire"}`,
-            `Créé par : ${creatorName}`,
-            `Titre : ${title}`,
-            `Destination : ${destination}`,
-            `Dates : ${dateInfo}`,
-            `Effectif : ${innerData.nbEleves || "—"} élèves / ${innerData.nbAccompagnateurs || "—"} accompagnateurs`,
-            ``,
-            `Vous pouvez consulter le dossier dans l'espace sortie scolaire de DocsLapro.`,
-            ``,
-            `Cordialement,`,
-            `Plateforme Voyages`,
-          ].join("\n"),
-        });
+      // E-mail à la direction : envoyé après la réponse (SMTP sans délai maximal = plusieurs secondes d'attente inutile).
+      const ownerNameForMail = objectToSave.ownerName || "Enseignant";
+      afterTenant("notification direction", async () => {
+        try {
+          const director = await resolveDirectorForEstablishment(innerData.etablissement);
+          const smtp = await getTenantSmtpConfig();
+          const transporter = smtp ? await createTenantTransporter() : null;
+          if (transporter && smtp) {
+            const creatorName = ownerNameForMail;
+            const dateInfo = innerData.startDate || innerData.endDate ? `du ${innerData.startDate || innerData.date || "—"} au ${innerData.endDate || innerData.date || "—"}` : (innerData.date || "—");
+            await transporter.sendMail({
+              from: `"Plateforme Voyages" <${smtp.user}>`,
+              to: director.email,
+              subject: `Nouvelle demande de sortie — ${innerData.etablissement || "Groupe Scolaire"} — ${title}`,
+              text: [
+                `Bonjour ${director.directrice},`,
+                ``,
+                `Un nouveau projet de sortie a été créé sur DocsLapro et nécessite votre suivi.`,
+                ``,
+                `Établissement ciblé : ${innerData.etablissement || "Groupe Scolaire"}`,
+                `Créé par : ${creatorName}`,
+                `Titre : ${title}`,
+                `Destination : ${destination}`,
+                `Dates : ${dateInfo}`,
+                `Effectif : ${innerData.nbEleves || "—"} élèves / ${innerData.nbAccompagnateurs || "—"} accompagnateurs`,
+                ``,
+                `Vous pouvez consulter le dossier dans l'espace sortie scolaire de DocsLapro.`,
+                ``,
+                `Cordialement,`,
+                `Plateforme Voyages`,
+              ].join("\n"),
+            });
+          }
+        } catch (mailErr) { console.error("Erreur notification direction:", mailErr); }
+      });
+    }
+    if (deferredCover) {
+      // Image automatique arrivée après la réponse : posée sur le dossier et l'index, sans écraser une image choisie entre-temps.
+      const coverPending = deferredCover;
+      afterTenant("image automatique", async () => {
+        const matched = await coverPending;
+        if (!matched?.url) return;
+        const hit = await getJson<Record<string, unknown>>(tripRel);
+        const current = hit?.data;
+        if (!current || current.imageUrl) return;
+        applyCoverToTrip(current, matched);
+        await putJson(tripRel, current);
+        const idxHit = await getJson<Array<Record<string, unknown>>>("travels/index.json");
+        const idx = Array.isArray(idxHit?.data) ? idxHit.data : [];
+        const row = idx.find((t) => t.id === tripId);
+        if (row && row.data && typeof row.data === "object") {
+          (row.data as Record<string, unknown>).imageUrl = current.imageUrl;
+          await putJson("travels/index.json", idx);
         }
-      } catch (mailErr) { console.error("Erreur notification direction:", mailErr)}
+      });
     }
     return NextResponse.json({
       success: true,

@@ -637,6 +637,8 @@ async function extractComptaSheetWithAi(
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
+      // Sans délai maximal, un Mistral lent bloquait la fiche compta ~20 s : au-delà, repli sur le préremplissage dossier.
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${mistralKey}`,

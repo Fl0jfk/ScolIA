@@ -32,6 +32,7 @@ import { FAMILY_PAGE_TEMPLATE } from "@/app/lib/travels-family-page-template";
 import { getTravelTrip, listTravelsIndex } from "@/app/lib/travels-storage";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { isWorkflowV2, todayIsoParis } from "@/app/lib/travels-v2";
+import { selectInvitationsToSend } from "@/app/lib/travels-v2-lot4";
 import {
   buildEngagement,
   buildFamilyIcs,
@@ -365,9 +366,38 @@ export async function sendInvitationLink(opts: {
   }
 }
 
+type MailCtx = NonNullable<Awaited<ReturnType<typeof mailContext>>>;
+type SendTrip = Pick<TravelsTrip, "id" | "data" | "ownerEmail" | "ownerName">;
+
+/**
+ * Envoi des liens SANS prendre le verrou (l'appelant le tient). `pick` choisit les invitations dans la liste lue ;
+ * `take` (optionnel) est un plafond d'e-mails : à `false`, on s'arrête.
+ */
+async function sendLinksUnlocked(opts: {
+  trip: SendTrip;
+  baseUrl: string;
+  mail: MailCtx;
+  pick: (all: FamilyInvitation[]) => FamilyInvitation[];
+  take?: () => boolean;
+}): Promise<{ sent: number; failed: number; capped: boolean }> {
+  const all = await listInvitations(opts.trip.id);
+  let sent = 0;
+  let failed = 0;
+  let capped = false;
+  for (const inv of opts.pick(all)) {
+    if (opts.take && !opts.take()) {
+      capped = true;
+      break;
+    }
+    if (await sendInvitationLink({ trip: opts.trip, inv, baseUrl: opts.baseUrl, mail: opts.mail })) sent += 1;
+    else failed += 1;
+  }
+  return { sent, failed, capped };
+}
+
 /** Envoie les liens des invitations demandées (ou de toutes celles jamais envoyées). */
 export async function sendPendingInvitations(opts: {
-  trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail" | "ownerName">;
+  trip: SendTrip;
   baseUrl: string;
   only?: string[];
 }): Promise<{ sent: number; failed: number; smtp: boolean; busy?: boolean }> {
@@ -375,28 +405,88 @@ export async function sendPendingInvitations(opts: {
   if (!mail) return { sent: 0, failed: 0, smtp: false };
   // Verrou par voyage : un seul envoi de liens à la fois (pas d'e-mails en double si deux envois se croisent).
   const locked = await withNamedLock(TRIP_INVITES_LOCK, opts.trip.id, TRIP_LOCK_TTL_SECONDS, async () => {
-    const all = await listInvitations(opts.trip.id);
-    const targets = all.filter((i) => (opts.only ? opts.only.includes(i.id) : !i.firstSentAt && !i.signature));
-    let sent = 0;
-    let failed = 0;
-    for (const inv of targets) {
-      if (await sendInvitationLink({ trip: opts.trip, inv, baseUrl: opts.baseUrl, mail })) sent += 1;
-      else failed += 1;
-    }
+    const { sent, failed } = await sendLinksUnlocked({
+      trip: opts.trip,
+      baseUrl: opts.baseUrl,
+      mail,
+      pick: (all) => all.filter((i) => (opts.only ? opts.only.includes(i.id) : !i.firstSentAt && !i.signature)),
+    });
     return { sent, failed };
   });
   if (locked.busy) return { sent: 0, failed: 0, smtp: true, busy: true };
   return { ...locked.value, smtp: true };
 }
 
-/** Ouverture de la page (validation finale) : crée les invitations puis envoie les liens. */
-export async function openRegistrationsForTrip(opts: {
-  trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail" | "ownerName">;
+/**
+ * Filet de sécurité (job horaire) : envoie les liens jamais envoyés d'un voyage ouvert, avec un nombre d'essais limité
+ * pour ceux déjà en échec, dans le plafond d'e-mails du passage. Ne crée aucune invitation.
+ */
+export async function sendUnsentInvitationsSafetyNet(opts: {
+  trip: SendTrip;
   baseUrl: string;
-}) {
-  const created = await createInvitationsForTrip(opts.trip);
-  const sent = await sendPendingInvitations({ trip: opts.trip, baseUrl: opts.baseUrl });
-  return { ...created, ...sent };
+  take: () => boolean;
+}): Promise<{ sent: number; failed: number; abandoned: number; capped: boolean; busy?: boolean; smtp: boolean }> {
+  const preview = selectInvitationsToSend(await listInvitations(opts.trip.id));
+  if (preview.send.length + preview.retry.length === 0) {
+    return { sent: 0, failed: 0, abandoned: preview.abandoned.length, capped: false, smtp: true };
+  }
+  const mail = await mailContext();
+  if (!mail) return { sent: 0, failed: 0, abandoned: preview.abandoned.length, capped: false, smtp: false };
+  const locked = await withNamedLock(TRIP_INVITES_LOCK, opts.trip.id, TRIP_LOCK_TTL_SECONDS, () =>
+    sendLinksUnlocked({
+      trip: opts.trip,
+      baseUrl: opts.baseUrl,
+      mail,
+      take: opts.take,
+      // Relecture sous verrou : une invitation envoyée entre-temps (autre envoi) n'est pas renvoyée.
+      pick: (all) => {
+        const sel = selectInvitationsToSend(all);
+        const ids = new Set([...sel.send, ...sel.retry]);
+        return all.filter((i) => ids.has(i.id));
+      },
+    }),
+  );
+  if (locked.busy) return { sent: 0, failed: 0, abandoned: preview.abandoned.length, capped: false, busy: true, smtp: true };
+  return { ...locked.value, abandoned: preview.abandoned.length, smtp: true };
+}
+
+export type OpenRegistrationsResult = CreateInvitationsResult & { sent: number; failed: number; smtp: boolean };
+
+/**
+ * Ouverture de la page (validation finale) : crée les invitations puis envoie les liens, sous UN SEUL verrou
+ * (pas de fenêtre où un autre envoi s'intercale entre la création et l'envoi). Journalise le résultat sans donnée
+ * personnelle. Si le verrou est occupé ou si l'SMTP est absent, le job horaire reprend les envois.
+ */
+export async function openRegistrationsForTrip(opts: {
+  trip: SendTrip;
+  baseUrl: string;
+}): Promise<OpenRegistrationsResult> {
+  const tag = `[voyages-v2-ouverture] voyage ${opts.trip.id}`;
+  const mail = await mailContext();
+  const locked = await withNamedLock(TRIP_INVITES_LOCK, opts.trip.id, TRIP_LOCK_TTL_SECONDS, async () => {
+    const created = await createInvitationsUnlocked(opts.trip);
+    if (!mail) return { ...created, sent: 0, failed: 0, smtp: false };
+    const { sent, failed } = await sendLinksUnlocked({
+      trip: opts.trip,
+      baseUrl: opts.baseUrl,
+      mail,
+      pick: (all) => all.filter((i) => !i.firstSentAt && !i.signature),
+    });
+    return { ...created, sent, failed, smtp: true };
+  });
+  if (locked.busy) {
+    console.error(`${tag}: verrou occupé, rien créé ni envoyé (le job horaire reprendra les envois)`);
+    return { busy: true, created: [], existing: 0, studentsWithoutEmail: [], sent: 0, failed: 0, smtp: Boolean(mail) };
+  }
+  const r = locked.value;
+  if (!r.smtp) {
+    console.error(`${tag}: ${r.created.length} invitation(s) créée(s), SMTP absent : aucun e-mail envoyé (le job horaire reprendra les envois)`);
+  } else if (r.failed > 0) {
+    console.error(`${tag}: ${r.created.length} créée(s), ${r.sent} envoyée(s), ${r.failed} échec(s) d'envoi`);
+  } else {
+    console.info(`${tag}: ${r.created.length} créée(s), ${r.existing} déjà existante(s), ${r.sent} envoyée(s), ${r.studentsWithoutEmail.length} sans e-mail`);
+  }
+  return r;
 }
 
 /**

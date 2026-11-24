@@ -127,6 +127,8 @@ export type FamilyInvitation = {
   firstSentAt?: string;
   lastSentAt?: string;
   lastSendError?: string;
+  /** Envois du lien échoués depuis le dernier envoi réussi (le filet de sécurité horaire s'arrête à 3). */
+  sendFailures?: number;
   firstOpenedAt?: string;
   lastSeenAt?: string;
   answers: FamilyAnswers;

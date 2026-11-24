@@ -208,6 +208,7 @@ export function mutTokenSendFailed(inv: FamilyInvitation, hash: string, error: s
   inv.tokenHashes = (inv.tokenHashes || []).filter((h) => h !== hash);
   inv.auxTokenHashes = (inv.auxTokenHashes || []).filter((h) => h !== hash);
   if (error) inv.lastSendError = error;
+  inv.sendFailures = (inv.sendFailures || 0) + 1;
   return { save: true, value: undefined };
 }
 
@@ -217,6 +218,7 @@ export function mutTokenSendOk(inv: FamilyInvitation, nowIso: string, countAsSen
     inv.firstSentAt = inv.firstSentAt || nowIso;
     inv.lastSentAt = nowIso;
     inv.lastSendError = undefined;
+    inv.sendFailures = undefined;
   }
   return { save: countAsSend, value: undefined };
 }

@@ -9,7 +9,7 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { deleteObject, getObjectBytes, getSignedReadUrl, listPrefix, putObject } from "@/app/lib/s3-storage";
 import { sendMailWithTimeout } from "@/app/lib/tenant-mail";
-import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import { getTenantAppUrl, tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 import { sendCuisineOrderForTrip, type CuisineTripRecord } from "@/app/lib/travels-cuisine-send";
 import { applyParticipantElevesToTripData, buildElevesListCsvForTransporter, eleveParticipantKey } from "@/app/lib/travels-eleves-list";
@@ -48,6 +48,7 @@ import {
   type OfficialStudent,
 } from "@/app/lib/travels-v2-lot4";
 import { getOps, notifyStaff, saveOps } from "@/app/lib/travels-v2-lot3-store";
+import { AUTO_REMINDER_CAP_PER_PASS, createSendBudget } from "@/app/lib/travels-v2-lot3";
 import {
   deleteInvitation,
   deleteStudentCase,
@@ -57,6 +58,7 @@ import {
   mailContext,
   mutateInvitation,
   saveInvitation,
+  sendUnsentInvitationsSafetyNet,
   TRIP_LOCK_TTL_SECONDS,
   validReplyTo,
 } from "@/app/lib/travels-v2-registration-store";
@@ -732,7 +734,7 @@ async function purgeTripUnlocked(tripId: string): Promise<PurgeResult> {
 
 /* ─── Passage planifié d'un établissement ─── */
 
-export type LifecycleSummary = { closed: number; proposed: number; blocked: number; purged: number; retried: number };
+export type LifecycleSummary = { closed: number; proposed: number; blocked: number; purged: number; retried: number; invited: number };
 
 async function alertOnce(trip: TravelsTrip, key: string, signature: string, build: () => Parameters<typeof notifyStaff>[0]): Promise<boolean> {
   const ops = await getOps(trip.id);
@@ -841,7 +843,10 @@ export async function runLifecycleForTrip(trip: TravelsTrip, todayIso: string = 
 const lifecycleSkip = new Set<string>();
 
 export async function runLifecycleForTenant(): Promise<LifecycleSummary> {
-  const total: LifecycleSummary = { closed: 0, proposed: 0, blocked: 0, purged: 0, retried: 0 };
+  const total: LifecycleSummary = { closed: 0, proposed: 0, blocked: 0, purged: 0, retried: 0, invited: 0 };
+  // Filet de sécurité des invitations : même plafond d'e-mails par passage que les relances.
+  const inviteBudget = createSendBudget(AUTO_REMINDER_CAP_PER_PASS);
+  let inviteBaseUrl: string | null = null;
   const index = await listTravelsIndex().catch(() => []);
   // Voyages annulés / refusés inclus : leur page ouverte doit être purgée.
   const live = new Set([OPEN_STATUS, CLOSED_STATUS, "FINALISE_DIR_ATTENTE_ELEVES", "ANNULE", "REJETE", "SEANCE_ANNULEE"]);
@@ -855,6 +860,20 @@ export async function runLifecycleForTenant(): Promise<LifecycleSummary> {
         continue;
       }
       const r = await runLifecycleForTrip(trip);
+      if (!r.closed && !r.purged && trip.status === OPEN_STATUS && trip.data.familyPage?.openedAt && !trip.data.v2Closure && !trip.data.v2Purge) {
+        try {
+          inviteBaseUrl = inviteBaseUrl ?? (await getTenantAppUrl());
+          const net = await sendUnsentInvitationsSafetyNet({ trip, baseUrl: inviteBaseUrl, take: inviteBudget.take });
+          if (net.sent || net.failed || net.abandoned || net.busy || !net.smtp || net.capped) {
+            console.info(
+              `[voyages-v2-cycle] invitations du voyage ${trip.id}: ${net.sent} envoyée(s), ${net.failed} échec(s), ${net.abandoned} abandonnée(s) (3 essais)${net.busy ? ", verrou occupé" : ""}${net.smtp ? "" : ", SMTP absent"}${net.capped ? ", plafond d'e-mails atteint" : ""}`,
+            );
+          }
+          r.invited = net.sent;
+        } catch (e) {
+          console.error("[voyages-v2-cycle] filet invitations", e instanceof Error ? e.message : e);
+        }
+      }
       for (const k of Object.keys(total) as (keyof LifecycleSummary)[]) total[k] += r[k] || 0;
       if (r.purged || (isDeadTripStatus(trip.status) && !trip.data.familyPage?.openedAt)) lifecycleSkip.add(summary.id);
     } catch (e) {
