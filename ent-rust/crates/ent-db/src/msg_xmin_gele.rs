@@ -102,12 +102,49 @@ fn seuil_configure() -> Duration {
     })
 }
 
-/// Observe la borne du flux et journalise. Appelée à chaque lecture de la borne.
+/// Suivi unique du processus.
+static SUIVI: OnceLock<Mutex<SuiviXmin>> = OnceLock::new();
+
+/// Observe la borne du flux et journalise. Appelée à chaque lecture de la borne, **par le flux et hors du flux**
+/// (`PgMsgRepo::observer_borne_hors_flux`, à chaque passage du distributeur d'avis) : sans client connecté, le flux ne
+/// lit plus la borne et un gel passerait inaperçu.
 pub fn surveiller(xmin: u64, xmax: u64, maintenant: DateTime<Utc>) {
-    static SUIVI: OnceLock<Mutex<SuiviXmin>> = OnceLock::new();
     let suivi = SUIVI.get_or_init(|| Mutex::new(SuiviXmin::default()));
-    let Ok(mut s) = suivi.lock() else { return };
-    match s.observer(xmin, xmax, maintenant, seuil_configure()) {
+    if let Some(o) = observer_dans(suivi, xmin, xmax, maintenant, seuil_configure()) {
+        journaliser(xmin, o);
+    }
+}
+
+/// Observe dans `suivi`. Un verrou **empoisonné** (un fil a paniqué en le tenant) est journalisé (`error!`), puis le suivi
+/// est **remis à zéro** et le verrou rétabli : l'observation est de l'exploitation, jamais une raison de faire tomber ou
+/// de rendre muet le service (avant : retour silencieux, définitif). Renvoie `None` quand rien ne reste à dire.
+fn observer_dans(
+    suivi: &Mutex<SuiviXmin>,
+    xmin: u64,
+    xmax: u64,
+    maintenant: DateTime<Utc>,
+    seuil: Duration,
+) -> Option<Observation> {
+    let mut s = match suivi.lock() {
+        Ok(s) => s,
+        Err(empoisonne) => {
+            tracing::error!(
+                "suivi de la borne xmin de la messagerie : verrou empoisonné (un fil a paniqué), suivi remis à zéro"
+            );
+            let mut s = empoisonne.into_inner();
+            *s = SuiviXmin::default();
+            suivi.clear_poison();
+            s
+        }
+    };
+    match s.observer(xmin, xmax, maintenant, seuil) {
+        Observation::Rien => None,
+        o => Some(o),
+    }
+}
+
+fn journaliser(xmin: u64, o: Observation) {
+    match o {
         Observation::Rien => {}
         Observation::Gele(d) => tracing::error!(
             xmin,
@@ -210,5 +247,27 @@ mod tests {
         );
         // Le retour au repos libère.
         assert_eq!(s.observer(141, 141, t(5100), seuil), Observation::Libere);
+    }
+
+    #[test]
+    fn un_verrou_empoisonne_est_retabli_sans_faire_tomber_le_service() {
+        let suivi = Mutex::new(SuiviXmin::default());
+        // Un fil panique en tenant le verrou.
+        std::thread::scope(|sc| {
+            let r = sc
+                .spawn(|| {
+                    let _g = suivi.lock().unwrap();
+                    panic!("panique volontaire du test");
+                })
+                .join();
+            assert!(r.is_err());
+        });
+        assert!(suivi.is_poisoned(), "précondition : le verrou est empoisonné");
+        let seuil = Duration::seconds(600);
+        // L'observation ne panique pas, rétablit le verrou et repart d'un suivi neuf (première observation : la base).
+        assert_eq!(observer_dans(&suivi, 100, 150, t(0), seuil), None);
+        assert!(!suivi.is_poisoned(), "le verrou est rétabli");
+        // Le suivi fonctionne de nouveau : un gel est constaté ensuite.
+        assert_eq!(observer_dans(&suivi, 100, 160, t(601), seuil), Some(Observation::Gele(Duration::seconds(601))));
     }
 }

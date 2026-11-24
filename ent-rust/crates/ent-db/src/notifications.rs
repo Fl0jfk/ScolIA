@@ -783,8 +783,9 @@ pub struct ConfigExpedition {
     pub intervalle: std::time::Duration,
     /// Restreint l'expédition à un établissement (tests, rattrapage ciblé).
     pub etablissement: Option<Uuid>,
-    /// Attente maximale, côté base, du contrôle d'existence d'un message (une annulation en cours le verrouille). Au-delà,
-    /// l'avis est **remis en attente** pour le passage suivant : une annulation qui traîne n'interrompt pas le lot.
+    /// Attente maximale, côté base, du contrôle d'existence d'**un** message (une annulation en cours le verrouille).
+    /// Au-delà, l'avis est **remis en attente** pour le passage suivant : une annulation qui traîne n'interrompt pas le lot.
+    /// L'attente **cumulée de tout le lot** est en outre bornée par `perime_apres` (voir [`BudgetVerrou`]).
     pub attente_verrou: std::time::Duration,
 }
 
@@ -858,6 +859,42 @@ enum Issue {
     Plafonne(&'static str),
 }
 
+/// Attente de verrou **cumulée d'un lot** (contre-revue, F1). Les avis d'un lot sont réclamés (`envoi`, `tentative_le`)
+/// en même temps : si les attentes de verrou, avis après avis, dépassaient ensemble `perime_apres`, le passage suivant
+/// déclarerait « interrompus » des avis que ce lot est encore en train de traiter. Le budget est donc **partagé** : chaque
+/// contrôle reçoit `min(attente_verrou, budget restant)`, et ce qu'il a réellement attendu est déduit. Budget épuisé,
+/// un contrôle n'attend plus que [`ATTENTE_MINIMALE`] (`lock_timeout` ne peut pas être nul : 0 = sans limite) : l'avis
+/// libre est contrôlé normalement, l'avis verrouillé est reporté aussitôt. Reste donc, au plus, [`ATTENTE_MINIMALE`] par
+/// contrôle après l'épuisement, pas une attente de verrou.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BudgetVerrou {
+    restant: std::time::Duration,
+}
+
+/// Attente d'un contrôle une fois le budget épuisé.
+pub(crate) const ATTENTE_MINIMALE: std::time::Duration = std::time::Duration::from_millis(1);
+
+impl BudgetVerrou {
+    pub(crate) fn nouveau(total: std::time::Duration) -> Self {
+        Self { restant: total }
+    }
+
+    /// Attente à accorder au prochain contrôle.
+    pub(crate) fn accorder(&self, par_avis: std::time::Duration) -> std::time::Duration {
+        par_avis.min(self.restant).max(ATTENTE_MINIMALE)
+    }
+
+    /// Déduit le temps passé par un contrôle.
+    pub(crate) fn consommer(&mut self, ecoule: std::time::Duration) {
+        self.restant = self.restant.saturating_sub(ecoule);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn restant(&self) -> std::time::Duration {
+        self.restant
+    }
+}
+
 /// Dernier message dont l'existence vient d'être relue : valable pour les avis **consécutifs** du même message.
 #[derive(Default)]
 struct ControleMessage {
@@ -928,6 +965,12 @@ impl Expediteur {
                 .await
                 .map_err(db)?,
         };
+        // F6 : la borne `xmin` du flux est observée aussi hors du flux (alerte d'exploitation de gel).
+        if let Some(etab) = etabs.first() {
+            crate::msg_repo::PgMsgRepo::new(self.pool.clone())
+                .observer_borne_hors_flux(*etab)
+                .await;
+        }
         let mut total = BilanExpedition::default();
         for etab in etabs {
             // R-09 : un établissement en erreur ne bloque pas l'expédition des suivants.
@@ -1054,9 +1097,11 @@ impl Expediteur {
         // ne part jamais. L'existence se relit par message, **à l'instant de son envoi** (les avis d'un même message
         // se suivent : une lecture pour eux), et non plus en tête du lot, des minutes avant la fin des envois.
         individuels.sort_by_key(|e| e.source_id);
+        // F1 : une seule borne d'attente de verrou pour tout le lot (individuels et groupes), égale à `perime_apres`.
+        let mut budget = BudgetVerrou::nouveau(self.config.perime_apres);
         let mut controle = ControleMessage::default();
         for e in individuels {
-            if !self.controler_avant_envoi(&e, &mut controle, &mut bilan, maintenant).await? {
+            if !self.controler_avant_envoi(&e, &mut controle, &mut budget, &mut bilan, maintenant).await? {
                 continue;
             }
             let issue = self.expedier_un(&e, &e.titre, &e.corps, maintenant).await?;
@@ -1067,7 +1112,7 @@ impl Expediteur {
             let mut controle = ControleMessage::default();
             let mut vivants = Vec::with_capacity(membres.len());
             for e in membres {
-                if self.controler_avant_envoi(&e, &mut controle, &mut bilan, maintenant).await? {
+                if self.controler_avant_envoi(&e, &mut controle, &mut budget, &mut bilan, maintenant).await? {
                     vivants.push(e);
                 }
             }
@@ -1152,6 +1197,7 @@ impl Expediteur {
         &self,
         e: &EnvoiReclame,
         controle: &mut ControleMessage,
+        budget: &mut BudgetVerrou,
         bilan: &mut BilanExpedition,
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
@@ -1159,7 +1205,7 @@ impl Expediteur {
             // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque
             // envoi (contre-revue, F3 : une annulation pendant le lot rattrape aussi le SMS qui suit le push).
             Some((id, false)) if e.source_id == Some(id) => Ok(false),
-            _ => self.message_source_existe(e).await,
+            _ => self.message_source_existe(e, budget).await,
         };
         match existe {
             Ok(existe) => {
@@ -1206,7 +1252,7 @@ impl Expediteur {
     /// (`FOR UPDATE` du message) est **attendue**, puis la ligne a disparu et l'avis est écarté. Les autres avis (sans
     /// message pour source) passent. Reste la fenêtre entre cette lecture et l'envoi lui-même, que l'annulation ne peut
     /// plus rattraper (l'avis est déjà `envoi`) ; elle est documentée dans la livraison.
-    async fn message_source_existe(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {
+    async fn message_source_existe(&self, e: &EnvoiReclame, budget: &mut BudgetVerrou) -> Result<bool, EntDbError> {
         let Some(id) = e.source_id else {
             return Ok(true);
         };
@@ -1217,10 +1263,15 @@ impl Expediteur {
         if !de_message {
             return Ok(true);
         }
-        crate::msg_repo::PgMsgRepo::new(self.pool.clone())
-            .message_existe_sous_verrou(e.etablissement_id, id, self.config.attente_verrou)
-            .await
-            .map_err(Into::into)
+        // F1 : l'attente accordée vient du budget du lot ; ce qui a été réellement passé (attente de verrou comprise,
+        // y compris sur une erreur de délai) y est déduit. Mesure d'une durée écoulée, jamais une date.
+        let attente = budget.accorder(self.config.attente_verrou);
+        let debut = std::time::Instant::now();
+        let r = crate::msg_repo::PgMsgRepo::new(self.pool.clone())
+            .message_existe_sous_verrou(e.etablissement_id, id, attente)
+            .await;
+        budget.consommer(debut.elapsed());
+        r.map_err(Into::into)
     }
 
     async fn droit_toujours_valide(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {

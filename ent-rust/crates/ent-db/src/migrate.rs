@@ -548,6 +548,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
     // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("493_msg_fil_vide_et_garde_proprietaire"),
+    // Suites E1 (passe 4, 494, plage 482–499 du socle 16, **fin de tableau**, règle 38) : `ent_msg_annulation_ouvrir` n'est plus
+    // exécutable par `PUBLIC` (M1) ; aucune fonction recréée. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("494_msg_garde_jeton_droit_execution"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
