@@ -248,4 +248,5 @@ Liste de travail : Moyens 1 à 3 (bloquants) puis faibles 1 à 9 du rapport. **6
 - clippy 1.99 sur les 3 commandes de la CI : **0 avertissement** ; rustfmt 1.99 ciblé sur les quatre fichiers propres au départ (les trois autres touchés, `voyages_argent_flux.rs`, `voyages_argent_repo.rs`, `tests_rls_stricte.rs`, `voyages_argent.rs`, portent une dette de formatage antérieure et ne sont pas reformatés) ; `cargo metadata --locked` dans `ent-rust/web` : ok.
 - Tests : aucune heure réelle ni jour UTC dans les assertions : les expirations se jouent par rapport à l'horloge de la base (`instant_base`, `now() + intervalle`), puisque la base pose seule les horodatages.
 - Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
+- **Tête de code** `125bd85a1` (`origin/ENT` fusionné en tête de travail : conflit de `migrate.rs` résolu en gardant 317 puis 656 en fin de tableau, règle 38) : CI « ENT Rust » **verte** (37 jobs : 36 réussis, 1 sauté, aucun échec ni relance). Le commit qui consigne ce résultat ne touche que la documentation. PR n° 145 laissée en **brouillon** vers `ENT`.
 
