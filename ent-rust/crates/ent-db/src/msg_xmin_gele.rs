@@ -10,6 +10,7 @@
 //! Seuil : variable de déploiement [`VARIABLE_SEUIL`] (secondes), 10 minutes par défaut. Une alerte `error!` au premier
 //! dépassement, rappelée à chaque nouveau seuil écoulé ; un message `info!` à la libération.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::{DateTime, Duration, Utc};
@@ -105,10 +106,21 @@ fn seuil_configure() -> Duration {
 /// Suivi unique du processus.
 static SUIVI: OnceLock<Mutex<SuiviXmin>> = OnceLock::new();
 
+/// Nombre d'observations faites par le processus (compteur de test et d'exploitation : prouve qu'un appelant, comme le
+/// distributeur d'avis, observe bien la borne sans dépendre de l'état global `SUIVI`).
+static OBSERVATIONS: AtomicU64 = AtomicU64::new(0);
+
+/// Observations faites depuis le démarrage du processus.
+#[cfg(all(test, feature = "labo"))]
+pub(crate) fn nombre_observations() -> u64 {
+    OBSERVATIONS.load(Ordering::Relaxed)
+}
+
 /// Observe la borne du flux et journalise. Appelée à chaque lecture de la borne, **par le flux et hors du flux**
 /// (`PgMsgRepo::observer_borne_hors_flux`, à chaque passage du distributeur d'avis) : sans client connecté, le flux ne
 /// lit plus la borne et un gel passerait inaperçu.
 pub fn surveiller(xmin: u64, xmax: u64, maintenant: DateTime<Utc>) {
+    OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
     let suivi = SUIVI.get_or_init(|| Mutex::new(SuiviXmin::default()));
     if let Some(o) = observer_dans(suivi, xmin, xmax, maintenant, seuil_configure()) {
         journaliser(xmin, o);
