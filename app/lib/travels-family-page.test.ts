@@ -42,8 +42,8 @@ const trip = {
 
 describe("page des familles — trame fixe", () => {
   it("la trame contient les phrases imposées", () => {
-    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /secrétariat/);
-    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /direction/);
+    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /difficulté financière/);
+    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /chef d’établissement/);
     assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /lendemain du retour/);
     assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /comptabilité/);
     assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /sans porc/);
