@@ -6,6 +6,61 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-24 (mardi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT, validé par la CI.** ENT = **bf102297**, dont la CI est en cours. Son parent **412bc4ba** est passé au rouge sur un test de concurrence instable, sans lien avec le lot versé ; le correctif est **bf102297** lui-même (voir « ce qui a coincé »). Quatorze lots sont versés depuis hier soir, chacun après une contre-revue indépendante sans point bloquant restant.
+- **Transverse T1, suites** (PR 134) : un test fige l'ordre des migrations ; le rôle de l'application ne peut rien créer dans `public`.
+- **Socle 16, messagerie E1, passes 3 et 4** (PR 133 et 141, migrations 493 et 494) : un fil dont le seul message a été annulé n'est plus visible de la famille ; jeton d'annulation infalsifiable ; budget de verrou des notifications corrigé par le pilote.
+- **Socle 21, évaluations V5, passes 4 et 5** (PR 136 et 143) : l'export RGPD des tables d'évaluation suit ce que la famille a réellement vu. Un enseignement externe ne sort qu'avec une moyenne publiée.
+- **Socle 41, internat I4, suites 2 et 3** (PR 135 et 142).
+- **Socle 3, inscriptions I5, passes 5 et 6** (PR 137 et 144, migrations 316 et 317) : repli des alertes vers l'administration ; procédure de restauration et de réplication documentée.
+- **Socle 42, voyages V3, suites** (PR 138, migration 655) : la remise d'un bordereau d'argent est soumise au contrôle par une deuxième personne et refusée au parent payeur.
+- **Socle 24, facturation F3, suites 1 et 2** (PR 139 et 146, migration 531) :
+  - garde anti double facturation quand un tarif change ;
+  - un mois dû sans tarif n'est jamais gratuit en silence ;
+  - un article introduit en cours d'année est facturé à partir de son premier mois tarifé.
+- **Socle 20, cahier, suites C8/C9** (PR 140, migration 2419) : la fusion de deux fiches d'élève ne déplace que les lignes des années ouvertes ; TRUNCATE refusé.
+- **Correctif de test** (PR 149) : test de concurrence des absences de personnels stabilisé.
+
+**Prêt mais pas encore sur ENT**
+- Socle 21, **V5 passe 6** (PR 148) : registre RGPD des anciennes tables de notes. Correctifs du pilote après contre-revue : l'archive des devoirs, qui aurait livré les devoirs des autres classes, est retirée de l'export ; une note dépubliée ne sort plus. CI verte, en chaîne.
+- **Transverse T2, fiabilité** (PR 147) : tests rendus stables, connexions imbriquées supprimées dans l'internat, contrôle au démarrage d'un droit manquant de la messagerie. Contre-revue sans point bloquant ; correctif du pilote sur la doc. En chaîne derrière la PR 148.
+- Versement des deux dès la CI d'ENT verte sur bf102297.
+
+**En cours** (deux sessions qui codent)
+- Socle 42, **voyages V3b, correctifs** (PR 145, retenue) : une autorisation de contournement doit viser un acompte, un montant plafond et un prestataire, et non être « en blanc ». Contrôles complets en base ; rattrapage sous isolation stricte.
+- Socle 24, **facturation F3, suites 3** (migration 532) : une prise en charge par un organisme doit être vérifiée sur toute la période, pas seulement au début. Une tâche d'anomalie s'ouvre quand un changement de régime ne peut pas être facturé. Retrait d'un article à une date.
+
+**Conçu mais pas codé** (file d'attente)
+1. Suites I5 passe 7.
+2. Suites E1 : faibles.
+3. Suites cahier : faibles et nouvelle plage de migrations (2400–2419 épuisée).
+4. Suites I4 : faibles.
+5. Suites V5 et T2 : faibles. L'export des anciennes tables est à finir avant le lot G3.
+6. Transverse : contrôle par une deuxième personne fondé sur la personne physique, pas seulement sur le compte.
+7. Lots neufs (mobile MB1…).
+
+**Tableau d'avancement** (`docs/pilotage/TABLEAU_MATURITE.md`) : la journée a surtout servi à durcir les socles déjà ouverts (facturation, voyages, export RGPD, inscriptions). Aucun nouveau socle n'est ouvert. Le frontend et le mobile restent en retrait du backend, comme convenu.
+
+**Décisions attendues de Florian** : aucune (D-069). Choix pris par défaut par le pilote, à relire quand tu veux :
+- remise de bordereau d'argent soumise au contrôle par une deuxième personne ;
+- trou de tarif en tête d'année facturé à partir du premier mois tarifé, trou en cours d'année bloquant ;
+- export RGPD : convocations de rattrapage et statuts de moyenne exportés au titre du droit d'accès ; journaux de correction des notes non exportés. **Réserve DPO**, comme pour les dispenses de port ;
+- alertes des inscriptions redirigées vers l'administration quand personne n'est désigné.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`)
+- **Bientôt** : pour la mise en route de ScolIA chez Scaleway avant Noël (F-08, phase T1), je te donnerai **vers le 5 décembre** la liste exacte : un conteneur et une base séparés, un sous-domaine, les sauvegardes. Rien à faire avant.
+- **F-09** : comptes développeur **Apple** et **Google Play**, **avant mars 2027**.
+- Exports anonymisés Charlemagne et SIECLE (F-01 à F-07) : au moment de la reprise de données, pas urgent.
+- GitGuardian 39716183 : faux positif, à classer.
+
+**Ce qui a coincé**
+- **CI d'ENT rouge** (run 667) sur un test de concurrence : selon l'ordre des verrous, le perdant reçoit « Réessayer » au lieu du refus attendu. Ce n'est pas un défaut du produit. Le test est corrigé (PR 149) et versé.
+- **Runners GitHub saturés** dans l'après-midi : des CI sont restées plus de 30 minutes en file. Rien de cassé, seulement du retard.
+- **Voyages V3b retenu** : trois points moyens de sécurité, en correction.
+
+---
+
 ## 2026-11-23 (lundi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT, validé par la CI.** ENT = **4bbdfa69** (CI 596 verte) ; **7e606667** est versé, sa CI d'ENT est en cours. Onze lots ont été versés depuis hier soir, et chacun a passé une contre-revue indépendante sans point élevé restant.
