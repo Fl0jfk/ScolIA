@@ -88,6 +88,10 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/stages/candidater(.*)",
   "/api/stages/public(.*)",
   "/voyages/suivi(.*)",
+  // Page des familles (voyages v2) : accès par jeton personnel, sans compte. Ne déclarer QUE ces chemins.
+  "/voyages/famille",
+  "/voyages/famille/(.*)",
+  "/api/voyages/famille/(.*)",
   "/api/travels/public-blog",
   "/fiches-dialogue/remplir(.*)",
   "/api/fiches-dialogue/public(.*)",
@@ -140,6 +144,7 @@ const VISITOR_PREFIXES = [
   "/stages/signer",
   "/stages/candidater",
   "/voyages/suivi",
+  "/voyages/famille",
   "/fiches-dialogue/remplir",
   "/api/fiches-dialogue/public",
   "/certificates/verify",

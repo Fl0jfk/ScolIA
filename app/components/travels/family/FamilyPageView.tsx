@@ -78,11 +78,14 @@ export function FamilyPageView({
   model,
   mode,
   onFilesDropped,
+  formSlot,
 }: {
   model: FamilyPagePreviewModel;
   mode: FamilyPageViewMode;
   /** Mode live : dépôt d'une pièce (lot 2). */
   onFilesDropped?: (docId: string, files: File[]) => void;
+  /** Mode live : formulaire réel (réponses, pièces, signature) qui remplace le formulaire désactivé de l'aperçu. */
+  formSlot?: React.ReactNode;
 }) {
   const preview = mode === "preview";
   const h = FAMILY_PAGE_TEMPLATE.headings;
@@ -207,6 +210,7 @@ export function FamilyPageView({
         ) : null}
 
         {/* Formulaire */}
+        {!preview && formSlot ? formSlot : (
         <section className="space-y-5 rounded-2xl border-2 border-indigo-100 bg-indigo-50/40 p-4">
           <h3 className="text-base font-bold text-indigo-900">Votre réponse</h3>
           {preview ? (
@@ -341,6 +345,7 @@ export function FamilyPageView({
             </button>
           </fieldset>
         </section>
+        )}
 
         <Section title={h.deadline}>
           {model.deadline ? (

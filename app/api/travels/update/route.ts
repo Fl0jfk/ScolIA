@@ -1,5 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { isValidTravelsReopenFromValideStatus } from "@/app/lib/travels-direction-permissions";
 import {
@@ -187,6 +187,8 @@ export async function POST(req: Request) {
     }
     // ── Circuit v2 (workflowVersion === 2) : contrôles serveur. Sans effet sur les dossiers v1. ──
     let transportAutoSendClaimedAt: string | null = null;
+    /** v2 : la validation finale vient d'ouvrir les inscriptions → invitations et e-mails après l'enregistrement. */
+    let openRegistrationsNow = false;
     const isV2Trip = existingInner.workflowVersion === 2 || saveInner.workflowVersion === 2;
     if (isV2Trip) {
       const {
@@ -252,6 +254,7 @@ export async function POST(req: Request) {
         };
       }
       if (v2Check.stampOpenedAt) {
+        openRegistrationsNow = true;
         saveInner.familyPage = {
           ...((saveInner.familyPage as Record<string, unknown>) || {}),
           openedAt: new Date().toISOString(),
@@ -381,6 +384,25 @@ export async function POST(req: Request) {
       });
     } catch (syncErr) {
       console.warn("[travels/update] sync actualite failed", syncErr);
+    }
+    if (openRegistrationsNow) {
+      // Invitations créées tout de suite ; e-mails envoyés après la réponse (relançables depuis la vue Inscriptions).
+      try {
+        const { getTenant, getTenantAppUrl, runWithTenant } = await import("@/app/lib/tenant-context");
+        const { openRegistrationsForTrip } = await import("@/app/lib/travels-v2-registration-store");
+        const tenant = await getTenant();
+        const baseUrl = await getTenantAppUrl();
+        const tripForInvites = { ...(objectToSave as Record<string, unknown>), id: String(tripId) } as unknown as TravelsTrip;
+        after(async () => {
+          try {
+            await runWithTenant(tenant, () => openRegistrationsForTrip({ trip: tripForInvites, baseUrl }));
+          } catch (inviteErr) {
+            console.error("[travels/update] invitations familles:", inviteErr instanceof Error ? inviteErr.message : inviteErr);
+          }
+        });
+      } catch (inviteErr) {
+        console.error("[travels/update] invitations familles:", inviteErr);
+      }
     }
     if (newStatus === "EN_ATTENTE_COMPTA" && previousStatus !== "EN_ATTENTE_COMPTA") {
       try {
