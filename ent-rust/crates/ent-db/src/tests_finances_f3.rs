@@ -10,6 +10,7 @@ use crate::service::RefusMetier;
 use chrono::NaiveDate;
 use ent_auth::Role;
 use ent_types::finances::*;
+use ent_types::finances_comptes::*;
 use ent_types::finances_grilles::*;
 use uuid::Uuid;
 
@@ -4395,6 +4396,49 @@ async fn f3s3_prise_commencant_en_cours_d_annee() {
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeu inchangé");
 }
 
+/// Total net (hors réductions) d'un article pour un élève.
+async fn somme_art(ent: &PgEnt, a: Uuid, e: Uuid) -> i64 {
+    let (t,): (i64,) = sqlx::query_as(
+        "SELECT COALESCE(sum(montant_unitaire_centimes * quantite), 0)::bigint FROM ent_fac_ligne
+          WHERE eleve_id = $1 AND article_id = $2 AND categorie <> 'reduction'",
+    )
+    .bind(e)
+    .bind(a)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    t
+}
+
+async fn changer_regime(ent: &PgEnt, etab: Uuid, el: Uuid, evt: Uuid) -> crate::finances::ResultatInsertion {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let r = crate::finances::facturer_changement_regime(
+        &mut tx,
+        etab,
+        ANNEE,
+        el,
+        "externe",
+        "demi_pension",
+        d(2030, 10, 15),
+        evt,
+        None,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    r
+}
+
+async fn nb_lignes_eleve(ent: &PgEnt, el: Uuid) -> i64 {
+    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1")
+        .bind(el)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    n
+}
+
 /// v2 = copie de v1 sans la demi-pension, votée puis en vigueur au 1er janvier 2031 (fin de tarif).
 async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, avant_retrait: bool) -> Uuid {
     let etab = c.etablissement_id;
@@ -4514,20 +4558,8 @@ async fn f3s3_fin_de_tarif_datee() {
     let el = eleve(&ent, etab, "Fin", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer fin").await;
     facturer_motif(&ent, etab, el).await.expect("trou après la fin datée : non bloquant");
-    let somme_art = |a: Uuid, e: Uuid| async move {
-        let (t,): (i64,) = sqlx::query_as(
-            "SELECT COALESCE(sum(montant_unitaire_centimes * quantite), 0)::bigint FROM ent_fac_ligne
-              WHERE eleve_id = $1 AND article_id = $2 AND categorie <> 'reduction'",
-        )
-        .bind(e)
-        .bind(a)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
-        t
-    };
-    assert_eq!(somme_art(dp, el).await, 18_000, "septembre à décembre restent dus, janvier à juin non");
-    assert_eq!(somme_art(contrib, el).await, 120_000, "la contribution est facturée toute l'année");
+    assert_eq!(somme_art(&ent, dp, el).await, 18_000, "septembre à décembre restent dus, janvier à juin non");
+    assert_eq!(somme_art(&ent, contrib, el).await, 120_000, "la contribution est facturée toute l'année");
     // rejeu : rien de plus
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -4536,8 +4568,8 @@ async fn f3s3_fin_de_tarif_datee() {
     let el2 = eleve(&ent, etab, "Fevrier", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el2, c.parent_tom.user_id, "Foyer février").await;
     facturer_depuis(&ent, etab, el2, Some(d(2031, 2, 1))).await;
-    assert_eq!(somme_art(dp, el2).await, 0);
-    assert_eq!(somme_art(contrib, el2).await, 120_000 * 5 / 10);
+    assert_eq!(somme_art(&ent, dp, el2).await, 0);
+    assert_eq!(somme_art(&ent, contrib, el2).await, 120_000 * 5 / 10);
     // la fin ne réécrit rien : un élève déjà facturé garde ses lignes (régularisation = F4)
     let (jour,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id = $2")
         .bind(el)
@@ -4595,44 +4627,10 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     let el = eleve(&ent, etab, "Regime", "externe").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer régime").await;
     let evt = Uuid::new_v4();
-    let changer = |ent: &PgEnt| {
-        let ent = ent.clone();
-        async move {
-            let mut tx = ent.pool_verif().begin().await.unwrap();
-            let r = crate::finances::facturer_changement_regime(
-                &mut tx,
-                etab,
-                ANNEE,
-                el,
-                "externe",
-                "demi_pension",
-                d(2030, 10, 15),
-                evt,
-                None,
-                Default::default(),
-            )
-            .await
-            .unwrap();
-            tx.commit().await.unwrap();
-            r
-        }
-    };
-    let _ = changer(&ent).await;
-    let nb_lignes = |ent: &PgEnt| {
-        let ent = ent.clone();
-        async move {
-            let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1")
-                .bind(el)
-                .fetch_one(ent.pool_verif())
-                .await
-                .unwrap();
-            n
-        }
-    };
-    assert_eq!(nb_lignes(&ent).await, 0, "rien n'est écrit");
+    assert_eq!(nb_lignes_eleve(&ent, el).await, 0, "rien n'est écrit");
     let nature = crate::finances::NATURE_TACHE_REGIME_NON_FACTURE;
     assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 1, "tâche d'anomalie ouverte");
-    let _ = changer(&ent).await;
+    let _ = changer_regime(&ent, etab, el, evt).await;
     assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 1, "rejeu : pas de doublon");
     // visible des gestionnaires de l'établissement seulement
     let (us, rs) = secretariat(&c);
@@ -4672,8 +4670,8 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     erreur_base(&e, "23514", "ent_fin_tache_nature_check");
     // régularisation : la fin datée est reposée (plus de trou), l'événement est rejoué : lignes posées, tâche close
     retrait(&ent, &c, dp, Some(d(2031, 1, 1))).await.unwrap();
-    let res = changer(&ent).await;
-    assert!(nb_lignes(&ent).await >= 1, "novembre-décembre facturés : {res:?}");
+    let res = changer_regime(&ent, etab, el, evt).await;
+    assert!(nb_lignes_eleve(&ent, el).await >= 1, "novembre-décembre facturés : {res:?}");
     assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 0, "tâche close");
     let (resolues,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_fin_tache WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'resolue'",
@@ -4755,23 +4753,19 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
             r,
             &ReductionBody {
                 annee_scolaire: ANNEE.into(),
+                code: "REM75".into(),
                 libelle: "Remise 7,5 %".into(),
                 nature: "individuelle".into(),
                 rang_min: None,
                 taux_bps: 750,
                 categories: vec!["restauration".into()],
-                actif: None,
             },
         )
         .await
         .unwrap();
     let el = eleve(&ent, etab, "Impair", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer impair").await;
-    sqlx::query("INSERT INTO ent_fin_reduction_eleve (etablissement_id, reduction_id, eleve_id) VALUES ($1, $2, $3)")
-        .bind(etab)
-        .bind(red.id)
-        .bind(el)
-        .execute(ent.pool_verif())
+    ent.accorder_reduction_for_actor(etab, u, r, red.id, el)
         .await
         .unwrap();
     facturer(&ent, etab, el).await;
@@ -4896,9 +4890,8 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
     let (cb, ch) = (f2::compte_du_foyer(&ent, etab, f_bas).await, f2::compte_du_foyer(&ent, etab, f_haut).await);
     f2::piece_accord(&ent, &c, el, "toutes", vec![(cb, 5_000), (ch, 5_000)], d(2030, 9, 1)).await;
     facturer_motif(&ent, etab, el).await.expect("deux foyers : facturé");
-    let par_foyer = |f: Uuid| {
-        let ent = ent.clone();
-        async move {
+    let par_foyer = async |f: Uuid| {
+        {
             let l: Vec<(String, i64)> = sqlx::query_as(
                 "SELECT l.source_cle, (l.montant_unitaire_centimes * l.quantite)::bigint FROM ent_fac_ligne l
                    JOIN ent_fac_facture fa ON fa.id = l.facture_id
