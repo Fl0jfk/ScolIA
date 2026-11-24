@@ -318,12 +318,13 @@ async fn s7_rejeu_en_echec_restaure_la_sentinelle() {
         return;
     };
     let (_camp, offre) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
-    let jusqu_a_304 = crate::migrate::MIGRATIONS
+    // Rejeu partiel : le seul fichier à garde (304) puis un fichier qui échoue. Pas le préfixe entier du tableau : un rejeu
+    // interrompu laisserait les objets des fichiers rejoués dans leur état d'alors pour les tests suivants de la base.
+    let f304 = *crate::migrate::MIGRATIONS
         .iter()
-        .position(|(n, _)| *n == "304_inscription_demarche_dossier")
+        .find(|(n, _)| *n == "304_inscription_demarche_dossier")
         .expect("304 est dans le tableau");
-    let mut liste: Vec<(&str, &str)> = crate::migrate::MIGRATIONS[..=jusqu_a_304].to_vec();
-    liste.push(("9999_echec_voulu_du_rejeu", "SELECT 1 / 0"));
+    let liste: Vec<(&str, &str)> = vec![f304, ("9999_echec_voulu_du_rejeu", "SELECT 1 / 0")];
 
     let r = crate::migrate::rejouer_liste(ent.pool_verif(), &liste).await;
     let e = r.expect_err("le rejeu doit échouer sur le fichier qui échoue");
@@ -353,6 +354,11 @@ async fn s7_rejeu_en_echec_restaure_la_sentinelle() {
     tx.rollback().await.unwrap();
     refus(&r, "écriture sans verrou après un rejeu en échec");
     garde.liberer().await;
+    // Les objets de 304 ont été rejoués dans leur version d'alors : un rejeu complet remet la base dans son état final
+    // pour les tests suivants (le rejeu prend le verrou exclusif : la garde partagée est libérée avant).
+    crate::migrate::rejouer_tout(ent.pool_verif())
+        .await
+        .expect("rejeu complet de remise en état");
 }
 
 // ───────────────────────────── Moyen A : vérification de santé ─────────────────────────────
