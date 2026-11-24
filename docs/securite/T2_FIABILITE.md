@@ -10,10 +10,10 @@ Branche `ent-transverse-t2-fiabilite` (depuis `origin/ENT`). Aucune migration, a
 5. **Recherche de l'heure réelle dans les tests** : ~79 fichiers `ent-db/src/tests_*.rs` et ~27 fichiers de `tests/` utilisent `Utc::now()`, `jour_paris()` ou `today_utc()`. Les `jour_paris()` des tests web sont cohérents avec le semis (jour de Paris). Plus gros utilisateurs de `Utc::now()` à revoir : `tests_afaire_p2` (24), `tests_communication` (17), `tests_assiduite_as5` (12), `tests_afaire_p3` (12), `tests_cahier` (9), `tests_messagerie_m0a` (8), `tests_absences_personnels` (api 7, db 5), `tests_messagerie_m0b` (5), `tests_assiduite_as6` (5, AS6 déjà corrigé). **Non corrigés** (pas simples sans lecture de chacun) ; connu et non traité : `tests_agenda_ag0::rd06_rappels_emis_*`.
 
 ## Tests exécutés (base locale neuve `ent_t2_test`, labo)
-`t2_*` (4), `p4_a_*`, `les_versions_sensibles_*`, `tests_eleve_protection` (13), `s5_eleve_cache_*` : tous verts. Clippy 3 commandes : voir bas de page.
+`t2_*` (4), `p4_a_*`, `les_versions_sensibles_*`, `tests_eleve_protection` (13), `s5_eleve_cache_*` : tous verts. Clippy 3 commandes : voir « Qualité ».
 
 ## Qualité
-Clippy local en 1.97 (1.99 non installable ici). Commandes 1 et 3 : 0 avertissement. Commande 2 : voir ci-dessous.
+Clippy local en 1.97 (1.99 non installable ici). Commandes 1 et 3 : 0 avertissement. Commande 2 : 2 avertissements, tous deux **antérieurs au lot** et hors de ses lignes (`tests_voyages_v2a.rs:865` et `:877`, `unwrap_err` après `is_err`) ; non corrigés ici (hors périmètre). Aucun avertissement dans les lignes du lot.
 
 ## Tête et CI
 À compléter après le push.
