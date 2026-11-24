@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildFamilyPagePreviewModel, FAMILY_PAGE_PREVIEW_LABEL } from "@/app/lib/travels-family-page";
+import { buildFamilyPagePreviewModel, FAMILY_PAGE_PREVIEW_LABEL, FAMILY_PAGE_SAMPLE_STUDENT, listPicnicDays } from "@/app/lib/travels-family-page";
 import { FAMILY_PAGE_TEMPLATE, fillFamilyTemplate } from "@/app/lib/travels-family-page-template";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
@@ -114,5 +114,55 @@ describe("page des familles — aperçu", () => {
   it("un brouillon en cours remplace les valeurs stockées dans l'aperçu", () => {
     const m = buildFamilyPagePreviewModel(trip, { familyPage: { program: "Autre programme" } });
     assert.equal(m.program, "Autre programme");
+  });
+});
+
+describe("page des familles — valeurs en attente et paniers", () => {
+  it("dossier complet sauf le prix : seul le montant est en attente", () => {
+    const m = buildFamilyPagePreviewModel(trip);
+    assert.deepEqual(m.pending.map((p) => p.key), ["price"]);
+    assert.equal(m.pending[0].label, "Montant en attente de la comptabilité");
+  });
+  it("dossier vide : rendez-vous, montant et date limite signalés", () => {
+    const empty = { ...trip, data: { workflowVersion: 2, title: "X", familyPage: { documents: [] } } } as unknown as TravelsTrip;
+    const m = buildFamilyPagePreviewModel(empty);
+    assert.deepEqual(m.pending.map((p) => p.key).sort(), ["deadline", "inbound", "outbound", "price"]);
+    assert.ok(m.pending.some((p) => p.label === "Date limite à fixer"));
+    assert.ok(m.pending.some((p) => p.label === "Rendez-vous de départ à compléter"));
+  });
+  it("rendez-vous sans heure : encore en attente", () => {
+    const t = {
+      ...trip,
+      data: { ...trip.data, parentCalendar: { points: [{ id: "d", kind: "depot", date: "2027-03-29", time: "", place: "Parking" }] } },
+    } as unknown as TravelsTrip;
+    assert.ok(buildFamilyPagePreviewModel(t).pending.some((p) => p.key === "outbound"));
+  });
+  it("prix saisi par la compta et date limite : plus en attente", () => {
+    const t = {
+      ...trip,
+      data: { ...trip.data, priceBlock: { pricePerStudent: 0, installments: [], paymentText: "" } },
+    } as unknown as TravelsTrip;
+    assert.deepEqual(buildFamilyPagePreviewModel(t).pending, []);
+  });
+  it("jours de pique-nique : dates réelles cochées, triées", () => {
+    const days = listPicnicDays({ active: true, daysSelection: { "2027-03-31": true, "2027-03-29": true, "2027-03-30": false, lundi: true } });
+    assert.deepEqual(days.map((d) => d.key), ["2027-03-29", "2027-03-31"]);
+    assert.match(days[0].label, /lun\. 29\/03/);
+  });
+  it("jours de pique-nique : structure historique et cuisine inactive", () => {
+    assert.deepEqual(
+      listPicnicDays({ active: true, daysSelection: { vendredi: true, lundi: true, mardi: false } }).map((d) => d.label),
+      ["Lundi", "Vendredi"],
+    );
+    assert.deepEqual(listPicnicDays({ active: false, daysSelection: { lundi: true } }), []);
+    assert.deepEqual(listPicnicDays(undefined), []);
+  });
+  it("l'aperçu transporte les jours de pique-nique du dossier et un élève fictif neutre", () => {
+    const t = {
+      ...trip,
+      data: { ...trip.data, piqueNiqueDetails: { active: true, daysSelection: { "2027-03-30": true } } },
+    } as unknown as TravelsTrip;
+    assert.equal(buildFamilyPagePreviewModel(t).picnicDays.length, 1);
+    assert.equal(FAMILY_PAGE_SAMPLE_STUDENT, "Prénom NOM");
   });
 });

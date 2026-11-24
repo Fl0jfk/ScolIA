@@ -12,9 +12,9 @@ import { FamilyDocumentsEditor, newFamilyDocId, RetroplanningCard } from "@/app/
 import {
   buildFamilyPagePreviewModel,
   dateFr,
-  type FamilyPagePreviewModel,
 } from "@/app/lib/travels-family-page";
 import { FAMILY_PAGE_TEMPLATE } from "@/app/lib/travels-family-page-template";
+import { FamilyPageView } from "@/app/components/travels/family/FamilyPageView";
 import { defaultParentCalendarFromTrip, newCalendarPointId } from "@/app/lib/travels-parent-calendar";
 import type {
   TravelsCalendarPoint,
@@ -44,156 +44,6 @@ export type SaveResult = { ok: boolean; error?: string };
 
 function eur(n: number): string {
   return `${n.toFixed(2).replace(".", ",")} €`;
-}
-
-/* ─── Aperçu tel que les parents le verront ─── */
-
-function MeetingLine({ label, p }: { label: string; p: FamilyPagePreviewModel["outbound"] }) {
-  return (
-    <p>
-      <span className="font-bold">{label} :</span>{" "}
-      {p && (p.place || p.time) ? (
-        <>
-          {p.date ? `${dateFr(p.date)} ` : ""}
-          {p.time ? `à ${p.time}` : ""}
-          {p.place ? ` — ${p.place}` : ""}
-        </>
-      ) : (
-        <span className="italic text-slate-400">à renseigner</span>
-      )}
-    </p>
-  );
-}
-
-export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) {
-  const h = FAMILY_PAGE_TEMPLATE.headings;
-  return (
-    <div className="overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-sm">
-      {model.previewLabel ? (
-        <div className="bg-slate-100 text-slate-600 text-center text-xs font-bold px-3 py-1 uppercase tracking-wide">
-          {model.previewLabel}
-        </div>
-      ) : (
-        <div className="bg-emerald-600 text-white text-center text-xs font-bold px-3 py-1.5">
-          Page ouverte aux inscriptions{model.openedAt ? ` le ${new Date(model.openedAt).toLocaleDateString("fr-FR")}` : ""}
-        </div>
-      )}
-      {model.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={model.imageUrl} alt="" className="w-full h-48 sm:h-60 object-cover" />
-      ) : null}
-      <div className="p-5 sm:p-8 space-y-6 text-slate-700 leading-relaxed">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900">{model.title}</h2>
-          {model.destination ? <p className="text-slate-500 text-sm mt-1">{model.destination}</p> : null}
-          <p className="mt-2 text-indigo-700 font-bold capitalize">{model.dateLine}</p>
-          <p className="text-xs text-slate-500 mt-1">
-            {model.classes ? `Classes : ${model.classes}` : ""}
-            {model.classes && model.organizer ? " · " : ""}
-            {model.organizer ? `Organisateur : ${model.organizer}` : ""}
-          </p>
-        </div>
-        <div className="space-y-2">
-          {model.intro.map((p, i) => (
-            <p key={i}>{p}</p>
-          ))}
-        </div>
-        <section>
-          <h3 className="font-bold text-slate-900 mb-1">{h.meeting}</h3>
-          <div className="rounded-xl bg-slate-50 border p-3 text-sm space-y-1">
-            <MeetingLine label={h.outbound} p={model.outbound} />
-            <MeetingLine label={h.inbound} p={model.inbound} />
-          </div>
-        </section>
-        {model.program ? (
-          <section>
-            <h3 className="font-bold text-slate-900 mb-1">{h.program}</h3>
-            <p className="whitespace-pre-line">{model.program}</p>
-          </section>
-        ) : null}
-        {model.equipment.length > 0 ? (
-          <section>
-            <h3 className="font-bold text-slate-900 mb-1">{h.equipment}</h3>
-            <ul className="list-disc list-inside text-sm">
-              {model.equipment.map((e) => (
-                <li key={e}>{e}</li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        {model.cash ? (
-          <section>
-            <h3 className="font-bold text-slate-900 mb-1">{h.cash}</h3>
-            <p>
-              <span className="font-bold">{eur(model.cash.amount)}</span> — {model.cash.reason}
-            </p>
-            <p className="text-sm font-bold text-orange-700">{FAMILY_PAGE_TEMPLATE.cashNotIncluded}</p>
-          </section>
-        ) : null}
-        <section>
-          <h3 className="font-bold text-slate-900 mb-1">{h.meals}</h3>
-          {model.mealsRule.map((p, i) => (
-            <p key={i} className="text-sm">
-              {p}
-            </p>
-          ))}
-        </section>
-        {model.documents.length > 0 ? (
-          <section>
-            <h3 className="font-bold text-slate-900 mb-2">{h.documents}</h3>
-            <ul className="space-y-1 text-sm">
-              {model.documents.map((d) => (
-                <li key={d.id} className="flex flex-wrap gap-x-2">
-                  <span className="font-semibold">{d.label}</span>
-                  <span className="text-slate-500">
-                    — {d.kindLabel}
-                    {d.dueDate ? ` (au plus tard le ${dateFr(d.dueDate)})` : ""}
-                  </span>
-                  {d.templateName ? <span className="text-xs text-indigo-600">modèle : {d.templateName}</span> : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="font-bold text-amber-900 mb-1">{h.price}</h3>
-          {model.price ? (
-            <div className="text-sm text-amber-950 space-y-1">
-              <p className="font-bold">Prix par élève : {eur(model.price.pricePerStudent)}</p>
-              {model.price.installments.length > 0 ? (
-                <ul className="list-disc list-inside">
-                  {model.price.installments.map((i) => (
-                    <li key={`${i.dueDate}-${i.amount}`}>
-                      {dateFr(i.dueDate)} : {eur(i.amount)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {model.price.paymentText ? <p className="whitespace-pre-line">{model.price.paymentText}</p> : null}
-            </div>
-          ) : (
-            <p className="text-sm text-amber-800 italic">{FAMILY_PAGE_TEMPLATE.pricePending}</p>
-          )}
-        </section>
-        <section>
-          <h3 className="font-bold text-slate-900 mb-1">{h.deadline}</h3>
-          {model.deadline ? (
-            <p className="text-sm font-bold text-orange-700">{dateFr(model.deadline)}</p>
-          ) : (
-            <p className="text-sm italic text-slate-400">À renseigner.</p>
-          )}
-        </section>
-        <section>
-          <h3 className="font-bold text-slate-900 mb-1">{h.help}</h3>
-          <p className="text-sm">{model.financialHelp}</p>
-        </section>
-        <section>
-          <h3 className="font-bold text-slate-900 mb-1">{h.data}</h3>
-          <p className="text-sm">{model.dataRetention}</p>
-        </section>
-      </div>
-    </div>
-  );
 }
 
 /* ─── Bloc prix (compta uniquement) ─── */
@@ -390,6 +240,7 @@ export function TripFamilyPagePanel({
   const [program, setProgram] = useState(stored.program || "");
   const [deadline, setDeadline] = useState(stored.deadline || "");
   const [documents, setDocuments] = useState<TravelsFamilyDocRequest[]>(stored.documents || []);
+  const [previewWidth, setPreviewWidth] = useState<"phone" | "desktop">("phone");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -477,6 +328,13 @@ export function TripFamilyPagePanel({
         </TripAlert>
       ) : null}
 
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
+      <div className="space-y-6 min-w-0">
+      {editable ? (
+        <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-900">
+          Tout ce qui apparaît dans l’aperçu (prix, pièces, paniers, signature…) est ajouté automatiquement : remplissez seulement les champs ci-dessous.
+        </p>
+      ) : null}
       {editable ? (
         <TripSection
           title="Compléter la page"
@@ -595,11 +453,36 @@ export function TripFamilyPagePanel({
         </p>
       ) : null}
 
-      <TripSection title="Aperçu — tel que les parents le verront" subtitle={opened ? "Page ouverte." : "Aperçu de la page des familles."} icon="👁️">
-        <div className="p-4 sm:p-6">
-          <FamilyPagePreview model={model} />
-        </div>
-      </TripSection>
+      </div>
+
+      <div className="min-w-0 xl:sticky xl:top-4">
+        <TripSection
+          title="Aperçu — la vraie page, telle que les parents la verront"
+          subtitle={opened ? "Page ouverte." : "Mis à jour en direct pendant la saisie."}
+          icon="👁️"
+          action={
+            <div className="inline-flex overflow-hidden rounded-lg border text-xs font-bold" role="group" aria-label="Largeur de l'aperçu">
+              {(["phone", "desktop"] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setPreviewWidth(w)}
+                  className={`px-3 py-1.5 ${previewWidth === w ? "bg-indigo-600 text-white" : "bg-white text-slate-600"}`}
+                >
+                  {w === "phone" ? "Téléphone" : "Ordinateur"}
+                </button>
+              ))}
+            </div>
+          }
+        >
+          <div className="p-3 sm:p-5 bg-slate-100/60">
+            <div className={previewWidth === "phone" ? "mx-auto w-full max-w-[390px]" : "w-full"}>
+              <FamilyPageView model={model} mode="preview" />
+            </div>
+          </div>
+        </TripSection>
+      </div>
+      </div>
     </div>
   );
 }
@@ -643,7 +526,9 @@ export function TripOpenRegistrationsModal({
             </ul>
           </div>
         )}
-        <FamilyPagePreview model={model} />
+        <div className="mx-auto w-full max-w-[420px]">
+          <FamilyPageView model={model} mode="preview" />
+        </div>
         <div className="flex flex-wrap justify-end gap-3">
           <TripButton variant="secondary" onClick={onCancel} disabled={busy}>
             Annuler

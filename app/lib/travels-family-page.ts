@@ -13,10 +13,28 @@ import type {
   TravelsTrip,
 } from "@/app/lib/travels-types";
 import { FAMILY_PAGE_TEMPLATE, fillFamilyTemplate } from "@/app/lib/travels-family-page-template";
-import { getFamilyMeetingPoints, tripDepartureIso, tripReturnIso, type MeetingPoint } from "@/app/lib/travels-v2";
+import {
+  dayShortLabelFr,
+  getFamilyMeetingPoints,
+  isIsoDate,
+  tripDepartureIso,
+  tripReturnIso,
+  type MeetingPoint,
+} from "@/app/lib/travels-v2";
 
 /** Petite étiquette neutre de l'aperçu (pas de bandeau « projet » : le professeur ne diffuse rien). */
 export const FAMILY_PAGE_PREVIEW_LABEL = "Aperçu";
+
+/** Élève fictif neutre pour l'aperçu : aucune donnée réelle. */
+export const FAMILY_PAGE_SAMPLE_STUDENT = "Prénom NOM";
+
+/** Valeur pas encore connue : affichée en étiquette ambre à sa place. */
+export type FamilyPagePendingItem = {
+  key: "price" | "deadline" | "outbound" | "inbound";
+  label: string;
+};
+
+export type FamilyPagePicnicDay = { key: string; label: string };
 
 export type FamilyPagePreviewDoc = {
   id: string;
@@ -53,7 +71,31 @@ export type FamilyPagePreviewModel = {
   opened: boolean;
   openedAt: string | null;
   previewLabel: string | null;
+  /** Valeurs encore inconnues (prix, date limite, rendez-vous). */
+  pending: FamilyPagePendingItem[];
+  /** Jours de pique-nique à afficher dans le formulaire (paniers repas). */
+  picnicDays: FamilyPagePicnicDay[];
 };
+
+const WEEKDAY_ORDER = ["lundi", "mardi", "mercredi", "jeudi", "vendredi"];
+
+/**
+ * Jours de pique-nique à proposer aux familles : dates réelles du séjour (v2) cochées dans le bon cuisine ;
+ * à défaut, jours de semaine cochés (structure historique).
+ */
+export function listPicnicDays(piqueNique: unknown): FamilyPagePicnicDay[] {
+  const pn = piqueNique as { active?: boolean; daysSelection?: Record<string, boolean> } | null | undefined;
+  if (!pn?.active || !pn.daysSelection) return [];
+  const keys = Object.entries(pn.daysSelection)
+    .filter(([, v]) => v === true)
+    .map(([k]) => k);
+  const iso = keys.filter((k) => isIsoDate(k)).sort();
+  if (iso.length > 0) return iso.map((k) => ({ key: k, label: dayShortLabelFr(k) }));
+  return keys
+    .filter((k) => WEEKDAY_ORDER.includes(k))
+    .sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
+    .map((k) => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1) }));
+}
 
 const KIND_LABELS: Record<TravelsFamilyDocKind, string> = {
   avant_signature: "Obligatoire avant de signer",
@@ -156,5 +198,12 @@ export function buildFamilyPagePreviewModel(
     opened: Boolean(openedAt),
     openedAt,
     previewLabel: openedAt ? null : FAMILY_PAGE_PREVIEW_LABEL,
+    pending: [
+      ...(outbound && outbound.place && outbound.time ? [] : [{ key: "outbound" as const, label: "Rendez-vous de départ à compléter" }]),
+      ...(inbound && inbound.place && inbound.time ? [] : [{ key: "inbound" as const, label: "Rendez-vous de retour à compléter" }]),
+      ...(price ? [] : [{ key: "price" as const, label: "Montant en attente de la comptabilité" }]),
+      ...(deadline ? [] : [{ key: "deadline" as const, label: "Date limite à fixer" }]),
+    ],
+    picnicDays: listPicnicDays(d.piqueNiqueDetails),
   };
 }
