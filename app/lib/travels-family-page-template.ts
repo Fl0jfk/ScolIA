@@ -40,9 +40,9 @@ export const FAMILY_PAGE_TEMPLATE = {
     "En cas d'allergie ou de PAI, le repas est obligatoirement fourni par la famille : la cantine ne prépare pas de repas à la demande.",
   ],
 
-  /** Phrase sur les difficultés financières (secrétariat → direction). */
+  /** Phrase sur les difficultés financières (formulation de l'attaché de gestion, 24/11/2026). */
   financialHelp:
-    "En cas de difficulté financière, n'hésitez pas à contacter votre secrétariat afin de rencontrer la direction.",
+    "En cas de difficulté financière liée au coût du voyage, les familles sont invitées à prendre rendez-vous avec le chef d’établissement afin d’étudier leur situation. Cet échange permettra d’examiner, le cas échéant, les possibilités d’accompagnement qui pourraient être envisagées.",
 
   /** Phrase sur la conservation des données. */
   dataRetention:
