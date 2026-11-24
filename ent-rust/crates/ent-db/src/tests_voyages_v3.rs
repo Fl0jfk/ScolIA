@@ -4136,10 +4136,49 @@ async fn v3b_une_autorisation_ne_couvre_que_ce_que_la_demande_porte_service_et_s
         Some("23514"),
         "pas membre de l'établissement"
     );
+    // Contre-revue du pilote (B1) : un comptable libre dont l'accès est suspendu, fermé ou échu garde son rôle mais
+    // n'autorise plus.
+    for (etat, fin) in [("suspendu", None), ("ferme", None), ("ouvert", Some("2000-01-01"))] {
+        let inactif = compta_libre(&x).await;
+        sqlx::query(
+            "UPDATE ent_membership SET etat = $3, date_fin = $4::date WHERE user_id = $1 AND etablissement_id = $2",
+        )
+        .bind(inactif.user_id)
+        .bind(x.c.etab)
+        .bind(etat)
+        .bind(fin)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+        let r = decide(inactif.user_id).execute(ent.pool_verif()).await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "accès {etat} / fin {fin:?} : n'autorise pas"
+        );
+    }
     decide(libre.user_id)
         .execute(ent.pool_verif())
         .await
         .expect("autorisation habilitée");
+    // Contre-revue du pilote (M1) : un acompte inséré déjà payé (ou annulé) est refusé, quel que soit son auteur.
+    for colonnes in [
+        "paye_le, paye_centimes, paye_par_user_id) VALUES ($1,$2,$3,$4,'x',100,$5,$6, $5, 100000000, $6)",
+        "annule_le, annule_motif) VALUES ($1,$2,$3,$4,'x',100,$5,$6, $5, 'Doublon')",
+    ] {
+        let r = sqlx::query(&format!(
+            "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id, {colonnes}"
+        ))
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(presta)
+        .bind(jour)
+        .bind(libre.user_id)
+        .execute(ent.pool_verif())
+        .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "acompte inséré payé ou annulé : {colonnes}");
+    }
     let (d_le, e_le): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
         "SELECT c.demande_le, e.le FROM ent_sortie_argent_contournement c
            JOIN ent_sortie_argent_contournement_evt e ON e.contournement_id = c.id WHERE c.id = $1",

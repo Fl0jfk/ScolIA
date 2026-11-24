@@ -309,8 +309,9 @@ AS $$
 $$;
 
 -- L'établissement lui-même habilite : membre de l'établissement avec un profil qui porte `voyages.argent` (Admin,
--- Direction, Compta : `ent-auth/src/actions.rs`, R-SV44). `ent_membership` n'a pas d'indicateur « actif » : une personne
--- retirée de l'établissement n'a plus de ligne (la règle la plus proche existant en base).
+-- Direction, Compta : `ent-auth/src/actions.rs`, R-SV44), dont l'accès est OUVERT (`ent_acces_ouvert`, 350/352 : état
+-- « ouvert », date de fin non passée, agent non suspendu). Contre-revue du pilote (B1) : un accès suspendu ou fermé garde sa
+-- ligne et son rôle ; il n'habilite plus, ni à la décision ni à l'usage.
 CREATE OR REPLACE FUNCTION ent_sortie_habilite_argent(etab UUID, usr UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
@@ -318,6 +319,7 @@ AS $$
     SELECT EXISTS (SELECT 1 FROM public.ent_membership m
                     WHERE m.etablissement_id = etab AND m.user_id = usr
                       AND m.role IN ('admin', 'direction', 'compta'))
+       AND public.ent_acces_ouvert(usr, etab)
 $$;
 
 -- Garde des faits, entièrement en base. Horodatage posé ici (jamais fourni par l'appelant). La décision vient d'une AUTRE
@@ -559,7 +561,14 @@ BEGIN
         -- Acompte fournisseur : création, paiement, annulation. La sortie entière est concernée.
         presta := NEW.prestataire_id; cible := NEW.id;
         IF TG_OP = 'INSERT' THEN
-            qui := COALESCE(NEW.paye_par_user_id, NEW.cree_par_user_id); act := 'acompte_creer';
+            -- Contre-revue du pilote (M1) : un acompte se crée ni payé ni annulé (le service ne le fait jamais) ; sinon le
+            -- paiement échapperait à l'autorisation « payer » et à son plafond, et le créateur ne serait pas évalué.
+            IF NEW.paye_le IS NOT NULL OR NEW.paye_centimes IS NOT NULL OR NEW.paye_par_user_id IS NOT NULL
+               OR NEW.annule_le IS NOT NULL OR NEW.annule_par_user_id IS NOT NULL THEN
+                RAISE EXCEPTION 'un acompte fournisseur se crée ni payé ni annulé : le paiement et l''annulation sont des étapes à part'
+                    USING ERRCODE = '23514';
+            END IF;
+            qui := NEW.cree_par_user_id; act := 'acompte_creer';
             montant := NEW.montant_centimes;
         ELSIF NEW.paye_par_user_id IS NOT NULL AND OLD.paye_par_user_id IS NULL THEN
             qui := NEW.paye_par_user_id; act := 'acompte_payer';
