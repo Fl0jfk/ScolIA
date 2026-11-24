@@ -3921,9 +3921,112 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
     )
     .await;
 
+    // Passe 5 (M2) : UNE ligne marquée par table exportée, pour que l'extrait prouve que chaque table est filtrable.
+    // Évaluation publiée : restriction de public, item de barème et note par item, demande de revue de la famille.
+    exec(
+        &ent,
+        "INSERT INTO eva_evaluation_restriction (evaluation_id, eleve_id, etablissement_id, motif_code) VALUES ($1, $2, $3, 'autre')",
+        vec![u(ev_p), u(a), u(w.etab)],
+    )
+    .await;
+    let item = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO eva_bareme_item (id, etablissement_id, evaluation_id, ordre, libelle, maximum)
+         VALUES ($1, $2, $3, 1, 'ITEM-MARQUE', 20)",
+        vec![u(item), u(w.etab), u(ev_p)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO eva_resultat_item (resultat_id, item_id, etablissement_id, valeur) VALUES ($1, $2, $3, 12)",
+        vec![u(resultat_p), u(item), u(w.etab)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO eva_revision_demande (id, etablissement_id, resultat_id, demandeur, message)
+         VALUES ($1, $2, $3, $4, 'MESSAGE-REVISION-FAMILLE')",
+        vec![u(Uuid::new_v4()), u(w.etab), u(resultat_p), u(w.direction)],
+    )
+    .await;
+    // Statut de moyenne : montré avec la moyenne seulement (appréciations closes), jamais son motif interne ni son auteur.
+    let statut_id = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO eva_moyenne_statut (id, etablissement_id, eleve_id, matiere_id, periode_id, statut, motif_interne, par)
+         VALUES ($1, $2, $3, $4, $5, 'en_attente', 'MARQUEUR-MOTIF-STATUT', $6)",
+        vec![u(statut_id), u(w.etab), u(a), u(w.maths), u(w.t1), u(second)],
+    )
+    .await;
+    // Rattrapage (M5) : une convocation maintenue d'une évaluation publiée sort ; une convocation annulée, ou celle d'une
+    // évaluation non publiée, jamais. Dates fixes ; motif d'annulation et auteurs internes.
+    let convoc = |id: Uuid, ev: Uuid, etat: &'static str, lieu: &'static str| {
+        let motif = (etat == "annule").then_some("MARQUEUR-MOTIF-ANNULATION");
+        (id, ev, etat, lieu, motif)
+    };
+    let (rat_ok, rat_annule, rat_np) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    for (id, ev, etat, lieu, motif) in [
+        convoc(rat_ok, ev_p, "convoque", "SALLE-CONVOCATION-MAINTENUE"),
+        convoc(rat_annule, ev_p, "annule", "SALLE-CONVOCATION-ANNULEE"),
+        convoc(rat_np, ev_np, "convoque", "SALLE-EVALUATION-NON-PUBLIEE"),
+    ] {
+        sqlx::query(
+            "INSERT INTO eva_rattrapage (id, etablissement_id, evaluation_id, eleve_id, nature, seance_id, prevu_le, lieu, modalite,
+                                         echeance, etat, motif_annulation, cree_par, modifie_par)
+             VALUES ($1, $2, $3, $4, 'rattrapage', $5, '2031-11-03', $6, 'ecrit', '2031-11-30', $7, $8, $9, $9)",
+        )
+        .bind(id)
+        .bind(w.etab)
+        .bind(ev)
+        .bind(a)
+        .bind(Uuid::new_v4())
+        .bind(lieu)
+        .bind(etat)
+        .bind(motif)
+        .bind(second)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap_or_else(|e| panic!("rattrapage {lieu} : {e}"));
+    }
+    // Résultat externe publié et compté ; moyenne externe publiée (marqueurs : leurs identifiants).
+    let ext = ent
+        .eva_v5_declarer_externe_for_actor(w.etab, w.direction, DIR, jour(), &externe(a, w.maths, 13_370, d(2031, 10, 15)))
+        .await
+        .unwrap();
+    ent.eva_v5_compter_externe_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        jour(),
+        ext.id,
+        &CompterExterneBody { cours_id: w.cours_maths, motif: "Relevé vérifié".into() },
+    )
+    .await
+    .unwrap();
+    ent.eva_v5_publier_externe_for_actor(w.etab, w.direction, DIR, jour(), ext.id).await.unwrap();
+    let fr = enseignement(&ent, &w, a, w.francais, true).await;
+    let saisi = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, fr.id, &moy(w.t1, "moyenne", Some(15_250), None, None))
+        .await
+        .unwrap();
+    let moyenne_ext = saisi.moyennes[0].id;
+    pub_moy(&ent, w.etab, w.direction, DIR, moyenne_ext).await.unwrap();
+    // Une seconde moyenne externe jamais publiée : n'apparaît pas.
+    let en_cours = enseignement(&ent, &w, a, w.maths, false).await;
+    let saisi_np = ent
+        .eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, en_cours.id, &moy(w.t1, "moyenne", Some(8_125), None, None))
+        .await
+        .unwrap();
+    let moyenne_np = saisi_np.moyennes[0].id;
+
     // Contre-revue (E1/E2) : validée ne veut pas dire publiée. Tant que les appréciations de la période ne sont pas closes
     // pour la classe de l'élève, l'appréciation validée ne sort pas (même règle que la vue `ent_note_appreciation_v`).
     let (avant, _) = extrait_eleve(&ent, a).await;
+    assert!(
+        !avant.contains(&statut_id.to_string()),
+        "période ouverte : le statut de moyenne ne sort pas (M3) :\n{avant}"
+    );
     assert!(
         !avant.contains("APPRECIATION-VALIDEE-REMISE"),
         "période ouverte : l'appréciation validée ne doit pas sortir :\n{avant}"
@@ -3939,6 +4042,12 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         (ev_p.to_string(), "la note publiée"),
         ("APPRECIATION-VALIDEE-REMISE".to_string(), "l'appréciation validée"),
         ("MOTIF-DE-LA-FAMILLE".to_string(), "la demande de la famille"),
+        ("MESSAGE-REVISION-FAMILLE".to_string(), "la demande de revue de la famille"),
+        ("ITEM-MARQUE".to_string(), "l'item"),
+        (statut_id.to_string(), "le statut de moyenne, période close (M3)"),
+        ("SALLE-CONVOCATION-MAINTENUE".to_string(), "la convocation maintenue d'une évaluation publiée (M5)"),
+        (ext.id.to_string(), "le résultat externe publié"),
+        (moyenne_ext.to_string(), "la moyenne externe publiée"),
     ] {
         assert!(extrait.contains(&attendu), "{quoi} doit sortir ({tables_vues:?})");
     }
@@ -3948,12 +4057,32 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         ("MARQUEUR-NOTE-PRIVEE".to_string(), "la note privée"),
         ("MARQUEUR-BROUILLON-INTERNE".to_string(), "le brouillon d'appréciation"),
         ("MARQUEUR-VS-VALIDEE".to_string(), "une appréciation d'un type jamais montré à la famille"),
-        (second.to_string(), "l'auteur interne de l'appréciation ou de la décision"),
+        (second.to_string(), "l'auteur interne de l'appréciation, de la décision ou de la convocation"),
+        ("MARQUEUR-MOTIF-STATUT".to_string(), "le motif interne du statut de moyenne"),
+        ("MARQUEUR-MOTIF-ANNULATION".to_string(), "le motif d'annulation d'une convocation"),
+        ("SALLE-CONVOCATION-ANNULEE".to_string(), "une convocation annulée (M5)"),
+        ("SALLE-EVALUATION-NON-PUBLIEE".to_string(), "la convocation d'une évaluation non publiée (M5)"),
+        (moyenne_np.to_string(), "une moyenne externe jamais publiée"),
         (w.prof.to_string(), "l'auteur de la saisie des notes"),
     ] {
         assert!(!extrait.contains(&interdit), "{quoi} ne doit pas sortir :\n{extrait}");
     }
+    // M2 : chaque table exportée a rendu au moins une ligne (hors journal du personnel) : aucune n'est restée sans ligne
+    // marquée, donc aucune n'a échappé au filtre par élève.
+    let attendues: Vec<&str> = crate::registre_donnees::REGISTRE
+        .iter()
+        .filter(|c| c.export_portabilite && (c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_")))
+        .map(|c| c.nom)
+        .filter(|n| !TABLES_SANS_ELEVE.contains(n))
+        .collect();
+    for nom in &attendues {
+        assert!(tables_vues.contains(nom), "{nom} : exportée mais aucune ligne marquée dans l'extrait ({tables_vues:?})");
+    }
 }
+
+/// Tables d'évaluation exportées qui ne portent pas d'élève : journal des exports faits par le personnel (aucun élève
+/// nommé). Toute autre table exportée DOIT être filtrable par élève : sinon `extrait_eleve` échoue.
+const TABLES_SANS_ELEVE: [&str; 1] = ["ent_eva_export"];
 
 /// Assemble l'extrait d'un élève comme le fera G3 : pour chaque table `eva_*` exportée, les lignes de l'élève qui
 /// remplissent `export_si`, moins les colonnes `hors_export`.
@@ -3980,8 +4109,15 @@ async fn extrait_eleve(ent: &PgEnt, a: Uuid) -> (String, Vec<&'static str>) {
             "x.eleve_id = $1"
         } else if colonnes.iter().any(|x| x == "resultat_id") {
             "x.resultat_id IN (SELECT id FROM eva_resultat WHERE eleve_id = $1)"
+        } else if colonnes.iter().any(|x| x == "enseignement_externe_id") {
+            "x.enseignement_externe_id IN (SELECT id FROM eva_enseignement_externe WHERE eleve_id = $1)"
+        } else if colonnes.iter().any(|x| x == "rattrapage_id") {
+            "x.rattrapage_id IN (SELECT id FROM eva_rattrapage WHERE eleve_id = $1)"
+        } else if TABLES_SANS_ELEVE.contains(&c.nom) {
+            continue;
         } else {
-            continue; // journal du personnel (ent_eva_export) : sans élève
+            // M2 : une table exportée qui ne se rattache pas à l'élève n'est pas filtrable : échec franc (jamais « continue »).
+            panic!("{} : table exportée non filtrable par élève (colonnes : {colonnes:?})", c.nom);
         };
         let cond = c.export_si.unwrap_or("true");
         let retirees: Vec<String> = c.colonnes_hors_export.iter().map(|s| s.to_string()).collect();
