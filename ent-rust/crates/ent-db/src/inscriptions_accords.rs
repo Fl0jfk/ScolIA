@@ -1114,6 +1114,26 @@ impl PgEnt {
             return Err(invalide("réponse : donne ou refuse"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Ordre des verrous unique (passe 4, M-3) : **offres → dossier → propositions**, la demande en dernier. La demande
+        // est d'abord lue **sans verrou** pour connaître son dossier ; les offres puis le dossier sont verrouillés dans
+        // l'ordre ; la demande n'est verrouillée (et relue) qu'ensuite. Verrouiller la demande avant l'offre prenait un
+        // verrou « hors ordre » : une décision de séance qui tient l'offre et touche cet accord attendait la demande,
+        // pendant que cette réponse attendait l'offre.
+        let dossier_lu: Option<Uuid> = sqlx::query_scalar(
+            "SELECT a.dossier_id
+               FROM ent_inscription_accord_demande dm
+               JOIN ent_inscription_accord a ON a.etablissement_id = dm.etablissement_id AND a.id = dm.accord_id
+              WHERE dm.etablissement_id = $1 AND dm.id = $2",
+        )
+        .bind(etab)
+        .bind(demande_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let Some(dossier_lu) = dossier_lu else {
+            return Err(lien_invalide());
+        };
+        crate::inscriptions_attente::verrouiller_dossiers_tx(&mut tx, etab, None, &[dossier_lu], &[]).await?;
         let ligne: Option<(String, DateTime<Utc>, i16, Option<DateTime<Utc>>, i16, Uuid, Uuid, Uuid)> = sqlx::query_as(
             "SELECT dm.etat, dm.expire_le, dm.code_compteur, dm.code_expire_le, dm.code_essais,
                     dm.accord_id, a.dossier_id, a.declaration_id

@@ -2390,6 +2390,11 @@ async fn p2_f16_313_rejouable_sur_ancienne_version() {
     ] {
         sqlx::query(ordre).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{ordre} : {e}"));
     }
+    // Fixture d'ancien état : la sentinelle (316) n'existait pas ; elle est neutralisée le temps de poser l'historique.
+    sqlx::query("ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_sentinelle_decision_trg")
+        .execute(&mut *tx)
+        .await
+        .expect("la sentinelle de 316 doit exister (nom du déclencheur)");
     sqlx::query(
         "INSERT INTO ent_inscription_decision (id, etablissement_id, dossier_id, sens, motif_interne, decide_le)
          VALUES ($1,$2,$3,'refuse','Seconde racine héritée', now() + interval '1 minute')",

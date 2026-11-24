@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
 use ent_db::voyages_argent_v3::{
     AideSaisie, AideVue, DecisionAide, DecisionReport, DecisionValidee, DemandeVue, InternatSynchro, ReportSaisie, ReportVue,
@@ -29,6 +29,15 @@ use crate::routes::map_db;
 use crate::AppState;
 
 type Res<T> = Result<T, (StatusCode, String)>;
+
+/// Routes d'argent de V3 : une saisie illisible (montant, source, clé, motif vide) est un **422** (entité non traitable),
+/// comme les refus métier de saisie ; le reste suit la correspondance commune (403, 404, 409).
+fn map_v3(e: ent_db::EntDbError) -> (StatusCode, String) {
+    if matches!(e, ent_db::EntDbError::Domain(domain_eleve::DomainError::ValeurInvalide)) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "Saisie invalide : vérifiez le montant, la source, la clé et le motif.".to_string());
+    }
+    map_db(e)
+}
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -355,7 +364,7 @@ async fn aide_accorder(
     Path(id): Path<Uuid>,
     Json(b): Json<AideSaisie>,
 ) -> Res<(StatusCode, Json<DecisionAide>)> {
-    let d = s.ent.voyage_aide_accorder(&acteur(&session), id, b).await.map_err(map_db)?;
+    let d = s.ent.voyage_aide_accorder(&acteur(&session), id, b).await.map_err(map_v3)?;
     // 201 quand l'aide est écrite ; 202 quand elle attend la seconde personne.
     Ok((statut_http(d.statut), Json(d)))
 }
@@ -366,7 +375,7 @@ async fn aide_annuler(
     Path((id, aid)): Path<(Uuid, Uuid)>,
     Json(b): Json<MotifBody>,
 ) -> Res<(StatusCode, Json<AideVue>)> {
-    Ok((StatusCode::CREATED, Json(s.ent.voyage_aide_annuler(&acteur(&session), id, aid, &b.motif).await.map_err(map_db)?)))
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_aide_annuler(&acteur(&session), id, aid, &b.motif).await.map_err(map_v3)?)))
 }
 
 async fn reports(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<ReportVue>>> {
@@ -379,7 +388,7 @@ async fn report_effectuer(
     Path(id): Path<Uuid>,
     Json(b): Json<ReportSaisie>,
 ) -> Res<(StatusCode, Json<DecisionReport>)> {
-    let d = s.ent.voyage_report_effectuer(&acteur(&session), id, b).await.map_err(map_db)?;
+    let d = s.ent.voyage_report_effectuer(&acteur(&session), id, b).await.map_err(map_v3)?;
     Ok((statut_http(d.statut), Json(d)))
 }
 
@@ -389,7 +398,7 @@ async fn report_annuler(
     Path((id, rid)): Path<(Uuid, Uuid)>,
     Json(b): Json<MotifBody>,
 ) -> Res<(StatusCode, Json<ReportVue>)> {
-    Ok((StatusCode::CREATED, Json(s.ent.voyage_report_annuler(&acteur(&session), id, rid, &b.motif).await.map_err(map_db)?)))
+    Ok((StatusCode::CREATED, Json(s.ent.voyage_report_annuler(&acteur(&session), id, rid, &b.motif).await.map_err(map_v3)?)))
 }
 
 fn statut_http(s: StatutDemande) -> StatusCode {
@@ -417,7 +426,7 @@ async fn demande_refuser(
     Path((id, did)): Path<(Uuid, Uuid)>,
     Json(b): Json<MotifBody>,
 ) -> Res<Json<StatutDemande>> {
-    Ok(Json(s.ent.voyage_demande_refuser(&acteur(&session), id, did, &b.motif).await.map_err(map_db)?))
+    Ok(Json(s.ent.voyage_demande_refuser(&acteur(&session), id, did, &b.motif).await.map_err(map_v3)?))
 }
 
 #[derive(serde::Serialize)]
@@ -427,17 +436,23 @@ struct ConsigneMotif {
 }
 
 /// F2 : l'écran de saisie du motif d'une aide ou d'un report affiche cet avertissement (aucun détail de situation sociale).
-async fn consigne_motif(session: EntSession, Path(_id): Path<Uuid>) -> Json<ConsigneMotif> {
-    let _ = session;
-    Json(ConsigneMotif {
+async fn consigne_motif(session: EntSession, Path(_id): Path<Uuid>) -> Res<Json<ConsigneMotif>> {
+    // F-a : texte statique sans fuite, mais réservé au personnel (un parent ou un élève n'a rien à y lire).
+    if matches!(acteur(&session).role, "parent" | "eleve") {
+        return Err((StatusCode::NOT_FOUND, "introuvable".into()));
+    }
+    Ok(Json(ConsigneMotif {
         motif_obligatoire: true,
         avertissement: AVERTISSEMENT_MOTIF,
-    })
+    }))
 }
 
 #[derive(serde::Deserialize)]
 struct RetourAnticipeBody {
     motif_code: String,
+    /// Instant réel du retour (saisie tardive) : jamais dans le futur ni avant le départ ; absent = maintenant (F-b).
+    #[serde(default)]
+    retour_le: Option<DateTime<Utc>>,
 }
 
 async fn retour_anticipe(
@@ -446,7 +461,7 @@ async fn retour_anticipe(
     Path((id, pid)): Path<(Uuid, Uuid)>,
     Json(b): Json<RetourAnticipeBody>,
 ) -> Res<Json<InternatSynchro>> {
-    Ok(Json(s.ent.voyage_participant_retour_anticipe(&acteur(&session), id, pid, &b.motif_code).await.map_err(map_db)?))
+    Ok(Json(s.ent.voyage_participant_retour_anticipe_a(&acteur(&session), id, pid, &b.motif_code, b.retour_le, Utc::now()).await.map_err(map_v3)?))
 }
 
 async fn internat_synchroniser(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<InternatSynchro>> {

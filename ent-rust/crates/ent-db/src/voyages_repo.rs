@@ -189,6 +189,10 @@ pub struct SortieLigne {
     #[serde(skip)]
     pub cree_par_user_id: Option<Uuid>,
     pub modifie_le: DateTime<Utc>,
+    /// Instant de l'annulation (posé à la transition, immuable ensuite) : l'attendu de l'internat ne le lit plus dans
+    /// `modifie_le` (M-4).
+    #[serde(skip)]
+    pub annulee_le: Option<DateTime<Utc>>,
 }
 
 impl SortieLigne {
@@ -1407,6 +1411,18 @@ impl PgEnt {
         version: i32,
         saisie: SortieSaisie,
     ) -> Result<SortieLigne, EntDbError> {
+        self.voyage_modifier_a(a, id, version, saisie, Utc::now()).await
+    }
+
+    /// Comme [`Self::voyage_modifier`], l'horloge en paramètre (F-e : testable à instant fixe).
+    pub async fn voyage_modifier_a(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        version: i32,
+        saisie: SortieSaisie,
+        maintenant: DateTime<Utc>,
+    ) -> Result<SortieLigne, EntDbError> {
         let v = valider_saisie(&saisie)?;
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -1581,7 +1597,7 @@ impl PgEnt {
         poser_publics(&mut t, a, id, &saisie.classes, &saisie.groupes).await?;
         // V3 (D-069, règle 2) : des dates modifiées déplacent les nuits retirées de l'internat, dans cette transaction.
         if s.debut != saisie.debut || s.fin != saisie.fin || etat_apres != s.etat {
-            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
+            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, maintenant).await?;
         }
         let mut modifies = 0;
         for (champ, avant, apres) in changes {
@@ -1674,6 +1690,19 @@ impl PgEnt {
         id: Uuid,
         cmd: Commande,
         p: ParamsCommande,
+    ) -> Result<SortieLigne, EntDbError> {
+        self.voyage_commande_a(a, id, cmd, p, Utc::now()).await
+    }
+
+    /// Comme [`Self::voyage_commande`], l'horloge en paramètre (F-e) : elle date l'annulation d'une sortie
+    /// (`annulee_le`) et les retraits de l'internat que la transition déplace.
+    pub async fn voyage_commande_a(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        cmd: Commande,
+        p: ParamsCommande,
+        maintenant: DateTime<Utc>,
     ) -> Result<SortieLigne, EntDbError> {
         let motif = texte_opt(p.motif.as_deref(), 2000)?;
         let mut t = tx(self, a).await?;
@@ -1937,6 +1966,7 @@ impl PgEnt {
             "UPDATE ent_sortie SET etat=$3, etat_retour=$4, motif_decision=$5, liste_confirmee_le=$6,
                     liste_confirmee_par_user_id=$7, contournement_devis_motif=$8, besoin_car=$9,
                     contournement_devis_code = COALESCE($10, contournement_devis_code),
+                    annulee_le = CASE WHEN $3 = 'annulee' THEN $11 END,
                     version = version + 1, modifie_le = now()
               WHERE id = $1 AND etablissement_id = $2
               RETURNING *",
@@ -1951,13 +1981,14 @@ impl PgEnt {
         .bind(&contournement)
         .bind(besoin_car)
         .bind(contournement_code)
+        .bind(maintenant)
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
         // V3 (D-069, règle 2) : annulation, refus, réouverture ou confirmation : l'attendu de l'internat suit l'état
         // réel de la sortie, dans cette transaction.
         if etat != s.etat {
-            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
+            crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, maintenant).await?;
         }
         let action = evenement.trim_start_matches("voyages.");
         journaliser(
@@ -2436,6 +2467,20 @@ impl PgEnt {
         motif_code: &str,
         motif_texte: Option<&str>,
     ) -> Result<(), EntDbError> {
+        self.voyage_participant_desister_a(a, id, participant_id, motif_code, motif_texte, Utc::now())
+            .await
+    }
+
+    /// Horloge en paramètre (F-e).
+    pub async fn voyage_participant_desister_a(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        participant_id: Uuid,
+        motif_code: &str,
+        motif_texte: Option<&str>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
         self.changer_etat_participant(
             a,
             id,
@@ -2444,6 +2489,7 @@ impl PgEnt {
             "desistement",
             motif_code,
             motif_texte,
+            maintenant,
         )
         .await
     }
@@ -2458,6 +2504,20 @@ impl PgEnt {
         motif_code: &str,
         motif_texte: Option<&str>,
     ) -> Result<(), EntDbError> {
+        self.voyage_participant_retirer_a(a, id, participant_id, motif_code, motif_texte, Utc::now())
+            .await
+    }
+
+    /// Horloge en paramètre (F-e).
+    pub async fn voyage_participant_retirer_a(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        participant_id: Uuid,
+        motif_code: &str,
+        motif_texte: Option<&str>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
         self.changer_etat_participant(
             a,
             id,
@@ -2466,6 +2526,7 @@ impl PgEnt {
             "retrait",
             motif_code,
             motif_texte,
+            maintenant,
         )
         .await
     }
@@ -2480,6 +2541,7 @@ impl PgEnt {
         type_fait: &str,
         motif_code: &str,
         motif_texte: Option<&str>,
+        maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
         if !MOTIFS_PARTICIPANT.contains(&motif_code) {
             return Err(invalide());
@@ -2536,7 +2598,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         // V3 (D-069, règle 2) : l'attendu de l'internat suit la liste, dans cette transaction.
-        crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, Utc::now()).await?;
+        crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, id, maintenant).await?;
         fait_participant(
             &mut t,
             a,

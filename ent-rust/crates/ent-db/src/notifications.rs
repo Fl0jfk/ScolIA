@@ -402,18 +402,37 @@ pub(crate) async fn planifier_envois(
 /// `source_event_id`) puis envois externes planifiés selon ses préférences.
 pub(crate) async fn notifier_personne(
     conn: &mut PgConnection,
-    mut e: EnvoiAPlanifier<'_>,
+    e: EnvoiAPlanifier<'_>,
     source_event_id: Uuid,
     maintenant: DateTime<Utc>,
 ) -> Result<usize, EntDbError> {
-    let notif: Option<(Uuid,)> = sqlx::query_as(
+    notifier_personne_selon(conn, e, source_event_id, maintenant, false).await
+}
+
+/// Comme [`notifier_personne`] ; avec `maj_corps` (avis **regroupé**), si l'avis existe déjà (même `source_event_id`), son
+/// texte est mis à jour tant qu'il n'est pas lu (dans l'ENT) et tant que l'envoi externe n'est pas parti (`en_attente`),
+/// au lieu de rester figé sur le premier événement du groupe.
+pub(crate) async fn notifier_personne_selon(
+    conn: &mut PgConnection,
+    mut e: EnvoiAPlanifier<'_>,
+    source_event_id: Uuid,
+    maintenant: DateTime<Utc>,
+    maj_corps: bool,
+) -> Result<usize, EntDbError> {
+    let conflit = if maj_corps {
+        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO UPDATE SET corps = EXCLUDED.corps \
+          WHERE ent_notification.lu_le IS NULL AND ent_notification.corps IS DISTINCT FROM EXCLUDED.corps"
+    } else {
+        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING"
+    };
+    let notif: Option<(Uuid,)> = sqlx::query_as(&format!(
         "INSERT INTO ent_notification
             (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps,
              source_event_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
-         RETURNING id",
-    )
+         {conflit}
+         RETURNING id"
+    ))
     .bind(Uuid::new_v4())
     .bind(e.etablissement_id)
     .bind(e.user_id)
@@ -425,6 +444,21 @@ pub(crate) async fn notifier_personne(
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
+    if maj_corps {
+        // L'envoi externe de la même clé, tant qu'il n'est pas parti, porte lui aussi le nombre à jour.
+        sqlx::query(
+            "UPDATE ent_notification_envoi SET corps = $4 \
+              WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND cle_dedup = $3 \
+                AND statut = 'en_attente' AND corps IS DISTINCT FROM $4",
+        )
+        .bind(e.etablissement_id)
+        .bind(e.user_id)
+        .bind(&e.cle_dedup)
+        .bind(e.corps)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
     e.notification_id = notif.map(|n| n.0);
     planifier_envois(conn, &e, maintenant).await
 }
@@ -529,7 +563,12 @@ const COLONNES_ENVOI_VU: &str =
 /// consentements (socle 18, FD-08, R-FC37) en font partie : le titre (« Consentement suivi
 /// psychologique ») ne quitte jamais l'ENT.
 pub(crate) fn canal_externe_neutre(kind: &str) -> bool {
-    matches!(kind, "campagne" | "annonce" | "messagerie_famille" | "formulaire")
+    // `internat_retour_demande` (contre-revue I4 suites 2, M2) : le titre de sortie est saisi librement et peut nommer un
+    // élève ; l'avis externe reste neutre, le détail est dans l'ENT.
+    matches!(
+        kind,
+        "campagne" | "annonce" | "messagerie_famille" | "formulaire" | "internat_retour_demande"
+    )
 }
 const SUJET_NEUTRE_EMAIL: &str = "Message de l'établissement";
 const TEXTE_NEUTRE_EMAIL: &str =

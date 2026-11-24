@@ -548,6 +548,20 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
     // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("493_msg_fil_vide_et_garde_proprietaire"),
+    // Suites I5 (316) : sentinelle en base de l'ordre des verrous (déclencheur qui exige le verrou consultatif de l'offre),
+    // source unique du rang (liste ordonnée d'une offre). Règle 38 : en fin de tableau ; chaque fonction porte son
+    // `search_path`. 313 à 315 sont versées et ne changent pas. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("316_inscription_i5_suites_sentinelle"),
+    // Socle 42, V3 suites (plage 640–659) : instant d'annulation d'une sortie, retrait « séjour » à source unique (M-1),
+    // règle « jamais pour son propre enfant » étendue à tout pouvoir sur l'argent (M-3), cohérences de base (F-d).
+    // 653 et 654 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses fonctions portent leur
+    // `search_path` (la fonction d'attendu, SQL inlinée, a ses relations qualifiées `public.`). `MIGRATION_TAG` inchangé.
+    m!("655_sortie_voyages_v3_suites"),
+    // Socle 24, suites du lot F3 (contre-revue, D-069 ; réserve 531–537 de la plage 520–539) : égalité de date de
+    // vigueur refusée, contributeurs du second regard, publication d'une version close, année d'un tarif versionné
+    // figée, historique des calculs supprimé seulement avec sa simulation. 520 à 523 sont versées et ne changent pas.
+    // Règle 38 : en fin de tableau ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("531_finances_f3_suites"),
     // Socle 20, suites C8/C9 : dernier numéro libre de la plage 2400–2419. `REVOKE EXECUTE` sur `ent_cdt_reprise`, gel d'année
     // qui échoue fermé (F3), tables filles du cahier classées au gel (F2). Règle 38 : en fin de tableau ; ses fonctions
     // portent leur `search_path`. Sous 3808 : `MIGRATION_TAG` inchangé.

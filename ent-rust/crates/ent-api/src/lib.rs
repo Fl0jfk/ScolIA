@@ -408,6 +408,8 @@ mod tests_voyages;
 #[cfg(all(test, feature = "labo"))]
 mod tests_voyages_v0d_v1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_voyages_v3_http;
+#[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
 mod tests {

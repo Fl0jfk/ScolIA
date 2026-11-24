@@ -28,7 +28,7 @@ use ent_types::internat_vie::*;
 use uuid::Uuid;
 
 /// Rend l'élève « protégé » (mesure de confidentialité) : l'encadrant sans droit ne le voit plus nulle part ailleurs.
-async fn proteger(b: &Banc, e: Uuid) {
+pub(crate) async fn proteger(b: &Banc, e: Uuid) {
     sqlx::query("INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du) VALUES ($1,$2,$3,'enc:v1:xx',ARRAY['adresse_protegee'],'2026-01-01')")
         .bind(Uuid::new_v4())
         .bind(b.etab)
@@ -354,7 +354,7 @@ async fn s3_fg_un_refus_apres_le_depart_est_un_fait_trace_et_demande_le_retour()
         .ent
         .accord_hors_ligne_groupe_a(b.etab, b.cpe, CPE, g.id, e, &saisie(true), jour_j(40))
         .await;
-    assert!(refus_de(&r, "n'attend plus") || r.is_err(), "{r:?}");
+    assert!(refus_de(&r, "n'attend plus"), "{r:?}");
     // Le REFUS s'enregistre : fait tracé, l'état reste « parti » (le départ n'est pas annulé après coup), retour demandé.
     b.ent
         .accord_hors_ligne_groupe_a(b.etab, b.cpe, CPE, g.id, e, &saisie(false), jour_j(40))

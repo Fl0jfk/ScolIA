@@ -4575,7 +4575,7 @@ impl PgEnt {
 
     /// La tâche planifiée pour **un seul** établissement (exploitation : relance ciblée ; tests : ne touche pas les autres
     /// établissements d'une base partagée). Renvoie le nombre d'effets des trois veilles.
-    pub async fn internat_sorties_tache_etab_a(&self, etab: Uuid, maintenant: &impl Fn() -> DateTime<Utc>) -> usize {
+    pub(crate) async fn internat_sorties_tache_etab_a(&self, etab: Uuid, maintenant: &impl Fn() -> DateTime<Utc>) -> usize {
         let mut total = 0;
         // Règle générale 1 (I4) : élèves partis non rentrés (cas de nuit) et inscrits à l'étude non pointés (signal).
         // M2 : chaque veille a ses propres points de reprise ; les trois alimentent ensemble le suivi des échecs

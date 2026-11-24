@@ -1182,18 +1182,24 @@ async fn alertes_reglages_tx(
         );
     }
     if !second {
-        let r: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
-            "SELECT second_regard_desactive_le FROM ent_fin_parametres WHERE etablissement_id = $1",
+        // qui et quand, à l'heure de l'établissement (son fuseau, jamais UTC)
+        let r: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT to_char(p.second_regard_desactive_le AT TIME ZONE COALESCE(
+                        (SELECT e.fuseau FROM ent_etablissement_parametre e WHERE e.etablissement_id = p.etablissement_id),
+                        'Europe/Paris'), 'DD/MM/YYYY à HH24:MI'),
+                    COALESCE(NULLIF(btrim(u.display_name), ''), u.email)
+               FROM ent_fin_parametres p LEFT JOIN ent_user u ON u.id = p.second_regard_desactive_par
+              WHERE p.etablissement_id = $1",
         )
         .bind(etab)
         .fetch_optional(&mut *conn)
         .await
         .map_err(db)?;
-        let quand = r.and_then(|r| r.0).map_or_else(String::new, |d| {
-            format!(" depuis le {}", d.format("%d/%m/%Y"))
-        });
+        let (quand, qui) = r.unwrap_or((None, None));
+        let quand = quand.map_or_else(String::new, |d| format!(" le {d}"));
+        let qui = qui.map_or_else(String::new, |n| format!(" par {n}"));
         v.push(format!(
-            "second regard sur le vote des grilles désactivé{quand} : la direction vote seule"
+            "second regard sur le vote des grilles désactivé{qui}{quand} (heure de l'établissement) : la direction vote seule"
         ));
     }
     Ok(v)
@@ -1245,6 +1251,53 @@ pub(crate) async fn annee_a_grille_votee_tx(
     .await
     .map_err(db)?;
     Ok(b)
+}
+
+/// Clé du verrou consultatif d'établissement qui sérialise la **proposition** d'une grille et le **réglage du
+/// second regard** (D-069, M-C) : sans lui, une désactivation et une proposition simultanées ne se voient pas
+/// (lecture `READ COMMITTED` d'une ligne non validée) et la direction pourrait voter seule. Documentée ici, une seule
+/// fois : `fin:grille_second_regard:<établissement>`.
+pub(crate) fn cle_verrou_second_regard(etab: Uuid) -> String {
+    format!("fin:grille_second_regard:{etab}")
+}
+
+async fn verrou_tx(conn: &mut PgConnection, cle: &str) -> Result<(), EntDbError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(cle)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Verrou de plafond (faible 5) : le décompte puis l'insertion se font sous ce verrou d'établissement.
+async fn verrou_plafond_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    objet: &str,
+) -> Result<(), EntDbError> {
+    verrou_tx(conn, &format!("fin:plafond:{objet}:{etab}")).await
+}
+
+/// Note `actor` parmi les contributeurs du brouillon (faible 7) : il reste auteur même si ses tarifs sont retirés
+/// ou si la grille revient en brouillon ; le vote le refuse (service et base). Ajout seul.
+async fn noter_contributeur_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    version: Uuid,
+    actor: Uuid,
+) -> Result<(), EntDbError> {
+    sqlx::query(
+        "UPDATE ent_fin_grille_version SET contributeurs = array_append(contributeurs, $3)
+          WHERE etablissement_id = $1 AND id = $2 AND NOT ($3 = ANY (contributeurs))",
+    )
+    .bind(etab)
+    .bind(version)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(())
 }
 
 fn refus(m: &'static str) -> EntDbError {
@@ -1577,6 +1630,9 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationParametrer)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
+        // M-C : sérialisé avec la proposition d'une grille ; la lecture « proposée » ci-dessous voit alors toute
+        // proposition validée avant ce verrou
+        verrou_tx(&mut tx, &cle_verrou_second_regard(etab)).await?;
         let (exiger, second) = reglages_tx(&mut tx, etab).await?;
         let exiger2 = b.exiger_qualification_articles.unwrap_or(exiger);
         let second2 = b.grille_second_regard.unwrap_or(second);
@@ -1819,6 +1875,7 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
+        noter_contributeur_tx(&mut tx, etab, version, actor).await?;
         article_actif_tx(&mut tx, etab, b.article_id).await?;
         let id = Uuid::new_v4();
         sqlx::query(
@@ -1839,7 +1896,6 @@ impl PgEnt {
         .bind(actor)
         .bind(version)
         .bind(b.tarif_par_defaut.unwrap_or(false))
-        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -1888,6 +1944,7 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
+        noter_contributeur_tx(&mut tx, etab, version, actor).await?;
         article_actif_tx(&mut tx, etab, b.article_id).await?;
         let r = sqlx::query(
             "UPDATE ent_fin_tarif SET article_id = $4, niveau = $5, regime = $6, qf_min_centimes = $7,
@@ -1954,6 +2011,21 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
+        noter_contributeur_tx(&mut tx, etab, version, actor).await?;
+        // les auteurs du tarif retiré restent contributeurs de la grille (second regard, faible 7)
+        let auteurs: Vec<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT created_by, modifie_par FROM ent_fin_tarif
+              WHERE etablissement_id = $1 AND grille_version_id = $2 AND id = $3",
+        )
+        .bind(etab)
+        .bind(version)
+        .bind(tarif)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        for a in auteurs.into_iter().flat_map(|(c, m)| [c, m]).flatten() {
+            noter_contributeur_tx(&mut tx, etab, version, a).await?;
+        }
         let r = sqlx::query(
             "DELETE FROM ent_fin_tarif WHERE etablissement_id = $1 AND grille_version_id = $2 AND id = $3",
         )
@@ -1999,6 +2071,7 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
+        noter_contributeur_tx(&mut tx, etab, version, actor).await?;
         sqlx::query(
             "DELETE FROM ent_fin_tranche_qf WHERE etablissement_id = $1 AND grille_version_id = $2",
         )
@@ -2065,6 +2138,9 @@ impl PgEnt {
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
+        if !b.apercu {
+            noter_contributeur_tx(&mut tx, etab, version, actor).await?;
+        }
         let tarifs = tarifs_version_tx(&mut tx, etab, version, None).await?;
         let mut lignes = Vec::new();
         for t in tarifs
@@ -2177,6 +2253,8 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
+        // M-C : sérialisé avec le réglage du second regard (clé documentée sur `cle_verrou_second_regard`)
+        verrou_tx(&mut tx, &cle_verrou_second_regard(etab)).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
         exiger_brouillon(&v)?;
         let c = controles_tx(&mut tx, etab, version).await?;
@@ -2238,9 +2316,10 @@ impl PgEnt {
     ) -> Result<GrilleVersionDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
-        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
+        // ordre (règle 5) : personnel, droit, existence, puis validation du corps
+        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         if v.statut != "proposee" {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
@@ -2286,9 +2365,9 @@ impl PgEnt {
     ) -> Result<GrilleVersionDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
             .await?;
-        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
+        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         if !matches!(v.statut.as_str(), "brouillon" | "proposee") {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
@@ -2353,6 +2432,9 @@ impl PgEnt {
     ) -> Result<GrilleVersionDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationVoter)
             .await?;
+        let mut tx = self.fin_tx(etab).await?;
+        let v = version_tx(&mut tx, etab, version, true).await?;
+        // ordre (règle 5) : personnel, droit, existence, puis validation du corps et des dates
         let reference = texte(
             &b.reference,
             200,
@@ -2361,15 +2443,12 @@ impl PgEnt {
         if !(2000..=2100).contains(&b.vote_le.year()) {
             return Err(invalide("date de vote invraisemblable"));
         }
-        let mut tx = self.fin_tx(etab).await?;
-        let v = version_tx(&mut tx, etab, version, true).await?;
         if v.statut != "proposee" {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
                 "seule une grille proposée peut être votée",
             ));
         }
-        // le futur se contrôle après l'existence de la grille (ordre : personnel, droit, existence)
         if b.vote_le > jour {
             return Err(invalide(
                 "date de vote dans le futur : la délibération a eu lieu au plus tard aujourd'hui",
@@ -2502,9 +2581,11 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        if appliquees.first().is_some_and(|a| b.du < a.2) {
+        // M-B (D-069) : jamais avant, ni le **même jour** qu'une version déjà appliquée (le choix suit la date,
+        // puis le numéro : deux versions au même jour feraient gagner le numéro, pas la décision).
+        if appliquees.first().is_some_and(|a| b.du <= a.2) {
             return Err(invalide(
-                "entrée en vigueur antérieure à celle d'une version déjà appliquée",
+                "entrée en vigueur antérieure ou égale à celle d'une version déjà appliquée",
             ));
         }
         for (id, statut, _) in &appliquees {
@@ -2562,8 +2643,13 @@ impl PgEnt {
                     String::new()
                 } else {
                     format!(
-                        " ({} autre(s) version(s) votée(s) supplantée(s))",
-                        supplantees.len()
+                        " ({} autre(s) version(s) votée(s) supplantée(s) : {})",
+                        supplantees.len(),
+                        supplantees
+                            .iter()
+                            .map(|s| s.0.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 }
             )),
@@ -2600,9 +2686,9 @@ impl PgEnt {
     ) -> Result<GrilleVersionDto, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationVoter)
             .await?;
-        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         let mut tx = self.fin_tx(etab).await?;
         let src = version_tx(&mut tx, etab, version, true).await?;
+        let motif = texte(&b.motif, 500, "motif obligatoire (500 caractères)")?;
         if !matches!(src.statut.as_str(), "votee" | "en_vigueur") {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
@@ -2712,10 +2798,12 @@ impl PgEnt {
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         let v = version_tx(&mut tx, etab, version, true).await?;
-        if !matches!(v.statut.as_str(), "votee" | "en_vigueur") {
+        // une version `close` reste applicable jusqu'à la veille de la suivante : les familles doivent la voir
+        let encore_applicable = v.statut == "close" && v.en_vigueur_du.is_some();
+        if !(matches!(v.statut.as_str(), "votee" | "en_vigueur") || encore_applicable) {
             return Err(EntDbError::Refus(
                 RefusMetier::Conflit,
-                "seule une grille votée ou en vigueur se publie",
+                "seule une grille votée, en vigueur ou encore applicable (close) se publie",
             ));
         }
         let premiere = v.publiee_le.is_none();
@@ -2830,6 +2918,7 @@ impl PgEnt {
             }
         }
         let mut tx = self.fin_tx(etab).await?;
+        verrou_plafond_tx(&mut tx, etab, "famille_type").await?;
         let (nb,): (i64,) =
             sqlx::query_as("SELECT count(*) FROM ent_fin_famille_type WHERE etablissement_id = $1")
                 .bind(etab)
@@ -2984,7 +3073,9 @@ impl PgEnt {
         Ok(())
     }
 
-    /// F5 : supprime une simulation (règles, effectifs et historique de ses calculs compris) ; journalisé.
+    /// F5 : supprime une simulation (règles, effectifs et historique de ses calculs compris). **Réservée** à son
+    /// auteur ou à qui détient `voter` (la direction) : l'historique des calculs (F4) ne part pas sur le seul droit
+    /// `simuler`. Le journal garde les produits calculés (avant / après), comme l'export « conseil ».
     pub async fn supprimer_simulation_for_actor(
         &self,
         etab: Uuid,
@@ -2995,22 +3086,31 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationSimuler)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
-        let (existe,): (bool,) = sqlx::query_as(
-            "SELECT EXISTS (SELECT 1 FROM ent_fin_simulation WHERE etablissement_id = $1 AND id = $2)",
+        let sim: Option<(String, Option<Uuid>)> = sqlx::query_as(
+            "SELECT libelle, cree_par FROM ent_fin_simulation WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
         .bind(id)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        if !existe {
+        let Some((libelle, auteur)) = sim else {
             return Err(introuvable());
+        };
+        if auteur != Some(actor) {
+            self.fin_exiger(etab, actor, role, Action::FacturationVoter)
+                .await?;
         }
-        for t in [
-            "ent_fin_simulation_calcul",
-            "ent_fin_simulation_regle",
-            "ent_fin_simulation_effectif",
-        ] {
+        let calculs: Vec<(i64, i64, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT produit_base_centimes, produit_simule_centimes, calcule_le FROM ent_fin_simulation_calcul
+              WHERE etablissement_id = $1 AND simulation_id = $2 ORDER BY calcule_le, id",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        for t in ["ent_fin_simulation_regle", "ent_fin_simulation_effectif"] {
             sqlx::query(&format!(
                 "DELETE FROM {t} WHERE etablissement_id = $1 AND simulation_id = $2"
             ))
@@ -3020,12 +3120,19 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        // l'historique des calculs part avec la simulation (cascade) : la base refuse tout DELETE direct (531)
         sqlx::query("DELETE FROM ent_fin_simulation WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
             .bind(id)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        let produits = calculs
+            .iter()
+            .take(8)
+            .map(|(b, s, _)| format!("{}→{}", euros(*b), euros(*s)))
+            .collect::<Vec<_>>()
+            .join(" ; ");
         journaliser_tx(
             &mut tx,
             &Acte::new(
@@ -3036,7 +3143,12 @@ impl PgEnt {
                 "simulation.supprimer",
                 "simulation",
             )
-            .objet(id),
+            .objet(id)
+            .detail(&format!(
+                "« {libelle} » : {} calcul(s) supprimé(s), produits avant→après : {produits}{}",
+                calculs.len(),
+                if calculs.len() > 8 { " …" } else { "" }
+            )),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -3081,6 +3193,7 @@ impl PgEnt {
             }
         }
         let mut tx = self.fin_tx(etab).await?;
+        verrou_plafond_tx(&mut tx, etab, "simulation").await?;
         let (nb,): (i64,) =
             sqlx::query_as("SELECT count(*) FROM ent_fin_simulation WHERE etablissement_id = $1")
                 .bind(etab)
@@ -3455,7 +3568,7 @@ fn bornes_annee(annee: &str) -> Result<(NaiveDate, NaiveDate), EntDbError> {
     }
 }
 
-/// Auteurs réels d'une grille : créateur, proposant, auteurs et modificateurs des tarifs (règle 3).
+/// Auteurs réels d'une grille : créateur, proposant, auteurs et modificateurs des tarifs, contributeurs (règle 3).
 async fn auteurs_grille_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -3471,6 +3584,16 @@ async fn auteurs_grille_tx(
     .await
     .map_err(db)?;
     let mut set: BTreeSet<Uuid> = rows.into_iter().filter_map(|r| r.0).collect();
+    // contributeurs conservés par la base : tarifs retirés, tranches, proposant d'avant un retour en brouillon
+    let (contributeurs,): (Vec<Uuid>,) = sqlx::query_as(
+        "SELECT contributeurs FROM ent_fin_grille_version WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(v.id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    set.extend(contributeurs);
     set.extend(v.cree_par);
     set.extend(v.propose_par);
     Ok(set)
@@ -3629,13 +3752,18 @@ async fn controles_tx(
     let facturees: Vec<(Uuid, String)> = sqlx::query_as(
         "SELECT DISTINCT a.id, a.code FROM ent_fac_ligne l
            JOIN ent_fin_article a ON a.id = l.article_id AND a.etablissement_id = l.etablissement_id
-          WHERE l.etablissement_id = $1 AND l.source_cle LIKE $2 AND a.actif
+          WHERE l.etablissement_id = $1 AND a.actif
+            AND (l.source_cle LIKE $2
+                 OR (l.source_cle LIKE 'regime:%' AND EXISTS (
+                       SELECT 1 FROM ent_fac_facture f WHERE f.id = l.facture_id AND f.etablissement_id = l.etablissement_id
+                          AND f.annee_scolaire = $4)))
             AND NOT EXISTS (SELECT 1 FROM ent_fin_tarif t WHERE t.etablissement_id = l.etablissement_id
                               AND t.grille_version_id = $3 AND t.article_id = a.id AND t.actif)",
     )
     .bind(etab)
     .bind(format!("annuel:{annee}%"))
     .bind(version)
+    .bind(&annee)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;

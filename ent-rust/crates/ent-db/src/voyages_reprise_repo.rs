@@ -912,6 +912,9 @@ impl PgEnt {
         .map_err(db)?;
         // Le journal de la sortie est en ajout seul : la sortie créée par la bascule est ANNULÉE (motif tracé),
         // jamais supprimée ; Next.js redevient propriétaire et une nouvelle bascule créera une nouvelle sortie.
+        // F-g : « une seule fonction » aligne l'attendu de l'internat sur l'état de la sortie, ici aussi (verrou de la sortie
+        // d'abord, même ordre que partout).
+        crate::voyages_argent_repo::verrou_sortie(&mut t, sortie).await?;
         sqlx::query(
             "UPDATE ent_sortie SET etat = 'annulee', etat_retour = NULL, version = version + 1, modifie_le = now(),
                     motif_decision = 'Retour arrière de la reprise : Next.js redevient propriétaire'
@@ -922,6 +925,7 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
+        crate::voyages_argent_v3::internat_resynchroniser(&mut t, a, sortie, chrono::Utc::now()).await?;
         journaliser(&mut t, a, sortie, Fait { etat_apres: Some("annulee"), ..Fait::simple("retour_arriere_reprise") }).await?;
         journal_reprise(&mut t, a, "reprise_retour_arriere", "Retour arrière : Next.js redevient propriétaire").await?;
         t.commit().await.map_err(db)?;

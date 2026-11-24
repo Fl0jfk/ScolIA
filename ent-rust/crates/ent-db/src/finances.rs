@@ -942,6 +942,16 @@ struct TarifRow {
     montant_annuel_centimes: i64,
 }
 
+/// Mois consécutifs d'une génération annuelle tarifés par le même jeu de lignes (D-069, M-A).
+struct SegmentTarifaire {
+    /// Identifiants des tarifs applicables (triés) : sert à comparer deux mois voisins.
+    ids: Vec<Uuid>,
+    mois: u32,
+    debut: NaiveDate,
+    fin: NaiveDate,
+    candidats: Vec<TarifCandidat>,
+}
+
 /// Prise en charge active d'un organisme qui couvre une date et une catégorie (E2, CF-83).
 #[derive(Clone, Debug)]
 pub(crate) struct PriseCouvrante {
@@ -1044,25 +1054,16 @@ pub(crate) fn sql_tarif_applicable(jour: &str) -> String {
     )
 }
 
-/// Jour courant de l'établissement (son fuseau), pour les lectures « applicable aujourd'hui ».
-pub(crate) async fn jour_de_l_etablissement(
-    conn: &mut PgConnection,
-    etab: Uuid,
-) -> Result<NaiveDate, EntDbError> {
-    let (j,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
-        .bind(etab)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
-    Ok(j)
-}
-
 /// Calcule les lignes annuelles d'un élève (sans écrire).
 ///
 /// * `depuis` : date d'entrée (prorata au mois, mois commencé dû) ;
 /// * `categories` : restreint aux catégories citées (changement de régime) ;
 /// * `prefixe` : préfixe des clés de source (`annuel:<année>` ou `regime:<événement>`) ;
-/// * `jour` : jour de référence (celui de l'établissement) : seule la grille **applicable ce jour-là** tarife.
+///
+/// Le tarif se choisit **mois par mois** (D-069, M-A) : pour chaque mois dû, la grille applicable est celle du
+/// **premier jour de ce mois** (jamais le jour de génération). Les mois consécutifs tarifés par les mêmes lignes
+/// forment un segment, facturé au prorata de ses mois ; le premier segment garde la clé de source historique
+/// (`<préfixe>:<élève>:<article>`), les suivants portent le suffixe `:m<AAAA-MM>` de leur premier mois.
 ///
 /// `Ok(Err(motif))` : élève non facturable (anomalie à afficher, rien d'écrit).
 pub(crate) async fn lignes_annuelles(
@@ -1074,7 +1075,6 @@ pub(crate) async fn lignes_annuelles(
     regime_force: Option<&str>,
     categories: Option<&[&str]>,
     prefixe: &str,
-    jour: NaiveDate,
 ) -> Result<Result<Vec<LigneAFacturer>, String>, EntDbError> {
     let p = params_tx(conn, etab).await?;
     let Some(cal) = p.calendrier(annee) else {
@@ -1105,27 +1105,47 @@ pub(crate) async fn lignes_annuelles(
            FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
           WHERE t.etablissement_id = $1 AND t.annee_scolaire = $2 AND t.actif AND a.actif
-            AND {}",
+            AND {}
+          ORDER BY t.id",
         sql_tarif_applicable("$3")
     );
-    let candidats: Vec<TarifCandidat> = sqlx::query_as::<_, TarifRow>(&sql_candidats)
-    .bind(etab)
-    .bind(annee)
-    .bind(jour)
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(db)?
-    .into_iter()
-    .map(|t| TarifCandidat {
-        id: t.id,
-        article_id: t.article_id,
-        niveau: t.niveau,
-        regime: t.regime,
-        qf_min: t.qf_min_centimes,
-        qf_max: t.qf_max_centimes,
-        montant_annuel: t.montant_annuel_centimes,
-    })
-    .collect();
+    // Segments : mois consécutifs dont le jeu de tarifs applicables (au premier jour du mois) est identique.
+    let mut segments: Vec<SegmentTarifaire> = Vec::new();
+    for i in (cal.nb_mois - mois_dus)..cal.nb_mois {
+        let (an, mo) = cal.mois(i);
+        let premier = NaiveDate::from_ymd_opt(an, mo, 1).expect("date valide");
+        let rows = sqlx::query_as::<_, TarifRow>(&sql_candidats)
+            .bind(etab)
+            .bind(annee)
+            .bind(premier)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(db)?;
+        let ids: Vec<Uuid> = rows.iter().map(|t| t.id).collect();
+        if let Some(seg) = segments.last_mut().filter(|s| s.ids == ids) {
+            seg.mois += 1;
+            seg.fin = calcul::fin_de_mois(an, mo);
+            continue;
+        }
+        segments.push(SegmentTarifaire {
+            ids,
+            mois: 1,
+            debut: premier,
+            fin: calcul::fin_de_mois(an, mo),
+            candidats: rows
+                .into_iter()
+                .map(|t| TarifCandidat {
+                    id: t.id,
+                    article_id: t.article_id,
+                    niveau: t.niveau,
+                    regime: t.regime,
+                    qf_min: t.qf_min_centimes,
+                    qf_max: t.qf_max_centimes,
+                    montant_annuel: t.montant_annuel_centimes,
+                })
+                .collect(),
+        });
+    }
     let articles: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT id, libelle, categorie FROM ent_fin_article
           WHERE etablissement_id = $1 AND actif ORDER BY code",
@@ -1200,6 +1220,15 @@ pub(crate) async fn lignes_annuelles(
     let mut verrouilles: Vec<Uuid> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
+    for (rang_segment, segment) in segments.iter().enumerate() {
+    let candidats = &segment.candidats;
+    let mois_dus = segment.mois;
+    let periode = (segment.debut, segment.fin);
+    let suffixe_segment = if rang_segment == 0 {
+        String::new()
+    } else {
+        format!(":m{}", segment.debut.format("%Y-%m"))
+    };
     for (art_id, art_libelle, art_categorie) in &articles {
         if !calcul::categorie_due(art_categorie, &regime) {
             continue;
@@ -1218,7 +1247,7 @@ pub(crate) async fn lignes_annuelles(
         }
         for (foyer, _) in &parts {
             let Some(t) = calcul::choisir_tarif(
-                &candidats,
+                candidats,
                 *art_id,
                 eleve.niveau.as_deref(),
                 &regime,
@@ -1275,7 +1304,7 @@ pub(crate) async fn lignes_annuelles(
                     part = place;
                 }
             }
-            let base_cle = format!("{prefixe}:{eleve_id}:{art_id}");
+            let base_cle = format!("{prefixe}:{eleve_id}:{art_id}{suffixe_segment}");
             if sans_prise {
                 crate::facturation_payeurs::ouvrir_tache(
                     conn,
@@ -1369,6 +1398,7 @@ pub(crate) async fn lignes_annuelles(
             }
         }
     }
+    }
     // Bourses acceptées avec procuration (versées à l'établissement), au barème.
     if categories.is_none_or(|c| c.contains(&"bourse")) {
         let bourses: Vec<(Uuid, String, i64)> = sqlx::query_as(
@@ -1436,10 +1466,55 @@ pub(crate) async fn lignes_annuelles(
             eleve.niveau.as_deref().unwrap_or("inconnu")
         )));
     }
+    // Contre-revue du pilote (Moyen 1, D-069) : un mois dû sans aucun tarif applicable n'est jamais gratuit en silence.
+    if !aucun_tarif && categories.is_none() {
+        if let Some(seg) = segments.iter().find(|s| s.ids.is_empty()) {
+            return Ok(Err(format!(
+                "aucun tarif applicable à partir du {} (niveau {}, régime {regime}) : mettez une grille en vigueur pour ces mois",
+                seg.debut.format("%d/%m/%Y"),
+                eleve.niveau.as_deref().unwrap_or("inconnu")
+            )));
+        }
+    }
+    // Contre-revue du pilote (Élevé 1, D-069) : le découpage mois par mois ne regarde pas les lignes déjà posées. Si un
+    // article de cet élève est déjà facturé pour l'année et que le découpage d'aujourd'hui produit une clé nouvelle
+    // (tarif mis en vigueur depuis la génération précédente), rien n'est écrit : les mois seraient facturés deux fois.
+    // L'écart se règle par un complément ou un avoir (F4).
+    let mut prefixes: Vec<String> = lignes
+        .iter()
+        .filter_map(|l| l.article_id.map(|a| format!("{prefixe}:{eleve_id}:{a}")))
+        .collect();
+    prefixes.sort();
+    prefixes.dedup();
+    if !prefixes.is_empty() {
+        let posees: Vec<String> = sqlx::query_scalar(
+            "SELECT l.source_cle FROM ent_fac_ligne l, unnest($2::text[]) AS p(prefixe)
+              WHERE l.etablissement_id = $1 AND left(l.source_cle, length(p.prefixe)) = p.prefixe",
+        )
+        .bind(etab)
+        .bind(&prefixes)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        for pre in &prefixes {
+            if !posees.iter().any(|c| c.starts_with(pre.as_str())) {
+                continue;
+            }
+            let nouvelle = lignes
+                .iter()
+                .any(|l| l.source_cle.starts_with(pre.as_str()) && !posees.contains(&l.source_cle));
+            if nouvelle {
+                return Ok(Err(
+                    "le tarif a changé depuis la génération précédente pour un article déjà facturé : rien n'est refacturé, régularisez par un complément ou un avoir".into(),
+                ));
+            }
+        }
+    }
     Ok(Ok(lignes))
 }
 
-/// Facturation annuelle d'un élève (inscription validée, génération FIN-02).
+/// Facturation annuelle d'un élève (inscription validée, génération FIN-02). Le tarif se choisit mois par mois,
+/// au premier jour de chaque mois dû (D-069, M-A) : le jour de génération n'intervient pas.
 pub(crate) async fn facturer_annee_eleve(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -1449,24 +1524,9 @@ pub(crate) async fn facturer_annee_eleve(
     actor: Option<Uuid>,
     causalite: Causalite,
 ) -> Result<Result<ResultatInsertion, String>, EntDbError> {
-    let jour = jour_de_l_etablissement(conn, etab).await?;
-    facturer_annee_eleve_au(conn, etab, annee, eleve_id, depuis, actor, causalite, jour).await
-}
-
-/// Même génération à un jour de référence donné (les tests fixent le jour, jamais l'horloge réelle).
-pub(crate) async fn facturer_annee_eleve_au(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    annee: &str,
-    eleve_id: Uuid,
-    depuis: Option<NaiveDate>,
-    actor: Option<Uuid>,
-    causalite: Causalite,
-    jour: NaiveDate,
-) -> Result<Result<ResultatInsertion, String>, EntDbError> {
     let prefixe = format!("annuel:{annee}");
     let lignes =
-        match lignes_annuelles(conn, etab, annee, eleve_id, depuis, None, None, &prefixe, jour).await? {
+        match lignes_annuelles(conn, etab, annee, eleve_id, depuis, None, None, &prefixe).await? {
             Ok(l) => l,
             Err(motif) => return Ok(Err(motif)),
         };
@@ -1619,7 +1679,6 @@ pub(crate) async fn facturer_changement_regime(
     }
     if !gagnees.is_empty() {
         let suivant = calcul::fin_de_mois(date.year(), date.month()) + Duration::days(1);
-        let jour = jour_de_l_etablissement(conn, etab).await?;
         if let Ok(lignes) = lignes_annuelles(
             conn,
             etab,
@@ -1629,7 +1688,6 @@ pub(crate) async fn facturer_changement_regime(
             Some(&nouveau),
             Some(&gagnees),
             &format!("regime:{evenement}"),
-            jour,
         )
         .await?
         {
@@ -2455,11 +2513,12 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
         annee: Option<String>,
+        a_la_date: Option<NaiveDate>,
     ) -> Result<Vec<TarifDto>, EntDbError> {
         self.fin_exiger(etab, actor, role, Action::FacturationLire)
             .await?;
         let mut tx = self.fin_tx(etab).await?;
-        let rows = tarifs_tx(&mut tx, etab, annee.as_deref(), None).await?;
+        let rows = tarifs_tx(&mut tx, etab, annee.as_deref(), None, a_la_date).await?;
         tx.commit().await.map_err(db)?;
         Ok(rows)
     }
@@ -2542,7 +2601,7 @@ impl PgEnt {
                 .detail(&format!("tarif annuel de l'année {annee}")),
         )
         .await?;
-        let dto = tarifs_tx(&mut tx, etab, None, Some(id))
+        let dto = tarifs_tx(&mut tx, etab, None, Some(id), None)
             .await?
             .pop()
             .ok_or_else(introuvable)?;
@@ -3651,6 +3710,7 @@ async fn tarifs_tx(
     etab: Uuid,
     annee: Option<&str>,
     id: Option<Uuid>,
+    a_la_date: Option<NaiveDate>,
 ) -> Result<Vec<TarifDto>, EntDbError> {
     let sql = format!(
         "SELECT t.id, t.annee_scolaire, t.article_id, a.code, a.libelle, a.categorie, t.niveau, t.regime,
@@ -3662,12 +3722,13 @@ async fn tarifs_tx(
             AND {}
           ORDER BY t.annee_scolaire DESC, a.categorie, a.code, t.niveau NULLS FIRST, t.regime NULLS FIRST,
                    t.qf_min_centimes NULLS FIRST",
-        sql_tarif_applicable("ent_aujourdhui_etab($1)")
+        sql_tarif_applicable("COALESCE($4::DATE, ent_aujourdhui_etab($1))")
     );
     let rows: Vec<TarifDtoRow> = sqlx::query_as(&sql)
     .bind(etab)
     .bind(annee)
     .bind(id)
+    .bind(a_la_date)
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;

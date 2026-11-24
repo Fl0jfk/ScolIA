@@ -841,13 +841,23 @@ async fn commande(
     cmd: crate::voyages::Commande,
     vers: Option<&str>,
 ) -> Result<crate::voyages_repo::SortieLigne, EntDbError> {
+    commande_a(x, cmd, vers, Utc::now()).await
+}
+
+/// Comme `commande`, à l'instant fixé (F-e : jamais l'heure réelle quand le test en dépend).
+async fn commande_a(
+    x: &Suivi,
+    cmd: crate::voyages::Commande,
+    vers: Option<&str>,
+    maintenant: DateTime<Utc>,
+) -> Result<crate::voyages_repo::SortieLigne, EntDbError> {
     let version: i32 = sqlx::query_scalar("SELECT version FROM ent_sortie WHERE id = $1")
         .bind(x.s.id)
         .fetch_one(x.c.ent.pool())
         .await
         .unwrap();
     x.c.ent
-        .voyage_commande(
+        .voyage_commande_a(
             &x.dir(),
             x.s.id,
             cmd,
@@ -857,6 +867,7 @@ async fn commande(
                 vers: vers.map(str::to_string),
                 ..Default::default()
             },
+            maintenant,
         )
         .await
 }
@@ -971,14 +982,14 @@ async fn internat_pas_de_depart_constate_eleve_attendu_puis_retire_puis_attendu_
     for acteur in [x.c.a(x.c.prof2, Role::Prof), x.parent(x.parent_a)] {
         let e =
             x.c.ent
-                .voyage_participant_retour_anticipe_a(&acteur, x.s.id, x.p0, "sante", retour)
+                .voyage_participant_retour_anticipe_a(&acteur, x.s.id, x.p0, "sante", None, retour)
                 .await
                 .unwrap_err();
         assert!(est_forbidden(&e) || est_introuvable(&e), "{e:?}");
     }
     let e =
         x.c.ent
-            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p1, "sante", retour)
+            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p1, "sante", None, retour)
             .await
             .unwrap_err();
     assert!(
@@ -987,7 +998,7 @@ async fn internat_pas_de_depart_constate_eleve_attendu_puis_retire_puis_attendu_
     );
     let r =
         x.c.ent
-            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p0, "sante", retour)
+            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p0, "sante", None, retour)
             .await
             .unwrap();
     assert_eq!(
@@ -1019,7 +1030,7 @@ async fn internat_pas_de_depart_constate_eleve_attendu_puis_retire_puis_attendu_
     // Un participant déjà rentré ne rentre pas une seconde fois.
     let e =
         x.c.ent
-            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p0, "sante", retour)
+            .voyage_participant_retour_anticipe_a(&x.porteur(), x.s.id, x.p0, "sante", None, retour)
             .await
             .unwrap_err();
     assert!(est_refus(&e), "{e:?}");
@@ -1169,20 +1180,23 @@ async fn internat_annulee_apres_le_depart_les_nuits_passees_restent_retirees() {
     x.sync().await;
     let e0 = x.c.eleves[0];
     interne_parti(&x, e0, x.p0).await;
-    // Le séjour a commencé il y a trois jours et dure encore deux jours : le départ est derrière nous.
-    sqlx::query("UPDATE ent_sortie SET debut = now() - interval '3 days', fin = now() + interval '2 days' WHERE id = $1")
+    // Le séjour a commencé il y a trois jours et dure encore deux jours, PAR RAPPORT À L'INSTANT FIXE du test (F-e : ni
+    // `now()` ni l'heure réelle, qui feraient vaciller le test autour de minuit à Paris).
+    let t = instant_fixe();
+    sqlx::query("UPDATE ent_sortie SET debut = $2 - interval '3 days', fin = $2 + interval '2 days' WHERE id = $1")
         .bind(x.s.id)
+        .bind(t)
         .execute(x.c.ent.pool_verif())
         .await
         .unwrap();
     x.c.ent
-        .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, instant_fixe())
+        .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, t)
         .await
         .unwrap();
-    commande(&x, Commande::Annuler, None).await.unwrap();
-    // Dernière nuit retirée = la veille du jour de l'annulation (jour de l'établissement, lu en base).
+    commande_a(&x, Commande::Annuler, None, t).await.unwrap();
+    // Dernière nuit retirée = la veille du jour de l'annulation (jour de l'établissement, lu dans `annulee_le`, M-4).
     let veille: chrono::NaiveDate = sqlx::query_scalar(
-        "SELECT ent_aujourdhui_etab($1, modifie_le) - 1 FROM ent_sortie WHERE id = $2",
+        "SELECT ent_aujourdhui_etab($1, annulee_le) - 1 FROM ent_sortie WHERE id = $2",
     )
     .bind(x.c.etab)
     .bind(x.s.id)
@@ -1950,6 +1964,23 @@ async fn f5_l_annulation_d_un_report_qui_remet_des_avoirs_a_revoir_trace_l_acteu
 
 // ═════════════════════════════ Base ═════════════════════════════
 
+/// Rejoue une instruction que PostgreSQL a choisie pour casser un interblocage (`40P01`) : `TRUNCATE … CASCADE` verrouille
+/// toutes les tables liées pendant que d'autres tests de la même base y écrivent. Le refus attendu est celui du déclencheur.
+async fn sans_interblocage(
+    pool: &sqlx::PgPool,
+    sql: &str,
+) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    let mut r = sqlx::query(sql).execute(pool).await;
+    for _ in 0..40 {
+        if code_sql(&r).as_deref() != Some("40P01") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        r = sqlx::query(sql).execute(pool).await;
+    }
+    r
+}
+
 #[tokio::test]
 async fn ajout_seul_et_gardes_de_la_base_pour_les_aides_et_les_reports() {
     let Some(x) = suivi_v3().await else { return };
@@ -1995,9 +2026,7 @@ async fn ajout_seul_et_gardes_de_la_base_pour_les_aides_et_les_reports() {
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "UPDATE {t}");
         let r = sqlx::query(&format!("DELETE FROM {t}")).execute(pool).await;
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "DELETE {t}");
-        let r = sqlx::query(&format!("TRUNCATE {t} CASCADE"))
-            .execute(pool)
-            .await;
+        let r = sans_interblocage(pool, &format!("TRUNCATE {t} CASCADE")).await;
         assert_eq!(code_sql(&r).as_deref(), Some("42501"), "TRUNCATE {t}");
     }
     // Une annulation d'aide qui ne reprend pas exactement l'aide est refusée par la base.
@@ -2126,4 +2155,998 @@ async fn isolation_un_autre_etablissement_ne_voit_ni_aides_ni_reports_ni_synchro
         .await
         .unwrap_err();
     assert!(est_introuvable(&e), "{e:?}");
+}
+
+// ═════════════════════════════ Suites de la contre-revue de V3 (M-1 à M-4, F-a à F-j) ═════════════════════════════
+
+/// Un compte « compta » payeur d'un compte donné (sans lien avec l'élève aidé lui-même).
+async fn compta_payeur_de(x: &Suivi, compte: Uuid) -> Acteur<'static> {
+    let foyer_c: Uuid = sqlx::query_scalar("SELECT foyer_id FROM ent_fin_compte WHERE id = $1")
+        .bind(compte)
+        .fetch_one(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    let u = crate::tests_voyages_v0a::compte(&x.c.ent, x.c.etab, "compta").await;
+    payeur(&x.c, x.c.eleves[2], u, foyer_c, 0).await;
+    x.c.a(u, Role::Compta)
+}
+
+/// Un troisième compte « compta » libre de tout lien.
+async fn compta_libre(x: &Suivi) -> Acteur<'static> {
+    let u = crate::tests_voyages_v0a::compte(&x.c.ent, x.c.etab, "compta").await;
+    x.c.a(u, Role::Compta)
+}
+
+#[tokio::test]
+async fn m1_un_depart_ecrit_sans_resynchronisation_laisse_l_eleve_attendu_puis_le_retire_et_le_cpe_peut_annuler(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let e0 = x.c.eleves[0];
+    interne_parti(&x, e0, x.p0).await;
+    // La sortie est « en cours » : l'ancienne branche directe retirait déjà l'élève, sans aucune ligne de retrait.
+    sqlx::query("UPDATE ent_sortie SET etat = 'en_cours' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(retraits_actifs(&x, e0).await.is_empty());
+    for n in [0, 1] {
+        assert_eq!(
+            statut_nuit(&x, e0, jours(&x, n)).await.as_deref(),
+            Some("attendu"),
+            "M-1 : « parti » écrit directement, sans resynchronisation : l'élève reste attendu (nuit {n})"
+        );
+    }
+    // Après `internat_resynchroniser` : retiré, avec une ligne de retrait que le CPE peut annuler.
+    let r =
+        x.c.ent
+            .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, instant_fixe())
+            .await
+            .unwrap();
+    assert_eq!((r.poses, r.annules), (1, 0));
+    assert_eq!(
+        statut_nuit(&x, e0, jours(&x, 0)).await.as_deref(),
+        Some("retire")
+    );
+    let retrait: Uuid = sqlx::query_scalar(
+        "SELECT id FROM ent_internat_retrait WHERE eleve_id = $1 AND annule_le IS NULL",
+    )
+    .bind(e0)
+    .fetch_one(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    x.c.ent
+        .annuler_retrait_a(x.c.etab, x.c.dir, "direction", retrait, instant_fixe())
+        .await
+        .expect("le CPE peut annuler le retrait");
+    assert_eq!(
+        statut_nuit(&x, e0, jours(&x, 0)).await.as_deref(),
+        Some("attendu")
+    );
+}
+
+#[tokio::test]
+async fn m2_le_seuil_de_seconde_validation_porte_sur_le_cumul_pas_sur_chaque_demande() {
+    use crate::voyages_argent_v3::StatutDemande;
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let d1 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "149,99"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        d1.statut,
+        StatutDemande::Appliquee,
+        "149,99 € : sous le seuil"
+    );
+    // Fractionnement : même personne, même participant, même payeur, source étiquetée « autre ».
+    let d2 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "autre", "149,99"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (d2.statut, d2.aide.is_none()),
+        (StatutDemande::EnAttente, true),
+        "299,98 € cumulés : une seconde personne"
+    );
+    // Même une toute petite demande suivante attend : le cumul (appliqué + en attente) dépasse déjà le seuil.
+    let d3 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "0,01"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(d3.statut, StatutDemande::EnAttente);
+    // Un autre participant (et un autre payeur) a son propre cumul.
+    let d4 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p0, x.compte_a, "apel", "149,99"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(d4.statut, StatutDemande::Appliquee);
+    assert_eq!(
+        x.ligne(x.p1, x.compte_c).await.aides_centimes,
+        14_999,
+        "seule l'aide appliquée compte comme aide"
+    );
+    // La seconde personne valide la demande fractionnée : l'aide s'écrit alors.
+    let v = ent
+        .voyage_demande_valider_a(&x.dir(), x.s.id, d2.demande_id, instant_fixe())
+        .await
+        .unwrap();
+    assert_eq!(v.statut, StatutDemande::Appliquee);
+    assert_eq!(x.ligne(x.p1, x.compte_c).await.aides_centimes, 29_998);
+    // Le même raisonnement vaut pour les reports (cumul par cédant et payeur).
+    let p2 = x.p2_meme_payeur().await;
+    x.verser(x.p1, x.compte_c, "cheque", "200").await.unwrap();
+    let r1 = ent
+        .voyage_report_effectuer_a(
+            &x.compta(),
+            x.s.id,
+            report(x.p1, p2, x.compte_c, "100"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r1.statut, StatutDemande::Appliquee);
+    let r2 = ent
+        .voyage_report_effectuer_a(
+            &x.compta(),
+            x.s.id,
+            report(x.p1, p2, x.compte_c, "100"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        r2.statut,
+        StatutDemande::EnAttente,
+        "200 € de reports cumulés > 150 €"
+    );
+}
+
+#[tokio::test]
+async fn m3_la_regle_3_couvre_plans_versements_frais_avoirs_et_acomptes_parent_et_payeur_refuses() {
+    use crate::voyages::Commande;
+    use crate::voyages_argent_flux::AcompteSaisie;
+    use crate::voyages_argent_repo::{FraisSaisie, VersementSaisie};
+    use crate::voyages_prestataires_repo::PrestataireSaisie;
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let payeur_c = compta_payeur_de(&x, x.compte_c).await;
+    let versement = |p: Uuid, c: Uuid| VersementSaisie {
+        participant_id: p,
+        compte_id: c,
+        moyen: "cheque".into(),
+        montant: "10".into(),
+        date_valeur: None,
+        reference: None,
+    };
+    let frais = |p: Uuid| FraisSaisie {
+        participant_id: p,
+        nature: "autre".into(),
+        libelle: "Billet".into(),
+        montant: "10".into(),
+    };
+    // Plan et pointage (et frais réel) : le parent de l'élève et le payeur du compte sont refusés.
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_plan_accorder(acteur, x.s.id, x.p1, x.compte_c, 2, None)
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "plan, {qui} : {e:?}");
+        let e = ent
+            .voyage_versement_pointer(acteur, x.s.id, versement(x.p1, x.compte_c))
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "pointage, {qui} : {e:?}");
+        let e = ent
+            .voyage_frais_saisir(acteur, x.s.id, frais(x.p1))
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "frais réel, {qui} : {e:?}");
+    }
+    // Une autre personne les accomplit : la règle ne bloque que les personnes liées.
+    ent.voyage_plan_accorder(&x.compta(), x.s.id, x.p1, x.compte_c, 2, None)
+        .await
+        .expect("plan par la comptabilité");
+    let v = x
+        .verser(x.p1, x.compte_c, "cheque", "50")
+        .await
+        .expect("pointage par la comptabilité");
+    // Annulation d'un versement.
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_versement_annuler(acteur, x.s.id, v.id, "Erreur de saisie")
+            .await
+            .unwrap_err();
+        assert!(
+            est_interdit_metier(&e),
+            "annulation de versement, {qui} : {e:?}"
+        );
+    }
+    // Désistement : frais réel, puis avoir proposé.
+    ent.voyage_participant_desister(&x.porteur(), x.s.id, x.p1, "famille", None)
+        .await
+        .unwrap();
+    let f = ent
+        .voyage_frais_saisir(&x.compta(), x.s.id, frais(x.p1))
+        .await
+        .expect("frais par la comptabilité");
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_frais_annuler(acteur, x.s.id, f.id, "Erreur de saisie")
+            .await
+            .unwrap_err();
+        assert!(
+            est_interdit_metier(&e),
+            "annulation de frais, {qui} : {e:?}"
+        );
+    }
+    let avoir = x
+        .avoirs_de(x.p1, x.compte_c)
+        .await
+        .into_iter()
+        .find(|a| a.statut == "propose")
+        .expect("avoir proposé");
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_avoir_decider(
+                acteur,
+                x.s.id,
+                avoir.id,
+                true,
+                None,
+                None,
+                "Décision de la comptabilité",
+            )
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "décision d'avoir, {qui} : {e:?}");
+    }
+    // Acomptes fournisseurs : la sortie où l'enfant part (parent) ou dont le compte paie (payeur).
+    let presta = ent
+        .prestataire_creer(
+            &x.sec(),
+            PrestataireSaisie {
+                raison_sociale: format!("Cars M3 {}", Uuid::new_v4().simple()),
+                siren: None,
+                telephone: None,
+                categories: vec!["transporteur".into()],
+                adresses: vec![format!("m3-{}@exemple-test.fr", Uuid::new_v4().simple())],
+                version: None,
+                actif: None,
+            },
+        )
+        .await
+        .unwrap();
+    let jour = x.c.jour_etab().await;
+    let acompte = || AcompteSaisie {
+        prestataire_id: presta.id,
+        commande_id: None,
+        libelle: "Acompte".into(),
+        montant: "100".into(),
+        echeance: jour + chrono::Duration::days(10),
+    };
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_acompte_creer(acteur, x.s.id, acompte())
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "acompte, création, {qui} : {e:?}");
+    }
+    let ac = ent
+        .voyage_acompte_creer(&x.compta(), x.s.id, acompte())
+        .await
+        .expect("acompte par la comptabilité");
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_acompte_payer(acteur, x.s.id, ac.id, None, None, None)
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "acompte, paiement, {qui} : {e:?}");
+        let e = ent
+            .voyage_acompte_annuler(acteur, x.s.id, ac.id, "Erreur")
+            .await
+            .unwrap_err();
+        assert!(
+            est_interdit_metier(&e),
+            "acompte, annulation, {qui} : {e:?}"
+        );
+    }
+    // Annulation collective : sortie annulée ; le parent d'un participant qui a versé et le payeur de son compte sont refusés.
+    commande_a(&x, Commande::Annuler, None, instant_fixe())
+        .await
+        .unwrap();
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent
+            .voyage_avoirs_annulation_collective(acteur, x.s.id)
+            .await
+            .unwrap_err();
+        assert!(
+            est_interdit_metier(&e),
+            "annulation collective, {qui} : {e:?}"
+        );
+    }
+    // F-c : chacun de ces refus a laissé une trace (qui, quelle action, quelle sortie), sans nom ni montant.
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie_argent_refus WHERE sortie_id = $1 AND user_id = $2",
+    )
+    .bind(x.s.id)
+    .bind(parent.user_id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        n, 10,
+        "un refus tracé par pouvoir refusé au parent (dix pouvoirs)"
+    );
+    // La base refuse aussi le contournement direct (déclencheurs 655) : une écriture au nom du parent est rejetée.
+    let r = sqlx::query(
+        "INSERT INTO ent_sortie_plan (id, etablissement_id, sortie_id, participant_id, compte_id, rang, nb_echeances, accorde_par_user_id)
+         VALUES ($1,$2,$3,$4,$5,99,2,$6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(x.p1)
+    .bind(x.compte_c)
+    .bind(parent.user_id)
+    .execute(ent.pool_verif())
+    .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "plan : refus de la base"
+    );
+    let r = sqlx::query(
+        "INSERT INTO ent_sortie_versement (id, etablissement_id, sortie_id, participant_id, compte_id, sens, moyen, montant_centimes, date_valeur, saisi_par_user_id)
+         VALUES ($1,$2,$3,$4,$5,'versement','cheque',100,$6,$7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(x.p1)
+    .bind(x.compte_c)
+    .bind(jour)
+    .bind(payeur_c.user_id)
+    .execute(ent.pool_verif())
+    .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "versement : refus de la base (payeur)"
+    );
+    let r = sqlx::query(
+        "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id)
+         VALUES ($1,$2,$3,$4,'x',100,$5,$6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(presta.id)
+    .bind(jour)
+    .bind(parent.user_id)
+    .execute(ent.pool_verif())
+    .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "acompte : refus de la base"
+    );
+}
+
+#[tokio::test]
+async fn m4_la_date_d_annulation_ne_se_lit_plus_dans_modifie_le() {
+    use crate::voyages::Commande;
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let e0 = x.c.eleves[0];
+    interne_parti(&x, e0, x.p0).await;
+    let t = instant_fixe();
+    sqlx::query("UPDATE ent_sortie SET debut = $2 - interval '3 days', fin = $2 + interval '2 days' WHERE id = $1")
+        .bind(x.s.id)
+        .bind(t)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    x.c.ent
+        .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, t)
+        .await
+        .unwrap();
+    commande_a(&x, Commande::Annuler, None, t).await.unwrap();
+    let avant = retraits_actifs(&x, e0).await;
+    assert_eq!(avant.len(), 1, "{avant:?}");
+    let annulee_le: DateTime<Utc> =
+        sqlx::query_scalar("SELECT annulee_le FROM ent_sortie WHERE id = $1")
+            .bind(x.s.id)
+            .fetch_one(x.c.ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(
+        annulee_le, t,
+        "l'instant d'annulation est celui de la commande"
+    );
+    // `modifie_le` est déplacé APRÈS l'annulation (un futur UPDATE de la sortie, par exemple) : rien ne change.
+    sqlx::query("UPDATE ent_sortie SET modifie_le = modifie_le + interval '2 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    let r =
+        x.c.ent
+            .voyage_internat_synchroniser_a(&x.dir(), x.s.id, t)
+            .await
+            .unwrap();
+    assert_eq!(
+        (r.poses, r.annules, r.inchanges),
+        (0, 0, 1),
+        "les nuits retirées ne bougent pas"
+    );
+    assert_eq!(retraits_actifs(&x, e0).await, avant);
+    // L'instant d'annulation est immuable : la base le garde.
+    sqlx::query("UPDATE ent_sortie SET annulee_le = annulee_le + interval '5 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    let encore: DateTime<Utc> =
+        sqlx::query_scalar("SELECT annulee_le FROM ent_sortie WHERE id = $1")
+            .bind(x.s.id)
+            .fetch_one(x.c.ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(encore, t);
+    // Et la colonne n'existe que pour les sorties annulées.
+    let autre: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie WHERE etat <> 'annulee' AND annulee_le IS NOT NULL",
+    )
+    .fetch_one(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(autre, 0);
+}
+
+#[tokio::test]
+async fn fa_personnel_puis_droit_puis_existence_aucune_route_ne_revele_ni_ne_verrouille_avant() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let inconnue = Uuid::new_v4();
+    // Non-personnel (parent, élève) : « introuvable », sortie existante ou non.
+    for acteur in [x.parent(x.parent_a), x.c.a(x.c.prof2, Role::Eleve)] {
+        for id in [x.s.id, inconnue] {
+            let e = ent
+                .voyage_aide_accorder_a(
+                    &acteur,
+                    id,
+                    aide(x.p1, x.compte_c, "apel", "10"),
+                    instant_fixe(),
+                )
+                .await
+                .unwrap_err();
+            assert!(est_introuvable(&e), "{e:?}");
+            let e = ent
+                .voyage_internat_synchroniser_a(&acteur, id, instant_fixe())
+                .await
+                .unwrap_err();
+            assert!(est_introuvable(&e), "{e:?}");
+            let e = ent
+                .voyage_participant_retour_anticipe_a(
+                    &acteur,
+                    id,
+                    x.p0,
+                    "sante",
+                    None,
+                    instant_fixe(),
+                )
+                .await
+                .unwrap_err();
+            assert!(est_introuvable(&e), "{e:?}");
+        }
+    }
+    // Personnel sans le droit d'argent : « interdit » AVANT de regarder si la sortie existe (aucune fuite d'existence).
+    let prof = x.c.a(x.c.prof2, Role::Prof);
+    for id in [x.s.id, inconnue] {
+        let e = ent
+            .voyage_aide_accorder_a(
+                &prof,
+                id,
+                aide(x.p1, x.compte_c, "apel", "10"),
+                instant_fixe(),
+            )
+            .await
+            .unwrap_err();
+        assert!(est_forbidden(&e), "{e:?}");
+        let e = ent
+            .voyage_demande_valider_a(&prof, id, Uuid::new_v4(), instant_fixe())
+            .await
+            .unwrap_err();
+        assert!(est_forbidden(&e), "{e:?}");
+        let e = ent
+            .voyage_demande_refuser_a(&prof, id, Uuid::new_v4(), "Non", instant_fixe())
+            .await
+            .unwrap_err();
+        assert!(est_forbidden(&e), "{e:?}");
+    }
+    // Le droit suffit pour arriver à l'existence : sortie inconnue → « introuvable ».
+    let e = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            inconnue,
+            aide(x.p1, x.compte_c, "apel", "10"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_introuvable(&e), "{e:?}");
+    let e = ent
+        .voyage_internat_synchroniser_a(&x.dir(), inconnue, instant_fixe())
+        .await
+        .unwrap_err();
+    assert!(est_introuvable(&e), "{e:?}");
+}
+
+#[tokio::test]
+async fn fb_retour_anticipe_borne_trace_et_refuse_sur_une_sortie_terminale() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let (e0, e1) = (x.c.eleves[0], x.c.eleves[1]);
+    interne_parti(&x, e0, x.p0).await;
+    interne_parti(&x, e1, x.p1).await;
+    x.c.ent
+        .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, instant_fixe())
+        .await
+        .unwrap();
+    let midi = |n| jours(&x, n).and_hms_opt(12, 0, 0).unwrap().and_utc();
+    // Saisie le jour J+3 pour un retour effectif le jour J+1 : la date de retour est bornée (≤ maintenant, ≥ départ).
+    let e =
+        x.c.ent
+            .voyage_participant_retour_anticipe_a(
+                &x.porteur(),
+                x.s.id,
+                x.p0,
+                "sante",
+                Some(midi(4)),
+                midi(3),
+            )
+            .await
+            .unwrap_err();
+    assert!(est_refus(&e), "un retour dans le futur est refusé : {e:?}");
+    let e =
+        x.c.ent
+            .voyage_participant_retour_anticipe_a(
+                &x.porteur(),
+                x.s.id,
+                x.p0,
+                "sante",
+                Some(midi(-30)),
+                midi(3),
+            )
+            .await
+            .unwrap_err();
+    assert!(
+        est_refus(&e),
+        "un retour avant le départ est refusé : {e:?}"
+    );
+    x.c.ent
+        .voyage_participant_retour_anticipe_a(
+            &x.porteur(),
+            x.s.id,
+            x.p0,
+            "sante",
+            Some(midi(1)),
+            midi(3),
+        )
+        .await
+        .expect("saisie tardive");
+    assert_eq!(
+        statut_nuit(&x, e0, jours(&x, 0)).await.as_deref(),
+        Some("retire"),
+        "la nuit passée dehors reste retirée"
+    );
+    assert_eq!(
+        statut_nuit(&x, e0, jours(&x, 1)).await.as_deref(),
+        Some("attendu"),
+        "l'élève est rentré le jour J+1 : pas retiré jusqu'à l'instant de la saisie"
+    );
+    let (a, trace): (DateTime<Utc>, Option<String>) = sqlx::query_as(
+        "SELECT a, motif_texte FROM ent_sortie_participant_fait WHERE participant_id = $1 AND etat_apres = 'rentre'",
+    )
+    .bind(x.p0)
+    .fetch_one(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(a, midi(1));
+    assert!(
+        trace.unwrap_or_default().contains("saisi le"),
+        "l'instant de la saisie reste tracé"
+    );
+    // Une sortie rentrée, close ou annulée n'accepte plus de retour anticipé.
+    for etat in ["rentree", "close", "annulee"] {
+        sqlx::query("UPDATE ent_sortie SET etat = $2 WHERE id = $1")
+            .bind(x.s.id)
+            .bind(etat)
+            .execute(x.c.ent.pool_verif())
+            .await
+            .unwrap();
+        let e =
+            x.c.ent
+                .voyage_participant_retour_anticipe_a(
+                    &x.porteur(),
+                    x.s.id,
+                    x.p1,
+                    "sante",
+                    None,
+                    midi(3),
+                )
+                .await
+                .unwrap_err();
+        assert!(est_refus(&e), "{etat} : {e:?}");
+    }
+}
+
+#[tokio::test]
+async fn fc_demande_expiree_annulation_soumise_au_seuil_et_refus_trace() {
+    use crate::voyages_argent_v3::StatutDemande;
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_fixe();
+    // Expiration : une demande en attente depuis plus de 30 jours ne se valide plus (on la refuse ou on la retire).
+    let d = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p0, x.compte_a, "apel", "200"),
+            t0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(d.statut, StatutDemande::EnAttente);
+    let e = ent
+        .voyage_demande_valider_a(
+            &x.dir(),
+            x.s.id,
+            d.demande_id,
+            t0 + chrono::Duration::days(31),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(e, EntDbError::Refus(RefusMetier::Conflit, _)),
+        "{e:?}"
+    );
+    let v = ent.voyage_demandes(&x.compta(), x.s.id).await.unwrap();
+    assert_eq!(
+        v.iter().find(|y| y.id == d.demande_id).unwrap().statut,
+        "en_attente",
+        "la liste lit l'horloge réelle : la demande de 2031 n'est pas encore expirée"
+    );
+    ent.voyage_demande_refuser_a(
+        &x.dir(),
+        x.s.id,
+        d.demande_id,
+        "Expirée",
+        t0 + chrono::Duration::days(31),
+    )
+    .await
+    .expect("on peut encore la refuser");
+    // La même demande, validée à temps par une autre personne, s'applique ; son annulation (200 € > seuil) ne se fait pas seul.
+    let d = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p0, x.compte_a, "apel", "200"),
+            t0,
+        )
+        .await
+        .unwrap();
+    let v = ent
+        .voyage_demande_valider_a(
+            &x.dir(),
+            x.s.id,
+            d.demande_id,
+            t0 + chrono::Duration::days(29),
+        )
+        .await
+        .expect("à temps");
+    let aide_id = v.aide.unwrap().id;
+    for (qui, acteur) in [
+        ("le demandeur", x.compta()),
+        ("celui qui a décidé", x.dir()),
+    ] {
+        let e = ent
+            .voyage_aide_annuler_a(&acteur, x.s.id, aide_id, "Erreur", t0)
+            .await
+            .unwrap_err();
+        assert!(
+            est_interdit_metier(&e),
+            "{qui} n'annule pas seul une aide au-dessus du seuil : {e:?}"
+        );
+    }
+    ent.voyage_aide_annuler_a(
+        &compta_libre(&x).await,
+        x.s.id,
+        aide_id,
+        "Erreur de saisie",
+        t0,
+    )
+    .await
+    .expect("une troisième personne annule");
+    // Sous le seuil : l'annulation reste simple.
+    let d = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p0, x.compte_a, "apel", "20"),
+            t0,
+        )
+        .await
+        .unwrap();
+    ent.voyage_aide_annuler_a(
+        &x.compta(),
+        x.s.id,
+        d.aide.unwrap().id,
+        "Erreur de saisie",
+        t0,
+    )
+    .await
+    .expect("sous le seuil");
+    // Refus tracé : le parent refusé laisse une ligne (action, sortie, personne), sans montant.
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let e = ent
+        .voyage_aide_accorder_a(&parent, x.s.id, aide(x.p1, x.compte_c, "apel", "10"), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    let actions: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM ent_sortie_argent_refus WHERE sortie_id = $1 AND user_id = $2",
+    )
+    .bind(x.s.id)
+    .bind(parent.user_id)
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(actions, vec!["voyage_aide_accorder_a".to_string()]);
+    // Ajout seul : la trace ne se modifie ni ne s'efface.
+    let r = sqlx::query("DELETE FROM ent_sortie_argent_refus WHERE sortie_id = $1")
+        .bind(x.s.id)
+        .execute(ent.pool_verif())
+        .await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn fd_la_base_garde_la_coherence_des_aides_reports_demandes_et_fins_de_retrait() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    // Les contraintes de cohérence existent.
+    for (table, nom) in [
+        (
+            "ent_sortie_internat_retrait_fin",
+            "ent_sortie_internat_retrait_fin_lien_fk",
+        ),
+        (
+            "ent_sortie_argent_demande",
+            "ent_sortie_argent_demande_participant_sortie_fk",
+        ),
+        (
+            "ent_sortie_argent_demande",
+            "ent_sortie_argent_demande_vers_sortie_fk",
+        ),
+        (
+            "ent_sortie_participant",
+            "ent_sortie_participant_etab_sortie_id_uq",
+        ),
+    ] {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2",
+        )
+        .bind(table)
+        .bind(nom)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        assert_eq!(n, 1, "{nom}");
+    }
+    // Une fin de retrait vise un retrait de séjour posé.
+    let r = sqlx::query(
+        "INSERT INTO ent_sortie_internat_retrait_fin (id, etablissement_id, sortie_id, retrait_id, cause, par_user_id, le)
+         VALUES ($1,$2,$3,$4,'dates',$5, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(Uuid::new_v4())
+    .bind(x.c.dir)
+    .execute(ent.pool_verif())
+    .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23503"));
+    // Une aide reprend exactement sa demande : un autre montant, un autre participant ou un autre payeur est rejeté.
+    let d = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "10"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap();
+    let demande_id = d.demande_id;
+    let (autre_p, autre_c) = (x.p0, x.compte_a);
+    for (participant, compte, montant) in [(x.p1, x.compte_c, 999_i64), (autre_p, autre_c, 1000)] {
+        let r = sqlx::query(
+            "INSERT INTO ent_sortie_aide (id, etablissement_id, sortie_id, participant_id, compte_id, sens, source, montant_centimes, motif, demande_id, decide_par_user_id, decide_le)
+             VALUES ($1,$2,$3,$4,$5,'aide','apel',$6,'x',$7,$8, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(participant)
+        .bind(compte)
+        .bind(montant)
+        .bind(demande_id)
+        .bind(x.c.dir)
+        .execute(ent.pool_verif())
+        .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "{montant}");
+    }
+}
+
+#[tokio::test]
+async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let (e0, e1) = (x.c.eleves[0], x.c.eleves[1]);
+    interne_parti(&x, e0, x.p0).await;
+    interne_parti(&x, e1, x.p1).await;
+    x.c.ent
+        .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, instant_fixe())
+        .await
+        .unwrap();
+    assert_eq!(retraits_actifs(&x, e0).await.len(), 1);
+    // p1 est rentré avec le groupe (fait daté) ; p0 est resté « parti » dans les données : incohérence.
+    sqlx::query("UPDATE ent_sortie_participant SET etat = 'rentre' WHERE id = $1")
+        .bind(x.p1)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_sortie_participant_fait (id, etablissement_id, participant_id, a, type, etat_avant, etat_apres)
+         VALUES ($1,$2,$3,$4,'etat','parti','rentre')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.p1)
+    .bind(jours(&x, 1).and_hms_opt(12, 0, 0).unwrap().and_utc())
+    .execute(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query("UPDATE ent_sortie SET etat = 'rentree' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    x.c.ent
+        .voyage_internat_synchroniser_a(&x.dir(), x.s.id, instant_fixe())
+        .await
+        .unwrap();
+    assert!(
+        retraits_actifs(&x, e0).await.is_empty(),
+        "resté « parti » sur une sortie rentrée : plus retiré"
+    );
+    assert_eq!(
+        statut_nuit(&x, e0, jours(&x, 1)).await.as_deref(),
+        Some("attendu")
+    );
+    let r1 = retraits_actifs(&x, e1).await;
+    assert_eq!(
+        r1.len(),
+        1,
+        "le rentré garde ses nuits passées dehors : {r1:?}"
+    );
+    assert_eq!(r1[0].1, jours(&x, 0), "jusqu'à la veille de son retour");
+    assert!(causes_de_fin(&x).await.contains(&"sortie".to_string()));
+}
+
+#[tokio::test]
+async fn fi_la_fonction_d_attendu_de_655_ne_differe_de_celle_de_2829_que_par_la_condition_commentee_655_et_les_public(
+) {
+    // Le corps de la fonction recréée en 655 est celui de 2829 (dernière définition avant elle), aux préfixes `public.` près
+    // et hors le seul bloc commenté « 655 » : une divergence future est détectée ici, pas écrasée en silence.
+    let m655 = include_str!("../../../migrations/655_sortie_voyages_v3_suites.sql");
+    let m2829 = include_str!("../../../migrations/2829_internat_i4_vie_quotidienne.sql");
+    let corps = |s: &str| -> String {
+        let debut = s
+            .find("CREATE OR REPLACE FUNCTION ent_internat_attendu_calcule")
+            .expect("définition");
+        let fin = s[debut..].find("\n$$;").expect("fin") + debut;
+        s[debut..fin].to_string()
+    };
+    let normaliser = |s: String| -> Vec<String> {
+        s.replace("public.", "")
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with("--"))
+            .collect()
+    };
+    let (a, b) = (normaliser(corps(m2829)), normaliser(corps(m655)));
+    // Les lignes ajoutées par 655 sont exactement le bloc « EXISTS … retrait_effectif » de M-1.
+    let ajoutees: Vec<&String> = b.iter().filter(|l| !a.contains(l)).collect();
+    let manquantes: Vec<&String> = a.iter().filter(|l| !b.contains(l)).collect();
+    assert!(
+        manquantes.is_empty(),
+        "lignes de 2829 absentes de 655 : {manquantes:?}"
+    );
+    assert_eq!(
+        ajoutees.len(),
+        4,
+        "seul le bloc M-1 (4 lignes de code) est ajouté : {ajoutees:?}"
+    );
+    assert!(ajoutees
+        .iter()
+        .any(|l| l.contains("ent_sortie_retrait_effectif")));
+    // Même contrôle pour 654, dont les deux conditions « 654 » sont déjà dans 2829.
+    let m654 = include_str!("../../../migrations/654_sortie_internat_lien.sql");
+    let c654 = normaliser(corps(m654));
+    for l in c654.iter().filter(|l| l.contains("sejour_scolaire")) {
+        assert!(a.contains(l), "{l}");
+    }
+}
+
+/// Contre-revue du pilote (Moyen 1, D-069) : recevoir un bordereau est un pouvoir sur l'argent. La personne liée à un
+/// élève du bordereau, ou payeuse d'un de ses comptes, ne le reçoit pas ; une personne libre le reçoit.
+#[tokio::test]
+async fn m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur() {
+    use crate::voyages_argent_flux::{BordereauLigneSaisie, BordereauSaisie};
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let payeur_c = compta_payeur_de(&x, x.compte_c).await;
+    let bv = ent
+        .voyage_bordereau_saisir(
+            &x.porteur(),
+            x.s.id,
+            BordereauSaisie {
+                nb_cheques: 1,
+                total: "100".into(),
+                lignes: vec![BordereauLigneSaisie { participant_id: x.p1, numero_cheque: "901".into(), montant: "100".into() }],
+            },
+        )
+        .await
+        .expect("bordereau");
+    let l = bv.lignes[0].id;
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent.voyage_bordereau_remettre(acteur, x.s.id, bv.id, vec![l], None).await.unwrap_err();
+        assert!(est_interdit_metier(&e), "remise, {qui} : {e:?}");
+    }
+    let r = ent
+        .voyage_bordereau_remettre(&compta_libre(&x).await, x.s.id, bv.id, vec![l], None)
+        .await
+        .expect("remise par une personne libre");
+    assert!(r.remise.is_some());
 }
