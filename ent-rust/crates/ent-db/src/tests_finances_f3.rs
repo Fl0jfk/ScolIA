@@ -4439,6 +4439,16 @@ async fn nb_lignes_eleve(ent: &PgEnt, el: Uuid) -> i64 {
     n
 }
 
+async fn tarif_dp(ent: &PgEnt, dp: Uuid, v: Uuid) -> Uuid {
+    let (t,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2")
+        .bind(v)
+        .bind(dp)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    t
+}
+
 /// v2 = copie de v1 sans la demi-pension, votée puis en vigueur au 1er janvier 2031 (fin de tarif).
 async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, avant_retrait: bool) -> Uuid {
     let etab = c.etablissement_id;
@@ -4708,16 +4718,6 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
     let (v1, contrib, dp) = grille_en_vigueur(&ent, &c).await;
     // v2 : demi-pension à 450,03 € puis 500,03 € ; on fixe v1 à 450,03 € par correction avant d'avoir facturé
     let _ = (contrib, v1);
-    let tarif_dp = |v: Uuid| async move {
-        let (t,): (Uuid,) =
-            sqlx::query_as("SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2")
-                .bind(v)
-                .bind(dp)
-                .fetch_one(ent.pool_verif())
-                .await
-                .unwrap();
-        t
-    };
     let v2 = ent
         .corriger_grille_for_actor(
             etab,
@@ -4728,7 +4728,7 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
         )
         .await
         .unwrap();
-    ent.modifier_tarif_grille_for_actor(etab, ud, rd, v2.id, tarif_dp(v2.id).await, &tarif_body(dp, 50_003, true))
+    ent.modifier_tarif_grille_for_actor(etab, ud, rd, v2.id, tarif_dp(&ent, dp, v2.id).await, &tarif_body(dp, 50_003, true))
         .await
         .unwrap();
     ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
