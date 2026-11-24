@@ -153,3 +153,17 @@ Tête de code `a626af19` (fusion d'`origin/ENT` incluse) : CI « ENT Rust » **v
 ### Résultat final
 
 Tête de code `5a895818` : CI « ENT Rust » verte (https://github.com/Fl0jfk/ScolIA/actions/runs/45017674799). Le commit suivant ne change que cette documentation ; sa propre CI est vérifiée avant envoi au pilote. PR n° 117 laissée en brouillon.
+
+## Correctifs du pilote après contre-revue des suites (2026-11-24)
+Rapport complet : `docs/pilotage/revues/42_VOYAGES_V3_SUITES_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé.
+- **Moyen 1** : la **remise d'un bordereau** est un pouvoir sur l'argent (elle fixe écarts et alertes) : `voyage_bordereau_remettre`
+  exige que la personne qui reçoit ne soit liée à aucun élève ni payeuse d'aucun compte des chèques du bordereau
+  (`exiger_libre_des_participants`). Contrôle applicatif seul (pas de déclencheur sur `ent_sortie_bordereau_remise`) ; le
+  commentaire de 655 est rectifié. Test `m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur`.
+- **Faible 3** : `avant_verrou` en tête de `voyage_bordereau_saisir` et `voyage_bordereau_remettre` (parent et élève écartés
+  avant le verrou de la sortie).
+- **Moyen 3 (D-069)** : la règle « sortie entière » reste stricte (désistés et liste d'attente compris) : l'intégrité prime ;
+  un contournement tracé par une seconde personne est en file avec V3b.
+- En file (V3b) : Moyen 2 (sortie « rentrée » rétroactive, `rentree_le`), Moyen 4 (tests SQL directs 23514 manquants),
+  faibles 1, 2, 4 à 7.
+- Local : `tests_voyages` 147 verts ; clippy 1.99 (labo) vert.

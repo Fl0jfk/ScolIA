@@ -233,6 +233,8 @@ impl PgEnt {
         if numeros.len() != lignes.len() {
             return Err(refus(RefusMetier::Invalide, "Deux chèques portent le même numéro."));
         }
+        // F-a (contre-revue du pilote) : parent et élève écartés avant de prendre le verrou de la sortie.
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -331,6 +333,7 @@ impl PgEnt {
         note: Option<&str>,
     ) -> Result<BordereauVue, EntDbError> {
         let note = texte_opt(note, 500)?;
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -361,6 +364,17 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
+        // M-3 (contre-revue du pilote, D-069) : recevoir un bordereau est un pouvoir sur l'argent (il fixe les écarts et
+        // les alertes) : la personne qui reçoit n'est liée à aucun élève ni payeuse d'aucun compte des chèques du bordereau.
+        let participants: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT participant_id FROM ent_sortie_bordereau_ligne WHERE etablissement_id = $1 AND bordereau_id = $2",
+        )
+        .bind(a.etablissement_id)
+        .bind(bordereau_id)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
+        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &participants).await?;
         let mut cochees = recues.clone();
         cochees.sort_unstable();
         cochees.dedup();

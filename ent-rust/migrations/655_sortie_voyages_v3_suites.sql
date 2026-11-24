@@ -206,8 +206,8 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- ───────────────────────── M-3 : « jamais pour son propre enfant » pour TOUT pouvoir sur l'argent ─────────────────────────
--- D-069 (réponse du pilote) : la règle de 653 (demande, aide, report, issue) s'étend aux plans, aux versements (pointage,
--- remise de bordereau), aux frais réels, aux décisions d'avoir (individuelles et annulation collective) et aux acomptes
+-- D-069 (réponse du pilote) : la règle de 653 (demande, aide, report, issue) s'étend aux plans, aux versements (pointage ;
+-- la remise de bordereau est contrôlée par l'application seule), aux frais réels, aux décisions d'avoir (individuelles et annulation collective) et aux acomptes
 -- fournisseurs. Même fonction de décision que 653 (`ent_sortie_argent_decideur_interdit`), même code d'erreur (23514) ;
 -- le contrôle de l'application donne le message, ce déclencheur interdit le contournement.
 --   * plan, versement (et son annulation), frais réel (et son annulation) : la personne qui écrit n'est liée ni à

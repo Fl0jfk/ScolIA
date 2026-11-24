@@ -3116,3 +3116,37 @@ async fn fi_la_fonction_d_attendu_de_655_ne_differe_de_celle_de_2829_que_par_la_
         assert!(a.contains(l), "{l}");
     }
 }
+
+/// Contre-revue du pilote (Moyen 1, D-069) : recevoir un bordereau est un pouvoir sur l'argent. La personne liée à un
+/// élève du bordereau, ou payeuse d'un de ses comptes, ne le reçoit pas ; une personne libre le reçoit.
+#[tokio::test]
+async fn m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur() {
+    use crate::voyages_argent_flux::{BordereauLigneSaisie, BordereauSaisie};
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let payeur_c = compta_payeur_de(&x, x.compte_c).await;
+    let bv = ent
+        .voyage_bordereau_saisir(
+            &x.porteur(),
+            x.s.id,
+            BordereauSaisie {
+                nb_cheques: 1,
+                total: "100".into(),
+                lignes: vec![BordereauLigneSaisie { participant_id: x.p1, numero_cheque: "901".into(), montant: "100".into() }],
+            },
+        )
+        .await
+        .expect("bordereau");
+    let l = bv.lignes[0].id;
+    for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let e = ent.voyage_bordereau_remettre(acteur, x.s.id, bv.id, vec![l], None).await.unwrap_err();
+        assert!(est_interdit_metier(&e), "remise, {qui} : {e:?}");
+    }
+    let r = ent
+        .voyage_bordereau_remettre(&compta_libre(&x).await, x.s.id, bv.id, vec![l], None)
+        .await
+        .expect("remise par une personne libre");
+    assert!(r.remise.is_some());
+}
