@@ -579,6 +579,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // ses fonctions portent leur `search_path` (l'attendu, SQL inlinée, a ses relations qualifiées `public.`).
     // `MIGRATION_TAG` inchangé.
     m!("656_sortie_voyages_v3b_suites"),
+    // Socle 42, V3b suites 2 (657, plage 640–659) : révocation d'une autorisation de contournement par son autrice (fait
+    // « revoque », ajout seul), borne de l'annulation collective d'avoirs (argent net versé) et garde étendue au participant
+    // et au payeur de la ligne. 640–656 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses
+    // fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("657_sortie_voyages_v3b_suites_2"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
