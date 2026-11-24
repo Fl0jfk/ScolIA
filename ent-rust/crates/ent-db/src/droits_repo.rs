@@ -181,6 +181,24 @@ impl PgEnt {
             .any(|d| accorde(d.action, action) && d.portee == Portee::Etablissement))
     }
 
+    /// Comme [`Self::a_action_etablissement`], sur la connexion **déjà ouverte** de l'appelant (aucune connexion
+    /// supplémentaire dans une transaction ouverte ; la connexion vient de `TenantTx::begin(.., etablissement_id)`).
+    /// Résultat strictement identique.
+    pub(crate) async fn a_action_etablissement_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role_base: &str,
+        action: Action,
+    ) -> Result<bool, EntDbError> {
+        Ok(self
+            .droits_effectifs_conn(conn, etablissement_id, user_id, role_base)
+            .await?
+            .iter()
+            .any(|d| accorde(d.action, action) && d.portee == Portee::Etablissement))
+    }
+
     /// L'acteur peut-il exercer `action` sur cet élève ? (union des portées)
     pub async fn autoriser_eleve(
         &self,

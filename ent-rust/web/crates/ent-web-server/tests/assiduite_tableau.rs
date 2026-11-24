@@ -253,7 +253,14 @@ async fn tableau_exclus_du_jour_et_file_du_matin() {
         personnel(&base, &l, "cpe").await,
         personnel(&base, &l, "prof").await,
     );
-    let jour = ent_db::jour_paris();
+    // Jour lu auprès du serveur : c'est le jour de PARIS sur l'horloge du serveur (`maintenant_local`), pas
+    // `ent_aujourdhui_etab` (fuseau paramétré de l'établissement). Pour l'établissement du labo (fuseau de Paris) les deux
+    // coïncident ; un établissement hors fuseau de Paris n'est pas couvert ici (contre-revue du pilote, T2, M1).
+    let jour = cpe
+        .portail_aujourdhui()
+        .await
+        .expect("jour de l'établissement")
+        .jour;
 
     let c = prof
         .mes_creneaux(jour)

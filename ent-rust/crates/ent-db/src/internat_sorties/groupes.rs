@@ -725,7 +725,7 @@ impl PgEnt {
     }
 
     /// Droit de faire l'appel d'UNE sortie : un de ses accompagnateurs, ou `internat.appel` / `internat.gerer` d'établissement.
-    async fn groupe_appel_exiger(
+    pub(crate) async fn groupe_appel_exiger(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
@@ -738,7 +738,7 @@ impl PgEnt {
             return Ok(());
         }
         for a in [Action::InternatAppel, Action::InternatGerer] {
-            if self.a_action_etablissement(etab, actor, role, a).await? {
+            if self.a_action_etablissement_conn(&mut *conn, etab, actor, role, a).await? {
                 return Ok(());
             }
         }

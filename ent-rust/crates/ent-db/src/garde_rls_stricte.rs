@@ -28,6 +28,7 @@ const FICHIERS_SANS_CONTEXTE: &[(&str, &str)] = &[
     ("pg_err", "traduction d'erreurs"),
     ("url_guard", "garde d'URL"),
     ("garde_rls_stricte", "ce fichier (motifs recherchés)"),
+    ("controle_demarrage", "contrôle au démarrage (T2) : lit le catalogue (to_regprocedure, has_function_privilege) pour le rôle courant ; aucune table métier, aucune donnée d'établissement"),
     ("garde_search_path", "garde du catalogue (module de test, chantier T1) : lit pg_proc / pg_class d'une base neuve créée pour le test, rôle propriétaire, aucune donnée métier"),
 ];
 
