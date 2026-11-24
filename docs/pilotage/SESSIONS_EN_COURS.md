@@ -744,3 +744,5 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Lancé** : correctifs F3 suites 3 (session_01KZCbFGEYALJPmXNiYED6CR, Sonnet, même branche `ent-socle-24-code-f3-suites-3`, PR 150). Sessions qui codent : E1 passe 5 + F3 3 correctifs.
 - **Versé** : voyages V3b + correctifs (session et pilote : B1 accès ouvert, M1 acompte inséré payé) (PR 145, 711347ea, migration 656, CI verte) après CI d'ENT verte sur 7c64e36b (687) : **ENT = 711347ea**. Gel jusqu'au verdict ; ensuite PR 151 (I5 passe 7, correctifs du pilote en test).
 - **I5 passe 7** : contre-revue (aucun élevé) ; 4 moyens corrigés par le pilote ; fusion d'ENT 711347ea (conflit migrate.rs : 656 puis 318), 318 inscrite ; tête **21af9df0**, CI en attente.
+- **Livré** : E1 suites passe 5 (PR 152, code 1b530a53 CI verte, tête 13074f49 doc, sans migration) ; contre-revue en cours sur `wt-e1s5`.
+- **Lancé** : voyages V3b suites 2 (session_01KZCbFELYkKgFHTaaiMnCfv, Sonnet, branche `ent-socle-42-code-v3b-suites-2`, migration 657 réservée), consigne `42_VOYAGES_V3B_SUITES_2.md`. Sessions qui codent : F3 3 correctifs + V3b suites 2.
