@@ -122,6 +122,24 @@ async fn p4_m1_le_jeton_d_annulation_n_est_plus_executable_par_public() {
     drop(tx);
 }
 
+/// Contrôle au démarrage : le rôle applicatif a le droit (`Accorde`) ; un rôle sans `GRANT` est signalé (`Manquant`).
+#[tokio::test]
+async fn p4_a_le_controle_au_demarrage_signale_le_grant_manquant() {
+    use crate::controle_demarrage::{droit_annulation, DroitAnnulation};
+    let Some((ent, _cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let app = pool_applicatif(&ent).await;
+    let sans = pool_sans_droit(&ent).await;
+    assert_eq!(droit_annulation(&app).await.unwrap(), DroitAnnulation::Accorde);
+    assert_eq!(droit_annulation(&sans).await.unwrap(), DroitAnnulation::Manquant);
+    // Le point d'entrée du démarrage rend le même verdict sur le pool de l'instance (propriétaire de la base du labo).
+    assert_eq!(
+        ent.controler_droit_annulation_messagerie().await,
+        droit_annulation(ent.pool()).await.unwrap()
+    );
+}
+
 // ───────────────────────── F1 : attente de verrou cumulée d'un lot ─────────────────────────
 
 #[test]

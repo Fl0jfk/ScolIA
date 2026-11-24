@@ -3018,7 +3018,15 @@ async fn a4_cap31_deux_acceptations_simultanees_qui_se_chevauchent() {
     );
     let gagnants = [r1.is_ok(), r2.is_ok()].iter().filter(|b| **b).count();
     assert_eq!(gagnants, 1, "une seule acceptation passe : {r1:?} / {r2:?}");
-    let perdant = if r1.is_ok() { r2 } else { r1 };
+    let (perdant, id_rejoue) = if r1.is_ok() { (r2, s2.id) } else { (r1, s1.id) };
+    // Selon l'ordre des verrous, le perdant reçoit soit le refus métier, soit « Réessayer » (classe SQLSTATE 40 :
+    // sérialisation ou interblocage, 503). Les deux sont légitimes ; rejouée, l'acceptation doit alors être refusée
+    // lisiblement (correctif du pilote : test instable en CI, run 667).
+    let perdant = if matches!(perdant, Err(EntDbError::Domain(DomainError::Reessayer))) {
+        x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", id_rejoue).await
+    } else {
+        perdant
+    };
     assert!(matches!(perdant, Err(EntDbError::Refus(..))), "refus lisible, pas une panne : {perdant:?}");
     let acceptees: i64 = x
         .compter("SELECT count(*) FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND etat IN ('acceptee', 'designee')")

@@ -314,6 +314,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         .map_err(|e| format!("connect: {e}"))?;
     ent.migrate().await.map_err(|e| format!("migrate: {e}"))?;
     ent.install_brain_p0();
+    // E1 (contre-revue, Moyen A) : alerte si le rôle applicatif n'a pas le droit d'exécuter le jeton d'annulation.
+    let _ = ent.controler_droit_annulation_messagerie().await;
     if let Ok(purged) = ent.purge_expired_sessions().await {
         if purged > 0 {
             tracing::info!("sessions expirées purgées : {purged}");

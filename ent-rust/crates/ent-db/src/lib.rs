@@ -138,6 +138,7 @@ mod infirmerie_repo;
 mod psy_repo;
 mod matiere_repo;
 mod migrate;
+mod controle_demarrage;
 mod motif_repo;
 mod fac_repo;
 mod mail_repo;
@@ -577,6 +578,7 @@ pub use referentiel_repo::{
     Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,
     ServiceEnseignement,
 };
+pub use controle_demarrage::DroitAnnulation;
 pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
 /// Corps de modification des paramètres financiers (réexporté pour le labo : F0, FD-11).
 pub use ent_types::finances::ParametresFinancesBody;

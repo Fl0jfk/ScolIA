@@ -10,6 +10,7 @@
 //! | F2 : envoi externe déjà parti : jamais réécrit | `s5_avis_regroupe_*` |
 //! | F4 : le 3e événement est consommé ; `notifier_personne` inchangé | `s5_avis_regroupe_*`, `s5_notifier_personne_*` |
 //! | F7 : aucune connexion supplémentaire dans une transaction ouverte | `s5_eleve_cache_au_tiers_*` |
+//! | T2 : mêmes variantes `_conn` (visibilité, droit d'établissement, appel de groupe) et gestes de `vie.rs` | `t2_*` |
 
 use super::notifications::{notifier_personne, EnvoiAPlanifier};
 use super::tests_internat_i2::{banc, Banc, CPE};
@@ -19,7 +20,10 @@ use super::tests_internat_i4_correctifs::sortie_prete;
 use super::tests_internat_i4_passe2::{apres_fin, distribuer};
 use super::tests_internat_i4_passe3::proteger;
 use super::*;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use domain_eleve::DomainError;
+use ent_auth::Action;
+use ent_types::internat_vie::VigilanceSaisieDto;
 use uuid::Uuid;
 
 async fn avis(b: &Banc, user: Uuid) -> Vec<(String, Option<DateTime<Utc>>)> {
@@ -247,4 +251,103 @@ async fn s5_eleve_cache_au_tiers_n_ouvre_pas_de_connexion_dans_une_transaction_o
         assert_eq!(rep, attendu, "même réponse que la version par le pool");
         tx.rollback().await.unwrap();
     }
+}
+
+// ───────────────────── T2 : F7 achevé (exiger_eleve_visible, a_action_etablissement, appel de groupe) ─────────────────────
+
+/// Pool d'UNE connexion, sur la même base : toute connexion demandée en plus de celle de la transaction attendrait.
+async fn pool_une_connexion(b: &Banc) -> (sqlx::PgPool, PgEnt) {
+    let options = (*b.ent.pool_verif().connect_options()).clone();
+    let un = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .connect_with(options)
+        .await
+        .unwrap();
+    let ent1 = PgEnt::from_pool(un.clone());
+    (un, ent1)
+}
+
+fn dix_secondes<F: std::future::Future>(f: F) -> tokio::time::Timeout<F> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), f)
+}
+
+/// Les variantes `_conn` rendent exactement la réponse des variantes par le pool, sur la connexion de la transaction.
+#[tokio::test]
+async fn t2_visibilite_et_droit_d_etablissement_sur_la_connexion_de_la_transaction() {
+    let Some(b) = banc().await else { return };
+    let (libre, protege) = (b.a[0], b.a[1]);
+    proteger(&b, protege).await;
+    let (un, ent1) = pool_une_connexion(&b).await;
+    for eleve in [libre, protege] {
+        let attendu = b.ent.exiger_eleve_visible(b.etab, b.cpe, CPE, eleve).await.is_ok();
+        let mut tx = crate::tenant_tx::TenantTx::begin(&un, b.etab).await.unwrap();
+        let rep = dix_secondes(ent1.exiger_eleve_visible_conn(&mut tx, b.etab, b.cpe, CPE, eleve))
+            .await
+            .expect("aucune connexion supplémentaire attendue")
+            .is_ok();
+        assert_eq!(rep, attendu, "même verdict (élève protégé : introuvable)");
+        tx.rollback().await.unwrap();
+    }
+    for (acteur, role) in [(b.cpe, CPE), (b.prof, PROF)] {
+        for action in [Action::InternatGerer, Action::InternatAppel, Action::InternatEvenementDeclarer] {
+            let attendu = b.ent.a_action_etablissement(b.etab, acteur, role, action).await.unwrap();
+            let mut tx = crate::tenant_tx::TenantTx::begin(&un, b.etab).await.unwrap();
+            let rep = dix_secondes(ent1.a_action_etablissement_conn(&mut tx, b.etab, acteur, role, action))
+                .await
+                .expect("aucune connexion supplémentaire attendue")
+                .unwrap();
+            assert_eq!(rep, attendu, "{role} / {action:?}");
+            tx.rollback().await.unwrap();
+        }
+    }
+}
+
+/// Droit de faire l'appel d'une sortie : le CPE (droit d'établissement, pas accompagnateur) passe sur la connexion de la
+/// transaction, un parent est refusé, et aucune connexion n'est prise au pool.
+#[tokio::test]
+async fn t2_appel_de_groupe_exiger_sur_la_connexion_de_la_transaction() {
+    let Some(b) = banc().await else { return };
+    let eleve = b.a[0];
+    let (p, _) = parent(&b, eleve, true).await;
+    let g = sortie_prete(&b, &[(eleve, p)]).await;
+    let (un, ent1) = pool_une_connexion(&b).await;
+    let mut tx = crate::tenant_tx::TenantTx::begin(&un, b.etab).await.unwrap();
+    dix_secondes(ent1.groupe_appel_exiger(&mut tx, b.etab, b.cpe, CPE, g.id, t0()))
+        .await
+        .expect("aucune connexion supplémentaire attendue")
+        .expect("le CPE a le droit d'établissement");
+    let refus = dix_secondes(ent1.groupe_appel_exiger(&mut tx, b.etab, p, "parent", g.id, t0()))
+        .await
+        .expect("aucune connexion supplémentaire attendue");
+    assert!(matches!(refus, Err(EntDbError::Forbidden)), "{refus:?}");
+    tx.rollback().await.unwrap();
+}
+
+/// Geste de `vie.rs` (lever une vigilance) sur un pool d'une connexion : visibilité contrôlée dans la transaction, élève
+/// protégé introuvable pour un tiers, et le geste aboutit sans interblocage pour un élève visible.
+#[tokio::test]
+async fn t2_lever_une_vigilance_sur_un_pool_d_une_connexion() {
+    let Some(b) = banc().await else { return };
+    let (libre, protege) = (b.a[0], b.a[1]);
+    let saisie = |eleve: Uuid| VigilanceSaisieDto {
+        eleve_id: eleve,
+        code: "suivi_rapproche".into(),
+        referent_user_id: None,
+        du: Some(NaiveDate::from_ymd_opt(2026, 4, 14).unwrap()),
+        au: Some(NaiveDate::from_ymd_opt(2028, 3, 1).unwrap()),
+    };
+    let v_libre = b.ent.poser_vigilance_a(b.etab, b.cpe, CPE, &saisie(libre), t0()).await.unwrap();
+    let v_protege = b.ent.poser_vigilance_a(b.etab, b.cpe, CPE, &saisie(protege), t0()).await.unwrap();
+    proteger(&b, protege).await;
+    let (_un, ent1) = pool_une_connexion(&b).await;
+    let e = dix_secondes(ent1.lever_vigilance_a(b.etab, b.cpe, CPE, v_protege.id, t0()))
+        .await
+        .expect("aucun interblocage");
+    assert!(matches!(e, Err(EntDbError::Domain(DomainError::NotFound))), "élève protégé introuvable : {e:?}");
+    let ok = dix_secondes(ent1.lever_vigilance_a(b.etab, b.cpe, CPE, v_libre.id, t0()))
+        .await
+        .expect("aucun interblocage")
+        .expect("élève visible : vigilance levée");
+    assert_eq!(ok.id, v_libre.id);
 }
