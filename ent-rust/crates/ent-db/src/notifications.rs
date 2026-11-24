@@ -1097,8 +1097,10 @@ impl Expediteur {
         // ne part jamais. L'existence se relit par message, **à l'instant de son envoi** (les avis d'un même message
         // se suivent : une lecture pour eux), et non plus en tête du lot, des minutes avant la fin des envois.
         individuels.sort_by_key(|e| e.source_id);
-        // F1 : une seule borne d'attente de verrou pour tout le lot (individuels et groupes), égale à `perime_apres`.
-        let mut budget = BudgetVerrou::nouveau(self.config.perime_apres);
+        // F1 : une seule borne d'attente de verrou pour tout le lot (individuels et groupes). Contre-revue du pilote
+        // (Moyen B) : la **moitié** de `perime_apres`, car les envois eux-mêmes et les étapes déjà faites consomment aussi
+        // le délai après lequel un autre passage reprendrait l'avis réclamé.
+        let mut budget = BudgetVerrou::nouveau(self.config.perime_apres / 2);
         let mut controle = ControleMessage::default();
         for e in individuels {
             if !self.controler_avant_envoi(&e, &mut controle, &mut budget, &mut bilan, maintenant).await? {

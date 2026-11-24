@@ -183,6 +183,15 @@ Tables avec RLS **+0** ; registre des données inchangé ; `Action::TOUTES` inch
 - Non rejoués ici : les tests `ent-api` (aucun fichier d'`ent-api` touché ; la CI les rejoue).
 
 ### Fusion d'ENT (règle 28) et CI (passe 4)
-Premier push (61abe47b) : aucune CI au bout de 10 min (conflit). `origin/ENT` 73de85a3 fusionné ; conflits `migrate.rs` et `MIGRATIONS.md` seulement (ordre final : …, 493, 316, 655, 531, **494**, 494 en dernier). Aucun compteur additif touché par ce lot. Rejeu local après fusion non terminé (délai dépassé après un redémarrage du conteneur) : la CI fait foi.
+Premier push (61abe47b) : aucune CI au bout de 10 min (conflit). `origin/ENT` 73de85a3 fusionné ; conflits `migrate.rs` et `MIGRATIONS.md` seulement (ordre final : …, 493, 316, 655, 531, **494** en dernier). Aucun compteur additif touché par ce lot. Rejeu local après fusion non terminé (délai dépassé après un redémarrage du conteneur) : la CI fait foi.
 
 Tête testée par la CI : `6ee1d32a` (PR 141, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (run 45334931582). Le commit suivant ne touche que ce fichier de documentation.
+
+### Correctifs du pilote après contre-revue (passe 4, 2026-11-24)
+Rapport complet : `docs/pilotage/revues/16_E1_SUITES_4_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé.
+- **Moyen B (F1)** : le budget d'attente de verrou du lot vaut **la moitié** de `perime_apres` (les envois et les étapes
+  déjà faites consomment aussi ce délai ; avec deux instances, un avis encore en cours ne doit pas être repris).
+- Doc : ordre final des migrations corrigé (…, 531, 494).
+- En file : Moyen A (vérification au démarrage de `has_function_privilege(current_user, 'ent_msg_annulation_ouvrir(uuid,uuid,uuid)',
+  'EXECUTE')`, alerte si faux), faibles 1, 2 (RLS réellement prouvée ; refus 42501 : le dépôt rend une erreur opaque « Infrastructure », à exposer d'abord), 3, 4.
+- `494_msg_garde_jeton_droit_execution` inscrite à `migrations_versees.txt` au versement.
