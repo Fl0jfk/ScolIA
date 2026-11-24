@@ -176,3 +176,32 @@ Rapport complet : `docs/pilotage/revues/24_FACTURATION_F3_SUITES_CONTRE_REVUE.md
   … » au lieu d'être gratuit en silence. Limite : un trou propre à un seul article n'est pas détecté (en file).
 - Compteurs corrigés ci-dessus (`Action::TOUTES` 282, `SOURCES` 75). Autres constats : en file (rapport).
 - `531_finances_f3_suites` inscrite à `migrations_versees.txt` au versement.
+
+## Suites, 2 (consigne 24, session du 2026-11-24)
+
+Branche `ent-socle-24-code-f3-suites-2` (partie d'`origin/ENT`), PR en brouillon. **Aucune migration** (532 non consommée) : tout est en code de service. **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.** Source : contre-revue `24_FACTURATION_F3_SUITES_CONTRE_REVUE.md` (points « en file »).
+
+### Fait
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| **Moyen 1 (suite)** | Un article tarifé certains mois seulement (pour un foyer payeur donné) n'est **jamais gratuit en silence** : anomalie bloquante « aucun tarif applicable pour l'article « … » à partir du JJ/MM/AAAA », rien d'écrit. Un mois sans aucune ligne de grille applicable garde le message d'ensemble (« aucun tarif applicable à partir du … ») et passe en premier. | `f3s2_premiere_grille_au_premier_octobre_sans_historique` (première grille au 01/10, sans historique : refus « à partir du 01/09/2030 ») ; `f3s2_trou_propre_a_un_article` (historique pour la contribution seule, grille au 01/10 : la demi-pension n'a aucun tarif en septembre ; un externe, lui, est facturé) |
+| **Moyen 2** | Test « contributeurs » discriminant : la direction n'a créé la grille ni touché un tarif, elle ne devient contributrice que **parce qu'elle l'a proposée** ; après retour en brouillon et nouvelle proposition par la comptabilité elle reste exclue du vote (service `interdit`, SQL direct 23001 « le votant est l'auteur de la grille »). | `f3s2_proposant_sans_tarif_reste_exclu_du_vote_apres_retour_en_brouillon` |
+| **a** | Alerte du second regard : **jamais l'e-mail** de l'auteur (repli « un compte sans nom ») ; **plus de date en dur** (« rentrée 2027 » retirée) ; servie seulement à qui a `parametrer` ou `voter` (un compte qui lit seulement voit les réglages, pas l'alerte). | `f3s_alerte_second_regard_…` (direction sans nom, secrétariat avec rôle délégué `facturation.lire`) ; `f3r_m7` (alerte de qualification sans date) |
+| **b** | Publication d'une version `close` refusée (409) si une version plus récente de l'année est **déjà entrée en vigueur** au jour de référence : seule la version applicable la plus récente se publie. Jour de référence injectable (`publier_grille_au_jour`), jour de l'établissement sinon. | `f3s_publication_close_…` (v1 publiable au 01/07/2030, refusée au 01/01/2031 ; v2 publiable) |
+| **c** | Découpage **par article et par contenu** : les mois consécutifs où un article a le même montant (par foyer payeur) forment une seule ligne, quelles que soient les versions de grille et les autres articles. Un article inchangé n'est ni coupé ni arrondi deux fois ; un article révisé a un tronçon par montant (clé `:m<AAAA-MM>` à partir du second). Les tronçons sont traités dans l'ordre (mois de début, puis code d'article) : identique à l'ancien ordre quand rien ne change. | `f3s2_article_inchange_non_coupe_quand_un_autre_change` (v2 recopie la contribution, la demi-pension passe à 500 € : 1 ligne contribution sans `:m`, 2 tronçons demi-pension) ; `f3r_m1` |
+| **d** | Cache **par jour de vigueur distinct** : une requête de tarifs par version de grille (et une pour l'absence de version) au lieu d'une par mois et par élève. | `f3r_m1`, `f3s_ma_…` (résultats inchangés) |
+| **e** | Commentaire de l'API `a_la_date` corrigé (grilles `en_vigueur` ou `close`, pas « votée »). | — |
+| **f** | Test « les simulations ne s'effacent pas » : l'erreur attendue est précisée (23503, clés `ent_fin_simulation_regle_fk` et `ent_fin_famille_type_enfant_fk`). Constat : depuis F5 aucun déclencheur n'interdit le DELETE ; ce sont les clés étrangères des enfants qui le refusent, et la suppression passe par le service (journalisée). | `f3_simulation_effectifs_familles_types_…` |
+
+### Règles métier non tranchées : valeur par défaut prudente (D-069)
+- **Trou d'un article** : bloquant (aucune facture écrite), jamais « gratuit » ni « tarif précédent reconduit ». Corollaire à valider : un article **actif** dont le tarif disparaît d'une grille en cours d'année bloque la génération de tous les élèves concernés ; le retrait délibéré se fait en **désactivant l'article** (il sort alors de la génération).
+- **Alerte du second regard** : réservée à `parametrer` / `voter` ; un compte lecteur seul n'est pas alerté (à valider : faut-il l'afficher à la comptabilité ?).
+- **Version `close` supplantée** : se publie tant qu'aucune version plus récente n'est **en effet** ; une version à date future ne supplante pas l'ancienne.
+- Ordre des tronçons de lignes quand plusieurs articles changent à des dates différentes : (mois de début, article) ; l'ordre de consommation d'une prise en charge d'organisme peut en différer d'un cas multi-tronçons à l'autre (cas nouveau de D-069).
+
+### Non fait
+Rien de la liste. Hors lot (inchangés) : régularisation des écarts de tarif déjà facturés (F4), écrans Leptos.
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282** (inchangé) ; tables RLS inchangées ; migrations : aucune (532 libre, `migrations_versees.txt` non touché) ; `SOURCES` 75 (inchangé).

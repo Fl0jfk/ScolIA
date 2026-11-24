@@ -1726,18 +1726,27 @@ async fn f3_simulation_effectifs_familles_types_comparaison_et_export() {
         exp.csv.contains("'=SOMME(A1:A9)") && !exp.csv.contains(";=SOMME"),
         "formule neutralisée dans le CSV"
     );
-    // Les simulations ne s'effacent pas (historique des scénarios présentés).
-    assert!(sqlx::query("DELETE FROM ent_fin_simulation WHERE id = $1")
+    // Les simulations ne s'effacent pas directement (historique des scénarios présentés) : la suppression passe par
+    // le service, journalisée. Erreur attendue précisée (faible f) : un DELETE direct échoue pour la bonne raison.
+    let e = sqlx::query("DELETE FROM ent_fin_simulation WHERE id = $1")
         .bind(res.simulation_id)
         .execute(ent.pool_verif())
         .await
-        .is_err());
-    assert!(
-        sqlx::query("DELETE FROM ent_fin_famille_type WHERE id = $1")
-            .bind(f_deux.id)
-            .execute(ent.pool_verif())
-            .await
-            .is_err()
+        .unwrap_err();
+    erreur_base(
+        &e,
+        "23503",
+        "violates foreign key constraint \"ent_fin_simulation_regle_fk\"",
+    );
+    let e = sqlx::query("DELETE FROM ent_fin_famille_type WHERE id = $1")
+        .bind(f_deux.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap_err();
+    erreur_base(
+        &e,
+        "23503",
+        "violates foreign key constraint \"ent_fin_famille_type_enfant_fk\"",
     );
     ent.desactiver_famille_type_for_actor(etab, u, r, f_deux.id)
         .await
@@ -2361,13 +2370,28 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     assert_eq!(total_scolarite(&ent, premier).await, 126_000);
     // Élève facturé avant v2 : la génération après v2 est refusée (anomalie), rien n'est écrit ni doublé.
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    let refus = crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, avant, None, None, Default::default())
-        .await
-        .unwrap()
-        .expect_err("tarif changé depuis la génération : anomalie");
+    let refus = crate::finances::facturer_annee_eleve(
+        &mut tx,
+        etab,
+        ANNEE,
+        avant,
+        None,
+        None,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .expect_err("tarif changé depuis la génération : anomalie");
     tx.commit().await.unwrap();
-    assert!(refus.contains("le tarif a changé depuis la génération précédente"), "{refus}");
-    assert_eq!(total_scolarite(&ent, avant).await, 120_000, "aucun mois facturé deux fois");
+    assert!(
+        refus.contains("le tarif a changé depuis la génération précédente"),
+        "{refus}"
+    );
+    assert_eq!(
+        total_scolarite(&ent, avant).await,
+        120_000,
+        "aucun mois facturé deux fois"
+    );
 
     // M-A : la liste des tarifs accepte une date (jamais l'horloge réelle dans ce test).
     let montants_au = |jour: NaiveDate| {
@@ -2945,7 +2969,10 @@ async fn f3r_m7_qualification_exigee_par_defaut() {
         .unwrap();
     let transitoire = ent.reglages_grilles_for_actor(etab, ud, rd).await.unwrap();
     assert!(!transitoire.exiger_qualification_articles);
-    assert!(transitoire.alertes.iter().any(|a| a.contains("2027")));
+    assert!(transitoire
+        .alertes
+        .iter()
+        .any(|a| a.contains("qualification des articles non exigée") && !a.contains("2027")));
     ent.definir_reglages_grilles_for_actor(
         etab,
         u,
@@ -3499,6 +3526,57 @@ async fn f3s_alerte_second_regard_et_ordre_des_controles() {
         alerte.contains(" par "),
         "l'auteur de la désactivation est nommé : {alerte}"
     );
+    // faible a : jamais d'adresse e-mail en repli, jamais de date de rentrée en dur ; l'alerte ne va qu'à ceux qui
+    // règlent ou votent (le secrétariat, qui lit seulement, ne la reçoit pas)
+    assert!(
+        !alerte.contains('@') && !alerte.contains("2027"),
+        "{alerte}"
+    );
+    sqlx::query("UPDATE ent_user SET display_name = NULL WHERE id = $1")
+        .bind(ud)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let direction_lit = ent.reglages_grilles_for_actor(etab, ud, rd).await.unwrap();
+    assert!(
+        direction_lit.alertes.iter().all(|a| !a.contains('@')),
+        "sans nom, ni e-mail ni identifiant : {:?}",
+        direction_lit.alertes
+    );
+    assert!(!direction_lit.alertes.is_empty());
+    // un compte qui lit seulement (rôle délégué `facturation.lire`) voit les réglages mais pas l'alerte
+    let (us, rs) = secretariat(&c);
+    let lecteur = ent
+        .creer_role_for_actor(
+            etab,
+            ud,
+            rd,
+            RoleSaisie {
+                nom: format!(
+                    "Lecteur facturation {}",
+                    &Uuid::new_v4().simple().to_string()[..6]
+                ),
+                description: None,
+                modele: None,
+                droits: vec![Droit {
+                    action: ent_auth::Action::FacturationLire,
+                    portee: ent_auth::Portee::Etablissement,
+                    cibles: vec![],
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    ent.attribuer_role_for_actor(etab, ud, rd, lecteur.id, us, None)
+        .await
+        .unwrap();
+    let lu = ent
+        .avec_acteur(etab, us, rs, ent.reglages_grilles_for_actor(etab, us, rs))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!lu.grille_second_regard, "les réglages restent lisibles");
+    assert!(lu.alertes.is_empty(), "{:?}", lu.alertes);
 
     // ordre des contrôles : une grille inconnue répond « introuvable » avant toute erreur de saisie
     let inconnue = Uuid::new_v4();
@@ -3747,12 +3825,21 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
             .await
             .unwrap();
     assert_eq!(statut, "close");
+    // au jour de référence (v2 pas encore en effet) v1 est la version applicable la plus récente : elle se publie
     let pub1 = ent
-        .publier_grille_for_actor(etab, ud, rd, v1)
+        .publier_grille_au_jour(etab, ud, rd, v1, jour_test())
         .await
         .unwrap();
     assert_eq!(pub1.numero, 1);
     assert!(!pub1.lignes.is_empty());
+    // faible b : une fois v2 en effet, v1 est supplantée et ne se publie plus ; v2 se publie
+    assert!(conflit(
+        ent.publier_grille_au_jour(etab, ud, rd, v1, d(2031, 1, 1))
+            .await
+    ));
+    ent.publier_grille_au_jour(etab, ud, rd, v2.id, d(2031, 1, 1))
+        .await
+        .unwrap();
     // une version abandonnée, elle, ne se publie jamais
     let ab = ent
         .creer_grille_for_actor(
@@ -3780,7 +3867,8 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
     .await
     .unwrap();
     assert!(conflit(
-        ent.publier_grille_for_actor(etab, ud, rd, ab.id).await
+        ent.publier_grille_au_jour(etab, ud, rd, ab.id, jour_test())
+            .await
     ));
 
     // ── simulations : auteur ou direction seulement ──
@@ -3856,4 +3944,286 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
     ent.supprimer_simulation_for_actor(etab, ud, rd, par_direction.simulation_id)
         .await
         .unwrap();
+}
+
+// ───────────────────────── Suites, 2 (contre-revue des suites, D-069) ─────────────────────────
+
+/// Génération annuelle sans rien écrire en cas d'anomalie : renvoie le motif de refus.
+async fn facturer_motif(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Result<(), String> {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let r = crate::finances::facturer_annee_eleve(
+        &mut tx,
+        etab,
+        ANNEE,
+        eleve,
+        None,
+        None,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    r.map(|_| ())
+}
+
+async fn lignes_de(ent: &PgEnt, eleve: Uuid) -> Vec<(String, i64)> {
+    sqlx::query_as(
+        "SELECT source_cle, (montant_unitaire_centimes * quantite)::bigint FROM ent_fac_ligne
+          WHERE eleve_id = $1 AND categorie <> 'reduction' ORDER BY source_cle",
+    )
+    .bind(eleve)
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap()
+}
+
+/// Moyen 1 (suite), cas 1 : première grille de l'année en vigueur au 1er octobre, sans historique : septembre n'a
+/// aucun tarif applicable, la génération refuse (rien d'écrit) au lieu de facturer zéro en silence.
+#[tokio::test]
+async fn f3s2_premiere_grille_au_premier_octobre_sans_historique() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
+    let (v1, _, _) = grille_proposee(&ent, &c).await;
+    ent.voter_grille_test(etab, ua, ra, v1, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 10, 1) })
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Octobre", "demi_pension").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer octobre").await;
+    let motif = facturer_motif(&ent, etab, el).await.unwrap_err();
+    assert!(
+        motif.contains("aucun tarif applicable à partir du 01/09/2030"),
+        "{motif}"
+    );
+    assert!(lignes_de(&ent, el).await.is_empty(), "rien n'est écrit");
+}
+
+/// Faible c : un article inchangé (tarif recopié à l'identique dans la version suivante) n'est ni coupé en deux
+/// lignes ni arrondi deux fois quand un autre article change de tarif ; l'article révisé a deux tronçons.
+#[tokio::test]
+async fn f3s2_article_inchange_non_coupe_quand_un_autre_change() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
+    let (v1, contrib, dp) = grille_proposee(&ent, &c).await;
+    ent.voter_grille_test(etab, ua, ra, v1, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 9, 1) })
+        .await
+        .unwrap();
+    // v2 : copie de v1 ; la demi-pension est portée à 500 € (inchangée pour la contribution, recopiée à l'identique)
+    let v2 = ent
+        .corriger_grille_for_actor(
+            etab,
+            ud,
+            rd,
+            v1,
+            &CorrectionGrilleBody {
+                motif: "revalorisation".into(),
+                effet_retroactif: false,
+            },
+        )
+        .await
+        .unwrap();
+    let (t_dp,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2",
+    )
+    .bind(v2.id)
+    .bind(dp)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    ent.modifier_tarif_grille_for_actor(etab, ud, rd, v2.id, t_dp, &tarif_body(dp, 50_000, true))
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
+    ent.voter_grille_au_jour(
+        etab,
+        ua,
+        ra,
+        v2.id,
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
+        d(2030, 12, 20),
+    )
+    .await
+    .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Inchange", "demi_pension").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer inchangé").await;
+    facturer(&ent, etab, el).await;
+    let lignes = lignes_de(&ent, el).await;
+    let de = |a: Uuid| -> Vec<&(String, i64)> {
+        lignes
+            .iter()
+            .filter(|(k, _)| k.contains(&a.to_string()))
+            .collect()
+    };
+    let l_contrib = de(contrib);
+    assert_eq!(
+        l_contrib.len(),
+        1,
+        "article inchangé : une seule ligne {lignes:?}"
+    );
+    assert!(
+        !l_contrib[0].0.contains(":m"),
+        "clé historique : {lignes:?}"
+    );
+    assert_eq!(l_contrib[0].1, 120_000);
+    let l_dp = de(dp);
+    assert_eq!(l_dp.len(), 2, "article révisé : deux tronçons {lignes:?}");
+    assert_eq!(l_dp.iter().map(|l| l.1).sum::<i64>(), 18_000 + 30_000);
+}
+
+/// Moyen 1 (suite), cas 2 : un trou propre à **un** article. Un tarif historique n'existe que pour la contribution ;
+/// la première grille (contribution et demi-pension) entre en vigueur au 1er octobre : en septembre la contribution
+/// est tarifée (historique) mais la demi-pension n'a aucun tarif : anomalie bloquante, rien d'écrit.
+#[tokio::test]
+async fn f3s2_trou_propre_a_un_article() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
+    let (v1, contrib, _) = grille_proposee(&ent, &c).await;
+    // tarif historique de la contribution seule (aucune grille votée encore pour l'année)
+    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib, 100_000))
+        .await
+        .unwrap();
+    ent.voter_grille_test(etab, ua, ra, v1, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 10, 1) })
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Trou", "demi_pension").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer trou").await;
+    let motif = facturer_motif(&ent, etab, el).await.unwrap_err();
+    assert!(
+        motif.contains("aucun tarif applicable pour l'article")
+            && motif.contains("Demi-pension")
+            && motif.contains("01/09/2030"),
+        "{motif}"
+    );
+    assert!(lignes_de(&ent, el).await.is_empty(), "rien n'est écrit");
+    // un élève externe n'est pas concerné par la demi-pension : la contribution est tarifée toute l'année
+    // (historique en septembre, grille ensuite), sans trou
+    let ext = eleve(&ent, etab, "Externe", "externe").await;
+    let _ = foyer_payeur(&ent, etab, ext, c.parent_tom.user_id, "Foyer externe").await;
+    facturer(&ent, etab, ext).await;
+    assert!(total_scolarite(&ent, ext).await > 0);
+}
+
+/// Moyen 2 : le test « contributeurs » est discriminant. La direction n'a jamais touché un tarif ni créé la grille :
+/// elle ne devient contributrice que parce qu'elle l'a **proposée**. Après un retour en brouillon et une nouvelle
+/// proposition par la comptabilité, elle reste exclue du vote (service et SQL direct) ; avant sa proposition elle
+/// n'était pas contributrice.
+#[tokio::test]
+async fn f3s2_proposant_sans_tarif_reste_exclu_du_vote_apres_retour_en_brouillon() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
+    let v = ent
+        .creer_grille_for_actor(
+            etab,
+            u,
+            r,
+            &CreerGrilleBody {
+                annee_scolaire: ANNEE.into(),
+                libelle: None,
+                copier_de: None,
+                reprendre_historique: None,
+            },
+        )
+        .await
+        .unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(contrib.id, 120_000, true))
+        .await
+        .unwrap();
+    let contributeurs = async || -> Vec<Uuid> {
+        let (c,): (Vec<Uuid>,) =
+            sqlx::query_as("SELECT contributeurs FROM ent_fin_grille_version WHERE id = $1")
+                .bind(v.id)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap();
+        c
+    };
+    assert!(
+        !contributeurs().await.contains(&ud),
+        "pas encore contributrice"
+    );
+    ent.proposer_grille_for_actor(etab, ud, rd, v.id)
+        .await
+        .unwrap();
+    ent.retour_brouillon_for_actor(
+        etab,
+        ud,
+        rd,
+        v.id,
+        &RetourBrouillonBody {
+            motif: "à revoir".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (propose_par,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT propose_par FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v.id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert!(propose_par.is_none(), "le retour efface la proposition");
+    assert!(
+        contributeurs().await.contains(&ud),
+        "le proposant d'avant le retour est conservé"
+    );
+    // la comptabilité propose à nouveau : la direction (aucun tarif touché) ne vote pas, la base non plus
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
+    assert!(interdit(
+        ent.voter_grille_test(etab, ud, rd, v.id, &vote("CA")).await
+    ));
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let e = sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'votee', vote_le = '2030-06-20', vote_reference = 'x',
+                vote_par = $2 WHERE id = $1",
+    )
+    .bind(v.id)
+    .bind(ud)
+    .execute(&mut *tx)
+    .await
+    .unwrap_err();
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : le votant est l'auteur de la grille",
+    );
+    drop(tx);
+    // l'administrateur, étranger à la grille, vote
+    ent.voter_grille_test(
+        etab,
+        c.admin.user_id,
+        Role::Admin.as_str(),
+        v.id,
+        &vote("CA"),
+    )
+    .await
+    .unwrap();
 }
