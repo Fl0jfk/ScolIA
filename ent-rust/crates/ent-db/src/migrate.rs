@@ -544,6 +544,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("315_inscription_decision_i5_passe4"),
+    // Suites E1 (493, plage 482–499 du socle 16, **après 690**, règle 38) : un fil dont le seul message est annulé n'est plus
+    // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
+    // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("493_msg_fil_vide_et_garde_proprietaire"),
     // Socle 24, suites du lot F3 (contre-revue, D-069 ; réserve 531–537 de la plage 520–539) : égalité de date de
     // vigueur refusée, contributeurs du second regard, publication d'une version close, année d'un tarif versionné
     // figée, historique des calculs supprimé seulement avec sa simulation. 520 à 523 sont versées et ne changent pas.

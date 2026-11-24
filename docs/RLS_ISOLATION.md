@@ -114,6 +114,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ent_owner IN SCHEMA public
 --    empêche aussi DISABLE TRIGGER, DROP TRIGGER et ALTER TABLE ... DISABLE.)
 REVOKE UPDATE, DELETE, TRUNCATE ON ent_journal_modif FROM ent_app;
 REVOKE TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM ent_app;
+-- Jetons d'annulation de la messagerie (migration 493) : la table n'est écrite que par la fonction
+-- `SECURITY DEFINER` `ent_msg_annulation_ouvrir`. La 493 retire déjà l'écriture à tout rôle non propriétaire, mais un
+-- `GRANT … ON ALL TABLES` exécuté APRÈS les migrations la rend : refaire ce REVOKE à la suite des GRANT ci-dessus.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ent_msg_annulation_garde FROM ent_app;
 
 -- 4. Mode strict de la RLS au niveau du rôle (fail-closed). Voir 2.4 avant d'activer.
 ALTER ROLE ent_app SET app.rls_strict = 'on';
