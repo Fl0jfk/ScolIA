@@ -41,6 +41,7 @@ const TONES: Record<string, string> = {
   desaccord: "bg-red-100 text-red-800",
   suspens: "bg-red-100 text-red-800",
   retire: "bg-zinc-200 text-zinc-700",
+  desiste: "bg-zinc-200 text-zinc-700",
   sans_email: "bg-orange-100 text-orange-900",
 };
 
@@ -55,6 +56,7 @@ const FILTER_LABELS: Record<FollowupFilter, string> = {
   suspens: "En suspens",
   desaccord: "Désaccord",
   retire: "Retiré",
+  desiste: "Désisté",
   dispense: "Dispensé d'une pièce",
   papier: "Réponse papier",
   sans_email: "Sans e-mail",

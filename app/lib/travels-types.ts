@@ -190,6 +190,26 @@ export type TravelsPriceBlock = {
   updatedAt?: string;
 };
 
+/** Clôture des inscriptions d'un voyage v2 (étapes à effets de bord tracées pour être rejouables sans doublon). */
+export type TravelsV2Closure = {
+  closedAt: string;
+  mode: "auto" | "manuel";
+  closedBy?: string;
+  /** Effectif de la liste officielle à la clôture. */
+  officialCount: number;
+  /** Repas adultes saisis par l'organisateur (clé = jour ISO). */
+  adultMeals?: Record<string, number>;
+  /** Total de repas par jour calculé à partir des réponses des familles (élèves seulement). */
+  mealsPerDay?: Record<string, { total: number; classique: number; sansPorc: number; vegetarien: number }>;
+  transportListSentAt?: string;
+  comptaMailSentAt?: string;
+  comptaZip?: { key: string; generatedAt: string; count: number };
+  /** Devis rectifié : proposé seulement si écart > 10 % ET ≥ 14 jours avant le départ. */
+  rectifiedQuote?: { proposed: boolean; quoteNbEleves: number | null; officialCount: number; deviationPct: number | null; reason: string };
+  cuisineAdultsConfirmedAt?: string;
+  organizerNotifiedAt?: string;
+};
+
 export type TravelsTripData = {
   /** 2 = circuit « engagement des familles ». Absent = circuit historique (v1). */
   workflowVersion?: 2;
@@ -199,6 +219,10 @@ export type TravelsTripData = {
   priceBlock?: TravelsPriceBlock;
   /** v2 : élèves invités (provisoire) ; la liste officielle = familles ayant signé. */
   preListeEleves?: TravelsParticipantEleve[];
+  /** v2 : clôture des inscriptions (liste officielle, bon cuisine, compta, devis rectifié) — posé une seule fois. */
+  v2Closure?: TravelsV2Closure;
+  /** v2 : purge du lendemain du retour faite (seuls les engagements sont conservés). */
+  v2Purge?: { at: string; invitationsRemoved: number; filesRemoved: number; engagementsKept: number };
   /** v2 : envoi automatique des demandes de devis (une seule fois). */
   transportRequestSentAt?: string;
   title?: string;

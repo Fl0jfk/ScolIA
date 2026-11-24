@@ -16,4 +16,11 @@ export async function register() {
   } catch (err) {
     console.error("[instrumentation] job relances voyages non démarré", err instanceof Error ? err.name : "error");
   }
+  // Clôture automatique des inscriptions, alertes, purge du lendemain du retour (voyages v2).
+  try {
+    const { startLifecycleJob } = await import("./app/lib/travels-v2-lifecycle-job");
+    startLifecycleJob();
+  } catch (err) {
+    console.error("[instrumentation] job cycle voyages non démarré", err instanceof Error ? err.name : "error");
+  }
 }

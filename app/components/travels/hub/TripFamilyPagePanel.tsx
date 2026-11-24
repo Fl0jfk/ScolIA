@@ -34,6 +34,7 @@ import {
   isFamilyPageOpened,
   REGISTRATION_CLOSE_DAYS_BEFORE_DEPARTURE,
   REGISTRATION_MIN_OPEN_DAYS,
+  resolveCashDraft,
   todayIsoParis,
   tripDepartureIso,
   validateFamilyStructured,
@@ -214,6 +215,7 @@ export function TripFamilyPagePanel({
   const [inbound, setInbound] = useState<MeetingDraft>(initialMeetings.inbound);
   const [equipment, setEquipment] = useState<string[]>(stored.equipment || []);
   const [newItem, setNewItem] = useState("");
+  const [cashEnabled, setCashEnabled] = useState(Boolean(stored.cash));
   const [cashAmount, setCashAmount] = useState(stored.cash ? String(stored.cash.amount) : "");
   const [cashReason, setCashReason] = useState(stored.cash?.reason || "");
   const [program, setProgram] = useState(stored.program || "");
@@ -223,11 +225,8 @@ export function TripFamilyPagePanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
-  const draftCash = (): TravelsFamilyPage["cash"] | undefined => {
-    const amount = Number(cashAmount.replace(",", "."));
-    if (!cashAmount.trim() && !cashReason.trim()) return undefined;
-    return { amount: Number.isFinite(amount) ? amount : 0, reason: cashReason.trim() };
-  };
+  const draftCash = (): TravelsFamilyPage["cash"] | undefined =>
+    resolveCashDraft({ enabled: cashEnabled, amountText: cashAmount, reason: cashReason });
   const draftPage = (): TravelsFamilyPage => ({
     ...stored,
     equipment,
@@ -249,7 +248,7 @@ export function TripFamilyPagePanel({
         opened ? undefined : { familyPage: draftPage(), parentCalendar: draftCalendar() },
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trip, opened, outbound, inbound, equipment, cashAmount, cashReason, program, deadline, documents],
+    [trip, opened, outbound, inbound, equipment, cashEnabled, cashAmount, cashReason, program, deadline, documents],
   );
   const picnicDays = model.picnicDays;
 
@@ -383,12 +382,19 @@ export function TripFamilyPagePanel({
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-bold">Somme en liquide à prévoir (facultatif)</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <input value={cashAmount} inputMode="decimal" placeholder="Montant (€)" onChange={(e) => setCashAmount(e.target.value)} className="p-2.5 bg-white border rounded-xl text-sm" />
-                <input value={cashReason} placeholder="Motif (ex. sandwich sur la route du retour)" onChange={(e) => setCashReason(e.target.value)} className="sm:col-span-2 p-2.5 bg-white border rounded-xl text-sm" />
-              </div>
-              <p className="text-[11px] text-slate-500">Affichée aux familles comme « {FAMILY_PAGE_TEMPLATE.cashNotIncluded} »</p>
+              <label className="flex items-center gap-2 text-sm font-bold">
+                <input type="checkbox" checked={cashEnabled} onChange={(e) => setCashEnabled(e.target.checked)} className="h-4 w-4" />
+                Prévoir une somme en liquide
+              </label>
+              {cashEnabled && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input value={cashAmount} inputMode="decimal" placeholder="Montant (€) — obligatoire" onChange={(e) => setCashAmount(e.target.value)} className="p-2.5 bg-white border rounded-xl text-sm" />
+                    <input value={cashReason} placeholder="Motif obligatoire (ex. sandwich sur la route du retour)" onChange={(e) => setCashReason(e.target.value)} className="sm:col-span-2 p-2.5 bg-white border rounded-xl text-sm" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">Affichée aux familles comme « {FAMILY_PAGE_TEMPLATE.cashNotIncluded} »</p>
+                </>
+              )}
             </div>
 
             <div className="space-y-1">

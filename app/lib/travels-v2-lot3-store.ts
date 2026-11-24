@@ -126,13 +126,13 @@ export async function notifyStaff(opts: {
 
 /* ─── État d'exploitation (alertes déjà envoyées) : un enregistrement par voyage ─── */
 
-type OpsState = { id: string; tripId: string; alerts: Record<string, string> };
+export type OpsState = { id: string; tripId: string; alerts: Record<string, string> };
 
-async function getOps(tripId: string): Promise<OpsState> {
+export async function getOps(tripId: string): Promise<OpsState> {
   const hit = await getJson<OpsState>(`travels-v2/${tripId}/ops/state.json`);
   return hit?.data?.tripId === tripId ? hit.data : { id: "state", tripId, alerts: {} };
 }
-async function saveOps(ops: OpsState): Promise<void> {
+export async function saveOps(ops: OpsState): Promise<void> {
   await putJson(`travels-v2/${ops.tripId}/ops/state.json`, ops);
 }
 
@@ -324,7 +324,7 @@ export async function runAutoRemindersForTrip(opts: {
   const { trip } = opts;
   const todayIso = opts.todayIso || todayIsoParis();
   const page = trip.data?.familyPage;
-  if (!isWorkflowV2(trip) || !page?.openedAt) return { sent: 0, failed: 0 };
+  if (!isWorkflowV2(trip) || !page?.openedAt || trip.data?.v2Purge) return { sent: 0, failed: 0 };
   const docs = page.documents || [];
   const invs = await listInvitations(trip.id);
   const departure = tripDepartureIso(trip.data);
@@ -334,6 +334,7 @@ export async function runAutoRemindersForTrip(opts: {
   let failed = 0;
   if (mail) {
     for (const inv of invs) {
+      if (!inv.email) continue;
       const plan = planInvitationReminders({
         inv,
         deadline: page.deadline,

@@ -29,7 +29,7 @@ export type StudentCase = {
   history: CaseEvent[];
 };
 
-export type StudentState = "aucun" | "inscrit" | "suspens" | "retire";
+export type StudentState = "aucun" | "inscrit" | "suspens" | "retire" | "desiste";
 
 /**
  * Situation d'un élève (toutes ses invitations + dossier de décision) :
@@ -39,10 +39,11 @@ export type StudentState = "aucun" | "inscrit" | "suspens" | "retire";
  * - sinon → inscrit.
  */
 export function studentState(
-  invs: Pick<FamilyInvitation, "signature" | "objection">[],
+  invs: Pick<FamilyInvitation, "signature" | "objection" | "withdrawal">[],
   caseRec: Pick<StudentCase, "decision"> | null | undefined,
 ): StudentState {
   if (!invs.some((i) => i.signature?.decision === "oui")) return "aucun";
+  if (invs.some((i) => i.withdrawal)) return "desiste";
   if (caseRec?.decision?.kind === "retirer") return "retire";
   if (!caseRec?.decision && invs.some((i) => i.objection)) return "suspens";
   return "inscrit";
@@ -271,6 +272,7 @@ export const FOLLOWUP_FILTERS = [
   "suspens",
   "desaccord",
   "retire",
+  "desiste",
   "dispense",
   "papier",
   "sans_email",

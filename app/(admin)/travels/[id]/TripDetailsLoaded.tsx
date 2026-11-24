@@ -42,6 +42,7 @@ import {
   TripPriceBlockEditor,
   type SaveResult,
 } from "@/app/components/travels/hub/TripFamilyPagePanel";
+import { TripClosurePanel } from "@/app/components/travels/hub/TripClosurePanel";
 import { TripRegistrationsPanel } from "@/app/components/travels/hub/TripRegistrationsPanel";
 import type { TravelsFamilyPage, TravelsParentCalendar, TravelsPriceBlock } from "@/app/lib/travels-types";
 import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
@@ -2029,6 +2030,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
             canEditPage={isOwner || isAdministratif || isGlobalAdmin || canSign}
             saveFamilyPage={saveFamilyPage}
           />
+          {trip.data.familyPage?.openedAt ? <TripClosurePanel tripId={trip.id} userName={user?.fullName || undefined} /> : null}
           {trip.data.familyPage?.openedAt ? <TripRegistrationsPanel tripId={trip.id} /> : null}
         </>
       )}

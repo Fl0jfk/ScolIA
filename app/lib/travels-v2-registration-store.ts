@@ -754,6 +754,7 @@ export function buildRegistrationRows(opts: {
     const state = studentState(byIne.get(inv.ine) || [], caseByIne.get(caseId(inv.ine)));
     let status: InvitationStatus = own;
     if (state === "retire") status = "retire";
+    else if (state === "desiste") status = "desiste";
     else if (state === "suspens") status = inv.objection ? "desaccord" : "suspens";
     return {
       invitationId: inv.id,
@@ -838,6 +839,16 @@ export async function getStudentCase(tripId: string, ine: string): Promise<Stude
 
 export async function saveStudentCase(rec: StudentCase): Promise<void> {
   await putJson(casePath(rec.tripId, rec.ine), rec);
+}
+
+export async function deleteStudentCase(tripId: string, ine: string): Promise<void> {
+  if (!TRIP_ID_RE.test(tripId) || !caseId(ine)) return;
+  await deleteJson(casePath(tripId, ine));
+}
+
+export async function deleteInvitation(tripId: string, invId: string): Promise<void> {
+  if (!TRIP_ID_RE.test(tripId) || !TRIP_ID_RE.test(invId)) return;
+  await deleteJson(invPath(tripId, invId));
 }
 
 export async function listStudentCases(tripId: string): Promise<StudentCase[]> {

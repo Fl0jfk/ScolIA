@@ -29,6 +29,13 @@ export function StudentStateNotice({ view }: { view: PublicFamilyView }) {
       </p>
     );
   }
+  if (view.studentState === "desiste") {
+    return (
+      <p role="status" className="rounded-2xl border-2 border-zinc-300 bg-zinc-50 p-4 text-sm font-semibold text-zinc-900">
+        Le désistement de {view.studentName} a été enregistré par l&apos;établissement.
+      </p>
+    );
+  }
   return null;
 }
 

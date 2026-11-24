@@ -399,6 +399,20 @@ export function familyStructuredSnapshot(data: Partial<TravelsTripData> | null |
   });
 }
 
+/**
+ * Somme en liquide FACULTATIVE : case décochée = aucune ligne (`cash` retiré, rien sur la page) ;
+ * case cochée = montant et motif obligatoires (la validation `validateFamilyStructured` refuse une ligne vide).
+ */
+export function resolveCashDraft(opts: {
+  enabled: boolean;
+  amountText: string;
+  reason: string;
+}): TravelsFamilyPage["cash"] | undefined {
+  if (!opts.enabled) return undefined;
+  const amount = Number(String(opts.amountText ?? "").replace(",", "."));
+  return { amount: Number.isFinite(amount) ? amount : 0, reason: String(opts.reason ?? "").trim() };
+}
+
 export function validateFamilyStructured(page: Partial<TravelsFamilyPage> | null | undefined): ValidationResult {
   if (!page) return { ok: true };
   if (page.equipment !== undefined) {

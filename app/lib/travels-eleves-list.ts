@@ -460,6 +460,9 @@ export function getCuisineMealsOrdered(data: TravelsTripData | undefined): numbe
  * Sinon (pas de cuisine / 0 repas) → considéré OK.
  */
 export function isCuisineWhoEatsComplete(data: TravelsTripData | undefined): boolean {
+  // Circuit v2 : les paniers viennent des réponses des familles (jour par jour) + repas adultes de l'organisateur ;
+  // l'attribution nominative « qui mange » (un panier = une personne) ne s'applique pas.
+  if (data?.workflowVersion === 2) return true;
   const meals = getCuisineMealsOrdered(data);
   if (meals <= 0) return true;
   const assigned = countPanierRepasTotalAssigned(

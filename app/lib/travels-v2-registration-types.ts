@@ -122,6 +122,10 @@ export type FamilyInvitation = {
   confirmationMailSentAt?: string;
   confirmationMailError?: string;
   objection?: FamilyObjection;
+  /** Désistement noté par l'organisateur APRÈS la clôture : l'élève sort de la liste, l'engagement reste archivé. */
+  withdrawal?: { at: string; by: string; note?: string; kind?: "retire_direction" };
+  /** Posé par la purge du lendemain du retour : l'enregistrement ne garde plus que l'engagement. */
+  purgedAt?: string;
   /** Relances automatiques : clé -> jour (YYYY-MM-DD) d'envoi (idempotence). */
   reminders?: Record<string, string>;
 };
@@ -138,7 +142,8 @@ export type InvitationStatus =
   | "refus"
   | "desaccord"
   | "suspens"
-  | "retire";
+  | "retire"
+  | "desiste";
 
 export const INVITATION_STATUS_LABELS: Record<InvitationStatus, string> = {
   pas_ouvert: "Pas ouvert",
@@ -151,6 +156,7 @@ export const INVITATION_STATUS_LABELS: Record<InvitationStatus, string> = {
   desaccord: "Désaccord déclaré",
   suspens: "En suspens (décision de la direction)",
   retire: "Retiré par la direction",
+  desiste: "Désisté après la clôture",
 };
 
 export function isSigned(inv: Pick<FamilyInvitation, "signature">): boolean {
