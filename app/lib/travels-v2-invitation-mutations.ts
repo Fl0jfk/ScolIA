@@ -231,7 +231,9 @@ export function mutClaimReminders(
   todayIso: string,
 ): Mut<{ claimed: boolean; before: Record<string, string> | undefined }> {
   const done = inv.reminders || {};
-  if (done.lastDay === todayIso || keys.some((k) => done[k])) {
+  // Relance de date limite décidée sur une liste lue en début de passage : si la famille a signé entre-temps, on n'envoie rien.
+  const staleDeadline = Boolean(inv.signature) && keys.some((k) => k.startsWith("deadline_"));
+  if (staleDeadline || done.lastDay === todayIso || keys.some((k) => done[k])) {
     return { save: false, value: { claimed: false, before: inv.reminders } };
   }
   const before = inv.reminders;

@@ -460,6 +460,9 @@ export async function runAutoRemindersForTrip(opts: {
  * Passage quotidien d'un établissement (appelé par le job planifié, dans le contexte du tenant).
  * Plafond global d'e-mails par passage : au-delà, arrêt, journal et alerte (une fois par jour et par voyage).
  */
+/** Voyages v1 déjà vus par le job (en mémoire, jusqu'au redémarrage) : évite de les relire à chaque passage. */
+const reminderSkipNonV2 = new Set<string>();
+
 export async function runAutoRemindersForTenant(
   baseUrl: string,
   cap: number = AUTO_REMINDER_CAP_PER_PASS,
@@ -472,8 +475,10 @@ export async function runAutoRemindersForTenant(
   let failed = 0;
   for (const summary of index) {
     if (!live.has(String(summary.status))) continue;
+    if (reminderSkipNonV2.has(summary.id)) continue;
     try {
       const trip = await getTravelTrip(summary.id);
+      if (trip && !isWorkflowV2(trip)) reminderSkipNonV2.add(summary.id); // un voyage v1 ne devient jamais v2
       if (!trip || !isWorkflowV2(trip) || !trip.data?.familyPage?.openedAt) continue;
       trips += 1;
       const r = await runAutoRemindersForTrip({ trip, baseUrl, budget });
