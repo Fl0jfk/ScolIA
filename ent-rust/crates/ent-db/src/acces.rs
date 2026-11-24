@@ -103,9 +103,20 @@ impl PgEnt {
         &self,
         etablissement_id: Uuid,
     ) -> Result<NaiveDate, EntDbError> {
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        self.aujourdhui_etablissement_conn(&mut tx, etablissement_id).await
+    }
+
+    /// Comme [`Self::aujourdhui_etablissement`], sur la connexion **déjà ouverte** de l'appelant (F7 : aucune connexion
+    /// supplémentaire dans une transaction ouverte).
+    pub(crate) async fn aujourdhui_etablissement_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+    ) -> Result<NaiveDate, EntDbError> {
         let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
             .bind(etablissement_id)
-            .fetch_one(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+            .fetch_one(&mut *conn)
             .await
             .map_err(db)?;
         Ok(jour)

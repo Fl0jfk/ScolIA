@@ -246,3 +246,40 @@ Branche `ent-socle-41-code-i4-suites-2` (base `origin/ENT`, PR en brouillon vers
 - **M2** (titre de sortie libre en clair hors de l'ENT) : `internat_retour_demande` rejoint `canal_externe_neutre` : e-mail, push et SMS neutres, détail dans l'ENT seulement. Test `s4_la_demande_de_retour_est_neutre_hors_de_l_ent`.
 - Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_internat_i4*` : 105 verts.
 - **En file** : F1 (cas d'une minute dont l'avis est déjà lu : remettre à non lu ou documenter), F2 (envoi externe déjà parti non mis à jour : à documenter), F4 (test d'avis regroupé : preuve que le 3e événement est consommé ; `notifier_personne` inchangé ; envoi `envoye` non réécrit), F6 (libellé `refus_apres_depart`), F7 (connexion supplémentaire de `eleve_cache_au_tiers` dans une transaction ouverte).
+
+## Suites 3
+
+Branche `ent-socle-41-code-i4-suites-3` (base `origin/ENT`, PR en brouillon vers `ENT`). **Aucune migration** (2828 à 2830 inchangées, règle 25 ; pas de 2831). Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend non touché. Aucun test ne dépend de l'heure réelle (minute posée une fois par la base ; jours fixes).
+
+### Fait
+
+| Point | Ce qui a été fait | Test |
+|---|---|---|
+| **F1** avis lu | **Décision (D-069, prudente)** : quand le texte d'un avis regroupé change (le nombre d'élèves augmente), l'avis dans l'ENT est mis à jour **et remis à non lu** (`lu_le = NULL`). Lire un avis une fois ne doit pas cacher qu'un autre élève s'est ajouté dans la même minute. Un avis dont le texte ne change pas reste lu. `notifications.rs`, clause `DO UPDATE` de `notifier_personne_selon`. | `s5_avis_regroupe_lu_repasse_non_lu_*` ; `s4_avis_regroupe_*` resserré |
+| **F2** envoi externe déjà parti | **Documenté, pas d'avis rectificatif** : l'envoi externe n'est mis à jour que tant qu'il est `en_attente` ; un envoi parti (`envoye` et tout autre statut) n'est jamais réécrit (on ne falsifie pas un message remis). L'avis de l'ENT, lui, porte le nombre à jour et repasse non lu. Un avis rectificatif aurait doublé les messages externes pour une rafale : écarté, à rouvrir si le pilote le demande. | même test |
+| **F4** | Le 3e événement est consommé (texte « 3 élèves », un seul avis, plus aucun événement sans traitement) ; `notifier_personne` inchangé (`DO NOTHING`, test direct) ; un envoi `envoye` n'est jamais réécrit. | `s5_avis_regroupe_*`, `s5_notifier_personne_ne_reecrit_*` |
+| **F6** libellé | `libelle_fait_groupe_famille("refus_apres_depart")` (`ent-types`) : « Votre refus a bien été enregistré. Votre enfant était déjà parti avec le groupe : l'établissement a été prévenu et demande son retour. En cas d'urgence, appelez directement l'établissement. » Sans code interne, sans nom d'élève, sans promesse d'heure. Les autres faits n'ont pas de libellé famille (`None`). **Écart** : aucun écran ni DTO famille n'expose encore le journal des faits ; la fonction est prête, son branchement viendra avec l'écran famille (non fait ici). | `tests_libelles_famille` (2) |
+| **F7** connexion supplémentaire | `eleve_cache_au_tiers_conn` (+ chaîne `profil_champs_conn`, `droits_effectifs_conn`, `eleves_autorises_conn`, `droits_delegues_conn`, `charger_droits_conn`, `eleves_suivis_par_prof_conn`, `eleves_en_lecture_seule_du_prof_conn`, `proteges_caches_conn`, `aujourdhui_etablissement_conn`) : mêmes requêtes sur la connexion fournie. Les versions par le pool ouvrent **une** transaction pour toute la chaîne (au lieu d'une par requête) et appellent la version `_conn` : même résultat. Les deux appelants en transaction (`internat_sorties/groupes.rs` filtre des invités, `vie.rs` pointage) utilisent la connexion de leur transaction. Les autres appelants en transaction de `eleve_cache_au_tiers` (`service.rs`) sont inchangés (hors périmètre). | `s5_eleve_cache_au_tiers_*` (pool d'une seule connexion, délai) |
+
+### Non fait / limites
+- Libellé F6 non branché à une surface famille (voir ci-dessus).
+- Pas d'avis rectificatif externe (F2).
+- `service.rs` (2 appels de `eleve_cache_au_tiers`) non convertis : hors du lot internat.
+
+### Tests, compteurs, vérifications
+- **3 tests backend** (`tests_internat_i4_suites3.rs` : `s5_*`) + **2 tests purs** (`ent-types`, libellé F6) ; `s4_avis_regroupe_*` resserré (l'avis lu repasse non lu). Local : base neuve `ent_i4s5_test` (PostgreSQL 16, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, série) : 54 tests (`s4_*`, `s5_*`) verts. Le reste de la suite est laissé à la CI (le refactor F7 touche le moteur de droits : `droits_effectifs`, `eleves_autorises`, `profil_champs`).
+- Compteurs (règle 28) : migrations +0, `MIGRATION_TAG`, `Action::TOUTES`, RLS, registre, `TABLES_ELEVE`, `SOURCES`, routes, événements : **inchangés**.
+- Clippy (conteneur : 1.97, pas 1.99) sur `ent-db` + `ent-types` avec `labo` et tests : aucun avertissement dans les lignes touchées (2 avertissements antérieurs, `tests_voyages_v2a.rs`). Les trois commandes de la CI (clippy 1.99, `ent-lab` compris) restent à la CI. Pas de `cargo fmt --all`.
+
+### Tête et CI (suites 3)
+- PR n° 142, en brouillon vers `ENT`. Tête de code : `3286b534` (un premier passage, sur `096d3bba`, était rouge sur le seul contrôle de format ; corrigé par `rustfmt` ciblé sur `ent-types` et le nouveau fichier de tests).
+- CI « ENT Rust » sur `3286b534` : **verte** (run 45353586522). Les commits suivants ne touchent que cette documentation.
+
+### Correctifs du pilote après contre-revue des suites 3 (2026-11-24)
+Rapport complet : `docs/pilotage/revues/41_I4_SUITES_3_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé ; F7 est
+équivalent à l'ancien comportement pour les droits (mêmes requêtes, mêmes filtres, contexte tenant posé par `TenantTx`).
+- **Faible 1** : `eleve_cache_au_tiers_conn` passe en `pub(crate)` (la connexion doit venir du `TenantTx` du même établissement).
+- **Moyen 2** : F6 est **défini, non branché** (aucune surface famille ne l'affiche encore).
+- En file : **Moyen 1** (F7 incomplet, antérieur au lot : `exiger_eleve_visible` à `vie.rs` 654, 1687, 1804, 2193 et
+  `a_action_etablissement` dans `groupe_appel_exiger` passent encore par le pool dans une transaction ouverte → variantes
+  `_conn` et test sur un pool d'une connexion) ; faibles 2 à 4.
