@@ -332,3 +332,7 @@ Principe : l'export ne rend **que ce que la famille peut déjà voir dans l'ENT*
 ### 12.2 Tests, compteurs
 * **Nouveaux : 4** de registre (M1 ×2, F4, M4/M5/F3) ; **étendu :** `passe4_l_export_de_l_eleve_…` (M2/M3/M5).
 * **Compteurs (règle 28)** : 0 table, 0 migration, `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES` inchangés ; le registre ne change que par des règles d'export.
+
+### 12.3 Tête et CI
+* **Tête du code :** `4376238f` (PR brouillon #143, `ent-socle-21-code-v5-suites-5` → `ENT`). Local : 259/259 tests (`registre_donnees`, `tests_evaluations*`, `extrait_personne`, `tests_rls::`, `migrate::`, `garde_`, `tests_eleve_fusion`) ; clippy 1.99.0 `-D warnings` sur les deux commandes backend (avec `ent-lab`) : 0 avertissement ; `cargo metadata --locked` dans `web/` : OK.
+* **CI « ENT Rust » sur cette tête : verte** (run 45356863579, `completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**`.
