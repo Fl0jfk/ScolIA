@@ -589,3 +589,9 @@ Lecture : pour **une seule ligne**, la variante par instruction est un peu **plu
 * Les points « doc du pilote » (moyens A et B de la contre-revue : restauration, réplication logique) sont déjà consignés plus haut ; la **procédure PRA** reste au pilote.
 * Les délégations datées ne désignent pas de destinataire de l'alerte (limite du repli par le droit).
 * Mesure M4 : un seul passage, machine de développement.
+
+### Suites (passe 7) — vérifications, compteurs, tête et CI
+- **Compteurs (règle 28)** : `MIGRATIONS` +1 (318, en fin de tableau, après 317) ; aucune nouvelle table, action ni source ; compte RLS, `Action::TOUTES`, `SOURCES` et `MIGRATION_TAG` (3808) inchangés ; `migrations_versees.txt` non modifié (318 est après 494, dernière versée de la liste).
+- **Qualité** : clippy 1.99.0 sans avertissement sur les 3 commandes de la CI (`ent-lab` compris, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` ; formatage ciblé du seul fichier neuf (`rustfmt`), pas de `cargo fmt --all`.
+- **Tests** : base neuve `ent_i5s7_test` (PostgreSQL 16 local), un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0, `ENT_ENV=lab`. Filtres `inscription r_m4 registre migrat d036 export rgpd p2_ i5_ p3_ p4_ i3_ i4_ s5_ s6_ s7_ garde_search_path isolation_sql jour_utc` : 459 tests, 451 verts à quatre fils ; les 8 autres (sans rapport : `d036`, `evaluations`, `i4_*`, `internat_i4_*`) viennent de la base partagée entre tests parallèles : 7 verts rejoués ensemble, le dernier (`d036::les_treize_colonnes…`) vert seul sur base neuve. Les 4 `s7_*`, les `s6_*` et `s5_*` verts. La CI isole chaque tranche.
+- **Tête de code et CI** : voir le message de livraison au pilote ; le commit qui consigne ce résultat ne change que ce document.

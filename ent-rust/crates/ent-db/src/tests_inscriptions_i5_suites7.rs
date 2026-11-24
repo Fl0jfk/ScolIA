@@ -32,7 +32,10 @@ fn code(r: &Result<(), sqlx::Error>) -> String {
 fn refus(r: &Result<(), sqlx::Error>, quoi: &str) {
     assert_eq!(code(r), "55000", "{quoi} : refus attendu de la sentinelle");
     let msg = r.as_ref().unwrap_err().to_string();
-    assert!(msg.contains(SENTINELLE), "{quoi} : l'erreur doit être nommée ({msg})");
+    assert!(
+        msg.contains(SENTINELLE),
+        "{quoi} : l'erreur doit être nommée ({msg})"
+    );
 }
 
 /// Un dossier en liste d'attente de `offre` (`offre_attente_id`), sans vœu retenu : son offre se lit par la jointure.
@@ -104,7 +107,12 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
                 .await
                 .unwrap();
         }
-        let r = sqlx::query(&inserer).bind(etab).bind(vec![d1, d2]).execute(&mut *tx).await.map(|_| ());
+        let r = sqlx::query(inserer)
+            .bind(etab)
+            .bind(vec![d1, d2])
+            .execute(&mut *tx)
+            .await
+            .map(|_| ());
         tx.rollback().await.unwrap();
         if ok {
             r.unwrap_or_else(|e| panic!("{quoi} : doit passer ({e})"));
@@ -122,7 +130,12 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
             .await
             .unwrap();
     }
-    sqlx::query(&inserer).bind(etab).bind(vec![d1, d2]).execute(&mut *tx).await.unwrap();
+    sqlx::query(inserer)
+        .bind(etab)
+        .bind(vec![d1, d2])
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     for (verrous, ok, quoi) in [
         (vec![o1], false, "mise à jour : l'offre 2 manque"),
@@ -131,9 +144,16 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
     ] {
         let mut tx = sqlx::Connection::begin(&mut conn).await.unwrap();
         for o in &verrous {
-            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))").bind(o).execute(&mut *tx).await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+                .bind(o)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
         }
-        let r = sqlx::query("UPDATE s7_lignes SET v = v + 1").execute(&mut *tx).await.map(|_| ());
+        let r = sqlx::query("UPDATE s7_lignes SET v = v + 1")
+            .execute(&mut *tx)
+            .await
+            .map(|_| ());
         tx.rollback().await.unwrap();
         if ok {
             r.unwrap_or_else(|e| panic!("{quoi} : {e}"));
@@ -143,13 +163,29 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
     }
     // Une ligne qui change de dossier (donc d'offre) exige l'ancienne ET la nouvelle offre.
     for (verrous, ok, quoi) in [
-        (vec![o1], false, "changement de dossier : l'offre d'arrivée manque"),
-        (vec![o2], false, "changement de dossier : l'offre de départ manque"),
-        (vec![o1, o2], true, "changement de dossier : les deux verrous"),
+        (
+            vec![o1],
+            false,
+            "changement de dossier : l'offre d'arrivée manque",
+        ),
+        (
+            vec![o2],
+            false,
+            "changement de dossier : l'offre de départ manque",
+        ),
+        (
+            vec![o1, o2],
+            true,
+            "changement de dossier : les deux verrous",
+        ),
     ] {
         let mut tx = sqlx::Connection::begin(&mut conn).await.unwrap();
         for o in &verrous {
-            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))").bind(o).execute(&mut *tx).await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+                .bind(o)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
         }
         let r = sqlx::query("UPDATE s7_lignes SET dossier_id = $1 WHERE dossier_id = $2 AND id = (SELECT min(id) FROM s7_lignes WHERE dossier_id = $2)")
             .bind(d1)
@@ -170,9 +206,16 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
     ] {
         let mut tx = sqlx::Connection::begin(&mut conn).await.unwrap();
         for o in &verrous {
-            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))").bind(o).execute(&mut *tx).await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+                .bind(o)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
         }
-        let r = sqlx::query("DELETE FROM s7_lignes").execute(&mut *tx).await.map(|_| ());
+        let r = sqlx::query("DELETE FROM s7_lignes")
+            .execute(&mut *tx)
+            .await
+            .map(|_| ());
         tx.rollback().await.unwrap();
         if ok {
             r.unwrap_or_else(|e| panic!("{quoi} : {e}"));
@@ -183,11 +226,21 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
 
     // Compte d'appels : 800 lignes mises à jour sous les deux verrous.
     let mut tx = sqlx::Connection::begin(&mut conn).await.unwrap();
-    sqlx::query("SET LOCAL track_functions = 'all'").execute(&mut *tx).await.unwrap();
+    sqlx::query("SET LOCAL track_functions = 'all'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     for o in [o1, o2] {
-        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))").bind(o).execute(&mut *tx).await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+            .bind(o)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
     }
-    sqlx::query("UPDATE s7_lignes SET v = v + 1").execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE s7_lignes SET v = v + 1")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     assert_eq!(
         appels(&mut tx, "ent_inscription_offre_du_dossier").await,
         0,
@@ -202,19 +255,38 @@ async fn s7_sentinelle_multi_lignes_sans_offre_id_deux_offres() {
     tx.rollback().await.unwrap();
 
     // Preuve rouge : le déclencheur par ligne de 316 appelle la fonction pour chaque ligne sans `offre_id`.
-    sqlx::query("DROP TRIGGER s7_ins ON s7_lignes").execute(&mut conn).await.unwrap();
-    sqlx::query("DROP TRIGGER s7_upd ON s7_lignes").execute(&mut conn).await.unwrap();
-    sqlx::query("DROP TRIGGER s7_del ON s7_lignes").execute(&mut conn).await.unwrap();
+    sqlx::query("DROP TRIGGER s7_ins ON s7_lignes")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    sqlx::query("DROP TRIGGER s7_upd ON s7_lignes")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    sqlx::query("DROP TRIGGER s7_del ON s7_lignes")
+        .execute(&mut conn)
+        .await
+        .unwrap();
     sqlx::query("CREATE TRIGGER s7_ligne AFTER UPDATE ON s7_lignes FOR EACH ROW EXECUTE FUNCTION public.ent_inscription_sentinelle_ligne()")
         .execute(&mut conn)
         .await
         .unwrap();
     let mut tx = sqlx::Connection::begin(&mut conn).await.unwrap();
-    sqlx::query("SET LOCAL track_functions = 'all'").execute(&mut *tx).await.unwrap();
+    sqlx::query("SET LOCAL track_functions = 'all'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     for o in [o1, o2] {
-        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))").bind(o).execute(&mut *tx).await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+            .bind(o)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
     }
-    sqlx::query("UPDATE s7_lignes SET v = v + 1").execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE s7_lignes SET v = v + 1")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     assert!(
         appels(&mut tx, "ent_inscription_offre_du_dossier").await >= 800,
         "preuve rouge : par ligne, l'offre du dossier est appelée pour chacune des 800 lignes"
@@ -255,18 +327,29 @@ async fn s7_rejeu_en_echec_restaure_la_sentinelle() {
 
     let r = crate::migrate::rejouer_liste(ent.pool_verif(), &liste).await;
     let e = r.expect_err("le rejeu doit échouer sur le fichier qui échoue");
-    assert!(e.to_string().contains("division"), "l'erreur d'origine est rendue : {e}");
+    assert!(
+        e.to_string().contains("division"),
+        "l'erreur d'origine est rendue : {e}"
+    );
 
     let garde = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
     let etats = etats_sentinelle(&ent).await;
-    assert_eq!(etats.len(), 7, "la sentinelle est de retour malgré l'échec : {etats:?}");
-    assert!(etats.iter().all(|(_, e)| e == "A"), "tous en ENABLE ALWAYS : {etats:?}");
+    assert_eq!(
+        etats.len(),
+        7,
+        "la sentinelle est de retour malgré l'échec : {etats:?}"
+    );
+    assert!(
+        etats.iter().all(|(_, e)| e == "A"),
+        "tous en ENABLE ALWAYS : {etats:?}"
+    );
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    let r = sqlx::query("UPDATE ent_inscription_offre SET liberations = liberations + 1 WHERE id = $1")
-        .bind(offre)
-        .execute(&mut *tx)
-        .await
-        .map(|_| ());
+    let r =
+        sqlx::query("UPDATE ent_inscription_offre SET liberations = liberations + 1 WHERE id = $1")
+            .bind(offre)
+            .execute(&mut *tx)
+            .await
+            .map(|_| ());
     tx.rollback().await.unwrap();
     refus(&r, "écriture sans verrou après un rejeu en échec");
     garde.liberer().await;
@@ -305,16 +388,27 @@ async fn s7_sante_sentinelle_signale_un_declencheur_non_always() {
     assert_eq!(
         anormaux,
         vec![
-            ("ent_inscription_sentinelle_decision_ins_trg".to_string(), "O".to_string()),
-            ("ent_inscription_sentinelle_offre_upd_trg".to_string(), "D".to_string()),
+            (
+                "ent_inscription_sentinelle_decision_ins_trg".to_string(),
+                "O".to_string()
+            ),
+            (
+                "ent_inscription_sentinelle_offre_upd_trg".to_string(),
+                "D".to_string()
+            ),
         ],
         "état « origine » (O) et suspendu (D)"
     );
     tx.rollback().await.unwrap();
 
     // État normal, hors transaction : la fonction du démarrage ne rend rien.
-    let sains = crate::migrate::sentinelles_non_toujours_actives(ent.pool_verif()).await.unwrap();
-    assert!(sains.is_empty(), "en état normal, aucun déclencheur à signaler : {sains:?}");
+    let sains = crate::migrate::sentinelles_non_toujours_actives(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(
+        sains.is_empty(),
+        "en état normal, aucun déclencheur à signaler : {sains:?}"
+    );
     garde.liberer().await;
 }
 
@@ -335,13 +429,19 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
     let dos = dossier(&ent, &c, camp, "RepliDroit", None).await;
     let mut b = corps("ajourne", None, "Ajournement programmé");
     b.publier_le = Some(maintenant() + chrono::Duration::days(7));
-    let d = ent.decider_complete_for_actor(etab, u, r, dos.id, &b, false, maintenant()).await.unwrap();
+    let d = ent
+        .decider_complete_for_actor(etab, u, r, dos.id, &b, false, maintenant())
+        .await
+        .unwrap();
     ent.transition_for_actor(
         etab,
         u,
         r,
         dos.id,
-        &TransitionBody { action: "annuler".into(), motif: "Annulation demandée".into() },
+        &TransitionBody {
+            action: "annuler".into(),
+            motif: "Annulation demandée".into(),
+        },
     )
     .await
     .unwrap();
@@ -378,7 +478,10 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
     // Direction et auteur partis ; les trois CPE ont un accès ouvert.
     // La garde « dernier administrateur » est levée **dans la transaction** (fixture, comme `fermer_acces`).
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    sqlx::query("SET LOCAL ent.purge_etablissement = 'on'").execute(&mut *tx).await.unwrap();
+    sqlx::query("SET LOCAL ent.purge_etablissement = 'on'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("UPDATE ent_membership SET date_fin = '2020-01-01' WHERE etablissement_id = $1 AND NOT (user_id = ANY($2))")
         .bind(etab)
         .bind(vec![sans_droit, avec_droit, echu])
@@ -386,7 +489,9 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    ent.publier_decisions_echues_tache(maintenant() + chrono::Duration::days(7)).await.unwrap();
+    ent.publier_decisions_echues_tache(maintenant() + chrono::Duration::days(7))
+        .await
+        .unwrap();
     let nb = |user: Uuid| {
         let pool = ent.pool_verif().clone();
         async move {
@@ -401,7 +506,19 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
             .unwrap()
         }
     };
-    assert_eq!(nb(avec_droit).await, 1, "le détenteur du droit (par attribution) est alerté");
-    assert_eq!(nb(sans_droit).await, 0, "un CPE sans le droit n'est pas alerté");
-    assert_eq!(nb(echu).await, 0, "une attribution échue ne donne plus le droit");
+    assert_eq!(
+        nb(avec_droit).await,
+        1,
+        "le détenteur du droit (par attribution) est alerté"
+    );
+    assert_eq!(
+        nb(sans_droit).await,
+        0,
+        "un CPE sans le droit n'est pas alerté"
+    );
+    assert_eq!(
+        nb(echu).await,
+        0,
+        "une attribution échue ne donne plus le droit"
+    );
 }
