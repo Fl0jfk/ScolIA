@@ -4895,11 +4895,13 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
     f2::payeur_compte(&ent, etab, el, c.parent_lea.user_id, f_bas, 50).await;
     f2::payeur_compte(&ent, etab, el, c.parent_tom.user_id, f_haut, 50).await;
     for (f, q) in [(f_bas, 80_000_i64), (f_haut, 150_000)] {
-        sqlx::query("INSERT INTO ent_foyer_quotient (etablissement_id, foyer_id, annee_scolaire, quotient_centimes) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO ent_foyer_quotient (id, etablissement_id, foyer_id, annee_scolaire, quotient_centimes, parts_x100, updated_by_user_id) VALUES ($5, $1, $2, $3, $4, 200, $6)")
             .bind(etab)
             .bind(f)
             .bind(ANNEE)
             .bind(q)
+            .bind(Uuid::new_v4())
+            .bind(c.compta.user_id)
             .execute(ent.pool_verif())
             .await
             .unwrap();
