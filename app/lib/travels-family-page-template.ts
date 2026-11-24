@@ -36,7 +36,7 @@ export const FAMILY_PAGE_TEMPLATE = {
 
   /** Règle des paniers repas. */
   meals: [
-    "Pour chaque jour concerné, vous choisirez un panier classique, sans porc ou végétarien, ou vous fournirez vous-même le repas de votre enfant.",
+    "L'établissement fournit un panier repas uniquement les jours indiqués ci-dessous. Pour chacun de ces jours, répondez « oui » et choisissez le panier (classique, sans porc ou végétarien), ou « non » si vous fournissez vous-même le repas de votre enfant.",
     "En cas d'allergie ou de PAI, le repas est obligatoirement fourni par la famille : la cantine ne prépare pas de repas à la demande.",
   ],
 

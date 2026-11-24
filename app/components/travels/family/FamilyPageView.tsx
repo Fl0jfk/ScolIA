@@ -66,12 +66,13 @@ function MeetingRow({ model, label, point, pendingKey }: {
   );
 }
 
-const MEAL_CHOICES = [
-  { value: "classique", label: "Panier classique" },
-  { value: "sans_porc", label: "Panier sans porc" },
-  { value: "vegetarien", label: "Panier végétarien" },
-  { value: "famille", label: "Repas fourni par la famille" },
+/** Type de panier, demandé seulement si la famille répond « oui » pour le jour proposé par l'organisateur. */
+const MEAL_TYPES = [
+  { value: "classique", label: "Classique" },
+  { value: "sans_porc", label: "Sans porc" },
+  { value: "vegetarien", label: "Végétarien" },
 ] as const;
+type MealAnswer = { wants: "oui" | "non" | ""; type: (typeof MEAL_TYPES)[number]["value"] };
 
 export function FamilyPageView({
   model,
@@ -86,6 +87,10 @@ export function FamilyPageView({
   const preview = mode === "preview";
   const h = FAMILY_PAGE_TEMPLATE.headings;
   const [participates, setParticipates] = useState<"oui" | "non" | "">("");
+  const [meals, setMeals] = useState<Record<string, MealAnswer>>({});
+  const mealOf = (key: string): MealAnswer => meals[key] ?? { wants: "", type: "classique" };
+  const setMeal = (key: string, patch: Partial<MealAnswer>) =>
+    setMeals((prev) => ({ ...prev, [key]: { ...mealOf(key), ...patch } }));
   const disabledInput = "disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
 
   return (
@@ -189,13 +194,17 @@ export function FamilyPageView({
         <Section title={h.data}>
           <p className="text-sm">{model.dataRetention}</p>
         </Section>
-        <Section title={h.meals}>
-          {model.mealsRule.map((p, i) => (
-            <p key={i} className="text-sm">
-              {p}
-            </p>
-          ))}
-        </Section>
+        {/* Repas : seulement si l'organisateur a prévu des jours de panier dans la commande cuisine. */}
+        {model.picnicDays.length > 0 ? (
+          <Section title={h.meals}>
+            {model.mealsRule.map((p, i) => (
+              <p key={i} className="text-sm">
+                {p}
+              </p>
+            ))}
+            <p className="text-sm font-semibold">Jours concernés : {model.picnicDays.map((d) => d.label).join(", ")}.</p>
+          </Section>
+        ) : null}
 
         {/* Formulaire */}
         <section className="space-y-5 rounded-2xl border-2 border-indigo-100 bg-indigo-50/40 p-4">
@@ -222,21 +231,45 @@ export function FamilyPageView({
 
           {model.picnicDays.length > 0 ? (
             <fieldset disabled={preview} className="space-y-2">
-              <legend className="text-sm font-bold">Repas de mon enfant</legend>
+              <legend className="text-sm font-bold">Panier repas fourni par l’établissement</legend>
               <p className="text-xs text-slate-600">{model.mealsRule[model.mealsRule.length - 1]}</p>
               <div className="space-y-2">
-                {model.picnicDays.map((d) => (
-                  <label key={d.key} className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:gap-3">
-                    <span className="w-28 font-semibold">{d.label}</span>
-                    <select defaultValue="classique" className={`rounded-lg border bg-white p-2 ${disabledInput}`}>
-                      {MEAL_CHOICES.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
+                {model.picnicDays.map((d) => {
+                  const a = mealOf(d.key);
+                  return (
+                    <div key={d.key} className="flex flex-col gap-2 rounded-lg border bg-white p-2 text-sm sm:flex-row sm:items-center sm:gap-4">
+                      <span className="w-28 font-semibold">{d.label}</span>
+                      <div className="flex gap-4">
+                        {(["oui", "non"] as const).map((v) => (
+                          <label key={v} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name={`panier-${d.key}`}
+                              value={v}
+                              checked={a.wants === v}
+                              onChange={() => setMeal(d.key, { wants: v })}
+                            />
+                            {v === "oui" ? "Oui" : "Non, nous fournissons le repas"}
+                          </label>
+                        ))}
+                      </div>
+                      {a.wants === "oui" ? (
+                        <select
+                          value={a.type}
+                          onChange={(e) => setMeal(d.key, { type: e.target.value as MealAnswer["type"] })}
+                          aria-label={`Type de panier — ${d.label}`}
+                          className={`rounded-lg border bg-white p-2 ${disabledInput}`}
+                        >
+                          {MEAL_TYPES.map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </fieldset>
           ) : null}

@@ -47,6 +47,8 @@ describe("page des familles — trame fixe", () => {
     assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /lendemain du retour/);
     assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /comptabilité/);
     assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /sans porc/);
+    assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /uniquement les jours indiqués/);
+    assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /« non »/);
     assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /PAI/);
     assert.match(FAMILY_PAGE_TEMPLATE.cashNotIncluded, /pas comprise dans le prix/);
   });

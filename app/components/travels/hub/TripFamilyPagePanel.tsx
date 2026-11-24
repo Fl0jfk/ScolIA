@@ -251,6 +251,7 @@ export function TripFamilyPagePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [trip, opened, outbound, inbound, equipment, cashAmount, cashReason, program, deadline, documents],
   );
+  const picnicDays = model.picnicDays;
 
   const deadlineMin = addDaysIso(todayIso, REGISTRATION_MIN_OPEN_DAYS);
   const deadlineMax = departureIso ? addDaysIso(departureIso, -REGISTRATION_CLOSE_DAYS_BEFORE_DEPARTURE) : undefined;
@@ -325,6 +326,19 @@ export function TripFamilyPagePanel({
               <p className="text-sm font-bold">Rendez-vous et horaires (obligatoires)</p>
               {meetingFields("Aller", outbound, setOutbound, "Heure de dépôt des élèves")}
               {meetingFields("Retour", inbound, setInbound, "Heure de récupération des élèves")}
+            </div>
+
+            <div className="space-y-1 rounded-xl border bg-slate-50 p-3">
+              <p className="text-sm font-bold">Paniers repas</p>
+              {picnicDays.length > 0 ? (
+                <p className="text-sm">
+                  Jours proposés aux familles : <span className="font-semibold">{picnicDays.map((d) => d.label).join(", ")}</span>. Pour chaque jour, la
+                  famille répond oui (classique, sans porc ou végétarien) ou non (repas fourni par la famille).
+                </p>
+              ) : (
+                <p className="text-sm">Aucun jour de panier prévu : la question ne sera pas posée aux familles.</p>
+              )}
+              <p className="text-xs text-slate-500">Les jours se choisissent dans la commande cuisine (onglet Cuisine).</p>
             </div>
 
             <div className="space-y-2">
