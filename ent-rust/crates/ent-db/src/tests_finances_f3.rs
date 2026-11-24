@@ -3833,11 +3833,11 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
         .unwrap();
     assert_eq!(pub1.numero, 1);
     assert!(!pub1.lignes.is_empty());
-    // faible b : une fois v2 en effet, v1 est supplantée et ne se publie plus ; v2 se publie
-    assert!(conflit(
-        ent.publier_grille_au_jour(etab, ud, rd, v1, d(2031, 1, 1))
-            .await
-    ));
+    // faible b : une fois v2 en effet, v1 est supplantée ; déjà publiée (suites 3, faible 4) elle reste relisible ;
+    // v2 se publie
+    ent.publier_grille_au_jour(etab, ud, rd, v1, d(2031, 1, 1))
+        .await
+        .expect("déjà publiée : relisible");
     ent.publier_grille_au_jour(etab, ud, rd, v2.id, d(2031, 1, 1))
         .await
         .unwrap();
@@ -4357,12 +4357,13 @@ async fn f3s3_prise_expirant_en_decembre_rouvre_part_non_couverte_les_mois_suiva
     assert_eq!(somme_org().await, 18_000);
     assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1, "pas de doublon");
 
-    // avec un payeur suivant : la famille porte janvier-juin (6 mois × 45 €), sous une clé de tronçon distincte
+    // avec un payeur suivant désigné
     let (el2, fm2, fe2, _) = eleve_pris_en_charge(&ent, &c, "Suivant", (d(2030, 9, 1), d(2030, 12, 31)), true).await;
     facturer(&ent, etab, el2).await;
     assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe2).await, "restauration"), 18_000);
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm2).await, "restauration"), 27_000);
-    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 0);
+    // une prise échue ne bascule jamais d'office sur le payeur suivant (E2 : décision humaine) : tâche, rien sur la famille
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm2).await, "restauration"), 0);
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 1);
     let avant = lignes_de(&ent, el2).await;
     facturer(&ent, etab, el2).await;
     assert_eq!(lignes_de(&ent, el2).await, avant, "rejeu sans double facturation");
@@ -4595,7 +4596,7 @@ async fn f3s3_fin_de_tarif_datee() {
     let motif = facturer_motif(&ent, etab, el3).await.unwrap_err();
     assert!(motif.contains("aucun tarif applicable pour l'article"), "{motif}");
     // la fin datée est journalisée
-    assert!(journal_contient(&ent, etab, "article.retirer").await >= 3);
+    assert_eq!(journal_contient(&ent, etab, "article.retirer").await, 2);
 }
 
 /// Moyen 1 (suite) : un changement de régime que la génération ne peut pas facturer ouvre une tâche d'anomalie
@@ -4755,7 +4756,7 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
                 annee_scolaire: ANNEE.into(),
                 code: "REM75".into(),
                 libelle: "Remise 7,5 %".into(),
-                nature: "individuelle".into(),
+                nature: "autre".into(),
                 rang_min: None,
                 taux_bps: 750,
                 categories: vec!["restauration".into()],
@@ -4832,8 +4833,22 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
         qf_max_centimes: max,
         ..tarif_body(dp.id, montant, false)
     };
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(None, Some(100_000), 30_000)).await.unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(0), Some(100_000), 30_000)).await.unwrap();
     ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(100_000), None, 45_000)).await.unwrap();
+    ent.definir_tranches_for_actor(
+        etab,
+        u,
+        r,
+        v1.id,
+        &TranchesBody {
+            tranches: vec![
+                TrancheQfBody { code: "B".into(), libelle: "Basse".into(), qf_min_centimes: 0, qf_max_centimes: Some(100_000) },
+                TrancheQfBody { code: "H".into(), libelle: "Haute".into(), qf_min_centimes: 100_000, qf_max_centimes: None },
+            ],
+        },
+    )
+    .await
+    .unwrap();
     ent.proposer_grille_for_actor(etab, u, r, v1.id).await.unwrap();
     ent.voter_grille_test(etab, c.admin.user_id, Role::Admin.as_str(), v1.id, &vote("CA du 20 juin")).await.unwrap();
     ent.mettre_en_vigueur_for_actor(etab, u, r, v1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) }).await.unwrap();
@@ -4928,8 +4943,6 @@ async fn f3s3_publication_close_deja_publiee_reste_relisible() {
     let (u, r) = compta(&c);
     let (v1, _, dp) = grille_en_vigueur(&ent, &c).await;
     let _ = dp;
-    // v1 publiée avant la v2
-    ent.publier_grille_au_jour(etab, ua, ra, v1, d(2030, 9, 15)).await.unwrap();
     let v2 = ent
         .corriger_grille_for_actor(
             etab,
@@ -4954,6 +4967,10 @@ async fn f3s3_publication_close_deja_publiee_reste_relisible() {
     ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
         .await
         .unwrap();
+    // jamais publiée et supplantée au 1er février 2031 : première publication refusée (409)
+    assert!(conflit(ent.publier_grille_au_jour(etab, ua, ra, v1, d(2031, 2, 1)).await));
+    // publiée avant la mise en vigueur de v2, elle reste relisible
+    ent.publier_grille_au_jour(etab, ua, ra, v1, d(2030, 12, 25)).await.unwrap();
     // au 1er février 2031, v1 est close et supplantée, mais déjà publiée : relisible
     ent.publier_grille_au_jour(etab, ua, ra, v1, d(2031, 2, 1))
         .await
