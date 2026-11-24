@@ -99,13 +99,15 @@ BEGIN
         EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW '
                        'EXECUTE FUNCTION public.ent_cdt_ecriture_gardee_fille()', t || '_annee_figee', t);
     END LOOP;
-    -- Jamais supprimées (R-C3) : un groupe, l'appartenance datée à un groupe (on la clôt par `jusqu_au`) et une note
-    -- d'accompagnement ne s'effacent pas ; les cours d'une continuité sont en ajout seul (aucun code ne les modifie).
-    FOREACH t IN ARRAY ARRAY['ent_cdt_groupe', 'ent_cdt_groupe_membre', 'ent_cdt_note_accompagnement']
+    -- Contre-revue du pilote (Moyen 2, D-069) : pas de règle « jamais supprimé » sur ces tables (non demandée ; les notes
+    -- d'accompagnement sont des données sensibles soumises à minimisation et à effacement). Le gel d'année protège déjà les
+    -- années closes ; les clés étrangères RESTRICT protègent les liens. TRUNCATE (Faible 1) est refusé comme pour 2407.
+    FOREACH t IN ARRAY ARRAY['ent_cdt_groupe', 'ent_cdt_groupe_membre', 'ent_cdt_note_accompagnement', 'ent_cdt_continuite_cours']
     LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_jamais_supprime', t);
-        EXECUTE format('CREATE TRIGGER %I BEFORE DELETE ON public.%I FOR EACH ROW '
-                       'EXECUTE FUNCTION public.ent_cdt_jamais_supprime()', t || '_jamais_supprime', t);
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_sans_truncate', t);
+        EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT '
+                       'EXECUTE FUNCTION public.ent_cdt_sans_truncate()', t || '_sans_truncate', t);
     END LOOP;
     DROP TRIGGER IF EXISTS ent_cdt_continuite_cours_ajout_seul ON public.ent_cdt_continuite_cours;
     CREATE TRIGGER ent_cdt_continuite_cours_ajout_seul BEFORE UPDATE OR DELETE ON public.ent_cdt_continuite_cours

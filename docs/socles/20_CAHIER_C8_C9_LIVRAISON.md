@@ -262,3 +262,17 @@ Branche `ent-socle-20-code-suites` (partie d'`origin/ENT`), PR en brouillon vers
 
 **Tête et CI finales** : CI verte (job « ENT Rust ») sur `b17de905`, après fusion d'`origin/ENT` (la CI n'était pas partie sur `a879a54c` : conflit). Le test flaky hors lot `les_versions_sensibles_non_courantes_sont_scellees` n'a pas échoué cette fois.
 
+
+### Correctifs du pilote après contre-revue des suites (2026-11-24)
+Rapport complet : `docs/pilotage/revues/20_CAHIER_SUITES_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé.
+- **Moyen 1, fusion d'élève** : `ent_cdt_note_accompagnement`, `ent_cdt_travail_cible`, `ent_cdt_variante_eleve` sont déplacées
+  à la fusion **seulement pour une année non figée** (`dc(…)` dans `domain-eleve/src/fusion.rs`) ; les lignes d'une année
+  close restent sur l'absorbé au lieu de faire échouer la fusion. La limite « fusion refusée » ci-dessus est levée. Test
+  `c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte`.
+- **Moyen 2 (D-069)** : la règle « jamais supprimé » sur groupe, appartenance et note est **retirée** (non demandée ; données
+  sensibles soumises à minimisation) ; le gel d'année et les clés étrangères suffisent.
+- **Faible 1** : TRUNCATE refusé sur les 4 tables filles (`ent_cdt_sans_truncate`, 42501). Test « hors gel » réécrit.
+- En file : faibles 3 à 10 du rapport (dont l'épuisement de la plage 2400–2419 : C14 et le retrait des anciennes tables
+  recevront une plage d'extension du pilote).
+- Local : `tests_cahier`, fusion : 164 verts ; clippy 1.99 (labo) vert. `2419_cdt_suites_gel_filles` inscrite à
+  `migrations_versees.txt` au versement.

@@ -3818,10 +3818,11 @@ async fn c8_suites_f2_tables_filles_gelees_dans_une_annee_close_au_socle_5() {
     verifier_gel(&fx, &jeu, "année close au socle 5 (tables filles)").await;
 }
 
-/// Hors gel, les tables filles restent protégées pour elles-mêmes : jamais supprimées (groupe, appartenance, note), ajout seul
-/// (cours d'une continuité). Vérifié SANS année close : un refus ne vient donc pas du gel.
+/// Hors gel (contre-revue du pilote, Moyen 2 et Faible 1) : les cours d'une continuité sont en ajout seul ; aucune des
+/// quatre tables filles ne se vide par TRUNCATE ; groupe, appartenance et note restent supprimables (minimisation), le gel
+/// d'année protégeant seul les années closes. Vérifié SANS année close : un refus ne vient donc pas du gel.
 #[tokio::test]
-async fn c8_suites_f2_tables_filles_non_supprimables_hors_gel() {
+async fn c8_suites_f2_tables_filles_hors_gel_ajout_seul_et_sans_truncate() {
     let Some(fx) = fixture().await else {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
@@ -3829,18 +3830,20 @@ async fn c8_suites_f2_tables_filles_non_supprimables_hors_gel() {
     let jeu = jeu_gel_filles(&fx).await;
     inserer_avant_gel(&fx, &jeu).await;
     for (table, _, upd, del) in &jeu.lignes {
-        assert_eq!(
-            code_sql(sqlx::query(del).execute(fx.ent.pool()).await).as_deref(),
-            Some("23514"),
-            "DELETE {table}"
-        );
         if table == &"ent_cdt_continuite_cours" {
-            assert_eq!(
-                code_sql(sqlx::query(upd).execute(fx.ent.pool()).await).as_deref(),
-                Some("23514"),
-                "UPDATE {table}"
-            );
+            for (quoi, q) in [("UPDATE", upd), ("DELETE", del)] {
+                assert_eq!(
+                    code_sql(sqlx::query(q).execute(fx.ent.pool()).await).as_deref(),
+                    Some("23514"),
+                    "{quoi} {table} : ajout seul"
+                );
+            }
         }
+        // TRUNCATE dans une transaction toujours annulée : s'il passait, rien ne serait perdu.
+        let mut tx = fx.ent.pool_verif().begin().await.unwrap();
+        let r = sqlx::query(&format!("TRUNCATE {table} CASCADE")).execute(&mut *tx).await;
+        tx.rollback().await.unwrap();
+        assert_eq!(code_sql(r).as_deref(), Some("42501"), "TRUNCATE {table}");
     }
 }
 
@@ -3999,4 +4002,44 @@ async fn c8_suites_reprise_refusee_au_role_applicatif() {
         "ni le rôle applicatif ni PUBLIC n'exécutent la reprise"
     );
     assert!(proprietaire, "le propriétaire la garde");
+}
+
+/// Contre-revue du pilote (suites cahier, Moyen 1) : la fusion d'élève ne déplace que les notes d'accompagnement d'une
+/// année NON figée (condition du registre `domain_eleve::TABLES_ELEVE`) ; celles d'une année close restent sur l'absorbé,
+/// au lieu de faire échouer toute la fusion par le gel. Même règle pour les cibles de travail et les variantes d'élève.
+#[tokio::test]
+async fn c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel_filles(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    let cond = |table: &str| {
+        domain_eleve::TABLES_ELEVE
+            .iter()
+            .find(|t| t.table == table)
+            .map(|t| t.condition)
+            .expect("table au registre")
+    };
+    for table in ["ent_cdt_note_accompagnement", "ent_cdt_travail_cible", "ent_cdt_variante_eleve"] {
+        assert!(!cond(table).is_empty(), "{table} : déplacement conditionné à l'année ouverte");
+    }
+    let deplacables = |etab: Uuid| {
+        let q = format!(
+            "SELECT count(*) FROM ent_cdt_note_accompagnement t WHERE t.etablissement_id = $1 AND ({})",
+            cond("ent_cdt_note_accompagnement")
+        );
+        let pool = fx.ent.pool_verif().clone();
+        async move { sqlx::query_scalar::<_, i64>(&q).bind(etab).fetch_one(&pool).await.unwrap() }
+    };
+    let etab = fx.cast.etablissement_id;
+    assert_eq!(deplacables(etab).await, 1, "année ouverte : la note suit l'élève conservé");
+    sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab)
+        .bind(jeu.annee)
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(deplacables(etab).await, 0, "année close : la note reste sur l'absorbé");
 }
