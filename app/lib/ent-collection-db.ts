@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { entCollectionAttr, entCollectionRecord } from "@/db/schema";
 import { flattenCollectionRecord, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
@@ -338,5 +338,183 @@ export async function insertCollectionRecordIfAbsent(
       );
     }
     return true;
+  });
+}
+
+/* ─── Ajouts voyages v2 : mutation sérialisée et verrou en table (aucune fonction existante modifiée) ─── */
+
+type CollectionTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * Relit, modifie et réécrit UN enregistrement dans une transaction protégée par un verrou advisory
+ * transactionnel (`pg_advisory_xact_lock(hashtext(clé))`) : deux mutations du même enregistrement
+ * s'exécutent l'une après l'autre, chacune sur la dernière version. Le verrou est libéré à la fin de la
+ * transaction (compatible PgBouncer en mode transaction : rien n'est lié à la session).
+ *
+ * `mutate` doit être SYNCHRONE et ne faire aucune entrée-sortie (pas d'e-mail, pas de S3) : la transaction
+ * reste ouverte pendant son exécution. Il reçoit une copie de l'enregistrement et retourne `{ save, value }` :
+ * `save: false` = rien n'est écrit. Retourne `null` si l'enregistrement n'existe pas.
+ */
+export async function mutateCollectionRecordLocked<T extends Record<string, unknown>, R>(
+  etablissementId: string,
+  collection: CollectionName,
+  recordId: string,
+  mutate: (current: T) => { save: boolean; value: R },
+): Promise<{ value: R; saved: boolean } | null> {
+  const db = getDb();
+  return db.transaction(async (tx: CollectionTx) => {
+    const lockKey = `${etablissementId}\u0000${collection}\u0000${recordId}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
+    const [head] = await tx
+      .select({ recordId: entCollectionRecord.recordId })
+      .from(entCollectionRecord)
+      .where(
+        and(
+          eq(entCollectionRecord.etablissementId, etablissementId),
+          eq(entCollectionRecord.collection, collection),
+          eq(entCollectionRecord.recordId, recordId),
+        ),
+      )
+      .limit(1);
+    if (!head) return null;
+    const rows = await tx
+      .select({ path: entCollectionAttr.path, value: entCollectionAttr.value })
+      .from(entCollectionAttr)
+      .where(
+        and(
+          eq(entCollectionAttr.etablissementId, etablissementId),
+          eq(entCollectionAttr.collection, collection),
+          eq(entCollectionAttr.recordId, recordId),
+        ),
+      );
+    const current = inflateFromAttrs(rows) as Record<string, unknown>;
+    if (!current.id) current.id = recordId;
+    const out = mutate(current as T);
+    if (!out.save) return { value: out.value, saved: false };
+    const attrs = flattenCollectionRecord(current);
+    await tx
+      .update(entCollectionRecord)
+      .set({
+        status: statusFromRecord(current),
+        updatedAt: sql`greatest(clock_timestamp(), ${entCollectionRecord.updatedAt} + interval '1 microsecond')`,
+      })
+      .where(
+        and(
+          eq(entCollectionRecord.etablissementId, etablissementId),
+          eq(entCollectionRecord.collection, collection),
+          eq(entCollectionRecord.recordId, recordId),
+        ),
+      );
+    await tx
+      .delete(entCollectionAttr)
+      .where(
+        and(
+          eq(entCollectionAttr.etablissementId, etablissementId),
+          eq(entCollectionAttr.collection, collection),
+          eq(entCollectionAttr.recordId, recordId),
+        ),
+      );
+    for (let i = 0; i < attrs.length; i += 100) {
+      await tx.insert(entCollectionAttr).values(
+        attrs.slice(i, i + 100).map((a) => ({
+          etablissementId,
+          collection,
+          recordId,
+          path: a.path,
+          value: a.value,
+        })),
+      );
+    }
+    return { value: out.value, saved: true };
+  });
+}
+
+/**
+ * Verrou « en table » (une ligne, sans attribut) : prise atomique par INSERT ... ON CONFLICT, reprise d'un
+ * verrou périmé (plus vieux que `ttlSeconds`) par un UPDATE conditionnel — un seul appelant gagne.
+ * Aucune connexion n'est gardée ouverte : fonctionne derrière PgBouncer (contrairement à un verrou de session).
+ * Retourne true si le verrou est pris ; l'appelant DOIT appeler `releaseCollectionLock` (finally).
+ */
+export async function tryAcquireCollectionLock(
+  etablissementId: string,
+  collection: CollectionName,
+  recordId: string,
+  ttlSeconds: number,
+): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .insert(entCollectionRecord)
+    .values({ etablissementId, collection, recordId, status: "locked", updatedAt: sql`clock_timestamp()` })
+    .onConflictDoUpdate({
+      target: [entCollectionRecord.etablissementId, entCollectionRecord.collection, entCollectionRecord.recordId],
+      set: { status: "locked", updatedAt: sql`clock_timestamp()` },
+      setWhere: sql`${entCollectionRecord.updatedAt} < clock_timestamp() - make_interval(secs => ${ttlSeconds})`,
+    })
+    .returning({ recordId: entCollectionRecord.recordId });
+  return rows.length > 0;
+}
+
+export async function releaseCollectionLock(
+  etablissementId: string,
+  collection: CollectionName,
+  recordId: string,
+): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(entCollectionRecord)
+    .where(
+      and(
+        eq(entCollectionRecord.etablissementId, etablissementId),
+        eq(entCollectionRecord.collection, collection),
+        eq(entCollectionRecord.recordId, recordId),
+      ),
+    );
+}
+
+/**
+ * Enregistrements d'une collection dont l'attribut texte `path` vaut `value` (ex. les invitations d'un élève).
+ * Une requête ciblée au lieu de charger toute la collection ; le filtre parcourt les attributs de la collection
+ * côté base (pas d'index dédié : aucune migration ajoutée).
+ */
+export async function listCollectionRecordsByStringAttr<T extends Record<string, unknown>>(
+  etablissementId: string,
+  collection: CollectionName,
+  path: string,
+  value: string,
+): Promise<T[]> {
+  const db = getDb();
+  const hits = await db
+    .select({ recordId: entCollectionAttr.recordId })
+    .from(entCollectionAttr)
+    .where(
+      and(
+        eq(entCollectionAttr.etablissementId, etablissementId),
+        eq(entCollectionAttr.collection, collection),
+        eq(entCollectionAttr.path, path),
+        eq(entCollectionAttr.value, `s:${value}`),
+      ),
+    );
+  const ids = [...new Set(hits.map((h) => h.recordId))];
+  if (ids.length === 0) return [];
+  const attrs = await db
+    .select()
+    .from(entCollectionAttr)
+    .where(
+      and(
+        eq(entCollectionAttr.etablissementId, etablissementId),
+        eq(entCollectionAttr.collection, collection),
+        inArray(entCollectionAttr.recordId, ids),
+      ),
+    );
+  const byId = new Map<string, { path: string; value: string }[]>();
+  for (const a of attrs) {
+    const list = byId.get(a.recordId) ?? [];
+    list.push({ path: a.path, value: a.value });
+    byId.set(a.recordId, list);
+  }
+  return ids.map((id) => {
+    const obj = inflateFromAttrs(byId.get(id) ?? []);
+    if (!obj.id) obj.id = id;
+    return obj as T;
   });
 }

@@ -10,6 +10,12 @@ import { isWithinSendWindow } from "@/app/lib/travels-v2-reminders-job";
  * verrou advisory Postgres (un seul serveur à la fois), idempotence portée par les données.
  */
 
+/**
+ * ATTENTION — verrou de session : `pg_try_advisory_lock` est lié à UNE connexion Postgres. Il exige une connexion DIRECTE
+ * (`DATABASE_URL` sans PgBouncer en mode « transaction »). Défense en profondeur, valable même derrière PgBouncer :
+ * un verrou EN TABLE par établissement pour le passage (`withNamedLock`, durée limitée) et des verrous EN TABLE par voyage
+ * autour de la clôture, de ses effets (liste transporteur, e-mail compta) et de la purge (voir travels-v2-lot4-store.ts).
+ */
 const INTERVAL_MS = 60 * 60_000;
 const FIRST_RUN_MS = 5 * 60_000;
 const LOCK_KEY = 7_204_117_003; // distinct des relances (…002) et des nouveautés
@@ -34,7 +40,10 @@ async function runPass(): Promise<void> {
       for (const tenant of tenants) {
         try {
           await runWithTenant(tenant, async () => {
-            const r = await runLifecycleForTenant();
+            const { withNamedLock } = await import("@/app/lib/ent-json-postgres");
+            const locked = await withNamedLock("jobs", "voyages-v2-cycle", 55 * 60, () => runLifecycleForTenant());
+            if (locked.busy) return;
+            const r = locked.value;
             if (r.closed || r.proposed || r.blocked || r.purged || r.retried) {
               console.info(
                 `[voyages-v2-cycle] ${tenant.slug}: ${r.closed} clôturé(s), ${r.proposed} proposition(s), ${r.blocked} blocage(s), ${r.purged} purgé(s), ${r.retried} reprise(s)`,

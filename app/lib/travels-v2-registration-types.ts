@@ -15,7 +15,10 @@ export const CODE_MAX_ATTEMPTS = 5;
 export const CODE_MIN_INTERVAL_MS = 30 * 1000;
 /** Nombre maximal d'envois de code par invitation sur une heure glissante. */
 export const CODE_MAX_SENDS_PER_HOUR = 5;
-export const MAX_TOKEN_HASHES = 5;
+/** Liens « principaux » (envoi initial, renvois demandés par la famille) : 10 emplacements. */
+export const MAX_TOKEN_HASHES = 10;
+/** Liens des relances et copies automatiques : emplacements distincts, ils n'évincent jamais un lien principal. */
+export const MAX_AUX_TOKEN_HASHES = 5;
 export const DOC_MAX_BYTES = 8 * 1024 * 1024;
 export const SIGNATURE_MAX_BYTES = 200 * 1024;
 export const PHONE_RE = /^[+0-9 ().-]{6,20}$/;
@@ -89,6 +92,22 @@ export type FamilyEngagement = {
   months: { label: string; amount: number }[];
   signedAt: string;
   pdfKey: string;
+  /** Instantané de ce que la famille avait sous les yeux en signant (prix, mois, pièces, date limite…). */
+  shown?: EngagementShown;
+};
+
+/** Ce qui était AFFICHÉ à la famille à la signature (preuve : la page ne peut plus changer après l'ouverture, mais on le fige aussi ici). */
+export type EngagementShown = {
+  capturedAt: string;
+  pricePerStudent: number | null;
+  firstMonth?: string;
+  lastMonth?: string;
+  paymentText?: string;
+  deadline: string | null;
+  documents: { label: string; kind: string; dueDate?: string }[];
+  program?: string;
+  equipment?: string[];
+  cash?: { amount: number; reason: string };
 };
 
 export type FamilyInvitation = {
@@ -102,6 +121,8 @@ export type FamilyInvitation = {
   createdAt: string;
   /** Empreintes sha-256 des jetons valides (le jeton en clair n'est jamais stocké). */
   tokenHashes: string[];
+  /** Empreintes des liens joints aux relances automatiques et aux copies au second responsable (emplacements séparés). */
+  auxTokenHashes?: string[];
   sendCount: number;
   firstSentAt?: string;
   lastSentAt?: string;
@@ -237,6 +258,23 @@ export function computeInvitationStatus(opts: {
   if (a.participates === "oui" && missingBlockingDocs(docs, inv).length > 0) return "bloque_piece";
   if (signingProblems({ answers: a, picnicDayKeys, docs, inv }).length === 0) return "pret";
   return "en_cours";
+}
+
+/* ─── Ce qu'un jeton donne selon l'état du voyage ─── */
+
+export type TokenAccess = "full" | "signed_only" | "pdf_only" | "none";
+
+/**
+ * - voyage ouvert aux inscriptions → accès complet ;
+ * - voyage clôturé (VALIDE / FINALISE…) → seulement une famille qui a signé « oui » et n'est pas désistée (page, PDF, agenda,
+ *   pièces « avant départ » : le dépôt après signature reste permis jusqu'à la date de chaque pièce) ;
+ * - tout autre état (annulé, refusé, en préparation…) → le PDF de l'engagement déjà signé, ou rien si rien n'est signé.
+ */
+export function tokenAccessFor(opts: { tripStatus: string | null | undefined; signedYes: boolean; withdrawn: boolean }): TokenAccess {
+  const st = String(opts.tripStatus || "");
+  if (st === "INSCRIPTIONS_OUVERTES") return "full";
+  if ((st === "VALIDE" || st === "FINALISE_DIR_ATTENTE_ELEVES") && opts.signedYes && !opts.withdrawn) return "signed_only";
+  return opts.signedYes ? "pdf_only" : "none";
 }
 
 /* ─── Fermeture de la page ─── */

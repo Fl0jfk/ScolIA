@@ -3,6 +3,7 @@ import "server-only";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { withNamedLock } from "@/app/lib/ent-json-postgres";
 import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
@@ -33,10 +34,13 @@ import {
   comptaTable,
   canCloseManually,
   computeMealsPerDay,
+  closureSideEffectPlan,
   decideClosureAction,
   evaluateClosure,
   evaluateRectifiedQuote,
-  isPurgeDue,
+  isDeadTripStatus,
+  isTripPurgeDue,
+  tripPurgeDueOn,
   planPurge,
   sanitizeAdultMeals,
   type ClosureCheck,
@@ -51,7 +55,9 @@ import {
   listInvitations,
   listStudentCases,
   mailContext,
+  mutateInvitation,
   saveInvitation,
+  TRIP_LOCK_TTL_SECONDS,
   validReplyTo,
 } from "@/app/lib/travels-v2-registration-store";
 
@@ -271,6 +277,22 @@ export async function closeRegistrations(opts: {
   byUserId?: string;
   todayIso?: string;
 }): Promise<CloseResult> {
+  // Verrou par voyage : le clic de l'organisateur et le job planifié ne peuvent pas clôturer en même temps.
+  const locked = await withNamedLock(TRIP_CLOSURE_LOCK, opts.tripId, TRIP_LOCK_TTL_SECONDS, () => closeRegistrationsUnlocked(opts));
+  if (locked.busy) return { ok: false, status: 409, error: "Une clôture est déjà en cours pour ce voyage." };
+  return locked.value;
+}
+
+/** Verrou « par voyage » de la clôture et de ses effets (liste transporteur, e-mail compta) — évite les doublons d'e-mails. */
+export const TRIP_CLOSURE_LOCK = "trip-closure";
+
+async function closeRegistrationsUnlocked(opts: {
+  tripId: string;
+  mode: "auto" | "manuel";
+  by: string;
+  byUserId?: string;
+  todayIso?: string;
+}): Promise<CloseResult> {
   const todayIso = opts.todayIso || todayIsoParis();
   const trip = await getTravelTrip(opts.tripId);
   if (!trip || !isWorkflowV2(trip)) return { ok: false, status: 404, error: "Voyage introuvable." };
@@ -320,6 +342,9 @@ export async function closeRegistrations(opts: {
     officialCount: participants.length,
     ...(mealsPerDay ? { mealsPerDay, adultMeals: {} } : {}),
     rectifiedQuote: rectified,
+    // Clôture automatique : rien ne part à l'extérieur avant la confirmation de l'organisateur (« Confirmer et envoyer »).
+    // Clôture manuelle : le clic (qui annonce l'envoi) vaut confirmation.
+    ...(opts.mode === "manuel" ? { sendConfirmedAt: now, sendConfirmedBy: opts.by } : {}),
   };
   data = {
     ...data,
@@ -354,15 +379,35 @@ export async function closeRegistrations(opts: {
 }
 
 /**
- * Effets de bord de la clôture, chacun noté une seule fois : liste au transporteur, ZIP + e-mail à la compta,
- * résumé à l'organisateur. Peut être rejouée par le job si une étape a échoué.
+ * Effets de bord de la clôture, chacun noté une seule fois (rejouable par le job si une étape a échoué) :
+ *  - ZIP des engagements (stockage privé) : prêt pour la comptabilité DÈS la clôture (téléchargement connecté) ;
+ *  - liste nominative au transporteur et e-mail à la comptabilité : SEULEMENT après la confirmation humaine
+ *    (`closure.sendConfirmedAt` : clôture manuelle ou « Confirmer et envoyer ») — une clôture automatique n'envoie
+ *    aucune donnée nominative à l'extérieur ;
+ *  - résumé à l'organisateur (avec l'invitation à confirmer l'envoi quand c'est le cas).
+ * Sous verrou par voyage : un clic et un passage du job ne produisent jamais deux e-mails.
  */
 export async function completeClosureSideEffects(tripId: string): Promise<void> {
+  const locked = await withNamedLock(TRIP_CLOSURE_LOCK, tripId, TRIP_LOCK_TTL_SECONDS, () => completeClosureSideEffectsUnlocked(tripId));
+  if (locked.busy) console.warn("[voyages-v2] effets de clôture déjà en cours pour ce voyage");
+}
+
+async function completeClosureSideEffectsUnlocked(tripId: string): Promise<void> {
   let trip = await getTravelTrip(tripId);
   if (!trip?.data?.v2Closure) return;
   const closure = trip.data.v2Closure;
+  const plan = closureSideEffectPlan(closure, complexNeedsBus(trip));
 
-  if (!closure.transportListSentAt && complexNeedsBus(trip)) {
+  if (plan.zip) {
+    try {
+      const built = await buildAndStoreComptaZip(trip);
+      trip = (await patchClosure(tripId, { comptaZip: { key: built.key, generatedAt: new Date().toISOString(), count: built.count } })) || trip;
+    } catch (e) {
+      console.error("[voyages-v2] ZIP compta", e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (plan.transport) {
     try {
       const r = await sendTransporterList(trip);
       if (r.sentTo.length > 0) {
@@ -376,7 +421,7 @@ export async function completeClosureSideEffects(tripId: string): Promise<void> 
     }
   }
 
-  if (!closure.comptaMailSentAt) {
+  if (plan.compta) {
     try {
       const built = await buildAndStoreComptaZip(trip);
       const to = await comptaRecipients();
@@ -401,11 +446,16 @@ export async function completeClosureSideEffects(tripId: string): Promise<void> 
     }
   }
 
-  if (!trip.data.v2Closure?.organizerNotifiedAt) {
+  if (plan.organizer) {
     const c = trip.data.v2Closure!;
     const lines = [
       `Les inscriptions du voyage « ${tripTitle(trip)} » sont clôturées : ${c.officialCount} élève(s) dans la liste officielle.`,
     ];
+    if (!c.sendConfirmedAt) {
+      lines.push(
+        `La liste est figée mais RIEN n'est encore parti à l'extérieur. Vérifiez-la dans la vue Clôture du voyage, puis cliquez « Confirmer et envoyer » : la liste nominative part alors au transporteur et la comptabilité est prévenue. Les engagements signés (ZIP) sont déjà téléchargeables par la comptabilité.`,
+      );
+    }
     if (c.mealsPerDay) {
       lines.push(
         "Le bon cuisine a été calculé jour par jour à partir des réponses des familles. Il ne manque que les repas adultes : saisissez-les dans la vue Clôture du voyage, puis envoyez la commande au chef.",
@@ -419,11 +469,34 @@ export async function completeClosureSideEffects(tripId: string): Promise<void> 
       subject: `[Voyages] Inscriptions clôturées — ${tripTitle(trip)}`,
       lines,
       pushTitle: "Voyage : inscriptions clôturées",
-      pushBody: "La liste officielle est prête.",
+      pushBody: c.sendConfirmedAt ? "La liste officielle est prête." : "La liste est prête : confirmez l'envoi.",
       tag: `cloture-${tripId.slice(0, 20)}`,
     });
     await patchClosure(tripId, { organizerNotifiedAt: new Date().toISOString() });
   }
+}
+
+/**
+ * « Confirmer et envoyer » : confirmation humaine de l'envoi de la liste au transporteur et de l'e-mail à la comptabilité
+ * après une clôture automatique. Idempotent ; l'envoi lui-même est fait par `completeClosureSideEffects` (verrou par voyage).
+ */
+export async function confirmClosureSend(opts: {
+  tripId: string;
+  by: string;
+}): Promise<{ ok: true; already?: boolean } | { ok: false; status: number; error: string }> {
+  const trip = await getTravelTrip(opts.tripId);
+  if (!trip || !isWorkflowV2(trip) || !trip.data.v2Closure) return { ok: false, status: 409, error: "Les inscriptions ne sont pas clôturées." };
+  if (trip.data.v2Purge) return { ok: false, status: 409, error: "Voyage terminé." };
+  if (isDeadTripStatus(trip.status)) return { ok: false, status: 409, error: "Ce voyage est annulé." };
+  if (trip.data.v2Closure.sendConfirmedAt) return { ok: true, already: true };
+  const now = new Date().toISOString();
+  await saveTravelTrip({
+    ...trip,
+    updatedAt: now,
+    data: { ...trip.data, v2Closure: { ...trip.data.v2Closure, sendConfirmedAt: now, sendConfirmedBy: opts.by } },
+    history: withHistory(trip, opts.by, "Envoi confirmé", "Liste au transporteur et e-mail à la comptabilité autorisés après la clôture."),
+  });
+  return { ok: true };
 }
 
 /* ─── Repas adultes et commande cuisine ─── */
@@ -496,8 +569,15 @@ export async function recordWithdrawal(opts: {
   const hadMeals = Object.values(inv.answers?.meals || {}).some((m) => m?.wants === "oui");
   const now = new Date().toISOString();
   const note = opts.note?.trim().slice(0, 300) || undefined;
-  inv.withdrawal = { at: now, by: opts.by, ...(note ? { note } : {}) };
-  await saveInvitation(inv);
+  const withdrawal = { at: now, by: opts.by, ...(note ? { note } : {}) };
+  const marked = await mutateInvitation(trip.id, inv.id, (cur) => {
+    if (cur.withdrawal) return { save: false, value: false };
+    cur.withdrawal = withdrawal;
+    return { save: true, value: true };
+  });
+  if (!marked) return { ok: false, status: 404, error: "Cet élève n'est pas dans la liste officielle." };
+  if (!marked.value) return { ok: true, cuisineNotified: false, comptaNotified: false };
+  inv.withdrawal = withdrawal;
 
   // L'élève sort de la liste, les effectifs et le bon cuisine sont recalculés.
   const [invs2, cases] = await Promise.all([listInvitations(trip.id), listStudentCases(trip.id)]);
@@ -569,13 +649,41 @@ export type PurgeResult = { ok: true; already?: boolean; invitationsRemoved: num
 
 /**
  * Supprime tout sauf les engagements (PDF signés, scans papier « oui », enregistrement d'engagement minimal).
+ * CONSERVÉS aussi : le ZIP des engagements de la comptabilité (travels-v2/{voyage}/compta/engagements.zip) et les engagements eux-mêmes
+ * (y compris l'instantané de ce qui était affiché à la signature) ; la purge vaut aussi pour un voyage annulé / refusé dont la page avait été ouverte.
  * Idempotent : un voyage déjà purgé est ignoré ; un échec de suppression laisse le voyage « à purger » (rejoué plus tard).
  */
+/** Échéance de purge d'un voyage (voir `tripPurgeDueOn`) : le jour de l'annulation vient de la dernière modification du dossier. */
+export function purgeDueOnForTrip(trip: Pick<TravelsTrip, "status" | "data" | "updatedAt">): string | null {
+  const updated = trip.updatedAt ? new Date(trip.updatedAt) : null;
+  return tripPurgeDueOn({
+    status: String(trip.status),
+    opened: Boolean(trip.data?.familyPage?.openedAt),
+    returnIso: tripReturnIso(trip.data),
+    departureIso: tripDepartureIso(trip.data),
+    cancelledOnIso: updated && !Number.isNaN(updated.getTime()) ? todayIsoParis(updated) : null,
+  });
+}
+
+export function isPurgeDueForTrip(trip: Pick<TravelsTrip, "status" | "data" | "updatedAt">, todayIso: string): boolean {
+  const due = purgeDueOnForTrip(trip);
+  return due !== null && todayIso >= due;
+}
+
 export async function purgeTrip(tripId: string, todayIso: string = todayIsoParis()): Promise<PurgeResult> {
   const trip = await getTravelTrip(tripId);
-  if (!trip || !isWorkflowV2(trip) || !trip.data.v2Closure) return { ok: false, error: "Voyage non concerné." };
+  if (!trip || !isWorkflowV2(trip) || !trip.data.familyPage?.openedAt) return { ok: false, error: "Voyage non concerné." };
   if (trip.data.v2Purge) return { ok: true, already: true, invitationsRemoved: 0, filesRemoved: 0, engagementsKept: 0 };
-  if (!isPurgeDue(tripReturnIso(trip.data), todayIso)) return { ok: false, error: "Le retour n'est pas encore passé." };
+  if (!isPurgeDueForTrip(trip, todayIso)) return { ok: false, error: "Le retour n'est pas encore passé." };
+  const locked = await withNamedLock(TRIP_CLOSURE_LOCK, tripId, TRIP_LOCK_TTL_SECONDS, () => purgeTripUnlocked(tripId));
+  if (locked.busy) return { ok: false, error: "Une opération est déjà en cours sur ce voyage." };
+  return locked.value;
+}
+
+async function purgeTripUnlocked(tripId: string): Promise<PurgeResult> {
+  const trip = await getTravelTrip(tripId);
+  if (!trip || !isWorkflowV2(trip) || !trip.data.familyPage?.openedAt) return { ok: false, error: "Voyage non concerné." };
+  if (trip.data.v2Purge) return { ok: true, already: true, invitationsRemoved: 0, filesRemoved: 0, engagementsKept: 0 };
 
   const [invs, cases] = await Promise.all([listInvitations(tripId), listStudentCases(tripId)]);
   const plan = planPurge(invs, cases);
@@ -611,11 +719,11 @@ export async function purgeTrip(tripId: string, todayIso: string = todayIsoParis
   await saveTravelTrip({
     ...fresh,
     updatedAt: now,
-    data: { ...fresh.data, v2Purge: done },
+    data: { ...fresh.data, v2Purge: { ...done, reason: isDeadTripStatus(fresh.status) ? ("annulation" as const) : ("retour" as const) } },
     history: withHistory(
       fresh,
       "Système",
-      "Voyage terminé — pièces supprimées",
+      isDeadTripStatus(fresh.status) ? "Voyage annulé — pièces supprimées" : "Voyage terminé — pièces supprimées",
       `Seuls les engagements sont conservés (${plan.archive.length}). ${filesRemoved} fichier(s) et ${plan.deleteInvitationIds.length} enregistrement(s) supprimés.`,
     ),
   });
@@ -639,6 +747,15 @@ export async function runLifecycleForTrip(trip: TravelsTrip, todayIso: string = 
   const out: Partial<LifecycleSummary> = {};
   if (!isWorkflowV2(trip)) return out;
   const title = tripTitle(trip);
+
+  // Purge : le lendemain du retour (ou de la date de départ si le retour est inconnu) — et, pour un voyage annulé ou
+  // refusé dont la page avait été ouverte, le lendemain de l'annulation ou du retour prévu (le plus tôt).
+  if (!trip.data.v2Purge && trip.data.familyPage?.openedAt && isPurgeDueForTrip(trip, todayIso)) {
+    const r = await purgeTrip(trip.id, todayIso);
+    if (r.ok && !r.already) out.purged = 1;
+    return out;
+  }
+  if (isDeadTripStatus(trip.status)) return out;
 
   if (trip.status === OPEN_STATUS && trip.data.familyPage?.openedAt && !trip.data.v2Closure) {
     const { check } = await readClosureInputs(trip, todayIso);
@@ -690,34 +807,56 @@ export async function runLifecycleForTrip(trip: TravelsTrip, todayIso: string = 
 
   const closure = trip.data.v2Closure;
   if (closure && !trip.data.v2Purge) {
-    if (isPurgeDue(tripReturnIso(trip.data), todayIso)) {
-      const r = await purgeTrip(trip.id, todayIso);
-      if (r.ok && !r.already) out.purged = 1;
-      return out;
-    }
-    // Reprise d'une étape de clôture restée en échec (7 jours, avant le départ).
+    const confirmed = Boolean(closure.sendConfirmedAt);
+    // Reprise d'une étape de clôture restée en échec (7 jours, avant le départ). Rien n'est envoyé à l'extérieur
+    // tant que l'organisateur n'a pas confirmé.
     const departure = tripDepartureIso(trip.data);
-    const recent = Date.now() - new Date(closure.closedAt).getTime() < 7 * 86_400_000;
-    const pending = !closure.comptaMailSentAt || !closure.organizerNotifiedAt || (!closure.transportListSentAt && complexNeedsBus(trip));
+    const since = new Date(closure.sendConfirmedAt || closure.closedAt).getTime();
+    const recent = Date.now() - since < 7 * 86_400_000;
+    const fx = closureSideEffectPlan(closure, complexNeedsBus(trip));
+    const pending = fx.zip || fx.organizer || fx.transport || fx.compta;
     if (pending && recent && (!departure || todayIso <= departure)) {
       await completeClosureSideEffects(trip.id);
       out.retried = 1;
+    }
+    // Clôture automatique jamais confirmée : un rappel à l'organisateur après deux jours (une seule fois).
+    if (!confirmed && Date.now() - new Date(closure.closedAt).getTime() > 2 * 86_400_000 && (!departure || todayIso <= departure)) {
+      await alertOnce(trip, "send_unconfirmed", "1", () => ({
+        trip,
+        ownerOnly: true,
+        subject: `[Voyages] Liste officielle à confirmer — ${title}`,
+        lines: [
+          `Les inscriptions du voyage « ${title} » ont été clôturées automatiquement mais la liste n'est pas encore partie au transporteur ni à la comptabilité. Vérifiez-la puis cliquez « Confirmer et envoyer » dans la vue Clôture du voyage.`,
+        ],
+        pushTitle: "Voyage : confirmez l'envoi de la liste",
+        pushBody: "La liste officielle attend votre confirmation.",
+        tag: `confirm-${trip.id.slice(0, 20)}`,
+      }));
     }
   }
   return out;
 }
 
+/** Voyages sans objet pour le cycle de vie (non v2, ou déjà purgés) : on ne les recharge plus à chaque passage horaire. */
+const lifecycleSkip = new Set<string>();
+
 export async function runLifecycleForTenant(): Promise<LifecycleSummary> {
   const total: LifecycleSummary = { closed: 0, proposed: 0, blocked: 0, purged: 0, retried: 0 };
   const index = await listTravelsIndex().catch(() => []);
-  const live = new Set([OPEN_STATUS, CLOSED_STATUS]);
+  // Voyages annulés / refusés inclus : leur page ouverte doit être purgée.
+  const live = new Set([OPEN_STATUS, CLOSED_STATUS, "FINALISE_DIR_ATTENTE_ELEVES", "ANNULE", "REJETE", "SEANCE_ANNULEE"]);
   for (const summary of index) {
     if (!live.has(String(summary.status))) continue;
+    if (lifecycleSkip.has(summary.id)) continue;
     try {
       const trip = await getTravelTrip(summary.id);
-      if (!trip || !isWorkflowV2(trip)) continue;
+      if (!trip || !isWorkflowV2(trip)) {
+        lifecycleSkip.add(summary.id);
+        continue;
+      }
       const r = await runLifecycleForTrip(trip);
       for (const k of Object.keys(total) as (keyof LifecycleSummary)[]) total[k] += r[k] || 0;
+      if (r.purged || (isDeadTripStatus(trip.status) && !trip.data.familyPage?.openedAt)) lifecycleSkip.add(summary.id);
     } catch (e) {
       console.error("[voyages-v2-cycle] voyage ignoré", e instanceof Error ? e.message : e);
     }
@@ -733,6 +872,8 @@ export type ClosureView = {
   purged: boolean;
   /** Lendemain du retour : date de la purge. */
   purgeOn: string | null;
+  /** Clôture automatique faite : la liste est figée mais rien n'est encore parti à l'extérieur (attend « Confirmer et envoyer »). */
+  awaitingSendConfirmation: boolean;
   open: null | {
     dueDate: string | null;
     dueNow: boolean;
@@ -748,6 +889,7 @@ export type ClosureView = {
     officialCount: number;
     transportListSentAt?: string;
     comptaMailSentAt?: string;
+    sendConfirmedAt?: string;
     rectifiedQuote?: TravelsV2Closure["rectifiedQuote"];
   };
   official: { ine: string; studentName: string; classe?: string }[];
@@ -805,7 +947,8 @@ export async function buildClosureView(trip: TravelsTrip, todayIso: string = tod
     status: String(trip.status),
     closed: Boolean(closure),
     purged: Boolean(trip.data.v2Purge),
-    purgeOn: closure ? (tripReturnIso(trip.data) ? addDaysIso(tripReturnIso(trip.data)!, 1) : null) : null,
+    purgeOn: purgeDueOnForTrip(trip),
+    awaitingSendConfirmation: Boolean(closure && !closure.sendConfirmedAt && !trip.data.v2Purge),
     open,
     closure: closure
       ? {
@@ -814,6 +957,7 @@ export async function buildClosureView(trip: TravelsTrip, todayIso: string = tod
           officialCount: closure.officialCount,
           transportListSentAt: closure.transportListSentAt,
           comptaMailSentAt: closure.comptaMailSentAt,
+          sendConfirmedAt: closure.sendConfirmedAt,
           rectifiedQuote: closure.rectifiedQuote,
         }
       : null,

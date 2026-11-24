@@ -665,3 +665,68 @@ export async function putJsonIfAbsentToPostgres(
   const { insertCollectionRecordIfAbsent } = await import("@/app/lib/ent-collection-db");
   return insertCollectionRecordIfAbsent(etabId, collection, recordId, { ...data, id: data.id ?? recordId });
 }
+
+/* ─── Ajouts voyages v2 (aucune fonction existante modifiée) ─── */
+
+/**
+ * Mutation sérialisée d'un document JSON (collections génériques) : relu DANS un verrou advisory
+ * transactionnel par document, modifié par `mutate` (synchrone, sans entrée-sortie), puis réécrit.
+ * Retourne null si le document n'existe pas.
+ */
+export async function mutateJsonRecordLocked<T extends Record<string, unknown>, R>(
+  relativePath: string,
+  mutate: (current: T) => { save: boolean; value: R },
+): Promise<{ value: R; saved: boolean } | null> {
+  const etabId = await collectionDbReady();
+  if (!etabId) throw new Error(`[ent] mutation verrouillée impossible sans Postgres pour ${relativePath}`);
+  const { collection, recordId, singleton } = jsonPathToCollection(relativePath);
+  if (singleton) throw new Error("[ent] mutation verrouillée : chemin singleton non pris en charge");
+  const { mutateCollectionRecordLocked } = await import("@/app/lib/ent-collection-db");
+  return mutateCollectionRecordLocked<T, R>(etabId, collection, recordId, mutate);
+}
+
+/** Verrou en table à durée limitée (voir `tryAcquireCollectionLock`) ; `name` = identifiant du verrou. */
+export async function tryAcquireNamedLock(scope: string, name: string, ttlSeconds: number): Promise<boolean> {
+  const etabId = await collectionDbReady();
+  if (!etabId) return true; // pas de Postgres (tests) : pas de verrou
+  const { tryAcquireCollectionLock } = await import("@/app/lib/ent-collection-db");
+  return tryAcquireCollectionLock(etabId, `locks__${scope}`, name, ttlSeconds);
+}
+
+export async function releaseNamedLock(scope: string, name: string): Promise<void> {
+  const etabId = await collectionDbReady();
+  if (!etabId) return;
+  const { releaseCollectionLock } = await import("@/app/lib/ent-collection-db");
+  await releaseCollectionLock(etabId, `locks__${scope}`, name);
+}
+
+/** Exécute `fn` sous verrou nommé ; si le verrou est déjà pris, retourne `{ busy: true }` sans exécuter. */
+export async function withNamedLock<R>(
+  scope: string,
+  name: string,
+  ttlSeconds: number,
+  fn: () => Promise<R>,
+): Promise<{ busy: false; value: R } | { busy: true }> {
+  if (!(await tryAcquireNamedLock(scope, name, ttlSeconds))) return { busy: true };
+  try {
+    return { busy: false, value: await fn() };
+  } finally {
+    await releaseNamedLock(scope, name).catch(() => undefined);
+  }
+}
+
+/** Documents d'un « dossier » JSON dont l'attribut texte `path` vaut `value` (requête ciblée, sans charger tout le dossier). */
+export async function listJsonRecordsInDirByStringAttr<T extends Record<string, unknown>>(
+  relativeDir: string,
+  path: string,
+  value: string,
+): Promise<T[]> {
+  const etabId = await collectionDbReady();
+  if (!etabId) return [];
+  const dir = relativeDir.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!dir) return [];
+  const { collection, singleton } = jsonPathToCollection(`${dir}/__probe__.json`);
+  if (singleton) return [];
+  const { listCollectionRecordsByStringAttr } = await import("@/app/lib/ent-collection-db");
+  return listCollectionRecordsByStringAttr<T>(etabId, collection, path, value);
+}

@@ -11,7 +11,7 @@ import {
   createInvitationsForTrip,
   getInvitation,
   listInvitations,
-  saveInvitation,
+  mutateInvitation,
   sendInvitationLink,
   sendPendingInvitations,
   signedUrlForInvitationFile,
@@ -243,11 +243,17 @@ export async function POST(req: Request) {
       const doc = (trip.data?.familyPage?.documents || []).find((d) => d.id === input.docId);
       if (!doc) return NextResponse.json({ error: "Pièce inconnue." }, { status: 400 });
       if (inv.signature) return NextResponse.json({ error: "Cette famille a déjà signé." }, { status: 409 });
-      const next = { ...(inv.exemptions || {}) };
-      if (input.value) next[input.docId] = { at: new Date().toISOString(), by: access.userName };
-      else delete next[input.docId];
-      inv.exemptions = next;
-      await saveInvitation(inv);
+      // Sous verrou, sur la dernière version (ne perd ni réponses ni pièces déposées entre-temps).
+      const res = await mutateInvitation(input.tripId, inv.id, (cur) => {
+        if (cur.signature) return { save: false, value: false };
+        const next = { ...(cur.exemptions || {}) };
+        if (input.value) next[input.docId] = { at: new Date().toISOString(), by: access.userName };
+        else delete next[input.docId];
+        cur.exemptions = next;
+        return { save: true, value: true };
+      });
+      if (!res) return NextResponse.json({ error: "Introuvable." }, { status: 404 });
+      if (!res.value) return NextResponse.json({ error: "Cette famille a déjà signé." }, { status: 409 });
       return NextResponse.json({ ok: true });
     }
 
@@ -257,8 +263,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Date invalide : elle doit être future et avant le départ." }, { status: 400 });
       }
       if (inv.signature) return NextResponse.json({ error: "Cette famille a déjà signé." }, { status: 409 });
-      inv.extendedDeadline = input.date;
-      await saveInvitation(inv);
+      const res = await mutateInvitation(input.tripId, inv.id, (cur) => {
+        if (cur.signature) return { save: false, value: false };
+        cur.extendedDeadline = input.date;
+        return { save: true, value: true };
+      });
+      if (!res) return NextResponse.json({ error: "Introuvable." }, { status: 404 });
+      if (!res.value) return NextResponse.json({ error: "Cette famille a déjà signé." }, { status: 409 });
       return NextResponse.json({ ok: true });
     }
 

@@ -114,22 +114,46 @@ export function FamilyLiveForm({ token, view, onView }: Props) {
     return () => clearInterval(t);
   }, [cooldownUntil]);
 
+  /**
+   * Enregistrements en file : jamais deux PATCH en vol en même temps (le serveur les appliquerait dans un ordre
+   * imprévisible). Les modifications arrivées pendant une requête sont fusionnées champ par champ (les repas par jour)
+   * et envoyées ensemble à la fin ; chaque requête ne contient que les champs modifiés.
+   */
+  const pendingRef = useRef<Record<string, unknown> | null>(null);
+  const flushingRef = useRef(false);
+
   const patch = useCallback(
     async (body: Record<string, unknown>) => {
+      const prev = pendingRef.current;
+      const prevMeals = (prev?.meals as Record<string, unknown> | undefined) || {};
+      const nextMeals = (body.meals as Record<string, unknown> | undefined) || {};
+      pendingRef.current = {
+        ...(prev || {}),
+        ...body,
+        ...(prev?.meals || body.meals ? { meals: { ...prevMeals, ...nextMeals } } : {}),
+      };
+      if (flushingRef.current) return;
+      flushingRef.current = true;
       setSaving(true);
       setError(null);
       try {
-        const res = await fetch(base(token), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
-        onView(j as PublicFamilyView);
+        while (pendingRef.current) {
+          const toSend = pendingRef.current;
+          pendingRef.current = null;
+          const res = await fetch(base(token), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(toSend),
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+          onView(j as PublicFamilyView);
+        }
       } catch (e) {
+        pendingRef.current = null;
         setError(e instanceof Error ? e.message : "Enregistrement impossible");
       } finally {
+        flushingRef.current = false;
         setSaving(false);
       }
     },
@@ -227,7 +251,8 @@ export function FamilyLiveForm({ token, view, onView }: Props) {
     signerName.trim().length >= 2 &&
     /^\d{6}$/.test(code) &&
     (decision === "non" || Boolean(png)) &&
-    !busy;
+    !busy &&
+    !saving;
   const inputCls = "rounded-lg border bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400";
 
   if (view.siblingDecision === "oui" && !view.locked) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { NO_STORE, jsonNoStore, withPublicContext } from "@/app/lib/travels-v2-public-api";
+import { INVALID_LINK, NO_STORE, jsonNoStore, withPublicContext } from "@/app/lib/travels-v2-public-api";
 import { readFamilyFile } from "@/app/lib/travels-v2-registration-store";
 
 type Params = { params: Promise<{ token: string }> };
@@ -7,10 +7,12 @@ type Params = { params: Promise<{ token: string }> };
 /** Accusé (PDF signé) et fichier agenda (.ics) de CETTE invitation, après vérification du jeton. */
 export async function GET(req: Request, { params }: Params) {
   const { token } = await params;
-  const g = await withPublicContext(req, token);
+  const g = await withPublicContext(req, token, { allowPdfOnly: true });
   if (!g.ok) return g.response;
   const kind = new URL(req.url).searchParams.get("kind");
   if (kind !== "pdf" && kind !== "ics") return jsonNoStore({ error: "Requête invalide." }, 400);
+  // Voyage annulé / plus ouvert : seulement le PDF de l'engagement déjà signé.
+  if (g.access === "pdf_only" && kind !== "pdf") return jsonNoStore({ error: INVALID_LINK }, 404);
   try {
     const file = await readFamilyFile(g.ctx, kind);
     if (!file) return jsonNoStore({ error: "Fichier introuvable." }, 404);

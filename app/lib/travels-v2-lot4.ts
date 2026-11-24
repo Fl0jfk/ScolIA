@@ -388,6 +388,40 @@ export function isPurgeDue(returnIso: string | null | undefined, todayIso: strin
   return todayIso >= addDaysIso(returnIso, 1);
 }
 
+/** Voyages « morts » : plus aucune inscription possible. */
+export const DEAD_TRIP_STATUSES: readonly string[] = ["ANNULE", "REJETE", "SEANCE_ANNULEE"];
+
+export function isDeadTripStatus(status: string | null | undefined): boolean {
+  return DEAD_TRIP_STATUSES.includes(String(status || ""));
+}
+
+/**
+ * Date (incluse) à partir de laquelle les pièces et réponses des familles d'un voyage v2 sont purgées. Rien avant l'ouverture
+ * de la page. Sinon, le lendemain du retour ; un voyage sans date de retour valide est purgé le lendemain de la date de départ.
+ * Un voyage annulé / refusé (page ouverte) est purgé le lendemain de l'annulation OU le lendemain du retour prévu,
+ * le plus tôt des deux (les données ne servent plus à rien : le voyage n'aura pas lieu).
+ */
+export function tripPurgeDueOn(opts: {
+  status: string | null | undefined;
+  opened: boolean;
+  returnIso: string | null | undefined;
+  departureIso: string | null | undefined;
+  /** Jour (Europe/Paris) de l'annulation, déduit de la dernière modification du dossier. */
+  cancelledOnIso?: string | null;
+}): string | null {
+  if (!opts.opened) return null;
+  const ref = isIsoDate(opts.returnIso) ? opts.returnIso : isIsoDate(opts.departureIso) ? opts.departureIso : null;
+  const candidates: string[] = [];
+  if (ref) candidates.push(addDaysIso(ref, 1));
+  if (isDeadTripStatus(opts.status) && isIsoDate(opts.cancelledOnIso)) candidates.push(addDaysIso(opts.cancelledOnIso, 1));
+  return candidates.length ? candidates.sort()[0] : null;
+}
+
+export function isTripPurgeDue(opts: Parameters<typeof tripPurgeDueOn>[0] & { todayIso: string }): boolean {
+  const due = tripPurgeDueOn(opts);
+  return due !== null && opts.todayIso >= due;
+}
+
 /** Clés objet qu'une invitation doit CONSERVER (engagement signé ou scan papier « oui »). */
 export function engagementKeys(inv: FamilyInvitation): string[] {
   if (inv.signature?.decision !== "oui") return [];
@@ -468,4 +502,34 @@ export function planPurge(invs: FamilyInvitation[], cases: StudentCase[] = [], n
   // Garde-fou : un engagement n'est JAMAIS supprimé, quoi qu'il arrive.
   const deleteKeys = [...del].filter((k) => !kept.has(k));
   return { deleteKeys, deleteInvitationIds, archive, keptKeys: [...kept] };
+}
+
+/* ─── Effets de la clôture : ce qui peut partir, et quand ─── */
+
+export type ClosureEffectState = {
+  sendConfirmedAt?: string;
+  comptaZip?: unknown;
+  transportListSentAt?: string;
+  comptaMailSentAt?: string;
+  organizerNotifiedAt?: string;
+};
+
+/**
+ * Étapes à jouer après une clôture. La clôture AUTOMATIQUE fige la liste, prépare le ZIP (téléchargeable par la compta) et
+ * prévient l'organisateur, mais n'envoie RIEN à l'extérieur : liste nominative au transporteur et e-mail compta attendent la
+ * confirmation humaine (`sendConfirmedAt` : clôture manuelle ou « Confirmer et envoyer »).
+ */
+export function closureSideEffectPlan(closure: ClosureEffectState, needsBus: boolean): {
+  zip: boolean;
+  transport: boolean;
+  compta: boolean;
+  organizer: boolean;
+} {
+  const confirmed = Boolean(closure.sendConfirmedAt);
+  return {
+    zip: !closure.comptaZip,
+    transport: confirmed && needsBus && !closure.transportListSentAt,
+    compta: confirmed && !closure.comptaMailSentAt,
+    organizer: !closure.organizerNotifiedAt,
+  };
 }

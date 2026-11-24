@@ -208,6 +208,13 @@ export type TravelsV2Closure = {
   rectifiedQuote?: { proposed: boolean; quoteNbEleves: number | null; officialCount: number; deviationPct: number | null; reason: string };
   cuisineAdultsConfirmedAt?: string;
   organizerNotifiedAt?: string;
+  /**
+   * Confirmation HUMAINE de l'envoi (liste au transporteur + e-mail compta) : clic sur « Confirmer et envoyer »
+   * (organisateur, direction, administratif ou admin), ou clôture manuelle (le clic de clôture vaut confirmation).
+   * Une clôture automatique fige la liste et prévient l'organisateur, sans rien envoyer à l'extérieur.
+   */
+  sendConfirmedAt?: string;
+  sendConfirmedBy?: string;
 };
 
 export type TravelsTripData = {
@@ -222,7 +229,7 @@ export type TravelsTripData = {
   /** v2 : clôture des inscriptions (liste officielle, bon cuisine, compta, devis rectifié) — posé une seule fois. */
   v2Closure?: TravelsV2Closure;
   /** v2 : purge du lendemain du retour faite (seuls les engagements sont conservés). */
-  v2Purge?: { at: string; invitationsRemoved: number; filesRemoved: number; engagementsKept: number };
+  v2Purge?: { at: string; invitationsRemoved: number; filesRemoved: number; engagementsKept: number; reason?: "retour" | "annulation" };
   /** v2 : envoi automatique des demandes de devis (une seule fois). */
   transportRequestSentAt?: string;
   title?: string;

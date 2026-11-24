@@ -14,7 +14,13 @@ import {
   putJson,
   putObject,
 } from "@/app/lib/s3-storage";
-import { listJsonRecordsInDir, putJsonIfAbsentToPostgres } from "@/app/lib/ent-json-postgres";
+import {
+  listJsonRecordsInDir,
+  listJsonRecordsInDirByStringAttr,
+  mutateJsonRecordLocked,
+  putJsonIfAbsentToPostgres,
+  withNamedLock,
+} from "@/app/lib/ent-json-postgres";
 import { sanitizeS3FileName } from "@/app/lib/s3-path";
 import {
   createTenantTransporter,
@@ -26,15 +32,13 @@ import { getTravelTrip, listTravelsIndex } from "@/app/lib/travels-storage";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { isWorkflowV2, todayIsoParis } from "@/app/lib/travels-v2";
 import {
-  addTokenHash,
   buildEngagement,
   buildFamilyIcs,
+  buildShownSnapshot,
   buildInviteToken,
   buildPublicFamilyView,
-  checkSigningCode,
   generateInviteSecret,
   hashInviteSecret,
-  issueSigningCode,
   parseInviteToken,
   siblingDecision,
   tripDatesForIcs,
@@ -42,14 +46,11 @@ import {
   type PublicFamilyView,
 } from "@/app/lib/travels-v2-registration";
 import {
-  canSendCode,
   computeInvitationStatus,
   decodeSignaturePng,
   DOC_MAX_BYTES,
   INVITATION_STATUS_LABELS,
   isLocked,
-  mergeAnswers,
-  pruneCodeSends,
   registrationWindow,
   signInputSchema,
   signingProblems,
@@ -58,6 +59,7 @@ import {
   type InvitationStatus,
 } from "@/app/lib/travels-v2-registration-types";
 import { buildSignedCircularPdf } from "@/app/lib/travels-v2-signed-pdf";
+import { canRenderInPdf, PDF_NAME_RESTRICTION_MESSAGE } from "@/app/lib/travels-v2-pdf-text";
 import {
   caseId,
   canObject,
@@ -69,6 +71,23 @@ import {
   type StudentState,
 } from "@/app/lib/travels-v2-lot3";
 import { getTenantAppUrl } from "@/app/lib/tenant-context";
+import {
+  mutAddTokenHash,
+  mutAnswers,
+  mutApplySignature,
+  mutConsumeSigningCode,
+  mutRemoveDocument,
+  mutReserveSigningCode,
+  mutRollbackSigningCode,
+  mutSetDocument,
+  mutTokenSendFailed,
+  mutTokenSendOk,
+  mutTouchSeen,
+  windowOfInvitation,
+  type ClosedReason,
+  type Mut,
+  type WindowInput,
+} from "@/app/lib/travels-v2-invitation-mutations";
 
 /* ─── Stockage : un enregistrement JSON par invitation (pas de verrou global) ─── */
 
@@ -97,13 +116,66 @@ export async function getInvitation(tripId: string, invId: string): Promise<Fami
   return inv;
 }
 
+/**
+ * Écriture complète d'une invitation (création, purge). Pour TOUTE modification d'une invitation existante
+ * (réponses, code, signature, pièces, liens, relances…) utiliser `mutateInvitation` : relecture + écriture dans un
+ * verrou, sinon deux requêtes concurrentes s'écrasent.
+ */
 export async function saveInvitation(inv: FamilyInvitation): Promise<void> {
   await putJson(invPath(inv.tripId, inv.id), inv);
 }
 
+/**
+ * Mutation sérialisée d'une invitation : verrou advisory transactionnel par invitation
+ * (`pg_advisory_xact_lock(hashtext(...))`), relecture DANS le verrou, `fn` (synchrone, sans entrée-sortie)
+ * décide et modifie, écriture dans la même transaction. Retourne l'invitation à jour (`inv`) et la valeur de `fn`,
+ * ou null si l'invitation n'existe pas.
+ */
+export async function mutateInvitation<R>(
+  tripId: string,
+  invId: string,
+  fn: (inv: FamilyInvitation) => Mut<R>,
+): Promise<{ value: R; inv: FamilyInvitation; saved: boolean } | null> {
+  if (!TRIP_ID_RE.test(tripId) || !TRIP_ID_RE.test(invId)) return null;
+  const box: { snap: FamilyInvitation | null } = { snap: null };
+  const res = await mutateJsonRecordLocked<Record<string, unknown>, R>(invPath(tripId, invId), (current) => {
+    const inv = current as unknown as FamilyInvitation;
+    if (inv.tripId !== tripId || inv.id !== invId) return { save: false, value: undefined as unknown as R };
+    const out = fn(inv);
+    box.snap = structuredClone(inv);
+    return out;
+  });
+  if (!res || !box.snap) return null;
+  return { value: res.value, inv: box.snap, saved: res.saved };
+}
+
+/** Invitations d'UN élève (requête ciblée : pas besoin de charger tout le voyage). */
+export async function listInvitationsForIne(tripId: string, ine: string): Promise<FamilyInvitation[]> {
+  if (!TRIP_ID_RE.test(tripId) || !ine) return [];
+  const rows = await listJsonRecordsInDirByStringAttr<Record<string, unknown>>(invDir(tripId), "ine", ine);
+  return rows
+    .filter((r) => r && typeof r === "object" && r.tripId === tripId && r.ine === ine && typeof r.id === "string")
+    .map((r) => r as unknown as FamilyInvitation);
+}
+
+function windowInputOf(trip: Pick<TravelsTrip, "status" | "data">): WindowInput {
+  return {
+    tripStatus: trip.status,
+    openedAt: trip.data?.familyPage?.openedAt,
+    deadline: trip.data?.familyPage?.deadline,
+    todayIso: todayIsoParis(),
+  };
+}
+
 /* ─── Création des invitations à l'ouverture de la page ─── */
 
+/** Durée de vie du verrou « par voyage » des envois d'e-mails et créations d'invitations (reprise si le serveur tombe). */
+export const TRIP_LOCK_TTL_SECONDS = 20 * 60;
+export const TRIP_INVITES_LOCK = "trip-invites";
+
 export type CreateInvitationsResult = {
+  /** Vrai si une autre création ou un autre envoi tourne déjà pour ce voyage : rien n'a été fait. */
+  busy?: boolean;
   created: FamilyInvitation[];
   existing: number;
   /** Élèves de la pré-liste sans aucun e-mail de responsable connu. */
@@ -119,6 +191,12 @@ function studentDisplayName(prenom: string, nom: string): string {
  * comme pour le blog parents. Idempotent : une invitation par (élève, e-mail).
  */
 export async function createInvitationsForTrip(trip: Pick<TravelsTrip, "id" | "data">): Promise<CreateInvitationsResult> {
+  // Verrou par voyage : deux créations simultanées (clic + ouverture, deux onglets) ne doublent pas les invitations.
+  const locked = await withNamedLock(TRIP_INVITES_LOCK, trip.id, TRIP_LOCK_TTL_SECONDS, () => createInvitationsUnlocked(trip));
+  return locked.busy ? { busy: true, created: [], existing: 0, studentsWithoutEmail: [] } : locked.value;
+}
+
+async function createInvitationsUnlocked(trip: Pick<TravelsTrip, "id" | "data">): Promise<CreateInvitationsResult> {
   const preListe = trip.data?.preListeEleves || [];
   const eleves = await loadElevesActifsRegistry().catch(() => []);
   const byIne = new Map(eleves.map((e) => [String(e.ine || "").trim().toUpperCase(), e]));
@@ -195,9 +273,35 @@ export function firstName(studentName: string): string {
 }
 
 /**
- * Envoie (ou renvoie) le lien personnel. Un NOUVEAU secret est généré à chaque envoi : seule son empreinte est
- * stockée, les liens précédents (5 derniers) restent valables. Retourne true si l'e-mail est parti.
+ * Émet un NOUVEAU lien personnel : le secret n'est jamais stocké, seule son empreinte l'est, écrite sous verrou
+ * AVANT l'e-mail (le lien ne fonctionne qu'une fois l'empreinte enregistrée). `aux` = relances et copies
+ * automatiques : emplacements séparés (5), ils n'évincent jamais un lien principal (10 emplacements : envoi initial
+ * et renvois demandés par la famille ou l'organisateur).
+ * Retourne le lien et l'empreinte (pour défaire en cas d'échec d'envoi), ou null si l'invitation a disparu.
  */
+export async function issueInviteLink(
+  inv: FamilyInvitation,
+  baseUrl: string,
+  opts?: { aux?: boolean },
+): Promise<{ link: string; hash: string } | null> {
+  const secret = generateInviteSecret();
+  const hash = hashInviteSecret(secret);
+  const res = await mutateInvitation(inv.tripId, inv.id, (cur) => mutAddTokenHash(cur, hash, opts?.aux === true));
+  if (!res) return null;
+  Object.assign(inv, res.inv);
+  const link = `${baseUrl}/voyages/famille/${encodeURIComponent(
+    buildInviteToken({ invitationId: inv.id, tripId: inv.tripId, secret }),
+  )}`;
+  return { link, hash };
+}
+
+/** L'e-mail du lien n'est pas parti : on retire l'empreinte (pas de lien orphelin). */
+export async function discardInviteLink(inv: FamilyInvitation, hash: string, error?: string): Promise<void> {
+  const res = await mutateInvitation(inv.tripId, inv.id, (cur) => mutTokenSendFailed(cur, hash, error));
+  if (res) Object.assign(inv, res.inv);
+}
+
+/** Envoie (ou renvoie) le lien personnel principal. Retourne true si l'e-mail est parti. */
 export async function sendInvitationLink(opts: {
   trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail" | "ownerName">;
   inv: FamilyInvitation;
@@ -205,11 +309,9 @@ export async function sendInvitationLink(opts: {
   mail: NonNullable<Awaited<ReturnType<typeof mailContext>>>;
 }): Promise<boolean> {
   const { trip, inv, baseUrl, mail } = opts;
-  const secret = generateInviteSecret();
-  inv.tokenHashes = addTokenHash(inv.tokenHashes, hashInviteSecret(secret));
-  const link = `${baseUrl}/voyages/famille/${encodeURIComponent(
-    buildInviteToken({ invitationId: inv.id, tripId: inv.tripId, secret }),
-  )}`;
+  const issued = await issueInviteLink(inv, baseUrl);
+  if (!issued) return false;
+  const { link, hash } = issued;
   const title = String(trip.data?.title || trip.data?.destination || "Voyage scolaire");
   const deadline = trip.data?.familyPage?.deadline;
   const deadlineFr = deadline ? deadline.split("-").reverse().join("/") : "";
@@ -239,18 +341,11 @@ export async function sendInvitationLink(opts: {
       },
       60_000,
     );
-    const now = new Date().toISOString();
-    inv.sendCount = (inv.sendCount || 0) + 1;
-    inv.firstSentAt = inv.firstSentAt || now;
-    inv.lastSentAt = now;
-    inv.lastSendError = undefined;
-    await saveInvitation(inv);
+    const res = await mutateInvitation(inv.tripId, inv.id, (cur) => mutTokenSendOk(cur, new Date().toISOString(), true));
+    if (res) Object.assign(inv, res.inv);
     return true;
   } catch (e) {
-    inv.lastSendError = e instanceof Error ? e.message.slice(0, 200) : "Envoi impossible";
-    // Le nouveau lien n'a pas été reçu : on retire son empreinte pour ne pas garder un lien orphelin.
-    inv.tokenHashes = inv.tokenHashes.filter((h) => h !== hashInviteSecret(secret));
-    await saveInvitation(inv);
+    await discardInviteLink(inv, hash, e instanceof Error ? e.message.slice(0, 200) : "Envoi impossible");
     return false;
   }
 }
@@ -260,18 +355,23 @@ export async function sendPendingInvitations(opts: {
   trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail" | "ownerName">;
   baseUrl: string;
   only?: string[];
-}): Promise<{ sent: number; failed: number; smtp: boolean }> {
+}): Promise<{ sent: number; failed: number; smtp: boolean; busy?: boolean }> {
   const mail = await mailContext();
   if (!mail) return { sent: 0, failed: 0, smtp: false };
-  const all = await listInvitations(opts.trip.id);
-  const targets = all.filter((i) => (opts.only ? opts.only.includes(i.id) : !i.firstSentAt && !i.signature));
-  let sent = 0;
-  let failed = 0;
-  for (const inv of targets) {
-    if (await sendInvitationLink({ trip: opts.trip, inv, baseUrl: opts.baseUrl, mail })) sent += 1;
-    else failed += 1;
-  }
-  return { sent, failed, smtp: true };
+  // Verrou par voyage : un seul envoi de liens à la fois (pas d'e-mails en double si deux envois se croisent).
+  const locked = await withNamedLock(TRIP_INVITES_LOCK, opts.trip.id, TRIP_LOCK_TTL_SECONDS, async () => {
+    const all = await listInvitations(opts.trip.id);
+    const targets = all.filter((i) => (opts.only ? opts.only.includes(i.id) : !i.firstSentAt && !i.signature));
+    let sent = 0;
+    let failed = 0;
+    for (const inv of targets) {
+      if (await sendInvitationLink({ trip: opts.trip, inv, baseUrl: opts.baseUrl, mail })) sent += 1;
+      else failed += 1;
+    }
+    return { sent, failed };
+  });
+  if (locked.busy) return { sent: 0, failed: 0, smtp: true, busy: true };
+  return { ...locked.value, smtp: true };
 }
 
 /** Ouverture de la page (validation finale) : crée les invitations puis envoie les liens. */
@@ -299,7 +399,8 @@ export async function resendLinksForEmail(emailRaw: string, baseUrl: string): Pr
     if (summary.status !== "INSCRIPTIONS_OUVERTES") continue;
     const trip = await getTravelTrip(summary.id);
     if (!trip || !isWorkflowV2(trip) || trip.status !== "INSCRIPTIONS_OUVERTES") continue;
-    const invs = (await listInvitations(trip.id)).filter((i) => i.email === email);
+    // Une invitation déjà signée n'a plus rien à faire : pas de nouveau lien (et pas d'emplacement de jeton consommé).
+    const invs = (await listInvitations(trip.id)).filter((i) => i.email === email && !i.signature);
     for (const inv of invs) {
       if (await sendInvitationLink({ trip, inv, baseUrl, mail })) n += 1;
     }
@@ -316,7 +417,11 @@ export async function resolvePublicContext(token: string | null | undefined): Pr
   const parsed = parseInviteToken(token);
   if (!parsed) return null;
   const inv = await getInvitation(parsed.tripId, parsed.invitationId);
-  if (!inv || !verifyInviteSecret(inv.tokenHashes, parsed.secret)) return null;
+  // Liens principaux et liens des relances / copies (emplacements séparés).
+  const secretOk = inv
+    ? verifyInviteSecret(inv.tokenHashes, parsed.secret) || verifyInviteSecret(inv.auxTokenHashes, parsed.secret)
+    : false;
+  if (!inv || !secretOk) return null;
   const trip = await getTravelTrip(parsed.tripId);
   if (!trip || !isWorkflowV2(trip) || !trip.data?.familyPage?.openedAt) return null;
   return { trip, inv };
@@ -338,15 +443,21 @@ function picnicKeys(trip: Pick<TravelsTrip, "data">): string[] {
 }
 
 export async function publicViewFor(ctx: PublicContext): Promise<PublicFamilyView> {
-  // Marque l'ouverture (et une présence récente, au plus toutes les 5 minutes).
-  const now = Date.now();
+  // Marque l'ouverture (et une présence récente, au plus toutes les 5 minutes) — sans écrire si inutile.
+  const nowMs = Date.now();
   const last = ctx.inv.lastSeenAt ? new Date(ctx.inv.lastSeenAt).getTime() : 0;
-  if (!ctx.inv.firstOpenedAt || now - last > 5 * 60 * 1000) {
-    ctx.inv.firstOpenedAt = ctx.inv.firstOpenedAt || new Date(now).toISOString();
-    ctx.inv.lastSeenAt = new Date(now).toISOString();
-    await saveInvitation(ctx.inv).catch((e) => console.error("[voyages-v2] lastSeen", e));
+  if (!ctx.inv.firstOpenedAt || nowMs - last > 5 * 60 * 1000) {
+    const touched = await mutateInvitation(ctx.trip.id, ctx.inv.id, (cur) => mutTouchSeen(cur, nowMs)).catch((e) => {
+      console.error("[voyages-v2] lastSeen", e);
+      return null;
+    });
+    if (touched) ctx.inv = touched.inv;
   }
-  const [sibs, caseRec] = await Promise.all([listInvitations(ctx.trip.id), getStudentCase(ctx.trip.id, ctx.inv.ine)]);
+  // Requête ciblée : seules les invitations de CET élève (l'autre responsable) sont nécessaires.
+  const [sibs, caseRec] = await Promise.all([
+    listInvitationsForIne(ctx.trip.id, ctx.inv.ine),
+    getStudentCase(ctx.trip.id, ctx.inv.ine),
+  ]);
   const mine = sibs.filter((i) => i.ine === ctx.inv.ine);
   return buildPublicFamilyView({
     trip: ctx.trip,
@@ -362,26 +473,28 @@ export async function publicViewFor(ctx: PublicContext): Promise<PublicFamilyVie
 
 /* ─── Réponses (brouillon) ─── */
 
+/**
+ * Fusion champ par champ SOUS VERROU : la requête est appliquée sur la dernière version de l'invitation, jamais
+ * sur la copie lue au début de la requête (deux enregistrements rapprochés ne s'écrasent donc pas).
+ */
 export async function saveAnswers(
   ctx: PublicContext,
   input: unknown,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const win = windowFor(ctx);
-  if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
-  const merged = mergeAnswers({
-    current: ctx.inv.answers || {},
-    input,
-    picnicDayKeys: picnicKeys(ctx.trip),
-    nowIso: new Date().toISOString(),
-  });
-  if (!merged.ok) return { ok: false, status: 400, error: merged.error };
-  ctx.inv.answers = merged.answers;
-  await saveInvitation(ctx.inv);
-  return { ok: true };
+  const res = await mutateInvitation(ctx.trip.id, ctx.inv.id, (inv) =>
+    mutAnswers(inv, { input, picnicDayKeys: picnicKeys(ctx.trip), nowIso: new Date().toISOString(), window: windowInputOf(ctx.trip) }),
+  );
+  if (!res) return { ok: false, status: 404, error: "Lien invalide ou expiré." };
+  ctx.inv = res.inv;
+  const v = res.value;
+  if (v.ok) return { ok: true };
+  return v.status === 409 ? { ok: false, status: 409, error: closedMessage(v.reason) } : { ok: false, status: 400, error: v.error };
 }
 
 export async function objectionCheck(ctx: PublicContext) {
-  const [sibs, caseRec] = await Promise.all([listInvitations(ctx.trip.id), getStudentCase(ctx.trip.id, ctx.inv.ine)]);
+  // Un désaccord n'a de sens que pendant les inscriptions : après la clôture la liste officielle est figée.
+  if (ctx.trip.status !== "INSCRIPTIONS_OUVERTES") return { ok: false as const, error: "Les inscriptions de ce voyage sont closes." };
+  const [sibs, caseRec] = await Promise.all([listInvitationsForIne(ctx.trip.id, ctx.inv.ine), getStudentCase(ctx.trip.id, ctx.inv.ine)]);
   return canObject({ inv: ctx.inv, siblings: sibs, caseRec });
 }
 
@@ -403,10 +516,25 @@ export function closedMessage(reason: "status" | "deadline" | "locked" | "not_op
 const DEAD_STATUSES = new Set(["ANNULE", "REJETE", "SEANCE_ANNULEE"]);
 
 /** Pièce « à fournir avant le départ » : dépôt encore possible après la signature, jusqu'à sa date propre. */
+export function afterSignUploadOkFor(trip: Pick<TravelsTrip, "status" | "data">, inv: Pick<FamilyInvitation, "signature">, docId: string): boolean {
+  if (DEAD_STATUSES.has(String(trip.status))) return false;
+  const doc = (trip.data?.familyPage?.documents || []).find((d) => d.id === docId);
+  return canUploadAfterSignature(doc, inv, todayIsoParis());
+}
+
 export function afterSignUploadOk(ctx: PublicContext, docId: string): boolean {
-  if (DEAD_STATUSES.has(String(ctx.trip.status))) return false;
-  const doc = (ctx.trip.data?.familyPage?.documents || []).find((d) => d.id === docId);
-  return canUploadAfterSignature(doc, ctx.inv, todayIsoParis());
+  return afterSignUploadOkFor(ctx.trip, ctx.inv, docId);
+}
+
+/** Dépôt autorisé pour CETTE version de l'invitation (page ouverte, ou pièce « avant départ » après signature). */
+function documentWriteAllowed(trip: Pick<TravelsTrip, "status" | "data">, docId: string) {
+  const wi = windowInputOf(trip);
+  return (inv: FamilyInvitation) => windowOfInvitation(inv, wi).open || afterSignUploadOkFor(trip, inv, docId);
+}
+
+function closedReasonFor(trip: Pick<TravelsTrip, "status" | "data">, inv: FamilyInvitation): ClosedReason {
+  const w = windowOfInvitation(inv, windowInputOf(trip));
+  return w.open ? "locked" : w.reason;
 }
 
 export async function storeFamilyDocument(
@@ -415,11 +543,9 @@ export async function storeFamilyDocument(
   fileName: string,
   bytes: Buffer,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const win = windowFor(ctx);
+  const allowed = documentWriteAllowed(ctx.trip, docId);
   const request = (ctx.trip.data?.familyPage?.documents || []).find((d) => d.id === docId);
-  if (!win.open && !afterSignUploadOk(ctx, docId)) {
-    return { ok: false, status: 409, error: closedMessage(win.reason) };
-  }
+  if (!allowed(ctx.inv)) return { ok: false, status: 409, error: closedMessage(closedReasonFor(ctx.trip, ctx.inv)) };
   if (!request) return { ok: false, status: 400, error: "Pièce inconnue." };
   if (bytes.length === 0 || bytes.length > DOC_MAX_BYTES) {
     return { ok: false, status: 413, error: "Fichier vide ou trop volumineux (8 Mo maximum)." };
@@ -428,19 +554,23 @@ export async function storeFamilyDocument(
   if (!type) return { ok: false, status: 415, error: "Format non accepté : PDF ou image (JPEG, PNG, WebP) uniquement." };
   const key = `travels-v2/${ctx.trip.id}/docs/${ctx.inv.id}/${docId}-${randomUUID()}.${type.ext}`;
   await putObject(key, bytes, type.contentType);
-  const previous = ctx.inv.documents?.[docId];
-  ctx.inv.documents = {
-    ...(ctx.inv.documents || {}),
-    [docId]: {
-      fileName: sanitizeS3FileName(fileName).slice(0, 120),
-      key,
-      size: bytes.length,
-      contentType: type.contentType,
-      uploadedAt: new Date().toISOString(),
-    },
+  const doc = {
+    fileName: sanitizeS3FileName(fileName).slice(0, 120),
+    key,
+    size: bytes.length,
+    contentType: type.contentType,
+    uploadedAt: new Date().toISOString(),
   };
-  await saveInvitation(ctx.inv);
-  if (previous?.key) await deleteObject(previous.key).catch(() => undefined);
+  // L'enregistrement de la référence se fait sous verrou, sur la dernière version (réponses et autres pièces intactes).
+  const res = await mutateInvitation(ctx.trip.id, ctx.inv.id, (inv) => mutSetDocument(inv, docId, doc, allowed));
+  if (!res || !res.value.ok) {
+    await deleteObject(key).catch(() => undefined);
+    return res
+      ? { ok: false, status: 409, error: closedMessage(closedReasonFor(ctx.trip, res.inv)) }
+      : { ok: false, status: 404, error: "Lien invalide ou expiré." };
+  }
+  ctx.inv = res.inv;
+  if (res.value.previousKey) await deleteObject(res.value.previousKey).catch(() => undefined);
   return { ok: true };
 }
 
@@ -448,17 +578,13 @@ export async function removeFamilyDocument(
   ctx: PublicContext,
   docId: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const win = windowFor(ctx);
-  if (!win.open && !afterSignUploadOk(ctx, docId)) {
-    return { ok: false, status: 409, error: closedMessage(win.reason) };
-  }
-  const previous = ctx.inv.documents?.[docId];
-  if (!previous) return { ok: true };
-  const rest = { ...ctx.inv.documents };
-  delete rest[docId];
-  ctx.inv.documents = rest;
-  await saveInvitation(ctx.inv);
-  await deleteObject(previous.key).catch(() => undefined);
+  const allowed = documentWriteAllowed(ctx.trip, docId);
+  if (!allowed(ctx.inv)) return { ok: false, status: 409, error: closedMessage(closedReasonFor(ctx.trip, ctx.inv)) };
+  const res = await mutateInvitation(ctx.trip.id, ctx.inv.id, (inv) => mutRemoveDocument(inv, docId, allowed));
+  if (!res) return { ok: false, status: 404, error: "Lien invalide ou expiré." };
+  ctx.inv = res.inv;
+  if (!res.value.ok) return { ok: false, status: 409, error: closedMessage(closedReasonFor(ctx.trip, res.inv)) };
+  if (res.value.previousKey) await deleteObject(res.value.previousKey).catch(() => undefined);
   return { ok: true };
 }
 
@@ -471,27 +597,38 @@ export async function sendSigningCode(
   if (opts?.objection) {
     const chk = await objectionCheck(ctx);
     if (!chk.ok) return { ok: false, status: 409, error: chk.error };
-  } else {
-    const win = windowFor(ctx);
-    if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
-    if (ctx.inv.answers?.participates !== "oui" && ctx.inv.answers?.participates !== "non") {
-      return { ok: false, status: 400, error: "Indiquez d'abord si votre enfant participe au voyage." };
-    }
   }
   const now = new Date();
-  const allowed = canSendCode(ctx.inv, now);
-  if (!allowed.ok) {
+  // Limites d'envoi (30 s entre deux codes, 5 par heure) contrôlées ET réservées sous verrou : des requêtes
+  // parallèles ne peuvent pas les contourner. L'e-mail ne part qu'une fois la réservation enregistrée.
+  const reserved = await mutateInvitation(ctx.trip.id, ctx.inv.id, (inv) =>
+    mutReserveSigningCode(inv, { now, objection: opts?.objection === true, window: windowInputOf(ctx.trip) }),
+  );
+  if (!reserved) return { ok: false, status: 404, error: "Lien invalide ou expiré." };
+  ctx.inv = reserved.inv;
+  const v = reserved.value;
+  if (!v.ok) {
+    if (v.status === 409) return { ok: false, status: 409, error: closedMessage(v.reason) };
+    if (v.status === 400) return { ok: false, status: 400, error: v.error };
     return {
       ok: false,
       status: 429,
       error: "Trop de demandes de code. Réessayez dans quelques instants.",
-      retryAfterSec: allowed.retryAfterSec,
+      retryAfterSec: v.retryAfterSec,
     };
   }
+  const { reservation } = v;
+  const undo = async () => {
+    const r = await mutateInvitation(ctx.trip.id, ctx.inv.id, (inv) => mutRollbackSigningCode(inv, reservation)).catch(() => null);
+    if (r) ctx.inv = r.inv;
+  };
   const mail = await mailContext();
-  if (!mail) return { ok: false, status: 503, error: "L'envoi d'e-mails n'est pas disponible pour le moment." };
-  const { code, state } = issueSigningCode(ctx.inv.id, now);
+  if (!mail) {
+    await undo();
+    return { ok: false, status: 503, error: "L'envoi d'e-mails n'est pas disponible pour le moment." };
+  }
   const title = String(ctx.trip.data?.title || "Voyage scolaire");
+  const code = reservation.code;
   try {
     await sendMailWithTimeout(
       mail.transporter,
@@ -507,11 +644,9 @@ export async function sendSigningCode(
       30_000,
     );
   } catch {
+    await undo();
     return { ok: false, status: 502, error: "L'e-mail n'a pas pu être envoyé. Réessayez dans un instant." };
   }
-  ctx.inv.code = state;
-  ctx.inv.codeSends = [...pruneCodeSends(ctx.inv.codeSends, now), now.toISOString()];
-  await saveInvitation(ctx.inv);
   return { ok: true, maskedEmail: maskEmail(ctx.inv.email) };
 }
 
@@ -521,19 +656,42 @@ export type SignResult =
   | { ok: true; decision: "oui" | "non" }
   | { ok: false; status: number; error: string; attemptsLeft?: number };
 
+/** Empreinte stable des réponses (indépendante de l'ordre des clés et de la date de mise à jour). */
+export function answersFingerprint(a: FamilyInvitation["answers"] | undefined): string {
+  const meals = a?.meals || {};
+  return JSON.stringify({
+    p: a?.participates ?? "",
+    ph: a?.phone ?? "",
+    m: Object.keys(meals)
+      .sort()
+      .map((k) => [k, meals[k]?.wants ?? "", meals[k]?.type ?? ""]),
+  });
+}
+
+/**
+ * Signature en trois temps, chacun sous verrou sur la dernière version de l'invitation :
+ *  1. vérification du code ET persistance du résultat (compteur d'essais, usage unique) — garde : réponses
+ *     inchangées depuis l'affichage, page ouverte, pas déjà signée (aucun essai consommé si la garde refuse) ;
+ *  2. jeton d'engagement unique par élève, PDF et tracé écrits dans le stockage objet ;
+ *  3. pose de la signature (refusée si une signature existe déjà).
+ */
 export async function submitSignature(ctx: PublicContext, rawInput: unknown): Promise<SignResult> {
-  const { trip, inv } = ctx;
-  const win = windowFor(ctx);
+  const { trip } = ctx;
+  const wi = windowInputOf(trip);
+  const win = windowOfInvitation(ctx.inv, wi);
   if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
   const parsed = signInputSchema.safeParse(rawInput);
   if (!parsed.success) return { ok: false, status: 400, error: "Saisie invalide : nom, code à 6 chiffres et signature." };
   const input = parsed.data;
-  const answers = inv.answers || {};
+  const answers = ctx.inv.answers || {};
   const decision = answers.participates;
   const docs = trip.data?.familyPage?.documents || [];
-  const problems = signingProblems({ answers, picnicDayKeys: picnicKeys(trip), docs, inv });
+  const problems = signingProblems({ answers, picnicDayKeys: picnicKeys(trip), docs, inv: ctx.inv });
   if (problems.length > 0 || (decision !== "oui" && decision !== "non")) {
     return { ok: false, status: 409, error: problems[0] || "Réponse incomplète." };
+  }
+  if (decision === "oui" && !canRenderInPdf(input.signerName)) {
+    return { ok: false, status: 400, error: PDF_NAME_RESTRICTION_MESSAGE };
   }
   let signatureBytes: Buffer | undefined;
   if (decision === "oui") {
@@ -541,8 +699,8 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
     if (!png.ok) return { ok: false, status: 400, error: png.error };
     signatureBytes = png.bytes;
   }
-  const siblings = await listInvitations(trip.id);
-  const other = siblingDecision(siblings, inv);
+  const siblings = await listInvitationsForIne(trip.id, ctx.inv.ine);
+  const other = siblingDecision(siblings, ctx.inv);
   if (other === "oui") {
     return { ok: false, status: 409, error: "L'autre responsable a déjà inscrit votre enfant : aucune action n'est nécessaire." };
   }
@@ -550,12 +708,30 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
     return { ok: false, status: 409, error: "L'autre responsable a déjà répondu que votre enfant ne participe pas." };
   }
 
-  // Code : vérifié en dernier, pour ne consommer un essai que si tout le reste est prêt.
+  // 1. Code : vérifié et persisté sous verrou, en dernier, pour ne consommer un essai que si tout le reste est prêt.
   const now = new Date();
-  const check = checkSigningCode(inv.id, inv.code, input.code, now);
+  const fingerprint = answersFingerprint(answers);
+  const consumed = await mutateInvitation(trip.id, ctx.inv.id, (cur) =>
+    mutConsumeSigningCode(cur, {
+      input: input.code,
+      now,
+      guard: (c) => {
+        if (c.signature) return "Votre réponse est déjà signée.";
+        const w = windowOfInvitation(c, wi);
+        if (!w.open) return closedMessage(w.reason);
+        if (answersFingerprint(c.answers) !== fingerprint) {
+          return "Vos réponses viennent de changer : vérifiez-les puis signez à nouveau.";
+        }
+        return null;
+      },
+    }),
+  );
+  if (!consumed) return { ok: false, status: 404, error: "Lien invalide ou expiré." };
+  ctx.inv = consumed.inv;
+  const outcome = consumed.value;
+  if (outcome.kind === "guard") return { ok: false, status: 409, error: outcome.error };
+  const check = outcome.check;
   if (check.result !== "ok") {
-    inv.code = check.result === "wrong" ? check.next : undefined;
-    await saveInvitation(inv);
     if (check.result === "wrong") {
       return { ok: false, status: 403, error: "Code incorrect.", attemptsLeft: check.attemptsLeft };
     }
@@ -567,9 +743,9 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
           : "Demandez d'abord un code par e-mail.";
     return { ok: false, status: 403, error: msg };
   }
-  inv.code = undefined;
+  const inv = ctx.inv;
 
-  // Un seul engagement par élève, même si les deux responsables signent « oui » au même instant.
+  // 2. Un seul engagement par élève, même si les deux responsables signent « oui » au même instant.
   let claimCreated = false;
   if (decision === "oui") {
     const claim = await claimEngagement(trip.id, inv);
@@ -586,8 +762,13 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   });
 
   if (decision === "non") {
-    inv.signature = { decision: "non", signedAt, signerName };
-    await saveInvitation(inv);
+    const res = await mutateInvitation(trip.id, inv.id, (cur) =>
+      mutApplySignature(cur, { signature: { decision: "non", signedAt, signerName } }, wi),
+    );
+    if (!res || !res.value.ok) {
+      return { ok: false, status: 409, error: res && !res.value.ok ? res.value.error : "Lien invalide ou expiré." };
+    }
+    ctx.inv = res.inv;
     return { ok: true, decision: "non" };
   }
 
@@ -596,38 +777,49 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   const pdfKey = `travels-v2/${trip.id}/engagements/${inv.id}.pdf`;
   let pdf: Buffer;
   try {
-  pdf = await buildSignedCircularPdf({
-    model,
-    studentName: inv.studentName,
-    answers,
-    decision: "oui",
-    signerName,
-    signedAt,
-    maskedEmail: maskEmail(inv.email),
-    documents: docs.map((d) => ({
-      label: d.label,
-      status: inv.documents?.[d.id]
-        ? `déposé (${inv.documents[d.id].fileName})`
-        : inv.exemptions?.[d.id]
-          ? "dispense accordée par l'organisateur"
-          : d.kind === "avant_depart"
-            ? "à fournir avant le départ"
-            : "non fournie",
-    })),
-    signaturePng: signatureBytes,
-    reference,
-  });
-  await putObject(sigKey, signatureBytes!, "image/png");
-  await putObject(pdfKey, pdf, "application/pdf");
-
-  inv.signature = { decision: "oui", signedAt, signerName, signatureKey: sigKey, pdfKey };
-  inv.engagement = buildEngagement({ inv, priceBlock: trip.data?.priceBlock, signerName, signedAt, pdfKey });
-  await saveInvitation(inv);
+    pdf = await buildSignedCircularPdf({
+      model,
+      studentName: inv.studentName,
+      answers,
+      decision: "oui",
+      signerName,
+      signedAt,
+      maskedEmail: maskEmail(inv.email),
+      documents: docs.map((d) => ({
+        label: d.label,
+        status: inv.documents?.[d.id]
+          ? `déposé (${inv.documents[d.id].fileName})`
+          : inv.exemptions?.[d.id]
+            ? "dispense accordée par l'organisateur"
+            : d.kind === "avant_depart"
+              ? "à fournir avant le départ"
+              : "non fournie",
+      })),
+      signaturePng: signatureBytes,
+      reference,
+    });
+    await putObject(sigKey, signatureBytes!, "image/png");
+    await putObject(pdfKey, pdf, "application/pdf");
+    // 3. Pose de la signature (jamais deux fois) + instantané de ce qui était affiché (prix, mois, pièces, date limite).
+    const engagement = buildEngagement({
+      inv,
+      priceBlock: trip.data?.priceBlock,
+      signerName,
+      signedAt,
+      pdfKey,
+      shown: buildShownSnapshot(trip.data, win.deadline, signedAt),
+    });
+    const res = await mutateInvitation(trip.id, inv.id, (cur) =>
+      mutApplySignature(cur, { signature: { decision: "oui", signedAt, signerName, signatureKey: sigKey, pdfKey }, engagement }, wi),
+    );
+    if (!res || !res.value.ok) {
+      if (claimCreated) await releaseEngagementClaim(trip.id, inv);
+      return { ok: false, status: 409, error: res && !res.value.ok ? res.value.error : "Lien invalide ou expiré." };
+    }
+    ctx.inv = res.inv;
   } catch (e) {
     // Signature non enregistrée : on libère le jeton pour que l'élève ne reste pas bloqué.
     if (claimCreated) await releaseEngagementClaim(trip.id, inv);
-    inv.signature = undefined;
-    inv.engagement = undefined;
     throw e;
   }
 
@@ -635,7 +827,7 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   void sendConfirmationMail(ctx, pdf, model.title).catch((e) => console.error("[voyages-v2] accusé", e));
   // Copie au(x) autre(s) responsable(s) avec le lien « Je ne suis pas d'accord ».
   void getTenantAppUrl()
-    .then((baseUrl) => sendSiblingCopies({ trip, signed: inv, baseUrl }))
+    .then((baseUrl) => sendSiblingCopies({ trip, signed: ctx.inv, baseUrl }))
     .catch((e) => console.error("[voyages-v2] copie second responsable", e));
   return { ok: true, decision: "oui" };
 }
@@ -655,10 +847,16 @@ export function buildIcsForInvitation(trip: Pick<TravelsTrip, "id" | "data">, in
 
 async function sendConfirmationMail(ctx: PublicContext, pdf: Buffer, title: string): Promise<void> {
   const { trip, inv } = ctx;
+  const note = async (patch: { confirmationMailSentAt?: string; confirmationMailError?: string | undefined }) => {
+    await mutateInvitation(inv.tripId, inv.id, (cur) => {
+      cur.confirmationMailSentAt = patch.confirmationMailSentAt ?? cur.confirmationMailSentAt;
+      cur.confirmationMailError = patch.confirmationMailError;
+      return { save: true, value: undefined };
+    });
+  };
   const mail = await mailContext();
   if (!mail) {
-    inv.confirmationMailError = "SMTP non configuré";
-    await saveInvitation(inv);
+    await note({ confirmationMailError: "SMTP non configuré" });
     return;
   }
   const ics = buildIcsForInvitation(trip, inv);
@@ -682,12 +880,10 @@ async function sendConfirmationMail(ctx: PublicContext, pdf: Buffer, title: stri
       },
       60_000,
     );
-    inv.confirmationMailSentAt = new Date().toISOString();
-    inv.confirmationMailError = undefined;
+    await note({ confirmationMailSentAt: new Date().toISOString() });
   } catch (e) {
-    inv.confirmationMailError = e instanceof Error ? e.message.slice(0, 200) : "Envoi impossible";
+    await note({ confirmationMailError: e instanceof Error ? e.message.slice(0, 200) : "Envoi impossible" });
   }
-  await saveInvitation(inv);
 }
 
 /* ─── Lecture des fichiers par la famille (via le jeton) ─── */
@@ -729,6 +925,8 @@ export type RegistrationRow = {
   exempted: boolean;
   /** Réponse enregistrée à partir d'un coupon papier. */
   paper: boolean;
+  /** Un AUTRE responsable de cet élève a déjà signé (oui ou non) : cette famille n'a plus rien à faire. */
+  otherSigned?: boolean;
   /** Élève compté dans la liste officielle (hors suspens, retirés et refus). */
   official: boolean;
   signed: boolean;
@@ -780,6 +978,7 @@ export function buildRegistrationRows(opts: {
       extendedDeadline: inv.extendedDeadline,
       exempted: Object.keys(inv.exemptions || {}).length > 0,
       paper: Boolean(inv.signature?.paper),
+      otherSigned: !inv.signature && (byIne.get(inv.ine) || []).some((o) => o.id !== inv.id && Boolean(o.signature)),
       official: state === "inscrit" && inv.signature?.decision === "oui",
       signed: Boolean(inv.signature),
       ...(opts.includeReason && inv.objection
@@ -902,18 +1101,10 @@ export async function releaseEngagementClaim(tripId: string, inv: Pick<FamilyInv
 
 /* ─── Lot 3 : lien neuf et copie au second responsable ─── */
 
-/** Nouveau lien personnel (nouvelle empreinte ajoutée, à enregistrer par l'appelant). */
-export function freshInviteLink(inv: FamilyInvitation, baseUrl: string): string {
-  const secret = generateInviteSecret();
-  inv.tokenHashes = addTokenHash(inv.tokenHashes, hashInviteSecret(secret));
-  return `${baseUrl}/voyages/famille/${encodeURIComponent(
-    buildInviteToken({ invitationId: inv.id, tripId: inv.tripId, secret }),
-  )}`;
-}
-
 /**
  * Après un « oui » : les AUTRES responsables de l'élève reçoivent une copie avec le lien « Je ne suis pas d'accord »
- * (leur propre jeton). Un échec d'envoi n'annule rien. Jamais l'e-mail du signataire dans le message.
+ * (leur propre jeton, émis dans les emplacements AUXILIAIRES : il n'évince jamais leur lien principal). Un échec d'envoi
+ * n'annule rien. Jamais l'e-mail du signataire dans le message.
  */
 export async function sendSiblingCopies(opts: {
   trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail">;
@@ -923,13 +1114,15 @@ export async function sendSiblingCopies(opts: {
   const { trip, signed } = opts;
   const mail = await mailContext();
   if (!mail) return 0;
-  const siblings = (await listInvitations(trip.id)).filter((i) => i.ine === signed.ine && i.id !== signed.id);
+  const siblings = (await listInvitationsForIne(trip.id, signed.ine)).filter((i) => i.id !== signed.id);
   const title = String(trip.data?.title || trip.data?.destination || "Voyage scolaire");
   const kid = firstName(signed.studentName);
   let sent = 0;
   for (const s of siblings) {
     if (s.objection) continue;
-    const link = freshInviteLink(s, opts.baseUrl);
+    const issued = await issueInviteLink(s, opts.baseUrl, { aux: true });
+    if (!issued) continue;
+    const { link, hash } = issued;
     try {
       await sendMailWithTimeout(
         mail.transporter,
@@ -950,12 +1143,10 @@ export async function sendSiblingCopies(opts: {
         60_000,
       );
       sent += 1;
-      await saveInvitation(s);
     } catch (e) {
       console.error("[voyages-v2] copie second responsable", e instanceof Error ? e.message : e);
-      s.tokenHashes = s.tokenHashes.slice(0, -1);
+      await discardInviteLink(s, hash);
     }
   }
   return sent;
 }
-

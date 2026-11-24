@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { resolvePublicContext, type PublicContext } from "@/app/lib/travels-v2-registration-store";
+import { tokenAccessFor, type TokenAccess } from "@/app/lib/travels-v2-registration-types";
 
 /**
  * Garde commune des API publiques « page des familles » (sans compte).
@@ -41,8 +42,12 @@ export function sameOriginOk(req: Request): boolean {
 export async function withPublicContext(
   req: Request,
   token: string,
-  opts?: { write?: boolean },
-): Promise<{ ok: true; ctx: PublicContext } | { ok: false; response: NextResponse }> {
+  opts?: {
+    write?: boolean;
+    /** Route du seul PDF d'engagement : accepté même quand le voyage n'est plus ouvert (famille ayant signé « oui »). */
+    allowPdfOnly?: boolean;
+  },
+): Promise<{ ok: true; ctx: PublicContext; access: TokenAccess } | { ok: false; response: NextResponse }> {
   const ip = clientIpFromRequest(req);
   if (!(await ipLimiter.allow(ip))) {
     return { ok: false, response: jsonNoStore({ error: "Trop de requêtes. Réessayez plus tard." }, 429) };
@@ -60,5 +65,14 @@ export async function withPublicContext(
   if (!(await invLimiter.allow(ctx.inv.id))) {
     return { ok: false, response: jsonNoStore({ error: "Trop de requêtes. Réessayez plus tard." }, 429) };
   }
-  return { ok: true, ctx };
+  // Un jeton ne donne plus rien dès que le voyage n'est plus ouvert, sauf à une famille qui a signé « oui » (voir tokenAccessFor).
+  // Même réponse que pour un lien inconnu (aucun oracle).
+  const access = tokenAccessFor({
+    tripStatus: ctx.trip.status,
+    signedYes: ctx.inv.signature?.decision === "oui",
+    withdrawn: Boolean(ctx.inv.withdrawal),
+  });
+  const allowed = access === "full" || access === "signed_only" || (access === "pdf_only" && opts?.allowPdfOnly === true && !opts.write);
+  if (!allowed) return { ok: false, response: jsonNoStore({ error: INVALID_LINK }, 404) };
+  return { ok: true, ctx, access };
 }

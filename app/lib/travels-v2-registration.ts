@@ -18,12 +18,14 @@ import { canUploadAfterSignature, type StudentState } from "@/app/lib/travels-v2
 import {
   CODE_MAX_ATTEMPTS,
   CODE_TTL_MS,
+  MAX_AUX_TOKEN_HASHES,
   MAX_TOKEN_HASHES,
   computeInvitationStatus,
   isLocked,
   missingBlockingDocs,
   registrationWindow,
   signingProblems,
+  type EngagementShown,
   type FamilyEngagement,
   type FamilyInvitation,
   type InvitationStatus,
@@ -86,6 +88,11 @@ export function verifyInviteSecret(tokenHashes: string[] | undefined, secret: st
 /** Ajoute une empreinte (renvoi du lien) en gardant les plus récentes : les anciens liens restent valables. */
 export function addTokenHash(tokenHashes: string[] | undefined, newHash: string): string[] {
   return [...(tokenHashes || []).filter((h) => h !== newHash), newHash].slice(-MAX_TOKEN_HASHES);
+}
+
+/** Idem pour les liens des relances et copies automatiques (emplacements séparés des liens principaux). */
+export function addAuxTokenHash(auxHashes: string[] | undefined, newHash: string): string[] {
+  return [...(auxHashes || []).filter((h) => h !== newHash), newHash].slice(-MAX_AUX_TOKEN_HASHES);
 }
 
 /* ─── Code de signature à 6 chiffres ─── */
@@ -213,6 +220,7 @@ export function buildEngagement(opts: {
   signerName: string;
   signedAt: string;
   pdfKey: string;
+  shown?: EngagementShown;
 }): FamilyEngagement {
   const amount = Number(opts.priceBlock?.pricePerStudent);
   const safeAmount = Number.isFinite(amount) && amount >= 0 ? amount : 0;
@@ -228,6 +236,33 @@ export function buildEngagement(opts: {
     months: schedule.ok ? schedule.months.map((m) => ({ label: m.label, amount: m.amount })) : [],
     signedAt: opts.signedAt,
     pdfKey: opts.pdfKey,
+    ...(opts.shown ? { shown: opts.shown } : {}),
+  };
+}
+
+/** Instantané de la page telle qu'affichée à la famille (prix, mois, pièces demandées, date limite). */
+export function buildShownSnapshot(
+  data: {
+    priceBlock?: TravelsPriceBlock | null;
+    familyPage?: { documents?: { label: string; kind: string; dueDate?: string }[]; program?: string; equipment?: string[]; cash?: { amount: number; reason: string } } | null;
+  } | null | undefined,
+  deadline: string | null | undefined,
+  nowIso: string,
+): EngagementShown {
+  const pb = data?.priceBlock;
+  const page = data?.familyPage;
+  const price = Number(pb?.pricePerStudent);
+  return {
+    capturedAt: nowIso,
+    pricePerStudent: pb && Number.isFinite(price) ? price : null,
+    ...(pb?.firstMonth ? { firstMonth: pb.firstMonth } : {}),
+    ...(pb?.lastMonth ? { lastMonth: pb.lastMonth } : {}),
+    ...(pb?.paymentText ? { paymentText: String(pb.paymentText).slice(0, 500) } : {}),
+    deadline: deadline || null,
+    documents: (page?.documents || []).map((d) => ({ label: d.label, kind: d.kind, ...(d.dueDate ? { dueDate: d.dueDate } : {}) })),
+    ...(page?.program ? { program: String(page.program).slice(0, 700) } : {}),
+    ...(page?.equipment?.length ? { equipment: page.equipment.slice(0, 40) } : {}),
+    ...(page?.cash ? { cash: { amount: Number(page.cash.amount), reason: String(page.cash.reason || "") } } : {}),
   };
 }
 

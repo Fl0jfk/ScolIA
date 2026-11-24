@@ -74,9 +74,17 @@ export function TripClosurePanel({ tripId, userName }: { tripId: string; userNam
     if (!data.open) return;
     const txt =
       "Clôturer les inscriptions ?\n\nLa liste officielle sera figée (familles ayant signé « oui »), le bon cuisine calculé, " +
-      "la liste envoyée au transporteur et les engagements transmis à la comptabilité. Les familles ne pourront plus répondre.";
+      "la liste envoyée au transporteur et les engagements transmis à la comptabilité (ce clic vaut confirmation de l'envoi). Les familles ne pourront plus répondre.";
     if (!window.confirm(txt)) return;
     await post({ action: "close", confirm: true }, "Inscriptions clôturées.");
+  };
+
+  const confirmSend = async () => {
+    const txt =
+      "Confirmer et envoyer ?\n\nLa liste nominative des élèves part au transporteur (si le voyage a un bus) et la comptabilité est prévenue " +
+      "par e-mail. Vérifiez d'abord la liste officielle ci-dessous.";
+    if (!window.confirm(txt)) return;
+    await post({ action: "confirm_send", confirm: true }, "Envoi confirmé : la liste part au transporteur et la comptabilité est prévenue.");
   };
 
   const sendCuisine = async (send: boolean) => {
@@ -189,6 +197,19 @@ export function TripClosurePanel({ tripId, userName }: { tripId: string; userNam
               {data.needsBus && (data.closure.transportListSentAt ? " Liste envoyée au transporteur." : " Liste transporteur : pas encore envoyée.")}{" "}
               {data.closure.comptaMailSentAt ? "Comptabilité prévenue." : "Comptabilité : e-mail pas encore parti."}
             </p>
+            {data.awaitingSendConfirmation && !data.purged && (
+              <TripAlert tone="warning" title="Liste figée — envoi à confirmer">
+                La clôture automatique a figé la liste officielle, mais rien n&apos;est encore parti à l&apos;extérieur. Vérifiez la liste puis confirmez :
+                elle part alors au transporteur et la comptabilité est prévenue. Les engagements signés (ZIP) sont déjà téléchargeables par la comptabilité.
+                {data.canWrite && (
+                  <div className="mt-2">
+                    <TripButton variant="warning" size="sm" onClick={() => void confirmSend()} disabled={busy}>
+                      Confirmer et envoyer
+                    </TripButton>
+                  </div>
+                )}
+              </TripAlert>
+            )}
             {data.purged ? (
               <TripAlert tone="muted" title="Voyage terminé">
                 Les pièces des familles ont été supprimées ; seuls les engagements sont conservés.

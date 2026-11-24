@@ -172,6 +172,11 @@ export function planInvitationReminders(opts: {
   docs: Pick<TravelsFamilyDocRequest, "id" | "kind" | "label" | "dueDate">[];
   todayIso: string;
   windowOpen: boolean;
+  /**
+   * Qui a encore quelque chose à faire (voir `autoReminderAudience`, calculé avec le même état que le suivi).
+   * Absent = pas de restriction (ancien comportement, tests unitaires).
+   */
+  audience?: { deadline: boolean; docs: boolean };
 }): ReminderPlan | null {
   const { inv, todayIso } = opts;
   const done = inv.reminders || {};
@@ -181,7 +186,7 @@ export function planInvitationReminders(opts: {
   let deadlinePlan: ReminderPlan["deadline"];
   const docsPlan: ReminderPlan["docs"] = [];
 
-  if (!inv.signature && opts.windowOpen) {
+  if (!inv.signature && opts.windowOpen && opts.audience?.deadline !== false) {
     const dl = effectiveDeadline(opts.deadline, inv.extendedDeadline);
     if (dl) {
       const left = diffDaysIso(todayIso, dl);
@@ -195,7 +200,7 @@ export function planInvitationReminders(opts: {
     }
   }
 
-  if (inv.signature?.decision === "oui") {
+  if (inv.signature?.decision === "oui" && opts.audience?.docs !== false) {
     for (const d of opts.docs) {
       if (d.kind !== "avant_depart" || !isIsoDate(d.dueDate)) continue;
       if (inv.documents?.[d.id] || inv.exemptions?.[d.id]) continue;
@@ -211,6 +216,61 @@ export function planInvitationReminders(opts: {
   }
   if (keys.length === 0) return null;
   return { invitationId: inv.id, keys, deadline: deadlinePlan, docs: docsPlan };
+}
+
+/* ─── Relances : à qui (même état que le suivi) et plafond d'e-mails ─── */
+
+export type ReminderRowState = Pick<FollowupRow, "status" | "invitationId" | "signed"> & {
+  /** Élève compté dans la liste officielle (inscrit actif : ni retiré, ni désisté, ni en suspens). */
+  official: boolean;
+  /** Un AUTRE responsable de cet élève a déjà signé (oui ou non). */
+  otherSigned?: boolean;
+};
+
+export type ReminderTripState = {
+  /** Le voyage est en `INSCRIPTIONS_OUVERTES`. */
+  open: boolean;
+  /** Inscriptions clôturées (`v2Closure`). */
+  closed: boolean;
+  /** Purge faite. */
+  purged: boolean;
+  /** L'élève figure toujours dans la pré-liste du voyage (faux = retiré de la liste). */
+  inPreListe: boolean;
+};
+
+/**
+ * Qui reçoit quoi. Calculé à partir des LIGNES DU SUIVI (`buildRegistrationRows` : mêmes statuts, même liste officielle) :
+ * - rappel de date limite : seulement une famille qui n'a pas signé, dont l'élève n'est ni retiré, ni désisté, ni en suspens,
+ *   si aucun autre responsable n'a déjà signé (oui ou non), le voyage étant encore ouvert aux inscriptions ;
+ * - rappel de pièce « avant départ » : seulement un élève inscrit actif (liste officielle), voyage non purgé.
+ */
+export function autoReminderAudience(row: ReminderRowState, trip: ReminderTripState): { deadline: boolean; docs: boolean } {
+  const deadline =
+    trip.open && !trip.closed && !trip.purged && trip.inPreListe && !row.otherSigned && isRemindable(row);
+  const docs = !trip.purged && row.official && row.signed;
+  return { deadline, docs };
+}
+
+/** Plafond d'e-mails par passage et par établissement : au-delà, on s'arrête (et on alerte). */
+export const AUTO_REMINDER_CAP_PER_PASS = 300;
+
+export type SendBudget = { max: number; used: number; exhausted: boolean; take: () => boolean };
+
+export function createSendBudget(max: number): SendBudget {
+  const b: SendBudget = {
+    max,
+    used: 0,
+    exhausted: false,
+    take() {
+      if (b.used >= b.max) {
+        b.exhausted = true;
+        return false;
+      }
+      b.used += 1;
+      return true;
+    },
+  };
+  return b;
 }
 
 /** Marque les clés envoyées (et le jour) ; ne mute pas l'entrée. */
@@ -297,8 +357,8 @@ export function rowMatchesFilter(row: Pick<FollowupRow, "status" | "exempted" | 
 /** Statuts qu'une relance a un sens de cibler (la famille peut encore agir). */
 export const REMINDABLE_STATUSES: InvitationStatus[] = ["pas_ouvert", "ouvert", "en_cours", "bloque_piece", "pret"];
 
-export function isRemindable(row: Pick<FollowupRow, "status" | "invitationId" | "signed">): boolean {
-  return Boolean(row.invitationId) && !row.signed && (REMINDABLE_STATUSES as string[]).includes(row.status);
+export function isRemindable(row: Pick<FollowupRow, "status" | "invitationId" | "signed"> & { otherSigned?: boolean }): boolean {
+  return Boolean(row.invitationId) && !row.signed && !row.otherSigned && (REMINDABLE_STATUSES as string[]).includes(row.status);
 }
 
 /** Cibles d'une relance : une invitation, ou toutes celles d'un statut. */

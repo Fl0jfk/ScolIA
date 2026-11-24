@@ -10,6 +10,14 @@ import postgres from "postgres";
  * Aucun envoi la nuit : fenêtre 8 h – 18 h (heure de Paris).
  */
 
+/**
+ * ATTENTION — verrou de session : `pg_try_advisory_lock` est lié à UNE connexion Postgres. Il exige une connexion DIRECTE
+ * (`DATABASE_URL` sans PgBouncer en mode « transaction », où chaque requête peut partir sur une autre connexion : le verrou
+ * ne protégerait plus rien et le déverrouillage pourrait viser la mauvaise session). Défense en profondeur, valable même
+ * derrière PgBouncer : (1) un verrou EN TABLE par établissement pour le passage (voir `withNamedLock`, durée limitée donc
+ * repris si le serveur tombe) ; (2) un verrou EN TABLE par voyage pour les relances et un marquage atomique de chaque relance
+ * dans l'invitation (voir `mutClaimReminders`) : deux serveurs ne peuvent donc pas envoyer deux fois le même e-mail.
+ */
 const INTERVAL_MS = 60 * 60_000;
 const FIRST_RUN_MS = 3 * 60_000;
 const LOCK_KEY = 7_204_117_002; // clé constante du verrou advisory Postgres (distincte du job nouveautés)
@@ -47,8 +55,15 @@ async function runPass(): Promise<void> {
       for (const tenant of tenants) {
         try {
           await runWithTenant(tenant, async () => {
-            const r = await runAutoRemindersForTenant(await getTenantAppUrl());
-            if (r.sent || r.failed) console.info(`[voyages-v2-relances] ${tenant.slug}: ${r.sent} envoyée(s), ${r.failed} en échec`);
+            const { withNamedLock } = await import("@/app/lib/ent-json-postgres");
+            const baseUrl = await getTenantAppUrl();
+            const locked = await withNamedLock("jobs", "voyages-v2-relances", 55 * 60, () => runAutoRemindersForTenant(baseUrl));
+            if (locked.busy) return;
+            const r = locked.value;
+            // Journal : un passage = une ligne (volume envoyé, échecs, plafond).
+            if (r.sent || r.failed || r.capped) {
+              console.info(`[voyages-v2-relances] ${tenant.slug}: ${r.sent} envoyée(s), ${r.failed} en échec${r.capped ? " — PLAFOND ATTEINT" : ""}`);
+            }
           });
         } catch (err) {
           console.error("[voyages-v2-relances] établissement ignoré", err instanceof Error ? err.message : "error");

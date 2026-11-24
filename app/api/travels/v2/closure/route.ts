@@ -11,6 +11,7 @@ import {
   closeRegistrations,
   comptaZipDownloadUrl,
   completeClosureSideEffects,
+  confirmClosureSend,
   recordWithdrawal,
   saveAdultMealsAndSend,
 } from "@/app/lib/travels-v2-lot4-store";
@@ -18,7 +19,7 @@ import {
 /**
  * Vue « Clôture » du hub voyage (circuit v2) — API INTERNE (compte requis).
  * Lecture : organisateur, direction, administratif, admin général, compta.
- * Actions : organisateur, direction, administratif, admin général. Le ZIP des engagements : compta, direction, admin.
+ * Actions (dont « Confirmer et envoyer » : liste au transporteur + e-mail compta) : organisateur, direction, administratif, admin général. Le ZIP des engagements : compta, direction, admin.
  */
 
 async function loadV2Trip(tripId: string) {
@@ -67,6 +68,8 @@ const actionSchema = z.discriminatedUnion("action", [
     confirm: z.literal(true),
   }),
   z.object({ action: z.literal("zip_link"), tripId: z.string().min(1) }),
+  // Confirmation humaine de l'envoi (liste au transporteur + e-mail compta) après une clôture automatique.
+  z.object({ action: z.literal("confirm_send"), tripId: z.string().min(1), confirm: z.literal(true) }),
 ]);
 
 export async function POST(req: Request) {
@@ -103,6 +106,20 @@ export async function POST(req: Request) {
           await runWithTenant(tenant, () => completeClosureSideEffects(input.tripId));
         } catch (e) {
           console.error("[travels/v2/closure] effets de clôture", e instanceof Error ? e.message : e);
+        }
+      });
+      return NextResponse.json({ ok: true, already: res.already === true });
+    }
+
+    if (input.action === "confirm_send") {
+      const res = await confirmClosureSend({ tripId: input.tripId, by: access.userName });
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
+      const tenant = await getTenant();
+      after(async () => {
+        try {
+          await runWithTenant(tenant, () => completeClosureSideEffects(input.tripId));
+        } catch (e) {
+          console.error("[travels/v2/closure] envoi confirmé", e instanceof Error ? e.message : e);
         }
       });
       return NextResponse.json({ ok: true, already: res.already === true });

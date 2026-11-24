@@ -9,6 +9,7 @@ import {
 } from "@/app/lib/pdf-branding";
 import { dateFr, type FamilyPagePreviewModel } from "@/app/lib/travels-family-page";
 import { FAMILY_PAGE_TEMPLATE } from "@/app/lib/travels-family-page-template";
+import { pdfSafeDeep } from "@/app/lib/travels-v2-pdf-text";
 import {
   MEAL_TYPE_LABELS,
   type FamilyAnswers,
@@ -48,7 +49,9 @@ export type SignedCircularInput = {
 };
 
 /** PDF de la circulaire signée : trame fixe remplie + réponses + signature + date/heure + nom. */
-export async function buildSignedCircularPdf(input: SignedCircularInput): Promise<Buffer> {
+export async function buildSignedCircularPdf(rawInput: SignedCircularInput): Promise<Buffer> {
+  // Police intégrée (WinAnsi) : le texte est ramené à ce qu'elle sait écrire (voir travels-v2-pdf-text.ts).
+  const input: SignedCircularInput = { ...pdfSafeDeep({ ...rawInput, signaturePng: undefined }), signaturePng: rawInput.signaturePng };
   const [letterhead, logo] = await Promise.all([getSchoolLetterhead(), loadSchoolLogoForPdf()]);
   const doc = new jsPDF({ compress: true });
   const W = doc.internal.pageSize.getWidth();
