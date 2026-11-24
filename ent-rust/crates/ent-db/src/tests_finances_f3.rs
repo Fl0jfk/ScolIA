@@ -2357,10 +2357,26 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
                 .collect::<Vec<_>>()
         }
     };
-    assert_eq!(montants_au(d(2030, 8, 31)).await, vec![100_000], "la veille de v1 : historique");
-    assert_eq!(montants_au(d(2030, 9, 1)).await, vec![120_000], "v1 le 1er septembre");
-    assert_eq!(montants_au(d(2030, 12, 31)).await, vec![120_000], "v1 la veille de v2");
-    assert_eq!(montants_au(d(2031, 1, 1)).await, vec![130_000], "v2 le 1er janvier");
+    assert_eq!(
+        montants_au(d(2030, 8, 31)).await,
+        vec![100_000],
+        "la veille de v1 : historique"
+    );
+    assert_eq!(
+        montants_au(d(2030, 9, 1)).await,
+        vec![120_000],
+        "v1 le 1er septembre"
+    );
+    assert_eq!(
+        montants_au(d(2030, 12, 31)).await,
+        vec![120_000],
+        "v1 la veille de v2"
+    );
+    assert_eq!(
+        montants_au(d(2031, 1, 1)).await,
+        vec![130_000],
+        "v2 le 1er janvier"
+    );
 
     // M-B : une version votée mise en vigueur le même jour qu'une version déjà appliquée est refusée.
     let v3 = ent
@@ -2376,7 +2392,9 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
         )
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v3.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v3.id)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         ua,
@@ -2392,8 +2410,14 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     .await
     .unwrap();
     assert!(invalide(
-        ent.mettre_en_vigueur_for_actor(etab, u, r, v3.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
-            .await
+        ent.mettre_en_vigueur_for_actor(
+            etab,
+            u,
+            r,
+            v3.id,
+            &MiseEnVigueurBody { du: d(2031, 1, 1) }
+        )
+        .await
     ));
     // … et la base le refuse aussi (déclencheur), SQLSTATE 23514, sans passer par le service
     let mut tx = ent.pool_verif().begin().await.unwrap();
@@ -2406,7 +2430,11 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     .execute(&mut *tx)
     .await
     .unwrap_err();
-    erreur_base(&e, "23514", "antérieure ou égale à celle d'une version déjà appliquée");
+    erreur_base(
+        &e,
+        "23514",
+        "antérieure ou égale à celle d'une version déjà appliquée",
+    );
     drop(tx);
     // un jour plus tard : accepté
     ent.mettre_en_vigueur_for_actor(etab, u, r, v3.id, &MiseEnVigueurBody { du: d(2031, 1, 2) })
@@ -2448,7 +2476,11 @@ async fn f3r_m2_second_regard_autre_personne_que_l_auteur() {
     .execute(ent.pool_verif())
     .await
     .unwrap_err();
-    erreur_base(&e, "23001", "second regard : le votant est l'auteur de la grille");
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : le votant est l'auteur de la grille",
+    );
     // le second regard ne se désactive pas pendant qu'une grille est proposée
     assert!(conflit(
         ent.definir_reglages_grilles_for_actor(
@@ -3116,7 +3148,9 @@ async fn f3s_ma_rentree_votee_en_juin_pour_une_grille_du_premier_septembre() {
     ent.ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(contrib.id, 120_000, true))
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
     // vote du 20 juin 2030 (jour de référence : 1er juillet) ; vigueur au 1er septembre
     ent.voter_grille_test(etab, ua, ra, v.id, &vote("CA du 20 juin"))
         .await
@@ -3159,9 +3193,15 @@ async fn f3s_mc_verrou_proposition_et_second_regard() {
                 )
                 .await
                 .unwrap();
-            ent.ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(contrib.id, montant, true))
-                .await
-                .unwrap();
+            ent.ajouter_tarif_grille_for_actor(
+                etab,
+                u,
+                r,
+                v.id,
+                &tarif_body(contrib.id, montant, true),
+            )
+            .await
+            .unwrap();
             v.id
         }
     };
@@ -3186,7 +3226,10 @@ async fn f3s_mc_verrou_proposition_et_second_regard() {
         .await
     });
     attendre_verrou(&ent, &cle).await;
-    assert!(!reglage.is_finished(), "la désactivation doit attendre le verrou");
+    assert!(
+        !reglage.is_finished(),
+        "la désactivation doit attendre le verrou"
+    );
     sqlx::query(
         "UPDATE ent_fin_grille_version SET statut = 'proposee', propose_le = now(), propose_par = $2 WHERE id = $1",
     )
@@ -3214,9 +3257,13 @@ async fn f3s_mc_verrou_proposition_et_second_regard() {
     let mut tenant = ent.pool_verif().begin().await.unwrap();
     verrou_pris(&mut tenant, &cle).await;
     let ent2 = ent.clone();
-    let proposition = tokio::spawn(async move { ent2.proposer_grille_for_actor(etab, u, r, v2).await });
+    let proposition =
+        tokio::spawn(async move { ent2.proposer_grille_for_actor(etab, u, r, v2).await });
     attendre_verrou(&ent, &cle).await;
-    assert!(!proposition.is_finished(), "la proposition doit attendre le verrou");
+    assert!(
+        !proposition.is_finished(),
+        "la proposition doit attendre le verrou"
+    );
     tenant.commit().await.unwrap();
     assert_eq!(proposition.await.unwrap().unwrap().statut, "proposee");
 }
@@ -3422,17 +3469,36 @@ async fn f3s_alerte_second_regard_et_ordre_des_controles() {
         .find(|a| a.contains("second regard"))
         .expect("alerte du second regard");
     assert!(alerte.contains(&format!(" le {attendu}")), "{alerte}");
-    assert!(alerte.contains(" par "), "l'auteur de la désactivation est nommé : {alerte}");
+    assert!(
+        alerte.contains(" par "),
+        "l'auteur de la désactivation est nommé : {alerte}"
+    );
 
     // ordre des contrôles : une grille inconnue répond « introuvable » avant toute erreur de saisie
     let inconnue = Uuid::new_v4();
     assert!(introuvable(
-        ent.retour_brouillon_for_actor(etab, u, r, inconnue, &RetourBrouillonBody { motif: String::new() })
-            .await
+        ent.retour_brouillon_for_actor(
+            etab,
+            u,
+            r,
+            inconnue,
+            &RetourBrouillonBody {
+                motif: String::new()
+            }
+        )
+        .await
     ));
     assert!(introuvable(
-        ent.abandonner_grille_for_actor(etab, u, r, inconnue, &RetourBrouillonBody { motif: String::new() })
-            .await
+        ent.abandonner_grille_for_actor(
+            etab,
+            u,
+            r,
+            inconnue,
+            &RetourBrouillonBody {
+                motif: String::new()
+            }
+        )
+        .await
     ));
     assert!(introuvable(
         ent.corriger_grille_for_actor(
@@ -3499,7 +3565,11 @@ async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
         .execute(ent.pool_verif())
         .await
         .unwrap_err();
-    erreur_base(&e, "23514", "tarif : année différente de celle de la version");
+    erreur_base(
+        &e,
+        "23514",
+        "tarif : année différente de celle de la version",
+    );
     // la direction ajoute puis retire un tarif, et pose les tranches : elle reste contributrice
     let extra = ent
         .ajouter_tarif_grille_for_actor(etab, ud, rd, v.id, &tarif_body(dp.id, 45_000, true))
@@ -3514,7 +3584,10 @@ async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
             .fetch_one(ent.pool_verif())
             .await
             .unwrap();
-    assert!(contributeurs.contains(&ud) && contributeurs.contains(&u), "{contributeurs:?}");
+    assert!(
+        contributeurs.contains(&ud) && contributeurs.contains(&u),
+        "{contributeurs:?}"
+    );
     // les contributeurs ne se retirent pas du brouillon
     let e = sqlx::query("UPDATE ent_fin_grille_version SET contributeurs = '{}' WHERE id = $1")
         .bind(v.id)
@@ -3522,7 +3595,9 @@ async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
         .await
         .unwrap_err();
     erreur_base(&e, "23001", "un contributeur ne se retire pas du brouillon");
-    ent.proposer_grille_for_actor(etab, u, r, v.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
     // la direction (contributrice) ne vote pas : service et base
     assert!(interdit(
         ent.voter_grille_test(etab, ud, rd, v.id, &vote("CA")).await
@@ -3537,16 +3612,38 @@ async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
     .execute(&mut *tx)
     .await
     .unwrap_err();
-    erreur_base(&e, "23001", "second regard : le votant est l'auteur de la grille");
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : le votant est l'auteur de la grille",
+    );
     drop(tx);
     // retour en brouillon : le proposant (direction, qui propose une autre fois) reste parmi les contributeurs
-    ent.retour_brouillon_for_actor(etab, u, r, v.id, &RetourBrouillonBody { motif: "à revoir".into() })
+    ent.retour_brouillon_for_actor(
+        etab,
+        u,
+        r,
+        v.id,
+        &RetourBrouillonBody {
+            motif: "à revoir".into(),
+        },
+    )
+    .await
+    .unwrap();
+    ent.proposer_grille_for_actor(etab, ud, rd, v.id)
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, ud, rd, v.id).await.unwrap();
-    ent.retour_brouillon_for_actor(etab, ud, rd, v.id, &RetourBrouillonBody { motif: "encore".into() })
-        .await
-        .unwrap();
+    ent.retour_brouillon_for_actor(
+        etab,
+        ud,
+        rd,
+        v.id,
+        &RetourBrouillonBody {
+            motif: "encore".into(),
+        },
+    )
+    .await
+    .unwrap();
     let (propose_par, contributeurs): (Option<Uuid>, Vec<Uuid>) = sqlx::query_as(
         "SELECT propose_par, contributeurs FROM ent_fin_grille_version WHERE id = $1",
     )
@@ -3555,10 +3652,17 @@ async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
     .await
     .unwrap();
     assert!(propose_par.is_none(), "le retour efface la proposition");
-    assert!(contributeurs.contains(&ud), "… mais garde son auteur : {contributeurs:?}");
+    assert!(
+        contributeurs.contains(&ud),
+        "… mais garde son auteur : {contributeurs:?}"
+    );
     // un autre proposant, un autre votant : l'administrateur vote
-    ent.proposer_grille_for_actor(etab, u, r, v.id).await.unwrap();
-    ent.voter_grille_test(etab, ua, ra, v.id, &vote("CA")).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
+    ent.voter_grille_test(etab, ua, ra, v.id, &vote("CA"))
+        .await
+        .unwrap();
 }
 
 /// Faible 3 : une version `close` (encore applicable jusqu'à la veille de la suivante) se publie ; faible 4 :
@@ -3590,7 +3694,9 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
         )
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         c.admin.user_id,
@@ -3608,13 +3714,17 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
     ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
         .await
         .unwrap();
-    let (statut,): (String,) = sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
-        .bind(v1)
-        .fetch_one(ent.pool_verif())
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v1)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(statut, "close");
+    let pub1 = ent
+        .publier_grille_for_actor(etab, ud, rd, v1)
         .await
         .unwrap();
-    assert_eq!(statut, "close");
-    let pub1 = ent.publier_grille_for_actor(etab, ud, rd, v1).await.unwrap();
     assert_eq!(pub1.numero, 1);
     assert!(!pub1.lignes.is_empty());
     // une version abandonnée, elle, ne se publie jamais
@@ -3632,10 +3742,20 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
         )
         .await
         .unwrap();
-    ent.abandonner_grille_for_actor(etab, u, r, ab.id, &RetourBrouillonBody { motif: "essai".into() })
-        .await
-        .unwrap();
-    assert!(conflit(ent.publier_grille_for_actor(etab, ud, rd, ab.id).await));
+    ent.abandonner_grille_for_actor(
+        etab,
+        u,
+        r,
+        ab.id,
+        &RetourBrouillonBody {
+            motif: "essai".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(conflit(
+        ent.publier_grille_for_actor(etab, ud, rd, ab.id).await
+    ));
 
     // ── simulations : auteur ou direction seulement ──
     let corps = |libelle: &str| SimulationBody {
@@ -3676,7 +3796,11 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
         .execute(ent.pool_verif())
         .await
         .unwrap_err();
-    erreur_base(&e, "23001", "un calcul historisé ne se supprime qu'avec sa simulation");
+    erreur_base(
+        &e,
+        "23001",
+        "un calcul historisé ne se supprime qu'avec sa simulation",
+    );
     ent.supprimer_simulation_for_actor(etab, ud, rd, par_compta.simulation_id)
         .await
         .unwrap();
@@ -3698,7 +3822,10 @@ async fn f3s_publication_close_et_suppression_de_simulation() {
     .await
     .unwrap();
     assert!(detail.contains("scénario de la comptabilité"), "{detail}");
-    assert!(detail.contains("calcul(s) supprimé(s)") && detail.contains('→'), "{detail}");
+    assert!(
+        detail.contains("calcul(s) supprimé(s)") && detail.contains('→'),
+        "{detail}"
+    );
     // l'auteur supprime son propre scénario sans autre droit que `simuler`
     ent.supprimer_simulation_for_actor(etab, ud, rd, par_direction.simulation_id)
         .await

@@ -125,3 +125,38 @@ Base locale **neuve** `ent_f3r_test` (PostgreSQL 16, `ENT_ENV=test`, `ENT_EXIGER
 - `ent-api` : `recette_finances_f0` (17), `recette_securite_3` (10), test d'or historique, `separation` (58, dont `domaine_finances_grilles` avec les deux sondes ajoutées).
 - Clippy 1.99.0 `-D warnings` sur les trois passes de la CI backend et les deux passes `ent-web-server` / `ent-web-session` du frontend (`cargo check --tests` du test web : l'édition de liens locale du binaire de test échoue sur `ring`, sans lien avec le lot) ; rustfmt ciblé sur les fichiers du lot (`facturation_grilles.rs`, `tests_finances_f3.rs`, `ent-api/src/finances_grilles.rs`), `cargo fmt -p ent-types --check`, **aucun `cargo fmt --all`** ; `cargo metadata --locked` dans `ent-rust/web` propre. Aucun `#[ignore]`.
 - **Tête de code et CI** : `ff16f6ec` (deux pushs : `a24201fc` rouge sur deux jeux d'essai hors de mon passage local — tranche 15/20 `ent-api tests_finances` et tranche 2/6 `ent-web-server finances`, corrigés ; puis `ff16f6ec`), **CI « ENT Rust » verte sur tous les jobs** (run 45032415707). Le commit suivant ne touche que ce document (`docs/` ne déclenche pas la CI). PR n° 118 laissée en brouillon.
+
+## 8. Suites de la contre-revue (D-069, session du 2026-11-24)
+
+Branche `ent-socle-24-code-f3-suites` (partie d'`origin/ENT`), PR en brouillon. Migration **531** (fin du tableau, règle 38) ; 520 à 523 inchangées. **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.**
+
+### 8.1 Fait
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| **M-A** | Tarif choisi **mois par mois**, au 1er jour de chaque mois dû (génération annuelle et changement de régime). Les mois voisins tarifés par les mêmes lignes forment un segment (prorata de ses mois) ; le premier segment garde la clé de source historique, les suivants `:m<AAAA-MM>`. `jour_de_l_etablissement` et `facturer_annee_eleve_au` supprimés. `tarifs_tx` / `GET /finances/tarifs` acceptent `a_la_date` (défaut : jour de l'établissement). | `f3s_ma_rentree_votee_en_juin…` (grille du 1er sept. votée en juin, élève facturé) ; `f3r_m1` : année entière 1 260 €, entrée en novembre 1 020 €, en janvier 780 €, `tarifs_tx` aux 31/08, 01/09, 31/12, 01/01, rejeu sans doublon |
+| **M-B** | Égalité de date de vigueur refusée (service et déclencheur, 23514). | `f3r_m1` (service puis SQL direct, SQLSTATE et message) |
+| **M-C** | Verrou `pg_advisory_xact_lock` d'établissement `fin:grille_second_regard:<étab>` dans la proposition et le réglage du second regard. | `f3s_mc_…` : deux connexions, ordre imposé par le verrou et `pg_locks`, sans `sleep` |
+| **M-D** | Refus de création d'article et d'émission sous qualification exigée par défaut (messages exacts) ; `f3r_m2` vérifie SQLSTATE et message. | `f3s_md_…`, `f3r_m2` |
+| 1 | Bind mort de l'INSERT de tarif supprimé. | compilation et tests F3 |
+| 2 | Alerte « par <nom> le JJ/MM/AAAA à HH:MM » à l'heure de l'établissement. Le texte ne dit plus « antérieur à la 523 ». | `f3s_alerte_…` (fuseau Pacific/Auckland) |
+| 3 | Une version `close` encore applicable se publie (service et base). | `f3s_publication_close_…` |
+| 4 | Suppression de simulation réservée à son auteur ou à `voter` ; journal avec libellé, nombre de calculs et produits avant→après ; DELETE direct d'un calcul refusé en base (cascade depuis la simulation seulement). | `f3s_publication_close_…` |
+| 5 | Plafonds (familles types, simulations) comptés sous verrou d'établissement. | `f3s_plafonds_sous_verrou` |
+| 6 | Existence avant validation du corps (vote, retour en brouillon, abandon, correction). | `f3s_alerte_…` |
+| 7 | Colonne `contributeurs` : tarifs retirés, tranches, hausses, proposant d'avant un retour en brouillon ; refusés au vote (service et base). | `f3s_contributeurs_…` |
+| 8 | Identifiants des versions supplantées dans le journal. | `f3r_m5` |
+| 9 | Année d'un tarif versionné figée par le déclencheur. | `f3s_contributeurs_…` |
+| 10 | Continuité : la facturation `regime:` compte dans `facturees` (par année de la facture). | exécutée à chaque proposition ; **pas de test dédié** |
+| 12 | Commentaire `tests_rls.rs` : + 8. | — |
+
+### 8.2 Non fait, avec raison
+- **10 (articles actifs seulement)** : un article désactivé qui disparaît de la grille suivante est un retrait délibéré, pas un oubli.
+- **11 (effacement des utilisateurs)** : documentaire (en-tête de la 523), chemin d'effacement non touché.
+- **2** : le basculement de l'exigence de qualification reste journalisé sous `grille.reglages`, sans distinction « établissement antérieur ».
+
+### 8.3 Compteurs (règle 28)
+`Action::TOUTES` 269 (inchangé) ; tables RLS inchangées (aucune table) ; migrations : +531 (`MIGRATION_TAG` inchangé) ; `SOURCES` 70. Le pilote ajoutera `531_finances_f3_suites` à `migrations_versees.txt`.
+
+### 8.4 Vérifications
+Base locale neuve `ent_f3s_test` (PostgreSQL 16), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`. `tests_finances_f3` : 23 tests verts. `ent-db` élargi (338 tests) : 336 verts ; deux `tests_search_path_t1` ont échoué sur « statement timeout » sous charge (contention des rejeux de migration en parallèle) et passent isolés (le troisième `t1_gel_du_cahier…` est passé isolé à la 2e exécution) ; `ent-api` : `separation` 63, `recette_finances_f0` 17, `recette_securite_3` 10 (un timeout parallèle, vert isolé). Clippy 1.99.0 `-D warnings` : 3 commandes de la CI propres (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` propre ; rustfmt ciblé sur `tests_finances_f3.rs` (`finances.rs` n'était déjà pas formaté sur ENT : non reformaté) ; pas de `cargo fmt --all`, pas de `#[ignore]`. Dates fixes, aucune horloge réelle.
