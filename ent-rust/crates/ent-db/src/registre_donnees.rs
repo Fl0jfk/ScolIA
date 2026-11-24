@@ -1228,10 +1228,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     // dispense a été notifiée à la famille (ni lecture familiale de la table dans l'ENT) : valeur par défaut PRUDENTE =
     // retirée de l'export. À rouvrir quand l'ENT notifiera la décision (colonne `communiquee_le` + `export_si`).
     t("eva_dispense_port", "evaluations_pedagogie", Portee::Etablissement).perso(),
-    // Idem pour la déclaration d'un enseignement suivi ailleurs (organisme, référent tiers, compte dans la moyenne
-    // générale : décision interne de la direction). Ce que la famille voit de cet enseignement, c'est la moyenne externe
-    // PUBLIÉE (`eva_moyenne_externe`, `export_si` sur la publication).
-    t("eva_enseignement_externe", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    // Enseignement suivi ailleurs. Contre-revue du pilote (passe 5, Moyen 1) : sans cette table, une moyenne externe publiée
+    // exportée n'a ni matière ni organisme (la famille la voit pourtant avec sa matière au bulletin). Exporté seulement
+    // quand il porte une moyenne PUBLIÉE ; référent tiers, auteur et décision interne « compte dans la moyenne générale »
+    // restent hors export.
+    t("eva_enseignement_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["referent", "declare_par", "compte_moyenne_generale"])
+        .export_si("EXISTS (SELECT 1 FROM eva_moyenne_externe m WHERE m.etablissement_id = x.etablissement_id AND m.enseignement_externe_id = x.id AND m.publiee_le IS NOT NULL)"),
     t("eva_evaluation", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_commune", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_historique", "evaluations_pedagogie", Portee::Etablissement),
@@ -1623,9 +1626,16 @@ mod tests {
     /// M4 / M5 / F3 : ce qui n'est pas communiqué à la famille n'est pas exporté.
     #[test]
     fn les_tables_internes_de_rattrapage_et_de_declaration_ne_sont_pas_exportees() {
-        for nom in ["eva_rattrapage_historique", "eva_rattrapage_autorise", "eva_dispense_port", "eva_enseignement_externe"] {
+        for nom in ["eva_rattrapage_historique", "eva_rattrapage_autorise", "eva_dispense_port"] {
             let c = classer(nom).expect("classée");
             assert!(!c.export_portabilite, "{nom} ne doit pas être exportée (D-069)");
+        }
+        // Contre-revue du pilote (Moyen 1) : l'enseignement externe sort avec une moyenne publiée (sa matière et son
+        // organisme donnent son sens à la moyenne), jamais sans condition ni avec le référent, l'auteur ou la décision interne.
+        let ens = classer("eva_enseignement_externe").expect("classée");
+        assert!(ens.export_portabilite && ens.export_si.is_some(), "eva_enseignement_externe : export conditionné");
+        for col in ["referent", "declare_par", "compte_moyenne_generale"] {
+            assert!(ens.colonnes_hors_export.contains(&col), "eva_enseignement_externe : {col} hors export");
         }
         for nom in ["eva_rattrapage", "eva_moyenne_statut"] {
             assert!(classer(nom).expect("classée").export_si.is_some(), "{nom} : condition d'état attendue");

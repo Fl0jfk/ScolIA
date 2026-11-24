@@ -336,3 +336,16 @@ Principe : l'export ne rend **que ce que la famille peut déjà voir dans l'ENT*
 ### 12.3 Tête et CI
 * **Tête du code :** `4376238f` (PR brouillon #143, `ent-socle-21-code-v5-suites-5` → `ENT`). Local : 259/259 tests (`registre_donnees`, `tests_evaluations*`, `extrait_personne`, `tests_rls::`, `migrate::`, `garde_`, `tests_eleve_fusion`) ; clippy 1.99.0 `-D warnings` sur les deux commandes backend (avec `ent-lab`) : 0 avertissement ; `cargo metadata --locked` dans `web/` : OK.
 * **CI « ENT Rust » sur cette tête : verte** (run 45356863579, `completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**`.
+
+### Correctifs du pilote après contre-revue (passe 5, 2026-11-24)
+Rapport complet : `docs/pilotage/revues/21_V5_SUITES_5_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé.
+- **Moyen 1** : `eva_enseignement_externe` est de nouveau exportée, **seulement** quand elle porte une moyenne externe publiée
+  (sans elle, la moyenne exportée n'a ni matière ni organisme) ; `referent`, `declare_par`, `compte_moyenne_generale` hors
+  export. Test de registre aligné.
+- **Moyen 3 (D-069)** : `eva_rattrapage` et `eva_moyenne_statut` restent exportées sous condition au titre du **droit
+  d'accès (art. 15)** : données personnelles de l'élève, sans rien révéler de non publié.
+- **Moyen 4, réserve DPO** : `eva_dispense_port` est retirée de l'export automatique ; elle est **fournie sur demande
+  manuelle** tant que G3 n'existe pas (à confirmer par le DPO).
+- En file (avant G3) : Moyen 2 (alignement de `eva_moyenne_externe` sur le bulletin), Moyen 5 (`ent_note_correction`,
+  `ent_note_archive`, `ent_note_doublon_archive` exportées sans condition ; M1/M2 étendus aux `ent_note_*`), faibles 6 à 9.
+- Local : `tests_evaluations_v5` et `registre` : 68 verts.
