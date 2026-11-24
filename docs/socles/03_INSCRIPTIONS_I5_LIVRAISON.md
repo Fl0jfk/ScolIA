@@ -524,3 +524,20 @@ Adaptations des tests existants : les deux fixtures qui neutralisaient la sentin
 - **Tests** : base neuve `ent_i5s6_test`, un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0, `ENT_ENV=lab`. Filtres `inscription r_m4 registre migrat d036 export rgpd p2_ i5_ p3_ p4_ i3_ i4_ s5_ s6_ garde_search_path` : 447 tests, 440 verts à quatre fils, les 7 autres (sans rapport, voir « Non fait ») verts seuls ; les 8 `s6_*` et les `s5_*` verts.
 - **Compteurs (règle 28)** : `MIGRATIONS` +1 (317, en fin de tableau) ; tables, actions, sources, RLS et MIGRATION_TAG (3808) inchangés ; `migrations_versees.txt` non modifié.
 - **Tête de code et CI** : tête `6ae1d2a2ff4c13ea6c61b13daeca0e39debb8a72`, CI « ENT Rust » (run 45369838911) **verte** (`success`). Le commit qui consigne ce résultat ne change que ce document.
+
+### Correctifs du pilote après contre-revue (passe 6, 2026-11-24)
+Rapport complet : `docs/pilotage/revues/03_I5_SUITES_6_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé. Équivalence de la
+sentinelle par instruction confirmée (ancienne ET nouvelle offre, purge exemptée, 55000) ; F7 sans interblocage ; course
+dépôt/archivage fermée par le verrou de campagne (`FOR SHARE` contre `FOR NO KEY UPDATE`).
+- **Moyen A, restauration** : `pg_restore --disable-triggers` se termine par `ENABLE TRIGGER ALL`, qui remet les déclencheurs
+  à l'état « origine » et **fait perdre `ENABLE ALWAYS`**. Toute restauration de ce type se termine donc par
+  `ALTER TABLE … ENABLE ALWAYS TRIGGER …` sur les sept déclencheurs de la sentinelle, puis le contrôle
+  `SELECT tgname, tgenabled FROM pg_trigger WHERE tgname LIKE 'ent\_inscription\_sentinelle\_%'` (toutes à `A`).
+- **Moyen B, réplication logique** : côté abonné (PRA, changement d'hébergeur), le worker d'application tourne en rôle
+  `replica` sans verrou consultatif : une sentinelle `ALWAYS` y bloquerait la réplication (55000). Sur un abonné, les sept
+  déclencheurs sont passés en `DISABLE` (la cohérence est garantie par la base source). À reprendre dans la procédure PRA.
+- En file : Moyen C (la garde de rejeu de 304, tests seulement, peut laisser la sentinelle absente si un rejeu échoue :
+  la recréer en cas d'échec), Moyen D (appel par ligne résiduel de `ent_inscription_offre_du_dossier` → jointure ; test
+  multi-lignes et deux offres sur la fonction réelle), F-1 (rejeu de 313/314 sur un historique non chaîné), F-2 (repli de
+  l'alerte par **droit** `InscriptionsGerer` et non par rôle brut), F-3 (échec ouvert hérité de 316).
+- `317_inscription_i5_suites_passe6` inscrite à `migrations_versees.txt` au versement.
