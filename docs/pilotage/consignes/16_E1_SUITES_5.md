@@ -13,7 +13,7 @@ Tu es une session ScolIA (Sonnet). Réponds en français. Le pilote, c'est moi. 
 - **Qualité :** zéro avertissement avec clippy 1.99 sur les 3 commandes de la CI (`ent-lab` compris) ; `--locked` et fmt ciblé ; `cargo metadata --locked` dans `ent-rust/web` ; base locale **neuve dont le nom contient « test »**, un seul `CARGO_TARGET_DIR` ; compteurs de la règle 28 relus.
 
 ## Travail (faibles « en file » de la contre-revue de la passe 4)
-Le Moyen A (droit EXECUTE vérifié au démarrage) est **déjà fait** par le lot T2 (`ent-db/src/controle_demarrage.rs`) : ne le refais pas.
+Le Moyen A (droit EXECUTE vérifié au démarrage) est **déjà fait** par le lot T2 (PR 147, `ent-db/src/controle_demarrage.rs`, en cours de versement : il peut manquer à ton départ et arrivera par la fusion d'`origin/ENT`) : ne le refais pas.
 1. **Faible 1, lot affamé** : quand au moins `taille_lot` avis visent des messages verrouillés, le lot ne doit plus tourner
    à vide indéfiniment (report de `planifie_pour`, saut des verrouillés, ou sélection qui les exclut). Test déterministe.
 2. **Faible 2** : « autre établissement invisible » prouvé **par la RLS** (rôle applicatif, contexte d'un autre
