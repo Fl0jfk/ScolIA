@@ -205,3 +205,7 @@ Rien de la liste. Hors lot (inchangés) : régularisation des écarts de tarif d
 
 ### Compteurs (règle 28)
 `Action::TOUTES` **282** (inchangé) ; tables RLS inchangées ; migrations : aucune (532 libre, `migrations_versees.txt` non touché) ; `SOURCES` 75 (inchangé).
+
+### Vérifications et CI (Suites, 2)
+Base locale neuve `ent_f3t_test` (PostgreSQL 16), toolchain 1.99.0, `--locked`, un seul `CARGO_TARGET_DIR`, dates fixes (aucune horloge réelle). `tests_finances_f3` : 29 tests verts (26 + 3 nouveaux : `f3s2_*`, plus un test scindé) ; `ent-db` élargi (finances, factur, inscription, payeurs, comptes, registre, rls, conservation : 382 tests) : 379 verts, 3 échecs de parallélisme (deadlock de rejeu de migration, compteurs partagés) verts isolés. Clippy 1.99.0 `-D warnings` : 3 commandes de la CI propres (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` propre ; rustfmt ciblé sur `tests_finances_f3.rs` ; pas de `cargo fmt --all`, pas de `#[ignore]`. Non rejoués en local : `ent-api` (`separation`, `recette_*`) et `ent-web-server`, couverts par la CI.
+Tête de code : `1236cea1`. **CI « ENT Rust » verte** (run 45390937393 : 41 jobs, 2 sautés comme prévu). PR n° 146 laissée en brouillon.
