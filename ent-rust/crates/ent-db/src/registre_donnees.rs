@@ -1560,7 +1560,7 @@ mod tests {
     /// Colonnes de chaque table `eva_*` / `ent_eva_*` / `ent_note_*` de la base.
     async fn colonnes_des_tables(pool: &sqlx::PgPool) -> BTreeMap<String, Vec<String>> {
         let lignes: Vec<(String, String)> = sqlx::query_as(
-            "SELECT table_name::text, column_name::text FROM information_schema.columns
+            r"SELECT table_name::text, column_name::text FROM information_schema.columns
               WHERE table_schema = 'public' AND (table_name LIKE 'eva\_%' OR table_name LIKE 'ent\_eva\_%' OR table_name LIKE 'ent\_note\_%')",
         )
         .fetch_all(pool)
