@@ -219,3 +219,6 @@ Tables avec RLS +0 ; `Action::TOUTES` inchangé ; routes +0 ; migrations +0 ; `M
 
 ### Vérifications
 Base locale neuve `ent_s16e1p5_test` (PostgreSQL 16, `ENT_ENV=test`, `--test-threads 1`, un seul `CARGO_TARGET_DIR`), `ent-db` `--features labo`, filtres `p2_ p3_ p4_ p5_ journal_limite msg_xmin` : 112 verts, 1 rouge (`p3_une_erreur…`, corrigé : instant du passage suivant, voir ci-dessus). fmt ciblé (`rustfmt` sur les deux fichiers neufs) ; aucun `#[ignore]` ; aucune heure réelle. clippy et rejeu : voir tête et CI ci-dessous.
+
+### Passe 5 : CI et fusion d'ENT
+Premier push (5ec288d9) : CI rouge, une seule cause — la garde statique `garde_messagerie_lecture` voulait classer `message_existe_sous_verrou_brut` (le SQL a quitté l'enveloppe de domaine) ; entrée corrigée (la version de domaine n'a plus de SQL). Le job « Aucun test ne disparaît » n'était rouge que par ricochet. `origin/ENT` fusionné (T2 arrivé, Moyen A fait par ce lot) sans conflit ; aucun compteur additif ni migration touchés ; clippy 1.99 `-D warnings` (2 commandes workspace) et `garde_` rejoués : 0 avertissement, 23 verts.
