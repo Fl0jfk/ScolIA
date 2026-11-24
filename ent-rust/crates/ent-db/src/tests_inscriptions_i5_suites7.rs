@@ -320,11 +320,12 @@ async fn s7_rejeu_en_echec_restaure_la_sentinelle() {
     let (_camp, offre) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
     // Rejeu partiel : le seul fichier à garde (304) puis un fichier qui échoue. Pas le préfixe entier du tableau : un rejeu
     // interrompu laisserait les objets des fichiers rejoués dans leur état d'alors pour les tests suivants de la base.
-    let f304 = *crate::migrate::MIGRATIONS
-        .iter()
-        .find(|(n, _)| *n == "304_inscription_demarche_dossier")
-        .expect("304 est dans le tableau");
-    let liste: Vec<(&str, &str)> = vec![f304, ("9999_echec_voulu_du_rejeu", "SELECT 1 / 0")];
+    // Contre-revue du pilote (passe 7, T-3) : la garde de rejeu se déclenche par le NOM du fichier ; son SQL est neutre, la base
+    // n'est jamais remise dans un état ancien (ni rejeu de 304, ni rejeu complet de remise en état).
+    let liste: Vec<(&str, &str)> = vec![
+        ("304_inscription_demarche_dossier", "SELECT 1"),
+        ("9999_echec_voulu_du_rejeu", "SELECT 1 / 0"),
+    ];
 
     let r = crate::migrate::rejouer_liste(ent.pool_verif(), &liste).await;
     let e = r.expect_err("le rejeu doit échouer sur le fichier qui échoue");
@@ -354,11 +355,6 @@ async fn s7_rejeu_en_echec_restaure_la_sentinelle() {
     tx.rollback().await.unwrap();
     refus(&r, "écriture sans verrou après un rejeu en échec");
     garde.liberer().await;
-    // Les objets de 304 ont été rejoués dans leur version d'alors : un rejeu complet remet la base dans son état final
-    // pour les tests suivants (le rejeu prend le verrou exclusif : la garde partagée est libérée avant).
-    crate::migrate::rejouer_tout(ent.pool_verif())
-        .await
-        .expect("rejeu complet de remise en état");
 }
 
 // ───────────────────────────── Moyen A : vérification de santé ─────────────────────────────
@@ -384,26 +380,21 @@ async fn s7_sante_sentinelle_signale_un_declencheur_non_always() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let anormaux: Vec<(String, String)> = sqlx::query_as(
-        "SELECT t.tgname::text, t.tgenabled::text FROM pg_catalog.pg_trigger t
-          WHERE t.tgname LIKE 'ent\\_inscription\\_sentinelle\\_%' AND NOT t.tgisinternal AND t.tgenabled <> 'A' ORDER BY 1",
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .unwrap();
+    // Contre-revue du pilote (passe 7) : la FONCTION du démarrage elle-même, sur la transaction ; un déclencheur absent est
+    // signalé aussi.
+    sqlx::query("DROP TRIGGER ent_inscription_sentinelle_proposition_del_trg ON ent_inscription_proposition_place")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let anormaux = crate::migrate::sentinelles_non_toujours_actives(&mut *tx).await.unwrap();
     assert_eq!(
         anormaux,
         vec![
-            (
-                "ent_inscription_sentinelle_decision_ins_trg".to_string(),
-                "O".to_string()
-            ),
-            (
-                "ent_inscription_sentinelle_offre_upd_trg".to_string(),
-                "D".to_string()
-            ),
+            "ent_inscription_sentinelle_decision_ins_trg".to_string(),
+            "ent_inscription_sentinelle_offre_upd_trg".to_string(),
+            "ent_inscription_sentinelle_proposition_del_trg".to_string(),
         ],
-        "état « origine » (O) et suspendu (D)"
+        "état « origine » (O), suspendu (D) et absent"
     );
     tx.rollback().await.unwrap();
 

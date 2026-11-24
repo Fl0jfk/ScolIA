@@ -643,22 +643,38 @@ pub async fn contraintes_non_validees(pool: &PgPool) -> Result<Vec<String>, Migr
     Ok(noms)
 }
 
+/// Déclencheurs de la sentinelle des verrous d'offre (317, fonctions de 318) attendus en `ENABLE ALWAYS`.
+pub const SENTINELLES_ATTENDUES: [&str; 7] = [
+    "ent_inscription_sentinelle_decision_del_trg",
+    "ent_inscription_sentinelle_decision_ins_trg",
+    "ent_inscription_sentinelle_decision_upd_trg",
+    "ent_inscription_sentinelle_offre_upd_trg",
+    "ent_inscription_sentinelle_proposition_del_trg",
+    "ent_inscription_sentinelle_proposition_ins_trg",
+    "ent_inscription_sentinelle_proposition_upd_trg",
+];
+
 /// Vérification de santé au démarrage (I5, passe 7, moyen A) : déclencheurs `ent_inscription_sentinelle_*` dont l'état n'est pas
 /// `ENABLE ALWAYS` (`tgenabled <> 'A'`) : suspendus (`DISABLE`) ou remis à « origine » par une restauration
 /// (`pg_restore --disable-triggers` finit par `ENABLE TRIGGER ALL`). Chacun est **journalisé en erreur**, sans bloquer le démarrage
 /// (la sentinelle est un filet, pas un contrôle de sécurité). Procédure : `docs/socles/03_INSCRIPTIONS_I5_LIVRAISON.md`.
-pub async fn sentinelles_non_toujours_actives(pool: &PgPool) -> Result<Vec<String>, MigrateError> {
+pub async fn sentinelles_non_toujours_actives<'e, E: sqlx::PgExecutor<'e>>(ex: E) -> Result<Vec<String>, MigrateError> {
+    // Contre-revue du pilote (passe 7) : la liste ATTENDUE est explicite, un déclencheur absent (supprimé, omis par une
+    // restauration) est signalé (`absent`) comme un déclencheur non ALWAYS.
     let noms: Vec<(String, String)> = sqlx::query_as(
-        "SELECT t.tgname::text, t.tgenabled::text FROM pg_catalog.pg_trigger t
-          WHERE t.tgname LIKE 'ent\\_inscription\\_sentinelle\\_%' AND NOT t.tgisinternal AND t.tgenabled <> 'A'
-          ORDER BY t.tgname",
+        "SELECT a.nom, COALESCE(t.tgenabled::text, 'absent')
+           FROM unnest($1::text[]) AS a(nom)
+           LEFT JOIN pg_catalog.pg_trigger t ON t.tgname = a.nom AND NOT t.tgisinternal
+          WHERE t.tgenabled IS DISTINCT FROM 'A'
+          ORDER BY 1",
     )
-    .fetch_all(pool)
+    .bind(&SENTINELLES_ATTENDUES[..])
+    .fetch_all(ex)
     .await?;
     for (n, etat) in &noms {
         tracing::error!(
             declencheur = %n, etat = %etat,
-            "sentinelle des verrous d'offre non ENABLE ALWAYS : rétablir `ALTER TABLE … ENABLE ALWAYS TRIGGER …` (voir la procédure de restauration)"
+            "sentinelle des verrous d'offre absente ou non ENABLE ALWAYS : la recréer ou rétablir `ALTER TABLE … ENABLE ALWAYS TRIGGER …` (voir la procédure de restauration)"
         );
     }
     Ok(noms.into_iter().map(|(n, _)| n).collect())
@@ -905,8 +921,24 @@ pub(crate) async fn rejouer_liste(pool: &PgPool, liste: &[(&str, &str)]) -> Resu
 pub(crate) async fn restaurer_sentinelle(pool: &PgPool) {
     for fichier in ["316_inscription_i5_suites_sentinelle", "317_inscription_i5_suites_passe6", "318_inscription_i5_suites_passe7"] {
         let (_, sql) = MIGRATIONS.iter().find(|(n, _)| *n == fichier).expect("migration de la sentinelle");
-        if let Err(e) = apply_sql_file_rejeu(pool, sql).await {
-            tracing::error!(migration = fichier, erreur = %e, "restauration de la sentinelle : échec");
+        // Contre-revue du pilote (passe 7) : mêmes nouvelles tentatives que le rejeu (40P01, 40001) ; un échec définitif est
+        // écrit sur la sortie d'erreur (les tests n'ont pas d'abonné `tracing`).
+        let mut tentative = 0u64;
+        loop {
+            match apply_sql_file_rejeu(pool, sql).await {
+                Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
+                    if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
+                {
+                    tentative += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
+                }
+                Err(e) => {
+                    eprintln!("RESTAURATION DE LA SENTINELLE EN ÉCHEC ({fichier}) : {e}");
+                    tracing::error!(migration = fichier, erreur = %e, "restauration de la sentinelle : échec");
+                    break;
+                }
+                Ok(()) => break,
+            }
         }
     }
 }

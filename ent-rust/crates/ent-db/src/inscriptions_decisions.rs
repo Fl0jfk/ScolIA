@@ -729,6 +729,13 @@ async fn destinataires_de_repli_tx(conn: &mut PgConnection, etab: Uuid) -> Resul
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
+    // Contre-revue du pilote (passe 7) : garde-fou 1 de `droits_effectifs` : un compte dont le rôle de base n'est pas du
+    // personnel (famille, élève) ne reçoit aucun droit d'attribution.
+    let personnels: std::collections::HashSet<Uuid> = membres
+        .iter()
+        .filter(|(_, role)| Role::parse(role).is_some_and(|r| r.is_staff()))
+        .map(|(u, _)| *u)
+        .collect();
     let mut ids: Vec<Uuid> = membres
         .into_iter()
         .filter(|(_, role)| {
@@ -738,7 +745,7 @@ async fn destinataires_de_repli_tx(conn: &mut PgConnection, etab: Uuid) -> Resul
         .collect();
     ids.extend(attributions.into_iter().filter_map(|(u, a, p)| {
         let (a, p) = (Action::parse(&a)?, Portee::parse(&p)?);
-        suffit(a, p).then_some(u)
+        (personnels.contains(&u) && suffit(a, p)).then_some(u)
     }));
     ids.sort_unstable();
     ids.dedup();
