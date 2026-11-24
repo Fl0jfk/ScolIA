@@ -628,7 +628,8 @@ pub(crate) enum Publication {
 /// **Alerte la direction** (D-069, M6) : une décision programmée n'a pas pu être publiée, la famille n'en sait rien et ne
 /// la saura jamais : une personne doit reprendre le dossier. Avis **interne** dans l'ENT (aucun envoi externe), un par
 /// décision et par destinataire (idempotent) ; le titre ne porte **aucun nom d'élève**, le corps seulement la référence du
-/// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision, **tant que leur accès est ouvert** (F-e).
+/// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision, **tant que leur accès est ouvert** (F-e) ;
+/// à défaut, repli sur l'administration, puis trace interne du dossier (passe 6, F6).
 async fn alerter_direction_caduque_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -643,27 +644,63 @@ async fn alerter_direction_caduque_tx(
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
-    sqlx::query(
-        "INSERT INTO ent_notification
-            (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id)
-         SELECT gen_random_uuid(), $1, u.user_id, NULL, 'inscription_decision_caduque',
-                'Décision d''inscription programmée non publiée',
-                'Une décision programmée n''a pas été publiée : l''état du dossier ' || $3 || ' a changé depuis. \
-                 La famille n''en a rien su ; le dossier est à reprendre (décisions caduques de la campagne).',
-                $2
+    // Destinataires : la direction et l'auteur de la décision, **tant que leur accès est ouvert** (F-e : définition unique
+    // `ent_acces_ouvert`). Passe 6 (F6) : si aucun n'a un accès ouvert (direction partie, auteur parti), **repli prudent** sur
+    // les accès ouverts de l'administrateur et du secrétariat (qui instruisent les dossiers) ; s'il n'y en a pas non plus,
+    // l'alerte est **tracée** dans le suivi interne du dossier (jamais lue de la famille) pour que la reprise la retrouve.
+    let mut destinataires: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT u.user_id
            FROM (SELECT m.user_id FROM ent_membership m
                   WHERE m.etablissement_id = $1 AND m.role = 'direction'
                  UNION
                  SELECT d.decide_par FROM ent_inscription_decision d
                   WHERE d.etablissement_id = $1 AND d.id = $2 AND d.decide_par IS NOT NULL) u
-          -- F-e : seuls les accès **ouverts aujourd'hui** (définition unique `ent_acces_ouvert` : accès ouvert, date de fin
-          -- non dépassée) reçoivent l'avis ; un directeur parti, suspendu ou fermé n'est jamais alerté.
-          WHERE ent_acces_ouvert(u.user_id, $1)
+          WHERE ent_acces_ouvert(u.user_id, $1)",
+    )
+    .bind(etab)
+    .bind(decision_id)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    if destinataires.is_empty() {
+        destinataires = sqlx::query_scalar(
+            "SELECT DISTINCT m.user_id FROM ent_membership m
+              WHERE m.etablissement_id = $1 AND m.role IN ('admin', 'administratif') AND ent_acces_ouvert(m.user_id, $1)",
+        )
+        .bind(etab)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
+    if destinataires.is_empty() {
+        suivi_tx(
+            conn,
+            etab,
+            dossier,
+            "decision",
+            None,
+            Some("Alerte de décision caduque sans destinataire : aucun accès ouvert (direction, auteur, administration)"),
+            false,
+            None,
+        )
+        .await?;
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO ent_notification
+            (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id)
+         SELECT gen_random_uuid(), $1, u, NULL, 'inscription_decision_caduque',
+                'Décision d''inscription programmée non publiée',
+                'Une décision programmée n''a pas été publiée : l''état du dossier ' || $3 || ' a changé depuis. \
+                 La famille n''en a rien su ; le dossier est à reprendre (décisions caduques de la campagne).',
+                $2
+           FROM unnest($4::uuid[]) AS u
          ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING",
     )
     .bind(etab)
     .bind(decision_id)
     .bind(&reference)
+    .bind(&destinataires)
     .execute(conn)
     .await
     .map_err(db)?;

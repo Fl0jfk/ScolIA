@@ -1,7 +1,9 @@
 //! Socle 3, lot I5 — **passe 4** (nouveau modèle des verrous), contre la base locale de test (feature `labo`).
 //! Sans `ENT_DATABASE_URL`, les scénarios sont ignorés en local.
 //!
-//! Aucun test ne dépend de l'heure réelle ni du jour UTC : les instants passés au service sont posés (2027).
+//! Les instants passés au **service** sont posés (2027) ; l'horloge de la base (`now()`, jour courant de `ent_acces_ouvert`) reste lue
+//! par quelques écritures (horodatages de ligne, accès ouverts), mais aucune assertion ne la compare à un instant de test : les dates
+//! qui en dépendent sont fixées très loin du présent (2020, 2099). Voir aussi la règle 33 de PILOTAGE.
 //!
 //! **Méthode des tests de concurrence (déterministe, aucune course)** :
 //! 1. une connexion **externe** prend le verrou consultatif de l'offre (`pg_advisory_lock`, même clé que le code) ;

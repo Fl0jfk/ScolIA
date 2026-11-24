@@ -942,16 +942,6 @@ struct TarifRow {
     montant_annuel_centimes: i64,
 }
 
-/// Mois consécutifs d'une génération annuelle tarifés par le même jeu de lignes (D-069, M-A).
-struct SegmentTarifaire {
-    /// Identifiants des tarifs applicables (triés) : sert à comparer deux mois voisins.
-    ids: Vec<Uuid>,
-    mois: u32,
-    debut: NaiveDate,
-    fin: NaiveDate,
-    candidats: Vec<TarifCandidat>,
-}
-
 /// Prise en charge active d'un organisme qui couvre une date et une catégorie (E2, CF-83).
 #[derive(Clone, Debug)]
 pub(crate) struct PriseCouvrante {
@@ -1109,42 +1099,49 @@ pub(crate) async fn lignes_annuelles(
           ORDER BY t.id",
         sql_tarif_applicable("$3")
     );
-    // Segments : mois consécutifs dont le jeu de tarifs applicables (au premier jour du mois) est identique.
-    let mut segments: Vec<SegmentTarifaire> = Vec::new();
+    // Cache par **jour de vigueur distinct** (D-069, faible d) : la grille applicable un jour donné ne dépend que de
+    // la plus récente date de vigueur (version en vigueur ou close) antérieure ou égale à ce jour ; au plus une
+    // requête par version, et non une par mois.
+    let dates_vigueur: Vec<NaiveDate> = sqlx::query_scalar(
+        "SELECT en_vigueur_du FROM ent_fin_grille_version
+          WHERE etablissement_id = $1 AND annee_scolaire = $2 AND statut IN ('en_vigueur', 'close')
+            AND en_vigueur_du IS NOT NULL ORDER BY en_vigueur_du",
+    )
+    .bind(etab)
+    .bind(annee)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut cache: HashMap<Option<NaiveDate>, Vec<TarifCandidat>> = HashMap::new();
+    // Un élément par mois dû : (premier jour, dernier jour, clé du cache).
+    let mut mois_tarifes: Vec<(NaiveDate, NaiveDate, Option<NaiveDate>)> = Vec::new();
     for i in (cal.nb_mois - mois_dus)..cal.nb_mois {
         let (an, mo) = cal.mois(i);
         let premier = NaiveDate::from_ymd_opt(an, mo, 1).expect("date valide");
-        let rows = sqlx::query_as::<_, TarifRow>(&sql_candidats)
-            .bind(etab)
-            .bind(annee)
-            .bind(premier)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(db)?;
-        let ids: Vec<Uuid> = rows.iter().map(|t| t.id).collect();
-        if let Some(seg) = segments.last_mut().filter(|s| s.ids == ids) {
-            seg.mois += 1;
-            seg.fin = calcul::fin_de_mois(an, mo);
-            continue;
+        let cle = dates_vigueur.iter().copied().filter(|d| *d <= premier).max();
+        if let std::collections::hash_map::Entry::Vacant(libre) = cache.entry(cle) {
+            let rows = sqlx::query_as::<_, TarifRow>(&sql_candidats)
+                .bind(etab)
+                .bind(annee)
+                .bind(cle.unwrap_or(premier))
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(db)?;
+            libre.insert(
+                rows.into_iter()
+                    .map(|t| TarifCandidat {
+                        id: t.id,
+                        article_id: t.article_id,
+                        niveau: t.niveau,
+                        regime: t.regime,
+                        qf_min: t.qf_min_centimes,
+                        qf_max: t.qf_max_centimes,
+                        montant_annuel: t.montant_annuel_centimes,
+                    })
+                    .collect(),
+            );
         }
-        segments.push(SegmentTarifaire {
-            ids,
-            mois: 1,
-            debut: premier,
-            fin: calcul::fin_de_mois(an, mo),
-            candidats: rows
-                .into_iter()
-                .map(|t| TarifCandidat {
-                    id: t.id,
-                    article_id: t.article_id,
-                    niveau: t.niveau,
-                    regime: t.regime,
-                    qf_min: t.qf_min_centimes,
-                    qf_max: t.qf_max_centimes,
-                    montant_annuel: t.montant_annuel_centimes,
-                })
-                .collect(),
-        });
+        mois_tarifes.push((premier, calcul::fin_de_mois(an, mo), cle));
     }
     let articles: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT id, libelle, categorie FROM ent_fin_article
@@ -1220,22 +1217,89 @@ pub(crate) async fn lignes_annuelles(
     let mut verrouilles: Vec<Uuid> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
-    for (rang_segment, segment) in segments.iter().enumerate() {
-    let candidats = &segment.candidats;
-    let mois_dus = segment.mois;
-    let periode = (segment.debut, segment.fin);
-    let suffixe_segment = if rang_segment == 0 {
-        String::new()
-    } else {
-        format!(":m{}", segment.debut.format("%Y-%m"))
-    };
-    for (art_id, art_libelle, art_categorie) in &articles {
+    // Découpage **par article**, au contenu (D-069, faible c) : les mois consécutifs où un article est tarifé du même
+    // montant, pour chaque foyer payeur, forment une seule ligne, quelles que soient les versions de grille et les
+    // tarifs des autres articles (un article inchangé n'est ni coupé ni arrondi deux fois). Le premier tronçon d'un
+    // article garde la clé de source historique, les suivants portent le suffixe `:m<AAAA-MM>` de leur premier mois.
+    // Un article tarifé certains mois seulement n'est jamais gratuit en silence : anomalie bloquante.
+    let mut travaux: Vec<(usize, usize, usize)> = Vec::new();
+    for (ai, (art_id, art_libelle, art_categorie)) in articles.iter().enumerate() {
         if !calcul::categorie_due(art_categorie, &regime) {
             continue;
         }
         if categories.is_some_and(|c| !c.contains(&art_categorie.as_str())) {
             continue;
         }
+        let foyers: Vec<Uuid> = parts_par_cat
+            .get(categorie_de_designation(art_categorie))
+            .map(|v| v.iter().filter(|p| p.rang == 1).map(|p| p.foyer_id).collect())
+            .unwrap_or_default();
+        if foyers.is_empty() {
+            continue;
+        }
+        let signatures: Vec<Vec<Option<i64>>> = mois_tarifes
+            .iter()
+            .map(|(_, _, cle)| {
+                let cands = &cache[cle];
+                foyers
+                    .iter()
+                    .map(|f| {
+                        calcul::choisir_tarif(cands, *art_id, eleve.niveau.as_deref(), &regime, qf.get(f).copied())
+                            .map(|t| t.montant_annuel)
+                    })
+                    .collect()
+            })
+            .collect();
+        for j in 0..foyers.len() {
+            // Contre-revue du pilote (Moyen 2, D-069) : seul un trou qui SUIT un mois tarifé bloque (article retiré d'une
+            // grille en cours d'année : les mois suivants seraient gratuits en silence). Un trou en tête est l'arrivée
+            // normale d'un service en cours d'année : l'article est facturé à partir de son premier mois tarifé. (Un mois
+            // sans AUCUN tarif, grille oubliée, reste bloquant plus bas, quelle que soit sa place.)
+            let premier_tarife = signatures.iter().position(|sg| sg[j].is_some());
+            if let Some(m) = premier_tarife
+                .and_then(|p| signatures.iter().skip(p).position(|sg| sg[j].is_none()).map(|k| p + k))
+            {
+                // un mois sans aucune ligne de grille applicable est annoncé en premier (message d'ensemble)
+                if categories.is_none() {
+                    if let Some((debut, _, _)) = mois_tarifes.iter().find(|(_, _, cle)| cache[cle].is_empty()) {
+                        return Ok(Err(format!(
+                            "aucun tarif applicable à partir du {} (niveau {}, régime {regime}) : mettez une grille en vigueur pour ces mois",
+                            debut.format("%d/%m/%Y"),
+                            eleve.niveau.as_deref().unwrap_or("inconnu")
+                        )));
+                    }
+                }
+                return Ok(Err(format!(
+                    "aucun tarif applicable pour l'article « {art_libelle} » à partir du {} (niveau {}, régime {regime}) alors qu'il est tarifé d'autres mois : complétez la grille en vigueur pour ces mois",
+                    mois_tarifes[m].0.format("%d/%m/%Y"),
+                    eleve.niveau.as_deref().unwrap_or("inconnu")
+                )));
+            }
+        }
+        let mut debut = 0;
+        while debut < signatures.len() {
+            let mut fin = debut + 1;
+            while fin < signatures.len() && signatures[fin] == signatures[debut] {
+                fin += 1;
+            }
+            if signatures[debut].iter().any(Option::is_some) {
+                travaux.push((debut, ai, fin - debut));
+            }
+            debut = fin;
+        }
+    }
+    travaux.sort();
+    for (debut_idx, ai, nb_mois_run) in travaux {
+    let (art_id, art_libelle, art_categorie) = &articles[ai];
+    let candidats = &cache[&mois_tarifes[debut_idx].2];
+    let mois_dus = nb_mois_run as u32;
+    let periode = (mois_tarifes[debut_idx].0, mois_tarifes[debut_idx + nb_mois_run - 1].1);
+    let suffixe_segment = if debut_idx == 0 {
+        String::new()
+    } else {
+        format!(":m{}", periode.0.format("%Y-%m"))
+    };
+    {
         // Montant par foyer (le quotient peut différer d'un foyer à l'autre) :
         // chaque foyer paie sa part, au centime près (plus fort reste). Parts de la catégorie (F2).
         let parts: Vec<(Uuid, i64)> = parts_par_cat
@@ -1468,10 +1532,10 @@ pub(crate) async fn lignes_annuelles(
     }
     // Contre-revue du pilote (Moyen 1, D-069) : un mois dû sans aucun tarif applicable n'est jamais gratuit en silence.
     if !aucun_tarif && categories.is_none() {
-        if let Some(seg) = segments.iter().find(|s| s.ids.is_empty()) {
+        if let Some((debut, _, _)) = mois_tarifes.iter().find(|(_, _, cle)| cache[cle].is_empty()) {
             return Ok(Err(format!(
                 "aucun tarif applicable à partir du {} (niveau {}, régime {regime}) : mettez une grille en vigueur pour ces mois",
-                seg.debut.format("%d/%m/%Y"),
+                debut.format("%d/%m/%Y"),
                 eleve.niveau.as_deref().unwrap_or("inconnu")
             )));
         }
@@ -1679,7 +1743,7 @@ pub(crate) async fn facturer_changement_regime(
     }
     if !gagnees.is_empty() {
         let suivant = calcul::fin_de_mois(date.year(), date.month()) + Duration::days(1);
-        if let Ok(lignes) = lignes_annuelles(
+        let calcul = lignes_annuelles(
             conn,
             etab,
             annee,
@@ -1689,7 +1753,14 @@ pub(crate) async fn facturer_changement_regime(
             Some(&gagnees),
             &format!("regime:{evenement}"),
         )
-        .await?
+        .await?;
+        // Contre-revue du pilote (Moyen 1) : une régularisation de régime non facturable n'est jamais silencieuse.
+        // (Une tâche d'anomalie dédiée demande une nature nouvelle en base : en file.)
+        if let Err(motif) = &calcul {
+            tracing::warn!(etablissement = %etab, evenement = %evenement, %motif,
+                "changement de régime non facturé : à régulariser à la main");
+        }
+        if let Ok(lignes) = calcul
         {
             res.ajouter(
                 inserer_lignes(

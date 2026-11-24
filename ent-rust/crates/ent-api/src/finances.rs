@@ -91,7 +91,8 @@ struct FiltreAnnee {
 }
 
 /// Liste des tarifs : `a_la_date` (jour, défaut : jour de l'établissement) montre les tarifs applicables ce
-/// jour-là, donc ceux d'une année future déjà votée (D-069, M-A).
+/// jour-là (D-069, M-A) : les grilles `en_vigueur` ou `close` de l'année, y compris d'une année future dont une grille a déjà
+/// une date de vigueur ; une grille seulement votée n'a pas de tarif applicable.
 #[derive(Deserialize)]
 struct FiltreTarifs {
     annee: Option<String>,
