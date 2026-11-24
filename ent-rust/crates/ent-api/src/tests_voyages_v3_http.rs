@@ -96,6 +96,12 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
             format!("/voyages/{fantome}/argent/demandes/{fantome}/refus"),
         ),
         ("GET", format!("/voyages/{fantome}/argent/consigne-motif")),
+        ("GET", format!("/voyages/{fantome}/argent/contournements")),
+        ("POST", format!("/voyages/{fantome}/argent/contournements")),
+        (
+            "POST",
+            format!("/voyages/{fantome}/argent/contournements/{fantome}/decision"),
+        ),
         ("POST", format!("/voyages/{fantome}/internat/synchroniser")),
         (
             "POST",
@@ -633,6 +639,71 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
             &format!("/voyages/{id}/argent/consigne-motif"),
             Some(parent),
             None
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // V3b (Moyen 3) : contournements tracés. Liste : 200 pour la comptabilité, 403 pour le porteur sans droit d'argent,
+    // 404 pour la famille ; demande d'une personne libre : 409 (aucun contournement nécessaire) ; action inconnue : 422 ;
+    // décision d'une demande inconnue : 404.
+    let url_cont = format!("/voyages/{id}/argent/contournements");
+    let (st, l) = appel(&app, "GET", &url_cont, Some(compta), None).await;
+    assert_eq!((st, l.is_array()), (StatusCode::OK, true), "{l}");
+    assert_eq!(
+        appel(&app, "GET", &url_cont, Some(prof), None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        appel(&app, "GET", &url_cont, Some(parent), None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &url_cont,
+            Some(compta),
+            Some(json!({"action": "acompte_creer", "motif": "Seule présente",
+                        "montant_max": "100", "prestataire_id": fantome}))
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    // Moyen 1 : une demande sans sa portée (plafond, prestataire) est refusée : pas d'autorisation « en blanc » (422).
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &url_cont,
+            Some(compta),
+            Some(json!({"action": "acompte_creer", "motif": "Sans portée"}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &url_cont,
+            Some(compta),
+            Some(json!({"action": "tout_faire", "motif": "Motif"}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &format!("{url_cont}/{fantome}/decision"),
+            Some(dir),
+            Some(json!({"autoriser": true}))
         )
         .await
         .0,

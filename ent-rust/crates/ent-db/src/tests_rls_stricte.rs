@@ -109,7 +109,7 @@ async fn harnais_strict_est_bien_strict() {
 
 /// Base migrée par le propriétaire + `PgEnt` du rôle strict, **quel que soit `ENT_RLS_MODE`** (ces tests
 /// éprouvent le mode strict eux-mêmes ; le réglage de mode du test est local au fil d'exécution).
-async fn proprietaire_et_strict(url: &str) -> (PgEnt, PgEnt) {
+pub(crate) async fn proprietaire_et_strict(url: &str) -> (PgEnt, PgEnt) {
     assert_local_postgres_url(url).expect("ENT_DATABASE_URL doit être locale");
     let proprietaire = PgEnt::connect(url).await.expect("connect");
     proprietaire.migrate().await.expect("migrate");

@@ -474,6 +474,7 @@ pub mod voyages;
 pub mod voyages_argent;
 pub mod voyages_argent_flux;
 pub mod voyages_argent_v3;
+pub mod voyages_contournement;
 pub mod voyages_argent_repo;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
@@ -766,6 +767,8 @@ mod tests_inscriptions_i5_passe4;
 mod tests_inscriptions_i5_suites;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i5_suites6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i5_suites7;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]

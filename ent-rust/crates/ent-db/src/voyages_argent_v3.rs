@@ -346,6 +346,45 @@ pub(crate) fn est_refus_regle3(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Refus(RefusMetier::Interdit, m) if *m == MSG_REGLE3)
 }
 
+/// Refus de seconde personne : la validation ou l'annulation vient de la demandeuse ou de la décideuse d'origine.
+pub(crate) const MSG_SECONDE_VALIDATION: &str =
+    "Une seconde personne valide : le demandeur ne valide pas sa propre demande.";
+
+/// Faible 4 : ce refus laisse-t-il une trace (`ent_sortie_argent_refus`) ? Tous les refus d'un pouvoir sur l'argent exercé
+/// seul ou pour soi (règle 3, seconde personne exigée, contournement), pas les refus de forme ou de droit.
+pub(crate) fn est_refus_a_tracer(e: &EntDbError) -> bool {
+    matches!(e, EntDbError::Refus(RefusMetier::Interdit, m)
+        if *m == MSG_REGLE3 || *m == MSG_SECONDE_ANNULATION || *m == MSG_SECONDE_VALIDATION
+            || *m == crate::voyages_contournement::MSG_DEMANDEUSE_DECIDE)
+}
+
+/// Faible 4 : un `23514` des déclencheurs de pouvoir sur l'argent (656/655/653), venu **après** le contrôle applicatif
+/// (course : un lien créé entre les deux), est la même interdiction que celle de la règle 3 : il ne se transforme ni en
+/// erreur 500 ni en refus muet, il se trace comme elle.
+pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
+    if let sqlx::Error::Database(d) = &err {
+        if d.code().as_deref() == Some("23514")
+            && (d.message().starts_with("un pouvoir sur l'argent")
+                || d.message().starts_with("la décision d'un contournement")
+                || d.message()
+                    .starts_with("la personne qui autorise un contournement")
+                || d.message().starts_with("seule la demandeuse")
+                || d.message().starts_with("un contournement"))
+        {
+            return refus(RefusMetier::Interdit, MSG_REGLE3);
+        }
+        if d.code().as_deref() == Some("23514")
+            && d.message().starts_with("une seconde personne valide")
+        {
+            return refus(RefusMetier::Interdit, MSG_SECONDE_VALIDATION);
+        }
+    }
+    db(err)
+}
+
+/// Faible 4 : nombre maximal de traces de refus par personne et par heure.
+pub const PLAFOND_TRACES_REFUS_PAR_HEURE: i64 = 30;
+
 /// Délai au-delà duquel une demande en attente expire (F-c) : on ne la valide plus, on la refuse ou on la retire.
 pub const DELAI_EXPIRATION_DEMANDE_JOURS: i64 = 30;
 
@@ -428,7 +467,10 @@ pub(crate) async fn exiger_libre_de_la_sortie(
 
 /// Cumul (centimes) déjà engagé pour ce participant et ce payeur de cette sortie, en cette nature : écritures appliquées
 /// (nettes des annulations) **plus** demandes encore en attente (M-2 : le seuil de seconde validation porte sur le cumul,
-/// jamais sur chaque demande isolément).
+/// jamais sur chaque demande isolément). V3b (Faible 2) : une demande **expirée** (plus de
+/// [`DELAI_EXPIRATION_DEMANDE_JOURS`] jours, donc plus validable) ne compte plus : elle n'engage rien. `avec_attente` :
+/// faux pour une **annulation** (seul compte ce qui est appliqué : une demande en attente n'est pas encore un pouvoir exercé).
+#[allow(clippy::too_many_arguments)] // sortie, participant, payeur, nature, horloge : tous distincts
 async fn cumul_engage(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -436,6 +478,8 @@ async fn cumul_engage(
     participant: Uuid,
     compte: Uuid,
     nature: &str,
+    maintenant: DateTime<Utc>,
+    avec_attente: bool,
 ) -> Result<i64, EntDbError> {
     let ecrit = if nature == "aide" {
         "SELECT COALESCE(SUM(CASE WHEN sens = 'aide' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
@@ -454,10 +498,14 @@ async fn cumul_engage(
         .fetch_one(&mut *conn)
         .await
         .map_err(db)?;
+    if !avec_attente {
+        return Ok(applique);
+    }
     let attente: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(d.montant_centimes), 0)::bigint FROM ent_sortie_argent_demande d
           WHERE d.etablissement_id = $1 AND d.sortie_id = $2 AND d.nature = $5
             AND d.participant_id = $3 AND d.compte_id = $4
+            AND d.demande_le + make_interval(days => $6) >= $7
             AND NOT EXISTS (SELECT 1 FROM ent_sortie_argent_issue i
                              WHERE i.etablissement_id = d.etablissement_id AND i.demande_id = d.id)",
     )
@@ -466,14 +514,22 @@ async fn cumul_engage(
     .bind(participant)
     .bind(compte)
     .bind(nature)
+    .bind(i32::try_from(DELAI_EXPIRATION_DEMANDE_JOURS).unwrap_or(30))
+    .bind(maintenant)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
     applique.checked_add(attente).ok_or_else(invalide)
 }
 
-/// F-c : l'annulation d'une aide ou d'un report soumis au seuil (montant au-dessus du seuil, ou aide du fonds social)
-/// ne se fait pas seul : la personne qui annule n'est ni celle qui a exercé le pouvoir ni le demandeur d'origine.
+/// Message du refus d'une annulation qui dépasse le seuil (tracé comme les refus de la règle 3).
+pub(crate) const MSG_SECONDE_ANNULATION: &str = "Cette annulation dépasse le seuil de seconde validation : une autre personne que celle qui a décidé (ou demandé) doit l'annuler.";
+
+/// F-c : l'annulation d'une aide ou d'un report soumis au seuil ne se fait pas seul : la personne qui annule n'est ni celle
+/// qui a exercé le pouvoir ni le demandeur d'origine. V3b (Faible 2) : le seuil porte aussi sur le **cumul** engagé de ce
+/// participant et de ce payeur (écritures appliquées nettes), pas sur la seule écriture annulée : sans cela, une aide
+/// fractionnée sous le seuil s'annulerait seule morceau par morceau.
+#[allow(clippy::too_many_arguments)] // table, écriture, auteur, montant, source et horloge : tous distincts, aucun regroupement naturel
 async fn exiger_seconde_personne_annulation(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -482,27 +538,43 @@ async fn exiger_seconde_personne_annulation(
     user: Uuid,
     montant: i64,
     source: Option<&str>,
+    maintenant: DateTime<Utc>,
 ) -> Result<(), EntDbError> {
     let (seuil, fonds) = seuil_seconde_validation(conn, etab).await?;
-    if !(montant > seuil || (fonds && source == Some("fonds_social"))) {
+    let (nature, col_participant) = if table == "ent_sortie_aide" {
+        ("aide", "x.participant_id")
+    } else {
+        ("report", "x.de_participant_id")
+    };
+    let (decide, demande, sortie, participant, compte): (Uuid, Option<Uuid>, Uuid, Uuid, Uuid) =
+        sqlx::query_as(&format!(
+            "SELECT x.decide_par_user_id, d.demande_par_user_id, x.sortie_id, {col_participant}, x.compte_id
+               FROM {table} x
+               LEFT JOIN ent_sortie_argent_demande d ON d.etablissement_id = x.etablissement_id AND d.id = x.demande_id
+              WHERE x.etablissement_id = $1 AND x.id = $2"
+        ))
+        .bind(etab)
+        .bind(ecriture)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+    let cumul = cumul_engage(
+        conn,
+        etab,
+        sortie,
+        participant,
+        compte,
+        nature,
+        maintenant,
+        false,
+    )
+    .await?;
+    if !(montant > seuil || cumul > seuil || (fonds && source == Some("fonds_social"))) {
         return Ok(());
     }
-    let (decide, demande): (Uuid, Option<Uuid>) = sqlx::query_as(&format!(
-        "SELECT x.decide_par_user_id, d.demande_par_user_id FROM {table} x
-           LEFT JOIN ent_sortie_argent_demande d ON d.etablissement_id = x.etablissement_id AND d.id = x.demande_id
-          WHERE x.etablissement_id = $1 AND x.id = $2"
-    ))
-    .bind(etab)
-    .bind(ecriture)
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(db)?
-    .ok_or_else(introuvable)?;
     if user == decide || demande == Some(user) {
-        return Err(refus(
-            RefusMetier::Interdit,
-            "Cette annulation dépasse le seuil de seconde validation : une autre personne que celle qui a décidé (ou demandé) doit l'annuler.",
-        ));
+        return Err(refus(RefusMetier::Interdit, MSG_SECONDE_ANNULATION));
     }
     Ok(())
 }
@@ -748,7 +820,7 @@ async fn appliquer_demande(
         .bind(maintenant)
         .execute(&mut *conn)
         .await
-        .map_err(db)?;
+        .map_err(db_pouvoir)?;
         aide = Some(id);
     } else {
         let vers = d.vers_participant_id.ok_or_else(invalide)?;
@@ -773,7 +845,7 @@ async fn appliquer_demande(
         .bind(maintenant)
         .execute(&mut *conn)
         .await
-        .map_err(db)?;
+        .map_err(db_pouvoir)?;
         if est_parti(&etat_de) {
             recalculer_depart(conn, par, s, d.participant_id).await?;
         }
@@ -822,7 +894,7 @@ async fn ecrire_issue(
     .bind(maintenant)
     .execute(conn)
     .await
-    .map_err(db)?;
+    .map_err(db_pouvoir)?;
     Ok(())
 }
 
@@ -854,7 +926,17 @@ async fn traiter_demande(
     // M-2 : le seuil porte sur le CUMUL (aides ou reports appliqués + demandes en attente) de ce participant et de ce payeur.
     // Limite documentée : la règle « fonds social » reste déclarative (`source` saisie) ; le cumul, lui, vaut pour toutes
     // les sources, ce qui empêche de fractionner ou d'étiqueter « autre » pour passer sous le seuil.
-    let cumul = cumul_engage(conn, etab, s.id, e.participant, e.compte, e.nature).await?;
+    let cumul = cumul_engage(
+        conn,
+        etab,
+        s.id,
+        e.participant,
+        e.compte,
+        e.nature,
+        maintenant,
+        true,
+    )
+    .await?;
     let seconde = cumul.checked_add(e.montant).ok_or_else(invalide)? > seuil
         || (fonds && e.source == Some("fonds_social"));
     let id = Uuid::new_v4();
@@ -1024,6 +1106,21 @@ pub(crate) async fn internat_resynchroniser(
     .await
     .map_err(db)?;
     let au = retour - chrono::Duration::days(1);
+    // V3b (Moyen 2) : sortie rentrée : un participant resté « parti » n'est retiré que pour les nuits qui précèdent le jour
+    // de ce passage (`rentree_le`, posé à la transition, immuable) ; les nuits à venir qu'il ne passera pas dehors le
+    // laissent attendu. Jamais lu dans `modifie_le` sauf à défaut d'instant posé (sortie rentrée avant 656, rattrapée).
+    let jour_rentree: Option<NaiveDate> = if rentree {
+        Some(
+            sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, $2)")
+                .bind(etab)
+                .bind(s.rentree_le.unwrap_or(s.modifie_le))
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(db)?,
+        )
+    } else {
+        None
+    };
     let nuits = if au >= du {
         (au - du).num_days() + 1
     } else {
@@ -1054,6 +1151,7 @@ pub(crate) async fn internat_resynchroniser(
                                                            WHERE f.etablissement_id = sp.etablissement_id
                                                              AND f.participant_id = sp.id AND f.etat_apres = 'rentre'),
                                                          sp.modifie_le)) - 1
+                         WHEN $6::date IS NOT NULL THEN $6::date - 1
                     END
                FROM ent_sortie_participant sp
               WHERE sp.etablissement_id = $1 AND sp.sortie_id = $2 AND sp.etat = ANY($3)
@@ -1065,17 +1163,14 @@ pub(crate) async fn internat_resynchroniser(
         .bind(etab)
         .bind(s.id)
         .bind(
-            if rentree {
-                vec!["rentre".to_string()]
-            } else {
-                ETATS_DEPART_CONSTATE
-                    .iter()
-                    .map(|e| (*e).to_string())
-                    .collect::<Vec<_>>()
-            },
+            ETATS_DEPART_CONSTATE
+                .iter()
+                .map(|e| (*e).to_string())
+                .collect::<Vec<_>>(),
         )
         .bind(du)
         .bind(au)
+        .bind(jour_rentree)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
@@ -1231,17 +1326,29 @@ impl PgEnt {
         r: Result<T, EntDbError>,
     ) -> Result<T, EntDbError> {
         if let Err(e) = &r {
-            if est_refus_regle3(e) {
+            if est_refus_a_tracer(e) {
                 if let Ok(mut t) = tx(self, a).await {
+                    // Plafond de débit, par (personne, action) et par heure : au plus `PLAFOND_TRACES_REFUS_PAR_HEURE`
+                    // traces (un refus répété à la main ou par script ne gonfle pas une table en ajout seul, jamais
+                    // purgée, et le flot d'une action ne masque pas une autre). Au-delà : UNE ligne « plafond atteint »
+                    // par (personne, action) et par heure signale le dépassement. Le refus lui-même n'est jamais masqué.
                     let ecrit = sqlx::query(
-                        "INSERT INTO ent_sortie_argent_refus (id, etablissement_id, sortie_id, user_id, action)
-                         VALUES ($1, $2, $3, $4, $5)",
+                        "INSERT INTO ent_sortie_argent_refus (id, etablissement_id, sortie_id, user_id, action, plafond_atteint)
+                         SELECT $1, $2, $3, $4, $5, n.n >= $6
+                           FROM (SELECT count(*) AS n FROM ent_sortie_argent_refus r
+                                  WHERE r.etablissement_id = $2 AND r.user_id = $4 AND r.action = $5
+                                    AND r.le > now() - interval '1 hour') n
+                          WHERE n.n < $6
+                             OR (n.n = $6 AND NOT EXISTS (SELECT 1 FROM ent_sortie_argent_refus m
+                                                           WHERE m.etablissement_id = $2 AND m.user_id = $4 AND m.action = $5
+                                                             AND m.plafond_atteint AND m.le > now() - interval '1 hour'))",
                     )
                     .bind(Uuid::new_v4())
                     .bind(a.etablissement_id)
                     .bind(sortie)
                     .bind(a.user_id)
                     .bind(action)
+                    .bind(PLAFOND_TRACES_REFUS_PAR_HEURE)
                     .execute(&mut *t)
                     .await;
                     if ecrit.is_ok() {
@@ -1441,6 +1548,7 @@ impl PgEnt {
             a.user_id,
             o.montant_centimes,
             Some(&o.source),
+            maintenant,
         )
         .await?;
         let nid = Uuid::new_v4();
@@ -1464,7 +1572,7 @@ impl PgEnt {
         .bind(maintenant)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(db_pouvoir)?;
         let vue = lire_aide(&mut t, a.etablissement_id, nid).await?;
         t.commit().await.map_err(db)?;
         Ok(vue)
@@ -1677,6 +1785,7 @@ impl PgEnt {
             a.user_id,
             o.montant_centimes,
             None,
+            maintenant,
         )
         .await?;
         let verse_vers = paye_net(
@@ -1713,7 +1822,7 @@ impl PgEnt {
         .bind(maintenant)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(db_pouvoir)?;
         // Les avoirs déjà proposés ou retenus du receveur reposent sur un versé qui baisse : « à revoir » (M5).
         let revus = sqlx::query(
             "UPDATE ent_sortie_avoir_propose SET statut = 'a_revoir'
@@ -1865,10 +1974,7 @@ impl PgEnt {
             return Err(conflit());
         }
         if d.seconde_validation && d.demande_par_user_id == a.user_id {
-            return Err(refus(
-                RefusMetier::Interdit,
-                "Une seconde personne valide : le demandeur ne valide pas sa propre demande.",
-            ));
+            return Err(refus(RefusMetier::Interdit, MSG_SECONDE_VALIDATION));
         }
         // F-c : une demande en attente expire ; on ne la valide plus (on la refuse ou on la retire, puis on la redépose).
         if maintenant - d.demande_le > chrono::Duration::days(DELAI_EXPIRATION_DEMANDE_JOURS) {

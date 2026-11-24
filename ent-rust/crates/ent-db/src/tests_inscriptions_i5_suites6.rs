@@ -254,8 +254,8 @@ async fn s6_sentinelle_par_instruction_exige_chaque_offre() {
 }
 
 /// **M4 (mesure reproductible)** : surcoût de la vérification, **par ligne** (déclencheur `FOR EACH ROW`, 316) contre **par
-/// instruction** (déclencheur à table de transition, 317), sur une table temporaire qui appelle la **même** fonction
-/// `ent_inscription_exiger_verrou_offre`. Variables : lignes par instruction (1, 100, 1000) et verrous consultatifs d'une
+/// instruction** (déclencheur à table de transition, 317), sur une table temporaire qui appelle les fonctions **réelles** de
+/// la sentinelle (passe 7, moyen D). Variables : lignes par instruction (1, 100, 1000) et verrous consultatifs d'une
 /// autre session (0, 500). Les temps (médiane de 5 passes) sont **imprimés** (`--nocapture`), jamais assertés ; l'assertion
 /// porte sur la correction (les deux variantes refusent sans verrou, acceptent avec).
 #[tokio::test]
@@ -274,22 +274,13 @@ async fn s6_mesure_surcout_sentinelle() {
     let mut autre = ent.pool_verif().acquire().await.unwrap().detach();
     let mut conn = ent.pool_verif().acquire().await.unwrap().detach();
     for ordre in [
-        "CREATE TEMP TABLE bench_sentinelle (id int GENERATED ALWAYS AS IDENTITY, offre_id uuid NOT NULL, v int NOT NULL DEFAULT 0)",
-        "CREATE FUNCTION pg_temp.bench_ligne() RETURNS trigger LANGUAGE plpgsql
-            SET search_path = pg_catalog, public, pg_temp AS $$
-            BEGIN PERFORM public.ent_inscription_exiger_verrou_offre(NEW.offre_id, 'bench'); RETURN NEW; END $$",
-        "CREATE FUNCTION pg_temp.bench_instruction() RETURNS trigger LANGUAGE plpgsql
-            SET search_path = pg_catalog, public, pg_temp AS $$
-            DECLARE o uuid;
-            BEGIN
-                FOR o IN SELECT DISTINCT n.offre_id FROM nouv n ORDER BY 1 LOOP
-                    PERFORM public.ent_inscription_exiger_verrou_offre(o, 'bench');
-                END LOOP;
-                RETURN NULL;
-            END $$",
-        "CREATE TRIGGER bench_ligne_trg AFTER UPDATE ON bench_sentinelle FOR EACH ROW EXECUTE FUNCTION pg_temp.bench_ligne()",
-        "CREATE TRIGGER bench_instruction_trg AFTER UPDATE ON bench_sentinelle REFERENCING NEW TABLE AS nouv
-            FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.bench_instruction()",
+        // Passe 7 (moyen D) : les deux variantes exercent les fonctions **réelles** (316 : `ent_inscription_sentinelle_ligne`,
+        // 317/318 : `ent_inscription_sentinelle_instruction`), sur une table temporaire de mêmes colonnes utiles.
+        "CREATE TEMP TABLE bench_sentinelle (id int GENERATED ALWAYS AS IDENTITY, etablissement_id uuid NOT NULL DEFAULT gen_random_uuid(),
+            dossier_id uuid NOT NULL DEFAULT gen_random_uuid(), offre_id uuid NOT NULL, v int NOT NULL DEFAULT 0)",
+        "CREATE TRIGGER bench_ligne_trg AFTER UPDATE ON bench_sentinelle FOR EACH ROW EXECUTE FUNCTION public.ent_inscription_sentinelle_ligne()",
+        "CREATE TRIGGER bench_instruction_trg AFTER UPDATE ON bench_sentinelle REFERENCING OLD TABLE AS anc NEW TABLE AS nouv
+            FOR EACH STATEMENT EXECUTE FUNCTION public.ent_inscription_sentinelle_instruction()",
     ] {
         sqlx::query(ordre).execute(&mut conn).await.unwrap_or_else(|e| panic!("{ordre} : {e}"));
     }
@@ -392,7 +383,7 @@ async fn s6_mesure_surcout_sentinelle() {
 
 /// Appels d'une fonction SQL dans la transaction courante (`pg_stat_xact_user_functions`, `track_functions = 'all'`) : un
 /// **compte d'appels**, déterministe, jamais une durée.
-async fn appels(tx: &mut sqlx::PgConnection, fonction: &str) -> i64 {
+pub(super) async fn appels(tx: &mut sqlx::PgConnection, fonction: &str) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(sum(calls), 0)::bigint FROM pg_stat_xact_user_functions WHERE funcname = $1",
     )
@@ -505,7 +496,7 @@ async fn s6_liste_attente_borne_d_appels_sur_10000_dossiers() {
 
 // ───────────────────────────── F6 : alerte sans destinataire ─────────────────────────────
 
-async fn membre(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
+pub(super) async fn membre(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_user (id, email, password_hash, display_name) VALUES ($1, $2, 'x', 'Membre de test')")
         .bind(id)
@@ -525,7 +516,7 @@ async fn membre(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
 
 /// Fin de fonction : la date de fin des accès de l'établissement (sauf `sauf`) passe en 2020. La garde « dernier administrateur »
 /// est levée **dans la transaction** (réglage de purge, comme la suppression d'un établissement) : c'est une fixture.
-async fn fermer_acces(ent: &PgEnt, etab: Uuid, sauf: Option<Uuid>) {
+pub(super) async fn fermer_acces(ent: &PgEnt, etab: Uuid, sauf: Option<Uuid>) {
     let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("SET LOCAL ent.purge_etablissement = 'on'")
         .execute(&mut *tx)

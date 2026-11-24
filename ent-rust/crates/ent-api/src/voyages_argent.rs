@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
+use ent_db::voyages_contournement::{ContournementVue, DemandeContournement};
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
 use ent_db::voyages_argent_v3::{
     AideSaisie, AideVue, DecisionAide, DecisionReport, DecisionValidee, DemandeVue, InternatSynchro, ReportSaisie, ReportVue,
@@ -73,6 +74,9 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/argent/demandes/{did}/validation", post(demande_valider))
         .route("/voyages/{id}/argent/demandes/{did}/refus", post(demande_refuser))
         .route("/voyages/{id}/argent/consigne-motif", get(consigne_motif))
+        // V3b (Moyen 3) : contournement tracé de la règle « sortie entière » par une seconde personne libre.
+        .route("/voyages/{id}/argent/contournements", get(contournements).post(contournement_demander))
+        .route("/voyages/{id}/argent/contournements/{cid}/decision", post(contournement_decider))
         .route("/voyages/{id}/participants/{pid}/retour-anticipe", post(retour_anticipe))
         .route("/voyages/{id}/argent/export", post(exporter))
         .route("/voyages/{id}/argent/nominatif", post(nominatif_ouvrir).delete(nominatif_fermer))
@@ -228,9 +232,26 @@ async fn acompte_creer(
     State(s): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
-    Json(b): Json<AcompteSaisie>,
+    Json(b): Json<AcompteCorps>,
 ) -> Res<(StatusCode, Json<AcompteVue>)> {
-    Ok((StatusCode::CREATED, Json(s.ent.voyage_acompte_creer(&acteur(&session), id, b).await.map_err(map_db)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            s.ent
+                .voyage_acompte_creer_avec(&acteur(&session), id, b.saisie, b.contournement_id, Utc::now())
+                .await
+                .map_err(map_db)?,
+        ),
+    ))
+}
+
+/// Saisie d'un acompte, avec le contournement tracé éventuel (V3b, Moyen 3).
+#[derive(Deserialize)]
+struct AcompteCorps {
+    #[serde(flatten)]
+    saisie: AcompteSaisie,
+    #[serde(default)]
+    contournement_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -241,6 +262,8 @@ struct PaiementBody {
     date: Option<NaiveDate>,
     #[serde(default)]
     reference: Option<String>,
+    #[serde(default)]
+    contournement_id: Option<Uuid>,
 }
 
 async fn acompte_payer(
@@ -251,7 +274,16 @@ async fn acompte_payer(
 ) -> Res<Json<AcompteVue>> {
     Ok(Json(
         s.ent
-            .voyage_acompte_payer(&acteur(&session), id, aid, b.montant.as_deref(), b.date, b.reference.as_deref())
+            .voyage_acompte_payer_avec(
+                &acteur(&session),
+                id,
+                aid,
+                b.montant.as_deref(),
+                b.date,
+                b.reference.as_deref(),
+                b.contournement_id,
+                Utc::now(),
+            )
             .await
             .map_err(map_db)?,
     ))
@@ -261,10 +293,26 @@ async fn acompte_annuler(
     State(s): State<AppState>,
     session: EntSession,
     Path((id, aid)): Path<(Uuid, Uuid)>,
-    Json(b): Json<MotifBody>,
+    Json(b): Json<MotifContournementBody>,
 ) -> Res<StatusCode> {
-    s.ent.voyage_acompte_annuler(&acteur(&session), id, aid, &b.motif).await.map_err(map_db)?;
+    s.ent
+        .voyage_acompte_annuler_avec(&acteur(&session), id, aid, &b.motif, b.contournement_id, Utc::now())
+        .await
+        .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct MotifContournementBody {
+    motif: String,
+    #[serde(default)]
+    contournement_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+struct ContournementBody {
+    #[serde(default)]
+    contournement_id: Option<Uuid>,
 }
 
 async fn frais(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<FraisVue>>> {
@@ -299,8 +347,57 @@ struct Ajoutes {
     ajoutes: usize,
 }
 
-async fn avoirs_collectifs(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Ajoutes>> {
-    Ok(Json(Ajoutes { ajoutes: s.ent.voyage_avoirs_annulation_collective(&acteur(&session), id).await.map_err(map_db)? }))
+async fn avoirs_collectifs(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    corps: Option<Json<ContournementBody>>,
+) -> Res<Json<Ajoutes>> {
+    let contournement = corps.and_then(|Json(c)| c.contournement_id);
+    Ok(Json(Ajoutes {
+        ajoutes: s
+            .ent
+            .voyage_avoirs_annulation_collective_avec(&acteur(&session), id, contournement, Utc::now())
+            .await
+            .map_err(map_db)?,
+    }))
+}
+
+async fn contournements(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<ContournementVue>>> {
+    Ok(Json(s.ent.voyage_contournements_lister(&acteur(&session), id).await.map_err(map_v3)?))
+}
+
+async fn contournement_demander(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<DemandeContournement>,
+) -> Res<(StatusCode, Json<ContournementVue>)> {
+    Ok((
+        StatusCode::CREATED,
+        Json(s.ent.voyage_contournement_demander(&acteur(&session), id, b).await.map_err(map_v3)?),
+    ))
+}
+
+#[derive(Deserialize)]
+struct ContournementDecisionBody {
+    autoriser: bool,
+    #[serde(default)]
+    motif: Option<String>,
+}
+
+async fn contournement_decider(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<ContournementDecisionBody>,
+) -> Res<Json<ContournementVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_contournement_decider(&acteur(&session), id, cid, b.autoriser, b.motif.as_deref())
+            .await
+            .map_err(map_v3)?,
+    ))
 }
 
 #[derive(Deserialize)]
