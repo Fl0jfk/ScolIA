@@ -4,7 +4,8 @@
 use super::*;
 use crate::tests_evaluations::labo;
 use crate::tests_evaluations_v1::{
-    affecter, arreter, creer_eleve, d, evaluation, exec, monde_v1, note, statut, t, u, DIR, PROF, W,
+    affecter, ancien_monde, ancienne_note, arreter, creer_eleve, d, evaluation, exec, monde_v1,
+    note, statut, t, u, DIR, PROF, W,
 };
 use chrono::NaiveDate;
 use domain_eleve::evaluation_moteur::{Comptage, StatutCalcul};
@@ -3950,6 +3951,89 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         vec![u(Uuid::new_v4()), u(w.etab), u(resultat_p), u(w.direction)],
     )
     .await;
+    // Passe 6 (Faible 6) : marqueurs « non publié » pour la note par item et le public restreint : sur l'évaluation NON publiée.
+    let item_np = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO eva_bareme_item (id, etablissement_id, evaluation_id, ordre, libelle, maximum)
+         VALUES ($1, $2, $3, 1, 'ITEM-NON-PUBLIE', 20)",
+        vec![u(item_np), u(w.etab), u(ev_np)],
+    )
+    .await;
+    let resultat_np: Uuid = sqlx::query_scalar(
+        "SELECT id FROM eva_resultat WHERE eleve_id = $1 AND evaluation_id = $2",
+    )
+    .bind(a)
+    .bind(ev_np)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    exec(
+        &ent,
+        "INSERT INTO eva_resultat_item (resultat_id, item_id, etablissement_id, valeur) VALUES ($1, $2, $3, 7)",
+        vec![u(resultat_np), u(item_np), u(w.etab)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO eva_evaluation_restriction (evaluation_id, eleve_id, etablissement_id, motif_code) VALUES ($1, $2, $3, 'autre')",
+        vec![u(ev_np), u(a), u(w.etab)],
+    )
+    .await;
+    // Passe 6 (Moyen 5) : anciennes tables de notes. Un devoir historique publié (porte la note exportée), un devoir en
+    // publication explicite NON publiée, une note sans devoir ; un motif de correction et une copie écartée (jamais exportés).
+    let anc = ancien_monde(&ent, &w).await;
+    let devoir_np = Uuid::new_v4();
+    exec(
+        &ent,
+        "INSERT INTO ent_devoir_archive (id, etablissement_id, periode_id, matiere_id, classe, titre, date_devoir, coef, sur,
+                                         created_by_user_id, publication_explicite)
+         VALUES ($1, $2, $3, $4, 'CLASSE-ARCHIVE', 'DEVOIR-ARCHIVE-NON-PUBLIE', '2031-10-20', 1, 20, $5, true)",
+        vec![u(devoir_np), u(w.etab), u(anc.note_periode), u(w.maths), u(w.prof)],
+    )
+    .await;
+    let n_pub = ancienne_note(&ent, &w, anc.devoirs[0], a, 14.0, 20.0, "note").await;
+    let n_np = ancienne_note(&ent, &w, devoir_np, a, 9.0, 20.0, "note").await;
+    exec(
+        &ent,
+        "UPDATE ent_note_archive SET libelle = 'MARQUEUR-NOTE-ARCHIVE-PUBLIEE', updated_by_user_id = $2 WHERE id = $1",
+        vec![u(n_pub), u(second)],
+    )
+    .await;
+    exec(
+        &ent,
+        "UPDATE ent_note_archive SET libelle = 'MARQUEUR-NOTE-ARCHIVE-NON-PUBLIEE' WHERE id = $1",
+        vec![u(n_np)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO ent_note_archive (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, libelle)
+         VALUES ($1, $2, $3, $4, 11, 20, '2031-10-11', $5, 'MARQUEUR-NOTE-SANS-DEVOIR')",
+        vec![u(Uuid::new_v4()), u(w.etab), u(a), u(w.maths), u(w.prof)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO ent_note_correction (id, etablissement_id, note_id, eleve_id, periode_id, ancien_statut, ancienne_valeur,
+                                          nouveau_statut, nouvelle_valeur, motif, corrige_par_user_id)
+         VALUES ($1, $2, $3, $4, $5, 'note', 14, 'note', 15, 'MARQUEUR-MOTIF-CORRECTION-ARCHIVE', $6)",
+        vec![u(Uuid::new_v4()), u(w.etab), u(n_pub), u(a), u(anc.note_periode), u(second)],
+    )
+    .await;
+    exec(
+        &ent,
+        "INSERT INTO ent_note_doublon_archive SELECT n.*, n.id, now() FROM ent_note_archive n WHERE n.id = $1",
+        vec![u(n_pub)],
+    )
+    .await;
+    exec(
+        &ent,
+        "UPDATE ent_note_doublon_archive SET id = $2, libelle = 'MARQUEUR-DOUBLON-ECARTE' WHERE id = $1",
+        vec![u(n_pub), u(Uuid::new_v4())],
+    )
+    .await;
+
     // Statut de moyenne : montré avec la moyenne seulement (appréciations closes), jamais son motif interne ni son auteur.
     let statut_id = Uuid::new_v4();
     exec(
@@ -4055,6 +4139,10 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         ("SALLE-CONVOCATION-MAINTENUE".to_string(), "la convocation maintenue d'une évaluation publiée (M5)"),
         (ext.id.to_string(), "le résultat externe publié"),
         (moyenne_ext.to_string(), "la moyenne externe publiée"),
+        (
+            "MARQUEUR-NOTE-ARCHIVE-PUBLIEE".to_string(),
+            "la note de reprise d'un devoir historique publié",
+        ),
     ] {
         assert!(extrait.contains(&attendu), "{quoi} doit sortir ({tables_vues:?})");
     }
@@ -4071,36 +4159,88 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         ("SALLE-EVALUATION-NON-PUBLIEE".to_string(), "la convocation d'une évaluation non publiée (M5)"),
         (moyenne_np.to_string(), "une moyenne externe jamais publiée"),
         (w.prof.to_string(), "l'auteur de la saisie des notes"),
+        (
+            item_np.to_string(),
+            "la note par item d'une évaluation non publiée (F6)",
+        ),
+        (
+            resultat_np.to_string(),
+            "le résultat d'une évaluation non publiée, par la note par item (F6)",
+        ),
+        (
+            "MARQUEUR-NOTE-ARCHIVE-NON-PUBLIEE".to_string(),
+            "la note de reprise d'un devoir historique non publié",
+        ),
+        (
+            "MARQUEUR-NOTE-SANS-DEVOIR".to_string(),
+            "une note de reprise sans devoir (jamais reprise ni montrée)",
+        ),
+        (devoir_np.to_string(), "le devoir historique non publié"),
+        (
+            "MARQUEUR-MOTIF-CORRECTION-ARCHIVE".to_string(),
+            "le motif d'une correction de l'ancienne grille",
+        ),
+        (
+            "MARQUEUR-DOUBLON-ECARTE".to_string(),
+            "une copie de note écartée au dédoublonnage",
+        ),
     ] {
         assert!(!extrait.contains(&interdit), "{quoi} ne doit pas sortir :\n{extrait}");
     }
+    // Passe 6 (Faible 6) : la direction (auteur des décisions externes) n'apparaît dans l'extrait qu'à titre de `demandeur`
+    // (la demande de la famille a été faite par elle dans ce scénario), jamais comme auteur d'une saisie ou d'une décision.
+    let direction = w.direction.to_string();
+    assert!(
+        !valeurs_hors_cles(&extrait, &direction, &[]).is_empty(),
+        "contrôle positif : le compte de la direction est bien le demandeur d'une demande de la famille"
+    );
+    assert_eq!(
+        valeurs_hors_cles(&extrait, &direction, &["demandeur"]),
+        Vec::<String>::new(),
+        "un compte de direction ne doit apparaître que comme demandeur :\n{extrait}"
+    );
     // M2 : chaque table exportée a rendu au moins une ligne (hors journal du personnel) : aucune n'est restée sans ligne
     // marquée, donc aucune n'a échappé au filtre par élève.
     let attendues: Vec<&str> = crate::registre_donnees::REGISTRE
         .iter()
-        .filter(|c| c.export_portabilite && (c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_")))
+        .filter(|c| c.export_portabilite && crate::registre_donnees::est_table_evaluation(c.nom))
+        .filter(|c| c.hors_export_par_eleve.is_none())
         .map(|c| c.nom)
-        .filter(|n| !TABLES_SANS_ELEVE.contains(n))
         .collect();
     for nom in &attendues {
         assert!(tables_vues.contains(nom), "{nom} : exportée mais aucune ligne marquée dans l'extrait ({tables_vues:?})");
     }
 }
 
-/// Tables d'évaluation exportées qui ne portent pas d'élève : journal des exports faits par le personnel (aucun élève
-/// nommé). Toute autre table exportée DOIT être filtrable par élève : sinon `extrait_eleve` échoue.
-const TABLES_SANS_ELEVE: [&str; 1] = ["ent_eva_export"];
+/// Lignes de l'extrait (JSON, une par ligne) où `valeur` apparaît comme valeur d'une clé qui n'est pas dans `permises`.
+fn valeurs_hors_cles(extrait: &str, valeur: &str, permises: &[&str]) -> Vec<String> {
+    extrait
+        .lines()
+        .filter(|l| {
+            let serde_json::Value::Object(o) =
+                serde_json::from_str::<serde_json::Value>(l).expect("ligne JSON")
+            else {
+                panic!("ligne d'extrait non objet : {l}")
+            };
+            o.iter()
+                .any(|(k, v)| v.as_str() == Some(valeur) && !permises.contains(&k.as_str()))
+        })
+        .map(str::to_string)
+        .collect()
+}
 
 /// Assemble l'extrait d'un élève comme le fera G3 : pour chaque table `eva_*` exportée, les lignes de l'élève qui
 /// remplissent `export_si`, moins les colonnes `hors_export`.
 async fn extrait_eleve(ent: &PgEnt, a: Uuid) -> (String, Vec<&'static str>) {
     let mut extrait = String::new();
     let mut tables_vues = Vec::new();
-    // Assemblage de l'extrait (comme G3) : pour chaque table `eva_*` exportée, les lignes de l'élève qui remplissent
-    // `export_si`, moins les colonnes `hors_export`.
+    // Assemblage de l'extrait (comme G3) : pour chaque table `eva_*` / `ent_eva_*` / `ent_note_*` exportée, les lignes de
+    // l'élève qui remplissent `export_si`, moins les colonnes `hors_export`. Seules les tables DÉCLARÉES « hors extrait par
+    // élève » dans le registre (avec raison écrite) sont sautées.
     for c in crate::registre_donnees::REGISTRE
         .iter()
-        .filter(|c| c.export_portabilite && (c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_")))
+        .filter(|c| c.export_portabilite && crate::registre_donnees::est_table_evaluation(c.nom))
+        .filter(|c| c.hors_export_par_eleve.is_none())
     {
         let colonnes: Vec<String> = sqlx::query_scalar(
             "SELECT column_name::text FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1",
@@ -4120,8 +4260,6 @@ async fn extrait_eleve(ent: &PgEnt, a: Uuid) -> (String, Vec<&'static str>) {
             "x.enseignement_externe_id IN (SELECT id FROM eva_enseignement_externe WHERE eleve_id = $1)"
         } else if colonnes.iter().any(|x| x == "rattrapage_id") {
             "x.rattrapage_id IN (SELECT id FROM eva_rattrapage WHERE eleve_id = $1)"
-        } else if TABLES_SANS_ELEVE.contains(&c.nom) {
-            continue;
         } else {
             // M2 : une table exportée qui ne se rattache pas à l'élève n'est pas filtrable : échec franc (jamais « continue »).
             panic!("{} : table exportée non filtrable par élève (colonnes : {colonnes:?})", c.nom);
