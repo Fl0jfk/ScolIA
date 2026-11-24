@@ -181,3 +181,8 @@ Tables avec RLS **+0** ; registre des données inchangé ; `Action::TOUTES` inch
 - **clippy 1.99.0 `-D warnings`**, les trois commandes de la CI, `--locked` : **0 avertissement** (un `restant` jamais utilisé hors `labo`, corrigé par `cfg`). `cargo metadata --locked` dans `ent-rust/web` : réussi. fmt **ciblé** (`rustfmt` sur `tests_messagerie_p4.rs`, `msg_xmin_gele.rs`) ; jamais `cargo fmt --all`.
 - Aucun `#[ignore]` ; aucune heure réelle ni jour UTC dans les tests (instants de la base, durées de verrou, sonde de verrou).
 - Non rejoués ici : les tests `ent-api` (aucun fichier d'`ent-api` touché ; la CI les rejoue).
+
+### Fusion d'ENT (règle 28) et CI (passe 4)
+Premier push (61abe47b) : aucune CI au bout de 10 min (conflit). `origin/ENT` 73de85a3 fusionné ; conflits `migrate.rs` et `MIGRATIONS.md` seulement (ordre final : …, 493, 316, 655, 531, **494**, 494 en dernier). Aucun compteur additif touché par ce lot. Rejeu local après fusion non terminé (délai dépassé après un redémarrage du conteneur) : la CI fait foi.
+
+Tête testée par la CI : `6ee1d32a` (PR 141, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (run 45334931582). Le commit suivant ne touche que ce fichier de documentation.
