@@ -1,8 +1,8 @@
 /**
- * Annulation d'un devis de transport déjà signé : possible jusqu'à 7 jours avant le départ
+ * Annulation d'un devis de transport déjà signé : possible jusqu'à 14 jours avant le départ
  * (inclus), puis verrouillée.
  */
-export const BUS_QUOTE_CANCEL_MIN_DAYS_BEFORE = 7;
+export const BUS_QUOTE_CANCEL_MIN_DAYS_BEFORE = 14;
 
 /** Statuts où un devis signé peut exister et être annulé pour en choisir un autre. */
 export const BUS_QUOTE_CANCEL_ALLOWED_STATUSES = [

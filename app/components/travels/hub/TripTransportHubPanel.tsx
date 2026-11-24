@@ -182,7 +182,7 @@ export function TripTransportHubPanel({
             >
               <p className="text-xs leading-relaxed">
                 {cancelWindow.open
-                  ? `La commande peut être annulée (un e-mail d'annulation part au transporteur) puis un autre devis choisi, jusqu'au ${cancelWindow.lastDay ? new Date(`${cancelWindow.lastDay}T12:00:00`).toLocaleDateString("fr-FR") : "—"} (7 jours avant le départ).`
+                  ? `La commande peut être annulée (un e-mail d'annulation part au transporteur) puis un autre devis choisi, jusqu'au ${cancelWindow.lastDay ? new Date(`${cancelWindow.lastDay}T12:00:00`).toLocaleDateString("fr-FR") : "—"} (14 jours avant le départ).`
                   : cancelWindow.reason}
               </p>
               {cancelWindow.open && canCancelSignedQuote && (

@@ -21,7 +21,7 @@ function esc(s: string): string {
 /**
  * Annule le devis de transport signé : mail d'annulation au transporteur, retour à l'étape
  * logistique pour en choisir un autre. Réservé à la direction (ou admin général),
- * jusqu'à 7 jours avant le départ.
+ * jusqu'à 14 jours avant le départ.
  */
 export async function POST(req: Request) {
   const gate = await requireAuth();
