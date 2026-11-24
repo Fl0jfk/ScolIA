@@ -4638,6 +4638,7 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     let el = eleve(&ent, etab, "Regime", "externe").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer régime").await;
     let evt = Uuid::new_v4();
+    let _ = changer_regime(&ent, etab, el, evt).await;
     assert_eq!(nb_lignes_eleve(&ent, el).await, 0, "rien n'est écrit");
     let nature = crate::finances::NATURE_TACHE_REGIME_NON_FACTURE;
     assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 1, "tâche d'anomalie ouverte");
@@ -4835,6 +4836,7 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
     };
     ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(0), Some(100_000), 30_000)).await.unwrap();
     ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(100_000), None, 45_000)).await.unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tarif_body(dp.id, 45_000, true)).await.unwrap();
     ent.definir_tranches_for_actor(
         etab,
         u,
