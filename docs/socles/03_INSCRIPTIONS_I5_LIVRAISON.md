@@ -376,7 +376,7 @@ Les mêmes tests lancés sur une copie d'`origin/ENT` (base neuve `ent_test_p4_r
 
 ## Suites (passe 5) — contre-revue de la passe 4 — branche `ent-socle-3-code-i5-suites`
 
-Départ : `origin/ENT` (passe 4 versée, ae6e4fc1). **313 à 315 ne changent pas** (règles 25 et 38) ; tout passe par la **316** (`316_inscription_i5_suites_sentinelle`), ajoutée **à la fin** du tableau de `migrate.rs` (après 315). Chaque fonction créée porte `SET search_path = pg_catalog, public, pg_temp`, relations qualifiées `public.` ; **aucune** garde ne lit `PG_CONTEXT` ni `set_config`. Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve dont le nom contient « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+Départ : `origin/ENT` (passe 4 versée, ae6e4fc1). **313 à 315 ne changent pas** (règles 25 et 38) ; tout passe par la **316** (`316_inscription_i5_suites_sentinelle`), ajoutée **à la fin** du tableau de `migrate.rs` (après 315). Chaque fonction créée porte `SET search_path = pg_catalog, public, pg_temp`, relations qualifiées `public.` ; **aucune preuve de verrou** ne lit `PG_CONTEXT` ni `set_config` (précision de la passe 6, F2 : l'**exemption de suppression** de la sentinelle lit `ent_inscription_purge_voulue()`, donc le réglage de session `ent.purge_etablissement`, que tout appelant peut poser ; elle ne couvre que la suppression de lignes, avec la même limite que `ent_inscription_ajout_seul` ; la sentinelle est un filet, pas un contrôle de sécurité). Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve dont le nom contient « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
 
 ### Fait
 
@@ -450,3 +450,75 @@ Explication : chacun entre par un **point d'entrée qui prenait déjà le verrou
 - **F4** : la neutralisation de la sentinelle dans deux fixtures (`passe3`, `revue`) échoue franchement si le déclencheur n'existe plus.
 - Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_inscriptions*` : 137 verts.
 - **En file (suites I5, passe 6)** : **M2** (rejeu de 304 et restauration de données : la sentinelle bloque un INSERT de reprise sans verrou → garde de rejeu ou procédure de restauration, test de rejeu sur une base avec un dossier admis sans décision), M4 (coût de `pg_locks` sous charge : mesure en pilote, `FOR EACH STATEMENT` si besoin), F1 (`ENABLE ALWAYS TRIGGER` ; la sentinelle est un filet, pas un contrôle de sécurité), F2 (phrase sur `set_config` : `purge_voulue` le lit), F3 (`ent_inscription_liste_attente` sur 10 000 dossiers), F5 (en-tête « aucune heure réelle » à adoucir), F6 (alerte sans destinataire : repli ou trace), F7 (archivage d'offre sans verrou, antérieur).
+
+## Suites, passe 6 — liste « En file (suites I5, passe 6) » — branche `ent-socle-3-code-i5-suites-6`
+
+Départ : `origin/ENT`. **313 à 316 ne changent pas** (règles 25 et 38) ; tout passe par la **317** (`317_inscription_i5_suites_passe6`), ajoutée **à la fin** du tableau de `migrate.rs` (après 494). Ses fonctions portent `SET search_path = pg_catalog, public, pg_temp` et qualifient leurs relations `public.`. `migrations_versees.txt` n'est pas touché (le pilote l'ajoute au versement). Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve dont le nom contient « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+
+### Fait
+
+| N° | Fait |
+|---|---|
+| **M2** | Le rejeu de 304 ne bute plus sur la sentinelle. Cause : au rejeu, 304 refait sa reprise (`INSERT INTO ent_inscription_decision … SELECT`, une décision par dossier admis qui n'en a pas) alors que la sentinelle existe déjà et exige un verrou d'offre que cet INSERT ne tient pas. **Garde de rejeu** (`GARDES_DE_REJEU`, comme 644, 2824 et 2412) : avant 304, les déclencheurs `ent_inscription_sentinelle_*` de la table des décisions sont retirés ; 316 puis 317, rejouées plus loin dans le même rejeu, les recréent. Les migrations ne sont pas modifiées (règle 25) ; la production n'exécute jamais ce tableau. **Restauration de données** : procédure ci-dessous. |
+| **M4** | **Mesure reproductible** (test `s6_mesure_surcout_sentinelle`, `--nocapture`) puis **passage en `FOR EACH STATEMENT`** (tables de transition) : le surcoût par ligne était notable. Voir le tableau. Une vérification **par offre distincte** de l'instruction ; mêmes règles qu'en 316 (offre de la ligne ou de la liste de son dossier, ancienne **et** nouvelle offre sur une mise à jour, exemption de suppression d'un dossier purgé, même erreur nommée, SQLSTATE `55000`). Les déclencheurs par ligne de 316 sont retirés ; les sept nouveaux s'appellent `ent_inscription_sentinelle_{proposition,decision}_{ins,upd,del}_trg` et `ent_inscription_sentinelle_offre_upd_trg`. |
+| **F1** | `ENABLE ALWAYS TRIGGER` sur les sept déclencheurs : `SET session_replication_role = replica` (testé) ne la coupe plus ; seuls `DISABLE TRIGGER` (propriétaire de la table) ou `DISABLE TRIGGER ALL` (`pg_restore --disable-triggers`, superutilisateur) la suspendent, explicitement. **La sentinelle est un filet contre l'oubli du verrou dans le code, pas un contrôle de sécurité** : le propriétaire de la table et le superutilisateur la suspendent, et l'exemption de suppression (F2) dépend d'un réglage de session. Le contrôle de sécurité reste le cloisonnement par établissement (RLS) et les droits des rôles. |
+| **F2** | La phrase de 316 et de la section « passe 5 » (« aucune garde ne lit `set_config` ») est corrigée : vraie pour la **preuve du verrou**, fausse pour l'**exemption de suppression**, qui lit `ent_inscription_purge_voulue()` (réglage de session `ent.purge_etablissement`, que tout appelant peut poser). Cette exemption ne couvre que la **suppression** de lignes de décisions et de propositions (jamais leur création ni leur modification), avec la même limite que `ent_inscription_ajout_seul`, qui lit le même réglage. Le fichier 316 lui-même n'est pas modifié (versé) : sa phrase est rectifiée dans l'en-tête de 317. |
+| **F3** | `ent_inscription_liste_attente` n'appelle plus `ent_inscription_offre_du_dossier` pour chaque dossier de l'établissement : l'offre se lit par **jointure** sur le vœu retenu, et la fonction par dossier de la famille (`ent_inscription_en_liste_visible`, requête récursive) ne s'exécute que sur les candidats **de l'offre** (CTE matérialisée). Même résultat, même formule d'ordre (seul endroit où elle est écrite). **Vérifié par un compte d'appels, pas une durée** (voir les tests). |
+| **F5** | L'en-tête « aucun test ne dépend de l'heure réelle » (cinq fichiers de tests d'I5) était inexact : le service et la base lisent encore `now()` (horodatages de ligne) et le jour courant (`ent_acces_ouvert`). Il dit maintenant ce qui est vrai : les instants passés au **service** sont posés (2027) ; aucune assertion ne compare l'horloge de la base à un instant de test ; les dates qui en dépendent sont fixées très loin du présent (2020, 2099). |
+| **F6** | `alerter_direction_caduque_tx` : si **aucun** destinataire n'a un accès ouvert (direction partie, auteur parti), **repli** sur les accès ouverts de l'administrateur et du secrétariat (`admin`, `administratif`, qui instruisent les dossiers) ; s'il n'y en a pas non plus, l'alerte est **tracée** dans le suivi interne du dossier (« Alerte de décision caduque sans destinataire… », jamais visible de la famille). Plus d'alerte perdue en silence. |
+| **F7** | `archiver_offre_for_actor` prend, comme `modifier_offre`, la **campagne puis le verrou de l'offre** (`verrouiller_dans_l_ordre_tx`) **avant** de compter les vœux : le décompte est lu sous le verrou. |
+
+### Mesure M4 (surcoût de la vérification, par instruction)
+
+Table temporaire qui appelle la **même** fonction `ent_inscription_exiger_verrou_offre`, deux déclencheurs (par ligne = 316, par instruction = 317), verrou de l'offre tenu ; médiane de 5 passes d'un `UPDATE` de N lignes, PostgreSQL 16 local, un seul passage (ordres de grandeur, pas une garantie) :
+
+| Lignes par instruction | Verrous d'une autre session | Par ligne (316) | Par instruction (317) |
+|---|---|---|---|
+| 1 | 0 | 0,83 ms | 0,66 ms |
+| 100 | 0 | 6,6 ms | 0,75 ms |
+| 1 000 | 0 | 62 ms | 1,6 ms |
+| 1 | 500 | 1,0 ms | 0,77 ms |
+| 100 | 500 | 31 ms | 0,99 ms |
+| 1 000 | 500 | **237 ms** | 2,2 ms |
+
+Lecture : par ligne, le coût croît avec les lignes **et** avec les verrous de l'instance (lecture de `pg_locks` à chaque ligne) ; par instruction, il est quasi constant (une lecture par offre distincte). Pour une instruction d'une ligne, le gain est faible (de l'ordre de 0,2 ms) ; il est décisif pour les écritures de masse (publication de séance, reprise). Les temps sont **imprimés**, jamais assertés.
+
+### Procédure de restauration de données (M2, F1)
+
+* **Restauration complète** (`pg_dump` / `pg_restore` de la base entière) : les déclencheurs sont recréés **après** les données (section post-data) ; rien à faire, `ENABLE ALWAYS` est conservé.
+* **Reprise ou restauration de données seules** (INSERT de reprise, import, `pg_restore --data-only`) dans les trois tables protégées (`ent_inscription_offre` pour la capacité et les places rendues, `ent_inscription_proposition_place`, `ent_inscription_decision`) : la sentinelle refuse l'écriture sans verrou d'offre. Deux voies :
+  1. **Préférée quand les offres concernées sont peu nombreuses** : la transaction de reprise prend le verrou de chaque offre (`SELECT pg_advisory_xact_lock(ent_inscription_offre_cle(<offre>))`) ; la sentinelle laisse passer, aucune suspension.
+  2. **Reprise de masse** : en une transaction, par le propriétaire des tables, `ALTER TABLE … DISABLE TRIGGER` sur les sept déclencheurs `ent_inscription_sentinelle_*`, reprise, puis `ALTER TABLE … ENABLE ALWAYS TRIGGER` sur les sept, et contrôle : `SELECT tgname, tgenabled FROM pg_trigger WHERE tgname LIKE 'ent\_inscription\_sentinelle\_%'` doit rendre **7 lignes, toutes à `A`**. `session_replication_role = replica` **ne suffit plus** (voulu).
+* Jamais sur une base de production sans validation du pilote (CLAUDE.md : aucun accès à la production dans ce dépôt).
+
+### Tests (`tests_inscriptions_i5_suites6.rs`, 8)
+
+| Test | Prouve |
+|---|---|
+| `s6_rejeu_de_304_dossier_admis_sans_decision` | **M2** : `rejouer_tout` sur une base qui contient un dossier **admis sans décision** passe ; la reprise a posé la décision ; sept déclencheurs de sentinelle de retour, tous `ALWAYS`, plus aucun déclencheur par ligne ; une écriture sans verrou est de nouveau refusée |
+| `s6_sentinelle_toujours_active_et_restauration` | **F1** : sept déclencheurs à `A` ; `session_replication_role = replica` ne contourne pas ; la suspension explicite laisse passer une reprise sans verrou, le rétablissement `ALWAYS` refuse de nouveau |
+| `s6_sentinelle_par_instruction_exige_chaque_offre` | **M4** : une instruction qui écrit les places de deux offres exige les deux verrous (aucun, l'un, l'autre : refus ; les deux : accepté) |
+| `s6_mesure_surcout_sentinelle` | **M4** : la mesure ci-dessus ; les deux variantes refusent sans verrou et acceptent avec |
+| `s6_liste_attente_borne_d_appels_sur_10000_dossiers` | **F3** : 10 000 dossiers en liste d'attente (50 sur l'offre lue) ; **0 appel** de `ent_inscription_offre_du_dossier` ; `ent_inscription_en_liste_visible` appelée **50 fois** (une par dossier de l'offre) côté famille ; positions 1 à 50 ; **preuve rouge** : la formule de 316 faisait ≥ 10 000 appels. Compte d'appels (`pg_stat_xact_user_functions`), aucune assertion de durée |
+| `s6_alerte_sans_destinataire_repli_puis_trace` | **F6** : direction et auteur partis (date de fin 2020) : le secrétariat est alerté ; plus personne : trace interne « sans destinataire », invisible de la famille |
+| `s6_archivage_d_offre_attend_le_verrou` | **F7** : l'archivage attend le verrou de l'offre (`pg_locks`), l'offre n'est pas archivée pendant l'attente, puis il aboutit |
+| `s6_archivage_lit_les_voeux_sous_le_verrou` | **F7** : un vœu posé pendant l'attente est vu (décompte sous verrou) : archivage refusé, offre intacte |
+
+Adaptations des tests existants : les deux fixtures qui neutralisaient la sentinelle (`passe3`, `revue`) suspendent maintenant les trois déclencheurs de la table des décisions ; les trois tests `s5_sentinelle_*` tiennent la garde de rejeu **partagée** (le rejeu de 304 retire puis recrée la sentinelle : sans elle, un rejeu parallèle pouvait la faire disparaître au milieu d'un test).
+
+### Décisions par défaut prudentes (D-069, règles métier non tranchées)
+
+* **Alerte de décision caduque sans destinataire (F6)** : repli sur `admin` et `administratif` à accès ouvert (rôles qui instruisent les dossiers), puis trace interne. À confirmer : faut-il plutôt un autre rôle (par exemple une fonction « responsable des admissions ») ?
+* **Archivage d'une offre qui porte des vœux (F7)** : refusé (comportement d'avant, conservé), le décompte étant maintenant lu sous le verrou.
+* **Reprise de masse (M2)** : la suspension explicite de la sentinelle est réservée au propriétaire des tables, dans une transaction, avec contrôle final obligatoire (7 déclencheurs à `A`).
+
+### Non fait / limites
+
+* **Dépôt de préinscription et vœux** : l'insertion d'un vœu par le **dépôt** (`deposer_preinscription`) ne prend pas le verrou de l'offre (elle ne touche ni places, ni liste, ni décisions) ; un archivage d'offre concomitant d'un dépôt qui cible cette offre peut donc encore laisser un vœu sur une offre archivée (le dépôt relit `archivee_le IS NULL` sans verrou). Fermer cette fenêtre demande soit un verrou d'offre au dépôt (sérialise les dépôts d'une même offre), soit un déclencheur sur les vœux ; décision à prendre (non tranchée, rien d'ajouté). Le chemin « décision » qui crée un vœu tient déjà le verrou (couvert par F7).
+* **M4** : les chiffres sont d'une machine de développement, un seul passage ; la mesure en pilote (nombre réel de verrous de l'instance) reste à faire, mais le déclencheur par instruction rend le coût quasi indépendant du nombre de lignes.
+* Sept tests sans rapport (`i4_reponse_en_ligne_sans_compte`, `fa_`/`fb_`/`e1_` d'internat I4, `migrations_le_rejeu_avec_des_donnees_d_i4…`, `p3_m2_les_bornes_reelles…`, `migration_2220_remplace…`) ont échoué **une fois** sur 447 à quatre fils en parallèle sur la machine de développement (délai d'instruction dépassé en attendant la garde de rejeu, et un test sensible à une transaction ouverte voisine) ; **tous verts seuls** (7/7). La CI isole chaque tranche.
+
+### Suites (passe 6) — vérifications, compteurs, tête et CI
+- **Compteurs (règle 28)** : `MIGRATIONS` +1 (317) ; aucune nouvelle table, action ni source ; compte RLS, `Action::TOUTES`, `SOURCES` et `MIGRATION_TAG` (3808) inchangés ; `migrations_versees.txt` inchangé (préfixe du tableau : 317 est après 494, dernière versée de la liste).
+- **Qualité** : clippy 1.99.0 sans avertissement sur les 3 commandes de la CI (`ent-lab` compris, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` ; formatage ciblé seulement sur le fichier neuf (`rustfmt` ; le backend existant est une dette de format connue et non bloquante, pas de `cargo fmt --all`) ; gardes statiques (`garde_inscriptions_ecritures`, `isolation_sql_statique`, `jour_utc_interdit`) et 592 tests de la bibliothèque hors `tests_*` (dont `garde_search_path`, registre, ordre des migrations) verts.
+- **Tests** : base neuve `ent_i5s6_test`, un seul `CARGO_TARGET_DIR`, `--locked`, toolchain 1.99.0, `ENT_ENV=lab`. Filtres `inscription r_m4 registre migrat d036 export rgpd p2_ i5_ p3_ p4_ i3_ i4_ s5_ s6_ garde_search_path` : 447 tests, 440 verts à quatre fils, les 7 autres (sans rapport, voir « Non fait ») verts seuls ; les 8 `s6_*` et les `s5_*` verts.

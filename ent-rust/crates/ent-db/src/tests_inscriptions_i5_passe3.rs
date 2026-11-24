@@ -1,7 +1,9 @@
 //! Socle 3, lot I5 — **passe 3** (contre-revue de la passe 2), contre la base locale de test (feature `labo`).
 //! Sans `ENT_DATABASE_URL`, les scénarios sont ignorés en local.
 //!
-//! Aucun test ne dépend de l'heure réelle ni du jour UTC : les instants passés au service sont posés (2027).
+//! Les instants passés au **service** sont posés (2027) ; l'horloge de la base (`now()`, jour courant de `ent_acces_ouvert`) reste lue
+//! par quelques écritures (horodatages de ligne, accès ouverts), mais aucune assertion ne la compare à un instant de test : les dates
+//! qui en dépendent sont fixées très loin du présent (2020, 2099). Voir aussi la règle 33 de PILOTAGE.
 //!
 //! | Correctif | Test(s) |
 //! |---|---|
@@ -610,10 +612,15 @@ async fn p3_314_repare_une_chaine_partielle() {
         sqlx::query(ordre).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{ordre} : {e}"));
     }
     // Fixture d'ancien état : la sentinelle (316) n'existait pas ; elle est neutralisée le temps de poser l'historique.
-    sqlx::query("ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_sentinelle_decision_trg")
+    // Passe 6 : la sentinelle est par instruction (317) : trois déclencheurs sur la table des décisions.
+    for suffixe in ["ins", "upd", "del"] {
+        sqlx::query(&format!(
+            "ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_sentinelle_decision_{suffixe}_trg"
+        ))
         .execute(&mut *tx)
         .await
-        .expect("la sentinelle de 316 doit exister (nom du déclencheur)");
+        .expect("la sentinelle de 317 doit exister (nom du déclencheur)");
+    }
     let (d1, d2, d3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
     for (id, remplace, minute) in [(d1, None, 1), (d2, Some(d1), 2), (d3, None, 3)] {
         sqlx::query(

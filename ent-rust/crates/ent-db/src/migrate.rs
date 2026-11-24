@@ -565,6 +565,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Suites E1 (passe 4, 494, plage 482–499 du socle 16, **fin de tableau**, règle 38) : `ent_msg_annulation_ouvrir` n'est plus
     // exécutable par `PUBLIC` (M1) ; aucune fonction recréée. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("494_msg_garde_jeton_droit_execution"),
+    // Suites I5 (passe 6, 317, **fin de tableau**, règle 38) : sentinelle de 316 par instruction (une vérification par offre
+    // distincte) et `ENABLE ALWAYS TRIGGER` ; liste d'attente sans appel de fonction par dossier de l'établissement. 313 à 316
+    // sont versées et ne changent pas (règle 25) ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("317_inscription_i5_suites_passe6"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -713,6 +717,29 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
 #[cfg(test)]
 #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 const GARDES_DE_REJEU: &[(&str, &str)] = &[
+    // 304 rejoue sa reprise des décisions (`INSERT INTO ent_inscription_decision … SELECT` pour chaque dossier admis sans
+    // décision) ; au rejeu, la sentinelle de 316/317 (verrou de l'offre exigé pour toute écriture de décision) existe déjà et
+    // refuserait cet INSERT de reprise, qui ne tient aucun verrou. Comme pour une restauration de données (procédure
+    // documentée : suspendre explicitement les déclencheurs de la sentinelle le temps de la reprise), on retire ici les
+    // déclencheurs de la sentinelle sur la table des décisions ; 316 puis 317, rejouées plus loin dans le même rejeu, les
+    // recréent (316 par ligne, 317 par instruction, `ENABLE ALWAYS`). Une base qui contient un dossier admis sans décision
+    // rejoue ainsi 304 sans erreur.
+    (
+        "304_inscription_demarche_dossier",
+        "DO $$
+    DECLARE
+        t TEXT;
+    BEGIN
+        IF to_regclass('ent_inscription_decision') IS NOT NULL THEN
+            FOR t IN SELECT tgname FROM pg_trigger
+                      WHERE tgrelid = 'ent_inscription_decision'::regclass AND NOT tgisinternal
+                        AND tgname LIKE 'ent\\_inscription\\_sentinelle\\_%'
+            LOOP
+                EXECUTE format('DROP TRIGGER %I ON ent_inscription_decision', t);
+            END LOOP;
+        END IF;
+    END $$",
+    ),
     (
         "644_sortie_prestataires",
         "DO $$ BEGIN
