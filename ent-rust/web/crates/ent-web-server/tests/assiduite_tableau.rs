@@ -253,9 +253,9 @@ async fn tableau_exclus_du_jour_et_file_du_matin() {
         personnel(&base, &l, "cpe").await,
         personnel(&base, &l, "prof").await,
     );
-    // Jour de l'établissement lu auprès du serveur (le même que celui du panneau « exclus du jour », celui de
-    // `ent_aujourdhui_etab`) : ni l'heure réelle ni le jour de Paris ne sont supposés (entre 23 h et minuit UTC,
-    // les deux peuvent différer du jour de l'établissement).
+    // Jour lu auprès du serveur : c'est le jour de PARIS sur l'horloge du serveur (`maintenant_local`), pas
+    // `ent_aujourdhui_etab` (fuseau paramétré de l'établissement). Pour l'établissement du labo (fuseau de Paris) les deux
+    // coïncident ; un établissement hors fuseau de Paris n'est pas couvert ici (contre-revue du pilote, T2, M1).
     let jour = cpe
         .portail_aujourdhui()
         .await
