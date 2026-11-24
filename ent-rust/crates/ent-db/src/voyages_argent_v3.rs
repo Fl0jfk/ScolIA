@@ -467,7 +467,9 @@ pub(crate) async fn exiger_libre_de_la_sortie(
 /// Cumul (centimes) déjà engagé pour ce participant et ce payeur de cette sortie, en cette nature : écritures appliquées
 /// (nettes des annulations) **plus** demandes encore en attente (M-2 : le seuil de seconde validation porte sur le cumul,
 /// jamais sur chaque demande isolément). V3b (Faible 2) : une demande **expirée** (plus de
-/// [`DELAI_EXPIRATION_DEMANDE_JOURS`] jours, donc plus validable) ne compte plus : elle n'engage rien.
+/// [`DELAI_EXPIRATION_DEMANDE_JOURS`] jours, donc plus validable) ne compte plus : elle n'engage rien. `avec_attente` :
+/// faux pour une **annulation** (seul compte ce qui est appliqué : une demande en attente n'est pas encore un pouvoir exercé).
+#[allow(clippy::too_many_arguments)] // sortie, participant, payeur, nature, horloge : tous distincts
 async fn cumul_engage(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -476,6 +478,7 @@ async fn cumul_engage(
     compte: Uuid,
     nature: &str,
     maintenant: DateTime<Utc>,
+    avec_attente: bool,
 ) -> Result<i64, EntDbError> {
     let ecrit = if nature == "aide" {
         "SELECT COALESCE(SUM(CASE WHEN sens = 'aide' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
@@ -494,6 +497,9 @@ async fn cumul_engage(
         .fetch_one(&mut *conn)
         .await
         .map_err(db)?;
+    if !avec_attente {
+        return Ok(applique);
+    }
     let attente: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(d.montant_centimes), 0)::bigint FROM ent_sortie_argent_demande d
           WHERE d.etablissement_id = $1 AND d.sortie_id = $2 AND d.nature = $5
@@ -552,7 +558,17 @@ async fn exiger_seconde_personne_annulation(
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
-    let cumul = cumul_engage(conn, etab, sortie, participant, compte, nature, maintenant).await?;
+    let cumul = cumul_engage(
+        conn,
+        etab,
+        sortie,
+        participant,
+        compte,
+        nature,
+        maintenant,
+        false,
+    )
+    .await?;
     if !(montant > seuil || cumul > seuil || (fonds && source == Some("fonds_social"))) {
         return Ok(());
     }
@@ -917,6 +933,7 @@ async fn traiter_demande(
         e.compte,
         e.nature,
         maintenant,
+        true,
     )
     .await?;
     let seconde = cumul.checked_add(e.montant).ok_or_else(invalide)? > seuil
