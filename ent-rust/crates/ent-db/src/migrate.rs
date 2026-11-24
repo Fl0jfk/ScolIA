@@ -573,6 +573,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // distincte) et `ENABLE ALWAYS TRIGGER` ; liste d'attente sans appel de fonction par dossier de l'établissement. 313 à 316
     // sont versées et ne changent pas (règle 25) ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("317_inscription_i5_suites_passe6"),
+    // Socle 24, suites 3 du lot F3 (D-069 ; réserve 532–537 de la plage 520–539) : nature de tâche « régularisation de
+    // changement de régime non facturée » et fin de tarif datée d'un article. 520 à 523 et 531 sont versées et ne
+    // changent pas (règle 25). Règle 38 : en fin de tableau ; aucune fonction. `MIGRATION_TAG` inchangé.
+    m!("532_finances_f3_suites3"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

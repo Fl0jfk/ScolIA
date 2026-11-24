@@ -35,7 +35,9 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
-use crate::facturation_payeurs::{categorie_de_designation, payeurs_pour_facturer, PartPayeur};
+use crate::facturation_payeurs::{
+    categorie_de_designation, ouvrir_tache, payeurs_pour_facturer, resoudre_taches, PartPayeur,
+};
 use crate::facturation_service::{journaliser_tx, Acte, Chemin};
 use crate::finances_calcul::{self as calcul, Calendrier, TarifCandidat};
 use crate::outbox::{Causalite, Publier};
@@ -356,6 +358,9 @@ pub(crate) async fn paliers_tx(
 // ---------------------------------------------------------------------------
 // Moteur : lignes, factures brouillon, avoirs
 // ---------------------------------------------------------------------------
+
+/// Nature de la tâche d'anomalie ouverte quand un changement de régime ne peut pas être facturé (migration 532).
+pub(crate) const NATURE_TACHE_REGIME_NON_FACTURE: &str = "regularisation_regime_non_facturee";
 
 /// Ligne à facturer, déjà répartie sur un foyer payeur.
 #[derive(Debug, Clone)]
@@ -1143,8 +1148,8 @@ pub(crate) async fn lignes_annuelles(
         }
         mois_tarifes.push((premier, calcul::fin_de_mois(an, mo), cle));
     }
-    let articles: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, libelle, categorie FROM ent_fin_article
+    let articles: Vec<(Uuid, String, String, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT id, libelle, categorie, retire_a_partir_du FROM ent_fin_article
           WHERE etablissement_id = $1 AND actif ORDER BY code",
     )
     .bind(etab)
@@ -1155,7 +1160,7 @@ pub(crate) async fn lignes_annuelles(
     // catégorie qui n'a pas 100 % de payeurs n'est pas facturée et ouvre une tâche « payeur manquant »
     // (FAC-210) : jamais « au responsable 1 ».
     let mut parts_par_cat: BTreeMap<String, Vec<PartPayeur>> = BTreeMap::new();
-    for (_, _, art_categorie) in &articles {
+    for (_, _, art_categorie, _) in &articles {
         if !calcul::categorie_due(art_categorie, &regime) {
             continue;
         }
@@ -1217,47 +1222,66 @@ pub(crate) async fn lignes_annuelles(
     let mut verrouilles: Vec<Uuid> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
-    // Découpage **par article**, au contenu (D-069, faible c) : les mois consécutifs où un article est tarifé du même
-    // montant, pour chaque foyer payeur, forment une seule ligne, quelles que soient les versions de grille et les
-    // tarifs des autres articles (un article inchangé n'est ni coupé ni arrondi deux fois). Le premier tronçon d'un
-    // article garde la clé de source historique, les suivants portent le suffixe `:m<AAAA-MM>` de leur premier mois.
+    // Découpage par **(article, foyer payeur)**, au contenu (D-069, faibles c et 2) : les mois consécutifs où un article
+    // est tarifé du même montant pour ce foyer, **et** couverts par les mêmes prises en charge si ce foyer est un
+    // organisme (faible 3 : la couverture est contrôlée sur toute la période, pas au seul début du tronçon), forment
+    // une seule ligne, quelles que soient les versions de grille, les tarifs des autres articles et ceux des autres
+    // foyers (un article ou un foyer inchangé n'est ni coupé ni arrondi deux fois). Le premier tronçon garde la clé de
+    // source historique, les suivants portent le suffixe `:m<AAAA-MM>` de leur premier mois.
     // Un article tarifé certains mois seulement n'est jamais gratuit en silence : anomalie bloquante.
-    let mut travaux: Vec<(usize, usize, usize)> = Vec::new();
-    for (ai, (art_id, art_libelle, art_categorie)) in articles.iter().enumerate() {
+    // Arrondi : chaque tronçon est arrondi **au centime inférieur** (prorata, réduction) ; la somme de plusieurs
+    // tronçons peut donc différer de 1 centime au plus par tronçon supplémentaire du prorata d'une année entière, en
+    // faveur de la famille (D-069, faible 1 : valeur prudente, jamais un centime facturé en trop).
+    let mut couvertures: HashMap<(Uuid, String, NaiveDate), Vec<Uuid>> = HashMap::new();
+    let mut travaux: Vec<(usize, usize, usize, usize, Uuid)> = Vec::new();
+    for (ai, (art_id, art_libelle, art_categorie, retire)) in articles.iter().enumerate() {
         if !calcul::categorie_due(art_categorie, &regime) {
             continue;
         }
         if categories.is_some_and(|c| !c.contains(&art_categorie.as_str())) {
             continue;
         }
+        let cat_des = categorie_de_designation(art_categorie);
         let foyers: Vec<Uuid> = parts_par_cat
-            .get(categorie_de_designation(art_categorie))
+            .get(cat_des)
             .map(|v| v.iter().filter(|p| p.rang == 1).map(|p| p.foyer_id).collect())
             .unwrap_or_default();
         if foyers.is_empty() {
             continue;
         }
-        let signatures: Vec<Vec<Option<i64>>> = mois_tarifes
+        // Fin de tarif datée (suites 3, D-069) : un mois qui commence à partir de `retire_a_partir_du` n'est plus dû
+        // pour cet article ; les mois commencés avant le restent. Ce n'est pas un trou de grille : aucune anomalie.
+        let nb_dus = mois_tarifes
             .iter()
-            .map(|(_, _, cle)| {
-                let cands = &cache[cle];
-                foyers
+            .take_while(|(premier, _, _)| retire.is_none_or(|r| *premier < r))
+            .count();
+        // montants[j][m] : montant annuel de l'article pour le foyer j le mois m (None : pas de tarif, ou plus dû)
+        let montants: Vec<Vec<Option<i64>>> = foyers
+            .iter()
+            .map(|f| {
+                mois_tarifes
                     .iter()
-                    .map(|f| {
-                        calcul::choisir_tarif(cands, *art_id, eleve.niveau.as_deref(), &regime, qf.get(f).copied())
+                    .enumerate()
+                    .map(|(m, (_, _, cle))| {
+                        if m >= nb_dus {
+                            return None;
+                        }
+                        calcul::choisir_tarif(&cache[cle], *art_id, eleve.niveau.as_deref(), &regime, qf.get(f).copied())
                             .map(|t| t.montant_annuel)
                     })
                     .collect()
             })
             .collect();
-        for j in 0..foyers.len() {
+        for mj in &montants {
             // Contre-revue du pilote (Moyen 2, D-069) : seul un trou qui SUIT un mois tarifé bloque (article retiré d'une
             // grille en cours d'année : les mois suivants seraient gratuits en silence). Un trou en tête est l'arrivée
             // normale d'un service en cours d'année : l'article est facturé à partir de son premier mois tarifé. (Un mois
-            // sans AUCUN tarif, grille oubliée, reste bloquant plus bas, quelle que soit sa place.)
-            let premier_tarife = signatures.iter().position(|sg| sg[j].is_some());
+            // sans AUCUN tarif, grille oubliée, reste bloquant plus bas, quelle que soit sa place.) Les mois d'après une fin
+            // de tarif datée ne sont pas des trous (le tarif s'arrête, il n'est pas oublié) : on ne regarde que les mois dus.
+            let dus = &mj[..nb_dus];
+            let premier_tarife = dus.iter().position(Option::is_some);
             if let Some(m) = premier_tarife
-                .and_then(|p| signatures.iter().skip(p).position(|sg| sg[j].is_none()).map(|k| p + k))
+                .and_then(|p| dus.iter().skip(p).position(Option::is_none).map(|k| p + k))
             {
                 // un mois sans aucune ligne de grille applicable est annoncé en premier (message d'ensemble)
                 if categories.is_none() {
@@ -1276,21 +1300,52 @@ pub(crate) async fn lignes_annuelles(
                 )));
             }
         }
-        let mut debut = 0;
-        while debut < signatures.len() {
-            let mut fin = debut + 1;
-            while fin < signatures.len() && signatures[fin] == signatures[debut] {
-                fin += 1;
+        for (j, foyer) in foyers.iter().enumerate() {
+            // Couverture mois par mois d'un organisme payeur : prises actives couvrant le **premier jour** du mois.
+            let compte_organisme = parts_par_cat
+                .get(cat_des)
+                .and_then(|v| v.iter().find(|p| p.foyer_id == *foyer && p.rang == 1))
+                .filter(|p| p.type_debiteur == "organisme")
+                .map(|p| p.compte_id);
+            let mut prises_du_mois: Vec<Vec<Uuid>> = vec![Vec::new(); mois_tarifes.len()];
+            if let Some(compte) = compte_organisme {
+                if !verrouilles.contains(foyer) {
+                    verrouiller_foyer(conn, etab, *foyer).await?;
+                    verrouilles.push(*foyer);
+                }
+                for (m, (premier, _, _)) in mois_tarifes.iter().enumerate() {
+                    if montants[j][m].is_none() {
+                        continue;
+                    }
+                    let cle = (compte, cat_des.to_string(), *premier);
+                    if !couvertures.contains_key(&cle) {
+                        let ids = prises_couvrantes(conn, etab, eleve_id, compte, cat_des, *premier)
+                            .await?
+                            .into_iter()
+                            .map(|p| p.id)
+                            .collect();
+                        couvertures.insert(cle.clone(), ids);
+                    }
+                    prises_du_mois[m] = couvertures[&cle].clone();
+                }
             }
-            if signatures[debut].iter().any(Option::is_some) {
-                travaux.push((debut, ai, fin - debut));
+            let signature = |m: usize| (montants[j][m], &prises_du_mois[m]);
+            let mut debut = 0;
+            while debut < mois_tarifes.len() {
+                let mut fin = debut + 1;
+                while fin < mois_tarifes.len() && signature(fin) == signature(debut) {
+                    fin += 1;
+                }
+                if montants[j][debut].is_some() {
+                    travaux.push((debut, ai, j, fin - debut, *foyer));
+                }
+                debut = fin;
             }
-            debut = fin;
         }
     }
     travaux.sort();
-    for (debut_idx, ai, nb_mois_run) in travaux {
-    let (art_id, art_libelle, art_categorie) = &articles[ai];
+    for (debut_idx, ai, _, nb_mois_run, foyer_run) in travaux {
+    let (art_id, art_libelle, art_categorie, _) = &articles[ai];
     let candidats = &cache[&mois_tarifes[debut_idx].2];
     let mois_dus = nb_mois_run as u32;
     let periode = (mois_tarifes[debut_idx].0, mois_tarifes[debut_idx + nb_mois_run - 1].1);
@@ -1309,7 +1364,7 @@ pub(crate) async fn lignes_annuelles(
         if parts.is_empty() {
             continue;
         }
-        for (foyer, _) in &parts {
+        for (foyer, _) in parts.iter().filter(|(f, _)| *f == foyer_run) {
             let Some(t) = calcul::choisir_tarif(
                 candidats,
                 *art_id,
@@ -1754,27 +1809,48 @@ pub(crate) async fn facturer_changement_regime(
             &format!("regime:{evenement}"),
         )
         .await?;
-        // Contre-revue du pilote (Moyen 1) : une régularisation de régime non facturable n'est jamais silencieuse.
-        // (Une tâche d'anomalie dédiée demande une nature nouvelle en base : en file.)
-        if let Err(motif) = &calcul {
-            tracing::warn!(etablissement = %etab, evenement = %evenement, %motif,
-                "changement de régime non facturé : à régulariser à la main");
-        }
-        if let Ok(lignes) = calcul
-        {
-            res.ajouter(
-                inserer_lignes(
+        // Contre-revue du pilote (Moyen 1) puis suites 3 : une régularisation de régime non facturable n'est jamais
+        // silencieuse. Journal `warn!` **et** tâche d'anomalie (nature `regularisation_regime_non_facturee`, une seule
+        // ouverte par élève : le rejeu n'en crée pas d'autre), visible des gestionnaires de l'établissement ; elle est
+        // close dès qu'une régularisation de régime de cet élève passe (rejeu de l'événement une fois la grille complétée).
+        match calcul {
+            Err(motif) => {
+                tracing::warn!(etablissement = %etab, evenement = %evenement, %motif,
+                    "changement de régime non facturé : à régulariser à la main");
+                let detail = format!(
+                    "changement de régime au {} non facturé ({}) : {motif}",
+                    date.format("%d/%m/%Y"),
+                    gagnees.join(", ")
+                );
+                ouvrir_tache(
                     conn,
                     etab,
-                    Some(annee),
-                    "evenement",
-                    &format!("Changement de régime {annee}"),
-                    lignes,
+                    NATURE_TACHE_REGIME_NON_FACTURE,
+                    Some(eleve_id),
+                    None,
+                    None,
+                    date,
+                    &detail,
                     actor,
-                    causalite,
                 )
-                .await?,
-            );
+                .await?;
+            }
+            Ok(lignes) => {
+                res.ajouter(
+                    inserer_lignes(
+                        conn,
+                        etab,
+                        Some(annee),
+                        "evenement",
+                        &format!("Changement de régime {annee}"),
+                        lignes,
+                        actor,
+                        causalite,
+                    )
+                    .await?,
+                );
+                resoudre_taches(conn, etab, NATURE_TACHE_REGIME_NON_FACTURE, eleve_id, None, actor).await?;
+            }
         }
     }
     Ok(res)
