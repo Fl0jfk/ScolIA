@@ -121,7 +121,7 @@ export function TripPriceBlockEditor({
               <div>
                 <label className="block text-xs font-bold mb-1">Dernier mois facturé</label>
                 <input type="month" value={lastMonth} onChange={(e) => setLastMonth(e.target.value)} className="w-full p-2.5 bg-white border rounded-xl" />
-                <p className="text-[11px] text-slate-500 mt-1">Proposé : juillet de l’année scolaire (à confirmer : juin ou juillet).</p>
+                <p className="text-[11px] text-slate-500 mt-1">Par défaut : juillet, dernier mois facturé de l’année scolaire.</p>
               </div>
             </div>
             <div className="rounded-xl border bg-white p-3 text-sm">
@@ -508,7 +508,7 @@ export function TripOpenRegistrationsModal({
         <div>
           <h2 className="text-xl font-black text-slate-900">Validation finale — ouverture des inscriptions</h2>
           <p className="text-sm text-slate-500">
-            Relisez l’aperçu complet. Aucun envoi aux familles n’est fait à cette étape ; la page sera simplement verrouillée en écriture.
+            Relisez l’aperçu complet. En validant, la page est verrouillée et le lien personnel part par e-mail aux responsables des élèves invités.
           </p>
         </div>
         {readiness.ready ? (

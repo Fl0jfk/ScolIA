@@ -766,15 +766,22 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       ) {
         return;
       }
-      await handleAction("EN_ATTENTE_DIR_FINAL", "Budget validé par la comptabilité", {
-        comptaSheet: {
-          ...finalSheet,
-          budgetValidatedAt: new Date().toISOString(),
+      // tripRef.current : dossier À JOUR (ce callback est mémorisé au premier rendu ; sans ça, un bloc prix
+      // enregistré pendant la session serait écrasé par l'ancienne version du dossier).
+      await handleAction(
+        "EN_ATTENTE_DIR_FINAL",
+        "Budget validé par la comptabilité",
+        {
+          comptaSheet: {
+            ...finalSheet,
+            budgetValidatedAt: new Date().toISOString(),
+          },
+          nbEleves: finalSheet.nbEleves,
+          finalTotalCost: total,
+          costPerStudent: perStudent ?? "",
         },
-        nbEleves: finalSheet.nbEleves,
-        finalTotalCost: total,
-        costPerStudent: perStudent ?? "",
-      });
+        tripRef.current,
+      );
     },
     // handleAction volontairement hors deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps

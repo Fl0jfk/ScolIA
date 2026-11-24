@@ -514,7 +514,7 @@ function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuid
         ? "Dernière étape : vérifier l’aperçu de la page des familles et ouvrir les inscriptions."
         : "Budget OK — en attente de la validation finale direction (ouverture des inscriptions).",
       what: canOpen
-        ? "La validation finale ouvre la page aux familles. La date limite de réponse doit être renseignée, au moins 7 jours après aujourd’hui et au plus tard 14 jours avant le départ. Aucun envoi aux familles n’est fait à cette étape."
+        ? "La validation finale ouvre la page aux familles. La date limite de réponse doit être renseignée, au moins 7 jours après aujourd’hui et au plus tard 14 jours avant le départ. Le lien personnel part alors par e-mail aux responsables des élèves invités."
         : "La direction vérifie l’aperçu complet de la page puis ouvre les inscriptions.",
       steps: canOpen
         ? [

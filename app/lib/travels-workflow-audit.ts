@@ -363,7 +363,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
         missingForCurrentStep.push(`page des familles : ${p}`);
       }
       advice.push(
-        "Circuit v2 : la validation finale ouvre les inscriptions (date limite ≥ 7 jours après aujourd’hui et au plus tard J-14). Aucun envoi aux familles dans cette version.",
+        "Circuit v2 : la validation finale ouvre les inscriptions (date limite ≥ 7 jours après aujourd’hui et au plus tard J-14). Les liens partent par e-mail aux familles à l'ouverture.",
       );
     } else if (
       status === "PROF_LOGISTICS" ||
