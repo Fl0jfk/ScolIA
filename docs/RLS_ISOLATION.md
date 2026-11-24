@@ -118,6 +118,11 @@ REVOKE TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM ent_app;
 -- `SECURITY DEFINER` `ent_msg_annulation_ouvrir`. La 493 retire déjà l'écriture à tout rôle non propriétaire, mais un
 -- `GRANT … ON ALL TABLES` exécuté APRÈS les migrations la rend : refaire ce REVOKE à la suite des GRANT ci-dessus.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ent_msg_annulation_garde FROM ent_app;
+-- Droit d'exécuter le jeton d'annulation (migration 494) : retiré à PUBLIC, donné aux rôles qui écrivent déjà dans
+-- `ent_msg`. Si `ent_app` est créé APRÈS les migrations, ou si les droits ont été refaits : à donner explicitement. Limite :
+-- l'auteur est affirmé par l'appelant (la base ne connaît pas l'utilisateur de l'application) ; seul `ent_app` peut donc
+-- ouvrir un jeton, mais il peut le faire pour tout message planifié dont il connaît l'auteur.
+GRANT EXECUTE ON FUNCTION ent_msg_annulation_ouvrir(uuid, uuid, uuid) TO ent_app;
 
 -- 4. Mode strict de la RLS au niveau du rôle (fail-closed). Voir 2.4 avant d'activer.
 ALTER ROLE ent_app SET app.rls_strict = 'on';

@@ -1642,6 +1642,21 @@ impl PgMsgRepo {
         Ok(ok)
     }
 
+    /// F6 : observation de la borne `xmin` **hors du flux** (alerte de gel, `msg_xmin_gele`). Le flux n'observe la borne
+    /// que quand un client l'interroge : sans client connecté, un gel passerait inaperçu. Le distributeur d'avis l'appelle
+    /// à chaque passage ; l'échec de la lecture est journalisé (`warn!`) et n'interrompt rien. Aucune donnée n'est lue
+    /// (la borne est un compteur du cluster).
+    pub(crate) async fn observer_borne_hors_flux(&self, etablissement_id: Uuid) {
+        match TenantTx::begin(&self.pool, etablissement_id).await {
+            Ok(mut tx) => {
+                if let Err(e) = lire_borne(&mut tx).await {
+                    tracing::warn!(error = ?e, "observation hors flux de la borne xmin : lecture impossible");
+                }
+            }
+            Err(e) => tracing::warn!(error = ?e, "observation hors flux de la borne xmin : transaction impossible"),
+        }
+    }
+
     /// Le message existe-t-il encore ? Lu `FOR KEY SHARE` : une annulation en cours (`FOR UPDATE` du message) est
     /// attendue, puis la ligne a disparu. Prédicat d'existence pour le distributeur d'avis (M-1) : aucun contenu.
     ///

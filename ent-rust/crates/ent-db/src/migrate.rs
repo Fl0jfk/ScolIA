@@ -562,6 +562,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // figée, historique des calculs supprimé seulement avec sa simulation. 520 à 523 sont versées et ne changent pas.
     // Règle 38 : en fin de tableau ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("531_finances_f3_suites"),
+    // Suites E1 (passe 4, 494, plage 482–499 du socle 16, **fin de tableau**, règle 38) : `ent_msg_annulation_ouvrir` n'est plus
+    // exécutable par `PUBLIC` (M1) ; aucune fonction recréée. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("494_msg_garde_jeton_droit_execution"),
     // Socle 20, suites C8/C9 : dernier numéro libre de la plage 2400–2419. `REVOKE EXECUTE` sur `ent_cdt_reprise`, gel d'année
     // qui échoue fermé (F3), tables filles du cahier classées au gel (F2). Règle 38 : en fin de tableau ; ses fonctions
     // portent leur `search_path`. Sous 3808 : `MIGRATION_TAG` inchangé.

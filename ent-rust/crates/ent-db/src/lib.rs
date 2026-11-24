@@ -248,6 +248,8 @@ mod tests_messagerie_revue;
 mod tests_messagerie_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_p4;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
