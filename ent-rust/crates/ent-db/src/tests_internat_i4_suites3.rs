@@ -52,7 +52,13 @@ async fn cas_dans_la_minute(b: &Banc, eleve: Uuid, minute: DateTime<Utc>, apres:
     let (p, _) = parent(b, eleve, true).await;
     let g = sortie_prete(b, &[(eleve, p)]).await;
     depart(b, g.id, vec![eleve]).await;
-    assert_eq!(b.ent.veille_non_rentres_a(b.etab, apres_fin(apres)).await.unwrap(), 1);
+    assert_eq!(
+        b.ent
+            .veille_non_rentres_a(b.etab, apres_fin(apres))
+            .await
+            .unwrap(),
+        1
+    );
     sqlx::query(
         "UPDATE ent_metier_event SET created_at = $3 \
           WHERE etablissement_id = $1 AND type = 'internat.cas_ouvert' AND eleve_id = $2",
@@ -74,13 +80,20 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
         .fetch_one(b.ent.pool_verif())
         .await
         .unwrap();
-    let cle = format!("i4:{}:internat_cas_ouvert:{}", b.etab, minute.timestamp().div_euclid(60));
+    let cle = format!(
+        "i4:{}:internat_cas_ouvert:{}",
+        b.etab,
+        minute.timestamp().div_euclid(60)
+    );
 
     // 1er événement : un avis simple, non lu.
     cas_dans_la_minute(&b, e1, minute, 16).await;
     let a1 = avis(&b, b.cpe).await;
     assert_eq!(a1.len(), 1, "{a1:?}");
-    assert!(a1[0].1.is_none() && !a1[0].0.contains("élèves concernés"), "{a1:?}");
+    assert!(
+        a1[0].1.is_none() && !a1[0].0.contains("élèves concernés"),
+        "{a1:?}"
+    );
     // Un envoi externe existe, `en_attente` (posé ici : les préférences du banc n'en planifient pas forcément).
     sqlx::query(
         "INSERT INTO ent_notification_envoi (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, \
@@ -104,7 +117,10 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
     assert_eq!(a2.len(), 1, "{a2:?}");
     assert!(a2[0].0.contains("2 élèves"), "{a2:?}");
     let (corps_envoi, _) = envoi(&b, b.cpe, &cle).await;
-    assert!(corps_envoi.contains("2 élèves"), "l'envoi en attente est à jour : {corps_envoi}");
+    assert!(
+        corps_envoi.contains("2 élèves"),
+        "l'envoi en attente est à jour : {corps_envoi}"
+    );
 
     // Le responsable lit l'avis ; l'envoi externe PART (`envoye`).
     sqlx::query("UPDATE ent_notification SET lu_le = $3 WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND kind = 'internat_cas_ouvert'")
@@ -128,8 +144,14 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
     cas_dans_la_minute(&b, e3, minute, 50).await;
     let a3 = avis(&b, b.cpe).await;
     assert_eq!(a3.len(), 1, "toujours un seul avis : {a3:?}");
-    assert!(a3[0].0.contains("3 élèves"), "le 3e événement est consommé : {a3:?}");
-    assert!(a3[0].1.is_none(), "le nombre a changé : l'avis repasse non lu : {a3:?}");
+    assert!(
+        a3[0].0.contains("3 élèves"),
+        "le 3e événement est consommé : {a3:?}"
+    );
+    assert!(
+        a3[0].1.is_none(),
+        "le nombre a changé : l'avis repasse non lu : {a3:?}"
+    );
     let (corps_envoi, statut) = envoi(&b, b.cpe, &cle).await;
     assert_eq!(statut, "envoye");
     assert!(
@@ -170,15 +192,22 @@ async fn s5_notifier_personne_ne_reecrit_jamais_un_avis_existant() {
     };
     let mut conn = b.ent.pool_verif().acquire().await.unwrap();
     let maintenant = h(1);
-    notifier_personne(&mut conn, envoi_a("premier texte"), source, maintenant).await.unwrap();
-    notifier_personne(&mut conn, envoi_a("second texte"), source, maintenant).await.unwrap();
+    notifier_personne(&mut conn, envoi_a("premier texte"), source, maintenant)
+        .await
+        .unwrap();
+    notifier_personne(&mut conn, envoi_a("second texte"), source, maintenant)
+        .await
+        .unwrap();
     let corps: String = sqlx::query_scalar("SELECT corps FROM ent_notification WHERE source_event_id = $1 AND destinataire_user_id = $2")
         .bind(source)
         .bind(b.cpe)
         .fetch_one(&mut *conn)
         .await
         .unwrap();
-    assert_eq!(corps, "premier texte", "`notifier_personne` : DO NOTHING, jamais de réécriture");
+    assert_eq!(
+        corps, "premier texte",
+        "`notifier_personne` : DO NOTHING, jamais de réécriture"
+    );
 }
 
 // ───────────────────────── F7 : aucune connexion supplémentaire dans une transaction ─────────────────────────
@@ -200,8 +229,14 @@ async fn s5_eleve_cache_au_tiers_n_ouvre_pas_de_connexion_dans_une_transaction_o
         .unwrap();
     let ent1 = PgEnt::from_pool(un.clone());
     for eleve in [libre, protege] {
-        let attendu = b.ent.eleve_cache_au_tiers(b.etab, b.cpe, CPE, eleve).await.unwrap();
-        let mut tx = crate::tenant_tx::TenantTx::begin(&un, b.etab).await.unwrap();
+        let attendu = b
+            .ent
+            .eleve_cache_au_tiers(b.etab, b.cpe, CPE, eleve)
+            .await
+            .unwrap();
+        let mut tx = crate::tenant_tx::TenantTx::begin(&un, b.etab)
+            .await
+            .unwrap();
         let rep = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             ent1.eleve_cache_au_tiers_conn(&mut tx, b.etab, b.cpe, CPE, eleve),

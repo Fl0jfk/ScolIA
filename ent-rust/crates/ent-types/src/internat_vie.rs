@@ -585,7 +585,13 @@ mod tests_libelles_famille {
         assert!(t.contains("refus a bien été enregistré"), "{t}");
         assert!(t.contains("déjà parti"), "{t}");
         assert!(t.contains("retour"), "{t}");
-        for jargon in ["refus_apres_depart", "interdiction", "acte", "fait_groupe", "_"] {
+        for jargon in [
+            "refus_apres_depart",
+            "interdiction",
+            "acte",
+            "fait_groupe",
+            "_",
+        ] {
             assert!(!t.contains(jargon), "jargon « {jargon} » dans : {t}");
         }
         assert!(!t.contains("heure"), "aucune promesse d'heure : {t}");
