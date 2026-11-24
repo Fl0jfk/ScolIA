@@ -48,6 +48,14 @@ export const FAMILY_PAGE_TEMPLATE = {
   dataRetention:
     "Les pièces que vous déposez sont supprimées le lendemain du retour du voyage. Seul l'engagement signé (formulaire et signature) est conservé par la comptabilité.",
 
+  /** Lissage du prix sur les factures mensuelles (variables : {premierMois} {dernierMois} {n} {montant} {dernier}). */
+  billing: {
+    intro:
+      "Ce montant s'ajoute à vos factures habituelles. Il sera réparti sur vos factures de {premierMois} à {dernierMois} : {n} × {montant} €",
+    lastDiffers: " (dernier mois : {dernier} €)",
+    oneShot: "Vous pouvez aussi régler en une seule fois : adressez-vous à la comptabilité.",
+  },
+
   /** Libellé affiché quand le bloc prix n'est pas encore saisi par la comptabilité (aperçu projet). */
   pricePending: "À renseigner par la comptabilité.",
 

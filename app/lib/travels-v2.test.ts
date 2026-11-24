@@ -30,11 +30,9 @@ import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types
 
 const PRICE = {
   pricePerStudent: 120,
-  installments: [
-    { id: "a", dueDate: "2027-01-10", amount: 60 },
-    { id: "b", dueDate: "2027-02-10", amount: 60 },
-  ],
-  paymentText: "Virement ou chèque",
+  firstMonth: "2027-01",
+  lastMonth: "2027-07",
+  paymentText: "",
 };
 
 const CAL = {
@@ -198,22 +196,27 @@ describe("travels v2 — date limite à la validation finale", () => {
 });
 
 describe("travels v2 — bloc prix", () => {
-  it("accepte un bloc complet", () => {
+  it("accepte un bloc complet (prix, premier et dernier mois)", () => {
     assert.deepEqual(validatePriceBlock(PRICE), { ok: true });
   });
-  it("accepte 0 € sans texte de paiement", () => {
-    assert.deepEqual(validatePriceBlock({ pricePerStudent: 0, installments: [], paymentText: "" }), { ok: true });
+  it("accepte 0 € sans mois", () => {
+    assert.deepEqual(validatePriceBlock({ pricePerStudent: 0 }), { ok: true });
   });
-  it("refuse l'absence de bloc, de prix ou de modalités", () => {
+  it("refuse l'absence de bloc, de prix, de premier ou de dernier mois", () => {
     assert.equal(validatePriceBlock(undefined).ok, false);
-    assert.equal(validatePriceBlock({ installments: [], paymentText: "x" }).ok, false);
-    assert.equal(validatePriceBlock({ pricePerStudent: 100, installments: [], paymentText: "" }).ok, false);
+    assert.equal(validatePriceBlock({ firstMonth: "2027-01", lastMonth: "2027-07" }).ok, false);
+    assert.equal(validatePriceBlock({ pricePerStudent: 100, lastMonth: "2027-07" }).ok, false);
+    assert.equal(validatePriceBlock({ pricePerStudent: 100, firstMonth: "2027-01" }).ok, false);
   });
-  it("refuse des échéances qui ne totalisent pas le prix", () => {
-    assert.equal(
-      validatePriceBlock({ ...PRICE, installments: [{ id: "a", dueDate: "2027-01-10", amount: 50 }] }).ok,
-      false,
-    );
+  it("refuse un premier mois après le dernier", () => {
+    const res = validatePriceBlock({ pricePerStudent: 100, firstMonth: "2027-08", lastMonth: "2027-07" });
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.match(res.error, /après le dernier/);
+  });
+  it("un ancien dossier au format échéances ne plante pas (champ ignoré, mois manquants)", () => {
+    const legacy = { pricePerStudent: 100, installments: [{ id: "a", dueDate: "2027-01-10", amount: 100 }], paymentText: "x" } as never;
+    assert.equal(validatePriceBlock(legacy).ok, false);
+    assert.equal(validatePriceBlock({ pricePerStudent: 0, installments: [] } as never).ok, true);
   });
 });
 

@@ -98,12 +98,16 @@ describe("page des familles — aperçu", () => {
       ...trip,
       data: {
         ...trip.data,
-        priceBlock: { pricePerStudent: 180, installments: [{ id: "x", dueDate: "2027-01-15", amount: 180 }], paymentText: "Chèque" },
+        priceBlock: { pricePerStudent: 100, firstMonth: "2027-01", lastMonth: "2027-03" },
       },
     } as TravelsTrip;
     const m = buildFamilyPagePreviewModel(withPrice);
-    assert.equal(m.price?.pricePerStudent, 180);
-    assert.equal(m.price?.installments.length, 1);
+    assert.equal(m.price?.pricePerStudent, 100);
+    assert.equal(m.price?.months.length, 3);
+    assert.equal(m.price?.months[2].amount, 33.34);
+    assert.match(m.price?.billingSentence || "", /janvier 2027 à mars 2027 : 3 × 33,33 € \(dernier mois : 33,34 €\)/);
+    assert.match(m.price?.billingSentence || "", /ajoute à vos factures habituelles/);
+    assert.match(m.price?.oneShotSentence || "", /en une seule fois/);
   });
   it("liquide sans motif ou programme vide : non affichés", () => {
     const t = { ...trip, data: { ...trip.data, familyPage: { documents: [], cash: { amount: 5, reason: "" } } } } as unknown as TravelsTrip;
@@ -122,6 +126,12 @@ describe("page des familles — valeurs en attente et paniers", () => {
     const m = buildFamilyPagePreviewModel(trip);
     assert.deepEqual(m.pending.map((p) => p.key), ["price"]);
     assert.equal(m.pending[0].label, "Montant en attente de la comptabilité");
+  });
+  it("prix > 0 sans mois (ancien format) : montant encore en attente", () => {
+    const t = { ...trip, data: { ...trip.data, priceBlock: { pricePerStudent: 100, installments: [] } } } as unknown as TravelsTrip;
+    const m = buildFamilyPagePreviewModel(t);
+    assert.equal(m.price, null);
+    assert.ok(m.pending.some((p) => p.key === "price"));
   });
   it("dossier vide : rendez-vous, montant et date limite signalés", () => {
     const empty = { ...trip, data: { workflowVersion: 2, title: "X", familyPage: { documents: [] } } } as unknown as TravelsTrip;

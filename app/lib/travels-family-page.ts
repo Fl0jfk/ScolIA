@@ -12,6 +12,7 @@ import type {
   TravelsPriceBlock,
   TravelsTrip,
 } from "@/app/lib/travels-types";
+import { computeMonthlySchedule } from "@/app/lib/travels-billing-schedule";
 import { FAMILY_PAGE_TEMPLATE, fillFamilyTemplate } from "@/app/lib/travels-family-page-template";
 import {
   dayShortLabelFr,
@@ -63,7 +64,11 @@ export type FamilyPagePreviewModel = {
   deadline: string | null;
   price: {
     pricePerStudent: number;
-    installments: { dueDate: string; amount: number }[];
+    /** Lissage mensuel (vide si 0 €). */
+    months: { label: string; amount: number }[];
+    /** Phrase de répartition prête à afficher (vide si 0 € ou période incohérente). */
+    billingSentence: string;
+    oneShotSentence: string;
     paymentText: string;
   } | null;
   financialHelp: string;
@@ -110,6 +115,33 @@ export function familyDocKindLabel(kind: TravelsFamilyDocKind): string {
 export function dateFr(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(iso || "");
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
+
+function buildPrice(priceSource: TravelsPriceBlock | null | undefined): FamilyPagePreviewModel["price"] {
+  if (!priceSource || !Number.isFinite(Number(priceSource.pricePerStudent))) return null;
+  const pricePerStudent = Number(priceSource.pricePerStudent);
+  const schedule = computeMonthlySchedule(pricePerStudent, priceSource.firstMonth, priceSource.lastMonth);
+  // Prix > 0 sans période valide : la compta n'a pas fini sa saisie, le bloc reste « en attente ».
+  if (!schedule.ok) return null;
+  const t = FAMILY_PAGE_TEMPLATE.billing;
+  const fmt = (n: number) => n.toFixed(2).replace(".", ",");
+  let billingSentence = "";
+  if (schedule.count > 0) {
+    billingSentence = fillFamilyTemplate(t.intro, {
+      premierMois: schedule.months[0].label,
+      dernierMois: schedule.months[schedule.count - 1].label,
+      n: String(schedule.count),
+      montant: fmt(schedule.monthlyAmount),
+    });
+    if (schedule.lastDiffers) billingSentence += fillFamilyTemplate(t.lastDiffers, { dernier: fmt(schedule.lastAmount) });
+  }
+  return {
+    pricePerStudent,
+    months: schedule.months.map((m) => ({ label: m.label, amount: m.amount })),
+    billingSentence,
+    oneShotSentence: schedule.count > 0 ? t.oneShot : "",
+    paymentText: String(priceSource.paymentText || ""),
+  };
 }
 
 export function buildFamilyPagePreviewModel(
@@ -161,14 +193,7 @@ export function buildFamilyPagePreviewModel(
       templateName: x.template?.name,
     }));
 
-  const price =
-    priceSource && Number.isFinite(Number(priceSource.pricePerStudent))
-      ? {
-          pricePerStudent: Number(priceSource.pricePerStudent),
-          installments: (priceSource.installments || []).map((i) => ({ dueDate: i.dueDate, amount: Number(i.amount) })),
-          paymentText: String(priceSource.paymentText || ""),
-        }
-      : null;
+  const price = buildPrice(priceSource);
 
   const cash =
     page.cash && Number(page.cash.amount) > 0 && String(page.cash.reason || "").trim()

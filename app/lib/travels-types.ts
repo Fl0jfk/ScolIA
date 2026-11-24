@@ -176,18 +176,15 @@ export type TravelsFamilyPage = {
   openedBy?: string;
 };
 
-export type TravelsPriceInstallment = {
-  id: string;
-  /** YYYY-MM-DD */
-  dueDate: string;
-  amount: number;
-};
-
 /** Bloc prix de la page des familles — saisi par la compta uniquement. */
 export type TravelsPriceBlock = {
   pricePerStudent: number;
-  installments: TravelsPriceInstallment[];
-  paymentText: string;
+  /** Premier mois facturé (YYYY-MM), saisi par la compta — le prix est lissé sur les factures mensuelles. */
+  firstMonth?: string;
+  /** Dernier mois facturé (YYYY-MM) ; proposé à juillet de l'année scolaire, modifiable. */
+  lastMonth?: string;
+  /** Précision de paiement facultative. (L'ancien champ `installments`, échéances manuelles, est ignoré.) */
+  paymentText?: string;
   authorName?: string;
   authorId?: string;
   updatedAt?: string;
@@ -198,7 +195,7 @@ export type TravelsTripData = {
   workflowVersion?: 2;
   /** v2 : page des familles (texte, pièces, date limite, ouverture). */
   familyPage?: TravelsFamilyPage;
-  /** v2 : prix par élève, échéances et texte de paiement — réservé à la compta. */
+  /** v2 : prix total par élève et premier / dernier mois facturés — réservé à la compta. */
   priceBlock?: TravelsPriceBlock;
   /** v2 : élèves invités (provisoire) ; la liste officielle = familles ayant signé. */
   preListeEleves?: TravelsParticipantEleve[];

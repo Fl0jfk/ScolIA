@@ -485,17 +485,17 @@ function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuid
       headline: isCompta
         ? "C’est à la compta de saisir le bloc prix de la page des familles puis de valider le budget."
         : "En attente de la comptabilité (bloc prix et budget).",
-      what: "La compta, et elle seule, fixe le prix par élève, les échéances et le texte de paiement qui apparaîtront sur la page des familles. Sa validation finances exige ce bloc prix.",
+      what: "La compta, et elle seule, fixe le prix total par élève, le premier et le dernier mois facturés (le prix est lissé sur les factures mensuelles) qui apparaîtront sur la page des familles. Sa validation finances exige ce bloc prix.",
       steps: isCompta
         ? [
             "Ouvrez l’onglet Compta.",
-            "Renseignez le bloc prix : prix par élève, échéances, texte de paiement.",
+            "Renseignez le bloc prix : prix total par élève, premier mois facturé, dernier mois facturé (proposé : juillet).",
             "Complétez la fiche budget (dépenses, nombre d’élèves).",
             "Validez le budget : le dossier passe en validation finale direction.",
           ]
         : [
             "La compta ouvre l’onglet Compta du séjour.",
-            "Elle renseigne le bloc prix (prix par élève, échéances, paiement) puis valide le budget.",
+            "Elle renseigne le bloc prix (prix par élève, premier et dernier mois facturés) puis valide le budget.",
             "L’organisateur ne peut pas écrire de prix dans la page : le texte de la page est une trame fixe et le prix vient de la compta.",
           ],
       youMustAct: isCompta,

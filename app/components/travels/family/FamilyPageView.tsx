@@ -161,15 +161,20 @@ export function FamilyPageView({
           {model.price ? (
             <div className="space-y-1 text-sm text-amber-950">
               <p className="font-bold">Prix par élève : {eur(model.price.pricePerStudent)}</p>
-              {model.price.installments.length > 0 ? (
-                <ul className="list-inside list-disc">
-                  {model.price.installments.map((i) => (
-                    <li key={`${i.dueDate}-${i.amount}`}>
-                      {dateFr(i.dueDate)} : {eur(i.amount)}
-                    </li>
-                  ))}
-                </ul>
+              {model.price.billingSentence ? <p>{model.price.billingSentence}</p> : null}
+              {model.price.months.length > 0 ? (
+                <table className="w-full max-w-xs border-collapse text-xs">
+                  <tbody>
+                    {model.price.months.map((m) => (
+                      <tr key={m.label} className="border-b border-amber-200">
+                        <td className="py-1 capitalize">{m.label}</td>
+                        <td className="py-1 text-right font-semibold">{eur(m.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               ) : null}
+              {model.price.oneShotSentence ? <p>{model.price.oneShotSentence}</p> : null}
               {model.price.paymentText ? <p className="whitespace-pre-line">{model.price.paymentText}</p> : null}
             </div>
           ) : (

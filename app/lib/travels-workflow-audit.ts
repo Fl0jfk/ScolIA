@@ -353,7 +353,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
     if (page?.openedAt) filled.push("pageFamillesOuverte");
     if (status === "EN_ATTENTE_COMPTA") {
       if (!validatePriceBlock(d.priceBlock).ok) {
-        missingForCurrentStep.push("bloc prix de la page des familles (prix par élève, échéances, paiement) — compta uniquement");
+        missingForCurrentStep.push("bloc prix de la page des familles (prix par élève, premier et dernier mois facturés) — compta uniquement");
         blockers.push("Bloc prix non renseigné : la validation finances est impossible sans lui.");
       }
       advice.push("Circuit v2 : seule la compta saisit le bloc prix ; l’organisateur n’écrit aucun prix dans la page.");

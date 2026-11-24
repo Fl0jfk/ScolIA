@@ -5,6 +5,7 @@
  * Les séjours sans ce champ (v1) et les séries récurrentes gardent le circuit historique.
  */
 
+import { computeMonthlySchedule } from "@/app/lib/travels-billing-schedule";
 import type {
   TravelsFamilyDocKind,
   TravelsFamilyDocRequest,
@@ -319,20 +320,9 @@ export function validatePriceBlock(pb: Partial<TravelsPriceBlock> | null | undef
   if (pb.pricePerStudent === undefined || pb.pricePerStudent === null || (pb.pricePerStudent as unknown) === "" || !Number.isFinite(price) || price < 0) {
     return { ok: false, error: "Bloc prix : indiquez le prix par élève (0 € accepté)." };
   }
-  const installments = Array.isArray(pb.installments) ? pb.installments : [];
-  let sum = 0;
-  for (const inst of installments) {
-    const amount = Number(inst?.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Bloc prix : chaque échéance doit avoir un montant positif." };
-    if (!isIsoDate(inst?.dueDate)) return { ok: false, error: "Bloc prix : chaque échéance doit avoir une date." };
-    sum += amount;
-  }
-  if (installments.length > 0 && Math.abs(sum - price) > 0.009) {
-    return { ok: false, error: `Bloc prix : le total des échéances (${sum.toFixed(2)} €) doit être égal au prix par élève (${price.toFixed(2)} €).` };
-  }
-  if (price > 0 && !String(pb.paymentText ?? "").trim()) {
-    return { ok: false, error: "Bloc prix : indiquez les modalités de paiement." };
-  }
+  // Prix > 0 : lissage mensuel sur les factures (premier et dernier mois obligatoires, période cohérente).
+  const schedule = computeMonthlySchedule(price, pb.firstMonth, pb.lastMonth);
+  if (!schedule.ok) return { ok: false, error: "Bloc prix : " + schedule.error };
   return { ok: true };
 }
 
@@ -457,7 +447,8 @@ function canonicalPriceBlock(pb: Partial<TravelsPriceBlock> | null | undefined):
   if (!pb) return "";
   return JSON.stringify({
     p: Number(pb.pricePerStudent),
-    i: (pb.installments || []).map((x) => [x.dueDate, Number(x.amount)]),
+    f: pb.firstMonth ?? "",
+    l: pb.lastMonth ?? "",
     t: String(pb.paymentText ?? "").trim(),
   });
 }

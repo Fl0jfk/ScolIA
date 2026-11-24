@@ -8,7 +8,8 @@
 
 import { useMemo, useState } from "react";
 import { TripAlert, TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
-import { FamilyDocumentsEditor, newFamilyDocId, RetroplanningCard } from "@/app/components/travels/TravelsV2Creation";
+import { computeMonthlySchedule, defaultLastBillingMonth } from "@/app/lib/travels-billing-schedule";
+import { FamilyDocumentsEditor, RetroplanningCard } from "@/app/components/travels/TravelsV2Creation";
 import {
   buildFamilyPagePreviewModel,
   dateFr,
@@ -22,7 +23,6 @@ import type {
   TravelsFamilyPage,
   TravelsParentCalendar,
   TravelsPriceBlock,
-  TravelsPriceInstallment,
   TravelsTrip,
 } from "@/app/lib/travels-types";
 import {
@@ -59,16 +59,21 @@ export function TripPriceBlockEditor({
 }) {
   const existing = trip.data.priceBlock;
   const [price, setPrice] = useState(existing ? String(existing.pricePerStudent) : "");
-  const [installments, setInstallments] = useState<TravelsPriceInstallment[]>(existing?.installments || []);
+  // Ancien format (échéances manuelles) : ignoré. Dernier mois proposé : juillet de l'année scolaire en cours.
+  const [firstMonth, setFirstMonth] = useState(existing?.firstMonth || "");
+  const [lastMonth, setLastMonth] = useState(existing?.lastMonth || defaultLastBillingMonth(todayIsoParis()));
   const [paymentText, setPaymentText] = useState(existing?.paymentText || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const draft = (): TravelsPriceBlock => ({
     pricePerStudent: Number(String(price).replace(",", ".")),
-    installments: installments.map((i) => ({ ...i, amount: Number(i.amount) })),
+    firstMonth: firstMonth || undefined,
+    lastMonth: lastMonth || undefined,
     paymentText: paymentText.trim(),
   });
+
+  const schedule = computeMonthlySchedule(Number(String(price).replace(",", ".")) || 0, firstMonth, lastMonth);
 
   const save = async () => {
     const block = draft();
@@ -90,7 +95,7 @@ export function TripPriceBlockEditor({
   return (
     <TripSection
       title="Bloc prix de la page des familles"
-      subtitle="Seule la comptabilité fixe le prix, les échéances et le texte de paiement affichés aux familles."
+      subtitle="Seule la comptabilité fixe le prix total, le premier et le dernier mois facturés : le prix est lissé sur les factures mensuelles."
       icon="💶"
       accent="amber"
     >
@@ -105,63 +110,37 @@ export function TripPriceBlockEditor({
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold mb-1">Prix par élève (€) — 0 € accepté</label>
-                <input
-                  value={price}
-                  inputMode="decimal"
-                  onChange={(e) => setPrice(e.target.value)}
-                  className="w-full p-2.5 bg-white border rounded-xl"
-                />
+                <label className="block text-xs font-bold mb-1">Prix total par élève (€) — 0 € accepté</label>
+                <input value={price} inputMode="decimal" onChange={(e) => setPrice(e.target.value)} className="w-full p-2.5 bg-white border rounded-xl" />
               </div>
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold mb-1">Texte de paiement (modalités, ordre du chèque, RIB…)</label>
-                <textarea
-                  value={paymentText}
-                  rows={3}
-                  onChange={(e) => setPaymentText(e.target.value)}
-                  className="w-full p-2.5 bg-white border rounded-xl text-sm"
-                />
+              <div>
+                <label className="block text-xs font-bold mb-1">Premier mois facturé</label>
+                <input type="month" value={firstMonth} onChange={(e) => setFirstMonth(e.target.value)} className="w-full p-2.5 bg-white border rounded-xl" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold mb-1">Dernier mois facturé</label>
+                <input type="month" value={lastMonth} onChange={(e) => setLastMonth(e.target.value)} className="w-full p-2.5 bg-white border rounded-xl" />
+                <p className="text-[11px] text-slate-500 mt-1">Proposé : juillet de l’année scolaire (à confirmer : juin ou juillet).</p>
               </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-bold">Échéances (facultatif — le total doit égaler le prix par élève)</p>
-              {installments.map((inst) => (
-                <div key={inst.id} className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={inst.dueDate}
-                    onChange={(e) =>
-                      setInstallments((prev) => prev.map((x) => (x.id === inst.id ? { ...x, dueDate: e.target.value } : x)))
-                    }
-                    className="p-2 border rounded-lg bg-white"
-                  />
-                  <input
-                    value={String(inst.amount ?? "")}
-                    inputMode="decimal"
-                    placeholder="Montant €"
-                    onChange={(e) =>
-                      setInstallments((prev) =>
-                        prev.map((x) => (x.id === inst.id ? { ...x, amount: e.target.value as unknown as number } : x)),
-                      )
-                    }
-                    className="w-28 p-2 border rounded-lg bg-white"
-                  />
-                  <button
-                    type="button"
-                    className="text-red-500 text-xs font-bold"
-                    onClick={() => setInstallments((prev) => prev.filter((x) => x.id !== inst.id))}
-                  >
-                    Retirer
-                  </button>
+            <div className="rounded-xl border bg-white p-3 text-sm">
+              {!schedule.ok ? (
+                <p className="font-semibold text-amber-800">{schedule.error}</p>
+              ) : schedule.count === 0 ? (
+                <p className="text-slate-500">Prix à 0 € : pas de lissage.</p>
+              ) : (
+                <div className="space-y-1">
+                  <p className="font-bold">
+                    {schedule.count} mois × {eur(schedule.monthlyAmount)}
+                    {schedule.lastDiffers ? ` (dernier mois : ${eur(schedule.lastAmount)})` : ""} = {eur(schedule.total)}
+                  </p>
+                  <p className="text-xs text-slate-500">{schedule.months.map((m) => `${m.label} : ${eur(m.amount)}`).join(" · ")}</p>
                 </div>
-              ))}
-              <button
-                type="button"
-                className="text-xs font-bold text-indigo-600 hover:underline"
-                onClick={() => setInstallments((prev) => [...prev, { id: newFamilyDocId(), dueDate: "", amount: 0 }])}
-              >
-                + Ajouter une échéance
-              </button>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">Précision de paiement (facultatif)</label>
+              <textarea value={paymentText} rows={2} onChange={(e) => setPaymentText(e.target.value)} className="w-full p-2.5 bg-white border rounded-xl text-sm" />
             </div>
             {error ? (
               <p className="text-sm font-semibold text-red-700" role="alert">
