@@ -573,6 +573,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // distincte) et `ENABLE ALWAYS TRIGGER` ; liste d'attente sans appel de fonction par dossier de l'établissement. 313 à 316
     // sont versées et ne changent pas (règle 25) ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("317_inscription_i5_suites_passe6"),
+    // Socle 42, V3b suites (656, plage 640–659) : instant de passage en « rentrée » (`rentree_le`), contournement tracé de
+    // la règle « sortie entière » par une seconde personne libre, auteur de l'annulation d'un acompte, attendu de l'internat
+    // sans branche directe redondante. 640–655 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ;
+    // ses fonctions portent leur `search_path` (l'attendu, SQL inlinée, a ses relations qualifiées `public.`).
+    // `MIGRATION_TAG` inchangé.
+    m!("656_sortie_voyages_v3b_suites"),
     // Suites I5 (passe 7, 318, **fin de tableau**, règle 38) : la sentinelle par instruction lit l'offre de la liste d'un dossier
     // par jointure (plus d'appel de fonction par ligne). 313 à 317 sont versées et ne changent pas (règle 25) ; sa fonction
     // porte son `search_path`. `MIGRATION_TAG` inchangé.

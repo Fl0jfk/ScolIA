@@ -651,7 +651,7 @@ impl PgEnt {
         let Some((eleve, masque, a_revoir, pp)) = r else {
             return Err(DomainError::NotFound.into());
         };
-        self.exiger_eleve_visible(etab, actor, role, eleve).await?;
+        self.exiger_eleve_visible_conn(&mut tx, etab, actor, role, eleve).await?;
         if masque.is_some() {
             return Err(conflit("ce fait est masqué : plus aucun geste"));
         }
@@ -1677,14 +1677,14 @@ impl PgEnt {
         );
         let gestion = !propre
             && self
-                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .a_action_etablissement_conn(&mut tx, etab, actor, role, Action::InternatGerer)
                 .await?;
         if !propre && !gestion {
             return Err(EntDbError::Forbidden);
         }
         // M8 (règle 6) : droit, puis élève protégé introuvable ; l'existence du temps vient après.
         if gestion {
-            self.exiger_eleve_visible(etab, actor, role, b.eleve_id)
+            self.exiger_eleve_visible_conn(&mut tx, etab, actor, role, b.eleve_id)
                 .await?;
         }
         let (statut, debut, fin) = temps_ligne_tx(&mut tx, etab, id, true).await?;
@@ -1795,13 +1795,13 @@ impl PgEnt {
         );
         let gestion = !propre
             && self
-                .a_action_etablissement(etab, actor, role, Action::InternatGerer)
+                .a_action_etablissement_conn(&mut tx, etab, actor, role, Action::InternatGerer)
                 .await?;
         if !propre && !gestion {
             return Err(EntDbError::Forbidden);
         }
         if gestion {
-            self.exiger_eleve_visible(etab, actor, role, eleve).await?;
+            self.exiger_eleve_visible_conn(&mut tx, etab, actor, role, eleve).await?;
         }
         let (_, debut, fin) = temps_ligne_tx(&mut tx, etab, id, true).await?;
         if (propre && maintenant >= debut) || maintenant >= fin {
@@ -2190,7 +2190,7 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = jour_local_tx(&mut tx, etab, maintenant).await?;
         let v = vigilance_tx(&mut tx, etab, id).await?;
-        self.exiger_eleve_visible(etab, actor, role, v.1).await?;
+        self.exiger_eleve_visible_conn(&mut tx, etab, actor, role, v.1).await?;
         if v.5.is_some_and(|a| a < jour) {
             return Err(conflit("cette vigilance est terminée"));
         }

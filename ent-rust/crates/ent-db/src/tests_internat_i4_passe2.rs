@@ -1049,8 +1049,14 @@ async fn m6_l_attendu_garde_la_branche_des_sorties_de_groupe_et_les_regles_du_vo
         def.contains("ent_sortie_retrait_effectif"),
         "retrait de voyage seulement après le départ constaté (654)"
     );
+    // 656 (Faible 1) : la branche directe « séjour scolaire » est supprimée ; l'annulation du CPE (retrait annulé) est
+    // respectée parce qu'un retrait annulé n'est plus lu par le CTE des retraits.
     assert!(
-        def.contains("ent_sortie_internat_retrait_fin"),
-        "annulation du CPE respectée (654)"
+        !def.contains("ent_sortie_participant"),
+        "plus de lecture directe des participants d'une sortie dans l'attendu (656)"
+    );
+    assert!(
+        def.contains("r.annule_le IS NULL"),
+        "un retrait annulé (par le CPE) ne retire plus l'élève"
     );
 }

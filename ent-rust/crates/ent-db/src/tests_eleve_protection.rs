@@ -387,6 +387,64 @@ async fn consultation_journalisee_et_alerte() {
 
 // ───────────────────────────── Scellement des versions sensibles ─────────────────────────────
 
+/// Marqueur long et improbable : sa présence (en clair ou encodé) dans un chiffré ne peut pas être fortuite.
+const MARQUEUR_USAGE: &str = "ZorglubMarqueurUsageTresLong";
+
+/// Base64 sans remplissage, avec l'alphabet donné (64 octets).
+fn b64(octets: &[u8], alphabet: &[u8; 64]) -> String {
+    let mut sortie = String::new();
+    for bloc in octets.chunks(3) {
+        let n = bloc.iter().enumerate().fold(0u32, |a, (i, b)| a | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=bloc.len() {
+            sortie.push(alphabet[((n >> (18 - 6 * i)) & 63) as usize] as char);
+        }
+    }
+    sortie
+}
+
+/// Vrai si `texte` contient `clair` tel quel, en hexadécimal ou en base64 / base64url (trois décalages possibles).
+/// Déterministe : un chiffré aléatoire ne contient jamais un marqueur de cette longueur par hasard.
+fn contient_en_clair_ou_encode(texte: &str, clair: &str) -> bool {
+    const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    if texte.contains(clair) {
+        return true;
+    }
+    let hex: String = clair.bytes().map(|b| format!("{b:02x}")).collect();
+    if texte.to_lowercase().contains(&hex) {
+        return true;
+    }
+    (0..3).any(|decalage| {
+        let mut octets = vec![0u8; decalage];
+        octets.extend_from_slice(clair.as_bytes());
+        [STD, URL].iter().any(|alphabet| {
+            let enc = b64(&octets, alphabet);
+            // On écarte le premier caractère (mêlé au décalage) et le dernier (mêlé à la suite) : reste le cœur aligné.
+            let debut = (decalage * 8).div_ceil(6) + 1;
+            let fin = enc.len().saturating_sub(1);
+            enc.get(debut..fin).is_some_and(|coeur| coeur.len() > 12 && texte.contains(coeur))
+        })
+    })
+}
+
+/// Témoin positif du détecteur : le marqueur est retrouvé en clair, en hexadécimal et en base64 / base64url aux trois
+/// alignements (vecteurs calculés hors du code), et jamais dans un texte sans lui.
+#[test]
+fn le_detecteur_de_clair_retrouve_le_marqueur_sous_toutes_ses_formes() {
+    let m = MARQUEUR_USAGE;
+    for texte in [
+        format!("enc:v1:{m}"),
+        "enc:v1:5a6f72676c75624d61727175657572557361676554726573".to_string() + "4c6f6e67",
+        "enc:v1:BwkBWm9yZ2x1Yk1hcnF1ZXVyVXNhZ2VUcmVzTG9uZwU".into(),
+        "enc:v1:BwkBQVpvcmdsdWJNYXJxdWV1clVzYWdlVHJlc0xvbmcF".into(),
+        "enc:v1:BwkBQUJab3JnbHViTWFycXVldXJVc2FnZVRyZXNMb25nBQ".into(),
+        "enc:v1:BwkBQVpvcmdsdWJNYXJxdWV1clVzYWdlVHJlc0xvbmcFBg+/".into(),
+    ] {
+        assert!(contient_en_clair_ou_encode(&texte, m), "non détecté : {texte}");
+    }
+    assert!(!contient_en_clair_ou_encode("enc:v1:Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg", m));
+}
+
 /// Une version sensible devenue non courante est scellée : valeurs en clair vidées, une ligne
 /// chiffrée par champ ; la direction (G6) les relit, le secrétariat ne voit pas la version ; la
 /// base refuse toute autre modification.
@@ -409,7 +467,7 @@ async fn les_versions_sensibles_non_courantes_sont_scellees() {
         source: "saisie".into(),
         acteur: adm,
     };
-    let v2 = ent.definir_usage(radm, usage("Sam")).await.unwrap().version;
+    let v2 = ent.definir_usage(radm, usage(MARQUEUR_USAGE)).await.unwrap().version;
     assert!(v2.sensible);
     // Courante : en clair (la fiche l'affiche).
     let (clair,): (Option<String>,) = sqlx::query_as("SELECT prenom_usage FROM ent_eleve_identite WHERE id = $1")
@@ -417,7 +475,7 @@ async fn les_versions_sensibles_non_courantes_sont_scellees() {
         .fetch_one(ent.pool_verif())
         .await
         .unwrap();
-    assert_eq!(clair.as_deref(), Some("Sam"));
+    assert_eq!(clair.as_deref(), Some(MARQUEUR_USAGE));
     // Une nouvelle version la rend non courante : elle est scellée dans la même transaction.
     let v3 = ent.definir_usage(radm, usage("Sammy")).await.unwrap().version;
     let (nom, prenom_u, prenoms, sexe): (String, Option<String>, Vec<String>, Option<String>) = sqlx::query_as(
@@ -440,7 +498,9 @@ async fn les_versions_sensibles_non_courantes_sont_scellees() {
     let champs: Vec<&str> = scellees.iter().map(|(c, _)| c.as_str()).collect();
     assert!(champs.contains(&"prenom_usage") && champs.contains(&"nom_naissance") && champs.contains(&"prenoms"), "{champs:?}");
     for (_, v) in &scellees {
-        assert!(v.starts_with("enc:v") && !v.contains("Sam") && !v.contains(&e.nom), "valeur en clair : {v}");
+        assert!(v.starts_with("enc:v"), "valeur non chiffrée : {v}");
+        assert!(!contient_en_clair_ou_encode(v, MARQUEUR_USAGE), "prénom d'usage lisible : {v}");
+        assert!(!contient_en_clair_ou_encode(v, &e.nom), "nom lisible : {v}");
     }
     // La version courante reste en clair (la fiche et la recherche la lisent).
     let (cv,): (Option<String>,) = sqlx::query_as("SELECT prenom_usage FROM ent_eleve_identite WHERE id = $1")
@@ -452,7 +512,7 @@ async fn les_versions_sensibles_non_courantes_sont_scellees() {
     // G6 relit l'ancienne valeur ; G5 sans G6 ne voit pas la version sensible.
     let h = ent.historique_identite_pour_acteur(etab, dir, rdir, e.id).await.unwrap();
     let v = h.iter().find(|x| x.id == v2.id).expect("version scellée dans l'historique G6");
-    assert_eq!(v.prenom_usage.as_deref(), Some("Sam"));
+    assert_eq!(v.prenom_usage.as_deref(), Some(MARQUEUR_USAGE));
     assert_eq!(v.nom_naissance, e.nom);
     let h = ent.historique_identite_pour_acteur(etab, adm, radm, e.id).await.unwrap();
     assert!(h.iter().all(|x| !x.sensible), "version sensible visible sans G6");
@@ -460,7 +520,7 @@ async fn les_versions_sensibles_non_courantes_sont_scellees() {
     for (sql, cible) in [
         ("UPDATE ent_eleve_identite SET nom_naissance = 'X' WHERE id = $1", v3.id),
         ("UPDATE ent_eleve_identite SET nom_naissance = '[scellé]', prenoms = ARRAY['[scellé]'], prenom_usage = NULL WHERE id = $1", v3.id),
-        ("UPDATE ent_eleve_identite SET prenom_usage = 'Sam' WHERE id = $1", v2.id),
+        ("UPDATE ent_eleve_identite SET prenom_usage = 'Autre' WHERE id = $1", v2.id),
         ("DELETE FROM ent_eleve_identite WHERE id = $1", v2.id),
         ("DELETE FROM ent_eleve_identite_scellee WHERE version_id = $1", v2.id),
         ("UPDATE ent_eleve_identite_scellee SET champ = 'sexe' WHERE version_id = $1", v2.id),
