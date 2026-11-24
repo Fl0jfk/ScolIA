@@ -4111,7 +4111,9 @@ async fn f3s2_trou_en_tete_d_un_article_facture_a_partir_du_premier_mois_tarife(
         .unwrap();
     let el = eleve(&ent, etab, "Tete", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer tete").await;
-    facturer_motif(&ent, etab, el).await.expect("trou en tête : facturé");
+    facturer_motif(&ent, etab, el)
+        .await
+        .expect("trou en tête : facturé");
     let (dp_total,): (i64,) = sqlx::query_as(
         "SELECT COALESCE(sum(montant_unitaire_centimes * quantite), 0)::bigint FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id = $2",
     )
@@ -4276,9 +4278,17 @@ async fn eleve_pris_en_charge(
     .unwrap();
     f2::piece_accord(ent, c, el, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
     let (us, rs) = secretariat(c);
-    let mut parts = vec![PartBody { compte_id: org.id, part_bps: 10_000, rang: Some(1) }];
+    let mut parts = vec![PartBody {
+        compte_id: org.id,
+        part_bps: 10_000,
+        rang: Some(1),
+    }];
     if suivant {
-        parts.push(PartBody { compte_id: cm, part_bps: 10_000, rang: Some(2) });
+        parts.push(PartBody {
+            compte_id: cm,
+            part_bps: 10_000,
+            rang: Some(2),
+        });
     }
     ent.designer_payeurs_for_actor(
         etab,
@@ -4312,9 +4322,15 @@ async fn grille_en_vigueur(ent: &PgEnt, c: &LaboCast) -> (Uuid, Uuid, Uuid) {
     let etab = c.etablissement_id;
     let (u, r) = compta(c);
     let (v1, contrib, dp) = grille_proposee(ent, c).await;
-    ent.voter_grille_test(etab, c.admin.user_id, Role::Admin.as_str(), v1, &vote("CA du 20 juin"))
-        .await
-        .unwrap();
+    ent.voter_grille_test(
+        etab,
+        c.admin.user_id,
+        Role::Admin.as_str(),
+        v1,
+        &vote("CA du 20 juin"),
+    )
+    .await
+    .unwrap();
     ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 9, 1) })
         .await
         .unwrap();
@@ -4331,11 +4347,26 @@ async fn f3s3_prise_expirant_en_decembre_rouvre_part_non_couverte_les_mois_suiva
     let etab = c.etablissement_id;
     grille_en_vigueur(&ent, &c).await;
     // sans payeur suivant
-    let (el, fm, fe, _) = eleve_pris_en_charge(&ent, &c, "Decembre", (d(2030, 9, 1), d(2030, 12, 31)), false).await;
+    let (el, fm, fe, _) = eleve_pris_en_charge(
+        &ent,
+        &c,
+        "Decembre",
+        (d(2030, 9, 1), d(2030, 12, 31)),
+        false,
+    )
+    .await;
     facturer(&ent, etab, el).await;
     let somme_org = || async { f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration") };
-    assert_eq!(somme_org().await, 18_000, "septembre à décembre : 4 mois à l'organisme");
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"), 0, "rien sur la famille");
+    assert_eq!(
+        somme_org().await,
+        18_000,
+        "septembre à décembre : 4 mois à l'organisme"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        0,
+        "rien sur la famille"
+    );
     assert_eq!(
         f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
         1,
@@ -4349,24 +4380,46 @@ async fn f3s3_prise_expirant_en_decembre_rouvre_part_non_couverte_les_mois_suiva
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    assert_eq!(depuis, d(2031, 1, 1), "la tâche dit depuis quand la part n'est plus couverte");
+    assert_eq!(
+        depuis,
+        d(2031, 1, 1),
+        "la tâche dit depuis quand la part n'est plus couverte"
+    );
     // rejeu : rien de plus
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
     assert_eq!(lignes_de(&ent, el).await, avant);
     assert_eq!(somme_org().await, 18_000);
-    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1, "pas de doublon");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        1,
+        "pas de doublon"
+    );
 
     // avec un payeur suivant désigné
-    let (el2, fm2, fe2, _) = eleve_pris_en_charge(&ent, &c, "Suivant", (d(2030, 9, 1), d(2030, 12, 31)), true).await;
+    let (el2, fm2, fe2, _) =
+        eleve_pris_en_charge(&ent, &c, "Suivant", (d(2030, 9, 1), d(2030, 12, 31)), true).await;
     facturer(&ent, etab, el2).await;
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe2).await, "restauration"), 18_000);
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe2).await, "restauration"),
+        18_000
+    );
     // une prise échue ne bascule jamais d'office sur le payeur suivant (E2 : décision humaine) : tâche, rien sur la famille
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm2).await, "restauration"), 0);
-    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 1);
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm2).await, "restauration"),
+        0
+    );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await,
+        1
+    );
     let avant = lignes_de(&ent, el2).await;
     facturer(&ent, etab, el2).await;
-    assert_eq!(lignes_de(&ent, el2).await, avant, "rejeu sans double facturation");
+    assert_eq!(
+        lignes_de(&ent, el2).await,
+        avant,
+        "rejeu sans double facturation"
+    );
 }
 
 /// Faible 3 : une prise qui commence en cours d'année (au 1er janvier) : septembre-décembre ne sont pas couverts
@@ -4376,11 +4429,21 @@ async fn f3s3_prise_commencant_en_cours_d_annee() {
     let Some((ent, c)) = labo().await else { return };
     let etab = c.etablissement_id;
     grille_en_vigueur(&ent, &c).await;
-    let (el, fm, fe, _) = eleve_pris_en_charge(&ent, &c, "Janvier", (d(2031, 1, 1), d(2031, 6, 30)), false).await;
+    let (el, fm, fe, _) =
+        eleve_pris_en_charge(&ent, &c, "Janvier", (d(2031, 1, 1), d(2031, 6, 30)), false).await;
     facturer(&ent, etab, el).await;
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 27_000);
-    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"), 0);
-    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1);
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        27_000
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        0
+    );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        1
+    );
     let (depuis,): (NaiveDate,) = sqlx::query_as(
         "SELECT depuis FROM ent_fin_tache WHERE etablissement_id = $1 AND nature = 'part_non_couverte' AND eleve_id = $2",
     )
@@ -4390,8 +4453,17 @@ async fn f3s3_prise_commencant_en_cours_d_annee() {
     .await
     .unwrap();
     assert_eq!(depuis, d(2030, 9, 1));
-    let cles: Vec<String> = lignes_de(&ent, el).await.into_iter().map(|l| l.0).filter(|k| k.contains(":m2031-01")).collect();
-    assert_eq!(cles.len(), 1, "le second tronçon porte la clé :m2031-01 {cles:?}");
+    let cles: Vec<String> = lignes_de(&ent, el)
+        .await
+        .into_iter()
+        .map(|l| l.0)
+        .filter(|k| k.contains(":m2031-01"))
+        .collect();
+    assert_eq!(
+        cles.len(),
+        1,
+        "le second tronçon porte la clé :m2031-01 {cles:?}"
+    );
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeu inchangé");
@@ -4411,7 +4483,12 @@ async fn somme_art(ent: &PgEnt, a: Uuid, e: Uuid) -> i64 {
     t
 }
 
-async fn changer_regime(ent: &PgEnt, etab: Uuid, el: Uuid, evt: Uuid) -> crate::finances::ResultatInsertion {
+async fn changer_regime(
+    ent: &PgEnt,
+    etab: Uuid,
+    el: Uuid,
+    evt: Uuid,
+) -> crate::finances::ResultatInsertion {
     let mut tx = ent.pool_verif().begin().await.unwrap();
     let r = crate::finances::facturer_changement_regime(
         &mut tx,
@@ -4441,17 +4518,25 @@ async fn nb_lignes_eleve(ent: &PgEnt, el: Uuid) -> i64 {
 }
 
 async fn tarif_dp(ent: &PgEnt, dp: Uuid, v: Uuid) -> Uuid {
-    let (t,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2")
-        .bind(v)
-        .bind(dp)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let (t,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2",
+    )
+    .bind(v)
+    .bind(dp)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
     t
 }
 
 /// v2 = copie de v1 sans la demi-pension, votée puis en vigueur au 1er janvier 2031 (fin de tarif).
-async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, avant_retrait: bool) -> Uuid {
+async fn v2_sans_demi_pension(
+    ent: &PgEnt,
+    c: &LaboCast,
+    v1: Uuid,
+    dp: Uuid,
+    avant_retrait: bool,
+) -> Uuid {
     let etab = c.etablissement_id;
     let (u, r) = compta(c);
     let (ud, rd) = direction(c);
@@ -4462,18 +4547,24 @@ async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, ava
             ud,
             rd,
             v1,
-            &CorrectionGrilleBody { motif: "fin de la demi-pension".into(), effet_retroactif: false },
+            &CorrectionGrilleBody {
+                motif: "fin de la demi-pension".into(),
+                effet_retroactif: false,
+            },
         )
         .await
         .unwrap();
-    let (t_dp,): (Uuid,) =
-        sqlx::query_as("SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2")
-            .bind(v2.id)
-            .bind(dp)
-            .fetch_one(ent.pool_verif())
-            .await
-            .unwrap();
-    ent.retirer_tarif_grille_for_actor(etab, ud, rd, v2.id, t_dp).await.unwrap();
+    let (t_dp,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_fin_tarif WHERE grille_version_id = $1 AND article_id = $2",
+    )
+    .bind(v2.id)
+    .bind(dp)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    ent.retirer_tarif_grille_for_actor(etab, ud, rd, v2.id, t_dp)
+        .await
+        .unwrap();
     if avant_retrait {
         assert!(
             conflit(ent.proposer_grille_for_actor(etab, u, r, v2.id).await),
@@ -4481,13 +4572,19 @@ async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, ava
         );
         return v2.id;
     }
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         ua,
         ra,
         v2.id,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
@@ -4498,14 +4595,22 @@ async fn v2_sans_demi_pension(ent: &PgEnt, c: &LaboCast, v1: Uuid, dp: Uuid, ava
     v2.id
 }
 
-async fn retrait(ent: &PgEnt, c: &LaboCast, article: Uuid, du: Option<NaiveDate>) -> Result<ArticleQualifieDto, EntDbError> {
+async fn retrait(
+    ent: &PgEnt,
+    c: &LaboCast,
+    article: Uuid,
+    du: Option<NaiveDate>,
+) -> Result<ArticleQualifieDto, EntDbError> {
     let (u, r) = compta(c);
     ent.retirer_article_a_la_date_for_actor(
         c.etablissement_id,
         u,
         r,
         article,
-        &RetraitArticleBody { a_partir_du: du, motif: "fin du service de demi-pension".into() },
+        &RetraitArticleBody {
+            a_partir_du: du,
+            motif: "fin du service de demi-pension".into(),
+        },
     )
     .await
 }
@@ -4519,12 +4624,22 @@ async fn f3s3_fin_de_tarif_datee() {
     let etab = c.etablissement_id;
     let (v1, contrib, dp) = grille_en_vigueur(&ent, &c).await;
     let _ = v2_sans_demi_pension(&ent, &c, v1, dp, true).await; // refus avant la fin datée (brouillon laissé)
-    // contrôles de la fin datée : premier jour d'un mois, motif obligatoire, droit `tarifs`
-    assert!(invalide(retrait(&ent, &c, dp, Some(d(2031, 1, 15))).await), "premier jour d'un mois");
+                                                                // contrôles de la fin datée : premier jour d'un mois, motif obligatoire, droit `tarifs`
+    assert!(
+        invalide(retrait(&ent, &c, dp, Some(d(2031, 1, 15))).await),
+        "premier jour d'un mois"
+    );
     let (u, r) = compta(&c);
     assert!(invalide(
         ent.retirer_article_a_la_date_for_actor(
-            etab, u, r, dp, &RetraitArticleBody { a_partir_du: Some(d(2031, 1, 1)), motif: "  ".into() }
+            etab,
+            u,
+            r,
+            dp,
+            &RetraitArticleBody {
+                a_partir_du: Some(d(2031, 1, 1)),
+                motif: "  ".into()
+            }
         )
         .await
     ));
@@ -4534,7 +4649,10 @@ async fn f3s3_fin_de_tarif_datee() {
             c.prof.user_id,
             "prof",
             dp,
-            &RetraitArticleBody { a_partir_du: Some(d(2031, 1, 1)), motif: "x".into() }
+            &RetraitArticleBody {
+                a_partir_du: Some(d(2031, 1, 1)),
+                motif: "x".into()
+            }
         )
         .await,
         Err(EntDbError::Forbidden)
@@ -4552,25 +4670,47 @@ async fn f3s3_fin_de_tarif_datee() {
     .await
     .unwrap();
     let _ = (ud, rd);
-    ent.proposer_grille_for_actor(etab, u, r, brouillon.0).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, brouillon.0)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         c.admin.user_id,
         Role::Admin.as_str(),
         brouillon.0,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
     .unwrap();
-    ent.mettre_en_vigueur_for_actor(etab, u, r, brouillon.0, &MiseEnVigueurBody { du: d(2031, 1, 1) })
-        .await
-        .unwrap();
+    ent.mettre_en_vigueur_for_actor(
+        etab,
+        u,
+        r,
+        brouillon.0,
+        &MiseEnVigueurBody { du: d(2031, 1, 1) },
+    )
+    .await
+    .unwrap();
     let el = eleve(&ent, etab, "Fin", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer fin").await;
-    facturer_motif(&ent, etab, el).await.expect("trou après la fin datée : non bloquant");
-    assert_eq!(somme_art(&ent, dp, el).await, 18_000, "septembre à décembre restent dus, janvier à juin non");
-    assert_eq!(somme_art(&ent, contrib, el).await, 120_000, "la contribution est facturée toute l'année");
+    facturer_motif(&ent, etab, el)
+        .await
+        .expect("trou après la fin datée : non bloquant");
+    assert_eq!(
+        somme_art(&ent, dp, el).await,
+        18_000,
+        "septembre à décembre restent dus, janvier à juin non"
+    );
+    assert_eq!(
+        somme_art(&ent, contrib, el).await,
+        120_000,
+        "la contribution est facturée toute l'année"
+    );
     // rejeu : rien de plus
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -4582,19 +4722,24 @@ async fn f3s3_fin_de_tarif_datee() {
     assert_eq!(somme_art(&ent, dp, el2).await, 0);
     assert_eq!(somme_art(&ent, contrib, el2).await, 120_000 * 5 / 10);
     // la fin ne réécrit rien : un élève déjà facturé garde ses lignes (régularisation = F4)
-    let (jour,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id = $2")
-        .bind(el)
-        .bind(dp)
-        .fetch_one(ent.pool_verif())
-        .await
-        .unwrap();
+    let (jour,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id = $2",
+    )
+    .bind(el)
+    .bind(dp)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
     assert_eq!(jour, 1);
     // levée de la fin : le trou de la grille redevient un trou (bloquant), jamais un article gratuit
     retrait(&ent, &c, dp, None).await.unwrap();
     let el3 = eleve(&ent, etab, "Trou", "demi_pension").await;
     let _ = foyer_payeur(&ent, etab, el3, c.parent_lea.user_id, "Foyer trou").await;
     let motif = facturer_motif(&ent, etab, el3).await.unwrap_err();
-    assert!(motif.contains("aucun tarif applicable pour l'article"), "{motif}");
+    assert!(
+        motif.contains("aucun tarif applicable pour l'article"),
+        "{motif}"
+    );
     // la fin datée est journalisée
     assert_eq!(journal_contient(&ent, etab, "article.retirer").await, 2);
 }
@@ -4620,20 +4765,32 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, brouillon.0).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, brouillon.0)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         c.admin.user_id,
         Role::Admin.as_str(),
         brouillon.0,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
     .unwrap();
-    ent.mettre_en_vigueur_for_actor(etab, u, r, brouillon.0, &MiseEnVigueurBody { du: d(2031, 1, 1) })
-        .await
-        .unwrap();
+    ent.mettre_en_vigueur_for_actor(
+        etab,
+        u,
+        r,
+        brouillon.0,
+        &MiseEnVigueurBody { du: d(2031, 1, 1) },
+    )
+    .await
+    .unwrap();
     retrait(&ent, &c, dp, None).await.unwrap(); // la fin est levée : trou réel
     let el = eleve(&ent, etab, "Regime", "externe").await;
     let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer régime").await;
@@ -4641,29 +4798,64 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     let _ = changer_regime(&ent, etab, el, evt).await;
     assert_eq!(nb_lignes_eleve(&ent, el).await, 0, "rien n'est écrit");
     let nature = crate::finances::NATURE_TACHE_REGIME_NON_FACTURE;
-    assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 1, "tâche d'anomalie ouverte");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, nature, el).await,
+        1,
+        "tâche d'anomalie ouverte"
+    );
     let _ = changer_regime(&ent, etab, el, evt).await;
-    assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 1, "rejeu : pas de doublon");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, nature, el).await,
+        1,
+        "rejeu : pas de doublon"
+    );
     // visible des gestionnaires de l'établissement seulement
     let (us, rs) = secretariat(&c);
-    let vues = ent.taches_for_actor(etab, us, rs, &TachesFiltre::default()).await.unwrap();
-    let t = vues.iter().find(|t| t.nature == nature).expect("visible du secrétariat (engagements)");
-    assert!(t.detail.as_deref().unwrap_or("").contains("aucun tarif applicable pour l'article"), "{t:?}");
+    let vues = ent
+        .taches_for_actor(etab, us, rs, &TachesFiltre::default())
+        .await
+        .unwrap();
+    let t = vues
+        .iter()
+        .find(|t| t.nature == nature)
+        .expect("visible du secrétariat (engagements)");
+    assert!(
+        t.detail
+            .as_deref()
+            .unwrap_or("")
+            .contains("aucun tarif applicable pour l'article"),
+        "{t:?}"
+    );
     assert_eq!(t.eleve_id, Some(el));
     assert!(matches!(
-        ent.taches_for_actor(etab, c.prof.user_id, "prof", &TachesFiltre::default()).await,
+        ent.taches_for_actor(etab, c.prof.user_id, "prof", &TachesFiltre::default())
+            .await,
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
-        ent.taches_for_actor(etab, c.parent_lea.user_id, "parent", &TachesFiltre::default()).await,
+        ent.taches_for_actor(
+            etab,
+            c.parent_lea.user_id,
+            "parent",
+            &TachesFiltre::default()
+        )
+        .await,
         Err(EntDbError::Forbidden)
     ));
     // cloisonnement : un autre établissement ne voit pas la tâche (service) ; SQL direct sous RLS d'établissement
     let c2 = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (u2, r2) = compta(&c2);
-    let chez_l_autre = ent.taches_for_actor(c2.etablissement_id, u2, r2, &TachesFiltre::default()).await.unwrap();
-    assert!(chez_l_autre.iter().all(|t| t.nature != nature), "cloisonnement par établissement");
-    let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool_verif(), c2.etablissement_id).await.unwrap();
+    let chez_l_autre = ent
+        .taches_for_actor(c2.etablissement_id, u2, r2, &TachesFiltre::default())
+        .await
+        .unwrap();
+    assert!(
+        chez_l_autre.iter().all(|t| t.nature != nature),
+        "cloisonnement par établissement"
+    );
+    let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool_verif(), c2.etablissement_id)
+        .await
+        .unwrap();
     let (autre,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_fin_tache WHERE nature = $1 AND eleve_id = $2 AND etablissement_id = $3")
         .bind(nature)
         .bind(el)
@@ -4673,7 +4865,7 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
         .unwrap();
     drop(tx);
     let _ = autre; // en mode non strict la base de test est lue par son propriétaire (voir tests_finances_f2 m10)
-    // la base refuse une nature inconnue (contrainte) : SQL direct
+                   // la base refuse une nature inconnue (contrainte) : SQL direct
     let e = sqlx::query("INSERT INTO ent_fin_tache (id, etablissement_id, nature, depuis) VALUES (gen_random_uuid(), $1, 'inconnue', '2030-09-01')")
         .bind(etab)
         .execute(ent.pool_verif())
@@ -4683,8 +4875,15 @@ async fn f3s3_changement_de_regime_sur_un_trou_ouvre_une_tache_close_a_la_regula
     // régularisation : la fin datée est reposée (plus de trou), l'événement est rejoué : lignes posées, tâche close
     retrait(&ent, &c, dp, Some(d(2031, 1, 1))).await.unwrap();
     let res = changer_regime(&ent, etab, el, evt).await;
-    assert!(nb_lignes_eleve(&ent, el).await >= 1, "novembre-décembre facturés : {res:?}");
-    assert_eq!(f2::taches_ouvertes(&ent, etab, nature, el).await, 0, "tâche close");
+    assert!(
+        nb_lignes_eleve(&ent, el).await >= 1,
+        "novembre-décembre facturés : {res:?}"
+    );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, nature, el).await,
+        0,
+        "tâche close"
+    );
     let (resolues,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_fin_tache WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'resolue'",
     )
@@ -4726,20 +4925,36 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
             ud,
             rd,
             v1,
-            &CorrectionGrilleBody { motif: "revalorisation".into(), effet_retroactif: false },
+            &CorrectionGrilleBody {
+                motif: "revalorisation".into(),
+                effet_retroactif: false,
+            },
         )
         .await
         .unwrap();
-    ent.modifier_tarif_grille_for_actor(etab, ud, rd, v2.id, tarif_dp(&ent, dp, v2.id).await, &tarif_body(dp, 50_003, true))
+    ent.modifier_tarif_grille_for_actor(
+        etab,
+        ud,
+        rd,
+        v2.id,
+        tarif_dp(&ent, dp, v2.id).await,
+        &tarif_body(dp, 50_003, true),
+    )
+    .await
+    .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
     ent.voter_grille_au_jour(
         etab,
         c.admin.user_id,
         Role::Admin.as_str(),
         v2.id,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
@@ -4801,8 +5016,14 @@ async fn f3s3_troncature_par_troncon_reductions_et_deux_foyers() {
     assert_eq!(remise, -(1_350 + 2_250));
     // jamais en trop : le total des tronçons ne dépasse pas le prorata calculé tronçon par tronçon en rationnel
     let rationnel = 45_000.0 * 4.0 / 10.0 + 50_003.0 * 6.0 / 10.0;
-    assert!(rationnel - (montants.iter().sum::<i64>() as f64) < 2.0, "au plus 1 centime perdu par tronçon");
-    assert!(montants.iter().sum::<i64>() as f64 <= rationnel, "jamais un centime de trop pour la famille");
+    assert!(
+        rationnel - (montants.iter().sum::<i64>() as f64) < 2.0,
+        "au plus 1 centime perdu par tronçon"
+    );
+    assert!(
+        montants.iter().sum::<i64>() as f64 <= rationnel,
+        "jamais un centime de trop pour la famille"
+    );
     // rejeu : mêmes clés, mêmes montants
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -4824,19 +5045,32 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
             etab,
             u,
             r,
-            &CreerGrilleBody { annee_scolaire: ANNEE.into(), libelle: None, copier_de: None, reprendre_historique: None },
+            &CreerGrilleBody {
+                annee_scolaire: ANNEE.into(),
+                libelle: None,
+                copier_de: None,
+                reprendre_historique: None,
+            },
         )
         .await
         .unwrap();
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tarif_body(contrib.id, 120_000, true)).await.unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tarif_body(contrib.id, 120_000, true))
+        .await
+        .unwrap();
     let tranche = |min: Option<i64>, max: Option<i64>, montant: i64| TarifGrilleBody {
         qf_min_centimes: min,
         qf_max_centimes: max,
         ..tarif_body(dp.id, montant, false)
     };
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(0), Some(100_000), 30_000)).await.unwrap();
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(100_000), None, 45_000)).await.unwrap();
-    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tarif_body(dp.id, 45_000, true)).await.unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(0), Some(100_000), 30_000))
+        .await
+        .unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tranche(Some(100_000), None, 45_000))
+        .await
+        .unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v1.id, &tarif_body(dp.id, 45_000, true))
+        .await
+        .unwrap();
     ent.definir_tranches_for_actor(
         etab,
         u,
@@ -4844,16 +5078,38 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
         v1.id,
         &TranchesBody {
             tranches: vec![
-                TrancheQfBody { code: "B".into(), libelle: "Basse".into(), qf_min_centimes: 0, qf_max_centimes: Some(100_000) },
-                TrancheQfBody { code: "H".into(), libelle: "Haute".into(), qf_min_centimes: 100_000, qf_max_centimes: None },
+                TrancheQfBody {
+                    code: "B".into(),
+                    libelle: "Basse".into(),
+                    qf_min_centimes: 0,
+                    qf_max_centimes: Some(100_000),
+                },
+                TrancheQfBody {
+                    code: "H".into(),
+                    libelle: "Haute".into(),
+                    qf_min_centimes: 100_000,
+                    qf_max_centimes: None,
+                },
             ],
         },
     )
     .await
     .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v1.id).await.unwrap();
-    ent.voter_grille_test(etab, c.admin.user_id, Role::Admin.as_str(), v1.id, &vote("CA du 20 juin")).await.unwrap();
-    ent.mettre_en_vigueur_for_actor(etab, u, r, v1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) }).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v1.id)
+        .await
+        .unwrap();
+    ent.voter_grille_test(
+        etab,
+        c.admin.user_id,
+        Role::Admin.as_str(),
+        v1.id,
+        &vote("CA du 20 juin"),
+    )
+    .await
+    .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
+        .await
+        .unwrap();
     // v2 : seule la tranche haute change
     let v2 = ent
         .corriger_grille_for_actor(
@@ -4861,7 +5117,10 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
             ud,
             rd,
             v1.id,
-            &CorrectionGrilleBody { motif: "hausse de la tranche haute".into(), effet_retroactif: false },
+            &CorrectionGrilleBody {
+                motif: "hausse de la tranche haute".into(),
+                effet_retroactif: false,
+            },
         )
         .await
         .unwrap();
@@ -4873,21 +5132,36 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    ent.modifier_tarif_grille_for_actor(etab, ud, rd, v2.id, t_haut, &tranche(Some(100_000), None, 55_000))
+    ent.modifier_tarif_grille_for_actor(
+        etab,
+        ud,
+        rd,
+        v2.id,
+        t_haut,
+        &tranche(Some(100_000), None, 55_000),
+    )
+    .await
+    .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
     ent.voter_grille_au_jour(
         etab,
         c.admin.user_id,
         Role::Admin.as_str(),
         v2.id,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
     .unwrap();
-    ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) }).await.unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
+        .await
+        .unwrap();
     // élève à deux foyers payeurs (50 % chacun), quotients 800 € et 1 500 €
     let el = eleve(&ent, etab, "Deuxfoyers", "demi_pension").await;
     let f_bas = f2::foyer(&ent, etab, "Foyer bas").await;
@@ -4906,12 +5180,24 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
             .await
             .unwrap();
     }
-    let (cb, ch) = (f2::compte_du_foyer(&ent, etab, f_bas).await, f2::compte_du_foyer(&ent, etab, f_haut).await);
-    f2::piece_accord(&ent, &c, el, "toutes", vec![(cb, 5_000), (ch, 5_000)], d(2030, 9, 1)).await;
-    facturer_motif(&ent, etab, el).await.expect("deux foyers : facturé");
+    let (cb, ch) = (
+        f2::compte_du_foyer(&ent, etab, f_bas).await,
+        f2::compte_du_foyer(&ent, etab, f_haut).await,
+    );
+    f2::piece_accord(
+        &ent,
+        &c,
+        el,
+        "toutes",
+        vec![(cb, 5_000), (ch, 5_000)],
+        d(2030, 9, 1),
+    )
+    .await;
+    facturer_motif(&ent, etab, el)
+        .await
+        .expect("deux foyers : facturé");
     let par_foyer = async |f: Uuid| {
-        {
-            let l: Vec<(String, i64)> = sqlx::query_as(
+        let l: Vec<(String, i64)> = sqlx::query_as(
                 "SELECT l.source_cle, (l.montant_unitaire_centimes * l.quantite)::bigint FROM ent_fac_ligne l
                    JOIN ent_fac_facture fa ON fa.id = l.facture_id
                   WHERE l.eleve_id = $1 AND l.article_id = $2 AND fa.foyer_id = $3 AND l.categorie <> 'reduction'
@@ -4923,14 +5209,21 @@ async fn f3s3_segmentation_par_article_et_par_foyer() {
             .fetch_all(ent.pool_verif())
             .await
             .unwrap();
-            l
-        }
+        l
     };
     let bas = par_foyer(f_bas).await;
     let haut = par_foyer(f_haut).await;
-    assert_eq!(bas.len(), 1, "le foyer de la tranche basse n'est pas coupé : {bas:?}");
+    assert_eq!(
+        bas.len(),
+        1,
+        "le foyer de la tranche basse n'est pas coupé : {bas:?}"
+    );
     assert!(!bas[0].0.contains(":m"), "clé historique {bas:?}");
-    assert_eq!(haut.len(), 2, "le foyer de la tranche haute a deux tronçons : {haut:?}");
+    assert_eq!(
+        haut.len(),
+        2,
+        "le foyer de la tranche haute a deux tronçons : {haut:?}"
+    );
     // rejeu : mêmes lignes
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -4953,17 +5246,26 @@ async fn f3s3_publication_close_deja_publiee_reste_relisible() {
             direction(&c).0,
             direction(&c).1,
             v1,
-            &CorrectionGrilleBody { motif: "révision".into(), effet_retroactif: false },
+            &CorrectionGrilleBody {
+                motif: "révision".into(),
+                effet_retroactif: false,
+            },
         )
         .await
         .unwrap();
-    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
     ent.voter_grille_au_jour(
         etab,
         ua,
         ra,
         v2.id,
-        &VoteGrilleBody { vote_le: d(2030, 12, 10), reference: "CA du 10 décembre".into(), document_id: None },
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
         d(2030, 12, 20),
     )
     .await
@@ -4972,9 +5274,14 @@ async fn f3s3_publication_close_deja_publiee_reste_relisible() {
         .await
         .unwrap();
     // jamais publiée et supplantée au 1er février 2031 : première publication refusée (409)
-    assert!(conflit(ent.publier_grille_au_jour(etab, ua, ra, v1, d(2031, 2, 1)).await));
+    assert!(conflit(
+        ent.publier_grille_au_jour(etab, ua, ra, v1, d(2031, 2, 1))
+            .await
+    ));
     // publiée avant la mise en vigueur de v2, elle reste relisible
-    ent.publier_grille_au_jour(etab, ua, ra, v1, d(2030, 12, 25)).await.unwrap();
+    ent.publier_grille_au_jour(etab, ua, ra, v1, d(2030, 12, 25))
+        .await
+        .unwrap();
     // au 1er février 2031, v1 est close et supplantée, mais déjà publiée : relisible
     ent.publier_grille_au_jour(etab, ua, ra, v1, d(2031, 2, 1))
         .await
