@@ -740,7 +740,7 @@ async fn i3_droits_et_isolation() {
 // ───────────────────────────── I4 ─────────────────────────────
 
 /// Le dernier courriel vers `to` qui contient `marque` : (identifiant de demande, jeton) lus dans le lien.
-fn lien_accord(ent: &PgEnt, to: &str) -> (Uuid, String) {
+pub(super) fn lien_accord(ent: &PgEnt, to: &str) -> (Uuid, String) {
     let corps = ent
         .mailer()
         .dry_run_corps()
@@ -755,7 +755,7 @@ fn lien_accord(ent: &PgEnt, to: &str) -> (Uuid, String) {
     (Uuid::parse_str(demande).unwrap(), jeton.to_string())
 }
 
-fn dernier_code(ent: &PgEnt, to: &str) -> String {
+pub(super) fn dernier_code(ent: &PgEnt, to: &str) -> String {
     let corps = ent
         .mailer()
         .dry_run_corps()

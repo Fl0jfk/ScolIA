@@ -609,6 +609,11 @@ async fn p3_314_repare_une_chaine_partielle() {
     ] {
         sqlx::query(ordre).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{ordre} : {e}"));
     }
+    // Fixture d'ancien état : la sentinelle (316) n'existait pas ; elle est neutralisée le temps de poser l'historique.
+    sqlx::query("ALTER TABLE ent_inscription_decision DISABLE TRIGGER ent_inscription_sentinelle_decision_trg")
+        .execute(&mut *tx)
+        .await
+        .expect("la sentinelle de 316 doit exister (nom du déclencheur)");
     let (d1, d2, d3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
     for (id, remplace, minute) in [(d1, None, 1), (d2, Some(d1), 2), (d3, None, 3)] {
         sqlx::query(
@@ -890,22 +895,26 @@ async fn p3_guichet_refus_distincts_notification_et_delai() {
         .await
         .unwrap();
     let (p_e, _) = proposition_ouverte(&ent, etab, &e).await.expect("désigné");
+    let mut tx = super::tests_inscriptions::tx_sous_verrou_offres(&ent, &[offre]).await;
     sqlx::query("UPDATE ent_inscription_proposition_place SET statut = 'annulee' WHERE id = $1")
         .bind(p_e)
-        .execute(ent.pool_verif())
+        .execute(&mut *tx)
         .await
         .unwrap();
+    tx.commit().await.unwrap();
     let res = ent
         .accepter_proposition_au_guichet_for_actor(etab, a, ar, p_e, &motif(), maintenant())
         .await;
     conflit_exact(&res, "proposition annulée ou écartée : rien à accepter");
     // — Acceptation réussie : `acceptee`, plus d'action « répondre », famille notifiée, motif masqué sans le droit de décider.
     let f = dossier(&ent, &c, camp, "Guichet", None).await;
+    let mut tx = super::tests_inscriptions::tx_sous_verrou_offres(&ent, &[offre]).await;
     sqlx::query("UPDATE ent_inscription_offre SET capacite = 5 WHERE id = $1")
         .bind(offre)
-        .execute(ent.pool_verif())
+        .execute(&mut *tx)
         .await
         .unwrap();
+    tx.commit().await.unwrap();
     decider(&ent, &c, &f, &corps("admis", Some(offre), "Admis"))
         .await
         .unwrap();

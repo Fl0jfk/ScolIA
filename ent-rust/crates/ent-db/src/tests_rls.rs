@@ -358,8 +358,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 2 du socle 21 (lot V3, migration 471 : journal des publications et journal des imports).
     // + 4 du socle 21 (lot V4, migration 475 : dispenses (port 34 simulé), indisponibilités d'AESH (simulées), convocations de
     // rattrapage, historique des convocations).
-    // + 7 du socle 24 (lot F3, migration 523 : versions de grille, tranches de quotient, familles types et leurs enfants,
-    // simulations, règles de hausse, effectifs prévus).
+    // + 8 du socle 24 (lot F3, migration 523 : versions de grille, tranches de quotient, familles types et leurs enfants,
+    // simulations, règles de hausse, effectifs prévus, historique des calculs d'une simulation).
     // + 6 du socle 42 (lot V3, migrations 653-654 : aides, reports, annulations, retraits d'internat).
     // + 1 du socle 21 (lot V5, migration 477 : journal des moyennes externes).
     // + 8 du socle 3, lot I5 (migration 313 : avis, déports, commissions et leurs dossiers, propositions de place, conditions
@@ -369,7 +369,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // accords hors ligne, journal des faits) + 10 (migration 2829 : catalogue et faits de liaison, journal de liaison,
     // événements, participants, compléments, temps du soir, inscriptions, préoccupations, vigilances).
     // + 1 du socle 16 (passe 2 de la contre-revue E1, migration 492 : jetons de la garde d'annulation).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10 + 5 + 3 + 1, "tables avec RLS activée et forcée");
+    // + 1 du socle 42 (V3 suites, migration 655 : refus de la règle « jamais pour son propre enfant »).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10 + 5 + 3 + 1 + 1, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

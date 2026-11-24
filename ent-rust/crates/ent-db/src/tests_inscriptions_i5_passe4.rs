@@ -42,7 +42,7 @@ use super::tests_inscriptions_i5::{campagne_cap, corps, decider, dossier, email,
 use super::tests_inscriptions_i5_revue::{nombre, sqlstate};
 use super::*;
 
-fn jours(n: i64) -> chrono::Duration {
+pub(super) fn jours(n: i64) -> chrono::Duration {
     chrono::Duration::days(n)
 }
 
@@ -51,7 +51,7 @@ fn jours(n: i64) -> chrono::Duration {
 /// Clé du verrou consultatif d'une offre, **recalculée ici** de façon indépendante (même formule que la fonction SQL
 /// `ent_inscription_offre_cle` ; `p4_cle_de_verrou_et_rang_calcule` vérifie qu'elles coïncident). Ne dépend d'aucune
 /// fonction de la migration 315 : le même test se rejoue sur le code d'avant.
-async fn cle_offre(ent: &PgEnt, offre: Uuid) -> i64 {
+pub(super) async fn cle_offre(ent: &PgEnt, offre: Uuid) -> i64 {
     sqlx::query_scalar("SELECT hashtextextended('ent_inscription_offre:' || $1::text, 0)")
         .bind(offre)
         .fetch_one(ent.pool_verif())
@@ -60,12 +60,12 @@ async fn cle_offre(ent: &PgEnt, offre: Uuid) -> i64 {
 }
 
 /// Verrous consultatifs d'offres tenus par une connexion **externe** (détachée du pool : elle se ferme à la chute).
-struct VerrouExterne {
+pub(super) struct VerrouExterne {
     conn: sqlx::PgConnection,
     cles: Vec<i64>,
 }
 
-async fn tenir(ent: &PgEnt, offres: &[Uuid]) -> VerrouExterne {
+pub(super) async fn tenir(ent: &PgEnt, offres: &[Uuid]) -> VerrouExterne {
     let mut conn = ent.pool_verif().acquire().await.unwrap().detach();
     let mut cles = Vec::new();
     for o in offres {
@@ -81,7 +81,7 @@ async fn tenir(ent: &PgEnt, offres: &[Uuid]) -> VerrouExterne {
 }
 
 impl VerrouExterne {
-    async fn relacher(mut self) {
+    pub(super) async fn relacher(mut self) {
         for cle in self.cles.clone() {
             sqlx::query("SELECT pg_advisory_unlock($1)")
                 .bind(cle)
@@ -93,7 +93,7 @@ impl VerrouExterne {
 }
 
 /// Nombre de connexions **en attente** (`wait_event_type = 'Lock'`) du verrou consultatif de clé `cle`.
-async fn en_attente(ent: &PgEnt, cle: i64) -> i64 {
+pub(super) async fn en_attente(ent: &PgEnt, cle: i64) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
           WHERE l.locktype = 'advisory' AND NOT l.granted AND l.objsubid = 1
@@ -109,7 +109,7 @@ async fn en_attente(ent: &PgEnt, cle: i64) -> i64 {
 /// Attend (au plus 10 s) que `n` connexions au moins attendent le verrou de cette offre ; sinon le test échoue : l'opération
 /// n'a **pas** attendu le verrou de l'offre.
 #[track_caller]
-fn attendre_attentes<'a>(
+pub(super) fn attendre_attentes<'a>(
     ent: &'a PgEnt,
     offre: Uuid,
     n: i64,
@@ -134,7 +134,7 @@ fn attendre_attentes<'a>(
 
 /// Le dossier n'est verrouillé par personne (un `FOR UPDATE NOWAIT` externe réussit) : l'opération qui attend l'offre n'a
 /// pas encore pris de dossier.
-async fn dossier_libre(ent: &PgEnt, dossier: Uuid) -> bool {
+pub(super) async fn dossier_libre(ent: &PgEnt, dossier: Uuid) -> bool {
     let mut tx = ent.pool_verif().begin().await.unwrap();
     let r = sqlx::query("SELECT id FROM ent_inscription_dossier WHERE id = $1 FOR UPDATE NOWAIT")
         .bind(dossier)
@@ -144,7 +144,7 @@ async fn dossier_libre(ent: &PgEnt, dossier: Uuid) -> bool {
     r.is_ok()
 }
 
-async fn tous_libres(ent: &PgEnt, ds: &[&Dos], quoi: &str) {
+pub(super) async fn tous_libres(ent: &PgEnt, ds: &[&Dos], quoi: &str) {
     for d in ds {
         assert!(
             dossier_libre(ent, d.id).await,
@@ -154,7 +154,7 @@ async fn tous_libres(ent: &PgEnt, ds: &[&Dos], quoi: &str) {
 }
 
 /// Une erreur **technique** (interblocage, panne, verrou refusé) : jamais acceptée. Seul un conflit métier l'est.
-fn est_technique(e: &EntDbError) -> bool {
+pub(super) fn est_technique(e: &EntDbError) -> bool {
     !matches!(
         e,
         EntDbError::ConflitDossier(_) | EntDbError::SaisieInvalide(_) | EntDbError::Domain(DomainError::NotFound)
@@ -162,14 +162,14 @@ fn est_technique(e: &EntDbError) -> bool {
 }
 
 /// Attend l'issue d'une tâche (au plus 30 s).
-async fn issue<T>(h: tokio::task::JoinHandle<T>, quoi: &str) -> T {
+pub(super) async fn issue<T>(h: tokio::task::JoinHandle<T>, quoi: &str) -> T {
     tokio::time::timeout(Duration::from_secs(30), h)
         .await
         .unwrap_or_else(|_| panic!("{quoi} : l'opération ne s'est pas terminée après le relâchement du verrou"))
         .unwrap()
 }
 
-async fn positions(ent: &PgEnt, c: &LaboCast, offre: Uuid) -> Vec<(Uuid, i64)> {
+pub(super) async fn positions(ent: &PgEnt, c: &LaboCast, offre: Uuid) -> Vec<(Uuid, i64)> {
     let (u, r) = dir(c);
     ent.liste_attente_for_actor(c.etablissement_id, u, r, offre)
         .await
@@ -182,7 +182,7 @@ async fn positions(ent: &PgEnt, c: &LaboCast, offre: Uuid) -> Vec<(Uuid, i64)> {
 
 // ───────────────────────────── Garde statique : un seul point de verrou ─────────────────────────────
 
-const SOURCES_INSCRIPTION: [(&str, &str); 8] = [
+pub(super) const SOURCES_INSCRIPTION: [(&str, &str); 8] = [
     ("inscriptions.rs", include_str!("inscriptions.rs")),
     ("inscriptions_accords.rs", include_str!("inscriptions_accords.rs")),
     ("inscriptions_attente.rs", include_str!("inscriptions_attente.rs")),
@@ -194,7 +194,7 @@ const SOURCES_INSCRIPTION: [(&str, &str); 8] = [
 ];
 
 /// Le mot `table` (borné : `ent_inscription_offre` n'est pas `ent_inscription_offre_historique`) figure dans `texte`.
-fn contient_table(texte: &str, table: &str) -> bool {
+pub(super) fn contient_table(texte: &str, table: &str) -> bool {
     let mut debut = 0;
     while let Some(i) = texte[debut..].find(table) {
         let a = debut + i;
@@ -210,7 +210,7 @@ fn contient_table(texte: &str, table: &str) -> bool {
 }
 
 /// Texte du littéral de chaîne qui contient l'octet `pos` (du `"` précédent au `"` suivant, guillemets échappés ignorés).
-fn litteral_autour(src: &str, pos: usize) -> &str {
+pub(super) fn litteral_autour(src: &str, pos: usize) -> &str {
     let oct = src.as_bytes();
     let mut a = pos;
     while a > 0 && !(oct[a - 1] == b'"' && (a < 2 || oct[a - 2] != b'\\')) {
@@ -223,7 +223,7 @@ fn litteral_autour(src: &str, pos: usize) -> &str {
     &src[a..b]
 }
 
-fn est_commentaire(src: &str, pos: usize) -> bool {
+pub(super) fn est_commentaire(src: &str, pos: usize) -> bool {
     let debut = src[..pos].rfind('\n').map_or(0, |i| i + 1);
     src[debut..].trim_start().starts_with("//")
 }

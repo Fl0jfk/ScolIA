@@ -99,11 +99,71 @@ Branche `ent-socle-42-code-suite`, partie de la tête distante `208a81ab` (ENT d
 
 ### 5.5 Reste à faire (non fait)
 
-- **Appel de départ (V3b)** : le passage d'un participant à « parti » n'existe pas encore (aucune fonction ne l'écrit hors tests). Il devra appeler `internat_resynchroniser` dans sa transaction ; en attendant, l'attendu de la nuit est correct sans retrait (branche directe pour une sortie prête ou en cours) mais l'historique (nuits d'une sortie ouverte) ne l'est qu'après une synchronisation.
+- **Appel de départ (V3b)** : le passage d'un participant à « parti » n'existe pas encore (aucune fonction ne l'écrit hors tests). Il devra appeler `internat_resynchroniser` dans sa transaction. **Correction (contre-revue M-1, migration 655)** : l'ancienne phrase « l'attendu de la nuit est correct sans retrait » était **fausse** pour un élève parti : la branche directe retirait l'élève sans aucune ligne de retrait, donc sans `id` que le CPE puisse annuler. Désormais **une seule source de vérité** : l'attendu ne retire un élève que s'il existe un retrait effectif posé par la synchronisation ; un participant passé « parti » par une écriture directe, sans resynchronisation, **reste attendu**. Les nuits d'une sortie ouverte ne sont donc retirées qu'après la synchronisation, et c'est le sens sûr.
 - Écrans (Leptos) : demande, validation par la seconde personne, avertissement de motif, retour anticipé.
 - Un participant « remis » / « parti seul » avant la fin du séjour n'est pas repris par la règle du retour anticipé (seul « rentré » l'est).
 - Notification de la seconde personne (demande en attente) : à brancher au socle 8.
 
+## 6. Suites de la contre-revue (D-069, branche `ent-socle-42-code-v3-suites`)
+
+Rapport : `docs/pilotage/revues/42_VOYAGES_V3_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Branche créée depuis `origin/ENT` ; **migration 655** (plage 640–659), ajoutée à la fin du tableau (règle 38) ; 653 et 654 sont versées et ne changent pas. **Statut : implémenté et testé en local ; non validé, non prêt pilote, non prêt production.**
+
+### 6.1 Fait / non fait
+
+| Réf. | Statut | Ce qui est fait | Test |
+|---|---|---|---|
+| **M-1** | fait | Source unique : la branche directe de `ent_internat_attendu_calcule` n'exclut un élève que s'il existe un retrait **effectif** posé par la synchronisation (655, corps identique à 2829 hors cette condition). Phrase fausse du §5.5 corrigée. | `m1_un_depart_ecrit_sans_resynchronisation…` (« parti » direct → **attendu** ; après resynchronisation → retiré ; le CPE annule le retrait) ; `fi_la_fonction_d_attendu_de_655…` |
+| **M-2** | fait | Le seuil porte sur le **cumul** (écritures appliquées nettes + demandes en attente) par sortie, participant et payeur, pour les aides comme pour les reports. **Limite documentée** : la règle « fonds social » reste *déclarative* (la `source` est saisie) ; le cumul vaut pour **toutes** les sources, ce qui empêche le fractionnement et l'étiquette « autre » de passer sous le seuil, mais une aide du fonds social étiquetée autrement n'est soumise qu'au seuil de montant. | `m2_le_seuil_de_seconde_validation…` (149,99 € × 2 ; 0,01 € ensuite ; autre participant indépendant ; reports) |
+| **M-3** | fait (décision du pilote : oui) | `exiger_decideur_libre` + déclencheur de base (`23514`) pour : plan, pointage et versements (dont remise de bordereau), annulation de versement, frais réel (saisie, annulation), décision d'avoir, annulation collective d'avoirs, acomptes fournisseurs (création, paiement ; annulation en application seule : la base ne garde pas l'auteur). Les pouvoirs sans compte précis (frais, annulation collective, acompte) vérifient aussi « payeur d'un compte qui porte une part d'un participant concerné ». Le périmètre des acomptes (aucun élève en particulier) est : **aucun participant de la sortie**. | `m3_la_regle_3_couvre_plans_versements…` (10 pouvoirs, parent **et** payeur refusés, contrôles de la base) |
+| **M-4** | fait | Colonne `ent_sortie.annulee_le` (posée à la transition par l'application, sinon par la base ; immuable ; rattrapage des sorties déjà annulées) ; la synchronisation ne lit plus `modifie_le`. | `m4_la_date_d_annulation_ne_se_lit_plus_dans_modifie_le` (`modifie_le` déplacé de 2 jours : rien ne bouge) |
+| **F-a** | fait | Ordre **personnel → droit → verrou → existence** sur les routes d'argent de V3, de la synchronisation et du retour anticipé (`avant_verrou`) ; `consigne_motif` réservée au personnel. Conséquence : un professeur sans droit d'argent reçoit 403 même pour une sortie inconnue (avant : 404) ; famille et élèves : 404 comme avant. | `fa_personnel_puis_droit_puis_existence…` ; HTTP |
+| **F-b** | fait | Retour anticipé : `retour_le` optionnel, **borné** (≤ maintenant, ≥ départ constaté), l'instant de saisie est tracé dans le fait ; refusé (409) sur une sortie rentrée, close ou annulée. « Remis » / « parti seul » : **non fait** (déjà au §5.5). | `fb_retour_anticipe_borne_trace…` |
+| **F-c** | fait | (1) Une demande en attente depuis plus de 30 jours **expire** (`DELAI_EXPIRATION_DEMANDE_JOURS`) : validation refusée (409), refus et retrait toujours possibles, statut `expiree` dans la liste. (2) L'annulation d'une aide ou d'un report soumis au seuil exige une **autre** personne que celle qui a décidé et que le demandeur d'origine. (3) Les refus de la règle 3 sont journalisés dans `ent_sortie_argent_refus` (propre transaction, aucun nom ni montant, ajout seul, jamais dans le journal de l'organisateur). | `fc_demande_expiree_annulation_soumise…` ; `m3_…` (10 refus tracés) |
+| **F-d** | fait | Clé `…_retrait_fin_lien_fk`, participants de la demande liés à la sortie (clé composite), aide et report cohérents avec leur demande (déclencheurs). | `fd_la_base_garde_la_coherence…` |
+| **F-e** | fait | `voyage_modifier_a`, `voyage_commande_a`, `voyage_participant_desister_a`, `voyage_participant_retirer_a` (horloge en paramètre ; l'annulation est datée par elle) ; le test d'annulation en cours de séjour n'utilise plus `now()`. `modifie_le = now()` reste côté base mais ne sert plus à aucun calcul d'attendu. | `internat_annulee_apres_le_depart…` (instant fixe) |
+| **F-f** | fait | Une sortie **rentrée** n'est plus ignorée : seuls les participants « rentrés » gardent leurs nuits passées dehors ; un participant resté « parti » n'est plus retiré (sens sûr). Une sortie close ne change plus rien. | `ff_une_sortie_rentree_ne_garde_pas…` |
+| **F-g** | fait | Le retour arrière de la reprise appelle la synchronisation (verrou de la sortie d'abord). Inatteignable avec des retraits (refusé si des faits de participants existent) : couvert par les tests existants de la reprise (`tests_voyages_v0d`). | — |
+| **F-h** | fait pour 655 | 655 ne rejoue ni `DROP TRIGGER` ni `CREATE TRIGGER` (créés seulement s'ils manquent). Les rejeux de 653 (versée, règle 25) restent tels quels. | rejeu de la CI |
+| **F-i** | fait | Test qui compare le corps de 655 à celui de 2829 (aux `public.` près, hors le bloc M-1) et vérifie que les conditions « sejour_scolaire » de 654 y figurent. | `fi_la_fonction_d_attendu_de_655…` |
+| **F-j** | documenté | L'annulation du CPE bloque la repose du retrait du participant pour toute la sortie (`ecartes`) : sens sûr (faux « attendu » possibles, jamais faux « retiré »), au prix de fausses alertes si l'élève repart réellement. Choix gardé : le CPE rétablit, la direction ou le porteur constate le retour pour clore. | — |
+| **Tests HTTP** | fait | `ent-api`, `routes_d_argent_de_v3_repondent_201_202_403_404_422` : aides, reports, demandes (validation, refus), annulations, consigne du motif, synchronisation, retour anticipé : **201, 202, 403, 404, 422** (et 401, 409). Les saisies illisibles des routes de V3 rendent **422** (`map_v3`), plus 400. | idem |
+| **M-5** | sans objet (réponse du pilote) | 653 et 654 sont versées. | — |
+
+### 6.2 Compteurs (règle 28)
+
+| Compteur | Valeur |
+|---|---|
+| `Action::TOUTES` | **271**, inchangé |
+| Tables avec RLS (`tests_rls.rs`) | base ENT **+ 1** (`ent_sortie_argent_refus`) ; le total du lot V3 reste **+ 6** de 653/654, auquel s'ajoute ce **+ 1** |
+| Registre des données | **+ 1** (`ent_sortie_argent_refus`, domaine `sorties_voyages`, données personnelles) |
+| Migrations | **+ 1** : 655 en fin de `migrate.rs` ; `migrations_versees.txt` laissé au pilote (règle 38) ; `MIGRATION_TAG` inchangé (3808) ; `docs/socles/MIGRATIONS.md` à jour |
+| Routes | inchangées (un champ optionnel `retour_le` sur le retour anticipé) |
+| Tests | `tests_voyages_v3` : 29 (était 19) ; `ent-api` : + 1 test HTTP |
+
+### 6.3 Vérifications (locales, PostgreSQL 16 neuve `ent_suites_test`, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`)
+
+- clippy 1.99.0, trois commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo` — `ent-lab` compris —, `-p ent-types`) : **0 avertissement** (`-D warnings`).
+- rustfmt ciblé : `voyages_argent_v3.rs`, `tests_voyages_v3.rs`, `tests_voyages_v3_http.rs` seulement (jamais `cargo fmt --all`).
+- Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, base et secrets de production, `ENT`.
+
+### 6.4 Résultat des suites
+
+Tête de code `a626af19` (fusion d'`origin/ENT` incluse) : CI « ENT Rust » **verte** (https://github.com/Fl0jfk/ScolIA/actions/runs/45304240363). Une première tête (`bb888183`) avait échoué sur le test `m9` d'`tests_internat_i2` (conséquence voulue de M-1) : test adapté. PR n° 138 laissée en brouillon vers `ENT`. Statut : implémenté et testé ; non validé, non prêt pilote, non prêt production.
+
 ### Résultat final
 
 Tête de code `5a895818` : CI « ENT Rust » verte (https://github.com/Fl0jfk/ScolIA/actions/runs/45017674799). Le commit suivant ne change que cette documentation ; sa propre CI est vérifiée avant envoi au pilote. PR n° 117 laissée en brouillon.
+
+## Correctifs du pilote après contre-revue des suites (2026-11-24)
+Rapport complet : `docs/pilotage/revues/42_VOYAGES_V3_SUITES_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé.
+- **Moyen 1** : la **remise d'un bordereau** est un pouvoir sur l'argent (elle fixe écarts et alertes) : `voyage_bordereau_remettre`
+  exige que la personne qui reçoit ne soit liée à aucun élève ni payeuse d'aucun compte des chèques du bordereau
+  (`exiger_libre_des_participants`). Contrôle applicatif seul (pas de déclencheur sur `ent_sortie_bordereau_remise`) ; le
+  commentaire de 655 est rectifié. Test `m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur`.
+- **Faible 3** : `avant_verrou` en tête de `voyage_bordereau_saisir` et `voyage_bordereau_remettre` (parent et élève écartés
+  avant le verrou de la sortie).
+- **Moyen 3 (D-069)** : la règle « sortie entière » reste stricte (désistés et liste d'attente compris) : l'intégrité prime ;
+  un contournement tracé par une seconde personne est en file avec V3b.
+- En file (V3b) : Moyen 2 (sortie « rentrée » rétroactive, `rentree_le`), Moyen 4 (tests SQL directs 23514 manquants),
+  faibles 1, 2, 4 à 7.
+- Local : `tests_voyages` 147 verts ; clippy 1.99 (labo) vert.

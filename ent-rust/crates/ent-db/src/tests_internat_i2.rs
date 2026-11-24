@@ -2003,9 +2003,12 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
     // réplication, ce seul passage), sans jamais désactiver la garde pour les autres tests.
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    let mut participants = Vec::new();
     for (i, etat) in etats.iter().enumerate() {
+        let pid = Uuid::new_v4();
+        participants.push(pid);
         sqlx::query("INSERT INTO ent_sortie_participant (id, etablissement_id, sortie_id, eleve_id, etat, rang_attente) VALUES ($1,$2,$3,$4,$5, CASE WHEN $5 = 'liste_attente' THEN 1 END)")
-            .bind(Uuid::new_v4())
+            .bind(pid)
             .bind(b.etab)
             .bind(sortie)
             .bind(eleves[i])
@@ -2015,6 +2018,34 @@ async fn m9_seuls_les_participants_confirmes_d_une_sortie_quittent_l_attendu() {
             .unwrap();
     }
     tx.commit().await.unwrap();
+    // V3 suites (M-1, 655) : un départ constaté ne retire l'élève que s'il existe un retrait EFFECTIF posé par la
+    // synchronisation du voyage ; sans lui l'élève reste attendu. On pose donc ce retrait (et son lien) comme le fait
+    // `internat_resynchroniser`, pour les trois états où l'élève n'est plus à l'internat.
+    for i in [2usize, 6, 7] {
+        let retrait = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_internat_retrait (id, etablissement_id, eleve_id, du_nuit, au_nuit, motif_code, source, par_user_id, cree_le) VALUES ($1,$2,$3,$4,$4,'sejour_scolaire','voyage',$5,$6)")
+            .bind(retrait)
+            .bind(b.etab)
+            .bind(eleves[i])
+            .bind(nuit_dst())
+            .bind(b.cpe)
+            .bind(soir(0))
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO ent_sortie_internat_retrait (id, etablissement_id, sortie_id, participant_id, retrait_id, du_nuit, au_nuit, cree_par_user_id, cree_le) VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8)")
+            .bind(Uuid::new_v4())
+            .bind(b.etab)
+            .bind(sortie)
+            .bind(participants[i])
+            .bind(retrait)
+            .bind(nuit_dst())
+            .bind(b.cpe)
+            .bind(soir(0))
+            .execute(pool)
+            .await
+            .unwrap();
+    }
     let att = b.ent.attendu_nuit_a(b.etab, b.cpe, CPE, nuit_dst(), soir(0)).await.unwrap();
     let statut = |i: usize| att.lignes.iter().find(|l| l.eleve_id == eleves[i]).unwrap().statut.clone();
     assert_eq!(statut(0), "attendu", "inscrit : autorisation non confirmée, dort à l'internat");

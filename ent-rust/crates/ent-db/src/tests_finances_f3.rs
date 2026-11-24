@@ -67,6 +67,15 @@ fn secretariat(c: &LaboCast) -> (Uuid, &'static str) {
     (c.administratif.user_id, Role::Administratif.as_str())
 }
 
+/// Erreur de base attendue : SQLSTATE exact et message (un échec pour une autre raison ne passe pas).
+fn erreur_base(e: &sqlx::Error, sqlstate: &str, message: &str) {
+    let db = e
+        .as_database_error()
+        .unwrap_or_else(|| panic!("erreur de base attendue, reçu : {e}"));
+    assert_eq!(db.code().as_deref(), Some(sqlstate), "{e}");
+    assert!(db.message().contains(message), "{e}");
+}
+
 fn conflit<T>(r: Result<T, EntDbError>) -> bool {
     matches!(
         r,
@@ -125,21 +134,21 @@ async fn foyer_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, libelle:
 
 /// Lance le moteur de génération pour un élève (même chemin que FIN-02 et que l'inscription validée).
 async fn facturer(ent: &PgEnt, etab: Uuid, eleve: Uuid) {
-    facturer_au(ent, etab, eleve, d(2030, 10, 1)).await;
+    facturer_depuis(ent, etab, eleve, None).await;
 }
 
-/// Même génération à un jour fixé : seule la grille applicable ce jour-là tarife (règle 2).
-async fn facturer_au(ent: &PgEnt, etab: Uuid, eleve: Uuid, jour: NaiveDate) {
+/// Même génération pour un élève entré à `depuis` : le tarif se choisit **mois par mois**, au premier jour de chaque
+/// mois dû (D-069, M-A) ; le jour de la génération n'intervient pas (donc aucune horloge dans les tests).
+async fn facturer_depuis(ent: &PgEnt, etab: Uuid, eleve: Uuid, depuis: Option<NaiveDate>) {
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    crate::finances::facturer_annee_eleve_au(
+    crate::finances::facturer_annee_eleve(
         &mut tx,
         etab,
         ANNEE,
         eleve,
-        None,
+        depuis,
         None,
         Default::default(),
-        jour,
     )
     .await
     .unwrap()
@@ -2229,6 +2238,12 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
     ent.mettre_en_vigueur_for_actor(etab, u, r, b1.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
         .await
         .unwrap();
+    // Contre-revue du pilote (Élevé 1) : un élève facturé AVANT la mise en vigueur de v2 (une seule ligne, v1 sur
+    // l'année entière). La génération rejouée après v2 ne doit rien refacturer (sinon janvier-juin deux fois).
+    let avant = eleve(&ent, etab, "Avant", "externe").await;
+    let _ = foyer_payeur(&ent, etab, avant, c.parent_lea.user_id, "Foyer Avant").await;
+    facturer_depuis(&ent, etab, avant, None).await;
+    assert_eq!(total_scolarite(&ent, avant).await, 120_000);
     // v2 : correction de v1 (+100 €), votée le 10 décembre, en vigueur le 1er janvier.
     let v2 = ent
         .corriger_grille_for_actor(
@@ -2296,13 +2311,17 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
             .await
             .unwrap();
     assert_eq!(statut_v1.0, "close");
-    // Génération : juillet → historique (1 000 €) ; septembre et décembre → v1 (1 200 €) ; janvier → v2 (1 300 €).
+    // Génération mois par mois (M-A, D-069) : le tarif est celui du premier jour de chaque mois dû.
+    // Année facturée de septembre à juin (10 mois) : v1 (1 200 €) de septembre à décembre, v2 (1 300 €) ensuite.
+    //   - année entière : 1 200 × 4/10 + 1 300 × 6/10 = 480 + 780 = 1 260 € ;
+    //   - entré en novembre : 1 200 × 2/10 + 780 = 240 + 780 = 1 020 € ;
+    //   - entré en janvier : 780 € (tout au tarif v2).
     let mut attendu = Vec::new();
-    for (prenom, jour, montant) in [
-        ("Jul", d(2030, 7, 15), 100_000),
-        ("Sep", d(2030, 9, 1), 120_000),
-        ("Dec", d(2030, 12, 31), 120_000),
-        ("Jan", d(2031, 1, 1), 130_000),
+    for (prenom, depuis, montant) in [
+        ("Ann", None, 126_000),
+        ("Sep", Some(d(2030, 9, 1)), 126_000),
+        ("Nov", Some(d(2030, 11, 15)), 102_000),
+        ("Jan", Some(d(2031, 1, 1)), 78_000),
     ] {
         let el = eleve(&ent, etab, prenom, "externe").await;
         let _ = foyer_payeur(
@@ -2313,12 +2332,140 @@ async fn f3r_m1_grille_tarifie_a_partir_de_sa_date_de_vigueur() {
             &format!("Foyer {prenom}"),
         )
         .await;
-        facturer_au(&ent, etab, el, jour).await;
+        facturer_depuis(&ent, etab, el, depuis).await;
         attendu.push((el, montant));
     }
+    let premier = attendu[0].0;
     for (el, montant) in attendu {
         assert_eq!(total_scolarite(&ent, el).await, montant);
     }
+    // Rejouer la génération ne double rien (clés de source stables par segment).
+    let (rejoue,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND categorie = 'scolarite'",
+    )
+    .bind(premier)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(rejoue, 2, "deux segments : deux lignes");
+    // Rejeu réel : la même génération, une seconde fois, ne crée rien.
+    facturer_depuis(&ent, etab, premier, None).await;
+    let (rejoue,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne WHERE eleve_id = $1 AND categorie = 'scolarite'",
+    )
+    .bind(premier)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(rejoue, 2, "le rejeu ne double rien");
+    assert_eq!(total_scolarite(&ent, premier).await, 126_000);
+    // Élève facturé avant v2 : la génération après v2 est refusée (anomalie), rien n'est écrit ni doublé.
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let refus = crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, avant, None, None, Default::default())
+        .await
+        .unwrap()
+        .expect_err("tarif changé depuis la génération : anomalie");
+    tx.commit().await.unwrap();
+    assert!(refus.contains("le tarif a changé depuis la génération précédente"), "{refus}");
+    assert_eq!(total_scolarite(&ent, avant).await, 120_000, "aucun mois facturé deux fois");
+
+    // M-A : la liste des tarifs accepte une date (jamais l'horloge réelle dans ce test).
+    let montants_au = |jour: NaiveDate| {
+        let ent = &ent;
+        async move {
+            let rows = ent
+                .tarifs_for_actor(etab, u, r, Some(ANNEE.into()), Some(jour))
+                .await
+                .unwrap();
+            rows.iter()
+                .filter(|t| t.article_id == contrib.id)
+                .map(|t| t.montant_annuel_centimes)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(
+        montants_au(d(2030, 8, 31)).await,
+        vec![100_000],
+        "la veille de v1 : historique"
+    );
+    assert_eq!(
+        montants_au(d(2030, 9, 1)).await,
+        vec![120_000],
+        "v1 le 1er septembre"
+    );
+    assert_eq!(
+        montants_au(d(2030, 12, 31)).await,
+        vec![120_000],
+        "v1 la veille de v2"
+    );
+    assert_eq!(
+        montants_au(d(2031, 1, 1)).await,
+        vec![130_000],
+        "v2 le 1er janvier"
+    );
+
+    // M-B : une version votée mise en vigueur le même jour qu'une version déjà appliquée est refusée.
+    let v3 = ent
+        .corriger_grille_for_actor(
+            etab,
+            ud,
+            rd,
+            v2.id,
+            &CorrectionGrilleBody {
+                motif: "essai du même jour".into(),
+                effet_retroactif: false,
+            },
+        )
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v3.id)
+        .await
+        .unwrap();
+    ent.voter_grille_au_jour(
+        etab,
+        ua,
+        ra,
+        v3.id,
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 11),
+            reference: "CA du 11 décembre".into(),
+            document_id: None,
+        },
+        d(2030, 12, 20),
+    )
+    .await
+    .unwrap();
+    assert!(invalide(
+        ent.mettre_en_vigueur_for_actor(
+            etab,
+            u,
+            r,
+            v3.id,
+            &MiseEnVigueurBody { du: d(2031, 1, 1) }
+        )
+        .await
+    ));
+    // … et la base le refuse aussi (déclencheur), SQLSTATE 23514, sans passer par le service
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let e = sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'en_vigueur', en_vigueur_du = $2, en_vigueur_par = $3 WHERE id = $1",
+    )
+    .bind(v3.id)
+    .bind(d(2031, 1, 1))
+    .bind(ua)
+    .execute(&mut *tx)
+    .await
+    .unwrap_err();
+    erreur_base(
+        &e,
+        "23514",
+        "antérieure ou égale à celle d'une version déjà appliquée",
+    );
+    drop(tx);
+    // un jour plus tard : accepté
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v3.id, &MiseEnVigueurBody { du: d(2031, 1, 2) })
+        .await
+        .unwrap();
 }
 
 /// M2 (règle 3) : le second regard est une autre personne que l'auteur réel ; il ne se désactive pas pendant
@@ -2346,15 +2493,20 @@ async fn f3r_m2_second_regard_autre_personne_que_l_auteur() {
             .unwrap();
     assert_eq!(statut, "proposee");
     // même chose vérifiée en base : un vote écrit directement par l'auteur est refusé
-    assert!(sqlx::query(
+    let e = sqlx::query(
         "UPDATE ent_fin_grille_version SET statut = 'votee', vote_le = '2030-06-20', vote_reference = 'x',
-                vote_par = $2 WHERE id = $1"
+                vote_par = $2 WHERE id = $1",
     )
     .bind(v)
     .bind(ud)
     .execute(ent.pool_verif())
     .await
-    .is_err());
+    .unwrap_err();
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : le votant est l'auteur de la grille",
+    );
     // le second regard ne se désactive pas pendant qu'une grille est proposée
     assert!(conflit(
         ent.definir_reglages_grilles_for_actor(
@@ -2368,14 +2520,19 @@ async fn f3r_m2_second_regard_autre_personne_que_l_auteur() {
         )
         .await
     ));
-    assert!(sqlx::query(
+    let e = sqlx::query(
         "INSERT INTO ent_fin_parametres (etablissement_id, grille_second_regard) VALUES ($1, false)
-         ON CONFLICT (etablissement_id) DO UPDATE SET grille_second_regard = false"
+         ON CONFLICT (etablissement_id) DO UPDATE SET grille_second_regard = false",
     )
     .bind(etab)
     .execute(ent.pool_verif())
     .await
-    .is_err());
+    .unwrap_err();
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : désactivation interdite pendant qu'une grille est proposée",
+    );
     ent.voter_grille_test(etab, ua, ra, v, &vote("CA"))
         .await
         .unwrap();
@@ -2673,6 +2830,15 @@ async fn f3r_m5_versions_votees_concurrentes_supplantees() {
             .await
             .unwrap();
     assert_eq!(statut, "supplantee");
+    // faible 8 : le journal garde les identifiants des versions supplantées, pas seulement leur nombre
+    let (detail,): (String,) = sqlx::query_as(
+        "SELECT detail FROM ent_fin_journal WHERE etablissement_id = $1 AND action = 'grille.en_vigueur'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(detail.contains(&v1.to_string()), "{detail}");
     // elle ne se met plus en vigueur, ni par le service, ni par la base
     assert!(conflit(
         ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 10, 1) })
@@ -2978,4 +3144,716 @@ async fn f3r_f1_f4_f5_simulation_historique_plafond_et_suppression() {
         .await
         .map(|_| ())
     ));
+}
+
+// ───────────────────────── Suites de la contre-revue (D-069 : M-A à M-D, faibles 1 à 12) ─────────────────────────
+
+/// M-A, scénario 1 : rentrée votée en juin pour une grille en vigueur au 1er septembre, sans aucun tarif
+/// historique : l'élève est facturé (le jour de génération n'intervient pas).
+#[tokio::test]
+async fn f3s_ma_rentree_votee_en_juin_pour_une_grille_du_premier_septembre() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
+    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
+    let v = ent
+        .creer_grille_for_actor(
+            etab,
+            u,
+            r,
+            &CreerGrilleBody {
+                annee_scolaire: ANNEE.into(),
+                libelle: None,
+                copier_de: None,
+                reprendre_historique: None,
+            },
+        )
+        .await
+        .unwrap();
+    ent.ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(contrib.id, 120_000, true))
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
+    // vote du 20 juin 2030 (jour de référence : 1er juillet) ; vigueur au 1er septembre
+    ent.voter_grille_test(etab, ua, ra, v.id, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v.id, &MiseEnVigueurBody { du: d(2030, 9, 1) })
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Rentree", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer rentrée").await;
+    // génération « en juin » : aucune version applicable ce jour-là, mais chaque mois dû (septembre à juin)
+    // est tarifé au 1er de son mois : l'élève est facturé, pas de « aucun tarif applicable »
+    facturer(&ent, etab, el).await;
+    assert_eq!(total_scolarite(&ent, el).await, 120_000);
+}
+
+/// M-C : le réglage du second regard et la proposition d'une grille se sérialisent par un verrou d'établissement
+/// (deux connexions, ordre imposé par le verrou lui-même, sans `sleep`).
+#[tokio::test]
+async fn f3s_mc_verrou_proposition_et_second_regard() {
+    let Some((ent, c)) = labo().await else { return };
+    let ent = std::sync::Arc::new(ent);
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
+    let brouillon = |montant: i64| {
+        let ent = ent.clone();
+        async move {
+            let v = ent
+                .creer_grille_for_actor(
+                    etab,
+                    u,
+                    r,
+                    &CreerGrilleBody {
+                        annee_scolaire: ANNEE.into(),
+                        libelle: None,
+                        copier_de: None,
+                        reprendre_historique: None,
+                    },
+                )
+                .await
+                .unwrap();
+            ent.ajouter_tarif_grille_for_actor(
+                etab,
+                u,
+                r,
+                v.id,
+                &tarif_body(contrib.id, montant, true),
+            )
+            .await
+            .unwrap();
+            v.id
+        }
+    };
+    let cle = crate::facturation_grilles::cle_verrou_second_regard(etab);
+
+    // 1. La désactivation attend le verrou ; pendant ce temps une proposition est validée : au réveil, la
+    //    désactivation la voit (sans le verrou, elle lisait avant et passait : la direction aurait voté seule).
+    let v1 = brouillon(120_000).await;
+    let mut tenant = ent.pool_verif().begin().await.unwrap();
+    verrou_pris(&mut tenant, &cle).await;
+    let ent2 = ent.clone();
+    let reglage = tokio::spawn(async move {
+        ent2.definir_reglages_grilles_for_actor(
+            etab,
+            ud,
+            rd,
+            &ReglagesGrillesBody {
+                exiger_qualification_articles: None,
+                grille_second_regard: Some(false),
+            },
+        )
+        .await
+    });
+    attendre_verrou(&ent, &cle).await;
+    assert!(
+        !reglage.is_finished(),
+        "la désactivation doit attendre le verrou"
+    );
+    sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'proposee', propose_le = now(), propose_par = $2 WHERE id = $1",
+    )
+    .bind(v1)
+    .bind(u)
+    .execute(&mut *tenant)
+    .await
+    .unwrap();
+    tenant.commit().await.unwrap();
+    assert!(
+        conflit(reglage.await.unwrap()),
+        "une proposition validée avant le réveil bloque la désactivation"
+    );
+    let (second,): (bool,) = sqlx::query_as(
+        "SELECT COALESCE((SELECT grille_second_regard FROM ent_fin_parametres WHERE etablissement_id = $1), true)",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(second, "le second regard est resté actif");
+
+    // 2. La proposition attend, elle aussi, le verrou (le même), puis passe quand il est levé.
+    let v2 = brouillon(130_000).await;
+    let mut tenant = ent.pool_verif().begin().await.unwrap();
+    verrou_pris(&mut tenant, &cle).await;
+    let ent2 = ent.clone();
+    let proposition =
+        tokio::spawn(async move { ent2.proposer_grille_for_actor(etab, u, r, v2).await });
+    attendre_verrou(&ent, &cle).await;
+    assert!(
+        !proposition.is_finished(),
+        "la proposition doit attendre le verrou"
+    );
+    tenant.commit().await.unwrap();
+    assert_eq!(proposition.await.unwrap().unwrap().statut, "proposee");
+}
+
+/// Prend le verrou consultatif de transaction `cle` sur une connexion à part.
+async fn verrou_pris(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, cle: &str) {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(cle)
+        .execute(&mut **tx)
+        .await
+        .unwrap();
+}
+
+/// Attend (sans `sleep` : on rend la main au planificateur entre deux lectures de `pg_locks`) qu'une autre
+/// connexion soit **en attente** du verrou `cle`.
+async fn attendre_verrou(ent: &PgEnt, cle: &str) {
+    for _ in 0..200_000 {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM pg_locks
+              WHERE locktype = 'advisory' AND NOT granted
+                AND ((classid::bigint << 32) | objid::bigint) = hashtextextended($1, 0)",
+        )
+        .bind(cle)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        if n > 0 {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("aucune connexion n'attend le verrou {cle}");
+}
+
+/// Faible 5 : les plafonds (familles types, simulations) se décomptent sous un verrou d'établissement.
+#[tokio::test]
+async fn f3s_plafonds_sous_verrou() {
+    let Some((ent, c)) = labo().await else { return };
+    let ent = std::sync::Arc::new(ent);
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let cle = format!("fin:plafond:famille_type:{etab}");
+    let mut tenant = ent.pool_verif().begin().await.unwrap();
+    verrou_pris(&mut tenant, &cle).await;
+    let ent2 = ent.clone();
+    let creation = tokio::spawn(async move {
+        ent2.creer_famille_type_for_actor(
+            etab,
+            u,
+            r,
+            &FamilleTypeBody {
+                libelle: "Verrouillée".into(),
+                tranche_code: None,
+                enfants: vec![EnfantTypeBody {
+                    niveau: "6EME".into(),
+                    regime: "externe".into(),
+                }],
+            },
+        )
+        .await
+        .map(|f| f.id)
+    });
+    attendre_verrou(&ent, &cle).await;
+    assert!(!creation.is_finished());
+    tenant.commit().await.unwrap();
+    creation.await.unwrap().unwrap();
+}
+
+/// M-D : qualification exigée **par défaut** (établissement créé après la 523 : ligne absente) : refus de création
+/// d'article « à l'ancienne » et d'émission d'une pièce non qualifiée, messages exacts.
+#[tokio::test]
+async fn f3s_md_qualification_exigee_par_defaut_refuse_creation_et_emission() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    // un brouillon portant un article non qualifié ne se crée que dans l'état « établissement antérieur »
+    etablissement_anterieur(&ent, etab).await;
+    let art = ent
+        .enregistrer_article_for_actor(
+            etab,
+            u,
+            r,
+            None,
+            &ArticleBody {
+                code: "SCOL".into(),
+                libelle: "Scolarité".into(),
+                categorie: "scolarite".into(),
+                compte_produit: None,
+                actif: None,
+            },
+        )
+        .await
+        .unwrap();
+    ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(art.id, 90_000))
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Defaut", "externe").await;
+    let f = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer défaut").await;
+    facturer(&ent, etab, el).await;
+    let (brouillon,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'",
+    )
+    .bind(etab)
+    .bind(f)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    // retour à l'état d'un établissement créé après la 523 : aucune ligne de paramètres (exigée par défaut)
+    sqlx::query("DELETE FROM ent_fin_parametres WHERE etablissement_id = $1")
+        .bind(etab)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    assert!(
+        ent.reglages_grilles_for_actor(etab, u, r)
+            .await
+            .unwrap()
+            .exiger_qualification_articles
+    );
+    // création d'article « à l'ancienne » : refusée, message exact
+    match ent
+        .enregistrer_article_for_actor(
+            etab,
+            u,
+            r,
+            None,
+            &ArticleBody {
+                code: "NEUF".into(),
+                libelle: "Neuf".into(),
+                categorie: "frais".into(),
+                compte_produit: None,
+                actif: None,
+            },
+        )
+        .await
+    {
+        Err(EntDbError::Refus(RefusMetier::Conflit, m)) => assert_eq!(
+            m,
+            "la qualification des articles est exigée : créer l'article depuis un modèle (nature légale, TVA)"
+        ),
+        autre => panic!("refus attendu : {autre:?}"),
+    }
+    // émission d'une pièce portant un article non qualifié : refusée par pièce, message exact
+    let rapport = ent
+        .emettre_for_actor(
+            etab,
+            u,
+            r,
+            &EmissionBody {
+                factures: vec![brouillon],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(rapport.emises.is_empty(), "{rapport:?}");
+    assert_eq!(rapport.refus.len(), 1, "{rapport:?}");
+    assert_eq!(
+        rapport.refus[0].motif,
+        "article non qualifié (nature légale et TVA) : qualifier le catalogue avant d'émettre (R-F9)"
+    );
+}
+
+/// Faibles 2 et 6 : alerte « qui, quand » à l'heure de l'établissement ; ordre personnel, droit, existence avant
+/// la validation du corps.
+#[tokio::test]
+async fn f3s_alerte_second_regard_et_ordre_des_controles() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    // fuseau de l'établissement : loin de l'UTC, pour que l'heure affichée ne puisse pas être celle de l'UTC
+    sqlx::query(
+        "INSERT INTO ent_etablissement_parametre (etablissement_id, fuseau) VALUES ($1, 'Pacific/Auckland')
+         ON CONFLICT (etablissement_id) DO UPDATE SET fuseau = 'Pacific/Auckland'",
+    )
+    .bind(etab)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    let reglages = ent
+        .definir_reglages_grilles_for_actor(
+            etab,
+            ud,
+            rd,
+            &ReglagesGrillesBody {
+                exiger_qualification_articles: None,
+                grille_second_regard: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+    let (attendu,): (String,) = sqlx::query_as(
+        "SELECT to_char(second_regard_desactive_le AT TIME ZONE 'Pacific/Auckland', 'DD/MM/YYYY à HH24:MI')
+           FROM ent_fin_parametres WHERE etablissement_id = $1",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    let alerte = reglages
+        .alertes
+        .iter()
+        .find(|a| a.contains("second regard"))
+        .expect("alerte du second regard");
+    assert!(alerte.contains(&format!(" le {attendu}")), "{alerte}");
+    assert!(
+        alerte.contains(" par "),
+        "l'auteur de la désactivation est nommé : {alerte}"
+    );
+
+    // ordre des contrôles : une grille inconnue répond « introuvable » avant toute erreur de saisie
+    let inconnue = Uuid::new_v4();
+    assert!(introuvable(
+        ent.retour_brouillon_for_actor(
+            etab,
+            u,
+            r,
+            inconnue,
+            &RetourBrouillonBody {
+                motif: String::new()
+            }
+        )
+        .await
+    ));
+    assert!(introuvable(
+        ent.abandonner_grille_for_actor(
+            etab,
+            u,
+            r,
+            inconnue,
+            &RetourBrouillonBody {
+                motif: String::new()
+            }
+        )
+        .await
+    ));
+    assert!(introuvable(
+        ent.corriger_grille_for_actor(
+            etab,
+            ud,
+            rd,
+            inconnue,
+            &CorrectionGrilleBody {
+                motif: String::new(),
+                effet_retroactif: false
+            }
+        )
+        .await
+    ));
+    assert!(introuvable(
+        ent.voter_grille_au_jour(
+            etab,
+            c.admin.user_id,
+            Role::Admin.as_str(),
+            inconnue,
+            &VoteGrilleBody {
+                vote_le: d(1999, 1, 1),
+                reference: String::new(),
+                document_id: None
+            },
+            jour_test()
+        )
+        .await
+    ));
+}
+
+/// Faible 7 : le second regard garde ses auteurs : tarif retiré, tranches, proposant d'avant un retour en
+/// brouillon ; le vote les refuse (service et base). Faible 9 : l'année d'un tarif versionné est figée.
+#[tokio::test]
+async fn f3s_contributeurs_du_second_regard_et_annee_du_tarif() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
+    let contrib = article_modele(&ent, &c, "CONTRIBUTION", "CONTRIB").await;
+    let dp = article_modele(&ent, &c, "DEMI_PENSION", "DP").await;
+    let v = ent
+        .creer_grille_for_actor(
+            etab,
+            u,
+            r,
+            &CreerGrilleBody {
+                annee_scolaire: ANNEE.into(),
+                libelle: None,
+                copier_de: None,
+                reprendre_historique: None,
+            },
+        )
+        .await
+        .unwrap();
+    let t = ent
+        .ajouter_tarif_grille_for_actor(etab, u, r, v.id, &tarif_body(contrib.id, 120_000, true))
+        .await
+        .unwrap();
+    // faible 9 : l'année d'un tarif versionné ne change pas, même en brouillon
+    let e = sqlx::query("UPDATE ent_fin_tarif SET annee_scolaire = '2031-2032' WHERE id = $1")
+        .bind(t.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap_err();
+    erreur_base(
+        &e,
+        "23514",
+        "tarif : année différente de celle de la version",
+    );
+    // la direction ajoute puis retire un tarif, et pose les tranches : elle reste contributrice
+    let extra = ent
+        .ajouter_tarif_grille_for_actor(etab, ud, rd, v.id, &tarif_body(dp.id, 45_000, true))
+        .await
+        .unwrap();
+    ent.retirer_tarif_grille_for_actor(etab, ud, rd, v.id, extra.id)
+        .await
+        .unwrap();
+    let (contributeurs,): (Vec<Uuid>,) =
+        sqlx::query_as("SELECT contributeurs FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v.id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert!(
+        contributeurs.contains(&ud) && contributeurs.contains(&u),
+        "{contributeurs:?}"
+    );
+    // les contributeurs ne se retirent pas du brouillon
+    let e = sqlx::query("UPDATE ent_fin_grille_version SET contributeurs = '{}' WHERE id = $1")
+        .bind(v.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap_err();
+    erreur_base(&e, "23001", "un contributeur ne se retire pas du brouillon");
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
+    // la direction (contributrice) ne vote pas : service et base
+    assert!(interdit(
+        ent.voter_grille_test(etab, ud, rd, v.id, &vote("CA")).await
+    ));
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let e = sqlx::query(
+        "UPDATE ent_fin_grille_version SET statut = 'votee', vote_le = '2030-06-20', vote_reference = 'x',
+                vote_par = $2 WHERE id = $1",
+    )
+    .bind(v.id)
+    .bind(ud)
+    .execute(&mut *tx)
+    .await
+    .unwrap_err();
+    erreur_base(
+        &e,
+        "23001",
+        "second regard : le votant est l'auteur de la grille",
+    );
+    drop(tx);
+    // retour en brouillon : le proposant (direction, qui propose une autre fois) reste parmi les contributeurs
+    ent.retour_brouillon_for_actor(
+        etab,
+        u,
+        r,
+        v.id,
+        &RetourBrouillonBody {
+            motif: "à revoir".into(),
+        },
+    )
+    .await
+    .unwrap();
+    ent.proposer_grille_for_actor(etab, ud, rd, v.id)
+        .await
+        .unwrap();
+    ent.retour_brouillon_for_actor(
+        etab,
+        ud,
+        rd,
+        v.id,
+        &RetourBrouillonBody {
+            motif: "encore".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (propose_par, contributeurs): (Option<Uuid>, Vec<Uuid>) = sqlx::query_as(
+        "SELECT propose_par, contributeurs FROM ent_fin_grille_version WHERE id = $1",
+    )
+    .bind(v.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(propose_par.is_none(), "le retour efface la proposition");
+    assert!(
+        contributeurs.contains(&ud),
+        "… mais garde son auteur : {contributeurs:?}"
+    );
+    // un autre proposant, un autre votant : l'administrateur vote
+    ent.proposer_grille_for_actor(etab, u, r, v.id)
+        .await
+        .unwrap();
+    ent.voter_grille_test(etab, ua, ra, v.id, &vote("CA"))
+        .await
+        .unwrap();
+}
+
+/// Faible 3 : une version `close` (encore applicable jusqu'à la veille de la suivante) se publie ; faible 4 :
+/// suppression d'une simulation réservée à son auteur ou à la direction, journalisée avec ses produits ; le
+/// DELETE direct d'un calcul est refusé par la base.
+#[tokio::test]
+async fn f3s_publication_close_et_suppression_de_simulation() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (ud, rd) = direction(&c);
+    let (v1, contrib, _) = grille_proposee(&ent, &c).await;
+    ent.voter_grille_test(etab, ud, rd, v1, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 9, 1) })
+        .await
+        .unwrap();
+    let v2 = ent
+        .corriger_grille_for_actor(
+            etab,
+            ud,
+            rd,
+            v1,
+            &CorrectionGrilleBody {
+                motif: "revalorisation".into(),
+                effet_retroactif: false,
+            },
+        )
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id)
+        .await
+        .unwrap();
+    ent.voter_grille_au_jour(
+        etab,
+        c.admin.user_id,
+        Role::Admin.as_str(),
+        v2.id,
+        &VoteGrilleBody {
+            vote_le: d(2030, 12, 10),
+            reference: "CA du 10 décembre".into(),
+            document_id: None,
+        },
+        d(2030, 12, 20),
+    )
+    .await
+    .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 1, 1) })
+        .await
+        .unwrap();
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_fin_grille_version WHERE id = $1")
+            .bind(v1)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(statut, "close");
+    let pub1 = ent
+        .publier_grille_for_actor(etab, ud, rd, v1)
+        .await
+        .unwrap();
+    assert_eq!(pub1.numero, 1);
+    assert!(!pub1.lignes.is_empty());
+    // une version abandonnée, elle, ne se publie jamais
+    let ab = ent
+        .creer_grille_for_actor(
+            etab,
+            u,
+            r,
+            &CreerGrilleBody {
+                annee_scolaire: ANNEE.into(),
+                libelle: None,
+                copier_de: None,
+                reprendre_historique: None,
+            },
+        )
+        .await
+        .unwrap();
+    ent.abandonner_grille_for_actor(
+        etab,
+        u,
+        r,
+        ab.id,
+        &RetourBrouillonBody {
+            motif: "essai".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(conflit(
+        ent.publier_grille_for_actor(etab, ud, rd, ab.id).await
+    ));
+
+    // ── simulations : auteur ou direction seulement ──
+    let corps = |libelle: &str| SimulationBody {
+        annee_scolaire: ANNEE.into(),
+        libelle: libelle.into(),
+        base_version_id: v1,
+        regles: vec![RegleHausseBody {
+            article_id: Some(contrib),
+            mode: ModeHausse::Pourcentage,
+            valeur: 300,
+            arrondi: Arrondi::Euro,
+        }],
+        effectifs: vec![EffectifPrevuBody {
+            niveau: "6EME".into(),
+            regime: "externe".into(),
+            effectif: 10,
+        }],
+    };
+    let par_direction = ent
+        .creer_simulation_for_actor(etab, ud, rd, &corps("scénario de la direction"))
+        .await
+        .unwrap();
+    let par_compta = ent
+        .creer_simulation_for_actor(etab, u, r, &corps("scénario de la comptabilité"))
+        .await
+        .unwrap();
+    ent.calculer_simulation_for_actor(etab, u, r, par_compta.simulation_id)
+        .await
+        .unwrap();
+    // la comptabilité (simuler, sans voter) ne supprime pas le scénario d'un autre ; la direction oui
+    assert!(refuse(
+        ent.supprimer_simulation_for_actor(etab, u, r, par_direction.simulation_id)
+            .await
+    ));
+    // le DELETE direct d'un calcul historisé est refusé par la base (seule la suppression de la simulation passe)
+    let e = sqlx::query("DELETE FROM ent_fin_simulation_calcul WHERE simulation_id = $1")
+        .bind(par_compta.simulation_id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap_err();
+    erreur_base(
+        &e,
+        "23001",
+        "un calcul historisé ne se supprime qu'avec sa simulation",
+    );
+    ent.supprimer_simulation_for_actor(etab, ud, rd, par_compta.simulation_id)
+        .await
+        .unwrap();
+    let (restants,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM ent_fin_simulation_calcul WHERE simulation_id = $1")
+            .bind(par_compta.simulation_id)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(restants, 0, "l'historique part avec la simulation");
+    // le journal garde le libellé, le nombre de calculs et leurs produits avant → après
+    let (detail,): (String,) = sqlx::query_as(
+        "SELECT detail FROM ent_fin_journal WHERE etablissement_id = $1 AND action = 'simulation.supprimer'
+          AND objet_id = $2",
+    )
+    .bind(etab)
+    .bind(par_compta.simulation_id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(detail.contains("scénario de la comptabilité"), "{detail}");
+    assert!(
+        detail.contains("calcul(s) supprimé(s)") && detail.contains('→'),
+        "{detail}"
+    );
+    // l'auteur supprime son propre scénario sans autre droit que `simuler`
+    ent.supprimer_simulation_for_actor(etab, ud, rd, par_direction.simulation_id)
+        .await
+        .unwrap();
 }
