@@ -132,19 +132,33 @@ pub struct EvenementsFlux {
     pub evenements: Vec<(Uuid, DateTime<Utc>, String)>,
 }
 
+/// Identité du cluster (`pg_control_system().system_identifier`, exécutable par tout rôle), lue **une fois** par
+/// processus puis gardée : elle ne change qu'avec un autre cluster (restauration logique, `pg_upgrade`), jamais en cours
+/// de vie d'un processus branché sur la même base ; une lecture par appel du flux était superflue.
+static CLUSTER_ID: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+
 /// Heure de la base et borne du curseur : `pg_snapshot_xmin(pg_current_snapshot())`, l'identifiant de la plus ancienne
 /// transaction **encore ouverte** (toute transaction d'identifiant inférieur est terminée). Les deux dans la même
-/// transaction : c'est la base (`TenantTx`, donc le contexte d'établissement), aucune lecture du catalogue.
-/// Le troisième terme est l'identité du cluster (`pg_control_system().system_identifier`, exécutable par tout rôle).
+/// transaction : c'est la base (`TenantTx`, donc le contexte d'établissement), aucune lecture du catalogue sauf
+/// l'identité du cluster (première lecture du processus).
 async fn lire_borne(tx: &mut TenantTx<'_>) -> Result<(DateTime<Utc>, u64, i64), DomainError> {
-    let (maintenant, xmin, xmax, cluster): (DateTime<Utc>, String, String, i64) = sqlx::query_as(
+    let (maintenant, xmin, xmax): (DateTime<Utc>, String, String) = sqlx::query_as(
         "SELECT now(), pg_snapshot_xmin(pg_current_snapshot())::text,
-                pg_snapshot_xmax(pg_current_snapshot())::text,
-                (SELECT system_identifier FROM pg_control_system())",
+                pg_snapshot_xmax(pg_current_snapshot())::text",
     )
     .fetch_one(&mut **tx)
     .await
     .map_err(map_sqlx)?;
+    let cluster = match CLUSTER_ID.get() {
+        Some(c) => *c,
+        None => {
+            let (c,): (i64,) = sqlx::query_as("SELECT system_identifier FROM pg_control_system()")
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(map_sqlx)?;
+            *CLUSTER_ID.get_or_init(|| c)
+        }
+    };
     let xmin = xmin.parse::<u64>().map_err(|_| DomainError::ReferenceInconnue)?;
     if let Ok(xmax) = xmax.parse::<u64>() {
         crate::msg_xmin_gele::surveiller(xmin, xmax, maintenant);
@@ -1523,9 +1537,10 @@ impl PgMsgRepo {
             )
         };
         // M-3 : jeton lié à CETTE transaction (migration 492), plus un réglage libre que n'importe quelle session pose.
-        match sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2)")
+        match sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2, $3)")
             .bind(etablissement_id)
             .bind(message_id)
+            .bind(auteur)
             .execute(&mut *tx)
             .await
         {
@@ -1629,8 +1644,20 @@ impl PgMsgRepo {
 
     /// Le message existe-t-il encore ? Lu `FOR KEY SHARE` : une annulation en cours (`FOR UPDATE` du message) est
     /// attendue, puis la ligne a disparu. Prédicat d'existence pour le distributeur d'avis (M-1) : aucun contenu.
-    pub async fn message_existe_sous_verrou(&self, etablissement_id: Uuid, message_id: Uuid) -> Result<bool, DomainError> {
+    ///
+    /// `attente` borne l'attente de ce verrou (`lock_timeout`, côté base) : au-delà, erreur (55P03) et l'appelant reporte.
+    pub(crate) async fn message_existe_sous_verrou(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+        attente: std::time::Duration,
+    ) -> Result<bool, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+            .bind(format!("{}ms", attente.as_millis().max(1)))
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
         let r: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR KEY SHARE")
                 .bind(etablissement_id)

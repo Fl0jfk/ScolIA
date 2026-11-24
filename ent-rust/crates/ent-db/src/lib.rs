@@ -246,6 +246,8 @@ mod tests_messagerie_m12;
 mod tests_messagerie_revue;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_p2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_p3;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -809,6 +811,8 @@ mod tests_internat_i4_correctifs;
 mod tests_internat_i4_passe2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat_i4_passe3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4_suites2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]

@@ -402,18 +402,37 @@ pub(crate) async fn planifier_envois(
 /// `source_event_id`) puis envois externes planifiés selon ses préférences.
 pub(crate) async fn notifier_personne(
     conn: &mut PgConnection,
-    mut e: EnvoiAPlanifier<'_>,
+    e: EnvoiAPlanifier<'_>,
     source_event_id: Uuid,
     maintenant: DateTime<Utc>,
 ) -> Result<usize, EntDbError> {
-    let notif: Option<(Uuid,)> = sqlx::query_as(
+    notifier_personne_selon(conn, e, source_event_id, maintenant, false).await
+}
+
+/// Comme [`notifier_personne`] ; avec `maj_corps` (avis **regroupé**), si l'avis existe déjà (même `source_event_id`), son
+/// texte est mis à jour tant qu'il n'est pas lu (dans l'ENT) et tant que l'envoi externe n'est pas parti (`en_attente`),
+/// au lieu de rester figé sur le premier événement du groupe.
+pub(crate) async fn notifier_personne_selon(
+    conn: &mut PgConnection,
+    mut e: EnvoiAPlanifier<'_>,
+    source_event_id: Uuid,
+    maintenant: DateTime<Utc>,
+    maj_corps: bool,
+) -> Result<usize, EntDbError> {
+    let conflit = if maj_corps {
+        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO UPDATE SET corps = EXCLUDED.corps \
+          WHERE ent_notification.lu_le IS NULL AND ent_notification.corps IS DISTINCT FROM EXCLUDED.corps"
+    } else {
+        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING"
+    };
+    let notif: Option<(Uuid,)> = sqlx::query_as(&format!(
         "INSERT INTO ent_notification
             (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps,
              source_event_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
-         RETURNING id",
-    )
+         {conflit}
+         RETURNING id"
+    ))
     .bind(Uuid::new_v4())
     .bind(e.etablissement_id)
     .bind(e.user_id)
@@ -425,6 +444,21 @@ pub(crate) async fn notifier_personne(
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
+    if maj_corps {
+        // L'envoi externe de la même clé, tant qu'il n'est pas parti, porte lui aussi le nombre à jour.
+        sqlx::query(
+            "UPDATE ent_notification_envoi SET corps = $4 \
+              WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND cle_dedup = $3 \
+                AND statut = 'en_attente' AND corps IS DISTINCT FROM $4",
+        )
+        .bind(e.etablissement_id)
+        .bind(e.user_id)
+        .bind(&e.cle_dedup)
+        .bind(e.corps)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
     e.notification_id = notif.map(|n| n.0);
     planifier_envois(conn, &e, maintenant).await
 }
@@ -529,7 +563,12 @@ const COLONNES_ENVOI_VU: &str =
 /// consentements (socle 18, FD-08, R-FC37) en font partie : le titre (« Consentement suivi
 /// psychologique ») ne quitte jamais l'ENT.
 pub(crate) fn canal_externe_neutre(kind: &str) -> bool {
-    matches!(kind, "campagne" | "annonce" | "messagerie_famille" | "formulaire")
+    // `internat_retour_demande` (contre-revue I4 suites 2, M2) : le titre de sortie est saisi librement et peut nommer un
+    // élève ; l'avis externe reste neutre, le détail est dans l'ENT.
+    matches!(
+        kind,
+        "campagne" | "annonce" | "messagerie_famille" | "formulaire" | "internat_retour_demande"
+    )
 }
 const SUJET_NEUTRE_EMAIL: &str = "Message de l'établissement";
 const TEXTE_NEUTRE_EMAIL: &str =
@@ -744,6 +783,9 @@ pub struct ConfigExpedition {
     pub intervalle: std::time::Duration,
     /// Restreint l'expédition à un établissement (tests, rattrapage ciblé).
     pub etablissement: Option<Uuid>,
+    /// Attente maximale, côté base, du contrôle d'existence d'un message (une annulation en cours le verrouille). Au-delà,
+    /// l'avis est **remis en attente** pour le passage suivant : une annulation qui traîne n'interrompt pas le lot.
+    pub attente_verrou: std::time::Duration,
 }
 
 impl Default for ConfigExpedition {
@@ -753,6 +795,7 @@ impl Default for ConfigExpedition {
             perime_apres: std::time::Duration::from_secs(15 * 60),
             intervalle: std::time::Duration::from_secs(5),
             etablissement: None,
+            attente_verrou: std::time::Duration::from_secs(5),
         }
     }
 }
@@ -768,6 +811,9 @@ pub struct BilanExpedition {
     pub plafonnes: usize,
     pub regroupes: usize,
     pub interrompus: usize,
+    /// Avis remis en `en_attente` : le contrôle d'existence de leur message a échoué (erreur de base, verrou d'une
+    /// annulation trop long) ; ils repartent au passage suivant.
+    pub reportes: usize,
     /// Établissements dont le passage a échoué (R-09) : les suivants ont été traités.
     pub etablissements_en_echec: usize,
 }
@@ -812,6 +858,12 @@ enum Issue {
     Plafonne(&'static str),
 }
 
+/// Dernier message dont l'existence vient d'être relue : valable pour les avis **consécutifs** du même message.
+#[derive(Default)]
+struct ControleMessage {
+    derniere: Option<(Uuid, bool)>,
+}
+
 impl Expediteur {
     pub fn nouveau(
         pool: PgPool,
@@ -839,14 +891,29 @@ impl Expediteur {
         tokio::spawn(async move {
             tracing::info!("expéditeur de notifications démarré");
             while !self.arret.load(Ordering::SeqCst) {
-                match self.expedier(Utc::now()).await {
-                    Ok(b) if b.reclames as i64 >= self.config.taille_lot => continue,
+                // L'instant vient de la base (comme `planifie_pour`), jamais de l'horloge de l'application.
+                let maintenant = match self.maintenant_base().await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "expéditeur : heure de la base illisible");
+                        tokio::time::sleep(self.config.intervalle).await;
+                        continue;
+                    }
+                };
+                match self.expedier(maintenant).await {
+                    // Un lot plein enchaîne sans attendre, sauf si des avis ont été reportés (erreur persistante).
+                    Ok(b) if b.reclames as i64 >= self.config.taille_lot && b.reportes == 0 => continue,
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "expéditeur : passage en échec"),
                 }
                 tokio::time::sleep(self.config.intervalle).await;
             }
         })
+    }
+
+    /// L'heure de la base (règle 33 : jamais l'horloge de l'application pour décider d'un envoi).
+    async fn maintenant_base(&self) -> Result<DateTime<Utc>, EntDbError> {
+        sqlx::query_scalar("SELECT now()").fetch_one(&self.pool).await.map_err(db)
     }
 
     /// Un passage : récupère les envois échus et les expédie.
@@ -880,6 +947,7 @@ impl Expediteur {
             total.plafonnes += b.plafonnes;
             total.regroupes += b.regroupes;
             total.interrompus += b.interrompus;
+            total.reportes += b.reportes;
         }
         Ok(total)
     }
@@ -955,12 +1023,6 @@ impl Expediteur {
         // 3. Droits relus, puis regroupement en résumé ou envoi individuel.
         let mut a_envoyer: Vec<EnvoiReclame> = Vec::new();
         for e in lot {
-            // M-1 : un avis de messagerie dont le message n'existe plus (annulé avant sa remise) ne part jamais.
-            if !self.message_source_existe(&e).await? {
-                self.finaliser(&e, Issue::Ignore("message_annule"), None, &mut bilan, maintenant)
-                    .await?;
-                continue;
-            }
             if !self.droit_toujours_valide(&e).await? {
                 self.finaliser(&e, Issue::Ignore("droit_retire"), None, &mut bilan, maintenant)
                     .await?;
@@ -988,11 +1050,31 @@ impl Expediteur {
                 individuels.push(e);
             }
         }
+        // M-1, contrôle juste avant l'envoi : un avis de messagerie dont le message n'existe plus (annulé avant sa remise)
+        // ne part jamais. L'existence se relit par message, **à l'instant de son envoi** (les avis d'un même message
+        // se suivent : une lecture pour eux), et non plus en tête du lot, des minutes avant la fin des envois.
+        individuels.sort_by_key(|e| e.source_id);
+        let mut controle = ControleMessage::default();
         for e in individuels {
+            if !self.controler_avant_envoi(&e, &mut controle, &mut bilan, maintenant).await? {
+                continue;
+            }
             let issue = self.expedier_un(&e, &e.titre, &e.corps, maintenant).await?;
             self.finaliser(&e, issue, None, &mut bilan, maintenant).await?;
         }
-        for ((_, _, _), membres) in groupes {
+        for ((_, _, _), mut membres) in groupes {
+            membres.sort_by_key(|e| e.source_id);
+            let mut controle = ControleMessage::default();
+            let mut vivants = Vec::with_capacity(membres.len());
+            for e in membres {
+                if self.controler_avant_envoi(&e, &mut controle, &mut bilan, maintenant).await? {
+                    vivants.push(e);
+                }
+            }
+            let membres = vivants;
+            if membres.is_empty() {
+                continue;
+            }
             let premier = membres[0].clone();
             let n = membres.len();
             let (titre, corps) = if n == 1 {
@@ -1064,6 +1146,62 @@ impl Expediteur {
         }
     }
 
+    /// Contrôle d'existence **juste avant l'envoi** de `e`. Vrai : l'avis peut partir. Faux : il est déjà finalisé
+    /// (`ignore`, `message_annule`) ou remis en `en_attente` (erreur de base pendant le contrôle : le lot continue).
+    async fn controler_avant_envoi(
+        &self,
+        e: &EnvoiReclame,
+        controle: &mut ControleMessage,
+        bilan: &mut BilanExpedition,
+        maintenant: DateTime<Utc>,
+    ) -> Result<bool, EntDbError> {
+        let existe = match controle.derniere {
+            // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque
+            // envoi (contre-revue, F3 : une annulation pendant le lot rattrape aussi le SMS qui suit le push).
+            Some((id, false)) if e.source_id == Some(id) => Ok(false),
+            _ => self.message_source_existe(e).await,
+        };
+        match existe {
+            Ok(existe) => {
+                if let (Some(id), false) = (e.source_id, existe) {
+                    controle.derniere = Some((id, false));
+                }
+                if !existe {
+                    self.finaliser(e, Issue::Ignore("message_annule"), None, bilan, maintenant).await?;
+                }
+                Ok(existe)
+            }
+            Err(err) => {
+                controle.derniere = None;
+                tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté");
+                // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
+                // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
+                let reporte: Result<(), EntDbError> = async {
+                    let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
+                    sqlx::query(
+                        "UPDATE ent_notification_envoi SET statut = 'en_attente', tentative_le = NULL
+                          WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'",
+                    )
+                    .bind(e.etablissement_id)
+                    .bind(e.id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    tx.commit().await.map_err(db)?;
+                    Ok(())
+                }
+                .await;
+                match reporte {
+                    Ok(()) => bilan.reportes += 1,
+                    Err(err) => {
+                        tracing::error!(error = %err, avis = %e.id, "expéditeur : report de l'avis impossible, avis laissé en envoi")
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+
     /// Le message d'un avis `messagerie*` existe-t-il encore ? Lu `FOR KEY SHARE` : une annulation en cours
     /// (`FOR UPDATE` du message) est **attendue**, puis la ligne a disparu et l'avis est écarté. Les autres avis (sans
     /// message pour source) passent. Reste la fenêtre entre cette lecture et l'envoi lui-même, que l'annulation ne peut
@@ -1080,7 +1218,7 @@ impl Expediteur {
             return Ok(true);
         }
         crate::msg_repo::PgMsgRepo::new(self.pool.clone())
-            .message_existe_sous_verrou(e.etablissement_id, id)
+            .message_existe_sous_verrou(e.etablissement_id, id, self.config.attente_verrou)
             .await
             .map_err(Into::into)
     }

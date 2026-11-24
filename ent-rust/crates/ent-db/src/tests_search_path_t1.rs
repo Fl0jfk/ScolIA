@@ -111,8 +111,39 @@ async fn prouver(proprietaire: &PgPool, p: Preuve<'_>) {
     crate::migrate::remettre_search_path(proprietaire)
         .await
         .expect("690");
+    // Verrou partagé des rejeux tenu jusqu'à la fin de la preuve : aucun test voisin ne rejoue une migration (et n'efface
+    // les clauses `search_path`) pendant les trois temps. Libéré à la fin ; sur panique, la connexion détachée est fermée
+    // à la destruction et le verrou de session tombe avec elle.
+    let verrou = crate::migrate::garde_rejeu_partagee(proprietaire).await;
+    prouver_sous_verrou(proprietaire, p).await;
+    verrou.liberer().await;
+}
+
+async fn prouver_sous_verrou(proprietaire: &PgPool, p: Preuve<'_>) {
     let app = pool_applicatif(proprietaire).await;
     let nom = p.nom;
+    // Le rôle applicatif de test n'est ni superutilisateur ni `BYPASSRLS` (sinon la RLS et les privilèges ne l'éprouvent pas).
+    let (superutilisateur, contourne_rls): (bool, bool) =
+        sqlx::query_as("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+            .fetch_one(&app)
+            .await
+            .unwrap();
+    assert!(
+        !superutilisateur && !contourne_rls,
+        "{nom} : le rôle applicatif de test ne doit être ni SUPERUSER ni BYPASSRLS (rolsuper={superutilisateur}, rolbypassrls={contourne_rls})"
+    );
+    // `public` n'est pas inscriptible par ce rôle : il ne peut pas y déposer une fonction ou une table qui en masquerait une
+    // (docs/RLS_ISOLATION.md §3.1). Échec franc, pas d'avertissement.
+    let (peut_creer,): (bool,) =
+        sqlx::query_as("SELECT has_schema_privilege(current_user, 'public', 'CREATE')")
+            .fetch_one(&app)
+            .await
+            .unwrap();
+    assert!(
+        !peut_creer,
+        "{nom} : le rôle applicatif de test peut créer dans le schéma public (has_schema_privilege = true) : \
+         `REVOKE CREATE ON SCHEMA public FROM PUBLIC` et aucun GRANT CREATE au rôle (docs/RLS_ISOLATION.md §3.1)"
+    );
     // Précondition : le rôle applicatif a bien le privilège TEMP (le défaut de PostgreSQL) — sinon la preuve serait vide.
     let (temp,): (bool,) =
         sqlx::query_as("SELECT has_database_privilege(current_user, current_database(), 'TEMP')")
@@ -149,8 +180,8 @@ async fn prouver(proprietaire: &PgPool, p: Preuve<'_>) {
         );
     } else {
         assert!(
-            r.is_ok(),
-            "{nom} : témoin — sans `search_path` la table temporaire devait désarmer la garde (sinon la preuve ne prouve rien) : {r:?}"
+            matches!(r, Ok(n) if n > 0),
+            "{nom} : témoin — sans `search_path` la table temporaire devait désarmer la garde (sinon la preuve ne prouve rien) et toucher au moins une ligne (Ok(n > 0)) : {r:?}"
         );
     }
 }
@@ -279,7 +310,9 @@ async fn t1_messagerie_la_garde_d_annulation_n_est_pas_trompee_par_une_table_tem
 /// `ent_internat_sortie_groupe_participant` temporaire VIDE — la garde, si elle la lisait, ne verrait aucun élève parti.
 #[tokio::test]
 async fn t1_internat_la_garde_d_une_sortie_de_groupe_n_est_pas_trompee_par_une_table_temporaire() {
-    let Some(b) = banc().await else { return };
+    let Some(b) = banc().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
     let e = b.a[0];
     let (p, _) = parent(&b, e, true).await;
     let g = soumettre(&b, brouillon(&b, vec![b.prof], vec![e]).await.id).await;

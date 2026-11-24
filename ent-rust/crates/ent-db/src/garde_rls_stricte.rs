@@ -44,6 +44,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("champs_chiffres", "Conn::Pool(pool.acquire()", "tables sans établissement (branche `None`, aucune aujourd'hui) ; les tables par établissement passent par TenantTx"),
     ("delegation", "charger_droits(self.pool(), etab", "l'assistant ouvre son propre contexte d'établissement"),
     ("notifications", "expedier_avis_dus(&self.pool", "socle 8 : la fonction ouvre son propre TenantTx par établissement"),
+    ("notifications", ".fetch_one(&self.pool)", "heure de la base (`SELECT now()`) pour la boucle de l'expéditeur : aucune table, aucun établissement"),
     ("notifications", "&self.pool,", "socle 8 : reserver_remises_sans_compte et finaliser_remise_directe ouvrent leur propre TenantTx par établissement"),
     ("service", "SELECT 1", "sonde de vie de la base"),
     ("service", ".fetch_one(&self.pool)", "sondes : ent_session, ent_passkey_credential, ent_membership (tables sans RLS)"),

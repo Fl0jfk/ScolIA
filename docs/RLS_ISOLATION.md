@@ -114,6 +114,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ent_owner IN SCHEMA public
 --    empêche aussi DISABLE TRIGGER, DROP TRIGGER et ALTER TABLE ... DISABLE.)
 REVOKE UPDATE, DELETE, TRUNCATE ON ent_journal_modif FROM ent_app;
 REVOKE TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM ent_app;
+-- Jetons d'annulation de la messagerie (migration 493) : la table n'est écrite que par la fonction
+-- `SECURITY DEFINER` `ent_msg_annulation_ouvrir`. La 493 retire déjà l'écriture à tout rôle non propriétaire, mais un
+-- `GRANT … ON ALL TABLES` exécuté APRÈS les migrations la rend : refaire ce REVOKE à la suite des GRANT ci-dessus.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ent_msg_annulation_garde FROM ent_app;
 
 -- 4. Mode strict de la RLS au niveau du rôle (fail-closed). Voir 2.4 avant d'activer.
 ALTER ROLE ent_app SET app.rls_strict = 'on';
@@ -137,12 +141,15 @@ SELECT has_database_privilege('ent_app',   '<base>', 'TEMP') AS applicatif,   --
        has_database_privilege('ent_owner', '<base>', 'TEMP') AS proprietaire; -- attendu : t (ou f s'il n'en a pas l'usage)
 -- Preuve par l'essai, connecté en ent_app : doit échouer avec « permission denied to create temporary tables ».
 CREATE TEMP TABLE t1_essai (x int);
+-- Le schéma `public` n'est pas inscriptible par le rôle applicatif (suites T1) : attendu `f`.
+SELECT has_schema_privilege('ent_app', 'public', 'CREATE') AS public_inscriptible;  -- attendu : f
 ```
+Si la vérification rend `t` : `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` (déjà le défaut depuis PostgreSQL 15) et retirer tout `GRANT CREATE ON SCHEMA public` donné nommément au rôle (ou à un rôle dont il hérite). Un rôle qui peut créer dans `public` y dépose une fonction ou une table qui masque ou remplace celles du schéma : le `SET search_path` de 690 n'y peut rien. Le test `tests_search_path_t1` fait le même contrôle sur le rôle de test (`ent_suite_stricte`) et échoue franchement s'il peut créer dans `public`.
 Un `REVOKE … FROM PUBLIC` ne retire pas le privilège d'un rôle qui l'a reçu **nommément** : relire `\l+ <base>` après coup. Une base restaurée ou recréée (PRA) **perd** ce réglage : l'ajouter à la liste de contrôle de restauration.
 
-**Le code applicatif ne crée aucune table temporaire** (vérifié le 2026-11-23 : `git grep -n -i "TEMP TABLE\|CREATE TEMP\|TEMPORARY TABLE\|ON COMMIT DROP" -- ent-rust ':!ent-rust/crates/ent-db/src/tests_*'` ne rend aucune ligne hors commentaire de la migration 2407 ; aucune migration n'en crée non plus). Le `REVOKE` ne casse donc aucun chemin applicatif.
+**Le code applicatif ne crée aucune table temporaire** (vérifié le 2026-11-23 : `git grep -n -i "TEMP TABLE\|CREATE TEMP\|TEMPORARY TABLE\|ON COMMIT DROP" -- ent-rust ':!ent-rust/crates/ent-db/src/tests_*' ':!ent-rust/crates/ent-db/src/garde_search_path.rs'` ne rend que deux lignes de **commentaire** (migrations 2407 et 690) ; aucune migration n'en crée. Les modules de test à exclure sont `tests_*` **et** `garde_search_path.rs` (module `#[cfg(test)]` qui n'a pas le préfixe `tests_` : sans cette seconde exclusion, la commande rendait des lignes de test). Le `REVOKE` ne casse donc aucun chemin applicatif.
 
-**Tests qui créent des tables temporaires** (à connaître avant d'appliquer le `REVOKE` à une base de test) : `tests_cahier.rs` (gel du cahier), `tests_inscriptions_i5_passe3.rs`, `tests_internat_i3.rs`, `garde_search_path.rs` et `tests_search_path_t1.rs`. Ils tournent sous le rôle du harnais : le propriétaire de la base de test (superutilisateur local, CI : `ent_ci`) en mode permissif, `ent_suite_stricte` en mode `ENT_RLS_MODE=strict` ; les preuves de `tests_search_path_t1.rs` utilisent explicitement `ent_suite_stricte` (non propriétaire, sans `BYPASSRLS`). La base de test **ne reçoit pas** le `REVOKE` : les preuves ont besoin du privilège `TEMP` pour montrer que l'attaque échoue **malgré** lui. En production le `REVOKE` s'ajoute ; la migration 690 ne dépend pas de lui.
+**Tests qui créent des tables temporaires** (à connaître avant d'appliquer le `REVOKE` à une base de test) : `tests_cahier.rs` (gel du cahier), `tests_inscriptions_i5_passe3.rs`, `tests_internat_i3.rs`, `tests_messagerie_p2.rs`, `garde_search_path.rs` et `tests_search_path_t1.rs` (liste relue par `git grep -l` le 2026-11-23, cinq fichiers de test plus `garde_search_path.rs`). Ils tournent sous le rôle du harnais : le propriétaire de la base de test (superutilisateur local, CI : `ent_ci`) en mode permissif, `ent_suite_stricte` en mode `ENT_RLS_MODE=strict` ; les preuves de `tests_search_path_t1.rs` utilisent explicitement `ent_suite_stricte` (non propriétaire, sans `BYPASSRLS`). La base de test **ne reçoit pas** le `REVOKE` : les preuves ont besoin du privilège `TEMP` pour montrer que l'attaque échoue **malgré** lui. En production le `REVOKE` s'ajoute ; la migration 690 ne dépend pas de lui.
 
 ## 4. Tests (implémentés, base locale de test)
 `ent-db/src/tests_rls.rs` (feature `labo`) crée dans la base locale le rôle `ent_rls_app` (non propriétaire, sans `BYPASSRLS`, `app.rls_strict = on` au niveau du rôle) et vérifie : sans `app.etablissement_id` (absent ou vide) lecture 0 ligne et insertion refusée ; avec A posé aucune ligne de B (lecture, `UPDATE`, `DELETE` : 0 ligne touchée, vérité terrain côté propriétaire) et insertion d'une ligne de B refusée (`42501`) ; la variable ne survit pas à la transaction ; mode permissif ; mode `off` ne pose rien ; les 22 tables ont RLS activée + forcée + politique ; le rôle applicatif ne peut ni désactiver le trigger du journal, ni désactiver la RLS, ni supprimer une politique ; `ENT_DATABASE_MIGRATION_URL` (absente, vide, locale, distante refusée).

@@ -78,7 +78,7 @@ Chaque preuve a trois temps, dans des transactions toujours annulées : (1) sans
 
 ## 8. Provisionnement (`docs/RLS_ISOLATION.md` §3.1)
 
-Ordre de propriétaire, hors migration : `REVOKE TEMP ON DATABASE <base> FROM PUBLIC;` puis vérification `has_database_privilege(<rôle applicatif>, <base>, 'TEMP')` = `f`, et un `CREATE TEMP TABLE` d'essai refusé. **Le code applicatif ne crée aucune table temporaire** (`git grep` hors tests : aucune ligne, hors un commentaire de 2407 ; aucune migration n'en crée). Tests qui en créent : `tests_cahier.rs`, `tests_inscriptions_i5_passe3.rs`, `tests_internat_i3.rs`, `garde_search_path.rs`, `tests_search_path_t1.rs` — ils tournent sous le rôle du harnais (propriétaire local / `ent_ci` en permissif, `ent_suite_stricte` en strict) ; les preuves de T1 utilisent explicitement `ent_suite_stricte`. La base de test **ne reçoit pas** le `REVOKE` (les preuves ont besoin de TEMP pour montrer que l'attaque échoue malgré lui).
+Ordre de propriétaire, hors migration : `REVOKE TEMP ON DATABASE <base> FROM PUBLIC;` puis vérification `has_database_privilege(<rôle applicatif>, <base>, 'TEMP')` = `f`, et un `CREATE TEMP TABLE` d'essai refusé. **Le code applicatif ne crée aucune table temporaire** (`git grep` hors tests : voir la commande corrigée dans `RLS_ISOLATION.md` §3.1 ; deux commentaires seulement, 2407 et 690 ; aucune migration n'en crée). Tests qui en créent : `tests_cahier.rs`, `tests_inscriptions_i5_passe3.rs`, `tests_internat_i3.rs`, `tests_messagerie_p2.rs`, `garde_search_path.rs`, `tests_search_path_t1.rs` — ils tournent sous le rôle du harnais (propriétaire local / `ent_ci` en permissif, `ent_suite_stricte` en strict) ; les preuves de T1 utilisent explicitement `ent_suite_stricte`. La base de test **ne reçoit pas** le `REVOKE` (les preuves ont besoin de TEMP pour montrer que l'attaque échoue malgré lui).
 
 ## 9. Vérifications, tête, CI
 
@@ -99,7 +99,7 @@ Aucune de ces fonctions n'est `SECURITY DEFINER`, aucune n'est utilisée dans un
 ## Correctifs du pilote après revue (2026-11-23)
 - **690 et les procédures** : la boucle exécutait `ALTER FUNCTION` aussi sur une procédure (`prokind = 'p'`), ce que PostgreSQL refuse. Elle choisit désormais `ALTER PROCEDURE` ou `ALTER FUNCTION`. Aucune procédure n'existe aujourd'hui.
 - **Ordre** : la règle « après 690, jamais avant » est écrite dans `migrate.rs` et dans PILOTAGE (règle 25).
-- **Reste à faire** (suites T1, en file) :
+- **Reste à faire** (suites T1, **soldé** : voir §11) :
   - test qui fige la position de 690 ;
   - verrou de rejeu partagé tenu pendant les preuves (instabilité en parallèle) ;
   - non-vacuité de la preuve « 25 fonctions qualifiées » (chaque relation citée en `public.`) ;
@@ -110,3 +110,43 @@ Aucune de ces fonctions n'est `SECURITY DEFINER`, aucune n'est utilisée dans un
   - négatifs des listes ;
   - `tests_messagerie_p2.rs` ajouté à la liste des tests à tables temporaires ;
   - recompte des `SECURITY DEFINER`.
+
+## 11. Suites (2026-11-23, branche `ent-transverse-t1-suites`, base `origin/ENT` 4bbdfa69)
+
+Revue de T1 : tout est **fait**, rien n'est laissé de côté. Aucune migration nouvelle (690 inchangée, 691 non utilisée).
+
+| # | Demande | État | Où |
+|---|---|---|---|
+| 1 | Ordre des migrations figé | **fait** | `migrate::tests::l_ordre_des_migrations_versees_est_fige_regle_38` (étendu par le pilote) : `crates/ent-db/src/migrations_versees.txt` (toutes les migrations versées sur `ENT`, 431 noms au 23-11) doit être un **préfixe** du tableau ; une migration insérée au milieu (avant 690 **ou** entre deux migrations versées après 690), retirée ou déplacée échoue ; une migration ajoutée à la fin passe. Le pilote ajoute au fichier les migrations d'un lot à son versement. |
+| 2 | Verrou partagé pendant les preuves | **fait** | `prouver` : `remettre_search_path`, puis `garde_rejeu_partagee` tenu jusqu'à la fin des trois temps. Fenêtre résiduelle : l'instant entre la fin de `remettre_search_path` et la prise du verrou partagé (un verrou ne peut pas être « converti » ; les rejeux sont rares). |
+| 3 | Non-vacuité des 25 fonctions qualifiées | **fait** | `defauts_qualifiee` : plan sous masque total sans `pg_temp`, fonction toujours inlinée, et **chaque relation du corps citée en `public.<rel>` dans le plan**. Constat : les **vues** (ex. `ent_eleve_lien_communicant`, lue par `ent_msg_fil_lisible`) sont développées par le planificateur et n'apparaissent jamais sous leur nom ; la preuve porte donc sur les tables (leur corps est lié par identifiant à la création, une table temporaire homonyme ne peut pas les détourner). Aucune fonction n'a eu besoin d'être exécutée avec des données. Négatif `negatif_qualifiee` : une fonction qualifiée qui perd **une** qualification est vue (garde statique **et** plan), avec son témoin positif. |
+| 4 | `public` non inscriptible | **fait** | `has_schema_privilege(<rôle>, 'public', 'CREATE') = false` dans `RLS_ISOLATION.md` §3.1 (vérification de provisionnement) et en test sur `ent_suite_stricte` (échec franc). |
+| 5 | Micro-banc d'écriture | **fait**, surcoût **sous le seuil de 15 %**, aucune exclusion à ajouter | voir §11.1. |
+| 6 | Assertions renforcées | **fait** | `NOT rolsuper AND NOT rolbypassrls` dans `prouver` ; témoins `matches!(r, Ok(n) if n > 0)` ; `negatifs_des_listes` (relation ajoutée à une fonction `PURES` vue, entrée obsolète de `PURES` / `QUALIFIEES` vue, chacun avec son témoin positif) ; `eprintln!` de skip quand la base manque (les 4 tests). |
+| 7 | Documentation | **fait** | voir §11.2. |
+
+### 11.1 Micro-banc d'écriture (`ent-rust/scripts/t1_banc_ecriture.sql`)
+
+Table `ent_eleve` : **10 déclencheurs**, tous sur des fonctions qui portent `SET search_path` (690), 50 000 lignes insérées en un `INSERT … SELECT generate_series`. PostgreSQL 16 local, base neuve migrée, `fsync` par défaut, une seule session. « Avant » = les clauses de 690 retirées **dans la transaction** (`ALTER FUNCTION … RESET search_path` sur toutes les fonctions qui portent exactement la clause de 690, hors `SECURITY DEFINER`), annulé après chaque mesure ; « après » = état migré. Trois essais par variante, ms :
+
+| Variante | Médiane | Min | Max |
+|---|---|---|---|
+| Avant 690 | 86 367 | 83 016 | 87 516 |
+| Après 690 | 88 580 | 82 344 | 92 804 |
+| **Écart (médianes)** | **+2,6 %** | −0,8 % (minima) | |
+
+Premier passage à 2 000 lignes, cinq essais : 2 211 ms avant, 2 426 ms après (+9,7 %, bruit de petit échantillon). **Seuil de 15 % non atteint : aucune exclusion supplémentaire proposée.** La mesure est un banc de **machine unique** (variance de ±5 % entre essais) : elle dit l'ordre de grandeur (`SET` ajoute la sauvegarde / restauration du réglage à chaque appel), pas un coût de production. Observation incidente : 50 000 lignes coûtent ≈ 1,7 ms/ligne ; le coût dominant est celui des déclencheurs eux-mêmes, pas de la clause.
+
+### 11.2 Documentation
+
+- `RLS_ISOLATION.md` §3.1 : `tests_messagerie_p2.rs` ajouté à la liste des tests à tables temporaires ; commande `git grep` corrigée (exclusion de `garde_search_path.rs`, module de test sans préfixe `tests_`, qui faisait remonter des lignes de test) et sa sortie attendue décrite (deux commentaires) ; vérification `has_schema_privilege` ajoutée.
+- **Recompte des `SECURITY DEFINER`** sur la base migrée jusqu'au bout (état actuel d'`ENT`) : **516 fonctions** de `public` (hors extension), dont **4 `SECURITY DEFINER`**, toutes avec `search_path` : `ent_fin_purger_etablissement`, `eva_reprendre_existant`, `eva_reprendre_tout` (`pg_catalog, public, pg_temp`, corrigées par 690) et `ent_push_reaffecter` (`pg_catalog, pg_temp`). Le tableau du §2 donnait « 0 » pour la colonne `SECURITY DEFINER` de l'inventaire d'avant 690 parce qu'il comptait les fonctions **sans** clause (les 4 en portaient déjà une, 3 incomplètes) : ce n'est pas un écart de la base.
+- **Procédures et agrégats** : la garde (`SQL_FONCTIONS`) retient `prokind IN ('f', 'p')` et **exige la clause sur une procédure** comme sur une fonction ; 690 emploie `ALTER PROCEDURE` pour elles. Aujourd'hui : **0 procédure, 0 agrégat** dans `public`. Les **agrégats** (`prokind = 'a'`) sont hors garde : `proconfig` ne s'y applique pas (PostgreSQL refuse `ALTER AGGREGATE … SET`) ; leurs fonctions de transition, elles, sont des fonctions et sont couvertes. Un agrégat créé par un lot n'est donc pas signalé ; ses fonctions de transition le sont.
+
+### 11.3 Vérifications
+
+- Base locale **neuve**, nom contenant « test » (`ent_t1s_test`, PostgreSQL 16) ; un seul `CARGO_TARGET_DIR` ; rustc / clippy 1.99.0 ; `--locked`.
+- `garde_search_path` (2), `tests_search_path_t1` (3), `migrate::tests::l_ordre_des_migrations_versees_est_fige_regle_38`, `migration_tag_suit_la_derniere_migration`, `aucune_colonne_json_hors_liste_d036` : verts en mode permissif **et** en `ENT_RLS_MODE=strict`.
+- Gardes statiques (`isolation_sql_statique`, `jour_utc_interdit`) **sans** et **avec** la feature `labo` : verts. (Un premier passage a vu `isolation_sql_statique` refuser une requête de test sans filtre d'établissement dans `garde_search_path.rs` : corrigée.)
+- Clippy 1.99.0 : **0 avertissement** sur les 3 commandes de la CI (`--workspace --all-targets`, `--features ent-api/labo,ent-lab/labo`, `-p ent-types`), `ent-lab` compris ; `cargo +1.99.0 metadata --locked` dans `ent-rust/web` : OK ; rustfmt ciblé sur les deux fichiers de test (jamais `cargo fmt --all`).
+- Tête vérifiée : `6089f54a` (PR #134, brouillon vers `ENT`). **CI : workflow « ENT Rust » vert** (run 45233085696). Le commit qui ajoute cette ligne ne touche que la documentation.

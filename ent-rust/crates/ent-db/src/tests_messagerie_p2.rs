@@ -15,7 +15,13 @@ use ent_auth::Role;
 use uuid::Uuid;
 
 /// Avis `push` planifié (dans deux heures) pour un message différé, comme l'écriture d'un différé le crée.
-async fn avis_planifie(ent: &PgEnt, etab: Uuid, lily: Uuid, eleve: Uuid, m: Uuid) -> Uuid {
+pub(super) async fn avis_planifie(
+    ent: &PgEnt,
+    etab: Uuid,
+    lily: Uuid,
+    eleve: Uuid,
+    m: Uuid,
+) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_notification_envoi
@@ -36,7 +42,7 @@ async fn avis_planifie(ent: &PgEnt, etab: Uuid, lily: Uuid, eleve: Uuid, m: Uuid
     id
 }
 
-async fn statut_avis(ent: &PgEnt, id: Uuid) -> (String, Option<String>) {
+pub(super) async fn statut_avis(ent: &PgEnt, id: Uuid) -> (String, Option<String>) {
     sqlx::query_as("SELECT statut, motif FROM ent_notification_envoi WHERE id = $1")
         .bind(id)
         .fetch_one(ent.pool_verif())
@@ -45,7 +51,7 @@ async fn statut_avis(ent: &PgEnt, id: Uuid) -> (String, Option<String>) {
 }
 
 /// « Maintenant » de l'expéditeur : l'heure de la base plus trois heures (après l'échéance de l'avis, deux heures).
-async fn apres_l_echeance(ent: &PgEnt) -> DateTime<Utc> {
+pub(super) async fn apres_l_echeance(ent: &PgEnt) -> DateTime<Utc> {
     let (maintenant,): (DateTime<Utc>,) = sqlx::query_as("SELECT now()")
         .fetch_one(ent.pool_verif())
         .await
@@ -165,6 +171,10 @@ async fn p2_m1_course_annulation_et_distributeur_rien_ne_part_pour_un_message_an
         .expect("annulation");
     let bilan = expediteur(&ent, etab).expedier(apres).await.unwrap();
     assert_eq!(
+        bilan.reclames, 0,
+        "l'avis annulé n'est même pas réclamé : {bilan:?}"
+    );
+    assert_eq!(
         statut_avis(&ent, a1).await.0,
         "annule",
         "jamais repris par le distributeur : {bilan:?}"
@@ -227,6 +237,10 @@ async fn p2_m1_course_annulation_et_distributeur_rien_ne_part_pour_un_message_an
         motif.as_deref(),
         Some("message_annule"),
         "témoin : {statut}"
+    );
+    assert_ne!(
+        statut, "en_attente",
+        "témoin : traité par le distributeur, pas resté en attente"
     );
 }
 
@@ -329,9 +343,10 @@ async fn p2_m3_ni_une_table_temporaire_homonyme_ni_un_reglage_pose_a_la_main_n_o
 
     // Le jeton lui-même est refusé pour un message remis (la fonction d'ouverture vérifie l'échéance).
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    let e = sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2)")
+    let e = sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2, $3)")
         .bind(etab)
         .bind(remis)
+        .bind(dir)
         .execute(&mut *tx)
         .await
         .expect_err("refus");
@@ -384,9 +399,10 @@ async fn p2_m3_un_jeton_pour_a_ne_supprime_pas_les_versions_de_b_ni_celles_d_un_
     }
     // Jeton ouvert pour A : les versions de B, pourtant d'un message encore planifié, restent protégées.
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2)")
+    sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2, $3)")
         .bind(etab)
         .bind(a)
+        .bind(dir)
         .execute(&mut *tx)
         .await
         .expect("jeton pour A");
@@ -399,9 +415,10 @@ async fn p2_m3_un_jeton_pour_a_ne_supprime_pas_les_versions_de_b_ni_celles_d_un_
     drop(tx);
     // Témoin : la même transaction, pour A, passe.
     let mut tx = ent.pool_verif().begin().await.unwrap();
-    sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2)")
+    sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2, $3)")
         .bind(etab)
         .bind(a)
+        .bind(dir)
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -435,9 +452,10 @@ async fn p2_m3_un_jeton_pour_a_ne_supprime_pas_les_versions_de_b_ni_celles_d_un_
     )
     .await
     .unwrap();
-    let e = sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2)")
+    let e = sqlx::query("SELECT ent_msg_annulation_ouvrir($1, $2, $3)")
         .bind(autre.etablissement_id)
         .bind(m_autre)
+        .bind(autre.direction.user_id)
         .execute(&mut *tx)
         .await
         .expect_err("refus inter-établissements");
@@ -618,7 +636,7 @@ async fn p2_f1_le_curseur_porte_l_identite_du_cluster_et_s_encode_a_l_identique(
 // ───────────────────────── F-6 : le fil dont le premier message est annulé ─────────────────────────
 
 #[tokio::test]
-async fn p2_f6_constat_le_fil_vide_apres_annulation_reste_liste_a_la_famille() {
+async fn p2_f6_le_fil_vide_apres_annulation_n_est_plus_liste_a_la_famille() {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
@@ -650,20 +668,26 @@ async fn p2_f6_constat_le_fil_vide_apres_annulation_reste_liste_a_la_famille() {
         .list_fils_for_actor(etab, lily, role(Role::Parent), None, false, None)
         .await
         .unwrap();
-    // CONSTAT (F-6, confirmé) : `ent_msg_fil_lisible` (485) garde un fil lisible de la famille tant qu'il n'a **aucun**
-    // message (branche `NOT EXISTS`), donc le fil vidé par l'annulation de son seul message reste listé avec son sujet.
-    // Correctif proposé (migration 493, hors périmètre sûr de la passe 2 : vue partagée par toute la messagerie) : ne
-    // garder cette branche que pour le côté établissement. Quand elle sera corrigée, inverser cette assertion.
+    // F-6 corrigé (migration 493) : `ent_msg_fil_lisible` ne garde un fil sans aucun message lisible que pour son
+    // créateur et le côté établissement ; la famille ne voit plus le fil (ni son sujet) après l'annulation de son seul
+    // message.
     assert!(
-        vu(&apres),
-        "constat F-6 : le fil vide reste listé (voir le commentaire)"
+        !vu(&apres),
+        "le fil vidé par l'annulation de son seul message n'est plus listé à la famille"
     );
 }
 
 // ───────────── E-1 (contre-revue de la passe 2, correctif du pilote) : seules les sources « message » sont contrôlées ─────────────
 
 /// Avis planifié (dans deux heures) de clé et de genre donnés, dont la source est `source`.
-async fn avis_de(ent: &PgEnt, etab: Uuid, user: Uuid, kind: &str, source: Uuid, cle: String) -> Uuid {
+async fn avis_de(
+    ent: &PgEnt,
+    etab: Uuid,
+    user: Uuid,
+    kind: &str,
+    source: Uuid,
+    cle: String,
+) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_notification_envoi
@@ -693,14 +717,37 @@ async fn p2_e1_la_relance_reponse_attendue_n_est_pas_ecartee_comme_message_annul
     };
     let (etab, lily) = (cast.etablissement_id, cast.parent_lea.user_id);
     let (fil, _) = fil_de_lily(&ent, &cast, "Relance réponse attendue").await;
-    let relance = avis_de(&ent, etab, lily, "messagerie_famille", fil, format!("msgreponse:{fil}:{lily}")).await;
+    let relance = avis_de(
+        &ent,
+        etab,
+        lily,
+        "messagerie_famille",
+        fil,
+        format!("msgreponse:{fil}:{lily}"),
+    )
+    .await;
     let absent = Uuid::new_v4();
-    let temoin = avis_de(&ent, etab, lily, "messagerie_famille", absent, format!("msgfam:{absent}")).await;
+    let temoin = avis_de(
+        &ent,
+        etab,
+        lily,
+        "messagerie_famille",
+        absent,
+        format!("msgfam:{absent}"),
+    )
+    .await;
     let apres = apres_l_echeance(&ent).await;
     expediteur(&ent, etab).expedier(apres).await.unwrap();
     let (statut, motif) = statut_avis(&ent, relance).await;
-    assert_ne!(statut, "en_attente", "la relance a été traitée par le distributeur");
-    assert_ne!(motif.as_deref(), Some("message_annule"), "la source d'une relance est un fil, pas un message : {statut}");
+    assert_ne!(
+        statut, "en_attente",
+        "la relance a été traitée par le distributeur"
+    );
+    assert_ne!(
+        motif.as_deref(),
+        Some("message_annule"),
+        "la source d'une relance est un fil, pas un message : {statut}"
+    );
     assert_eq!(
         statut_avis(&ent, temoin).await,
         ("ignore".to_string(), Some("message_annule".to_string())),

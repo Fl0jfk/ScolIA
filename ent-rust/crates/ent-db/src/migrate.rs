@@ -544,6 +544,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // de tableau, après toutes les migrations versées ; ses fonctions portent leur `search_path`. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("315_inscription_decision_i5_passe4"),
+    // Suites E1 (493, plage 482–499 du socle 16, **après 690**, règle 38) : un fil dont le seul message est annulé n'est plus
+    // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
+    // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("493_msg_fil_vide_et_garde_proprietaire"),
     // Suites I5 (316) : sentinelle en base de l'ordre des verrous (déclencheur qui exige le verrou consultatif de l'offre),
     // source unique du rang (liste ordonnée d'une offre). Règle 38 : en fin de tableau ; chaque fonction porte son
     // `search_path`. 313 à 315 sont versées et ne changent pas. Sous 3808 : `MIGRATION_TAG` inchangé.
@@ -1026,6 +1030,29 @@ mod tests {
             noms.len(),
             "chaque fichier de migrations/ doit être dans MIGRATIONS"
         );
+    }
+
+    /// Règle 38 (T1) : l'ordre des migrations **versées sur `ENT`** est figé. Une base déjà migrée n'applique une migration
+    /// nouvelle qu'à la suite de celles qu'elle a déjà : insérée au milieu du tableau, elle passerait après 690 sur une base
+    /// migrée mais avant sur une base neuve (fonctions sans `search_path`, ordre de rejeu faux). Toute migration nouvelle
+    /// s'ajoute donc À LA FIN du tableau `MIGRATIONS`. La référence est `migrations_versees.txt`, **préfixe obligatoire** du
+    /// tableau ; le pilote y ajoute, au versement, les migrations du lot versé (dans l'ordre du tableau).
+    #[test]
+    fn l_ordre_des_migrations_versees_est_fige_regle_38() {
+        let figees: Vec<&str> = include_str!("migrations_versees.txt").lines().filter(|l| !l.trim().is_empty()).collect();
+        let tableau: Vec<&str> = MIGRATIONS.iter().map(|(n, _)| *n).collect();
+        let regle = "Règle 38 (docs/securite/T1_SEARCH_PATH.md, PILOTAGE) : une migration nouvelle s'ajoute À LA FIN du tableau \
+                     MIGRATIONS, après toutes les migrations versées (migrations_versees.txt), jamais au milieu. Une base déjà \
+                     migrée l'appliquerait dans un autre ordre qu'une base neuve (et après 690 : fonctions sans `search_path`). ";
+        assert!(figees.contains(&"690_t1_search_path_fonctions"), "{regle}la liste de référence doit contenir 690");
+        assert!(tableau.len() >= figees.len(), "{regle}des migrations versées ont disparu du tableau");
+        for (i, attendue) in figees.iter().enumerate() {
+            assert_eq!(
+                tableau[i], *attendue,
+                "{regle}position {i} : `{}` trouvée là où la migration versée `{attendue}` est attendue (insertion, déplacement ou retrait)",
+                tableau[i]
+            );
+        }
     }
 
     /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
