@@ -700,6 +700,22 @@ impl PgEnt {
         Ok(())
     }
 
+    /// Comme [`Self::exiger_eleve_visible`], sur la connexion de la transaction **déjà ouverte** de l'appelant (aucune
+    /// connexion supplémentaire au pool). Même contrat que `eleve_cache_au_tiers_conn` (connexion du même établissement).
+    pub(crate) async fn exiger_eleve_visible_conn(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve: Uuid,
+    ) -> Result<(), EntDbError> {
+        if self.eleve_cache_au_tiers_conn(conn, etab, acteur, role, eleve).await? {
+            return Err(DomainError::NotFound.into());
+        }
+        Ok(())
+    }
+
     /// Journal de consultation (ajout seul) : écrit AVANT que la lecture soit servie (une trace
     /// sans lecture reste possible, jamais l'inverse). L'alerte est alignée sur `proteges_caches` :
     /// elle est décidée ICI, pour toute lecture d'un élève protégé par un membre du personnel sans

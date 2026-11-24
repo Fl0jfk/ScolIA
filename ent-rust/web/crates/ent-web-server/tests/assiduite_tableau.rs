@@ -253,7 +253,10 @@ async fn tableau_exclus_du_jour_et_file_du_matin() {
         personnel(&base, &l, "cpe").await,
         personnel(&base, &l, "prof").await,
     );
-    let jour = ent_db::jour_paris();
+    // Jour de l'établissement lu auprès du serveur (le même que celui du panneau « exclus du jour », celui de
+    // `ent_aujourdhui_etab`) : ni l'heure réelle ni le jour de Paris ne sont supposés (entre 23 h et minuit UTC,
+    // les deux peuvent différer du jour de l'établissement).
+    let jour = cpe.portail_aujourdhui().await.expect("jour de l'établissement").jour;
 
     let c = prof
         .mes_creneaux(jour)
