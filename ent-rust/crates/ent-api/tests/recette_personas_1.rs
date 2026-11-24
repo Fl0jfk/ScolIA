@@ -1174,6 +1174,19 @@ fn rp1_c11_bis_documents_famille_cloisonnes_par_foyer() {
         .execute(&pool)
         .await
         .expect("fil de relance");
+        // Une relance réelle porte toujours son message (le fil et son premier message naissent ensemble) ; depuis le
+        // correctif F-6 (493), un fil **sans aucun message** n'est plus lisible d'une famille qui n'en est pas la créatrice.
+        sqlx::query(
+            "INSERT INTO ent_msg (id, etablissement_id, fil_id, auteur_user_id, corps)
+             VALUES ($1,$2,$3,$4,'Votre facture est en attente de règlement.')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(s.etab)
+        .bind(fil)
+        .bind(s.user("Direction"))
+        .execute(&pool)
+        .await
+        .expect("message de la relance");
         // M1 (R-M1) : un fil posé directement en base est un fil « hérité » sans participants ; la
         // reprise (migration 483, MIG-2) les crée : payeurs actifs du foyer. C'est ce que la
         // migration fait pour tout fil antérieur à M1.
