@@ -200,3 +200,9 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3_S
 | Migrations | **+ 1** : 656 en fin de `migrate.rs` ; `migrations_versees.txt` au pilote ; `MIGRATION_TAG` inchangé (3808) ; `docs/socles/MIGRATIONS.md` à jour |
 | Routes | **+ 3** (liste et demande de contournement, décision) ; un champ optionnel `contournement_id` sur 4 routes existantes |
 | Tests | `tests_voyages_v3` : 36 (était 30) ; HTTP : assertions ajoutées au test des routes de V3 |
+
+### Vérifications et résultat (Suites V3b)
+- Local (PostgreSQL 16 neuve, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`) : `ent-db` lib complète 776 verts (3 échecs `tests_reprise_r2/r3` = pollution parallèle connue, 18/18 verts à un thread) ; tranche `labo` internat/voyages : verts, 4 délais d'attente de statement sous charge parallèle, verts relancés à 2 threads ; `ent-api` (labo) tests voyages : 5 verts. clippy 1.99 sur les 3 commandes de la CI : **0 avertissement** ; `cargo metadata --locked` dans `ent-rust/web` : ok ; rustfmt ciblé sur les fichiers touchés du lot.
+- La première CI a révélé un test d'I4 (`m6_l_attendu_garde_la_branche…`) qui cherchait la trace du CPE dans la branche supprimée : adapté (l'annulation du CPE tient au CTE des retraits).
+- Tête de code `8576b959` (`origin/ENT` fusionné, aucune migration ni compteur d'ENT touché) : CI « ENT Rust » **verte**. PR n° 145 laissée en brouillon vers `ENT`.
+- Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
