@@ -889,7 +889,7 @@ impl BudgetVerrou {
         self.restant = self.restant.saturating_sub(ecoule);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "labo"))]
     pub(crate) fn restant(&self) -> std::time::Duration {
         self.restant
     }

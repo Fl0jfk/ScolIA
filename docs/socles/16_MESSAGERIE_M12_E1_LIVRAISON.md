@@ -152,3 +152,32 @@ Tête testée par la CI : `a9aa9b06` (PR 133, brouillon vers `ENT`). Workflow «
 - **F3** : seul le résultat « message inexistant » est gardé en cache dans un lot ; « existe » se relit avant **chaque** envoi (une annulation pendant le lot rattrape aussi le SMS qui suit le push).
 - Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_messagerie_p*` : 14 verts.
 - **En file (suites E1, passe 4)** : M1 (jeton d'annulation : `p_auteur` libre ; documenter, `REVOKE EXECUTE … FROM PUBLIC` + `GRANT` au rôle applicatif), F1 (attente de verrou cumulée au-delà de `perime_apres`), F5 (test `message_existe_sous_verrou` sous rôle applicatif non propriétaire), F6 (observation `xmin` hors flux, mutex empoisonné journalisé), F7 (F-6 : vrai flux famille, co-parent), F8 (filtre `pg_stat_activity` du test de course).
+
+---
+
+## Suites, passe 4 — branche `ent-socle-16-code-e1-suites-4`, base `origin/ENT` 3559558d
+
+Niveau : **implémenté et testé en local, non validé par Florian, non prêt pilote.** Migrations 480–493 inchangées (règle 25) ; une migration neuve, **494**, en fin de tableau de `migrate.rs` (règle 38) ; `migrations_versees.txt` non touché.
+
+### Fait
+| Point | Correctif | Tests |
+|---|---|---|
+| **M1** jeton d'annulation | 494 : `REVOKE EXECUTE … FROM PUBLIC` sur `ent_msg_annulation_ouvrir(uuid,uuid,uuid)`, puis `GRANT EXECUTE` aux seuls rôles (hors propriétaire) qui ont `INSERT` sur `ent_msg` (en cible `ent_app`). Aucune fonction recréée. **Limite documentée** (`RLS_ISOLATION.md`, 494) : `p_auteur` reste affirmé par l'appelant ; un rôle applicatif compromis qui connaît l'auteur d'un message **planifié** peut ouvrir son jeton (il peut déjà l'annuler par l'API). Si `ent_app` est créé après les migrations : `GRANT EXECUTE` explicite. | `p4_m1_le_jeton_d_annulation_n_est_plus_executable_par_public` : ACL sans `PUBLIC`, rôle sans le `GRANT` refusé (42501 « permission denied »), rôle applicatif exécute |
+| **F1** attente cumulée | `BudgetVerrou` : une borne **par lot** égale à `perime_apres`, partagée entre tous les contrôles (individuels et groupes) ; chaque contrôle reçoit `min(attente_verrou, restant)`, le temps réellement passé est déduit ; épuisé, il n'attend plus que 1 ms (`lock_timeout` 0 = sans limite) : avis libre contrôlé, avis verrouillé reporté. Résidu : 1 ms par contrôle après épuisement. | `p4_f1_le_budget_se_partage_…` (pur, sans horloge) ; `p4_f1_l_attente_cumulee_d_un_lot_…` (3 messages verrouillés, `attente_verrou` 60 s, `perime_apres` 300 ms : le lot finit, 3 reportés, avis libre traité) |
+| **F5** | Test de `message_existe_sous_verrou` sous rôle non propriétaire, non superutilisateur : existe, inconnu, autre établissement (RLS), verrou tenu (erreur bornée, pas « inexistant »), verrou rendu. Constat : `FOR KEY SHARE` exige `UPDATE` sur `ent_msg` (rôle en lecture seule refusé) : `ent_app` doit le garder. | `p4_f5_…` |
+| **F6** | La borne `xmin` est aussi observée **hors du flux** : le distributeur d'avis la lit à chaque passage (`observer_borne_hors_flux`, échec journalisé en `warn!`). Un verrou **empoisonné** est journalisé (`error!`), le suivi est remis à zéro et le verrou rétabli (avant : retour silencieux et définitif). | `msg_xmin_gele::tests::un_verrou_empoisonne_est_retabli_…` |
+| **F7** | Vrai flux famille avec co-parent (même foyer, même élève) : après annulation du seul message, ni la mère ni le co-parent ne voient le fil (liste, lecture directe 404, flux depuis le curseur d'avant) ; témoin : fil remis vu des deux ; le créateur garde son fil vide, **pas** son co-parent (règle de 493, voulue). | `p4_f7_flux_famille_co_parent_…` |
+| **F8** | La sonde du test de course ne cherche plus un texte de requête dans `pg_stat_activity` : elle compte les sessions bloquées **par le pid de sa propre connexion** (`pg_blocking_pids`). | `p3_course_reelle_…` |
+| **Règle métier non tranchée** (D-069) | Aucune. Valeurs prudentes : budget de verrou = `perime_apres` (15 min par défaut). | — |
+
+### Non fait
+Rien de la liste. Limites inchangées des passes précédentes (fenêtre entre contrôle et envoi, limiteur en mémoire locale).
+
+### Compteurs (règle 28, depuis `origin/ENT` 3559558d)
+Tables avec RLS **+0** ; registre des données inchangé ; `Action::TOUTES` inchangé ; routes **+0** ; migrations **+1** (494) ; `MIGRATION_TAG` inchangé (3808). `ConfigExpedition` inchangée (`BudgetVerrou` interne).
+
+### Vérifications
+- **ent-db** (labo, base **neuve** `ent_s16e1p4_test`, PostgreSQL 16, `--test-threads 1`, un seul `CARGO_TARGET_DIR`) : filtres `garde_`, `migrate`, `registre`, `tests_rls`, `tests_notifications`, `tests_messagerie`, `msg_xmin`, `p2_`, `p3_`, `p4_`, `search_path`, `isolation_sql`, `jour_utc` : **372 tests lib + intégration, 0 échec**. Un seul échec en route : mon jeu d'essai du co-parent (parts de paiement), corrigé.
+- **clippy 1.99.0 `-D warnings`**, les trois commandes de la CI, `--locked` : **0 avertissement** (un `restant` jamais utilisé hors `labo`, corrigé par `cfg`). `cargo metadata --locked` dans `ent-rust/web` : réussi. fmt **ciblé** (`rustfmt` sur `tests_messagerie_p4.rs`, `msg_xmin_gele.rs`) ; jamais `cargo fmt --all`.
+- Aucun `#[ignore]` ; aucune heure réelle ni jour UTC dans les tests (instants de la base, durées de verrou, sonde de verrou).
+- Non rejoués ici : les tests `ent-api` (aucun fichier d'`ent-api` touché ; la CI les rejoue).

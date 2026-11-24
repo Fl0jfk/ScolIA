@@ -262,12 +262,18 @@ mod tests {
                 .join();
             assert!(r.is_err());
         });
-        assert!(suivi.is_poisoned(), "précondition : le verrou est empoisonné");
+        assert!(
+            suivi.is_poisoned(),
+            "précondition : le verrou est empoisonné"
+        );
         let seuil = Duration::seconds(600);
         // L'observation ne panique pas, rétablit le verrou et repart d'un suivi neuf (première observation : la base).
         assert_eq!(observer_dans(&suivi, 100, 150, t(0), seuil), None);
         assert!(!suivi.is_poisoned(), "le verrou est rétabli");
         // Le suivi fonctionne de nouveau : un gel est constaté ensuite.
-        assert_eq!(observer_dans(&suivi, 100, 160, t(601), seuil), Some(Observation::Gele(Duration::seconds(601))));
+        assert_eq!(
+            observer_dans(&suivi, 100, 160, t(601), seuil),
+            Some(Observation::Gele(Duration::seconds(601)))
+        );
     }
 }

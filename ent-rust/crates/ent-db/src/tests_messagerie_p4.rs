@@ -35,15 +35,21 @@ async fn pool_sans_droit(ent: &PgEnt) -> sqlx::PgPool {
     ] {
         sqlx::query(&sql).execute(admin).await.unwrap();
     }
-    sqlx::raw_sql(include_str!("../../../migrations/494_msg_garde_jeton_droit_execution.sql"))
-        .execute(admin)
-        .await
-        .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/494_msg_garde_jeton_droit_execution.sql"
+    ))
+    .execute(admin)
+    .await
+    .unwrap();
     let url = crate::url_guard::url_labo_ou_echec().expect("url labo");
     let mut u = url::Url::parse(&url).unwrap();
     u.set_username(ROLE_SANS).unwrap();
     u.set_password(Some("p4")).unwrap();
-    sqlx::postgres::PgPoolOptions::new().max_connections(2).connect(u.as_str()).await.unwrap()
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(u.as_str())
+        .await
+        .unwrap()
 }
 
 // ───────────────────────── M1 : droit d'exécution du jeton ─────────────────────────
@@ -80,7 +86,10 @@ async fn p4_m1_le_jeton_d_annulation_n_est_plus_executable_par_public() {
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    assert!(app_ok, "le rôle applicatif (qui écrit dans ent_msg) a le droit");
+    assert!(
+        app_ok,
+        "le rôle applicatif (qui écrit dans ent_msg) a le droit"
+    );
     assert!(!sans_ok, "un rôle sans le GRANT ne l'a pas");
 
     // Appel réel : refus exact sans le GRANT (le rôle n'a pas le droit d'exécuter, avant toute vérification de l'auteur).
@@ -123,14 +132,21 @@ fn p4_f1_le_budget_se_partage_et_s_epuise_sans_devenir_nul() {
     b.consommer(Duration::from_secs(4));
     b.consommer(Duration::from_secs(4));
     assert_eq!(b.restant(), Duration::from_secs(2));
-    assert_eq!(b.accorder(Duration::from_secs(4)), Duration::from_secs(2), "plafonné au restant");
+    assert_eq!(
+        b.accorder(Duration::from_secs(4)),
+        Duration::from_secs(2),
+        "plafonné au restant"
+    );
     // Au-delà du budget : saturation, et l'attente ne tombe jamais à zéro (lock_timeout = 0 voudrait dire « sans limite »).
     b.consommer(Duration::from_secs(60));
     assert_eq!(b.restant(), Duration::ZERO);
     assert_eq!(b.accorder(Duration::from_secs(4)), ATTENTE_MINIMALE);
     assert!(ATTENTE_MINIMALE > Duration::ZERO);
     // Un budget nul d'emblée (perime_apres = 0) est équivalent.
-    assert_eq!(BudgetVerrou::nouveau(Duration::ZERO).accorder(Duration::from_secs(5)), ATTENTE_MINIMALE);
+    assert_eq!(
+        BudgetVerrou::nouveau(Duration::ZERO).accorder(Duration::from_secs(5)),
+        ATTENTE_MINIMALE
+    );
     // La somme des attentes accordées d'une suite de contrôles bloqués ne dépasse pas le budget, plus 1 ms par contrôle
     // une fois épuisé.
     let total = Duration::from_millis(900);
@@ -142,7 +158,10 @@ fn p4_f1_le_budget_se_partage_et_s_epuise_sans_devenir_nul() {
         accordees += a;
         b.consommer(a); // pire cas : chaque contrôle attend tout ce qu'on lui accorde
     }
-    assert!(accordees <= total + ATTENTE_MINIMALE * controles, "{accordees:?}");
+    assert!(
+        accordees <= total + ATTENTE_MINIMALE * controles,
+        "{accordees:?}"
+    );
     assert!(accordees >= total, "le budget est entièrement utilisable");
 }
 
@@ -154,7 +173,11 @@ async fn p4_f1_l_attente_cumulee_d_un_lot_est_bornee_par_perime_apres() {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
-    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (etab, dir, lily) = (
+        cast.etablissement_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     let (fil, _) = fil_de_lily(&ent, &cast, "Budget de verrou").await;
     let m1 = message_differe(&ent, etab, dir, fil, "Verrouillé 1").await;
     let m2 = message_differe(&ent, etab, dir, fil, "Verrouillé 2").await;
@@ -194,12 +217,22 @@ async fn p4_f1_l_attente_cumulee_d_un_lot_est_bornee_par_perime_apres() {
         .await
         .expect("l'attente cumulée du lot est bornée par perime_apres")
         .expect("le lot n'est pas interrompu");
-    assert_eq!(bilan.reportes, 3, "les trois avis verrouillés sont reportés : {bilan:?}");
+    assert_eq!(
+        bilan.reportes, 3,
+        "les trois avis verrouillés sont reportés : {bilan:?}"
+    );
     for a in &avis {
-        assert_eq!(statut_avis(&ent, *a).await.0, "en_attente", "reporté, pas perdu");
+        assert_eq!(
+            statut_avis(&ent, *a).await.0,
+            "en_attente",
+            "reporté, pas perdu"
+        );
     }
     let (statut, motif) = statut_avis(&ent, avis_libre).await;
-    assert!(!matches!(statut.as_str(), "en_attente" | "envoi"), "le message libre est traité : {statut}");
+    assert!(
+        !matches!(statut.as_str(), "en_attente" | "envoi"),
+        "le message libre est traité : {statut}"
+    );
     assert_ne!(motif.as_deref(), Some("message_annule"));
     lente.rollback().await.unwrap();
 }
@@ -227,14 +260,31 @@ async fn p4_f5_message_existe_sous_verrou_sous_role_applicatif_non_proprietaire(
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
-    assert!(!est_super && !est_prop, "précondition : rôle non propriétaire, non superutilisateur");
+    assert!(
+        !est_super && !est_prop,
+        "précondition : rôle non propriétaire, non superutilisateur"
+    );
 
     let repo = crate::msg_repo::PgMsgRepo::new(app.clone());
     let court = Duration::from_millis(200);
-    assert!(repo.message_existe_sous_verrou(etab, m, Duration::from_secs(5)).await.unwrap(), "le message existe");
-    assert!(!repo.message_existe_sous_verrou(etab, Uuid::new_v4(), court).await.unwrap(), "message inconnu");
     assert!(
-        !repo.message_existe_sous_verrou(Uuid::new_v4(), m, court).await.unwrap(),
+        repo.message_existe_sous_verrou(etab, m, Duration::from_secs(5))
+            .await
+            .unwrap(),
+        "le message existe"
+    );
+    assert!(
+        !repo
+            .message_existe_sous_verrou(etab, Uuid::new_v4(), court)
+            .await
+            .unwrap(),
+        "message inconnu"
+    );
+    assert!(
+        !repo
+            .message_existe_sous_verrou(Uuid::new_v4(), m, court)
+            .await
+            .unwrap(),
         "autre établissement : invisible (RLS), donc inexistant"
     );
 
@@ -252,17 +302,30 @@ async fn p4_f5_message_existe_sous_verrou_sous_role_applicatif_non_proprietaire(
         .fetch_one(&mut *lente)
         .await
         .unwrap();
-    let r = tokio::time::timeout(Duration::from_secs(30), repo.message_existe_sous_verrou(etab, m, court))
-        .await
-        .expect("borné par lock_timeout");
-    assert!(r.is_err(), "verrou tenu : erreur (reportée par l'appelant), pas « inexistant » : {r:?}");
+    let r = tokio::time::timeout(
+        Duration::from_secs(30),
+        repo.message_existe_sous_verrou(etab, m, court),
+    )
+    .await
+    .expect("borné par lock_timeout");
+    assert!(
+        r.is_err(),
+        "verrou tenu : erreur (reportée par l'appelant), pas « inexistant » : {r:?}"
+    );
     lente.rollback().await.unwrap();
-    assert!(repo.message_existe_sous_verrou(etab, m, court).await.unwrap(), "verrou rendu : le message existe");
+    assert!(
+        repo.message_existe_sous_verrou(etab, m, court)
+            .await
+            .unwrap(),
+        "verrou rendu : le message existe"
+    );
 
     // Un rôle en lecture seule ne peut pas poser `FOR KEY SHARE` : le droit `UPDATE` d'`ent_app` est nécessaire.
     let sans = pool_sans_droit(&ent).await;
     let lecture_seule = crate::msg_repo::PgMsgRepo::new(sans);
-    let r = lecture_seule.message_existe_sous_verrou(etab, m, court).await;
+    let r = lecture_seule
+        .message_existe_sous_verrou(etab, m, court)
+        .await;
     assert!(r.is_err(), "sans UPDATE sur ent_msg : refusé : {r:?}");
 }
 
@@ -271,7 +334,12 @@ async fn p4_f5_message_existe_sous_verrou_sous_role_applicatif_non_proprietaire(
 /// Co-parent de Léa : même foyer, même élève, compte propre, créé **avant** l'ouverture des fils (il en est participant).
 async fn co_parent(ent: &PgEnt, cast: &LaboCast) -> Uuid {
     let p = ent
-        .register_login(&format!("coparent-{}@ent.lab", Uuid::new_v4().simple()), Role::Parent, "Co-parent de Léa", cast.etablissement_id)
+        .register_login(
+            &format!("coparent-{}@ent.lab", Uuid::new_v4().simple()),
+            Role::Parent,
+            "Co-parent de Léa",
+            cast.etablissement_id,
+        )
         .await
         .expect("compte du co-parent");
     ent.link_parent(crate::foyer_repo::CreateLien {
@@ -301,7 +369,11 @@ async fn p4_f7_flux_famille_co_parent_le_fil_vide_apres_annulation_n_est_lisible
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
-    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (etab, dir, lily) = (
+        cast.etablissement_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     let coparent = co_parent(&ent, &cast).await;
     let (fil, premier) = fil_de_lily(&ent, &cast, "Sujet-annule-du-co-parent").await;
     sqlx::query("UPDATE ent_msg SET remise_prevue_le = now() + interval '1 hour' WHERE id = $1")
@@ -325,11 +397,17 @@ async fn p4_f7_flux_famille_co_parent_le_fil_vide_apres_annulation_n_est_lisible
     };
     // Témoin : le fil remis est vu des deux parents (donc le co-parent est bien participant).
     for (user, nom) in familles {
-        assert!(voit_liste(user, temoin).await, "{nom} : le fil remis est listé");
+        assert!(
+            voit_liste(user, temoin).await,
+            "{nom} : le fil remis est listé"
+        );
     }
     // Précondition : le fil dont le message est encore différé n'est listé pour personne côté famille.
     for (user, nom) in familles {
-        assert!(!voit_liste(user, fil).await, "{nom} : précondition, rien avant la remise");
+        assert!(
+            !voit_liste(user, fil).await,
+            "{nom} : précondition, rien avant la remise"
+        );
     }
 
     ent.annuler_message_differe_for_actor(etab, dir, role(Role::Direction), premier)
@@ -337,7 +415,10 @@ async fn p4_f7_flux_famille_co_parent_le_fil_vide_apres_annulation_n_est_lisible
         .expect("annulation");
 
     for (user, nom) in familles {
-        assert!(!voit_liste(user, fil).await, "{nom} : le fil vidé n'est plus listé");
+        assert!(
+            !voit_liste(user, fil).await,
+            "{nom} : le fil vidé n'est plus listé"
+        );
         // Lecture directe du fil : 404 uniforme (un fil vidé ne se distingue pas d'un fil absent).
         let e = ent
             .list_messages_for_actor(etab, user, role(Role::Parent), fil)
@@ -347,7 +428,10 @@ async fn p4_f7_flux_famille_co_parent_le_fil_vide_apres_annulation_n_est_lisible
         // Le flux, depuis le curseur d'avant l'annulation : aucun événement pour ce fil.
         let r = flux(&ent, etab, user, Role::Parent, &curseur).await;
         assert!(!r.resynchro, "{nom} : curseur sain : {r:?}");
-        assert!(r.fils.iter().all(|f| f.fil_id != fil), "{nom} : aucun événement du flux pour le fil vidé : {r:?}");
+        assert!(
+            r.fils.iter().all(|f| f.fil_id != fil),
+            "{nom} : aucun événement du flux pour le fil vidé : {r:?}"
+        );
     }
 
     // Le créateur côté famille garde son fil vide ; son co-parent ne le voit pas (règle de 493).
@@ -357,6 +441,12 @@ async fn p4_f7_flux_famille_co_parent_le_fil_vide_apres_annulation_n_est_lisible
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    assert!(voit_liste(lily, fil).await, "le créateur garde son fil vide");
-    assert!(!voit_liste(coparent, fil).await, "le co-parent ne voit pas le fil vide d'un autre");
+    assert!(
+        voit_liste(lily, fil).await,
+        "le créateur garde son fil vide"
+    );
+    assert!(
+        !voit_liste(coparent, fil).await,
+        "le co-parent ne voit pas le fil vide d'un autre"
+    );
 }
