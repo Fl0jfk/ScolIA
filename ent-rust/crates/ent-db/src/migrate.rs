@@ -565,6 +565,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Suites E1 (passe 4, 494, plage 482–499 du socle 16, **fin de tableau**, règle 38) : `ent_msg_annulation_ouvrir` n'est plus
     // exécutable par `PUBLIC` (M1) ; aucune fonction recréée. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("494_msg_garde_jeton_droit_execution"),
+    // Socle 20, suites C8/C9 : dernier numéro libre de la plage 2400–2419. `REVOKE EXECUTE` sur `ent_cdt_reprise`, gel d'année
+    // qui échoue fermé (F3), tables filles du cahier classées au gel (F2). Règle 38 : en fin de tableau ; ses fonctions
+    // portent leur `search_path`. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2419_cdt_suites_gel_filles"),
     // Socle 42, V3b suites (656, plage 640–659) : instant de passage en « rentrée » (`rentree_le`), contournement tracé de
     // la règle « sortie entière » par une seconde personne libre, auteur de l'annulation d'un acompte, attendu de l'internat
     // sans branche directe redondante. 640–655 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ;
