@@ -665,11 +665,25 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
             "POST",
             &url_cont,
             Some(compta),
-            Some(json!({"action": "acompte_creer", "motif": "Seule présente"}))
+            Some(json!({"action": "acompte_creer", "motif": "Seule présente",
+                        "montant_max": "100", "prestataire_id": fantome}))
         )
         .await
         .0,
         StatusCode::CONFLICT
+    );
+    // Moyen 1 : une demande sans sa portée (plafond, prestataire) est refusée : pas d'autorisation « en blanc » (422).
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &url_cont,
+            Some(compta),
+            Some(json!({"action": "acompte_creer", "motif": "Sans portée"}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         appel(

@@ -604,7 +604,7 @@ impl PgEnt {
         }
         // M-3 : un acompte fournisseur engage l'argent de la sortie : jamais pour une sortie où son propre enfant part.
         let nid = Uuid::new_v4();
-        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_creer", contournement, nid, maintenant).await?;
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_creer", contournement, nid, Some(montant), Some(f.prestataire_id), maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         if f.echeance < jour - chrono::Duration::days(366) || f.echeance > jour + chrono::Duration::days(3 * 366) {
             return Err(invalide());
@@ -715,7 +715,7 @@ impl PgEnt {
             return Err(interdit());
         }
         // M-3 : payer un acompte est un pouvoir sur l'argent de la sortie.
-        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_payer", contournement, acompte_id, maintenant).await?;
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_payer", contournement, acompte_id, montant.and_then(centimes_de_texte), None, maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let (du, paye, annule): (i64, Option<NaiveDate>, Option<NaiveDate>) = sqlx::query_as(
             "SELECT montant_centimes, paye_le, annule_le FROM ent_sortie_acompte_fournisseur
@@ -809,7 +809,7 @@ impl PgEnt {
             return Err(interdit());
         }
         // M-3 : annuler un acompte est un pouvoir sur l'argent de la sortie ; l'auteur est gardé en base (656, `annule_par_user_id`).
-        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_annuler", contournement, acompte_id, maintenant).await?;
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_annuler", contournement, acompte_id, None, None, maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let r = sqlx::query(
             "UPDATE ent_sortie_acompte_fournisseur SET annule_le = $4, annule_motif = $5, annule_par_user_id = $6

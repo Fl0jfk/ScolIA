@@ -11,25 +11,29 @@
 -- les nuits déjà passées dehors restent retirées. Même mécanique que `annulee_le` (655) : posé à la transition, immuable.
 ALTER TABLE public.ent_sortie ADD COLUMN IF NOT EXISTS rentree_le TIMESTAMPTZ;
 
--- Rattrapage, établissement par établissement : sous un rôle soumis à la politique stricte (docs/RLS_ISOLATION.md §2),
--- un UPDATE sans variable d'établissement ne verrait aucune ligne. On pose donc la variable pour chacun (le réglage vaut
--- pour la transaction de la migration et est remis à vide ensuite). Faible 5 : le même rattrapage est rejoué pour
--- `annulee_le` (655), idempotent. Un cas non rattrapé ne passerait de toute façon pas en silence : la contrainte
--- `ent_sortie_annulee_le_chk` de 655 est validée sur TOUTES les lignes, sans tenir compte de la RLS.
+-- Rattrapage, établissement par établissement. Sous un rôle soumis à la politique stricte (docs/RLS_ISOLATION.md §2), un
+-- `SELECT DISTINCT etablissement_id FROM ent_sortie` est lui-même filtré (aucune ligne sans contexte) : l'énumération
+-- passe donc par `ent_etablissement UNION ent_membership`, comme 2220. Le réglage précédent est restauré ensuite (le
+-- réglage vaut pour la transaction de la migration). Faible 5 : le même rattrapage est rejoué pour `annulee_le` (655),
+-- idempotent. Un cas non rattrapé ne passerait de toute façon pas en silence : la contrainte `ent_sortie_annulee_le_chk`
+-- de 655 est validée sur TOUTES les lignes, sans tenir compte de la RLS. Faible 6 (revue) : `rentree_le = modifie_le` est
+-- une APPROXIMATION (dernière modification de la sortie, jamais antérieure à la rentrée réelle) ; voir la livraison.
+-- DEBUT-DONNEES
 DO $$
 DECLARE
+    precedent TEXT := pg_catalog.current_setting('app.etablissement_id', true);
     e UUID;
 BEGIN
-    FOR e IN SELECT DISTINCT etablissement_id FROM public.ent_sortie
-              WHERE (etat = 'rentree' AND rentree_le IS NULL) OR (etat = 'annulee' AND annulee_le IS NULL)
-    LOOP
-        PERFORM set_config('app.etablissement_id', e::text, true);
+    FOR e IN SELECT id FROM public.ent_etablissement
+             UNION SELECT etablissement_id FROM public.ent_membership LOOP
+        PERFORM pg_catalog.set_config('app.etablissement_id', e::text, true);
         UPDATE public.ent_sortie SET rentree_le = modifie_le WHERE etablissement_id = e AND etat = 'rentree' AND rentree_le IS NULL;
         UPDATE public.ent_sortie SET annulee_le = modifie_le WHERE etablissement_id = e AND etat = 'annulee' AND annulee_le IS NULL;
     END LOOP;
-    PERFORM set_config('app.etablissement_id', '', true);
+    PERFORM pg_catalog.set_config('app.etablissement_id', COALESCE(precedent, ''), true);
 END
 $$;
+-- FIN-DONNEES
 
 -- Posée à la transition vers « rentrée » (instant fourni par l'application, sinon l'heure de la base) ; immuable tant que
 -- la sortie reste rentrée ou close ; vide pour toute autre étape (une réouverture efface l'instant).
@@ -43,6 +47,11 @@ BEGIN
             NEW.rentree_le := OLD.rentree_le;
         ELSE
             NEW.rentree_le := COALESCE(NEW.rentree_le, now());
+            -- Borne : un instant de rentrée ne se situe pas dans l'avenir lointain (tolérance de 7 jours, D-069) ; sans cela, un
+            -- SQL direct pourrait garder retirées des nuits à venir. Les instants passés sont acceptés (rattrapage).
+            IF NEW.rentree_le > now() + interval '7 days' THEN
+                RAISE EXCEPTION 'l''instant de la rentrée ne se situe pas dans l''avenir' USING ERRCODE = '23514';
+            END IF;
         END IF;
     ELSIF NEW.etat = 'close' THEN
         IF TG_OP = 'UPDATE' AND OLD.etat IN ('rentree', 'close') THEN
@@ -238,10 +247,24 @@ CREATE TABLE IF NOT EXISTS ent_sortie_argent_contournement (
     action TEXT NOT NULL CHECK (action IN ('acompte_creer', 'acompte_payer', 'acompte_annuler', 'annulation_collective')),
     demande_par_user_id UUID NOT NULL,
     motif TEXT NOT NULL CHECK (length(btrim(motif)) BETWEEN 1 AND 500),
-    demande_le TIMESTAMPTZ NOT NULL,
+    -- Posé par la base (déclencheur `ent_sortie_argent_contournement_horodate_tg`) : jamais fourni par l'appelant.
+    demande_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Moyen 1 : pas d'autorisation « en blanc ». La demande porte ce qu'elle couvre : l'acompte visé (payer, annuler), le
+    -- plafond en centimes et le prestataire (créer, payer). L'autorisatrice les voit ; la base refuse toute écriture hors
+    -- cible, au-delà du plafond ou pour un autre prestataire. L'annulation collective vise la sortie entière (rien de plus).
+    cible_id UUID,
+    montant_max_centimes BIGINT CHECK (montant_max_centimes IS NULL OR montant_max_centimes BETWEEN 1 AND 100000000000),
+    prestataire_id UUID,
     CONSTRAINT ent_sortie_argent_contournement_etab_id_uq UNIQUE (etablissement_id, id),
+    CONSTRAINT ent_sortie_argent_contournement_portee_chk CHECK (
+        (action = 'acompte_creer' AND cible_id IS NULL AND montant_max_centimes IS NOT NULL AND prestataire_id IS NOT NULL)
+        OR (action = 'acompte_payer' AND cible_id IS NOT NULL AND montant_max_centimes IS NOT NULL AND prestataire_id IS NOT NULL)
+        OR (action = 'acompte_annuler' AND cible_id IS NOT NULL AND montant_max_centimes IS NULL AND prestataire_id IS NULL)
+        OR (action = 'annulation_collective' AND cible_id IS NULL AND montant_max_centimes IS NULL AND prestataire_id IS NULL)),
     CONSTRAINT ent_sortie_argent_contournement_sortie_fk FOREIGN KEY (etablissement_id, sortie_id)
-        REFERENCES ent_sortie (etablissement_id, id)
+        REFERENCES ent_sortie (etablissement_id, id),
+    CONSTRAINT ent_sortie_argent_contournement_prestataire_fk FOREIGN KEY (etablissement_id, prestataire_id)
+        REFERENCES ent_prestataire (etablissement_id, id)
 );
 CREATE INDEX IF NOT EXISTS ent_sortie_argent_contournement_idx
     ON ent_sortie_argent_contournement (etablissement_id, sortie_id, demande_le);
@@ -256,7 +279,8 @@ CREATE TABLE IF NOT EXISTS ent_sortie_argent_contournement_evt (
     motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 1 AND 500),
     -- Pour « utilise » : l'écriture visée (l'acompte, ou la sortie pour l'annulation collective).
     cible_id UUID,
-    le TIMESTAMPTZ NOT NULL,
+    -- Posé par la base (garde d'insertion) : jamais fourni par l'appelant.
+    le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_sortie_argent_contournement_evt_cible_chk CHECK ((evenement = 'utilise') = (cible_id IS NOT NULL)),
     CONSTRAINT ent_sortie_argent_contournement_evt_motif_chk CHECK (evenement <> 'refuse' OR motif IS NOT NULL),
     CONSTRAINT ent_sortie_argent_contournement_evt_fk FOREIGN KEY (etablissement_id, contournement_id)
@@ -284,20 +308,46 @@ AS $$
                           AND public.ent_sortie_argent_decideur_interdit(etab, usr, q.compte_id, ARRAY[]::uuid[]))
 $$;
 
--- Garde des faits : la décision vient d'une AUTRE personne que la demandeuse, libre de la sortie ; l'utilisation vient de
--- la demandeuse, après une autorisation.
+-- L'établissement lui-même habilite : membre de l'établissement avec un profil qui porte `voyages.argent` (Admin,
+-- Direction, Compta : `ent-auth/src/actions.rs`, R-SV44). `ent_membership` n'a pas d'indicateur « actif » : une personne
+-- retirée de l'établissement n'a plus de ligne (la règle la plus proche existant en base).
+CREATE OR REPLACE FUNCTION ent_sortie_habilite_argent(etab UUID, usr UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+    SELECT EXISTS (SELECT 1 FROM public.ent_membership m
+                    WHERE m.etablissement_id = etab AND m.user_id = usr
+                      AND m.role IN ('admin', 'direction', 'compta'))
+$$;
+
+-- Garde des faits, entièrement en base. Horodatage posé ici (jamais fourni par l'appelant). La décision vient d'une AUTRE
+-- personne que la demandeuse, membre habilitée de l'établissement, libre de la sortie, sur une demande de moins de 30 jours.
+-- L'utilisation vient de la demandeuse, au plus 30 jours après l'autorisation, l'autorisatrice étant TOUJOURS habilitée et
+-- libre, sur la cible visée par la demande.
 CREATE OR REPLACE FUNCTION ent_sortie_contournement_evt_garde() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     c public.ent_sortie_argent_contournement%ROWTYPE;
+    au UUID;
+    au_le TIMESTAMPTZ;
 BEGIN
+    NEW.le := now();
     SELECT * INTO c FROM public.ent_sortie_argent_contournement
      WHERE etablissement_id = NEW.etablissement_id AND id = NEW.contournement_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'un contournement inconnu ne se décide ni ne s''utilise pas' USING ERRCODE = '23514';
+    END IF;
     IF NEW.evenement IN ('autorise', 'refuse') THEN
         IF NEW.par_user_id = c.demande_par_user_id THEN
             RAISE EXCEPTION 'la décision d''un contournement vient d''une autre personne que la demandeuse' USING ERRCODE = '23514';
+        END IF;
+        IF NOT public.ent_sortie_habilite_argent(NEW.etablissement_id, NEW.par_user_id) THEN
+            RAISE EXCEPTION 'la décision d''un contournement vient d''un membre habilité de l''établissement' USING ERRCODE = '23514';
+        END IF;
+        IF now() > c.demande_le + interval '30 days' THEN
+            RAISE EXCEPTION 'la décision d''un contournement ne se prend plus : la demande a expiré' USING ERRCODE = '23514';
         END IF;
         IF NEW.evenement = 'autorise' AND NOT public.ent_sortie_libre_de_la_sortie(NEW.etablissement_id, c.sortie_id, NEW.par_user_id) THEN
             RAISE EXCEPTION 'la personne qui autorise un contournement est libre de tout lien avec la sortie' USING ERRCODE = '23514';
@@ -306,19 +356,43 @@ BEGIN
         IF NEW.par_user_id <> c.demande_par_user_id THEN
             RAISE EXCEPTION 'seule la demandeuse utilise son contournement' USING ERRCODE = '23514';
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM public.ent_sortie_argent_contournement_evt e
-                        WHERE e.etablissement_id = NEW.etablissement_id AND e.contournement_id = NEW.contournement_id
-                          AND e.evenement = 'autorise') THEN
+        SELECT e.par_user_id, e.le INTO au, au_le FROM public.ent_sortie_argent_contournement_evt e
+         WHERE e.etablissement_id = NEW.etablissement_id AND e.contournement_id = NEW.contournement_id
+           AND e.evenement = 'autorise';
+        IF NOT FOUND THEN
             RAISE EXCEPTION 'un contournement non autorisé ne s''utilise pas' USING ERRCODE = '23514';
+        END IF;
+        IF now() > au_le + interval '30 days' THEN
+            RAISE EXCEPTION 'un contournement expiré ne s''utilise pas' USING ERRCODE = '23514';
+        END IF;
+        IF NOT public.ent_sortie_habilite_argent(NEW.etablissement_id, au)
+           OR NOT public.ent_sortie_libre_de_la_sortie(NEW.etablissement_id, c.sortie_id, au) THEN
+            RAISE EXCEPTION 'un contournement dont l''autorisatrice n''est plus habilitée ne s''utilise pas' USING ERRCODE = '23514';
+        END IF;
+        IF c.cible_id IS NOT NULL AND NEW.cible_id IS DISTINCT FROM c.cible_id THEN
+            RAISE EXCEPTION 'un contournement ne couvre pas cette cible' USING ERRCODE = '23514';
         END IF;
     END IF;
     RETURN NEW;
 END
 $$;
 
--- Un contournement valable : demandé par `usr` pour cette action sur cette sortie, autorisé par une AUTRE personne
--- (encore libre de la sortie), utilisé pour CETTE écriture.
-CREATE OR REPLACE FUNCTION ent_sortie_contournement_valide(etab UUID, sortie UUID, usr UUID, act TEXT, cible UUID)
+-- Horodatage de la demande, posé par la base.
+CREATE OR REPLACE FUNCTION ent_sortie_contournement_horodate() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+    NEW.demande_le := now();
+    RETURN NEW;
+END
+$$;
+
+-- Une autorisation couvre ce que la demande porte (Moyen 1) et vit 30 jours (Moyen 2), tant que l'autorisatrice est
+-- habilitée et libre (Faible 2). `at` : l'instant d'évaluation (la base : `now()` ; l'application et les tests peuvent le
+-- passer). Le montant et le prestataire de l'écriture sont comparés au plafond et au prestataire de la demande.
+CREATE OR REPLACE FUNCTION ent_sortie_contournement_ouvert(
+    etab UUID, cid UUID, sortie UUID, usr UUID, act TEXT, cible UUID, montant BIGINT, presta UUID, at TIMESTAMPTZ)
 RETURNS BOOLEAN LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
@@ -327,11 +401,31 @@ AS $$
           FROM public.ent_sortie_argent_contournement c
           JOIN public.ent_sortie_argent_contournement_evt ok
             ON ok.etablissement_id = c.etablissement_id AND ok.contournement_id = c.id AND ok.evenement = 'autorise'
+         WHERE c.etablissement_id = etab AND c.id = cid AND c.sortie_id = sortie AND c.action = act
+           AND c.demande_par_user_id = usr AND ok.par_user_id <> usr
+           AND ok.le + interval '30 days' >= at
+           AND (c.cible_id IS NULL OR c.cible_id = cible)
+           AND (c.montant_max_centimes IS NULL OR montant <= c.montant_max_centimes)
+           AND (c.prestataire_id IS NULL OR presta = c.prestataire_id)
+           AND public.ent_sortie_habilite_argent(etab, ok.par_user_id)
+           AND public.ent_sortie_libre_de_la_sortie(etab, sortie, ok.par_user_id))
+$$;
+
+-- Un contournement valable pour CETTE écriture : ouvert (ci-dessus) ET utilisé pour cette cible.
+CREATE OR REPLACE FUNCTION ent_sortie_contournement_valide(
+    etab UUID, sortie UUID, usr UUID, act TEXT, cible UUID, montant BIGINT, presta UUID,
+    at TIMESTAMPTZ DEFAULT now())
+RETURNS BOOLEAN LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+          FROM public.ent_sortie_argent_contournement c
           JOIN public.ent_sortie_argent_contournement_evt us
             ON us.etablissement_id = c.etablissement_id AND us.contournement_id = c.id AND us.evenement = 'utilise'
          WHERE c.etablissement_id = etab AND c.sortie_id = sortie AND c.action = act AND c.demande_par_user_id = usr
-           AND ok.par_user_id <> usr AND us.cible_id = cible
-           AND public.ent_sortie_libre_de_la_sortie(etab, sortie, ok.par_user_id))
+           AND us.cible_id = cible
+           AND public.ent_sortie_contournement_ouvert(etab, c.id, sortie, usr, act, cible, montant, presta, at))
 $$;
 
 DO $$
@@ -348,6 +442,11 @@ BEGIN
                            t || '_vidage', t);
         END IF;
     END LOOP;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.ent_sortie_argent_contournement'::regclass
+                    AND tgname = 'ent_sortie_argent_contournement_horodate_tg') THEN
+        CREATE TRIGGER ent_sortie_argent_contournement_horodate_tg BEFORE INSERT ON public.ent_sortie_argent_contournement
+            FOR EACH ROW EXECUTE FUNCTION ent_sortie_contournement_horodate();
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.ent_sortie_argent_contournement_evt'::regclass
                     AND tgname = 'ent_sortie_argent_contournement_evt_garde_tg') THEN
         CREATE TRIGGER ent_sortie_argent_contournement_evt_garde_tg BEFORE INSERT ON public.ent_sortie_argent_contournement_evt
@@ -400,9 +499,25 @@ BEGIN
 END
 $$;
 
--- `ent_sortie_argent_pouvoir_libre` (655) reprise à l'identique, avec deux ajouts : (1) l'annulation d'un acompte est
--- gardée (auteur en base) ; (2) un acompte (création, paiement, annulation) d'une personne liée à la sortie passe si un
--- contournement autorisé par une AUTRE personne libre a été utilisé pour CETTE écriture.
+-- L'annulation collective d'avoirs (garde de base, Moyen 2) : chaque avoir « annulation_collective » porte la personne qui
+-- l'a proposé ; la base applique la même règle qu'un acompte (aucun lien avec un participant ayant versé, ni payeuse), sauf
+-- contournement utilisé pour la sortie. NOT VALID : les avoirs déjà proposés n'ont pas d'auteur connu (jamais inventé).
+ALTER TABLE public.ent_sortie_avoir_propose ADD COLUMN IF NOT EXISTS propose_par_user_id UUID;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.ent_sortie_avoir_propose'::regclass
+                    AND conname = 'ent_sortie_avoir_propose_collective_auteur_chk') THEN
+        ALTER TABLE public.ent_sortie_avoir_propose ADD CONSTRAINT ent_sortie_avoir_propose_collective_auteur_chk
+            CHECK (motif_code <> 'annulation_collective' OR propose_par_user_id IS NOT NULL) NOT VALID;
+    END IF;
+END
+$$;
+
+-- `ent_sortie_argent_pouvoir_libre` (655) reprise à l'identique, avec trois ajouts : (1) l'annulation d'un acompte est
+-- gardée (auteur en base) ; (2) un acompte (création, paiement, annulation) ou une annulation collective d'avoirs d'une
+-- personne liée à la sortie passe si un contournement autorisé par une AUTRE personne libre a été utilisé pour CETTE
+-- écriture, dans la limite de ce que la demande porte (cible, plafond, prestataire) ; (3) l'avoir « annulation collective »
+-- sans auteur est refusé.
 CREATE OR REPLACE FUNCTION ent_sortie_argent_pouvoir_libre() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
@@ -413,6 +528,9 @@ DECLARE
     pids UUID[];
     eleves UUID[];
     act TEXT;
+    cible UUID;
+    montant BIGINT;
+    presta UUID;
 BEGIN
     IF TG_TABLE_NAME = 'ent_sortie_plan' THEN
         qui := NEW.accorde_par_user_id; cpt := NEW.compte_id; pids := ARRAY[NEW.participant_id];
@@ -421,18 +539,31 @@ BEGIN
     ELSIF TG_TABLE_NAME = 'ent_sortie_frais_reel' THEN
         qui := NEW.saisi_par_user_id; cpt := NULL; pids := ARRAY[NEW.participant_id];
     ELSIF TG_TABLE_NAME = 'ent_sortie_avoir_propose' THEN
-        IF NEW.decide_par_user_id IS NULL OR NEW.statut NOT IN ('retenu', 'ecarte')
+        IF TG_OP = 'INSERT' AND NEW.motif_code = 'annulation_collective' THEN
+            IF NEW.propose_par_user_id IS NULL THEN
+                RAISE EXCEPTION 'un pouvoir sur l''argent ne s''exerce pas sans auteur : l''annulation collective porte sa personne'
+                    USING ERRCODE = '23514';
+            END IF;
+            qui := NEW.propose_par_user_id; cpt := NULL; act := 'annulation_collective'; cible := NEW.sortie_id;
+            -- Les participants qui ont versé : ceux dont la sortie entière décide l'annulation collective.
+            SELECT array_agg(DISTINCT v.participant_id) INTO pids FROM public.ent_sortie_versement v
+             WHERE v.etablissement_id = NEW.etablissement_id AND v.sortie_id = NEW.sortie_id;
+        ELSIF NEW.decide_par_user_id IS NULL OR NEW.statut NOT IN ('retenu', 'ecarte')
            OR (TG_OP = 'UPDATE' AND OLD.decide_par_user_id IS NOT DISTINCT FROM NEW.decide_par_user_id
                AND OLD.statut IS NOT DISTINCT FROM NEW.statut) THEN
             RETURN NEW;
+        ELSE
+            qui := NEW.decide_par_user_id; cpt := NEW.compte_id; pids := ARRAY[NEW.participant_id];
         END IF;
-        qui := NEW.decide_par_user_id; cpt := NEW.compte_id; pids := ARRAY[NEW.participant_id];
     ELSE
         -- Acompte fournisseur : création, paiement, annulation. La sortie entière est concernée.
+        presta := NEW.prestataire_id; cible := NEW.id;
         IF TG_OP = 'INSERT' THEN
             qui := COALESCE(NEW.paye_par_user_id, NEW.cree_par_user_id); act := 'acompte_creer';
+            montant := NEW.montant_centimes;
         ELSIF NEW.paye_par_user_id IS NOT NULL AND OLD.paye_par_user_id IS NULL THEN
             qui := NEW.paye_par_user_id; act := 'acompte_payer';
+            montant := COALESCE(NEW.paye_centimes, NEW.montant_centimes);
         ELSIF NEW.annule_le IS NOT NULL AND OLD.annule_le IS NULL AND NEW.annule_par_user_id IS NOT NULL THEN
             qui := NEW.annule_par_user_id; act := 'acompte_annuler';
         ELSE
@@ -451,7 +582,8 @@ BEGIN
                                     WHERE q.etablissement_id = NEW.etablissement_id AND q.participant_id = ANY(pids)
                                       AND public.ent_sortie_argent_decideur_interdit(
                                             NEW.etablissement_id, qui, q.compte_id, ARRAY[]::uuid[]))) THEN
-        IF act IS NOT NULL AND public.ent_sortie_contournement_valide(NEW.etablissement_id, NEW.sortie_id, qui, act, NEW.id) THEN
+        IF act IS NOT NULL
+           AND public.ent_sortie_contournement_valide(NEW.etablissement_id, NEW.sortie_id, qui, act, cible, montant, presta) THEN
             RETURN NEW;
         END IF;
         RAISE EXCEPTION 'un pouvoir sur l''argent ne s''exerce pas pour son propre enfant ni pour son propre compte'
@@ -461,6 +593,8 @@ BEGIN
 END
 $$;
 
--- Faible 4 : plafond de débit des traces de refus (ajout seul, jamais purgé) : au plus N lignes par personne et par heure,
--- appliqué par l'application (voir `tracer_refus`) ; l'index sert ce comptage.
-CREATE INDEX IF NOT EXISTS ent_sortie_argent_refus_user_idx ON ent_sortie_argent_refus (etablissement_id, user_id, le);
+-- Faible 5 (revue) : plafond de débit des traces de refus (ajout seul, jamais purgé) : au plus N lignes par (personne,
+-- action) et par heure, appliqué par l'application (voir `tracer_refus`) ; au-delà, UNE ligne « plafond atteint » par
+-- (personne, action) et par heure signale le dépassement sans le gonfler. L'index sert ces comptages.
+ALTER TABLE public.ent_sortie_argent_refus ADD COLUMN IF NOT EXISTS plafond_atteint BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS ent_sortie_argent_refus_user_idx ON ent_sortie_argent_refus (etablissement_id, user_id, action, le);

@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
-use ent_db::voyages_contournement::ContournementVue;
+use ent_db::voyages_contournement::{ContournementVue, DemandeContournement};
 use ent_db::voyages_argent_flux::{AcompteSaisie, AcompteVue, BordereauAttente, BordereauSaisie, BordereauVue};
 use ent_db::voyages_argent_v3::{
     AideSaisie, AideVue, DecisionAide, DecisionReport, DecisionValidee, DemandeVue, InternatSynchro, ReportSaisie, ReportVue,
@@ -363,12 +363,6 @@ async fn avoirs_collectifs(
     }))
 }
 
-#[derive(Deserialize)]
-struct ContournementDemandeBody {
-    action: String,
-    motif: String,
-}
-
 async fn contournements(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<ContournementVue>>> {
     Ok(Json(s.ent.voyage_contournements_lister(&acteur(&session), id).await.map_err(map_v3)?))
 }
@@ -377,11 +371,11 @@ async fn contournement_demander(
     State(s): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
-    Json(b): Json<ContournementDemandeBody>,
+    Json(b): Json<DemandeContournement>,
 ) -> Res<(StatusCode, Json<ContournementVue>)> {
     Ok((
         StatusCode::CREATED,
-        Json(s.ent.voyage_contournement_demander(&acteur(&session), id, &b.action, &b.motif).await.map_err(map_v3)?),
+        Json(s.ent.voyage_contournement_demander(&acteur(&session), id, b).await.map_err(map_v3)?),
     ))
 }
 

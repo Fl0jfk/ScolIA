@@ -186,7 +186,7 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3_S
 | Faible 3 | déjà corrigé par le pilote | — | — |
 
 ### Choix prudents (D-069, aucune question posée)
-1. Contournement : valable **30 jours** (demande non décidée, ou autorisation non utilisée) ; une seule demande ouverte par personne, sortie et action ; la personne qui décide est celle qui est **libre de la sortie entière** (même règle que l'action) ; elle n'a pas besoin d'être la seule : aucune exception silencieuse. L'annulation collective n'a pas de garde de base (elle ne fait que proposer des avoirs) : contrôle applicatif, usage tracé.
+1. Contournement : valable **30 jours** (demande non décidée, ou autorisation non utilisée) ; une seule demande ouverte par personne, sortie et action ; la personne qui décide est celle qui est **libre de la sortie entière** (même règle que l'action) ; elle n'a pas besoin d'être la seule : aucune exception silencieuse. [Corrigé par « Suites V3b, correctifs » ci-dessous : l'annulation collective a désormais sa garde de base.]
 2. Un contournement ne contourne **jamais** la règle sur un pouvoir individuel (plan, versement, frais, décision d'un avoir) : seuls les cinq pouvoirs sur la sortie entière.
 3. Sortie rentrée sans `rentree_le` (cas de rattrapage) : repli sur `modifie_le`, jamais sur la date de fin prévue.
 4. L'écran (Leptos) de demande et de décision n'est **pas** fait (hors périmètre, comme au §5.5) ; notification de la seconde personne : à brancher au socle 8.
@@ -194,7 +194,7 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3_S
 ### Compteurs (règle 28)
 | Compteur | Valeur |
 |---|---|
-| `Action::TOUTES` | **271**, inchangé |
+| `Action::TOUTES` | **282**, inchangé par ce lot (la première rédaction annonçait 271 : erreur de la livraison, corrigée ; vérifié dans `ent-auth/src/actions.rs`) |
 | Tables avec RLS (`tests_rls.rs`) | base ENT **+ 2** (`ent_sortie_argent_contournement`, `ent_sortie_argent_contournement_evt`) |
 | Registre des données | **+ 2**, domaine `sorties_voyages`, données personnelles |
 | Migrations | **+ 1** : 656 en fin de `migrate.rs` ; `migrations_versees.txt` au pilote ; `MIGRATION_TAG` inchangé (3808) ; `docs/socles/MIGRATIONS.md` à jour |
@@ -206,3 +206,46 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3_S
 - La première CI a révélé un test d'I4 (`m6_l_attendu_garde_la_branche…`) qui cherchait la trace du CPE dans la branche supprimée : adapté (l'annulation du CPE tient au CTE des retraits).
 - Tête de code `8576b959` (`origin/ENT` fusionné, aucune migration ni compteur d'ENT touché) : CI « ENT Rust » **verte**. PR n° 145 laissée en brouillon vers `ENT`.
 - Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
+
+## Suites V3b, correctifs (2026-11-24, contre-revue `42_VOYAGES_V3B_CONTRE_REVUE.md`, même branche, même PR 145 en brouillon)
+Liste de travail : Moyens 1 à 3 (bloquants) puis faibles 1 à 9 du rapport. **656 n'est pas versée** : elle est corrigée en place, toujours **en fin de tableau** de `migrate.rs` (règle 38, `search_path` et relations `public.` sur toute fonction créée ou recréée). 640–655 inchangées ; `migrations_versees.txt` laissé au pilote. **Statut : implémenté et testé en local ; non validé, non prêt pilote, non prêt production.**
+
+### Fait / non fait
+| Réf. | Statut | Ce qui est fait | Test |
+|---|---|---|---|
+| **Moyen 1**, pas d'autorisation « en blanc » | fait | La demande porte `cible_id` (acompte visé : payer, annuler), `montant_max_centimes` et `prestataire_id` (créer, payer) ; la contrainte `…_portee_chk` impose la portée par action (l'annulation collective vise la sortie entière, rien de plus). L'API de liste (`ContournementVue`) montre la portée à l'autorisatrice ; la demande d'API est `DemandeContournement` (`montant_max` en euros). `ent_sortie_contournement_valide` / `_ouvert` et le déclencheur de pouvoir refusent toute écriture hors cible, au-delà du plafond ou pour un autre prestataire ; le fait « utilisé » refuse une autre cible. Côté service, une demande de paiement exige que l'acompte existe sur la sortie, ne soit ni payé ni annulé et soit au même prestataire. | `v3b_une_autorisation_ne_couvre_que_ce_que_la_demande_porte_service_et_sql_direct` (autre acompte, montant supérieur, autre prestataire : service **et** SQL direct) ; HTTP : demande sans portée = 422 |
+| **Moyen 2**, contrôle en base complet | fait | **Expiration** : `now() <= autorisation + 30 jours` pour l'usage (fonction et déclencheur), demande de moins de 30 jours pour la décision. **Autorisatrice** : membre de l'établissement avec le profil `admin`, `direction` ou `compta` (`ent_sortie_habilite_argent` : la règle de `voyages.argent` dans `ent-auth`, R-SV44 ; `ent_membership` n'a pas d'indicateur « actif », une personne retirée n'a plus de ligne) **et** libre de la sortie. **Horodatages** : `demande_le` et `le` posés par la base (`DEFAULT now()` + déclencheurs) ; une valeur fournie est ignorée. **Annulation collective** : `ent_sortie_avoir_propose.propose_par_user_id` (`NOT VALID`) ; un avoir `annulation_collective` d'une personne liée, ou sans auteur, est refusé (`23514`), sauf contournement utilisé pour la sortie. | même test (membre non habilité, personne extérieure, `le` forcé à 2000, expiration à 31 jours par `ent_sortie_contournement_valide(…, now() + 31 jours)`, avoirs directs) |
+| **Moyen 3**, rattrapage sous RLS stricte | fait | Énumération `ent_etablissement UNION ent_membership` (comme 2220), réglage `app.etablissement_id` précédent restauré ; le bloc est encadré par `-- DEBUT-DONNEES` / `-- FIN-DONNEES`. | `v3b_le_rattrapage_de_656_atteint_les_lignes_sous_la_rls_stricte` (rôle strict : un `UPDATE` naïf touche 0 ligne ; le bloc rattrape `rentree_le` et `annulee_le`) |
+| Faible 1 | fait | La fenêtre d'une demande « ouverte » (doublon refusé) est comptée depuis l'**autorisation** pour une demande autorisée (statut `autorise` 30 jours), depuis la demande tant qu'elle attend : plus de deux autorisations vivantes pour la même portée. Une demande identique = même (personne, sortie, action, cible, prestataire). | test de portée (doublon d'une demande autorisée) |
+| Faible 2 | fait | Le droit de l'autorisatrice (membre habilitée et libre) est revérifié **à l'usage** (fait « utilisé » et écriture). | test de portée (profil retiré entre l'autorisation et l'usage : SQL direct et service) |
+| Faible 3 | fait | 403/404 harmonisés : sans droit d'argent sur la sortie, la liste, la demande et la décision répondent **404** comme `acomptes` ; le 403 ne vient plus que du droit applicatif général (personnel sans `voyages.argent`). | HTTP existant (porteur : 403 par le droit ; famille : 404) |
+| Faible 4 | fait (écran : à faire) | Le motif est libre (500 caractères). Consigne « n'indique aucun nom d'élève ni de famille » à afficher sur l'écran de demande (l'écran Leptos n'est pas fait, hors périmètre, §5.5) ; **durée de conservation** : tant que la sortie existe et au plus 10 ans (pièces comptables, `CONSERVATION_CONTOURNEMENT_ANS`) ; la purge est un traitement d'archivage à brancher. | — (documenté) |
+| Faible 5 | fait | Plafond de 30 traces de refus **par (personne, action) et par heure** ; au-delà, **une** ligne `plafond_atteint` par (personne, action) et par heure signale le dépassement (la table est en ajout seul : pas de compteur modifiable). | `v3b_les_refus_de_seconde_personne_sont_traces…` (35 refus : 30 traces + 1 marqueur ; une autre action n'est pas masquée) |
+| Faible 6 | documenté | `rentree_le = modifie_le` au rattrapage est une **approximation** : la dernière modification de la sortie, jamais antérieure au passage réel en « rentrée » ; elle ne peut que raccourcir la période des nuits retirées d'un participant resté « parti ». Aucune donnée réelle n'a été consultée pour mesurer l'écart ; à confirmer par le pilote sur une copie peuplée. | — |
+| Faible 7 | fait | `rentree_le` fourni en SQL direct est refusé s'il dépasse `now()` de plus de **7 jours** (`23514`, tolérance prudente D-069 : les fixtures de test datent la sortie quelques jours en avant) ; les instants passés (rattrapage) restent acceptés. | `ff_une_sortie_rentree_garde_les_nuits_passees_dehors…` |
+| Faible 8 | documenté | La contrainte `ent_sortie_acompte_fournisseur_annule_par_chk` reste `NOT VALID` (les acomptes déjà annulés n'ont pas d'auteur connu, jamais inventé) ; de même `ent_sortie_avoir_propose_collective_auteur_chk`. Elles valent pour toute écriture nouvelle ou modifiée. | `m4_les_declencheurs_de_655…` |
+| Faible 9 | documenté seulement | La règle 3 repose sur `user_id`, pas sur la personne physique (antérieur à ce lot) : en file, transverse (un même individu à deux comptes n'est pas reconnu). | — |
+| Compteur | corrigé | `Action::TOUTES` vaut **282** (`ent-auth/src/actions.rs`) ; l'annonce « 271 » était fausse. | — |
+
+### Choix prudents (D-069, aucune question posée)
+1. Une demande de contournement vaut 30 jours ; une autorisation, 30 jours depuis l'autorisation ; la décision se prend sur une demande de moins de 30 jours.
+2. Plafond : en euros, par écriture (montant d'un acompte ; montant payé, ou montant dû si non précisé). Un contournement couvre **une seule** écriture (usage unique).
+3. Habilitation en base = rôle de l'établissement (`admin`, `direction`, `compta`) : les délégations et casquettes de l'application ne sont pas relues en base (plus strict que l'application, jamais plus large).
+4. Tolérance de 7 jours pour `rentree_le`.
+
+### Compteurs (règle 28)
+| Compteur | Valeur |
+|---|---|
+| `Action::TOUTES` | **282**, inchangé |
+| Tables avec RLS (`tests_rls.rs`) | inchangé par ce passage (+2 déjà comptées pour 656) |
+| Registre des données | inchangé (+2 déjà comptées) ; colonnes ajoutées : `ent_sortie_argent_contournement.{cible_id, montant_max_centimes, prestataire_id}`, `ent_sortie_avoir_propose.propose_par_user_id`, `ent_sortie_argent_refus.plafond_atteint` |
+| Migrations | 656 corrigée en place, en fin de tableau ; `MIGRATION_TAG` inchangé (3808) |
+| Routes | inchangées (+3 déjà comptées) ; corps de `POST …/argent/contournements` : `cible_id`, `montant_max`, `prestataire_id` |
+| Tests | `tests_voyages_v3` : +2 (portée et gardes de base ; rattrapage sous RLS stricte), test de contournement et de plafond adaptés |
+
+### Vérifications et résultat (correctifs)
+- Local (PostgreSQL 16 **neuve** `ent_v3b_test`, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`, à 2 threads) : `ent-db` lib (labo), filtres `tests_voyages`, `tests_internat`, `tests_rls::`, `registre_donnees::`, `migrate::`, `garde_search_path`, `regle_38` : **446 verts, 0 échec** ; `ent-api` (labo) tests voyages : **5 verts** (HTTP : demande sans portée = 422). La suite complète d'`ent-db` n'a pas été rejouée en local : c'est le rôle de la CI.
+- clippy 1.99 sur les 3 commandes de la CI : **0 avertissement** ; rustfmt 1.99 ciblé sur les quatre fichiers propres au départ (les trois autres touchés, `voyages_argent_flux.rs`, `voyages_argent_repo.rs`, `tests_rls_stricte.rs`, `voyages_argent.rs`, portent une dette de formatage antérieure et ne sont pas reformatés) ; `cargo metadata --locked` dans `ent-rust/web` : ok.
+- Tests : aucune heure réelle ni jour UTC dans les assertions : les expirations se jouent par rapport à l'horloge de la base (`instant_base`, `now() + intervalle`), puisque la base pose seule les horodatages.
+- Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
+

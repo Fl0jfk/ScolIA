@@ -368,7 +368,8 @@ pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
                 || d.message().starts_with("la décision d'un contournement")
                 || d.message()
                     .starts_with("la personne qui autorise un contournement")
-                || d.message().starts_with("seule la demandeuse"))
+                || d.message().starts_with("seule la demandeuse")
+                || d.message().starts_with("un contournement"))
         {
             return refus(RefusMetier::Interdit, MSG_REGLE3);
         }
@@ -1327,15 +1328,20 @@ impl PgEnt {
         if let Err(e) = &r {
             if est_refus_a_tracer(e) {
                 if let Ok(mut t) = tx(self, a).await {
-                    // Plafond de débit : au plus `PLAFOND_TRACES_REFUS_PAR_HEURE` traces par personne et par heure (un
-                    // refus répété à la main ou par script ne gonfle pas une table en ajout seul, jamais purgée). Le
-                    // refus lui-même n'est jamais masqué.
+                    // Plafond de débit, par (personne, action) et par heure : au plus `PLAFOND_TRACES_REFUS_PAR_HEURE`
+                    // traces (un refus répété à la main ou par script ne gonfle pas une table en ajout seul, jamais
+                    // purgée, et le flot d'une action ne masque pas une autre). Au-delà : UNE ligne « plafond atteint »
+                    // par (personne, action) et par heure signale le dépassement. Le refus lui-même n'est jamais masqué.
                     let ecrit = sqlx::query(
-                        "INSERT INTO ent_sortie_argent_refus (id, etablissement_id, sortie_id, user_id, action)
-                         SELECT $1, $2, $3, $4, $5
-                          WHERE (SELECT count(*) FROM ent_sortie_argent_refus r
-                                  WHERE r.etablissement_id = $2 AND r.user_id = $4
-                                    AND r.le > now() - interval '1 hour') < $6",
+                        "INSERT INTO ent_sortie_argent_refus (id, etablissement_id, sortie_id, user_id, action, plafond_atteint)
+                         SELECT $1, $2, $3, $4, $5, n.n >= $6
+                           FROM (SELECT count(*) AS n FROM ent_sortie_argent_refus r
+                                  WHERE r.etablissement_id = $2 AND r.user_id = $4 AND r.action = $5
+                                    AND r.le > now() - interval '1 hour') n
+                          WHERE n.n < $6
+                             OR (n.n = $6 AND NOT EXISTS (SELECT 1 FROM ent_sortie_argent_refus m
+                                                           WHERE m.etablissement_id = $2 AND m.user_id = $4 AND m.action = $5
+                                                             AND m.plafond_atteint AND m.le > now() - interval '1 hour'))",
                     )
                     .bind(Uuid::new_v4())
                     .bind(a.etablissement_id)

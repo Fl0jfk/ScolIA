@@ -519,13 +519,14 @@ async fn inserer_avoir(
     cle: &str,
     paye: i64,
     frais: i64,
+    propose_par: Option<Uuid>,
 ) -> Result<bool, EntDbError> {
     let c = calculer_avoir(cas, paye, frais);
     let r = sqlx::query(
         "INSERT INTO ent_sortie_avoir_propose
              (id, etablissement_id, sortie_id, participant_id, compte_id, motif_code, cle,
-              paye_net_centimes, frais_retenus_centimes, montant_propose_centimes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+              paye_net_centimes, frais_retenus_centimes, montant_propose_centimes, propose_par_user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (etablissement_id, cle) DO NOTHING",
     )
     .bind(Uuid::new_v4())
@@ -538,9 +539,10 @@ async fn inserer_avoir(
     .bind(c.paye_net_centimes)
     .bind(c.frais_retenus_centimes)
     .bind(c.montant_propose_centimes)
+    .bind(propose_par)
     .execute(conn)
     .await
-    .map_err(db)?;
+    .map_err(crate::voyages_argent_v3::db_pouvoir)?;
     Ok(r.rows_affected() == 1)
 }
 
@@ -664,6 +666,7 @@ async fn synchroniser_participant(
                     &cle,
                     paye,
                     0,
+                    None,
                 )
                 .await?;
             }
@@ -832,7 +835,7 @@ async fn proposer_avoirs_participant(
         .map_err(db)?;
         let cle = format!("{prefixe}:{participant}:{compte}:r{}", n + 1);
         let f = frais_par.get(compte).copied().unwrap_or(0);
-        inserer_avoir(conn, etab, s.id, participant, *compte, cas, &cle, paye, f).await?;
+        inserer_avoir(conn, etab, s.id, participant, *compte, cas, &cle, paye, f, None).await?;
     }
     Ok(())
 }
@@ -1711,7 +1714,7 @@ impl PgEnt {
             Ok(()) => {}
             Err(e) if crate::voyages_argent_v3::est_refus_regle3(&e) => {
                 crate::voyages_contournement::exiger_libre_ou_contourne(
-                    &mut t, a, s.id, "annulation_collective", contournement, s.id, maintenant,
+                    &mut t, a, s.id, "annulation_collective", contournement, s.id, None, None, maintenant,
                 )
                 .await?;
             }
@@ -2069,7 +2072,7 @@ async fn collective_participant(conn: &mut PgConnection, a: &Acteur<'_>, s: &Sor
         .map_err(db)?;
         if paye > 0 && !couvert {
             let cle = format!("collective:{participant}:{compte}");
-            inserer_avoir(conn, etab, s.id, participant, compte, CasAvoir::AnnulationCollective, &cle, paye, 0).await?;
+            inserer_avoir(conn, etab, s.id, participant, compte, CasAvoir::AnnulationCollective, &cle, paye, 0, Some(a.user_id)).await?;
         }
     }
     Ok(())
