@@ -1649,7 +1649,12 @@ impl PgMsgRepo {
     pub(crate) async fn observer_borne_hors_flux(&self, etablissement_id: Uuid) {
         match TenantTx::begin(&self.pool, etablissement_id).await {
             Ok(mut tx) => {
-                if let Err(e) = lire_borne(&mut tx).await {
+                let lu = lire_borne(&mut tx).await;
+                #[cfg(all(test, feature = "labo"))]
+                if lu.is_ok() {
+                    crate::msg_xmin_gele::compter_hors_flux(etablissement_id);
+                }
+                if let Err(e) = lu {
                     // Passe 5, faible 4 : une base indisponible ne journalise pas toutes les 5 s (une ligne par minute).
                     if crate::journal_limite::autoriser_global("xmin_hors_flux_lecture") {
                         tracing::warn!(error = %e, "observation hors flux de la borne xmin : lecture impossible");

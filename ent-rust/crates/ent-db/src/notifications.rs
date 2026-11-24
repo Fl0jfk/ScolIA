@@ -1243,7 +1243,11 @@ impl Expediteur {
             }
             Err(err) => {
                 controle.derniere = None;
-                tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté");
+                // Contre-revue du pilote (passe 5, F1) : un message verrouillé visé par des centaines d'avis ne journalise pas
+                // une ligne par avis : au plus une par minute (le bilan compte les reports).
+                if crate::journal_limite::autoriser_global("controle_existence_message") {
+                    tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté (journal limité à une ligne par minute)");
+                }
                 // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
                 // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
                 let reporte: Result<(), EntDbError> = async {

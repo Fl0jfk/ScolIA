@@ -190,10 +190,11 @@ async fn p5_f3_expedier_observe_la_borne_xmin_hors_flux() {
         etablissement: Some(cast.etablissement_id),
         ..crate::notifications::ConfigExpedition::default()
     });
-    let avant = crate::msg_xmin_gele::nombre_observations();
+    // Contre-revue du pilote (M1) : compteur propre à l'établissement neuf du test (aucun voisin ne l'incrémente).
+    assert_eq!(crate::msg_xmin_gele::observations_hors_flux(cast.etablissement_id), 0);
     exp.expedier(apres).await.unwrap();
     assert!(
-        crate::msg_xmin_gele::nombre_observations() > avant,
-        "un passage de l'expéditeur observe la borne xmin hors flux"
+        crate::msg_xmin_gele::observations_hors_flux(cast.etablissement_id) >= 1,
+        "un passage de l'expéditeur observe la borne xmin hors flux pour son établissement"
     );
 }

@@ -106,14 +106,23 @@ fn seuil_configure() -> Duration {
 /// Suivi unique du processus.
 static SUIVI: OnceLock<Mutex<SuiviXmin>> = OnceLock::new();
 
-/// Nombre d'observations faites par le processus (compteur de test et d'exploitation : prouve qu'un appelant, comme le
-/// distributeur d'avis, observe bien la borne sans dépendre de l'état global `SUIVI`).
+/// Nombre d'observations faites par le processus (compteur d'exploitation, global : partagé par tous les appelants).
 static OBSERVATIONS: AtomicU64 = AtomicU64::new(0);
 
-/// Observations faites depuis le démarrage du processus.
+/// Contre-revue du pilote (passe 5, M1) : observations **hors flux** réussies, par établissement (tests seulement). Un test
+/// voisin qui lit le flux ou observe la borne d'un autre établissement ne fait pas bouger le compteur d'un établissement neuf.
 #[cfg(all(test, feature = "labo"))]
-pub(crate) fn nombre_observations() -> u64 {
-    OBSERVATIONS.load(Ordering::Relaxed)
+static HORS_FLUX: std::sync::LazyLock<Mutex<std::collections::HashMap<uuid::Uuid, u64>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+#[cfg(all(test, feature = "labo"))]
+pub(crate) fn compter_hors_flux(etab: uuid::Uuid) {
+    *HORS_FLUX.lock().unwrap_or_else(|p| p.into_inner()).entry(etab).or_default() += 1;
+}
+
+#[cfg(all(test, feature = "labo"))]
+pub(crate) fn observations_hors_flux(etab: uuid::Uuid) -> u64 {
+    HORS_FLUX.lock().unwrap_or_else(|p| p.into_inner()).get(&etab).copied().unwrap_or(0)
 }
 
 /// Observe la borne du flux et journalise. Appelée à chaque lecture de la borne, **par le flux et hors du flux**
