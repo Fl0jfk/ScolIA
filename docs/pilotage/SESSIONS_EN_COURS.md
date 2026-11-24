@@ -742,3 +742,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Versé** : T2 fiabilité + correctif du pilote (PR 147, 7c64e36b, CI 45450469411 verte, sans migration) après CI d'ENT verte sur c4ad35ed (684) : **ENT = 7c64e36b**. Gel jusqu'au verdict ; ensuite PR 145 (V3b, 711347ea, migration 656).
 - **Livré** : I5 suites passe 7 (PR 151, code 96f662c2 CI verte, tête 6360035d doc ; migration 318 à inscrire) ; contre-revue en cours sur `wt-i5s7`.
 - **Lancé** : correctifs F3 suites 3 (session_01KZCbFGEYALJPmXNiYED6CR, Sonnet, même branche `ent-socle-24-code-f3-suites-3`, PR 150). Sessions qui codent : E1 passe 5 + F3 3 correctifs.
+- **Versé** : voyages V3b + correctifs (session et pilote : B1 accès ouvert, M1 acompte inséré payé) (PR 145, 711347ea, migration 656, CI verte) après CI d'ENT verte sur 7c64e36b (687) : **ENT = 711347ea**. Gel jusqu'au verdict ; ensuite PR 151 (I5 passe 7, correctifs du pilote en test).
