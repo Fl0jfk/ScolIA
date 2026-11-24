@@ -21,10 +21,24 @@ import TripAccompagnateursSelect, {
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
+import { TravelsV2CreationSection } from "@/app/components/travels/TravelsV2Creation";
+import type { TravelsFamilyDocRequest, TravelsParticipantEleve } from "@/app/lib/travels-types";
+import {
+  dayShortLabelFr,
+  isIsoDate,
+  listTripDays,
+  mirrorPiqueNiqueDatesToWeekdays,
+  todayIsoParis,
+  validateFamilyDocuments,
+} from "@/app/lib/travels-v2";
 
 function ComplexTripFormContent() {
   const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
+  /** Circuit v2 (« engagement des familles ») : drapeau tenant, sinon circuit historique inchangé. */
+  const workflowV2 = appCtx?.travelsOptions?.workflowV2Enabled === true;
+  const [preListe, setPreListe] = useState<TravelsParticipantEleve[]>([]);
+  const [familyDocuments, setFamilyDocuments] = useState<TravelsFamilyDocRequest[]>([]);
   const { classOptions } = useTravelsElevesClasses();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -111,6 +125,18 @@ function ComplexTripFormContent() {
     setLoading(true);
     const tripId = `trip-${Date.now()}`;
     const ownerFields = resolveTripOwnerFields(user, ownerOverride);
+    const tripDays = listTripDays(formData.startDate, formData.endDate);
+    const dataToSave = workflowV2
+      ? {
+          ...formData,
+          workflowVersion: 2 as const,
+          preListeEleves: preListe,
+          familyPage: { text: "", documents: familyDocuments },
+          piqueNiqueDetails: formData.piqueNiqueDetails.active
+            ? (mirrorPiqueNiqueDatesToWeekdays(formData.piqueNiqueDetails, tripDays) as typeof formData.piqueNiqueDetails)
+            : formData.piqueNiqueDetails,
+        }
+      : formData;
     const payload = {
       id: tripId,
       ownerId: ownerFields.ownerId,
@@ -119,7 +145,7 @@ function ComplexTripFormContent() {
       status: "EN_ATTENTE_DIR_INITIAL",
       type: "COMPLEX",
       createdAt: new Date().toISOString(),
-      data: formData
+      data: dataToSave
     };
 
     try {
@@ -128,8 +154,14 @@ function ComplexTripFormContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: tripId, data: payload }),
       });
+      if (!res.ok && workflowV2) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error || "Erreur lors de la sauvegarde.");
+        return;
+      }
       if (res.ok) {
-        if (formData.needsBus) {
+        // v2 : les demandes de devis partent automatiquement à la validation pédagogique (côté serveur).
+        if (formData.needsBus && !workflowV2) {
           await fetch("/api/travels/send-transport", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -165,12 +197,28 @@ function ComplexTripFormContent() {
       alert("Indiquez au moins 1 accompagnateur (nombre ou nom — les noms peuvent être précisés plus tard).");
       return;
     }
+    if (workflowV2) {
+      if (preListe.length === 0) {
+        alert("Sélectionnez au moins un élève invité (pré-liste provisoire).");
+        return;
+      }
+      const docsCheck = validateFamilyDocuments(familyDocuments, { departureIso: formData.startDate });
+      if (!docsCheck.ok) {
+        alert(docsCheck.error);
+        return;
+      }
+    }
     if (formData.needsBus) {
       setShowBusRecapModal(true);
     } else {
       executeSubmit();
     }
   };
+  /** v2 : le bon cuisine se remplit sur les vraies dates du séjour (v1 : lundi…vendredi). */
+  const v2TripDays = workflowV2 ? listTripDays(formData.startDate, formData.endDate) : [];
+  const cuisineColumns: { key: string; label: string }[] = workflowV2
+    ? v2TripDays.map((d) => ({ key: d, label: dayShortLabelFr(d) }))
+    : CUISINE_DAYS;
   if (!isLoaded) return <div className="p-10 text-center font-medium">Chargement...</div>;
   return (
     <ModulePageShell maxWidthClass="max-w-[1280px]" className="pb-24">
@@ -278,7 +326,7 @@ function ComplexTripFormContent() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold mb-2 text-indigo-600">Coût global estimé (€)</label>
+              <label className="block text-sm font-semibold mb-2 text-indigo-600">Coût global estimé (€){workflowV2 ? <span className="block text-[11px] font-normal text-slate-500">Budget interne — n’apparaît pas sur la page des familles</span> : null}</label>
               <input type="number" required className="w-full p-3 bg-indigo-50 border border-indigo-100 rounded-xl font-bold" placeholder="Total du projet" value={formData.coutTotal} onChange={e => setFormData({...formData, coutTotal: Number(e.target.value)})} />
             </div>
           </div>
@@ -362,6 +410,21 @@ function ComplexTripFormContent() {
             </div>
           </div>
         </div>
+        {workflowV2 && (
+          <TravelsV2CreationSection
+            stepNumber={6}
+            departureIso={isIsoDate(formData.startDate) ? formData.startDate : ""}
+            todayIso={todayIsoParis()}
+            tripClasses={formData.classes}
+            preListe={preListe}
+            onPreListeChange={(next) => {
+              setPreListe(next);
+              if (next.length > 0) setFormData((prev) => ({ ...prev, nbEleves: String(next.length) }));
+            }}
+            documents={familyDocuments}
+            onDocumentsChange={setFamilyDocuments}
+          />
+        )}
         <button disabled={loading || uploading} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl hover:bg-indigo-700 transition-all disabled:opacity-50">
           {loading ? "Création du dossier..." : "Soumettre le dossier complet"}
         </button>
@@ -373,7 +436,11 @@ function ComplexTripFormContent() {
               <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl">🚌</div>
               <div>
                 <h2 className="text-2xl font-black text-slate-900 leading-tight">Vérification transport</h2>
-                <p className="text-slate-500 text-sm font-medium">Récapitulatif de la demande chauffeur.</p>
+                <p className="text-slate-500 text-sm font-medium">
+                  {workflowV2
+                    ? "Récapitulatif de la demande chauffeur. Les demandes de devis partiront automatiquement après la validation pédagogique de la direction."
+                    : "Récapitulatif de la demande chauffeur."}
+                </p>
               </div>
             </div>
             <div className="space-y-4 bg-slate-50 p-6 rounded-3xl border border-slate-100 mb-8 overflow-y-auto max-h-[50vh]">
@@ -386,7 +453,7 @@ function ComplexTripFormContent() {
             </div>
             <div className="flex gap-4">
               <button type="button" onClick={() => setShowBusRecapModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">MODIFIER</button>
-              <button type="button" onClick={() => { setShowBusRecapModal(false); executeSubmit(); }} className="flex-[2] py-4 bg-amber-500 text-white rounded-2xl font-black shadow-lg">VALIDER ET ENVOYER</button>
+              <button type="button" onClick={() => { setShowBusRecapModal(false); executeSubmit(); }} className="flex-[2] py-4 bg-amber-500 text-white rounded-2xl font-black shadow-lg">{workflowV2 ? "VALIDER" : "VALIDER ET ENVOYER"}</button>
             </div>
           </div>
         </div>
@@ -417,7 +484,7 @@ function ComplexTripFormContent() {
                 <div>
                   <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2 text-center">Jours concernés</label>
                   <div className="flex gap-1.5 justify-center">
-                    {CUISINE_DAYS.map(({ key: dayKey, label }) => {
+                    {cuisineColumns.map(({ key: dayKey, label }) => {
                       const isSelected = (formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey];
                       return (
                         <button key={dayKey} type="button"
@@ -435,7 +502,7 @@ function ComplexTripFormContent() {
                   <thead>
                     <tr className="bg-indigo-600 text-white">
                       <th className="text-left p-2.5 font-semibold w-40">Désignation</th>
-                      {CUISINE_DAYS.map(({ key: dayKey, label }) => (
+                      {cuisineColumns.map(({ key: dayKey, label }) => (
                         <th key={dayKey} className={`p-2.5 text-center font-semibold transition-opacity ${(formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey] ? 'opacity-100' : 'opacity-30'}`}>{label}</th>
                       ))}
                     </tr>
@@ -444,9 +511,9 @@ function ComplexTripFormContent() {
                     {CUISINE_ROWS.map(({ key: rowKey, label, type }, rowIdx) => (
                       <tr key={rowKey} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                         <td className={`p-2 font-medium text-slate-700 whitespace-nowrap ${rowKey === 'picnicNoPork' || rowKey === 'picnicVeg' ? 'pl-5 text-slate-500 italic' : ''}`}>{label}</td>
-                        {CUISINE_DAYS.map(({ key: dayKey }) => {
+                        {cuisineColumns.map(({ key: dayKey }) => {
                           const isActive = (formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey];
-                          const val = (formData.piqueNiqueDetails.orders as Record<string, Record<string, string>>)[dayKey][rowKey];
+                          const val = (formData.piqueNiqueDetails.orders as Record<string, Record<string, string>>)[dayKey]?.[rowKey] ?? "";
                           return (
                             <td key={dayKey} className="p-1">
                               <input

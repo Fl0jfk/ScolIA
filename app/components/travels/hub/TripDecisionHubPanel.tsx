@@ -26,6 +26,8 @@ type TripDecisionHubPanelProps = {
   handleReopenDossier: (value: string, label: string) => void;
   canCancelRecurrenceSession: boolean;
   cancelRecurrenceSession: () => void;
+  /** Circuit v2 : validation finale = ouverture des inscriptions ; plus de « Passer aux finances ». */
+  isWorkflowV2?: boolean;
 };
 
 export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
@@ -34,6 +36,7 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
     isOwner, skipTransportToCompta, loadingAction, seriesId, validateSeriesPedagogy,
     handleFinalValidation, handleRegenerateCircular, reopenStepOptions, selectedReopenStep,
     setReopenStep, handleReopenDossier, canCancelRecurrenceSession, cancelRecurrenceSession,
+    isWorkflowV2 = false,
   } = p;
   const canFinalValidate = canSign || isGlobalAdmin;
   return (
@@ -83,7 +86,7 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
                 Valider pédagogie
               </TripButton>
             )}
-            {(isOwner || canSign) && trip.type === "COMPLEX" && !withBusLogistics && trip.status === "PROF_LOGISTICS" && (
+            {!isWorkflowV2 && (isOwner || canSign) && trip.type === "COMPLEX" && !withBusLogistics && trip.status === "PROF_LOGISTICS" && (
               <TripButton variant="primary" size="sm" onClick={() => handleAction("EN_ATTENTE_COMPTA", "Sans bus — étape logistique non requise")}>
                 Passer aux finances
               </TripButton>
@@ -107,7 +110,7 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
             )}
             {canFinalValidate && trip.status === "EN_ATTENTE_DIR_FINAL" && (
               <TripButton variant="success" size="sm" onClick={handleFinalValidation}>
-                {loadingAction ? "Finalisation…" : "Validation finale"}
+                {loadingAction ? "Finalisation…" : isWorkflowV2 ? "Validation finale — ouvrir les inscriptions" : "Validation finale"}
               </TripButton>
             )}
             {trip.status === "VALIDE" && (canFinalValidate || isOwner) && (

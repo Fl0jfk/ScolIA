@@ -35,6 +35,14 @@ import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
+import { familyPageReadiness, isWorkflowV2, todayIsoParis, validatePriceBlock } from "@/app/lib/travels-v2";
+import {
+  TripFamilyPagePanel,
+  TripOpenRegistrationsModal,
+  TripPriceBlockEditor,
+  type SaveResult,
+} from "@/app/components/travels/hub/TripFamilyPagePanel";
+import type { TravelsFamilyPage, TravelsPriceBlock } from "@/app/lib/travels-types";
 import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
@@ -141,6 +149,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const comptaTabAutoOpened = useRef<string | null>(null);
   const tripStatusRef = useRef(trip?.status);
   tripStatusRef.current = trip?.status;
+  const tripRef = useRef(trip);
+  tripRef.current = trip;
+  /** Dernier message d’erreur renvoyé par /api/travels/update (utilisé par le circuit v2). */
+  const lastSaveErrorRef = useRef<string | null>(null);
+  const isV2 = isWorkflowV2(trip);
+  const [showOpenRegistrations, setShowOpenRegistrations] = useState(false);
   const [draftCoutTotal, setDraftCoutTotal] = useState("");
   const [cuisineModalStandalone, setCuisineModalStandalone] = useState(false);
   const [draftCuisineDetails, setDraftCuisineDetails] = useState<ReturnType<typeof emptyCuisineDetails> | null>(null);
@@ -196,6 +210,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       if (t.id === "cuisine" && !hasCuisine) return false;
       if (t.id === "communication" && !hasEleves) return false;
       if (t.id === "compta" && !canAccessComptaTab) return false;
+      if (t.id === "familypage" && !isWorkflowV2(trip)) return false;
       return true;
     }).map((t) => t.id);
     if (!allowed.includes(hubTab)) setHubTab("overview");
@@ -306,11 +321,49 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         setPendingRemovedAttachmentKeys([]);
         return true;
       }
+      if (isWorkflowV2(updatedTrip) || isWorkflowV2(trip)) {
+        const errPayload = (await res.json().catch(() => ({}))) as { error?: string };
+        lastSaveErrorRef.current = errPayload?.error || null;
+      }
       return false;
     } catch (err) {
       console.error("Erreur sauvegarde:", err);
       return false;
     }
+  };
+  /** v2 : enregistre la page des familles (texte, pièces, date limite). Contrôles complets côté serveur. */
+  const saveFamilyPage = async (page: TravelsFamilyPage): Promise<SaveResult> => {
+    lastSaveErrorRef.current = null;
+    const ok = await saveUpdates({
+      ...trip,
+      data: {
+        ...trip.data,
+        familyPage: {
+          ...page,
+          authorName: user?.fullName || page.authorName,
+          authorId: user?.id || page.authorId,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+    return ok ? { ok } : { ok, error: lastSaveErrorRef.current || undefined };
+  };
+  /** v2 : bloc prix saisi par la compta (refusé par le serveur pour tout autre rôle). */
+  const savePriceBlock = async (block: TravelsPriceBlock): Promise<SaveResult> => {
+    lastSaveErrorRef.current = null;
+    const ok = await saveUpdates({
+      ...trip,
+      data: {
+        ...trip.data,
+        priceBlock: {
+          ...block,
+          authorName: user?.fullName || undefined,
+          authorId: user?.id || undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+    return ok ? { ok } : { ok, error: lastSaveErrorRef.current || undefined };
   };
   const CIRCULAR_ATTACHMENT_NAME = "📄 Circulaire Parents";
   const isCircularAttachment = (file: { name?: string }) =>
@@ -384,9 +437,35 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       setLoadingAction(null);
     }
   };
+  /** v2 : la validation finale ouvre les inscriptions des familles (aucun envoi dans ce lot). */
+  const confirmOpenRegistrations = async () => {
+    if (!canSign && !isGlobalAdmin) {
+      return alert("Seule la direction de l'établissement concerné (ou un administrateur général) peut ouvrir les inscriptions.");
+    }
+    const readiness = familyPageReadiness(trip.data, todayIsoParis());
+    if (!readiness.ready) return alert(readiness.problems.join("\n"));
+    setLoadingAction("final-validation");
+    lastSaveErrorRef.current = null;
+    try {
+      await handleAction("INSCRIPTIONS_OUVERTES", "Validation finale — inscriptions des familles ouvertes", {
+        familyPage: {
+          ...(trip.data.familyPage || { text: "", documents: [] }),
+          openedAt: new Date().toISOString(),
+          openedBy: user?.fullName || undefined,
+        },
+      });
+    } finally {
+      setShowOpenRegistrations(false);
+      setLoadingAction(null);
+    }
+  };
   const handleFinalValidation = async () => {
     if (!canSign && !isGlobalAdmin) {
       return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
+    }
+    if (isWorkflowV2(trip)) {
+      setShowOpenRegistrations(true);
+      return;
     }
     setLoadingAction("final-validation");
     try {
@@ -616,7 +695,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (saved) setPendingRemovedAttachmentKeys([]);
     setIsEditing(false);
     setLoadingAction(null);
-    if (!saved) alert("Impossible d'enregistrer la modification. Réessayez.");
+    if (!saved) alert((isWorkflowV2(source) && lastSaveErrorRef.current) || "Impossible d'enregistrer la modification. Réessayez.");
   };
 
   const skipTransportToCompta = async () => {
@@ -661,6 +740,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const onComptaValidateBudget = useCallback(
     async (sheet: TravelsComptaSheet) => {
       if (tripStatusRef.current !== "EN_ATTENTE_COMPTA") return;
+      if (isWorkflowV2(tripRef.current)) {
+        const pb = validatePriceBlock(tripRef.current.data.priceBlock);
+        if (!pb.ok) {
+          alert(pb.error + "\n\nEnregistrez d'abord le bloc prix (en haut de l'onglet Compta).");
+          return;
+        }
+      }
       const finalSheet = computeComptaSheetDerived(sheet);
       const total = finalSheet.depensesTotal;
       const perStudent = comptaDefinitiveCostPerStudent(finalSheet);
@@ -1617,6 +1703,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (t.id === "cuisine" && !hasCuisineOrder) return false;
     if (t.id === "communication" && participantCount === 0) return false;
     if (t.id === "compta" && !canAccessComptaTab) return false;
+    if (t.id === "familypage" && !isV2) return false;
     return true;
   });
   const documentCount =
@@ -1632,8 +1719,22 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     communication: trip.data.parentComLogs?.length || undefined,
     messages: trip.unreadInternalCount || undefined,
   };
-  const currentSteps =
-    trip.type === "COMPLEX"
+  const currentSteps = isV2
+    ? withBusLogistics
+      ? [
+          { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
+          { n: "2", label: "Devis transport + page familles", key: "PROF_LOGISTICS" },
+          { n: "3", label: "Finances", key: "EN_ATTENTE_COMPTA" },
+          { n: "4", label: "Validation finale", key: "EN_ATTENTE_DIR_FINAL" },
+          { n: "5", label: "Inscriptions des familles", key: "INSCRIPTIONS_OUVERTES" },
+        ]
+      : [
+          { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
+          { n: "2", label: "Finances + page familles", key: "EN_ATTENTE_COMPTA" },
+          { n: "3", label: "Validation finale", key: "EN_ATTENTE_DIR_FINAL" },
+          { n: "4", label: "Inscriptions des familles", key: "INSCRIPTIONS_OUVERTES" },
+        ]
+    : trip.type === "COMPLEX"
       ? withBusLogistics
         ? [
             { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
@@ -1659,7 +1760,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         ];
   const reopenStepOptions: { value: string; label: string }[] = [];
   for (const s of currentSteps) {
-    if (s.key === "VALIDE" || s.key === "FINALISE_DIR_ATTENTE_ELEVES") continue;
+    if (s.key === "VALIDE" || s.key === "FINALISE_DIR_ATTENTE_ELEVES" || s.key === "INSCRIPTIONS_OUVERTES") continue;
     reopenStepOptions.push({ value: s.key, label: s.label });
   }
   if (withBusLogistics && !reopenStepOptions.some((o) => o.value === "EN_ATTENTE_BUS_SIGNATURE")) {
@@ -1919,6 +2020,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         </TripAlert>
       )}
 
+      {hubTab === "familypage" && isV2 && (
+        <TripFamilyPagePanel
+          trip={trip}
+          canEditText={isOwner || isAdministratif || isGlobalAdmin || canSign}
+          saveFamilyPage={saveFamilyPage}
+        />
+      )}
+
       {hubTab === "transport" && withBusLogistics && (
         <TripTransportHubPanel
           trip={trip}
@@ -2055,6 +2164,10 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         />
       )}
 
+      {hubTab === "compta" && canAccessComptaTab && !isEditing && isV2 && (
+        <TripPriceBlockEditor trip={trip} canEdit={isCompta} onSave={savePriceBlock} />
+      )}
+
       {hubTab === "compta" && canAccessComptaTab && !isEditing && (
         <TravelsComptaSheetForm
           tripId={trip.id}
@@ -2085,6 +2198,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           seriesId={seriesId}
           validateSeriesPedagogy={validateSeriesPedagogy}
           handleFinalValidation={handleFinalValidation}
+          isWorkflowV2={isV2}
           handleRegenerateCircular={handleRegenerateCircular}
           reopenStepOptions={reopenStepOptions}
           selectedReopenStep={selectedReopenStep}
@@ -2107,6 +2221,15 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         >
           Retirer uniquement ce créneau sans modifier les autres dossiers de la série.
         </TripAlert>
+      )}
+
+      {showOpenRegistrations && isV2 && (
+        <TripOpenRegistrationsModal
+          trip={trip}
+          busy={loadingAction === "final-validation" || loadingAction === "action"}
+          onCancel={() => setShowOpenRegistrations(false)}
+          onConfirm={() => void confirmOpenRegistrations()}
+        />
       )}
 
       <TripDetailsModals

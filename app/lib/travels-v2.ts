@@ -107,9 +107,17 @@ const WEEKDAY_KEYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendre
  * Pour que les écrans existants (structure lundi…vendredi) continuent d'afficher quelque chose,
  * on recopie les dates tombant du lundi au vendredi, sans écraser un jour déjà pris (collision).
  */
-export function mirrorPiqueNiqueDatesToWeekdays(details: Record<string, unknown>): Record<string, unknown> {
+export function mirrorPiqueNiqueDatesToWeekdays(
+  details: Record<string, unknown>,
+  /** Jours réels du séjour : les dates hors séjour (anciennes sélections) sont retirées. */
+  allowedDays?: string[],
+): Record<string, unknown> {
   const sel = { ...((details.daysSelection as Record<string, boolean>) || {}) };
   const orders = { ...((details.orders as Record<string, unknown>) || {}) };
+  if (allowedDays) {
+    for (const k of Object.keys(sel)) if (isIsoDate(k) && !allowedDays.includes(k)) delete sel[k];
+    for (const k of Object.keys(orders)) if (isIsoDate(k) && !allowedDays.includes(k)) delete orders[k];
+  }
   const used = new Set<string>();
   const isoKeys = Object.keys(sel)
     .filter((k) => isIsoDate(k))

@@ -20,6 +20,7 @@ const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   EN_ATTENTE_BUS_SIGNATURE: { label: "Signature devis bus", tone: "bg-amber-100 text-amber-900 ring-amber-200" },
   EN_ATTENTE_COMPTA: { label: "Validation finances", tone: "bg-cyan-100 text-cyan-900 ring-cyan-200" },
   EN_ATTENTE_DIR_FINAL: { label: "Validation finale", tone: "bg-indigo-100 text-indigo-800 ring-indigo-200" },
+  INSCRIPTIONS_OUVERTES: { label: "Inscriptions des familles", tone: "bg-lime-100 text-lime-900 ring-lime-200" },
 };
 
 function tripStatusDisplay(status: string) {

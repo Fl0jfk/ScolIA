@@ -24,6 +24,16 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
+import { TravelsV2CreationSection } from "@/app/components/travels/TravelsV2Creation";
+import type { TravelsFamilyDocRequest, TravelsParticipantEleve } from "@/app/lib/travels-types";
+import {
+  dayShortLabelFr,
+  isIsoDate,
+  mirrorPiqueNiqueDatesToWeekdays,
+  shouldCreateTripAsV2,
+  todayIsoParis,
+  validateFamilyDocuments,
+} from "@/app/lib/travels-v2";
 
 const CUISINE_DAYS = [
   { key: "lundi",    label: "Lun." },
@@ -64,6 +74,8 @@ function SimpleTripFormContent() {
   const [loadedOwner, setLoadedOwner] = useState<TravelsOwnerFields | null>(null);
   const [ownerAssignPending, setOwnerAssignPending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [preListe, setPreListe] = useState<TravelsParticipantEleve[]>([]);
+  const [familyDocuments, setFamilyDocuments] = useState<TravelsFamilyDocRequest[]>([]);
   const [formData, setFormData] = useState({
     title: "",
     etablissement: "",
@@ -176,6 +188,15 @@ function SimpleTripFormContent() {
     const updatedFiles = (formData.attachments || []).filter((_, i) => i !== index);
     setFormData({ ...formData, attachments: updatedFiles });
   };
+  /** Circuit v2 : drapeau tenant, nouveau dossier unique (les séries récurrentes restent en v1). */
+  const workflowV2 = shouldCreateTripAsV2({
+    flagEnabled: appCtx?.travelsOptions?.workflowV2Enabled === true && !editId,
+    isRecurrenceSeries: recurrenceEnabled,
+  });
+  const cuisineColumns: { key: string; label: string }[] =
+    workflowV2 && isIsoDate(formData.date)
+      ? [{ key: formData.date, label: dayShortLabelFr(formData.date) }]
+      : CUISINE_DAYS;
   if (!isLoaded || fetching) return <div className="p-10 text-center font-medium">Chargement du dossier...</div>;
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,6 +211,21 @@ function SimpleTripFormContent() {
     if (Number(formData.nbAccompagnateurs) < 1 && formData.accompagnateurs.length === 0) {
       alert("Indiquez au moins 1 accompagnateur (nombre ou nom — les noms peuvent être précisés plus tard).");
       return;
+    }
+    if (workflowV2) {
+      if (!isIsoDate(formData.date)) {
+        alert("Indiquez la date de la sortie.");
+        return;
+      }
+      if (preListe.length === 0) {
+        alert("Sélectionnez au moins un élève invité (pré-liste provisoire).");
+        return;
+      }
+      const docsCheck = validateFamilyDocuments(familyDocuments, { departureIso: formData.date });
+      if (!docsCheck.ok) {
+        alert(docsCheck.error);
+        return;
+      }
     }
     const ownerFields =
       editId && loadedOwner?.ownerId
@@ -294,7 +330,17 @@ function SimpleTripFormContent() {
         ownerEmail: ownerFields.ownerEmail,
         type: "SIMPLE",
         status: "EN_ATTENTE_DIR_INITIAL",
-        data: formData,
+        data: workflowV2
+          ? {
+              ...formData,
+              workflowVersion: 2 as const,
+              preListeEleves: preListe,
+              familyPage: { text: "", documents: familyDocuments },
+              piqueNiqueDetails: formData.piqueNiqueDetails.active
+                ? (mirrorPiqueNiqueDatesToWeekdays(formData.piqueNiqueDetails, [formData.date]) as typeof formData.piqueNiqueDetails)
+                : formData.piqueNiqueDetails,
+            }
+          : formData,
         updatedAt: new Date().toISOString(),
         createdAt: editId ? undefined : new Date().toISOString(),
         history: [],
@@ -308,7 +354,8 @@ function SimpleTripFormContent() {
         router.push("/travels");
         router.refresh();
       } else {
-        alert("Erreur lors de la sauvegarde");
+        const err = workflowV2 ? await response.json().catch(() => ({})) : {};
+        alert(err?.error || "Erreur lors de la sauvegarde");
       }
     } catch (error) {
       console.error(error);
@@ -466,7 +513,7 @@ function SimpleTripFormContent() {
           </div>
         </div>
         <div>
-          <label className="block text-sm font-semibold mb-2">Coût total estimé (€)</label>
+          <label className="block text-sm font-semibold mb-2">Coût total estimé (€){workflowV2 ? <span className="block text-[11px] font-normal text-slate-500">Budget interne — n’apparaît pas sur la page des familles</span> : null}</label>
           <input type="number" value={formData.coutTotal} className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500" onChange={e => setFormData({...formData, coutTotal: Number(e.target.value)})} />
         </div>
         <div className="md:col-span-2 space-y-4 border-b pb-4 mt-4 text-slate-400 uppercase text-xs font-bold tracking-widest">
@@ -553,7 +600,7 @@ function SimpleTripFormContent() {
               <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Jours concernés</label>
                 <div className="flex gap-1.5">
-                  {CUISINE_DAYS.map(({ key: dayKey, label }) => {
+                  {cuisineColumns.map(({ key: dayKey, label }) => {
                     const isSelected = (formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey];
                     return (
                       <button key={dayKey} type="button"
@@ -571,7 +618,7 @@ function SimpleTripFormContent() {
                 <thead>
                   <tr className="bg-indigo-600 text-white">
                     <th className="text-left p-2.5 font-semibold w-40">Désignation</th>
-                    {CUISINE_DAYS.map(({ key: dayKey, label }) => (
+                    {cuisineColumns.map(({ key: dayKey, label }) => (
                       <th key={dayKey} className={`p-2.5 text-center font-semibold transition-opacity ${(formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey] ? 'opacity-100' : 'opacity-30'}`}>{label}</th>
                     ))}
                   </tr>
@@ -580,9 +627,9 @@ function SimpleTripFormContent() {
                   {CUISINE_ROWS.map(({ key: rowKey, label, type }, rowIdx) => (
                     <tr key={rowKey} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                       <td className={`p-2 font-medium text-slate-700 whitespace-nowrap ${rowKey === 'picnicNoPork' || rowKey === 'picnicVeg' ? 'pl-5 text-slate-500 italic' : ''}`}>{label}</td>
-                      {CUISINE_DAYS.map(({ key: dayKey }) => {
+                      {cuisineColumns.map(({ key: dayKey }) => {
                         const isActive = (formData.piqueNiqueDetails.daysSelection as Record<string, boolean>)[dayKey];
-                        const val = (formData.piqueNiqueDetails.orders as Record<string, Record<string, string>>)[dayKey][rowKey];
+                        const val = (formData.piqueNiqueDetails.orders as Record<string, Record<string, string>>)[dayKey]?.[rowKey] ?? "";
                         return (
                           <td key={dayKey} className="p-1">
                             <input
@@ -615,6 +662,23 @@ function SimpleTripFormContent() {
             <p className="text-[10px] text-slate-500 italic bg-amber-50 border border-amber-100 p-2.5 rounded-lg">
               ⚠️ Fournir la liste des élèves et adultes <strong>15 jours avant</strong> la sortie. Affiner 24h avant (toute absence non signalée 24h avant sera facturée). Commande à envoyer à : <strong>chef.0056isi@newrest.eu</strong>
             </p>
+          </div>
+        )}
+        {workflowV2 && (
+          <div className="md:col-span-2">
+            <TravelsV2CreationSection
+              stepNumber={1}
+              departureIso={isIsoDate(formData.date) ? formData.date : ""}
+              todayIso={todayIsoParis()}
+              tripClasses={formData.classes}
+              preListe={preListe}
+              onPreListeChange={(next) => {
+                setPreListe(next);
+                if (next.length > 0) setFormData((prev) => ({ ...prev, nbEleves: String(next.length) }));
+              }}
+              documents={familyDocuments}
+              onDocumentsChange={setFamilyDocuments}
+            />
           </div>
         )}
         <div className="md:col-span-2 space-y-4 border-t pt-8 mt-4">
