@@ -56,6 +56,10 @@ export const FAMILY_PAGE_TEMPLATE = {
     oneShot: "Vous pouvez aussi régler en une seule fois : adressez-vous à la comptabilité.",
   },
 
+  /** Fin de tous les e-mails envoyés aux familles (expéditeur mailer@, aucune réponse lue). */
+  mailNoReply:
+    "Cet e-mail est envoyé automatiquement : merci de ne pas y répondre, cette adresse ne reçoit pas les réponses. Pour toute question, contactez l'organisateur du voyage par la messagerie de l'établissement ou par le carnet de correspondance.",
+
   /** Libellé affiché quand le bloc prix n'est pas encore saisi par la comptabilité (aperçu projet). */
   pricePending: "À renseigner par la comptabilité.",
 

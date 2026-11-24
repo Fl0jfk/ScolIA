@@ -51,6 +51,9 @@ describe("page des familles — trame fixe", () => {
     assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /« non »/);
     assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /PAI/);
     assert.match(FAMILY_PAGE_TEMPLATE.cashNotIncluded, /pas comprise dans le prix/);
+    assert.match(FAMILY_PAGE_TEMPLATE.mailNoReply, /ne pas y répondre/);
+    assert.match(FAMILY_PAGE_TEMPLATE.mailNoReply, /messagerie de l'établissement/);
+    assert.match(FAMILY_PAGE_TEMPLATE.mailNoReply, /carnet de correspondance/);
   });
   it("remplit les variables, « … » si inconnue", () => {
     assert.equal(fillFamilyTemplate("A {x} B {y}", { x: "1" }), "A 1 B …");

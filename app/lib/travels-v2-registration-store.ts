@@ -28,6 +28,7 @@ import {
   sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 import { buildFamilyPagePreviewModel, listPicnicDays } from "@/app/lib/travels-family-page";
+import { FAMILY_PAGE_TEMPLATE } from "@/app/lib/travels-family-page-template";
 import { getTravelTrip, listTravelsIndex } from "@/app/lib/travels-storage";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { isWorkflowV2, todayIsoParis } from "@/app/lib/travels-v2";
@@ -263,6 +264,21 @@ export async function mailContext() {
   return { smtp, transporter, school };
 }
 
+/**
+ * E-mail aux familles : pas d'adresse de réponse (l'expéditeur mailer@ ne lit pas les réponses) et mention
+ * fixe en fin de message renvoyant vers la messagerie de l'établissement ou le carnet de correspondance.
+ */
+export function familyMail<T extends { text: string; html: string; replyTo?: string }>(msg: T): Omit<T, "replyTo"> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { replyTo: _ignored, ...rest } = msg;
+  const note = FAMILY_PAGE_TEMPLATE.mailNoReply;
+  return {
+    ...rest,
+    text: `${msg.text}\n\n—\n${note}`,
+    html: `${msg.html}<p style="font-family: Arial, sans-serif; font-size:12px; color:#64748b; border-top:1px solid #e2e8f0; padding-top:12px; margin-top:24px; max-width:560px;">${escapeHtml(note)}</p>`,
+  };
+}
+
 export function validReplyTo(email: string | undefined): string | undefined {
   const e = String(email || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : undefined;
@@ -331,14 +347,13 @@ export async function sendInvitationLink(opts: {
   try {
     await sendMailWithTimeout(
       mail.transporter,
-      {
+      familyMail({
         from: `"Sorties scolaires" <${mail.smtp.user}>`,
         to: inv.email,
-        replyTo: validReplyTo(trip.ownerEmail),
         subject: `Voyage scolaire « ${title} » — inscription de ${kid}`,
         text,
         html,
-      },
+      }),
       60_000,
     );
     const res = await mutateInvitation(inv.tripId, inv.id, (cur) => mutTokenSendOk(cur, new Date().toISOString(), true));
@@ -632,7 +647,7 @@ export async function sendSigningCode(
   try {
     await sendMailWithTimeout(
       mail.transporter,
-      {
+      familyMail({
         from: `"Sorties scolaires" <${mail.smtp.user}>`,
         to: ctx.inv.email,
         subject: `Votre code de signature : ${code}`,
@@ -640,7 +655,7 @@ export async function sendSigningCode(
         html: `<p>Votre code de signature pour le voyage <strong>« ${escapeHtml(title)} »</strong> :</p>
                <p style="font-size:28px;font-weight:bold;letter-spacing:6px;">${code}</p>
                <p style="color:#64748b;font-size:13px;">Il est valable 10 minutes. Ne le communiquez à personne.</p>`,
-      },
+      }),
       30_000,
     );
   } catch {
@@ -867,17 +882,16 @@ async function sendConfirmationMail(ctx: PublicContext, pdf: Buffer, title: stri
   try {
     await sendMailWithTimeout(
       mail.transporter,
-      {
+      familyMail({
         from: `"Sorties scolaires" <${mail.smtp.user}>`,
         to: inv.email,
-        replyTo: validReplyTo(trip.ownerEmail),
         subject: `Inscription confirmée — ${title} (${firstName(inv.studentName)})`,
         text: `Bonjour,\n\nVotre signature est enregistrée : ${inv.studentName} est inscrit(e) au voyage « ${title} ».\nVous trouverez en pièces jointes la circulaire signée (PDF) et le fichier agenda (.ics : séjour et rendez-vous de départ et de retour).\n\n${mail.school}`,
         html: `<p>Bonjour,</p><p>Votre signature est enregistrée : <strong>${escapeHtml(inv.studentName)}</strong> est inscrit(e) au voyage <strong>« ${escapeHtml(title)} »</strong>.</p>
                <p>Vous trouverez en pièces jointes la circulaire signée (PDF) et le fichier agenda (.ics : séjour et rendez-vous de départ et de retour).</p>
                <p>Cordialement,<br/>${escapeHtml(mail.school)}</p>`,
         attachments,
-      },
+      }),
       60_000,
     );
     await note({ confirmationMailSentAt: new Date().toISOString() });
@@ -1126,10 +1140,9 @@ export async function sendSiblingCopies(opts: {
     try {
       await sendMailWithTimeout(
         mail.transporter,
-        {
+        familyMail({
           from: `"Sorties scolaires" <${mail.smtp.user}>`,
           to: s.email,
-          replyTo: validReplyTo(trip.ownerEmail),
           subject: `Voyage « ${title} » — ${kid} a été inscrit(e)`,
           text: `Bonjour,\n\nUn responsable de ${kid} a inscrit votre enfant au voyage scolaire « ${title} ».\nSi vous n'êtes pas d'accord, vous pouvez le signaler à la direction depuis cette page (un code vous sera envoyé par e-mail pour confirmer) : ${link}\nSans action de votre part, l'inscription est maintenue.\n\n${mail.school}`,
           html: `<div style="font-family: Arial, sans-serif; max-width: 560px; color: #1e293b;">
@@ -1139,7 +1152,7 @@ export async function sendSiblingCopies(opts: {
             <p style="margin:24px 0;"><a href="${escapeHtml(link)}" style="background:#b91c1c;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Je ne suis pas d'accord</a></p>
             <p style="font-size:13px;color:#64748b;">Ce lien est personnel. Un code à 6 chiffres sera envoyé à cette adresse pour confirmer votre désaccord.</p>
             <p>Cordialement,<br/>${escapeHtml(mail.school)}</p></div>`,
-        },
+        }),
         60_000,
       );
       sent += 1;

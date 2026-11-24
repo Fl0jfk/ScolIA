@@ -49,6 +49,7 @@ import {
   sendSiblingCopies,
   validReplyTo,
   buildRegistrationRows,
+  familyMail,
   type PublicContext,
 } from "@/app/lib/travels-v2-registration-store";
 import { buildEngagement, buildShownSnapshot } from "@/app/lib/travels-v2-registration";
@@ -331,10 +332,9 @@ async function sendReminderMail(opts: {
   try {
     await sendMailWithTimeout(
       mail.transporter,
-      {
+      familyMail({
         from: `"Sorties scolaires" <${mail.smtp.user}>`,
         to: inv.email,
-        replyTo: validReplyTo(trip.ownerEmail),
         subject: `Rappel — voyage scolaire « ${title} » (${kid})`,
         text: `Bonjour,\n\n${lines.join("\n")}\n\nVotre page : ${link}\n\nCe lien est personnel.\n\n${mail.school}`,
         html: `<div style="font-family: Arial, sans-serif; max-width: 560px; color: #1e293b;"><p>Bonjour,</p>
@@ -342,7 +342,7 @@ async function sendReminderMail(opts: {
           ${lines.map((l) => `<p>${escapeHtml(l)}</p>`).join("")}
           <p style="margin:24px 0;"><a href="${escapeHtml(link)}" style="background:#4338ca;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Ouvrir ma page</a></p>
           <p style="font-size:13px;color:#64748b;">Ce lien est personnel : ne le transmettez pas.</p><p>Cordialement,<br/>${escapeHtml(mail.school)}</p></div>`,
-      },
+      }),
       60_000,
     );
     return true;
