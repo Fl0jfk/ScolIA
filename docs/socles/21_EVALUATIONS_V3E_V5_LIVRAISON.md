@@ -377,3 +377,7 @@ Principe inchangé (D-069) : l'export ne rend que ce que la famille peut voir ; 
 * **Nouveaux : 3** de registre (`les_tables_ent_note_et_le_journal_du_personnel_sont_classes`, `hors_export_par_eleve_est_justifie_et_sans_eleve`, et la garde par mutation de F9, qui remplace l'ancien test) ; **étendus :** `hors_export_seul_sur_une_table_a_etat_est_vu`, `passe4_l_export_de_l_eleve_…` (notes de reprise, devoir non publié, note sans devoir, correction, doublon, item et restriction non publiés, contrôle `direction`).
 * **Compteurs (règle 28)** : 0 table, 0 migration, `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES`, `MIGRATION_TAG` inchangés (vérifiés).
 * **Clippy 1.99.0 : 0 avertissement** sur les 3 commandes de la CI (`--workspace --all-targets`, avec `ent-api/labo,ent-lab/labo`, `-p ent-types`, `-D warnings`) ; `cargo metadata --locked` dans `ent-rust/web` : OK ; rustfmt appliqué **aux seules lignes touchées** (aucun `cargo fmt --all`).
+
+### 13.3 Tête et CI
+* **Tête du code :** `ecb77e6acc31e067dfc57e86f7f64a02298c10bb` (PR brouillon #148, `ent-socle-21-code-v5-suites-6` → `ENT`).
+* **CI « ENT Rust » sur cette tête : verte** (`completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**`.
