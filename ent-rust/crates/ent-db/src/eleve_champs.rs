@@ -62,8 +62,28 @@ impl PgEnt {
         if !parsed.is_staff() {
             return Ok(ProfilChamps::famille());
         }
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id)
+            .await
+            .map_err(EntDbError::from)?;
+        self.profil_champs_conn(&mut tx, etablissement_id, user_id, role).await
+    }
+
+    /// Même calcul sur la connexion **déjà ouverte** de l'appelant (F7 : aucune connexion supplémentaire).
+    pub(crate) async fn profil_champs_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<ProfilChamps, EntDbError> {
+        let Some(parsed) = Role::parse(role) else {
+            return Err(EntDbError::Forbidden);
+        };
+        if !parsed.is_staff() {
+            return Ok(ProfilChamps::famille());
+        }
         let droits = self
-            .droits_effectifs(etablissement_id, user_id, role)
+            .droits_effectifs_conn(&mut *conn, etablissement_id, user_id, role)
             .await?;
         let mut portees: [PorteeGroupe; 6] = std::array::from_fn(|_| PorteeGroupe::Aucune);
         for g in GroupeChamps::TOUS {
@@ -79,7 +99,7 @@ impl PgEnt {
             } else {
                 // Portées restreintes : l'ensemble des élèves couverts (une requête).
                 match self
-                    .eleves_autorises(etablissement_id, user_id, role, action)
+                    .eleves_autorises_conn(&mut *conn, etablissement_id, user_id, role, action)
                     .await?
                 {
                     None => PorteeGroupe::Tout,

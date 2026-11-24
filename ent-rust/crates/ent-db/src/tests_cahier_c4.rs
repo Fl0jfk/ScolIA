@@ -9,7 +9,31 @@ use chrono::DateTime;
 use domain_eleve::CreateEleve;
 use ent_types::cahier_c2::*;
 use ent_types::cahier_c4::*;
-use std::time::Instant;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+/// Compte les requêtes SQL émises par sqlx (une trace `sqlx::query` par requête) sur le fil du test. Les tests `tokio::test`
+/// tournent sur un seul fil : un abonné local à ce fil ne voit que les requêtes de ce test, sans horloge, donc sans dépendre
+/// de la charge de la machine. (Compte de requêtes, jamais une durée.)
+struct CompteRequetes(Arc<AtomicUsize>);
+
+impl tracing::Subscriber for CompteRequetes {
+    fn enabled(&self, m: &tracing::Metadata<'_>) -> bool {
+        m.target() == "sqlx::query"
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, e: &tracing::Event<'_>) {
+        if e.metadata().target() == "sqlx::query" {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
 
 async fn jour(fx: &Fx) -> NaiveDate {
     fx.ent.jour_etab(fx.cast.etablissement_id).await.unwrap()
@@ -217,9 +241,13 @@ async fn c4_groupe_de_4_classes_nombres_justes_aucune_matiere_hors_classe_alerte
         nature: Some("evaluation".into()),
         duree_estimee_min: None,
     };
-    let debut = Instant::now();
+    // Premier appel (non compté) : le pool ouvre ses connexions, aucune requête de mesure n'est faussée.
+    fx.ent.cdt_charge_apercu(&fx.prof(), body.clone()).await.unwrap();
+    let requetes = Arc::new(AtomicUsize::new(0));
+    let garde = tracing::subscriber::set_default(CompteRequetes(requetes.clone()));
     let a = fx.ent.cdt_charge_apercu(&fx.prof(), body.clone()).await.unwrap();
-    let duree_ms = debut.elapsed().as_millis();
+    drop(garde);
+    let nb_requetes_35 = requetes.load(Ordering::SeqCst);
     assert_eq!(a.nb_eleves, 35, "les élèves réels des quatre classes, pas la charge d'une classe");
     assert_eq!(
         a.evaluations_ce_jour.iter().map(|d| (d.valeur, d.nb_eleves)).collect::<Vec<_>>(),
@@ -243,17 +271,29 @@ async fn c4_groupe_de_4_classes_nombres_justes_aucune_matiere_hors_classe_alerte
         assert!(d.jour > auj && d.jour != j && ouvre(&fx, d.jour).await == d.jour, "jour ouvré après aujourd'hui");
         assert!(d.nb_eleves_au_dessus < eval.nb_eleves, "la date proposée est plus légère");
     }
-    // Performance : critère du cahier = 200 ms pour 35 élèves, vérifié seul sur base locale (meilleur de trois passages).
-    // Le test tourne en parallèle des autres sur un poste ou un exécuteur partagé (250 à 284 ms mesurés sous charge) : le seuil
-    // vérifié ici est un garde-fou de 500 ms, qui attrape une régression d'ordre de grandeur (requête par élève, balayage
-    // complet) sans dépendre de la charge de la machine.
-    let mut meilleur = duree_ms;
-    for _ in 0..2 {
-        let t = Instant::now();
-        fx.ent.cdt_charge_apercu(&fx.prof(), body.clone()).await.unwrap();
-        meilleur = meilleur.min(t.elapsed().as_millis());
-    }
-    assert!(meilleur < 500, "aperçu de 35 élèves en {meilleur} ms (garde-fou : moins de 500 ms ; critère seul : 200 ms)");
+    // Performance (F4) : AUCUNE durée. Le critère de 200 ms du cahier est une cible de conception ; ce qui se vérifie ici, de
+    // façon déterministe, c'est la forme du travail : un nombre de requêtes borné, indépendant du nombre d'élèves (jamais une
+    // requête par élève). Un aperçu de 35 élèves ne coûte pas plus de requêtes que celui d'une classe de 9.
+    let petit = ApercuBody { cours_ids: vec![cours_classes[0]], ..body.clone() };
+    fx.ent.cdt_charge_apercu(&fx.prof(), petit.clone()).await.unwrap();
+    let requetes_petit = Arc::new(AtomicUsize::new(0));
+    let garde = tracing::subscriber::set_default(CompteRequetes(requetes_petit.clone()));
+    fx.ent.cdt_charge_apercu(&fx.prof(), petit).await.unwrap();
+    drop(garde);
+    let nb_requetes_9 = requetes_petit.load(Ordering::SeqCst);
+    assert!(
+        nb_requetes_35 > 0,
+        "le compteur voit les requêtes (sinon la preuve ne prouve rien)"
+    );
+    assert_eq!(
+        nb_requetes_35, nb_requetes_9,
+        "le nombre de requêtes ne dépend pas du nombre d'élèves (jamais une par élève)"
+    );
+    // Mesuré : 19 requêtes. Marge pour une requête ajoutée à l'aperçu ; une requête par élève (35 de plus) dépasserait.
+    assert!(
+        nb_requetes_35 <= 30,
+        "aperçu : {nb_requetes_35} requêtes (borne : 30)"
+    );
 
     // Aperçu d'un cours de CLASSE (classe 1) : la matière des échéances de sa classe est montrée, jamais celle d'un autre
     // cours (le travail du groupe transversal n'a pas de classe : nature seulement).

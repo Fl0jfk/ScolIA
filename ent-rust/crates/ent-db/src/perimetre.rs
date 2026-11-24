@@ -150,6 +150,18 @@ impl PgEnt {
         prof_user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<Uuid>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        self.eleves_suivis_par_prof_conn(&mut tx, etablissement_id, prof_user_id, jour).await
+    }
+
+    /// Même règle sur la connexion **déjà ouverte** de l'appelant (F7).
+    pub(crate) async fn eleves_suivis_par_prof_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        prof_user_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<Uuid>, EntDbError> {
         let rows: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT p.eleve_id FROM ent_public_cours_jour($1, $3, NULL, $2, NULL) p
              UNION
@@ -196,7 +208,7 @@ impl PgEnt {
         .bind(prof_user_id)
         .bind(jour)
         .bind(FENETRE_REMPLACEMENT_JOURS)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())

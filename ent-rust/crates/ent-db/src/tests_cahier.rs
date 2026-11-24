@@ -1812,10 +1812,11 @@ async fn nb(fx: &Fx, table: &str) -> i64 {
         .unwrap()
 }
 
+/// La reprise n'est appelable que par le propriétaire (2419) : elle passe par le pool des vérifications.
 async fn reprendre(fx: &Fx) -> Vec<(String, i64, i64, i64)> {
     sqlx::query_as("SELECT objet, anciens, repris, quarantaine FROM ent_cdt_reprise($1)")
         .bind(fx.cast.etablissement_id)
-        .fetch_all(fx.ent.pool())
+        .fetch_all(fx.ent.pool_verif())
         .await
         .unwrap()
 }
@@ -2017,7 +2018,7 @@ async fn c1_annee_figee_sans_exception_pas_meme_la_reprise() {
         .bind(e).execute(fx.ent.pool()).await.unwrap_err();
     refus_du_gel(err, "UPDATE direct");
     // 2. La reprise elle-même : le devoir manquant appartient à une année figée, elle échoue sans rien écrire.
-    let err = sqlx::query("SELECT count(*) FROM ent_cdt_reprise($1)").bind(e).execute(fx.ent.pool()).await.unwrap_err();
+    let err = sqlx::query("SELECT count(*) FROM ent_cdt_reprise($1)").bind(e).execute(fx.ent.pool_verif()).await.unwrap_err();
     refus_du_gel(err, "reprise sur année figée");
     // 3. Imitation de la pile d'appel de la reprise par un commentaire dans un bloc DO : aucun effet.
     let err = sqlx::query(&format!(
