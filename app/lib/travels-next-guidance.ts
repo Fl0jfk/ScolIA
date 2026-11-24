@@ -1,5 +1,6 @@
 import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
+import { isWorkflowV2 } from "@/app/lib/travels-v2";
 import { TRAVELS_STATUS_LABELS, type TravelsHubTab, type TravelsTrip } from "@/app/lib/travels-types";
 import {
   buildTripWorkflowAudit,
@@ -61,7 +62,7 @@ function buildAiPrompt(trip: TravelsTrip, focusQuestion: string): string {
  * Texte « Qui doit faire quoi » selon le statut du séjour.
  * Retourne null pour les états terminaux (validé / annulé / refusé).
  */
-export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNextGuidance | null {
+function getTripNextGuidanceV1(trip: TravelsTrip, ctx: GuidanceCtx): TripNextGuidance | null {
   const { isOwner, canSign, isCompta, isGlobalAdmin = false, isAdministratif = false } = ctx;
   /** Peut confirmer la liste élèves + attribution repas (onglet Élèves). */
   const canConfirmElevesList = isOwner || canSign || isGlobalAdmin || isAdministratif;
@@ -435,6 +436,128 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
   }
 
   return null;
+}
+
+const V2_PARALLEL_FAMILY_PAGE_STEP =
+  "En parallèle : l’organisateur rédige la page des familles (onglet « Page familles », brouillon IA possible), choisit la date limite et les pièces demandées.";
+
+/**
+ * Guidage du circuit v2 (séjours avec `workflowVersion === 2`). Les séjours v1 passent par
+ * `getTripNextGuidanceV1` sans aucun changement.
+ */
+function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuidance | null): TripNextGuidance | null {
+  const { isOwner, canSign, isCompta, isGlobalAdmin = false } = ctx;
+  const status = String(trip.status || "");
+  const stepLabel = statusLabel(status);
+  const make = (
+    g: Omit<TripNextGuidance, "aiPrompt" | "stepLabel"> & { focusQuestion: string },
+  ): TripNextGuidance => ({
+    stepLabel,
+    who: g.who,
+    headline: g.headline,
+    what: g.what,
+    steps: g.steps,
+    youMustAct: g.youMustAct,
+    whileWaiting: g.whileWaiting,
+    ctaTab: g.ctaTab,
+    ctaLabel: g.ctaLabel,
+    aiPrompt: buildAiPrompt(trip, g.focusQuestion),
+  });
+
+  if (status === "EN_ATTENTE_DIR_INITIAL" || status === "PROF_LOGISTICS" || status === "EN_ATTENTE_BUS_SIGNATURE") {
+    if (!base) return base;
+    const familyTabCta = isOwner && status !== "EN_ATTENTE_DIR_INITIAL";
+    return {
+      ...base,
+      what:
+        status === "EN_ATTENTE_DIR_INITIAL"
+          ? `${base.what} Ensuite, les demandes de devis transport partent automatiquement (s’il y a un bus) et l’organisateur rédige la page des familles.`
+          : base.what,
+      steps: status === "EN_ATTENTE_DIR_INITIAL" ? base.steps : [...base.steps, V2_PARALLEL_FAMILY_PAGE_STEP],
+      ctaTab: base.ctaTab,
+      ...(familyTabCta && !base.youMustAct ? { ctaTab: "familypage" as const, ctaLabel: "Rédiger la page des familles" } : {}),
+    };
+  }
+
+  if (status === "EN_ATTENTE_COMPTA") {
+    return make({
+      who: "Comptabilité",
+      headline: isCompta
+        ? "C’est à la compta de saisir le bloc prix de la page des familles puis de valider le budget."
+        : "En attente de la comptabilité (bloc prix et budget).",
+      what: "La compta, et elle seule, fixe le prix par élève, les échéances et le texte de paiement qui apparaîtront sur la page des familles. Sa validation finances exige ce bloc prix.",
+      steps: isCompta
+        ? [
+            "Ouvrez l’onglet Compta.",
+            "Renseignez le bloc prix : prix par élève, échéances, texte de paiement.",
+            "Complétez la fiche budget (dépenses, nombre d’élèves).",
+            "Validez le budget : le dossier passe en validation finale direction.",
+          ]
+        : [
+            "La compta ouvre l’onglet Compta du séjour.",
+            "Elle renseigne le bloc prix (prix par élève, échéances, paiement) puis valide le budget.",
+            "L’organisateur ne peut pas écrire de prix dans la page : il rédige le texte, le prix vient de la compta.",
+          ],
+      youMustAct: isCompta,
+      whileWaiting: isCompta ? undefined : "L’organisateur peut terminer sa page des familles (texte, pièces, date limite) en attendant.",
+      ctaTab: "compta",
+      ctaLabel: isCompta ? "Saisir le bloc prix" : "Voir Compta",
+      focusQuestion: "Le séjour est en validation finances (circuit v2). Le bloc prix est-il rempli ? Que doit faire la compta ?",
+    });
+  }
+
+  if (status === "EN_ATTENTE_DIR_FINAL") {
+    const canOpen = canSign || isGlobalAdmin;
+    return make({
+      who: "Direction",
+      headline: canOpen
+        ? "Dernière étape : vérifier l’aperçu de la page des familles et ouvrir les inscriptions."
+        : "Budget OK — en attente de la validation finale direction (ouverture des inscriptions).",
+      what: canOpen
+        ? "La validation finale ouvre la page aux familles. La date limite de réponse doit être renseignée, au moins 7 jours après aujourd’hui et au plus tard 14 jours avant le départ. Aucun envoi aux familles n’est fait à cette étape."
+        : "La direction vérifie l’aperçu complet de la page puis ouvre les inscriptions.",
+      steps: canOpen
+        ? [
+            "Ouvrez l’onglet « Page familles » et relisez l’aperçu complet (texte, pièces, prix de la compta).",
+            "Vérifiez la date limite (au moins 7 jours après aujourd’hui, au plus tard J-14 avant le départ).",
+            "Cliquez sur « Validation finale — ouvrir les inscriptions ».",
+          ]
+        : [
+            "La direction relit l’aperçu de la page des familles.",
+            "Elle clique sur la validation finale : la page est alors verrouillée en écriture.",
+          ],
+      youMustAct: canOpen,
+      whileWaiting: canOpen ? undefined : "Rien à valider de votre côté. Si la date limite pose problème, l’organisateur doit la repousser.",
+      ctaTab: "familypage",
+      ctaLabel: canOpen ? "Voir l’aperçu et valider" : "Voir la page des familles",
+      focusQuestion: "Le séjour attend la validation finale (circuit v2). La date limite et la page sont-elles prêtes ?",
+    });
+  }
+
+  if (status === "INSCRIPTIONS_OUVERTES") {
+    return make({
+      who: "Familles, organisateur et direction",
+      headline: "Les inscriptions des familles sont ouvertes.",
+      what: "La page des familles est verrouillée en écriture. Les étapes suivantes (envoi aux familles, signatures, clôture) arrivent dans les prochaines versions du circuit.",
+      steps: ["Aucune action requise pour l’instant dans cette version."],
+      youMustAct: false,
+      ctaTab: "familypage",
+      ctaLabel: "Voir la page des familles",
+      focusQuestion: "Les inscriptions sont ouvertes (circuit v2). Que reste-t-il à faire ?",
+    });
+  }
+
+  return base;
+}
+
+/**
+ * Texte « Qui doit faire quoi » selon le statut du séjour.
+ * Retourne null pour les états terminaux (validé / annulé / refusé).
+ */
+export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNextGuidance | null {
+  const base = getTripNextGuidanceV1(trip, ctx);
+  if (!isWorkflowV2(trip)) return base;
+  return applyV2Guidance(trip, ctx, base);
 }
 
 /** Résumé neutre (sans rôle utilisateur) — utile pour l’outil Brain AI. */

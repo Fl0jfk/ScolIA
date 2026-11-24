@@ -5,6 +5,7 @@ import {
 } from "@/app/lib/travels-parent-calendar";
 import { formatCuisineDateFR } from "@/app/lib/travels-cuisine-shared";
 import { parseTravelDayStartMs } from "@/app/lib/travels-date-parse";
+import { isWorkflowV2 } from "@/app/lib/travels-v2";
 
 /** Motif affiché quand le dossier est en « Modifications demandées » (pas la dernière ligne d'historique). */
 export function getModificationRequestNote(trip: {
@@ -519,6 +520,7 @@ export type TravelsListPipeline = {
  * Frise de progression pour la liste `/travels` (points), adaptée SIMPLE vs COMPLEX+bus.
  */
 export function travelsListPipeline(trip: TravelsTrip): TravelsListPipeline {
+  if (isWorkflowV2(trip)) return travelsListPipelineV2(trip);
   const withBus = complexNeedsBus(trip);
   const steps: TravelsListPipelineStep[] = withBus
     ? [
@@ -584,6 +586,67 @@ export function travelsListPipeline(trip: TravelsTrip): TravelsListPipeline {
       ? "Liste élèves"
       : status === "BESOIN_MODIFICATION"
         ? "Modifications demandées"
+        : steps[Math.min(currentIndex, steps.length - 1)]?.label || "En cours";
+
+  return { steps, currentIndex, currentLabel, done, blocked };
+}
+
+/**
+ * Frise du circuit v2 : la rédaction de la page des familles se fait en parallèle du transport
+ * (ou comme étape propre quand il n'y a pas de bus), puis finances, validation finale, inscriptions.
+ */
+function travelsListPipelineV2(trip: TravelsTrip): TravelsListPipeline {
+  const withBus = complexNeedsBus(trip);
+  const steps: TravelsListPipelineStep[] = [
+    { id: "pedago", shortLabel: "Pédago", label: "Validation pédagogique" },
+    withBus
+      ? { id: "transport", shortLabel: "Bus", label: "Transport / devis · Page familles (en parallèle)" }
+      : { id: "famille", shortLabel: "Page", label: "Page des familles" },
+    { id: "finances", shortLabel: "Compta", label: "Validation finances" },
+    { id: "direction", shortLabel: "Final", label: "Validation finale" },
+    { id: "inscriptions", shortLabel: "Inscr.", label: "Inscriptions des familles" },
+    { id: "eleves", shortLabel: "OK", label: "Dossier finalisé" },
+  ];
+  const status = String(trip.status || "");
+  const blocked =
+    status === "BESOIN_MODIFICATION" ||
+    status === "REJETE" ||
+    status === "ANNULE" ||
+    status === "SEANCE_ANNULEE";
+
+  let currentIndex = 0;
+  switch (status) {
+    case "PROF_LOGISTICS":
+    case "EN_ATTENTE_BUS_SIGNATURE":
+      currentIndex = 1;
+      break;
+    case "EN_ATTENTE_COMPTA":
+      currentIndex = 2;
+      break;
+    case "EN_ATTENTE_DIR_FINAL":
+      currentIndex = 3;
+      break;
+    case "INSCRIPTIONS_OUVERTES":
+      currentIndex = 4;
+      break;
+    case "FINALISE_DIR_ATTENTE_ELEVES":
+      currentIndex = 5;
+      break;
+    case "VALIDE":
+      currentIndex = steps.length;
+      break;
+    default:
+      currentIndex = 0;
+      break;
+  }
+
+  const done = status === "VALIDE" || currentIndex >= steps.length;
+  const currentLabel = done
+    ? "Finalisé"
+    : status === "BESOIN_MODIFICATION"
+      ? "Modifications demandées"
+      : status === "INSCRIPTIONS_OUVERTES"
+        ? "Inscriptions des familles"
         : steps[Math.min(currentIndex, steps.length - 1)]?.label || "En cours";
 
   return { steps, currentIndex, currentLabel, done, blocked };

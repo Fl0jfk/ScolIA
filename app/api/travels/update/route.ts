@@ -185,8 +185,123 @@ export async function POST(req: Request) {
         );
       }
     }
+    // ── Circuit v2 (workflowVersion === 2) : contrôles serveur. Sans effet sur les dossiers v1. ──
+    let transportAutoSendClaimedAt: string | null = null;
+    const isV2Trip = existingInner.workflowVersion === 2 || saveInner.workflowVersion === 2;
+    if (isV2Trip) {
+      const {
+        checkWorkflowV2Update,
+        shouldSendTransportOnPedagogyValidation,
+        todayIsoParis,
+      } = await import("@/app/lib/travels-v2");
+      const { isGlobalAdminUser, userHasComptaRoleFromMetadata } = await import("@/app/lib/travels-roles");
+      const meV2 = await safeCurrentUser();
+      const etabV2 =
+        typeof saveInner.etablissement === "string"
+          ? saveInner.etablissement
+          : typeof existingInner.etablissement === "string"
+            ? existingInner.etablissement
+            : null;
+      const v2Check = checkWorkflowV2Update({
+        existingData: existingOnS3 ? existingInner : null,
+        incomingData: saveInner,
+        previousStatus,
+        newStatus,
+        actor: {
+          isCompta: userHasComptaRoleFromMetadata(meV2?.publicMetadata as Record<string, unknown> | undefined),
+          isDirectionOfEtab: Boolean(await canSignTravelsDirectionForEtab(meV2, etabV2)),
+          isGlobalAdmin: isGlobalAdminUser(meV2 ? { publicMetadata: meV2.publicMetadata as Record<string, unknown> } : null),
+        },
+        todayIso: todayIsoParis(),
+      });
+      if (!v2Check.ok) {
+        return NextResponse.json({ error: v2Check.error }, { status: v2Check.status });
+      }
+      if (v2Check.restorePriceBlock) {
+        saveInner.priceBlock = existingInner.priceBlock;
+      }
+      // Une page ouverte garde son horodatage d'ouverture (non modifiable par le client).
+      const existingPageV2 = existingInner.familyPage as Record<string, unknown> | undefined;
+      if (existingPageV2?.openedAt) {
+        saveInner.familyPage = {
+          ...((saveInner.familyPage as Record<string, unknown>) || {}),
+          openedAt: existingPageV2.openedAt,
+          openedBy: existingPageV2.openedBy,
+        };
+      }
+      if (v2Check.stampOpenedAt) {
+        saveInner.familyPage = {
+          ...((saveInner.familyPage as Record<string, unknown>) || {}),
+          openedAt: new Date().toISOString(),
+          openedBy: meV2?.fullName || undefined,
+        };
+      }
+      // Demandes de devis transport : envoi automatique, une seule fois, à la validation pédagogique.
+      if (
+        shouldSendTransportOnPedagogyValidation({
+          isV2: true,
+          previousStatus,
+          newStatus,
+          tripType: typeof objectToSave.type === "string" ? objectToSave.type : undefined,
+          needsBus: saveInner.needsBus === true,
+          transportRequestSentAt:
+            (existingInner.transportRequestSentAt as string | undefined) ||
+            (saveInner.transportRequestSentAt as string | undefined) ||
+            null,
+        })
+      ) {
+        transportAutoSendClaimedAt = new Date().toISOString();
+        saveInner.transportRequestSentAt = transportAutoSendClaimedAt;
+      } else if (existingInner.transportRequestSentAt) {
+        // Le marqueur ne se retire pas côté client.
+        saveInner.transportRequestSentAt = existingInner.transportRequestSentAt;
+      }
+      objectToSave.data = saveInner;
+    }
     objectToSave.updatedAt = new Date().toISOString();
     await putJson(tripRel, objectToSave);
+    if (transportAutoSendClaimedAt) {
+      try {
+        const { sendInitialTransportQuotes, buildInitialTransportQuoteSnapshot } = await import(
+          "@/app/lib/travels-send-initial-transport"
+        );
+        const sendResult = await sendInitialTransportQuotes({
+          tripId: String(tripId),
+          data: saveInner as import("@/app/lib/travels-types").TravelsTripData,
+          userName: String(objectToSave.ownerName || "Administration"),
+        });
+        if (sendResult.ok) {
+          saveInner.transportQuoteSnapshot = buildInitialTransportQuoteSnapshot(
+            saveInner as import("@/app/lib/travels-types").TravelsTripData,
+            transportAutoSendClaimedAt,
+          );
+        } else {
+          console.error("[travels/update] envoi auto devis transport:", sendResult.error);
+          delete saveInner.transportRequestSentAt;
+          objectToSave.history = [
+            ...(Array.isArray(objectToSave.history) ? objectToSave.history : []),
+            {
+              date: new Date().toISOString(),
+              action: "TRANSPORT_ENVOI_AUTO_ECHEC",
+              note: `Les demandes de devis n'ont pas pu partir automatiquement (${sendResult.error}). Utilisez « Relancer les demandes de devis » dans Transport.`,
+            },
+          ];
+        }
+      } catch (autoErr) {
+        console.error("[travels/update] envoi auto devis transport:", autoErr);
+        delete saveInner.transportRequestSentAt;
+        objectToSave.history = [
+          ...(Array.isArray(objectToSave.history) ? objectToSave.history : []),
+          {
+            date: new Date().toISOString(),
+            action: "TRANSPORT_ENVOI_AUTO_ECHEC",
+            note: "Les demandes de devis n'ont pas pu partir automatiquement. Utilisez « Relancer les demandes de devis » dans Transport.",
+          },
+        ];
+      }
+      objectToSave.data = saveInner;
+      await putJson(tripRel, objectToSave);
+    }
     const indexHit = await getJson<unknown[]>("travels/index.json");
     let currentIndex: unknown[] = Array.isArray(indexHit?.data) ? indexHit.data : [];
     const tripSummary = {

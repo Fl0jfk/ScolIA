@@ -5,6 +5,12 @@ import {
 } from "@/app/lib/travels-eleves-list";
 import { calendarHasDepotAndRecuperation } from "@/app/lib/travels-parent-calendar";
 import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
+import {
+  familyPageReadiness,
+  isWorkflowV2,
+  todayIsoParis,
+  validatePriceBlock,
+} from "@/app/lib/travels-v2";
 
 type TripWorkflowAudit = {
   tripId: string;
@@ -64,6 +70,20 @@ function statusLabel(status: string): string {
 }
 
 function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
+  if (isWorkflowV2(trip)) {
+    return [
+      "EN_ATTENTE_DIR_INITIAL (pédagogie)",
+      ...(withBus
+        ? [
+            "PROF_LOGISTICS (devis transport envoyés automatiquement ; en parallèle l’organisateur rédige la page des familles)",
+            "EN_ATTENTE_BUS_SIGNATURE (signature direction si devis seulement choisi)",
+          ]
+        : ["(sans bus : directement aux finances ; l’organisateur rédige la page des familles)"]),
+      "EN_ATTENTE_COMPTA (finances : bloc prix saisi par la compta)",
+      "EN_ATTENTE_DIR_FINAL (validation finale : date limite, aperçu complet)",
+      "INSCRIPTIONS_OUVERTES (inscriptions des familles)",
+    ];
+  }
   if (trip.type === "SIMPLE") {
     return [
       "EN_ATTENTE_DIR_INITIAL (pédagogie)",
@@ -321,6 +341,40 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
     if (note) blockers.push(`Motif modifications : ${note}`);
     else blockers.push("Modifications demandées (motif à lire sur la fiche / historique).");
     advice.push("Le créateur corrige le dossier puis le renvoie dans le circuit.");
+  }
+
+  // Circuit v2 : page des familles, bloc prix, date limite.
+  if (isWorkflowV2(trip)) {
+    const page = d.familyPage;
+    if (String(page?.text ?? "").trim()) filled.push("pageFamillesTexte");
+    if (page?.deadline) filled.push("dateLimiteFamilles");
+    if (validatePriceBlock(d.priceBlock).ok) filled.push("blocPrix");
+    if (page?.openedAt) filled.push("pageFamillesOuverte");
+    if (status === "EN_ATTENTE_COMPTA") {
+      if (!validatePriceBlock(d.priceBlock).ok) {
+        missingForCurrentStep.push("bloc prix de la page des familles (prix par élève, échéances, paiement) — compta uniquement");
+        blockers.push("Bloc prix non renseigné : la validation finances est impossible sans lui.");
+      }
+      advice.push("Circuit v2 : seule la compta saisit le bloc prix ; l’organisateur n’écrit aucun prix dans la page.");
+    } else if (status === "EN_ATTENTE_DIR_FINAL") {
+      const ready = familyPageReadiness(d, todayIsoParis());
+      for (const p of ready.problems) {
+        missingForCurrentStep.push(`page des familles : ${p}`);
+      }
+      advice.push(
+        "Circuit v2 : la validation finale ouvre les inscriptions (date limite ≥ 7 jours après aujourd’hui et au plus tard J-14). Aucun envoi aux familles dans cette version.",
+      );
+    } else if (
+      status === "PROF_LOGISTICS" ||
+      status === "EN_ATTENTE_BUS_SIGNATURE" ||
+      status === "EN_ATTENTE_COMPTA"
+    ) {
+      advice.push("Circuit v2 : l’organisateur peut rédiger la page des familles en parallèle du transport.");
+    } else if (status === "INSCRIPTIONS_OUVERTES") {
+      expectedActorsNow.push("familles");
+      advice.push("Inscriptions ouvertes : la page est verrouillée en écriture.");
+    }
+    if (d.transportRequestSentAt) filled.push("demandesDevisEnvoyees");
   }
 
   // Rappels transverses utiles

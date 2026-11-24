@@ -6,6 +6,8 @@ const TRAVELS_STATUSES = [
   "EN_ATTENTE_BUS_SIGNATURE",
   "EN_ATTENTE_COMPTA",
   "EN_ATTENTE_DIR_FINAL",
+  /** Circuit v2 uniquement : validation finale faite, la page des familles est ouverte aux inscriptions. */
+  "INSCRIPTIONS_OUVERTES",
   /** Direction a validé ; liste nominative élèves encore à confirmer (bloque la commande cuisine). */
   "FINALISE_DIR_ATTENTE_ELEVES",
   "VALIDE",
@@ -23,6 +25,7 @@ export const TRAVELS_STATUS_LABELS: Record<string, string> = {
   EN_ATTENTE_BUS_SIGNATURE: "Signature devis bus",
   EN_ATTENTE_COMPTA: "Validation finances",
   EN_ATTENTE_DIR_FINAL: "Validation finale",
+  INSCRIPTIONS_OUVERTES: "Inscriptions des familles",
   FINALISE_DIR_ATTENTE_ELEVES: "Finalisé direction — liste élèves",
   VALIDE: "Finalisé",
   BESOIN_MODIFICATION: "Modifications demandées",
@@ -136,7 +139,62 @@ export type TravelsParentCalendar = {
   points: TravelsCalendarPoint[];
 };
 
+/** Type de pièce demandée aux familles (circuit v2). */
+export type TravelsFamilyDocKind = "avant_signature" | "facultative" | "avant_depart";
+
+/** Pièce demandée aux familles. Jamais de document lié à la santé (voir travels-v2). */
+export type TravelsFamilyDocRequest = {
+  id: string;
+  label: string;
+  kind: TravelsFamilyDocKind;
+  /** YYYY-MM-DD — uniquement pour `avant_depart`. */
+  dueDate?: string;
+  /** Modèle vierge facultatif à télécharger par la famille. */
+  template?: { name: string; url: string; s3Key?: string };
+};
+
+/** Page des familles (circuit v2) rédigée par l'organisateur — aucun prix ici (voir `priceBlock`). */
+export type TravelsFamilyPage = {
+  text: string;
+  authorName?: string;
+  authorId?: string;
+  updatedAt?: string;
+  /** YYYY-MM-DD — date limite de réponse des familles. */
+  deadline?: string;
+  documents: TravelsFamilyDocRequest[];
+  /** Renseigné à la validation finale : la page est alors verrouillée en écriture. */
+  openedAt?: string;
+  openedBy?: string;
+};
+
+export type TravelsPriceInstallment = {
+  id: string;
+  /** YYYY-MM-DD */
+  dueDate: string;
+  amount: number;
+};
+
+/** Bloc prix de la page des familles — saisi par la compta uniquement. */
+export type TravelsPriceBlock = {
+  pricePerStudent: number;
+  installments: TravelsPriceInstallment[];
+  paymentText: string;
+  authorName?: string;
+  authorId?: string;
+  updatedAt?: string;
+};
+
 export type TravelsTripData = {
+  /** 2 = circuit « engagement des familles ». Absent = circuit historique (v1). */
+  workflowVersion?: 2;
+  /** v2 : page des familles (texte, pièces, date limite, ouverture). */
+  familyPage?: TravelsFamilyPage;
+  /** v2 : prix par élève, échéances et texte de paiement — réservé à la compta. */
+  priceBlock?: TravelsPriceBlock;
+  /** v2 : élèves invités (provisoire) ; la liste officielle = familles ayant signé. */
+  preListeEleves?: TravelsParticipantEleve[];
+  /** v2 : envoi automatique des demandes de devis (une seule fois). */
+  transportRequestSentAt?: string;
   title?: string;
   destination?: string;
   etablissement?: string;
@@ -344,7 +402,8 @@ export type TravelsHubTab =
   | "journal"
   | "messages"
   | "actions"
-  | "compta";
+  | "compta"
+  | "familypage";
 
 export const TRAVELS_HUB_TABS: { id: TravelsHubTab; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
@@ -357,4 +416,6 @@ export const TRAVELS_HUB_TABS: { id: TravelsHubTab; label: string; icon: string 
   { id: "messages", label: "Messagerie", icon: "💬" },
   { id: "actions", label: "Actions", icon: "⚡" },
   { id: "compta", label: "Compta", icon: "📊" },
+  /** Visible uniquement pour les séjours v2. */
+  { id: "familypage", label: "Page familles", icon: "📄" },
 ];

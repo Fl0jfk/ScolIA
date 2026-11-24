@@ -251,6 +251,11 @@ export type TravelsModuleConfig = {
   assistanceCardS3Key?: string;
   /** Nom affiché / téléchargement. */
   assistanceCardFileName?: string;
+  /**
+   * Circuit voyages v2 (« engagement des familles ») pour les nouveaux séjours (hors séries récurrentes).
+   * Absent = false : circuit historique. Aucun écran de réglage : modifiable via PUT /api/settings/travels.
+   */
+  workflowV2Enabled?: boolean;
 };
 
 export type ProfRoomModuleConfig = {
@@ -690,6 +695,7 @@ export function parseTravelsModule(raw: unknown): TravelsModuleConfig {
     signatureImageUrls: Object.keys(sigUrls).length ? sigUrls : undefined,
     assistanceCardS3Key,
     assistanceCardFileName: assistanceCardS3Key ? assistanceCardFileName : undefined,
+    ...(o.workflowV2Enabled === true ? { workflowV2Enabled: true } : {}),
   };
 }
 
