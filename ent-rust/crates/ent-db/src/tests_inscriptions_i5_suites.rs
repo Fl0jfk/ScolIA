@@ -1,8 +1,10 @@
 //! Socle 3, lot I5 — **suites de la passe 4** (« passe 5 »), contre la base locale de test (feature `labo`).
 //! Sans `ENT_DATABASE_URL`, les scénarios sont ignorés en local.
 //!
-//! Aucun test ne dépend de l'heure réelle ni du jour UTC : instants posés (2027), dates fixes (2099) ; les accès de la direction
-//! sont fermés par leur **état** ou par une date de fin fixée dans le passé lointain.
+//! Les instants passés au **service** sont posés (2027) ; l'horloge de la base (`now()`, jour courant de `ent_acces_ouvert`) reste lue
+//! par quelques écritures (horodatages de ligne, accès ouverts), mais aucune assertion ne la compare à un instant de test : les dates
+//! qui en dépendent sont fixées très loin du présent (2020, 2099). Voir aussi la règle 33 de PILOTAGE.
+//! Les accès de la direction sont fermés par leur **état** ou par une date de fin fixée dans le passé lointain.
 //!
 //! | Sujet | Test(s) |
 //! |---|---|
@@ -79,6 +81,8 @@ async fn s5_sentinelle_refuse_l_ecriture_hors_verrou() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
+    // Passe 6 : le rejeu de 304 retire puis recrée la sentinelle (garde de rejeu) ; ce test la vérifie, il tient donc la garde partagée.
+    let garde_rejeu = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
     let etab = c.etablissement_id;
     let (camp, offre) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
     let d = dossier(&ent, &c, camp, "Sentinelle", None).await;
@@ -157,6 +161,7 @@ async fn s5_sentinelle_refuse_l_ecriture_hors_verrou() {
         "suppression de proposition sans verrou",
     );
     ecrire(&ent, Some(offre), supprimer, d.id).await.unwrap();
+    garde_rejeu.liberer().await;
 }
 
 /// Contre-revue des suites (M1) : une proposition dont l'offre était **déduite du dossier** (A) et qui reçoit une offre propre
@@ -167,6 +172,8 @@ async fn s5_sentinelle_changement_d_offre_exige_l_ancienne_et_la_nouvelle() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
+    // Passe 6 : le rejeu de 304 retire puis recrée la sentinelle (garde de rejeu) ; ce test la vérifie, il tient donc la garde partagée.
+    let garde_rejeu = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
     let etab = c.etablissement_id;
     let (camp, offre_a) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
     let (_, offre_b) = campagne_cap(&ent, &c, Some(3), "2028-2029").await;
@@ -201,6 +208,7 @@ async fn s5_sentinelle_changement_d_offre_exige_l_ancienne_et_la_nouvelle() {
     let n = sqlx::query(&vers_b).bind(d.id).execute(&mut *tx).await.expect("les deux verrous suffisent");
     assert_eq!(n.rows_affected(), 1);
     tx.rollback().await.unwrap();
+    garde_rejeu.liberer().await;
 }
 
 /// La sentinelle ne se falsifie pas : le verrou d'**une autre offre**, le verrou **d'une autre session**, un réglage de session
@@ -212,6 +220,8 @@ async fn s5_sentinelle_ne_se_falsifie_pas() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
+    // Passe 6 : le rejeu de 304 retire puis recrée la sentinelle (garde de rejeu) ; ce test la vérifie, il tient donc la garde partagée.
+    let garde_rejeu = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
     let (_, offre_a) = campagne_cap(&ent, &c, Some(3), "2027-2028").await;
     let (_, offre_b) = campagne_cap(&ent, &c, Some(3), "2028-2029").await;
     let liberer = "UPDATE ent_inscription_offre SET liberations = liberations + 1 WHERE id = $1";
@@ -283,6 +293,7 @@ async fn s5_sentinelle_ne_se_falsifie_pas() {
         .await
         .unwrap();
     r.expect("un verrou réellement tenu par cette session satisfait la sentinelle");
+    garde_rejeu.liberer().await;
 }
 
 /// **M-2** : le service complet (dépôt, décisions, liste d'attente, désistement, désignation, proposition, acceptation,

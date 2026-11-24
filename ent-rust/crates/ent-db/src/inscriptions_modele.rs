@@ -1025,6 +1025,20 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // Passe 6 (F7) : l'archivage prend, comme toute écriture sur une offre, la campagne puis le verrou de l'offre ; le
+        // décompte des vœux est lu **sous** ce verrou (une décision qui crée un vœu sur cette offre le tient aussi).
+        // La campagne se lit d'abord sans verrou ; une offre inconnue ou déjà archivée reste « introuvable ».
+        let campagne_lue: Uuid = sqlx::query_scalar(
+            "SELECT campagne_id FROM ent_inscription_offre WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(offre_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        crate::inscriptions_attente::verrouiller_dans_l_ordre_tx(&mut tx, etab, Some(campagne_lue), &[offre_id], &[])
+            .await?;
         let (utilises,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_inscription_voeu WHERE etablissement_id = $1 AND offre_id = $2",
         )

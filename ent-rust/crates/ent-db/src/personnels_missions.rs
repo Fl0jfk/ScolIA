@@ -1901,19 +1901,20 @@ impl PgEnt {
     }
 
     /// Même règle, en ensemble : les élèves vus en lecture seule (filtre des listes de saisie).
-    pub(crate) async fn eleves_en_lecture_seule_du_prof(
+    /// Sur la connexion **déjà ouverte** de l'appelant (F7 : aucune connexion supplémentaire).
+    pub(crate) async fn eleves_en_lecture_seule_du_prof_conn(
         &self,
+        conn: &mut PgConnection,
         etab: Uuid,
         user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<Uuid>, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows: Vec<(Uuid,)> =
             sqlx::query_as("SELECT eleve_id FROM ent_eleves_lecture_seule($1, $2, $3)")
                 .bind(etab)
                 .bind(user_id)
                 .bind(jour)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut *conn)
                 .await
                 .map_err(db)?;
         Ok(rows.into_iter().map(|(e,)| e).collect())

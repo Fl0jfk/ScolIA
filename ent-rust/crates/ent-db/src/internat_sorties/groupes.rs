@@ -771,7 +771,7 @@ impl PgEnt {
             .fetch_one(&mut *conn)
             .await
             .map_err(db)?;
-            if !existe || self.eleve_cache_au_tiers(etab, actor, role, *e).await? {
+            if !existe || self.eleve_cache_au_tiers_conn(&mut *conn, etab, actor, role, *e).await? {
                 ecartes.push(EcarteDto {
                     eleve_id: *e,
                     motif: "inconnu".into(),

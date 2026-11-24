@@ -530,7 +530,7 @@ async fn s4_avis_regroupe_un_second_evenement_de_la_minute_met_a_jour_l_avis_non
         apres[0].contains("2 élèves"),
         "le nombre est à jour : {apres:?}"
     );
-    // Un avis déjà LU ne change plus sous les yeux de son lecteur.
+    // Un avis déjà LU : son lecteur doit savoir que le nombre a changé (voir plus bas).
     sqlx::query("UPDATE ent_notification SET lu_le = $3 WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND kind = 'internat_cas_ouvert'")
         .bind(b.etab)
         .bind(b.cpe)
@@ -550,8 +550,20 @@ async fn s4_avis_regroupe_un_second_evenement_de_la_minute_met_a_jour_l_avis_non
     );
     poser(e3).await;
     distribuer(&b).await;
+    // Suites 3 (F1, D-069) : un avis déjà lu dont le nombre change repasse à « non lu » avec le texte à jour (le lire une
+    // fois ne doit pas cacher qu'un autre élève s'est ajouté) ; le détail est éprouvé dans `tests_internat_i4_suites3`.
     let lu = avis_de(&b, b.cpe, "internat_cas_ouvert").await;
-    assert_eq!(lu, apres, "l'avis lu garde son texte");
+    assert_eq!(lu.len(), 1, "{lu:?}");
+    assert!(lu[0].contains("3 élèves"), "{lu:?}");
+    let non_lu: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT lu_le FROM ent_notification WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND kind = 'internat_cas_ouvert'",
+    )
+    .bind(b.etab)
+    .bind(b.cpe)
+    .fetch_one(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(non_lu.is_none(), "le nombre a changé : l'avis repasse non lu");
     // Les cas existent bien tous les trois (le nombre vient des événements, pas d'un compteur).
     assert_eq!(cas_de(&b, e3).await.len(), 1);
 }

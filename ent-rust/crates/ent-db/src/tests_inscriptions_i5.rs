@@ -1,8 +1,10 @@
 //! Socle 3, lot I5 (décisions, avis, commissions, liste d'attente, propositions de place, conditions), contre la
 //! base locale de test (feature `labo`). Sans `ENT_DATABASE_URL`, les scénarios sont ignorés en local.
 //!
-//! Aucun test ne dépend de l'heure réelle : tout instant passé au service est posé explicitement (dates de 2027),
-//! les délais de réponse se comparent à ces instants, jamais à « maintenant ».
+//! Les instants passés au **service** sont posés (2027) ; l'horloge de la base (`now()`, jour courant de `ent_acces_ouvert`) reste lue
+//! par quelques écritures (horodatages de ligne, accès ouverts), mais aucune assertion ne la compare à un instant de test : les dates
+//! qui en dépendent sont fixées très loin du présent (2020, 2099). Voir aussi la règle 33 de PILOTAGE.
+//! Les délais de réponse se comparent à ces instants, jamais à « maintenant ».
 //!
 //! | Critère | Test(s) |
 //! |---|---|

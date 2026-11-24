@@ -760,6 +760,8 @@ mod tests_inscriptions_i5_passe4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i5_suites;
 #[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i5_suites6;
+#[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
@@ -815,6 +817,8 @@ mod tests_internat_i4_passe2;
 mod tests_internat_i4_passe3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat_i4_suites2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4_suites3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]

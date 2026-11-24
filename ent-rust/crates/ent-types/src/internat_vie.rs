@@ -555,3 +555,52 @@ pub struct VigilanceDto {
     /// Vrai tant que la vigilance est en vigueur au jour de la lecture.
     pub active: bool,
 }
+
+// ───────────────────────── Libellés destinés aux familles ─────────────────────────
+
+/// Texte **destiné aux familles** décrivant un fait du journal d'une sortie de groupe (suites 3, F6, D-069). Langage
+/// courant, sans code interne ni jargon (« interdiction », « fait », « acte »), sans nom d'un autre élève. `None` : ce fait
+/// ne s'affiche pas à une famille.
+///
+/// `refus_apres_depart` : le parent a refusé la sortie alors que l'élève était déjà parti avec le groupe. Le refus est
+/// enregistré, mais il ne peut pas annuler un départ déjà fait ; l'établissement est prévenu et organise le retour. Le
+/// texte ne promet pas d'heure de retour (l'établissement ne la connaît pas encore à cet instant).
+pub fn libelle_fait_groupe_famille(acte: &str) -> Option<&'static str> {
+    match acte {
+        "refus_apres_depart" => Some(
+            "Votre refus a bien été enregistré. Votre enfant était déjà parti avec le groupe : l'établissement a été prévenu \
+             et demande son retour. En cas d'urgence, appelez directement l'établissement.",
+        ),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests_libelles_famille {
+    use super::libelle_fait_groupe_famille;
+
+    #[test]
+    fn le_libelle_du_refus_apres_depart_est_clair_et_sans_jargon() {
+        let t = libelle_fait_groupe_famille("refus_apres_depart").expect("libellé défini");
+        assert!(t.contains("refus a bien été enregistré"), "{t}");
+        assert!(t.contains("déjà parti"), "{t}");
+        assert!(t.contains("retour"), "{t}");
+        for jargon in [
+            "refus_apres_depart",
+            "interdiction",
+            "acte",
+            "fait_groupe",
+            "_",
+        ] {
+            assert!(!t.contains(jargon), "jargon « {jargon} » dans : {t}");
+        }
+        assert!(!t.contains("heure"), "aucune promesse d'heure : {t}");
+    }
+
+    #[test]
+    fn un_acte_inconnu_ou_interne_n_a_pas_de_libelle_famille() {
+        assert_eq!(libelle_fait_groupe_famille("refus_hors_ligne"), None);
+        assert_eq!(libelle_fait_groupe_famille("encadrant_remplace"), None);
+        assert_eq!(libelle_fait_groupe_famille(""), None);
+    }
+}
