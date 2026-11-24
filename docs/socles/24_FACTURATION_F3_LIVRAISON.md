@@ -255,3 +255,12 @@ Route HTTP de la fin de tarif datée (service et type `RetraitArticleBody` seule
 
 ### Compteurs (règle 28)
 `Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; migrations : +532 (`MIGRATION_TAG` inchangé) ; `SOURCES` **75** (inchangé). Le pilote ajoutera `532_finances_f3_suites3` à `migrations_versees.txt`.
+
+### Vérifications
+- Base locale neuve `ent_f3u_test` (PostgreSQL 16, features `labo`) : `tests_finances_f3` **35 tests verts** (28 antérieurs + 7 `f3s3_*`) ; régression ent-db élargie (`tests_finances tests_factur tests_inscription garde_search migrations rls`) : **273 passés, 0 échec**.
+- Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI : 0 avertissement ; `cargo metadata --locked` (`ent-rust/web`) : OK. rustfmt ciblé sur `tests_finances_f3.rs` seulement (pas de `cargo fmt --all`). Dates fixes, aucun `#[ignore]`.
+- `ent-api` et `ent-web-server` non rejoués en local : couverts par la CI.
+
+### Tête de code et CI
+- Tête de code testée : `89537860e5249670f06ee85204ca5a370f0c60ad` (PR n° 150, brouillon, vers `ENT`).
+- CI « ENT Rust » sur cette tête : **verte** (run 45451407819). Le commit de documentation qui suit ne change aucun code.
