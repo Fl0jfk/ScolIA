@@ -541,3 +541,51 @@ dépôt/archivage fermée par le verrou de campagne (`FOR SHARE` contre `FOR NO 
   multi-lignes et deux offres sur la fonction réelle), F-1 (rejeu de 313/314 sur un historique non chaîné), F-2 (repli de
   l'alerte par **droit** `InscriptionsGerer` et non par rôle brut), F-3 (échec ouvert hérité de 316).
 - `317_inscription_i5_suites_passe6` inscrite à `migrations_versees.txt` au versement.
+
+## Suites, passe 7 — points « en file » de la contre-revue de la passe 6 — branche `ent-socle-3-code-i5-suites-7`
+
+Départ : `origin/ENT`. **313 à 317 ne changent pas** (règles 25 et 38) ; tout passe par la **318** (`318_inscription_i5_suites_passe7`), ajoutée **à la fin** du tableau de `migrate.rs` (après 317). Sa fonction porte `SET search_path = pg_catalog, public, pg_temp` et qualifie ses relations `public.`. `migrations_versees.txt` n'est pas touché (le pilote l'ajoute au versement). Statut : **implémenté et testé en local** (PostgreSQL 16 jetable, base neuve dont le nom contient « test ») ; **non validé** tant que la CI n'a pas rendu son verdict ; non prêt pilote, non prêt production.
+
+### Fait
+
+| N° | Fait |
+|---|---|
+| **Moyen D** | `ent_inscription_sentinelle_instruction` (318, `CREATE OR REPLACE` : les déclencheurs de 317, et leur `ENABLE ALWAYS`, sont conservés) lit l'offre d'une ligne sans `offre_id` par **jointure ensembliste** (`COALESCE(ligne.offre_id, dossier.offre_attente_id, voeu_retenu.offre_id)`, même règle que `ent_inscription_offre_du_dossier`) au lieu d'appeler cette fonction **ligne par ligne**. Une vérification (`pg_locks`) par offre distincte, ancienne **et** nouvelle offre sur une mise à jour, exemption de purge et erreur nommée `55000` inchangées. **La mesure M4 exerce maintenant les fonctions réelles** (316 `ent_inscription_sentinelle_ligne`, 318 `ent_inscription_sentinelle_instruction`) sur une table temporaire, plus une fonction de remplacement. |
+| **Moyen C** (tests) | `rejouer_tout` délègue à `rejouer_liste` ; si un rejeu échoue (après qu'une garde a retiré la sentinelle), `restaurer_sentinelle` rejoue 316, 317 et 318 (qui la recréent), journalise un éventuel échec de restauration, et rend l'erreur d'origine : la sentinelle n'est jamais laissée absente. |
+| **Moyen A, suite** | `migrate::sentinelles_non_toujours_actives` (appelée par `apply_socle_migrations` après les migrations, comme `contraintes_non_validees`) journalise en **`error!`**, sans bloquer, chaque déclencheur `ent_inscription_sentinelle_*` dont `tgenabled <> 'A'` (suspendu `D`, ou remis à « origine » `O` par `pg_restore --disable-triggers`). |
+| **Faible 1** | Rejeu de 313 et 314 sur un historique non chaîné (reprise de `publiee_le`, chaînage `remplace_decision_id`, écritures sans verrou d'offre) : **même garde de rejeu que 304** (`RETIRER_SENTINELLE_DECISIONS`) ; 316, 317 et 318 recréent la sentinelle plus loin dans le même rejeu. Test : `s6_rejeu_de_304…` et le test d'échec de rejeu. |
+| **Faible 2** | Repli de l'alerte de décision caduque (F6) : les personnes à accès ouvert qui **détiennent le droit `InscriptionsGerer`** sur l'établissement entier (modèle par défaut du rôle, plus attributions de rôle en cours au jour de l'établissement), et non plus `role IN ('admin','administratif')`. Un CPE sans le droit n'est pas alerté ; une attribution échue ne compte pas. **Limite** : les délégations datées ne sont pas consultées (pas de destinataire désigné par délégation). |
+| **Faible 3** | **Documenté comme filet, non fermé.** Si le dossier d'une ligne est invisible de l'écrivain (isolation par établissement, dossier absent), l'offre est NULL et aucun verrou n'est exigé (échec ouvert hérité de 316). Le fermer casserait la suppression en cascade d'un dossier déjà disparu au moment du déclencheur ; cohérent avec le rôle de la sentinelle (un filet contre l'oubli du verrou, pas un contrôle de sécurité). Écrit dans l'en-tête de 318. |
+| **Faible 4** | Les tests de passe 4 et de la suite I5 n'ont **pas été modifiés** par cette passe ; ils sont rejoués en entier (voir les vérifications) et verts. Aucune anomalie relevée. Seuls changements de tests existants : trois helpers de `tests_inscriptions_i5_suites6.rs` passent en `pub(super)`, et la mesure M4 utilise les fonctions réelles. |
+
+### Mesure M4 refaite avec les fonctions réelles (µs par instruction, médiane de 5, un passage, machine de développement)
+
+| Lignes | Verrous d'une autre session | Par ligne (316) | Par instruction (318) |
+|---|---|---|---|
+| 1 | 0 | 351 | 507 |
+| 100 | 0 | 3 909 | 530 |
+| 1 000 | 0 | 35 960 | 1 403 |
+| 1 | 500 | 484 | 768 |
+| 100 | 500 | 25 241 | 1 368 |
+| 1 000 | 500 | **146 361** | 2 903 |
+
+Lecture : pour **une seule ligne**, la variante par instruction est un peu **plus lente** (≈ 0,15 à 0,3 ms : tables de transition) ; le gain est décisif dès quelques dizaines de lignes (écritures de masse). Les temps sont **imprimés**, jamais assertés ; ordres de grandeur, pas une garantie.
+
+### Tests (`tests_inscriptions_i5_suites7.rs`, 4)
+
+| Test | Prouve |
+|---|---|
+| `s7_sentinelle_multi_lignes_sans_offre_id_deux_offres` | **Moyen D** : 800 lignes sans `offre_id` sur **deux offres**, fonction **réelle** : aucun verrou / l'un / l'autre → refus `55000` nommé, les deux → accepté (insertion, mise à jour, changement de dossier = ancienne **et** nouvelle offre, suppression) ; **0 appel** de `ent_inscription_offre_du_dossier` et **4 vérifications** (une par offre distincte, avant/après) ; **preuve rouge** : le déclencheur par ligne de 316 appelle la fonction ≥ 800 fois |
+| `s7_rejeu_en_echec_restaure_la_sentinelle` | **Moyen C** : rejeu de 1 à 304 suivi d'un fichier qui échoue : erreur d'origine rendue, sept déclencheurs de retour, tous `ALWAYS`, écriture sans verrou refusée |
+| `s7_sante_sentinelle_signale_un_declencheur_non_always` | **Moyen A** : un déclencheur « origine » (`O`) et un suspendu (`D`) sont repérés par la requête de santé (dans une transaction annulée) ; en état normal `sentinelles_non_toujours_actives` ne rend rien. Le **message** `error!` n'est pas capturé (seul le retour l'est) |
+| `s7_alerte_repli_par_le_droit_et_non_par_le_role` | **Faible 2** : CPE sans droit non alerté, CPE avec attribution `inscriptions.gerer` alerté, attribution échue (2020) non alertée |
+
+### Décisions par défaut prudentes (D-069)
+* **Repli de l'alerte** : par le droit `InscriptionsGerer` (pas de rôle « responsable des admissions » inventé) ; sans destinataire, trace interne (inchangé).
+* **Échec ouvert** (dossier invisible) : conservé et documenté (filet).
+* **Vérification de santé** : journalise, ne bloque pas le démarrage.
+
+### Non fait / limites
+* Les points « doc du pilote » (moyens A et B de la contre-revue : restauration, réplication logique) sont déjà consignés plus haut ; la **procédure PRA** reste au pilote.
+* Les délégations datées ne désignent pas de destinataire de l'alerte (limite du repli par le droit).
+* Mesure M4 : un seul passage, machine de développement.

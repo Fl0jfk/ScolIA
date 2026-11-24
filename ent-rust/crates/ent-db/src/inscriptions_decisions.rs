@@ -629,7 +629,7 @@ pub(crate) enum Publication {
 /// la saura jamais : une personne doit reprendre le dossier. Avis **interne** dans l'ENT (aucun envoi externe), un par
 /// décision et par destinataire (idempotent) ; le titre ne porte **aucun nom d'élève**, le corps seulement la référence du
 /// dossier. Destinataires : la direction de l'établissement et l'auteur de la décision, **tant que leur accès est ouvert** (F-e) ;
-/// à défaut, repli sur l'administration, puis trace interne du dossier (passe 6, F6).
+/// à défaut, repli sur les personnes qui détiennent le droit `InscriptionsGerer` (passe 7, F-2), puis trace interne du dossier (passe 6, F6).
 async fn alerter_direction_caduque_tx(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -663,14 +663,7 @@ async fn alerter_direction_caduque_tx(
     .await
     .map_err(db)?;
     if destinataires.is_empty() {
-        destinataires = sqlx::query_scalar(
-            "SELECT DISTINCT m.user_id FROM ent_membership m
-              WHERE m.etablissement_id = $1 AND m.role IN ('admin', 'administratif') AND ent_acces_ouvert(m.user_id, $1)",
-        )
-        .bind(etab)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db)?;
+        destinataires = destinataires_de_repli_tx(conn, etab).await?;
     }
     if destinataires.is_empty() {
         suivi_tx(
@@ -705,6 +698,51 @@ async fn alerter_direction_caduque_tx(
     .await
     .map_err(db)?;
     Ok(())
+}
+
+/// Repli de l'alerte de décision caduque (passe 7, F-2) : les personnes à accès ouvert qui **détiennent le droit**
+/// `InscriptionsGerer` sur l'établissement entier (celui qui instruit les dossiers), et non un rôle de base nommé. Deux
+/// sources, comme `droits_effectifs` : le **modèle par défaut du rôle** et les **attributions de rôle** en cours (jour de
+/// l'établissement). Les délégations datées ne sont pas consultées (pas de destinataire désigné par délégation) : limite
+/// documentée. Une porte `accorde` : une action qui en implique une autre (`accordee_par`) compte.
+async fn destinataires_de_repli_tx(conn: &mut PgConnection, etab: Uuid) -> Result<Vec<Uuid>, EntDbError> {
+    use crate::droits_ctx::accorde;
+    use ent_auth::{modele_par_defaut, Portee};
+    let suffit = |a: Action, p: Portee| p == Portee::Etablissement && accorde(a, Action::InscriptionsGerer);
+    let membres: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT m.user_id, m.role FROM ent_membership m
+          WHERE m.etablissement_id = $1 AND ent_acces_ouvert(m.user_id, $1)",
+    )
+    .bind(etab)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let attributions: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT a.user_id, d.action, d.portee
+           FROM ent_role_attribution a
+           JOIN ent_role_droit d ON d.role_id = a.role_id AND d.etablissement_id = a.etablissement_id
+          WHERE a.etablissement_id = $1 AND a.clos_le IS NULL
+            AND a.debut <= ent_aujourdhui_etab($1) AND (a.fin IS NULL OR a.fin >= ent_aujourdhui_etab($1))
+            AND ent_acces_ouvert(a.user_id, $1)",
+    )
+    .bind(etab)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut ids: Vec<Uuid> = membres
+        .into_iter()
+        .filter(|(_, role)| {
+            Role::parse(role).is_some_and(|r| r.is_staff() && modele_par_defaut(r).into_iter().any(|(a, p)| suffit(a, p)))
+        })
+        .map(|(u, _)| u)
+        .collect();
+    ids.extend(attributions.into_iter().filter_map(|(u, a, p)| {
+        let (a, p) = (Action::parse(&a)?, Portee::parse(&p)?);
+        suffit(a, p).then_some(u)
+    }));
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
 }
 
 /// Rend une décision visible de la famille : proposition envoyée, suivi visible, message **sans le contenu** de
