@@ -2485,7 +2485,7 @@ impl PgEnt {
         };
         if !encadrant
             && self
-                .eleve_cache_au_tiers(etab, actor, role, b.eleve_id)
+                .eleve_cache_au_tiers_conn(&mut tx, etab, actor, role, b.eleve_id)
                 .await?
         {
             return Err(refus("cet élève n'est pas inscrit à ce temps"));

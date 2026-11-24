@@ -106,13 +106,15 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_cdt_depot_signalement", &["id"]),
     r("ent_cdt_echeance_eleve", &["id"], "prolongation individuelle en ajout seul (R-C9) : la ligne ne se réécrit pas, elle reste sur la fiche où elle a été accordée"),
     r("ent_cdt_groupe_membre", &["groupe_id", "eleve_id", "depuis"], "appartenance datée à un groupe de remise : historique propre à la fiche (garde d'unicité du groupe actif)"),
-    d("ent_cdt_note_accompagnement", &["id"]),
+    // Contre-revue du pilote (suites cahier, Moyen 1) : seules les lignes d'une année NON figée suivent l'élève conservé ;
+    // celles d'une année close restent sur l'absorbé (le gel refuserait le déplacement et ferait échouer toute la fusion).
+    dc("ent_cdt_note_accompagnement", &["id"], "NOT public.ent_cdt_annee_gelee(t.etablissement_id, CASE WHEN t.entree_id IS NOT NULL THEN public.ent_cdt_annee_de_entree(t.etablissement_id, t.entree_id) ELSE public.ent_cdt_annee_de_travail(t.etablissement_id, t.travail_id) END)"),
     d("ent_cdt_relance", &["id"]),
     r("ent_cdt_remise", &["id"], "remise et dépôts immuables d'un élève (R-C9, une remise par élève et par travail) : l'œuvre reste sur la fiche de son auteur"),
     r("ent_cdt_resume_envoi", &["eleve_id", "semaine_debut"], "trace d'envoi du résumé hebdomadaire (un seul par élève et par semaine) : état propre à la fiche, jamais rejoué pour l'élève conservé"),
     r("ent_cdt_statut", &["id"], "constat du professeur en ajout seul (R-C12) : reste sur la fiche concernée"),
-    d("ent_cdt_travail_cible", &["travail_id", "eleve_id"]),
-    d("ent_cdt_variante_eleve", &["variante_id", "eleve_id"]),
+    dc("ent_cdt_travail_cible", &["travail_id", "eleve_id"], "NOT public.ent_cdt_annee_gelee(t.etablissement_id, public.ent_cdt_annee_de_travail(t.etablissement_id, t.travail_id))"),
+    dc("ent_cdt_variante_eleve", &["variante_id", "eleve_id"], "NOT public.ent_cdt_annee_gelee(t.etablissement_id, (SELECT public.ent_cdt_annee_de_travail(v.etablissement_id, v.travail_id) FROM public.ent_cdt_variante v WHERE v.etablissement_id = t.etablissement_id AND v.id = t.variante_id))"),
     d("ent_competence_evaluation", &["id"]),
     d("ent_conflit_interet", &["id"]),
     d("ent_conseil_classe_dossier", &["id"]),
