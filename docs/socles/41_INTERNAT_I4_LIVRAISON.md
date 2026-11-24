@@ -210,3 +210,39 @@ Branche `ent-socle-41-code-i4-suites` (base `origin/ENT`, PR en brouillon vers `
   - portée `InternatAppel` sans droit de confidentialité : confirmer, ou restreindre à l'encadrant ;
   - `internat_sorties_tache_etab_a` en `pub(crate)` ;
   - avis de retour aussi aux accompagnateurs, avec la sortie désignée.
+
+## Suites 2
+
+Branche `ent-socle-41-code-i4-suites-2` (base `origin/ENT`, PR en brouillon vers `ENT`). **Aucune migration** (2820 à 2830 inchangées, ordre de `migrate.rs` intact, règle 38). Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend non touché. Aucun test ne dépend de l'heure réelle (jours fixes d'avril 2026 ; l'âge d'un événement est posé par la base sur une minute calculée une seule fois).
+
+### Fait
+
+| Point | Ce qui a été fait | Tests (`tests_internat_i4_suites2.rs`) |
+|---|---|---|
+| **1** F-g plus serrés | `refus_de(…) \|\| r.is_err()` remplacé par le refus exact (`tests_internat_i4_passe3.rs`). Cas ajoutés : parent interdit **après** le départ (refus tracé, état `parti`, un seul fait `refus_apres_depart`) ; élève majeur (« répond lui-même », rien d'écrit) ; personne non titulaire (« ne peut pas être enregistré », rien d'écrit, aucun événement) ; élève `rentre` et élève `non_autorise` (trace sans changement d'état ni demande de retour) ; second refus sur un élève déjà `refuse` (trace de plus, état inchangé). Contenu de l'avis : ni nom, ni prénom, ni identifiant d'élève ou de parent. | `s4_fg_*` (6) |
+| **2** pointage du soir | Encadrant d'un **autre** temps : `Forbidden` exact ; **autre établissement** : `NotFound` exact ; l'encadrant du temps pointe normalement. | `s4_pointage_un_encadrant_*` |
+| **3** portée `InternatAppel` sans droit de confidentialité (**D-069**) | `pointer_temps_a` : seuls l'**encadrant du temps** et les détenteurs du droit de confidentialité pointent un élève protégé. Un détenteur de portée (`internat.appel`) sans ce droit reçoit « n'est pas inscrit », comme un tiers ; il pointe toujours un élève non protégé (la portée reste en vigueur). La direction (droit de confidentialité) pointe un protégé inscrit. | `s4_pointage_un_protege_*` |
+| **4** `internat_sorties_tache_etab_a` | `pub(crate)`. | (compilation ; test existant `m6_*`) |
+| **5** avis de retour | `internat.retour_demande` part aussi aux **accompagnateurs de la sortie** (membres de l'établissement) et **désigne la sortie** : titre et heure de fin (fuseau de l'établissement, `18h00`), jamais l'élève. Un compte du personnel qui n'est ni responsable ni accompagnateur ne reçoit rien. | `s4_fg_un_parent_interdit_*` |
+| **6** code mort `retire_le IS NULL OR $4` | **Déjà absent** du dépôt (retiré en passe 3) : aucune occurrence. La lecture du pointage ne vise que la ligne active ; la veille ne retient que la ligne portant `pointage = 'present'` (le `ORDER BY retire_le DESC NULLS FIRST` n'est plus qu'un départage déterministe). Rien à changer. | (couvert par `s3_*`) |
+| **7** avis regroupés | Le texte (le nombre) d'un avis regroupé est **mis à jour** (upsert) quand un second événement de la minute arrive après la première distribution : `ent_notification` (`DO UPDATE … WHERE lu_le IS NULL`) et l'envoi externe encore `en_attente`. Un avis déjà **lu** garde son texte. Les autres appelants de `notifier_personne` sont inchangés (`DO NOTHING`). | `s4_avis_regroupe_*` |
+
+### Non fait / limites
+- Point 6 : aucune modification de code (déjà fait en passe 3).
+- Le texte d'un avis regroupé déjà **parti** (envoi externe non `en_attente`) n'est pas rattrapé.
+- Un compte accompagnateur dont l'appartenance à l'établissement a pris fin ne reçoit pas l'avis (jointure sur `ent_membership`).
+- Le consommateur d'avis n'est toujours pas filtré par périmètre d'internat (inchangé).
+
+### Tests, compteurs, vérifications (suites 2)
+- **9 tests nouveaux** (`tests_internat_i4_suites2.rs` : `s4_fg_*` ×6, `s4_pointage_*` ×2, `s4_avis_regroupe_*` ×1) ; 1 test existant resserré (`s3_fg_*`). Compteurs (règle 28) : migrations +0, `MIGRATION_TAG`, `Action::TOUTES`, RLS, registre, `TABLES_ELEVE`, `SOURCES`, routes, événements, consommateurs : **inchangés**.
+- **Local** : base neuve `ent_i4s4_test` (PostgreSQL 16, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, série) : 9 tests `s4_*` verts, puis 388 tests (`internat`, `notif`, `migrat`, `garde_search_path`, `tests_rls`, `registre`) verts. `rustfmt` ciblé sur les fichiers propres à l'origine (pas de `cargo fmt --all`). Écart d'outillage : le conteneur n'a que rustc/clippy 1.97 ; clippy 1.99 (trois commandes, `ent-lab` compris) est celui de la CI.
+
+### Tête et CI (suites 2)
+- Tête de code : `8a5a086e` ; PR n° 135, en brouillon vers `ENT`. Aucune fusion d'`ENT` nécessaire.
+- CI « ENT Rust » sur `8a5a086e` : **verte**. Les commits suivants ne touchent que cette documentation.
+
+### Correctifs du pilote après contre-revue des suites 2
+- **M1** (protégé discernable d'un non-inscrit) : dans `pointer_temps_a`, l'inscription et la protection se contrôlent désormais **avant** l'état et la fenêtre du temps, par le même refus « n'est pas inscrit » ; un temps annulé ou hors fenêtre ne distingue plus un protégé d'un élève non inscrit. Test `s4_pointage_un_protege_est_indiscernable_d_un_non_inscrit_hors_fenetre_ou_temps_annule`.
+- **M2** (titre de sortie libre en clair hors de l'ENT) : `internat_retour_demande` rejoint `canal_externe_neutre` : e-mail, push et SMS neutres, détail dans l'ENT seulement. Test `s4_la_demande_de_retour_est_neutre_hors_de_l_ent`.
+- Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_internat_i4*` : 105 verts.
+- **En file** : F1 (cas d'une minute dont l'avis est déjà lu : remettre à non lu ou documenter), F2 (envoi externe déjà parti non mis à jour : à documenter), F4 (test d'avis regroupé : preuve que le 3e événement est consommé ; `notifier_personne` inchangé ; envoi `envoye` non réécrit), F6 (libellé `refus_apres_depart`), F7 (connexion supplémentaire de `eleve_cache_au_tiers` dans une transaction ouverte).

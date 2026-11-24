@@ -548,6 +548,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
     // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("493_msg_fil_vide_et_garde_proprietaire"),
+    // Suites I5 (316) : sentinelle en base de l'ordre des verrous (déclencheur qui exige le verrou consultatif de l'offre),
+    // source unique du rang (liste ordonnée d'une offre). Règle 38 : en fin de tableau ; chaque fonction porte son
+    // `search_path`. 313 à 315 sont versées et ne changent pas. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("316_inscription_i5_suites_sentinelle"),
     // Socle 42, V3 suites (plage 640–659) : instant d'annulation d'une sortie, retrait « séjour » à source unique (M-1),
     // règle « jamais pour son propre enfant » étendue à tout pouvoir sur l'argent (M-3), cohérences de base (F-d).
     // 653 et 654 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses fonctions portent leur
