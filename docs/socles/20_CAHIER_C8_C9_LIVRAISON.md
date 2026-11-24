@@ -260,5 +260,5 @@ Branche `ent-socle-20-code-suites` (partie d'`origin/ENT`), PR en brouillon vers
 
 **CI, premier passage (tête `03b15c43`) : rouge, deux causes.** (1) **Mon test** : `current_date` dans l'INSERT de `ent_cdt_continuite` (garde `jour_utc_interdit`, tranches sans labo et 1/20) → date fixe `DATE '2026-01-15'` ; au passage, le contrôle « table inchangée » du gel compte par établissement (il comptait la table entière : fragile en exécution parallèle). (2) **Hors lot** : `tests_eleve_protection::les_versions_sensibles_non_courantes_sont_scellees` (tranche 10/20) — l'assertion `!v.contains("Sam")` porte sur un texte chiffré aléatoire en base64 : elle échoue au hasard quand le chiffré contient « Sam » (vu : `enc:v1:V72zGk59…`) ; **verte seule**, aucun lien avec 2419 ; non corrigée ici (hors périmètre), à traiter par le lot propriétaire du test.
 
-**Tête et CI finales** : voir le message au pilote.
+**Tête et CI finales** : CI verte (job « ENT Rust ») sur `b17de905`, après fusion d'`origin/ENT` (la CI n'était pas partie sur `a879a54c` : conflit). Le test flaky hors lot `les_versions_sensibles_non_courantes_sont_scellees` n'a pas échoué cette fois.
 
