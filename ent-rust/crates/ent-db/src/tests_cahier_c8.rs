@@ -2619,10 +2619,13 @@ async fn inserer_avant_gel(fx: &Fx, jeu: &JeuGel) {
 async fn verifier_gel(fx: &Fx, jeu: &JeuGel, contexte: &str) {
     let pool = fx.ent.pool();
     for (table, ins, upd, del) in &jeu.lignes {
-        let (avant,): (i64,) = sqlx::query_as(&format!("SELECT count(*) FROM {table}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let (avant,): (i64,) = sqlx::query_as(&format!(
+            "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
+        ))
+        .bind(fx.cast.etablissement_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
         for (verbe, q) in [("INSERT", ins), ("UPDATE", upd), ("DELETE", del)] {
             assert_eq!(
                 code_sql(sqlx::query(q).execute(pool).await).as_deref(),
@@ -2630,10 +2633,13 @@ async fn verifier_gel(fx: &Fx, jeu: &JeuGel, contexte: &str) {
                 "{contexte} : {verbe} sur {table} doit être refusé par la base"
             );
         }
-        let (apres,): (i64,) = sqlx::query_as(&format!("SELECT count(*) FROM {table}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let (apres,): (i64,) = sqlx::query_as(&format!(
+            "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
+        ))
+        .bind(fx.cast.etablissement_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
         assert_eq!(avant, apres, "{contexte} : {table} inchangée");
     }
 }
@@ -3737,7 +3743,7 @@ async fn jeu_gel_filles(fx: &Fx) -> JeuGel {
             .unwrap();
     for q in [
         format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{g1}', '{etab}', '{t1}', 'G1')"),
-        format!("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ('{cont}', '{etab}', '{}', current_date)", fx.cast.eleves[0].id),
+        format!("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ('{cont}', '{etab}', '{}', DATE '2026-01-15')", fx.cast.eleves[0].id),
     ] {
         sqlx::query(&q).execute(fx.ent.pool()).await.unwrap_or_else(|e| panic!("jeu : {q} : {e}"));
     }
