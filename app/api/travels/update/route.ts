@@ -92,6 +92,45 @@ export async function POST(req: Request) {
       }
       objectToSave.data = saveInner;
     }
+    // ── Circuit v2 : garde serveur AVANT toute autre transformation (droit d'écriture, transitions de statut, champs pilotés
+    //    par le serveur réinjectés, gel après ouverture). Ne s'applique pas aux dossiers v1 ni aux séries récurrentes. ──
+    const isV2Guarded = existingOnS3 ? existingInner.workflowVersion === 2 : saveInner.workflowVersion === 2;
+    if (isV2Guarded) {
+      const { guardV2Update, v2RoleFor } = await import("@/app/lib/travels-v2-update-guard");
+      let role: import("@/app/lib/travels-v2-update-guard").V2Role = "writer";
+      let guardActor = { isDirectionOfEtab: false, isGlobalAdmin: false };
+      if (existingOnS3) {
+        const { resolveAccess } = await import("@/app/lib/travels-v2-access");
+        const access = await resolveAccess({ ...(existingOnS3 as object), id: String(tripId) } as TravelsTrip);
+        role = access ? v2RoleFor(access) : "none";
+        guardActor = { isDirectionOfEtab: Boolean(access?.isDirection), isGlobalAdmin: Boolean(access?.isAdmin) };
+      } else {
+        const { isGlobalAdminUser } = await import("@/app/lib/travels-roles");
+        guardActor = {
+          isDirectionOfEtab: Boolean(await canSignTravelsDirectionForEtab(me, typeof saveInner.etablissement === "string" ? saveInner.etablissement : null)),
+          isGlobalAdmin: isGlobalAdminUser(me ? { publicMetadata: me.publicMetadata as Record<string, unknown> } : null),
+        };
+      }
+      const guarded = guardV2Update({
+        existingData: existingOnS3 ? existingInner : null,
+        incomingData: saveInner,
+        previousStatus: existingOnS3 ? (typeof existingOnS3.status === "string" ? existingOnS3.status : "") : null,
+        newStatus: typeof objectToSave.status === "string" ? objectToSave.status : "",
+        role,
+        actor: guardActor,
+      });
+      if (!guarded.ok) return NextResponse.json({ error: guarded.error }, { status: guarded.status });
+      for (const k of Object.keys(saveInner)) delete saveInner[k];
+      Object.assign(saveInner, guarded.data);
+      objectToSave.data = saveInner;
+      if (existingOnS3 && role === "compta") {
+        // Comptabilité seule : le reste du dossier (hors statut de validation des finances et historique) vient du serveur.
+        const keepStatus = objectToSave.status;
+        const keepHistory = objectToSave.history;
+        for (const k of Object.keys(objectToSave)) delete objectToSave[k];
+        Object.assign(objectToSave, existingOnS3, { data: saveInner, status: keepStatus, history: keepHistory });
+      }
+    }
     // Pièces jointes : union serveur ∪ client ; retrait seulement si explicitement demandé.
     saveInner.attachments = mergeTravelAttachments({
       fromClient: saveInner.attachments,
