@@ -729,3 +729,5 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Livré** : T2 fiabilité (PR 147 brouillon, tête 363e918e, CI verte sur 7907cdde) ; contre-revue en cours sur `wt-t2`. Signalé : clippy local 1.97 (pas 1.99), `cargo metadata --locked` web non fait (le pilote le fera).
 - **Lancé** : F3 suites 3 (session_01KZCbFH3GHDSncbtUiEA3aV, Sonnet, branche `ent-socle-24-code-f3-suites-3`, migration 532 réservée), consigne `24_F3_SUITES_3.md`. Sessions qui codent : V3b correctifs + F3 suites 3.
 - **T2** : contre-revue faite (aucun bloquant ; M1 corrigé par le pilote : commentaire et compte rendu), fusion d'ENT, tête **268f776a**, CI en attente. Faibles 1 à 4 en file.
+- **Versé** : correctif de test a4_cap31 (PR 149, bf102297, CI 45438192464 verte) sur ENT rouge (667, test instable) : **ENT = bf102297**. Gel jusqu'au verdict.
+- **Chaîne** : PR 148 (V5 passe 6) = c4ad35ed (fusion de 149) ; PR 147 (T2) = 7c64e36b (fusion de 148). CI en attente ; versement 148 puis 147 après CI d'ENT verte. Aucune migration dans la chaîne.
