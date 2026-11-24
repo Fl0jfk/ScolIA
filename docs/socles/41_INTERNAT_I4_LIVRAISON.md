@@ -270,3 +270,7 @@ Branche `ent-socle-41-code-i4-suites-3` (base `origin/ENT`, PR en brouillon vers
 - **3 tests backend** (`tests_internat_i4_suites3.rs` : `s5_*`) + **2 tests purs** (`ent-types`, libellé F6) ; `s4_avis_regroupe_*` resserré (l'avis lu repasse non lu). Local : base neuve `ent_i4s5_test` (PostgreSQL 16, `ENT_EXIGER_BASE=1`, `ENT_ENV=test`, `--locked`, série) : 54 tests (`s4_*`, `s5_*`) verts. Le reste de la suite est laissé à la CI (le refactor F7 touche le moteur de droits : `droits_effectifs`, `eleves_autorises`, `profil_champs`).
 - Compteurs (règle 28) : migrations +0, `MIGRATION_TAG`, `Action::TOUTES`, RLS, registre, `TABLES_ELEVE`, `SOURCES`, routes, événements : **inchangés**.
 - Clippy (conteneur : 1.97, pas 1.99) sur `ent-db` + `ent-types` avec `labo` et tests : aucun avertissement dans les lignes touchées (2 avertissements antérieurs, `tests_voyages_v2a.rs`). Les trois commandes de la CI (clippy 1.99, `ent-lab` compris) restent à la CI. Pas de `cargo fmt --all`.
+
+### Tête et CI (suites 3)
+- PR n° 142, en brouillon vers `ENT`. Tête de code : `3286b534` (un premier passage, sur `096d3bba`, était rouge sur le seul contrôle de format ; corrigé par `rustfmt` ciblé sur `ent-types` et le nouveau fichier de tests).
+- CI « ENT Rust » sur `3286b534` : **verte** (run 45353586522). Les commits suivants ne touchent que cette documentation.
