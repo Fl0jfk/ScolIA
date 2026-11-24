@@ -589,7 +589,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_dem_repro_site_reglage", "demandes", Portee::Etablissement),
     t("ent_dem_routage_regle", "demandes", Portee::Etablissement),
     t("ent_dem_valeur", "demandes", Portee::Etablissement).perso().export(),
-    t("ent_devoir_archive", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Contre-revue du pilote (passe 6, M-B) : archive des devoirs de l'ancienne grille (classe, titre, date, auteur) : SANS
+    // `eleve_id`, elle couvre tous les devoirs de l'établissement, publiés ou non. L'exporter livrerait à un élève les devoirs
+    // des autres classes et des devoirs jamais publiés : hors export. Le devoir d'une note publiée est déjà rendu par
+    // `ent_note_archive` (son libellé) et par l'évaluation reprise (`eva_evaluation`).
+    t("ent_devoir_archive", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("ent_dispense_vs", "assiduite", Portee::Etablissement).perso().sante().export(),
     t("ent_disponibilite", "emploi_du_temps_structure", Portee::Etablissement),
     t("ent_doc_a_signer", "dossier_eleve", Portee::Etablissement).perso().export(),
@@ -1020,7 +1024,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     // saisie, ni le dernier éditeur.
     t("ent_note_archive", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .hors_export(&["auteur_user_id", "updated_by_user_id"])
-        .export_si("x.devoir_id IS NOT NULL AND EXISTS (SELECT 1 FROM ent_devoir_archive d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.devoir_id AND (NOT d.publication_explicite OR d.publie_le IS NOT NULL))"),
+    // Contre-revue du pilote (passe 6, M-D) : l'archive est figée, la publication vit ensuite dans l'évaluation reprise (même
+    // identifiant que le devoir, 472). Si l'évaluation reprise existe et n'est plus publiée (retrait), la note ne sort plus,
+    // comme `eva_resultat`. Si la reprise a refusé le devoir (aucune évaluation), la note vue par la famille dans l'ancienne
+    // grille reste exportée (D-069 : rien de visible ne disparaît).
+        .export_si("x.devoir_id IS NOT NULL AND EXISTS (SELECT 1 FROM ent_devoir_archive d WHERE d.etablissement_id = x.etablissement_id AND d.id = x.devoir_id AND (NOT d.publication_explicite OR d.publie_le IS NOT NULL)) AND NOT EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.devoir_id AND NOT (e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee')))"),
     // Journal des corrections d'une note après clôture (motifs, auteurs, valeurs avant/après, y compris sur des notes jamais
     // publiées) : interne, comme `eva_resultat_historique`. La note corrigée visible est dans `ent_note_archive`.
     t("ent_note_correction", "evaluations_pedagogie", Portee::Etablissement).perso(),
@@ -1510,10 +1518,11 @@ pub async fn neutraliser_files_restauration(
     Ok(rapport)
 }
 
-/// Tables du domaine « évaluations » : `eva_*`, `ent_eva_*` et, depuis la passe 6, les anciennes tables de notes `ent_note_*`.
+/// Tables du domaine « évaluations » : `eva_*`, `ent_eva_*` et, depuis la passe 6, les anciennes tables `ent_note_*` et
+/// `ent_devoir_*` (contre-revue du pilote, M-B).
 #[cfg(test)]
 pub(crate) fn est_table_evaluation(nom: &str) -> bool {
-    nom.starts_with("eva_") || nom.starts_with("ent_eva_") || nom.starts_with("ent_note_")
+    nom.starts_with("eva_") || nom.starts_with("ent_eva_") || nom.starts_with("ent_note_") || nom.starts_with("ent_devoir_")
 }
 
 /// Une justification écrite n'est pas une simple longueur : elle doit dire QUI a reçu ou rédigé ce que la table contient
@@ -1819,6 +1828,19 @@ mod tests {
         }
     }
 
+    /// Colonnes qui rattachent une ligne à une personne (élève, famille, compte) : une table qui en porte une ne peut pas être
+    /// déclarée « hors extrait par élève » (contre-revue du pilote, passe 6, M-A).
+    const COLONNES_DE_RATTACHEMENT_A_UNE_PERSONNE: &[&str] = &[
+        "resultat_id",
+        "enseignement_externe_id",
+        "rattrapage_id",
+        "user_id",
+        "personne_id",
+        "beneficiaire_id",
+        "enfant_id",
+        "responsable_id",
+    ];
+
     /// Raison d'une table hors extrait par élève : au moins quatre mots et elle dit pourquoi aucun élève n'y est rattaché.
     pub(crate) fn justification_valable_hors_eleve(raison: &str) -> bool {
         let r = raison.trim().to_lowercase();
@@ -1848,6 +1870,11 @@ mod tests {
             );
         }
         let Some(pool) = base().await else {
+            // M-A : en CI (GitHub Actions) la base existe toujours : la vérification ne doit jamais y sauter en silence.
+            assert!(
+                std::env::var("GITHUB_ACTIONS").is_err(),
+                "CI sans base : la vérification « sans eleve_id » n'a pas été exécutée"
+            );
             return eprintln!("SAUT : ENT_DATABASE_URL absente, la vérification « sans eleve_id » n'a PAS été exécutée");
         };
         let colonnes = colonnes_des_tables(&pool).await;
@@ -1858,10 +1885,11 @@ mod tests {
             let cols = colonnes
                 .get(c.nom)
                 .unwrap_or_else(|| panic!("{} : table introuvable", c.nom));
+            // Contre-revue du pilote (passe 6, M-A) : toute clé qui rattache une ligne à une personne compte, pas seulement
+            // `eleve_id` (l'assembleur de l'extrait rattache aussi par résultat, enseignement externe ou rattrapage).
             assert!(
-                !cols
-                    .iter()
-                    .any(|x| x == "eleve_id" || x.starts_with("eleve")),
+                !cols.iter().any(|x| x.starts_with("eleve")
+                    || COLONNES_DE_RATTACHEMENT_A_UNE_PERSONNE.contains(&x.as_str())),
                 "{} : déclarée hors extrait par élève mais porte une colonne d'élève ({cols:?})",
                 c.nom
             );

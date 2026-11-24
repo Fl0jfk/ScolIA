@@ -4103,13 +4103,18 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         .unwrap();
     let moyenne_ext = saisi.moyennes[0].id;
     pub_moy(&ent, w.etab, w.direction, DIR, moyenne_ext).await.unwrap();
-    // Une seconde moyenne externe jamais publiée : n'apparaît pas.
+    // Une seconde moyenne externe, sur un enseignement qui ne compte pas : n'apparaît pas (publiée plus bas, M-C).
     let en_cours = enseignement(&ent, &w, a, w.maths, false).await;
     let saisi_np = ent
         .eva_v5_saisir_moyenne_externe_for_actor(w.etab, w.direction, DIR, en_cours.id, &moy(w.t1, "moyenne", Some(8_125), None, None))
         .await
         .unwrap();
     let moyenne_np = saisi_np.moyennes[0].id;
+    // Contre-revue du pilote (passe 6, M-C) : chaque critère du Moyen 2 est isolé. Publiée, mais sur un enseignement qui ne
+    // compte pas dans la moyenne générale : absente du bulletin, donc de l'extrait.
+    pub_moy(&ent, w.etab, w.direction, DIR, moyenne_np).await.unwrap();
+    // Le critère `statut = 'moyenne'` est une défense en profondeur : le service refuse de publier une ligne « dispense » ou
+    // « en attente » (« n'est pas une moyenne »), aucune n'est donc publiée ici.
 
     // Contre-revue (E1/E2) : validée ne veut pas dire publiée. Tant que les appréciations de la période ne sont pas closes
     // pour la classe de l'élève, l'appréciation validée ne sort pas (même règle que la vue `ent_note_appreciation_v`).
@@ -4157,7 +4162,7 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         ("MARQUEUR-MOTIF-ANNULATION".to_string(), "le motif d'annulation d'une convocation"),
         ("SALLE-CONVOCATION-ANNULEE".to_string(), "une convocation annulée (M5)"),
         ("SALLE-EVALUATION-NON-PUBLIEE".to_string(), "la convocation d'une évaluation non publiée (M5)"),
-        (moyenne_np.to_string(), "une moyenne externe jamais publiée"),
+        (moyenne_np.to_string(), "une moyenne externe publiée d'un enseignement qui ne compte pas (M-C)"),
         (w.prof.to_string(), "l'auteur de la saisie des notes"),
         (
             item_np.to_string(),

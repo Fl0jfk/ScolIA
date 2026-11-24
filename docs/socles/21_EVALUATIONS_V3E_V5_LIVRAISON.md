@@ -381,3 +381,12 @@ Principe inchangé (D-069) : l'export ne rend que ce que la famille peut voir ; 
 ### 13.3 Tête et CI
 * **Tête du code :** `ecb77e6acc31e067dfc57e86f7f64a02298c10bb` (PR brouillon #148, `ent-socle-21-code-v5-suites-6` → `ENT`).
 * **CI « ENT Rust » sur cette tête : verte** (`completed/success`). Le commit de documentation qui inscrit cette section ne touche pas `ent-rust/**`.
+
+## 14. Correctifs du pilote après contre-revue de la passe 6
+Rapport : `docs/pilotage/revues/21_V5_SUITES_6_CONTRE_REVUE.md` (branche `ent-mc0hoe`).
+- **M-B** : `ent_devoir_archive` retirée de l'export (sans `eleve_id`, elle couvre tous les devoirs, publiés ou non) ; `est_table_evaluation` couvre `ent_devoir_*`.
+- **M-D** : `ent_note_archive` ne sort plus si l'évaluation reprise (même identifiant) existe et n'est plus publiée ; un devoir refusé par la reprise garde sa note publiée exportée (D-069).
+- **M-A** : le garde « hors extrait par élève » refuse aussi les colonnes de rattachement (`resultat_id`, `enseignement_externe_id`, `rattrapage_id`, `user_id`, `personne_id`, `beneficiaire_id`, `enfant_id`, `responsable_id`) ; sans base sous GitHub Actions, il échoue au lieu de sauter.
+- **M-C** : la moyenne externe d'un enseignement qui ne compte pas est désormais publiée dans le test et reste absente de l'extrait. Le critère `statut = 'moyenne'` est une défense en profondeur : le service refuse de publier une « dispense » ou une ligne « en attente ».
+- **F-1** (D-069) : journaux de correction (`ent_note_correction`, `eva_resultat_historique`) maintenus hors export, réserve DPO. F-2 à F-5 en file.
+- Local : tests `registre_donnees` et `tests_evaluations_v5` verts, clippy 1.99 vert.
