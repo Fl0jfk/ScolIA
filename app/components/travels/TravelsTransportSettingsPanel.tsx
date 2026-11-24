@@ -122,21 +122,6 @@ export default function TravelsTransportSettingsPanel() {
       >
         + Transporteur
       </button>
-      <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-        <input
-          type="checkbox"
-          className="mt-1"
-          checked={cfg.workflowV2Enabled === true}
-          onChange={(e) => setCfg({ ...cfg, workflowV2Enabled: e.target.checked })}
-        />
-        <span>
-          <span className="font-bold text-slate-800">Nouveau circuit des voyages (engagement des familles)</span>
-          <span className="mt-1 block text-slate-600">
-            Pour les nouveaux séjours uniquement : page web des familles, signature par code e-mail, engagement à la comptabilité.
-            Les voyages déjà créés et les séries récurrentes gardent l&apos;ancien circuit. Désactivé par défaut.
-          </span>
-        </span>
-      </label>
       <div>
         <button
           type="button"

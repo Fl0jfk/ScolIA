@@ -28,6 +28,7 @@ import {
   isIsoDate,
   listTripDays,
   mirrorPiqueNiqueDatesToWeekdays,
+  shouldCreateTripAsV2,
   todayIsoParis,
   validateFamilyDocuments,
 } from "@/app/lib/travels-v2";
@@ -35,8 +36,8 @@ import {
 function ComplexTripFormContent() {
   const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
-  /** Circuit v2 (« engagement des familles ») : drapeau tenant, sinon circuit historique inchangé. */
-  const workflowV2 = appCtx?.travelsOptions?.workflowV2Enabled === true;
+  /** Circuit v2 (« engagement des familles ») : circuit par défaut de tout nouveau séjour. */
+  const workflowV2 = shouldCreateTripAsV2({});
   const [preListe, setPreListe] = useState<TravelsParticipantEleve[]>([]);
   const [familyDocuments, setFamilyDocuments] = useState<TravelsFamilyDocRequest[]>([]);
   const { classOptions } = useTravelsElevesClasses();

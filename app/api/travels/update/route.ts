@@ -236,17 +236,7 @@ export async function POST(req: Request) {
         todayIsoParis,
       } = await import("@/app/lib/travels-v2");
       const { isGlobalAdminUser, userHasComptaRoleFromMetadata } = await import("@/app/lib/travels-roles");
-      // Création d'un dossier v2 seulement si le tenant a activé le nouveau circuit.
-      if (!existingOnS3) {
-        const { loadAppConfig } = await import("@/app/lib/app-config");
-        const cfg = await loadAppConfig();
-        if (cfg.travels?.workflowV2Enabled !== true) {
-          return NextResponse.json(
-            { error: "Le nouveau circuit des voyages n'est pas activé pour cet établissement." },
-            { status: 400 },
-          );
-        }
-      }
+      // Le circuit v2 est le circuit par défaut de tout nouveau séjour (plus de drapeau tenant).
       const meV2 = await safeCurrentUser();
       const etabV2 =
         typeof saveInner.etablissement === "string"

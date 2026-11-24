@@ -55,11 +55,10 @@ describe("travels v2 — version", () => {
     assert.equal(isWorkflowV2(null), false);
   });
 
-  it("les séries récurrentes restent en v1, même drapeau actif", () => {
-    assert.equal(shouldCreateTripAsV2({ flagEnabled: true, isRecurrenceSeries: false }), true);
-    assert.equal(shouldCreateTripAsV2({ flagEnabled: true, isRecurrenceSeries: true }), false);
-    assert.equal(shouldCreateTripAsV2({ flagEnabled: false }), false);
-    assert.equal(shouldCreateTripAsV2({ flagEnabled: undefined }), false);
+  it("v2 par défaut pour tout nouveau séjour, sauf les séries récurrentes", () => {
+    assert.equal(shouldCreateTripAsV2({}), true);
+    assert.equal(shouldCreateTripAsV2({ isRecurrenceSeries: false }), true);
+    assert.equal(shouldCreateTripAsV2({ isRecurrenceSeries: true }), false);
   });
 });
 

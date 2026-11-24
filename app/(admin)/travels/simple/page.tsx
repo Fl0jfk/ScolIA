@@ -188,11 +188,8 @@ function SimpleTripFormContent() {
     const updatedFiles = (formData.attachments || []).filter((_, i) => i !== index);
     setFormData({ ...formData, attachments: updatedFiles });
   };
-  /** Circuit v2 : drapeau tenant, nouveau dossier unique (les séries récurrentes restent en v1). */
-  const workflowV2 = shouldCreateTripAsV2({
-    flagEnabled: appCtx?.travelsOptions?.workflowV2Enabled === true && !editId,
-    isRecurrenceSeries: recurrenceEnabled,
-  });
+  /** Circuit v2 par défaut pour tout nouveau dossier unique (les séries récurrentes et les dossiers existants restent en v1). */
+  const workflowV2 = !editId && shouldCreateTripAsV2({ isRecurrenceSeries: recurrenceEnabled });
   const cuisineColumns: { key: string; label: string }[] =
     workflowV2 && isIsoDate(formData.date)
       ? [{ key: formData.date, label: dayShortLabelFr(formData.date) }]

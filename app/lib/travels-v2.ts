@@ -21,11 +21,11 @@ export function isWorkflowV2(trip: { data?: { workflowVersion?: unknown } | null
 }
 
 /**
- * Un nouveau séjour est créé en v2 si le drapeau tenant est actif ET que ce n'est pas une série
- * récurrente (les séries restent toujours en v1).
+ * Circuit v2 = circuit par défaut de tout nouveau séjour (décision du 24/11/2026, plus de drapeau tenant).
+ * Seules les séries récurrentes restent en v1 ; les dossiers déjà créés gardent leur circuit.
  */
-export function shouldCreateTripAsV2(opts: { flagEnabled?: boolean | null; isRecurrenceSeries?: boolean }): boolean {
-  return opts.flagEnabled === true && !opts.isRecurrenceSeries;
+export function shouldCreateTripAsV2(opts: { isRecurrenceSeries?: boolean }): boolean {
+  return !opts.isRecurrenceSeries;
 }
 
 /* ─── Dates (YYYY-MM-DD, calcul en UTC pour éviter les décalages d'heure d'été) ─── */
