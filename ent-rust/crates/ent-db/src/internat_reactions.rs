@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::finances::publier;
 use crate::internat_hebergement::synchroniser_sejours_tx;
 use crate::internat_repo::{get_affectation_ouverte_tx, update_affectation_fin_tx};
-use crate::notifications::{notifier_personne, EnvoiAPlanifier};
+use crate::notifications::{notifier_personne_selon, EnvoiAPlanifier};
 use crate::outbox::{Consommateur, EvenementDistribue, FutureTraitement};
 use domain_eleve::RegimeCode;
 
@@ -112,7 +112,7 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
         .into_iter()
         .map(String::from)
         .collect();
-    let destinataires: Vec<Uuid> = sqlx::query_scalar(
+    let mut destinataires: Vec<Uuid> = sqlx::query_scalar(
         "SELECT DISTINCT m.user_id FROM ent_membership m
           WHERE m.etablissement_id = $1
             AND (m.role = ANY($2)
@@ -129,6 +129,42 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
     .fetch_all(&mut *tx)
     .await
     .map_err(|x| x.to_string())?;
+    let mut corps_base = corps.to_string();
+    if e.type_name == types::INTERNAT_RETOUR_DEMANDE {
+        // La demande de retour désigne la SORTIE (titre, heure de fin dans le fuseau de l'établissement), jamais l'élève ;
+        // elle part aussi aux accompagnateurs de la sortie, qui sont ceux qui peuvent ramener l'élève.
+        let sortie: Option<(String, String)> = sqlx::query_as(
+            "SELECT g.titre, to_char(g.fin AT TIME ZONE COALESCE(
+                        (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = g.etablissement_id),
+                        'Europe/Paris'), 'HH24\"h\"MI')
+               FROM ent_internat_sortie_groupe g WHERE g.etablissement_id = $1 AND g.id = $2",
+        )
+        .bind(etab)
+        .bind(e.aggregate_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|x| x.to_string())?;
+        if let Some((titre_sortie, fin_locale)) = sortie {
+            corps_base = format!(
+                "Un parent a refusé la sortie « {titre_sortie} » (fin prévue à {fin_locale}) après le départ d'un élève : le retour est demandé, ouvrez la sortie."
+            );
+            let accompagnateurs: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT e.user_id FROM ent_internat_sortie_groupe_encadrant e
+                   JOIN ent_membership m ON m.etablissement_id = e.etablissement_id AND m.user_id = e.user_id
+                  WHERE e.etablissement_id = $1 AND e.sortie_groupe_id = $2",
+            )
+            .bind(etab)
+            .bind(e.aggregate_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|x| x.to_string())?;
+            for u in accompagnateurs {
+                if !destinataires.contains(&u) {
+                    destinataires.push(u);
+                }
+            }
+        }
+    }
     // Avis regroupés : un seul avis par établissement, par nature et par minute (une rafale de cas ou de signaux ne sature
     // pas les responsables), avec le nombre d'élèves concernés et jamais un nom. L'alerte critique et la demande de retour,
     // elles, ne sont jamais regroupées : un avis par événement.
@@ -137,7 +173,7 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
     let regroupe = e.type_name != types::INTERNAT_ALERTE && e.type_name != types::INTERNAT_RETOUR_DEMANDE;
     let minute = e.created_at.timestamp().div_euclid(60);
     let debut_minute = DateTime::<Utc>::from_timestamp(minute * 60, 0).unwrap_or(e.created_at);
-    let mut corps_avis = corps.to_string();
+    let mut corps_avis = corps_base.clone();
     if regroupe {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(DISTINCT COALESCE(eleve_id, id)) FROM ent_metier_event \
@@ -151,7 +187,7 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
         .await
         .map_err(|x| x.to_string())?;
         if n > 1 {
-            corps_avis = format!("{corps} ({n} élèves concernés cette minute.)");
+            corps_avis = format!("{corps_base} ({n} élèves concernés cette minute.)");
         }
     }
     // Clé de regroupement : l'avis dans l'ENT est idempotent sur (événement source, destinataire, nature) ; l'événement
@@ -164,7 +200,8 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
         (format!("evt:{}:{}", e.id, nature), e.id)
     };
     for user_id in destinataires {
-        notifier_personne(
+        // Avis regroupé : un second événement de la même minute met à jour le nombre de l'avis encore non lu.
+        notifier_personne_selon(
             &mut *tx,
             EnvoiAPlanifier {
                 etablissement_id: etab,
@@ -183,6 +220,7 @@ async fn traiter_alertes(tx: &mut PgConnection, evt: &EvenementDistribue) -> Res
             },
             source_avis,
             maintenant,
+            regroupe,
         )
         .await
         .map_err(|x| x.to_string())?;

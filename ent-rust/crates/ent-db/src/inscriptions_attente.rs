@@ -263,8 +263,8 @@ pub(crate) async fn rang_lu_par_la_famille_tx(
 /// courante), dans l'ordre d'entrée sur la liste (`ordre_attente`). Aucun verrou de dossier : l'appelant tient le verrou
 /// **de l'offre**, que toute écriture de la liste prend d'abord (passe 4).
 const SUIVANT_A_DESIGNER: &str = "SELECT d.id FROM ent_inscription_dossier d
-       JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
-      WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
+       JOIN ent_inscription_liste_attente($1, $2, false) l ON l.dossier_id = d.id
+      WHERE d.etablissement_id = $1
         AND NOT EXISTS (SELECT 1 FROM ent_inscription_proposition_place p
                          WHERE p.etablissement_id = d.etablissement_id AND p.dossier_id = d.id
                            AND p.statut IN ('designee', 'envoyee'))
@@ -272,7 +272,7 @@ const SUIVANT_A_DESIGNER: &str = "SELECT d.id FROM ent_inscription_dossier d
                          WHERE e.etablissement_id = d.etablissement_id AND e.dossier_id = d.id
                            AND e.offre_id = $2 AND e.statut = 'ecartee' AND e.place_no = $4)
         AND NOT (d.id = ANY($3))
-      ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id LIMIT 1";
+      ORDER BY l.pos LIMIT 1";
 
 /// Journal **en ajout seul** des levées, constats et acceptations au guichet (`ent_inscription_condition_levee`).
 #[allow(clippy::too_many_arguments)] // une ligne de journal : chaque champ est une colonne
@@ -1920,14 +1920,12 @@ async fn liste_attente_tx(
     let disponibles = inscriptions_modele::disponibles_tx(conn, etab, offre).await?;
     let rows: Vec<(Uuid, String, String, String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
         "SELECT d.id, d.reference, d.eleve_nom, d.eleve_prenom,
-                row_number() OVER (ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id),
-                p.id, p.statut
-           FROM ent_inscription_dossier d
-           JOIN ent_inscription_voeu v ON v.etablissement_id = d.etablissement_id AND v.id = d.voeu_retenu_id
+                l.pos, p.id, p.statut
+           FROM ent_inscription_liste_attente($1, $2, false) l
+           JOIN ent_inscription_dossier d ON d.etablissement_id = $1 AND d.id = l.dossier_id
       LEFT JOIN ent_inscription_proposition_place p
              ON p.etablissement_id = d.etablissement_id AND p.dossier_id = d.id AND p.statut IN ('designee', 'envoyee')
-          WHERE d.etablissement_id = $1 AND v.offre_id = $2 AND d.etat = 'liste_attente'
-          ORDER BY COALESCE(d.ordre_attente, d.rang_attente::bigint) NULLS LAST, d.id",
+          ORDER BY l.pos",
     )
     .bind(etab)
     .bind(offre)

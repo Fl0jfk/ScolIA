@@ -115,6 +115,10 @@ pub struct ClasseTable {
     /// encore **publié** à la famille n'est jamais exporté (décision prise mais non publiée, suivi qui la révèle).
     /// L'assemblage de l'extrait (lot G3) l'applique ; vide pour la plupart des tables.
     pub export_si: Option<&'static str>,
+    /// Raison écrite pour laquelle la table est exportable **sans** `export_si` ni `hors_export` (« tout exportable » :
+    /// la famille ou l'élève a déjà reçu ou rédigé chaque ligne et chaque colonne). Exigée pour toute table `eva_*`
+    /// exportée sans autre déclaration (test `toute_table_eva_exportee_est_declaree`).
+    pub export_integral: Option<&'static str>,
     pub neutralisation: Neutralisation,
     pub retention: Retention,
     exceptions: [Option<&'static str>; 3],
@@ -151,6 +155,7 @@ const fn t(nom: &'static str, domaine: &'static str, portee: Portee) -> ClasseTa
         export_portabilite: false,
         colonnes_hors_export: &[],
         export_si: None,
+        export_integral: None,
         neutralisation: Neutralisation::Aucune,
         retention: Retention::ADefinir,
         exceptions: [None; 3],
@@ -183,6 +188,11 @@ impl ClasseTable {
     /// Condition de ligne de l'export de portabilité (voir [`ClasseTable::export_si`]).
     const fn export_si(mut self, condition: &'static str) -> Self {
         self.export_si = Some(condition);
+        self
+    }
+    /// « Tout exportable », avec la raison écrite (voir [`ClasseTable::export_integral`]).
+    const fn tout_exportable(mut self, raison: &'static str) -> Self {
+        self.export_integral = Some(raison);
         self
     }
     /// Table hors « par établissement » qui porte tout de même `etablissement_id`.
@@ -720,7 +730,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_etablissement_parametre", "etablissement", Portee::Etablissement),
     t("ent_etablissement_profil", "etablissement", Portee::Etablissement),
     t("ent_eva_coef_matiere", "evaluations_pedagogie", Portee::Etablissement),
-    t("ent_eva_export", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Journal des exports du personnel (format, classe, période, effectif, empreinte, auteur de l'export) : aucune note ni
+    // donnée d'élève ; l'auteur de l'export est la personne exportée elle-même.
+    t("ent_eva_export", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .tout_exportable("journal des exports faits par la personne elle-même : aucune note, aucun élève nommé"),
     t("ent_eva_regle", "evaluations_pedagogie", Portee::Etablissement),
     t("ent_event_traitement", "communication_technique", Portee::Etablissement).neutralise(Neutralisation::JournalSeul("marqueurs « déjà traité » des consommateurs d'événements : à conserver pour ne pas rejouer")).exc(Exception::SansRls, "marqueurs d'idempotence relus par `rejouer_consommateur` en dehors d'un contexte d'établissement, avec ent_outbox"),
     t("ent_fac_echeance", "finances", Portee::Etablissement).perso().export(),
@@ -1111,6 +1124,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_argent_demande", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_export", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_issue", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_refus", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_reglage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_autorisation", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_sortie_avenant", "sorties_voyages", Portee::Etablissement),
@@ -1188,37 +1202,62 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_vs_commission_dossier", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_vs_regle_assiduite", "assiduite", Portee::Etablissement),
     t("eva_aesh_indisponibilite_port", "evaluations_pedagogie", Portee::Etablissement).perso(),
-    t("eva_appreciation", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_appreciation_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Suites V5 passe 4 (M2, RGPD art. 15) : n'est exportée que l'appréciation **que la famille voit**, même règle que la
+    // vue `ent_note_appreciation_v` (468, M5) : validée, de type cours ou générale, et appréciations closes pour la classe de
+    // l'élève (rang d'état de période ≥ 2). Validée par le professeur ne veut pas dire publiée (contre-revue, E1). Ni auteur,
+    // ni dernier éditeur, ni origine (interne). `aide_ia` reste : la famille a le droit de savoir qu'un texte a été assisté.
+    t("eva_appreciation", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["auteur", "modifie_par", "origine_appreciation_id"])
+        .export_si("x.etat = 'validee' AND x.type IN ('cours', 'generale') AND EXISTS (SELECT 1 FROM ent_periode p WHERE p.id = x.periode_id AND p.etablissement_id = x.etablissement_id AND EXISTS (SELECT 1 FROM eva_periode_eleve_jour(x.etablissement_id, x.eleve_id, p.date_fin) pe WHERE pe.periode_id = x.periode_id AND eva_etat_rang(pe.etat) >= 2))"),
+    // Journal en ajout seul : versions successives (brouillons, textes écartés) et éditeur de chacune : interne.
+    t("eva_appreciation_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_banque_phrase", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_bareme_item", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_sous_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_consultation", "evaluations_pedagogie", Portee::Etablissement).perso(),
-    t("eva_correction_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_dispense_port", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_enseignement_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // La demande (motif, état, date de décision) est celle de la famille ; la personne qui a décidé est interne.
+    t("eva_correction_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["decide_par"]),
+    // Dispense : la décision est communiquée ; qui l'a saisie ou retirée est interne.
+    t("eva_dispense_port", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par", "retiree_par"]),
+    // Enseignement suivi ailleurs : ni la personne qui l'a déclaré ni le référent (tiers) de l'organisme.
+    t("eva_enseignement_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["declare_par", "referent"]),
     t("eva_evaluation", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_commune", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_historique", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_evaluation_publication_journal", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_evaluation_restriction", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Public restreint d'une évaluation : ne sort que si l'évaluation est publiée (sinon elle révèle une évaluation non annoncée).
+    t("eva_evaluation_restriction", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     t("eva_import_journal", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_instantane_ligne", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Instantané d'arrêt (dérivé : moyennes figées, statistiques de classe) pris AVANT la publication du bulletin et calculé
+    // sur des notes pas toutes publiées : retiré de l'export. Le bulletin figé et les notes publiées portent ce que la
+    // famille a reçu ; l'assemblage de l'extrait (G3) reprendra le bulletin.
+    t("eva_instantane_ligne", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // Passe 3 (D-069) : rien de non publié n'est jamais exporté. Une moyenne externe ne sort que publiée ; ni auteur, ni motif.
     t("eva_moyenne_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .hors_export(&["saisi_par", "publiee_par", "retrait_par", "dernier_retrait_par", "motif_correction", "dernier_motif_correction"])
         .export_si("x.publiee_le IS NOT NULL"),
     // Journal en ajout seul (valeurs avant correction, motifs, auteurs, lignes non publiées) : interne, jamais exporté.
     t("eva_moyenne_externe_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
-    t("eva_moyenne_statut", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Statut « en attente » / « non significative » (vu de la famille) ; motif interne et auteur du statut jamais exportés.
+    t("eva_moyenne_statut", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["motif_interne", "par"]),
     t("eva_nature", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_periode_etat", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_periode_transition", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_rattrapage", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_rattrapage_autorise", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
-    t("eva_rattrapage_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Convocation au rattrapage (date, lieu, modalité, échéance, état : communiquées à la famille). Jamais : auteurs,
+    // motifs internes, ni le zéro attribué (une note non publiée).
+    t("eva_rattrapage", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["cree_par", "modifie_par", "motif_annulation", "dernier_motif_prolongation", "zero_attribue_le", "zero_attribue_par"]),
+    t("eva_rattrapage_autorise", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["motif", "par"]),
+    t("eva_rattrapage_historique", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["par", "motif"]),
     t("eva_reglage", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reglage_historique", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_compte", "evaluations_pedagogie", Portee::Etablissement),
@@ -1228,17 +1267,19 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Résultat d'une évaluation publiée, sans les champs internes (note privée du professeur, marque « aménagé » jamais
     // imprimée à un tiers, auteur, motifs de correction) — comme la vue `eva_resultat_publie` que lit la famille.
     t("eva_resultat", "evaluations_pedagogie", Portee::Etablissement).perso().export()
-        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction"])
+        .hors_export(&["note_privee", "amenage", "saisi_par", "motif_correction", "dernier_motif_correction", "derniere_ecriture_correction", "source", "version"])
         .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     // Résultat externe : publié, compté et non retiré (ce que lit la famille), sans auteur ni motif.
     t("eva_resultat_externe", "evaluations_pedagogie", Portee::Etablissement).perso().export()
-        .hors_export(&["saisi_par", "compte_decide_par", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
+        .hors_export(&["saisi_par", "compte_decide_par", "compte_decide_le", "compte_motif", "publiee_par", "retiree_par", "motif_retrait"])
         .export_si("x.publiee_le IS NOT NULL AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL"),
     // Journal en ajout seul des résultats (valeurs successives, motifs, auteurs, y compris avant publication) : interne.
     t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .export_si("EXISTS (SELECT 1 FROM eva_resultat r JOIN eva_evaluation e ON e.etablissement_id = r.etablissement_id AND e.id = r.evaluation_id WHERE r.etablissement_id = x.etablissement_id AND r.id = x.resultat_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
-    t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
+    // Demande de revue de la famille et réponse qui lui a été faite (`reponse` n'existe que si l'état est « repondue »).
+    t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .tout_exportable("message de la famille et réponse qui lui a été adressée : aucun champ interne dans la table"),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_niveau", "assiduite", Portee::ReferentielGlobal),
@@ -1431,6 +1472,52 @@ mod tests {
         tries.sort_unstable();
         tries.dedup();
         assert_eq!(noms, tries, "registre : ordre alphabétique et noms uniques");
+    }
+
+    /// Tables d'évaluation (`eva_*`, `ent_eva_*`) exportées sans `export_si`, sans `hors_export` ni mention « tout
+    /// exportable » écrite (suites V5 passe 4, M2) : leur export serait un oubli, jamais un choix.
+    fn eva_exportees_sans_declaration(registre: &[ClasseTable]) -> Vec<&'static str> {
+        registre
+            .iter()
+            .filter(|c| c.nom.starts_with("eva_") || c.nom.starts_with("ent_eva_"))
+            .filter(|c| c.export_portabilite)
+            .filter(|c| {
+                c.export_si.is_none()
+                    && c.colonnes_hors_export.is_empty()
+                    && c.export_integral.is_none_or(|r| r.trim().len() < 20)
+            })
+            .map(|c| c.nom)
+            .collect()
+    }
+
+    #[test]
+    fn toute_table_eva_exportee_est_declaree() {
+        assert_eq!(
+            eva_exportees_sans_declaration(REGISTRE),
+            Vec::<&str>::new(),
+            "table d'évaluation exportée sans export_si, hors_export ni « tout exportable » justifié"
+        );
+        // Une mention vide ne vaut pas justification.
+        for c in REGISTRE.iter().filter(|c| c.export_integral.is_some()) {
+            assert!(c.export_portabilite, "{} : « tout exportable » sur une table non exportée", c.nom);
+        }
+    }
+
+    /// Test négatif : une table `eva_*` ajoutée à l'export sans déclaration est vue (et une raison vide ne suffit pas).
+    #[test]
+    fn une_table_eva_exportee_sans_declaration_est_vue() {
+        let nue = t("eva_nouvelle_table", "evaluations_pedagogie", Portee::Etablissement).perso().export();
+        let vide = t("eva_autre_table", "evaluations_pedagogie", Portee::Etablissement).perso().export().tout_exportable(" ");
+        let ok = t("eva_table_ok", "evaluations_pedagogie", Portee::Etablissement)
+            .perso()
+            .export()
+            .tout_exportable("chaque ligne et chaque colonne a été remise à la famille");
+        let non_exportee = t("eva_interne", "evaluations_pedagogie", Portee::Etablissement).perso();
+        let hors_domaine = t("ent_autre", "evaluations_pedagogie", Portee::Etablissement).perso().export();
+        assert_eq!(
+            eva_exportees_sans_declaration(&[nue, vide, ok, non_exportee, hors_domaine]),
+            vec!["eva_nouvelle_table", "eva_autre_table"]
+        );
     }
 
     #[test]

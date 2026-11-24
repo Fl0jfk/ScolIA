@@ -203,7 +203,7 @@ pub struct DemandeVue {
     pub seconde_validation: bool,
     pub demande_par_user_id: Uuid,
     pub demande_le: DateTime<Utc>,
-    /// `en_attente`, `appliquee`, `refusee` ou `retiree`.
+    /// `en_attente`, `expiree` (en attente depuis plus de 30 jours : on ne la valide plus), `appliquee`, `refusee` ou `retiree`.
     pub statut: String,
     pub issue_motif: Option<String>,
 }
@@ -234,6 +234,7 @@ struct DemandeLigne {
     motif: String,
     seconde_validation: bool,
     demande_par_user_id: Uuid,
+    demande_le: DateTime<Utc>,
 }
 
 // ───────────────────────── Lectures internes ─────────────────────────
@@ -337,8 +338,20 @@ pub(crate) fn exiger_sortie_ouverte_a_l_argent(s: &SortieLigne) -> Result<(), En
     Ok(())
 }
 
+/// Message du refus de la règle 3 (le même partout : il sert aussi à reconnaître ce refus pour le tracer).
+pub(crate) const MSG_REGLE3: &str = "Un pouvoir sur l'argent ne s'exerce pas pour son propre enfant ni pour son propre compte : une autre personne doit décider.";
+
+/// Ce refus est-il celui de la règle 3 ?
+pub(crate) fn est_refus_regle3(e: &EntDbError) -> bool {
+    matches!(e, EntDbError::Refus(RefusMetier::Interdit, m) if *m == MSG_REGLE3)
+}
+
+/// Délai au-delà duquel une demande en attente expire (F-c) : on ne la valide plus, on la refuse ou on la retire.
+pub const DELAI_EXPIRATION_DEMANDE_JOURS: i64 = 30;
+
 /// Règle 3 : le décideur (ou le valideur) n'est lié à aucun des élèves concernés et n'est pas payeur du compte.
-async fn exiger_decideur_libre(
+/// Étendue (M-3, D-069) à tout pouvoir sur l'argent : plans, versements, frais réels, avoirs, acomptes.
+pub(crate) async fn exiger_decideur_libre(
     conn: &mut PgConnection,
     etab: Uuid,
     user: Uuid,
@@ -363,9 +376,132 @@ async fn exiger_decideur_libre(
             .await
             .map_err(db)?;
     if interdit_ {
+        return Err(refus(RefusMetier::Interdit, MSG_REGLE3));
+    }
+    Ok(())
+}
+
+/// M-3 : variante pour un pouvoir qui vise des participants sans compte précis (frais réel, annulation collective,
+/// acompte fournisseur) : la personne n'est liée à aucun de ces élèves **et** n'est payeuse d'aucun compte qui porte une
+/// part de l'un d'eux.
+pub(crate) async fn exiger_libre_des_participants(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    participants: &[Uuid],
+) -> Result<(), EntDbError> {
+    exiger_decideur_libre(conn, etab, user, Uuid::nil(), participants).await?;
+    let payeur: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_sortie_part q
+                         WHERE q.etablissement_id = $1 AND q.participant_id = ANY($3)
+                           AND ent_sortie_argent_decideur_interdit($1, $2, q.compte_id, ARRAY[]::uuid[]))",
+    )
+    .bind(etab)
+    .bind(user)
+    .bind(participants)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if payeur {
+        return Err(refus(RefusMetier::Interdit, MSG_REGLE3));
+    }
+    Ok(())
+}
+
+/// M-3 : un pouvoir sur la sortie entière (acompte fournisseur) : la personne n'est liée à AUCUN participant de la sortie.
+pub(crate) async fn exiger_libre_de_la_sortie(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    sortie: Uuid,
+) -> Result<(), EntDbError> {
+    let participants: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM ent_sortie_participant WHERE etablissement_id = $1 AND sortie_id = $2",
+    )
+    .bind(etab)
+    .bind(sortie)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    exiger_libre_des_participants(conn, etab, user, &participants).await
+}
+
+/// Cumul (centimes) déjà engagé pour ce participant et ce payeur de cette sortie, en cette nature : écritures appliquées
+/// (nettes des annulations) **plus** demandes encore en attente (M-2 : le seuil de seconde validation porte sur le cumul,
+/// jamais sur chaque demande isolément).
+async fn cumul_engage(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    sortie: Uuid,
+    participant: Uuid,
+    compte: Uuid,
+    nature: &str,
+) -> Result<i64, EntDbError> {
+    let ecrit = if nature == "aide" {
+        "SELECT COALESCE(SUM(CASE WHEN sens = 'aide' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
+           FROM ent_sortie_aide
+          WHERE etablissement_id = $1 AND sortie_id = $2 AND participant_id = $3 AND compte_id = $4"
+    } else {
+        "SELECT COALESCE(SUM(CASE WHEN sens = 'report' THEN montant_centimes ELSE -montant_centimes END), 0)::bigint
+           FROM ent_sortie_report
+          WHERE etablissement_id = $1 AND sortie_id = $2 AND de_participant_id = $3 AND compte_id = $4"
+    };
+    let applique: i64 = sqlx::query_scalar(ecrit)
+        .bind(etab)
+        .bind(sortie)
+        .bind(participant)
+        .bind(compte)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    let attente: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(d.montant_centimes), 0)::bigint FROM ent_sortie_argent_demande d
+          WHERE d.etablissement_id = $1 AND d.sortie_id = $2 AND d.nature = $5
+            AND d.participant_id = $3 AND d.compte_id = $4
+            AND NOT EXISTS (SELECT 1 FROM ent_sortie_argent_issue i
+                             WHERE i.etablissement_id = d.etablissement_id AND i.demande_id = d.id)",
+    )
+    .bind(etab)
+    .bind(sortie)
+    .bind(participant)
+    .bind(compte)
+    .bind(nature)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    applique.checked_add(attente).ok_or_else(invalide)
+}
+
+/// F-c : l'annulation d'une aide ou d'un report soumis au seuil (montant au-dessus du seuil, ou aide du fonds social)
+/// ne se fait pas seul : la personne qui annule n'est ni celle qui a exercé le pouvoir ni le demandeur d'origine.
+async fn exiger_seconde_personne_annulation(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    table: &str,
+    ecriture: Uuid,
+    user: Uuid,
+    montant: i64,
+    source: Option<&str>,
+) -> Result<(), EntDbError> {
+    let (seuil, fonds) = seuil_seconde_validation(conn, etab).await?;
+    if !(montant > seuil || (fonds && source == Some("fonds_social"))) {
+        return Ok(());
+    }
+    let (decide, demande): (Uuid, Option<Uuid>) = sqlx::query_as(&format!(
+        "SELECT x.decide_par_user_id, d.demande_par_user_id FROM {table} x
+           LEFT JOIN ent_sortie_argent_demande d ON d.etablissement_id = x.etablissement_id AND d.id = x.demande_id
+          WHERE x.etablissement_id = $1 AND x.id = $2"
+    ))
+    .bind(etab)
+    .bind(ecriture)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?
+    .ok_or_else(introuvable)?;
+    if user == decide || demande == Some(user) {
         return Err(refus(
             RefusMetier::Interdit,
-            "Un pouvoir sur l'argent ne s'exerce pas pour son propre enfant ni pour son propre compte : une autre personne doit décider.",
+            "Cette annulation dépasse le seuil de seconde validation : une autre personne que celle qui a décidé (ou demandé) doit l'annuler.",
         ));
     }
     Ok(())
@@ -410,7 +546,7 @@ async fn demande_de_la_cle(
 ) -> Result<Option<DemandeLigne>, EntDbError> {
     sqlx::query_as(
         "SELECT id, nature, participant_id, vers_participant_id, compte_id, source, montant_centimes, reference, motif,
-                seconde_validation, demande_par_user_id
+                seconde_validation, demande_par_user_id, demande_le
            FROM ent_sortie_argent_demande WHERE etablissement_id = $1 AND sortie_id = $2 AND cle = $3",
     )
     .bind(etab)
@@ -715,7 +851,12 @@ async fn traiter_demande(
     participants.extend(e.vers);
     exiger_decideur_libre(conn, etab, a.user_id, e.compte, &participants).await?;
     let (seuil, fonds) = seuil_seconde_validation(conn, etab).await?;
-    let seconde = e.montant > seuil || (fonds && e.source == Some("fonds_social"));
+    // M-2 : le seuil porte sur le CUMUL (aides ou reports appliqués + demandes en attente) de ce participant et de ce payeur.
+    // Limite documentée : la règle « fonds social » reste déclarative (`source` saisie) ; le cumul, lui, vaut pour toutes
+    // les sources, ce qui empêche de fractionner ou d'étiqueter « autre » pour passer sous le seuil.
+    let cumul = cumul_engage(conn, etab, s.id, e.participant, e.compte, e.nature).await?;
+    let seconde = cumul.checked_add(e.montant).ok_or_else(invalide)? > seuil
+        || (fonds && e.source == Some("fonds_social"));
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_sortie_argent_demande
@@ -755,6 +896,7 @@ async fn traiter_demande(
             motif: e.motif.into(),
             seconde_validation: true,
             demande_par_user_id: a.user_id,
+            demande_le: maintenant,
         };
         if d.nature == "aide" {
             controler_aide(conn, etab, s, &d).await?;
@@ -854,7 +996,10 @@ pub(crate) async fn internat_resynchroniser(
             .await
             .map_err(db)?
             .ok_or_else(introuvable)?;
-    if matches!(s.etat.as_str(), "rentree" | "close") {
+    // Une sortie close ne change plus rien. Une sortie RENTRÉE (F-f) n'est plus ignorée : seuls les participants constatés
+    // « rentrés » gardent leurs nuits passées dehors (jusqu'à la veille de leur retour) ; un participant resté « parti »
+    // sur une sortie rentrée n'est plus retiré (sens sûr : attendu, appelé, cherché).
+    if s.etat == "close" {
         return Ok(InternatSynchro {
             poses: 0,
             annules: 0,
@@ -865,14 +1010,16 @@ pub(crate) async fn internat_resynchroniser(
     }
     let active = ETATS_SORTIE_ACTIFS.contains(&s.etat.as_str());
     let annulee = s.etat == "annulee";
+    let rentree = s.etat == "rentree";
     // Jours de l'établissement (jamais UTC) : nuit du départ à la veille du retour.
-    let (du, retour, jour_modif): (NaiveDate, NaiveDate, NaiveDate) = sqlx::query_as(
+    // M-4 : le jour de l'annulation vient de `annulee_le` (posé à la transition, immuable), jamais de `modifie_le`.
+    let (du, retour, jour_annulation): (NaiveDate, NaiveDate, NaiveDate) = sqlx::query_as(
         "SELECT ent_aujourdhui_etab($1, $2), ent_aujourdhui_etab($1, $3), ent_aujourdhui_etab($1, $4)",
     )
     .bind(etab)
     .bind(s.debut)
     .bind(s.fin)
-    .bind(s.modifie_le)
+    .bind(s.annulee_le.unwrap_or(s.fin))
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
@@ -890,12 +1037,14 @@ pub(crate) async fn internat_resynchroniser(
     }
     // Sortie annulée en cours de route : seules les nuits déjà passées hors de l'établissement restent retirées.
     let au_sortie = if annulee {
-        au.min(jour_modif - chrono::Duration::days(1))
+        au.min(jour_annulation - chrono::Duration::days(1))
     } else {
         au
     };
     // Internes dont le départ est constaté, avec la dernière nuit de leur absence (retour anticipé : veille du retour).
-    let voulus: Vec<(Uuid, Uuid, NaiveDate)> = if (!active && !annulee) || au_sortie < du {
+    let voulus: Vec<(Uuid, Uuid, NaiveDate)> = if (!active && !annulee && !rentree)
+        || au_sortie < du
+    {
         Vec::new()
     } else {
         let lignes: Vec<(Uuid, Uuid, Option<NaiveDate>)> = sqlx::query_as(
@@ -916,10 +1065,14 @@ pub(crate) async fn internat_resynchroniser(
         .bind(etab)
         .bind(s.id)
         .bind(
-            ETATS_DEPART_CONSTATE
-                .iter()
-                .map(|e| (*e).to_string())
-                .collect::<Vec<_>>(),
+            if rentree {
+                vec!["rentre".to_string()]
+            } else {
+                ETATS_DEPART_CONSTATE
+                    .iter()
+                    .map(|e| (*e).to_string())
+                    .collect::<Vec<_>>()
+            },
         )
         .bind(du)
         .bind(au)
@@ -1048,6 +1201,58 @@ pub(crate) async fn internat_resynchroniser(
 }
 
 impl PgEnt {
+    /// F-a (contre-revue V3) : l'ordre des contrôles est **personnel → droit → verrou → existence**. Rien ne prend le
+    /// verrou consultatif d'une sortie, ni ne révèle son existence, avant que l'acteur soit du personnel (un parent ou un
+    /// élève n'a rien à faire ici : « introuvable », comme avant) puis, quand la route l'exige, qu'il ait le droit
+    /// d'établissement (sinon « interdit »). `droit` : `None` quand le porteur de la sortie suffit aussi (le droit précis est
+    /// alors vérifié après chargement de la sortie).
+    pub(crate) async fn avant_verrou(
+        &self,
+        a: &Acteur<'_>,
+        droit: Option<ent_auth::Action>,
+    ) -> Result<(), EntDbError> {
+        if matches!(a.role, "parent" | "eleve") {
+            return Err(introuvable());
+        }
+        if let Some(x) = droit {
+            self.voyages_exiger(a, x).await?;
+        }
+        Ok(())
+    }
+
+    /// F-c : la trace d'un refus de la règle 3 s'écrit dans **sa propre transaction** (celle de l'écriture refusée est
+    /// annulée) : qui, quelle action, quelle sortie, quand. Ni nom, ni montant, ni motif. Une trace qui ne s'écrit pas ne
+    /// masque jamais le refus lui-même.
+    pub(crate) async fn tracer_refus_regle3<T>(
+        &self,
+        a: &Acteur<'_>,
+        sortie: Option<Uuid>,
+        action: &str,
+        r: Result<T, EntDbError>,
+    ) -> Result<T, EntDbError> {
+        if let Err(e) = &r {
+            if est_refus_regle3(e) {
+                if let Ok(mut t) = tx(self, a).await {
+                    let ecrit = sqlx::query(
+                        "INSERT INTO ent_sortie_argent_refus (id, etablissement_id, sortie_id, user_id, action)
+                         VALUES ($1, $2, $3, $4, $5)",
+                    )
+                    .bind(Uuid::new_v4())
+                    .bind(a.etablissement_id)
+                    .bind(sortie)
+                    .bind(a.user_id)
+                    .bind(action)
+                    .execute(&mut *t)
+                    .await;
+                    if ecrit.is_ok() {
+                        let _ = t.commit().await;
+                    }
+                }
+            }
+        }
+        r
+    }
+
     // ───────────────────────── Aides (VOY-224) ─────────────────────────
 
     /// Demande une aide sur la part d'**un** payeur d'un participant. Comptabilité et direction (`voyages.argent`).
@@ -1071,6 +1276,24 @@ impl PgEnt {
         v: AideSaisie,
         maintenant: DateTime<Utc>,
     ) -> Result<DecisionAide, EntDbError> {
+        let r = self
+            .voyage_aide_accorder_a_corps(a, id, v, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_aide_accorder_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_aide_accorder_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: AideSaisie,
+        maintenant: DateTime<Utc>,
+    ) -> Result<DecisionAide, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         if !SOURCES_AIDE.contains(&v.source.as_str()) {
             return Err(invalide());
         }
@@ -1146,6 +1369,25 @@ impl PgEnt {
         motif: &str,
         maintenant: DateTime<Utc>,
     ) -> Result<AideVue, EntDbError> {
+        let r = self
+            .voyage_aide_annuler_a_corps(a, id, aide_id, motif, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_aide_annuler_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_aide_annuler_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        aide_id: Uuid,
+        motif: &str,
+        maintenant: DateTime<Utc>,
+    ) -> Result<AideVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -1188,6 +1430,17 @@ impl PgEnt {
             a.user_id,
             o.compte_id,
             &[o.participant_id],
+        )
+        .await?;
+        // F-c : une annulation au-dessus du seuil ne se fait pas seul.
+        exiger_seconde_personne_annulation(
+            &mut t,
+            a.etablissement_id,
+            "ent_sortie_aide",
+            aide_id,
+            a.user_id,
+            o.montant_centimes,
+            Some(&o.source),
         )
         .await?;
         let nid = Uuid::new_v4();
@@ -1265,6 +1518,24 @@ impl PgEnt {
         v: ReportSaisie,
         maintenant: DateTime<Utc>,
     ) -> Result<DecisionReport, EntDbError> {
+        let r = self
+            .voyage_report_effectuer_a_corps(a, id, v, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_report_effectuer_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_report_effectuer_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        v: ReportSaisie,
+        maintenant: DateTime<Utc>,
+    ) -> Result<DecisionReport, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         let montant = centimes_de_texte(&v.montant)
             .filter(|m| (1..=VERSEMENT_MAX).contains(m))
             .ok_or_else(invalide)?;
@@ -1338,6 +1609,25 @@ impl PgEnt {
         motif: &str,
         maintenant: DateTime<Utc>,
     ) -> Result<ReportVue, EntDbError> {
+        let r = self
+            .voyage_report_annuler_a_corps(a, id, report_id, motif, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_report_annuler_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_report_annuler_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        report_id: Uuid,
+        motif: &str,
+        maintenant: DateTime<Utc>,
+    ) -> Result<ReportVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -1376,6 +1666,17 @@ impl PgEnt {
             a.user_id,
             o.compte_id,
             &[o.de_participant_id, o.vers_participant_id],
+        )
+        .await?;
+        // F-c : une annulation au-dessus du seuil ne se fait pas seul.
+        exiger_seconde_personne_annulation(
+            &mut t,
+            a.etablissement_id,
+            "ent_sortie_report",
+            report_id,
+            a.user_id,
+            o.montant_centimes,
+            None,
         )
         .await?;
         let verse_vers = paye_net(
@@ -1493,7 +1794,8 @@ impl PgEnt {
         let v: Vec<DemandeVue> = sqlx::query_as(
             "SELECT d.id, d.nature, d.participant_id, d.vers_participant_id, d.compte_id, d.source, d.montant_centimes,
                     d.reference, d.motif, d.seconde_validation, d.demande_par_user_id, d.demande_le,
-                    CASE WHEN i.id IS NULL THEN 'en_attente'
+                    CASE WHEN i.id IS NULL AND d.demande_le < $3 - make_interval(days => $4::int) THEN 'expiree'
+                         WHEN i.id IS NULL THEN 'en_attente'
                          WHEN i.issue = 'appliquee' THEN 'appliquee' ELSE i.issue END AS statut,
                     i.motif AS issue_motif
                FROM ent_sortie_argent_demande d
@@ -1502,6 +1804,8 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(s.id)
+        .bind(Utc::now())
+        .bind(DELAI_EXPIRATION_DEMANDE_JOURS as i32)
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
@@ -1530,6 +1834,24 @@ impl PgEnt {
         demande_id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<DecisionValidee, EntDbError> {
+        let r = self
+            .voyage_demande_valider_a_corps(a, id, demande_id, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_demande_valider_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_demande_valider_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        demande_id: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<DecisionValidee, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -1546,6 +1868,13 @@ impl PgEnt {
             return Err(refus(
                 RefusMetier::Interdit,
                 "Une seconde personne valide : le demandeur ne valide pas sa propre demande.",
+            ));
+        }
+        // F-c : une demande en attente expire ; on ne la valide plus (on la refuse ou on la retire, puis on la redépose).
+        if maintenant - d.demande_le > chrono::Duration::days(DELAI_EXPIRATION_DEMANDE_JOURS) {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Cette demande est en attente depuis plus de 30 jours : elle a expiré. Refusez-la ou retirez-la, puis redéposez-la.",
             ));
         }
         let (aide, report) = appliquer_demande(&mut t, a, &s, &d, maintenant).await?;
@@ -1586,6 +1915,25 @@ impl PgEnt {
         motif: &str,
         maintenant: DateTime<Utc>,
     ) -> Result<StatutDemande, EntDbError> {
+        let r = self
+            .voyage_demande_refuser_a_corps(a, id, demande_id, motif, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_demande_refuser_a", r)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_demande_refuser_a_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        demande_id: Uuid,
+        motif: &str,
+        maintenant: DateTime<Utc>,
+    ) -> Result<StatutDemande, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -1639,7 +1987,7 @@ impl PgEnt {
     ) -> Result<DemandeLigne, EntDbError> {
         sqlx::query_as(
             "SELECT id, nature, participant_id, vers_participant_id, compte_id, source, montant_centimes, reference,
-                    motif, seconde_validation, demande_par_user_id
+                    motif, seconde_validation, demande_par_user_id, demande_le
                FROM ent_sortie_argent_demande WHERE etablissement_id = $1 AND sortie_id = $2 AND id = $3",
         )
         .bind(a.etablissement_id)
@@ -1669,6 +2017,8 @@ impl PgEnt {
         id: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<InternatSynchro, EntDbError> {
+        // F-a : personnel avant le verrou et l'existence ; le droit précis (porteur ou droit d'établissement) suit le chargement.
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -1704,8 +2054,15 @@ impl PgEnt {
         participant_id: Uuid,
         motif_code: &str,
     ) -> Result<InternatSynchro, EntDbError> {
-        self.voyage_participant_retour_anticipe_a(a, id, participant_id, motif_code, Utc::now())
-            .await
+        self.voyage_participant_retour_anticipe_a(
+            a,
+            id,
+            participant_id,
+            motif_code,
+            None,
+            Utc::now(),
+        )
+        .await
     }
 
     pub async fn voyage_participant_retour_anticipe_a(
@@ -1714,16 +2071,26 @@ impl PgEnt {
         id: Uuid,
         participant_id: Uuid,
         motif_code: &str,
+        retour_le: Option<DateTime<Utc>>,
         maintenant: DateTime<Utc>,
     ) -> Result<InternatSynchro, EntDbError> {
         if !crate::voyages::MOTIFS_PARTICIPANT.contains(&motif_code) {
             return Err(invalide());
         }
+        // F-a : personnel avant le verrou et l'existence ; le droit précis (porteur ou droit d'établissement) suit le chargement.
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
         if !acces.gere(ent_auth::Action::VoyagesParticipants) {
             return Err(interdit());
+        }
+        // F-b : un retour anticipé ne s'enregistre que sur une sortie en cours de route (jamais rentrée, close, annulée).
+        if !ETATS_SORTIE_ACTIFS.contains(&s.etat.as_str()) {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Cette sortie n'est plus en cours : un retour anticipé ne s'y enregistre plus.",
+            ));
         }
         let actuel = etat_participant(&mut t, a.etablissement_id, s.id, participant_id).await?;
         if actuel != "parti" {
@@ -1732,6 +2099,31 @@ impl PgEnt {
                 "Seul un participant parti peut rentrer avant la fin du séjour.",
             ));
         }
+        // F-b : le retour est l'instant où l'élève est réellement rentré (saisie tardive possible), borné : jamais dans le
+        // futur, jamais avant son départ constaté ; l'instant de la saisie reste tracé dans le fait.
+        let depart: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT max(a) FROM ent_sortie_participant_fait
+              WHERE etablissement_id = $1 AND participant_id = $2 AND etat_apres = 'parti'",
+        )
+        .bind(a.etablissement_id)
+        .bind(participant_id)
+        .fetch_one(&mut *t)
+        .await
+        .map_err(db)?;
+        let retour = retour_le.unwrap_or(maintenant);
+        if retour > maintenant || retour < depart.unwrap_or(s.debut) {
+            return Err(refus(
+                RefusMetier::Invalide,
+                "La date de retour ne peut être ni dans le futur ni avant le départ du participant.",
+            ));
+        }
+        let trace = (retour != maintenant).then(|| {
+            format!(
+                "retour constaté le {}, saisi le {}",
+                retour.to_rfc3339(),
+                maintenant.to_rfc3339()
+            )
+        });
         sqlx::query(
             "UPDATE ent_sortie_participant SET etat = 'rentre', modifie_le = $3
               WHERE etablissement_id = $1 AND id = $2",
@@ -1750,8 +2142,8 @@ impl PgEnt {
             Some("parti"),
             "rentre",
             Some(motif_code),
-            None,
-            maintenant,
+            trace.as_deref(),
+            retour,
         )
         .await?;
         let r = internat_resynchroniser(&mut t, a, s.id, maintenant).await?;

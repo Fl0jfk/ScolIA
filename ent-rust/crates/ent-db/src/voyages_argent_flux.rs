@@ -233,6 +233,8 @@ impl PgEnt {
         if numeros.len() != lignes.len() {
             return Err(refus(RefusMetier::Invalide, "Deux chèques portent le même numéro."));
         }
+        // F-a (contre-revue du pilote) : parent et élève écartés avant de prendre le verrou de la sortie.
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -331,6 +333,7 @@ impl PgEnt {
         note: Option<&str>,
     ) -> Result<BordereauVue, EntDbError> {
         let note = texte_opt(note, 500)?;
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -361,6 +364,17 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
+        // M-3 (contre-revue du pilote, D-069) : recevoir un bordereau est un pouvoir sur l'argent (il fixe les écarts et
+        // les alertes) : la personne qui reçoit n'est liée à aucun élève ni payeuse d'aucun compte des chèques du bordereau.
+        let participants: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT participant_id FROM ent_sortie_bordereau_ligne WHERE etablissement_id = $1 AND bordereau_id = $2",
+        )
+        .bind(a.etablissement_id)
+        .bind(bordereau_id)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
+        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &participants).await?;
         let mut cochees = recues.clone();
         cochees.sort_unstable();
         cochees.dedup();
@@ -443,6 +457,20 @@ impl PgEnt {
         ligne_id: Uuid,
         compte_id: Uuid,
     ) -> Result<VersementVue, EntDbError> {
+        let r = self.voyage_bordereau_ligne_pointer_corps(a, id, ligne_id, compte_id).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_bordereau_ligne_pointer", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_bordereau_ligne_pointer_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        ligne_id: Uuid,
+        compte_id: Uuid,
+    ) -> Result<VersementVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, None).await?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
@@ -532,7 +560,25 @@ impl PgEnt {
 
     // ───────────────────────── Acomptes fournisseurs (VOY-270) ─────────────────────────
 
-    pub async fn voyage_acompte_creer(&self, a: &Acteur<'_>, id: Uuid, f: AcompteSaisie) -> Result<AcompteVue, EntDbError> {
+    pub async fn voyage_acompte_creer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        f: AcompteSaisie,
+    ) -> Result<AcompteVue, EntDbError> {
+        let r = self.voyage_acompte_creer_corps(a, id, f).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_acompte_creer", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_acompte_creer_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        f: AcompteSaisie,
+    ) -> Result<AcompteVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
         let montant = centimes_de_texte(&f.montant).filter(|m| *m > 0 && *m <= 100_000_000_000).ok_or_else(invalide)?;
         let libelle = texte(&f.libelle, 200)?;
         let mut t = tx(self, a).await?;
@@ -541,6 +587,8 @@ impl PgEnt {
         if !peut_argent(&acces) {
             return Err(interdit());
         }
+        // M-3 : un acompte fournisseur engage l'argent de la sortie : jamais pour une sortie où son propre enfant part.
+        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         if f.echeance < jour - chrono::Duration::days(366) || f.echeance > jour + chrono::Duration::days(3 * 366) {
             return Err(invalide());
@@ -608,6 +656,22 @@ impl PgEnt {
         date: Option<NaiveDate>,
         reference: Option<&str>,
     ) -> Result<AcompteVue, EntDbError> {
+        let r = self.voyage_acompte_payer_corps(a, id, acompte_id, montant, date, reference).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_acompte_payer", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_acompte_payer_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        acompte_id: Uuid,
+        montant: Option<&str>,
+        date: Option<NaiveDate>,
+        reference: Option<&str>,
+    ) -> Result<AcompteVue, EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
         let reference = texte_opt(reference, 60)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -615,6 +679,8 @@ impl PgEnt {
         if !peut_argent(&acces) {
             return Err(interdit());
         }
+        // M-3 : payer un acompte est un pouvoir sur l'argent de la sortie.
+        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let (du, paye, annule): (i64, Option<NaiveDate>, Option<NaiveDate>) = sqlx::query_as(
             "SELECT montant_centimes, paye_le, annule_le FROM ent_sortie_acompte_fournisseur
@@ -664,7 +730,27 @@ impl PgEnt {
     }
 
     /// Annule un acompte non payé, avec motif (jamais de suppression).
-    pub async fn voyage_acompte_annuler(&self, a: &Acteur<'_>, id: Uuid, acompte_id: Uuid, motif: &str) -> Result<(), EntDbError> {
+    pub async fn voyage_acompte_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        acompte_id: Uuid,
+        motif: &str,
+    ) -> Result<(), EntDbError> {
+        let r = self.voyage_acompte_annuler_corps(a, id, acompte_id, motif).await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_acompte_annuler", r).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn voyage_acompte_annuler_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        acompte_id: Uuid,
+        motif: &str,
+    ) -> Result<(), EntDbError> {
+        // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
         let motif = texte(motif, 500)?;
         let mut t = tx(self, a).await?;
         verrou_sortie(&mut t, id).await?;
@@ -672,6 +758,9 @@ impl PgEnt {
         if !peut_argent(&acces) {
             return Err(interdit());
         }
+        // M-3 : annuler un acompte est un pouvoir sur l'argent de la sortie (contrôle de l'application seule : la base ne
+        // garde pas l'auteur d'une annulation).
+        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let r = sqlx::query(
             "UPDATE ent_sortie_acompte_fournisseur SET annule_le = $4, annule_motif = $5

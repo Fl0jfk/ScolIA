@@ -45,17 +45,45 @@ pub(crate) fn famille_a_accepte<'a>(
 ) -> impl std::future::Future<Output = ()> + 'a {
     let appelant = std::panic::Location::caller();
     async move {
+        // Écriture de fixture : la sentinelle (316) exige le verrou de l'offre, comme pour le service.
+        let offres: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT offre_id FROM ent_inscription_proposition_place
+              WHERE dossier_id = $1 AND statut = 'envoyee' AND offre_id IS NOT NULL",
+        )
+        .bind(dossier)
+        .fetch_all(ent.pool_verif())
+        .await
+        .unwrap();
+        let mut tx = tx_sous_verrou_offres(ent, &offres).await;
         let n = sqlx::query(
             "UPDATE ent_inscription_proposition_place SET statut = 'acceptee', repondu_le = envoyee_le
               WHERE dossier_id = $1 AND statut = 'envoyee'",
         )
         .bind(dossier)
-        .execute(ent.pool_verif())
+        .execute(&mut *tx)
         .await
         .unwrap()
         .rows_affected();
+        tx.commit().await.unwrap();
         assert!(n >= 1, "aucune proposition envoyée à accepter pour le dossier {dossier} (appel : {appelant})");
     }
+}
+
+/// Transaction de fixture qui tient d'abord le verrou consultatif de chacune de ces offres (même clé que le service) : la
+/// sentinelle de la migration 316 refuse toute écriture de places, de propositions ou de décisions sans lui.
+pub(crate) async fn tx_sous_verrou_offres(ent: &PgEnt, offres: &[Uuid]) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let mut offres = offres.to_vec();
+    offres.sort_unstable();
+    offres.dedup();
+    for o in offres {
+        sqlx::query("SELECT pg_advisory_xact_lock(ent_inscription_offre_cle($1))")
+            .bind(o)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx
 }
 
 pub(crate) fn dir(c: &LaboCast) -> (Uuid, &'static str) {
