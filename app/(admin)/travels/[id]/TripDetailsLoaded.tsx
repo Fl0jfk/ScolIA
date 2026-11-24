@@ -42,6 +42,7 @@ import {
   TripPriceBlockEditor,
   type SaveResult,
 } from "@/app/components/travels/hub/TripFamilyPagePanel";
+import { TripRegistrationsPanel } from "@/app/components/travels/hub/TripRegistrationsPanel";
 import type { TravelsFamilyPage, TravelsParentCalendar, TravelsPriceBlock } from "@/app/lib/travels-types";
 import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
@@ -2022,11 +2023,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       )}
 
       {hubTab === "familypage" && isV2 && (
-        <TripFamilyPagePanel
-          trip={trip}
-          canEditPage={isOwner || isAdministratif || isGlobalAdmin || canSign}
-          saveFamilyPage={saveFamilyPage}
-        />
+        <>
+          <TripFamilyPagePanel
+            trip={trip}
+            canEditPage={isOwner || isAdministratif || isGlobalAdmin || canSign}
+            saveFamilyPage={saveFamilyPage}
+          />
+          {trip.data.familyPage?.openedAt ? <TripRegistrationsPanel tripId={trip.id} /> : null}
+        </>
       )}
 
       {hubTab === "transport" && withBusLogistics && (

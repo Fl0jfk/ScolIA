@@ -253,7 +253,7 @@ export type TravelsModuleConfig = {
   assistanceCardFileName?: string;
   /**
    * Circuit voyages v2 (« engagement des familles ») pour les nouveaux séjours (hors séries récurrentes).
-   * Absent = false : circuit historique. Aucun écran de réglage : modifiable via PUT /api/settings/travels.
+   * Absent = false : circuit historique. Interrupteur dans Paramètres › Sorties (réservé aux admins), via PUT /api/settings/travels.
    */
   workflowV2Enabled?: boolean;
 };
