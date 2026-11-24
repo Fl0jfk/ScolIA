@@ -1251,8 +1251,14 @@ pub(crate) async fn lignes_annuelles(
             })
             .collect();
         for j in 0..foyers.len() {
-            let tarife = signatures.iter().any(|sg| sg[j].is_some());
-            if let Some(m) = signatures.iter().position(|sg| tarife && sg[j].is_none()) {
+            // Contre-revue du pilote (Moyen 2, D-069) : seul un trou qui SUIT un mois tarifé bloque (article retiré d'une
+            // grille en cours d'année : les mois suivants seraient gratuits en silence). Un trou en tête est l'arrivée
+            // normale d'un service en cours d'année : l'article est facturé à partir de son premier mois tarifé. (Un mois
+            // sans AUCUN tarif, grille oubliée, reste bloquant plus bas, quelle que soit sa place.)
+            let premier_tarife = signatures.iter().position(|sg| sg[j].is_some());
+            if let Some(m) = premier_tarife
+                .and_then(|p| signatures.iter().skip(p).position(|sg| sg[j].is_none()).map(|k| p + k))
+            {
                 // un mois sans aucune ligne de grille applicable est annoncé en premier (message d'ensemble)
                 if categories.is_none() {
                     if let Some((debut, _, _)) = mois_tarifes.iter().find(|(_, _, cle)| cache[cle].is_empty()) {
@@ -1737,7 +1743,7 @@ pub(crate) async fn facturer_changement_regime(
     }
     if !gagnees.is_empty() {
         let suivant = calcul::fin_de_mois(date.year(), date.month()) + Duration::days(1);
-        if let Ok(lignes) = lignes_annuelles(
+        let calcul = lignes_annuelles(
             conn,
             etab,
             annee,
@@ -1747,7 +1753,14 @@ pub(crate) async fn facturer_changement_regime(
             Some(&gagnees),
             &format!("regime:{evenement}"),
         )
-        .await?
+        .await?;
+        // Contre-revue du pilote (Moyen 1) : une régularisation de régime non facturable n'est jamais silencieuse.
+        // (Une tâche d'anomalie dédiée demande une nature nouvelle en base : en file.)
+        if let Err(motif) = &calcul {
+            tracing::warn!(etablissement = %etab, evenement = %evenement, %motif,
+                "changement de régime non facturé : à régulariser à la main");
+        }
+        if let Ok(lignes) = calcul
         {
             res.ajouter(
                 inserer_lignes(

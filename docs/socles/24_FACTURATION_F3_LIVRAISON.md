@@ -209,3 +209,19 @@ Rien de la liste. Hors lot (inchangés) : régularisation des écarts de tarif d
 ### Vérifications et CI (Suites, 2)
 Base locale neuve `ent_f3t_test` (PostgreSQL 16), toolchain 1.99.0, `--locked`, un seul `CARGO_TARGET_DIR`, dates fixes (aucune horloge réelle). `tests_finances_f3` : 29 tests verts (26 + 3 nouveaux : `f3s2_*`, plus un test scindé) ; `ent-db` élargi (finances, factur, inscription, payeurs, comptes, registre, rls, conservation : 382 tests) : 379 verts, 3 échecs de parallélisme (deadlock de rejeu de migration, compteurs partagés) verts isolés. Clippy 1.99.0 `-D warnings` : 3 commandes de la CI propres (`ent-lab` compris) ; `cargo metadata --locked` dans `ent-rust/web` propre ; rustfmt ciblé sur `tests_finances_f3.rs` ; pas de `cargo fmt --all`, pas de `#[ignore]`. Non rejoués en local : `ent-api` (`separation`, `recette_*`) et `ent-web-server`, couverts par la CI.
 Tête de code : `1236cea1`. **CI « ENT Rust » verte** (run 45390937393 : 41 jobs, 2 sautés comme prévu). PR n° 146 laissée en brouillon.
+
+### Correctifs du pilote après contre-revue des suites, 2 (2026-11-24)
+Rapport complet : `docs/pilotage/revues/24_F3_SUITES_2_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé ; garde-fou anti
+double facturation intact.
+- **Moyen 2 (D-069)** : seul un trou de tarif qui **suit** un mois tarifé bloque ; un trou **en tête** (service arrivé en
+  cours d'année) est facturé à partir du premier mois tarifé (test
+  `f3s2_trou_en_tete_d_un_article_facture_a_partir_du_premier_mois_tarife` : demi-pension d'octobre à juin, 9/10). Un mois
+  sans aucun tarif (grille oubliée) reste bloquant. Constat : une grille ne peut pas être proposée avec un article actif
+  sans tarif (« anomalies bloquantes ») ; un trou en queue ne naît donc que d'un article désactivé, et **désactiver un
+  article n'est pas la voie de retrait** en cours d'année (les mois dus ne seraient plus facturés) : en file, une fin de
+  tarif datée.
+- **Moyen 1** : une régularisation de changement de régime non facturable est journalisée (`warn!`) ; en file : tâche
+  d'anomalie dédiée (nature nouvelle, migration).
+- En file : faibles 1 à 6 du rapport, dont la **couverture d'une prise en charge d'organisme vérifiée sur toute la période**
+  du tronçon (prioritaire).
+- Compteurs : `Action::TOUTES` 282, `SOURCES` 75 (inchangés).

@@ -4089,17 +4089,16 @@ async fn f3s2_article_inchange_non_coupe_quand_un_autre_change() {
     assert_eq!(l_dp.iter().map(|l| l.1).sum::<i64>(), 18_000 + 30_000);
 }
 
-/// Moyen 1 (suite), cas 2 : un trou propre à **un** article. Un tarif historique n'existe que pour la contribution ;
-/// la première grille (contribution et demi-pension) entre en vigueur au 1er octobre : en septembre la contribution
-/// est tarifée (historique) mais la demi-pension n'a aucun tarif : anomalie bloquante, rien d'écrit.
+/// Moyen 1 (suite), cas 2, revu par le pilote (contre-revue, Moyen 2, D-069) : un trou **en tête** propre à un article
+/// (service arrivé en cours d'année) n'est pas bloquant : la demi-pension, sans tarif en septembre, est facturée à partir
+/// d'octobre (9 mois sur 10), la contribution toute l'année.
 #[tokio::test]
-async fn f3s2_trou_propre_a_un_article() {
+async fn f3s2_trou_en_tete_d_un_article_facture_a_partir_du_premier_mois_tarife() {
     let Some((ent, c)) = labo().await else { return };
     let etab = c.etablissement_id;
     let (u, r) = compta(&c);
     let (ua, ra) = (c.admin.user_id, Role::Admin.as_str());
-    let (v1, contrib, _) = grille_proposee(&ent, &c).await;
-    // tarif historique de la contribution seule (aucune grille votée encore pour l'année)
+    let (v1, contrib, dp) = grille_proposee(&ent, &c).await;
     ent.creer_tarif_for_actor(etab, u, r, &tarif_historique(contrib, 100_000))
         .await
         .unwrap();
@@ -4109,22 +4108,18 @@ async fn f3s2_trou_propre_a_un_article() {
     ent.mettre_en_vigueur_for_actor(etab, u, r, v1, &MiseEnVigueurBody { du: d(2030, 10, 1) })
         .await
         .unwrap();
-    let el = eleve(&ent, etab, "Trou", "demi_pension").await;
-    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer trou").await;
-    let motif = facturer_motif(&ent, etab, el).await.unwrap_err();
-    assert!(
-        motif.contains("aucun tarif applicable pour l'article")
-            && motif.contains("Demi-pension")
-            && motif.contains("01/09/2030"),
-        "{motif}"
-    );
-    assert!(lignes_de(&ent, el).await.is_empty(), "rien n'est écrit");
-    // un élève externe n'est pas concerné par la demi-pension : la contribution est tarifée toute l'année
-    // (historique en septembre, grille ensuite), sans trou
-    let ext = eleve(&ent, etab, "Externe", "externe").await;
-    let _ = foyer_payeur(&ent, etab, ext, c.parent_tom.user_id, "Foyer externe").await;
-    facturer(&ent, etab, ext).await;
-    assert!(total_scolarite(&ent, ext).await > 0);
+    let el = eleve(&ent, etab, "Tete", "demi_pension").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer tete").await;
+    facturer_motif(&ent, etab, el).await.expect("trou en tête : facturé");
+    let (dp_total,): (i64,) = sqlx::query_as(
+        "SELECT COALESCE(sum(montant_unitaire_centimes * quantite), 0)::bigint FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id = $2",
+    )
+    .bind(el)
+    .bind(dp)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(dp_total, 45_000 * 9 / 10, "demi-pension d'octobre à juin");
 }
 
 /// Moyen 2 : le test « contributeurs » est discriminant. La direction n'a jamais touché un tarif ni créé la grille :
