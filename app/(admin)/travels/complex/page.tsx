@@ -131,7 +131,7 @@ function ComplexTripFormContent() {
           ...formData,
           workflowVersion: 2 as const,
           preListeEleves: preListe,
-          familyPage: { text: "", documents: familyDocuments },
+          familyPage: { documents: familyDocuments },
           piqueNiqueDetails: formData.piqueNiqueDetails.active
             ? (mirrorPiqueNiqueDatesToWeekdays(formData.piqueNiqueDetails, tripDays) as typeof formData.piqueNiqueDetails)
             : formData.piqueNiqueDetails,

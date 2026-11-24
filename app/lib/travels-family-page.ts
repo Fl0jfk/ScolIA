@@ -1,83 +1,22 @@
 /**
- * Page des familles (circuit v2) — fonctions pures : prompt du brouillon IA et modèle d'aperçu
- * partagé entre l'écran (aperçu) et l'export PDF. Aucun prix n'est écrit par l'organisateur.
+ * Page des familles (circuit v2) — modèle d'aperçu construit depuis la trame fixe
+ * (travels-family-page-template.ts) et les champs du dossier. Aucun texte libre, aucun appel IA.
+ * Ce modèle servira aussi au PDF d'engagement du lot 2.
  */
 
 import type {
   TravelsFamilyDocKind,
   TravelsFamilyDocRequest,
   TravelsFamilyPage,
+  TravelsParentCalendar,
   TravelsPriceBlock,
   TravelsTrip,
 } from "@/app/lib/travels-types";
-import { HEALTH_DOC_FORBIDDEN_MESSAGE, tripDepartureIso, tripReturnIso } from "@/app/lib/travels-v2";
+import { FAMILY_PAGE_TEMPLATE, fillFamilyTemplate } from "@/app/lib/travels-family-page-template";
+import { getFamilyMeetingPoints, tripDepartureIso, tripReturnIso, type MeetingPoint } from "@/app/lib/travels-v2";
 
-export const FINANCIAL_DIFFICULTY_SENTENCE =
-  "En cas de difficulté financière, n’hésitez pas à contacter votre secrétariat afin de rencontrer la direction.";
-
-export const FAMILY_PAGE_PROJECT_BANNER = "PROJET — non validé, ne pas diffuser";
-
-/** Retire le balisage Markdown que le modèle pourrait renvoyer malgré la consigne. */
-export function stripMarkdown(text: string): string {
-  return String(text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/[*_`]/g, "")
-    .replace(/^\s*[-•]\s+/gm, "• ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-/** Garantit la phrase sur les difficultés financières (ajoutée en fin de texte si absente). */
-export function ensureFinancialDifficultySentence(text: string): string {
-  const t = String(text || "").trim();
-  if (/difficult[ée]s?\s+financi[èe]re/i.test(t)) return t;
-  return t ? `${t}\n\n${FINANCIAL_DIFFICULTY_SENTENCE}` : FINANCIAL_DIFFICULTY_SENTENCE;
-}
-
-export function buildFamilyPageSystemPrompt(): string {
-  return [
-    "Tu es un assistant de communication scolaire. Tu rédiges le texte d'une page web destinée aux parents d'élèves, pour présenter un voyage ou une sortie scolaire.",
-    "CONSIGNES :",
-    "1. N'invente rien : appuie-toi uniquement sur les informations du dossier fournies.",
-    "2. Garde ce qui est utile aux parents : objectifs pédagogiques, activités, hébergement ou lieu, horaires et lieu de rendez-vous, équipement à prévoir, repas.",
-    "3. INTERDIT : mentionner un prix, un montant, un coût, un tarif, une somme en euros, ou des échéances de paiement. Le prix est ajouté séparément par la comptabilité.",
-    "4. INTERDIT : demander un document ou une information liée à la santé (fiche sanitaire, certificat médical, ordonnance, vaccins, allergies, traitement, PAI). Ne parle pas de santé.",
-    "5. N'ajoute pas de liste de pièces à fournir : elle est gérée à part.",
-    `6. Termine par cette phrase, telle quelle : « ${FINANCIAL_DIFFICULTY_SENTENCE} »`,
-    "7. TON : chaleureux, clair, rassurant, professionnel. Vouvoiement.",
-    "8. FORMAT : texte brut en paragraphes aérés. Pas de Markdown (ni #, ni *), pas de texte entre crochets.",
-  ].join("\n");
-}
-
-export function buildFamilyPageUserPrompt(trip: Pick<TravelsTrip, "ownerName" | "data">): string {
-  const d = trip.data || {};
-  const start = tripDepartureIso(d);
-  const end = tripReturnIso(d);
-  const dates = start ? (end && end !== start ? `du ${start} au ${end}` : `le ${start}`) : "à préciser";
-  const rdv =
-    String((d.transportRequest as { pickupPoint?: string } | undefined)?.pickupPoint || "").trim() || "à préciser";
-  const cuisine = d.piqueNiqueDetails && (d.piqueNiqueDetails as { active?: boolean }).active
-    ? "Repas fournis par la cantine (pique-nique ou self) prévus."
-    : "Pas de commande cantine prévue.";
-  return [
-    "Rédige le texte de la page des familles à partir de ce dossier (le prix est volontairement exclu) :",
-    `- Titre : ${d.title || "—"}`,
-    `- Établissement : ${d.etablissement || "—"}`,
-    `- Classes concernées : ${d.classes || "—"}`,
-    `- Objectifs pédagogiques : ${d.objectifs || "—"}`,
-    `- Destination : ${d.destination || "—"}`,
-    `- Dates : ${dates}`,
-    `- Heure de rendez-vous : ${d.startTime || "à préciser"} — heure de retour prévue : ${d.endTime || "à préciser"}`,
-    `- Lieu de rendez-vous : ${rdv}`,
-    `- Transport : ${d.needsBus ? "autocar" : "non précisé"}`,
-    `- Restauration : ${cuisine}`,
-    `- Organisateur : ${trip.ownerName || "l'enseignant"}`,
-  ].join("\n");
-}
-
-/* ─── Modèle d'aperçu (écran + PDF) ─── */
+/** Petite étiquette neutre de l'aperçu (pas de bandeau « projet » : le professeur ne diffuse rien). */
+export const FAMILY_PAGE_PREVIEW_LABEL = "Aperçu";
 
 export type FamilyPagePreviewDoc = {
   id: string;
@@ -91,10 +30,17 @@ export type FamilyPagePreviewDoc = {
 export type FamilyPagePreviewModel = {
   title: string;
   destination: string;
+  classes: string;
+  organizer: string;
   imageUrl: string | null;
   dateLine: string;
-  meetingLines: string[];
-  paragraphs: string[];
+  intro: string[];
+  outbound: MeetingPoint | null;
+  inbound: MeetingPoint | null;
+  program: string;
+  equipment: string[];
+  cash: { amount: number; reason: string } | null;
+  mealsRule: string[];
   documents: FamilyPagePreviewDoc[];
   deadline: string | null;
   price: {
@@ -102,11 +48,11 @@ export type FamilyPagePreviewModel = {
     installments: { dueDate: string; amount: number }[];
     paymentText: string;
   } | null;
-  /** Bandeau « PROJET » : tant que la page n'est pas ouverte aux familles. */
-  isProject: boolean;
-  projectBanner: string | null;
+  financialHelp: string;
+  dataRetention: string;
+  opened: boolean;
   openedAt: string | null;
-  hasText: boolean;
+  previewLabel: string | null;
 };
 
 const KIND_LABELS: Record<TravelsFamilyDocKind, string> = {
@@ -119,14 +65,18 @@ export function familyDocKindLabel(kind: TravelsFamilyDocKind): string {
   return KIND_LABELS[kind] ?? kind;
 }
 
-function dateFr(iso: string | null | undefined): string {
+export function dateFr(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(iso || "");
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 }
 
 export function buildFamilyPagePreviewModel(
-  trip: Pick<TravelsTrip, "data" | "imageUrl">,
-  override?: { familyPage?: Partial<TravelsFamilyPage>; priceBlock?: TravelsPriceBlock | null },
+  trip: Pick<TravelsTrip, "data" | "imageUrl" | "ownerName">,
+  override?: {
+    familyPage?: Partial<TravelsFamilyPage>;
+    priceBlock?: TravelsPriceBlock | null;
+    parentCalendar?: TravelsParentCalendar;
+  },
 ): FamilyPagePreviewModel {
   const d = trip.data || {};
   const page = { ...(d.familyPage || {}), ...(override?.familyPage || {}) } as Partial<TravelsFamilyPage>;
@@ -135,36 +85,26 @@ export function buildFamilyPagePreviewModel(
   const end = tripReturnIso(d);
   const dateLine = start
     ? end && end !== start
-      ? `Du ${dateFr(start)} au ${dateFr(end)}`
-      : `Le ${dateFr(start)}`
-    : "Dates à préciser";
+      ? `du ${dateFr(start)} au ${dateFr(end)}`
+      : `le ${dateFr(start)}`
+    : "";
+  const { outbound, inbound } = getFamilyMeetingPoints({ parentCalendar: override?.parentCalendar ?? d.parentCalendar });
 
-  const meetingLines: string[] = [];
-  const cal = d.parentCalendar;
-  const points = Array.isArray(cal?.points) ? cal.points : [];
-  for (const p of points) {
-    if (!p?.date) continue;
-    const label = p.label || (p.kind === "depot" ? "Rendez-vous / départ" : p.kind === "recuperation" ? "Retour / récupération" : "Point");
-    meetingLines.push(
-      `${label} : ${dateFr(p.date)}${p.time ? ` à ${p.time}` : ""}${p.place ? ` — ${p.place}` : ""}`,
-    );
-  }
-  if (meetingLines.length === 0 && start) {
-    const pickup = String((d.transportRequest as { pickupPoint?: string } | undefined)?.pickupPoint || "").trim();
-    meetingLines.push(
-      `Rendez-vous : ${dateFr(start)}${d.startTime ? ` à ${d.startTime}` : ""}${pickup ? ` — ${pickup}` : ""}`,
-    );
-    if (end) meetingLines.push(`Retour prévu : ${dateFr(end)}${d.endTime ? ` à ${d.endTime}` : ""}`);
-  }
-
-  const text = String(page.text || "").trim();
-  const paragraphs = text
-    ? text
-        .replace(/\r\n/g, "\n")
-        .split(/\n{2,}/)
-        .map((p) => p.trim())
-        .filter(Boolean)
-    : [];
+  const title = String(d.title || "Voyage scolaire");
+  const destination = String(d.destination || "");
+  const classes = String(d.classes || "");
+  const organizer = String(trip.ownerName || "");
+  const deadline = page.deadline ? String(page.deadline) : null;
+  const vars = {
+    titre: title,
+    destination,
+    dates: dateLine,
+    classes,
+    organisateur: organizer,
+    etablissement: String(d.etablissement || ""),
+    dateLimite: deadline ? dateFr(deadline) : "",
+  };
+  const intro = FAMILY_PAGE_TEMPLATE.intro.map((p) => fillFamilyTemplate(p, vars));
 
   const docs: TravelsFamilyDocRequest[] = Array.isArray(page.documents) ? (page.documents as TravelsFamilyDocRequest[]) : [];
   const order: Record<TravelsFamilyDocKind, number> = { avant_signature: 0, avant_depart: 1, facultative: 2 };
@@ -188,22 +128,33 @@ export function buildFamilyPagePreviewModel(
         }
       : null;
 
+  const cash =
+    page.cash && Number(page.cash.amount) > 0 && String(page.cash.reason || "").trim()
+      ? { amount: Number(page.cash.amount), reason: String(page.cash.reason).trim() }
+      : null;
+
   const openedAt = page.openedAt ? String(page.openedAt) : null;
   return {
-    title: String(d.title || "Voyage scolaire"),
-    destination: String(d.destination || ""),
+    title,
+    destination,
+    classes,
+    organizer,
     imageUrl: trip.imageUrl || (typeof d.imageUrl === "string" ? d.imageUrl : null) || null,
     dateLine,
-    meetingLines,
-    paragraphs,
+    intro,
+    outbound,
+    inbound,
+    program: String(page.program || "").trim(),
+    equipment: (page.equipment || []).map((x) => String(x).trim()).filter(Boolean),
+    cash,
+    mealsRule: [...FAMILY_PAGE_TEMPLATE.meals],
     documents,
-    deadline: page.deadline ? String(page.deadline) : null,
+    deadline,
     price,
-    isProject: !openedAt,
-    projectBanner: openedAt ? null : FAMILY_PAGE_PROJECT_BANNER,
+    financialHelp: FAMILY_PAGE_TEMPLATE.financialHelp,
+    dataRetention: FAMILY_PAGE_TEMPLATE.dataRetention,
+    opened: Boolean(openedAt),
     openedAt,
-    hasText: paragraphs.length > 0,
+    previewLabel: openedAt ? null : FAMILY_PAGE_PREVIEW_LABEL,
   };
 }
-
-export const FAMILY_PAGE_HEALTH_REMINDER = HEALTH_DOC_FORBIDDEN_MESSAGE;

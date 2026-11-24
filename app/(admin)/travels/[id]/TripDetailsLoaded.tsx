@@ -42,7 +42,7 @@ import {
   TripPriceBlockEditor,
   type SaveResult,
 } from "@/app/components/travels/hub/TripFamilyPagePanel";
-import type { TravelsFamilyPage, TravelsPriceBlock } from "@/app/lib/travels-types";
+import type { TravelsFamilyPage, TravelsParentCalendar, TravelsPriceBlock } from "@/app/lib/travels-types";
 import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
@@ -332,12 +332,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
   /** v2 : enregistre la page des familles (texte, pièces, date limite). Contrôles complets côté serveur. */
-  const saveFamilyPage = async (page: TravelsFamilyPage): Promise<SaveResult> => {
+  const saveFamilyPage = async (page: TravelsFamilyPage, parentCalendar: TravelsParentCalendar): Promise<SaveResult> => {
     lastSaveErrorRef.current = null;
     const ok = await saveUpdates({
       ...trip,
       data: {
         ...trip.data,
+        parentCalendar,
         familyPage: {
           ...page,
           authorName: user?.fullName || page.authorName,
@@ -449,7 +450,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     try {
       await handleAction("INSCRIPTIONS_OUVERTES", "Validation finale — inscriptions des familles ouvertes", {
         familyPage: {
-          ...(trip.data.familyPage || { text: "", documents: [] }),
+          ...(trip.data.familyPage || { documents: [] }),
           openedAt: new Date().toISOString(),
           openedBy: user?.fullName || undefined,
         },
@@ -2023,7 +2024,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       {hubTab === "familypage" && isV2 && (
         <TripFamilyPagePanel
           trip={trip}
-          canEditText={isOwner || isAdministratif || isGlobalAdmin || canSign}
+          canEditPage={isOwner || isAdministratif || isGlobalAdmin || canSign}
           saveFamilyPage={saveFamilyPage}
         />
       )}

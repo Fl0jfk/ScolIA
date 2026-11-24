@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Onglet « Page familles » (circuit v2) : rédaction par l'organisateur, aperçu fidèle de ce que verront
- * les parents (bandeau PROJET tant que la page n'est pas ouverte), export PDF filigrané, bloc prix (compta),
- * et fenêtre de validation finale de la direction. Aucun envoi aux familles dans ce lot.
+ * Onglet « Page familles » (circuit v2) : trame fixe + champs structurés remplis par l'organisateur,
+ * aperçu fidèle de ce que verront les parents (simple étiquette « Aperçu »), bloc prix (compta) et fenêtre de
+ * validation finale de la direction. Aucun texte libre, aucun appel IA, aucun envoi aux familles dans ce lot.
  */
 
 import { useMemo, useState } from "react";
@@ -11,26 +11,32 @@ import { TripAlert, TripButton, TripSection } from "@/app/components/travels/Tri
 import { FamilyDocumentsEditor, newFamilyDocId, RetroplanningCard } from "@/app/components/travels/TravelsV2Creation";
 import {
   buildFamilyPagePreviewModel,
-  FAMILY_PAGE_PROJECT_BANNER,
+  dateFr,
   type FamilyPagePreviewModel,
 } from "@/app/lib/travels-family-page";
+import { FAMILY_PAGE_TEMPLATE } from "@/app/lib/travels-family-page-template";
+import { defaultParentCalendarFromTrip, newCalendarPointId } from "@/app/lib/travels-parent-calendar";
 import type {
+  TravelsCalendarPoint,
   TravelsFamilyDocRequest,
   TravelsFamilyPage,
+  TravelsParentCalendar,
   TravelsPriceBlock,
   TravelsPriceInstallment,
   TravelsTrip,
 } from "@/app/lib/travels-types";
 import {
   addDaysIso,
+  FAMILY_PROGRAM_MAX_CHARS,
   familyPageReadiness,
+  getFamilyMeetingPoints,
   isFamilyPageEditableStatus,
   isFamilyPageOpened,
   REGISTRATION_CLOSE_DAYS_BEFORE_DEPARTURE,
   REGISTRATION_MIN_OPEN_DAYS,
-  textMentionsPrice,
   todayIsoParis,
   tripDepartureIso,
+  validateFamilyStructured,
   validatePriceBlock,
 } from "@/app/lib/travels-v2";
 
@@ -39,29 +45,34 @@ export type SaveResult = { ok: boolean; error?: string };
 function eur(n: number): string {
   return `${n.toFixed(2).replace(".", ",")} €`;
 }
-function dateFr(iso: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : iso;
-}
 
 /* ─── Aperçu tel que les parents le verront ─── */
 
-export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) {
+function MeetingLine({ label, p }: { label: string; p: FamilyPagePreviewModel["outbound"] }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-sm">
-      {model.projectBanner ? (
+    <p>
+      <span className="font-bold">{label} :</span>{" "}
+      {p && (p.place || p.time) ? (
         <>
-          <div className="bg-red-600 text-white text-center text-sm font-black tracking-wide uppercase px-3 py-2" role="alert">
-            ⚠️ {FAMILY_PAGE_PROJECT_BANNER}
-          </div>
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-          >
-            <span className="-rotate-[28deg] text-6xl sm:text-7xl font-black uppercase text-red-600/10 select-none text-center leading-tight">
-              Projet<br />non validé
-            </span>
-          </div>
+          {p.date ? `${dateFr(p.date)} ` : ""}
+          {p.time ? `à ${p.time}` : ""}
+          {p.place ? ` — ${p.place}` : ""}
         </>
+      ) : (
+        <span className="italic text-slate-400">à renseigner</span>
+      )}
+    </p>
+  );
+}
+
+export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) {
+  const h = FAMILY_PAGE_TEMPLATE.headings;
+  return (
+    <div className="overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-sm">
+      {model.previewLabel ? (
+        <div className="bg-slate-100 text-slate-600 text-center text-xs font-bold px-3 py-1 uppercase tracking-wide">
+          {model.previewLabel}
+        </div>
       ) : (
         <div className="bg-emerald-600 text-white text-center text-xs font-bold px-3 py-1.5">
           Page ouverte aux inscriptions{model.openedAt ? ` le ${new Date(model.openedAt).toLocaleDateString("fr-FR")}` : ""}
@@ -71,33 +82,65 @@ export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) 
         // eslint-disable-next-line @next/next/no-img-element
         <img src={model.imageUrl} alt="" className="w-full h-48 sm:h-60 object-cover" />
       ) : null}
-      <div className="p-5 sm:p-8 space-y-5">
+      <div className="p-5 sm:p-8 space-y-6 text-slate-700 leading-relaxed">
         <div>
           <h2 className="text-2xl font-black text-slate-900">{model.title}</h2>
           {model.destination ? <p className="text-slate-500 text-sm mt-1">{model.destination}</p> : null}
-          <p className="mt-2 text-indigo-700 font-bold">{model.dateLine}</p>
+          <p className="mt-2 text-indigo-700 font-bold capitalize">{model.dateLine}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {model.classes ? `Classes : ${model.classes}` : ""}
+            {model.classes && model.organizer ? " · " : ""}
+            {model.organizer ? `Organisateur : ${model.organizer}` : ""}
+          </p>
         </div>
-        {model.meetingLines.length > 0 ? (
+        <div className="space-y-2">
+          {model.intro.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </div>
+        <section>
+          <h3 className="font-bold text-slate-900 mb-1">{h.meeting}</h3>
           <div className="rounded-xl bg-slate-50 border p-3 text-sm space-y-1">
-            {model.meetingLines.map((l) => (
-              <p key={l}>{l}</p>
-            ))}
+            <MeetingLine label={h.outbound} p={model.outbound} />
+            <MeetingLine label={h.inbound} p={model.inbound} />
           </div>
+        </section>
+        {model.program ? (
+          <section>
+            <h3 className="font-bold text-slate-900 mb-1">{h.program}</h3>
+            <p className="whitespace-pre-line">{model.program}</p>
+          </section>
         ) : null}
-        <div className="space-y-3 text-slate-700 leading-relaxed">
-          {model.hasText ? (
-            model.paragraphs.map((p, i) => (
-              <p key={i} className="whitespace-pre-line">
-                {p}
-              </p>
-            ))
-          ) : (
-            <p className="text-slate-400 italic">Le texte de la page n’est pas encore rédigé.</p>
-          )}
-        </div>
+        {model.equipment.length > 0 ? (
+          <section>
+            <h3 className="font-bold text-slate-900 mb-1">{h.equipment}</h3>
+            <ul className="list-disc list-inside text-sm">
+              {model.equipment.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {model.cash ? (
+          <section>
+            <h3 className="font-bold text-slate-900 mb-1">{h.cash}</h3>
+            <p>
+              <span className="font-bold">{eur(model.cash.amount)}</span> — {model.cash.reason}
+            </p>
+            <p className="text-sm font-bold text-orange-700">{FAMILY_PAGE_TEMPLATE.cashNotIncluded}</p>
+          </section>
+        ) : null}
+        <section>
+          <h3 className="font-bold text-slate-900 mb-1">{h.meals}</h3>
+          {model.mealsRule.map((p, i) => (
+            <p key={i} className="text-sm">
+              {p}
+            </p>
+          ))}
+        </section>
         {model.documents.length > 0 ? (
-          <div>
-            <h3 className="font-bold text-slate-900 mb-2">Pièces à fournir</h3>
+          <section>
+            <h3 className="font-bold text-slate-900 mb-2">{h.documents}</h3>
             <ul className="space-y-1 text-sm">
               {model.documents.map((d) => (
                 <li key={d.id} className="flex flex-wrap gap-x-2">
@@ -110,10 +153,10 @@ export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) 
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
         ) : null}
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="font-bold text-amber-900 mb-1">Participation financière</h3>
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h3 className="font-bold text-amber-900 mb-1">{h.price}</h3>
           {model.price ? (
             <div className="text-sm text-amber-950 space-y-1">
               <p className="font-bold">Prix par élève : {eur(model.price.pricePerStudent)}</p>
@@ -129,14 +172,25 @@ export function FamilyPagePreview({ model }: { model: FamilyPagePreviewModel }) 
               {model.price.paymentText ? <p className="whitespace-pre-line">{model.price.paymentText}</p> : null}
             </div>
           ) : (
-            <p className="text-sm text-amber-800 italic">À renseigner par la comptabilité.</p>
+            <p className="text-sm text-amber-800 italic">{FAMILY_PAGE_TEMPLATE.pricePending}</p>
           )}
-        </div>
-        {model.deadline ? (
-          <p className="text-sm font-bold text-orange-700">Date limite de réponse : {dateFr(model.deadline)}</p>
-        ) : (
-          <p className="text-sm italic text-slate-400">Date limite de réponse : à renseigner.</p>
-        )}
+        </section>
+        <section>
+          <h3 className="font-bold text-slate-900 mb-1">{h.deadline}</h3>
+          {model.deadline ? (
+            <p className="text-sm font-bold text-orange-700">{dateFr(model.deadline)}</p>
+          ) : (
+            <p className="text-sm italic text-slate-400">À renseigner.</p>
+          )}
+        </section>
+        <section>
+          <h3 className="font-bold text-slate-900 mb-1">{h.help}</h3>
+          <p className="text-sm">{model.financialHelp}</p>
+        </section>
+        <section>
+          <h3 className="font-bold text-slate-900 mb-1">{h.data}</h3>
+          <p className="text-sm">{model.dataRetention}</p>
+        </section>
       </div>
     </div>
   );
@@ -276,178 +330,245 @@ export function TripPriceBlockEditor({
 
 /* ─── Onglet « Page familles » ─── */
 
+type MeetingDraft = { place: string; date: string; time: string };
+
+function meetingFromCalendar(trip: TravelsTrip): { outbound: MeetingDraft; inbound: MeetingDraft } {
+  const cal = defaultParentCalendarFromTrip(trip.data);
+  const { outbound, inbound } = getFamilyMeetingPoints({ parentCalendar: cal });
+  return {
+    outbound: { place: outbound?.place || "", date: outbound?.date || "", time: outbound?.time || "" },
+    inbound: { place: inbound?.place || "", date: inbound?.date || "", time: inbound?.time || "" },
+  };
+}
+
+/** Réécrit les points « depot » / « recuperation » du calendrier parents existant (les autres points sont conservés). */
+function applyMeetingsToCalendar(
+  cal: TravelsParentCalendar,
+  outbound: MeetingDraft,
+  inbound: MeetingDraft,
+): TravelsParentCalendar {
+  const upsert = (points: TravelsCalendarPoint[], kind: "depot" | "recuperation", m: MeetingDraft, label: string) => {
+    const idx = points.findIndex((p) => p.kind === kind);
+    const base: TravelsCalendarPoint =
+      idx >= 0
+        ? points[idx]
+        : { id: newCalendarPointId(), kind, label, date: m.date, time: m.time, durationMinutes: 30 };
+    const next = { ...base, place: m.place.trim() || undefined, date: m.date || base.date, time: m.time || base.time };
+    if (idx >= 0) points[idx] = next;
+    else points.push(next);
+  };
+  const points = cal.points.map((p) => ({ ...p }));
+  upsert(points, "depot", outbound, "Dépôt / départ");
+  upsert(points, "recuperation", inbound, "Récupération / retour");
+  return { ...cal, points };
+}
+
 export function TripFamilyPagePanel({
   trip,
-  canEditText,
+  canEditPage,
   saveFamilyPage,
 }: {
   trip: TravelsTrip;
-  /** Organisateur (ou administratif / admin général / direction). */
-  canEditText: boolean;
-  saveFamilyPage: (page: TravelsFamilyPage) => Promise<SaveResult>;
+  /** Organisateur, direction, administratif ou admin général (la compta est en lecture seule). */
+  canEditPage: boolean;
+  saveFamilyPage: (page: TravelsFamilyPage, parentCalendar: TravelsParentCalendar) => Promise<SaveResult>;
 }) {
-  const stored: TravelsFamilyPage = trip.data.familyPage || { text: "", documents: [] };
+  const stored: TravelsFamilyPage = trip.data.familyPage || { documents: [] };
   const opened = isFamilyPageOpened(stored);
   const editableStatus = isFamilyPageEditableStatus(String(trip.status));
-  const editable = canEditText && editableStatus && !opened;
+  const editable = canEditPage && editableStatus && !opened;
   const departureIso = tripDepartureIso(trip.data);
   const todayIso = todayIsoParis();
+  const initialMeetings = useMemo(() => meetingFromCalendar(trip), [trip]);
 
-  const [text, setText] = useState(stored.text || "");
+  const [outbound, setOutbound] = useState<MeetingDraft>(initialMeetings.outbound);
+  const [inbound, setInbound] = useState<MeetingDraft>(initialMeetings.inbound);
+  const [equipment, setEquipment] = useState<string[]>(stored.equipment || []);
+  const [newItem, setNewItem] = useState("");
+  const [cashAmount, setCashAmount] = useState(stored.cash ? String(stored.cash.amount) : "");
+  const [cashReason, setCashReason] = useState(stored.cash?.reason || "");
+  const [program, setProgram] = useState(stored.program || "");
   const [deadline, setDeadline] = useState(stored.deadline || "");
   const [documents, setDocuments] = useState<TravelsFamilyDocRequest[]>(stored.documents || []);
-  const [busy, setBusy] = useState<null | "save" | "draft" | "pdf">(null);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
+  const draftCash = (): TravelsFamilyPage["cash"] | undefined => {
+    const amount = Number(cashAmount.replace(",", "."));
+    if (!cashAmount.trim() && !cashReason.trim()) return undefined;
+    return { amount: Number.isFinite(amount) ? amount : 0, reason: cashReason.trim() };
+  };
+  const draftPage = (): TravelsFamilyPage => ({
+    ...stored,
+    equipment,
+    cash: draftCash(),
+    program: program.trim() || undefined,
+    deadline: deadline || undefined,
+    documents,
+  });
+  const draftCalendar = () => applyMeetingsToCalendar(defaultParentCalendarFromTrip(trip.data), outbound, inbound);
+
   const dirty =
-    text !== (stored.text || "") ||
-    deadline !== (stored.deadline || "") ||
-    JSON.stringify(documents) !== JSON.stringify(stored.documents || []);
+    JSON.stringify(draftPage()) !== JSON.stringify({ ...stored, documents: stored.documents || [] }) ||
+    JSON.stringify([outbound, inbound]) !== JSON.stringify([initialMeetings.outbound, initialMeetings.inbound]);
 
   const model = useMemo(
     () =>
-      buildFamilyPagePreviewModel(trip, {
-        familyPage: opened ? undefined : { text, deadline: deadline || undefined, documents },
-      }),
-    [trip, text, deadline, documents, opened],
+      buildFamilyPagePreviewModel(
+        trip,
+        opened ? undefined : { familyPage: draftPage(), parentCalendar: draftCalendar() },
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trip, opened, outbound, inbound, equipment, cashAmount, cashReason, program, deadline, documents],
   );
 
   const deadlineMin = addDaysIso(todayIso, REGISTRATION_MIN_OPEN_DAYS);
   const deadlineMax = departureIso ? addDaysIso(departureIso, -REGISTRATION_CLOSE_DAYS_BEFORE_DEPARTURE) : undefined;
 
   const save = async () => {
-    setBusy("save");
+    const check = validateFamilyStructured(draftPage());
+    if (!check.ok) {
+      setMessage({ tone: "error", text: check.error });
+      return;
+    }
+    setBusy(true);
     setMessage(null);
     try {
-      const res = await saveFamilyPage({
-        ...stored,
-        text,
-        deadline: deadline || undefined,
-        documents,
-        authorName: stored.authorName,
-        updatedAt: new Date().toISOString(),
-      });
+      const res = await saveFamilyPage(draftPage(), draftCalendar());
       setMessage(res.ok ? { tone: "ok", text: "Page enregistrée." } : { tone: "error", text: res.error || "Enregistrement impossible — réessayez." });
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  const generateDraft = async () => {
-    if (text.trim() && !confirm("Remplacer le texte actuel par un brouillon généré par l’IA ?")) return;
-    setBusy("draft");
-    setMessage(null);
-    try {
-      const res = await fetch("/api/travels/family-page-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripId: trip.id }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { text?: string; error?: string; mentionsPrice?: boolean };
-      if (!res.ok || !j.text) {
-        setMessage({ tone: "error", text: j.error || "Le brouillon n’a pas pu être généré." });
-        return;
-      }
-      setText(j.text);
-      setMessage({
-        tone: "ok",
-        text: "Brouillon généré : relisez-le, corrigez-le puis enregistrez. Il n’est pas encore enregistré.",
-      });
-    } finally {
-      setBusy(null);
-    }
+  const addItem = (label: string) => {
+    const v = label.trim();
+    if (!v || equipment.some((e) => e.toLowerCase() === v.toLowerCase())) return;
+    setEquipment((prev) => [...prev, v]);
+    setNewItem("");
   };
 
-  const exportPdf = async () => {
-    setBusy("pdf");
-    setMessage(null);
-    try {
-      const res = await fetch("/api/travels/family-page-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tripId: trip.id,
-          familyPage: opened ? undefined : { text, deadline: deadline || undefined, documents },
-        }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { pdf?: string; filename?: string; error?: string };
-      if (!res.ok || !j.pdf) {
-        setMessage({ tone: "error", text: j.error || "Export PDF impossible." });
-        return;
-      }
-      const a = document.createElement("a");
-      a.href = j.pdf;
-      a.download = j.filename || "Page_familles.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      setBusy(null);
-    }
-  };
+  const meetingFields = (label: string, m: MeetingDraft, set: (v: MeetingDraft) => void, timeLabel: string) => (
+    <div className="rounded-2xl border bg-slate-50 p-3 space-y-2">
+      <p className="text-sm font-bold">{label}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <input value={m.place} placeholder="Lieu" onChange={(e) => set({ ...m, place: e.target.value })} className="p-2 border rounded-lg bg-white text-sm" />
+        <input type="date" value={m.date} onChange={(e) => set({ ...m, date: e.target.value })} className="p-2 border rounded-lg bg-white text-sm" />
+        <input type="time" value={m.time} aria-label={timeLabel} title={timeLabel} onChange={(e) => set({ ...m, time: e.target.value })} className="p-2 border rounded-lg bg-white text-sm" />
+      </div>
+      <p className="text-[11px] text-slate-500">{timeLabel}</p>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       {opened ? (
         <TripAlert tone="success" icon="🔒" title="Page ouverte — verrouillée en écriture">
           La page a été ouverte aux inscriptions le {stored.openedAt ? new Date(stored.openedAt).toLocaleDateString("fr-FR") : "—"}.
-          Son texte ne peut plus être modifié.
+          Ses informations ne peuvent plus être modifiées.
         </TripAlert>
       ) : !editableStatus ? (
-        <TripAlert tone="info" icon="ℹ️" title="Rédaction possible après la validation pédagogique">
-          L’organisateur pourra rédiger la page des familles dès que la direction aura validé la pédagogie (en parallèle du transport).
+        <TripAlert tone="info" icon="ℹ️" title="Remplissage possible après la validation pédagogique">
+          La page se remplit dès que la direction a validé la pédagogie (en parallèle du transport).
         </TripAlert>
-      ) : !canEditText ? (
+      ) : !canEditPage ? (
         <TripAlert tone="muted" icon="👀" title="Lecture seule">
-          Seul l’organisateur (ou l’administration) rédige la page. Le prix est saisi par la comptabilité.
+          Seuls l’organisateur, la direction et l’administration remplissent la page. Le prix est saisi par la comptabilité.
         </TripAlert>
       ) : null}
 
       {editable ? (
-        <TripSection title="Rédiger la page" subtitle="Aucun prix dans le texte : le prix vient de la comptabilité." icon="✍️">
-          <div className="p-6 space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <TripButton variant="secondary" size="sm" onClick={() => void generateDraft()} disabled={busy !== null}>
-                {busy === "draft" ? "Génération…" : "✨ Brouillon IA à partir du dossier"}
-              </TripButton>
+        <TripSection
+          title="Compléter la page"
+          subtitle="Le texte de la page est fixe et identique pour tous les voyages ; vous renseignez seulement les informations ci-dessous."
+          icon="✍️"
+        >
+          <div className="p-6 space-y-6">
+            <div className="space-y-3">
+              <p className="text-sm font-bold">Rendez-vous et horaires (obligatoires)</p>
+              {meetingFields("Aller", outbound, setOutbound, "Heure de dépôt des élèves")}
+              {meetingFields("Retour", inbound, setInbound, "Heure de récupération des élèves")}
             </div>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={14}
-              placeholder="Présentez le séjour aux familles : objectifs, programme, rendez-vous, équipement à prévoir…"
-              className="w-full p-3 bg-white border rounded-xl text-sm leading-relaxed"
-            />
-            {textMentionsPrice(text) ? (
-              <p className="text-sm font-semibold text-amber-700" role="alert">
-                ⚠️ Le texte semble contenir un prix. Ne l’écrivez pas ici : le prix par élève est saisi par la comptabilité et s’affiche automatiquement.
-              </p>
-            ) : null}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold mb-1">Date limite de réponse des familles</label>
+
+            <div className="space-y-2">
+              <p className="text-sm font-bold">Dans la valise</p>
+              <div className="flex flex-wrap gap-2">
+                {FAMILY_PAGE_TEMPLATE.equipmentSuggestions
+                  .filter((s) => !equipment.some((e) => e.toLowerCase() === s.toLowerCase()))
+                  .map((s) => (
+                    <button key={s} type="button" onClick={() => addItem(s)} className="px-2.5 py-1 rounded-full border border-indigo-200 bg-indigo-50 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">
+                      + {s}
+                    </button>
+                  ))}
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {equipment.map((e) => (
+                  <li key={e} className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-sm">
+                    {e}
+                    <button type="button" className="text-red-500 text-xs" aria-label={`Retirer ${e}`} onClick={() => setEquipment((prev) => prev.filter((x) => x !== e))}>
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
                 <input
-                  type="date"
-                  value={deadline}
-                  min={deadlineMin}
-                  max={deadlineMax}
-                  onChange={(e) => setDeadline(e.target.value)}
-                  className="w-full p-2.5 bg-white border rounded-xl"
+                  value={newItem}
+                  maxLength={80}
+                  placeholder="Ajouter un élément…"
+                  onChange={(e) => setNewItem(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addItem(newItem);
+                    }
+                  }}
+                  className="flex-1 p-2.5 bg-white border rounded-xl text-sm"
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Au moins 7 jours après l’ouverture et au plus tard 14 jours avant le départ
-                  {deadlineMax ? ` (${dateFr(deadlineMax)})` : ""}. Contrôlé par la direction à la validation finale.
-                </p>
+                <TripButton variant="secondary" size="sm" onClick={() => addItem(newItem)} disabled={!newItem.trim()}>
+                  Ajouter
+                </TripButton>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-bold">Somme en liquide à prévoir (facultatif)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input value={cashAmount} inputMode="decimal" placeholder="Montant (€)" onChange={(e) => setCashAmount(e.target.value)} className="p-2.5 bg-white border rounded-xl text-sm" />
+                <input value={cashReason} placeholder="Motif (ex. sandwich sur la route du retour)" onChange={(e) => setCashReason(e.target.value)} className="sm:col-span-2 p-2.5 bg-white border rounded-xl text-sm" />
+              </div>
+              <p className="text-[11px] text-slate-500">Affichée aux familles comme « {FAMILY_PAGE_TEMPLATE.cashNotIncluded} »</p>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-sm font-bold">Programme en quelques lignes (facultatif)</p>
+              <textarea
+                value={program}
+                rows={4}
+                maxLength={FAMILY_PROGRAM_MAX_CHARS}
+                onChange={(e) => setProgram(e.target.value)}
+                className="w-full p-3 bg-white border rounded-xl text-sm"
+              />
+              <p className="text-[11px] text-slate-500">{program.length}/{FAMILY_PROGRAM_MAX_CHARS} caractères</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold mb-1">Date limite de réponse des familles</label>
+              <input type="date" value={deadline} min={deadlineMin} max={deadlineMax} onChange={(e) => setDeadline(e.target.value)} className="p-2.5 bg-white border rounded-xl" />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Au moins 7 jours après l’ouverture et au plus tard 14 jours avant le départ
+                {deadlineMax ? ` (${dateFr(deadlineMax)})` : ""}. Contrôlé par la direction à la validation finale.
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-bold mb-2">Pièces demandées aux familles</p>
               <FamilyDocumentsEditor value={documents} onChange={setDocuments} departureIso={departureIso} />
             </div>
             {departureIso ? <RetroplanningCard departureIso={departureIso} todayIso={todayIso} /> : null}
             <div className="flex flex-wrap items-center gap-3">
-              <TripButton variant="primary" onClick={() => void save()} disabled={busy !== null || !dirty}>
-                {busy === "save" ? "Enregistrement…" : "Enregistrer la page"}
+              <TripButton variant="primary" onClick={() => void save()} disabled={busy || !dirty}>
+                {busy ? "Enregistrement…" : "Enregistrer la page"}
               </TripButton>
               {dirty ? <span className="text-xs text-amber-700 font-semibold">Modifications non enregistrées</span> : null}
             </div>
@@ -474,16 +595,7 @@ export function TripFamilyPagePanel({
         </p>
       ) : null}
 
-      <TripSection
-        title="Aperçu — tel que les parents le verront"
-        subtitle={opened ? "Page ouverte." : "Brouillon : à ne pas diffuser tant que la direction n’a pas ouvert les inscriptions."}
-        icon="👁️"
-        action={
-          <TripButton variant="secondary" size="sm" onClick={() => void exportPdf()} disabled={busy !== null}>
-            {busy === "pdf" ? "Export…" : "Exporter en PDF"}
-          </TripButton>
-        }
-      >
+      <TripSection title="Aperçu — tel que les parents le verront" subtitle={opened ? "Page ouverte." : "Aperçu de la page des familles."} icon="👁️">
         <div className="p-4 sm:p-6">
           <FamilyPagePreview model={model} />
         </div>

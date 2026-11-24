@@ -6,7 +6,9 @@ import {
   checkWorkflowV2Update,
   computeRetroplanning,
   diffDaysIso,
-  evaluateFamilyPageTextChange,
+  evaluateFamilyStructuredChange,
+  validateFamilyMeetings,
+  validateFamilyStructured,
   evaluatePriceBlockChange,
   familyPageReadiness,
   HEALTH_DOC_FORBIDDEN_MESSAGE,
@@ -33,6 +35,13 @@ const PRICE = {
     { id: "b", dueDate: "2027-02-10", amount: 60 },
   ],
   paymentText: "Virement ou chèque",
+};
+
+const CAL = {
+  points: [
+    { id: "d", kind: "depot" as const, date: "2027-03-31", time: "07:30", place: "Parking du lycée" },
+    { id: "r", kind: "recuperation" as const, date: "2027-04-02", time: "19:00", place: "Parking du lycée" },
+  ],
 };
 
 const compta = { isCompta: true, isDirectionOfEtab: false, isGlobalAdmin: false };
@@ -225,15 +234,28 @@ describe("travels v2 — règles serveur pures", () => {
     assert.equal(canOpenRegistrations(prof), false);
   });
 
-  it("texte verrouillé après ouverture", () => {
-    assert.equal(evaluateFamilyPageTextChange({ existing: { text: "a" }, incoming: { text: "b" } }), "ok");
+  it("champs structurés : verrouillés après ouverture, restaurés pour la compta", () => {
+    const base = { familyPage: { equipment: ["Gourde"], documents: [] }, parentCalendar: CAL };
+    const changed = { familyPage: { equipment: ["Gourde", "Serviette"], documents: [] }, parentCalendar: CAL };
+    assert.equal(evaluateFamilyStructuredChange({ existing: base, incoming: base, actor: compta }), "ok");
+    assert.equal(evaluateFamilyStructuredChange({ existing: base, incoming: changed, actor: prof }), "ok");
+    assert.equal(evaluateFamilyStructuredChange({ existing: base, incoming: changed, actor: compta }), "restore");
+    const opened = { ...base, familyPage: { ...base.familyPage, openedAt: "2027-01-01T00:00:00Z" } };
+    assert.equal(evaluateFamilyStructuredChange({ existing: opened, incoming: changed, actor: direction }), "forbidden");
+    assert.equal(evaluateFamilyStructuredChange({ existing: opened, incoming: changed, actor: prof }), "forbidden");
+  });
+
+  it("champs structurés : liquide, programme et rendez-vous", () => {
+    assert.equal(validateFamilyStructured({ cash: { amount: 5, reason: "Sandwich" }, program: "x".repeat(600) }).ok, true);
+    assert.equal(validateFamilyStructured({ cash: { amount: 5, reason: "" } }).ok, false);
+    assert.equal(validateFamilyStructured({ cash: { amount: 0, reason: "x" } }).ok, false);
+    assert.equal(validateFamilyStructured({ program: "x".repeat(601) }).ok, false);
+    assert.equal(validateFamilyStructured({ equipment: [""] }).ok, false);
+    assert.equal(validateFamilyMeetings({ parentCalendar: CAL }).ok, true);
+    assert.equal(validateFamilyMeetings({ parentCalendar: { points: [CAL.points[0]] } }).ok, false);
     assert.equal(
-      evaluateFamilyPageTextChange({ existing: { text: "a", openedAt: "2027-01-01T00:00:00Z" }, incoming: { text: "b" } }),
-      "forbidden",
-    );
-    assert.equal(
-      evaluateFamilyPageTextChange({ existing: { text: "a", openedAt: "2027-01-01T00:00:00Z" }, incoming: { text: "a" } }),
-      "ok",
+      validateFamilyMeetings({ parentCalendar: { points: [{ ...CAL.points[0], place: "" }, CAL.points[1]] } }).ok,
+      false,
     );
   });
 
@@ -259,7 +281,8 @@ describe("travels v2 — checkWorkflowV2Update", () => {
   const existingBase = {
     workflowVersion: 2,
     startDate: dep,
-    familyPage: { text: "Bonjour", deadline: "2027-02-20", documents: [] },
+    familyPage: { deadline: "2027-02-20", documents: [] },
+    parentCalendar: CAL,
     priceBlock: PRICE,
   };
 
@@ -272,7 +295,7 @@ describe("travels v2 — checkWorkflowV2Update", () => {
       actor: prof,
       todayIso: today,
     });
-    assert.deepEqual(res, { ok: true, restorePriceBlock: false, stampOpenedAt: false });
+    assert.deepEqual(res, { ok: true, restorePriceBlock: false, restoreFamilyStructured: false, stampOpenedAt: false });
   });
 
   it("refuse la modification du bloc prix par un non-compta", () => {
@@ -297,7 +320,7 @@ describe("travels v2 — checkWorkflowV2Update", () => {
       actor: prof,
       todayIso: today,
     });
-    assert.deepEqual(res, { ok: true, restorePriceBlock: true, stampOpenedAt: false });
+    assert.deepEqual(res, { ok: true, restorePriceBlock: true, restoreFamilyStructured: false, stampOpenedAt: false });
   });
 
   it("la validation finances exige le bloc prix", () => {
@@ -338,6 +361,7 @@ describe("travels v2 — checkWorkflowV2Update", () => {
       assert.deepEqual(checkWorkflowV2Update({ ...common, actor: a }), {
         ok: true,
         restorePriceBlock: false,
+        restoreFamilyStructured: false,
         stampOpenedAt: true,
       });
     }
@@ -356,11 +380,36 @@ describe("travels v2 — checkWorkflowV2Update", () => {
     if (!res.ok) assert.match(res.error, /repoussez/);
   });
 
-  it("refuse toute modification du texte après ouverture", () => {
+  it("ouverture refusée sans rendez-vous aller et retour", () => {
+    const res = checkWorkflowV2Update({
+      existingData: { ...existingBase, parentCalendar: undefined },
+      incomingData: { ...existingBase, parentCalendar: undefined },
+      previousStatus: "EN_ATTENTE_DIR_FINAL",
+      newStatus: "INSCRIPTIONS_OUVERTES",
+      actor: direction,
+      todayIso: today,
+    });
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.match(res.error, /Rendez-vous aller/);
+  });
+
+  it("la compta ne modifie pas les champs structurés (restaurés côté serveur)", () => {
+    const res = checkWorkflowV2Update({
+      existingData: { ...existingBase },
+      incomingData: { ...existingBase, familyPage: { ...existingBase.familyPage, program: "Autre" } },
+      previousStatus: "EN_ATTENTE_COMPTA",
+      newStatus: "EN_ATTENTE_COMPTA",
+      actor: compta,
+      todayIso: today,
+    });
+    assert.deepEqual(res, { ok: true, restorePriceBlock: false, restoreFamilyStructured: true, stampOpenedAt: false });
+  });
+
+  it("refuse toute modification des champs structurés après ouverture", () => {
     const opened = { ...existingBase, familyPage: { ...existingBase.familyPage, openedAt: "2027-02-01T10:00:00Z" } };
     const res = checkWorkflowV2Update({
       existingData: opened,
-      incomingData: { ...opened, familyPage: { ...opened.familyPage, text: "Autre" } },
+      incomingData: { ...opened, familyPage: { ...opened.familyPage, program: "Autre" } },
       previousStatus: "INSCRIPTIONS_OUVERTES",
       newStatus: "INSCRIPTIONS_OUVERTES",
       actor: direction,
@@ -493,7 +542,7 @@ describe("travels v2 — frise, guidage, audit", () => {
   });
 
   it("aperçu direction : points bloquants", () => {
-    const r = familyPageReadiness(v2Trip({ data: { familyPage: { text: "", documents: [] } } }).data, "2027-02-01");
+    const r = familyPageReadiness(v2Trip({ data: { familyPage: { documents: [] } } }).data, "2027-02-01");
     assert.equal(r.ready, false);
     assert.ok(r.problems.length >= 3);
   });

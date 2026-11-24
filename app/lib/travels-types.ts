@@ -153,9 +153,18 @@ export type TravelsFamilyDocRequest = {
   template?: { name: string; url: string; s3Key?: string };
 };
 
-/** Page des familles (circuit v2) rédigée par l'organisateur — aucun prix ici (voir `priceBlock`). */
+/**
+ * Page des familles (circuit v2) : trame fixe (travels-family-page-template.ts) + champs structurés.
+ * Rendez-vous aller / retour : réutilisent `parentCalendar` (points « depot » et « recuperation »).
+ * Aucun prix ici (voir `priceBlock`).
+ */
 export type TravelsFamilyPage = {
-  text: string;
+  /** Équipements à mettre dans la valise. */
+  equipment?: string[];
+  /** Somme en liquide à prévoir (facultatif) — non comprise dans le prix. */
+  cash?: { amount: number; reason: string };
+  /** Programme en quelques lignes (facultatif, 600 caractères maximum). */
+  program?: string;
   authorName?: string;
   authorId?: string;
   updatedAt?: string;

@@ -378,11 +378,68 @@ export function isFamilyPageOpened(page: Pick<TravelsFamilyPage, "openedAt"> | n
   return Boolean(page?.openedAt);
 }
 
-export const FAMILY_PAGE_PRICE_PATTERN = /(\d[\d\s.,]*\s?(€|euros?)|\b(€|euros?)\s?\d)/i;
+/* ─── Champs structurés de la page (trame fixe) ─── */
 
-/** Détecte un prix écrit dans le texte rédigé par l'organisateur (interdit : le prix vient de la compta). */
-export function textMentionsPrice(text: string): boolean {
-  return FAMILY_PAGE_PRICE_PATTERN.test(String(text || ""));
+export const FAMILY_PROGRAM_MAX_CHARS = 600;
+
+export type MeetingPoint = { place: string; date: string; time: string };
+
+/** Rendez-vous aller / retour = points « depot » et « recuperation » du calendrier parents existant. */
+export function getFamilyMeetingPoints(
+  data: Pick<TravelsTripData, "parentCalendar"> | null | undefined,
+): { outbound: MeetingPoint | null; inbound: MeetingPoint | null } {
+  const points = Array.isArray(data?.parentCalendar?.points) ? data!.parentCalendar!.points : [];
+  const toPoint = (kind: "depot" | "recuperation"): MeetingPoint | null => {
+    const p = points.find((x) => x?.kind === kind);
+    return p ? { place: String(p.place || "").trim(), date: String(p.date || ""), time: String(p.time || "") } : null;
+  };
+  return { outbound: toPoint("depot"), inbound: toPoint("recuperation") };
+}
+
+/** Empreinte des champs structurés (équipement, liquide, programme, rendez-vous) pour détecter une modification. */
+export function familyStructuredSnapshot(data: Partial<TravelsTripData> | null | undefined): string {
+  const page = data?.familyPage;
+  const { outbound, inbound } = getFamilyMeetingPoints(data);
+  return JSON.stringify({
+    e: (page?.equipment || []).map((x) => String(x).trim()),
+    c: page?.cash ? [Number(page.cash.amount), String(page.cash.reason || "").trim()] : null,
+    p: String(page?.program ?? "").trim(),
+    o: outbound,
+    i: inbound,
+  });
+}
+
+export function validateFamilyStructured(page: Partial<TravelsFamilyPage> | null | undefined): ValidationResult {
+  if (!page) return { ok: true };
+  if (page.equipment !== undefined) {
+    if (!Array.isArray(page.equipment) || page.equipment.length > 40) {
+      return { ok: false, error: "Liste d'équipement invalide (40 éléments maximum)." };
+    }
+    if (page.equipment.some((x) => typeof x !== "string" || !x.trim() || x.length > 80)) {
+      return { ok: false, error: "Chaque élément d'équipement doit être renseigné (80 caractères maximum)." };
+    }
+  }
+  if (page.cash !== undefined && page.cash !== null) {
+    const amount = Number(page.cash.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Liquide à prévoir : indiquez un montant positif ou retirez la ligne." };
+    if (!String(page.cash.reason ?? "").trim()) return { ok: false, error: "Liquide à prévoir : indiquez le motif (ex. sandwich sur la route du retour)." };
+  }
+  if (page.program !== undefined && String(page.program).length > FAMILY_PROGRAM_MAX_CHARS) {
+    return { ok: false, error: "Programme trop long (" + FAMILY_PROGRAM_MAX_CHARS + " caractères maximum)." };
+  }
+  return { ok: true };
+}
+
+/** Rendez-vous aller et retour obligatoires (lieu + heure) pour ouvrir les inscriptions. */
+export function validateFamilyMeetings(data: Pick<TravelsTripData, "parentCalendar"> | null | undefined): ValidationResult {
+  const { outbound, inbound } = getFamilyMeetingPoints(data);
+  if (!outbound || !outbound.place || !outbound.time) {
+    return { ok: false, error: "Rendez-vous aller : indiquez le lieu et l'heure de dépôt des élèves." };
+  }
+  if (!inbound || !inbound.place || !inbound.time) {
+    return { ok: false, error: "Rendez-vous retour : indiquez le lieu et l'heure de récupération des élèves." };
+  }
+  return { ok: true };
 }
 
 /* ─── Contrôles serveur de /api/travels/update (v2) ─── */
@@ -427,20 +484,24 @@ export function canOpenRegistrations(actor: Pick<V2Actor, "isDirectionOfEtab" | 
   return actor.isDirectionOfEtab || actor.isGlobalAdmin;
 }
 
-/** Après ouverture, le texte de la page est verrouillé en écriture. */
-export function evaluateFamilyPageTextChange(opts: {
-  existing: Partial<TravelsFamilyPage> | null | undefined;
-  incoming: Partial<TravelsFamilyPage> | null | undefined;
-}): "ok" | "forbidden" {
-  const { existing, incoming } = opts;
-  if (!existing?.openedAt) return "ok";
-  const before = String(existing.text ?? "");
-  const after = String(incoming?.text ?? "");
-  return before === after ? "ok" : "forbidden";
+/**
+ * Champs structurés de la page : verrouillés après ouverture ; jamais modifiables par la compta seule
+ * (sa copie est alors silencieusement remplacée par celle du serveur : "restore").
+ */
+export function evaluateFamilyStructuredChange(opts: {
+  existing: Partial<TravelsTripData> | null | undefined;
+  incoming: Partial<TravelsTripData> | null | undefined;
+  actor: V2Actor;
+}): "ok" | "restore" | "forbidden" {
+  const { existing, incoming, actor } = opts;
+  if (familyStructuredSnapshot(existing) === familyStructuredSnapshot(incoming)) return "ok";
+  if (actor.isCompta && !actor.isDirectionOfEtab && !actor.isGlobalAdmin) return "restore";
+  if (existing?.familyPage?.openedAt) return "forbidden";
+  return "ok";
 }
 
 export type V2UpdateCheck =
-  | { ok: true; restorePriceBlock: boolean; stampOpenedAt: boolean }
+  | { ok: true; restorePriceBlock: boolean; restoreFamilyStructured: boolean; stampOpenedAt: boolean }
   | { ok: false; status: number; error: string };
 
 /**
@@ -462,7 +523,7 @@ export function checkWorkflowV2Update(opts: {
     return { ok: false, status: 400, error: "Un dossier existant ne peut pas passer au nouveau circuit." };
   }
   const isV2 = (existingData ?? incomingData)?.workflowVersion === 2;
-  if (!isV2) return { ok: true, restorePriceBlock: false, stampOpenedAt: false };
+  if (!isV2) return { ok: true, restorePriceBlock: false, restoreFamilyStructured: false, stampOpenedAt: false };
   if (existingData && incomingData.workflowVersion !== 2) {
     return { ok: false, status: 400, error: "La version du circuit ne peut pas être modifiée." };
   }
@@ -487,9 +548,18 @@ export function checkWorkflowV2Update(opts: {
     return { ok: false, status: 403, error: "Seule la comptabilité peut saisir ou modifier le bloc prix de la page des familles." };
   }
 
-  // Page verrouillée après ouverture.
-  if (evaluateFamilyPageTextChange({ existing: existingPage, incoming: incomingPage }) === "forbidden") {
-    return { ok: false, status: 403, error: "La page des familles est ouverte : son texte ne peut plus être modifié." };
+  // Champs structurés : verrouillés après ouverture, non modifiables par la compta.
+  const structuredChange = evaluateFamilyStructuredChange({
+    existing: existingData as Partial<TravelsTripData> | null,
+    incoming: incomingData as Partial<TravelsTripData>,
+    actor,
+  });
+  if (structuredChange === "forbidden") {
+    return { ok: false, status: 403, error: "La page des familles est ouverte : ses informations ne peuvent plus être modifiées." };
+  }
+  if (structuredChange !== "restore") {
+    const structured = validateFamilyStructured(incomingPage);
+    if (!structured.ok) return { ok: false, status: 400, error: structured.error };
   }
 
   // Validation finances : le bloc prix doit être rempli.
@@ -508,9 +578,8 @@ export function checkWorkflowV2Update(opts: {
     if (previousStatus !== "EN_ATTENTE_DIR_FINAL") {
       return { ok: false, status: 400, error: "Les inscriptions ne peuvent être ouvertes qu'à l'issue de la validation finale." };
     }
-    if (!String(incomingPage?.text ?? "").trim()) {
-      return { ok: false, status: 400, error: "La page des familles n'a pas de texte : l'organisateur doit la rédiger avant l'ouverture." };
-    }
+    const meetings = validateFamilyMeetings(structuredChange === "restore" ? (existingData as Partial<TravelsTripData>) : (incomingData as Partial<TravelsTripData>));
+    if (!meetings.ok) return { ok: false, status: 400, error: meetings.error };
     const pb = priceChange === "restore" ? (existingData?.priceBlock as Partial<TravelsPriceBlock>) : (incomingData.priceBlock as Partial<TravelsPriceBlock> | undefined);
     const priceRes = validatePriceBlock(pb);
     if (!priceRes.ok) return { ok: false, status: 400, error: priceRes.error };
@@ -524,7 +593,7 @@ export function checkWorkflowV2Update(opts: {
     return { ok: false, status: 403, error: "L'ouverture de la page passe uniquement par la validation finale." };
   }
 
-  return { ok: true, restorePriceBlock: priceChange === "restore", stampOpenedAt };
+  return { ok: true, restorePriceBlock: priceChange === "restore", restoreFamilyStructured: structuredChange === "restore", stampOpenedAt };
 }
 
 /* ─── Aperçu direction : points de contrôle ─── */
@@ -532,7 +601,8 @@ export function checkWorkflowV2Update(opts: {
 export function familyPageReadiness(data: TravelsTripData | null | undefined, todayIso: string): { ready: boolean; problems: string[] } {
   const problems: string[] = [];
   const page = data?.familyPage;
-  if (!String(page?.text ?? "").trim()) problems.push("Le texte de la page n'est pas rédigé par l'organisateur.");
+  const meetings = validateFamilyMeetings(data);
+  if (!meetings.ok) problems.push(meetings.error);
   const pb = validatePriceBlock(data?.priceBlock);
   if (!pb.ok) problems.push(pb.error);
   const dl = validateDeadlineForOpening({ deadline: page?.deadline, departureIso: tripDepartureIso(data), todayIso });

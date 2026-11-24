@@ -1,0 +1,79 @@
+/**
+ * TRAME FIXE de la page des familles (circuit v2) — un seul fichier de texte à ajuster.
+ * Le même texte s'applique à tous les voyages ; les blocs automatiques (titre, destination, dates, classes,
+ * organisateur, image, prix, échéances, date limite, pièces, rendez-vous, équipement, liquide, programme)
+ * viennent du dossier. Les espaces {entre accolades} sont remplacés automatiquement.
+ *
+ * Variables disponibles : {titre} {destination} {dates} {classes} {organisateur} {etablissement} {dateLimite}
+ */
+
+export const FAMILY_PAGE_TEMPLATE = {
+  /** Paragraphes d'introduction (en haut de la page). */
+  intro: [
+    "Chers parents,",
+    "Nous avons le plaisir de proposer aux élèves de {classes} un voyage scolaire : « {titre} », à destination de {destination}, {dates}. Il est organisé par {organisateur} ({etablissement}).",
+    "Pour que votre enfant puisse participer, merci de répondre sur cette page avant le {dateLimite}. Sans votre signature, votre enfant ne sera pas inscrit.",
+  ],
+
+  /** Titres de sections. */
+  headings: {
+    meeting: "Rendez-vous et horaires",
+    outbound: "Aller",
+    inbound: "Retour",
+    program: "Programme",
+    equipment: "Dans la valise",
+    cash: "Argent de poche / liquide à prévoir",
+    meals: "Repas et paniers",
+    documents: "Pièces à fournir",
+    price: "Participation financière",
+    deadline: "Date limite de réponse",
+    help: "Difficultés financières",
+    data: "Conservation de vos données",
+  },
+
+  /** Mention affichée sous la somme en liquide. */
+  cashNotIncluded: "Cette somme n'est pas comprise dans le prix du voyage.",
+
+  /** Règle des paniers repas. */
+  meals: [
+    "Pour chaque jour concerné, vous choisirez un panier classique, sans porc ou végétarien, ou vous fournirez vous-même le repas de votre enfant.",
+    "En cas d'allergie ou de PAI, le repas est obligatoirement fourni par la famille : la cantine ne prépare pas de repas à la demande.",
+  ],
+
+  /** Phrase sur les difficultés financières (secrétariat → direction). */
+  financialHelp:
+    "En cas de difficulté financière, n'hésitez pas à contacter votre secrétariat afin de rencontrer la direction.",
+
+  /** Phrase sur la conservation des données. */
+  dataRetention:
+    "Les pièces que vous déposez sont supprimées le lendemain du retour du voyage. Seul l'engagement signé (formulaire et signature) est conservé par la comptabilité.",
+
+  /** Libellé affiché quand le bloc prix n'est pas encore saisi par la comptabilité (aperçu projet). */
+  pricePending: "À renseigner par la comptabilité.",
+
+  /** Suggestions cliquables pour la liste d'équipement. */
+  equipmentSuggestions: [
+    "Maillot de bain",
+    "Serviette",
+    "Gourde",
+    "Tenue de sport",
+    "Chaussures de sport",
+    "Casquette ou bonnet",
+    "Crème solaire",
+    "Vêtement de pluie",
+    "Sac à dos",
+    "Pique-nique",
+    "Sac pour le linge sale",
+    "Trousse de toilette",
+  ],
+} as const;
+
+export const FAMILY_PAGE_PROGRAM_MAX_CHARS = 600;
+
+/** Remplace les {variables} ; une variable inconnue ou vide devient « … ». */
+export function fillFamilyTemplate(text: string, vars: Record<string, string | undefined>): string {
+  return text.replace(/\{(\w+)\}/g, (_m, key: string) => {
+    const v = vars[key];
+    return v && v.trim() ? v : "…";
+  });
+}

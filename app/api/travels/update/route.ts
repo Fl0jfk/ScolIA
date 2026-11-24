@@ -231,6 +231,17 @@ export async function POST(req: Request) {
       if (v2Check.restorePriceBlock) {
         saveInner.priceBlock = existingInner.priceBlock;
       }
+      if (v2Check.restoreFamilyStructured) {
+        // La compta ne modifie ni les rendez-vous, ni l'équipement, ni le liquide, ni le programme.
+        const ex = (existingInner.familyPage as Record<string, unknown> | undefined) || {};
+        saveInner.familyPage = {
+          ...((saveInner.familyPage as Record<string, unknown>) || {}),
+          equipment: ex.equipment,
+          cash: ex.cash,
+          program: ex.program,
+        };
+        saveInner.parentCalendar = existingInner.parentCalendar;
+      }
       // Une page ouverte garde son horodatage d'ouverture (non modifiable par le client).
       const existingPageV2 = existingInner.familyPage as Record<string, unknown> | undefined;
       if (existingPageV2?.openedAt) {

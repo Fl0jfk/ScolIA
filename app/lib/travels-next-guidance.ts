@@ -439,7 +439,7 @@ function getTripNextGuidanceV1(trip: TravelsTrip, ctx: GuidanceCtx): TripNextGui
 }
 
 const V2_PARALLEL_FAMILY_PAGE_STEP =
-  "En parallèle : l’organisateur rédige la page des familles (onglet « Page familles », brouillon IA possible), choisit la date limite et les pièces demandées.";
+  "En parallèle : l’organisateur remplit la page des familles (onglet « Page familles » : rendez-vous aller et retour, équipement, pièces demandées, date limite).";
 
 /**
  * Guidage du circuit v2 (séjours avec `workflowVersion === 2`). Les séjours v1 passent par
@@ -471,7 +471,7 @@ function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuid
       ...base,
       what:
         status === "EN_ATTENTE_DIR_INITIAL"
-          ? `${base.what} Ensuite, les demandes de devis transport partent automatiquement (s’il y a un bus) et l’organisateur rédige la page des familles.`
+          ? `${base.what} Ensuite, les demandes de devis transport partent automatiquement (s’il y a un bus) et l’organisateur remplit la page des familles.`
           : base.what,
       steps: status === "EN_ATTENTE_DIR_INITIAL" ? base.steps : [...base.steps, V2_PARALLEL_FAMILY_PAGE_STEP],
       ctaTab: base.ctaTab,
@@ -496,10 +496,10 @@ function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuid
         : [
             "La compta ouvre l’onglet Compta du séjour.",
             "Elle renseigne le bloc prix (prix par élève, échéances, paiement) puis valide le budget.",
-            "L’organisateur ne peut pas écrire de prix dans la page : il rédige le texte, le prix vient de la compta.",
+            "L’organisateur ne peut pas écrire de prix dans la page : le texte de la page est une trame fixe et le prix vient de la compta.",
           ],
       youMustAct: isCompta,
-      whileWaiting: isCompta ? undefined : "L’organisateur peut terminer sa page des familles (texte, pièces, date limite) en attendant.",
+      whileWaiting: isCompta ? undefined : "L’organisateur peut terminer sa page des familles (rendez-vous, équipement, pièces, date limite) en attendant.",
       ctaTab: "compta",
       ctaLabel: isCompta ? "Saisir le bloc prix" : "Voir Compta",
       focusQuestion: "Le séjour est en validation finances (circuit v2). Le bloc prix est-il rempli ? Que doit faire la compta ?",
@@ -518,7 +518,7 @@ function applyV2Guidance(trip: TravelsTrip, ctx: GuidanceCtx, base: TripNextGuid
         : "La direction vérifie l’aperçu complet de la page puis ouvre les inscriptions.",
       steps: canOpen
         ? [
-            "Ouvrez l’onglet « Page familles » et relisez l’aperçu complet (texte, pièces, prix de la compta).",
+            "Ouvrez l’onglet « Page familles » et relisez l’aperçu complet (rendez-vous, pièces, prix de la compta).",
             "Vérifiez la date limite (au moins 7 jours après aujourd’hui, au plus tard J-14 avant le départ).",
             "Cliquez sur « Validation finale — ouvrir les inscriptions ».",
           ]

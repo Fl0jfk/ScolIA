@@ -9,6 +9,7 @@ import {
   familyPageReadiness,
   isWorkflowV2,
   todayIsoParis,
+  validateFamilyMeetings,
   validatePriceBlock,
 } from "@/app/lib/travels-v2";
 
@@ -75,10 +76,10 @@ function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
       "EN_ATTENTE_DIR_INITIAL (pédagogie)",
       ...(withBus
         ? [
-            "PROF_LOGISTICS (devis transport envoyés automatiquement ; en parallèle l’organisateur rédige la page des familles)",
+            "PROF_LOGISTICS (devis transport envoyés automatiquement ; en parallèle l’organisateur remplit la page des familles)",
             "EN_ATTENTE_BUS_SIGNATURE (signature direction si devis seulement choisi)",
           ]
-        : ["(sans bus : directement aux finances ; l’organisateur rédige la page des familles)"]),
+        : ["(sans bus : directement aux finances ; l’organisateur remplit la page des familles)"]),
       "EN_ATTENTE_COMPTA (finances : bloc prix saisi par la compta)",
       "EN_ATTENTE_DIR_FINAL (validation finale : date limite, aperçu complet)",
       "INSCRIPTIONS_OUVERTES (inscriptions des familles)",
@@ -346,7 +347,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
   // Circuit v2 : page des familles, bloc prix, date limite.
   if (isWorkflowV2(trip)) {
     const page = d.familyPage;
-    if (String(page?.text ?? "").trim()) filled.push("pageFamillesTexte");
+    if (validateFamilyMeetings(d).ok) filled.push("rendezVousAllerRetour");
     if (page?.deadline) filled.push("dateLimiteFamilles");
     if (validatePriceBlock(d.priceBlock).ok) filled.push("blocPrix");
     if (page?.openedAt) filled.push("pageFamillesOuverte");
@@ -369,7 +370,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
       status === "EN_ATTENTE_BUS_SIGNATURE" ||
       status === "EN_ATTENTE_COMPTA"
     ) {
-      advice.push("Circuit v2 : l’organisateur peut rédiger la page des familles en parallèle du transport.");
+      advice.push("Circuit v2 : l’organisateur peut remplir la page des familles en parallèle du transport.");
     } else if (status === "INSCRIPTIONS_OUVERTES") {
       expectedActorsNow.push("familles");
       advice.push("Inscriptions ouvertes : la page est verrouillée en écriture.");

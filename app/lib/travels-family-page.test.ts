@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  buildFamilyPagePreviewModel,
-  buildFamilyPageSystemPrompt,
-  buildFamilyPageUserPrompt,
-  ensureFinancialDifficultySentence,
-  FAMILY_PAGE_PROJECT_BANNER,
-  FINANCIAL_DIFFICULTY_SENTENCE,
-  stripMarkdown,
-} from "@/app/lib/travels-family-page";
-import { textMentionsPrice } from "@/app/lib/travels-v2";
+import { buildFamilyPagePreviewModel, FAMILY_PAGE_PREVIEW_LABEL } from "@/app/lib/travels-family-page";
+import { FAMILY_PAGE_TEMPLATE, fillFamilyTemplate } from "@/app/lib/travels-family-page-template";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 const trip = {
@@ -22,17 +14,23 @@ const trip = {
     workflowVersion: 2,
     title: "Séjour surf",
     destination: "Biarritz",
+    classes: "3A, 3B",
+    etablissement: "Collège",
     startDate: "2027-03-29",
     endDate: "2027-04-02",
-    startTime: "07:30",
-    endTime: "19:00",
-    needsBus: true,
     coutTotal: 12000,
     costPerStudent: 300,
-    transportRequest: { pickupPoint: "Parking du lycée" },
+    parentCalendar: {
+      points: [
+        { id: "d", kind: "depot", date: "2027-03-29", time: "07:30", place: "Parking du lycée" },
+        { id: "r", kind: "recuperation", date: "2027-04-02", time: "19:00", place: "Gare" },
+      ],
+    },
     familyPage: {
-      text: "Premier paragraphe.\n\nSecond paragraphe.",
       deadline: "2027-03-10",
+      equipment: ["Maillot de bain", "Serviette"],
+      cash: { amount: 5, reason: "sandwich sur la route du retour" },
+      program: "Surf le matin, visite l'après-midi.",
       documents: [
         { id: "a", label: "Aisance aquatique", kind: "avant_signature" },
         { id: "b", label: "Carte d'identité", kind: "avant_depart", dueDate: "2027-03-20" },
@@ -42,58 +40,55 @@ const trip = {
   },
 } as unknown as TravelsTrip;
 
-describe("page des familles — prompt du brouillon IA", () => {
-  const system = buildFamilyPageSystemPrompt();
-  it("interdit prix et document de santé, impose la phrase sur les difficultés financières", () => {
-    assert.match(system, /INTERDIT : mentionner un prix/);
-    assert.match(system, /INTERDIT : demander un document/);
-    assert.ok(system.includes(FINANCIAL_DIFFICULTY_SENTENCE));
-    assert.match(FINANCIAL_DIFFICULTY_SENTENCE, /secrétariat/);
-    assert.match(FINANCIAL_DIFFICULTY_SENTENCE, /direction/);
+describe("page des familles — trame fixe", () => {
+  it("la trame contient les phrases imposées", () => {
+    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /secrétariat/);
+    assert.match(FAMILY_PAGE_TEMPLATE.financialHelp, /direction/);
+    assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /lendemain du retour/);
+    assert.match(FAMILY_PAGE_TEMPLATE.dataRetention, /comptabilité/);
+    assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /sans porc/);
+    assert.match(FAMILY_PAGE_TEMPLATE.meals.join(" "), /PAI/);
+    assert.match(FAMILY_PAGE_TEMPLATE.cashNotIncluded, /pas comprise dans le prix/);
   });
-  it("n'injecte aucun montant du dossier dans la demande", () => {
-    const user = buildFamilyPageUserPrompt(trip);
-    assert.ok(!user.includes("12000"));
-    assert.ok(!user.includes("300"));
-    assert.match(user, /Biarritz/);
-    assert.match(user, /Parking du lycée/);
+  it("remplit les variables, « … » si inconnue", () => {
+    assert.equal(fillFamilyTemplate("A {x} B {y}", { x: "1" }), "A 1 B …");
   });
-  it("ajoute la phrase financière si le modèle l'a oubliée, sans doublon sinon", () => {
-    const added = ensureFinancialDifficultySentence("Texte.");
-    assert.ok(added.endsWith(FINANCIAL_DIFFICULTY_SENTENCE));
-    assert.equal(ensureFinancialDifficultySentence(added), added);
-  });
-  it("retire le Markdown", () => {
-    assert.equal(stripMarkdown("# Titre\n**gras** et *italique*"), "Titre\ngras et italique");
-  });
-  it("détecte un prix écrit dans le texte", () => {
-    assert.equal(textMentionsPrice("Le séjour coûte 350 €"), true);
-    assert.equal(textMentionsPrice("Tarif : 120 euros"), true);
-    assert.equal(textMentionsPrice("Rendez-vous à 7h30 devant le lycée"), false);
+  it("introduction : titre, destination, dates, classes, organisateur, date limite", () => {
+    const intro = buildFamilyPagePreviewModel(trip).intro.join(" ");
+    assert.match(intro, /Séjour surf/);
+    assert.match(intro, /Biarritz/);
+    assert.match(intro, /du 29\/03\/2027 au 02\/04\/2027/);
+    assert.match(intro, /3A, 3B/);
+    assert.match(intro, /M\. Dupont/);
+    assert.match(intro, /10\/03\/2027/);
   });
 });
 
 describe("page des familles — aperçu", () => {
-  it("bandeau PROJET tant que la page n'est pas ouverte", () => {
+  it("simple étiquette « Aperçu », pas de bandeau projet", () => {
     const m = buildFamilyPagePreviewModel(trip);
-    assert.equal(m.isProject, true);
-    assert.equal(m.projectBanner, FAMILY_PAGE_PROJECT_BANNER);
+    assert.equal(m.previewLabel, FAMILY_PAGE_PREVIEW_LABEL);
+    assert.equal(FAMILY_PAGE_PREVIEW_LABEL, "Aperçu");
+    assert.equal(m.opened, false);
   });
-  it("plus de bandeau une fois ouverte", () => {
+  it("plus d'étiquette une fois ouverte", () => {
     const opened = {
       ...trip,
       data: { ...trip.data, familyPage: { ...trip.data.familyPage!, openedAt: "2027-03-01T08:00:00Z" } },
     } as TravelsTrip;
     const m = buildFamilyPagePreviewModel(opened);
-    assert.equal(m.isProject, false);
-    assert.equal(m.projectBanner, null);
+    assert.equal(m.opened, true);
+    assert.equal(m.previewLabel, null);
   });
-  it("reprend image, dates, RDV, programme, pièces triées et date limite", () => {
+  it("reprend image, rendez-vous du calendrier parents, programme, équipement, liquide, pièces triées, date limite", () => {
     const m = buildFamilyPagePreviewModel(trip);
     assert.equal(m.imageUrl, "https://example.org/img.jpg");
-    assert.equal(m.dateLine, "Du 29/03/2027 au 02/04/2027");
-    assert.ok(m.meetingLines[0].includes("07:30") && m.meetingLines[0].includes("Parking du lycée"));
-    assert.equal(m.paragraphs.length, 2);
+    assert.equal(m.outbound?.place, "Parking du lycée");
+    assert.equal(m.outbound?.time, "07:30");
+    assert.equal(m.inbound?.place, "Gare");
+    assert.equal(m.program, "Surf le matin, visite l'après-midi.");
+    assert.deepEqual(m.equipment, ["Maillot de bain", "Serviette"]);
+    assert.deepEqual(m.cash, { amount: 5, reason: "sandwich sur la route du retour" });
     assert.deepEqual(m.documents.map((d) => d.id), ["a", "b", "c"]);
     assert.equal(m.deadline, "2027-03-10");
   });
@@ -110,8 +105,14 @@ describe("page des familles — aperçu", () => {
     assert.equal(m.price?.pricePerStudent, 180);
     assert.equal(m.price?.installments.length, 1);
   });
-  it("un texte en cours de rédaction remplace le texte stocké dans l'aperçu", () => {
-    const m = buildFamilyPagePreviewModel(trip, { familyPage: { text: "Autre texte" } });
-    assert.deepEqual(m.paragraphs, ["Autre texte"]);
+  it("liquide sans motif ou programme vide : non affichés", () => {
+    const t = { ...trip, data: { ...trip.data, familyPage: { documents: [], cash: { amount: 5, reason: "" } } } } as unknown as TravelsTrip;
+    const m = buildFamilyPagePreviewModel(t);
+    assert.equal(m.cash, null);
+    assert.equal(m.program, "");
+  });
+  it("un brouillon en cours remplace les valeurs stockées dans l'aperçu", () => {
+    const m = buildFamilyPagePreviewModel(trip, { familyPage: { program: "Autre programme" } });
+    assert.equal(m.program, "Autre programme");
   });
 });
