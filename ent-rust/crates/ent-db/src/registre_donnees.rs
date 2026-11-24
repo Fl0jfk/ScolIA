@@ -1121,6 +1121,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_acompte_fournisseur", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_aide", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_acces", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_contournement", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_argent_contournement_evt", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_demande", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_export", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_argent_issue", "sorties_voyages", Portee::Etablissement).perso(),

@@ -10,7 +10,7 @@
 //!   fois** à la comptabilité, par un passage idempotent.
 //! * **Événements** : identifiants et codes seulement, aucun montant, aucun nom.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use ent_auth::Action;
 use ent_events::{AggregateKind, MetierEvent, MetierEventDraft};
 use serde::{Deserialize, Serialize};
@@ -566,7 +566,20 @@ impl PgEnt {
         id: Uuid,
         f: AcompteSaisie,
     ) -> Result<AcompteVue, EntDbError> {
-        let r = self.voyage_acompte_creer_corps(a, id, f).await;
+        self.voyage_acompte_creer_avec(a, id, f, None, Utc::now()).await
+    }
+
+    /// V3b (Moyen 3) : avec un contournement autorisé par une seconde personne libre (`voyages_contournement`), consommé
+    /// par cette écriture seule. Horloge passée en paramètre.
+    pub async fn voyage_acompte_creer_avec(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        f: AcompteSaisie,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<AcompteVue, EntDbError> {
+        let r = self.voyage_acompte_creer_corps(a, id, f, contournement, maintenant).await;
         self.tracer_refus_regle3(a, Some(id), "voyage_acompte_creer", r).await
     }
 
@@ -576,6 +589,8 @@ impl PgEnt {
         a: &Acteur<'_>,
         id: Uuid,
         f: AcompteSaisie,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
     ) -> Result<AcompteVue, EntDbError> {
         // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
         self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
@@ -588,12 +603,12 @@ impl PgEnt {
             return Err(interdit());
         }
         // M-3 : un acompte fournisseur engage l'argent de la sortie : jamais pour une sortie où son propre enfant part.
-        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
+        let nid = Uuid::new_v4();
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_creer", contournement, nid, maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         if f.echeance < jour - chrono::Duration::days(366) || f.echeance > jour + chrono::Duration::days(3 * 366) {
             return Err(invalide());
         }
-        let nid = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_sortie_acompte_fournisseur
                  (id, etablissement_id, sortie_id, prestataire_id, commande_id, libelle, montant_centimes, echeance, cree_par_user_id)
@@ -613,7 +628,7 @@ impl PgEnt {
         .map_err(|e| match e {
             // Prestataire ou commande d'un autre établissement ou inexistant : « introuvable », jamais de fuite.
             sqlx::Error::Database(d) if d.code().as_deref() == Some("23503") => introuvable(),
-            e => db(e),
+            e => crate::voyages_argent_v3::db_pouvoir(e),
         })?;
         let alerte = i64::from(reglages(&mut t, a.etablissement_id).await?.alerte_acompte_jours);
         let r: AcompteRow = sqlx::query_as(&format!("{SELECT_ACOMPTE} WHERE f.etablissement_id = $1 AND f.id = $2"))
@@ -656,7 +671,25 @@ impl PgEnt {
         date: Option<NaiveDate>,
         reference: Option<&str>,
     ) -> Result<AcompteVue, EntDbError> {
-        let r = self.voyage_acompte_payer_corps(a, id, acompte_id, montant, date, reference).await;
+        self.voyage_acompte_payer_avec(a, id, acompte_id, montant, date, reference, None, Utc::now()).await
+    }
+
+    /// V3b (Moyen 3) : variante avec contournement tracé (voir `voyage_acompte_creer_avec`).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn voyage_acompte_payer_avec(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        acompte_id: Uuid,
+        montant: Option<&str>,
+        date: Option<NaiveDate>,
+        reference: Option<&str>,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<AcompteVue, EntDbError> {
+        let r = self
+            .voyage_acompte_payer_corps(a, id, acompte_id, montant, date, reference, contournement, maintenant)
+            .await;
         self.tracer_refus_regle3(a, Some(id), "voyage_acompte_payer", r).await
     }
 
@@ -669,6 +702,8 @@ impl PgEnt {
         montant: Option<&str>,
         date: Option<NaiveDate>,
         reference: Option<&str>,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
     ) -> Result<AcompteVue, EntDbError> {
         // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
         self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
@@ -680,7 +715,7 @@ impl PgEnt {
             return Err(interdit());
         }
         // M-3 : payer un acompte est un pouvoir sur l'argent de la sortie.
-        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_payer", contournement, acompte_id, maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let (du, paye, annule): (i64, Option<NaiveDate>, Option<NaiveDate>) = sqlx::query_as(
             "SELECT montant_centimes, paye_le, annule_le FROM ent_sortie_acompte_fournisseur
@@ -717,7 +752,7 @@ impl PgEnt {
         .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         let alerte = i64::from(reglages(&mut t, a.etablissement_id).await?.alerte_acompte_jours);
         let r: AcompteRow = sqlx::query_as(&format!("{SELECT_ACOMPTE} WHERE f.etablissement_id = $1 AND f.id = $2"))
             .bind(a.etablissement_id)
@@ -737,7 +772,20 @@ impl PgEnt {
         acompte_id: Uuid,
         motif: &str,
     ) -> Result<(), EntDbError> {
-        let r = self.voyage_acompte_annuler_corps(a, id, acompte_id, motif).await;
+        self.voyage_acompte_annuler_avec(a, id, acompte_id, motif, None, Utc::now()).await
+    }
+
+    /// V3b (Moyen 3) : variante avec contournement tracé (voir `voyage_acompte_creer_avec`).
+    pub async fn voyage_acompte_annuler_avec(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        acompte_id: Uuid,
+        motif: &str,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
+        let r = self.voyage_acompte_annuler_corps(a, id, acompte_id, motif, contournement, maintenant).await;
         self.tracer_refus_regle3(a, Some(id), "voyage_acompte_annuler", r).await
     }
 
@@ -748,6 +796,8 @@ impl PgEnt {
         id: Uuid,
         acompte_id: Uuid,
         motif: &str,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
         // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
         self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent)).await?;
@@ -758,12 +808,11 @@ impl PgEnt {
         if !peut_argent(&acces) {
             return Err(interdit());
         }
-        // M-3 : annuler un acompte est un pouvoir sur l'argent de la sortie (contrôle de l'application seule : la base ne
-        // garde pas l'auteur d'une annulation).
-        crate::voyages_argent_v3::exiger_libre_de_la_sortie(&mut t, a.etablissement_id, a.user_id, s.id).await?;
+        // M-3 : annuler un acompte est un pouvoir sur l'argent de la sortie ; l'auteur est gardé en base (656, `annule_par_user_id`).
+        crate::voyages_contournement::exiger_libre_ou_contourne(&mut t, a, s.id, "acompte_annuler", contournement, acompte_id, maintenant).await?;
         let jour = jour_etab(&mut t, a.etablissement_id).await?;
         let r = sqlx::query(
-            "UPDATE ent_sortie_acompte_fournisseur SET annule_le = $4, annule_motif = $5
+            "UPDATE ent_sortie_acompte_fournisseur SET annule_le = $4, annule_motif = $5, annule_par_user_id = $6
               WHERE etablissement_id = $1 AND sortie_id = $2 AND id = $3 AND paye_le IS NULL AND annule_le IS NULL",
         )
         .bind(a.etablissement_id)
@@ -771,9 +820,10 @@ impl PgEnt {
         .bind(acompte_id)
         .bind(jour)
         .bind(&motif)
+        .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         if r.rows_affected() == 0 {
             return Err(conflit());
         }

@@ -1246,7 +1246,7 @@ impl PgEnt {
         .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         // M5 : tout avoir proposé ou retenu pour ce couple participant/payeur repose sur un versé qui change : « à revoir ».
         sqlx::query(
             "UPDATE ent_sortie_avoir_propose SET statut = 'a_revoir'
@@ -1364,7 +1364,7 @@ impl PgEnt {
         .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         t.commit().await.map_err(db)?;
         Ok(())
     }
@@ -1423,7 +1423,7 @@ impl PgEnt {
         .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         recalculer_depart(&mut t, a, &s, f.participant_id).await?;
         let vue = sqlx::query_as::<_, FraisVue>(
             "SELECT id, participant_id, nature, libelle, montant_centimes, annule_id, saisi_le
@@ -1513,7 +1513,7 @@ impl PgEnt {
         .bind(a.user_id)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         recalculer_depart(&mut t, a, &s, participant).await?;
         t.commit().await.map_err(db)?;
         Ok(())
@@ -1641,7 +1641,7 @@ impl PgEnt {
         .bind(&code)
         .execute(&mut *t)
         .await
-        .map_err(db)?;
+        .map_err(crate::voyages_argent_v3::db_pouvoir)?;
         let v = lire_avoirs(&mut t, a.etablissement_id, s.id).await?;
         t.commit().await.map_err(db)?;
         v.into_iter().find(|x| x.id == avoir_id).ok_or_else(introuvable)
@@ -1654,7 +1654,18 @@ impl PgEnt {
         a: &Acteur<'_>,
         id: Uuid,
     ) -> Result<usize, EntDbError> {
-        let r = self.voyage_avoirs_annulation_collective_corps(a, id).await;
+        self.voyage_avoirs_annulation_collective_avec(a, id, None, Utc::now()).await
+    }
+
+    /// V3b (Moyen 3) : variante avec contournement tracé (voir `voyages_contournement`). Horloge en paramètre.
+    pub async fn voyage_avoirs_annulation_collective_avec(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<usize, EntDbError> {
+        let r = self.voyage_avoirs_annulation_collective_corps(a, id, contournement, maintenant).await;
         self.tracer_refus_regle3(a, Some(id), "voyage_avoirs_annulation_collective", r).await
     }
 
@@ -1663,6 +1674,8 @@ impl PgEnt {
         &self,
         a: &Acteur<'_>,
         id: Uuid,
+        contournement: Option<Uuid>,
+        maintenant: DateTime<Utc>,
     ) -> Result<usize, EntDbError> {
         // F-a : personnel, puis droit, AVANT le verrou de la sortie et l'existence.
         self.avant_verrou(a, Some(Action::VoyagesArgent)).await?;
@@ -1692,7 +1705,18 @@ impl PgEnt {
         .await
         .map_err(db)?;
         // M-3 : l'annulation collective décide pour tous les participants qui ont versé : la personne n'est liée à aucun.
-        crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &ps).await?;
+        // V3b : sauf contournement autorisé par une seconde personne libre (contrôle applicatif : la base ne garde que la
+        // décision individuelle d'un avoir). La cible du contournement est la sortie.
+        match crate::voyages_argent_v3::exiger_libre_des_participants(&mut t, a.etablissement_id, a.user_id, &ps).await {
+            Ok(()) => {}
+            Err(e) if crate::voyages_argent_v3::est_refus_regle3(&e) => {
+                crate::voyages_contournement::exiger_libre_ou_contourne(
+                    &mut t, a, s.id, "annulation_collective", contournement, s.id, maintenant,
+                )
+                .await?;
+            }
+            Err(e) => return Err(e),
+        }
         for p in ps {
             // Les cles « collective » sont idempotentes : un second appel n'ajoute rien.
             collective_participant(&mut t, a, &s, p).await?;
@@ -2140,7 +2164,7 @@ pub(crate) async fn pointer_tx(
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(d) if d.code().as_deref() == Some("23505") => conflit(),
-        e => db(e),
+        e => crate::voyages_argent_v3::db_pouvoir(e),
     })?;
     lire_versement(conn, etab, vid).await
 }
