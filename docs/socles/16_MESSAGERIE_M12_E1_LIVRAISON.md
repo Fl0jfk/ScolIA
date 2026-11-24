@@ -222,3 +222,5 @@ Base locale neuve `ent_s16e1p5_test` (PostgreSQL 16, `ENT_ENV=test`, `--test-thr
 
 ### Passe 5 : CI et fusion d'ENT
 Premier push (5ec288d9) : CI rouge, une seule cause — la garde statique `garde_messagerie_lecture` voulait classer `message_existe_sous_verrou_brut` (le SQL a quitté l'enveloppe de domaine) ; entrée corrigée (la version de domaine n'a plus de SQL). Le job « Aucun test ne disparaît » n'était rouge que par ricochet. `origin/ENT` fusionné (T2 arrivé, Moyen A fait par ce lot) sans conflit ; aucun compteur additif ni migration touchés ; clippy 1.99 `-D warnings` (2 commandes workspace) et `garde_` rejoués : 0 avertissement, 23 verts.
+
+Tête testée par la CI : `1b530a53` (PR 152, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (run 45496720436). Le commit suivant ne touche que ce fichier de documentation.
