@@ -736,3 +736,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **V3b** : contre-revue des correctifs faite (B1 « accès ouvert » et M1 « acompte inséré payé » corrigés par le pilote ; M2 tranché D-069 ; M3 et faibles en file). Chaîne : fusion de 147 ; 656 inscrite. Tête **711347ea**, CI en attente ; ordre de versement 148 → 147 → 145.
 - **Livré** : F3 suites 3 (PR 150, code 89537860 CI verte, tête 4f86939a doc ; migration 532 à inscrire) ; contre-revue en cours sur `wt-f3s3`.
 - **Lancé** : E1 suites passe 5 (session_01KZCbFEGm44hvhwBfMhyCej, Sonnet, branche `ent-socle-16-code-e1-suites-5`, migration 495 réservée), consigne `16_E1_SUITES_5.md`. Sessions qui codent : I5 passe 7 + E1 passe 5.
+- **F3 suites 3 retenue** (PR 150) : contre-revue avec **2 élevés** (prolongation d'une prise → mois jamais facturés en silence ; renouvellement → refus à tort). Consigne `24_F3_SUITES_3_CORRECTIFS.md` **en tête de file**, même branche.
