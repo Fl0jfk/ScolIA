@@ -3962,13 +3962,13 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
     // Rattrapage (M5) : une convocation maintenue d'une évaluation publiée sort ; une convocation annulée, ou celle d'une
     // évaluation non publiée, jamais. Dates fixes ; motif d'annulation et auteurs internes.
     let convoc = |id: Uuid, ev: Uuid, etat: &'static str, lieu: &'static str| {
-        let motif = (etat == "annule").then_some("MARQUEUR-MOTIF-ANNULATION");
-        (id, ev, etat, lieu, motif)
+        (id, ev, etat, lieu, None::<&str>)
     };
+    let ev_p2 = eval(&ent, &w, w.cours_maths, d(2031, 10, 14), "DS publié bis", true).await;
     let (rat_ok, rat_annule, rat_np) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
     for (id, ev, etat, lieu, motif) in [
         convoc(rat_ok, ev_p, "convoque", "SALLE-CONVOCATION-MAINTENUE"),
-        convoc(rat_annule, ev_p, "annule", "SALLE-CONVOCATION-ANNULEE"),
+        convoc(rat_annule, ev_p2, "convoque", "SALLE-CONVOCATION-ANNULEE"),
         convoc(rat_np, ev_np, "convoque", "SALLE-EVALUATION-NON-PUBLIEE"),
     ] {
         sqlx::query(
@@ -3989,6 +3989,13 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         .await
         .unwrap_or_else(|e| panic!("rattrapage {lieu} : {e}"));
     }
+    // Une convocation naît « convoquée » : l'annulation est un second geste (version suivante, motif).
+    exec(
+        &ent,
+        "UPDATE eva_rattrapage SET etat = 'annule', motif_annulation = 'MARQUEUR-MOTIF-ANNULATION', version = version + 1 WHERE id = $1",
+        vec![u(rat_annule)],
+    )
+    .await;
     // Résultat externe publié et compté ; moyenne externe publiée (marqueurs : leurs identifiants).
     let ext = ent
         .eva_v5_declarer_externe_for_actor(w.etab, w.direction, DIR, jour(), &externe(a, w.maths, 13_370, d(2031, 10, 15)))
@@ -4043,7 +4050,7 @@ async fn passe4_l_export_de_l_eleve_ne_contient_ni_note_non_publiee_ni_champ_int
         ("APPRECIATION-VALIDEE-REMISE".to_string(), "l'appréciation validée"),
         ("MOTIF-DE-LA-FAMILLE".to_string(), "la demande de la famille"),
         ("MESSAGE-REVISION-FAMILLE".to_string(), "la demande de revue de la famille"),
-        ("ITEM-MARQUE".to_string(), "l'item"),
+        (item.to_string(), "la note par item"),
         (statut_id.to_string(), "le statut de moyenne, période close (M3)"),
         ("SALLE-CONVOCATION-MAINTENUE".to_string(), "la convocation maintenue d'une évaluation publiée (M5)"),
         (ext.id.to_string(), "le résultat externe publié"),

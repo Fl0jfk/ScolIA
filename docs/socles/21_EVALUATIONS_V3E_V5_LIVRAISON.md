@@ -307,3 +307,28 @@ Les tables `ent_note_*` (hors préfixe `eva_`) ne sont pas dans le champ du test
 - **E1 (élevé)** : `eva_appreciation` n'est exportée qu'aux conditions de la vue famille (validée, type `cours`/`generale`, appréciations closes) ; **E2** : le test de bout en bout, qui exigeait la sortie d'une appréciation validée en période ouverte, vérifie désormais son **absence** avant clôture, sa présence après `appreciations_closes`, et l'absence d'une appréciation `vie_scolaire` validée.
 - **F1, F2** : `eva_resultat` retire aussi `derniere_ecriture_correction`, `source`, `version` ; `eva_resultat_externe` retire `compte_decide_le`.
 - **En file (suites V5, passe 5)** : M1 (test de registre : `hors_export` seul n'est pas une décision pour une table à état), M2 (extrait de bout en bout : une ligne marquée par table exportée, échec si une table n'est pas filtrable, p. ex. `eva_moyenne_externe`), M3 (`eva_moyenne_statut` sans condition de publication), M4 (`eva_rattrapage_historique` exporté, incohérent avec le retrait de l'historique des appréciations), M5 (`eva_rattrapage*` sans condition d'état), F3 (déclarations externes et dispenses : communication à confirmer), **F4** (`ent_note_appreciation`, table de reprise, exportée sans condition : contourne E1 jusqu'à G3), réserve DPO sur l'historique d'une appréciation publiée puis modifiée.
+
+## 12. Suites (passe 5) — branche `ent-socle-21-code-v5-suites-5`, depuis `origin/ENT`
+
+**Niveau :** implémenté + testé en local (PostgreSQL 16, base neuve `ent_p5_test`, toolchain 1.99.0, `--locked`, `ENT_ENV=test`, un seul `CARGO_TARGET_DIR`). Non validé par Florian ; non prêt pilote. **Aucune migration** (règles d'export seulement, dans `registre_donnees.rs`) : 701 non consommée, `migrations_versees.txt` intact.
+
+Principe : l'export ne rend **que ce que la famille peut déjà voir dans l'ENT** ; une table à état ne s'exporte jamais sans condition.
+
+### 12.1 Fait / non fait
+
+| Point | Réalisation |
+|---|---|
+| **M1** | Test `toute_table_eva_a_etat_exportee_a_une_condition_ou_une_justification` (sur la base) : toute table `eva_*` / `ent_eva_*` exportée qui porte une colonne d'état (`etat*`, `statut`, `publiee_le`, `retiree_le`, `annule_le`, `decide_le`, `valide_le`…) doit avoir `export_si` ou `tout_exportable(raison)` ; `hors_export` seul échoue, avec la liste. Garde non aveugle (tables d'état connues reconnues). Négatif : `hors_export_seul_sur_une_table_a_etat_est_vu`. Conséquence : `eva_correction_demande` (état, `hors_export` seul) reçoit une raison écrite (demande de la famille sur une note publiée). |
+| **M2** | `extrait_eleve` : filtre par élève aussi via `enseignement_externe_id` et `rattrapage_id` ; une table exportée non filtrable **échoue** (plus de `continue`, sauf `TABLES_SANS_ELEVE` = `ent_eva_export`). Le test de bout en bout sème **une ligne marquée par table exportée** (restriction, item, revue, statut de moyenne, convocations, résultat externe, moyennes externes) et vérifie que chaque table exportée a rendu une ligne ; absents : convocation annulée, évaluation non publiée, moyenne non publiée, motifs et auteurs internes. |
+| **M3** | `eva_moyenne_statut` : `export_si` = appréciations closes pour la classe de l'élève (même règle que `eva_appreciation`) ; avant, le statut révèle une moyenne en suspens. Testé avant/après clôture. |
+| **M4** | `eva_rattrapage_historique` **retiré** de l'export (cohérent avec l'historique des appréciations). |
+| **M5** | `eva_rattrapage` : `export_si` = état ≠ « annulée » et évaluation publiée. `eva_rattrapage_autorise` **retirée** (autorisation interne de la direction ; la famille reçoit la convocation). |
+| **F3** | `eva_dispense_port` et `eva_enseignement_externe` **retirées** de l'export : aucune colonne ni lecture familiale ne prouve la communication (D-069, valeur prudente). À rouvrir quand l'ENT notifiera la décision (colonne `communiquee_le` + `export_si`). Ce que la famille voit d'un enseignement externe reste la moyenne externe publiée. |
+| **F4** | `ent_note_appreciation` (reprise) **retirée** de l'export jusqu'à G3 (qui exportera le bulletin figé) ; test `la_table_de_reprise_des_appreciations_n_est_pas_exportee_sans_condition`. |
+| **Réserve DPO** | Décision prudente retenue : l'historique d'une appréciation publiée puis modifiée **n'est pas exporté** (`eva_appreciation_historique` hors export) ; seule la version en vigueur, si elle est celle que la famille voit, sort. La personne qui demande l'historique (RGPD art. 15) relève d'une demande motivée traitée par le DPO, hors export automatique. À confirmer par le DPO. |
+
+**Reste (non fait, signalé).** `ent_note_archive`, `ent_note_correction`, `ent_note_doublon_archive`, `ent_note_periode` restent exportées sans condition (hors du champ des tests `eva_*`) : à traiter au lot G3.
+
+### 12.2 Tests, compteurs
+* **Nouveaux : 4** de registre (M1 ×2, F4, M4/M5/F3) ; **étendu :** `passe4_l_export_de_l_eleve_…` (M2/M3/M5).
+* **Compteurs (règle 28)** : 0 table, 0 migration, `tests_rls.rs`, `TABLES_ELEVE`, `Action::TOUTES` inchangés ; le registre ne change que par des règles d'export.
