@@ -274,3 +274,12 @@ Branche `ent-socle-41-code-i4-suites-3` (base `origin/ENT`, PR en brouillon vers
 ### Tête et CI (suites 3)
 - PR n° 142, en brouillon vers `ENT`. Tête de code : `3286b534` (un premier passage, sur `096d3bba`, était rouge sur le seul contrôle de format ; corrigé par `rustfmt` ciblé sur `ent-types` et le nouveau fichier de tests).
 - CI « ENT Rust » sur `3286b534` : **verte** (run 45353586522). Les commits suivants ne touchent que cette documentation.
+
+### Correctifs du pilote après contre-revue des suites 3 (2026-11-24)
+Rapport complet : `docs/pilotage/revues/41_I4_SUITES_3_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun Élevé ; F7 est
+équivalent à l'ancien comportement pour les droits (mêmes requêtes, mêmes filtres, contexte tenant posé par `TenantTx`).
+- **Faible 1** : `eleve_cache_au_tiers_conn` passe en `pub(crate)` (la connexion doit venir du `TenantTx` du même établissement).
+- **Moyen 2** : F6 est **défini, non branché** (aucune surface famille ne l'affiche encore).
+- En file : **Moyen 1** (F7 incomplet, antérieur au lot : `exiger_eleve_visible` à `vie.rs` 654, 1687, 1804, 2193 et
+  `a_action_etablissement` dans `groupe_appel_exiger` passent encore par le pool dans une transaction ouverte → variantes
+  `_conn` et test sur un pool d'une connexion) ; faibles 2 à 4.

@@ -669,7 +669,8 @@ impl PgEnt {
 
     /// Même réponse, sur la connexion de la transaction **déjà ouverte** de l'appelant : aucune connexion
     /// supplémentaire n'est prise au pool (F7 ; sinon un pool épuisé par des transactions qui s'attendent se bloque).
-    pub async fn eleve_cache_au_tiers_conn(
+    /// La connexion doit venir de `TenantTx::begin(.., etab)` du même établissement (contre-revue du pilote, Faible 1).
+    pub(crate) async fn eleve_cache_au_tiers_conn(
         &self,
         conn: &mut PgConnection,
         etab: Uuid,
