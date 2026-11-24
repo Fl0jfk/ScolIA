@@ -27,7 +27,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Pool du rôle applicatif de test (non propriétaire, sans BYPASSRLS, RLS stricte).
-async fn pool_applicatif(proprietaire: &PgPool) -> PgPool {
+pub(crate) async fn pool_applicatif(proprietaire: &PgPool) -> PgPool {
     crate::tests_rls_stricte::assurer_role_strict(proprietaire).await;
     let url = crate::url_guard::url_labo_ou_echec().expect("ENT_DATABASE_URL");
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");

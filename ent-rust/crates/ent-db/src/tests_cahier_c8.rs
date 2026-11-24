@@ -2590,7 +2590,7 @@ async fn jeu_gel(fx: &Fx) -> JeuGel {
 
 /// Tables de versions : en ajout seul (UPDATE et DELETE y sont refusés par leur propre garde, avec le même code 23514).
 fn ajout_seul(table: &str) -> bool {
-    table.ends_with("_version")
+    table.ends_with("_version") || table == "ent_cdt_continuite_cours"
 }
 
 /// Avant le gel, l'INSERT passe sur chaque table (le jeu est valide : un refus plus tard vient bien du gel) et l'UPDATE touche
@@ -3712,4 +3712,285 @@ async fn c8_cloturer_sans_exporter_decide_et_liste_les_archives_sans_lire_leur_t
         .cdt_c8_archive_contenu(&a, ancienne)
         .await
         .is_err_and(|e| est_interdit(&e)));
+}
+
+// ───────────────────────── suites : tables filles classées (F2), gel fermé (F3), reprise réservée ─────────────────────────
+
+/// F2 : une ligne par table fille classée par 2419 (groupes de remise, appartenances, notes d'accompagnement, cours d'une
+/// continuité) : (table, INSERT valide, UPDATE neutre, DELETE).
+async fn jeu_gel_filles(fx: &Fx) -> JeuGel {
+    let etab = fx.cast.etablissement_id;
+    let cours = cours_a(fx).await;
+    let annee = fx
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap()
+        .id;
+    let t1 = travail(fx, cours, "Travail des tables filles", "maintenant").await;
+    let (g1, cont) = (Uuid::new_v4(), Uuid::new_v4());
+    let agent: Uuid =
+        sqlx::query_scalar("SELECT id FROM ent_agent WHERE etablissement_id = $1 LIMIT 1")
+            .bind(etab)
+            .fetch_one(fx.ent.pool())
+            .await
+            .unwrap();
+    for q in [
+        format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{g1}', '{etab}', '{t1}', 'G1')"),
+        format!("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ('{cont}', '{etab}', '{}', current_date)", fx.cast.eleves[0].id),
+    ] {
+        sqlx::query(&q).execute(fx.ent.pool()).await.unwrap_or_else(|e| panic!("jeu : {q} : {e}"));
+    }
+    let eleve = fx.cast.eleves[1].id;
+    let lignes = vec![
+        (
+            "ent_cdt_groupe",
+            format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{}', '{etab}', '{t1}', 'G2')", Uuid::new_v4()),
+            format!("UPDATE ent_cdt_groupe SET libelle = libelle WHERE id = '{g1}'"),
+            format!("DELETE FROM ent_cdt_groupe WHERE id = '{g1}'"),
+        ),
+        (
+            "ent_cdt_groupe_membre",
+            format!("INSERT INTO ent_cdt_groupe_membre (etablissement_id, groupe_id, eleve_id) VALUES ('{etab}', '{g1}', '{eleve}')"),
+            format!("UPDATE ent_cdt_groupe_membre SET cree_le = cree_le WHERE groupe_id = '{g1}'"),
+            format!("DELETE FROM ent_cdt_groupe_membre WHERE groupe_id = '{g1}'"),
+        ),
+        (
+            "ent_cdt_note_accompagnement",
+            format!("INSERT INTO ent_cdt_note_accompagnement (id, etablissement_id, travail_id, eleve_id, agent_aesh_id, texte) VALUES ('{}', '{etab}', '{t1}', '{eleve}', '{agent}', 'Note')", Uuid::new_v4()),
+            format!("UPDATE ent_cdt_note_accompagnement SET cree_le = cree_le WHERE travail_id = '{t1}'"),
+            format!("DELETE FROM ent_cdt_note_accompagnement WHERE travail_id = '{t1}'"),
+        ),
+        (
+            "ent_cdt_continuite_cours",
+            format!("INSERT INTO ent_cdt_continuite_cours (etablissement_id, continuite_id, cours_id) VALUES ('{etab}', '{cont}', '{cours}')"),
+            format!("UPDATE ent_cdt_continuite_cours SET cree_le = cree_le WHERE continuite_id = '{cont}'"),
+            format!("DELETE FROM ent_cdt_continuite_cours WHERE continuite_id = '{cont}'"),
+        ),
+    ];
+    JeuGel { annee, lignes }
+}
+
+#[tokio::test]
+async fn c8_suites_f2_tables_filles_gelees_apres_cloture_du_cahier() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel_filles(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    cloturer(&fx, jeu.annee).await;
+    verifier_gel(&fx, &jeu, "cahier clôturé (tables filles)").await;
+    // Réouverture tracée : les écritures repassent (le gel est bien celui de l'année, pas une interdiction définitive).
+    rouvrir_a_deux(&fx, jeu.annee).await;
+    for (table, _, upd, _) in jeu.lignes.iter().filter(|l| !ajout_seul(l.0)) {
+        let n = sqlx::query(upd)
+            .execute(fx.ent.pool())
+            .await
+            .unwrap()
+            .rows_affected();
+        assert!(n > 0, "après réouverture : UPDATE {table}");
+    }
+}
+
+#[tokio::test]
+async fn c8_suites_f2_tables_filles_gelees_dans_une_annee_close_au_socle_5() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel_filles(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    sqlx::query(
+        "UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(fx.cast.etablissement_id)
+    .bind(jeu.annee)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    verifier_gel(&fx, &jeu, "année close au socle 5 (tables filles)").await;
+}
+
+/// Hors gel, les tables filles restent protégées pour elles-mêmes : jamais supprimées (groupe, appartenance, note), ajout seul
+/// (cours d'une continuité). Vérifié SANS année close : un refus ne vient donc pas du gel.
+#[tokio::test]
+async fn c8_suites_f2_tables_filles_non_supprimables_hors_gel() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel_filles(&fx).await;
+    inserer_avant_gel(&fx, &jeu).await;
+    for (table, _, upd, del) in &jeu.lignes {
+        assert_eq!(
+            code_sql(sqlx::query(del).execute(fx.ent.pool()).await).as_deref(),
+            Some("23514"),
+            "DELETE {table}"
+        );
+        if table == &"ent_cdt_continuite_cours" {
+            assert_eq!(
+                code_sql(sqlx::query(upd).execute(fx.ent.pool()).await).as_deref(),
+                Some("23514"),
+                "UPDATE {table}"
+            );
+        }
+    }
+}
+
+/// Exécute `ordres` sous le rôle applicatif (non propriétaire, RLS stricte, `SET LOCAL ROLE`) dans une transaction toujours
+/// annulée ; `masquer_annees` rend la ligne de chaque année invisible à ce rôle (politique RESTRICTIVE posée par le
+/// propriétaire dans la même transaction : l'écriture visée, elle, reste visible). Rend le résultat de chaque ordre.
+async fn sous_role_applicatif(
+    fx: &Fx,
+    masquer_annees: bool,
+    ordres: &[String],
+) -> Vec<Result<u64, (String, String)>> {
+    let role = crate::tests_rls_stricte::ROLE_STRICT;
+    crate::tests_rls_stricte::assurer_role_strict(fx.ent.pool_verif()).await;
+    let mut tx = fx.ent.pool_verif().begin().await.unwrap();
+    if masquer_annees {
+        for q in [
+            "ALTER TABLE ent_annee_scolaire ENABLE ROW LEVEL SECURITY".to_string(),
+            format!("CREATE POLICY suites_f3_masque ON ent_annee_scolaire AS RESTRICTIVE FOR SELECT TO {role} USING (false)"),
+        ] {
+            sqlx::query(&q).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{q} : {e}"));
+        }
+    }
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+        .bind(fx.cast.etablissement_id.to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let mut rendu = Vec::new();
+    for q in ordres {
+        // Un point de sauvegarde par ordre : un refus n'annule pas la transaction.
+        sqlx::query("SAVEPOINT ordre")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let r = sqlx::query(q).execute(&mut *tx).await;
+        match r {
+            Ok(x) => rendu.push(Ok(x.rows_affected())),
+            Err(e) => {
+                let d = e
+                    .as_database_error()
+                    .unwrap_or_else(|| panic!("erreur hors base : {e}"));
+                rendu.push(Err((
+                    d.code().map(|c| c.to_string()).unwrap_or_default(),
+                    d.message().to_string(),
+                )));
+                sqlx::query("ROLLBACK TO SAVEPOINT ordre")
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+    tx.rollback().await.unwrap();
+    rendu
+}
+
+/// F3 : si la ligne de l'année n'est pas visible (RLS, ligne absente), le gel REFUSE l'écriture. Témoin : les mêmes écritures
+/// passent sous le même rôle quand la ligne de l'année est visible.
+#[tokio::test]
+async fn c8_suites_f3_gel_echoue_ferme_quand_l_annee_est_invisible() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let jeu = jeu_gel_filles(&fx).await;
+    let t1: Uuid = sqlx::query_scalar(
+        "SELECT travail_id FROM ent_cdt_groupe WHERE etablissement_id = $1 LIMIT 1",
+    )
+    .bind(etab)
+    .fetch_one(fx.ent.pool())
+    .await
+    .unwrap();
+    // Une table mère (gel de 2407) et une table fille (gel de 2419).
+    let ordres = vec![
+        format!("UPDATE ent_cdt_travail SET modifie_le = modifie_le WHERE id = '{t1}'"),
+        format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{}', '{etab}', '{t1}', 'F3')", Uuid::new_v4()),
+    ];
+    // Témoin : année visible, année non gelée → les deux écritures passent.
+    let temoin = sous_role_applicatif(&fx, false, &ordres).await;
+    assert!(
+        temoin.iter().all(|r| matches!(r, Ok(1))),
+        "témoin : {temoin:?}"
+    );
+    // Année invisible → refus du gel (23514), jamais un succès silencieux.
+    let masque = sous_role_applicatif(&fx, true, &ordres).await;
+    for (q, r) in ordres.iter().zip(&masque) {
+        match r {
+            Err((code, _)) => assert_eq!(code, "23514", "{q}"),
+            Ok(n) => panic!("année invisible : l'écriture « {q} » a passé ({n} ligne) alors que le gel doit échouer fermé"),
+        }
+    }
+    // Fonction de garde : année absente → gelée ; année connue et ouverte → non gelée ; pas d'année du tout → non gelée.
+    let gelee = |annee: Option<Uuid>| {
+        let fx = &fx;
+        async move {
+            sqlx::query_scalar::<_, bool>("SELECT ent_cdt_annee_gelee($1, $2)")
+                .bind(etab)
+                .bind(annee)
+                .fetch_one(fx.ent.pool())
+                .await
+                .unwrap()
+        }
+    };
+    assert!(
+        gelee(Some(Uuid::new_v4())).await,
+        "année absente : gelée (échec fermé)"
+    );
+    assert!(!gelee(Some(jeu.annee)).await, "année ouverte : non gelée");
+    assert!(!gelee(None).await, "aucune année : pas de gel");
+}
+
+/// 2419 : `ent_cdt_reprise(uuid)` n'est plus exécutable par PUBLIC ni par le rôle applicatif ; le propriétaire (migrations,
+/// tests de reprise) la garde.
+#[tokio::test]
+async fn c8_suites_reprise_refusee_au_role_applicatif() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let role = crate::tests_rls_stricte::ROLE_STRICT;
+    let etab = fx.cast.etablissement_id;
+    let r = sous_role_applicatif(
+        &fx,
+        false,
+        &[
+            format!("SELECT count(*) FROM ent_cdt_reprise('{etab}')"),
+            "SELECT count(*) FROM ent_cdt_reprise(NULL)".to_string(),
+        ],
+    )
+    .await;
+    for x in &r {
+        let (code, msg) = x
+            .as_ref()
+            .err()
+            .unwrap_or_else(|| panic!("le rôle applicatif a pu exécuter la reprise : {r:?}"));
+        assert_eq!(code, "42501", "refus de privilège attendu : {msg}");
+        assert!(msg.contains("ent_cdt_reprise"), "{msg}");
+    }
+    let (applicatif, public, proprietaire): (bool, bool, bool) = sqlx::query_as(
+        "SELECT has_function_privilege($1, 'public.ent_cdt_reprise(uuid)', 'EXECUTE'),
+                EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a
+                         WHERE p.oid = 'public.ent_cdt_reprise(uuid)'::regprocedure AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'),
+                has_function_privilege(current_user, 'public.ent_cdt_reprise(uuid)', 'EXECUTE')",
+    )
+    .bind(role)
+    .fetch_one(fx.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(
+        !applicatif && !public,
+        "ni le rôle applicatif ni PUBLIC n'exécutent la reprise"
+    );
+    assert!(proprietaire, "le propriétaire la garde");
 }

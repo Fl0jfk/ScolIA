@@ -548,6 +548,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // lisible de la famille (F-6) ; `ent_msg_annulation_ouvrir` reçoit l'auteur, devient `SECURITY DEFINER`, et la table de
     // garde n'est plus inscriptible que par le propriétaire. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("493_msg_fil_vide_et_garde_proprietaire"),
+    // Socle 20, suites C8/C9 : dernier numéro libre de la plage 2400–2419. `REVOKE EXECUTE` sur `ent_cdt_reprise`, gel d'année
+    // qui échoue fermé (F3), tables filles du cahier classées au gel (F2). Règle 38 : en fin de tableau ; ses fonctions
+    // portent leur `search_path`. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2419_cdt_suites_gel_filles"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
