@@ -13,7 +13,7 @@ use chrono::Duration;
 use ent_auth::Role;
 use uuid::Uuid;
 
-fn expediteur_avec(
+pub(super) fn expediteur_avec(
     ent: &PgEnt,
     etab: Uuid,
     attente_verrou: std::time::Duration,
@@ -93,11 +93,11 @@ async fn p3_f6_le_createur_et_l_etablissement_gardent_le_fil_vide_pas_la_famille
 
 // ───────────────────────── Garde d'annulation : jeton, auteur, propriétaire ─────────────────────────
 
-const ROLE_APP: &str = "ent_s16_p3_app";
+pub(super) const ROLE_APP: &str = "ent_s16_p3_app";
 
 /// Rôle applicatif non propriétaire, avec les privilèges du script de déploiement (`GRANT … ON ALL TABLES`), puis la 493
 /// rejouée (elle est rejouable) : elle retire l'écriture de la table de garde, quel que soit le grantee.
-async fn pool_applicatif(ent: &PgEnt) -> sqlx::PgPool {
+pub(super) async fn pool_applicatif(ent: &PgEnt) -> sqlx::PgPool {
     let admin = ent.pool_verif();
     sqlx::query(&format!(
         "DO $$ BEGIN CREATE ROLE {ROLE_APP} LOGIN PASSWORD 'p3' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; \
@@ -122,6 +122,13 @@ async fn pool_applicatif(ent: &PgEnt) -> sqlx::PgPool {
     .execute(admin)
     .await
     .unwrap();
+    // 494 (M1) : le droit d'exécution du jeton va aux rôles qui écrivent dans `ent_msg` ; rejouée après la création du rôle.
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/494_msg_garde_jeton_droit_execution.sql"
+    ))
+    .execute(admin)
+    .await
+    .unwrap();
     let url = crate::url_guard::url_labo_ou_echec().expect("url labo");
     let mut u = url::Url::parse(&url).unwrap();
     u.set_username(ROLE_APP).unwrap();
@@ -133,7 +140,7 @@ async fn pool_applicatif(ent: &PgEnt) -> sqlx::PgPool {
         .unwrap()
 }
 
-fn code(e: &sqlx::Error) -> Option<String> {
+pub(super) fn code(e: &sqlx::Error) -> Option<String> {
     e.as_database_error()
         .and_then(|d| d.code())
         .map(|c| c.to_string())
@@ -287,22 +294,31 @@ async fn p3_la_table_de_garde_n_est_plus_inscriptible_par_le_role_applicatif_et_
 
 // ───────────────────────── Contrôle juste avant chaque envoi ─────────────────────────
 
-/// Attend (sonde de verrou, pas d'heure) qu'une requête `FOR KEY SHARE` soit bloquée sur un verrou.
-async fn attendre_controle_bloque(ent: &PgEnt) {
+/// Pid de la connexion qui **tient** le verrou : la sonde ne regarde que les sessions bloquées par elle (F8 : plus de
+/// recherche par texte de requête, qui attrapait n'importe quelle session d'un autre test sur la même base).
+pub(super) async fn pid_de(connexion: &mut sqlx::PgConnection) -> i32 {
+    let (pid,): (i32,) = sqlx::query_as("SELECT pg_backend_pid()").fetch_one(connexion).await.unwrap();
+    pid
+}
+
+/// Attend (sonde de verrou, pas d'heure) qu'`au moins `attendus` sessions soient bloquées **par la connexion `pid`**
+/// (`pg_blocking_pids`) : celle du test lui-même, jamais une session étrangère.
+pub(super) async fn attendre_bloques_par(ent: &PgEnt, pid: i32, attendus: i64) {
     for _ in 0..400 {
-        let n = compter(
-            ent,
+        let n: (i64,) = sqlx::query_as(
             "SELECT count(*) FROM pg_stat_activity
-              WHERE wait_event_type = 'Lock' AND query LIKE '%FOR KEY SHARE%' AND pid <> pg_backend_pid()",
-            &[],
+              WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)) AND pid <> pg_backend_pid()",
         )
-        .await;
-        if n >= 1 {
+        .bind(pid)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        if n.0 >= attendus {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    panic!("le contrôle d'existence n'a jamais été bloqué par l'annulation ouverte");
+    panic!("aucune session n'a jamais été bloquée par la connexion {pid} (attendues : {attendus})");
 }
 
 /// Vraie course : une annulation (message verrouillé `FOR UPDATE`, avis annulé, message supprimé) reste **ouverte** sur
@@ -337,9 +353,10 @@ async fn p3_course_reelle_une_annulation_ouverte_pendant_le_distributeur_rien_ne
         .await
         .unwrap();
 
+    let pid_annulation = pid_de(&mut annulation).await;
     let exp = expediteur_avec(&ent, etab, std::time::Duration::from_secs(60));
     let passage = tokio::spawn(async move { exp.expedier(apres).await });
-    attendre_controle_bloque(&ent).await;
+    attendre_bloques_par(&ent, pid_annulation, 1).await;
     assert_eq!(
         statut_avis(&ent, avis).await.0,
         "envoi",
