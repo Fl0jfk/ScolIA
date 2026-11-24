@@ -225,3 +225,33 @@ double facturation intact.
 - En file : faibles 1 à 6 du rapport, dont la **couverture d'une prise en charge d'organisme vérifiée sur toute la période**
   du tronçon (prioritaire).
 - Compteurs : `Action::TOUTES` 282, `SOURCES` 75 (inchangés).
+
+## Suites, 3 (consigne 24, session du 2026-11-24)
+
+Branche `ent-socle-24-code-f3-suites-3` (partie d'`origin/ENT`), PR en brouillon. **Migration 532** (réserve 532–537) placée à la fin du tableau de `migrate.rs` (règle 38) ; elle ne crée aucune fonction. `migrations_versees.txt` non touché. **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.** Source : contre-revue `24_F3_SUITES_2_CONTRE_REVUE.md` (points « en file »).
+
+### Fait
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| **Faible 3 (prioritaire)** | Couverture d'organisme **sur toute la période** : pour un foyer payeur de type organisme, le découpage en tronçons tient aussi compte des prises en charge actives couvrant le **premier jour de chaque mois** ; une prise qui expire en décembre coupe le tronçon (janvier-juin rouvrent `part_non_couverte`, tâche « depuis le 01/01 »), une prise qui commence en janvier coupe aussi (tâche depuis septembre). Une prise échue ne bascule jamais d'office sur le payeur suivant (E2). | `f3s3_prise_expirant_en_decembre_…` (18 000 € à l'organisme, tâche, rejeu sans doublon, avec et sans payeur suivant) ; `f3s3_prise_commencant_en_cours_d_annee` (clé `:m2031-01`) |
+| **Moyen 1 (suite)** | `facturer_changement_regime` non facturable (`Ok(Err(motif))`) : en plus du `warn!`, tâche `ent_fin_tache` de nature **`regularisation_regime_non_facturee`** (migration 532), une seule ouverte par élève (idempotente), visible de qui a `engagements` ou lecture financière de l'établissement ; **close** quand la régularisation passe (rejeu de l'événement). | `f3s3_changement_de_regime_sur_un_trou_…` (service : ouverte, rejeu sans doublon, visible du secrétariat, refusée au professeur et au parent, autre établissement, contrainte SQL directe 23514, clôture à la régularisation, 2 × 45 €) |
+| **Fin de tarif datée** | `ent_fin_article.retire_a_partir_du` + `retirer_article_a_la_date_for_actor` (droit `tarifs`, motif obligatoire, journal `article.retirer`, date au **1er d'un mois**, `None` rétablit). Les mois commencés avant la date restent dus, les suivants ne le sont plus ; le trou de la grille après la fin n'est pas bloquant ; une grille sans l'article se propose (contrôle de continuité ignoré pour un article retiré). Distinct de « désactiver l'article ». Ne réécrit aucune ligne déjà posée (régularisation = F4). | `f3s3_fin_de_tarif_datee` (4 × 45 €, contribution entière, élève entré en février sans l'article, levée de la fin = trou bloquant) |
+| **Faible 1** | Troncature par tronçon **documentée** (commentaire du moteur) et testée : chaque tronçon et chaque réduction est arrondi au centime inférieur ; écart au prorata entier < 1 centime par tronçon, jamais en trop pour la famille. | `f3s3_troncature_par_troncon_reductions_et_deux_foyers` (50 003 : 18 000 + 30 001 ; remise 1 350 + 2 250) |
+| **Faible 2** | Segmentation par **(article, foyer payeur)** : un foyer dont le tarif ne change pas n'est pas coupé quand l'autre change. | `f3s3_segmentation_par_article_et_par_foyer` |
+| **Faible 4** | Le refus 409 d'une version `close` supplantée ne vaut que pour la **première** publication. | `f3s3_publication_close_deja_publiee_reste_relisible` (+ `f3s_publication_close_…` adapté) |
+| **Faible 5** | Tests : clé du second tronçon, rejeu, changement de régime sur un trou, deux foyers. | voir ci-dessus |
+| **Faible 6** | `.is_ok()` de l'alerte du second regard remplacé : seul `Forbidden` écarte l'alerte, une erreur technique remonte. | `f3s_alerte_second_regard_…` (inchangé, vert) |
+
+### Règles métier non tranchées : valeur par défaut prudente (D-069)
+- **Prise échue en cours de tronçon** : la part non couverte n'est facturée à personne sans décision (tâche), même s'il existe un payeur suivant ; seul le dépassement de plafond d'une prise active passe au payeur suivant (règle E2 inchangée).
+- **Couverture d'un mois** : prise active couvrant le **premier jour** du mois ; une prise qui commence en cours de mois ne couvre le mois qu'à partir du suivant. À valider.
+- **Régénération d'un élève déjà facturé** avant ce correctif avec une prise coupée en cours d'année : la clé du second tronçon est nouvelle, la garde « le tarif a changé » refuse (régularisation F4).
+- **Fin de tarif** : premier jour d'un mois obligatoire ; article retiré = pas d'avoir automatique pour ce qui est déjà facturé.
+- **Tâche de changement de régime** : une seule ouverte par élève (le détail garde le premier motif).
+
+### Non fait
+Route HTTP de la fin de tarif datée (service et type `RetraitArticleBody` seulement : aucune route ajoutée, `SOURCES` inchangé) ; écran Leptos ; régularisation des écarts déjà facturés (F4).
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; migrations : +532 (`MIGRATION_TAG` inchangé) ; `SOURCES` **75** (inchangé). Le pilote ajoutera `532_finances_f3_suites3` à `migrations_versees.txt`.
