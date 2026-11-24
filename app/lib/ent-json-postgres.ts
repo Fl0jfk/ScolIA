@@ -649,3 +649,19 @@ async function tryStagesTypedDelete(key: string): Promise<boolean> {
   }
   return false;
 }
+
+/**
+ * Écriture « seulement si absent » d'un document JSON (collections génériques uniquement).
+ * Retourne true si ce appel a créé le document, false s'il existait déjà.
+ */
+export async function putJsonIfAbsentToPostgres(
+  relativePath: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const etabId = await collectionDbReady();
+  if (!etabId) throw new Error(`[ent] putJsonIfAbsent impossible sans Postgres pour ${relativePath}`);
+  const { collection, recordId, singleton } = jsonPathToCollection(relativePath);
+  if (singleton) throw new Error("[ent] putJsonIfAbsent : chemin singleton non pris en charge");
+  const { insertCollectionRecordIfAbsent } = await import("@/app/lib/ent-collection-db");
+  return insertCollectionRecordIfAbsent(etabId, collection, recordId, { ...data, id: data.id ?? recordId });
+}

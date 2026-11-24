@@ -14,6 +14,7 @@ import {
 } from "@/app/lib/travels-family-page";
 import type { TravelsParentCalendar, TravelsPriceBlock, TravelsTrip } from "@/app/lib/travels-types";
 import { tripDepartureIso, tripReturnIso } from "@/app/lib/travels-v2";
+import { canUploadAfterSignature, type StudentState } from "@/app/lib/travels-v2-lot3";
 import {
   CODE_MAX_ATTEMPTS,
   CODE_TTL_MS,
@@ -259,6 +260,14 @@ export type PublicFamilyView = {
   code: { pending: boolean; expiresAt: string | null };
   /** L'autre responsable a déjà répondu pour cet élève. */
   siblingDecision: "oui" | "non" | null;
+  /** Situation de l'élève : un désaccord non tranché le met « en suspens » (message neutre, sans détail). */
+  studentState: StudentState;
+  /** Le responsable peut déclarer son désaccord (l'autre a inscrit l'élève). */
+  canObject: boolean;
+  /** Ce responsable a déjà déclaré son désaccord ; décision de la direction si elle est prise. */
+  objection: null | { at: string; decision: "maintenir" | "retirer" | null };
+  /** Pièces « avant le départ » encore déposables après la signature. */
+  uploadableAfterSign: string[];
 };
 
 export function buildPublicFamilyView(opts: {
@@ -267,6 +276,9 @@ export function buildPublicFamilyView(opts: {
   todayIso: string;
   maskedEmail: string;
   siblingDecision: "oui" | "non" | null;
+  studentState?: StudentState;
+  canObject?: boolean;
+  objectionDecision?: "maintenir" | "retirer" | null;
 }): PublicFamilyView {
   const { trip, inv } = opts;
   const page = trip.data?.familyPage;
@@ -313,6 +325,12 @@ export function buildPublicFamilyView(opts: {
     problems: signingProblems({ answers: inv.answers || {}, picnicDayKeys: picnicKeys, docs, inv }),
     code: { pending: Boolean(codeLive), expiresAt: codeLive ? inv.code!.expiresAt : null },
     siblingDecision: opts.siblingDecision,
+    studentState: opts.studentState ?? "aucun",
+    canObject: Boolean(opts.canObject),
+    objection: inv.objection ? { at: inv.objection.at, decision: opts.objectionDecision ?? null } : null,
+    uploadableAfterSign: docs
+      .filter((d) => canUploadAfterSignature(d, inv, opts.todayIso))
+      .map((d) => d.id),
   };
 }
 

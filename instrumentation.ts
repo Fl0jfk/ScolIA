@@ -9,4 +9,11 @@ export async function register() {
   } catch (err) {
     console.error("[instrumentation] job signaux non démarré", err instanceof Error ? err.name : "error");
   }
+  // Relances automatiques du circuit voyages v2 (J-3 / J-1, pièces avant départ).
+  try {
+    const { startRemindersJob } = await import("./app/lib/travels-v2-reminders-job");
+    startRemindersJob();
+  } catch (err) {
+    console.error("[instrumentation] job relances voyages non démarré", err instanceof Error ? err.name : "error");
+  }
 }

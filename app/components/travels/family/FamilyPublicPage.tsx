@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { FamilyPageView } from "@/app/components/travels/family/FamilyPageView";
 import { FamilyLiveForm } from "@/app/components/travels/family/FamilyLiveForm";
+import { FamilyAfterSignDocs, FamilyObjectionBox, StudentStateNotice } from "@/app/components/travels/family/FamilyExtras";
 import type { PublicFamilyView } from "@/app/lib/travels-v2-registration";
 
 function when(iso: string): string {
@@ -79,6 +80,10 @@ export function FamilyPublicPage({ token }: { token: string }) {
           ) : null}
         </div>
       ) : null}
+
+      <StudentStateNotice view={view} />
+      <FamilyObjectionBox token={token} view={view} onView={setView} />
+      {view.signed?.decision === "oui" ? <FamilyAfterSignDocs token={token} view={view} onView={setView} /> : null}
 
       {closed ? (
         <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900" role="alert">

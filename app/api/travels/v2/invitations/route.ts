@@ -1,18 +1,13 @@
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
+import { canRead, canSeeAmount, canWrite, resolveAccess } from "@/app/lib/travels-v2-access";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { canSignTravelsDirectionForEtab, isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
-import {
-  isGlobalAdminUser,
-  userHasAdministratifRole,
-  userHasComptaRoleFromMetadata,
-} from "@/app/lib/travels-roles";
 import { getTenant, getTenantAppUrl, runWithTenant } from "@/app/lib/tenant-context";
 import { getTravelTrip } from "@/app/lib/travels-storage";
 import { isIsoDate, isWorkflowV2, todayIsoParis, tripDepartureIso } from "@/app/lib/travels-v2";
 import {
   buildRegistrationRows,
+  listStudentCases,
   createInvitationsForTrip,
   getInvitation,
   listInvitations,
@@ -21,8 +16,14 @@ import {
   sendPendingInvitations,
   signedUrlForInvitationFile,
 } from "@/app/lib/travels-v2-registration-store";
-import { computeInvitationStatus } from "@/app/lib/travels-v2-registration-types";
 import { listPicnicDays } from "@/app/lib/travels-family-page";
+import { FOLLOWUP_FILTERS, officialInes } from "@/app/lib/travels-v2-lot3";
+import {
+  alertStudentsWithoutEmail,
+  decideStudentCase,
+  previewManualReminders,
+  sendManualReminders,
+} from "@/app/lib/travels-v2-lot3-store";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 import { loadAppConfig } from "@/app/lib/app-config";
 
@@ -31,33 +32,6 @@ import { loadAppConfig } from "@/app/lib/app-config";
  * Lecture : organisateur, direction de l'établissement, administratif, admin général, compta.
  * Actions : organisateur, direction, administratif, admin général (la compta consulte seulement).
  */
-
-type Access = {
-  isOwner: boolean;
-  isDirection: boolean;
-  isAdmin: boolean;
-  isAdministratif: boolean;
-  isCompta: boolean;
-  userName: string;
-};
-
-async function resolveAccess(trip: NonNullable<Awaited<ReturnType<typeof getTravelTrip>>>): Promise<Access | null> {
-  const me = await safeCurrentUser();
-  if (!me) return null;
-  const meta = me.publicMetadata as Record<string, unknown> | undefined;
-  return {
-    isOwner: isTripOwnerOrCreator(trip, me),
-    isDirection: Boolean(await canSignTravelsDirectionForEtab(me, trip.data?.etablissement)),
-    isAdmin: isGlobalAdminUser({ publicMetadata: meta }),
-    isAdministratif: userHasAdministratifRole({ publicMetadata: meta }),
-    isCompta: userHasComptaRoleFromMetadata(meta),
-    userName: me.fullName || "Utilisateur",
-  };
-}
-
-const canRead = (a: Access) => a.isOwner || a.isDirection || a.isAdmin || a.isAdministratif || a.isCompta;
-const canWrite = (a: Access) => a.isOwner || a.isDirection || a.isAdmin || a.isAdministratif;
-const canSeeAmount = (a: Access) => a.isCompta || a.isDirection || a.isAdmin;
 
 async function loadV2Trip(tripId: string) {
   const trip = await getTravelTrip(tripId);
@@ -77,21 +51,30 @@ export async function GET(req: Request) {
     if (!access || !canRead(access)) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     const opened = Boolean(trip.data?.familyPage?.openedAt);
     const invitations = opened ? await listInvitations(tripId) : [];
-    const rows = buildRegistrationRows({ trip, invitations, includeAmount: canSeeAmount(access) });
-    const docs = trip.data?.familyPage?.documents || [];
-    const keys = listPicnicDays(trip.data?.piqueNiqueDetails).map((d) => d.key);
+    const cases = opened ? await listStudentCases(tripId) : [];
+    const isDirectionLike = access.isDirection || access.isAdmin;
+    const rows = buildRegistrationRows({
+      trip,
+      invitations,
+      includeAmount: canSeeAmount(access),
+      cases,
+      includeReason: isDirectionLike,
+    });
     const counts: Record<string, number> = {};
-    for (const inv of invitations) {
-      const s = computeInvitationStatus({ inv, docs, picnicDayKeys: keys });
-      counts[s] = (counts[s] || 0) + 1;
+    for (const r of rows) {
+      if (!r.invitationId) continue;
+      counts[r.status] = (counts[r.status] || 0) + 1;
     }
-    // Élèves inscrits = élèves distincts avec au moins un « oui » signé (un second parent ne double pas l'engagement).
+    // Liste officielle : élèves avec un « oui » signé, hors suspens (désaccord non tranché) et retirés.
+    const official = new Set(officialInes(invitations, cases));
     const engaged = new Map<string, number>();
     for (const inv of invitations) {
-      if (inv.signature?.decision === "oui" && inv.engagement && !engaged.has(inv.ine)) {
+      if (inv.signature?.decision === "oui" && inv.engagement && official.has(inv.ine) && !engaged.has(inv.ine)) {
         engaged.set(inv.ine, inv.engagement.amount);
       }
     }
+    const suspended = [...new Set(rows.filter((r) => r.status === "suspens" || r.status === "desaccord").map((r) => r.ine))].length;
+    const withoutEmail = rows.filter((r) => r.status === "sans_email").length;
     const smtpOk = Boolean(await getTenantSmtpConfig());
     return NextResponse.json({
       opened,
@@ -101,6 +84,10 @@ export async function GET(req: Request) {
       counts,
       engagedStudents: engaged.size,
       ...(canSeeAmount(access) ? { engagedTotal: [...engaged.values()].reduce((s, n) => s + n, 0) } : {}),
+      suspended,
+      picnicDays: listPicnicDays(trip.data?.piqueNiqueDetails).map((d) => ({ key: d.key, label: d.label })),
+      withoutEmail,
+      isDirection: isDirectionLike,
       canWrite: canWrite(access),
       canSeeAmount: canSeeAmount(access),
       smtpOk,
@@ -111,7 +98,23 @@ export async function GET(req: Request) {
   }
 }
 
+const targetShape = {
+  tripId: z.string().min(1),
+  invitationId: z.string().min(1).optional(),
+  status: z.enum(FOLLOWUP_FILTERS).optional(),
+};
+
 const actionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("remind_preview"), ...targetShape }),
+  // La confirmation humaine (aperçu + accord explicite) est exigée côté serveur : `confirm: true`.
+  z.object({ action: z.literal("remind_send"), ...targetShape, confirm: z.literal(true) }),
+  z.object({
+    action: z.literal("decide"),
+    tripId: z.string().min(1),
+    ine: z.string().min(1).max(40),
+    decision: z.enum(["maintenir", "retirer"]),
+    note: z.string().trim().max(500).optional(),
+  }),
   z.object({ action: z.literal("send_pending"), tripId: z.string().min(1) }),
   z.object({ action: z.literal("create_missing"), tripId: z.string().min(1) }),
   z.object({ action: z.literal("resend"), tripId: z.string().min(1), invitationId: z.string().min(1) }),
@@ -169,7 +172,7 @@ export async function POST(req: Request) {
 
     if (!canWrite(access)) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
 
-    if (trip.status !== "INSCRIPTIONS_OUVERTES") {
+    if (input.action !== "decide" && trip.status !== "INSCRIPTIONS_OUVERTES") {
       return NextResponse.json({ error: "Les inscriptions ne sont plus ouvertes pour ce voyage." }, { status: 409 });
     }
 
@@ -180,7 +183,10 @@ export async function POST(req: Request) {
       after(async () => {
         try {
           await runWithTenant(tenant, async () => {
-            if (input.action === "create_missing") await createInvitationsForTrip(tripCopy);
+            if (input.action === "create_missing") {
+              const created = await createInvitationsForTrip(tripCopy);
+              await alertStudentsWithoutEmail(tripCopy, created.studentsWithoutEmail);
+            }
             await sendPendingInvitations({ trip: tripCopy, baseUrl });
           });
         } catch (e) {
@@ -190,6 +196,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, queued: true });
     }
 
+    if (input.action === "remind_preview" || input.action === "remind_send") {
+      const target = input.invitationId
+        ? { invitationId: input.invitationId }
+        : input.status
+          ? { status: input.status }
+          : null;
+      if (!target) return NextResponse.json({ error: "Cible de relance manquante." }, { status: 400 });
+      if (input.action === "remind_preview") {
+        const list = await previewManualReminders(trip, target);
+        return NextResponse.json({ count: list.length, families: list.map((l) => ({ studentName: l.studentName, email: l.email })) });
+      }
+      const res = await sendManualReminders({ trip, target, baseUrl: await getTenantAppUrl() });
+      if (!res.smtp) return NextResponse.json({ error: "Envoi d'e-mails indisponible." }, { status: 503 });
+      return NextResponse.json({ ok: true, ...res });
+    }
+
+    if (input.action === "decide") {
+      // Seule la direction tranche (organisateur et administratif : non).
+      if (!(access.isDirection || access.isAdmin)) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      const res = await decideStudentCase({ trip, ine: input.ine, kind: input.decision, by: access.userName, note: input.note });
+      return res.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: res.error }, { status: res.status });
+    }
+
+    if (!("invitationId" in input) || !input.invitationId) return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     const inv = await getInvitation(input.tripId, input.invitationId);
     if (!inv) return NextResponse.json({ error: "Introuvable." }, { status: 404 });
 

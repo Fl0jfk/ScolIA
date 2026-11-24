@@ -66,6 +66,16 @@ export type FamilySignature = {
   /** Clé objet privée du PDF de l'accusé (oui seulement). */
   pdfKey?: string;
   ipHash?: string;
+  /** Réponse enregistrée par l'organisateur à partir d'un coupon papier (le scan sert alors d'engagement). */
+  paper?: { recordedBy: string; recordedAt: string; scanFileName: string; scanKey: string };
+};
+
+/** Désaccord d'un responsable (confirmé par code e-mail) après le « oui » de l'autre. */
+export type FamilyObjection = {
+  at: string;
+  signerName: string;
+  /** Visible de la direction seulement. */
+  reason?: string;
 };
 
 export type FamilyEngagement = {
@@ -111,6 +121,9 @@ export type FamilyInvitation = {
   engagement?: FamilyEngagement;
   confirmationMailSentAt?: string;
   confirmationMailError?: string;
+  objection?: FamilyObjection;
+  /** Relances automatiques : clé -> jour (YYYY-MM-DD) d'envoi (idempotence). */
+  reminders?: Record<string, string>;
 };
 
 /* ─── État d'une invitation ─── */
@@ -122,7 +135,10 @@ export type InvitationStatus =
   | "bloque_piece"
   | "pret"
   | "signe_oui"
-  | "refus";
+  | "refus"
+  | "desaccord"
+  | "suspens"
+  | "retire";
 
 export const INVITATION_STATUS_LABELS: Record<InvitationStatus, string> = {
   pas_ouvert: "Pas ouvert",
@@ -132,6 +148,9 @@ export const INVITATION_STATUS_LABELS: Record<InvitationStatus, string> = {
   pret: "Prêt à signer",
   signe_oui: "Signé — participe",
   refus: "Signé — ne participe pas",
+  desaccord: "Désaccord déclaré",
+  suspens: "En suspens (décision de la direction)",
+  retire: "Retiré par la direction",
 };
 
 export function isSigned(inv: Pick<FamilyInvitation, "signature">): boolean {

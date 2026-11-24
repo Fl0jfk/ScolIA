@@ -300,3 +300,43 @@ export async function collectionDbReady(): Promise<string | null> {
   if (!isEntCoreDbEnabled()) return null;
   return resolveCurrentEtablissementId();
 }
+
+/**
+ * Insère l'enregistrement SEULEMENT s'il n'existe pas (clé unique établissement + collection + id).
+ * Atomique côté Postgres (ON CONFLICT DO NOTHING) : un seul appelant concurrent obtient `true`.
+ */
+export async function insertCollectionRecordIfAbsent(
+  etablissementId: string,
+  collection: CollectionName,
+  recordId: string,
+  record: Record<string, unknown>,
+): Promise<boolean> {
+  const db = getDb();
+  const attrs = flattenCollectionRecord(record);
+  return db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(entCollectionRecord)
+      .values({
+        etablissementId,
+        collection,
+        recordId,
+        status: statusFromRecord(record),
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .onConflictDoNothing()
+      .returning({ recordId: entCollectionRecord.recordId });
+    if (inserted.length === 0) return false;
+    for (let i = 0; i < attrs.length; i += 100) {
+      await tx.insert(entCollectionAttr).values(
+        attrs.slice(i, i + 100).map((a) => ({
+          etablissementId,
+          collection,
+          recordId,
+          path: a.path,
+          value: a.value,
+        })),
+      );
+    }
+    return true;
+  });
+}

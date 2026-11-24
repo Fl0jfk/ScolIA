@@ -395,7 +395,11 @@ export async function POST(req: Request) {
         const tripForInvites = { ...(objectToSave as Record<string, unknown>), id: String(tripId) } as unknown as TravelsTrip;
         after(async () => {
           try {
-            await runWithTenant(tenant, () => openRegistrationsForTrip({ trip: tripForInvites, baseUrl }));
+            await runWithTenant(tenant, async () => {
+              const opened = await openRegistrationsForTrip({ trip: tripForInvites, baseUrl });
+              const { alertStudentsWithoutEmail } = await import("@/app/lib/travels-v2-lot3-store");
+              await alertStudentsWithoutEmail(tripForInvites, opened.studentsWithoutEmail);
+            });
           } catch (inviteErr) {
             console.error("[travels/update] invitations familles:", inviteErr instanceof Error ? inviteErr.message : inviteErr);
           }

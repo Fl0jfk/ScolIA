@@ -13,7 +13,8 @@ export async function POST(req: Request, { params }: Params) {
     if (!(await codeIpLimiter.allow(clientIpFromRequest(req)))) {
       return jsonNoStore({ error: "Trop de demandes de code. Réessayez plus tard." }, 429);
     }
-    const res = await sendSigningCode(g.ctx);
+    const body = (await req.json().catch(() => null)) as { purpose?: unknown } | null;
+    const res = await sendSigningCode(g.ctx, { objection: body?.purpose === "objection" });
     if (!res.ok) return jsonNoStore({ error: res.error, retryAfterSec: res.retryAfterSec }, res.status);
     return jsonNoStore({ ok: true, maskedEmail: res.maskedEmail });
   } catch (e) {

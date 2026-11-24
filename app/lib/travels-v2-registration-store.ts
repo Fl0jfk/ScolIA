@@ -6,6 +6,7 @@ import { collectEleveParentEmails, normalizeParentEmail } from "@/app/lib/eleves
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { maskEmail } from "@/app/lib/mask-email";
 import {
+  deleteJson,
   deleteObject,
   getJson,
   getObjectBytes,
@@ -13,7 +14,7 @@ import {
   putJson,
   putObject,
 } from "@/app/lib/s3-storage";
-import { listJsonRecordsInDir } from "@/app/lib/ent-json-postgres";
+import { listJsonRecordsInDir, putJsonIfAbsentToPostgres } from "@/app/lib/ent-json-postgres";
 import { sanitizeS3FileName } from "@/app/lib/s3-path";
 import {
   createTenantTransporter,
@@ -57,6 +58,17 @@ import {
   type InvitationStatus,
 } from "@/app/lib/travels-v2-registration-types";
 import { buildSignedCircularPdf } from "@/app/lib/travels-v2-signed-pdf";
+import {
+  caseId,
+  canObject,
+  canUploadAfterSignature,
+  evaluateClaim,
+  studentState,
+  type EngagementClaim,
+  type StudentCase,
+  type StudentState,
+} from "@/app/lib/travels-v2-lot3";
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 
 /* ─── Stockage : un enregistrement JSON par invitation (pas de verrou global) ─── */
 
@@ -158,13 +170,13 @@ export async function createInvitationsForTrip(trip: Pick<TravelsTrip, "id" | "d
 
 /* ─── E-mails ─── */
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-type MailAttachment = { filename: string; content: Buffer | string; contentType: string };
+export type MailAttachment = { filename: string; content: Buffer | string; contentType: string };
 
-async function mailContext() {
+export async function mailContext() {
   const smtp = await getTenantSmtpConfig();
   const transporter = smtp ? await createTenantTransporter() : null;
   if (!smtp || !transporter) return null;
@@ -173,12 +185,12 @@ async function mailContext() {
   return { smtp, transporter, school };
 }
 
-function validReplyTo(email: string | undefined): string | undefined {
+export function validReplyTo(email: string | undefined): string | undefined {
   const e = String(email || "").trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : undefined;
 }
 
-function firstName(studentName: string): string {
+export function firstName(studentName: string): string {
   return studentName.split(" ")[0] || studentName;
 }
 
@@ -334,13 +346,17 @@ export async function publicViewFor(ctx: PublicContext): Promise<PublicFamilyVie
     ctx.inv.lastSeenAt = new Date(now).toISOString();
     await saveInvitation(ctx.inv).catch((e) => console.error("[voyages-v2] lastSeen", e));
   }
-  const sibs = await listInvitations(ctx.trip.id);
+  const [sibs, caseRec] = await Promise.all([listInvitations(ctx.trip.id), getStudentCase(ctx.trip.id, ctx.inv.ine)]);
+  const mine = sibs.filter((i) => i.ine === ctx.inv.ine);
   return buildPublicFamilyView({
     trip: ctx.trip,
     inv: ctx.inv,
     todayIso: todayIsoParis(),
     maskedEmail: maskEmail(ctx.inv.email),
     siblingDecision: siblingDecision(sibs, ctx.inv),
+    studentState: studentState(mine, caseRec),
+    canObject: canObject({ inv: ctx.inv, siblings: sibs, caseRec }).ok,
+    objectionDecision: caseRec?.decision?.kind ?? null,
   });
 }
 
@@ -364,6 +380,11 @@ export async function saveAnswers(
   return { ok: true };
 }
 
+export async function objectionCheck(ctx: PublicContext) {
+  const [sibs, caseRec] = await Promise.all([listInvitations(ctx.trip.id), getStudentCase(ctx.trip.id, ctx.inv.ine)]);
+  return canObject({ inv: ctx.inv, siblings: sibs, caseRec });
+}
+
 export function closedMessage(reason: "status" | "deadline" | "locked" | "not_opened"): string {
   switch (reason) {
     case "deadline":
@@ -379,6 +400,15 @@ export function closedMessage(reason: "status" | "deadline" | "locked" | "not_op
 
 /* ─── Pièces déposées (stockage objet PRIVÉ) ─── */
 
+const DEAD_STATUSES = new Set(["ANNULE", "REJETE", "SEANCE_ANNULEE"]);
+
+/** Pièce « à fournir avant le départ » : dépôt encore possible après la signature, jusqu'à sa date propre. */
+export function afterSignUploadOk(ctx: PublicContext, docId: string): boolean {
+  if (DEAD_STATUSES.has(String(ctx.trip.status))) return false;
+  const doc = (ctx.trip.data?.familyPage?.documents || []).find((d) => d.id === docId);
+  return canUploadAfterSignature(doc, ctx.inv, todayIsoParis());
+}
+
 export async function storeFamilyDocument(
   ctx: PublicContext,
   docId: string,
@@ -386,8 +416,10 @@ export async function storeFamilyDocument(
   bytes: Buffer,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const win = windowFor(ctx);
-  if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
   const request = (ctx.trip.data?.familyPage?.documents || []).find((d) => d.id === docId);
+  if (!win.open && !afterSignUploadOk(ctx, docId)) {
+    return { ok: false, status: 409, error: closedMessage(win.reason) };
+  }
   if (!request) return { ok: false, status: 400, error: "Pièce inconnue." };
   if (bytes.length === 0 || bytes.length > DOC_MAX_BYTES) {
     return { ok: false, status: 413, error: "Fichier vide ou trop volumineux (8 Mo maximum)." };
@@ -417,7 +449,9 @@ export async function removeFamilyDocument(
   docId: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const win = windowFor(ctx);
-  if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
+  if (!win.open && !afterSignUploadOk(ctx, docId)) {
+    return { ok: false, status: 409, error: closedMessage(win.reason) };
+  }
   const previous = ctx.inv.documents?.[docId];
   if (!previous) return { ok: true };
   const rest = { ...ctx.inv.documents };
@@ -432,11 +466,17 @@ export async function removeFamilyDocument(
 
 export async function sendSigningCode(
   ctx: PublicContext,
+  opts?: { objection?: boolean },
 ): Promise<{ ok: true; maskedEmail: string } | { ok: false; status: number; error: string; retryAfterSec?: number }> {
-  const win = windowFor(ctx);
-  if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
-  if (ctx.inv.answers?.participates !== "oui" && ctx.inv.answers?.participates !== "non") {
-    return { ok: false, status: 400, error: "Indiquez d'abord si votre enfant participe au voyage." };
+  if (opts?.objection) {
+    const chk = await objectionCheck(ctx);
+    if (!chk.ok) return { ok: false, status: 409, error: chk.error };
+  } else {
+    const win = windowFor(ctx);
+    if (!win.open) return { ok: false, status: 409, error: closedMessage(win.reason) };
+    if (ctx.inv.answers?.participates !== "oui" && ctx.inv.answers?.participates !== "non") {
+      return { ok: false, status: 400, error: "Indiquez d'abord si votre enfant participe au voyage." };
+    }
   }
   const now = new Date();
   const allowed = canSendCode(ctx.inv, now);
@@ -529,6 +569,16 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   }
   inv.code = undefined;
 
+  // Un seul engagement par élève, même si les deux responsables signent « oui » au même instant.
+  let claimCreated = false;
+  if (decision === "oui") {
+    const claim = await claimEngagement(trip.id, inv);
+    if (!claim.ok) {
+      return { ok: false, status: 409, error: "L'autre responsable vient d'inscrire votre enfant : aucune action n'est nécessaire." };
+    }
+    claimCreated = claim.created;
+  }
+
   const signedAt = now.toISOString();
   const signerName = input.signerName.replace(/\s+/g, " ").trim();
   const model = buildFamilyPagePreviewModel(trip, {
@@ -544,7 +594,9 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   const reference = `V2-${trip.id.slice(0, 8)}-${inv.id.slice(0, 8)}`.toUpperCase();
   const sigKey = `travels-v2/${trip.id}/signatures/${inv.id}.png`;
   const pdfKey = `travels-v2/${trip.id}/engagements/${inv.id}.pdf`;
-  const pdf = await buildSignedCircularPdf({
+  let pdf: Buffer;
+  try {
+  pdf = await buildSignedCircularPdf({
     model,
     studentName: inv.studentName,
     answers,
@@ -571,9 +623,20 @@ export async function submitSignature(ctx: PublicContext, rawInput: unknown): Pr
   inv.signature = { decision: "oui", signedAt, signerName, signatureKey: sigKey, pdfKey };
   inv.engagement = buildEngagement({ inv, priceBlock: trip.data?.priceBlock, signerName, signedAt, pdfKey });
   await saveInvitation(inv);
+  } catch (e) {
+    // Signature non enregistrée : on libère le jeton pour que l'élève ne reste pas bloqué.
+    if (claimCreated) await releaseEngagementClaim(trip.id, inv);
+    inv.signature = undefined;
+    inv.engagement = undefined;
+    throw e;
+  }
 
   // Accusé par e-mail : un échec n'annule pas la signature (le PDF reste téléchargeable depuis la page).
   void sendConfirmationMail(ctx, pdf, model.title).catch((e) => console.error("[voyages-v2] accusé", e));
+  // Copie au(x) autre(s) responsable(s) avec le lien « Je ne suis pas d'accord ».
+  void getTenantAppUrl()
+    .then((baseUrl) => sendSiblingCopies({ trip, signed: inv, baseUrl }))
+    .catch((e) => console.error("[voyages-v2] copie second responsable", e));
   return { ok: true, decision: "oui" };
 }
 
@@ -662,17 +725,36 @@ export type RegistrationRow = {
   amount?: number;
   documents: { id: string; label: string; kind: string; uploaded: boolean; exempt: boolean }[];
   extendedDeadline?: string;
+  /** Au moins une pièce dispensée pour cette famille. */
+  exempted: boolean;
+  /** Réponse enregistrée à partir d'un coupon papier. */
+  paper: boolean;
+  /** Élève compté dans la liste officielle (hors suspens, retirés et refus). */
+  official: boolean;
+  signed: boolean;
+  /** Raison du désaccord : direction seulement. */
+  objectionReason?: string;
+  objectionBy?: string;
 };
 
 export function buildRegistrationRows(opts: {
   trip: Pick<TravelsTrip, "data">;
   invitations: FamilyInvitation[];
   includeAmount: boolean;
+  cases?: StudentCase[];
+  includeReason?: boolean;
 }): RegistrationRow[] {
   const docs = opts.trip.data?.familyPage?.documents || [];
   const keys = picnicKeys(opts.trip);
+  const caseByIne = new Map((opts.cases || []).map((c) => [caseId(c.ine), c]));
+  const byIne = new Map<string, FamilyInvitation[]>();
+  for (const i of opts.invitations) byIne.set(i.ine, [...(byIne.get(i.ine) || []), i]);
   const rows: RegistrationRow[] = opts.invitations.map((inv) => {
-    const status = computeInvitationStatus({ inv, docs, picnicDayKeys: keys });
+    const own = computeInvitationStatus({ inv, docs, picnicDayKeys: keys });
+    const state = studentState(byIne.get(inv.ine) || [], caseByIne.get(caseId(inv.ine)));
+    let status: InvitationStatus = own;
+    if (state === "retire") status = "retire";
+    else if (state === "suspens") status = inv.objection ? "desaccord" : "suspens";
     return {
       invitationId: inv.id,
       ine: inv.ine,
@@ -695,6 +777,13 @@ export function buildRegistrationRows(opts: {
         exempt: Boolean(inv.exemptions?.[d.id]),
       })),
       extendedDeadline: inv.extendedDeadline,
+      exempted: Object.keys(inv.exemptions || {}).length > 0,
+      paper: Boolean(inv.signature?.paper),
+      official: state === "inscrit" && inv.signature?.decision === "oui",
+      signed: Boolean(inv.signature),
+      ...(opts.includeReason && inv.objection
+        ? { objectionReason: inv.objection.reason, objectionBy: inv.objection.signerName }
+        : {}),
     };
   });
   const withInv = new Set(opts.invitations.map((i) => i.ine));
@@ -710,6 +799,10 @@ export function buildRegistrationRows(opts: {
       status: "sans_email",
       statusLabel: "Aucun e-mail de responsable connu",
       documents: [],
+      exempted: false,
+      paper: false,
+      official: false,
+      signed: false,
     });
   }
   return rows.sort((a, b) => a.studentName.localeCompare(b.studentName, "fr", { sensitivity: "base" }));
@@ -722,10 +815,136 @@ export async function signedUrlForInvitationFile(
 ): Promise<string | null> {
   if (what.kind === "engagement") {
     if (!inv.signature?.pdfKey) return null;
-    return getSignedReadUrl(inv.signature.pdfKey, 120, { downloadFileName: `engagement-${inv.ine}.pdf` });
+    return getSignedReadUrl(inv.signature.pdfKey, 120, { downloadFileName: inv.signature.paper ? inv.signature.paper.scanFileName : `engagement-${inv.ine}.pdf` });
   }
   const d = inv.documents?.[what.docId];
   if (!d?.key) return null;
   return getSignedReadUrl(d.key, 120, { downloadFileName: d.fileName });
+}
+
+
+/* ─── Lot 3 : dossier élève (désaccord / décision) ─── */
+
+function casePath(tripId: string, ine: string): string {
+  return `travels-v2/${tripId}/cases/${caseId(ine)}.json`;
+}
+
+export async function getStudentCase(tripId: string, ine: string): Promise<StudentCase | null> {
+  if (!TRIP_ID_RE.test(tripId) || !caseId(ine)) return null;
+  const hit = await getJson<StudentCase>(casePath(tripId, ine));
+  const c = hit?.data;
+  return c && c.tripId === tripId ? c : null;
+}
+
+export async function saveStudentCase(rec: StudentCase): Promise<void> {
+  await putJson(casePath(rec.tripId, rec.ine), rec);
+}
+
+export async function listStudentCases(tripId: string): Promise<StudentCase[]> {
+  if (!TRIP_ID_RE.test(tripId)) return [];
+  const rows = await listJsonRecordsInDir<Record<string, unknown>>(`travels-v2/${tripId}/cases`);
+  return rows.filter((r) => r && r.tripId === tripId).map((r) => r as unknown as StudentCase);
+}
+
+/** État de l'élève de cette invitation (toutes les invitations de l'élève + décision de la direction). */
+export async function studentStateFor(tripId: string, inv: Pick<FamilyInvitation, "ine">): Promise<StudentState> {
+  const [all, c] = await Promise.all([listInvitations(tripId), getStudentCase(tripId, inv.ine)]);
+  return studentState(all.filter((i) => i.ine === inv.ine), c);
+}
+
+/* ─── Lot 3 : unicité de l'engagement ─── */
+
+/**
+ * Un seul engagement « oui » par élève, même si les deux responsables signent au même instant.
+ * Jeton `travels-v2/{voyage}/engagements/{INE}.json` créé par INSERT ... ON CONFLICT DO NOTHING (atomique en base) :
+ * un seul appelant le crée. Un jeton resté d'une signature interrompue (le détenteur n'a pas signé « oui ») est repris.
+ */
+export async function claimEngagement(
+  tripId: string,
+  inv: Pick<FamilyInvitation, "id" | "ine">,
+): Promise<{ ok: true; created: boolean } | { ok: false }> {
+  const path = `travels-v2/${tripId}/engagements/${caseId(inv.ine)}.json`;
+  const rec: EngagementClaim = {
+    id: caseId(inv.ine),
+    tripId,
+    ine: inv.ine,
+    invitationId: inv.id,
+    claimedAt: new Date().toISOString(),
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (await putJsonIfAbsentToPostgres(path, rec as unknown as Record<string, unknown>)) {
+      return { ok: true, created: true };
+    }
+    const hit = await getJson<EngagementClaim>(path);
+    const holder = hit?.data ? await getInvitation(tripId, hit.data.invitationId) : null;
+    const outcome = evaluateClaim(hit?.data, inv.id, holder?.signature?.decision === "oui");
+    if (outcome === "mine") return { ok: true, created: false };
+    if (outcome === "taken") return { ok: false };
+    if (outcome === "stale") await deleteJson(path).catch(() => undefined);
+  }
+  return { ok: false };
+}
+
+export async function releaseEngagementClaim(tripId: string, inv: Pick<FamilyInvitation, "ine">): Promise<void> {
+  await deleteJson(`travels-v2/${tripId}/engagements/${caseId(inv.ine)}.json`).catch(() => undefined);
+}
+
+/* ─── Lot 3 : lien neuf et copie au second responsable ─── */
+
+/** Nouveau lien personnel (nouvelle empreinte ajoutée, à enregistrer par l'appelant). */
+export function freshInviteLink(inv: FamilyInvitation, baseUrl: string): string {
+  const secret = generateInviteSecret();
+  inv.tokenHashes = addTokenHash(inv.tokenHashes, hashInviteSecret(secret));
+  return `${baseUrl}/voyages/famille/${encodeURIComponent(
+    buildInviteToken({ invitationId: inv.id, tripId: inv.tripId, secret }),
+  )}`;
+}
+
+/**
+ * Après un « oui » : les AUTRES responsables de l'élève reçoivent une copie avec le lien « Je ne suis pas d'accord »
+ * (leur propre jeton). Un échec d'envoi n'annule rien. Jamais l'e-mail du signataire dans le message.
+ */
+export async function sendSiblingCopies(opts: {
+  trip: Pick<TravelsTrip, "id" | "data" | "ownerEmail">;
+  signed: FamilyInvitation;
+  baseUrl: string;
+}): Promise<number> {
+  const { trip, signed } = opts;
+  const mail = await mailContext();
+  if (!mail) return 0;
+  const siblings = (await listInvitations(trip.id)).filter((i) => i.ine === signed.ine && i.id !== signed.id);
+  const title = String(trip.data?.title || trip.data?.destination || "Voyage scolaire");
+  const kid = firstName(signed.studentName);
+  let sent = 0;
+  for (const s of siblings) {
+    if (s.objection) continue;
+    const link = freshInviteLink(s, opts.baseUrl);
+    try {
+      await sendMailWithTimeout(
+        mail.transporter,
+        {
+          from: `"Sorties scolaires" <${mail.smtp.user}>`,
+          to: s.email,
+          replyTo: validReplyTo(trip.ownerEmail),
+          subject: `Voyage « ${title} » — ${kid} a été inscrit(e)`,
+          text: `Bonjour,\n\nUn responsable de ${kid} a inscrit votre enfant au voyage scolaire « ${title} ».\nSi vous n'êtes pas d'accord, vous pouvez le signaler à la direction depuis cette page (un code vous sera envoyé par e-mail pour confirmer) : ${link}\nSans action de votre part, l'inscription est maintenue.\n\n${mail.school}`,
+          html: `<div style="font-family: Arial, sans-serif; max-width: 560px; color: #1e293b;">
+            <p>Bonjour,</p>
+            <p>Un responsable de <strong>${escapeHtml(kid)}</strong> a inscrit votre enfant au voyage scolaire <strong>« ${escapeHtml(title)} »</strong>.</p>
+            <p>Sans action de votre part, l'inscription est maintenue. Si vous n'êtes pas d'accord, vous pouvez le signaler à la direction :</p>
+            <p style="margin:24px 0;"><a href="${escapeHtml(link)}" style="background:#b91c1c;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Je ne suis pas d'accord</a></p>
+            <p style="font-size:13px;color:#64748b;">Ce lien est personnel. Un code à 6 chiffres sera envoyé à cette adresse pour confirmer votre désaccord.</p>
+            <p>Cordialement,<br/>${escapeHtml(mail.school)}</p></div>`,
+        },
+        60_000,
+      );
+      sent += 1;
+      await saveInvitation(s);
+    } catch (e) {
+      console.error("[voyages-v2] copie second responsable", e instanceof Error ? e.message : e);
+      s.tokenHashes = s.tokenHashes.slice(0, -1);
+    }
+  }
+  return sent;
 }
 
