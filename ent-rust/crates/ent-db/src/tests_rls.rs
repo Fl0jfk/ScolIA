@@ -358,8 +358,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 2 du socle 21 (lot V3, migration 471 : journal des publications et journal des imports).
     // + 4 du socle 21 (lot V4, migration 475 : dispenses (port 34 simulé), indisponibilités d'AESH (simulées), convocations de
     // rattrapage, historique des convocations).
-    // + 7 du socle 24 (lot F3, migration 523 : versions de grille, tranches de quotient, familles types et leurs enfants,
-    // simulations, règles de hausse, effectifs prévus).
+    // + 8 du socle 24 (lot F3, migration 523 : versions de grille, tranches de quotient, familles types et leurs enfants,
+    // simulations, règles de hausse, effectifs prévus, historique des calculs d'une simulation).
     // + 6 du socle 42 (lot V3, migrations 653-654 : aides, reports, annulations, retraits d'internat).
     // + 1 du socle 21 (lot V5, migration 477 : journal des moyennes externes).
     // + 8 du socle 3, lot I5 (migration 313 : avis, déports, commissions et leurs dossiers, propositions de place, conditions
