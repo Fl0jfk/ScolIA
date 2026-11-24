@@ -814,6 +814,8 @@ mod tests_internat_i4_passe3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat_i4_suites2;
 #[cfg(all(test, feature = "labo"))]
+mod tests_internat_i4_suites3;
+#[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]
 mod tests_semis_relatif;

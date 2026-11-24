@@ -246,3 +246,25 @@ Branche `ent-socle-41-code-i4-suites-2` (base `origin/ENT`, PR en brouillon vers
 - **M2** (titre de sortie libre en clair hors de l'ENT) : `internat_retour_demande` rejoint `canal_externe_neutre` : e-mail, push et SMS neutres, détail dans l'ENT seulement. Test `s4_la_demande_de_retour_est_neutre_hors_de_l_ent`.
 - Vérifié en local : clippy 1.99 (3 crates, `labo`) sans avertissement ; `tests_internat_i4*` : 105 verts.
 - **En file** : F1 (cas d'une minute dont l'avis est déjà lu : remettre à non lu ou documenter), F2 (envoi externe déjà parti non mis à jour : à documenter), F4 (test d'avis regroupé : preuve que le 3e événement est consommé ; `notifier_personne` inchangé ; envoi `envoye` non réécrit), F6 (libellé `refus_apres_depart`), F7 (connexion supplémentaire de `eleve_cache_au_tiers` dans une transaction ouverte).
+
+## Suites 3
+
+Branche `ent-socle-41-code-i4-suites-3` (base `origin/ENT`, PR en brouillon vers `ENT`). **Aucune migration** (2828 à 2830 inchangées, règle 25 ; pas de 2831). Niveau : **implémenté, testé en local** ; ni validé, ni prêt pilote. Frontend non touché. Aucun test ne dépend de l'heure réelle (minute posée une fois par la base ; jours fixes).
+
+### Fait
+
+| Point | Ce qui a été fait | Test |
+|---|---|---|
+| **F1** avis lu | **Décision (D-069, prudente)** : quand le texte d'un avis regroupé change (le nombre d'élèves augmente), l'avis dans l'ENT est mis à jour **et remis à non lu** (`lu_le = NULL`). Lire un avis une fois ne doit pas cacher qu'un autre élève s'est ajouté dans la même minute. Un avis dont le texte ne change pas reste lu. `notifications.rs`, clause `DO UPDATE` de `notifier_personne_selon`. | `s5_avis_regroupe_lu_repasse_non_lu_*` ; `s4_avis_regroupe_*` resserré |
+| **F2** envoi externe déjà parti | **Documenté, pas d'avis rectificatif** : l'envoi externe n'est mis à jour que tant qu'il est `en_attente` ; un envoi parti (`envoye` et tout autre statut) n'est jamais réécrit (on ne falsifie pas un message remis). L'avis de l'ENT, lui, porte le nombre à jour et repasse non lu. Un avis rectificatif aurait doublé les messages externes pour une rafale : écarté, à rouvrir si le pilote le demande. | même test |
+| **F4** | Le 3e événement est consommé (texte « 3 élèves », un seul avis, plus aucun événement sans traitement) ; `notifier_personne` inchangé (`DO NOTHING`, test direct) ; un envoi `envoye` n'est jamais réécrit. | `s5_avis_regroupe_*`, `s5_notifier_personne_ne_reecrit_*` |
+| **F6** libellé | `libelle_fait_groupe_famille("refus_apres_depart")` (`ent-types`) : « Votre refus a bien été enregistré. Votre enfant était déjà parti avec le groupe : l'établissement a été prévenu et demande son retour. En cas d'urgence, appelez directement l'établissement. » Sans code interne, sans nom d'élève, sans promesse d'heure. Les autres faits n'ont pas de libellé famille (`None`). **Écart** : aucun écran ni DTO famille n'expose encore le journal des faits ; la fonction est prête, son branchement viendra avec l'écran famille (non fait ici). | `tests_libelles_famille` (2) |
+| **F7** connexion supplémentaire | `eleve_cache_au_tiers_conn` (+ chaîne `profil_champs_conn`, `droits_effectifs_conn`, `eleves_autorises_conn`, `droits_delegues_conn`, `charger_droits_conn`, `eleves_suivis_par_prof_conn`, `eleves_en_lecture_seule_du_prof_conn`, `proteges_caches_conn`, `aujourdhui_etablissement_conn`) : mêmes requêtes sur la connexion fournie. Les versions par le pool ouvrent **une** transaction pour toute la chaîne (au lieu d'une par requête) et appellent la version `_conn` : même résultat. Les deux appelants en transaction (`internat_sorties/groupes.rs` filtre des invités, `vie.rs` pointage) utilisent la connexion de leur transaction. Les autres appelants en transaction de `eleve_cache_au_tiers` (`service.rs`) sont inchangés (hors périmètre). | `s5_eleve_cache_au_tiers_*` (pool d'une seule connexion, délai) |
+
+### Non fait / limites
+- Libellé F6 non branché à une surface famille (voir ci-dessus).
+- Pas d'avis rectificatif externe (F2).
+- `service.rs` (2 appels de `eleve_cache_au_tiers`) non convertis : hors du lot internat.
+
+### Tests, compteurs, vérifications
+RÉSULTATS

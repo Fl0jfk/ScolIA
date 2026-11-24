@@ -410,8 +410,13 @@ pub(crate) async fn notifier_personne(
 }
 
 /// Comme [`notifier_personne`] ; avec `maj_corps` (avis **regroupé**), si l'avis existe déjà (même `source_event_id`), son
-/// texte est mis à jour tant qu'il n'est pas lu (dans l'ENT) et tant que l'envoi externe n'est pas parti (`en_attente`),
-/// au lieu de rester figé sur le premier événement du groupe.
+/// texte est mis à jour au lieu de rester figé sur le premier événement du groupe :
+/// - **dans l'ENT** (suites 3, F1, D-069) : quand le texte change (le nombre d'élèves a augmenté), l'avis est remis à
+///   **non lu** (`lu_le = NULL`). Le lire une fois ne doit pas cacher qu'un autre élève s'est ajouté dans la même minute ;
+///   un avis relu à l'identique (même texte) reste lu ;
+/// - **envoi externe** (F2) : le texte n'est mis à jour que tant que l'envoi est `en_attente`. Un envoi déjà parti
+///   (`envoye` et tout autre statut) n'est **jamais réécrit** (on ne falsifie pas un message remis) et aucun avis
+///   rectificatif n'est émis : l'avis de l'ENT, lui, porte le nombre à jour et repasse non lu.
 pub(crate) async fn notifier_personne_selon(
     conn: &mut PgConnection,
     mut e: EnvoiAPlanifier<'_>,
@@ -420,8 +425,8 @@ pub(crate) async fn notifier_personne_selon(
     maj_corps: bool,
 ) -> Result<usize, EntDbError> {
     let conflit = if maj_corps {
-        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO UPDATE SET corps = EXCLUDED.corps \
-          WHERE ent_notification.lu_le IS NULL AND ent_notification.corps IS DISTINCT FROM EXCLUDED.corps"
+        "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO UPDATE SET corps = EXCLUDED.corps, lu_le = NULL \
+          WHERE ent_notification.corps IS DISTINCT FROM EXCLUDED.corps"
     } else {
         "ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING"
     };

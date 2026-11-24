@@ -179,6 +179,19 @@ pub(crate) async fn charger_droits(
     etab: Uuid,
     ids: &[Uuid],
 ) -> Result<std::collections::HashMap<Uuid, Vec<DroitDelegue>>, EntDbError> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let mut tx = TenantTx::begin(pool, etab).await.map_err(db)?;
+    charger_droits_conn(&mut tx, etab, ids).await
+}
+
+/// Comme [`charger_droits`], sur la connexion déjà ouverte de l'appelant (déjà posée sur l'établissement).
+pub(crate) async fn charger_droits_conn(
+    conn: &mut sqlx::PgConnection,
+    etab: Uuid,
+    ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, Vec<DroitDelegue>>, EntDbError> {
     let mut out: std::collections::HashMap<Uuid, Vec<DroitDelegue>> =
         std::collections::HashMap::new();
     if ids.is_empty() {
@@ -191,7 +204,7 @@ pub(crate) async fn charger_droits(
     )
     .bind(etab)
     .bind(ids)
-    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
+    .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
     let cibles: Vec<(Uuid, i16, Uuid)> = sqlx::query_as(
@@ -201,7 +214,7 @@ pub(crate) async fn charger_droits(
     )
     .bind(etab)
     .bind(ids)
-    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
+    .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
     for (deleg, ordre, action, portee) in droits {
@@ -264,8 +277,10 @@ pub(crate) async fn ecrire_droits_tx(
 
 impl PgEnt {
     /// Droits des délégations en cours à `jour` (appelé par le moteur de droits).
-    pub(crate) async fn droits_delegues(
+    /// Lue sur la connexion **déjà ouverte** de l'appelant (F7 : aucune connexion supplémentaire).
+    pub(crate) async fn droits_delegues_conn(
         &self,
+        conn: &mut sqlx::PgConnection,
         etab: Uuid,
         user_id: Uuid,
         jour: NaiveDate,
@@ -278,7 +293,7 @@ impl PgEnt {
         .bind(etab)
         .bind(user_id)
         .bind(jour)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
         // Lot P6 : l'intérim de direction n'a pas de lignes de droits : il donne le modèle du chef d'établissement
@@ -292,7 +307,7 @@ impl PgEnt {
             }));
         }
         let ids: Vec<Uuid> = ids.into_iter().filter(|(_, objet)| objet == "role").map(|(id, _)| id).collect();
-        let mut par_delegation = charger_droits(self.pool(), etab, &ids).await?;
+        let mut par_delegation = charger_droits_conn(&mut *conn, etab, &ids).await?;
         for id in &ids {
             for s in par_delegation.remove(id).unwrap_or_default() {
                 // Codes inconnus ou interdits (catalogue réduit depuis) : ignorés, jamais élargis.

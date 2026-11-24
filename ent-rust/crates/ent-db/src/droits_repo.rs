@@ -75,6 +75,36 @@ impl PgEnt {
         let Some(base) = Role::parse(role_base) else {
             return Ok(Vec::new());
         };
+        if !base.is_staff() {
+            return Ok(Self::droits_modele(base)); // garde-fou 1 : sans base de données
+        }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        self.droits_effectifs_conn(&mut tx, etablissement_id, user_id, role_base).await
+    }
+
+    fn droits_modele(base: Role) -> Vec<Droit> {
+        modele_par_defaut(base)
+            .into_iter()
+            .map(|(action, portee)| Droit {
+                action,
+                portee,
+                cibles: Vec::new(),
+            })
+            .collect()
+    }
+
+    /// Droits effectifs sur la connexion **déjà ouverte** de l'appelant (F7 : jamais de connexion supplémentaire dans une
+    /// transaction ouverte ; la connexion est déjà posée sur l'établissement).
+    pub(crate) async fn droits_effectifs_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role_base: &str,
+    ) -> Result<Vec<Droit>, EntDbError> {
+        let Some(base) = Role::parse(role_base) else {
+            return Ok(Vec::new());
+        };
         let mut droits: Vec<Droit> = modele_par_defaut(base)
             .into_iter()
             .map(|(action, portee)| Droit {
@@ -90,7 +120,7 @@ impl PgEnt {
         // Bord de journée dans le fuseau de l'établissement (et non en UTC) : une attribution qui
         // finit le 31 août s'éteint le soir du 31 août à l'heure locale. Les lignes closes
         // (retrait, modification) ne donnent plus aucun droit, même dans leurs dates.
-        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        let jour = self.aujourdhui_etablissement_conn(&mut *conn, etablissement_id).await?;
         let rows: Vec<(String, String, Vec<Uuid>)> = sqlx::query_as(
             "SELECT d.action, d.portee,
                     CASE WHEN d.portee = 'mon_perimetre'
@@ -109,7 +139,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(jour)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+        .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
         for (a, p, cibles) in rows {
@@ -125,7 +155,7 @@ impl PgEnt {
         // S2-5 (ADM-04) : délégations datées en cours. Lues à chaque requête : la date de
         // fin suffit à les éteindre, sans tâche de fond.
         droits.extend(
-            self.droits_delegues(etablissement_id, user_id, jour)
+            self.droits_delegues_conn(&mut *conn, etablissement_id, user_id, jour)
                 .await?,
         );
         if sans_messagerie {
@@ -235,10 +265,23 @@ impl PgEnt {
         role_base: &str,
         action: Action,
     ) -> Result<Option<HashSet<Uuid>>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        self.eleves_autorises_conn(&mut tx, etablissement_id, user_id, role_base, action).await
+    }
+
+    /// Même calcul sur la connexion **déjà ouverte** de l'appelant (F7).
+    pub(crate) async fn eleves_autorises_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role_base: &str,
+        action: Action,
+    ) -> Result<Option<HashSet<Uuid>>, EntDbError> {
         let droits = self
-            .droits_effectifs(etablissement_id, user_id, role_base)
+            .droits_effectifs_conn(&mut *conn, etablissement_id, user_id, role_base)
             .await?;
-        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        let jour = self.aujourdhui_etablissement_conn(&mut *conn, etablissement_id).await?;
         let mut ens: HashSet<Uuid> = HashSet::new();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
@@ -254,10 +297,10 @@ impl PgEnt {
             }
         }
         if classes {
-            ens.extend(self.eleves_suivis_par_prof(etablissement_id, user_id, jour).await?);
+            ens.extend(self.eleves_suivis_par_prof_conn(&mut *conn, etablissement_id, user_id, jour).await?);
             if action.est_saisie_enseignement() {
                 for e in self
-                    .eleves_en_lecture_seule_du_prof(etablissement_id, user_id, jour)
+                    .eleves_en_lecture_seule_du_prof_conn(&mut *conn, etablissement_id, user_id, jour)
                     .await?
                 {
                     ens.remove(&e);
@@ -287,7 +330,7 @@ impl PgEnt {
             .bind(user_id)
             .bind(jour)
             .bind(&designes)
-            .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+            .fetch_all(&mut *conn)
             .await
             .map_err(db)?;
             ens.extend(rows.into_iter().map(|(id,)| id));

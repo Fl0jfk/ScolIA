@@ -616,13 +616,32 @@ impl PgEnt {
         {
             return Ok(HashSet::new());
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        self.proteges_caches_conn(&mut tx, etab, role, profil, ids).await
+    }
+
+    /// Même calcul sur la connexion **déjà ouverte** de l'appelant (F7).
+    pub(crate) async fn proteges_caches_conn(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        role: &str,
+        profil: &ProfilChamps,
+        ids: &[Uuid],
+    ) -> Result<HashSet<Uuid>, EntDbError> {
+        if ids.is_empty()
+            || !Role::parse(role).is_some_and(Role::is_staff)
+            || profil.ouvert_partout(GroupeChamps::Sensible)
+        {
+            return Ok(HashSet::new());
+        }
         let proteges: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT e.id FROM ent_eleve e
               WHERE e.etablissement_id = $1 AND e.id = ANY($2) AND ent_eleve_confidentiel($1, e.id)",
         )
         .bind(etab)
         .bind(ids)
-        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .fetch_all(&mut *conn)
         .await?;
         let lien_direct = |id: Uuid| {
             [GroupeChamps::Designation, GroupeChamps::Sensible]
@@ -644,8 +663,25 @@ impl PgEnt {
         if !Role::parse(role).is_some_and(Role::is_staff) {
             return Ok(false);
         }
-        let profil = self.profil_champs(etab, acteur, role).await?;
-        Ok(!self.proteges_caches(etab, role, &profil, &[eleve]).await?.is_empty())
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        self.eleve_cache_au_tiers_conn(&mut tx, etab, acteur, role, eleve).await
+    }
+
+    /// Même réponse, sur la connexion de la transaction **déjà ouverte** de l'appelant : aucune connexion
+    /// supplémentaire n'est prise au pool (F7 ; sinon un pool épuisé par des transactions qui s'attendent se bloque).
+    pub async fn eleve_cache_au_tiers_conn(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve: Uuid,
+    ) -> Result<bool, EntDbError> {
+        if !Role::parse(role).is_some_and(Role::is_staff) {
+            return Ok(false);
+        }
+        let profil = self.profil_champs_conn(&mut *conn, etab, acteur, role).await?;
+        Ok(!self.proteges_caches_conn(&mut *conn, etab, role, &profil, &[eleve]).await?.is_empty())
     }
 
     /// `NotFound` quand la fiche est cachée à ce tiers (à placer avant toute lecture par
