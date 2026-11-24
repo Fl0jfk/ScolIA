@@ -146,6 +146,10 @@ Rapport : `docs/pilotage/revues/42_VOYAGES_V3_CONTRE_REVUE.md` (branche `ent-mc0
 - rustfmt ciblé : `voyages_argent_v3.rs`, `tests_voyages_v3.rs`, `tests_voyages_v3_http.rs` seulement (jamais `cargo fmt --all`).
 - Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, base et secrets de production, `ENT`.
 
+### 6.4 Résultat des suites
+
+Tête de code `a626af19` (fusion d'`origin/ENT` incluse) : CI « ENT Rust » **verte** (https://github.com/Fl0jfk/ScolIA/actions/runs/45304240363). Une première tête (`bb888183`) avait échoué sur le test `m9` d'`tests_internat_i2` (conséquence voulue de M-1) : test adapté. PR n° 138 laissée en brouillon vers `ENT`. Statut : implémenté et testé ; non validé, non prêt pilote, non prêt production.
+
 ### Résultat final
 
 Tête de code `5a895818` : CI « ENT Rust » verte (https://github.com/Fl0jfk/ScolIA/actions/runs/45017674799). Le commit suivant ne change que cette documentation ; sa propre CI est vérifiée avant envoi au pilote. PR n° 117 laissée en brouillon.
