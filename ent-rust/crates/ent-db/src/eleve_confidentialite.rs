@@ -629,6 +629,7 @@ impl PgEnt {
         profil: &ProfilChamps,
         ids: &[Uuid],
     ) -> Result<HashSet<Uuid>, EntDbError> {
+        crate::tenant_tx::verifier_connexion_etablissement(&mut *conn, etab, "proteges_caches_conn").await;
         if ids.is_empty()
             || !Role::parse(role).is_some_and(Role::is_staff)
             || profil.ouvert_partout(GroupeChamps::Sensible)
@@ -678,6 +679,7 @@ impl PgEnt {
         role: &str,
         eleve: Uuid,
     ) -> Result<bool, EntDbError> {
+        crate::tenant_tx::verifier_connexion_etablissement(&mut *conn, etab, "eleve_cache_au_tiers_conn").await;
         if !Role::parse(role).is_some_and(Role::is_staff) {
             return Ok(false);
         }

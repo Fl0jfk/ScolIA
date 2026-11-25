@@ -253,14 +253,39 @@ async fn tableau_exclus_du_jour_et_file_du_matin() {
         personnel(&base, &l, "cpe").await,
         personnel(&base, &l, "prof").await,
     );
-    // Jour lu auprès du serveur : c'est le jour de PARIS sur l'horloge du serveur (`maintenant_local`), pas
-    // `ent_aujourdhui_etab` (fuseau paramétré de l'établissement). Pour l'établissement du labo (fuseau de Paris) les deux
-    // coïncident ; un établissement hors fuseau de Paris n'est pas couvert ici (contre-revue du pilote, T2, M1).
-    let jour = cpe
-        .portail_aujourdhui()
+    // Jour de l'établissement lu auprès du serveur par une route qui renvoie réellement `ent_aujourdhui_etab` : une
+    // localisation posée sans jour (`POST /assiduite/situations/localisation`, `jour` absent) prend ce jour-là côté
+    // service (`poser_localisation_for_actor`) et le rend dans `debut_jour`. On la pose sur un AUTRE élève que Harry,
+    // puis on la lève : aucune trace dans la suite du test. Ni l'heure réelle du test ni le jour de Paris ne sont
+    // supposés (T3, suite de T2 M1).
+    let autre = l
+        .eleves
+        .iter()
+        .find(|e| e.id != harry)
+        .expect("un autre élève que Harry")
+        .id;
+    let situation: serde_json::Value = cpe
+        .post_json(
+            "/assiduite/situations/localisation",
+            json!({ "eleve_id": autre, "lieu_code": "cdi" }),
+        )
         .await
-        .expect("jour de l'établissement")
-        .jour;
+        .expect("localisation sans jour (jour de l'établissement)");
+    let jour: chrono::NaiveDate = situation["debut_jour"]
+        .as_str()
+        .and_then(|j| j.parse().ok())
+        .expect("debut_jour de la situation");
+    let id_situation = situation["id"]
+        .as_str()
+        .expect("id de la situation")
+        .to_owned();
+    let _: serde_json::Value = cpe
+        .post_json(
+            &format!("/assiduite/situations/{id_situation}/lever"),
+            json!({ "venu": false }),
+        )
+        .await
+        .expect("lever la localisation de contrôle");
 
     let c = prof
         .mes_creneaux(jour)
