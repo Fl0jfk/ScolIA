@@ -49,6 +49,37 @@ use modele::{
 /// proche » suit S-544, dont la valeur réelle vient du serveur.
 const SEUIL_PROCHE_REPLI: i64 = 10;
 
+/// Vocabulaire de repli, le temps que `GET /rgpd/guichet/referentiel` réponde (il est invisible du serveur,
+/// qui n'a pas la session). Il rend la **structure** de l'écran immédiate — règle de rendu de
+/// `FRONTEND_LEPTOS.md` §3 — et reste strictement un sous-ensemble de ce que le serveur accepte : le
+/// serveur refuse de toute façon une valeur qu'il ne connaît pas.
+const CANAUX_REPLI: [&str; 5] = ["courrier", "courriel", "guichet", "dpo", "cnil"];
+const QUALITES_REPLI: [&str; 7] = [
+    "titulaire_autorite",
+    "soi_meme",
+    "eleve_mineur",
+    "parent_sans_autorite",
+    "representant_majeur_protege",
+    "mandataire",
+    "ancien_eleve",
+];
+const DROITS_REPLI: [&str; 7] = [
+    "acces",
+    "rectification",
+    "effacement",
+    "limitation",
+    "opposition",
+    "portabilite",
+    "consultations",
+];
+
+fn options_repli(codes: &[&str], libelle: fn(&str) -> &'static str) -> Vec<(String, String)> {
+    codes
+        .iter()
+        .map(|c| ((*c).to_string(), libelle(c).to_string()))
+        .collect()
+}
+
 fn options(codes: &[String], libelle: fn(&str) -> &'static str) -> Vec<(String, String)> {
     codes
         .iter()
@@ -265,18 +296,22 @@ pub fn PageSaisirDemandeDroit() -> impl IntoView {
             titre="Saisir une demande reçue".to_string()
             sous_titre="La date de réception est celle du courrier : c'est elle qui fait courir le délai légal.".to_string()
         />
+        // Le formulaire est rendu **tout de suite** (vocabulaire de repli) : le serveur n'a pas la session,
+        // et une saisie de courrier ne doit pas attendre un aller-retour pour s'afficher.
+        <FormulaireSaisie/>
+        // La grille de vérification d'identité, elle, vient du serveur : elle s'ajoute quand il répond.
         {move || match referentiel.get() {
-            None => view! { <Squelette lignes=5 libelle="Chargement du guichet…"/> }.into_any(),
+            None => view! { <Squelette lignes=3 libelle="Chargement du guichet…"/> }.into_any(),
             Some(Err(e)) => view! {
                 <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| referentiel.refetch())/>
             }.into_any(),
-            Some(Ok(r)) => view! { <FormulaireSaisie referentiel=r/> }.into_any(),
+            Some(Ok(r)) => view! { <GrilleIdentite referentiel=r/> }.into_any(),
         }}
     }
 }
 
 #[component]
-fn FormulaireSaisie(referentiel: ReferentielGuichetDto) -> impl IntoView {
+fn FormulaireSaisie() -> impl IntoView {
     let canal = RwSignal::new("courrier".to_string());
     let recue_le = RwSignal::new(String::new());
     let nom = RwSignal::new(String::new());
@@ -289,9 +324,9 @@ fn FormulaireSaisie(referentiel: ReferentielGuichetDto) -> impl IntoView {
     let cree = RwSignal::new(None::<Uuid>);
     let ecriture = Ecriture::nouveau(Callback::new(move |_| {}));
 
-    let canaux = options(&referentiel.canaux_guichet, libelle_canal);
-    let qualites = options(&referentiel.qualites, libelle_qualite);
-    let liste_droits = referentiel.droits.clone();
+    let canaux = options_repli(&CANAUX_REPLI, libelle_canal);
+    let qualites = options_repli(&QUALITES_REPLI, libelle_qualite);
+    let liste_droits: Vec<String> = DROITS_REPLI.iter().map(|d| (*d).to_string()).collect();
 
     let envoyer = move |_| {
         let sujet = eleve_id.get().trim().to_string();
@@ -396,6 +431,13 @@ fn FormulaireSaisie(referentiel: ReferentielGuichetDto) -> impl IntoView {
                 "Enregistrer la demande"
             </Bouton>
         </section>
+    }
+}
+
+/// Grille de vérification d'identité (RGP-307), servie par le référentiel du guichet.
+#[component]
+fn GrilleIdentite(referentiel: ReferentielGuichetDto) -> impl IntoView {
+    view! {
         <GrilleBento libelle="Vérification d'identité".to_string()>
             <Tuile id="rgpd-grille".to_string() titre="Avant de répondre".to_string() largeur=Largeur::Douze>
                 <ol class="rgpd-grille">

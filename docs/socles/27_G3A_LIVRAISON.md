@@ -18,7 +18,7 @@ chiffrée viennent en **G3b** (migration 2545, non écrite ici).
 | `MIGRATION_TAG` | **inchangé** (3808 ; 2544 est sous ce numéro) |
 | Code serveur | `ent-db/src/droits_demandes.rs` (service), `ent-api/src/rgpd_droits.rs` (17 routes), `ent-types/src/rgpd_droits.rs` (contrat JSON) |
 | Code frontend | `ent-web-api/src/rgpd_droits.rs` (client typé), `ent-web-app/src/modules/rgpd_droits/` (5 écrans + modèle pur), `web/style/rgpd-droits.css` |
-| Tests | 19 (ent-db, labo) + 3 (ent-api, HTTP) + 12 (modèle d'écran, natif) + 4 (rendu serveur web) + 1 (droits d'affichage) = **39** |
+| Tests | 20 (ent-db, labo) + 10 (ent-db, natifs) + 3 (ent-api, HTTP) + 12 (modèle d'écran, natif) + 1 (droits d'affichage) + 4 (rendu serveur web) = **50** |
 | Avertissements ajoutés | **0** (rustc et clippy 1.99, avec labo et tests) ; aucun `#[allow]` nouveau |
 | `#[ignore]` ajoutés | **aucun** |
 
@@ -134,6 +134,11 @@ de l'**adresse** (jamais du corps), et son débit est limité par IP (5 / 15 min
 | Mes données | `/web/mes-donnees` | suivi de ses demandes, phrase d'avancement, aucune information interne |
 | Déposer une demande | `/web/mes-donnees/demande` | qualité, élève concerné, droits, périmètre, rappel du masquage des tiers |
 
+Le **formulaire de saisie est rendu par le serveur**, sans attendre `GET /rgpd/guichet/referentiel` (le
+serveur n'a pas la session) : un vocabulaire de repli, strictement inclus dans ce que le serveur accepte,
+donne la structure tout de suite, et la grille de vérification d'identité s'ajoute quand le référentiel
+répond (`FRONTEND_LEPTOS.md` §3). Le serveur reste seul juge : une valeur qu'il ne connaît pas est refusée.
+
 Conventions `FRONTEND_LEPTOS.md` respectées : logique d'écran **pure** isolée dans `modele.rs` (12 tests
 natifs) ; données chargées par le navigateur (`LocalResource`) ; écritures par `noyau/ecriture.rs` ; aucune
 page bloquée sur l'absence de droit côté client ; aucun `Uuid::new_v4` ; aucun style en ligne (CSP à nonce) ;
@@ -224,7 +229,13 @@ jetons de `ui.css`, lisible dès 375 px.
 * un **échec de vérification d'identité** ne clôt pas la demande : la direction décide du refus motivé ;
 * une **qualité constatée absente** refuse le dépôt (403) plutôt que d'ouvrir un dossier sur une qualité
   fausse ;
-* la décision « informer les titulaires » n'a de sens que sur une demande d'**élève mineur** (409 sinon).
+* la décision « informer les titulaires » n'a de sens que sur une demande d'**élève mineur** (409 sinon) ;
+* une qualité **« pour moi-même »** ne vaut que **sur soi** : trouvé en relecture de ce lot, un compte
+  pouvait ouvrir un dossier sur la personne de son choix en invoquant `soi_meme` avec l'identifiant d'un
+  autre — et aurait reçu son extrait au lot G3b. Désormais le sujet est **résolu depuis le compte** quand il
+  n'est pas donné (l'usager n'a aucun identifiant interne à saisir) et **refusé** quand il désigne quelqu'un
+  d'autre ; un compte sans fiche dans l'établissement passe par le guichet. `mandataire` et
+  `representant_majeur_protege` sont renvoyés au guichet comme `tiers` : ces qualités exigent une pièce.
 
 ---
 
@@ -262,13 +273,14 @@ réglage d'établissement : `echeance_effective()` ajoute déjà les jours compt
 | Journal des accès visible (« qui a consulté ») | lot **G4** ; le droit `consultations` est reçu et décidé, sa réponse viendra de `acc_trace` |
 | Page publique de dépôt sans compte (écran) | la **route** publique existe et est testée ; l'écran public (hors coquille, sans session) est à écrire avec la page « Vos données » publique du lot G4, pour ne pas dupliquer sa mise en page |
 | Retrait de consentement relié au 27 (RGP-159) | le socle 18 porte déjà le retrait ; le lien de traçabilité est en G3b |
+| Événements d'`outbox` (`droits.demande_recue`, `droits.qualifiee`… §16) | **aucun consommateur** aujourd'hui, et les lots G0 à G2 déjà versés n'en émettent pas non plus : le journal en ajout seul, écrit dans la transaction du fait, porte la même information. À brancher avec le premier consommateur (moteur de conservation G6, tableau de bord G2) pour ne pas poser une file que personne ne vide |
 | Captures d'écran | aucune chaîne `cargo-leptos` / navigateur dans ce conteneur (pas de `_outils-scolia`) : le rendu est vérifié par les tests de `ent-web-server` (structure, étiquettes, CSP, absence de donnée) |
 
 ---
 
 ## 7. Tests
 
-### 7.1 `ent-db` — 19 tests de labo (`tests_rgpd_g3a.rs`)
+### 7.1 `ent-db` — 20 tests de labo (`tests_rgpd_g3a.rs`)
 
 | Test | Ce qu'il prouve |
 |---|---|
@@ -279,6 +291,7 @@ réglage d'établissement : `echeance_effective()` ajoute déjà les jours compt
 | `g3a_depot_connecte_accuse_sans_nom_d_eleve` | identité par session, qualité constatée, accusé **sans nom d'élève**, suivi filtré sur le compte |
 | `g3a_depot_connecte_qualites_refusees` | `tiers` et `parent_sans_autorite` renvoyés au guichet ; lien absent → 403 ; sujet d'ailleurs → 404 ; liste de droits vide refusée |
 | `g3a_eleve_mineur_depose_et_information_des_titulaires` | CL27-04 : information par défaut, non-information motivée réservée à la direction, décision révisable |
+| `g3a_qualite_pour_soi_ne_vaut_que_sur_soi` | le sujet est résolu depuis le compte ; « pour moi-même » sur la fiche d'un autre → 403 ; un élève ne demande pas les données d'un autre élève ; les qualités à pièce restent au guichet |
 | `g3a_depot_sans_compte_ne_confirme_rien` | **même réponse** pour une personne connue et inconnue ; aucun avis, aucun envoi ; qualité réservée refusée |
 | `g3a_identite_tracee_et_piece_detruite_a_la_cloture` | R-RG16 de bout en bout ; clôture bloquée tant qu'un droit est en examen ; demande close non modifiable |
 | `g3a_precision_identite_comptee_sans_repousser_lecheance` | §9.2 : l'attente est comptée, l'échéance ne bouge pas |
@@ -375,6 +388,20 @@ jour UTC dans les tests (règle 33).
 
 ---
 
-## 11. Tête et CI
+## 11. Fusion d'ENT, tête et CI
 
-À compléter au push.
+`origin/ENT` a été fusionnée avant la CI finale (règle 30, pour que le versement du pilote porte sur un
+arbre identique à celui que la CI vérifie). Un seul conflit, dans le tableau de `migrate.rs` : les deux
+côtés ajoutaient en fin de tableau. Résolu dans l'ordre imposé par la règle 38 — **2420 d'abord** (versée
+sur ENT, présente dans `migrations_versees.txt`), **2544 ensuite**.
+
+Compteurs recalculés depuis la base commune (`git merge-base` = `4fc2c701`), conformément à la règle 28 :
+
+| Compteur | Base commune | ENT | Ce lot | Après fusion |
+|---|---|---|---|---|
+| `Action::TOUTES` | 282 | 282 (inchangé) | +4 | **286** |
+| `MIGRATION_TAG` | 3808 | 3808 | 3808 | **3808** |
+| Tables du registre | — | +0 (2420 n'ajoute aucune table) | +5 | **+5** |
+| Migrations du tableau | — | +1 (2420) | +1 (2544) | **+2**, dans cet ordre |
+
+Tête et verdict de la CI : à compléter au push.
