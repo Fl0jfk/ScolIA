@@ -4,11 +4,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ResponsableEditor from "./ResponsableEditor";
 
 type Item = {
   id: string;
   label: string;
-  responsables: Array<{ id: string; nom: string; prenom: string; email: string | null; telephone: string | null }>;
+  responsables: Array<{
+    id: string;
+    nom: string;
+    prenom: string;
+    email: string | null;
+    telephone: string | null;
+    autoriteParentale: boolean;
+    compteFamille: boolean;
+  }>;
   enfants: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
 };
 
@@ -22,6 +31,7 @@ export default function FoyersListClient() {
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -85,12 +95,32 @@ export default function FoyersListClient() {
                 <ul className="mt-1 space-y-1 text-sm">
                   {f.responsables.map((r) => (
                     <li key={r.id}>
-                      <span className="font-semibold">
-                        {r.prenom} {r.nom}
-                      </span>
-                      <span className="block text-xs text-slate-600">
-                        {r.email || "—"} · {r.telephone || "—"}
-                      </span>
+                      {editId === r.id ? (
+                        <ResponsableEditor
+                          resp={r}
+                          onCancel={() => setEditId(null)}
+                          onSaved={() => {
+                            setEditId(null);
+                            void load();
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <span className="font-semibold">
+                            {r.prenom} {r.nom}
+                          </span>
+                          <span className="block text-xs text-slate-600">
+                            {r.email || "—"} · {r.telephone || "—"}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-indigo-600"
+                            onClick={() => setEditId(r.id)}
+                          >
+                            Modifier
+                          </button>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>

@@ -38,7 +38,7 @@ export type DbResp = {
 };
 
 export type ExistingData = {
-  foyers: Array<{ id: string; label: string }>;
+  foyers: Array<{ id: string; label: string; facturation?: boolean; messagerie?: boolean }>;
   responsables: DbResp[];
   links: Array<{ eleveId: string; foyerId: string }>;
 };
@@ -55,7 +55,10 @@ export type AnomalyKind =
   | "sans_contact"
   | "contact_invalide"
   | "lien_inconnu"
-  | "foyer_plein";
+  | "foyer_plein"
+  | "contact_partage"
+  | "sous_ensemble"
+  | "non_touche";
 
 export type Anomaly = {
   kind: AnomalyKind;
@@ -122,7 +125,9 @@ export type PlanResp = {
     autoriteParentale: boolean;
   } | null;
   changes: string[];
-  /** Responsable existant lié à un compte : jamais supprimé. */
+  /** Différences fichier / base NON appliquées (responsable lié à un compte famille). */
+  differences: string[];
+  /** Responsable existant lié à un compte : jamais supprimé ni modifié (nom, e-mail, téléphone). */
   hasUser: boolean;
 };
 
@@ -148,6 +153,8 @@ export type Plan = {
   foyers: PlanFoyer[];
   linksAdd: PlanLinkAdd[];
   linksRemove: PlanLinkRemove[];
+  /** Liens non retirés car le foyer a facturation / messagerie / compte famille. */
+  liensAVerifier: Array<{ eleveId: string; foyerId: string; label: string; raisons: string[] }>;
   /** Foyers ayant perdu un lien (jamais supprimés). */
   orphelins: Array<{ foyerId: string; label: string; elevesRetires: string[] }>;
   students: Array<{
@@ -174,6 +181,7 @@ export type Plan = {
     responsablesModifies: number;
     liensAjoutes: number;
     liensRetires: number;
+    liensAVerifier: number;
     foyersOrphelins: number;
   };
 };
@@ -181,30 +189,29 @@ export type Plan = {
 export type PlanOptions = {
   /** Cocher « Ne pas retirer les anciens liens ». */
   keepOldLinks: boolean;
+  /** Retirer aussi les liens des foyers avec facturation / messagerie / compte famille. */
+  removeProtectedLinks?: boolean;
 };
 
 /* ───────── Analyse du fichier ───────── */
-
-function adultKeys(adults: FileAdult[]): string[] {
-  const keys = adults.map((a) =>
-    a.email ? `e:${a.email}` : a.telephone ? `t:${a.telephone}` : `n:${normName(a.nom)}|${normName(a.prenom)}`,
-  );
-  // E-mail / téléphone commun au couple : on distingue par le prénom.
-  const count = new Map<string, number>();
-  for (const k of keys) count.set(k, (count.get(k) ?? 0) + 1);
-  return keys.map((k, i) => ((count.get(k) ?? 0) > 1 ? `${k}#${normName(adults[i]!.prenom)}` : k));
-}
 
 function isActive(e: DbEleve, today: string): boolean {
   if (e.status !== "inscrit" && e.status !== "preinscrit") return false;
   return !e.dateSortie || e.dateSortie > today;
 }
 
+const nameId = (a: { nom: string; prenom: string }) => `${normName(a.nom)}|${normName(a.prenom)}`;
+const contactOf = (a: FileAdult): string | null =>
+  a.email ? `e:${a.email}` : a.telephone ? `t:${a.telephone}` : null;
+
 export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): Analysis {
   const anomalies: Anomaly[] = [];
   const students = new Map<string, StudentEntry>();
   const foyers = new Map<string, FileFoyer>();
   const seenRow = new Set<string>();
+
+  type Valid = { row: FileRow; sKey: string; label: string };
+  const valid: Valid[] = [];
 
   for (const row of rows) {
     const label = `${row.prenom} ${row.nom}`.trim();
@@ -241,7 +248,6 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
       students.set(sKey, st);
     }
     st.lines.push(row.line);
-
     if (!row.adults.length) {
       anomalies.push({
         kind: "sans_responsable",
@@ -251,9 +257,77 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
       });
       continue;
     }
+    valid.push({ row, sKey, label });
+  }
 
-    const keys = adultKeys(row.adults);
-    const foyerKey = [...keys].sort().join("||");
+  // Contacts (e-mail / téléphone) : noms qui se partagent un même contact.
+  // Les noms vus ensemble sur une même ligne forment un groupe (couple) ; plusieurs groupes
+  // pour un même contact = adultes sans lien apparent → on ne fusionne pas sur ce contact.
+  const parents = new Map<string, Map<string, string>>();
+  const find = (m: Map<string, string>, x: string): string => {
+    let r = x;
+    while (m.get(r) !== r) r = m.get(r)!;
+    return r;
+  };
+  for (const { row } of valid) {
+    const byContact = new Map<string, string[]>();
+    for (const a of row.adults) {
+      const c = contactOf(a);
+      if (!c) continue;
+      const l = byContact.get(c) ?? [];
+      l.push(nameId(a));
+      byContact.set(c, l);
+    }
+    for (const [c, names] of byContact) {
+      let m = parents.get(c);
+      if (!m) {
+        m = new Map();
+        parents.set(c, m);
+      }
+      for (const n of names) if (!m.has(n)) m.set(n, n);
+      for (const n of names.slice(1)) m.set(find(m, n), find(m, names[0]!));
+    }
+  }
+  const contactMode = new Map<string, "plain" | "named" | "conflict">();
+  for (const [c, m] of parents) {
+    const roots = new Set([...m.keys()].map((n) => find(m, n)));
+    contactMode.set(c, roots.size > 1 ? "conflict" : m.size > 1 ? "named" : "plain");
+  }
+  const keyOf = (a: FileAdult): string => {
+    const c = contactOf(a);
+    if (!c) return `n:${nameId(a)}`;
+    const mode = contactMode.get(c);
+    if (mode === "conflict") return `${c}@${nameId(a)}`;
+    if (mode === "named") return `${c}#${nameId(a)}`;
+    return c;
+  };
+  for (const [c, mode] of contactMode) {
+    if (mode !== "conflict") continue;
+    const names = [...parents.get(c)!.keys()].map((n) => n.replace("|", " "));
+    const lines = valid.filter(({ row }) => row.adults.some((a) => contactOf(a) === c)).map(({ row }) => row.line);
+    anomalies.push({
+      kind: "contact_partage",
+      lines,
+      eleve: "",
+      message: `Contact ${c.slice(2)} partagé par des responsables de noms différents (${names.join(" / ")}) : non fusionnés sur ce contact.`,
+    });
+  }
+
+  for (const { row, sKey, label } of valid) {
+    const st = students.get(sKey)!;
+    // Adultes dédoublonnés dans la ligne.
+    const seenKeys = new Set<string>();
+    const adults: Array<{ a: FileAdult; k: string }> = [];
+    for (const a of row.adults) {
+      const k = keyOf(a);
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      adults.push({ a, k });
+    }
+    const foyerKey = adults
+      .map((x) => x.k)
+      .sort()
+      .join("||");
     const rowId = `${sKey}§${foyerKey}`;
     if (seenRow.has(rowId)) {
       anomalies.push({
@@ -270,9 +344,9 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
     if (!f) {
       f = { key: foyerKey, adults: [], studentKeys: [] };
       foyers.set(foyerKey, f);
-      row.adults.forEach((a, i) => {
-        f!.adults.push({
-          akey: keys[i]!,
+      for (const { a, k } of adults) {
+        f.adults.push({
+          akey: k,
           nom: a.nom,
           prenom: a.prenom,
           email: a.email,
@@ -280,29 +354,51 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
           lien: a.lien,
           autoriteParentale: autoriteFromLien(a.lien).value,
         });
-      });
+      }
     } else {
-      // Complète les coordonnées manquantes avec les autres lignes de la fratrie.
-      row.adults.forEach((a, i) => {
-        const k = keys[i]!;
-        const target = f!.adults.find((x) => x.akey === k);
-        if (!target) return;
-        if (!target.email && a.email) target.email = a.email;
-        if (!target.telephone && a.telephone) target.telephone = a.telephone;
-        if (!target.lien && a.lien) {
-          target.lien = a.lien;
-          target.autoriteParentale = autoriteFromLien(a.lien).value;
-        }
-      });
+      fillAdults(f, adults);
     }
     if (!f.studentKeys.includes(sKey)) f.studentKeys.push(sKey);
     if (!st.foyerKeys.includes(foyerKey)) st.foyerKeys.push(foyerKey);
   }
 
+  // Sous-ensembles : un foyer dont les adultes sont tous dans un autre (même contact + même nom)
+  // est rattaché à ce dernier, sauf si un même enfant appartient aux deux.
+  for (const A of [...foyers.values()].sort((x, y) => (x.key < y.key ? -1 : 1))) {
+    if (!foyers.has(A.key)) continue;
+    const aKeys = A.adults.map((x) => x.akey);
+    const supers = [...foyers.values()].filter(
+      (B) => B !== A && B.adults.length > A.adults.length && aKeys.every((k) => B.adults.some((x) => x.akey === k)),
+    );
+    if (!supers.length) continue;
+    const kids = A.studentKeys.map((k) => students.get(k)).filter(Boolean) as StudentEntry[];
+    const first = kids[0];
+    if (supers.length > 1) {
+      anomalies.push({
+        kind: "sous_ensemble",
+        lines: kids.flatMap((k) => k.lines),
+        eleve: first ? `${first.prenom} ${first.nom}` : "",
+        message: "Responsables inclus dans plusieurs foyers possibles : foyer laissé séparé.",
+      });
+      continue;
+    }
+    const B = supers[0]!;
+    if (A.studentKeys.some((s) => B.studentKeys.includes(s))) continue;
+    fillAdults(
+      B,
+      A.adults.map((a) => ({ a, k: a.akey })),
+    );
+    for (const k of kids) {
+      k.foyerKeys = k.foyerKeys.map((x) => (x === A.key ? B.key : x));
+      if (!B.studentKeys.includes(k.key)) B.studentKeys.push(k.key);
+    }
+    foyers.delete(A.key);
+  }
+
   // Anomalies par adulte unique (une seule fois par foyer).
   for (const f of foyers.values()) {
-    const first = students.get(f.studentKeys[0]!);
     const kids = f.studentKeys.map((k) => students.get(k)).filter(Boolean) as StudentEntry[];
+    const first = kids[0];
     for (const a of f.adults) {
       if (!a.email && !a.telephone) {
         anomalies.push({
@@ -371,6 +467,23 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
   return { students: [...students.values()], foyers, anomalies, matchedEleveIds, rowCount: rows.length };
 }
 
+/** Complète les coordonnées / lien manquants d'un foyer avec les adultes d'une autre ligne. */
+function fillAdults(
+  f: FileFoyer,
+  adults: Array<{ a: { email: string | null; telephone: string | null; lien: string }; k: string }>,
+) {
+  for (const { a, k } of adults) {
+    const target = f.adults.find((x) => x.akey === k);
+    if (!target) continue;
+    if (!target.email && a.email) target.email = a.email;
+    if (!target.telephone && a.telephone) target.telephone = a.telephone;
+    if (!target.lien && a.lien) {
+      target.lien = a.lien;
+      target.autoriteParentale = autoriteFromLien(a.lien).value;
+    }
+  }
+}
+
 /* ───────── Plan face à l'existant ───────── */
 
 function foyerLabel(adults: FileFoyerAdult[]): string {
@@ -394,18 +507,42 @@ function nameEq(a: { nom: string; prenom: string }, b: { nom: string; prenom: st
   return normName(a.nom) === normName(b.nom) && normName(a.prenom) === normName(b.prenom);
 }
 
-function anyMatch(a: FileFoyerAdult, r: DbResp): boolean {
-  return nameEq(a, r) || emailEq(a.email, r.email) || phoneEq(a.telephone, r.telephone);
+function lev(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)] as number[]);
+  for (let j = 1; j <= b.length; j++) d[0]![j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i]![j] = Math.min(
+        d[i - 1]![j]! + 1,
+        d[i]![j - 1]! + 1,
+        d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return d[a.length]![b.length]!;
 }
 
-/** Associe chaque adulte du fichier à au plus un responsable existant (nom, puis e-mail, puis téléphone). */
+/** Prénoms identiques ou proches (initiale, préfixe, une faute de frappe). */
+function prenomClose(a: string, b: string): boolean {
+  const x = normName(a);
+  const y = normName(b);
+  if (!x || !y) return false;
+  if (x === y || x.startsWith(y) || y.startsWith(x)) return true;
+  return lev(x, y) <= (Math.max(x.length, y.length) >= 5 ? 2 : 1);
+}
+
+/**
+ * Associe chaque adulte du fichier à au plus un responsable existant :
+ * nom + prénom, puis e-mail, puis téléphone — l'e-mail ou le téléphone ne comptent que si
+ * le prénom est le même (ou proche) : un nouveau conjoint ayant le portable de la mère reste un nouveau responsable.
+ */
 function matchAdults(adults: FileFoyerAdult[], resps: DbResp[]): Array<DbResp | null> {
   const used = new Set<string>();
   const out: Array<DbResp | null> = adults.map(() => null);
   const passes: Array<(a: FileFoyerAdult, r: DbResp) => boolean> = [
     (a, r) => nameEq(a, r),
-    (a, r) => emailEq(a.email, r.email),
-    (a, r) => phoneEq(a.telephone, r.telephone),
+    (a, r) => emailEq(a.email, r.email) && prenomClose(a.prenom, r.prenom),
+    (a, r) => phoneEq(a.telephone, r.telephone) && prenomClose(a.prenom, r.prenom),
   ];
   for (const pass of passes) {
     adults.forEach((a, i) => {
@@ -431,6 +568,16 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
   }
   for (const l of respsByFoyer.values()) l.sort((a, b) => a.rang - b.rang);
   const foyerLabelById = new Map(existing.foyers.map((f) => [f.id, f.label]));
+  const foyerMeta = new Map(existing.foyers.map((f) => [f.id, f]));
+  /** Raisons de protéger un foyer : facturation, messagerie, compte famille. */
+  const protectionOf = (fid: string): string[] => {
+    const raisons: string[] = [];
+    const m = foyerMeta.get(fid);
+    if (m?.facturation) raisons.push("facturation");
+    if (m?.messagerie) raisons.push("messagerie");
+    if ((respsByFoyer.get(fid) ?? []).some((r) => r.userId)) raisons.push("compte famille");
+    return raisons;
+  };
   const linksByEleve = new Map<string, Set<string>>();
   for (const l of existing.links) {
     const s = linksByEleve.get(l.eleveId);
@@ -487,12 +634,15 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     f.adults.forEach((a, i) => {
       const m = matches[i] ?? null;
       if (m) {
-        const changes: string[] = [];
-        if (normName(a.nom) !== normName(m.nom)) changes.push("nom");
-        if (normName(a.prenom) !== normName(m.prenom)) changes.push("prénom");
-        if (a.email && !emailEq(a.email, m.email)) changes.push("e-mail");
-        if (a.telephone && !phoneEq(a.telephone, m.telephone)) changes.push("téléphone");
-        if (a.autoriteParentale && !m.autoriteParentale) changes.push("autorité parentale");
+        const all: string[] = [];
+        if (normName(a.nom) !== normName(m.nom)) all.push("nom");
+        if (normName(a.prenom) !== normName(m.prenom)) all.push("prénom");
+        if (a.email && !emailEq(a.email, m.email)) all.push("e-mail");
+        if (a.telephone && !phoneEq(a.telephone, m.telephone)) all.push("téléphone");
+        if (a.autoriteParentale && !m.autoriteParentale) all.push("autorité parentale");
+        // Responsable avec compte famille : on ne touche ni au nom, ni à l'e-mail, ni au téléphone.
+        const changes = m.userId ? all.filter((c) => c === "autorité parentale") : all;
+        const differences = m.userId ? all.filter((c) => c !== "autorité parentale") : [];
         const nameChanged = changes.includes("nom") || changes.includes("prénom");
         resps.push({
           action: changes.length ? "update" : "unchanged",
@@ -512,6 +662,7 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
             autoriteParentale: m.autoriteParentale,
           },
           changes,
+          differences,
           hasUser: !!m.userId,
         });
         if (changes.length) respModified++;
@@ -541,6 +692,7 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
           lien: a.lien,
           before: null,
           changes: [],
+          differences: [],
           hasUser: false,
         });
         respAdded++;
@@ -570,12 +722,23 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
   // Liens élève ↔ foyer.
   const linksAdd: PlanLinkAdd[] = [];
   const linksRemove: PlanLinkRemove[] = [];
+  const liensAVerifier: Plan["liensAVerifier"] = [];
   const planStudents: Plan["students"] = [];
   const removedByFoyer = new Map<string, string[]>();
   for (const st of analysis.students) {
     if (st.match.status !== "reconnu") continue;
     const eleveId = st.match.eleveId;
     const refs = st.foyerKeys.map((k) => refByFileKey.get(k)).filter((r): r is string => !!r);
+    if (!refs.length) {
+      // Aucun foyer valide dans le fichier pour cet élève : on n'y touche pas (aucun lien retiré).
+      anomalies.push({
+        kind: "non_touche",
+        lines: st.lines,
+        eleve: `${st.prenom} ${st.nom}`.trim(),
+        message: "Aucun responsable exploitable dans le fichier : élève non touché, liens existants conservés.",
+      });
+      continue;
+    }
     const current = linksByEleve.get(eleveId) ?? new Set<string>();
     let added = 0;
     let removed = 0;
@@ -588,6 +751,11 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     if (!options.keepOldLinks) {
       for (const fid of current) {
         if (refs.includes(fid)) continue;
+        const raisons = protectionOf(fid);
+        if (raisons.length && !options.removeProtectedLinks) {
+          liensAVerifier.push({ eleveId, foyerId: fid, label: foyerLabelById.get(fid) ?? "Foyer", raisons });
+          continue;
+        }
         linksRemove.push({ eleveId, foyerId: fid });
         removed++;
         const l = removedByFoyer.get(fid);
@@ -628,10 +796,11 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     responsablesModifies: respModified,
     liensAjoutes: linksAdd.length,
     liensRetires: linksRemove.length,
+    liensAVerifier: liensAVerifier.length,
     foyersOrphelins: orphelins.length,
   };
 
-  return { foyers: planFoyers, linksAdd, linksRemove, orphelins, students: planStudents, anomalies, counts };
+  return { foyers: planFoyers, linksAdd, linksRemove, liensAVerifier, orphelins, students: planStudents, anomalies, counts };
 }
 
 /** Plan « inchangé » : plus rien à écrire. */
@@ -667,6 +836,11 @@ export function planFingerprint(plan: Plan, fileHash: string, options: PlanOptio
     r: plan.linksRemove.map((l) => [l.eleveId, l.foyerId]),
   };
   return createHash("sha256")
-    .update(JSON.stringify({ fileHash, keepOldLinks: options.keepOldLinks, ops }))
+    .update(JSON.stringify({
+        fileHash,
+        keepOldLinks: options.keepOldLinks,
+        removeProtectedLinks: !!options.removeProtectedLinks,
+        ops,
+      }))
     .digest("hex");
 }

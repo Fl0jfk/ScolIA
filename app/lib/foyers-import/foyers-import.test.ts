@@ -13,7 +13,8 @@ import {
   normPhone,
   parseBirthDate,
 } from "./normalize";
-import { parseFoyersWorkbook, rowsFromRecords } from "./parse";
+import { assertSafeXlsx, FoyersFileError, parseFoyersWorkbook, rowsFromRecords } from "./parse";
+import { validateResponsableInput } from "./responsable-validate";
 import {
   analyzeFile,
   buildPlan,
@@ -270,7 +271,6 @@ test("mise à jour en place d'un foyer existant (par e-mail), ajout du conjoint,
         email: "CLAIRE@example.org",
         telephone: null,
         payeur: true,
-        userId: "u1",
         autoriteParentale: true,
       }),
     ],
@@ -284,7 +284,7 @@ test("mise à jour en place d'un foyer existant (par e-mail), ajout du conjoint,
   assert.equal(f.label, "Foyer ancien", "le libellé existant n'est pas renommé");
   const r1 = f.responsables.find((r) => r.respId === "r1")!;
   assert.deepEqual(r1.changes.sort(), ["nom", "téléphone"].sort());
-  assert.equal(r1.hasUser, true);
+  assert.equal(r1.hasUser, false);
   assert.equal(r1.autoriteParentale, true);
   const created = f.responsables.find((r) => r.action === "create")!;
   assert.equal(created.prenom, "Paul");
@@ -320,7 +320,7 @@ test("retrait de lien vers un foyer absent du fichier : foyer orphelin conservé
     ],
     responsables: [
       resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "claire@example.org" }),
-      resp({ id: "rOld", foyerId: "fOld", nom: "Autre", prenom: "Gens", userId: "u9", payeur: true }),
+      resp({ id: "rOld", foyerId: "fOld", nom: "Autre", prenom: "Gens", payeur: true }),
     ],
     links: [
       { eleveId: "e1", foyerId: "f1" },
@@ -363,7 +363,7 @@ test("responsable existant absent du fichier (compte / payeur) : conservé", () 
 test("foyer plein (4 responsables) : pas de cinquième", () => {
   const a = analyze([rec({})], [eleve("e1", "Martin", "Léa")]);
   const resps = [1, 2, 3, 4].map((i) =>
-    resp({ id: `r${i}`, foyerId: "f1", nom: `Z${i}`, prenom: `Z${i}`, rang: i, email: i === 1 ? "claire@example.org" : null }),
+    resp({ id: `r${i}`, foyerId: "f1", nom: i === 1 ? "Martin" : `Z${i}`, prenom: i === 1 ? "Claire" : `Z${i}`, rang: i, email: i === 1 ? "claire@example.org" : null }),
   );
   const plan = buildPlan(
     a,
@@ -478,10 +478,10 @@ function fakeDb() {
           touched.push({ op: "update", table: name, set });
           return {
             where: async (cond: unknown) => {
-              const id = params(cond)[0];
-              const row = tables[name]!.find((r) => r.id === id);
-              assert.ok(row, `update ${name} ${String(id)} introuvable`);
-              Object.assign(row, set);
+              const ps = params(cond);
+              const rows = tables[name]!.filter((r) => ps.includes(r.id));
+              assert.ok(rows.length, `update ${name} introuvable`);
+              for (const row of rows) Object.assign(row, set);
             },
           };
         },
@@ -492,8 +492,8 @@ function fakeDb() {
       touched.push({ op: "delete", table: name });
       return {
         where: async (cond: unknown) => {
-          const [, eleveId, foyerId] = params(cond);
-          tables[name] = tables[name]!.filter((r) => !(r.eleveId === eleveId && r.foyerId === foyerId));
+          const [, eleveId, ...foyerIds] = params(cond);
+          tables[name] = tables[name]!.filter((r) => !(r.eleveId === eleveId && foyerIds.includes(r.foyerId)));
         },
       };
     },
@@ -563,7 +563,7 @@ test("application : aucune écriture sur eleve, payeur/facturation intacts, idem
   const r1 = tables.foyer_responsable!.find((r) => r.id === "r1")!;
   assert.equal(r1.payeur, true);
   assert.equal(r1.userId, "u1");
-  assert.equal(r1.telephone, "0611223344");
+  assert.equal(r1.telephone, null, "responsable avec compte : téléphone non modifié");
   assert.equal(r1.autoriteParentale, true);
   // foyer + responsables non supprimés ; lien retiré ; foyer ancien conservé
   assert.ok(tables.foyer!.some((f) => f.id === "fOld"));
@@ -660,7 +660,16 @@ test("droits : admin / direction / administratif uniquement", () => {
 
 test("garde-fou : aucun code de l'import n'écrit dans la table eleve", () => {
   const dir = join(process.cwd(), "app", "lib", "foyers-import");
-  for (const f of ["apply.ts", "plan.ts", "service.ts", "parse.ts", "normalize.ts", "report.ts"]) {
+  for (const f of [
+    "apply.ts",
+    "plan.ts",
+    "service.ts",
+    "parse.ts",
+    "normalize.ts",
+    "report.ts",
+    "responsable-edit.ts",
+    "responsable-validate.ts",
+  ]) {
     const src = readFileSync(join(dir, f), "utf8");
     assert.ok(!/\.(insert|update|delete)\(\s*eleve\s*\)/.test(src), `${f} écrit dans eleve`);
     assert.ok(!/saveElevesRegistry|upsertElevesInDb|EleveConfig|ensureEleveFoyerFromParentContacts/.test(src), `${f} touche la fiche élève`);
@@ -674,4 +683,307 @@ test("garde-fou : aucun code de l'import n'écrit dans la table eleve", () => {
     const src = readFileSync(join(process.cwd(), "app", "api", "eleves", "foyers", f), "utf8");
     assert.ok(!/\.(insert|update|delete)\(\s*eleve\s*\)/.test(src));
   }
+});
+
+/* ───────── Revue : correctifs ───────── */
+
+const NOADULT = {
+  "Nom Resp": "",
+  "Prénom Resp": "",
+  "Email Personnel Resp": "",
+  "Tél. portable Resp": "",
+  "Nom Conjoint": "",
+  "Prénom Conjoint": "",
+  "Email Personnel Conjoint": "",
+  "Tél. portable Conjoint": "",
+};
+const NOCONJ = {
+  "Nom Conjoint": "",
+  "Prénom Conjoint": "",
+  "Email Personnel Conjoint": "",
+  "Tél. portable Conjoint": "",
+};
+
+test("B1 : élève reconnu sans responsable exploitable = non touché, aucun lien retiré", () => {
+  const a = analyze([rec({ ...NOADULT })], [eleve("e1", "Martin", "Léa")]);
+  const plan = buildPlan(
+    a,
+    {
+      foyers: [{ id: "f1", label: "F" }],
+      responsables: [resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire" })],
+      links: [{ eleveId: "e1", foyerId: "f1" }],
+    },
+    { keepOldLinks: false },
+  );
+  assert.equal(plan.linksRemove.length, 0);
+  assert.equal(plan.students.length, 0);
+  assert.ok(plan.anomalies.some((x) => x.kind === "sans_responsable"));
+});
+
+test("B2 : responsable avec compte famille : ni nom, ni e-mail, ni téléphone modifiés (différences signalées)", () => {
+  const a = analyze([rec({})], [eleve("e1", "Martin", "Léa")]);
+  const plan = buildPlan(
+    a,
+    {
+      foyers: [{ id: "f1", label: "F" }],
+      responsables: [
+        resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "ancien@example.org", userId: "u1" }),
+      ],
+      links: [{ eleveId: "e1", foyerId: "f1" }],
+    },
+    { keepOldLinks: false },
+  );
+  const r1 = plan.foyers[0]!.responsables.find((r) => r.respId === "r1")!;
+  assert.equal(r1.email, "ancien@example.org");
+  assert.ok(r1.differences.includes("e-mail"));
+  assert.ok(!r1.changes.includes("e-mail"));
+  const svc = readFileSync(join(process.cwd(), "app/lib/foyers-import/service.ts"), "utf8");
+  assert.ok(svc.includes("linkFoyerResponsableToUserAccountIfUnlinked"));
+  assert.ok(!/\blinkFoyerResponsableToUserAccount\(/.test(svc));
+  const lk = readFileSync(join(process.cwd(), "app/lib/nomenclature-import/link-responsable-user.ts"), "utf8");
+  const variant = lk.slice(lk.indexOf("IfUnlinked"));
+  assert.ok(variant.includes("isNull(foyerResponsable.userId)") && variant.includes("foyerResponsable.etablissementId"));
+});
+
+test("B3 : liens vers foyers avec facturation / messagerie / compte conservés par défaut", () => {
+  const a = analyze([rec({})], [eleve("e1", "Martin", "Léa")]);
+  const base: ExistingData = {
+    foyers: [
+      { id: "f1", label: "OK" },
+      { id: "fFact", label: "Fact", facturation: true },
+      { id: "fMsg", label: "Msg", messagerie: true },
+      { id: "fUser", label: "User" },
+      { id: "fLibre", label: "Libre" },
+    ],
+    responsables: [
+      resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "claire@example.org" }),
+      resp({ id: "rU", foyerId: "fUser", nom: "A", prenom: "B", userId: "u" }),
+    ],
+    links: ["f1", "fFact", "fMsg", "fUser", "fLibre"].map((foyerId) => ({ eleveId: "e1", foyerId })),
+  };
+  const plan = buildPlan(a, base, { keepOldLinks: false });
+  assert.deepEqual(plan.linksRemove, [{ eleveId: "e1", foyerId: "fLibre" }]);
+  assert.deepEqual(plan.liensAVerifier.map((l) => l.foyerId).sort(), ["fFact", "fMsg", "fUser"]);
+  const all = buildPlan(a, base, { keepOldLinks: false, removeProtectedLinks: true });
+  assert.equal(all.linksRemove.length, 4);
+  assert.equal(all.liensAVerifier.length, 0);
+  assert.notEqual(
+    planFingerprint(plan, "h", { keepOldLinks: false }),
+    planFingerprint(all, "h", { keepOldLinks: false, removeProtectedLinks: true }),
+  );
+});
+
+test("M1 : nouveau conjoint avec le portable de la mère = nouveau responsable", () => {
+  const a = analyze(
+    [
+      rec({
+        "Nom Conjoint": "Leroy",
+        "Prénom Conjoint": "Marc",
+        "Email Personnel Conjoint": "",
+        "Tél. portable Conjoint": "06 11 22 33 44",
+      }),
+    ],
+    [eleve("e1", "Martin", "Léa")],
+  );
+  const plan = buildPlan(
+    a,
+    {
+      foyers: [{ id: "f1", label: "F" }],
+      responsables: [
+        resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", telephone: "0611223344", rang: 1 }),
+      ],
+      links: [{ eleveId: "e1", foyerId: "f1" }],
+    },
+    { keepOldLinks: false },
+  );
+  const rs = plan.foyers[0]!.responsables;
+  assert.equal(rs.find((r) => r.prenom === "Marc")!.action, "create");
+  assert.equal(rs.find((r) => r.respId === "r1")!.prenom, "Claire");
+  const a2 = analyze(
+    [
+      rec({
+        "Nom Resp": "Leroy",
+        "Prénom Resp": "Marc",
+        "Email Personnel Resp": "",
+        "Tél. portable Resp": "0611223344",
+        ...NOCONJ,
+      }),
+    ],
+    [eleve("e1", "Martin", "Léa")],
+  );
+  const p2 = buildPlan(
+    a2,
+    {
+      foyers: [{ id: "f1", label: "F" }],
+      responsables: [resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", telephone: "0611223344" })],
+      links: [{ eleveId: "e1", foyerId: "f1" }],
+    },
+    { keepOldLinks: false },
+  );
+  assert.equal(p2.foyers[0]!.existingId, null, "pas de rattachement sur le seul portable");
+});
+
+test("M2 : contact partagé par des adultes de noms différents : non fusionné + anomalie", () => {
+  const a = analyze(
+    [
+      rec({ Prénom: "Lea" }),
+      rec({
+        Nom: "Autre",
+        Prénom: "Zoe",
+        "Nom Resp": "Autre",
+        "Prénom Resp": "Marie",
+        "Email Personnel Resp": "claire@example.org",
+        ...NOCONJ,
+      }),
+    ],
+    [eleve("e1", "Martin", "Lea"), eleve("e2", "Autre", "Zoe")],
+  );
+  assert.equal(a.foyers.size, 2);
+  assert.ok(a.anomalies.some((x) => x.kind === "contact_partage"));
+});
+
+test("M2 : famille recomposée = un seul foyer ; sous-ensemble rattaché au foyer à 2 adultes", () => {
+  const recs = [
+    rec({ Prénom: "A" }),
+    rec({ Nom: "Dupuis", Prénom: "B" }),
+    rec({ Nom: "Roux", Prénom: "C" }),
+    rec({ Prénom: "D", ...NOCONJ }),
+  ];
+  const names = [
+    ["Martin", "A"],
+    ["Dupuis", "B"],
+    ["Roux", "C"],
+    ["Martin", "D"],
+  ];
+  const a = analyze(
+    recs,
+    names.map(([n, p], i) => eleve(`e${i}`, n!, p!)),
+  );
+  assert.equal(a.foyers.size, 1);
+  assert.equal([...a.foyers.values()][0]!.studentKeys.length, 4);
+  assert.equal([...a.foyers.values()][0]!.adults.length, 2);
+  const plan = buildPlan(a, EMPTY, { keepOldLinks: false });
+  assert.equal(plan.counts.foyersCrees, 1);
+  assert.equal(plan.counts.liensAjoutes, 4);
+});
+
+test("M4 : ~1800 lignes / 1300 foyers planifiés et appliqués rapidement", async () => {
+  const recs: Array<Record<string, unknown>> = [];
+  const eleves: DbEleve[] = [];
+  for (let i = 0; i < 1800; i++) {
+    const fam = i % 1300;
+    recs.push(
+      rec({
+        Nom: `Nom${i}`,
+        Prénom: `Pre${i}`,
+        "Nom Resp": `Fam${fam}`,
+        "Prénom Resp": "Mere",
+        "Email Personnel Resp": `m${fam}@example.org`,
+        "Nom Conjoint": `Fam${fam}`,
+        "Prénom Conjoint": "Pere",
+        "Email Personnel Conjoint": `p${fam}@example.org`,
+      }),
+    );
+    eleves.push(eleve(`e${i}`, `Nom${i}`, `Pre${i}`));
+  }
+  const t0 = Date.now();
+  const plan = buildPlan(analyzeFile(rowsFromRecords(recs), eleves, TODAY), EMPTY, { keepOldLinks: false });
+  assert.equal(plan.counts.foyersCrees, 1300);
+  const { db, tables } = fakeDb();
+  await applyPlan(db, plan, CTX);
+  assert.equal(tables.foyer!.length, 1300);
+  assert.equal(tables.eleve_foyer_link!.length, 1800);
+  assert.ok(Date.now() - t0 < 10000);
+});
+
+test("M5 : relance après lot partiel sans doublon de foyers", async () => {
+  const n = 250;
+  const recs = Array.from({ length: n }, (_, i) =>
+    rec({ Prénom: `P${i}`, "Nom Resp": `R${i}`, "Email Personnel Resp": `r${i}@example.org`, ...NOCONJ }),
+  );
+  const eleves = recs.map((_, i) => eleve(`e${i}`, "Martin", `P${i}`));
+  const analysis = () => analyzeFile(rowsFromRecords(recs), eleves, TODAY);
+  const f = fakeDb();
+  const plan1 = buildPlan(analysis(), EMPTY, { keepOldLinks: false });
+  let calls = 0;
+  const failing: FoyersDb = {
+    transaction: async (fn) => {
+      if (++calls === 2) throw new Error("boom");
+      return f.db.transaction(fn);
+    },
+  };
+  await assert.rejects(
+    () => applyPlan(failing, plan1, CTX),
+    (e: unknown) => e instanceof ApplyPartialError && /refaites l'aperçu/.test(e.message),
+  );
+  assert.equal(f.tables.foyer!.length, 100);
+  const plan2 = buildPlan(analysis(), existingFrom(f.tables), { keepOldLinks: false });
+  assert.equal(plan2.counts.foyersCrees, 150);
+  await applyPlan(f.db, plan2, CTX);
+  assert.equal(f.tables.foyer!.length, n);
+  assert.equal(f.tables.eleve_foyer_link!.length, n);
+});
+
+test("M3 : verrou par établissement et audit début / échec dans l'application", () => {
+  const svc = readFileSync(join(process.cwd(), "app/lib/foyers-import/service.ts"), "utf8");
+  assert.ok(svc.includes('withNamedLock("foyers-import"'));
+  assert.ok(svc.includes("ImportBusyError"));
+  assert.ok(svc.indexOf('"import_start"') < svc.indexOf("applyPlan("));
+  assert.ok(svc.includes('"import_failed"'));
+});
+
+test("M6 : seuls les .xlsx valides sont acceptés", () => {
+  assert.throws(() => assertSafeXlsx(Buffer.from("pas un zip du tout, vraiment pas")), FoyersFileError);
+  const ole = Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), Buffer.alloc(100)]);
+  assert.throws(() => assertSafeXlsx(ole), FoyersFileError);
+  const ws = XLSX.utils.json_to_sheet([rec({})]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "F");
+  assert.doesNotThrow(() => assertSafeXlsx(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer));
+  const route = readFileSync(join(process.cwd(), "app/api/eleves/foyers/import/route.ts"), "utf8");
+  assert.ok(!route.includes('".xls"'));
+});
+
+/* ───────── Modification d'un responsable ───────── */
+
+test("modification responsable : validation", () => {
+  const ok = validateResponsableInput({
+    nom: " Dupont ",
+    prenom: "Anne",
+    email: " ANNE@Example.ORG ",
+    telephone: "+33 6 11 22 33 44",
+    autoriteParentale: true,
+  });
+  assert.ok(ok.ok);
+  if (ok.ok) {
+    assert.equal(ok.value.nom, "Dupont");
+    assert.equal(ok.value.email, "anne@example.org");
+    assert.equal(ok.value.telephone, "0611223344");
+    assert.equal(ok.value.autoriteParentale, true);
+  }
+  const vide = validateResponsableInput({ nom: "A", prenom: "B", email: "", telephone: "" });
+  assert.ok(vide.ok && vide.value.email === null && vide.value.telephone === null);
+  for (const bad of [
+    { nom: "", prenom: "B" },
+    { nom: "A", prenom: " " },
+    { nom: "A", prenom: "B", email: "pas-un-mail" },
+    { nom: "A", prenom: "B", telephone: "12" },
+    { nom: "A", prenom: "B", autoriteParentale: "oui" },
+    null,
+  ]) {
+    assert.equal(validateResponsableInput(bad).ok, false, JSON.stringify(bad));
+  }
+});
+
+test("modification responsable : garde, établissement, userId et eleve intacts", () => {
+  const route = readFileSync(join(process.cwd(), "app/api/eleves/foyers/responsables/[id]/route.ts"), "utf8");
+  assert.ok(route.includes("requireFoyersGate()") && route.includes("gate.etablissementId"));
+  const edit = readFileSync(join(process.cwd(), "app/lib/foyers-import/responsable-edit.ts"), "utf8");
+  const setBlock = edit.slice(edit.indexOf(".set("), edit.indexOf(".set(") + 120);
+  assert.ok(!/userId/.test(setBlock));
+  assert.ok(!/import\s*\{[^}]*\beleve\b[^}]*\}\s*from "@\/db\/schema"/.test(edit));
+  assert.ok(edit.includes("eq(foyerResponsable.etablissementId"));
+  assert.ok(edit.includes("avant") && edit.includes("apres"));
+  assert.equal(canManageFoyersRoles(["professeur"], {}), false);
+  assert.equal(canManageFoyersRoles(["administratif"], {}), true);
 });

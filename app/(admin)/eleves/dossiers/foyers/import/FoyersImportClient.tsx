@@ -17,7 +17,7 @@ type Orphan = {
 
 type Preview = { plan: Plan; fingerprint: string; orphans: Orphan[] };
 
-type Tab = "foyers" | "eleves" | "anomalies" | "orphelins";
+type Tab = "foyers" | "eleves" | "anomalies" | "orphelins" | "verifier";
 
 const ACTION_LABEL: Record<string, string> = {
   create: "Créé",
@@ -31,6 +31,7 @@ export default function FoyersImportClient() {
   const [file, setFile] = useState<File | null>(null);
   const [keepOldLinks, setKeepOldLinks] = useState(false);
   const [linkAccounts, setLinkAccounts] = useState(false);
+  const [removeProtected, setRemoveProtected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -52,6 +53,7 @@ export default function FoyersImportClient() {
       fd.set("file", file);
       fd.set("action", action);
       fd.set("keepOldLinks", keepOldLinks ? "1" : "0");
+      fd.set("removeProtectedLinks", removeProtected && !keepOldLinks ? "1" : "0");
       if (action === "apply" && preview) {
         fd.set("confirm", "oui");
         fd.set("fingerprint", preview.fingerprint);
@@ -145,6 +147,24 @@ export default function FoyersImportClient() {
           <input type="checkbox" checked={keepOldLinks} onChange={(e) => setKeepOldLinks(e.target.checked)} />
           Ne pas retirer les anciens liens (sinon, les liens vers des foyers absents du fichier sont retirés)
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={removeProtected}
+            disabled={keepOldLinks}
+            onChange={(e) => {
+              setRemoveProtected(e.target.checked);
+              setPreview(null);
+            }}
+          />
+          <span>
+            Retirer aussi les liens des foyers avec facturation / messagerie / compte famille
+            <span className="block text-xs font-semibold text-rose-600">
+              Attention : par défaut ces liens sont conservés et listés « à vérifier ». Cocher cette case peut
+              couper l'accès d'une famille à la facturation ou à la messagerie d'un enfant.
+            </span>
+          </span>
+        </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={linkAccounts} onChange={(e) => setLinkAccounts(e.target.checked)} />
           Rattacher les responsables aux comptes existants (par e-mail) à l'application
@@ -196,6 +216,7 @@ export default function FoyersImportClient() {
               ["Responsables modifiés", c.responsablesModifies],
               ["Liens ajoutés", c.liensAjoutes],
               ["Liens retirés", c.liensRetires],
+              ["Liens à vérifier", c.liensAVerifier],
               ["Foyers orphelins", c.foyersOrphelins],
               ["Anomalies", plan.anomalies.length],
             ].map(([label, n]) => (
@@ -213,6 +234,7 @@ export default function FoyersImportClient() {
                 ["eleves", "Élèves"],
                 ["anomalies", "Anomalies"],
                 ["orphelins", "Orphelins"],
+                ["verifier", "À vérifier"],
               ] as Array<[Tab, string]>
             ).map(([id, label]) => (
               <button
@@ -273,6 +295,9 @@ export default function FoyersImportClient() {
                         </span>{" "}
                         · {r.email || "—"} · {r.telephone || "—"}{" "}
                         {r.action === "create" ? <em className="text-emerald-700">(ajouté)</em> : null}
+                        {r.differences.length ? (
+                          <em className="text-rose-700"> (compte famille : différence à vérifier — {r.differences.join(", ")})</em>
+                        ) : null}
                         {r.action === "update" && r.before ? (
                           <em className="text-amber-700">
                             (modifié : {r.changes.join(", ")} — avant : {r.before.prenom} {r.before.nom},{" "}
@@ -319,6 +344,34 @@ export default function FoyersImportClient() {
                   <span className="text-xs text-slate-500">(ligne {a.lines.join(", ")})</span>
                 </li>
               ))}
+            </ul>
+          ) : null}
+
+          {tab === "verifier" ? (
+            <ul className="space-y-1 text-sm">
+              {plan.liensAVerifier.length === 0 ? (
+                <li className="text-slate-500">Aucun lien à vérifier.</li>
+              ) : null}
+              {plan.liensAVerifier.map((l, i) => (
+                <li key={i} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="font-semibold">{eleveName.get(l.eleveId) ?? l.eleveId}</span> — lien conservé vers «{" "}
+                  {l.label} » ({l.raisons.join(", ")})
+                </li>
+              ))}
+              {plan.foyers
+                .flatMap((f) =>
+                  f.responsables
+                    .filter((r) => r.differences.length)
+                    .map((r) => ({ f, r })),
+                )
+                .map(({ f, r }, i) => (
+                  <li key={`d${i}`} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                    <span className="font-semibold">
+                      {r.prenom} {r.nom}
+                    </span>{" "}
+                    ({f.label}) a un compte famille : différence fichier / base non appliquée ({r.differences.join(", ")})
+                  </li>
+                ))}
             </ul>
           ) : null}
 

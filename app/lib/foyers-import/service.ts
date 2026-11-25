@@ -27,6 +27,7 @@ import {
   type PlanOptions,
 } from "./plan";
 import { buildReportCsv } from "./report";
+import { withNamedLock } from "@/app/lib/ent-json-postgres";
 
 export type OrphanInfo = {
   foyerId: string;
@@ -75,12 +76,23 @@ async function loadExisting(etablissementId: string, eleveIds: string[]): Promis
   const foyers: ExistingData["foyers"] = [];
   const responsables: DbResp[] = [];
   for (const batch of chunkArray(foyerIds)) {
-    foyers.push(
-      ...(await db
+    const [rows, fact, threads] = await Promise.all([
+      db
         .select({ id: foyer.id, label: foyer.label })
         .from(foyer)
-        .where(and(eq(foyer.etablissementId, etablissementId), inArray(foyer.id, batch)))),
-    );
+        .where(and(eq(foyer.etablissementId, etablissementId), inArray(foyer.id, batch))),
+      db
+        .select({ id: foyerFacturation.foyerId })
+        .from(foyerFacturation)
+        .where(and(eq(foyerFacturation.etablissementId, etablissementId), inArray(foyerFacturation.foyerId, batch))),
+      db
+        .selectDistinct({ id: familleThread.foyerId })
+        .from(familleThread)
+        .where(and(eq(familleThread.etablissementId, etablissementId), inArray(familleThread.foyerId, batch))),
+    ]);
+    const factSet = new Set(fact.map((r) => r.id));
+    const threadSet = new Set(threads.map((r) => r.id));
+    foyers.push(...rows.map((r) => ({ ...r, facturation: factSet.has(r.id), messagerie: threadSet.has(r.id) })));
     responsables.push(
       ...(await db
         .select({
@@ -189,6 +201,19 @@ export async function computePlan(
 }
 
 export class FingerprintMismatchError extends Error {}
+export class ImportBusyError extends Error {}
+
+/** Exécute `fn` sur chaque élément, `limit` à la fois. */
+async function pool<T>(items: T[], limit: number, fn: (x: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) await fn(items[i++]!);
+    }),
+  );
+}
+
+const MAX_ACCOUNT_LINKS = 3000;
 
 export async function applyImport(opts: {
   etablissementId: string;
@@ -205,73 +230,80 @@ export async function applyImport(opts: {
   csv: string;
   counts: Plan["counts"];
 }> {
-  // Le plan est recalculé côté serveur sur le même fichier : jamais celui du client.
-  const fresh = await computePlan(opts.etablissementId, opts.buf, opts.options);
-  if (fresh.fingerprint !== opts.expectedFingerprint) {
-    throw new FingerprintMismatchError(
-      "Le fichier ou les données ont changé depuis l'aperçu. Relancez l'aperçu avant d'appliquer.",
-    );
-  }
-  const importId = randomUUID();
-  const db = getDb();
-  const ctx = { etablissementId: opts.etablissementId, actorUserId: opts.actorUserId, importId };
-  let result;
-  try {
-    result = await applyPlan(db as unknown as FoyersDb, fresh.plan, ctx);
-  } catch (err) {
-    if (err instanceof ApplyPartialError) {
-      await recordEleveAccessAudit({
+  // Un seul import à la fois par établissement ; le plan est recalculé sous verrou.
+  const locked = await withNamedLock("foyers-import", opts.etablissementId, 900, async () => {
+    const fresh = await computePlan(opts.etablissementId, opts.buf, opts.options);
+    if (fresh.fingerprint !== opts.expectedFingerprint) {
+      throw new FingerprintMismatchError(
+        "Le fichier ou les données ont changé depuis l'aperçu. Relancez l'aperçu avant d'appliquer.",
+      );
+    }
+    const importId = randomUUID();
+    const db = getDb();
+    const ctx = { etablissementId: opts.etablissementId, actorUserId: opts.actorUserId, importId };
+    const audit = (action: string, metadata: Record<string, unknown>) =>
+      recordEleveAccessAudit({
         etablissementId: opts.etablissementId,
         actorUserId: opts.actorUserId,
         resourceType: "foyers_import",
         resourceId: importId,
-        action: "import_partial",
-        metadata: { fingerprint: fresh.fingerprint, applied: err.partial.applied, error: err.message },
-      }).catch(() => undefined);
-    }
-    throw err;
-  }
-
-  // Rattachement aux comptes existants (option), hors transaction.
-  let comptesRattaches = 0;
-  if (opts.linkAccounts && result.respsToLink.length) {
-    const { linkFoyerResponsableToUserAccount } = await import(
-      "@/app/lib/nomenclature-import/link-responsable-user"
-    );
-    for (const r of result.respsToLink) {
-      try {
-        if (await linkFoyerResponsableToUserAccount(opts.etablissementId, r.respId, r.email)) comptesRattaches++;
-      } catch (err) {
-        console.warn("[foyers-import] rattachement compte", err);
-      }
-    }
-  }
-
-  await recordEleveAccessAudit({
-    etablissementId: opts.etablissementId,
-    actorUserId: opts.actorUserId,
-    resourceType: "foyers_import",
-    resourceId: importId,
-    action: "import",
-    metadata: {
-      fingerprint: fresh.fingerprint,
+        action,
+        metadata: { fingerprint: fresh.fingerprint, ...metadata },
+      });
+    await audit("import_start", {
       keepOldLinks: opts.options.keepOldLinks,
+      removeProtectedLinks: !!opts.options.removeProtectedLinks,
+      counts: fresh.plan.counts,
+    });
+
+    let result: Awaited<ReturnType<typeof applyPlan>>;
+    try {
+      result = await applyPlan(db as unknown as FoyersDb, fresh.plan, ctx);
+    } catch (err) {
+      await audit("import_failed", {
+        applied: err instanceof ApplyPartialError ? err.partial.applied : null,
+        error: err instanceof Error ? err.message : String(err),
+      }).catch(() => undefined);
+      throw err;
+    }
+
+    // Rattachement aux comptes existants (option), après les lots, borné et jamais sur un compte déjà lié.
+    let comptesRattaches = 0;
+    if (opts.linkAccounts && result.respsToLink.length) {
+      const { linkFoyerResponsableToUserAccountIfUnlinked } = await import(
+        "@/app/lib/nomenclature-import/link-responsable-user"
+      );
+      await pool(result.respsToLink.slice(0, MAX_ACCOUNT_LINKS), 6, async (r) => {
+        try {
+          if (await linkFoyerResponsableToUserAccountIfUnlinked(opts.etablissementId, r.respId, r.email)) {
+            comptesRattaches++;
+          }
+        } catch (err) {
+          console.warn("[foyers-import] rattachement compte", err);
+        }
+      });
+    }
+
+    await audit("import", {
       linkAccounts: opts.linkAccounts,
       counts: fresh.plan.counts,
       applied: result.applied,
       comptesRattaches,
       orphelins: fresh.orphans.map((o) => o.foyerId),
-    },
-  });
+      liensAVerifier: fresh.plan.liensAVerifier.length,
+    });
 
-  return {
-    fingerprint: fresh.fingerprint,
-    importId,
-    applied: result.applied,
-    comptesRattaches,
-    csv: buildReportCsv(fresh.plan, result.foyerIds),
-    counts: fresh.plan.counts,
-  };
+    return {
+      fingerprint: fresh.fingerprint,
+      importId,
+      applied: result.applied,
+      comptesRattaches,
+      csv: buildReportCsv(fresh.plan, result.foyerIds),
+      counts: fresh.plan.counts,
+    };
+  });
+  if (locked.busy) throw new ImportBusyError("Import déjà en cours pour cet établissement.");
+  return locked.value;
 }
 
 /* ───────── Vue « Foyers » (lecture seule) ───────── */
@@ -279,7 +311,15 @@ export async function applyImport(opts: {
 export type FoyerListItem = {
   id: string;
   label: string;
-  responsables: Array<{ id: string; nom: string; prenom: string; email: string | null; telephone: string | null }>;
+  responsables: Array<{
+    id: string;
+    nom: string;
+    prenom: string;
+    email: string | null;
+    telephone: string | null;
+    autoriteParentale: boolean;
+    compteFamille: boolean;
+  }>;
   enfants: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
 };
 
@@ -304,6 +344,8 @@ export async function listFoyersWithChildren(
     prenom: string;
     email: string | null;
     telephone: string | null;
+    autoriteParentale: boolean;
+    userId: string | null;
   }> = [];
   const kids: Array<{ foyerId: string; id: string; nom: string; prenom: string; classe: string | null }> = [];
   for (const batch of chunkArray(ids)) {
@@ -316,6 +358,8 @@ export async function listFoyersWithChildren(
           prenom: foyerResponsable.prenom,
           email: foyerResponsable.email,
           telephone: foyerResponsable.telephone,
+          autoriteParentale: foyerResponsable.autoriteParentale,
+          userId: foyerResponsable.userId,
         })
         .from(foyerResponsable)
         .where(
@@ -341,7 +385,15 @@ export async function listFoyersWithChildren(
   const respBy = new Map<string, FoyerListItem["responsables"]>();
   for (const r of resps) {
     const l = respBy.get(r.foyerId) ?? [];
-    l.push({ id: r.id, nom: r.nom, prenom: r.prenom, email: r.email, telephone: r.telephone });
+    l.push({
+      id: r.id,
+      nom: r.nom,
+      prenom: r.prenom,
+      email: r.email,
+      telephone: r.telephone,
+      autoriteParentale: r.autoriteParentale,
+      compteFamille: !!r.userId,
+    });
     respBy.set(r.foyerId, l);
   }
   const kidBy = new Map<string, FoyerListItem["enfants"]>();

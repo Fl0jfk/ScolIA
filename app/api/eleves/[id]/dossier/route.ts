@@ -399,6 +399,7 @@ export async function GET(req: Request, ctx: Ctx) {
       contactUrgence: boolean;
       payeur: boolean;
       rang: number;
+      compteFamille?: boolean;
     }>;
   }> = [];
   if (links.length) {
@@ -481,6 +482,9 @@ export async function GET(req: Request, ctx: Ctx) {
           contactUrgence: r.contactUrgence,
           payeur: r.payeur,
           rang: r.rang,
+          ...(canEditStructure(roles, { orgAdmin, platformAdmin }) && !profRestrictedView
+            ? { compteFamille: !!r.userId }
+            : {}),
         })),
       });
     }

@@ -46,6 +46,36 @@ const COLS = {
 
 export class FoyersFileError extends Error {}
 
+export const MAX_FOYERS_UNZIPPED_BYTES = 40 * 1024 * 1024;
+export const MAX_FOYERS_ZIP_ENTRIES = 300;
+
+/** Contrôle d'un .xlsx (zip) avant lecture : signature, nombre d'entrées, taille décompressée annoncée. */
+export function assertSafeXlsx(buf: Buffer): void {
+  if (buf.length < 22 || buf.readUInt32LE(0) !== 0x04034b50) {
+    throw new FoyersFileError("Fichier .xlsx invalide (seul le format .xlsx est accepté).");
+  }
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65535); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new FoyersFileError("Fichier .xlsx invalide.");
+  const count = buf.readUInt16LE(eocd + 10);
+  let off = buf.readUInt32LE(eocd + 16);
+  if (count > MAX_FOYERS_ZIP_ENTRIES) throw new FoyersFileError("Fichier .xlsx suspect (trop d'entrées).");
+  let total = 0;
+  for (let n = 0; n < count; n++) {
+    if (off + 46 > buf.length || buf.readUInt32LE(off) !== 0x02014b50) {
+      throw new FoyersFileError("Fichier .xlsx invalide.");
+    }
+    total += buf.readUInt32LE(off + 24);
+    off += 46 + buf.readUInt16LE(off + 28) + buf.readUInt16LE(off + 30) + buf.readUInt16LE(off + 32);
+  }
+  if (total > MAX_FOYERS_UNZIPPED_BYTES) throw new FoyersFileError("Fichier .xlsx trop volumineux une fois décompressé.");
+}
+
 function adult(
   nom: unknown,
   prenom: unknown,
@@ -109,6 +139,7 @@ export function rowsFromRecords(records: Array<Record<string, unknown>>): FileRo
 /** Lit la première feuille d'un classeur .xlsx / .xls en mémoire. */
 export function parseFoyersWorkbook(buf: Buffer): FileRow[] {
   if (buf.length > MAX_FOYERS_FILE_BYTES) throw new FoyersFileError("Fichier trop volumineux (5 Mo maximum).");
+  assertSafeXlsx(buf);
   let wb: XLSX.WorkBook;
   try {
     wb = XLSX.read(buf, { type: "buffer", cellDates: false });
@@ -117,6 +148,8 @@ export function parseFoyersWorkbook(buf: Buffer): FileRow[] {
   }
   const sheet = wb.Sheets[wb.SheetNames[0]!];
   if (!sheet) throw new FoyersFileError("Classeur vide.");
+  const ref = sheet["!ref"];
+  if (ref && XLSX.utils.decode_range(ref).e.r > MAX_FOYERS_ROWS) throw new FoyersFileError("Trop de lignes dans le fichier.");
   const records = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
   if (!records.length) throw new FoyersFileError("Aucune ligne dans la première feuille.");
   if (records.length > MAX_FOYERS_ROWS) throw new FoyersFileError("Trop de lignes dans le fichier.");

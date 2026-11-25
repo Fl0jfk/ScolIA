@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { requireFoyersGate } from "@/app/lib/foyers-import/access";
 import { FoyersFileError, MAX_FOYERS_FILE_BYTES } from "@/app/lib/foyers-import/parse";
 import { ApplyPartialError } from "@/app/lib/foyers-import/apply";
-import { applyImport, computePlan, FingerprintMismatchError } from "@/app/lib/foyers-import/service";
+import { applyImport, computePlan, FingerprintMismatchError, ImportBusyError } from "@/app/lib/foyers-import/service";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 function isExcel(file: File): boolean {
   const n = file.name.toLowerCase();
-  return n.endsWith(".xlsx") || n.endsWith(".xls");
+  return n.endsWith(".xlsx");
 }
 
 /**
@@ -28,13 +28,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Fichier requis." }, { status: 400 });
     }
     if (!isExcel(file)) {
-      return NextResponse.json({ error: "Format non supporté — fichier Excel (.xlsx ou .xls)." }, { status: 400 });
+      return NextResponse.json({ error: "Format non supporté — fichier Excel .xlsx uniquement." }, { status: 400 });
     }
     if (file.size > MAX_FOYERS_FILE_BYTES) {
       return NextResponse.json({ error: "Fichier trop volumineux (5 Mo maximum)." }, { status: 413 });
     }
     const action = String(form.get("action") ?? "preview");
-    const options = { keepOldLinks: String(form.get("keepOldLinks") ?? "") === "1" };
+    const options = {
+      keepOldLinks: String(form.get("keepOldLinks") ?? "") === "1",
+      removeProtectedLinks: String(form.get("removeProtectedLinks") ?? "") === "1",
+    };
     const buf = Buffer.from(await file.arrayBuffer());
 
     if (action === "apply") {
@@ -64,6 +67,9 @@ export async function POST(req: Request) {
     }
     if (err instanceof FingerprintMismatchError) {
       return NextResponse.json({ error: err.message, code: "FINGERPRINT_MISMATCH" }, { status: 409 });
+    }
+    if (err instanceof ImportBusyError) {
+      return NextResponse.json({ error: err.message, code: "IMPORT_BUSY" }, { status: 409 });
     }
     if (err instanceof ApplyPartialError) {
       return NextResponse.json({ error: err.message, partial: err.partial.applied }, { status: 500 });

@@ -58,6 +58,30 @@ export function buildReportCsv(plan: Plan, foyerIds?: Record<string, string>): s
   for (const l of plan.linksRemove) {
     lines.push(["lien retiré", eleveName.get(l.eleveId) ?? "", "", "retiré", `foyer ${l.foyerId}`, l.foyerId]);
   }
+  for (const l of plan.liensAVerifier) {
+    lines.push([
+      "lien à vérifier",
+      eleveName.get(l.eleveId) ?? "",
+      "",
+      "conservé",
+      `${l.label} (${l.raisons.join(", ")})`,
+      l.foyerId,
+    ]);
+  }
+  for (const f of plan.foyers) {
+    for (const r of f.responsables) {
+      if (r.differences.length) {
+        lines.push([
+          "différence à vérifier",
+          `${r.prenom} ${r.nom}`,
+          "",
+          "non appliqué",
+          `compte famille : ${r.differences.join(", ")}`,
+          r.respId ?? "",
+        ]);
+      }
+    }
+  }
   for (const o of plan.orphelins) {
     lines.push([
       "foyer orphelin à vérifier",

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "@/app/components/ui/AppLink";
+import ResponsableEditor from "@/app/(admin)/eleves/dossiers/foyers/ResponsableEditor";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -154,6 +155,7 @@ type DossierPayload = {
       contactUrgence: boolean;
       payeur: boolean;
       rang: number;
+      compteFamille?: boolean;
     }>;
   }>;
   documents: Array<{
@@ -374,6 +376,7 @@ export default function EleveDossierClient({
     responsable: { ...emptyResp },
   });
   const [addRespFoyerId, setAddRespFoyerId] = useState<string | null>(null);
+  const [editRespId, setEditRespId] = useState<string | null>(null);
   const [addResp, setAddResp] = useState({ ...emptyResp });
 
   const [uploadMeta, setUploadMeta] = useState({
@@ -1972,6 +1975,16 @@ export default function EleveDossierClient({
                 <ul className="space-y-2">
                   {f.responsables.map((r) => (
                     <li key={r.id}>
+                      {editRespId === r.id ? (
+                        <ResponsableEditor
+                          resp={r}
+                          onCancel={() => setEditRespId(null)}
+                          onSaved={() => {
+                            setEditRespId(null);
+                            void load({ silent: true });
+                          }}
+                        />
+                      ) : (
                       <button
                         type="button"
                         onClick={() => openFoyerFinances(f.id)}
@@ -1989,6 +2002,16 @@ export default function EleveDossierClient({
                           {r.email || "—"} · {r.telephone || "—"}
                         </div>
                       </button>
+                      )}
+                      {canEdit && editRespId !== r.id ? (
+                        <button
+                          type="button"
+                          className="mt-1 text-xs font-bold text-indigo-600"
+                          onClick={() => setEditRespId(r.id)}
+                        >
+                          Modifier
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
