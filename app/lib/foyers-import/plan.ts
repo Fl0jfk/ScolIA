@@ -9,6 +9,7 @@
 import { createHash } from "node:crypto";
 import { autoriteFromLien, isGenericEmail, normEmail, normName, normPhone } from "./normalize";
 import { studentKey, type FileAdult, type FileRow } from "./parse";
+import { canonicalLien } from "./lien-parente";
 
 export const MAX_RESPONSABLES_PAR_FOYER = 4;
 
@@ -47,6 +48,11 @@ export type ExistingData = {
   staffEmails?: string[];
   /** E-mail (minuscule) → foyers de la base dont un responsable porte cette adresse. */
   emailFoyers?: Record<string, string[]>;
+  /**
+   * Liens de parenté déjà enregistrés (responsable, élève). `null` = table absente (migration non appliquée) :
+   * l'import saute alors cette étape. `undefined` = aucun lien connu.
+   */
+  liensParente?: Array<{ responsableId: string; eleveId: string; lien: string }> | null;
 };
 
 /* ───────── Types de sortie ───────── */
@@ -90,6 +96,8 @@ export type FileFoyerAdult = {
 type FileFoyer = {
   key: string;
   adults: FileFoyerAdult[];
+  /** Lien de parenté par adulte (akey) et par élève (clé d'élève du fichier). */
+  liens: Record<string, Record<string, string>>;
   /** Clés d'élèves (fichier). */
   studentKeys: string[];
 };
@@ -138,6 +146,15 @@ export type PlanResp = {
   differences: string[];
   /** Responsable existant lié à un compte : jamais supprimé ni modifié (nom, e-mail, téléphone). */
   hasUser: boolean;
+  /** Liens de parenté avec chaque élève reconnu du foyer (ajouté / modifié / inchangé). */
+  liens: PlanLien[];
+};
+
+export type PlanLien = {
+  eleveId: string;
+  lien: string;
+  action: "add" | "update" | "unchanged";
+  avant: string | null;
 };
 
 export type PlanFoyer = {
@@ -194,7 +211,11 @@ export type Plan = {
     liensRetires: number;
     liensAVerifier: number;
     foyersOrphelins: number;
+    liensParenteAjoutes: number;
+    liensParenteModifies: number;
   };
+  /** Table des liens de parenté absente : cette étape sera sautée. */
+  liensParenteIndisponible: boolean;
 };
 
 export type PlanOptions = {
@@ -355,7 +376,7 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
 
     let f = foyers.get(foyerKey);
     if (!f) {
-      f = { key: foyerKey, adults: [], studentKeys: [] };
+      f = { key: foyerKey, adults: [], studentKeys: [], liens: {} };
       foyers.set(foyerKey, f);
       for (const { a, k } of adults) {
         f.adults.push({
@@ -370,6 +391,12 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
       }
     } else {
       fillAdults(f, adults);
+    }
+    for (const { a, k } of adults) {
+      const lien = canonicalLien(a.lien);
+      if (!lien) continue;
+      const byStudent = (f.liens[k] ??= {});
+      if (!byStudent[sKey]) byStudent[sKey] = lien;
     }
     if (!f.studentKeys.includes(sKey)) f.studentKeys.push(sKey);
     if (!st.foyerKeys.includes(foyerKey)) st.foyerKeys.push(foyerKey);
@@ -401,6 +428,10 @@ export function analyzeFile(rows: FileRow[], eleves: DbEleve[], today: string): 
       B,
       A.adults.map((a) => ({ a, k: a.akey })),
     );
+    for (const [k, byStudent] of Object.entries(A.liens)) {
+      const target = (B.liens[k] ??= {});
+      for (const [sk, lien] of Object.entries(byStudent)) if (!target[sk]) target[sk] = lien;
+    }
     for (const k of kids) {
       k.foyerKeys = k.foyerKeys.map((x) => (x === A.key ? B.key : x));
       if (!B.studentKeys.includes(k.key)) B.studentKeys.push(k.key);
@@ -688,6 +719,27 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
   let newCounter = 0;
   let respAdded = 0;
   let respModified = 0;
+  const liensDispo = existing.liensParente !== null;
+  const lienExistant = new Map((existing.liensParente ?? []).map((l) => [`${l.responsableId}|${l.eleveId}`, l.lien]));
+  let lienAjoutes = 0;
+  let lienModifies = 0;
+  /** Liens de parenté d'un adulte avec chaque élève reconnu de son foyer (jamais d'écriture sur `eleve`). */
+  const liensOf = (f: FileFoyer, akey: string, respId: string | null): PlanLien[] => {
+    if (!liensDispo) return [];
+    const out: PlanLien[] = [];
+    for (const sKey of f.studentKeys) {
+      const m = studentByKey.get(sKey)?.match;
+      if (m?.status !== "reconnu") continue;
+      const lien = f.liens[akey]?.[sKey];
+      if (!lien) continue;
+      const avant = respId ? (lienExistant.get(`${respId}|${m.eleveId}`) ?? null) : null;
+      const action = avant === null ? "add" : avant === lien ? "unchanged" : "update";
+      if (action === "add") lienAjoutes++;
+      else if (action === "update") lienModifies++;
+      out.push({ eleveId: m.eleveId, lien, action, avant });
+    }
+    return out;
+  };
 
   fileFoyers.forEach(({ f, eleveIds }, fi) => {
     const existingId = assigned.get(fi) ?? null;
@@ -743,6 +795,7 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
           changes,
           differences,
           hasUser: !!m.userId,
+          liens: liensOf(f, a0.akey, m.id),
         });
         if (changes.length) respModified++;
       } else {
@@ -773,6 +826,7 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
           changes: [],
           differences: [],
           hasUser: false,
+          liens: liensOf(f, a0.akey, null),
         });
         respAdded++;
       }
@@ -897,9 +951,26 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     liensRetires: linksRemove.length,
     liensAVerifier: liensAVerifier.length,
     foyersOrphelins: orphelins.length,
+    liensParenteAjoutes: lienAjoutes,
+    liensParenteModifies: lienModifies,
   };
 
-  return { foyers: planFoyers, linksAdd, linksRemove, liensAVerifier, orphelins, students: planStudents, anomalies, counts };
+  return {
+    foyers: planFoyers,
+    linksAdd,
+    linksRemove,
+    liensAVerifier,
+    orphelins,
+    students: planStudents,
+    anomalies,
+    counts,
+    liensParenteIndisponible: !liensDispo,
+  };
+}
+
+/** Au moins un lien de parenté à ajouter ou modifier dans ce foyer. */
+export function foyerHasLienChanges(f: PlanFoyer): boolean {
+  return f.responsables.some((r) => r.liens.some((l) => l.action !== "unchanged"));
 }
 
 /** Plan « inchangé » : plus rien à écrire. */
@@ -907,7 +978,8 @@ export function planIsNoop(plan: Plan): boolean {
   return (
     plan.foyers.every((f) => f.action === "unchanged") &&
     plan.linksAdd.length === 0 &&
-    plan.linksRemove.length === 0
+    plan.linksRemove.length === 0 &&
+    !plan.foyers.some(foyerHasLienChanges)
   );
 }
 
@@ -933,6 +1005,13 @@ export function planFingerprint(plan: Plan, fileHash: string, options: PlanOptio
       ]),
     a: plan.linksAdd.map((l) => [l.eleveId, l.foyerRef]),
     r: plan.linksRemove.map((l) => [l.eleveId, l.foyerId]),
+    l: plan.foyers.flatMap((f) =>
+      f.responsables.flatMap((r) =>
+        r.liens
+          .filter((l) => l.action !== "unchanged")
+          .map((l) => [f.ref, r.respId, r.rang, l.eleveId, l.lien, l.action]),
+      ),
+    ),
   };
   return createHash("sha256")
     .update(JSON.stringify({

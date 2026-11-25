@@ -67,3 +67,38 @@ export function formatEncoursMontant(montant: number): string {
   if (montant <= 0.009) return "0 €";
   return `${montant.toFixed(2).replace(".", ",")} €`;
 }
+
+/** « Prénom NOM » (nom en majuscules). */
+export function formatPersonneNom(r: { prenom: string; nom: string }): string {
+  return `${r.prenom.trim()} ${r.nom.trim().toUpperCase()}`.trim();
+}
+
+/**
+ * Titre d'une carte foyer : « Famille de Prénom NOM » du responsable de rang 1
+ * (sinon le premier), à défaut le libellé du foyer. Le libellé en base n'est jamais modifié.
+ */
+export function formatFamilleTitre(foyer: {
+  label?: string | null;
+  responsables: Array<{ prenom: string; nom: string; rang?: number }>;
+}): string {
+  const list = [...foyer.responsables].filter((r) => (r.prenom + r.nom).trim());
+  const first = list.find((r) => r.rang === 1) ?? list[0];
+  if (first) return `Famille de ${formatPersonneNom(first)}`;
+  return (foyer.label ?? "").trim() || "Foyer";
+}
+
+/** Adresse complète d'un foyer, ou chaîne vide. */
+export function formatFoyerAdresse(f: {
+  adresse?: string | null;
+  codePostal?: string | null;
+  ville?: string | null;
+}): string {
+  return [f.adresse, [f.codePostal, f.ville].filter(Boolean).join(" ")].filter((x) => x && x.trim()).join(", ");
+}
+
+/** Initiales (2 lettres max) pour un avatar. */
+export function initialesDe(r: { prenom: string; nom: string }): string {
+  const a = r.prenom.trim().charAt(0);
+  const b = r.nom.trim().charAt(0);
+  return (a + b).toUpperCase() || "?";
+}

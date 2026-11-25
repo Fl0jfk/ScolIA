@@ -9,6 +9,8 @@ import ResponsableEditor from "./ResponsableEditor";
 type Item = {
   id: string;
   label: string;
+  titre: string;
+  adresse: string | null;
   responsables: Array<{
     id: string;
     nom: string;
@@ -88,7 +90,10 @@ export default function FoyersListClient() {
       <ul className="space-y-3">
         {items.map((f) => (
           <li key={f.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="font-bold text-slate-900">{f.label}</h3>
+            <h3 className="font-bold text-slate-900">{f.titre || f.label}</h3>
+            {f.adresse || f.label !== f.titre ? (
+              <p className="text-xs text-slate-500">{f.adresse || f.label}</p>
+            ) : null}
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               <div>
                 <p className="text-xs font-semibold text-slate-500">Responsables</p>

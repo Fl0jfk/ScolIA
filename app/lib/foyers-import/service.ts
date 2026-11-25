@@ -10,6 +10,7 @@ import {
   foyer,
   foyerFacturation,
   foyerResponsable,
+  foyerResponsableLien,
   personnel,
   user,
   userMembership,
@@ -30,6 +31,8 @@ import {
   type PlanOptions,
 } from "./plan";
 import { buildReportCsv } from "./report";
+import { isMissingRelationError } from "./lien-parente";
+import { formatFamilleTitre, formatFoyerAdresse } from "@/app/lib/foyer-display";
 import { withNamedLock } from "@/app/lib/ent-json-postgres";
 
 export type OrphanInfo = {
@@ -122,6 +125,38 @@ async function loadEmailContext(
   return { accountEmails: [...accounts], staffEmails: [...staff], emailFoyers };
 }
 
+/** Liens de parenté existants ; `null` si la table n'existe pas encore (migration non appliquée). */
+async function loadLiensParente(
+  etablissementId: string,
+  responsableIds: string[],
+): Promise<NonNullable<ExistingData["liensParente"]> | null> {
+  const db = getDb();
+  const out: NonNullable<ExistingData["liensParente"]> = [];
+  try {
+    for (const batch of chunkArray(responsableIds)) {
+      out.push(
+        ...(await db
+          .select({
+            responsableId: foyerResponsableLien.responsableId,
+            eleveId: foyerResponsableLien.eleveId,
+            lien: foyerResponsableLien.lien,
+          })
+          .from(foyerResponsableLien)
+          .where(
+            and(
+              eq(foyerResponsableLien.etablissementId, etablissementId),
+              inArray(foyerResponsableLien.responsableId, batch),
+            ),
+          )),
+      );
+    }
+  } catch (err) {
+    if (isMissingRelationError(err)) return null;
+    throw err;
+  }
+  return out;
+}
+
 async function loadExisting(
   etablissementId: string,
   eleveIds: string[],
@@ -183,7 +218,8 @@ async function loadExisting(
   }
   const respEmails = responsables.map((r) => (r.email ?? "").trim().toLowerCase()).filter(Boolean);
   const ctx = await loadEmailContext(etablissementId, fileEmails, respEmails);
-  return { foyers, responsables, links, ...ctx };
+  const liensParente = await loadLiensParente(etablissementId, responsables.map((r) => r.id));
+  return { foyers, responsables, links, ...ctx, liensParente };
 }
 
 /** Pour chaque foyer orphelin : facturation, fils de messagerie, comptes, autres élèves liés. */
@@ -301,6 +337,7 @@ export async function applyImport(opts: {
   comptesRattaches: number;
   csv: string;
   counts: Plan["counts"];
+  liensParenteSautes: boolean;
 }> {
   // Un seul import à la fois par établissement ; le plan est recalculé sous verrou.
   const locked = await withNamedLock("foyers-import", opts.etablissementId, 900, async () => {
@@ -373,6 +410,7 @@ export async function applyImport(opts: {
       comptesRattaches,
       csv: buildReportCsv(fresh.plan, result.foyerIds),
       counts: fresh.plan.counts,
+      liensParenteSautes: result.liensParenteSautes || fresh.plan.liensParenteIndisponible,
     };
   });
   if (locked.busy) throw new ImportBusyError("Import déjà en cours pour cet établissement.");
@@ -384,6 +422,9 @@ export async function applyImport(opts: {
 export type FoyerListItem = {
   id: string;
   label: string;
+  /** « Famille de Prénom NOM » (responsable de rang 1). */
+  titre: string;
+  adresse: string | null;
   responsables: Array<{
     id: string;
     nom: string;
@@ -402,7 +443,13 @@ export async function listFoyersWithChildren(
 ): Promise<{ items: FoyerListItem[]; total: number }> {
   const db = getDb();
   const foyers = await db
-    .select({ id: foyer.id, label: foyer.label })
+    .select({
+      id: foyer.id,
+      label: foyer.label,
+      adresse: foyer.adresse,
+      codePostal: foyer.codePostal,
+      ville: foyer.ville,
+    })
     .from(foyer)
     .where(
       opts.foyerIds
@@ -419,6 +466,7 @@ export async function listFoyersWithChildren(
     telephone: string | null;
     autoriteParentale: boolean;
     userId: string | null;
+    rang: number;
   }> = [];
   const kids: Array<{ foyerId: string; id: string; nom: string; prenom: string; classe: string | null }> = [];
   for (const batch of chunkArray(ids)) {
@@ -433,6 +481,7 @@ export async function listFoyersWithChildren(
           telephone: foyerResponsable.telephone,
           autoriteParentale: foyerResponsable.autoriteParentale,
           userId: foyerResponsable.userId,
+          rang: foyerResponsable.rang,
         })
         .from(foyerResponsable)
         .where(
@@ -455,6 +504,7 @@ export async function listFoyersWithChildren(
         .orderBy(asc(eleve.nom), asc(eleve.prenom))),
     );
   }
+  const rangOf = new Map(resps.map((r) => [r.id, r.rang]));
   const respBy = new Map<string, FoyerListItem["responsables"]>();
   for (const r of resps) {
     const l = respBy.get(r.foyerId) ?? [];
@@ -475,12 +525,20 @@ export async function listFoyersWithChildren(
     l.push({ id: k.id, nom: k.nom, prenom: k.prenom, classe: k.classe });
     kidBy.set(k.foyerId, l);
   }
-  let items: FoyerListItem[] = foyers.map((f) => ({
-    id: f.id,
-    label: f.label,
-    responsables: respBy.get(f.id) ?? [],
-    enfants: kidBy.get(f.id) ?? [],
-  }));
+  let items: FoyerListItem[] = foyers.map((f) => {
+    const responsables = respBy.get(f.id) ?? [];
+    return {
+      id: f.id,
+      label: f.label,
+      titre: formatFamilleTitre({
+        label: f.label,
+        responsables: responsables.map((r) => ({ prenom: r.prenom, nom: r.nom, rang: rangOf.get(r.id) })),
+      }),
+      adresse: formatFoyerAdresse(f) || null,
+      responsables,
+      enfants: kidBy.get(f.id) ?? [],
+    };
+  });
   const q = (opts.q ?? "").trim();
   if (q) {
     const { normName } = await import("./normalize");
@@ -489,6 +547,7 @@ export async function listFoyersWithChildren(
       const hay = normName(
         [
           it.label,
+          it.titre,
           ...it.responsables.flatMap((r) => [r.nom, r.prenom, r.email ?? "", r.telephone ?? ""]),
           ...it.enfants.flatMap((e) => [e.nom, e.prenom]),
         ].join(" "),
@@ -496,7 +555,7 @@ export async function listFoyersWithChildren(
       return hay.includes(nq);
     });
   }
-  items.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  items.sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
   const total = items.length;
   const offset = Math.max(0, opts.offset ?? 0);
   const limit = Math.min(200, Math.max(1, opts.limit ?? 50));

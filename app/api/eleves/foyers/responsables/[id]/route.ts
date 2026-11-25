@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireFoyersGate } from "@/app/lib/foyers-import/access";
 import { validateResponsableInput } from "@/app/lib/foyers-import/responsable-validate";
-import { updateFoyerResponsable } from "@/app/lib/foyers-import/responsable-edit";
+import { LienParenteError, updateFoyerResponsable } from "@/app/lib/foyers-import/responsable-edit";
 
 export const runtime = "nodejs";
 
@@ -36,6 +36,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
         : null,
     });
   } catch (err) {
+    if (err instanceof LienParenteError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("[eleves/foyers/responsables]", err);
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }

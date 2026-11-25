@@ -32,6 +32,8 @@ import {
   type ExistingData,
 } from "./plan";
 import { buildReportCsv } from "./report";
+import { canonicalLien, isMissingRelationError } from "./lien-parente";
+import { formatFamilleTitre } from "../foyer-display";
 import { canManageFoyersRoles } from "./roles";
 
 /* ───────── Données synthétiques ───────── */
@@ -420,8 +422,9 @@ test("élèves non trouvés / ambigus : aucun foyer ni lien", () => {
 type Row = Record<string, any>;
 
 /** Base mémoire minimale qui comprend les écritures de apply.ts. */
-function fakeDb() {
+function fakeDb(opts: { lienTableMissing?: boolean } = {}) {
   const tables: Record<string, Row[]> = {
+    foyer_responsable_lien: [],
     foyer: [],
     foyer_responsable: [],
     eleve_foyer_link: [],
@@ -449,6 +452,9 @@ function fakeDb() {
       const name = getTableName(table as never);
       return {
         values(v: Row | Row[]) {
+          if (name === "foyer_responsable_lien" && opts.lienTableMissing) {
+            throw Object.assign(new Error('relation "foyer_responsable_lien" does not exist'), { code: "42P01" });
+          }
           touched.push({ op: "insert", table: name });
           const rows = (Array.isArray(v) ? v : [v]).map((r) => ({ id: `${name}-${++seq}`, ...r }));
           const run = (skipDup: boolean) => {
@@ -468,6 +474,15 @@ function fakeDb() {
               return rows.map((r) => ({ id: r.id }));
             },
             onConflictDoNothing: async () => run(true),
+            onConflictDoUpdate: async () => {
+              for (const r of rows) {
+                const cur = tables[name]!.find(
+                  (x) => x.responsableId === r.responsableId && x.eleveId === r.eleveId,
+                );
+                if (cur) cur.lien = r.lien;
+                else tables[name]!.push(r);
+              }
+            },
             then: (res: (v: unknown) => void) => {
               run(false);
               res(undefined);
@@ -508,8 +523,15 @@ function fakeDb() {
   return { db, tables, touched };
 }
 
-function existingFrom(tables: Record<string, Row[]>): ExistingData {
+function existingFrom(tables: Record<string, Row[]>, lienTable = true): ExistingData {
   return {
+    liensParente: lienTable
+      ? tables.foyer_responsable_lien!.map((l) => ({
+          responsableId: l.responsableId,
+          eleveId: l.eleveId,
+          lien: l.lien,
+        }))
+      : null,
     foyers: tables.foyer!.map((f) => ({ id: f.id, label: f.label })),
     responsables: tables.foyer_responsable!.map((r) => ({
       id: r.id,
@@ -558,7 +580,7 @@ test("application : aucune écriture sur eleve, payeur/facturation intacts, idem
   const res = await applyPlan(db, plan, CTX);
 
   // tables écrites : uniquement foyers / responsables / liens / journal
-  const allowed = new Set(["foyer", "foyer_responsable", "eleve_foyer_link", "eleve_access_audit"]);
+  const allowed = new Set(["foyer", "foyer_responsable", "eleve_foyer_link", "foyer_responsable_lien", "eleve_access_audit"]);
   assert.ok(touched.length > 0);
   for (const t of touched) assert.ok(allowed.has(t.table), `table inattendue ${t.table}`);
   assert.ok(!touched.some((t) => t.table === "eleve"));
@@ -1364,4 +1386,125 @@ test("dossier : les enfants affichés pour un foyer sont ceux liés à CE foyer"
   assert.ok(blk.includes("enfantsByFoyer.get(k.foyerId)") && blk.includes("set(k.foyerId"));
   const svc = readFileSync(join(process.cwd(), "app/lib/foyers-import/service.ts"), "utf8");
   assert.ok(svc.includes("kidBy.get(f.id)") && svc.includes("kidBy.set(k.foyerId"));
+});
+
+/* ───────── Lien de parenté enregistré par couple (responsable, élève) ───────── */
+
+function lienDe(f: ReturnType<typeof fakeDb>, prenomResp: string, eleveId: string): string | undefined {
+  const r = f.tables.foyer_responsable!.find((x) => x.prenom === prenomResp);
+  return f.tables.foyer_responsable_lien!.find((l) => l.responsableId === r?.id && l.eleveId === eleveId)?.lien;
+}
+
+test("liens de parenté : famille recomposée — Marc est Beau-père de X et Père de Z", async () => {
+  const { recs, eleves } = recompose();
+  // Z : Marc (Conjoint dans le fichier de X) est cette fois le Père de Z.
+  recs[4] = rec({
+    Nom: "Leroy",
+    Prénom: "Z",
+    "Lien de parenté": "Mère",
+    "Lien de parenté avec le conjoint": "Père",
+    "Nom Resp": "Martin",
+    "Prénom Resp": "Claire",
+    "Email Personnel Resp": "claire@example.org",
+    "Tél. portable Resp": "0600000002",
+    "Nom Conjoint": "Leroy",
+    "Prénom Conjoint": "Marc",
+    "Email Personnel Conjoint": "marc@example.org",
+    "Tél. portable Conjoint": "0600000003",
+  });
+  const plan = buildPlan(analyze(recs, eleves), EMPTY, { keepOldLinks: false });
+  assert.ok(plan.counts.liensParenteAjoutes >= 6);
+  const f = fakeDb();
+  const out = await applyPlan(f.db, plan, CTX);
+  assert.equal(out.liensParenteSautes, false);
+  assert.equal(lienDe(f, "Marc", "eX"), "Beau-père");
+  assert.equal(lienDe(f, "Marc", "eY"), "Beau-père");
+  assert.equal(lienDe(f, "Marc", "eZ"), "Père");
+  assert.equal(lienDe(f, "Claire", "eX"), "Mère");
+  assert.equal(lienDe(f, "Paul", "eX"), "Père");
+  assert.equal(lienDe(f, "Paul", "eZ"), undefined);
+});
+
+test("liens de parenté : relancer le même fichier = inchangé ; un changement de lien = modifié", async () => {
+  const { recs, eleves } = recompose();
+  const f = fakeDb();
+  await applyPlan(f.db, buildPlan(analyze(recs, eleves), EMPTY, { keepOldLinks: false }), CTX);
+  const n = f.tables.foyer_responsable_lien!.length;
+  const plan2 = buildPlan(analyze(recs, eleves), existingFrom(f.tables), { keepOldLinks: false });
+  assert.equal(plan2.counts.liensParenteAjoutes, 0);
+  assert.equal(plan2.counts.liensParenteModifies, 0);
+  assert.ok(planIsNoop(plan2));
+  // Le fichier corrige un lien : Marc devient « Tuteur » de X.
+  const recs3 = recs.map((r) =>
+    r["Prénom"] === "X" && r["Nom Conjoint"] === "Leroy" ? { ...r, "Lien de parenté avec le conjoint": "Tuteur" } : r,
+  );
+  const plan3 = buildPlan(analyze(recs3, eleves), existingFrom(f.tables), { keepOldLinks: false });
+  assert.equal(plan3.counts.liensParenteModifies, 1);
+  assert.equal(plan3.counts.liensParenteAjoutes, 0);
+  assert.ok(!planIsNoop(plan3));
+  assert.notEqual(
+    planFingerprint(plan3, "h", { keepOldLinks: false }),
+    planFingerprint(plan2, "h", { keepOldLinks: false }),
+  );
+  const out = await applyPlan(f.db, plan3, CTX);
+  assert.equal(out.applied.liensParenteModifies, 1);
+  assert.equal(f.tables.foyer_responsable_lien!.length, n);
+  assert.equal(lienDe(f, "Marc", "eX"), "Tuteur");
+});
+
+test("liens de parenté : table absente = aperçu et import continuent, étape sautée", async () => {
+  const { recs, eleves } = recompose();
+  const preview = buildPlan(analyze(recs, eleves), { ...EMPTY, liensParente: null }, { keepOldLinks: false });
+  assert.equal(preview.liensParenteIndisponible, true);
+  assert.equal(preview.counts.liensParenteAjoutes, 0);
+  const f = fakeDb({ lienTableMissing: true });
+  const out = await applyPlan(f.db, preview, CTX);
+  assert.ok(out.applied.foyersCrees > 0);
+  // Course : l'aperçu pensait la table présente, elle ne l'est plus à l'application.
+  const f2 = fakeDb({ lienTableMissing: true });
+  const plan = buildPlan(analyze(recs, eleves), EMPTY, { keepOldLinks: false });
+  const out2 = await applyPlan(f2.db, plan, CTX);
+  assert.equal(out2.liensParenteSautes, true);
+  assert.equal(out2.applied.liensParenteAjoutes, 0);
+  assert.equal(out2.applied.foyersCrees, plan.counts.foyersCrees);
+  assert.equal(f2.tables.eleve_foyer_link!.length, plan.counts.liensAjoutes);
+});
+
+test("liens de parenté : libellés canoniques et validation de la modification", () => {
+  assert.equal(canonicalLien("  mere "), "Mère");
+  assert.equal(canonicalLien("Organisme (ASE, foyer)"), "Organisme (ASE…)");
+  assert.equal(canonicalLien("Beau-Père"), "Beau-père");
+  assert.equal(canonicalLien(""), "");
+  const eid = "11111111-1111-4111-8111-111111111111";
+  const ok = validateResponsableInput({ nom: "A", prenom: "B", lien: "Tante", eleveId: eid });
+  assert.ok(ok.ok && ok.value.lien === "Tante" && ok.value.eleveId === eid);
+  const bad = validateResponsableInput({ nom: "A", prenom: "B", lien: "Cousin éloigné", eleveId: eid });
+  assert.ok(!bad.ok && !!bad.errors.lien);
+  const noEleve = validateResponsableInput({ nom: "A", prenom: "B", lien: "Tante" });
+  assert.ok(!noEleve.ok && !!noEleve.errors.eleveId);
+  const clear = validateResponsableInput({ nom: "A", prenom: "B", lien: "", eleveId: eid });
+  assert.ok(clear.ok && clear.value.lien === "");
+  assert.ok(isMissingRelationError(Object.assign(new Error("x"), { cause: { code: "42P01" } })));
+  assert.ok(!isMissingRelationError(new Error("autre")));
+});
+
+test("titre de famille : responsable de rang 1, sinon premier, sinon libellé", () => {
+  assert.equal(
+    formatFamilleTitre({
+      label: "Foyer 510 rue de la Nation",
+      responsables: [
+        { prenom: "Paul", nom: "Durand", rang: 2 },
+        { prenom: "Claire", nom: "Martin", rang: 1 },
+      ],
+    }),
+    "Famille de Claire MARTIN",
+  );
+  assert.equal(
+    formatFamilleTitre({ label: "Foyer X", responsables: [{ prenom: "Paul", nom: "Durand" }] }),
+    "Famille de Paul DURAND",
+  );
+  assert.equal(
+    formatFamilleTitre({ label: "Foyer 510 rue de la Nation", responsables: [] }),
+    "Foyer 510 rue de la Nation",
+  );
 });

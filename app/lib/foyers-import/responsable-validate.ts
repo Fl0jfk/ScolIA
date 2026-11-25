@@ -1,4 +1,5 @@
 import { cleanText, normEmail, normPhone } from "./normalize";
+import { LIENS_PARENTE } from "./lien-parente";
 
 export type ResponsableInput = {
   nom: string;
@@ -6,6 +7,10 @@ export type ResponsableInput = {
   email: string | null;
   telephone: string | null;
   autoriteParentale?: boolean;
+  /** Lien de parenté avec l'élève `eleveId` : libellé de la liste, "" = effacer, undefined = inchangé. */
+  lien?: string;
+  /** Élève du dossier auquel s'applique `lien`. */
+  eleveId?: string;
 };
 
 export type ResponsableValidation =
@@ -38,6 +43,16 @@ export function validateResponsableInput(body: unknown): ResponsableValidation {
   if (b.autoriteParentale !== undefined && typeof b.autoriteParentale !== "boolean") {
     errors.autoriteParentale = "Valeur invalide.";
   }
+  let lien: string | undefined;
+  let eleveId: string | undefined;
+  if (b.lien !== undefined && b.lien !== null) {
+    const l = cleanText(b.lien);
+    if (l && !(LIENS_PARENTE as readonly string[]).includes(l)) errors.lien = "Lien de parenté invalide.";
+    else lien = l;
+    const e = cleanText(b.eleveId);
+    if (!/^[0-9a-f-]{36}$/i.test(e)) errors.eleveId = "Élève du dossier requis pour le lien de parenté.";
+    else eleveId = e;
+  }
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
@@ -47,6 +62,7 @@ export function validateResponsableInput(body: unknown): ResponsableValidation {
       email,
       telephone,
       ...(typeof b.autoriteParentale === "boolean" ? { autoriteParentale: b.autoriteParentale } : {}),
+      ...(lien !== undefined && eleveId ? { lien, eleveId } : {}),
     },
   };
 }

@@ -43,6 +43,24 @@ export function buildReportCsv(plan: Plan, foyerIds?: Record<string, string>): s
       ]);
     }
   }
+  for (const f of plan.foyers) {
+    for (const r of f.responsables) {
+      for (const l of r.liens) {
+        if (l.action === "unchanged") continue;
+        lines.push([
+          "lien de parenté",
+          `${r.prenom} ${r.nom}`,
+          "",
+          l.action === "add" ? "ajouté" : "modifié",
+          `${l.lien}${l.avant ? ` (avant : ${l.avant})` : ""}`,
+          l.eleveId,
+        ]);
+      }
+    }
+  }
+  if (plan.liensParenteIndisponible) {
+    lines.push(["lien de parenté", "", "", "sauté", "table des liens de parenté absente (migration non appliquée)", ""]);
+  }
   for (const s of plan.students) {
     if (s.liensAjoutes || s.liensRetires) {
       lines.push([

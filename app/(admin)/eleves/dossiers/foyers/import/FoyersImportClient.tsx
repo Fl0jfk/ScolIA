@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { Plan } from "@/app/lib/foyers-import/plan";
+import { formatFamilleTitre } from "@/app/lib/foyer-display";
 
 type Orphan = {
   foyerId: string;
@@ -37,7 +38,12 @@ export default function FoyersImportClient() {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [confirm, setConfirm] = useState(false);
-  const [done, setDone] = useState<{ applied: Record<string, number>; comptesRattaches: number; csv: string } | null>(
+  const [done, setDone] = useState<{
+    applied: Record<string, number>;
+    comptesRattaches: number;
+    csv: string;
+    liensParenteSautes?: boolean;
+  } | null>(
     null,
   );
   const [tab, setTab] = useState<Tab>("foyers");
@@ -103,6 +109,7 @@ export default function FoyersImportClient() {
       if (!q) return true;
       const hay = [
         f.label,
+        formatFamilleTitre(f),
         ...f.responsables.flatMap((r) => [r.nom, r.prenom, r.email ?? "", r.telephone ?? ""]),
         ...f.eleveIds.map((id) => eleveName.get(id) ?? ""),
       ]
@@ -208,8 +215,15 @@ export default function FoyersImportClient() {
             Foyers créés : {done.applied.foyersCrees} · mis à jour : {done.applied.foyersMisAJour} · responsables
             ajoutés : {done.applied.responsablesAjoutes} · modifiés : {done.applied.responsablesModifies} · liens
             ajoutés : {done.applied.liensAjoutes} · retirés : {done.applied.liensRetires} · comptes rattachés :{" "}
-            {done.comptesRattaches}
+            {done.comptesRattaches} · liens de parenté ajoutés : {done.applied.liensParenteAjoutes ?? 0} · modifiés :{" "}
+            {done.applied.liensParenteModifies ?? 0}
           </p>
+          {done.liensParenteSautes ? (
+            <p className="font-semibold text-amber-800">
+              Liens de parenté non enregistrés : la mise à jour de la base (table des liens de parenté) n'est pas
+              encore appliquée. Relancez le même fichier après la mise à jour.
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={() => downloadCsv(done.csv)}
@@ -222,6 +236,12 @@ export default function FoyersImportClient() {
 
       {plan && c ? (
         <>
+          {plan.liensParenteIndisponible ? (
+            <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              Liens de parenté : la table n'existe pas encore (mise à jour de la base en attente). Ils seront ignorés à
+              cet import ; relancez le même fichier ensuite.
+            </p>
+          ) : null}
           <section className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               ["Élèves reconnus", c.elevesReconnus],
@@ -234,6 +254,8 @@ export default function FoyersImportClient() {
               ["Responsables modifiés", c.responsablesModifies],
               ["Liens ajoutés", c.liensAjoutes],
               ["Liens retirés", c.liensRetires],
+              ["Liens de parenté ajoutés", c.liensParenteAjoutes],
+              ["Liens de parenté modifiés", c.liensParenteModifies],
               ["Liens à vérifier", c.liensAVerifier],
               ["Foyers orphelins", c.foyersOrphelins],
               ["Anomalies", plan.anomalies.length],
@@ -297,7 +319,8 @@ export default function FoyersImportClient() {
               {foyersFiltered.slice(0, shown).map((f) => (
                 <li key={f.ref} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold">{f.label}</span>
+                    <span className="font-bold">{formatFamilleTitre(f)}</span>
+                    <span className="text-xs text-slate-400">{f.label}</span>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase">
                       {ACTION_LABEL[f.action]}
                     </span>
@@ -313,6 +336,15 @@ export default function FoyersImportClient() {
                         </span>{" "}
                         · {r.email || "—"} · {r.telephone || "—"}{" "}
                         {r.action === "create" ? <em className="text-emerald-700">(ajouté)</em> : null}
+                        {r.liens
+                          .filter((l) => l.action !== "unchanged")
+                          .map((l) => (
+                            <em key={l.eleveId} className="text-indigo-700">
+                              {" "}
+                              ({l.lien} de {eleveName.get(l.eleveId) ?? "l'élève"}
+                              {l.avant ? `, avant : ${l.avant}` : ""})
+                            </em>
+                          ))}
                         {r.differences.length ? (
                           <em className="text-rose-700"> (compte famille : différence à vérifier — {r.differences.join(", ")})</em>
                         ) : null}

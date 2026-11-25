@@ -1,14 +1,15 @@
 /**
  * Import des foyers — application du plan, par lots, une transaction par lot.
  *
- * Tables écrites : foyer, foyer_responsable, eleve_foyer_link (+ journal d'accès).
+ * Tables écrites : foyer, foyer_responsable, eleve_foyer_link, foyer_responsable_lien (+ journal d'accès).
  * La table `eleve` n'est ni importée ni écrite ici (garanti par test).
  */
 
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
-import { eleveAccessAudit, eleveFoyerLink, foyer, foyerResponsable } from "@/db/schema";
-import type { Plan, PlanResp } from "./plan";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { eleveAccessAudit, eleveFoyerLink, foyer, foyerResponsable, foyerResponsableLien } from "@/db/schema";
+import { isMissingRelationError } from "./lien-parente";
+import { foyerHasLienChanges, type Plan, type PlanResp } from "./plan";
 
 export const APPLY_BATCH_SIZE = 100;
 
@@ -43,7 +44,11 @@ export type ApplyResult = {
     responsablesModifies: number;
     liensAjoutes: number;
     liensRetires: number;
+    liensParenteAjoutes: number;
+    liensParenteModifies: number;
   };
+  /** Étape « liens de parenté » sautée (table absente : migration non appliquée). */
+  liensParenteSautes: boolean;
 };
 
 export class ApplyPartialError extends Error {
@@ -53,6 +58,44 @@ export class ApplyPartialError extends Error {
   ) {
     super(message);
   }
+}
+
+type LienRow = { responsableId: string; eleveId: string; lien: string; action: "add" | "update" };
+
+/**
+ * Enregistre les liens de parenté (upsert idempotent), hors de la transaction principale :
+ * si la table n'existe pas encore (migration non appliquée), l'étape est sautée sans rien casser.
+ */
+async function writeLiens(
+  db: FoyersDb,
+  rows: LienRow[],
+  ctx: ApplyContext,
+): Promise<{ ajoutes: number; modifies: number } | "absente"> {
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(foyerResponsableLien)
+        .values(
+          rows.map((r) => ({
+            etablissementId: ctx.etablissementId,
+            responsableId: r.responsableId,
+            eleveId: r.eleveId,
+            lien: r.lien,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [foyerResponsableLien.responsableId, foyerResponsableLien.eleveId],
+          set: { lien: sql`excluded.lien`, updatedAt: new Date() },
+        });
+    });
+  } catch (err) {
+    if (isMissingRelationError(err)) return "absente";
+    throw err;
+  }
+  return {
+    ajoutes: rows.filter((r) => r.action === "add").length,
+    modifies: rows.filter((r) => r.action === "update").length,
+  };
 }
 
 export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Promise<ApplyResult> {
@@ -73,7 +116,10 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
   // Élèves à traiter : ceux dont au moins un lien ou un foyer lié change.
   const touched = plan.students.filter((s) => {
     if (addsByEleve.has(s.eleveId) || removesByEleve.has(s.eleveId)) return true;
-    return s.foyerRefs.some((r) => foyerByRef.get(r)?.action !== "unchanged");
+    return s.foyerRefs.some((r) => {
+      const pf = foyerByRef.get(r);
+      return !!pf && (pf.action !== "unchanged" || foyerHasLienChanges(pf));
+    });
   });
   const batches: (typeof touched)[] = [];
   for (let i = 0; i < touched.length; i += APPLY_BATCH_SIZE) batches.push(touched.slice(i, i + APPLY_BATCH_SIZE));
@@ -90,7 +136,10 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
       responsablesModifies: 0,
       liensAjoutes: 0,
       liensRetires: 0,
+      liensParenteAjoutes: 0,
+      liensParenteModifies: 0,
     },
+    liensParenteSautes: false,
   };
   for (const f of plan.foyers) if (f.existingId) result.foyerIds[f.ref] = f.existingId;
   const done = new Set<string>();
@@ -109,6 +158,8 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
           liensAjoutes: 0,
           liensRetires: 0,
         };
+        const newRespIds = new Map<PlanResp, string>();
+        const lienRows: LienRow[] = [];
         const audits: Array<typeof eleveAccessAudit.$inferInsert> = [];
         const audit = (
           resourceId: string,
@@ -133,6 +184,7 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
         const updatedFoyerIds: string[] = [];
         const respRow = (foyerId: string, r: PlanResp) => {
           const id = randomUUID();
+          newRespIds.set(r, id);
           if (r.email) link.push({ respId: id, email: r.email });
           return {
             id,
@@ -156,6 +208,16 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
             const pf = foyerByRef.get(ref);
             if (!pf) continue;
             doneBatch.push(ref);
+            const collectLiens = () => {
+              for (const r of pf.responsables) {
+                const rid = r.respId ?? newRespIds.get(r);
+                if (!rid) continue;
+                for (const l of r.liens) {
+                  if (l.action === "unchanged") continue;
+                  lienRows.push({ responsableId: rid, eleveId: l.eleveId, lien: l.lien, action: l.action });
+                }
+              }
+            };
             if (pf.action === "create") {
               const id = randomUUID();
               ids[ref] = id;
@@ -164,6 +226,7 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
               a.foyersCrees++;
               a.responsablesAjoutes += pf.responsables.length;
               audit(id, pf.eleveIds[0] ?? null, "create", "fiche_foyer", { responsables: pf.responsables.length });
+              collectLiens();
             } else if (pf.action === "update" && pf.existingId) {
               for (const r of pf.responsables) {
                 if (r.action === "update" && r.respId) {
@@ -199,6 +262,9 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
                 modifies: pf.responsables.filter((r) => r.action === "update").length,
                 ajoutes: pf.responsables.filter((r) => r.action === "create").length,
               });
+              collectLiens();
+            } else {
+              collectLiens();
             }
           }
         }
@@ -241,7 +307,7 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
         }
         if (audits.length) await tx.insert(eleveAccessAudit).values(audits);
 
-        return { ids, link, doneBatch, a };
+        return { ids, link, doneBatch, a, lienRows };
       });
       // Lot validé : on publie les résultats.
       Object.assign(result.foyerIds, out.ids);
@@ -249,6 +315,14 @@ export async function applyPlan(db: FoyersDb, plan: Plan, ctx: ApplyContext): Pr
       result.respsToLink.push(...out.link);
       for (const k of Object.keys(out.a) as Array<keyof typeof out.a>) result.applied[k] += out.a[k];
       result.batchesDone++;
+      if (out.lienRows.length && !result.liensParenteSautes) {
+        const w = await writeLiens(db, out.lienRows, ctx);
+        if (w === "absente") result.liensParenteSautes = true;
+        else {
+          result.applied.liensParenteAjoutes += w.ajoutes;
+          result.applied.liensParenteModifies += w.modifies;
+        }
+      }
     } catch (err) {
       throw new ApplyPartialError(
         `Échec au lot ${result.batchesDone + 1}/${result.batchesTotal} : ${

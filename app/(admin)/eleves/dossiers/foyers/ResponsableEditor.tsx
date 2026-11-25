@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LIENS_PARENTE } from "@/app/lib/foyers-import/lien-parente";
 
 export type EditableResponsable = {
   id: string;
@@ -10,6 +11,8 @@ export type EditableResponsable = {
   telephone: string | null;
   autoriteParentale: boolean;
   compteFamille?: boolean;
+  /** Lien de parenté avec l'élève du dossier (si connu). */
+  lien?: string | null;
 };
 
 /** Formulaire de modification d'un responsable (PATCH /api/eleves/foyers/responsables/[id]). */
@@ -17,7 +20,12 @@ export default function ResponsableEditor({
   resp,
   onSaved,
   onCancel,
+  eleveId,
+  eleveLabel,
 }: {
+  /** Élève du dossier : permet de choisir le lien de parenté avec cet élève. */
+  eleveId?: string;
+  eleveLabel?: string;
   resp: EditableResponsable;
   onSaved: () => void;
   onCancel: () => void;
@@ -27,6 +35,7 @@ export default function ResponsableEditor({
   const [email, setEmail] = useState(resp.email ?? "");
   const [telephone, setTelephone] = useState(resp.telephone ?? "");
   const [autorite, setAutorite] = useState(resp.autoriteParentale);
+  const [lien, setLien] = useState(resp.lien ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -38,7 +47,14 @@ export default function ResponsableEditor({
       const res = await fetch(`/api/eleves/foyers/responsables/${resp.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nom, prenom, email, telephone, autoriteParentale: autorite }),
+        body: JSON.stringify({
+          nom,
+          prenom,
+          email,
+          telephone,
+          autoriteParentale: autorite,
+          ...(eleveId && lien !== (resp.lien ?? "") ? { eleveId, lien } : {}),
+        }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Enregistrement impossible.");
@@ -65,6 +81,26 @@ export default function ResponsableEditor({
           className={input}
         />
       </div>
+      {eleveId ? (
+        <label className="block text-xs font-semibold text-slate-600">
+          Lien de parenté{eleveLabel ? ` avec ${eleveLabel}` : ""}
+          <select
+            value={lien}
+            onChange={(e) => setLien(e.target.value)}
+            className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal"
+          >
+            <option value="">Non renseigné</option>
+            {resp.lien && !(LIENS_PARENTE as readonly string[]).includes(resp.lien) ? (
+              <option value={resp.lien}>{resp.lien}</option>
+            ) : null}
+            {LIENS_PARENTE.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={autorite} onChange={(e) => setAutorite(e.target.checked)} />
         Autorité parentale

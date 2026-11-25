@@ -12,6 +12,7 @@ import {
   etablissementSite,
   foyer,
   foyerResponsable,
+  foyerResponsableLien,
 } from "@/db/schema";
 import { getAppSession, requireAppUser } from "@/app/lib/intranet-session";
 import {
@@ -79,7 +80,8 @@ import {
   type EleveSyntheseSnapshot,
 } from "@/app/lib/eleve-dossier-synthese";
 import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
-import { elevePhotoProxyPath } from "@/app/lib/eleve-photos";
+import { elevePhotoProxyPath, getElevePhotoUrl } from "@/app/lib/eleve-photos";
+import { isMissingRelationError } from "@/app/lib/foyers-import/lien-parente";
 import { lookupMefLabel } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import {
   countMidiFromGrille,
@@ -388,7 +390,14 @@ export async function GET(req: Request, ctx: Ctx) {
     payeurEstFoyer: boolean;
     relation: string;
     /** Tous les enfants du foyer (personnel habilité uniquement, lecture seule). */
-    enfants?: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
+    enfants?: Array<{
+      id: string;
+      nom: string;
+      prenom: string;
+      classe: string | null;
+      /** URL pré-signée courte (photo élève), jamais une URL publique permanente. */
+      photoUrl?: string | null;
+    }>;
     responsables: Array<{
       id: string;
       nom: string;
@@ -400,6 +409,9 @@ export async function GET(req: Request, ctx: Ctx) {
       payeur: boolean;
       rang: number;
       compteFamille?: boolean;
+      peutRecuperer?: boolean;
+      /** Lien de parenté avec CET élève (personnel habilité uniquement). */
+      lien?: string | null;
     }>;
   }> = [];
   if (links.length) {
@@ -430,9 +442,31 @@ export async function GET(req: Request, ctx: Ctx) {
     // Fratrie / rapprochement par famille : réservé au personnel qui gère la structure (pas aux profs).
     const enfantsByFoyer = new Map<
       string,
-      Array<{ id: string; nom: string; prenom: string; classe: string | null }>
+      Array<{ id: string; nom: string; prenom: string; classe: string | null; photoUrl?: string | null }>
     >();
-    if (canEditStructure(roles, { orgAdmin, platformAdmin }) && !profRestrictedView) {
+    const structureView = canEditStructure(roles, { orgAdmin, platformAdmin }) && !profRestrictedView;
+    // Liens de parenté avec cet élève (table absente tant que la migration 0074 n'est pas appliquée).
+    const lienByResp = new Map<string, string>();
+    if (structureView && respRows.length) {
+      try {
+        for (const batch of chunkArray(respRows.map((r) => r.id))) {
+          const rows = await db
+            .select({ responsableId: foyerResponsableLien.responsableId, lien: foyerResponsableLien.lien })
+            .from(foyerResponsableLien)
+            .where(
+              and(
+                eq(foyerResponsableLien.etablissementId, etabId),
+                eq(foyerResponsableLien.eleveId, id),
+                inArray(foyerResponsableLien.responsableId, batch),
+              ),
+            );
+          for (const r of rows) lienByResp.set(r.responsableId, r.lien);
+        }
+      } catch (e) {
+        if (!isMissingRelationError(e)) console.warn("[eleves/dossier] liens de parenté", e);
+      }
+    }
+    if (structureView) {
       for (const batch of chunkArray(foyerIds)) {
         const kids = await db
           .select({
@@ -441,16 +475,31 @@ export async function GET(req: Request, ctx: Ctx) {
             nom: eleve.nom,
             prenom: eleve.prenom,
             classe: eleve.classe,
+            ine: eleve.ine,
+            photoKey: eleve.photoKey,
+            folderName: eleve.folderName,
           })
           .from(eleveFoyerLink)
           .innerJoin(eleve, eq(eleve.id, eleveFoyerLink.eleveId))
           .where(and(eq(eleveFoyerLink.etablissementId, etabId), inArray(eleveFoyerLink.foyerId, batch)))
           .orderBy(asc(eleve.nom), asc(eleve.prenom));
-        for (const k of kids) {
+        // Photos : URL pré-signées courtes générées ici, en lot (le cache d'index est partagé).
+        const photos = await Promise.all(
+          kids.map((k) =>
+            getElevePhotoUrl({
+              nom: k.nom,
+              prenom: k.prenom,
+              ine: k.ine || "",
+              photoKey: k.photoKey ?? undefined,
+              folderName: k.folderName || "",
+            }).catch(() => null),
+          ),
+        );
+        kids.forEach((k, i) => {
           const l = enfantsByFoyer.get(k.foyerId) ?? [];
-          l.push({ id: k.id, nom: k.nom, prenom: k.prenom, classe: k.classe });
+          l.push({ id: k.id, nom: k.nom, prenom: k.prenom, classe: k.classe, photoUrl: photos[i] ?? null });
           enfantsByFoyer.set(k.foyerId, l);
-        }
+        });
       }
     }
     const respByFoyer = new Map<string, typeof respRows>();
@@ -482,8 +531,8 @@ export async function GET(req: Request, ctx: Ctx) {
           contactUrgence: r.contactUrgence,
           payeur: r.payeur,
           rang: r.rang,
-          ...(canEditStructure(roles, { orgAdmin, platformAdmin }) && !profRestrictedView
-            ? { compteFamille: !!r.userId }
+          ...(structureView
+            ? { compteFamille: !!r.userId, peutRecuperer: r.peutRecuperer, lien: lienByResp.get(r.id) ?? null }
             : {}),
         })),
       });

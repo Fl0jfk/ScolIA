@@ -542,6 +542,29 @@ export const foyerResponsable = pgTable(
   ],
 );
 
+/** Lien de parenté d'un responsable avec UN élève (dépend du couple : beau-père de X, père de Z). */
+export const foyerResponsableLien = pgTable(
+  "foyer_responsable_lien",
+  {
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    responsableId: uuid("responsable_id")
+      .notNull()
+      .references(() => foyerResponsable.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id")
+      .notNull()
+      .references(() => eleve.id, { onDelete: "cascade" }),
+    lien: text("lien").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.responsableId, t.eleveId], name: "foyer_responsable_lien_pk" }),
+    index("foyer_responsable_lien_etab_idx").on(t.etablissementId, t.eleveId),
+  ],
+);
+
 export const eleveFoyerLink = pgTable(
   "eleve_foyer_link",
   {
@@ -987,6 +1010,7 @@ export type EleveScolariteRow = typeof eleveScolarite.$inferSelect;
 export type EleveRegimePeriodeRow = typeof eleveRegimePeriode.$inferSelect;
 export type MetierEventRow = typeof metierEvent.$inferSelect;
 export type FoyerRow = typeof foyer.$inferSelect;
+export type FoyerResponsableLienRow = typeof foyerResponsableLien.$inferSelect;
 export type FoyerResponsableRow = typeof foyerResponsable.$inferSelect;
 export type EleveDocumentRow = typeof eleveDocument.$inferSelect;
 export type PreinscriptionRow = typeof preinscription.$inferSelect;
