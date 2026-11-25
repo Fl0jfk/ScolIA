@@ -3,7 +3,7 @@
 Décision de Florian du 2026-11-25. Florian a accès à la bêta. Ce document sert de kit : il réunit ce qu'il faut coller
 dans le Projet, et ce qu'il faut vérifier avant et après la bascule.
 
-**État** : en préparation. Le pilote donne le feu vert à Florian quand les sessions en cours sont terminées, revues et
+**État** : **prêt** (2026-11-25). Feu vert donné à Florian. Le pilote donne le feu vert à Florian quand les sessions en cours sont terminées, revues et
 versées (voir § 1). La bascule se fait ensuite avec Florian.
 
 ---
@@ -107,21 +107,27 @@ Les consignes actuelles (`docs/pilotage/consignes/*.md`) servent telles quelles.
   - Section « livraison » dans la doc du socle.
   - Message au coordinateur avec la tête finale et l'état de la CI.
 
-## 4. File au moment de la bascule (à mettre à jour)
+## 4. File au moment de la bascule (état du 2026-11-25, 11 h 40 UTC)
 
-1. Correctifs F3 suites 4 s'ils ne sont pas encore versés.
-2. **G3b** RGPD : extrait assemblé, masquages, remise chiffrée (migration 2545).
-3. **MB1 client** : intégration de `ent-mobile-app` et CI Android / Swift. La conception dit « pas sur `ENT` sans accord » :
-   à trancher avec Florian.
-4. Transverse : contrôle par une deuxième personne (règle 3) fondé sur la personne physique, pas seulement sur le compte.
-   Conception Opus d'abord.
-5. Faibles en file, à regrouper en lots de fiabilité :
-   - T3 et T2 ;
-   - V3b suites 2 (F-1 à F-8, verrou dans les déclencheurs de faits) ;
-   - cahier (rejeu 2419/2420, verrou du test de REVOKE, export RGPD des lignes absorbées) ;
-   - E1 passe 5 ;
-   - I5 passe 7.
-6. Socle 27 suivants : **G4** (journal des accès visible), **G5** (violations).
+**ENT = `b65892dd`, CI verte (run 723).** Tout ce qui était prêt est versé : V5 p6, T2, V3b et suites 2, I5 p7, E1 p5,
+F3 suites 3 et 4, cahier suites 2, T3, MB1 serveur. Aucune PR versable en attente.
+
+Premiers lots du Projet, dans l'ordre :
+1. **Correctifs G3a** (guichet RGPD) : 2 élevés (pièce d'identité réellement détruite ; titulaire sans autorité ou
+   restreint jamais « vérifié »), 6 moyens. Consigne prête : `consignes/27_G3A_CORRECTIFS.md` ; branche
+   `ent-socle-27-code-g3a` déjà fusionnée avec ENT (sa CI tourne à la bascule) ; rapport
+   `revues/27_G3A_CONTRE_REVUE.md`. Le fil précédent (session_01KZCbFFL3XPT8CXzEHvBbfP) est à archiver.
+2. **Facturation : régime mois par mois** (élevé préexistant sur ENT : l'annuel facture l'année au régime courant ; un
+   changement sans ligne de régime, en juin par exemple, fait facturer l'année entière au nouveau régime). **Conception
+   Opus d'abord**, puis code. Rapport `revues/24_F3_SUITES_4_CORRECTIFS_CONTRE_REVUE.md`.
+3. **G3b** RGPD : extrait assemblé, masquages, remise chiffrée (2545), après les correctifs G3a.
+4. **MB1 client** (applis Android / iOS dans le dépôt, CI Android / Swift) : « pas sur `ENT` sans accord » → à trancher
+   avec Florian.
+5. Transverse : règle 3 (deuxième personne) fondée sur la personne physique (conception d'abord).
+6. Lots de faibles regroupés (rapports dans `revues/`) : MB1 (F1 à F7, HMAC, clé dans la transaction métier), T3, cahier
+   suites 2 (rejeu 2419/2420), V3b suites 2 (M-2 verrou des faits, F-1 à F-8), E1 p5, I5 p7, F3 (plafond relevé avec payeur
+   suivant, hausse de tarif plafonnée).
+7. Socle 27 : **G4** (journal des accès visible), **G5** (violations).
 
 ## 5. Ce qu'il faut rebrancher à la bascule
 
