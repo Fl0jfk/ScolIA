@@ -299,3 +299,11 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3B_
 
 ### Résultat (Suites V3b, 2)
 Le premier push (`d06fcb4f`) n'a déclenché aucune CI : conflit avec `ENT` (318 de l'I5 en fin de tableau). `origin/ENT` fusionné (règle 28) : `migrate.rs` résolu en gardant **656, 318, puis 657** (ordre de `migrations_versees.txt`, règle 38 ; `regle_38` et `migrate::` verts). Tête de code `8ccd2f1f` : CI « ENT Rust » **verte** (https://github.com/Fl0jfk/ScolIA/actions/runs/45517877355). Le commit qui consigne ce résultat ne touche que la documentation. PR n° 153 laissée en **brouillon** vers `ENT`.
+
+### Correctifs du pilote après contre-revue des suites V3b, 2
+Rapport : `docs/pilotage/revues/42_VOYAGES_V3B_SUITES_2_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **M-1** : la borne collective vaut pour le **cumul** : un second avoir actif (proposé, retenu, à revoir, désistement compris) pour le même (participant, compte) est refusé en base, sous le verrou de la sortie (clé de `verrou_sortie`) ; même règle que l'application. Test corrigé (cumul refusé ; gardes de personne sur un autre couple).
+- **M-4** : le test de rattrapage ne rejoue plus 656 ni 657 sur la base commune ; seule la contrainte écartée est rétablie.
+- **M-3** (D-069) : la portée d'un contournement collectif reste la sortie entière ; chaque couple n'a qu'un avoir actif.
+- En file : verrou de sortie dans les déclencheurs de faits (M-2), faibles F-1 à F-8.
+- Local : 233 tests voyages verts, clippy 1.99 vert. 657 inscrite aux migrations versées.

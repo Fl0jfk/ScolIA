@@ -5472,10 +5472,13 @@ async fn v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse_et_sa_decision_es
         .execute(ent.pool_verif())
         .await
         .expect("l'argent versé, ni plus ni moins");
-    avoir(x.p1, x.compte_c, 3_000, libre.user_id, None)
+    // Contre-revue du pilote (M-1) : la borne vaut pour le cumul : un second avoir pour le même payeur et le même
+    // participant est refusé, même inférieur au versé.
+    let r = avoir(x.p1, x.compte_c, 3_000, libre.user_id, None)
         .execute(ent.pool_verif())
-        .await
-        .expect("moins que l'argent versé");
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "cumul au-delà du versé");
+    assert!(message_sql(&r).contains("déjà couvert"), "{}", message_sql(&r));
     // Faible 1 : la décision portée par la ligne est contrôlée (parent de l'élève, payeur du compte : refusés ; libre : ok).
     for (nom, qui) in [
         ("parent de l'élève", lie.user_id),
@@ -5490,12 +5493,12 @@ async fn v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse_et_sa_decision_es
             "décision par le {nom}"
         );
     }
-    avoir(x.p1, x.compte_c, 2_000, libre.user_id, Some(libre2.user_id))
-        .execute(ent.pool_verif())
-        .await
-        .expect("décision par une personne libre");
+    // Un autre couple (participant, payeur) encore non couvert : les gardes de personne restent discriminantes.
+    x.verser(x.p0, x.compte_a, "cheque", "50").await.unwrap();
+    let payeur_a = compta_payeur_de(&x, x.compte_a).await;
+    let lie0 = compta_parent_de(&x, x.c.eleves[0]).await;
     // La proposition elle-même reste gardée sur le participant et le payeur de la ligne.
-    let r = avoir(x.p1, x.compte_c, 1_000, lie.user_id, None)
+    let r = avoir(x.p0, x.compte_a, 1_000, lie0.user_id, None)
         .execute(ent.pool_verif())
         .await;
     assert_eq!(
@@ -5503,7 +5506,7 @@ async fn v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse_et_sa_decision_es
         Some("23514"),
         "proposée par le parent de l'élève"
     );
-    let r = avoir(x.p1, x.compte_c, 1_000, payeur_c.user_id, None)
+    let r = avoir(x.p0, x.compte_a, 1_000, payeur_a.user_id, None)
         .execute(ent.pool_verif())
         .await;
     assert_eq!(
@@ -5511,6 +5514,10 @@ async fn v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse_et_sa_decision_es
         Some("23514"),
         "proposée par le payeur du compte"
     );
+    avoir(x.p0, x.compte_a, 2_000, libre.user_id, Some(libre2.user_id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("décision par une personne libre");
 }
 
 /// Moyen 3 (revue) : le rattrapage de 656 restaure `app.etablissement_id` et est idempotent (second passage sans effet).
@@ -5594,16 +5601,14 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
             .await
             .unwrap();
     assert_eq!(premier, second, "second passage sans effet");
-    // Remet les contraintes écartées et les dernières versions des fonctions (656 puis 657, même base que les autres tests).
-    sqlx::raw_sql(sql)
-        .execute(proprietaire.pool())
-        .await
-        .expect("rejeu de 656");
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/657_sortie_voyages_v3b_suites_2.sql"
-    ))
+    // Contre-revue du pilote (M-4) : ne remet QUE la contrainte écartée, sans rejouer 656 ni 657 sur la base commune (le
+    // rejeu de 656 remettait un instant les fonctions d'avant 657 sous les tests voisins).
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
+            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
+    )
     .execute(proprietaire.pool())
     .await
-    .expect("rejeu de 657");
+    .expect("contrainte rétablie");
     crate::tenant_tx::forcer_mode_test(None);
 }

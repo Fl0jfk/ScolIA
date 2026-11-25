@@ -194,6 +194,17 @@ BEGIN
                 RAISE EXCEPTION 'un pouvoir sur l''argent ne s''exerce pas pour son propre enfant ni pour son propre compte'
                     USING ERRCODE = '23514';
             END IF;
+            -- Contre-revue du pilote (M-1, M-2) : la borne vaut pour le CUMUL. Sous le verrou de la sortie (même clé que
+            -- `verrou_sortie`, ce qui sérialise aussi révocation et usage), un payeur déjà couvert pour ce participant par
+            -- un avoir actif (proposé, retenu ou à revoir, désistement compris) n'en reçoit pas un second : même règle que
+            -- l'application (`collective_participant`).
+            PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('voyages_argent:' || NEW.sortie_id::text, 0));
+            IF EXISTS (SELECT 1 FROM public.ent_sortie_avoir_propose a
+                        WHERE a.etablissement_id = NEW.etablissement_id AND a.participant_id = NEW.participant_id
+                          AND a.compte_id = NEW.compte_id AND a.statut IN ('propose', 'retenu', 'a_revoir')) THEN
+                RAISE EXCEPTION 'un avoir d''annulation collective ne dépasse pas l''argent versé : ce payeur est déjà couvert pour ce participant'
+                    USING ERRCODE = '23514';
+            END IF;
             qui := NEW.propose_par_user_id; cpt := NULL; cpt_avoir := NEW.compte_id;
             act := 'annulation_collective'; cible := NEW.sortie_id;
             -- Les participants qui ont versé, et celui de la ligne : la sortie entière décide l'annulation collective.
