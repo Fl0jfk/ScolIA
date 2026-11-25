@@ -3862,6 +3862,13 @@ async fn v3b_le_rattrapage_de_656_atteint_les_lignes_sous_la_rls_stricte() {
         .execute(proprietaire.pool())
         .await
         .expect("rejeu de 656");
+    // 657 recrée les fonctions que le rejeu de 656 vient de remplacer : elle est rejouée à sa suite (même base, autres tests).
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/657_sortie_voyages_v3b_suites_2.sql"
+    ))
+    .execute(proprietaire.pool())
+    .await
+    .expect("rejeu de 657");
     crate::tenant_tx::forcer_mode_test(None);
 }
 
@@ -4138,7 +4145,11 @@ async fn v3b_une_autorisation_ne_couvre_que_ce_que_la_demande_porte_service_et_s
     );
     // Contre-revue du pilote (B1) : un comptable libre dont l'accès est suspendu, fermé ou échu garde son rôle mais
     // n'autorise plus.
-    for (etat, fin) in [("suspendu", None), ("ferme", None), ("ouvert", Some("2000-01-01"))] {
+    for (etat, fin) in [
+        ("suspendu", None),
+        ("ferme", None),
+        ("ouvert", Some("2000-01-01")),
+    ] {
         let inactif = compta_libre(&x).await;
         sqlx::query(
             "UPDATE ent_membership SET etat = $3, date_fin = $4::date WHERE user_id = $1 AND etablissement_id = $2",
@@ -4744,4 +4755,860 @@ async fn v3b_les_refus_de_seconde_personne_sont_traces_la_course_23514_devient_u
         nb_refus(&x, spammeur.user_id, "voyage_acompte_creer").await,
         1
     );
+}
+
+// ═════════════════════════════ Suites V3b, 2 (contre-revue des correctifs : M2, M3, faibles 1 et 5) ═════════════════════════════
+
+fn message_sql<T>(r: &Result<T, sqlx::Error>) -> String {
+    match r {
+        Err(sqlx::Error::Database(d)) => d.message().to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Une demande de contournement **antidatée** de `jours` jours (horloge de la base) : le déclencheur d'horodatage est écarté
+/// le temps de l'écriture, dans une transaction (même technique que `forcer_etat_seance`).
+async fn demande_antidatee(
+    x: &Suivi,
+    par: Uuid,
+    action: &str,
+    cible: Option<Uuid>,
+    max: Option<i64>,
+    presta: Option<Uuid>,
+    jours: i32,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    let mut tx = x.c.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("ALTER TABLE ent_sortie_argent_contournement DISABLE TRIGGER ent_sortie_argent_contournement_horodate_tg")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_sortie_argent_contournement
+             (id, etablissement_id, sortie_id, action, demande_par_user_id, motif, cible_id, montant_max_centimes, prestataire_id, demande_le)
+         VALUES ($1,$2,$3,$4,$5,'Motif',$6,$7,$8, now() - make_interval(days => $9))",
+    )
+    .bind(id)
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(action)
+    .bind(par)
+    .bind(cible)
+    .bind(max)
+    .bind(presta)
+    .bind(jours)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE ent_sortie_argent_contournement ENABLE TRIGGER ent_sortie_argent_contournement_horodate_tg")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    id
+}
+
+/// Un fait **antidaté** de `jours` jours, garde d'insertion écartée le temps de l'écriture (l'horodatage `le` est alors celui
+/// fourni, comme le ferait une base dont l'horloge a avancé depuis).
+async fn fait_antidate(
+    x: &Suivi,
+    cid: Uuid,
+    evenement: &str,
+    par: Uuid,
+    cible: Option<Uuid>,
+    jours: i32,
+) {
+    let mut tx = x.c.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("ALTER TABLE ent_sortie_argent_contournement_evt DISABLE TRIGGER ent_sortie_argent_contournement_evt_garde_tg")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, cible_id, le)
+         VALUES ($1,$2,$3,$4,$5,$6, now() - make_interval(days => $7))",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(cid)
+    .bind(evenement.to_string())
+    .bind(par)
+    .bind(cible)
+    .bind(jours)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE ent_sortie_argent_contournement_evt ENABLE TRIGGER ent_sortie_argent_contournement_evt_garde_tg")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// Fait inséré par la voie normale (garde active).
+fn fait(
+    x: &Suivi,
+    cid: Uuid,
+    evenement: &str,
+    par: Uuid,
+    cible: Option<Uuid>,
+) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    sqlx::query(
+        "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, cible_id)
+         VALUES ($1,$2,$3,$4,$5,$6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(cid)
+    .bind(evenement.to_string())
+    .bind(par)
+    .bind(cible)
+}
+
+fn nouvel_acompte_sql(
+    x: &Suivi,
+    id: Uuid,
+    presta: Uuid,
+    centimes: i64,
+    jour: chrono::NaiveDate,
+    par: Uuid,
+) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    sqlx::query(
+        "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id)
+         VALUES ($1,$2,$3,$4,'x',$5,$6,$7)",
+    )
+    .bind(id)
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(presta)
+    .bind(centimes)
+    .bind(jour)
+    .bind(par)
+}
+
+/// M3 : l'expiration se joue **à la décision** et **à l'usage** par les déclencheurs, sur l'horloge de la base (faits
+/// antidatés, déclencheur d'horodatage écarté dans une transaction de test : aucune heure réelle dans les assertions).
+#[tokio::test]
+async fn v3b2_l_expiration_se_joue_a_la_decision_et_a_l_usage_par_les_declencheurs_sur_l_horloge_de_la_base(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    // Décision : une demande de 31 jours ne se décide plus (déclencheur), une de 29 jours oui.
+    let vieille = demande_antidatee(
+        &x,
+        lie.user_id,
+        "annulation_collective",
+        None,
+        None,
+        None,
+        31,
+    )
+    .await;
+    let r = fait(&x, vieille, "autorise", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "décision d'une demande de 31 jours"
+    );
+    assert!(message_sql(&r).contains("expiré"), "{}", message_sql(&r));
+    let recente = demande_antidatee(
+        &x,
+        lie.user_id,
+        "annulation_collective",
+        None,
+        None,
+        None,
+        29,
+    )
+    .await;
+    fait(&x, recente, "autorise", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await
+        .expect("décision d'une demande de 29 jours");
+    // Usage, garde du fait « utilisé » : autorisation de 31 jours refusée, de 29 jours acceptée.
+    let u31 = demande_antidatee(
+        &x,
+        lie.user_id,
+        "annulation_collective",
+        None,
+        None,
+        None,
+        31,
+    )
+    .await;
+    fait_antidate(&x, u31, "autorise", libre.user_id, None, 31).await;
+    let r = fait(&x, u31, "utilise", lie.user_id, Some(x.s.id))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "usage d'une autorisation de 31 jours"
+    );
+    assert!(message_sql(&r).contains("expiré"), "{}", message_sql(&r));
+    let u29 = demande_antidatee(
+        &x,
+        lie.user_id,
+        "annulation_collective",
+        None,
+        None,
+        None,
+        29,
+    )
+    .await;
+    fait_antidate(&x, u29, "autorise", libre.user_id, None, 29).await;
+    fait(&x, u29, "utilise", lie.user_id, Some(x.s.id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("usage d'une autorisation de 29 jours");
+    // Usage, déclencheur d'écriture : un « utilisé » dont l'autorisation a vieilli ne couvre plus l'écriture (acompte).
+    // 31 jours : refusée ; 29 jours : acceptée (faits posés avec la garde écartée, pour isoler le déclencheur de pouvoir).
+    for (jours, attendu) in [(31, false), (29, true)] {
+        let cid = demande_antidatee(
+            &x,
+            lie.user_id,
+            "acompte_creer",
+            None,
+            Some(10_000),
+            Some(presta),
+            jours,
+        )
+        .await;
+        let nid = Uuid::new_v4();
+        fait_antidate(&x, cid, "autorise", libre.user_id, None, jours).await;
+        fait_antidate(&x, cid, "utilise", lie.user_id, Some(nid), jours).await;
+        let r = nouvel_acompte_sql(&x, nid, presta, 10_000, jour, lie.user_id)
+            .execute(ent.pool_verif())
+            .await;
+        if attendu {
+            r.expect("autorisation de 29 jours : l'écriture passe");
+        } else {
+            assert_eq!(
+                code_sql(&r).as_deref(),
+                Some("23514"),
+                "autorisation de 31 jours : l'écriture est refusée"
+            );
+        }
+    }
+}
+
+/// M3 : `demande_le` et `le` sont en ajout seul : UPDATE et DELETE refusés en SQL direct (les deux tables).
+#[tokio::test]
+async fn v3b2_les_horodatages_de_contournement_ne_se_modifient_ni_ne_se_suppriment_en_sql_direct() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_collective("Motif"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&x.compta(), x.s.id, c.id, true, None, t0)
+        .await
+        .unwrap();
+    for (nom, sql) in [
+        ("UPDATE demande_le", "UPDATE ent_sortie_argent_contournement SET demande_le = now() - interval '40 days' WHERE id = $1"),
+        ("DELETE demande", "DELETE FROM ent_sortie_argent_contournement WHERE id = $1"),
+        ("UPDATE le", "UPDATE ent_sortie_argent_contournement_evt SET le = now() - interval '40 days' WHERE contournement_id = $1"),
+        ("DELETE fait", "DELETE FROM ent_sortie_argent_contournement_evt WHERE contournement_id = $1"),
+    ] {
+        let r = sqlx::query(sql).bind(c.id).execute(ent.pool_verif()).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "{nom} : ajout seul");
+    }
+    let (d, n): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM ent_sortie_argent_contournement WHERE id = $1),
+                (SELECT count(*) FROM ent_sortie_argent_contournement_evt WHERE contournement_id = $1)",
+    )
+    .bind(c.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!((d, n), (1, 1), "rien n'a bougé");
+}
+
+/// M3 : `portee_chk` en SQL direct (plafond, prestataire ou cible NULL ou en trop, selon l'action).
+#[tokio::test]
+async fn v3b2_la_contrainte_de_portee_refuse_en_sql_direct_plafond_prestataire_ou_cible_manquants_ou_en_trop(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let ac = ent
+        .voyage_acompte_creer(&x.compta(), x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let inserer = |action: &'static str, cible: Option<Uuid>, max: Option<i64>, p: Option<Uuid>| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement
+                 (id, etablissement_id, sortie_id, action, demande_par_user_id, motif, cible_id, montant_max_centimes, prestataire_id)
+             VALUES ($1,$2,$3,$4,$5,'Motif',$6,$7,$8)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(action)
+        .bind(lie.user_id)
+        .bind(cible)
+        .bind(max)
+        .bind(p)
+    };
+    let (a, m, p) = (Some(ac.id), Some(10_000_i64), Some(presta));
+    for (nom, action, cible, max, pr) in [
+        ("créer sans plafond", "acompte_creer", None, None, p),
+        ("créer sans prestataire", "acompte_creer", None, m, None),
+        ("créer avec une cible", "acompte_creer", a, m, p),
+        ("payer sans cible", "acompte_payer", None, m, p),
+        ("payer sans plafond", "acompte_payer", a, None, p),
+        ("payer sans prestataire", "acompte_payer", a, m, None),
+        ("annuler sans cible", "acompte_annuler", None, None, None),
+        ("annuler avec un plafond", "acompte_annuler", a, m, None),
+        ("annuler avec un prestataire", "acompte_annuler", a, None, p),
+        (
+            "collective avec une cible",
+            "annulation_collective",
+            a,
+            None,
+            None,
+        ),
+        (
+            "collective avec un plafond",
+            "annulation_collective",
+            None,
+            m,
+            None,
+        ),
+        (
+            "collective avec un prestataire",
+            "annulation_collective",
+            None,
+            None,
+            p,
+        ),
+        ("plafond nul", "acompte_creer", None, Some(0), p),
+    ] {
+        let r = inserer(action, cible, max, pr)
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "{nom}");
+    }
+    for (nom, action, cible, max, pr) in [
+        ("créer", "acompte_creer", None, m, p),
+        ("payer", "acompte_payer", a, m, p),
+        ("annuler", "acompte_annuler", a, None, None),
+        ("collective", "annulation_collective", None, None, None),
+    ] {
+        inserer(action, cible, max, pr)
+            .execute(ent.pool_verif())
+            .await
+            .unwrap_or_else(|e| panic!("{nom} bien formée : {e}"));
+    }
+}
+
+/// M3 : annulation d'acompte hors cible en SQL direct ; autrice réellement membre d'un autre établissement.
+#[tokio::test]
+async fn v3b2_annulation_d_acompte_hors_cible_en_sql_direct_et_autrice_membre_d_un_autre_etablissement(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let ac_a = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let ac_b = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_a.id, "Doublon"), t0)
+        .await
+        .unwrap();
+    // Autrice membre d'un AUTRE établissement (comptable réelle de cet autre établissement) : la décision est refusée.
+    let Some(autre) = crate::tests_voyages_v0d::cadre().await else {
+        return;
+    };
+    let r = fait(&x, c.id, "autorise", autre.compta, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autrice d'un autre établissement"
+    );
+    assert!(
+        message_sql(&r).contains("membre habilité"),
+        "{}",
+        message_sql(&r)
+    );
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie_argent_contournement_evt WHERE contournement_id = $1",
+    )
+    .bind(c.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(n, 0, "aucun fait n'a été écrit");
+    ent.voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, t0)
+        .await
+        .unwrap();
+    fait(&x, c.id, "utilise", lie.user_id, Some(ac_a.id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("utilisé pour A");
+    // SQL direct : annuler B (hors cible) refusé ; annuler A passe.
+    let annuler = |acompte: Uuid| {
+        sqlx::query(
+            "UPDATE ent_sortie_acompte_fournisseur SET annule_le = now(), annule_motif = 'Doublon', annule_par_user_id = $3
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(acompte)
+        .bind(lie.user_id)
+    };
+    let r = annuler(ac_b.id).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "annuler un autre acompte que la cible"
+    );
+    annuler(ac_a.id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("annuler la cible");
+}
+
+/// Faible B1, à l'usage : une autorisation donnée PUIS dont l'autrice est suspendue ne sert plus (fait « utilisé » et
+/// écriture), tant que l'accès n'est pas rétabli.
+#[tokio::test]
+async fn v3b2_une_autorisation_dont_l_autrice_est_suspendue_apres_coup_ne_sert_plus() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let ac_1 = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let ac_2 = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let etat = |user: Uuid, etat: &'static str| {
+        sqlx::query(
+            "UPDATE ent_membership SET etat = $3 WHERE user_id = $1 AND etablissement_id = $2",
+        )
+        .bind(user)
+        .bind(x.c.etab)
+        .bind(etat)
+        .execute(ent.pool_verif())
+    };
+    // (1) Suspendue AVANT l'usage : le fait « utilisé » est refusé.
+    let aut1 = compta_libre(&x).await;
+    let c1 = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_1.id, "Doublon 1"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&aut1, x.s.id, c1.id, true, None, t0)
+        .await
+        .unwrap();
+    etat(aut1.user_id, "suspendu").await.unwrap();
+    let r = fait(&x, c1.id, "utilise", lie.user_id, Some(ac_1.id))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autrice suspendue : l'usage est refusé"
+    );
+    etat(aut1.user_id, "ouvert").await.unwrap();
+    fait(&x, c1.id, "utilise", lie.user_id, Some(ac_1.id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("accès rétabli : l'usage passe");
+    // (2) Suspendue APRÈS l'usage, avant l'écriture : l'écriture est refusée, puis passe une fois l'accès rétabli.
+    let aut2 = compta_libre(&x).await;
+    let c2 = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_2.id, "Doublon 2"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&aut2, x.s.id, c2.id, true, None, t0)
+        .await
+        .unwrap();
+    fait(&x, c2.id, "utilise", lie.user_id, Some(ac_2.id))
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    etat(aut2.user_id, "suspendu").await.unwrap();
+    let annuler = |acompte: Uuid| {
+        sqlx::query(
+            "UPDATE ent_sortie_acompte_fournisseur SET annule_le = now(), annule_motif = 'Doublon', annule_par_user_id = $3
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(acompte)
+        .bind(lie.user_id)
+    };
+    let r = annuler(ac_2.id).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autrice suspendue : l'écriture est refusée"
+    );
+    etat(aut2.user_id, "ouvert").await.unwrap();
+    annuler(ac_2.id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("accès rétabli : l'écriture passe");
+}
+
+/// Faible 5 : l'autrice d'une autorisation la révoque (ajout seul « revoque ») tant qu'elle n'a pas servi.
+#[tokio::test]
+async fn v3b2_l_autrice_revoque_son_autorisation_tant_qu_elle_n_a_pas_servi() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let autre = compta_libre(&x).await;
+    let ac_r = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let ac_u = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    // Une demande non autorisée ne se révoque pas.
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_r.id, "Doublon"), t0)
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_contournement_revoquer_a(&libre, x.s.id, c.id, t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "non autorisée : {e:?}");
+    let r = fait(&x, c.id, "revoque", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "base : non autorisée"
+    );
+    ent.voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, t0)
+        .await
+        .unwrap();
+    // Une autre personne, même habilitée et libre, ne révoque pas ; la demandeuse non plus (service et base).
+    let e = ent
+        .voyage_contournement_revoquer_a(&autre, x.s.id, c.id, t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autre personne : {e:?}");
+    let e = ent
+        .voyage_contournement_revoquer_a(&lie, x.s.id, c.id, t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "demandeuse : {e:?}");
+    for (nom, par) in [
+        ("autre personne", autre.user_id),
+        ("demandeuse", lie.user_id),
+    ] {
+        let r = fait(&x, c.id, "revoque", par, None)
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "base : {nom}");
+    }
+    // L'autrice révoque : statut « revoque », une seule fois ; l'autorisation ne sert plus (fait « utilisé » refusé).
+    let v = ent
+        .voyage_contournement_revoquer_a(&libre, x.s.id, c.id, t0)
+        .await
+        .unwrap();
+    assert_eq!(v.statut, "revoque");
+    let e = ent
+        .voyage_contournement_revoquer_a(&libre, x.s.id, c.id, t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "déjà révoquée : {e:?}");
+    let r = fait(&x, c.id, "revoque", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23505"),
+        "une seule révocation"
+    );
+    let r = fait(&x, c.id, "utilise", lie.user_id, Some(ac_r.id))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "révoquée : ne s'utilise pas"
+    );
+    assert!(message_sql(&r).contains("révoqué"), "{}", message_sql(&r));
+    let e = ent
+        .voyage_acompte_annuler_avec(&lie, x.s.id, ac_r.id, "Doublon", Some(c.id), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "service : révoquée : {e:?}");
+    // Une autorisation utilisée ne se révoque plus ; une autorisation révoquée après usage n'est pas possible.
+    let cu = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_u.id, "Doublon U"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, cu.id, true, None, t0)
+        .await
+        .unwrap();
+    fait(&x, cu.id, "utilise", lie.user_id, Some(ac_u.id))
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_contournement_revoquer_a(&libre, x.s.id, cu.id, t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "déjà utilisée : {e:?}");
+    let r = fait(&x, cu.id, "revoque", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "base : déjà utilisée"
+    );
+    // Une autorisation révoquée n'ouvre plus rien : fonction de validité fausse.
+    let ouvert: bool = sqlx::query_scalar(
+        "SELECT ent_sortie_contournement_ouvert($1,$2,$3,$4,'acompte_annuler',$5,NULL,NULL, now())",
+    )
+    .bind(x.c.etab)
+    .bind(c.id)
+    .bind(x.s.id)
+    .bind(lie.user_id)
+    .bind(ac_r.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(!ouvert, "révoquée : jamais ouverte");
+}
+
+/// Moyen 2 (revue) : un avoir collectif dont le couple (participant, compte) n'a rien versé, ou dont `paye_net` dépasse
+/// l'argent versé, est refusé en base. Faible 1 : la garde porte sur le participant et le payeur de la ligne, et la décision
+/// portée par la ligne est contrôlée même dans la branche collective.
+#[tokio::test]
+async fn v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse_et_sa_decision_est_gardee() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let libre = x.compta();
+    let libre2 = compta_libre(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let payeur_c = compta_payeur_de(&x, x.compte_c).await;
+    x.verser(x.p1, x.compte_c, "cheque", "50").await.unwrap();
+    let avoir = |part: Uuid, compte: Uuid, net: i64, par: Uuid, decision: Option<Uuid>| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_avoir_propose (id, etablissement_id, sortie_id, participant_id, compte_id, motif_code, cle,
+                    paye_net_centimes, montant_propose_centimes, propose_par_user_id,
+                    statut, decide_par_user_id, decide_le, montant_retenu_centimes)
+             VALUES ($1,$2,$3,$4,$5,'annulation_collective',$6,$7,$7,$8,
+                     CASE WHEN $9::uuid IS NULL THEN 'propose' ELSE 'retenu' END, $9::uuid,
+                     CASE WHEN $9::uuid IS NULL THEN NULL ELSE now() END,
+                     CASE WHEN $9::uuid IS NULL THEN NULL ELSE 1000 END)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(part)
+        .bind(compte)
+        .bind(format!("directe-{}", Uuid::new_v4().simple()))
+        .bind(net)
+        .bind(par)
+        .bind(decision)
+    };
+    for (nom, part, compte, net) in [
+        ("au-delà de l'argent versé", x.p1, x.compte_c, 5_001),
+        ("montant nul", x.p1, x.compte_c, 0),
+        ("participant sans versement", x.p0, x.compte_a, 100),
+        (
+            "payeur sans versement pour ce participant",
+            x.p1,
+            x.compte_a,
+            100,
+        ),
+    ] {
+        let r = avoir(part, compte, net, libre.user_id, None)
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "{nom}");
+        assert!(
+            message_sql(&r).contains("ne dépasse pas l'argent versé"),
+            "{nom} : {}",
+            message_sql(&r)
+        );
+    }
+    avoir(x.p1, x.compte_c, 5_000, libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await
+        .expect("l'argent versé, ni plus ni moins");
+    // Contre-revue du pilote (M-1) : la borne vaut pour le cumul : un second avoir pour le même payeur et le même
+    // participant est refusé, même inférieur au versé.
+    let r = avoir(x.p1, x.compte_c, 3_000, libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "cumul au-delà du versé");
+    assert!(message_sql(&r).contains("déjà couvert"), "{}", message_sql(&r));
+    // Faible 1 : la décision portée par la ligne est contrôlée (parent de l'élève, payeur du compte : refusés ; libre : ok).
+    for (nom, qui) in [
+        ("parent de l'élève", lie.user_id),
+        ("payeur du compte", payeur_c.user_id),
+    ] {
+        let r = avoir(x.p1, x.compte_c, 2_000, libre.user_id, Some(qui))
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "décision par le {nom}"
+        );
+    }
+    // Un autre couple (participant, payeur) encore non couvert : les gardes de personne restent discriminantes.
+    x.verser(x.p0, x.compte_a, "cheque", "50").await.unwrap();
+    let payeur_a = compta_payeur_de(&x, x.compte_a).await;
+    let lie0 = compta_parent_de(&x, x.c.eleves[0]).await;
+    // La proposition elle-même reste gardée sur le participant et le payeur de la ligne.
+    let r = avoir(x.p0, x.compte_a, 1_000, lie0.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "proposée par le parent de l'élève"
+    );
+    let r = avoir(x.p0, x.compte_a, 1_000, payeur_a.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "proposée par le payeur du compte"
+    );
+    avoir(x.p0, x.compte_a, 2_000, libre.user_id, Some(libre2.user_id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("décision par une personne libre");
+}
+
+/// Moyen 3 (revue) : le rattrapage de 656 restaure `app.etablissement_id` et est idempotent (second passage sans effet).
+#[cfg(feature = "labo")]
+#[tokio::test]
+async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_sans_effet() {
+    let Some(x) = suivi_v3().await else { return };
+    let Some(url) = crate::url_guard::url_labo_ou_echec() else {
+        return;
+    };
+    let (proprietaire, strict) = crate::tests_rls_stricte::proprietaire_et_strict(&url).await;
+    let sql = include_str!("../../../migrations/656_sortie_voyages_v3b_suites.sql");
+    let debut = sql.find("-- DEBUT-DONNEES").expect("repère de début") + "-- DEBUT-DONNEES".len();
+    let fin = sql.find("-- FIN-DONNEES").expect("repère de fin");
+    let bloc = &sql[debut..fin];
+    for ddl in [
+        "ALTER TABLE ent_sortie DISABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+        "ALTER TABLE ent_sortie DROP CONSTRAINT IF EXISTS ent_sortie_rentree_le_chk".to_string(),
+        format!(
+            "UPDATE ent_sortie SET etat = 'rentree', rentree_le = NULL WHERE id = '{}'",
+            x.s.id
+        ),
+        "ALTER TABLE ent_sortie ENABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+    ] {
+        sqlx::query(&ddl)
+            .execute(proprietaire.pool())
+            .await
+            .unwrap();
+    }
+    let sentinelle = Uuid::new_v4().to_string();
+    // Réglage précédent posé : restauré à l'identique après le bloc ; la ligne masquée sans contexte est rattrapée.
+    let mut tx = strict.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+        .bind(&sentinelle)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::raw_sql(bloc)
+        .execute(&mut *tx)
+        .await
+        .expect("rattrapage");
+    let apres: Option<String> =
+        sqlx::query_scalar("SELECT current_setting('app.etablissement_id', true)")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(
+        apres.as_deref(),
+        Some(sentinelle.as_str()),
+        "réglage précédent restauré"
+    );
+    tx.commit().await.unwrap();
+    let premier: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
+            .bind(x.s.id)
+            .fetch_one(proprietaire.pool())
+            .await
+            .unwrap();
+    assert!(premier.is_some(), "rentree_le rattrapée");
+    // Sans réglage préalable : rien ne reste posé après le bloc (vide ou absent).
+    let mut tx = strict.pool().begin().await.unwrap();
+    sqlx::raw_sql(bloc)
+        .execute(&mut *tx)
+        .await
+        .expect("second passage");
+    let apres: Option<String> =
+        sqlx::query_scalar("SELECT current_setting('app.etablissement_id', true)")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(
+        apres.unwrap_or_default().is_empty(),
+        "aucun établissement ne reste posé"
+    );
+    tx.commit().await.unwrap();
+    // Idempotence : le second passage ne change rien (même instant, aucune ligne de plus touchée).
+    let second: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
+            .bind(x.s.id)
+            .fetch_one(proprietaire.pool())
+            .await
+            .unwrap();
+    assert_eq!(premier, second, "second passage sans effet");
+    // Contre-revue du pilote (M-4) : ne remet QUE la contrainte écartée, sans rejouer 656 ni 657 sur la base commune (le
+    // rejeu de 656 remettait un instant les fonctions d'avant 657 sous les tests voisins).
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
+            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
+    )
+    .execute(proprietaire.pool())
+    .await
+    .expect("contrainte rétablie");
+    crate::tenant_tx::forcer_mode_test(None);
 }

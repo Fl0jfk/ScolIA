@@ -666,9 +666,25 @@ pub(crate) async fn ouvrir_tache(
     detail: &str,
     acteur: Option<Uuid>,
 ) -> Result<bool, EntDbError> {
+    ouvrir_tache_evenement(conn, etab, nature, eleve, compte, categorie, depuis, detail, acteur, None).await
+}
+
+/// Comme `ouvrir_tache`, liée à un **événement** (M2, suites 3) : une tâche ouverte par (situation, événement).
+pub(crate) async fn ouvrir_tache_evenement(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    nature: &str,
+    eleve: Option<Uuid>,
+    compte: Option<Uuid>,
+    categorie: Option<&str>,
+    depuis: NaiveDate,
+    detail: &str,
+    acteur: Option<Uuid>,
+    evenement: Option<Uuid>,
+) -> Result<bool, EntDbError> {
     let r = sqlx::query(
-        "INSERT INTO ent_fin_tache (id, etablissement_id, nature, eleve_id, compte_id, categorie, depuis, detail, cree_par)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        "INSERT INTO ent_fin_tache (id, etablissement_id, nature, eleve_id, compte_id, categorie, depuis, detail, cree_par, evenement_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT DO NOTHING",
     )
     .bind(Uuid::new_v4())
@@ -680,6 +696,7 @@ pub(crate) async fn ouvrir_tache(
     .bind(depuis)
     .bind(detail.chars().take(300).collect::<String>())
     .bind(acteur)
+    .bind(evenement)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -699,6 +716,31 @@ pub(crate) async fn ouvrir_tache(
         .await?;
     }
     Ok(creee)
+}
+
+/// Résout la tâche ouverte d'une nature liée à **cet** événement (M2) : les tâches des autres événements du même
+/// élève restent ouvertes.
+pub(crate) async fn resoudre_taches_evenement(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    nature: &str,
+    eleve: Uuid,
+    evenement: Uuid,
+    par: Option<Uuid>,
+) -> Result<u64, EntDbError> {
+    let r = sqlx::query(
+        "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now(), resolue_par = $5
+          WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND evenement_id = $4 AND statut = 'ouverte'",
+    )
+    .bind(etab)
+    .bind(nature)
+    .bind(eleve)
+    .bind(evenement)
+    .bind(par)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(r.rows_affected())
 }
 
 /// Résout les tâches ouvertes d'une nature pour (élève, catégorie) : la situation est réglée.

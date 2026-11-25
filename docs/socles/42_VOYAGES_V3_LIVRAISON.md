@@ -257,3 +257,53 @@ Rapport : `docs/pilotage/revues/42_VOYAGES_V3B_CORRECTIFS_CONTRE_REVUE.md` (bran
 - **M1** : un acompte se crée ni payé ni annulé (23514) ; seul le créateur est évalué à la création ; le paiement passe toujours par l'autorisation « payer » et son plafond. Test SQL direct.
 - **M2** (D-069) : une autorisation « annulation collective » couvre **toutes** les propositions d'avoir de la sortie pendant sa validité (l'annulation collective porte par nature sur l'ensemble des participants) ; ces avoirs restent des propositions, dont la décision est gardée. La phrase « une seule écriture » vaut pour les acomptes. Borne par versement en file.
 - **En file (suites V3b, 2)** : M3 (tests de l'expiration par les déclencheurs, horodatages en UPDATE/DELETE, `portee_chk`, annulation hors cible en SQL direct, autorisatrice d'un autre établissement, restauration et idempotence du rattrapage) ; faibles 1 à 6. Une base de labo ayant appliqué l'ancienne 656 doit être recréée.
+
+## Suites V3b, 2 (2026-11-24, branche `ent-socle-42-code-v3b-suites-2`, base `origin/ENT`, migration 657)
+Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3B_CORRECTIFS_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Consigne : `docs/pilotage/consignes/42_VOYAGES_V3B_SUITES_2.md`. **Statut : implémenté et testé en local ; non validé, non prêt pilote, non prêt production.** 640–656 sont versées et **ne changent pas** (règle 25, y compris 656) ; **657** est en fin de tableau (règle 38), ses fonctions portent `SET search_path = pg_catalog, public, pg_temp` et des relations `public.` ; `migrations_versees.txt` est laissé au pilote. Aucune donnée touchée, aucune table nouvelle.
+
+### Fait / non fait
+| Réf. | Statut | Ce qui est fait | Test |
+|---|---|---|---|
+| **M3**, expiration à la décision et à l'usage | fait (tests) | La décision d'une demande de 31 jours est refusée par le déclencheur (29 jours : acceptée) ; le fait « utilisé » d'une autorisation de 31 jours est refusé (29 jours : accepté) ; l'écriture d'un acompte dont l'autorisation a plus de 30 jours est refusée par le déclencheur de pouvoir (29 jours : acceptée). Faits antidatés par l'horloge de la base : déclencheur d'horodatage ou de garde écarté dans une transaction de test, comme le test de rattrapage ; aucune heure réelle. | `v3b2_l_expiration_se_joue_a_la_decision_et_a_l_usage…` |
+| **M3**, UPDATE / DELETE de `demande_le` et `le` | fait (tests) | Refusés en SQL direct (`42501`, ajout seul), sur les deux tables ; rien n'a bougé. | `v3b2_les_horodatages_de_contournement_ne_se_modifient…` |
+| **M3**, `portee_chk` en SQL direct | fait (tests) | 13 portées incohérentes refusées (`23514`) : plafond, prestataire ou cible manquants ou en trop pour chaque action, plafond nul ; 4 portées bien formées acceptées. | `v3b2_la_contrainte_de_portee_refuse_en_sql_direct…` |
+| **M3**, annulation d'acompte hors cible | fait (tests) | Annuler un autre acompte que la cible en SQL direct : `23514` ; annuler la cible : passe. | `v3b2_annulation_d_acompte_hors_cible…` |
+| **M3**, autrice d'un autre établissement | fait (tests) | La comptable réelle d'un autre établissement (cadre `tests_voyages_v0d`) ne décide pas : `23514`, aucun fait écrit. | idem |
+| **M3**, rattrapage | fait (tests) | Le réglage `app.etablissement_id` précédent est restauré à l'identique ; sans réglage préalable, rien ne reste posé ; second passage sans effet (même instant). Le test rejoue 656 puis **657** à la fin (même base que les autres tests). Le test existant du rattrapage rejoue aussi 657 après 656. | `v3b2_le_rattrapage_restaure_le_reglage…` |
+| **M2 (revue)**, borne de l'annulation collective | fait | Fonction `ent_sortie_paye_net` (même calcul que `verses_cash`) ; un avoir « annulation collective » dont `paye_net_centimes` est nul ou dépasse l'argent net versé par ce payeur pour ce participant est refusé (`23514`) : couple sans versement (participant ou payeur), au-delà, montant nul. Le service ne propose déjà que `paye > 0` et le net : aucun flux légitime n'est touché. | `v3b2_un_avoir_collectif_ne_depasse_pas_l_argent_verse…` |
+| **Faible 1** | fait | La garde de l'avoir collectif porte aussi sur `NEW.participant_id` et sur le payeur `NEW.compte_id` (et non seulement sur les participants qui ont versé) ; la décision portée par la ligne (`decide_par_user_id`, statut retenu ou écarté) est contrôlée dans la branche collective (parent de l'élève, payeur du compte : refusés ; personne libre : acceptée), sans contournement possible pour une décision. | idem |
+| **Faible 4** | documenté | Le rattrapage reste limité à `etat = 'rentree'` (repli applicatif sur `modifie_le`). Une sortie **close** ne change plus rien à l'attendu ; lui poser un `rentree_le` approximatif serait trompeur (une sortie close sans rentrée réelle n'a pas d'instant de rentrée). Limite : une sortie close avant 656 puis rouverte en « rentrée » reçoit l'instant de la réouverture. À confirmer par le pilote sur une copie peuplée (aucun accès à une base réelle). | — |
+| **Faible 5** | fait | **Révocation** par l'autrice : nouveau fait « revoque » (ajout seul) ; seule l'autrice de l'autorisation, tant qu'elle n'a pas servi (une seule fois) ; une autorisation révoquée n'ouvre plus rien et ne s'utilise plus (base) ; statut `revoque` dans la liste ; service `voyage_contournement_revoquer`, route `POST …/argent/contournements/{cid}/revocation` (404 / 403 comme les autres). | `v3b2_l_autrice_revoque_son_autorisation…` ; HTTP `routes_d_argent_de_v3_repondent_…` |
+| **B1, à l'usage** | fait (test) | Autorisation donnée PUIS autrice suspendue : le fait « utilisé » et, si elle a déjà servi, l'écriture sont refusés tant que l'accès n'est pas rétabli ; rétabli, ils passent. | `v3b2_une_autorisation_dont_l_autrice_est_suspendue…` |
+| Faibles 2, 3, 6 | documentés (revue) | Faible 2 : `rentree_le` passé arbitraire accepté en SQL direct (choix documenté, tolérance à l'avenir de 7 jours seulement). Faible 3 : une base de labo ayant appliqué l'ancienne 656 doit être recréée (empreinte modifiée) ; sans effet en production. Faible 6 : `ent_internat_attendu_calcule` : fonctions non qualifiées de la famille documentée. | — |
+
+### Choix prudents (D-069, aucune question posée)
+1. La révocation n'exige **pas** que l'autrice soit encore habilitée (retirer un pouvoir n'en donne aucun) ; elle est possible aussi sur une autorisation expirée non utilisée, jamais sur une autorisation utilisée.
+2. La borne de l'avoir collectif est l'argent **net** (versements et reports reçus moins annulations et reports cédés), comme le calcul de l'application ; elle vaut à l'insertion.
+3. Une sortie close n'est pas rattrapée (voir Faible 4).
+
+### Compteurs (règle 28)
+| Compteur | Valeur |
+|---|---|
+| `Action::TOUTES` | **282**, inchangé |
+| Tables avec RLS (`tests_rls.rs`) | inchangé (aucune table) |
+| Registre des données | inchangé |
+| Migrations | **+ 1** : 657 en fin de `migrate.rs` ; `MIGRATION_TAG` inchangé (3808) ; `docs/socles/MIGRATIONS.md` à jour |
+| Routes | **+ 1** (`POST …/contournements/{cid}/revocation`) |
+| Tests | `tests_voyages_v3` : 46 (était 38, **+ 8**) ; HTTP : assertions ajoutées (401, 404, 403, 404 de la révocation) |
+
+### Vérifications locales (PostgreSQL 16 neuve `ent_suites2_test`, `ENT_EXIGER_BASE=1`, `--locked`, un seul `CARGO_TARGET_DIR`, 2 threads)
+- `ent-db` (labo) : filtres `tests_voyages` (163), `tests_internat` (266), `tests_rls::` (9), `registre_donnees::` (14), `migrate::` (4), `garde_search_path` (3), `regle_38` (1) : **tous verts** ; `ent-api` (labo) tests voyages : 5 verts.
+- clippy 1.99.0 sur les 3 commandes de la CI (`ent-lab` compris) : **0 avertissement** ; `cargo metadata --locked` dans `ent-rust/web` : ok ; rustfmt ciblé sur `tests_voyages_v3.rs` (les autres fichiers touchés ne changent pas de formatage ; `voyages_argent.rs` et `migrate.rs` portent une dette antérieure, non reformatée).
+- Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
+
+### Résultat (Suites V3b, 2)
+Le premier push (`d06fcb4f`) n'a déclenché aucune CI : conflit avec `ENT` (318 de l'I5 en fin de tableau). `origin/ENT` fusionné (règle 28) : `migrate.rs` résolu en gardant **656, 318, puis 657** (ordre de `migrations_versees.txt`, règle 38 ; `regle_38` et `migrate::` verts). Tête de code `8ccd2f1f` : CI « ENT Rust » **verte** (https://github.com/Fl0jfk/ScolIA/actions/runs/45517877355). Le commit qui consigne ce résultat ne touche que la documentation. PR n° 153 laissée en **brouillon** vers `ENT`.
+
+### Correctifs du pilote après contre-revue des suites V3b, 2
+Rapport : `docs/pilotage/revues/42_VOYAGES_V3B_SUITES_2_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **M-1** : la borne collective vaut pour le **cumul** : un second avoir actif (proposé, retenu, à revoir, désistement compris) pour le même (participant, compte) est refusé en base, sous le verrou de la sortie (clé de `verrou_sortie`) ; même règle que l'application. Test corrigé (cumul refusé ; gardes de personne sur un autre couple).
+- **M-4** : le test de rattrapage ne rejoue plus 656 ni 657 sur la base commune ; seule la contrainte écartée est rétablie.
+- **M-3** (D-069) : la portée d'un contournement collectif reste la sortie entière ; chaque couple n'a qu'un avoir actif.
+- En file : verrou de sortie dans les déclencheurs de faits (M-2), faibles F-1 à F-8.
+- Local : 233 tests voyages verts, clippy 1.99 vert. 657 inscrite aux migrations versées.
