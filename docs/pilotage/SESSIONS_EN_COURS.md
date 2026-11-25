@@ -754,3 +754,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **V3b suites 2** : contre-revue (aucun élevé) ; M-1 (cumul) et M-4 (test isolé) corrigés par le pilote, M-3 tranché D-069 ; fusion d'ENT 53ed4604 ; 657 inscrite ; tête **c70c3491**, CI en attente.
 - **Livré** : correctifs F3 suites 3 (PR 150, code 9d6ae8e2 CI verte, tête a4fe5bec doc ; 532 à inscrire) ; contre-revue en cours sur `wt-f3s3`.
 - **Lancé** : transverse T3 fiabilité (session_01KZCbFHhHmcnu6ojNWJNXL6, Sonnet, branche `ent-transverse-t3-fiabilite`, sans migration ; faibles en file de T2, I4, I5 p7, E1 p5), consigne `T3_FIABILITE.md`. Sessions qui codent : cahier suites 2 + T3.
+- **F3 3 correctifs** : contre-revue (élevés E1 et E2 **fermés**) ; M2 (ligne sans période) corrigé par le pilote ; M1, M3, M4 → consigne `24_F3_SUITES_4.md` **en tête de file**. Versement de la PR 150 après tests locaux et CI.
