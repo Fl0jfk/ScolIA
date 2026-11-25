@@ -4273,6 +4273,16 @@ async fn c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte() {
     let etab = fx.cast.etablissement_id;
     assert_eq!(deplacables(etab).await, 1, "année ouverte : la note suit l'élève conservé");
     assert_eq!(delais(etab).await, 2, "année ouverte : les deux demandes de délai suivent l'élève conservé");
+    // Contre-revue du pilote (moyen 1) : une demande DÉCIDÉE reste sur l'absorbé, avec la prolongation qu'elle a produite.
+    sqlx::query(
+        "UPDATE ent_cdt_delai_demande SET etat = 'refusee', decide_le = now()
+          WHERE etablissement_id = $1 AND id = (SELECT id FROM ent_cdt_delai_demande WHERE etablissement_id = $1 ORDER BY id LIMIT 1)",
+    )
+    .bind(etab)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(delais(etab).await, 1, "année ouverte : seule la demande encore ouverte suit l'élève conservé");
     sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2")
         .bind(etab)
         .bind(jeu.annee)

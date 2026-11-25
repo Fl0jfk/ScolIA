@@ -303,3 +303,10 @@ Branche `ent-socle-20-code-suites-2` (partie d'`origin/ENT`), PR en brouillon ve
 **Vérifications locales** (PostgreSQL 16, base neuve `ent_ci_test_suites2`, `ENT_ENV=test`, `--locked`, un seul `CARGO_TARGET_DIR`, rustc/clippy 1.99.0). Filtres `tests_cahier::`, `migrate`, `garde_search_path`, `tests_search_path_t1`, `registre_donnees`, `tests_rls`, `eleve_fusion`, `tests_reprise` en 4 fils sur base partagée : **209 verts, 7 rouges**, tous des artefacts d'exécution en un seul processus (comptages globaux, délai d'instruction `57014` pendant le rejeu de 690) et **verts un par un**. Clippy 1.99.0, les 3 commandes de la CI, `-D warnings` : **0 avertissement** ; `cargo metadata --locked` dans `ent-rust/web` : vert ; `rustfmt --check` de `tests_cahier_c8.rs` : propre (les autres fichiers touchés ne sont pas reformatés).
 
 **Tête et CI (suites 2)** : CI verte (workflow « ENT Rust ») sur `60375255` (PR 154, brouillon vers `ENT`). Cette section est ajoutée dans un commit de documentation suivant, qui ne touche aucun code.
+
+### Correctifs du pilote après contre-revue des suites 2
+Rapport : `docs/pilotage/revues/20_CAHIER_SUITES_2_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **Moyen 1** (D-069) : à la fusion, seules les demandes de délai **ouvertes** d'une année non figée suivent l'élève conservé ; une demande décidée reste sur l'absorbé avec la prolongation qu'elle a produite. Test étendu.
+- Garde « aucune colonne JSON » étendue à 2400–2429.
+- En file : rejeu de 2419 puis 2420 sur base partagée (fonction recréée deux fois ; cause plausible des rouges locaux), verrou du test de REVOKE, `verifier_gel` discriminant, fusion réelle avec année close, export RGPD des lignes restées sur l'absorbé.
+- Local (un fil) : 176 tests `cahier` + `fusion` verts ; clippy 1.99 vert. 2420 inscrite aux migrations versées.
