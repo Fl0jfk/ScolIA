@@ -294,5 +294,8 @@ Liste de travail : points « en file » de `docs/pilotage/revues/42_VOYAGES_V3B_
 
 ### Vérifications locales (PostgreSQL 16 neuve `ent_suites2_test`, `ENT_EXIGER_BASE=1`, `--locked`, un seul `CARGO_TARGET_DIR`, 2 threads)
 - `ent-db` (labo) : filtres `tests_voyages` (163), `tests_internat` (266), `tests_rls::` (9), `registre_donnees::` (14), `migrate::` (4), `garde_search_path` (3), `regle_38` (1) : **tous verts** ; `ent-api` (labo) tests voyages : 5 verts.
-- clippy 1.99.0 sur les 3 commandes de la CI (`ent-lab` compris), `cargo metadata --locked` dans `ent-rust/web`, rustfmt ciblé : voir « Résultat » ci-dessous.
+- clippy 1.99.0 sur les 3 commandes de la CI (`ent-lab` compris) : **0 avertissement** ; `cargo metadata --locked` dans `ent-rust/web` : ok ; rustfmt ciblé sur `tests_voyages_v3.rs` (les autres fichiers touchés ne changent pas de formatage ; `voyages_argent.rs` et `migrate.rs` portent une dette antérieure, non reformatée).
 - Non touchés : Next.js, `main`, `dev`, `ui.rs`, `POINT_QUOTIDIEN`, `PILOTAGE`, `migrations_versees.txt`, base et secrets de production, `ENT`.
+
+### Résultat (Suites V3b, 2)
+Le premier push (`d06fcb4f`) n'a déclenché aucune CI : conflit avec `ENT` (318 de l'I5 en fin de tableau). `origin/ENT` fusionné (règle 28) : `migrate.rs` résolu en gardant **656, 318, puis 657** (ordre de `migrations_versees.txt`, règle 38 ; `regle_38` et `migrate::` verts). Tête de code `8ccd2f1f` : CI « ENT Rust » **verte** (https://github.com/Fl0jfk/ScolIA/actions/runs/45517877355). Le commit qui consigne ce résultat ne touche que la documentation. PR n° 153 laissée en **brouillon** vers `ENT`.
