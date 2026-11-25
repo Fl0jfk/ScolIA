@@ -19,7 +19,7 @@ use uuid::Uuid;
 const ROLE_SANS: &str = "ent_s16_p4_sans";
 
 /// Rôle **sans droit d'écriture** sur la messagerie (lecture seule), 494 rejouée : elle ne lui donne rien.
-async fn pool_sans_droit(ent: &PgEnt) -> sqlx::PgPool {
+pub(super) async fn pool_sans_droit(ent: &PgEnt) -> sqlx::PgPool {
     let admin = ent.pool_verif();
     sqlx::query(&format!(
         "DO $$ BEGIN CREATE ROLE {ROLE_SANS} LOGIN PASSWORD 'p4' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; \
@@ -342,9 +342,14 @@ async fn p4_f5_message_existe_sous_verrou_sous_role_applicatif_non_proprietaire(
     let sans = pool_sans_droit(&ent).await;
     let lecture_seule = crate::msg_repo::PgMsgRepo::new(sans);
     let r = lecture_seule
-        .message_existe_sous_verrou(etab, m, court)
+        .message_existe_sous_verrou_brut(etab, m, court)
         .await;
-    assert!(r.is_err(), "sans UPDATE sur ent_msg : refusé : {r:?}");
+    // Passe 5, faible 2 : le refus est prouvé par son code SQLSTATE (42501), pas seulement par `is_err()`.
+    assert_eq!(
+        r.as_ref().err().and_then(code).as_deref(),
+        Some("42501"),
+        "sans UPDATE sur ent_msg : refusé (privilège insuffisant) : {r:?}"
+    );
 }
 
 // ───────────────────────── F7 : le vrai flux famille, avec un co-parent ─────────────────────────

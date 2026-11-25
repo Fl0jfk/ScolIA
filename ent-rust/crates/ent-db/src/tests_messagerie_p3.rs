@@ -448,9 +448,10 @@ async fn p3_une_erreur_pendant_le_controle_reporte_l_avis_sans_interrompre_le_lo
     );
     lente.rollback().await.unwrap();
 
-    // Passage suivant : l'annulation est défaite, l'avis reporté part.
+    // Passage suivant : l'annulation est défaite, l'avis reporté part. Passe 5 (faible 1) : un avis reporté voit son
+    // `planifie_pour` repoussé (au moins l'attente de verrou) : le passage suivant a un instant injecté plus tard.
     let bilan = expediteur_avec(&ent, etab, std::time::Duration::from_secs(5))
-        .expedier(apres)
+        .expedier(apres + chrono::Duration::minutes(1))
         .await
         .unwrap();
     assert_eq!(bilan.reportes, 0, "{bilan:?}");

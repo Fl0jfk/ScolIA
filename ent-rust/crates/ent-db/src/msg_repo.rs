@@ -1649,11 +1649,23 @@ impl PgMsgRepo {
     pub(crate) async fn observer_borne_hors_flux(&self, etablissement_id: Uuid) {
         match TenantTx::begin(&self.pool, etablissement_id).await {
             Ok(mut tx) => {
-                if let Err(e) = lire_borne(&mut tx).await {
-                    tracing::warn!(error = ?e, "observation hors flux de la borne xmin : lecture impossible");
+                let lu = lire_borne(&mut tx).await;
+                #[cfg(all(test, feature = "labo"))]
+                if lu.is_ok() {
+                    crate::msg_xmin_gele::compter_hors_flux(etablissement_id);
+                }
+                if let Err(e) = lu {
+                    // Passe 5, faible 4 : une base indisponible ne journalise pas toutes les 5 s (une ligne par minute).
+                    if crate::journal_limite::autoriser_global("xmin_hors_flux_lecture") {
+                        tracing::warn!(error = %e, "observation hors flux de la borne xmin : lecture impossible");
+                    }
                 }
             }
-            Err(e) => tracing::warn!(error = ?e, "observation hors flux de la borne xmin : transaction impossible"),
+            Err(e) => {
+                if crate::journal_limite::autoriser_global("xmin_hors_flux_transaction") {
+                    tracing::warn!(error = %e, "observation hors flux de la borne xmin : transaction impossible");
+                }
+            }
         }
     }
 
@@ -1667,20 +1679,32 @@ impl PgMsgRepo {
         message_id: Uuid,
         attente: std::time::Duration,
     ) -> Result<bool, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        self.message_existe_sous_verrou_brut(etablissement_id, message_id, attente)
+            .await
+            .map_err(map_sqlx)
+    }
+
+    /// Même contrôle, erreur **brute** : le code SQLSTATE reste lisible (`Database::code`) alors que le dépôt le réduit
+    /// à `Infrastructure`. Passe 5, faible 2 : les tests exigent 42501 (rôle sans droit) ou 55P03 (verrou tenu) ; la
+    /// réponse HTTP n'en est pas changée (l'API n'appelle que la version de domaine ci-dessus).
+    pub(crate) async fn message_existe_sous_verrou_brut(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+        attente: std::time::Duration,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         sqlx::query("SELECT set_config('lock_timeout', $1, true)")
             .bind(format!("{}ms", attente.as_millis().max(1)))
             .execute(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
         let r: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR KEY SHARE")
                 .bind(etablissement_id)
                 .bind(message_id)
                 .fetch_optional(&mut *tx)
-                .await
-                .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
+                .await?;
+        tx.commit().await?;
         Ok(r.is_some())
     }
 
