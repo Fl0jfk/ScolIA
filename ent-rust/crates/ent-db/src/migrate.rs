@@ -583,6 +583,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // par jointure (plus d'appel de fonction par ligne). 313 à 317 sont versées et ne changent pas (règle 25) ; sa fonction
     // porte son `search_path`. `MIGRATION_TAG` inchangé.
     m!("318_inscription_i5_suites_passe7"),
+    // Socle 20, suites 2 C8/C9 (2420, première de la plage d'extension 2420–2429 ; **fin de tableau**, règle 38) : `REVOKE` de la
+    // reprise pour tout rôle autre que le propriétaire (sans nom codé en dur) ; prolongations individuelles et demandes de délai
+    // rejoignent le gel des années closes (D-069). 2419 est versée et ne change pas (règle 25) ; sa fonction recréée porte son
+    // `search_path`, ses relations sont qualifiées `public.`. `MIGRATION_TAG` inchangé.
+    m!("2420_cdt_suites2_gel_echeances"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
