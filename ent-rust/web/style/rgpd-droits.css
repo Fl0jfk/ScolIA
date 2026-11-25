@@ -1,0 +1,53 @@
+/* Guichet des demandes de droits (socle 27, lot G3a). Uniquement des jetons de ui.css :
+   aucune couleur ni taille en dur (règle de `ent-web.css`). Lisible dès 375 px. */
+
+/* Bandeau de compteurs : les tuiles Bento portent la grille, ici seulement la rangée de chiffres. */
+.rgpd-stats { display: flex; flex-wrap: wrap; gap: var(--esp-4); }
+
+/* Rangée de pastilles de filtre. */
+.rgpd-filtres { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin-top: var(--esp-4); }
+
+/* Liste de définitions d'une fiche (horloge, demandeur). Deux colonnes sur grand écran,
+   une seule sur téléphone. */
+.rgpd-definitions {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 6px var(--esp-3); margin: 0;
+}
+.rgpd-definitions dt { color: var(--c-attenue); font-size: var(--taille-s); }
+.rgpd-definitions dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .rgpd-definitions { grid-template-columns: 1fr; gap: 2px; }
+  .rgpd-definitions dd { margin-block-end: var(--esp-2); }
+}
+
+/* Un geste du guichet : un petit formulaire encadré. */
+.rgpd-carte {
+  display: grid; gap: var(--esp-3);
+  padding: var(--esp-4); margin-top: var(--esp-4);
+  background: var(--c-surface); border: 1px solid var(--c-ligne); border-radius: var(--rayon);
+}
+.rgpd-carte > h3 { margin: 0; font-size: var(--taille-m); }
+.rgpd-carte__actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+
+/* Cases à cocher des droits exercés. */
+.rgpd-choix { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; }
+.rgpd-choix > legend { padding: 0; color: var(--c-attenue); font-size: var(--taille-s); }
+
+/* Journal des transitions : du plus récent au plus ancien. */
+.rgpd-journal { list-style: none; margin: 0; padding: 0; max-height: 32rem; overflow-y: auto; }
+.rgpd-journal > li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--esp-2);
+  padding: 6px 0; border-bottom: 1px solid var(--c-ligne);
+}
+.rgpd-journal > li:last-child { border-bottom: 0; }
+.rgpd-journal__quand {
+  width: 9rem; flex-shrink: 0; color: var(--c-attenue);
+  font-size: var(--taille-s); font-variant-numeric: tabular-nums;
+}
+@media (max-width: 480px) {
+  .rgpd-journal__quand { width: 100%; }
+}
+
+/* Grille de vérification d'identité : une suite de gestes numérotés. */
+.rgpd-grille { margin: 0; padding-inline-start: var(--esp-5); display: grid; gap: var(--esp-3); }
+.rgpd-grille p { margin: 2px 0 0; }

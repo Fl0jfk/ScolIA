@@ -583,6 +583,18 @@ pub enum Action {
     ConformiteValider,
     /// Socle 27, lot G2 : déclarer les sous-traitants propres à l'établissement et objecter à une annonce de la plateforme.
     SoustraitantsGerer,
+    /// Socle 27, lot G3a : enregistrer une demande de droit au guichet (courrier, courriel, guichet) et
+    /// vérifier l'identité et la qualité du demandeur. Établissement seulement.
+    DroitsRecevoir,
+    /// Socle 27, lot G3a : traiter une demande de droit (qualifier, assembler, relire, rédiger la réponse,
+    /// clore). Établissement seulement.
+    DroitsTraiter,
+    /// ★ Socle 27, lot G3a : remettre l'extrait au demandeur (archive chiffrée ou remise en main propre).
+    /// Passkey récente exigée par le code de remise (R-RG42) ; la remise elle-même arrive avec le lot G3b.
+    DroitsRemettre,
+    /// Socle 27, lot G3a : arbitrages réservés à la direction — refus motivé, demande manifestement excessive
+    /// (R-RG17), prolongation de deux mois, communication du nom d'un agent. Établissement seulement.
+    DroitsArbitrer,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -684,7 +696,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 282] = [
+    pub const TOUTES: [Action; 286] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -871,6 +883,11 @@ impl Action {
         Action::ConservationReglesValider,
         Action::ConformiteValider,
         Action::SoustraitantsGerer,
+        // Socle 27, lot G3a : guichet des demandes de droits.
+        Action::DroitsRecevoir,
+        Action::DroitsTraiter,
+        Action::DroitsRemettre,
+        Action::DroitsArbitrer,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -1246,6 +1263,10 @@ impl Action {
             Self::ConservationReglesValider => "conservation.regles.valider",
             Self::ConformiteValider => "conformite.valider",
             Self::SoustraitantsGerer => "soustraitants.gerer",
+            Self::DroitsRecevoir => "droits.recevoir",
+            Self::DroitsTraiter => "droits.traiter",
+            Self::DroitsRemettre => "droits.remettre",
+            Self::DroitsArbitrer => "droits.arbitrer",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1536,6 +1557,10 @@ impl Action {
             Self::ConservationReglesValider => "Valider une règle de conservation (DPO ou rôle désigné par l'établissement)",
             Self::ConformiteValider => "Valider une version du registre des traitements et publier les mentions d'information",
             Self::SoustraitantsGerer => "Déclarer les sous-traitants de l'établissement et objecter à une annonce de la plateforme",
+            Self::DroitsRecevoir => "Enregistrer une demande de droit et vérifier l'identité du demandeur",
+            Self::DroitsTraiter => "Qualifier, instruire et clore une demande de droit",
+            Self::DroitsRemettre => "Remettre l'extrait d'une demande de droit",
+            Self::DroitsArbitrer => "Prolonger, refuser ou arbitrer une demande de droit (direction)",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1856,7 +1881,11 @@ impl Action {
             | Self::ConservationReglesProposer
             | Self::ConservationReglesValider
             | Self::ConformiteValider
-            | Self::SoustraitantsGerer => &[Portee::Etablissement],
+            | Self::SoustraitantsGerer
+            | Self::DroitsRecevoir
+            | Self::DroitsTraiter
+            | Self::DroitsRemettre
+            | Self::DroitsArbitrer => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -2694,6 +2723,18 @@ fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
         d.push(etab(ConservationReglesProposer));
         d.push(etab(ConformiteValider));
         d.push(etab(SoustraitantsGerer));
+        // Lot G3a, guichet des droits (§12.1) : la direction reçoit, traite, remet et arbitre.
+        d.push(etab(DroitsRecevoir));
+        d.push(etab(DroitsTraiter));
+        d.push(etab(DroitsRemettre));
+        d.push(etab(DroitsArbitrer));
+    }
+    // Secrétariat (scolarité) : enregistre une demande et l'instruit. La REMISE de l'extrait reste
+    // réservée (« secrétariat habilité », §12.1) : elle s'attribue nommément, jamais par défaut ;
+    // les arbitrages (refus, prolongation) sont à la direction (R-RG17).
+    if role == Role::Administratif {
+        d.push(etab(DroitsRecevoir));
+        d.push(etab(DroitsTraiter));
     }
 }
 
@@ -3027,6 +3068,30 @@ mod tests {
                 assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?} par défaut");
             }
         }
+        // Lot G3a : le guichet des droits n'est ouvert qu'à la direction et au secrétariat ; remise et
+        // arbitrage restent à la direction (§12.1, R-RG17).
+        for r in [
+            Role::Admin, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
+            Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve,
+        ] {
+            for x in [DroitsRecevoir, DroitsTraiter, DroitsRemettre, DroitsArbitrer] {
+                assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?} par défaut");
+            }
+        }
+        assert!(a(Role::Direction, DroitsRecevoir));
+        assert!(a(Role::Direction, DroitsTraiter));
+        assert!(a(Role::Direction, DroitsRemettre));
+        assert!(a(Role::Direction, DroitsArbitrer));
+        assert!(a(Role::Administratif, DroitsRecevoir));
+        assert!(a(Role::Administratif, DroitsTraiter));
+        assert!(
+            !a(Role::Administratif, DroitsRemettre),
+            "la remise s'attribue nommément (secrétariat habilité)"
+        );
+        assert!(
+            !a(Role::Administratif, DroitsArbitrer),
+            "les arbitrages sont à la direction (R-RG17)"
+        );
         assert!(a(Role::Direction, ConformiteLire));
         assert!(a(Role::Direction, ConformiteGerer));
         assert!(a(Role::Direction, ConservationReglesProposer));

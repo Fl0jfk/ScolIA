@@ -50,6 +50,7 @@ mod journee_vs;
 mod portail;
 mod referentiel;
 mod referentiel_admin;
+mod rgpd_droits;
 mod roles;
 mod sante;
 mod securite;
@@ -134,6 +135,7 @@ pub use ent_types::referentiel::{
     EnseignementDto as EnseignementApi, RapportAmorcageDto as RapportAmorcageApi,
     ServiceDto as ServiceApi,
 };
+pub use ent_types::rgpd_droits as rgpd_droits_types;
 pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,
     EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,
