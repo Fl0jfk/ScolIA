@@ -352,15 +352,15 @@ Branche `ent-socle-24-code-f3-suites-4` (PR 156, brouillon, retenue), `origin/EN
 
 | Réf. | Correctif | Tests |
 |---|---|---|
-| **E-1 (élevé)** | Couverture croisée `regime:` / `annuel:` **par année et par mois**. La lecture ne retient que les lignes de régime dont la **période chevauche** celle des lignes annuelles à poser ; seuls les **mois effectivement couverts** sont écartés de la ligne annuelle (les autres sont facturés sous `:c<AAAA-MM>`) ; une ligne de régime **créditée par avoir** ne couvre que les mois que l'avoir lui laisse (entièrement créditée : rien). | `f3s6_e1_changement_de_regime_en_n_puis_generation_annuelle_n_plus_1` (360 € + 450 €) ; `f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_fois` (450 € en tout, rejeux neutres) ; `f3s6_e1_ligne_de_regime_creditee_par_avoir_ne_couvre_que_ce_qui_reste` (avoir total : 450 € ; avoir partiel : 450 €) |
+| **E-1 (élevé)** | Couverture croisée `regime:` / `annuel:` **par année et par mois**. La lecture ne retient que les lignes de régime dont la **période chevauche** celle des lignes annuelles à poser ; seuls les **mois effectivement couverts** sont écartés de la ligne annuelle (les autres sont facturés sous `:c<AAAA-MM>`) ; une ligne de régime **créditée par avoir** ne couvre que les mois que l'avoir lui laisse (entièrement créditée : rien). | `f3s6_e1_changement_de_regime_en_n_puis_generation_annuelle_n_plus_1` (360 € + 450 €) ; `f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_fois` (360 € en tout après la retouche du pilote, rejeux neutres) ; `f3s6_e1_ligne_de_regime_creditee_par_avoir_ne_couvre_que_ce_qui_reste` (avoir total : 450 € ; avoir partiel : 360 €) |
 | **M-1** | Les tâches `part_non_couverte` ne sont closes **qu'après** la garde réussie (collectées pendant le calcul, closes à la fin de `lignes_annuelles`, dans la transaction qui insère ensuite ; une erreur d'insertion annule tout). Un refus de la garde laisse la tâche ouverte. | `f3s6_m1_refus_de_la_garde_laisse_la_tache_ouverte` |
 | **M-2** | Les lignes d'une prise **plafonnée** passent toujours par `completer_plafonnee` (jamais refusées comme « le tarif a changé »). Plafond **relevé** : le principal prend le plafond libre en complément (clé `:c<premier mois libre>`), le reste va au payeur suivant. Plafond **abaissé** sous le facturé : rien n'est refacturé ni crédité, une tâche `part_non_couverte` le signale. | `f3s6_m2_plafond_releve_facture_le_complement_puis_abaisse_signale` (400 → 450 € puis 300 €, rejeux neutres) |
 | **F-1** | Requête de préfixe **une par préfixe** (motif constant pour le planificateur, plus de jointure sur `unnest`). | `f3s6_f1_lecture_par_prefixe_bornee_par_l_index_unique` (EXPLAIN) |
 | **F-2** | `restant_prise` n'exclut les lignes propres que si leur période tombe dans la **période générée** : les lignes hors période reformée comptent dans le plafond. | régression `f3s4_faible4`, `f3s5_m1`, `f3s5_m4` vertes |
-| **F-3** | Assertion stricte du test du faible 9 : 360 € après le changement, 450 € après le rejeu annuel, rejeu et double rejeu sans ligne de plus. | `f3s5_faible9_…` |
+| **F-3** | Assertion stricte du test du faible 9 : 360 € après le changement, 360 € après le rejeu annuel (retouche du pilote), rejeu et double rejeu sans ligne de plus. | `f3s5_faible9_…` |
 
 ### Règles métier non tranchées : valeur par défaut prudente (D-069)
-- **Remplace** la règle « mois avant le changement non facturés » des suites 4 : un rejeu annuel facture septembre-octobre au régime d'arrivée (l'annuel porte l'année entière au régime courant, seuls les mois couverts par le régime sont écartés). Sur un élève qui n'a jamais été en demi-pension avant le changement, c'est une surfacturation possible de ces mois : **à valider**, la correction est humaine (avoir).
+- **Retouche du pilote (D-069, jamais de surfacturation)** : les mois de l'année **avant** un changement de régime sont écartés du rejeu annuel (l'élève n'était pas à ce régime ; l'annuel, calculé au régime courant, les surfacturerait). Externe en septembre-octobre puis demi-pension en novembre : 360 €, pas 450 €.
 - **Avoir partiel d'une ligne de régime** : mois conservés = part non créditée arrondie au mois supérieur (jamais de double facturation).
 - **Ligne de régime sans période** : ne couvre rien (n'existe pas en pratique).
 - **Plafond relevé** : le complément va d'abord à l'organisme (plafond libre), puis au payeur suivant. **Plafond abaissé** : jamais de remboursement automatique, tâche seulement. Une hausse de tarif sur une prise plafonnée non bridée est facturée en complément à l'organisme (plafond libre) au lieu d'être refusée.
@@ -377,4 +377,16 @@ Index `text_pattern_ops` (migration 533) ; régularisation des écarts déjà fa
 Base locale neuve `ent_ci_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `f3s6_*` : **6 tests verts** ; régression ent-db (`tests_finances tests_payeurs tests_comptes tests_factur garde_search migrations`) : **105 passés, 0 échec**. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI (`ent-lab` compris) : 0 avertissement ; rustfmt ciblé sur `tests_finances_f3.rs` ; `cargo metadata --locked` (`web`) : OK. Pas de `cargo fmt --all`, pas de `#[ignore]`.
 
 ### Tête de code et CI
-Tête de code testée : `a57db1af` (PR 156, brouillon vers `ENT`, `origin/ENT` fusionné avant le push). CI « ENT Rust » : **verte**. Ce commit documentaire ne change aucun code.
+(Voir la section « Correctifs du pilote » ci-dessous pour la tête finale.) Tête de code testée par la session : `a57db1af` (PR 156, brouillon vers `ENT`, `origin/ENT` fusionné avant le push). CI « ENT Rust » : **verte**. Ce commit documentaire ne change aucun code.
+
+### Correctifs du pilote après contre-revue des correctifs des suites 4
+Rapport : `docs/pilotage/revues/24_F3_SUITES_4_CORRECTIFS_CONTRE_REVUE.md` (branche `ent-mc0hoe`).
+- Retouche D-069 ci-dessus (mois avant le changement écartés) ; tests E-1 (b), (c) et F-3 alignés sur 360 € ; doc corrigée.
+- **Limite structurelle, préexistante sur ENT, en file (conception d'abord)** : l'annuel facture l'année au régime **courant** et
+  déduit l'historique des régimes de l'existence de lignes `regime:`. Un changement sans ligne (en juin, ou facturation de
+  régime en échec) puis un rejeu annuel facture l'année entière au nouveau régime ; un changement au 1er septembre perd
+  septembre (prudence) ; annuel rejoué avant la réaction de régime : double facturation possible. **Remède : régime mois
+  par mois lu dans l'historique des changements** (lot de conception, puis code), tests : juin (0 €), 1er septembre
+  (450 €), deux changements (270 €), internat ↔ demi-pension, ordre inversé.
+- Plafond relevé avec un payeur suivant déjà posé : rien de plus à l'organisme, la famille garde sa part : à signaler par
+  tâche (en file). Hausse de tarif sur une prise plafonnée facturée à l'organisme : à valider (D-069).

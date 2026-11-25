@@ -6144,13 +6144,13 @@ async fn f3s5_faible9_rejeu_annuel_apres_changement_de_regime_sans_double_factur
         .unwrap();
     let res = facturer_motif(&ent, etab, el).await;
     assert!(res.is_ok(), "le rejeu annuel passe : {res:?}");
-    // Octobre-septembre : le changement a facturé novembre-juin (8 mois, 360 €) ; le rejeu annuel (régime désormais
-    // demi-pension) n'écarte que ces mois et facture septembre-octobre (2 mois, 90 €) : 450 € au total, aucun mois deux fois.
+    // Le changement a facturé novembre-juin (8 mois, 360 €) ; contre-revue du pilote (D-069) : le rejeu annuel (régime
+    // désormais demi-pension) ne facture pas septembre-octobre, mois d'externat : 360 € au total, aucun mois deux fois.
     assert_eq!(apres_regime, 36_000);
     assert_eq!(
         somme_art(&ent, dp, el).await,
-        45_000,
-        "10 mois facturés une fois chacun"
+        36_000,
+        "seuls les mois en demi-pension sont facturés, une fois chacun"
     );
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -6275,8 +6275,9 @@ async fn f3s6_e1_changement_de_regime_en_n_puis_generation_annuelle_n_plus_1() {
     );
 }
 
-/// E-1 (b) : changement de régime en cours d'année puis rejeu annuel : novembre-juin couverts par le régime (360 €),
-/// septembre-octobre facturés par l'annuel (90 €) ; aucun mois deux fois, aucun oublié ; rejeux neutres.
+/// E-1 (b) : changement de régime en cours d'année puis rejeu annuel : novembre-juin couverts par le régime (360 €) ;
+/// contre-revue du pilote (D-069) : septembre-octobre, mois d'externat, ne sont **pas** facturés en demi-pension par
+/// l'annuel ; aucun mois deux fois ; rejeux neutres.
 #[tokio::test]
 async fn f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_fois() {
     let Some((ent, c)) = labo().await else { return };
@@ -6288,15 +6289,15 @@ async fn f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_f
     changer_regime(&ent, etab, el, Uuid::new_v4()).await;
     regime_eleve(&ent, el, "demi_pension").await;
     facturer(&ent, etab, el).await;
-    assert_eq!(somme_art(&ent, dp, el).await, 45_000);
+    assert_eq!(somme_art(&ent, dp, el).await, 36_000);
     let cles: Vec<String> = lignes_de(&ent, el)
         .await
         .into_iter()
         .map(|(k, _)| k)
         .collect();
     assert!(
-        cles.iter().any(|k| k.contains(":c2030-09")),
-        "septembre-octobre sous un complément annuel : {cles:?}"
+        !cles.iter().any(|k| k.contains(":c2030-09")),
+        "septembre-octobre (externat) jamais facturés en demi-pension : {cles:?}"
     );
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -6337,8 +6338,8 @@ async fn f3s6_e1_ligne_de_regime_creditee_par_avoir_ne_couvre_que_ce_qui_reste()
     facturer(&ent, etab, el2).await;
     assert_eq!(
         net_art(&ent, dp, el2).await,
-        45_000,
-        "novembre-février (régime) + septembre-octobre et mars-juin (annuel) : chaque mois une fois"
+        36_000,
+        "novembre-février (régime) + mars-juin (annuel) ; septembre-octobre jamais en demi-pension (D-069)"
     );
     let avant = lignes_de(&ent, el2).await;
     facturer(&ent, etab, el2).await;

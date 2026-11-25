@@ -1782,7 +1782,9 @@ async fn garde_periodes(
     // * une ligne de régime **créditée par avoir** ne couvre que les mois que l'avoir lui laisse (les premiers, l'avoir
     //   créditant la fin de période) : entièrement créditée, elle ne couvre rien ; **règle prudente** pour un avoir
     //   partiel, la part non créditée est arrondie au mois supérieur (jamais de double facturation) ;
-    // * une ligne de régime sans période (inexistante en pratique : toute génération en pose une) ne couvre rien.
+    // * une ligne de régime sans période (inexistante en pratique : toute génération en pose une) ne couvre rien ;
+    // * contre-revue du pilote (D-069) : les mois de l'année **avant** le changement de régime sont écartés aussi (l'élève
+    //   n'était pas à ce régime : l'annuel, calculé au régime courant, les surfacturerait).
     // Seul le sens annuel → régime est lu : un changement de régime reste facturable à nouveau après un avoir.
     let mut croisees: HashMap<(Uuid, String), std::collections::BTreeSet<i32>> = HashMap::new();
     let bornes = lignes
@@ -1824,10 +1826,14 @@ async fn garde_periodes(
             let nm = i128::from(indice_mois(pf) - indice_mois(pd) + 1);
             let gardes = (i128::from(net.abs()) * nm + i128::from(total.abs()) - 1) / i128::from(total.abs());
             let gardes = gardes.clamp(0, nm) as i32;
+            // Contre-revue du pilote (D-069, jamais de surfacturation) : l'annuel porte l'année au régime COURANT ; les mois
+            // de l'année qui PRÉCÈDENT le changement de régime n'étaient pas à ce régime (ex. externe en septembre-octobre,
+            // demi-pension depuis novembre) : ils ne sont jamais facturés par l'annuel à ce régime. Écartés aussi.
+            let debut_annee = indice_mois(min_d).min(indice_mois(pd));
             croisees
                 .entry((art, groupe))
                 .or_default()
-                .extend(indice_mois(pd)..indice_mois(pd) + gardes);
+                .extend(debut_annee..indice_mois(pd) + gardes);
         }
     }
     let mut posees: HashMap<String, Vec<LignePosee>> = HashMap::new();
