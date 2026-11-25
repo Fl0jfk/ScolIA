@@ -137,3 +137,9 @@ Les consignes actuelles (`docs/pilotage/consignes/*.md`) servent telles quelles.
 Un lot **isolé et sans risque** (une suite de faibles, sans migration) mené de bout en bout dans le Projet : consigne,
 fil, contre-revue, versement, point quotidien. On compare la lisibilité et le coût en contexte avec la méthode actuelle.
 On ne bascule tout qu'ensuite.
+
+## 7. Claude Ship : écarté (2026-11-25)
+Florian a un forfait individuel à 100 $ par mois, c'est-à-dire Max. Claude Ship (Code Review, PR Steward, Claude Approvals)
+est réservé aux offres **Team et Enterprise** et se facture en **crédits d'usage en plus**. Ce n'est donc ni disponible
+ni gratuit : écarté. Le coordinateur garde les contre-revues indépendantes et traite lui-même les CI rouges. Les Projets
+(bêta), eux, sont ouverts aux offres Pro et Max.

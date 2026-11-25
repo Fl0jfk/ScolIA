@@ -772,3 +772,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Décision de Florian (25-11)** : migration vers les **Projets (bêta) de Claude Code** (Florian y a accès). D'ici là : finir MB1 serveur et G3a (contre-revues, versements), faire passer les **correctifs F3 suites 4** (élevé), **aucun autre lancement**. Kit de migration : `docs/pilotage/MIGRATION_PROJETS.md`. Feu vert du pilote à Florian quand tout est versé, puis bascule ensemble.
 - **Livré** : MB1 serveur (PR 157, 9a0d2aea, CI verte, migration 2227) ; contre-revue en cours sur `wt-mb1`.
 - **Lancé** (dernier avant la bascule) : correctifs F3 suites 4 (session_01KZCbFGu2gH8vEg7qXa892W, même branche, PR 156). Sessions qui codent : G3a + F3 4 correctifs.
+- **MB1 serveur (PR 157)** : contre-revue (aucun élevé) ; M1 à M3 corrigés par le pilote ; 2227 inscrite ; ENT inclus ; tête **9035a1a0**, CI en attente. Claude Ship écarté (Team/Enterprise et crédits payants), noté au kit.
