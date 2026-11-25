@@ -49,3 +49,11 @@ Branche `ent-socle-11-code-mb1-serveur` (base `origin/ENT`). Consigne : `docs/pi
 
 ## Tête et CI
 Voir le message au pilote (tête finale et état de la CI renseignés après le push).
+
+## Correctifs du pilote après contre-revue
+Rapport : `docs/pilotage/revues/11_MB1_SERVEUR_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **M1** : routes sensibles (santé, psy, finances, facturation, paiement, IBAN, liens pré-signés) : **aucune réponse conservée** au registre (rejeu = `409 idempotence.non_rejouable`, jamais une seconde exécution).
+- **M2** : exécution et conservation dans une **tâche détachée** (un client déconnecté n'empêche plus la conservation) ; valeurs hors des bornes de la table ou `\0` → non rejouable ; échec de conservation → seconde tentative « non rejouable », jamais laissée « en cours ».
+- **M3** : `/auth/*` **hors registre** ; routes sensibles : empreinte sans le corps.
+- En file : clé dans la transaction métier pour les écritures critiques, HMAC, faibles F1 à F7 et tests manquants du rapport.
+- Local : 7 tests (MB1 + `tests_pilote`) verts, clippy 1.99 vert. 2227 inscrite aux migrations versées.

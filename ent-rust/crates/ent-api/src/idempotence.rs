@@ -44,6 +44,34 @@ fn est_ecriture(m: &Method) -> bool {
     )
 }
 
+/// Contre-revue du pilote (MB1, M3) : l'authentification (mots de passe, jetons) n'entre **jamais** au registre.
+fn hors_registre(chemin: &str) -> bool {
+    chemin.starts_with("/auth")
+}
+
+/// Contre-revue du pilote (MB1, M1, M3) : routes dont la réponse porte des données sensibles (santé, psy, finances,
+/// coordonnées bancaires) ou un lien pré-signé à durée courte : aucune réponse n'est conservée (rejeu = `409
+/// idempotence.non_rejouable`, jamais une seconde exécution) et l'empreinte ne porte pas sur le corps (aucun secret
+/// haché au repos).
+fn reponse_sensible(chemin: &str) -> bool {
+    let p = chemin.split('?').next().unwrap_or(chemin);
+    [
+        "/sante",
+        "/psy",
+        "/finances",
+        "/facturation",
+        "/paiement",
+        "/iban",
+        "/fin/",
+    ]
+    .iter()
+    .any(|m| p.contains(m))
+        || p.ends_with("/lien")
+}
+
+const TYPE_CONTENU_MAX: usize = 120;
+const EMPLACEMENT_MAX: usize = 500;
+
 fn rejouer(r: ReponseConservee) -> Response<Body> {
     let statut = StatusCode::from_u16(r.statut_http).unwrap_or(StatusCode::OK);
     let mut res = Response::new(Body::from(r.corps.unwrap_or_default()));
@@ -64,7 +92,7 @@ pub async fn idempotence(
     req: Request,
     next: Next,
 ) -> Response<Body> {
-    if !est_ecriture(req.method()) {
+    if !est_ecriture(req.method()) || hors_registre(req.uri().path()) {
         return next.run(req).await;
     }
     // Sans session résolue (connexion, rattachement, jeton invalide) : rien à cloisonner, la route répond seule.
@@ -112,7 +140,12 @@ pub async fn idempotence(
         .path_and_query()
         .map(|p| p.as_str().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
-    let empreinte = empreinte_requete(parts.method.as_str(), &chemin, &octets);
+    let sensible = reponse_sensible(&chemin);
+    let empreinte = if sensible {
+        empreinte_requete(parts.method.as_str(), &chemin, b"")
+    } else {
+        empreinte_requete(parts.method.as_str(), &chemin, &octets)
+    };
 
     let (etab, session) = (info.etablissement_id, info.session_id);
     let mut attendu_ms = 0;
@@ -157,6 +190,32 @@ pub async fn idempotence(
         }
     }
 
+    // Contre-revue du pilote (MB1, M2) : l'exécution ET la conservation tournent dans une tâche détachée : un client qui
+    // coupe la connexion après l'écriture métier n'empêche plus la conservation (sinon la clé restait « en cours » et une
+    // reprise après abandon exécutait l'écriture une seconde fois).
+    let tache = tokio::spawn(executer_et_conserver(
+        state, next, parts, octets, etab, session, cle, sensible,
+    ));
+    match tache.await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "exécution idempotente interrompue");
+            avec_code(CodeErreur::ErreurInterne, "Erreur interne.")
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn executer_et_conserver(
+    state: AppState,
+    next: Next,
+    parts: axum::http::request::Parts,
+    octets: axum::body::Bytes,
+    etab: Uuid,
+    session: Uuid,
+    cle: Uuid,
+    sensible: bool,
+) -> Response<Body> {
     let res = next
         .run(Request::from_parts(parts, Body::from(octets)))
         .await;
@@ -204,12 +263,73 @@ pub async fn idempotence(
         corps: if rejouable { texte } else { None },
         rejouable,
     };
+    // M1 : réponse sensible jamais conservée ; M2 : valeurs hors des bornes de la table (ou `\0`, refusé par Postgres)
+    // → non rejouable plutôt qu'un échec de conservation.
+    let mut conservee = conservee;
+    let hors_bornes = conservee
+        .type_contenu
+        .as_ref()
+        .is_some_and(|t| t.len() > TYPE_CONTENU_MAX)
+        || conservee
+            .emplacement
+            .as_ref()
+            .is_some_and(|l| l.len() > EMPLACEMENT_MAX)
+        || conservee.corps.as_ref().is_some_and(|c| c.contains('\0'));
+    if sensible || hors_bornes {
+        conservee = ReponseConservee {
+            statut_http: conservee.statut_http,
+            type_contenu: None,
+            emplacement: None,
+            corps: None,
+            rejouable: false,
+        };
+    }
     if let Err(e) = state
         .ent
         .idem_terminer(etab, session, cle, &conservee, (state.horloge)())
         .await
     {
-        tracing::error!(error = %e, "conservation d'une réponse d'idempotence impossible");
+        tracing::error!(error = %e, "conservation d'une réponse d'idempotence impossible ; marquée non rejouable");
+        // M2 : en dernier recours, la clé est close « non rejouable » : jamais laissée « en cours » (seconde exécution).
+        let minimale = ReponseConservee {
+            statut_http: conservee.statut_http,
+            type_contenu: None,
+            emplacement: None,
+            corps: None,
+            rejouable: false,
+        };
+        if let Err(e) = state
+            .ent
+            .idem_terminer(etab, session, cle, &minimale, (state.horloge)())
+            .await
+        {
+            tracing::error!(error = %e, "clé d'idempotence restée en cours");
+        }
     }
     Response::from_parts(res_parts, rendu_body)
+}
+
+#[cfg(test)]
+mod tests_pilote {
+    use super::*;
+
+    /// Contre-revue du pilote (MB1, M1, M3) : l'authentification n'entre jamais au registre ; les routes sensibles et les
+    /// liens pré-signés ne conservent aucune réponse.
+    #[test]
+    fn authentification_hors_registre_et_reponses_sensibles_non_conservees() {
+        assert!(hors_registre("/auth/password"));
+        assert!(hors_registre("/auth/login"));
+        assert!(!hors_registre("/mobile/labo/ecrire"));
+        for p in [
+            "/eleves/1/sante/fiche",
+            "/psy/suivis",
+            "/finances/factures/1",
+            "/documents/1/lien",
+            "/familles/1/iban?x=1",
+        ] {
+            assert!(reponse_sensible(p), "{p}");
+        }
+        assert!(!reponse_sensible("/mobile/labo/ecrire"));
+        assert!(!reponse_sensible("/messages/lien-utile/envoi"));
+    }
 }
