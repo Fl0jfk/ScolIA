@@ -7,12 +7,14 @@ import {
   eleve,
   eleveFoyerLink,
   eleveScolarite,
+  foyerFacturation,
   passage,
   tarif,
   tenantSettingAttr,
   tenantSettingSection,
 } from "@/db/schema";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
+import { pickFoyerByEleve } from "@/app/lib/foyer-pick";
 import {
   mealDayKeyFromIsoDate,
   parseEleveGrilleRepas,
@@ -199,13 +201,17 @@ export async function getCantineFacturationPeriode(
     .select({
       eleveId: eleveFoyerLink.eleveId,
       foyerId: eleveFoyerLink.foyerId,
+      createdAt: eleveFoyerLink.createdAt,
     })
     .from(eleveFoyerLink)
-    .where(eq(eleveFoyerLink.etablissementId, etablissementId));
-  const foyerByEleve = new Map<string, string>();
-  for (const l of foyerLinks) {
-    if (!foyerByEleve.has(l.eleveId)) foyerByEleve.set(l.eleveId, l.foyerId);
-  }
+    .where(eq(eleveFoyerLink.etablissementId, etablissementId))
+    .orderBy(eleveFoyerLink.createdAt, eleveFoyerLink.foyerId);
+  const facturationRows = await db
+    .select({ foyerId: foyerFacturation.foyerId })
+    .from(foyerFacturation)
+    .where(eq(foyerFacturation.etablissementId, etablissementId));
+  // Déterministe : le foyer qui a une facturation, sinon le lien le plus ancien.
+  const foyerByEleve = pickFoyerByEleve(foyerLinks, new Set(facturationRows.map((r) => r.foyerId)));
 
   const prisCount = new Map<string, number>();
   if (mode === "reel") {

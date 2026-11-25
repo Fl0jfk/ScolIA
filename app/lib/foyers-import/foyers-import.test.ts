@@ -7,6 +7,7 @@ import { getTableName } from "drizzle-orm";
 import { applyPlan, ApplyPartialError, type FoyersDb, type FoyersWriter } from "./apply";
 import {
   autoriteFromLien,
+  isGenericEmail,
   excelSerialToIso,
   normEmail,
   normName,
@@ -15,6 +16,9 @@ import {
 } from "./normalize";
 import { assertSafeXlsx, FoyersFileError, parseFoyersWorkbook, rowsFromRecords } from "./parse";
 import { validateResponsableInput } from "./responsable-validate";
+import { pickFoyerByEleve } from "../foyer-pick";
+import { pickIdentityRecipients } from "../stage-identity-pick";
+import { filterFoyersForProfClasses, searchPaginateFoyers } from "../famille-messaging-matrix";
 import {
   analyzeFile,
   buildPlan,
@@ -986,4 +990,154 @@ test("modification responsable : garde, établissement, userId et eleve intacts"
   assert.ok(edit.includes("avant") && edit.includes("apres"));
   assert.equal(canManageFoyersRoles(["professeur"], {}), false);
   assert.equal(canManageFoyersRoles(["administratif"], {}), true);
+});
+
+/* ───────── Analyse d'impact (partie 3) ───────── */
+
+test("adresses à vérifier : générique, personnel, autre foyer — non écrites par défaut", () => {
+  const a = analyze(
+    [
+      rec({
+        "Email Personnel Resp": "secretariat@example.org",
+        "Email Personnel Conjoint": "prof@example.org",
+      }),
+    ],
+    [eleve("e1", "Martin", "Léa")],
+  );
+  const existing: ExistingData = { ...EMPTY, staffEmails: ["prof@example.org"] };
+  const plan = buildPlan(a, existing, { keepOldLinks: false });
+  const rs = plan.foyers[0]!.responsables;
+  assert.equal(rs[0]!.email, null);
+  assert.equal(rs[1]!.email, null);
+  assert.equal(plan.anomalies.filter((x) => x.kind === "adresse_a_verifier").length, 2);
+  // option explicite : écrites
+  const forced = buildPlan(a, existing, { keepOldLinks: false, writeSuspectEmails: true });
+  assert.equal(forced.foyers[0]!.responsables[0]!.email, "secretariat@example.org");
+  assert.equal(forced.anomalies.filter((x) => x.kind === "adresse_a_verifier").length, 0);
+  assert.notEqual(
+    planFingerprint(plan, "h", { keepOldLinks: false }),
+    planFingerprint(forced, "h", { keepOldLinks: false, writeSuspectEmails: true }),
+  );
+  // adresse déjà sur un AUTRE foyer de la base
+  const other = buildPlan(
+    analyze([rec({})], [eleve("e1", "Martin", "Léa")]),
+    { ...EMPTY, emailFoyers: { "claire@example.org": ["fAutre"] } },
+    { keepOldLinks: false },
+  );
+  assert.equal(other.foyers[0]!.responsables[0]!.email, null);
+  assert.ok(other.anomalies.some((x) => x.kind === "adresse_a_verifier"));
+  // …mais pas si c'est le propre foyer rattaché
+  const own = buildPlan(
+    analyze([rec({})], [eleve("e1", "Martin", "Léa")]),
+    {
+      foyers: [{ id: "f1", label: "F" }],
+      responsables: [resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "claire@example.org" })],
+      links: [{ eleveId: "e1", foyerId: "f1" }],
+      emailFoyers: { "claire@example.org": ["f1"] },
+    },
+    { keepOldLinks: false },
+  );
+  assert.ok(!own.anomalies.some((x) => x.kind === "adresse_a_verifier" && x.eleve.includes("Claire")));
+});
+
+test("adresses génériques reconnues", () => {
+  for (const e of ["contact@x.fr", "Secretariat@x.fr", "info@x.fr", "ecole@x.fr", "no-reply@x.fr", "noreply@x.fr", "contact2@x.fr"]) {
+    assert.equal(isGenericEmail(e), true, e);
+  }
+  assert.equal(isGenericEmail("claire.martin@x.fr"), false);
+});
+
+test("liens protégés : un e-mail de compte existant (sans userId) compte comme compte famille", () => {
+  const a = analyze([rec({})], [eleve("e1", "Martin", "Léa")]);
+  const plan = buildPlan(
+    a,
+    {
+      foyers: [
+        { id: "f1", label: "OK" },
+        { id: "fOld", label: "Ancien" },
+      ],
+      responsables: [
+        resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "claire@example.org" }),
+        resp({ id: "rOld", foyerId: "fOld", nom: "X", prenom: "Y", email: "Parent@Example.org" }),
+      ],
+      links: [
+        { eleveId: "e1", foyerId: "f1" },
+        { eleveId: "e1", foyerId: "fOld" },
+      ],
+      accountEmails: ["parent@example.org"],
+    },
+    { keepOldLinks: false },
+  );
+  assert.equal(plan.linksRemove.length, 0);
+  assert.deepEqual(plan.liensAVerifier[0]!.raisons, ["compte famille"]);
+});
+
+test("autorité parentale : passage de « aucun coché » à « certains cochés » signalé", () => {
+  const a = analyze([rec({})], [eleve("e1", "Martin", "Léa")]);
+  const existing = (autorite: boolean): ExistingData => ({
+    foyers: [{ id: "f1", label: "F" }],
+    responsables: [
+      resp({ id: "r1", foyerId: "f1", nom: "Martin", prenom: "Claire", email: "claire@example.org", autoriteParentale: autorite }),
+    ],
+    links: [{ eleveId: "e1", foyerId: "f1" }],
+  });
+  const p1 = buildPlan(a, existing(false), { keepOldLinks: false });
+  assert.equal(p1.foyers[0]!.autoriteChange, true);
+  assert.ok(p1.anomalies.some((x) => x.kind === "autorite_change"));
+  const p2 = buildPlan(a, existing(true), { keepOldLinks: false });
+  assert.equal(p2.foyers[0]!.autoriteChange, false);
+});
+
+test("cantine : foyer avec facturation, sinon lien le plus ancien, ordre stable", () => {
+  const links = [
+    { eleveId: "e1", foyerId: "fB", createdAt: new Date("2025-02-01") },
+    { eleveId: "e1", foyerId: "fA", createdAt: new Date("2025-03-01") },
+    { eleveId: "e2", foyerId: "fZ", createdAt: new Date("2025-01-01") },
+    { eleveId: "e2", foyerId: "fY", createdAt: new Date("2025-01-01") },
+  ];
+  const none = pickFoyerByEleve(links, new Set());
+  assert.equal(none.get("e1"), "fB");
+  assert.equal(none.get("e2"), "fY");
+  assert.equal(pickFoyerByEleve(links, new Set(["fA"])).get("e1"), "fA");
+  assert.equal(pickFoyerByEleve([...links].reverse(), new Set()).get("e2"), "fY");
+  const src = readFileSync(join(process.cwd(), "app/lib/passages-facturation-db.ts"), "utf8");
+  assert.ok(src.includes("pickFoyerByEleve") && src.includes("foyerFacturation"));
+});
+
+test("stages : une adresse par foyer avant de tronquer, e-mail élève conservé", () => {
+  const out = pickIdentityRecipients(
+    ["fiche1@example.org", "a1@example.org", "a2@example.org", "a3@example.org", "b1@example.org", "c1@example.org"],
+    ["a1@example.org", "b1@example.org", "c1@example.org"],
+    ["eleve@example.org"],
+    4,
+  );
+  assert.equal(out.length, 4);
+  for (const e of ["a1@example.org", "b1@example.org", "c1@example.org", "eleve@example.org"]) {
+    assert.ok(out.includes(e), e);
+  }
+  assert.deepEqual(
+    pickIdentityRecipients(["p@example.org"], ["p@example.org"], [], 4),
+    ["p@example.org"],
+  );
+  const src = readFileSync(join(process.cwd(), "app/lib/stage-identity-recipients.ts"), "utf8");
+  assert.ok(src.includes("pickIdentityRecipients") && src.includes("createdAt"));
+});
+
+test("messagerie familles : plus de plafond de 300 lignes, liste paginée côté serveur", () => {
+  const db = readFileSync(join(process.cwd(), "app/lib/famille-messaging-db.ts"), "utf8");
+  assert.ok(!/\.limit\(300\)/.test(db.slice(db.indexOf("listFoyersLight"), db.indexOf("getFamilleMessagingSettings"))));
+  const foyers = Array.from({ length: 1300 }, (_, i) => ({
+    id: `f${i}`,
+    label: `Foyer ${String(i).padStart(4, "0")}`,
+    eleves: [{ nom: i === 1250 ? "Éloïse" : `N${i}`, prenom: "P", classe: "6A" }],
+  }));
+  const p1 = searchPaginateFoyers(foyers, { limit: 100, offset: 0 });
+  assert.equal(p1.items.length, 100);
+  assert.equal(p1.total, 1300);
+  assert.equal(searchPaginateFoyers(foyers, { q: "eloise" }).items[0]!.id, "f1250");
+  assert.equal(searchPaginateFoyers(foyers, { limit: 500, offset: 1250 }).items.length, 50);
+  // les droits d'un prof et la diffusion portent sur la liste complète
+  assert.equal(filterFoyersForProfClasses(foyers, ["6A"]).length, 1300);
+  const route = readFileSync(join(process.cwd(), "app/api/vie-scolaire/messages-foyer/route.ts"), "utf8");
+  assert.ok(route.includes("searchPaginateFoyers"));
 });

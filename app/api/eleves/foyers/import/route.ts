@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     const options = {
       keepOldLinks: String(form.get("keepOldLinks") ?? "") === "1",
       removeProtectedLinks: String(form.get("removeProtectedLinks") ?? "") === "1",
+      writeSuspectEmails: String(form.get("writeSuspectEmails") ?? "") === "1",
     };
     const buf = Buffer.from(await file.arrayBuffer());
 

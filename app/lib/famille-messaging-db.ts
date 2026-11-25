@@ -62,8 +62,9 @@ export async function listFoyersLight(etablissementId: string) {
       ),
     )
     .where(eq(foyer.etablissementId, etablissementId))
-    .orderBy(asc(foyer.label), asc(eleve.nom))
-    .limit(300);
+    // Pas de plafond : les droits d'un prof et la diffusion doivent voir TOUS les foyers
+    // (la liste affichée est paginée / filtrée côté route, voir searchPaginateFoyers).
+    .orderBy(asc(foyer.label), asc(eleve.nom));
 
   type FoyerLight = {
     id: string;

@@ -18,11 +18,12 @@ import {
   canInitiateFromMatrix,
   filterFoyersForProfClasses,
   isProfesseurOnly,
+  searchPaginateFoyers,
 } from "@/app/lib/famille-messaging-matrix";
 import { listClassesForTeacherUser } from "@/app/lib/class-allocation-teachers";
 import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 
-export async function GET() {
+export async function GET(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
@@ -51,9 +52,17 @@ export async function GET() {
     const allowed = new Set(foyers.map((f) => f.id));
     threads = threads.filter((t) => allowed.has(t.foyerId));
   }
+  // Liste affichée : recherche + pagination côté serveur (les droits ci-dessus portent sur TOUS les foyers).
+  const url = new URL(req.url);
+  const page = searchPaginateFoyers(foyers, {
+    q: url.searchParams.get("q") ?? "",
+    limit: Number(url.searchParams.get("limit") ?? 100),
+    offset: Number(url.searchParams.get("offset") ?? 0),
+  });
   return NextResponse.json({
     threads,
-    foyers,
+    foyers: page.items,
+    foyersTotal: page.total,
     settings,
     canBroadcast: canBroadcastFromMatrix(roles, settings, { orgAdmin }),
     assignedClasses,

@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { autoriteFromLien, normEmail, normName, normPhone } from "./normalize";
+import { autoriteFromLien, isGenericEmail, normEmail, normName, normPhone } from "./normalize";
 import { studentKey, type FileAdult, type FileRow } from "./parse";
 
 export const MAX_RESPONSABLES_PAR_FOYER = 4;
@@ -41,6 +41,12 @@ export type ExistingData = {
   foyers: Array<{ id: string; label: string; facturation?: boolean; messagerie?: boolean }>;
   responsables: DbResp[];
   links: Array<{ eleveId: string; foyerId: string }>;
+  /** E-mails (minuscules) de comptes `user` existants : un responsable avec cette adresse se connecte déjà. */
+  accountEmails?: string[];
+  /** E-mails (minuscules) du personnel (table personnel / comptes staff). */
+  staffEmails?: string[];
+  /** E-mail (minuscule) → foyers de la base dont un responsable porte cette adresse. */
+  emailFoyers?: Record<string, string[]>;
 };
 
 /* ───────── Types de sortie ───────── */
@@ -58,7 +64,9 @@ export type AnomalyKind =
   | "foyer_plein"
   | "contact_partage"
   | "sous_ensemble"
-  | "non_touche";
+  | "non_touche"
+  | "adresse_a_verifier"
+  | "autorite_change";
 
 export type Anomaly = {
   kind: AnomalyKind;
@@ -144,6 +152,8 @@ export type PlanFoyer = {
   eleveIds: string[];
   /** Total d'enfants dans le fichier (reconnus ou non). */
   enfantsFichier: number;
+  /** Foyer existant dont l'autorité parentale passe de « aucun coché » à « certains cochés ». */
+  autoriteChange: boolean;
 };
 
 export type PlanLinkAdd = { eleveId: string; foyerRef: string };
@@ -191,6 +201,8 @@ export type PlanOptions = {
   keepOldLinks: boolean;
   /** Retirer aussi les liens des foyers avec facturation / messagerie / compte famille. */
   removeProtectedLinks?: boolean;
+  /** Écrire quand même les adresses génériques / du personnel / déjà sur un autre foyer. */
+  writeSuspectEmails?: boolean;
 };
 
 /* ───────── Analyse du fichier ───────── */
@@ -569,13 +581,32 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
   for (const l of respsByFoyer.values()) l.sort((a, b) => a.rang - b.rang);
   const foyerLabelById = new Map(existing.foyers.map((f) => [f.id, f.label]));
   const foyerMeta = new Map(existing.foyers.map((f) => [f.id, f]));
+  const accountEmails = new Set((existing.accountEmails ?? []).map((e) => e.toLowerCase()));
+  const staffEmails = new Set((existing.staffEmails ?? []).map((e) => e.toLowerCase()));
+  const emailFoyers = existing.emailFoyers ?? {};
+  /** Adresse à ne pas écrire par défaut : générique, personnel, ou déjà sur un autre foyer. */
+  const suspectReason = (email: string, ownFoyerId: string | null): string | null => {
+    if (isGenericEmail(email)) return "adresse générique";
+    if (staffEmails.has(email)) return "adresse d'un compte du personnel";
+    if ((emailFoyers[email] ?? []).some((id) => id !== ownFoyerId)) {
+      return "adresse déjà présente sur un responsable d'un autre foyer";
+    }
+    return null;
+  };
   /** Raisons de protéger un foyer : facturation, messagerie, compte famille. */
   const protectionOf = (fid: string): string[] => {
     const raisons: string[] = [];
     const m = foyerMeta.get(fid);
     if (m?.facturation) raisons.push("facturation");
     if (m?.messagerie) raisons.push("messagerie");
-    if ((respsByFoyer.get(fid) ?? []).some((r) => r.userId)) raisons.push("compte famille");
+    // Compte famille : userId renseigné, ou e-mail identique à celui d'un compte existant (connexion par e-mail).
+    if (
+      (respsByFoyer.get(fid) ?? []).some(
+        (r) => r.userId || (r.email && accountEmails.has(r.email.trim().toLowerCase())),
+      )
+    ) {
+      raisons.push("compte famille");
+    }
     return raisons;
   };
   const linksByEleve = new Map<string, Set<string>>();
@@ -631,8 +662,22 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     const usedRangs = new Set(dbResps.map((r) => r.rang));
     const resps: PlanResp[] = [];
     let full = false;
-    f.adults.forEach((a, i) => {
+    f.adults.forEach((a0, i) => {
       const m = matches[i] ?? null;
+      let email = a0.email;
+      if (email && !(m && emailEq(m.email, email))) {
+        const reason = suspectReason(email, existingId);
+        if (reason && !options.writeSuspectEmails) {
+          anomalies.push({
+            kind: "adresse_a_verifier",
+            lines: f.studentKeys.flatMap((k) => studentByKey.get(k)?.lines ?? []),
+            eleve: `${a0.prenom} ${a0.nom}`,
+            message: `E-mail ${email} non écrit (${reason}) : à vérifier.`,
+          });
+          email = null;
+        }
+      }
+      const a = { ...a0, email };
       if (m) {
         const all: string[] = [];
         if (normName(a.nom) !== normName(m.nom)) all.push("nom");
@@ -707,6 +752,20 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
     const ref = existingId ?? `new:${newCounter++}`;
     refByFileKey.set(f.key, ref);
     const changed = resps.some((r) => r.action !== "unchanged");
+    const autoriteChange =
+      !!existingId &&
+      dbResps.length > 0 &&
+      dbResps.every((r) => !r.autoriteParentale) &&
+      resps.some((r) => r.autoriteParentale);
+    if (autoriteChange) {
+      anomalies.push({
+        kind: "autorite_change",
+        lines: f.studentKeys.flatMap((k) => studentByKey.get(k)?.lines ?? []),
+        eleve: foyerLabelById.get(existingId!) ?? "Foyer",
+        message:
+          "Autorité parentale : aucun responsable coché jusqu'ici, certains le seront (change les destinataires des voyages).",
+      });
+    }
     planFoyers.push({
       ref,
       existingId,
@@ -716,6 +775,7 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
       conserves,
       eleveIds,
       enfantsFichier: f.studentKeys.length,
+      autoriteChange,
     });
   });
 
@@ -840,6 +900,7 @@ export function planFingerprint(plan: Plan, fileHash: string, options: PlanOptio
         fileHash,
         keepOldLinks: options.keepOldLinks,
         removeProtectedLinks: !!options.removeProtectedLinks,
+        writeSuspectEmails: !!options.writeSuspectEmails,
         ops,
       }))
     .digest("hex");

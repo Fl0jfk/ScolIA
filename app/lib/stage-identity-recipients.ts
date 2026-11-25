@@ -3,7 +3,8 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { eleveFoyerLink, foyerResponsable } from "@/db/schema";
+import { eleveFoyerLink, foyer, foyerResponsable } from "@/db/schema";
+import { pickIdentityRecipients } from "@/app/lib/stage-identity-pick";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { isEstablishmentDirectionEmail } from "@/app/lib/eleve-direction-email";
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
@@ -47,11 +48,15 @@ function optionIdFor(sessionId: string, email: string): string {
     .slice(0, 20);
 }
 
-async function listFoyerEmailsForEleve(eleveId: string | undefined): Promise<string[]> {
+/** E-mails des foyers de l'élève (foyer le plus ancien d'abord, puis rang) + 1re adresse de chaque foyer. */
+async function listFoyerEmailsForEleve(
+  eleveId: string | undefined,
+): Promise<{ ordered: string[]; firsts: string[] }> {
+  const none = { ordered: [], firsts: [] };
   const id = String(eleveId || "").trim();
-  if (!id) return [];
+  if (!id) return none;
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
-  if (!etabId) return [];
+  if (!etabId) return none;
 
   const db = getDb();
   const links = await db
@@ -59,26 +64,39 @@ async function listFoyerEmailsForEleve(eleveId: string | undefined): Promise<str
     .from(eleveFoyerLink)
     .where(and(eq(eleveFoyerLink.etablissementId, etabId), eq(eleveFoyerLink.eleveId, id)));
 
-  if (links.length === 0) return [];
+  if (links.length === 0) return none;
   const foyerIds = [...new Set(links.map((l) => l.foyerId))];
 
-  const rows = await db
-    .select({ email: foyerResponsable.email })
-    .from(foyerResponsable)
-    .where(
-      and(
-        eq(foyerResponsable.etablissementId, etabId),
-        inArray(foyerResponsable.foyerId, foyerIds),
+  const [foyers, rows] = await Promise.all([
+    db
+      .select({ id: foyer.id, createdAt: foyer.createdAt })
+      .from(foyer)
+      .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, foyerIds))),
+    db
+      .select({ foyerId: foyerResponsable.foyerId, email: foyerResponsable.email, rang: foyerResponsable.rang })
+      .from(foyerResponsable)
+      .where(
+        and(
+          eq(foyerResponsable.etablissementId, etabId),
+          inArray(foyerResponsable.foyerId, foyerIds),
+        ),
       ),
-    );
-
-  return rows
-    .map((row) =>
-      String(row.email || "")
-        .trim()
-        .toLowerCase(),
-    )
-    .filter(Boolean);
+  ]);
+  const foyerOrder = [...foyers]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1))
+    .map((f) => f.id);
+  const ordered: string[] = [];
+  const firsts: string[] = [];
+  for (const fid of foyerOrder) {
+    const mine = rows
+      .filter((r) => r.foyerId === fid)
+      .sort((a, b) => a.rang - b.rang)
+      .map((r) => String(r.email || "").trim().toLowerCase())
+      .filter(Boolean);
+    ordered.push(...mine);
+    if (mine[0]) firsts.push(mine[0]);
+  }
+  return { ordered, firsts };
 }
 
 /**
@@ -89,15 +107,12 @@ export async function listStageIdentityRecipientEmails(
   eleve: EleveConfig,
 ): Promise<string[]> {
   const foyerEmails = await listFoyerEmailsForEleve(eleve.id);
-  const parents = collectIdentityOtpRecipients([
-    eleve.parent1Email,
-    eleve.parentEmail,
-    eleve.parent2Email,
-    ...foyerEmails,
-  ]);
-  const student = collectIdentityOtpRecipients([eleve.email]);
-  const merged = collectIdentityOtpRecipients([...parents, ...student]);
-  return merged.slice(0, STAGE_IDENTITY_MAX_RECIPIENTS);
+  return pickIdentityRecipients(
+    [eleve.parent1Email, eleve.parentEmail, eleve.parent2Email, ...foyerEmails.ordered],
+    foyerEmails.firsts,
+    [eleve.email],
+    STAGE_IDENTITY_MAX_RECIPIENTS,
+  );
 }
 
 export async function createIdentityRecipientChoiceSession(params: {

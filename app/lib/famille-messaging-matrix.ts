@@ -142,6 +142,28 @@ export function isProfesseurOnly(roles: string[]): boolean {
   return roles.some((r) => normRole(r).includes("professeur"));
 }
 
+function foldSearch(v: string): string {
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** Recherche (libellé, élèves) + pagination côté serveur de la liste affichée. */
+export function searchPaginateFoyers<
+  T extends { label: string; eleves: Array<{ nom: string; prenom: string }> },
+>(foyers: T[], opts: { q?: string; limit?: number; offset?: number }): { items: T[]; total: number } {
+  const q = foldSearch((opts.q ?? "").trim());
+  const filtered = q
+    ? foyers.filter((f) =>
+        foldSearch([f.label, ...f.eleves.map((e) => `${e.prenom} ${e.nom}`)].join(" ")).includes(q),
+      )
+    : foyers;
+  const limit = Math.min(300, Math.max(1, Math.floor(opts.limit ?? 100)));
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  return { items: filtered.slice(offset, offset + limit), total: filtered.length };
+}
+
 /** Filtre foyers pour un prof (classes assignées). */
 export function filterFoyersForProfClasses<
   T extends { eleves: Array<{ classe: string | null }> },

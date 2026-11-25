@@ -32,6 +32,7 @@ export default function FoyersImportClient() {
   const [keepOldLinks, setKeepOldLinks] = useState(false);
   const [linkAccounts, setLinkAccounts] = useState(false);
   const [removeProtected, setRemoveProtected] = useState(false);
+  const [writeSuspect, setWriteSuspect] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -54,6 +55,7 @@ export default function FoyersImportClient() {
       fd.set("action", action);
       fd.set("keepOldLinks", keepOldLinks ? "1" : "0");
       fd.set("removeProtectedLinks", removeProtected && !keepOldLinks ? "1" : "0");
+      fd.set("writeSuspectEmails", writeSuspect ? "1" : "0");
       if (action === "apply" && preview) {
         fd.set("confirm", "oui");
         fd.set("fingerprint", preview.fingerprint);
@@ -162,6 +164,22 @@ export default function FoyersImportClient() {
             <span className="block text-xs font-semibold text-rose-600">
               Attention : par défaut ces liens sont conservés et listés « à vérifier ». Cocher cette case peut
               couper l'accès d'une famille à la facturation ou à la messagerie d'un enfant.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={writeSuspect}
+            onChange={(e) => {
+              setWriteSuspect(e.target.checked);
+              setPreview(null);
+            }}
+          />
+          <span>
+            Écrire quand même les e-mails génériques, du personnel ou déjà présents sur un autre foyer
+            <span className="block text-xs text-slate-500">
+              Par défaut ces adresses ne sont pas écrites (une adresse ajoutée à un foyer donne accès à ses enfants).
             </span>
           </span>
         </label>

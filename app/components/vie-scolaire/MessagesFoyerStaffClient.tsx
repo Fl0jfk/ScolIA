@@ -56,6 +56,8 @@ type PendingAtt = {
 
 export default function MessagesFoyerStaffClient() {
   const [foyers, setFoyers] = useState<FoyerLight[]>([]);
+  const [foyersTotal, setFoyersTotal] = useState(0);
+  const [foyerQuery, setFoyerQuery] = useState("");
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -86,16 +88,17 @@ export default function MessagesFoyerStaffClient() {
     setError(null);
     try {
       const [res, setRes] = await Promise.all([
-        fetch("/api/vie-scolaire/messages-foyer", { cache: "no-store" }),
+        fetch(`/api/vie-scolaire/messages-foyer?q=${encodeURIComponent(foyerQuery)}`, { cache: "no-store" }),
         fetch("/api/vie-scolaire/messages-foyer/settings", { cache: "no-store" }),
       ]);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
       const nextFoyers = (data.foyers || []) as FoyerLight[];
       setFoyers(nextFoyers);
+      setFoyersTotal(Number(data.foyersTotal ?? nextFoyers.length));
       setThreads(data.threads || []);
       setCanBroadcast(!!data.canBroadcast);
-      setFoyerId((prev) => prev || nextFoyers[0]?.id || "");
+      setFoyerId((prev) => (prev && nextFoyers.some((f) => f.id === prev) ? prev : nextFoyers[0]?.id || ""));
       if (setRes.ok) {
         const sj = await setRes.json();
         setSettings(sj.settings);
@@ -107,11 +110,12 @@ export default function MessagesFoyerStaffClient() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [foyerQuery]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const t = setTimeout(() => void load(), foyerQuery ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [load, foyerQuery]);
 
   useEffect(() => {
     if (!selectedFoyer) {
@@ -357,6 +361,17 @@ export default function MessagesFoyerStaffClient() {
             <>
               <label className={`block ${dash.textMid}`}>
                 Foyer
+                <input
+                  className="mt-1 mb-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="Rechercher un foyer ou un élève…"
+                  value={foyerQuery}
+                  onChange={(e) => setFoyerQuery(e.target.value)}
+                />
+                {foyersTotal > foyers.length ? (
+                  <span className="mb-1 block text-xs text-slate-500">
+                    {foyers.length} foyers affichés sur {foyersTotal} — affinez la recherche.
+                  </span>
+                ) : null}
                 <select
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
                   value={foyerId}

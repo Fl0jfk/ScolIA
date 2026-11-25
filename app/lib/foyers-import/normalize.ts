@@ -4,6 +4,47 @@
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const GENERIC_LOCAL_PARTS = new Set([
+  "contact",
+  "contacts",
+  "secretariat",
+  "secretaire",
+  "info",
+  "infos",
+  "ecole",
+  "college",
+  "lycee",
+  "accueil",
+  "direction",
+  "admin",
+  "administration",
+  "comptabilite",
+  "compta",
+  "scolarite",
+  "viescolaire",
+  "cpe",
+  "mairie",
+  "bonjour",
+  "hello",
+  "office",
+  "webmaster",
+  "postmaster",
+  "noreply",
+  "donotreply",
+  "ne pas repondre",
+]);
+
+/** Adresse générique d'organisme (contact@, secretariat@, info@, ecole@, noreply…). */
+export function isGenericEmail(email: string): boolean {
+  const local = (email.split("@")[0] ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[._-]+/g, "")
+    .replace(/\d+$/, "");
+  return GENERIC_LOCAL_PARTS.has(local);
+}
+
 /** Nettoie un texte (trim + espaces multiples) sans changer la casse. */
 export function cleanText(v: unknown): string {
   if (v === null || v === undefined) return "";

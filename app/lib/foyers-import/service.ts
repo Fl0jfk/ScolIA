@@ -10,6 +10,9 @@ import {
   foyer,
   foyerFacturation,
   foyerResponsable,
+  personnel,
+  user,
+  userMembership,
 } from "@/db/schema";
 import { chunkArray } from "@/app/lib/db-in-chunks";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
@@ -59,7 +62,71 @@ async function loadEleves(etablissementId: string): Promise<DbEleve[]> {
   }));
 }
 
-async function loadExisting(etablissementId: string, eleveIds: string[]): Promise<ExistingData> {
+/** E-mails du fichier : comptes du personnel et foyers de la base qui les portent déjà. */
+async function loadEmailContext(
+  etablissementId: string,
+  fileEmails: string[],
+  existingRespEmails: string[],
+): Promise<Pick<ExistingData, "accountEmails" | "staffEmails" | "emailFoyers">> {
+  const db = getDb();
+  const emailFoyers: Record<string, string[]> = {};
+  const staff = new Set<string>();
+  const accounts = new Set<string>();
+  const lowerIn = (col: Parameters<typeof sql>[0] | unknown, list: string[]) =>
+    sql`lower(trim(${col as never})) in (${sql.join(
+      list.map((e) => sql`${e}`),
+      sql`, `,
+    )})`;
+  for (const batch of chunkArray([...new Set(fileEmails)])) {
+    for (const r of await db
+      .select({ email: foyerResponsable.email, foyerId: foyerResponsable.foyerId })
+      .from(foyerResponsable)
+      .where(and(eq(foyerResponsable.etablissementId, etablissementId), lowerIn(foyerResponsable.email, batch)))) {
+      const e = (r.email ?? "").trim().toLowerCase();
+      (emailFoyers[e] ??= []).push(r.foyerId);
+    }
+    for (const r of await db
+      .select({ a: personnel.email, b: personnel.emailPro, c: personnel.emailPerso })
+      .from(personnel)
+      .where(
+        and(
+          eq(personnel.etablissementId, etablissementId),
+          sql`(${lowerIn(personnel.email, batch)} or ${lowerIn(personnel.emailPro, batch)} or ${lowerIn(personnel.emailPerso, batch)})`,
+        ),
+      )) {
+      for (const v of [r.a, r.b, r.c]) {
+        const e = (v ?? "").trim().toLowerCase();
+        if (e && batch.includes(e)) staff.add(e);
+      }
+    }
+    for (const r of await db
+      .select({ email: user.email })
+      .from(user)
+      .innerJoin(userMembership, eq(userMembership.userId, user.id))
+      .where(
+        and(
+          eq(userMembership.etablissementId, etablissementId),
+          eq(userMembership.context, "staff"),
+          eq(userMembership.active, true),
+          lowerIn(user.email, batch),
+        ),
+      )) {
+      staff.add(r.email.trim().toLowerCase());
+    }
+  }
+  for (const batch of chunkArray([...new Set(existingRespEmails)])) {
+    for (const r of await db.select({ email: user.email }).from(user).where(lowerIn(user.email, batch))) {
+      accounts.add(r.email.trim().toLowerCase());
+    }
+  }
+  return { accountEmails: [...accounts], staffEmails: [...staff], emailFoyers };
+}
+
+async function loadExisting(
+  etablissementId: string,
+  eleveIds: string[],
+  fileEmails: string[] = [],
+): Promise<ExistingData> {
   const db = getDb();
   const links: ExistingData["links"] = [];
   for (const batch of chunkArray(eleveIds)) {
@@ -114,7 +181,9 @@ async function loadExisting(etablissementId: string, eleveIds: string[]): Promis
         .orderBy(asc(foyerResponsable.rang))),
     );
   }
-  return { foyers, responsables, links };
+  const respEmails = responsables.map((r) => (r.email ?? "").trim().toLowerCase()).filter(Boolean);
+  const ctx = await loadEmailContext(etablissementId, fileEmails, respEmails);
+  return { foyers, responsables, links, ...ctx };
 }
 
 /** Pour chaque foyer orphelin : facturation, fils de messagerie, comptes, autres élèves liés. */
@@ -189,7 +258,10 @@ export async function computePlan(
   const eleves = await loadEleves(etablissementId);
   const today = new Date().toISOString().slice(0, 10);
   const analysis = analyzeFile(rows, eleves, today);
-  const existing = await loadExisting(etablissementId, analysis.matchedEleveIds);
+  const fileEmails = [...analysis.foyers.values()].flatMap((f) =>
+    f.adults.map((a) => a.email).filter((e): e is string => !!e),
+  );
+  const existing = await loadExisting(etablissementId, analysis.matchedEleveIds, fileEmails);
   const plan = buildPlan(analysis, existing, options);
   const fileHash = fileFingerprint(buf);
   return {
@@ -253,6 +325,7 @@ export async function applyImport(opts: {
     await audit("import_start", {
       keepOldLinks: opts.options.keepOldLinks,
       removeProtectedLinks: !!opts.options.removeProtectedLinks,
+      writeSuspectEmails: !!opts.options.writeSuspectEmails,
       counts: fresh.plan.counts,
     });
 
