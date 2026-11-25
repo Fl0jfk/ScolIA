@@ -193,6 +193,10 @@ pub struct SortieLigne {
     /// `modifie_le` (M-4).
     #[serde(skip)]
     pub annulee_le: Option<DateTime<Utc>>,
+    /// Instant du passage en « rentrée » (posé à la transition, immuable ensuite) : un participant resté « parti » ne
+    /// perd son retrait d'internat qu'à partir de ce jour (V3b, Moyen 2).
+    #[serde(skip)]
+    pub rentree_le: Option<DateTime<Utc>>,
 }
 
 impl SortieLigne {
@@ -1967,6 +1971,7 @@ impl PgEnt {
                     liste_confirmee_par_user_id=$7, contournement_devis_motif=$8, besoin_car=$9,
                     contournement_devis_code = COALESCE($10, contournement_devis_code),
                     annulee_le = CASE WHEN $3 = 'annulee' THEN $11 END,
+                    rentree_le = CASE WHEN $3 = 'rentree' AND etat <> 'rentree' THEN $11 ELSE rentree_le END,
                     version = version + 1, modifie_le = now()
               WHERE id = $1 AND etablissement_id = $2
               RETURNING *",

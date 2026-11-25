@@ -818,7 +818,8 @@ pub struct BilanExpedition {
     pub regroupes: usize,
     pub interrompus: usize,
     /// Avis remis en `en_attente` : le contrôle d'existence de leur message a échoué (erreur de base, verrou d'une
-    /// annulation trop long) ; ils repartent au passage suivant.
+    /// annulation trop long) ; ils repartent après un report de `planifie_pour` (au moins `attente_verrou`), qui laisse
+    /// passer les avis libres derrière eux.
     pub reportes: usize,
     /// Établissements dont le passage a échoué (R-09) : les suivants ont été traités.
     pub etablissements_en_echec: usize,
@@ -932,12 +933,20 @@ impl Expediteur {
     pub fn lancer(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             tracing::info!("expéditeur de notifications démarré");
+            // Passe 5, faible 4 : base indisponible = une ligne par minute et par cause (et non toutes les 5 s).
+            let mut limiteur = crate::journal_limite::LimiteurJournal::default();
             while !self.arret.load(Ordering::SeqCst) {
                 // L'instant vient de la base (comme `planifie_pour`), jamais de l'horloge de l'application.
                 let maintenant = match self.maintenant_base().await {
                     Ok(m) => m,
                     Err(e) => {
-                        tracing::warn!(error = %e, "expéditeur : heure de la base illisible");
+                        if limiteur.autoriser(
+                            "heure_base",
+                            std::time::Instant::now(),
+                            crate::journal_limite::INTERVALLE_JOURNAL,
+                        ) {
+                            tracing::warn!(error = %e, "expéditeur : heure de la base illisible");
+                        }
                         tokio::time::sleep(self.config.intervalle).await;
                         continue;
                     }
@@ -946,7 +955,15 @@ impl Expediteur {
                     // Un lot plein enchaîne sans attendre, sauf si des avis ont été reportés (erreur persistante).
                     Ok(b) if b.reclames as i64 >= self.config.taille_lot && b.reportes == 0 => continue,
                     Ok(_) => {}
-                    Err(e) => tracing::warn!(error = %e, "expéditeur : passage en échec"),
+                    Err(e) => {
+                        if limiteur.autoriser(
+                            "passage_echec",
+                            std::time::Instant::now(),
+                            crate::journal_limite::INTERVALLE_JOURNAL,
+                        ) {
+                            tracing::warn!(error = %e, "expéditeur : passage en échec");
+                        }
+                    }
                 }
                 tokio::time::sleep(self.config.intervalle).await;
             }
@@ -1226,17 +1243,31 @@ impl Expediteur {
             }
             Err(err) => {
                 controle.derniere = None;
-                tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté");
+                // Contre-revue du pilote (passe 5, F1) : un message verrouillé visé par des centaines d'avis ne journalise pas
+                // une ligne par avis : au plus une par minute (le bilan compte les reports).
+                if crate::journal_limite::autoriser_global("controle_existence_message") {
+                    tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté (journal limité à une ligne par minute)");
+                }
                 // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
                 // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
                 let reporte: Result<(), EntDbError> = async {
                     let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
                     sqlx::query(
-                        "UPDATE ent_notification_envoi SET statut = 'en_attente', tentative_le = NULL
+                        // Passe 5, faible 1 : `planifie_pour` est **reporté** (jamais avancé) d'au moins l'attente de
+                        // verrou. Sans cela, ≥ `taille_lot` avis verrouillés gardaient leur place en tête de file
+                        // (`ORDER BY planifie_pour`) et le lot tournait à vide, les avis libres derrière restant affamés.
+                        "UPDATE ent_notification_envoi
+                            SET statut = 'en_attente', tentative_le = NULL,
+                                planifie_pour = GREATEST(planifie_pour, $3)
                           WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'",
                     )
                     .bind(e.etablissement_id)
                     .bind(e.id)
+                    .bind(
+                        maintenant
+                            + Duration::from_std(self.config.attente_verrou.max(self.config.intervalle))
+                                .unwrap_or(Duration::seconds(5)),
+                    )
                     .execute(&mut *tx)
                     .await
                     .map_err(db)?;

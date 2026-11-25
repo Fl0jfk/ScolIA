@@ -195,3 +195,38 @@ Rapport complet : `docs/pilotage/revues/16_E1_SUITES_4_CONTRE_REVUE.md` (branche
 - En file : Moyen A (vérification au démarrage de `has_function_privilege(current_user, 'ent_msg_annulation_ouvrir(uuid,uuid,uuid)',
   'EXECUTE')`, alerte si faux), faibles 1, 2 (RLS réellement prouvée ; refus 42501 : le dépôt rend une erreur opaque « Infrastructure », à exposer d'abord), 3, 4.
 - `494_msg_garde_jeton_droit_execution` inscrite à `migrations_versees.txt` au versement.
+
+---
+
+## Suites E1, passe 5 — branche `ent-socle-16-code-e1-suites-5`, base `origin/ENT` bf102297
+
+Niveau : **implémenté et testé en local, non validé par Florian, non prêt pilote.** Aucune migration (480–494 inchangées ; 495–497 non utilisées) ; `migrations_versees.txt` non touché. Le Moyen A (droit EXECUTE vérifié au démarrage) relève du lot T2 (PR 147) : non refait.
+
+### Fait
+| Faible | Correctif | Tests |
+|---|---|---|
+| **1** lot affamé | Un avis remis en `en_attente` parce que le contrôle de son message a échoué voit `planifie_pour` **repoussé** à `GREATEST(planifie_pour, maintenant + max(attente_verrou, intervalle))` (jamais avancé). Les reportés quittent la tête de file (`ORDER BY planifie_pour`) : les avis libres derrière eux sont traités au passage suivant. | `p5_f1_un_lot_plein_d_avis_verrouilles_ne_affame_pas_les_avis_libres` (`taille_lot` 2, 2 verrouillés + 1 libre, mêmes instants injectés ; les reportés repartent à l'instant + 1 min). `p3_une_erreur_pendant_le_controle…` : le passage suivant prend un instant injecté plus tardif (conséquence voulue du report) |
+| **2** RLS et SQLSTATE | `PgMsgRepo::message_existe_sous_verrou_brut` expose l'erreur `sqlx` (code SQLSTATE lisible) ; la version de domaine l'enveloppe (`map_sqlx`) : **réponse HTTP inchangée**. | `p5_f2_…rls…` : rôle applicatif (ni superutilisateur ni BYPASSRLS), `RlsMode::Strict`, comptage **sans** `WHERE etablissement_id` : 1 dans son contexte, 0 dans un autre ; `FOR KEY SHARE` hors contexte ne trouve rien ; verrou tenu = 55P03. `p4_f5_…` : rôle sans droit = **42501** exigé |
+| **3** `expedier` observe `xmin` | Compteur `msg_xmin_gele::nombre_observations()` (incrémenté par `surveiller`), équivalent d'un `SUIVI` injectable sans toucher à l'état global. | `p5_f3_expedier_observe_la_borne_xmin_hors_flux` |
+| **4** journal limité | Module `journal_limite` : `LimiteurJournal` (une ligne par minute et par cause, `Instant` **passé par l'appelant**), utilisé par la boucle du distributeur (heure de la base, passage en échec) et par l'observation `xmin` hors flux (limiteur du processus) ; `%e` partout. | `journal_limite::tests::une_ligne_par_intervalle_et_par_cause_sans_horloge_reelle` |
+| **5** règle métier | Aucune. Valeur prudente (D-069) : report d'un avis = au moins `attente_verrou` (5 s par défaut), sans jamais avancer la date. | — |
+
+### Non fait
+Moyen A (lot T2). Limites inchangées : fenêtre entre contrôle et envoi ; limiteur de lecture de journal en mémoire locale (un par processus).
+
+### Compteurs (règle 28)
+Tables avec RLS +0 ; `Action::TOUTES` inchangé ; routes +0 ; migrations +0 ; `MIGRATION_TAG` inchangé.
+
+### Vérifications
+Base locale neuve `ent_s16e1p5_test` (PostgreSQL 16, `ENT_ENV=test`, `--test-threads 1`, un seul `CARGO_TARGET_DIR`), `ent-db` `--features labo`, filtres `p2_ p3_ p4_ p5_ journal_limite msg_xmin` : 112 verts, 1 rouge (`p3_une_erreur…`, corrigé : instant du passage suivant, voir ci-dessus). fmt ciblé (`rustfmt` sur les deux fichiers neufs) ; aucun `#[ignore]` ; aucune heure réelle. clippy et rejeu : voir tête et CI ci-dessous.
+
+### Passe 5 : CI et fusion d'ENT
+Premier push (5ec288d9) : CI rouge, une seule cause — la garde statique `garde_messagerie_lecture` voulait classer `message_existe_sous_verrou_brut` (le SQL a quitté l'enveloppe de domaine) ; entrée corrigée (la version de domaine n'a plus de SQL). Le job « Aucun test ne disparaît » n'était rouge que par ricochet. `origin/ENT` fusionné (T2 arrivé, Moyen A fait par ce lot) sans conflit ; aucun compteur additif ni migration touchés ; clippy 1.99 `-D warnings` (2 commandes workspace) et `garde_` rejoués : 0 avertissement, 23 verts.
+
+Tête testée par la CI : `1b530a53` (PR 152, brouillon vers `ENT`). Workflow « ENT Rust » : **succès** (run 45496720436). Le commit suivant ne touche que ce fichier de documentation.
+
+### Correctifs du pilote après contre-revue de la passe 5
+Rapport : `docs/pilotage/revues/16_E1_SUITES_5_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **M1** : compteur d'observations hors flux **par établissement** (tests) : `p5_f3` exige 0 avant et au moins 1 après sur l'établissement neuf du test ; un test voisin ne peut plus le rendre vert à tort. L'ancien compteur global de test est retiré.
+- **F1** : l'avertissement « contrôle d'existence impossible » est limité à une ligne par minute (le bilan compte les reports).
+- Local : 279 tests messagerie, notifications, xmin, garde et journal verts ; clippy 1.99 vert.

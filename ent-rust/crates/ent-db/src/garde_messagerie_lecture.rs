@@ -71,7 +71,9 @@ const PAR_IDENTIFIANT: &[&str] = &[
     // Prédicat d'existence : l'appelant répond 404 (aucune lecture de contenu).
     "message_differe_d_autrui",
     "message_remis_pour",
-    "message_existe_sous_verrou",
+    // Prédicat d'existence sous verrou (passe 5 : le SQL est dans la version brute, SQLSTATE lisible ; la version de
+    // domaine n'est qu'une enveloppe sans SQL). Mêmes appelants, aucun contenu lu.
+    "message_existe_sous_verrou_brut",
     "count_pieces_message",
     "count_non_lus_par_fils",
     "list_fils_eleve",

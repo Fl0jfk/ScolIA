@@ -3016,9 +3016,18 @@ async fn fd_la_base_garde_la_coherence_des_aides_reports_demandes_et_fins_de_ret
     }
 }
 
+/// V3b, Moyen 2 : un participant resté « parti » sur une sortie rentrée ne perd son retrait qu'à partir du jour de
+/// passage en « rentrée » (`rentree_le`) ; les nuits déjà passées dehors restent retirées, les nuits à venir qu'il ne
+/// passera pas dehors le laissent attendu.
 #[tokio::test]
-async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() {
+async fn ff_une_sortie_rentree_garde_les_nuits_passees_dehors_d_un_participant_reste_parti() {
     let Some(x) = suivi_v3().await else { return };
+    // Séjour de quatre nuits (jours 0 à 3) : le cadre en pose deux.
+    sqlx::query("UPDATE ent_sortie SET fin = fin + interval '2 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
     x.sync().await;
     let (e0, e1) = (x.c.eleves[0], x.c.eleves[1]);
     interne_parti(&x, e0, x.p0).await;
@@ -3027,8 +3036,13 @@ async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() 
         .voyage_internat_synchroniser_a(&x.porteur(), x.s.id, instant_fixe())
         .await
         .unwrap();
-    assert_eq!(retraits_actifs(&x, e0).await.len(), 1);
-    // p1 est rentré avec le groupe (fait daté) ; p0 est resté « parti » dans les données : incohérence.
+    let avant = retraits_actifs(&x, e0).await;
+    assert_eq!(
+        (avant[0].0, avant[0].1),
+        (jours(&x, 0), jours(&x, 3)),
+        "quatre nuits retirées au départ"
+    );
+    // p1 est rentré avec le groupe le jour 1 à midi (fait daté) ; p0 est resté « parti » dans les données.
     sqlx::query("UPDATE ent_sortie_participant SET etat = 'rentre' WHERE id = $1")
         .bind(x.p1)
         .execute(x.c.ent.pool_verif())
@@ -3045,8 +3059,11 @@ async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() 
     .execute(x.c.ent.pool_verif())
     .await
     .unwrap();
-    sqlx::query("UPDATE ent_sortie SET etat = 'rentree' WHERE id = $1")
+    // La sortie passe en « rentrée » le jour 2 à 14 h : instant explicite, posé tel quel à la transition.
+    let rentree_le = jours(&x, 2).and_hms_opt(14, 0, 0).unwrap().and_utc();
+    sqlx::query("UPDATE ent_sortie SET etat = 'rentree', rentree_le = $2 WHERE id = $1")
         .bind(x.s.id)
+        .bind(rentree_le)
         .execute(x.c.ent.pool_verif())
         .await
         .unwrap();
@@ -3054,14 +3071,22 @@ async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() 
         .voyage_internat_synchroniser_a(&x.dir(), x.s.id, instant_fixe())
         .await
         .unwrap();
-    assert!(
-        retraits_actifs(&x, e0).await.is_empty(),
-        "resté « parti » sur une sortie rentrée : plus retiré"
-    );
+    // p0 : nuits 0 et 1 (passées dehors) restent retirées ; nuits 2 et 3 (à venir, jamais passées dehors) : attendu.
+    let r0 = retraits_actifs(&x, e0).await;
+    assert_eq!(r0.len(), 1, "{r0:?}");
     assert_eq!(
-        statut_nuit(&x, e0, jours(&x, 1)).await.as_deref(),
-        Some("attendu")
+        (r0[0].0, r0[0].1),
+        (jours(&x, 0), jours(&x, 1)),
+        "jusqu'à la veille de la rentrée"
     );
+    for (n, attendu) in [(0, "retire"), (1, "retire"), (2, "attendu"), (3, "attendu")] {
+        assert_eq!(
+            statut_nuit(&x, e0, jours(&x, n)).await.as_deref(),
+            Some(attendu),
+            "nuit {n} du participant resté parti"
+        );
+    }
+    // p1 : rentré le jour 1 : nuit 0 retirée seulement.
     let r1 = retraits_actifs(&x, e1).await;
     assert_eq!(
         r1.len(),
@@ -3069,7 +3094,65 @@ async fn ff_une_sortie_rentree_ne_garde_pas_un_participant_reste_parti_retire() 
         "le rentré garde ses nuits passées dehors : {r1:?}"
     );
     assert_eq!(r1[0].1, jours(&x, 0), "jusqu'à la veille de son retour");
-    assert!(causes_de_fin(&x).await.contains(&"sortie".to_string()));
+    // L'instant de la rentrée est immuable et n'existe que pour une sortie rentrée ou close.
+    sqlx::query("UPDATE ent_sortie SET rentree_le = rentree_le + interval '5 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    let relu: DateTime<Utc> = sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
+        .bind(x.s.id)
+        .fetch_one(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(relu, rentree_le, "rentree_le est immuable");
+    let r = sqlx::query("UPDATE ent_sortie SET rentree_le = now() WHERE etat <> 'rentree' AND etat <> 'close' AND id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(r.rows_affected(), 0);
+    let hors: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie WHERE rentree_le IS NOT NULL AND etat NOT IN ('rentree', 'close')",
+    )
+    .fetch_one(x.c.ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        hors, 0,
+        "aucun instant de rentrée hors d'une sortie rentrée ou close"
+    );
+    // La base refuse une sortie « rentrée » sans instant, ou un instant sur une sortie non rentrée (23514 : contrainte).
+    let r = sqlx::query("UPDATE ent_sortie SET etat = 'preparation' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await;
+    assert!(r.is_ok(), "la réouverture efface l'instant : {r:?}");
+    let efface: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
+            .bind(x.s.id)
+            .fetch_one(x.c.ent.pool_verif())
+            .await
+            .unwrap();
+    assert!(efface.is_none());
+    // Faible 7 : un instant de rentrée fourni en SQL direct est borné (pas au-delà de 7 jours dans l'avenir).
+    let r = sqlx::query("UPDATE ent_sortie SET etat = 'rentree', rentree_le = now() + interval '30 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "rentrée dans l'avenir lointain"
+    );
+    let r = sqlx::query("UPDATE ent_sortie SET etat = 'rentree', rentree_le = now() - interval '2 days' WHERE id = $1")
+        .bind(x.s.id)
+        .execute(x.c.ent.pool_verif())
+        .await;
+    assert!(
+        r.is_ok(),
+        "un instant passé (rattrapage) reste accepté : {r:?}"
+    );
 }
 
 #[tokio::test]
@@ -3115,6 +3198,32 @@ async fn fi_la_fonction_d_attendu_de_655_ne_differe_de_celle_de_2829_que_par_la_
     for l in c654.iter().filter(|l| l.contains("sejour_scolaire")) {
         assert!(a.contains(l), "{l}");
     }
+    // 656 (Faible 1) : la fonction de 656 est celle de 655 SANS la branche directe « séjour scolaire » : aucune ligne
+    // nouvelle, et les seules lignes retirées sont celles de cette branche (un retrait n'est lu que dans `ent_internat_retrait`).
+    let m656 = include_str!("../../../migrations/656_sortie_voyages_v3b_suites.sql");
+    let c = normaliser(corps(m656));
+    let nouvelles: Vec<&String> = c.iter().filter(|l| !b.contains(l)).collect();
+    assert!(
+        nouvelles.is_empty(),
+        "656 n'ajoute aucune ligne à 655 : {nouvelles:?}"
+    );
+    let retirees: Vec<&String> = b.iter().filter(|l| !c.contains(l)).collect();
+    assert!(
+        retirees
+            .iter()
+            .any(|l| l.contains("ent_sortie_retrait_effectif")),
+        "la branche directe contenait le test d'effectivité : {retirees:?}"
+    );
+    assert!(
+        !c.iter()
+            .any(|l| l.contains("ent_sortie_internat_retrait")
+                || l.contains("ent_sortie_participant")),
+        "plus aucune lecture directe des participants d'une sortie dans l'attendu"
+    );
+    assert!(
+        retirees.len() <= 26,
+        "seule la branche directe est retirée : {retirees:?}"
+    );
 }
 
 /// Contre-revue du pilote (Moyen 1, D-069) : recevoir un bordereau est un pouvoir sur l'argent. La personne liée à un
@@ -3134,14 +3243,21 @@ async fn m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur() {
             BordereauSaisie {
                 nb_cheques: 1,
                 total: "100".into(),
-                lignes: vec![BordereauLigneSaisie { participant_id: x.p1, numero_cheque: "901".into(), montant: "100".into() }],
+                lignes: vec![BordereauLigneSaisie {
+                    participant_id: x.p1,
+                    numero_cheque: "901".into(),
+                    montant: "100".into(),
+                }],
             },
         )
         .await
         .expect("bordereau");
     let l = bv.lignes[0].id;
     for (qui, acteur) in [("parent", &parent), ("payeur", &payeur_c)] {
-        let e = ent.voyage_bordereau_remettre(acteur, x.s.id, bv.id, vec![l], None).await.unwrap_err();
+        let e = ent
+            .voyage_bordereau_remettre(acteur, x.s.id, bv.id, vec![l], None)
+            .await
+            .unwrap_err();
         assert!(est_interdit_metier(&e), "remise, {qui} : {e:?}");
     }
     let r = ent
@@ -3149,4 +3265,1483 @@ async fn m3_la_remise_d_un_bordereau_est_refusee_au_parent_et_au_payeur() {
         .await
         .expect("remise par une personne libre");
     assert!(r.remise.is_some());
+}
+
+// ═════════════════════════════ V3b : suites de la contre-revue des suites (656) ═════════════════════════════
+
+/// Instant de référence des tests de contournement : l'horloge de la BASE (qui pose seule les horodatages), puis des
+/// décalages en jours entiers : les expirations (30 jours) se jouent par rapport à ce que la base a écrit, jamais au jour UTC.
+async fn instant_base(x: &Suivi) -> DateTime<Utc> {
+    sqlx::query_scalar("SELECT now()")
+        .fetch_one(x.c.ent.pool_verif())
+        .await
+        .unwrap()
+}
+
+use crate::voyages_contournement::DemandeContournement;
+
+fn dem(action: &str, motif: &str) -> DemandeContournement {
+    DemandeContournement {
+        action: action.into(),
+        motif: motif.into(),
+        cible_id: None,
+        montant_max: None,
+        prestataire_id: None,
+    }
+}
+
+fn dem_creer(presta: Uuid, motif: &str) -> DemandeContournement {
+    DemandeContournement {
+        montant_max: Some("100".into()),
+        prestataire_id: Some(presta),
+        ..dem("acompte_creer", motif)
+    }
+}
+
+fn dem_payer(acompte: Uuid, presta: Uuid, max: &str, motif: &str) -> DemandeContournement {
+    DemandeContournement {
+        cible_id: Some(acompte),
+        montant_max: Some(max.into()),
+        prestataire_id: Some(presta),
+        ..dem("acompte_payer", motif)
+    }
+}
+
+fn dem_annuler(acompte: Uuid, motif: &str) -> DemandeContournement {
+    DemandeContournement {
+        cible_id: Some(acompte),
+        ..dem("acompte_annuler", motif)
+    }
+}
+
+fn dem_collective(motif: &str) -> DemandeContournement {
+    dem("annulation_collective", motif)
+}
+
+fn plus(t: DateTime<Utc>, jours: i64) -> DateTime<Utc> {
+    t + chrono::Duration::days(jours)
+}
+
+async fn un_prestataire(x: &Suivi) -> Uuid {
+    use crate::voyages_prestataires_repo::PrestataireSaisie;
+    x.c.ent
+        .prestataire_creer(
+            &x.sec(),
+            PrestataireSaisie {
+                raison_sociale: format!("Cars V3b {}", Uuid::new_v4().simple()),
+                siren: None,
+                telephone: None,
+                categories: vec!["transporteur".into()],
+                adresses: vec![format!("v3b-{}@exemple-test.fr", Uuid::new_v4().simple())],
+                version: None,
+                actif: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+}
+
+fn acompte_de(presta: Uuid, jour: chrono::NaiveDate) -> crate::voyages_argent_flux::AcompteSaisie {
+    crate::voyages_argent_flux::AcompteSaisie {
+        prestataire_id: presta,
+        commande_id: None,
+        libelle: "Acompte".into(),
+        montant: "100".into(),
+        echeance: jour + chrono::Duration::days(10),
+    }
+}
+
+async fn nb_refus(x: &Suivi, user: Uuid, action: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie_argent_refus WHERE sortie_id = $1 AND user_id = $2 AND action = $3",
+    )
+    .bind(x.s.id)
+    .bind(user)
+    .bind(action)
+    .fetch_one(x.c.ent.pool_verif())
+    .await
+    .unwrap()
+}
+
+/// Moyen 3 : contournement tracé de la règle « sortie entière » par une seconde personne habilitée et libre.
+#[tokio::test]
+async fn v3b_contournement_trace_de_la_sortie_entiere_par_une_seconde_personne_libre() {
+    use crate::voyages::Commande;
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    // La seule personne habilitée est liée à l'élève 1 ; une autre, libre, est habilitée aussi ; une troisième est liée.
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let lie2 = compta_parent_de(&x, x.c.eleves[0]).await;
+    let libre = x.compta();
+    // Sans contournement : refus de la règle 3 (inchangé), tracé.
+    let e = ent
+        .voyage_acompte_creer_avec(&lie, x.s.id, acompte_de(presta, jour), None, t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    // Une demande d'une personne libre : aucun contournement nécessaire (409). Une action inconnue : 422 (invalide).
+    let e = ent
+        .voyage_contournement_demander_a(&libre, x.s.id, dem_creer(presta, "Je suis libre"), t0)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(e, EntDbError::Refus(RefusMetier::Conflit, _)),
+        "{e:?}"
+    );
+    let e = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem("tout_faire", "Motif"), t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    // Le motif est obligatoire ; le parent et le professeur n'ont aucune prise.
+    for motif in ["", "   "] {
+        assert!(ent
+            .voyage_contournement_demander_a(&lie, x.s.id, dem_creer(presta, motif), t0)
+            .await
+            .is_err());
+    }
+    assert!(est_introuvable(
+        &ent.voyage_contournement_demander_a(
+            &x.parent(x.parent_c),
+            x.s.id,
+            dem_creer(presta, "Motif"),
+            t0
+        )
+        .await
+        .unwrap_err()
+    ));
+    assert!(est_forbidden(
+        &ent.voyage_contournement_demander_a(&x.porteur(), x.s.id, dem_creer(presta, "Motif"), t0)
+            .await
+            .unwrap_err()
+    ));
+    // Demande valable ; un doublon ouvert est un conflit.
+    let c = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_creer(presta, "Seule comptable présente"),
+            t0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(c.statut, "en_attente");
+    let e = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_creer(presta, "Encore"), t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    // Non décidée : l'usage reste refusé (même avec l'identifiant).
+    let e = ent
+        .voyage_acompte_creer_avec(&lie, x.s.id, acompte_de(presta, jour), Some(c.id), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    // Décision : pas la demandeuse, pas une personne liée à la sortie, pas sans droit ; tracé.
+    for (qui, acteur) in [("demandeuse", &lie), ("liée", &lie2)] {
+        let e = ent
+            .voyage_contournement_decider_a(acteur, x.s.id, c.id, true, None, plus(t0, 0))
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "{qui} : {e:?}");
+    }
+    assert!(est_forbidden(
+        &ent.voyage_contournement_decider_a(&x.porteur(), x.s.id, c.id, true, None, t0)
+            .await
+            .unwrap_err()
+    ));
+    assert_eq!(
+        nb_refus(&x, lie.user_id, "voyage_contournement_decider_a").await,
+        1
+    );
+    assert_eq!(
+        nb_refus(&x, lie2.user_id, "voyage_contournement_decider_a").await,
+        1
+    );
+    // Un refus sans motif est invalide ; avec motif, il clôt la demande (plus d'usage), une nouvelle est possible.
+    assert!(ent
+        .voyage_contournement_decider_a(&libre, x.s.id, c.id, false, None, t0)
+        .await
+        .is_err());
+    let refusee = ent
+        .voyage_contournement_decider_a(&libre, x.s.id, c.id, false, Some("Pas nécessaire"), t0)
+        .await
+        .unwrap();
+    assert_eq!(refusee.statut, "refuse");
+    let e = ent
+        .voyage_acompte_creer_avec(&lie, x.s.id, acompte_de(presta, jour), Some(c.id), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    // Nouvelle demande, autorisée, utilisée UNE fois pour UNE écriture.
+    let c = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_creer(presta, "Seule comptable présente"),
+            t0,
+        )
+        .await
+        .unwrap();
+    let ok = ent
+        .voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, plus(t0, 1))
+        .await
+        .unwrap();
+    assert_eq!(ok.statut, "autorise");
+    // Une décision tardive ou doublée : conflit.
+    let e = ent
+        .voyage_contournement_decider_a(&libre, x.s.id, c.id, false, Some("Trop tard"), plus(t0, 1))
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    // Un contournement d'une autre action ou d'une autre personne ne sert pas.
+    let ac_autre = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let autre = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_autre.id, "Autre action"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, autre.id, true, None, t0)
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_acompte_creer_avec(
+            &lie,
+            x.s.id,
+            acompte_de(presta, jour),
+            Some(autre.id),
+            plus(t0, 1),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autre action : {e:?}");
+    let e = ent
+        .voyage_acompte_creer_avec(
+            &lie2,
+            x.s.id,
+            acompte_de(presta, jour),
+            Some(c.id),
+            plus(t0, 1),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autre personne : {e:?}");
+    // Usage : l'acompte est créé par la personne liée, et le contournement est consommé (cible = l'acompte).
+    let ac = ent
+        .voyage_acompte_creer_avec(
+            &lie,
+            x.s.id,
+            acompte_de(presta, jour),
+            Some(c.id),
+            plus(t0, 2),
+        )
+        .await
+        .expect("acompte par contournement");
+    let cible: Uuid = sqlx::query_scalar(
+        "SELECT cible_id FROM ent_sortie_argent_contournement_evt WHERE contournement_id = $1 AND evenement = 'utilise'",
+    )
+    .bind(c.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(cible, ac.id);
+    let e = ent
+        .voyage_acompte_creer_avec(
+            &lie,
+            x.s.id,
+            acompte_de(presta, jour),
+            Some(c.id),
+            plus(t0, 2),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        est_interdit_metier(&e),
+        "un contournement ne sert qu'une fois : {e:?}"
+    );
+    // Le paiement par la personne liée : sans contournement refusé ; avec un contournement « payer » (même acompte, même
+    // prestataire, sous le plafond) accepté.
+    let pay = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_payer(ac.id, presta, "100", "Paiement"),
+            plus(t0, 2),
+        )
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, pay.id, true, None, plus(t0, 2))
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_acompte_payer(&lie, x.s.id, ac.id, None, None, None)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    let paye = ent
+        .voyage_acompte_payer_avec(
+            &lie,
+            x.s.id,
+            ac.id,
+            None,
+            None,
+            None,
+            Some(pay.id),
+            plus(t0, 2),
+        )
+        .await
+        .expect("paiement par contournement");
+    assert!(paye.paye_le.is_some());
+    // Annulation d'un second acompte : l'auteur est gardé en base (Faible 6).
+    let ac2 = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_acompte_annuler(&lie, x.s.id, ac2.id, "Erreur")
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    let ann = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac2.id, "Doublon"), t0)
+        .await
+        .unwrap();
+    // Expiration : une autorisation non utilisée expire (31 jours).
+    ent.voyage_contournement_decider_a(&libre, x.s.id, ann.id, true, None, t0)
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_acompte_annuler_avec(&lie, x.s.id, ac2.id, "Doublon", Some(ann.id), plus(t0, 31))
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autorisation expirée : {e:?}");
+    ent.voyage_acompte_annuler_avec(&lie, x.s.id, ac2.id, "Doublon", Some(ann.id), plus(t0, 29))
+        .await
+        .expect("annulation par contournement");
+    let auteur: Option<Uuid> = sqlx::query_scalar(
+        "SELECT annule_par_user_id FROM ent_sortie_acompte_fournisseur WHERE id = $1",
+    )
+    .bind(ac2.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        auteur,
+        Some(lie.user_id),
+        "auteur de l'annulation gardé en base"
+    );
+    // Une demande non décidée depuis plus de 30 jours expire : plus de décision possible.
+    let vieille = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_collective("Sortie annulée"), t0)
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_contournement_decider_a(&libre, x.s.id, vieille.id, true, None, plus(t0, 31))
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    let liste = ent
+        .voyage_contournements_lister_a(&libre, x.s.id, plus(t0, 31))
+        .await
+        .unwrap();
+    assert_eq!(
+        liste.iter().find(|v| v.id == vieille.id).unwrap().statut,
+        "expire"
+    );
+    assert!(liste.iter().any(|v| v.statut == "utilise"));
+    assert!(est_introuvable(
+        &ent.voyage_contournements_lister_a(&x.parent(x.parent_c), x.s.id, t0)
+            .await
+            .unwrap_err()
+    ));
+    // Annulation collective : sortie annulée avec un versement d'un participant dont la personne est parente.
+    x.verser(x.p1, x.compte_c, "cheque", "50").await.unwrap();
+    commande_a(&x, Commande::Annuler, None, t0).await.unwrap();
+    let e = ent
+        .voyage_avoirs_annulation_collective(&lie, x.s.id)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    // La demande « vieille » (expirée seulement dans l'avenir simulé) est encore ouverte à l'instant réel : une seconde
+    // demande identique est un conflit (Faible 1), on décide donc celle-ci.
+    let e = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_collective("Encore"), t0)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    ent.voyage_contournement_decider_a(&libre, x.s.id, vieille.id, true, None, t0)
+        .await
+        .unwrap();
+    let n = ent
+        .voyage_avoirs_annulation_collective_avec(&lie, x.s.id, Some(vieille.id), plus(t0, 1))
+        .await
+        .expect("annulation collective par contournement");
+    assert!(n >= 1);
+    // Chaque fait est en ajout seul (UPDATE, DELETE, TRUNCATE : 42501).
+    for sql in [
+        "UPDATE ent_sortie_argent_contournement SET motif = 'x'",
+        "DELETE FROM ent_sortie_argent_contournement",
+        "UPDATE ent_sortie_argent_contournement_evt SET motif = 'x'",
+        "DELETE FROM ent_sortie_argent_contournement_evt",
+        "TRUNCATE ent_sortie_argent_contournement_evt",
+    ] {
+        let r = sqlx::query(sql).execute(ent.pool_verif()).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("42501"), "{sql}");
+    }
+}
+
+/// Moyen 3 : la base garde elle-même le contournement (on ne passe pas par l'application).
+#[tokio::test]
+async fn v3b_la_base_n_accepte_un_acompte_d_une_personne_liee_que_avec_un_contournement_utilise_pour_cette_ecriture(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let lie2 = compta_parent_de(&x, x.c.eleves[0]).await;
+    let libre = x.compta();
+    let inserer = |id: Uuid, par: Uuid| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id)
+             VALUES ($1,$2,$3,$4,'x',100,$5,$6)",
+        )
+        .bind(id)
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(presta)
+        .bind(jour)
+        .bind(par)
+    };
+    let r = inserer(Uuid::new_v4(), lie.user_id)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "sans contournement");
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_creer(presta, "Motif"), t0)
+        .await
+        .unwrap();
+    // Les faits eux-mêmes sont gardés : « utilisé » sans autorisation, décision de la demandeuse ou d'une personne liée.
+    let evt = |evenement: &str, par: Uuid, cible: Option<Uuid>| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, cible_id, le)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(c.id)
+        .bind(evenement.to_string())
+        .bind(par)
+        .bind(cible)
+        .bind(t0)
+    };
+    for (nom, evenement, par, cible) in [
+        (
+            "utilisé sans autorisation",
+            "utilise",
+            lie.user_id,
+            Some(Uuid::new_v4()),
+        ),
+        ("autorisé par la demandeuse", "autorise", lie.user_id, None),
+        (
+            "autorisé par une personne liée",
+            "autorise",
+            lie2.user_id,
+            None,
+        ),
+        ("refusé par la demandeuse", "refuse", lie.user_id, None),
+    ] {
+        let r = evt(evenement, par, cible).execute(ent.pool_verif()).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "{nom}");
+    }
+    let r = evt("utilise", libre.user_id, Some(Uuid::new_v4()))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "utilisé par une autre personne que la demandeuse"
+    );
+    evt("autorise", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await
+        .expect("autorisation par la personne libre");
+    // Autorisée mais pas encore utilisée : l'écriture reste refusée ; utilisée pour UNE cible : cette écriture passe, pas une autre.
+    let cible = Uuid::new_v4();
+    let r = inserer(cible, lie.user_id).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autorisé, non utilisé"
+    );
+    evt("utilise", lie.user_id, Some(cible))
+        .execute(ent.pool_verif())
+        .await
+        .expect("utilisation");
+    let r = inserer(Uuid::new_v4(), lie.user_id)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "une autre cible");
+    let r = inserer(cible, lie2.user_id).execute(ent.pool_verif()).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "une autre personne");
+    inserer(cible, lie.user_id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("cette écriture, par cette personne");
+    // L'usage est unique (index) : un second fait « utilisé » est refusé.
+    let r = evt("utilise", lie.user_id, Some(Uuid::new_v4()))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23505"), "un seul usage");
+}
+
+/// V3b, Moyen 3 (revue) : le rattrapage de 656 (`rentree_le`, `annulee_le`) atteint les lignes **sous la RLS stricte** : il
+/// énumère les établissements comme 2220 (`ent_etablissement UNION ent_membership`) et pose le contexte pour chacun. Sans
+/// contexte, un `UPDATE` naïf ne verrait aucune ligne. Le réglage précédent est restauré.
+#[cfg(feature = "labo")]
+#[tokio::test]
+async fn v3b_le_rattrapage_de_656_atteint_les_lignes_sous_la_rls_stricte() {
+    let Some(x) = suivi_v3().await else { return };
+    let Some(url) = crate::url_guard::url_labo_ou_echec() else {
+        return;
+    };
+    let (proprietaire, strict) = crate::tests_rls_stricte::proprietaire_et_strict(&url).await;
+    let sql = include_str!("../../../migrations/656_sortie_voyages_v3b_suites.sql");
+    let debut = sql.find("-- DEBUT-DONNEES").expect("repère de début") + "-- DEBUT-DONNEES".len();
+    let fin = sql.find("-- FIN-DONNEES").expect("repère de fin");
+    for (etat, colonne) in [("rentree", "rentree_le"), ("annulee", "annulee_le")] {
+        // État antérieur aux colonnes (cas rattrapé) : contraintes et déclencheurs de pose écartés le temps de le fabriquer.
+        for ddl in [
+            "ALTER TABLE ent_sortie DISABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+            "ALTER TABLE ent_sortie DISABLE TRIGGER ent_sortie_annulee_le_tg".to_string(),
+            "ALTER TABLE ent_sortie DROP CONSTRAINT IF EXISTS ent_sortie_rentree_le_chk".to_string(),
+            "ALTER TABLE ent_sortie DROP CONSTRAINT IF EXISTS ent_sortie_annulee_le_chk".to_string(),
+            format!("UPDATE ent_sortie SET etat = '{etat}', rentree_le = NULL, annulee_le = NULL WHERE id = '{}'", x.s.id),
+            "ALTER TABLE ent_sortie ENABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+            "ALTER TABLE ent_sortie ENABLE TRIGGER ent_sortie_annulee_le_tg".to_string(),
+        ] {
+            sqlx::query(&ddl).execute(proprietaire.pool()).await.unwrap();
+        }
+        // Préalable : sans contexte, un UPDATE ordinaire sous le rôle strict ne touche aucune ligne.
+        let naif = sqlx::query(&format!(
+            "UPDATE ent_sortie SET {colonne} = now() WHERE {colonne} IS NULL AND etat = '{etat}'"
+        ))
+        .execute(strict.pool())
+        .await
+        .expect("UPDATE sans contexte");
+        assert_eq!(
+            naif.rows_affected(),
+            0,
+            "préalable : la RLS stricte masque tout sans contexte ({etat})"
+        );
+        // Le bloc de données de la migration, exécuté par le rôle strict.
+        sqlx::raw_sql(&sql[debut..fin])
+            .execute(strict.pool())
+            .await
+            .expect("rattrapage sous rôle strict");
+        let pose: bool = sqlx::query_scalar(&format!(
+            "SELECT {colonne} IS NOT NULL FROM ent_sortie WHERE id = $1"
+        ))
+        .bind(x.s.id)
+        .fetch_one(proprietaire.pool())
+        .await
+        .unwrap();
+        assert!(pose, "{colonne} rattrapée sous la RLS stricte");
+    }
+    // Rejeu complet par le propriétaire : remet les contraintes écartées.
+    sqlx::raw_sql(sql)
+        .execute(proprietaire.pool())
+        .await
+        .expect("rejeu de 656");
+    crate::tenant_tx::forcer_mode_test(None);
+}
+
+/// Moyen 1 : pas d'autorisation « en blanc ». La demande porte sa portée (acompte visé, plafond, prestataire) ; une
+/// autorisation ne couvre que cela, au service comme en SQL direct. Moyen 2 : expiration, habilitation de l'autorisatrice
+/// (à l'autorisation ET à l'usage), horodatages posés par la base, garde de base de l'annulation collective.
+#[tokio::test]
+async fn v3b_une_autorisation_ne_couvre_que_ce_que_la_demande_porte_service_et_sql_direct() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let autre_presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let ac_a = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let ac_b = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    // Portée absente ou incohérente : invalide ; cible inconnue : introuvable ; autre prestataire que l'acompte : invalide.
+    for (nom, d) in [
+        ("créer sans portée", dem("acompte_creer", "Motif")),
+        ("payer sans cible", dem("acompte_payer", "Motif")),
+        ("annuler sans cible", dem("acompte_annuler", "Motif")),
+        (
+            "collective avec plafond",
+            DemandeContournement {
+                montant_max: Some("10".into()),
+                ..dem_collective("Motif")
+            },
+        ),
+        ("plafond nul", dem_payer(ac_a.id, presta, "0", "Motif")),
+        (
+            "autre prestataire que l'acompte",
+            dem_payer(ac_a.id, autre_presta, "100", "Motif"),
+        ),
+    ] {
+        let e = ent
+            .voyage_contournement_demander_a(&lie, x.s.id, d, t0)
+            .await
+            .unwrap_err();
+        assert!(matches!(e, EntDbError::Domain(_)), "{nom} : {e:?}");
+    }
+    let e = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_payer(Uuid::new_v4(), presta, "100", "Motif"),
+            t0,
+        )
+        .await
+        .unwrap_err();
+    assert!(est_introuvable(&e), "{e:?}");
+    // Payer l'acompte A : plafond 100 €, prestataire P. L'autorisatrice voit la portée.
+    let c = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_payer(ac_a.id, presta, "100", "Paiement A"),
+            t0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (c.cible_id, c.montant_max_centimes, c.prestataire_id),
+        (Some(ac_a.id), Some(10_000), Some(presta))
+    );
+    let vue = ent
+        .voyage_contournements_lister_a(&libre, x.s.id, t0)
+        .await
+        .unwrap();
+    assert_eq!(
+        vue.iter().find(|v| v.id == c.id).unwrap().cible_id,
+        Some(ac_a.id)
+    );
+    ent.voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, t0)
+        .await
+        .unwrap();
+    // Une demande identique encore ouverte (autorisée, non utilisée) : conflit (Faible 1).
+    let e = ent
+        .voyage_contournement_demander_a(
+            &lie,
+            x.s.id,
+            dem_payer(ac_a.id, presta, "100", "Encore"),
+            t0,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(_)), "{e:?}");
+    // Service : un AUTRE acompte, un montant SUPÉRIEUR au plafond : refusés (tracés comme la règle 3).
+    let e = ent
+        .voyage_acompte_payer_avec(&lie, x.s.id, ac_b.id, None, None, None, Some(c.id), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autre acompte : {e:?}");
+    let e = ent
+        .voyage_acompte_payer_avec(
+            &lie,
+            x.s.id,
+            ac_a.id,
+            Some("150"),
+            None,
+            None,
+            Some(c.id),
+            t0,
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "montant supérieur : {e:?}");
+    // SQL direct : « utilisé » pour une autre cible que celle de la demande : 23514 ; pour la bonne : accepté.
+    let utilise = |cid: Uuid, par: Uuid, cible: Uuid| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, cible_id)
+             VALUES ($1,$2,$3,'utilise',$4,$5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(cid)
+        .bind(par)
+        .bind(cible)
+    };
+    let r = utilise(c.id, lie.user_id, ac_b.id)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "autre cible");
+    utilise(c.id, lie.user_id, ac_a.id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("bonne cible");
+    // Expiration en base : valable maintenant et 29 jours après l'autorisation, plus au-delà de 30 jours.
+    let valide_a = |decalage: &'static str| {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT ent_sortie_contournement_valide($1,$2,$3,'acompte_payer',$4,10000,$5, now() + $6::interval)",
+        )
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(lie.user_id)
+        .bind(ac_a.id)
+        .bind(presta)
+        .bind(decalage)
+        .fetch_one(ent.pool_verif())
+    };
+    assert!(valide_a("0 days").await.unwrap());
+    assert!(valide_a("29 days").await.unwrap());
+    assert!(
+        !valide_a("31 days").await.unwrap(),
+        "expirée 30 jours après l'autorisation"
+    );
+    // SQL direct, paiement : autre acompte, montant supérieur, puis conforme.
+    let payer = |acompte: Uuid, centimes: i64| {
+        sqlx::query(
+            "UPDATE ent_sortie_acompte_fournisseur SET paye_le = $3, paye_centimes = $4, paye_par_user_id = $5
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(acompte)
+        .bind(jour)
+        .bind(centimes)
+        .bind(lie.user_id)
+    };
+    let r = payer(ac_b.id, 10_000).execute(ent.pool_verif()).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "autre acompte");
+    let r = payer(ac_a.id, 20_000).execute(ent.pool_verif()).await;
+    assert_eq!(code_sql(&r).as_deref(), Some("23514"), "au-delà du plafond");
+    payer(ac_a.id, 10_000)
+        .execute(ent.pool_verif())
+        .await
+        .expect("dans la portée");
+    // Créer : plafond 100 € et prestataire P. Autre prestataire ou montant supérieur : refusés (service puis SQL direct).
+    let cc = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_creer(presta, "Créer"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, cc.id, true, None, t0)
+        .await
+        .unwrap();
+    let e = ent
+        .voyage_acompte_creer_avec(
+            &lie,
+            x.s.id,
+            acompte_de(autre_presta, jour),
+            Some(cc.id),
+            t0,
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "autre prestataire : {e:?}");
+    let gros = crate::voyages_argent_flux::AcompteSaisie {
+        montant: "150".into(),
+        ..acompte_de(presta, jour)
+    };
+    let e = ent
+        .voyage_acompte_creer_avec(&lie, x.s.id, gros, Some(cc.id), t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "montant supérieur : {e:?}");
+    let nid = Uuid::new_v4();
+    utilise(cc.id, lie.user_id, nid)
+        .execute(ent.pool_verif())
+        .await
+        .expect("utilisé pour la future cible");
+    let inserer = |prest: Uuid, centimes: i64| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id)
+             VALUES ($1,$2,$3,$4,'x',$5,$6,$7)",
+        )
+        .bind(nid)
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(prest)
+        .bind(centimes)
+        .bind(jour)
+        .bind(lie.user_id)
+    };
+    let r = inserer(autre_presta, 10_000)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autre prestataire (SQL direct)"
+    );
+    let r = inserer(presta, 20_000).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "au-delà du plafond (SQL direct)"
+    );
+    inserer(presta, 10_000)
+        .execute(ent.pool_verif())
+        .await
+        .expect("dans la portée");
+    // Moyen 2, horodatages posés par la base : un `le` ou un `demande_le` fournis sont ignorés.
+    let cid = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_sortie_argent_contournement (id, etablissement_id, sortie_id, action, demande_par_user_id, motif, demande_le)
+         VALUES ($1,$2,$3,'annulation_collective',$4,'Motif','2000-01-01T00:00:00Z')",
+    )
+    .bind(cid)
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(lie.user_id)
+    .execute(ent.pool_verif())
+    .await
+    .expect("demande directe");
+    let decide = |par: Uuid| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, le)
+             VALUES ($1,$2,$3,'autorise',$4,'2000-01-01T00:00:00Z')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(cid)
+        .bind(par)
+    };
+    // Habilitation (Moyen 2) : un membre sans le profil comptable, même libre de la sortie, n'autorise pas.
+    let r = decide(x.porteur().user_id).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "membre non habilité"
+    );
+    let r = decide(Uuid::new_v4()).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "pas membre de l'établissement"
+    );
+    // Contre-revue du pilote (B1) : un comptable libre dont l'accès est suspendu, fermé ou échu garde son rôle mais
+    // n'autorise plus.
+    for (etat, fin) in [("suspendu", None), ("ferme", None), ("ouvert", Some("2000-01-01"))] {
+        let inactif = compta_libre(&x).await;
+        sqlx::query(
+            "UPDATE ent_membership SET etat = $3, date_fin = $4::date WHERE user_id = $1 AND etablissement_id = $2",
+        )
+        .bind(inactif.user_id)
+        .bind(x.c.etab)
+        .bind(etat)
+        .bind(fin)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+        let r = decide(inactif.user_id).execute(ent.pool_verif()).await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "accès {etat} / fin {fin:?} : n'autorise pas"
+        );
+    }
+    decide(libre.user_id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("autorisation habilitée");
+    // Contre-revue du pilote (M1) : un acompte inséré déjà payé (ou annulé) est refusé, quel que soit son auteur.
+    for colonnes in [
+        "paye_le, paye_centimes, paye_par_user_id) VALUES ($1,$2,$3,$4,'x',100,$5,$6, $5, 100000000, $6)",
+        "annule_le, annule_motif) VALUES ($1,$2,$3,$4,'x',100,$5,$6, $5, 'Doublon')",
+    ] {
+        let r = sqlx::query(&format!(
+            "INSERT INTO ent_sortie_acompte_fournisseur (id, etablissement_id, sortie_id, prestataire_id, libelle, montant_centimes, echeance, cree_par_user_id, {colonnes}"
+        ))
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(presta)
+        .bind(jour)
+        .bind(libre.user_id)
+        .execute(ent.pool_verif())
+        .await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "acompte inséré payé ou annulé : {colonnes}");
+    }
+    let (d_le, e_le): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+        "SELECT c.demande_le, e.le FROM ent_sortie_argent_contournement c
+           JOIN ent_sortie_argent_contournement_evt e ON e.contournement_id = c.id WHERE c.id = $1",
+    )
+    .bind(cid)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(
+        d_le > t0 - chrono::Duration::minutes(1) && e_le > t0 - chrono::Duration::minutes(1),
+        "{d_le} {e_le}"
+    );
+    // Faible 2 : l'habilitation de l'autorisatrice est revérifiée à l'usage. Autorisation par `libre2`, puis retrait de
+    // son profil : l'usage est refusé (SQL direct et service).
+    let libre2 = compta_libre(&x).await;
+    let c3 = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac_b.id, "Doublon"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre2, x.s.id, c3.id, true, None, t0)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE ent_membership SET role = 'prof' WHERE user_id = $1 AND etablissement_id = $2",
+    )
+    .bind(libre2.user_id)
+    .bind(x.c.etab)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    let r = utilise(c3.id, lie.user_id, ac_b.id)
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "autorisatrice plus habilitée"
+    );
+    let e = ent
+        .voyage_acompte_annuler_avec(&lie, x.s.id, ac_b.id, "Doublon", Some(c3.id), t0)
+        .await
+        .unwrap_err();
+    assert!(
+        est_interdit_metier(&e),
+        "service, autorisatrice plus habilitée : {e:?}"
+    );
+    // Annulation collective : garde de base (avoir « annulation collective » proposé par une personne liée).
+    x.verser(x.p1, x.compte_c, "cheque", "50").await.unwrap();
+    let avoir = |par: Option<Uuid>| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_avoir_propose (id, etablissement_id, sortie_id, participant_id, compte_id, motif_code, cle,
+                    paye_net_centimes, montant_propose_centimes, propose_par_user_id)
+             VALUES ($1,$2,$3,$4,$5,'annulation_collective',$6,5000,5000,$7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(x.p1)
+        .bind(x.compte_c)
+        .bind(format!("directe-{}", Uuid::new_v4().simple()))
+        .bind(par)
+    };
+    let r = avoir(Some(lie.user_id)).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "annulation collective par une personne liée"
+    );
+    let r = avoir(None).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "annulation collective sans auteur"
+    );
+    avoir(Some(libre.user_id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("annulation collective par une personne libre");
+}
+
+/// Moyen 4 : tests SQL directs (23514) des déclencheurs de 655 : frais réel, décision d'avoir (INSERT et UPDATE, y
+/// compris l'exclusion de la décision système), paiement d'acompte (UPDATE), annulation d'acompte (656).
+#[tokio::test]
+async fn m4_les_declencheurs_de_655_refusent_en_base_frais_decision_d_avoir_et_paiement_d_acompte()
+{
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let jour = x.c.jour_etab().await;
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let payeur_c = compta_payeur_de(&x, x.compte_c).await;
+    let libre = compta_libre(&x).await;
+    // Frais réel : INSERT direct par la personne liée ou payeuse refusé ; par une personne libre accepté.
+    let frais = |par: Uuid| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_frais_reel (id, etablissement_id, sortie_id, participant_id, nature, libelle, montant_centimes, saisi_par_user_id)
+             VALUES ($1,$2,$3,$4,'autre','Billet',100,$5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(x.p1)
+        .bind(par)
+    };
+    for (qui, a) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let r = frais(a.user_id).execute(ent.pool_verif()).await;
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "frais réel, {qui}");
+    }
+    frais(libre.user_id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("frais par une personne libre");
+    // Avoir : un versement, puis le désistement du participant 1 → avoir proposé ; sa décision.
+    x.verser(x.p1, x.compte_c, "cheque", "50").await.unwrap();
+    ent.voyage_participant_desister(&x.porteur(), x.s.id, x.p1, "famille", None)
+        .await
+        .unwrap();
+    let avoir = x
+        .avoirs_de(x.p1, x.compte_c)
+        .await
+        .into_iter()
+        .find(|a| a.statut == "propose")
+        .expect("avoir proposé");
+    let decider = |par: Option<Uuid>, statut: &str, auto: bool, id: Uuid| {
+        sqlx::query(
+            "UPDATE ent_sortie_avoir_propose
+                SET statut = $3, montant_retenu_centimes = CASE WHEN $3 = 'retenu' THEN 0 END,
+                    decide_par_user_id = $4, decide_le = now(), decision_motif = 'x', decision_auto = $5
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(id)
+        .bind(statut.to_string())
+        .bind(par)
+        .bind(auto)
+    };
+    for (qui, a) in [("parent", &parent), ("payeur", &payeur_c)] {
+        for statut in ["retenu", "ecarte"] {
+            let r = decider(Some(a.user_id), statut, false, avoir.id)
+                .execute(ent.pool_verif())
+                .await;
+            assert_eq!(
+                code_sql(&r).as_deref(),
+                Some("23514"),
+                "décision {statut} (UPDATE), {qui}"
+            );
+        }
+    }
+    // INSERT direct d'un avoir déjà décidé par la personne liée : refusé aussi.
+    let inserer = |par: Option<Uuid>, statut: &str, auto: bool| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_avoir_propose
+                 (id, etablissement_id, sortie_id, participant_id, compte_id, motif_code, cle, paye_net_centimes,
+                  montant_propose_centimes, statut, montant_retenu_centimes, decide_par_user_id, decide_le, decision_auto)
+             VALUES ($1,$2,$3,$4,$5,'motif_legitime',$6,0,0,$7, CASE WHEN $7 = 'retenu' THEN 0 END, $8, now(), $9)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(x.p1)
+        .bind(x.compte_c)
+        .bind(format!("direct-{}", Uuid::new_v4().simple()))
+        .bind(statut.to_string())
+        .bind(par)
+        .bind(auto)
+    };
+    for (qui, a) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let r = inserer(Some(a.user_id), "retenu", false)
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "décision (INSERT), {qui}"
+        );
+    }
+    // Exclusion : une décision « signée système » (sans acteur humain) n'exerce aucun pouvoir : l'INSERT passe ; une
+    // proposition (sans décision) aussi.
+    inserer(None, "ecarte", true)
+        .execute(ent.pool_verif())
+        .await
+        .expect("décision système");
+    // La même décision par une personne libre passe (UPDATE).
+    decider(Some(libre.user_id), "retenu", false, avoir.id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("décision par une personne libre");
+    // Acompte : UPDATE de paiement par la personne liée refusé (INSERT refusé déjà couvert) ; par une personne libre accepté.
+    let presta = un_prestataire(&x).await;
+    let ac = ent
+        .voyage_acompte_creer(&x.compta(), x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let payer = |par: Uuid| {
+        sqlx::query(
+            "UPDATE ent_sortie_acompte_fournisseur SET paye_le = $3, paye_centimes = 100, paye_par_user_id = $4
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(ac.id)
+        .bind(jour)
+        .bind(par)
+    };
+    for (qui, a) in [("parent", &parent), ("payeur", &payeur_c)] {
+        let r = payer(a.user_id).execute(ent.pool_verif()).await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "paiement d'acompte (UPDATE), {qui}"
+        );
+    }
+    // Annulation d'acompte (656) : l'auteur est gardé ; refusée à la personne liée, sans auteur refusée par la contrainte.
+    let ac2 = ent
+        .voyage_acompte_creer(&x.compta(), x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let annuler = |par: Option<Uuid>| {
+        sqlx::query(
+            "UPDATE ent_sortie_acompte_fournisseur SET annule_le = $3, annule_motif = 'x', annule_par_user_id = $4
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(x.c.etab)
+        .bind(ac2.id)
+        .bind(jour)
+        .bind(par)
+    };
+    let r = annuler(Some(parent.user_id))
+        .execute(ent.pool_verif())
+        .await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "annulation d'acompte par la personne liée"
+    );
+    let r = annuler(None).execute(ent.pool_verif()).await;
+    assert_eq!(
+        code_sql(&r).as_deref(),
+        Some("23514"),
+        "annulation sans auteur (contrainte)"
+    );
+    annuler(Some(libre.user_id))
+        .execute(ent.pool_verif())
+        .await
+        .expect("annulation par une personne libre");
+    // Le paiement du premier acompte par une personne libre passe.
+    payer(libre.user_id)
+        .execute(ent.pool_verif())
+        .await
+        .expect("paiement par une personne libre");
+}
+
+/// Moyen 4 : `ent_sortie_issue_coherente` (655) : une aide ou un report reprend exactement sa demande.
+#[tokio::test]
+async fn m4_ent_sortie_issue_coherente_refuse_en_base_une_aide_ou_un_report_different_de_sa_demande(
+) {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let p2 = x.p2_meme_payeur().await;
+    let d_aide = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "10"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap()
+        .demande_id;
+    x.verser(x.p1, x.compte_c, "cheque", "100").await.unwrap();
+    let d_report = ent
+        .voyage_report_effectuer_a(
+            &x.compta(),
+            x.s.id,
+            report(x.p1, p2, x.compte_c, "20"),
+            instant_fixe(),
+        )
+        .await
+        .unwrap()
+        .demande_id;
+    // Aide : source, nature de la demande (un report), sortie, compte.
+    let aide_sql = |demande: Uuid, source: &str, participant: Uuid, compte: Uuid, montant: i64| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_aide (id, etablissement_id, sortie_id, participant_id, compte_id, sens, source, montant_centimes, motif, demande_id, decide_par_user_id, decide_le)
+             VALUES ($1,$2,$3,$4,$5,'aide',$6,$7,'x',$8,$9, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(participant)
+        .bind(compte)
+        .bind(source.to_string())
+        .bind(montant)
+        .bind(demande)
+        .bind(x.c.dir)
+    };
+    for (nom, demande, source, participant, compte, montant) in [
+        ("autre source", d_aide, "autre", x.p1, x.compte_c, 1000_i64),
+        ("autre compte", d_aide, "apel", x.p1, x.compte_a, 1000),
+        (
+            "demande de report",
+            d_report,
+            "apel",
+            x.p1,
+            x.compte_c,
+            2000,
+        ),
+        (
+            "demande inconnue",
+            Uuid::new_v4(),
+            "apel",
+            x.p1,
+            x.compte_c,
+            1000,
+        ),
+    ] {
+        let r = aide_sql(demande, source, participant, compte, montant)
+            .execute(ent.pool_verif())
+            .await;
+        assert!(
+            matches!(code_sql(&r).as_deref(), Some("23514") | Some("23503")),
+            "aide, {nom} : {r:?}"
+        );
+    }
+    // Report : montant, participant d'origine, participant de destination, compte, nature (demande d'aide).
+    let report_sql = |demande: Uuid, de: Uuid, vers: Uuid, compte: Uuid, montant: i64| {
+        sqlx::query(
+            "INSERT INTO ent_sortie_report (id, etablissement_id, sortie_id, de_participant_id, vers_participant_id, compte_id, sens, montant_centimes, motif, demande_id, decide_par_user_id, decide_le)
+             VALUES ($1,$2,$3,$4,$5,$6,'report',$7,'x',$8,$9, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(x.s.id)
+        .bind(de)
+        .bind(vers)
+        .bind(compte)
+        .bind(montant)
+        .bind(demande)
+        .bind(x.c.dir)
+    };
+    for (nom, demande, de, vers, compte, montant) in [
+        ("autre montant", d_report, x.p1, p2, x.compte_c, 2001_i64),
+        ("autre origine", d_report, x.p0, p2, x.compte_c, 2000),
+        ("autre destination", d_report, x.p1, x.p0, x.compte_c, 2000),
+        ("autre compte", d_report, x.p1, p2, x.compte_a, 2000),
+        ("demande d'aide", d_aide, x.p1, p2, x.compte_c, 1000),
+    ] {
+        let r = report_sql(demande, de, vers, compte, montant)
+            .execute(ent.pool_verif())
+            .await;
+        assert_eq!(
+            code_sql(&r).as_deref(),
+            Some("23514"),
+            "report, {nom} : {r:?}"
+        );
+    }
+}
+
+/// Faible 2 (a) : le seuil de seconde validation vaut aussi à l'annulation, sur le CUMUL engagé du participant et du
+/// payeur : une aide fractionnée sous le seuil ne s'annule pas seule morceau par morceau.
+/// Faible 2 (b) : une demande expirée (plus validable) ne compte plus dans le cumul.
+#[tokio::test]
+async fn v3b_le_seuil_vaut_a_l_annulation_sur_le_cumul_et_une_demande_expiree_ne_compte_plus() {
+    let Some(x) = suivi().await else { return };
+    regler_seconde_validation(&x, 15_000, false).await;
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_fixe();
+    // Deux aides de 100 € sur la même part : la première passe seule, la seconde porte le cumul à 200 € (> 150 €).
+    let a1 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "100"),
+            t0,
+        )
+        .await
+        .unwrap();
+    let aide1 = a1.aide.expect("première aide appliquée");
+    let a2 = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "apel", "100"),
+            t0,
+        )
+        .await
+        .unwrap();
+    assert!(
+        a2.aide.is_none(),
+        "la seconde dépasse le seuil en cumul : en attente"
+    );
+    ent.voyage_demande_valider_a(&x.dir(), x.s.id, a2.demande_id, t0)
+        .await
+        .expect("seconde personne");
+    // Annuler la première (100 €, sous le seuil seule) : le cumul (200 €) la soumet à une seconde personne.
+    let e = ent
+        .voyage_aide_annuler_a(
+            &x.compta(),
+            x.s.id,
+            aide1.id,
+            "Erreur de saisie",
+            plus(t0, 1),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    assert_eq!(
+        nb_refus(&x, x.c.compta, "voyage_aide_annuler_a").await,
+        1,
+        "le refus de seconde personne est tracé (Faible 4)"
+    );
+    ent.voyage_aide_annuler_a(&x.dir(), x.s.id, aide1.id, "Erreur de saisie", plus(t0, 1))
+        .await
+        .expect("une autre personne annule");
+    // (b) Une demande de 160 € reste en attente ; 31 jours plus tard elle est expirée et ne pèse plus sur le cumul.
+    // Cumul net actuel : 100 € (la seconde aide) ; on repart d'un cadre neuf pour ne pas mêler les deux.
+    let y = suivi().await.expect("cadre");
+    regler_seconde_validation(&y, 15_000, false).await;
+    y.sync().await;
+    let attente =
+        y.c.ent
+            .voyage_aide_accorder_a(
+                &y.compta(),
+                y.s.id,
+                aide(y.p1, y.compte_c, "apel", "160"),
+                t0,
+            )
+            .await
+            .unwrap();
+    assert!(attente.aide.is_none(), "160 € > 150 € : en attente");
+    let encore =
+        y.c.ent
+            .voyage_aide_accorder_a(
+                &y.compta(),
+                y.s.id,
+                aide(y.p1, y.compte_c, "apel", "10"),
+                plus(t0, 1),
+            )
+            .await
+            .unwrap();
+    assert!(
+        encore.aide.is_none(),
+        "10 € + 160 € en attente (non expirée) : en attente"
+    );
+    let apres =
+        y.c.ent
+            .voyage_aide_accorder_a(
+                &y.compta(),
+                y.s.id,
+                aide(y.p1, y.compte_c, "apel", "10"),
+                plus(t0, 31),
+            )
+            .await
+            .unwrap();
+    assert!(
+        apres.aide.is_some(),
+        "les demandes expirées ne comptent plus : 10 € passent seuls"
+    );
+}
+
+/// Faible 4 : traces des refus de seconde personne ; un `23514` de course devient le refus de la règle 3 ; plafond de débit.
+#[tokio::test]
+async fn v3b_les_refus_de_seconde_personne_sont_traces_la_course_23514_devient_un_refus_et_le_debit_est_plafonne(
+) {
+    let Some(x) = suivi().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_fixe();
+    // Seconde personne : le demandeur ne valide pas sa propre demande (fonds social, par défaut > seuil : en attente).
+    let d = ent
+        .voyage_aide_accorder_a(
+            &x.compta(),
+            x.s.id,
+            aide(x.p1, x.compte_c, "fonds_social", "10"),
+            t0,
+        )
+        .await
+        .unwrap();
+    assert!(d.aide.is_none());
+    let e = ent
+        .voyage_demande_valider_a(&x.compta(), x.s.id, d.demande_id, t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    assert_eq!(
+        nb_refus(&x, x.c.compta, "voyage_demande_valider_a").await,
+        1
+    );
+    // Course : un lien posé entre le contrôle de l'application et l'écriture ferait refuser l'INSERT par le déclencheur ;
+    // ce `23514` est reconnu comme le refus de la règle 3 (et se trace comme lui), jamais comme une erreur 500.
+    let parent = compta_parent_de(&x, x.c.eleves[1]).await;
+    let r = sqlx::query(
+        "INSERT INTO ent_sortie_plan (id, etablissement_id, sortie_id, participant_id, compte_id, rang, nb_echeances, accorde_par_user_id)
+         VALUES ($1,$2,$3,$4,$5,98,2,$6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.c.etab)
+    .bind(x.s.id)
+    .bind(x.p1)
+    .bind(x.compte_c)
+    .bind(parent.user_id)
+    .execute(ent.pool_verif())
+    .await;
+    let e = crate::voyages_argent_v3::db_pouvoir(r.unwrap_err());
+    assert!(crate::voyages_argent_v3::est_refus_regle3(&e), "{e:?}");
+    assert!(crate::voyages_argent_v3::est_refus_a_tracer(&e));
+    // Un autre 23514 (contrainte de forme) reste une erreur de saisie, pas un refus de la règle 3.
+    let r = sqlx::query("UPDATE ent_sortie_plan SET nb_echeances = 0 WHERE sortie_id = $1")
+        .bind(x.s.id)
+        .execute(ent.pool_verif())
+        .await;
+    if let Err(e) = r {
+        assert!(!crate::voyages_argent_v3::est_refus_regle3(
+            &crate::voyages_argent_v3::db_pouvoir(e)
+        ));
+    }
+    // Plafond de débit : 35 refus de la même personne laissent au plus PLAFOND traces par heure.
+    let spammeur = compta_parent_de(&x, x.c.eleves[1]).await;
+    for _ in 0..35 {
+        let e = ent
+            .voyage_plan_accorder(&spammeur, x.s.id, x.p1, x.compte_c, 2, None)
+            .await
+            .unwrap_err();
+        assert!(est_interdit_metier(&e), "{e:?}");
+    }
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie_argent_refus WHERE sortie_id = $1 AND user_id = $2 AND action = $3 AND NOT plafond_atteint",
+    )
+    .bind(x.s.id)
+    .bind(spammeur.user_id)
+    .bind("voyage_plan_accorder")
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        n,
+        crate::voyages_argent_v3::PLAFOND_TRACES_REFUS_PAR_HEURE,
+        "plafond de traces"
+    );
+    // Faible 5 : au-delà du plafond, UNE ligne « plafond atteint » signale le dépassement (jamais davantage).
+    let marqueurs: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_sortie_argent_refus WHERE sortie_id = $1 AND user_id = $2 AND action = $3 AND plafond_atteint",
+    )
+    .bind(x.s.id)
+    .bind(spammeur.user_id)
+    .bind("voyage_plan_accorder")
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(marqueurs, 1, "une seule trace agrégée au-delà du plafond");
+    // Le plafond est par (personne, action) : le flot d'une action ne masque pas le refus d'une autre.
+    let e = ent
+        .voyage_acompte_creer(
+            &spammeur,
+            x.s.id,
+            acompte_de(un_prestataire(&x).await, x.c.jour_etab().await),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    assert_eq!(
+        nb_refus(&x, spammeur.user_id, "voyage_acompte_creer").await,
+        1
+    );
 }
