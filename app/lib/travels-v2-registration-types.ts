@@ -118,6 +118,10 @@ export type FamilyInvitation = {
   classe?: string;
   /** E-mail du responsable (normalisé) — jamais renvoyé par les API publiques. */
   email: string;
+  /** Origine de l'adresse : fiche élève, foyer, ou ajoutée pour ce séjour (absent = fiche, anciennes invitations). */
+  source?: "fiche" | "foyer" | "ajoutee";
+  /** Nom du responsable, si connu (foyer ou saisi à l'ajout). */
+  recipientName?: string;
   createdAt: string;
   /** Empreintes sha-256 des jetons valides (le jeton en clair n'est jamais stocké). */
   tokenHashes: string[];

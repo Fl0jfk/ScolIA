@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { TripAlert, TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
+import { TripRecipientsCheck } from "@/app/components/travels/hub/TripRecipientsCheck";
 import { computeMonthlySchedule, defaultLastBillingMonth } from "@/app/lib/travels-billing-schedule";
 import { FamilyDocumentsEditor, RetroplanningCard } from "@/app/components/travels/TravelsV2Creation";
 import {
@@ -502,6 +503,9 @@ export function TripOpenRegistrationsModal({
   const todayIso = todayIsoParis();
   const readiness = useMemo(() => familyPageReadiness(trip.data, todayIso), [trip.data, todayIso]);
   const model = useMemo(() => buildFamilyPagePreviewModel(trip), [trip]);
+  const [missing, setMissing] = useState(0);
+  const [ackMissing, setAckMissing] = useState(false);
+  const needAck = missing > 0 && !ackMissing;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl space-y-4">
@@ -525,6 +529,13 @@ export function TripOpenRegistrationsModal({
             </ul>
           </div>
         )}
+        <TripRecipientsCheck tripId={trip.id} onLoaded={setMissing} />
+        {missing > 0 ? (
+          <label className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+            <input type="checkbox" className="mt-1" checked={ackMissing} onChange={(e) => setAckMissing(e.target.checked)} />
+            <span>Je sais que {missing} élève{missing > 1 ? "s" : ""} ne recevr{missing > 1 ? "ont" : "a"} pas le lien.</span>
+          </label>
+        ) : null}
         <div className="mx-auto w-full max-w-[420px]">
           <FamilyPageView model={model} mode="preview" />
         </div>
@@ -532,7 +543,7 @@ export function TripOpenRegistrationsModal({
           <TripButton variant="secondary" onClick={onCancel} disabled={busy}>
             Annuler
           </TripButton>
-          <TripButton variant="success" onClick={onConfirm} disabled={busy || !readiness.ready}>
+          <TripButton variant="success" onClick={onConfirm} disabled={busy || !readiness.ready || needAck}>
             {busy ? "Ouverture…" : "Valider et ouvrir les inscriptions"}
           </TripButton>
         </div>

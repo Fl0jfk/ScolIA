@@ -2,8 +2,8 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { collectEleveParentEmails, normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
-import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
+import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
+import { addExtraRecipient, keyOfIne, resolveTripRecipients } from "@/app/lib/travels-v2-recipients-store";
 import { maskEmail } from "@/app/lib/mask-email";
 import {
   deleteJson,
@@ -199,39 +199,29 @@ export async function createInvitationsForTrip(trip: Pick<TravelsTrip, "id" | "d
 }
 
 async function createInvitationsUnlocked(trip: Pick<TravelsTrip, "id" | "data">): Promise<CreateInvitationsResult> {
-  const preListe = trip.data?.preListeEleves || [];
-  const eleves = await loadElevesActifsRegistry().catch(() => []);
-  const byIne = new Map(eleves.map((e) => [String(e.ine || "").trim().toUpperCase(), e]));
+  // Toutes les adresses : fiche élève + responsables des foyers (autorité parentale) + adresses ajoutées pour ce séjour.
+  const { byIne, students, withoutAddress } = await resolveTripRecipients(trip);
   const current = await listInvitations(trip.id);
   const known = new Set(current.map((i) => `${i.ine}|${i.email}`));
   const created: FamilyInvitation[] = [];
-  const studentsWithoutEmail: { ine: string; name: string }[] = [];
   let existing = 0;
-  const seenIne = new Set<string>();
 
-  for (const p of preListe) {
-    const ine = String(p.ine || "").trim();
-    if (!ine || seenIne.has(ine.toUpperCase())) continue;
-    seenIne.add(ine.toUpperCase());
-    const fiche = byIne.get(ine.toUpperCase());
-    const emails = fiche ? collectEleveParentEmails(fiche) : [];
-    const name = studentDisplayName(fiche?.prenom ?? p.prenom, fiche?.nom ?? p.nom);
-    if (emails.length === 0) {
-      studentsWithoutEmail.push({ ine, name });
-      continue;
-    }
-    for (const email of emails) {
-      if (known.has(`${ine}|${email}`)) {
+  for (const s of students) {
+    const recipients = byIne.get(keyOfIne(s.ine)) || [];
+    for (const r of recipients) {
+      if (known.has(`${s.ine}|${r.email}`)) {
         existing += 1;
         continue;
       }
       const inv: FamilyInvitation = {
         id: randomUUID(),
         tripId: trip.id,
-        ine,
-        studentName: name,
-        classe: fiche?.classe || p.classe || undefined,
-        email,
+        ine: s.ine,
+        studentName: s.name,
+        classe: s.classe,
+        email: r.email,
+        source: r.source,
+        ...(r.name ? { recipientName: r.name } : {}),
         createdAt: new Date().toISOString(),
         tokenHashes: [],
         sendCount: 0,
@@ -241,11 +231,47 @@ async function createInvitationsUnlocked(trip: Pick<TravelsTrip, "id" | "data">)
         codeSends: [],
       };
       await saveInvitation(inv);
-      known.add(`${ine}|${email}`);
+      known.add(`${s.ine}|${r.email}`);
       created.push(inv);
     }
   }
-  return { created, existing, studentsWithoutEmail };
+  return { created, existing, studentsWithoutEmail: withoutAddress };
+}
+
+/**
+ * Adresse ajoutée pour CE séjour (jamais dans la fiche élève ni le foyer) : stockée dans le voyage, puis invitation
+ * créée et lien envoyé si les inscriptions sont ouvertes. Sous le verrou des invitations du voyage.
+ */
+export async function addRecipientForTrip(opts: {
+  trip: SendTrip & Pick<TravelsTrip, "status">;
+  ine: string;
+  email: string;
+  name?: string;
+  addedBy: string;
+  baseUrl: string;
+}): Promise<{ busy?: boolean; duplicate?: boolean; created: boolean; sent: boolean }> {
+  const locked = await withNamedLock(TRIP_INVITES_LOCK, opts.trip.id, TRIP_LOCK_TTL_SECONDS, async () => {
+    const before = await resolveTripRecipients(opts.trip);
+    if ((before.byIne.get(keyOfIne(opts.ine)) || []).some((r) => r.email === opts.email)) {
+      return { duplicate: true, created: false, sent: false };
+    }
+    await addExtraRecipient({ tripId: opts.trip.id, ine: opts.ine, email: opts.email, name: opts.name, addedBy: opts.addedBy });
+    const isOpen = Boolean(opts.trip.data?.familyPage?.openedAt) && opts.trip.status === "INSCRIPTIONS_OUVERTES";
+    if (!isOpen) return { created: false, sent: false };
+    const res = await createInvitationsUnlocked(opts.trip);
+    const mine = res.created.filter((i) => i.email === opts.email && keyOfIne(i.ine) === keyOfIne(opts.ine));
+    const mail = await mailContext();
+    if (!mail || mine.length === 0) return { created: mine.length > 0, sent: false };
+    const ids = new Set(mine.map((i) => i.id));
+    const { sent } = await sendLinksUnlocked({
+      trip: opts.trip,
+      baseUrl: opts.baseUrl,
+      mail,
+      pick: (all) => all.filter((i) => ids.has(i.id)),
+    });
+    return { created: true, sent: sent > 0 };
+  });
+  return locked.busy ? { busy: true, created: false, sent: false } : locked.value;
 }
 
 /* ─── E-mails ─── */

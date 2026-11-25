@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { TripAlert, TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
+import { TripRecipientsCheck } from "@/app/components/travels/hub/TripRecipientsCheck";
 import type { RegistrationRow } from "@/app/lib/travels-v2-registration-store";
 import { dateFr } from "@/app/lib/travels-family-page";
 import { rowMatchesFilter, type FollowupFilter } from "@/app/lib/travels-v2-lot3";
@@ -209,6 +210,8 @@ export function TripRegistrationsPanel({ tripId }: { tripId: string }) {
             Aucun lien ne peut leur être envoyé : complétez la fiche élève puis « Actualiser avec les fiches élèves ». Un coupon papier reste possible.
           </TripAlert>
         ) : null}
+
+        <TripRecipientsCheck tripId={tripId} onChanged={() => void load()} />
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-xl border bg-white p-3">
