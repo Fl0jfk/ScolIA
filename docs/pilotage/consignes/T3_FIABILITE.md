@@ -9,7 +9,7 @@ Tu es une session ScolIA (Sonnet). Réponds en français. Le pilote, c'est moi. 
   - `docs/securite/T1_SEARCH_PATH.md` (fonctions de garde, `search_path`) ;
   - `docs/RLS_ISOLATION.md` §3.1.
 - **Branche :** crée `ent-transverse-t3-fiabilite` depuis `origin/ENT` ; ouvre une PR en brouillon vers `ENT`.
-- **Migrations :** aucune attendue. Si une migration est indispensable, prends **3809** (réserve 3809, transverse), placée **à la fin** du tableau de `migrate.rs` (règle 38) : toute fonction créée ou recréée porte `SET search_path = pg_catalog, public, pg_temp` et qualifie ses relations `public.`. Ne touche pas `migrations_versees.txt` (le pilote le fait au versement).
+- **Migrations :** **aucune** dans ce lot (tests, journalisation, gardes statiques). Si un point en exigeait une, note-le dans le compte rendu et passe au suivant.
 - **Interdits :** Next.js, `main`, `dev` ; pousser sur `ENT` ; toute base ou tout secret de production, toute donnée réelle ; `cargo fmt --all`, `#[ignore]` ; modifier POINT_QUOTIDIEN ou PILOTAGE ; étendre `ui.rs` ; l'heure réelle ou le jour UTC dans les tests.
 - **Qualité :** zéro avertissement avec clippy 1.99 sur les 3 commandes de la CI (`ent-lab` compris) ; `--locked` et fmt ciblé ; `cargo metadata --locked` dans `ent-rust/web` ; base locale **neuve dont le nom contient « test »**, un seul `CARGO_TARGET_DIR` ; compteurs de la règle 28 mis à jour.
 
