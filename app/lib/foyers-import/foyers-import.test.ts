@@ -17,6 +17,8 @@ import {
 import { assertSafeXlsx, FoyersFileError, parseFoyersWorkbook, rowsFromRecords } from "./parse";
 import { validateResponsableInput } from "./responsable-validate";
 import { pickFoyerByEleve } from "../foyer-pick";
+import { filterStageSiblings } from "../stage-siblings-filter";
+import { elevesMatchingParentContact } from "../rdv-inscription-match";
 import { pickIdentityRecipients } from "../stage-identity-pick";
 import { filterFoyersForProfClasses, searchPaginateFoyers } from "../famille-messaging-matrix";
 import {
@@ -1140,4 +1142,226 @@ test("messagerie familles : plus de plafond de 300 lignes, liste paginée côté
   assert.equal(filterFoyersForProfClasses(foyers, ["6A"]).length, 1300);
   const route = readFileSync(join(process.cwd(), "app/api/vie-scolaire/messages-foyer/route.ts"), "utf8");
   assert.ok(route.includes("searchPaginateFoyers"));
+});
+
+/* ───────── Cloisonnement des familles recomposées (partie 4) ───────── */
+/*
+ * Foyer C = Père (X, Y) ; foyer B = Mère + Beau-père (X, Y, Z).
+ * Le Père ne voit jamais Z ; la Mère voit X, Y, Z ; aucun accès de proche en proche.
+ */
+
+const P = { Nom: "Durand", Prénom: "Paul", mail: "paul@example.org" };
+const REC_NOCONJ = {
+  "Nom Conjoint": "",
+  "Prénom Conjoint": "",
+  "Email Personnel Conjoint": "",
+  "Tél. portable Conjoint": "",
+};
+function recompose() {
+  const rowC = (prenom: string) =>
+    rec({
+      Nom: "Durand",
+      Prénom: prenom,
+      "Lien de parenté": "Père",
+      "Nom Resp": P.Nom,
+      "Prénom Resp": P.Prénom,
+      "Email Personnel Resp": P.mail,
+      "Tél. portable Resp": "0600000001",
+      ...REC_NOCONJ,
+    });
+  const rowB = (nom: string, prenom: string) =>
+    rec({
+      Nom: nom,
+      Prénom: prenom,
+      "Lien de parenté": "Mère",
+      "Lien de parenté avec le conjoint": "Beau-père",
+      "Nom Resp": "Martin",
+      "Prénom Resp": "Claire",
+      "Email Personnel Resp": "claire@example.org",
+      "Tél. portable Resp": "0600000002",
+      "Nom Conjoint": "Leroy",
+      "Prénom Conjoint": "Marc",
+      "Email Personnel Conjoint": "marc@example.org",
+      "Tél. portable Conjoint": "0600000003",
+    });
+  const recs = [rowC("X"), rowB("Durand", "X"), rowC("Y"), rowB("Durand", "Y"), rowB("Leroy", "Z")];
+  const eleves = [eleve("eX", "Durand", "X"), eleve("eY", "Durand", "Y"), eleve("eZ", "Leroy", "Z")];
+  return { recs, eleves };
+}
+
+function linksOf(plan: ReturnType<typeof buildPlan>, eleveId: string): string[] {
+  return plan.linksAdd
+    .filter((l) => l.eleveId === eleveId)
+    .map((l) => l.foyerRef)
+    .sort();
+}
+
+test("recomposée : plan d'import — X, Y liés à B et C, Z seulement à B, Père absent de B", () => {
+  const { recs, eleves } = recompose();
+  const plan = buildPlan(analyze(recs, eleves), EMPTY, { keepOldLinks: false });
+  assert.equal(plan.counts.foyersCrees, 2);
+  const C = plan.foyers.find((f) => f.responsables.some((r) => r.prenom === "Paul"))!;
+  const B = plan.foyers.find((f) => f.responsables.some((r) => r.prenom === "Claire"))!;
+  assert.notEqual(B.ref, C.ref);
+  assert.deepEqual(C.responsables.map((r) => r.prenom), ["Paul"]);
+  assert.deepEqual(B.responsables.map((r) => r.prenom).sort(), ["Claire", "Marc"]);
+  assert.deepEqual(linksOf(plan, "eX"), [B.ref, C.ref].sort());
+  assert.deepEqual(linksOf(plan, "eY"), [B.ref, C.ref].sort());
+  assert.deepEqual(linksOf(plan, "eZ"), [B.ref]);
+  // le Père n'est dans aucun foyer de Z
+  assert.ok(!B.responsables.some((r) => r.email === P.mail));
+});
+
+test("recomposée : ancien foyer commun Père + Mère en base — jamais fusionné, jamais lié à Z, signalé", () => {
+  const { recs, eleves } = recompose();
+  const old = (protege: boolean): ExistingData => ({
+    foyers: [{ id: "fOld", label: "Foyer Durand", facturation: protege }],
+    responsables: [
+      resp({ id: "rP", foyerId: "fOld", nom: "Durand", prenom: "Paul", email: P.mail, rang: 1 }),
+      resp({ id: "rM", foyerId: "fOld", nom: "Martin", prenom: "Claire", email: "claire@example.org", rang: 2 }),
+    ],
+    links: [
+      { eleveId: "eX", foyerId: "fOld" },
+      { eleveId: "eY", foyerId: "fOld" },
+    ],
+  });
+  // ancien foyer protégé (facturation) : conservé, signalé
+  const plan = buildPlan(analyze(recs, eleves), old(true), { keepOldLinks: false });
+  assert.ok(plan.foyers.every((f) => f.existingId !== "fOld"), "ancien foyer non réutilisé");
+  assert.equal(plan.counts.foyersCrees, 2);
+  assert.ok(plan.linksAdd.every((l) => l.foyerRef !== "fOld"));
+  assert.ok(!plan.linksAdd.some((l) => l.eleveId === "eZ" && l.foyerRef === "fOld"));
+  assert.ok(plan.anomalies.some((x) => x.kind === "foyer_commun_ancien"));
+  const aVerifier = plan.liensAVerifier.filter((l) => l.foyerId === "fOld");
+  assert.equal(aVerifier.length, 2);
+  assert.ok(aVerifier.every((l) => l.raisons.includes("ancien foyer commun conservé")));
+  assert.equal(plan.linksRemove.length, 0);
+  // non protégé : liens retirés, jamais de lien vers Z
+  const p2 = buildPlan(analyze(recs, eleves), old(false), { keepOldLinks: false });
+  assert.equal(p2.linksRemove.filter((l) => l.foyerId === "fOld").length, 2);
+  assert.ok(p2.linksAdd.every((l) => l.foyerRef !== "fOld"));
+});
+
+test("recomposée : une seconde application ne fusionne rien (idempotence du cloisonnement)", async () => {
+  const { recs, eleves } = recompose();
+  const f = fakeDb();
+  const plan = buildPlan(analyze(recs, eleves), EMPTY, { keepOldLinks: false });
+  await applyPlan(f.db, plan, CTX);
+  const plan2 = buildPlan(analyze(recs, eleves), existingFrom(f.tables), { keepOldLinks: false });
+  assert.equal(plan2.counts.foyersCrees, 0);
+  assert.ok(planIsNoop(plan2));
+  // Qui voit quoi, d'après les liens écrits : modèle « foyer dont l'adulte est responsable ».
+  const seen = (email: string) =>
+    new Set(
+      f.tables
+        .eleve_foyer_link!.filter((l) =>
+          f.tables.foyer_responsable!.some((r) => r.foyerId === l.foyerId && r.email === email),
+        )
+        .map((l) => l.eleveId),
+    );
+  assert.deepEqual([...seen(P.mail)].sort(), ["eX", "eY"]);
+  assert.deepEqual([...seen("claire@example.org")].sort(), ["eX", "eY", "eZ"]);
+  assert.deepEqual([...seen("marc@example.org")].sort(), ["eX", "eY", "eZ"]);
+});
+
+test("famille-auth : accès par foyer du responsable lui-même, par fiche élève de sa propre adresse, aucun second saut", () => {
+  const src = readFileSync(join(process.cwd(), "app/lib/famille-auth.ts"), "utf8");
+  const viaFoyer = src.slice(src.indexOf("const viaFoyer"), src.indexOf("for (const row of viaFoyer)"));
+  // le responsable désigné est celui de l'utilisateur (userId ou son e-mail), sur le même foyer que le lien
+  assert.ok(viaFoyer.includes("eq(foyerResponsable.foyerId, eleveFoyerLink.foyerId)") || viaFoyer.includes("eq(foyerResponsable.foyerId, eleveFoyerLink.foyerId"));
+  assert.ok(viaFoyer.includes("eq(foyerResponsable.userId, authUserId)"));
+  assert.ok(viaFoyer.includes("= ${emailNorm}"));
+  const viaEmail = src.slice(src.indexOf("const viaEmail"), src.indexOf("for (const row of viaEmail)"));
+  // seule l'adresse de l'utilisateur est comparée aux e-mails parents de la fiche : pas d'expansion par frère
+  assert.equal((viaEmail.match(/= \$\{emailNorm\}/g) ?? []).length, 3);
+  assert.ok(!/eleveFoyerLink|foyerResponsable/.test(viaEmail));
+});
+
+function cfg(id: string, nom: string, prenom: string, parentMails: string[]) {
+  return {
+    id,
+    nom,
+    prenom,
+    classe: "3A",
+    status: "inscrit",
+    dateNaissance: "2012-01-01",
+    parent1Email: parentMails[0] ?? "",
+    parentEmail: parentMails[1] ?? "",
+    parent2Email: parentMails[2] ?? "",
+  } as never;
+}
+
+test("fratrie de stage : le Père (adresse vérifiée) ne reçoit que X et Y, jamais Z", () => {
+  const eleves = [
+    // la fiche de X porte l'adresse de la Mère : ne doit rien ouvrir au Père
+    cfg("eX", "Durand", "X", ["claire@example.org", P.mail]),
+    cfg("eY", "Durand", "Y", ["claire@example.org", P.mail]),
+    cfg("eZ", "Leroy", "Z", ["claire@example.org", "marc@example.org"]),
+  ];
+  const father = filterStageSiblings({
+    eleves,
+    verifiedEmails: [P.mail],
+    foyerEleveIds: ["eX", "eY"], // enfants des foyers où le Père est responsable
+    isClassEligible: () => true,
+  });
+  assert.deepEqual(father.map((s) => s.id).sort(), ["eX", "eY"]);
+  const mother = filterStageSiblings({
+    eleves,
+    verifiedEmails: ["claire@example.org"],
+    foyerEleveIds: ["eX", "eY", "eZ"],
+    isClassEligible: () => true,
+  });
+  assert.deepEqual(mother.map((s) => s.id).sort(), ["eX", "eY", "eZ"]);
+  // sans lien de foyer : la fiche seule suffit pour l'adresse vérifiée, jamais pour une autre adresse
+  const onlyFiche = filterStageSiblings({ eleves, verifiedEmails: [P.mail], isClassEligible: () => true });
+  assert.deepEqual(onlyFiche.map((s) => s.id).sort(), ["eX", "eY"]);
+  // la requête de foyers part des responsables portant l'adresse vérifiée, puis de leurs liens (un seul saut)
+  const src = readFileSync(join(process.cwd(), "app/lib/stage-siblings.ts"), "utf8");
+  assert.ok(src.includes("lower(trim(${foyerResponsable.email}))") && src.includes("inArray(eleveFoyerLink.foyerId, foyerIds)"));
+  // plafond conservé
+  assert.ok(src.includes("STAGE_SIBLINGS_MAX = 6"));
+});
+
+test("stage : destinataires d'identité de Z = foyer de Z seulement (jamais le Père)", () => {
+  const forZ = pickIdentityRecipients(
+    ["claire@example.org", "marc@example.org"],
+    ["claire@example.org"],
+    ["z@example.org"],
+    4,
+  );
+  assert.ok(!forZ.includes(P.mail));
+  const forX = pickIdentityRecipients(
+    ["claire@example.org", P.mail, "marc@example.org"],
+    [P.mail, "claire@example.org"],
+    [],
+    4,
+  );
+  assert.ok(forX.includes(P.mail) && forX.includes("claire@example.org"));
+  const src = readFileSync(join(process.cwd(), "app/lib/stage-identity-recipients.ts"), "utf8");
+  // les foyers lus sont ceux de l'élève concerné uniquement
+  assert.ok(src.includes("eq(eleveFoyerLink.eleveId, id)") && src.includes("inArray(foyerResponsable.foyerId, foyerIds)"));
+});
+
+test("RDV inscription : l'adresse du Père ne rattache que les enfants de ses foyers", () => {
+  const eleves = [
+    cfg("eX", "Durand", "X", ["claire@example.org", P.mail]),
+    cfg("eZ", "Leroy", "Z", ["claire@example.org", "marc@example.org"]),
+  ];
+  assert.deepEqual(elevesMatchingParentContact(eleves, P.mail).map((e) => e.id), ["eX"]);
+  assert.deepEqual(
+    elevesMatchingParentContact(eleves, "claire@example.org").map((e) => e.id).sort(),
+    ["eX", "eZ"],
+  );
+  const src = readFileSync(join(process.cwd(), "app/lib/rdv-inscription-eleve.ts"), "utf8");
+  const fn = src.slice(src.indexOf("function listEleveIdsLinkedToFoyerEmail"), src.indexOf("function listEleveIdsLinkedToFoyerEmail") + 1200);
+  assert.ok(fn.includes("= ${email}") && fn.includes("eleveFoyerLink.foyerId, foyerResponsable.foyerId"));
+});
+
+test("dossier : les enfants affichés pour un foyer sont ceux liés à CE foyer", () => {
+  const src = readFileSync(join(process.cwd(), "app/api/eleves/[id]/dossier/route.ts"), "utf8");
+  const blk = src.slice(src.indexOf("enfantsByFoyer = new Map"), src.indexOf("const respByFoyer"));
+  assert.ok(blk.includes("inArray(eleveFoyerLink.foyerId, batch)"));
+  assert.ok(blk.includes("enfantsByFoyer.get(k.foyerId)") && blk.includes("set(k.foyerId"));
+  const svc = readFileSync(join(process.cwd(), "app/lib/foyers-import/service.ts"), "utf8");
+  assert.ok(svc.includes("kidBy.get(f.id)") && svc.includes("kidBy.set(k.foyerId"));
 });

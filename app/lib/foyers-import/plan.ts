@@ -66,7 +66,8 @@ export type AnomalyKind =
   | "sous_ensemble"
   | "non_touche"
   | "adresse_a_verifier"
-  | "autorite_change";
+  | "autorite_change"
+  | "foyer_commun_ancien";
 
 export type Anomaly = {
   kind: AnomalyKind;
@@ -631,13 +632,46 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
   // Rattachement à un foyer existant (glouton par score décroissant).
   type Pair = { fi: number; foyerId: string; score: number; overlap: number };
   const pairs: Pair[] = [];
+  /** Anciens foyers communs (ex. Père + Mère) dont les responsables se retrouvent dans plusieurs foyers du fichier. */
+  const sharedOldFoyers = new Set<string>();
+  const filesByEleve = new Map<string, number[]>();
+  fileFoyers.forEach(({ eleveIds }, fi) => {
+    for (const e of eleveIds) {
+      const l = filesByEleve.get(e);
+      if (l) l.push(fi);
+      else filesByEleve.set(e, [fi]);
+    }
+  });
   fileFoyers.forEach(({ f, eleveIds }, fi) => {
+    const neighbours = [...new Set(eleveIds.flatMap((e) => filesByEleve.get(e) ?? []))].filter((n) => n !== fi);
     const cands = new Map<string, number>();
     for (const e of eleveIds) for (const fid of linksByEleve.get(e) ?? []) cands.set(fid, (cands.get(fid) ?? 0) + 1);
     for (const [foyerId, overlap] of cands) {
       const resps = respsByFoyer.get(foyerId) ?? [];
-      const score = matchAdults(f.adults, resps).filter(Boolean).length;
-      if (score > 0) pairs.push({ fi, foyerId, score, overlap });
+      const mine = matchAdults(f.adults, resps);
+      const score = mine.filter(Boolean).length;
+      if (score === 0) continue;
+      // Un responsable de l'ancien foyer qui est un adulte d'un AUTRE foyer du fichier (ex. le Père de X et Y
+      // quand on traite le foyer de la Mère) ne doit jamais se retrouver dans ce foyer : donc pas de réutilisation.
+      const mineIds = new Set(mine.filter(Boolean).map((m) => m!.id));
+      const foreign = resps.filter((r) => !mineIds.has(r.id));
+      if (
+        foreign.length &&
+        neighbours.some((n) => matchAdults(fileFoyers[n]!.f.adults, foreign).some(Boolean))
+      ) {
+        if (!sharedOldFoyers.has(foyerId)) {
+          sharedOldFoyers.add(foyerId);
+          anomalies.push({
+            kind: "foyer_commun_ancien",
+            lines: f.studentKeys.flatMap((k) => studentByKey.get(k)?.lines ?? []),
+            eleve: foyerLabelById.get(foyerId) ?? "Foyer",
+            message:
+              "Ancien foyer commun (responsables désormais dans des foyers distincts du fichier) : non réutilisé, à régler par l'administratif.",
+          });
+        }
+        continue;
+      }
+      pairs.push({ fi, foyerId, score, overlap });
     }
   });
   pairs.sort((a, b) => b.score - a.score || b.overlap - a.overlap || (a.foyerId < b.foyerId ? -1 : 1));
@@ -813,7 +847,12 @@ export function buildPlan(analysis: Analysis, existing: ExistingData, options: P
         if (refs.includes(fid)) continue;
         const raisons = protectionOf(fid);
         if (raisons.length && !options.removeProtectedLinks) {
-          liensAVerifier.push({ eleveId, foyerId: fid, label: foyerLabelById.get(fid) ?? "Foyer", raisons });
+          liensAVerifier.push({
+            eleveId,
+            foyerId: fid,
+            label: foyerLabelById.get(fid) ?? "Foyer",
+            raisons: sharedOldFoyers.has(fid) ? [...raisons, "ancien foyer commun conservé"] : raisons,
+          });
           continue;
         }
         linksRemove.push({ eleveId, foyerId: fid });
