@@ -5424,6 +5424,60 @@ async fn f3s4_e2_renouvellement_par_une_nouvelle_prise_est_facturable() {
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeu sans modification");
 }
 
+/// Contre-revue du pilote (M2) : une ligne ancienne **sans période** couvre peut-être toute l'année : une nouvelle prise ne
+/// fait jamais poser une clé nouvelle « disjointe » à côté d'elle (refus explicite, rien n'est facturé deux fois).
+#[tokio::test]
+async fn f3s4_pilote_ligne_ancienne_sans_periode_jamais_doublee() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    grille_en_vigueur(&ent, &c).await;
+    let (el, _, fe, org) = eleve_pris_en_charge(
+        &ent,
+        &c,
+        "Ancienne",
+        (d(2030, 9, 1), d(2030, 12, 31)),
+        false,
+    )
+    .await;
+    facturer(&ent, etab, el).await;
+    // La ligne de la famille devient une ligne « ancienne », sans période.
+    let n = sqlx::query(
+        "UPDATE ent_fac_ligne SET periode_debut = NULL, periode_fin = NULL
+          WHERE eleve_id = $1 AND source_cle LIKE 'annuel:%' AND periode_debut IS NOT NULL",
+    )
+    .bind(el)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap()
+    .rows_affected();
+    assert!(n > 0, "des lignes deviennent anciennes");
+    let _ = fe;
+    let avant = lignes_de(&ent, el).await;
+    ent.creer_prise_en_charge_for_actor(
+        etab,
+        u,
+        r,
+        &PriseEnChargeBody {
+            compte_id: org,
+            eleve_id: el,
+            reference: "PEC-apres-ancienne".into(),
+            du: d(2031, 1, 1),
+            au: d(2031, 6, 30),
+            categories: vec!["restauration".into()],
+            plafond_centimes: None,
+        },
+    )
+    .await
+    .unwrap();
+    let res = facturer_motif(&ent, etab, el).await;
+    assert!(
+        res.as_ref().is_err_and(|m| m.contains("sans période")),
+        "refus explicite face à une ligne sans période : {res:?}"
+    );
+    assert_eq!(lignes_de(&ent, el).await, avant, "rien n'est posé");
+}
+
 /// M1 : une prise `echue` reste valide pour les mois de sa période ; l'alerte est passée **avant** la première
 /// génération : septembre-décembre sont facturés à l'organisme. Une prise **annulée** reste exclue.
 #[tokio::test]

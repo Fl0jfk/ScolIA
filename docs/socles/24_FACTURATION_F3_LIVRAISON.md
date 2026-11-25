@@ -301,3 +301,9 @@ Base locale neuve `ent_f3v_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`
 
 ### Tête de code et CI
 Tête de code : `9d6ae8e2` (fusion d'`origin/ENT` ; migration 532 replacée en fin de tableau après 656). CI « ENT Rust » : **verte** (run 45522239612). Tests `finances` après fusion : 93 passés, 0 échec. PR 150 reste en brouillon.
+
+### Correctifs du pilote après contre-revue des correctifs des suites 3
+Rapport : `docs/pilotage/revues/24_F3_SUITES_3_CORRECTIFS_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Élevés E1 et E2 **fermés**.
+- **M2** : une clé nouvelle n'est jamais posée à côté d'une ligne ancienne **sans période** du même groupe (article, foyer) : refus explicite (« déjà facturé sans période »), rien n'est facturé deux fois. Test `f3s4_pilote_ligne_ancienne_sans_periode_jamais_doublee`.
+- En file (suites 4) : payeur suivant désigné après coup (M1), clôture de la tâche `part_non_couverte` (M3), faux refus « le tarif a changé » (M4), faibles 5, 7, 8, 9.
+- Local : 94 tests `finances` verts, clippy 1.99 vert. 532 inscrite aux migrations versées.

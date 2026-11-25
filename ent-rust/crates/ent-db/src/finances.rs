@@ -1740,6 +1740,17 @@ async fn garde_periodes(
             .flat_map(|(pd, pf)| indice_mois(pd)..=indice_mois(pf))
             .filter(|m| mois_l.contains(m))
             .collect();
+        // Contre-revue du pilote (M2) : une ligne ancienne SANS période, du même groupe (article, foyer), peut couvrir toute
+        // l'année : une clé nouvelle n'est jamais jugée « disjointe » face à elle. Refus explicite, rien n'est facturé deux fois.
+        if cle_posee.is_none() && deja.iter().any(|p| p.groupe == groupe && p.periode.is_none()) {
+            let nom = libelles.get(&art).map(String::as_str).unwrap_or("?");
+            return Ok(Err(format!(
+                "l'article « {nom} » a déjà été facturé sans période (génération ancienne) : la nouvelle ligne du {} au {} ({} c) n'est pas posée pour ne rien facturer deux fois ; régularisez par un complément ou un avoir",
+                d.format("%d/%m/%Y"),
+                f.format("%d/%m/%Y"),
+                l.unitaire
+            )));
+        }
         if couverts.is_empty() && cle_posee.is_none() {
             sortie.push(l); // période disjointe : facturable
             continue;
