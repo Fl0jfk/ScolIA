@@ -1,0 +1,379 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { getDb } from "@/db/index";
+import {
+  eleve,
+  eleveFoyerLink,
+  familleThread,
+  foyer,
+  foyerFacturation,
+  foyerResponsable,
+} from "@/db/schema";
+import { chunkArray } from "@/app/lib/db-in-chunks";
+import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
+import { applyPlan, ApplyPartialError, type FoyersDb } from "./apply";
+import { parseFoyersWorkbook } from "./parse";
+import {
+  analyzeFile,
+  buildPlan,
+  fileFingerprint,
+  planFingerprint,
+  type DbEleve,
+  type DbResp,
+  type ExistingData,
+  type Plan,
+  type PlanOptions,
+} from "./plan";
+import { buildReportCsv } from "./report";
+
+export type OrphanInfo = {
+  foyerId: string;
+  label: string;
+  facturation: boolean;
+  filsMessagerie: number;
+  comptes: number;
+  autresEleves: number;
+};
+
+async function loadEleves(etablissementId: string): Promise<DbEleve[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: eleve.id,
+      nom: eleve.nom,
+      prenom: eleve.prenom,
+      dateNaissance: eleve.dateNaissance,
+      classe: eleve.classe,
+      status: eleve.status,
+      dateSortie: eleve.dateSortie,
+    })
+    .from(eleve)
+    .where(eq(eleve.etablissementId, etablissementId));
+  return rows.map((r) => ({
+    ...r,
+    dateNaissance: r.dateNaissance ? String(r.dateNaissance).slice(0, 10) : null,
+    dateSortie: r.dateSortie ? String(r.dateSortie).slice(0, 10) : null,
+  }));
+}
+
+async function loadExisting(etablissementId: string, eleveIds: string[]): Promise<ExistingData> {
+  const db = getDb();
+  const links: ExistingData["links"] = [];
+  for (const batch of chunkArray(eleveIds)) {
+    links.push(
+      ...(await db
+        .select({ eleveId: eleveFoyerLink.eleveId, foyerId: eleveFoyerLink.foyerId })
+        .from(eleveFoyerLink)
+        .where(
+          and(eq(eleveFoyerLink.etablissementId, etablissementId), inArray(eleveFoyerLink.eleveId, batch)),
+        )),
+    );
+  }
+  const foyerIds = [...new Set(links.map((l) => l.foyerId))];
+  const foyers: ExistingData["foyers"] = [];
+  const responsables: DbResp[] = [];
+  for (const batch of chunkArray(foyerIds)) {
+    foyers.push(
+      ...(await db
+        .select({ id: foyer.id, label: foyer.label })
+        .from(foyer)
+        .where(and(eq(foyer.etablissementId, etablissementId), inArray(foyer.id, batch)))),
+    );
+    responsables.push(
+      ...(await db
+        .select({
+          id: foyerResponsable.id,
+          foyerId: foyerResponsable.foyerId,
+          nom: foyerResponsable.nom,
+          prenom: foyerResponsable.prenom,
+          email: foyerResponsable.email,
+          telephone: foyerResponsable.telephone,
+          autoriteParentale: foyerResponsable.autoriteParentale,
+          payeur: foyerResponsable.payeur,
+          userId: foyerResponsable.userId,
+          rang: foyerResponsable.rang,
+        })
+        .from(foyerResponsable)
+        .where(
+          and(eq(foyerResponsable.etablissementId, etablissementId), inArray(foyerResponsable.foyerId, batch)),
+        )
+        .orderBy(asc(foyerResponsable.rang))),
+    );
+  }
+  return { foyers, responsables, links };
+}
+
+/** Pour chaque foyer orphelin : facturation, fils de messagerie, comptes, autres élèves liés. */
+async function describeOrphans(etablissementId: string, plan: Plan): Promise<OrphanInfo[]> {
+  const ids = plan.orphelins.map((o) => o.foyerId);
+  if (!ids.length) return [];
+  const db = getDb();
+  const fact = new Set<string>();
+  const threads = new Map<string, number>();
+  const comptes = new Map<string, number>();
+  const liens = new Map<string, number>();
+  for (const batch of chunkArray(ids)) {
+    for (const r of await db
+      .select({ id: foyerFacturation.foyerId })
+      .from(foyerFacturation)
+      .where(and(eq(foyerFacturation.etablissementId, etablissementId), inArray(foyerFacturation.foyerId, batch)))) {
+      fact.add(r.id);
+    }
+    for (const r of await db
+      .select({ id: familleThread.foyerId, n: sql<number>`count(*)::int` })
+      .from(familleThread)
+      .where(and(eq(familleThread.etablissementId, etablissementId), inArray(familleThread.foyerId, batch)))
+      .groupBy(familleThread.foyerId)) {
+      threads.set(r.id, r.n);
+    }
+    for (const r of await db
+      .select({ id: foyerResponsable.foyerId, n: sql<number>`count(*)::int` })
+      .from(foyerResponsable)
+      .where(
+        and(
+          eq(foyerResponsable.etablissementId, etablissementId),
+          inArray(foyerResponsable.foyerId, batch),
+          sql`${foyerResponsable.userId} is not null`,
+        ),
+      )
+      .groupBy(foyerResponsable.foyerId)) {
+      comptes.set(r.id, r.n);
+    }
+    for (const r of await db
+      .select({ id: eleveFoyerLink.foyerId, n: sql<number>`count(*)::int` })
+      .from(eleveFoyerLink)
+      .where(and(eq(eleveFoyerLink.etablissementId, etablissementId), inArray(eleveFoyerLink.foyerId, batch)))
+      .groupBy(eleveFoyerLink.foyerId)) {
+      liens.set(r.id, r.n);
+    }
+  }
+  return plan.orphelins.map((o) => ({
+    foyerId: o.foyerId,
+    label: o.label,
+    facturation: fact.has(o.foyerId),
+    filsMessagerie: threads.get(o.foyerId) ?? 0,
+    comptes: comptes.get(o.foyerId) ?? 0,
+    // Liens restants après retrait des liens du plan.
+    autresEleves: Math.max(0, (liens.get(o.foyerId) ?? 0) - o.elevesRetires.length),
+  }));
+}
+
+export type PreviewResult = {
+  plan: Plan;
+  fileHash: string;
+  fingerprint: string;
+  orphans: OrphanInfo[];
+};
+
+/** Calcule le plan (lecture seule) à partir du fichier en mémoire. */
+export async function computePlan(
+  etablissementId: string,
+  buf: Buffer,
+  options: PlanOptions,
+): Promise<PreviewResult> {
+  const rows = parseFoyersWorkbook(buf);
+  const eleves = await loadEleves(etablissementId);
+  const today = new Date().toISOString().slice(0, 10);
+  const analysis = analyzeFile(rows, eleves, today);
+  const existing = await loadExisting(etablissementId, analysis.matchedEleveIds);
+  const plan = buildPlan(analysis, existing, options);
+  const fileHash = fileFingerprint(buf);
+  return {
+    plan,
+    fileHash,
+    fingerprint: planFingerprint(plan, fileHash, options),
+    orphans: await describeOrphans(etablissementId, plan),
+  };
+}
+
+export class FingerprintMismatchError extends Error {}
+
+export async function applyImport(opts: {
+  etablissementId: string;
+  actorUserId: string | null;
+  buf: Buffer;
+  options: PlanOptions;
+  expectedFingerprint: string;
+  linkAccounts: boolean;
+}): Promise<{
+  fingerprint: string;
+  importId: string;
+  applied: Awaited<ReturnType<typeof applyPlan>>["applied"];
+  comptesRattaches: number;
+  csv: string;
+  counts: Plan["counts"];
+}> {
+  // Le plan est recalculé côté serveur sur le même fichier : jamais celui du client.
+  const fresh = await computePlan(opts.etablissementId, opts.buf, opts.options);
+  if (fresh.fingerprint !== opts.expectedFingerprint) {
+    throw new FingerprintMismatchError(
+      "Le fichier ou les données ont changé depuis l'aperçu. Relancez l'aperçu avant d'appliquer.",
+    );
+  }
+  const importId = randomUUID();
+  const db = getDb();
+  const ctx = { etablissementId: opts.etablissementId, actorUserId: opts.actorUserId, importId };
+  let result;
+  try {
+    result = await applyPlan(db as unknown as FoyersDb, fresh.plan, ctx);
+  } catch (err) {
+    if (err instanceof ApplyPartialError) {
+      await recordEleveAccessAudit({
+        etablissementId: opts.etablissementId,
+        actorUserId: opts.actorUserId,
+        resourceType: "foyers_import",
+        resourceId: importId,
+        action: "import_partial",
+        metadata: { fingerprint: fresh.fingerprint, applied: err.partial.applied, error: err.message },
+      }).catch(() => undefined);
+    }
+    throw err;
+  }
+
+  // Rattachement aux comptes existants (option), hors transaction.
+  let comptesRattaches = 0;
+  if (opts.linkAccounts && result.respsToLink.length) {
+    const { linkFoyerResponsableToUserAccount } = await import(
+      "@/app/lib/nomenclature-import/link-responsable-user"
+    );
+    for (const r of result.respsToLink) {
+      try {
+        if (await linkFoyerResponsableToUserAccount(opts.etablissementId, r.respId, r.email)) comptesRattaches++;
+      } catch (err) {
+        console.warn("[foyers-import] rattachement compte", err);
+      }
+    }
+  }
+
+  await recordEleveAccessAudit({
+    etablissementId: opts.etablissementId,
+    actorUserId: opts.actorUserId,
+    resourceType: "foyers_import",
+    resourceId: importId,
+    action: "import",
+    metadata: {
+      fingerprint: fresh.fingerprint,
+      keepOldLinks: opts.options.keepOldLinks,
+      linkAccounts: opts.linkAccounts,
+      counts: fresh.plan.counts,
+      applied: result.applied,
+      comptesRattaches,
+      orphelins: fresh.orphans.map((o) => o.foyerId),
+    },
+  });
+
+  return {
+    fingerprint: fresh.fingerprint,
+    importId,
+    applied: result.applied,
+    comptesRattaches,
+    csv: buildReportCsv(fresh.plan, result.foyerIds),
+    counts: fresh.plan.counts,
+  };
+}
+
+/* ───────── Vue « Foyers » (lecture seule) ───────── */
+
+export type FoyerListItem = {
+  id: string;
+  label: string;
+  responsables: Array<{ id: string; nom: string; prenom: string; email: string | null; telephone: string | null }>;
+  enfants: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
+};
+
+export async function listFoyersWithChildren(
+  etablissementId: string,
+  opts: { q?: string; limit?: number; offset?: number; foyerIds?: string[] },
+): Promise<{ items: FoyerListItem[]; total: number }> {
+  const db = getDb();
+  const foyers = await db
+    .select({ id: foyer.id, label: foyer.label })
+    .from(foyer)
+    .where(
+      opts.foyerIds
+        ? and(eq(foyer.etablissementId, etablissementId), inArray(foyer.id, opts.foyerIds))
+        : eq(foyer.etablissementId, etablissementId),
+    );
+  const ids = foyers.map((f) => f.id);
+  const resps: Array<{
+    id: string;
+    foyerId: string;
+    nom: string;
+    prenom: string;
+    email: string | null;
+    telephone: string | null;
+  }> = [];
+  const kids: Array<{ foyerId: string; id: string; nom: string; prenom: string; classe: string | null }> = [];
+  for (const batch of chunkArray(ids)) {
+    resps.push(
+      ...(await db
+        .select({
+          id: foyerResponsable.id,
+          foyerId: foyerResponsable.foyerId,
+          nom: foyerResponsable.nom,
+          prenom: foyerResponsable.prenom,
+          email: foyerResponsable.email,
+          telephone: foyerResponsable.telephone,
+        })
+        .from(foyerResponsable)
+        .where(
+          and(eq(foyerResponsable.etablissementId, etablissementId), inArray(foyerResponsable.foyerId, batch)),
+        )
+        .orderBy(asc(foyerResponsable.rang))),
+    );
+    kids.push(
+      ...(await db
+        .select({
+          foyerId: eleveFoyerLink.foyerId,
+          id: eleve.id,
+          nom: eleve.nom,
+          prenom: eleve.prenom,
+          classe: eleve.classe,
+        })
+        .from(eleveFoyerLink)
+        .innerJoin(eleve, eq(eleve.id, eleveFoyerLink.eleveId))
+        .where(and(eq(eleveFoyerLink.etablissementId, etablissementId), inArray(eleveFoyerLink.foyerId, batch)))
+        .orderBy(asc(eleve.nom), asc(eleve.prenom))),
+    );
+  }
+  const respBy = new Map<string, FoyerListItem["responsables"]>();
+  for (const r of resps) {
+    const l = respBy.get(r.foyerId) ?? [];
+    l.push({ id: r.id, nom: r.nom, prenom: r.prenom, email: r.email, telephone: r.telephone });
+    respBy.set(r.foyerId, l);
+  }
+  const kidBy = new Map<string, FoyerListItem["enfants"]>();
+  for (const k of kids) {
+    const l = kidBy.get(k.foyerId) ?? [];
+    l.push({ id: k.id, nom: k.nom, prenom: k.prenom, classe: k.classe });
+    kidBy.set(k.foyerId, l);
+  }
+  let items: FoyerListItem[] = foyers.map((f) => ({
+    id: f.id,
+    label: f.label,
+    responsables: respBy.get(f.id) ?? [],
+    enfants: kidBy.get(f.id) ?? [],
+  }));
+  const q = (opts.q ?? "").trim();
+  if (q) {
+    const { normName } = await import("./normalize");
+    const nq = normName(q);
+    items = items.filter((it) => {
+      const hay = normName(
+        [
+          it.label,
+          ...it.responsables.flatMap((r) => [r.nom, r.prenom, r.email ?? "", r.telephone ?? ""]),
+          ...it.enfants.flatMap((e) => [e.nom, e.prenom]),
+        ].join(" "),
+      );
+      return hay.includes(nq);
+    });
+  }
+  items.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  const total = items.length;
+  const offset = Math.max(0, opts.offset ?? 0);
+  const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
+  return { items: items.slice(offset, offset + limit), total };
+}

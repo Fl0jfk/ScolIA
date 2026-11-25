@@ -143,6 +143,7 @@ type DossierPayload = {
     ville: string | null;
     payeurEstFoyer: boolean;
     relation: string;
+    enfants?: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
     responsables: Array<{
       id: string;
       nom: string;
@@ -1947,6 +1948,26 @@ export default function EleveDossierClient({
                     {[f.adresse, f.codePostal, f.ville].filter(Boolean).join(", ")}
                   </p>
                 )}
+                {f.enfants && f.enfants.length > 0 ? (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-slate-500 mb-1">
+                      Enfants du foyer ({f.enfants.length})
+                    </p>
+                    <ul className="flex flex-wrap gap-2">
+                      {f.enfants.map((k) => (
+                        <li key={k.id}>
+                          <Link
+                            href={`/eleves/dossier/${k.id}`}
+                            className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            {k.prenom} {k.nom}
+                            {k.classe ? ` · ${k.classe}` : ""}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <p className="text-xs font-semibold text-slate-500 mb-2">Responsables</p>
                 <ul className="space-y-2">
                   {f.responsables.map((r) => (

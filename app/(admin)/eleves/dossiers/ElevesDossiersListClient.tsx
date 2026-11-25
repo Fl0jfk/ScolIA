@@ -530,6 +530,15 @@ export default function ElevesDossiersListClient() {
               <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
                 Formulaire public
               </Link>
+              <Link href="/eleves/dossiers/foyers" className="text-sm font-bold text-indigo-600 hover:underline">
+                Foyers
+              </Link>
+              <Link
+                href="/eleves/dossiers/foyers/import"
+                className="text-sm font-bold text-indigo-600 hover:underline"
+              >
+                Importer les foyers
+              </Link>
             </div>
           ) : null
         }

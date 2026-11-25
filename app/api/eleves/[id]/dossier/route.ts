@@ -387,6 +387,8 @@ export async function GET(req: Request, ctx: Ctx) {
     ville: string | null;
     payeurEstFoyer: boolean;
     relation: string;
+    /** Tous les enfants du foyer (personnel habilité uniquement, lecture seule). */
+    enfants?: Array<{ id: string; nom: string; prenom: string; classe: string | null }>;
     responsables: Array<{
       id: string;
       nom: string;
@@ -424,6 +426,32 @@ export async function GET(req: Request, ctx: Ctx) {
       respRows.push(...batchResps);
     }
     const foyerById = new Map(foyerRows.map((f) => [f.id, f]));
+    // Fratrie / rapprochement par famille : réservé au personnel qui gère la structure (pas aux profs).
+    const enfantsByFoyer = new Map<
+      string,
+      Array<{ id: string; nom: string; prenom: string; classe: string | null }>
+    >();
+    if (canEditStructure(roles, { orgAdmin, platformAdmin }) && !profRestrictedView) {
+      for (const batch of chunkArray(foyerIds)) {
+        const kids = await db
+          .select({
+            foyerId: eleveFoyerLink.foyerId,
+            id: eleve.id,
+            nom: eleve.nom,
+            prenom: eleve.prenom,
+            classe: eleve.classe,
+          })
+          .from(eleveFoyerLink)
+          .innerJoin(eleve, eq(eleve.id, eleveFoyerLink.eleveId))
+          .where(and(eq(eleveFoyerLink.etablissementId, etabId), inArray(eleveFoyerLink.foyerId, batch)))
+          .orderBy(asc(eleve.nom), asc(eleve.prenom));
+        for (const k of kids) {
+          const l = enfantsByFoyer.get(k.foyerId) ?? [];
+          l.push({ id: k.id, nom: k.nom, prenom: k.prenom, classe: k.classe });
+          enfantsByFoyer.set(k.foyerId, l);
+        }
+      }
+    }
     const respByFoyer = new Map<string, typeof respRows>();
     for (const r of respRows) {
       const list = respByFoyer.get(r.foyerId) || [];
@@ -442,6 +470,7 @@ export async function GET(req: Request, ctx: Ctx) {
         ville: f.ville,
         payeurEstFoyer: f.payeurEstFoyer,
         relation: link.relation,
+        ...(enfantsByFoyer.has(f.id) ? { enfants: enfantsByFoyer.get(f.id) } : {}),
         responsables: responsables.map((r) => ({
           id: r.id,
           nom: r.nom,
