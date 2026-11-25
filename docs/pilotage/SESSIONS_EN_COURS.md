@@ -749,3 +749,5 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Versé** : I5 suites passe 7 + correctifs du pilote (PR 151, 21af9df0, migration 318, CI 45505493798 verte) après CI d'ENT verte sur 711347ea (691) : **ENT = 21af9df0**. Gel jusqu'au verdict.
 - **E1 passe 5** : contre-revue (aucun élevé) ; M1 et F1 corrigés par le pilote ; fusion d'ENT 21af9df0 ; tête **53ed4604**, CI en attente (sans migration).
 - **Versé** : E1 suites passe 5 + correctifs du pilote (PR 152, 53ed4604, CI 45512734002 verte, sans migration) après CI d'ENT verte sur 21af9df0 (694) : **ENT = 53ed4604**. Gel jusqu'au verdict. Chaîne vide ; en cours : F3 3 correctifs (PR 150), V3b suites 2.
+- **Livré** : V3b suites 2 (PR 153, code 8ccd2f1f CI verte, tête 6d159ab6 doc ; migration 657 à inscrire) ; contre-revue en cours sur `wt-v3b2`.
+- **Lancé** : cahier suites 2 (session_01KZCbFEedCARgyZLXomnn7f, Sonnet, branche `ent-socle-20-code-suites-2`, **plage d'extension 2420–2429** réservée au socle 20, vérifiée libre sur toutes les branches), consigne `20_CAHIER_SUITES_2.md`. Sessions qui codent : F3 3 correctifs + cahier suites 2.
