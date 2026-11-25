@@ -748,3 +748,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Lancé** : voyages V3b suites 2 (session_01KZCbFELYkKgFHTaaiMnCfv, Sonnet, branche `ent-socle-42-code-v3b-suites-2`, migration 657 réservée), consigne `42_VOYAGES_V3B_SUITES_2.md`. Sessions qui codent : F3 3 correctifs + V3b suites 2.
 - **Versé** : I5 suites passe 7 + correctifs du pilote (PR 151, 21af9df0, migration 318, CI 45505493798 verte) après CI d'ENT verte sur 711347ea (691) : **ENT = 21af9df0**. Gel jusqu'au verdict.
 - **E1 passe 5** : contre-revue (aucun élevé) ; M1 et F1 corrigés par le pilote ; fusion d'ENT 21af9df0 ; tête **53ed4604**, CI en attente (sans migration).
+- **Versé** : E1 suites passe 5 + correctifs du pilote (PR 152, 53ed4604, CI 45512734002 verte, sans migration) après CI d'ENT verte sur 21af9df0 (694) : **ENT = 53ed4604**. Gel jusqu'au verdict. Chaîne vide ; en cours : F3 3 correctifs (PR 150), V3b suites 2.
