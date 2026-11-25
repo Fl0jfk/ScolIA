@@ -404,4 +404,6 @@ Compteurs recalculés depuis la base commune (`git merge-base` = `4fc2c701`), co
 | Tables du registre | — | +0 (2420 n'ajoute aucune table) | +5 | **+5** |
 | Migrations du tableau | — | +1 (2420) | +1 (2544) | **+2**, dans cet ordre |
 
-Tête et verdict de la CI : à compléter au push.
+Tête de code livrée : `5eb8756c` (fusion d'`origin/ENT` : conflits `migrate.rs` — 2544 après 2227 —, inventaire des routes 77 sources, compteur RLS +1 +5).
+CI : run 45604088988 sur `5eb8756c` = **success**. Historique : le run 45572874024 était rouge sur trois gardes (compteur RLS, deux inventaires de routes), corrigées avant la fusion ; les tests de rendu `ent-web-server` n'ont tourné qu'en CI (échec de compilation locale par manque de mémoire/disque).
+PR #158 laissée en brouillon vers `ENT`.
