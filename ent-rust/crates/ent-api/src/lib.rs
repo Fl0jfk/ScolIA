@@ -26,6 +26,10 @@ mod stages;
 mod personnels_services;
 mod dto;
 pub mod http_garde;
+pub mod enveloppe;
+pub mod idempotence;
+#[cfg(feature = "labo")]
+mod mobile_labo;
 mod ical;
 mod finances;
 mod finances_comptes;
@@ -132,7 +136,13 @@ pub struct AppState {
     pub flux_limite: flux_limite::LimiteFlux,
     /// Temps et taille d'une réponse du flux (production : valeurs par défaut ; les tests les réduisent).
     pub flux_reglages: ent_db::ReglagesFlux,
+    /// Horloge du registre d'idempotence (24 h de rejeu) : l'heure réelle en production ; un test la remplace pour
+    /// fixer son instant (règle 33 : aucun test ne dépend de l'heure à laquelle il tourne).
+    pub horloge: Horloge,
 }
+
+/// Source d'instants injectable.
+pub type Horloge = Arc<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync>;
 
 impl AppState {
     /// Lance un traitement différé hors requête (ex. envoi d'un e-mail dont le
@@ -174,6 +184,7 @@ impl AppState {
             taches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             flux_limite: flux_limite::LimiteFlux::default(),
             flux_reglages: ent_db::ReglagesFlux::default(),
+            horloge: Arc::new(chrono::Utc::now),
         }
     }
 }
@@ -240,6 +251,12 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             eleve_garde::exiger_eleve_visible,
         ))
+        // MB1 : `Idempotency-Key` générique sur les écritures authentifiées ; **à l'intérieur** de `contexte_droits`
+        // (il lit la session qu'il a résolue).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            idempotence::idempotence,
+        ))
         // R2 (D-017) : droits effectifs de la personne, une fois par requête.
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -269,6 +286,9 @@ pub fn app(state: AppState) -> Router {
         .layer(CatchPanicLayer::new())
         // En-têtes no-store et 500 génériques (couche externe au catch-panic).
         .layer(axum::middleware::from_fn(http_garde::en_tetes_et_erreurs))
+        // MB1 : enveloppe d'erreur codée pour les applis (`X-ScolIA-Appli`, `/mobile/*`) ; le web est inchangé.
+        // Couche **extérieure** à la précédente : elle voit aussi les 500 génériques, 408, 429 et les panics.
+        .layer(axum::middleware::from_fn(enveloppe::enveloppe_erreur))
         // En-têtes de sécurité de base.
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
@@ -375,6 +395,8 @@ mod tests_afaire_p4;
 mod tests_recherche_p5;
 #[cfg(test)]
 mod tests_palette_p6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_mobile_mb1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
