@@ -46,6 +46,9 @@ const INTERDITS_GLOBAUX: &[&str] = &["storage_key", "password_hash", "argon2"];
 /// On ne les éprouve pas pour le cloisonnement (elles n'ouvrent pas de données
 /// d'un établissement par identifiant).
 const PUBLIQUES: &[(&str, &str)] = &[
+    // Dépôt d'une demande de droit sans compte (socle 27, G3a, RGP-142) : l'établissement vient de l'adresse, la réponse est
+    // invariable (R-RG42), débit limité par IP et par contact.
+    ("POST", "/rgpd/demandes/sans-compte"),
     ("GET", "/health"),
     ("GET", "/health/detail"), // supervision : 404 si métriques fermées, 401 sans jeton ; jamais de session
     ("GET", "/ready"),
