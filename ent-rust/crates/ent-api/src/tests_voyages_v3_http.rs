@@ -102,6 +102,10 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
             "POST",
             format!("/voyages/{fantome}/argent/contournements/{fantome}/decision"),
         ),
+        (
+            "POST",
+            format!("/voyages/{fantome}/argent/contournements/{fantome}/revocation"),
+        ),
         ("POST", format!("/voyages/{fantome}/internat/synchroniser")),
         (
             "POST",
@@ -707,6 +711,21 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
         )
         .await
         .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // Suites V3b, 2 : révocation d'une autorisation inconnue : 404 ; sans droit d'argent : 403 ; famille : 404.
+    let url_rev = format!("{url_cont}/{fantome}/revocation");
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(compta), None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(prof), None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(parent), None).await.0,
         StatusCode::NOT_FOUND
     );
 

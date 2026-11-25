@@ -117,6 +117,17 @@ pub fn taux(montant: i64, bps: i32) -> i64 {
     proportion(montant, bps.clamp(0, 10_000) as i64, 10_000)
 }
 
+/// Remise en points de base, arrondie **vers le haut** (en faveur de la famille, M3 des suites 3) : la somme
+/// facturée (montant moins remise) ne dépasse jamais le montant exact au prorata. Bornée au montant.
+pub fn remise_haute(montant: i64, bps: i32) -> i64 {
+    if montant <= 0 {
+        return 0;
+    }
+    let num = bps.clamp(0, 10_000) as i128;
+    let m = montant as i128;
+    (((m * num + 9_999) / 10_000).min(m)) as i64
+}
+
 /// Répartit `montant` selon des parts (en %, somme attendue 100) par la méthode
 /// du plus fort reste : la somme des résultats est **exactement** `montant`.
 /// Parts nulles ou somme nulle : tout sur le premier.
@@ -463,6 +474,11 @@ mod tests {
         assert_eq!(taux(100_000, 1_000), 10_000);
         assert_eq!(taux(99_999, 1_500), 14_999);
         assert_eq!(taux(100, 20_000), 100, "borné à 100 %");
+        assert_eq!(remise_haute(99_999, 1_500), 15_000, "remise arrondie vers le haut");
+        assert_eq!(remise_haute(100_000, 1_000), 10_000);
+        assert_eq!(remise_haute(100, 20_000), 100, "bornée au montant");
+        assert_eq!(remise_haute(1, 1), 1);
+        assert_eq!(remise_haute(0, 1_000), 0);
         assert_eq!(regime_normalise(Some("DP")), "demi_pension");
         assert_eq!(regime_normalise(Some("INT")), "interne");
         assert_eq!(regime_normalise(None), "externe");

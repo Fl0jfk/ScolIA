@@ -102,7 +102,11 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_cdt_amenagement_simule", &["id"]),
     d("ent_cdt_coche", &["travail_id", "eleve_id"]),
     d("ent_cdt_continuite", &["id"]),
-    d("ent_cdt_delai_demande", &["id"]),
+    // Suites 2 (faible 8, D-069) : comme les notes d'accompagnement, seules les demandes de délai d'une année NON figée suivent
+    // l'élève conservé (le gel de 2420 refuserait le déplacement d'une année close et ferait échouer toute la fusion).
+    // Contre-revue du pilote (moyen 1, D-069) : seules les demandes encore OUVERTES suivent ; une demande décidée reste avec
+    // la prolongation qu'elle a produite (`ent_cdt_echeance_eleve`, ajout seul, reste sur l'absorbé).
+    dc("ent_cdt_delai_demande", &["id"], "t.etat = 'ouverte' AND NOT public.ent_cdt_annee_gelee(t.etablissement_id, public.ent_cdt_annee_de_travail(t.etablissement_id, t.travail_id))"),
     d("ent_cdt_depot_signalement", &["id"]),
     r("ent_cdt_echeance_eleve", &["id"], "prolongation individuelle en ajout seul (R-C9) : la ligne ne se réécrit pas, elle reste sur la fiche où elle a été accordée"),
     r("ent_cdt_groupe_membre", &["groupe_id", "eleve_id", "depuis"], "appartenance datée à un groupe de remise : historique propre à la fiche (garde d'unicité du groupe actif)"),

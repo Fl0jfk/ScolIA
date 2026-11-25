@@ -54,7 +54,7 @@ async fn eleve(ent: &PgEnt, etab: Uuid, prenom: &str, naissance: NaiveDate, regi
     id
 }
 
-async fn foyer(ent: &PgEnt, etab: Uuid, libelle: &str) -> Uuid {
+pub(crate) async fn foyer(ent: &PgEnt, etab: Uuid, libelle: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1, $2, $3)")
         .bind(id)
@@ -67,7 +67,7 @@ async fn foyer(ent: &PgEnt, etab: Uuid, libelle: &str) -> Uuid {
 }
 
 /// Payeur avec compte utilisateur (la personne est créée par le déclencheur S2-1).
-async fn payeur_compte(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, foyer: Uuid, part: i16) {
+pub(crate) async fn payeur_compte(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, foyer: Uuid, part: i16) {
     sqlx::query(
         "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, foyer_id, lien, est_payeur, part_paiement)
          VALUES ($1, $2, $3, $4, $5, 'mere', true, $6)",
@@ -84,7 +84,7 @@ async fn payeur_compte(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, foyer: 
 }
 
 /// Compte débiteur d'un foyer (créé par la fonction SQL unique, comme le fait le service).
-async fn compte_du_foyer(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Uuid {
+pub(crate) async fn compte_du_foyer(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Uuid {
     let (id,): (Uuid,) = sqlx::query_as("SELECT ent_fin_compte_du_foyer($1, $2, NULL, 'manuel')")
         .bind(etab)
         .bind(foyer)
@@ -137,7 +137,7 @@ async fn facturer(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Result<crate::finance
 }
 
 /// Lignes facturées à un foyer : (catégorie, centimes).
-async fn lignes(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Vec<(String, i64)> {
+pub(crate) async fn lignes(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Vec<(String, i64)> {
     sqlx::query_as(
         "SELECT COALESCE(l.categorie, ''), (l.montant_unitaire_centimes * l.quantite)::bigint
            FROM ent_fac_ligne l JOIN ent_fac_facture f ON f.id = l.facture_id
@@ -151,11 +151,11 @@ async fn lignes(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Vec<(String, i64)> {
     .unwrap()
 }
 
-fn somme(l: &[(String, i64)], cat: &str) -> i64 {
+pub(crate) fn somme(l: &[(String, i64)], cat: &str) -> i64 {
     l.iter().filter(|x| x.0 == cat).map(|x| x.1).sum()
 }
 
-async fn taches_ouvertes(ent: &PgEnt, etab: Uuid, nature: &str, eleve: Uuid) -> i64 {
+pub(crate) async fn taches_ouvertes(ent: &PgEnt, etab: Uuid, nature: &str, eleve: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_fin_tache WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'ouverte'",
     )
@@ -169,7 +169,7 @@ async fn taches_ouvertes(ent: &PgEnt, etab: Uuid, nature: &str, eleve: Uuid) -> 
 }
 
 /// Document (jugement, convention) déposé au dossier de l'élève : M4 exige un document existant.
-async fn document_de(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
+pub(crate) async fn document_de(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_eleve_document (id, etablissement_id, eleve_id, tiroir, titre) VALUES ($1,$2,$3,'famille','Jugement')")
         .bind(id).bind(etab).bind(eleve).execute(ent.pool_verif()).await.unwrap();
@@ -177,14 +177,14 @@ async fn document_de(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
 }
 
 /// Lien d'un foyer à l'élève, sans être payeur (M4 : un compte désigné est lié à l'élève).
-async fn lien_non_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, foyer: Uuid) {
+pub(crate) async fn lien_non_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, foyer: Uuid) {
     let p = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom) VALUES ($1, $2, 'Lié')").bind(p).bind(etab).execute(ent.pool_verif()).await.unwrap();
     sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien, est_payeur) VALUES ($1,$2,$3,$4,$5,'pere',false)")
         .bind(Uuid::new_v4()).bind(etab).bind(eleve).bind(p).bind(foyer).execute(ent.pool_verif()).await.unwrap();
 }
 
-async fn piece_accord(ent: &PgEnt, c: &LaboCast, eleve: Uuid, categorie: &str, parts: Vec<(Uuid, i32)>, effet: NaiveDate) -> ResultatDesignationDto {
+pub(crate) async fn piece_accord(ent: &PgEnt, c: &LaboCast, eleve: Uuid, categorie: &str, parts: Vec<(Uuid, i32)>, effet: NaiveDate) -> ResultatDesignationDto {
     let (u, r) = secretariat(c);
     let doc = document_de(ent, c.etablissement_id, eleve).await;
     ent.designer_payeurs_for_actor(
@@ -1212,10 +1212,12 @@ async fn e2_m1_organisme_sans_prise_en_charge_active_n_est_pas_facture() {
     let el2 = eleve(&ent, etab, "Bao", d(2018, 3, 1), "demi_pension").await;
     lien_non_payeur(&ent, etab, el2, fm).await;
     ent.creer_prise_en_charge_for_actor(etab, u, r, &PriseEnChargeBody {
-        compte_id: org.id, eleve_id: el2, reference: "PEC-E2b".into(), du: d(2030, 9, 1), au: d(2031, 6, 30),
+        compte_id: org.id, eleve_id: el2, reference: "PEC-E2b".into(), du: d(2030, 1, 1), au: d(2030, 8, 31),
         categories: vec!["restauration".into()], plafond_centimes: None }).await.unwrap();
     piece_accord(&ent, &c, el2, "scolarite", vec![(cm, 10_000)], d(2030, 9, 1)).await;
     piece_accord(&ent, &c, el2, "restauration", vec![(org.id, 10_000)], d(2030, 9, 1)).await;
+    // Suites 3 (M1) : une prise échue reste valide pour les mois de sa période ; ici la période est révolue (avant la
+    // rentrée) : aucun mois de l'année n'est couvert.
     sqlx::query("UPDATE ent_fin_prise_en_charge SET statut = 'echue' WHERE etablissement_id = $1 AND eleve_id = $2").bind(etab).bind(el2).execute(ent.pool_verif()).await.unwrap();
     facturer(&ent, etab, el2).await.unwrap();
     assert_eq!(somme(&lignes(&ent, etab, fe.0).await, "restauration"), 300_000, "l'organisme n'est plus facturé pour el2");
