@@ -8,7 +8,7 @@ Tu es une session ScolIA (Sonnet). Réponds en français. Le pilote, c'est moi. 
   - `git show origin/ent-mc0hoe:docs/pilotage/revues/24_F3_SUITES_3_CORRECTIFS_CONTRE_REVUE.md` : **rapport complet**, c'est ta liste de travail (points « en file ») ;
   - `docs/securite/T1_SEARCH_PATH.md` (fonctions de garde, `search_path`) ;
   - `docs/RLS_ISOLATION.md` §3.1.
-- **Branche :** crée `ent-socle-24-code-f3-suites-4` depuis `origin/ENT` ; ouvre une PR en brouillon vers `ENT`.
+- **Branche :** crée `ent-socle-24-code-f3-suites-4` depuis `origin/ent-socle-24-code-f3-suites-3` (PR 150, en cours de versement : elle contient les suites 3 et leurs correctifs) ; fusionne `origin/ENT` avant de pousser ; ouvre une PR en brouillon vers `ENT`.
 - **Migrations :** 520–523, 531 et 532 sont versées et ne changent **jamais** (règle 25). Si une migration est nécessaire, prends **533** (réserve 533–537), placée **à la fin** du tableau de `migrate.rs` (règle 38) : toute fonction créée ou recréée porte `SET search_path = pg_catalog, public, pg_temp` et qualifie ses relations `public.`. Ne touche pas `migrations_versees.txt` (le pilote le fait au versement).
 - **Interdits :** Next.js, `main`, `dev` ; pousser sur `ENT` ; toute base ou tout secret de production, toute donnée réelle ; `cargo fmt --all`, `#[ignore]` ; modifier POINT_QUOTIDIEN ou PILOTAGE ; étendre `ui.rs` ; l'heure réelle ou le jour UTC dans les tests.
 - **Qualité :** zéro avertissement avec clippy 1.99 sur les 3 commandes de la CI (`ent-lab` compris) ; `--locked` et fmt ciblé ; `cargo metadata --locked` dans `ent-rust/web` ; base locale **neuve dont le nom contient « test »**, un seul `CARGO_TARGET_DIR` ; compteurs de la règle 28 mis à jour.
