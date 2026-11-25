@@ -133,11 +133,56 @@ async fn p4_a_le_controle_au_demarrage_signale_le_grant_manquant() {
     let sans = pool_sans_droit(&ent).await;
     assert_eq!(droit_annulation(&app).await.unwrap(), DroitAnnulation::Accorde);
     assert_eq!(droit_annulation(&sans).await.unwrap(), DroitAnnulation::Manquant);
-    // Le point d'entrée du démarrage rend le même verdict sur le pool de l'instance (propriétaire de la base du labo).
+    // Le point d'entrée du démarrage rend le verdict attendu (et non « le même appel deux fois ») : sur la base du labo,
+    // la migration 494 est appliquée et le rôle de l'instance est le propriétaire (droit d'exécution par défaut).
+    assert_eq!(ent.controler_droit_annulation_messagerie().await, DroitAnnulation::Accorde);
+}
+
+/// T3 (faible 4 de T2) : fonction absente du catalogue → `FonctionAbsente` (signature inexistante, base réelle).
+#[tokio::test]
+async fn t3_le_controle_au_demarrage_voit_une_fonction_absente() {
+    use crate::controle_demarrage::{droit_execution, DroitAnnulation};
+    let Some((ent, _cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
     assert_eq!(
-        ent.controler_droit_annulation_messagerie().await,
-        droit_annulation(ent.pool()).await.unwrap()
+        droit_execution(ent.pool(), "ent_fonction_inexistante_t3(uuid)").await.unwrap(),
+        DroitAnnulation::FonctionAbsente
     );
+}
+
+/// T3 (faible 4 de T2) : le journal est réellement émis — une `error!` pour `Manquant` et `FonctionAbsente` (avec le nom de
+/// la fonction, sans donnée personnelle), un `warn!` pour une lecture impossible, **rien** pour `Accorde` —, et le verdict
+/// rendu est celui de la lecture. Sans base.
+#[test]
+fn t3_le_controle_au_demarrage_emet_le_journal_attendu() {
+    use crate::controle_demarrage::{signaler, DroitAnnulation};
+    use tracing::Level;
+    let journal = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let verdicts = tracing::subscriber::with_default(crate::journal_limite::collecteur::Collecteur(journal.clone()), || {
+        [
+            signaler(Ok(DroitAnnulation::Accorde)),
+            signaler(Ok(DroitAnnulation::Manquant)),
+            signaler(Ok(DroitAnnulation::FonctionAbsente)),
+            signaler(Err(sqlx::Error::PoolTimedOut)),
+        ]
+    });
+    assert_eq!(
+        verdicts,
+        [
+            DroitAnnulation::Accorde,
+            DroitAnnulation::Manquant,
+            DroitAnnulation::FonctionAbsente,
+            DroitAnnulation::Indetermine
+        ]
+    );
+    let j = journal.lock().unwrap();
+    assert_eq!(j.len(), 3, "Accorde n'écrit rien : {j:?}");
+    assert_eq!(j[0].0, Level::ERROR);
+    assert!(j[0].1.contains("droit d'exécution manquant") && j[0].1.contains("ent_msg_annulation_ouvrir"), "{:?}", j[0]);
+    assert_eq!(j[1].0, Level::ERROR);
+    assert!(j[1].1.contains("absente") && j[1].1.contains("494"), "{:?}", j[1]);
+    assert_eq!(j[2].0, Level::WARN, "lecture impossible : simple avertissement");
 }
 
 // ───────────────────────── F1 : attente de verrou cumulée d'un lot ─────────────────────────

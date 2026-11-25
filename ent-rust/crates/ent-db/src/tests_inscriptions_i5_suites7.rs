@@ -372,6 +372,10 @@ async fn s7_sante_sentinelle_signale_un_declencheur_non_always() {
     // La suspension et le rétablissement sont **dans une transaction annulée** : aucune autre session ne voit l'état suspendu ;
     // la vérification, elle, passe par la même transaction (connexion unique).
     let mut tx = ent.pool_verif().begin().await.unwrap();
+    // T3 : aucun `ALTER TABLE` hors `lock_timeout` — si un test voisin tient un verrou sur ces tables, celui-ci échoue vite
+    // (et lisiblement) au lieu d'attendre indéfiniment, et il ne bloque pas non plus les sessions des autres tests plus de
+    // 3 s (`SET LOCAL` : valable pour cette seule transaction, annulée en fin de test).
+    sqlx::query("SET LOCAL lock_timeout = '3s'").execute(&mut *tx).await.unwrap();
     sqlx::query("ALTER TABLE ent_inscription_decision ENABLE TRIGGER ent_inscription_sentinelle_decision_ins_trg")
         .execute(&mut *tx)
         .await
@@ -413,7 +417,8 @@ async fn s7_sante_sentinelle_signale_un_declencheur_non_always() {
 
 /// **Faible 2** : le repli de l'alerte de décision caduque suit le **droit** `InscriptionsGerer`, pas un nom de rôle. Un CPE
 /// (qui n'a pas ce droit) n'est pas alerté ; un autre CPE à qui une **attribution de rôle** donne le droit l'est ; un compte dont
-/// l'attribution est échue (2020) ne l'est pas.
+/// l'attribution est échue (2020) ne l'est pas. T3 : un compte **famille** à qui une attribution de rôle donne le même droit
+/// n'est pas alerté non plus (garde-fou « rôle de base personnel » : le repli n'alerte que le personnel).
 #[tokio::test]
 async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
     let Some((ent, c)) = labo().await else {
@@ -446,7 +451,8 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
     let sans_droit = membre(&ent, etab, "cpe").await;
     let avec_droit = membre(&ent, etab, "cpe").await;
     let echu = membre(&ent, etab, "cpe").await;
-    for (user, fin) in [(avec_droit, None), (echu, Some("2020-12-31"))] {
+    let famille = membre(&ent, etab, "parent").await;
+    for (user, fin) in [(avec_droit, None), (echu, Some("2020-12-31")), (famille, None)] {
         let role = Uuid::new_v4();
         sqlx::query("INSERT INTO ent_role (id, etablissement_id, nom) VALUES ($1, $2, $3)")
             .bind(role)
@@ -481,7 +487,7 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
         .unwrap();
     sqlx::query("UPDATE ent_membership SET date_fin = '2020-01-01' WHERE etablissement_id = $1 AND NOT (user_id = ANY($2))")
         .bind(etab)
-        .bind(vec![sans_droit, avec_droit, echu])
+        .bind(vec![sans_droit, avec_droit, echu, famille])
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -517,5 +523,10 @@ async fn s7_alerte_repli_par_le_droit_et_non_par_le_role() {
         nb(echu).await,
         0,
         "une attribution échue ne donne plus le droit"
+    );
+    assert_eq!(
+        nb(famille).await,
+        0,
+        "une famille ne reçoit jamais cette alerte, même avec une attribution qui porte le droit (repli réservé au personnel)"
     );
 }
