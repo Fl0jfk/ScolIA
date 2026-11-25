@@ -38,4 +38,4 @@ Branche `ent-transverse-t3-fiabilite` (depuis `origin/ENT`, tête 53ed4604 au d�
 Clippy 1.99.0, les 3 commandes de la CI : **0 avertissement** (`ent-lab` compris). `cargo metadata --locked` dans `ent-rust/web` : OK. Mise en forme ciblée du frontend (`cargo fmt -p ent-web-*`) : OK.
 
 ## Tête et CI
-PR #155 (brouillon, vers `ENT`). Tête et CI : voir le message au pilote / commit suivant.
+PR #155 (brouillon, vers `ENT`). Tête testée par la CI : `315789250e1ca3aa1af08b18b46d9d7bb452bb78` — workflow « ENT Rust » : **succès** (run 45534021342, longtemps en file : runners saturés). Le test web `assiduite_tableau` est donc couvert et vert en CI. Le commit qui ajoute cette ligne ne change que ce document.
