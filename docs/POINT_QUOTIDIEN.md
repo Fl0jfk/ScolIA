@@ -6,6 +6,67 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-25 (mercredi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT, validé par la CI.** ENT = **b65892dd**, CI verte (run 723). Onze lots versés depuis hier soir, chacun après une contre-revue indépendante ; le pilote a corrigé lui-même les défauts moyens relevés.
+- **Socle 21, évaluations V5 passe 6** (PR 148) : export RGPD des anciennes tables de notes. Retirés de l'export : l'archive des devoirs (devoirs d'autres classes, non publiés) et toute note dépubliée.
+- **Transverse T2 et T3, fiabilité** (PR 147, 155) : tests rendus stables, connexions imbriquées supprimées, contrôles au démarrage, journal limité sans perte de trace.
+- **Socle 42, voyages V3b et suites 2** (PR 145, 153 ; migrations 656, 657) :
+  - plus d'autorisation de dérogation « en blanc » : elle vise un acompte, un plafond et un prestataire ;
+  - un compte à l'accès suspendu n'autorise plus rien ;
+  - un remboursement collectif ne dépasse jamais l'argent versé.
+- **Socle 3, inscriptions I5 passe 7** (PR 151, migration 318) et **socle 16, messagerie E1 passe 5** (PR 152).
+- **Socle 24, facturation F3, suites 3 et 4** (PR 150, 156 ; migration 532). Trois défauts graves attrapés par les contre-revues, puis corrigés :
+  - une prise en charge prolongée n'était jamais facturée ;
+  - un renouvellement était refusé à tort ;
+  - la demi-pension d'une année suivante pouvait être oubliée.
+
+  Correctif du pilote : les mois d'avant un changement de régime ne sont plus facturés au nouveau régime.
+- **Socle 20, cahier, suites 2** (PR 154, migration 2420) : échéances et demandes de délai gelées sur une année close.
+- **Socle 11, mobile MB1, partie serveur** (PR 157, migration 2227) : enveloppe d'erreur codée pour les applis, protection contre le double envoi d'une écriture. Correctifs du pilote : aucune réponse sensible (santé, finances, liens) n'est conservée, l'authentification est hors du registre.
+
+**Prêt mais pas encore sur ENT** : rien de versable.
+- **Socle 27, RGPD G3a, guichet des droits** (PR 158, CI verte) : **retenu**. Deux défauts graves :
+  - la pièce d'identité n'est pas vraiment détruite ;
+  - un parent sans autorité parentale peut déposer comme titulaire.
+
+  La consigne de correctifs est prête.
+
+**En cours** : rien. **Pause de migration** décidée avec Florian : passage aux **Projets (bêta) de Claude Code**, compris dans le forfait Max. Kit prêt : `docs/pilotage/MIGRATION_PROJETS.md`. Feu vert donné à 11 h 40 UTC ; bascule à faire ensemble.
+
+**Conçu mais pas codé** (premiers lots du Projet, `MIGRATION_PROJETS.md` § 4)
+1. Correctifs G3a.
+2. **Facturation : régime mois par mois.** Défaut grave préexistant sur ENT : l'annuel facture l'année au régime courant. Conception Opus d'abord.
+3. G3b (extrait RGPD assemblé et remis).
+4. MB1 client (applis dans le dépôt) : accord de Florian attendu.
+5. Contrôle par une deuxième personne fondé sur la personne physique.
+6. Lots de faibles regroupés.
+7. G4 et G5 (journal des accès, violations).
+
+**Tableau d'avancement** : socles 3, 16, 20, 21, 24, 42 et transverse consolidés. Socle 27 (RGPD) entamé côté guichet ; socle 11 (mobile) entamé côté serveur. Frontend et mobile toujours en retrait, comme convenu.
+
+**Décisions attendues de Florian**
+- **Créer le Projet** et y coller les instructions du kit (§ 2).
+- **Applis mobiles dans ENT** : intégrer le code Android et iOS dans la branche `ENT` (la conception dit « pas sans accord »).
+- Choix pris par défaut, à relire quand tu veux (D-069) :
+  - aucun mois facturé à un régime où l'élève n'était pas ;
+  - délai légal RGPD non suspendu pendant la vérification d'identité (S-555, à confirmer avec le DPO) ;
+  - réponses sensibles jamais conservées par le registre d'idempotence.
+- **Claude Ship** : écarté, car réservé aux offres Team et Enterprise et payant en plus.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`)
+- **Bientôt** : vers le **5 décembre**, je te donnerai la liste exacte pour la mise en route chez Scaleway avant Noël (F-08) : conteneur et base séparés, sous-domaine, sauvegardes. Rien à faire avant.
+- **F-09** : comptes développeur Apple et Google Play, **avant mars 2027**.
+- Exports anonymisés Charlemagne et SIECLE (F-01 à F-07) : au moment de la reprise, pas urgent.
+
+**Ce qui a coincé**
+- **CI d'ENT rouge une fois** (run 676) : une tranche de tests annulée au bout de 90 minutes, sur des runners saturés, et non un défaut. Relancée, verte.
+- **Runners GitHub saturés** pendant la nuit : longues attentes, attentes coupées et relancées.
+- **Session G3a à l'arrêt** sur un conflit avec ENT : le pilote a fusionné lui-même.
+- **Fausse manœuvre du pilote** (fichier de tests corrompu par un remplacement) : restauré aussitôt depuis git.
+
+---
+
 ## 2026-11-24 (mardi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT, validé par la CI.** ENT = **bf102297**, dont la CI est en cours. Son parent **412bc4ba** est passé au rouge sur un test de concurrence instable, sans lien avec le lot versé ; le correctif est **bf102297** lui-même (voir « ce qui a coincé »). Quatorze lots sont versés depuis hier soir, chacun après une contre-revue indépendante sans point bloquant restant.
