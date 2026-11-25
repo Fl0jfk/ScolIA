@@ -287,13 +287,25 @@ pub fn echecs_par_etablissement() -> u64 {
 /// 5 s pour le distributeur d'avis). Le **compteur**, lui, compte tous les échecs, journalisés ou non.
 pub fn signaler_echec_etablissement(contexte: &'static str, erreur: &dyn std::fmt::Display) {
     ECHECS_ETABLISSEMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Contre-revue du pilote (T3, M1) : les lignes écartées par le limiteur sont comptées par contexte et le nombre est
+    // journalisé avec la ligne suivante : aucun échec ne disparaît sans trace.
+    static SUPPRIMEES: std::sync::Mutex<Option<std::collections::HashMap<&'static str, u64>>> = std::sync::Mutex::new(None);
     if !crate::journal_limite::autoriser_global(contexte) {
+        if let Ok(mut m) = SUPPRIMEES.lock() {
+            *m.get_or_insert_with(Default::default).entry(contexte).or_default() += 1;
+        }
         return;
     }
+    let supprimees = SUPPRIMEES
+        .lock()
+        .ok()
+        .and_then(|mut m| m.as_mut().and_then(|m| m.remove(contexte)))
+        .unwrap_or(0);
     tracing::error!(
         target: "ent_tache_fond",
         contexte,
         erreur = %erreur,
+        supprimees,
         "tâche de fond en échec pour un établissement ; les autres établissements continuent (journal limité à une ligne par minute et par contexte)"
     );
 }

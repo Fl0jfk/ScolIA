@@ -39,3 +39,9 @@ Clippy 1.99.0, les 3 commandes de la CI : **0 avertissement** (`ent-lab` compris
 
 ## Tête et CI
 PR #155 (brouillon, vers `ENT`). Tête testée par la CI : `315789250e1ca3aa1af08b18b46d9d7bb452bb78` — workflow « ENT Rust » : **succès** (run 45534021342, longtemps en file : runners saturés). Le test web `assiduite_tableau` est donc couvert et vert en CI. Le commit qui ajoute cette ligne ne change que ce document.
+
+## Correctifs du pilote après contre-revue
+Rapport : `docs/pilotage/revues/T3_FIABILITE_CONTRE_REVUE.md` (branche `ent-mc0hoe`). Aucun élevé.
+- **M1** : `signaler_echec_etablissement` compte, par contexte, les lignes écartées par le limiteur et joint leur nombre (`supprimees`) à la ligne suivante : aucun échec ne disparaît sans trace.
+- **M2** : `lock_timeout` du test de santé de la sentinelle porté à 15 s (DROP TRIGGER prend un verrou exclusif : pas de faux rouge derrière un écrivain voisin).
+- Local : 115 tests ciblés verts, clippy 1.99 vert.
