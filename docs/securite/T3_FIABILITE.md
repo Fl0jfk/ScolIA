@@ -31,11 +31,11 @@ Branche `ent-transverse-t3-fiabilite` (depuis `origin/ENT`, tête 53ed4604 au d�
 - Aucun point n'a demandé de migration ni de changement de comportement métier.
 - Restent en file (non demandés dans ce lot) : cache de 55P03 par message (E1 faible 2), compteur de reports (E1 faible 3), masquage de causes différentes par le limiteur et compteur de lignes supprimées (E1 faible 5), restauration de sentinelle en cas de panique (I5), offre « d'avant » (I5).
 
-## Tests (base locale neuve `ent_ci_test`, PostgreSQL 16, feature `labo`)
-Voir « Tête et CI » pour le résultat final.
+## Tests (base locale neuve `ent_ci_test`, PostgreSQL 16, feature `labo`, `CARGO_TARGET_DIR` unique)
+64 tests ciblés verts (tous les tests nouveaux ou modifiés : `le_detecteur_*`, `t3_le_*`, `les_echecs_par_etablissement_*`, `p4_a_*`, `aucun_acces_direct_*`, `s5_*`, `s7_*`, `p5_e1_*`, `t2_*`). **Non exécuté en local** : `assiduite_tableau` (web) — la compilation locale du test a été tuée (SIGKILL, mémoire) ; `cargo check --tests --features labo` passe, la CI le couvre. La suite complète n'a pas été rejouée en local (la CI le fait) ; le contrôle `_conn` n'agit qu'avec la RLS active (jobs stricts de la CI).
 
 ## Qualité
-Clippy 1.99.0 (3 commandes de la CI) et `cargo metadata --locked` dans `ent-rust/web` : voir « Tête et CI ».
+Clippy 1.99.0, les 3 commandes de la CI : **0 avertissement** (`ent-lab` compris). `cargo metadata --locked` dans `ent-rust/web` : OK. Mise en forme ciblée du frontend (`cargo fmt -p ent-web-*`) : OK.
 
 ## Tête et CI
-(à compléter)
+PR #155 (brouillon, vers `ENT`). Tête et CI : voir le message au pilote / commit suivant.
