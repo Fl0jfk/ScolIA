@@ -778,3 +778,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **Versé** : F3 suites 4 + correctifs (session et pilote) (PR 156, b65892dd, sans migration, CI 45587453552 verte) après CI d'ENT verte sur 9035a1a0 (720) : **ENT = b65892dd**. Gel jusqu'au verdict. Reste avant la bascule : G3a.
 - **G3a** : session à l'arrêt, tête fa00fed1 sans CI (conflit avec ENT) ; fusion d'ENT b65892dd par le pilote (conflits routes_src : SOURCES 77 ; migrate.rs : 2227 puis 2544 ; tests_rls : +1 +5) ; tests locaux et contre-revue en cours sur `wt-g3a`.
 - **Feu vert (25-11, ~11 h 40 UTC)** : ENT = b65892dd vert (723) ; plus rien de versable ; sessions terminées archivées, worktrees supprimés ; kit `MIGRATION_PROJETS.md` à jour (§ 4 : file de la bascule). Reste ouverte : la session G3a (correctifs à mener dans le Projet).
+- **G3a** : PR 158 (brouillon), CI verte sur 5eb8756c ; **retenue** (2 élevés), correctifs = premier lot du Projet ; session archivée.

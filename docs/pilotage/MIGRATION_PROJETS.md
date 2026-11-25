@@ -115,8 +115,8 @@ F3 suites 3 et 4, cahier suites 2, T3, MB1 serveur. Aucune PR versable en attent
 Premiers lots du Projet, dans l'ordre :
 1. **Correctifs G3a** (guichet RGPD) : 2 élevés (pièce d'identité réellement détruite ; titulaire sans autorité ou
    restreint jamais « vérifié »), 6 moyens. Consigne prête : `consignes/27_G3A_CORRECTIFS.md` ; branche
-   `ent-socle-27-code-g3a` déjà fusionnée avec ENT (sa CI tourne à la bascule) ; rapport
-   `revues/27_G3A_CONTRE_REVUE.md`. Le fil précédent (session_01KZCbFFL3XPT8CXzEHvBbfP) est à archiver.
+   `ent-socle-27-code-g3a` (PR 158, brouillon) déjà fusionnée avec ENT, CI verte sur 5eb8756c ; rapport
+   `revues/27_G3A_CONTRE_REVUE.md`. Le fil précédent est archivé.
 2. **Facturation : régime mois par mois** (élevé préexistant sur ENT : l'annuel facture l'année au régime courant ; un
    changement sans ligne de régime, en juin par exemple, fait facturer l'année entière au nouveau régime). **Conception
    Opus d'abord**, puis code. Rapport `revues/24_F3_SUITES_4_CORRECTIFS_CONTRE_REVUE.md`.
