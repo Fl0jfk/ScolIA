@@ -307,3 +307,35 @@ Rapport : `docs/pilotage/revues/24_F3_SUITES_3_CORRECTIFS_CONTRE_REVUE.md` (bran
 - **M2** : une clé nouvelle n'est jamais posée à côté d'une ligne ancienne **sans période** du même groupe (article, foyer) : refus explicite (« déjà facturé sans période »), rien n'est facturé deux fois. Test `f3s4_pilote_ligne_ancienne_sans_periode_jamais_doublee`.
 - En file (suites 4) : payeur suivant désigné après coup (M1), clôture de la tâche `part_non_couverte` (M3), faux refus « le tarif a changé » (M4), faibles 5, 7, 8, 9.
 - Local : 94 tests `finances` verts, clippy 1.99 vert. 532 inscrite aux migrations versées.
+
+## Suites, 4 (consigne 24, session du 2026-11-25)
+
+Branche `ent-socle-24-code-f3-suites-4` (partie d'`origin/ent-socle-24-code-f3-suites-3`, PR 150), `origin/ENT` fusionné avant le push (règle 28), PR en brouillon vers `ENT`. **Aucune migration** (533 non consommée, `migrations_versees.txt` non touché) : tout est en code de service. **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.** Source : contre-revue `24_F3_SUITES_3_CORRECTIFS_CONTRE_REVUE.md` (points « en file »).
+
+### Fait
+
+| Réf. | Correctif | Test |
+|---|---|---|
+| **Moyen 1 (prioritaire), payeur suivant désigné après coup** | `restant_prise` ne compte plus les lignes que **la génération en cours reforme** (même préfixe `annuel:`/`regime:` + élève, mêmes articles) : la génération recalcule le partage plafonné à neuf et consomme le plafond dans l'ordre des tronçons. Plafond 400 € sur 450 € dus : 400 € à l'organisme, 50 € non couverts ; un payeur suivant désigné ensuite reçoit **50 €, une seule fois** (clé `:suivant:` d'origine). Les mois déjà posés mais **insuffisants** (cas où la ligne principale couvre toute la période) sont complétés par la garde (`completer_plafonnee` : manque = dû × mois couverts / mois − déjà posé), jamais écartés comme « couverts ». | `f3s5_m1_payeur_suivant_designe_apres_coup_recoit_la_part_non_couverte_une_fois` (400 € / 0 puis 400 € / 50 €, tâche close, rejeu et double rejeu inchangés) ; `f3s4_faible4_…` (inchangé, vert) |
+| **Moyen 3** | La tâche `part_non_couverte` est **close** quand le tronçon dont elle porte la date `depuis` est entièrement couvert (prise renouvelée ou prolongée) ou porté par un payeur suivant (`resoudre_taches_periode`). Les tâches des autres périodes restent ouvertes. | `f3s5_m3_tache_part_non_couverte_close_par_la_prolongation_et_le_renouvellement` (E1 : 450 €, E2 : 450 €, tâche 1 → 0) ; assertions « tâche close » ajoutées à `f3s4_e1_…` et `f3s4_e2_…` |
+| **Moyen 4 (a)** | Prolongation **sous plafond serré** : le plafond est cumulatif, pas mensuel ; pour les mois manquants le principal prend `min(dû de la suite, plafond non consommé)` et le reste va au payeur suivant (clé `:c<AAAA-MM>`) ; plus de faux refus « le tarif a changé ». Un tarif **réellement baissé** sur des mois déjà posés est refusé avec un motif propre (« a baissé »). | `f3s5_m4_prolongation_sous_plafond_serre_facture_le_complement` (180 € posés, prolongation, plafond 400 € : 400 € à l'organisme, 50 € à la famille, rejeu et double rejeu inchangés) |
+| **Moyen 4 (b)** | Taux de remise qui change à clé et période identiques : **motif distinct** (« la remise sur l'article … a changé … taux de remise modifié »), jamais « le tarif de l'article ». | `f3s5_m4_taux_de_remise_modifie_motif_distinct` |
+| **Faible 5** | Requête de préfixe de la garde : `LIKE préfixe%` (préfixe échappé), indexable ; `left()` conservé pour l'égalité exacte. | couverte par tous les tests de la garde |
+| **Faible 7** | `compte_lie_a_eleve` : prise `active` **ou** `echue` (cohérent avec M1 des suites 3). | `f3s5_m1_…` (désignation du suivant) ; régression `payeurs` verte |
+| **Faible 8** | Le scénario E1 du nouveau test n'appelle plus `aujourd_hui()` : la réactivation se fait en base à dates fixes (`prolonger_prise`) ; les tests historiques `f3s4_e1` gardent la voie du service (valable jusqu'au 30/06/2031). | `f3s5_m3_…`, `f3s5_m4_prolongation_…` |
+| **Faible 9** | Couverture croisée **vérifiée, et fautive** : externe → demi-pension (`regime:`) puis rejeu annuel facturait la demi-pension de **toute l'année** en plus (81 000 c pour 45 000 dus). Corrigé : un rejeu `annuel:` ne pose jamais une ligne d'un (article, foyer) déjà porté par un `regime:` (le changement de régime fait foi). Sens inverse non lu : un changement de régime reste facturable après un avoir. | `f3s5_faible9_rejeu_annuel_apres_changement_de_regime_sans_double_facturation` (36 000 c avant et après) |
+
+### Règles métier non tranchées : valeur par défaut prudente (D-069)
+- **Annuel après changement de régime** : les mois **avant** le changement ne sont pas facturés au régime d'arrivée (l'événement fait foi) ; si cette lecture est fausse pour un cas (élève arrivé en demi-pension et jamais facturé), la régularisation est humaine (F4). À valider.
+- **Plafond relevé** après une première génération (le principal posé est inférieur au nouveau plafond) : toujours refusé explicitement (« montant plus fort »), pas de complément automatique du principal (inchangé).
+- **Complément sous plafond** : la remise d'un complément reste proportionnelle au tronçon (la remise ne suit pas la part plafonnée) ; écart d'au plus quelques centimes, en faveur de la famille.
+- **Part non couverte sans payeur suivant** pendant une prolongation : non facturée, la tâche reste ouverte.
+- Faible 6 (une base persistante ayant appliqué l'ancienne 532 doit être recréée) : **non traité**, sans effet en production (532 non versée à l'époque de la modification en place).
+
+### Non fait
+Écrans Leptos, route HTTP de la fin de tarif datée, régularisation des écarts déjà facturés (F4) : hors lot. Aucun test dédié à la clause « plafond relevé » ni à la remise d'un complément plafonné.
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; migrations : **aucune** (533 libre) ; `SOURCES` **75** (inchangé).
+
+### Vérifications

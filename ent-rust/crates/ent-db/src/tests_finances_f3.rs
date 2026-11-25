@@ -5352,6 +5352,11 @@ async fn f3s4_e1_prolongation_de_prise_puis_rejeu_facture_les_six_mois_manquants
         0,
         "rien sur la famille"
     );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        0,
+        "mois manquants facturés : la tâche est close (suites 4, M3)"
+    );
     // rejeu sans modification, puis double rejeu : rien de nouveau
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -5412,6 +5417,11 @@ async fn f3s4_e2_renouvellement_par_une_nouvelle_prise_est_facturable() {
     assert_eq!(
         f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
         45_000
+    );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        0,
+        "mois manquants facturés : la tâche est close (suites 4, M3)"
     );
     let cles: Vec<String> = lignes_de(&ent, el).await.into_iter().map(|l| l.0).collect();
     assert_eq!(
@@ -5811,5 +5821,247 @@ async fn f3s4_m4_cloisonnement_sql_des_taches_sous_le_role_strict() {
         compter(c2.etablissement_id).await,
         0,
         "invisible dans le contexte d'un autre établissement"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Suites, 4 (contre-revue des correctifs des suites 3)
+// ---------------------------------------------------------------------------
+
+/// Désigne `cm` (compte de la famille) payeur suivant (rang 2) de la restauration, **après** la première génération.
+async fn designer_suivant_apres_coup(ent: &PgEnt, c: &LaboCast, el: Uuid, org: Uuid, cm: Uuid) {
+    let (us, rs) = secretariat(c);
+    ent.designer_payeurs_for_actor(
+        c.etablissement_id,
+        us,
+        rs,
+        el,
+        &DesignerPayeursBody {
+            categorie: "restauration".into(),
+            parts: vec![
+                PartBody { compte_id: org, part_bps: 10_000, rang: Some(1) },
+                PartBody { compte_id: cm, part_bps: 10_000, rang: Some(2) },
+            ],
+            date_effet: d(2030, 9, 1),
+            piece: Some(PieceBody {
+                nature: "convention_homologuee".into(),
+                reference: "Avenant : payeur suivant".into(),
+                document_id: Some(f2::document_de(ent, c.etablissement_id, el).await),
+            }),
+            motif: None,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+async fn plafonner(ent: &PgEnt, el: Uuid, plafond: i64) {
+    sqlx::query("UPDATE ent_fin_prise_en_charge SET plafond_centimes = $2 WHERE eleve_id = $1")
+        .bind(el)
+        .bind(plafond)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+}
+
+/// M1 (prioritaire) : plafond de 400 € sur 450 € dus (v1, 10 mois), aucun payeur suivant à la première génération
+/// (tâche `part_non_couverte`, 400 € à l'organisme). Un payeur suivant désigné **après coup** reçoit les 50 € non
+/// couverts, une seule fois : rejeu et double rejeu ne changent rien, l'organisme reste à 400 €, la tâche est close.
+#[tokio::test]
+async fn f3s5_m1_payeur_suivant_designe_apres_coup_recoit_la_part_non_couverte_une_fois() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, org) =
+        eleve_pris_en_charge(&ent, &c, "Apres", (d(2030, 9, 1), d(2031, 6, 30)), false).await;
+    plafonner(&ent, el, 40_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 40_000);
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"), 0);
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1);
+    // rejeu sans payeur suivant : toujours rien de plus, la tâche reste ouverte
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 40_000);
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1);
+    // le payeur suivant est désigné après coup
+    let cm = f2::compte_du_foyer(&ent, etab, fm).await;
+    designer_suivant_apres_coup(&ent, &c, el, org, cm).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000,
+        "l'organisme n'est pas refacturé"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000,
+        "450 € − 400 € au payeur suivant, ni plus ni moins"
+    );
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        0,
+        "la part non couverte est facturée : tâche close"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu et double rejeu : aucune ligne de plus");
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"), 5_000);
+}
+
+/// Prise `echue` réactivée sans passer par l'horloge réelle : la période et le statut sont posés directement.
+async fn prolonger_prise(ent: &PgEnt, el: Uuid, au: NaiveDate) {
+    sqlx::query("UPDATE ent_fin_prise_en_charge SET statut = 'active', au = $2 WHERE eleve_id = $1")
+        .bind(el)
+        .bind(au)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+}
+
+/// M3 + faible 8 : prolongation sans plafond (E1 sans `aujourd_hui()`), la tâche `part_non_couverte` ouverte pour les
+/// mois manquants est close quand ils sont facturés.
+#[tokio::test]
+async fn f3s5_m3_tache_part_non_couverte_close_par_la_prolongation_et_le_renouvellement() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    grille_en_vigueur(&ent, &c).await;
+    // E1 : prolongation
+    let (el, _, fe, _) =
+        eleve_pris_en_charge(&ent, &c, "Prolonge2", (d(2030, 9, 1), d(2030, 12, 31)), false).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1);
+    prolonger_prise(&ent, el, d(2031, 6, 30)).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 45_000);
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        0,
+        "mois manquants facturés : tâche close"
+    );
+    // E2 : renouvellement par une nouvelle prise
+    let (el2, _, fe2, org2) =
+        eleve_pris_en_charge(&ent, &c, "Renouvele2", (d(2030, 9, 1), d(2030, 12, 31)), false).await;
+    facturer(&ent, etab, el2).await;
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 1);
+    ent.creer_prise_en_charge_for_actor(
+        etab,
+        u,
+        r,
+        &PriseEnChargeBody {
+            compte_id: org2,
+            eleve_id: el2,
+            reference: "PEC-renouvellement-2".into(),
+            du: d(2031, 1, 1),
+            au: d(2031, 6, 30),
+            categories: vec!["restauration".into()],
+            plafond_centimes: None,
+        },
+    )
+    .await
+    .unwrap();
+    facturer(&ent, etab, el2).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe2).await, "restauration"), 45_000);
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el2).await, 0);
+}
+
+/// M4 : prolongation sous plafond **serré** (400 €, 180 € déjà posés, payeur suivant désigné) : le complément est
+/// facturé, jamais refusé comme « le tarif a changé » ; l'organisme s'arrête à 400 €, la famille porte 50 € ; rejeu et
+/// double rejeu sans ligne de plus.
+#[tokio::test]
+async fn f3s5_m4_prolongation_sous_plafond_serre_facture_le_complement() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _) =
+        eleve_pris_en_charge(&ent, &c, "Serre", (d(2030, 9, 1), d(2030, 12, 31)), true).await;
+    plafonner(&ent, el, 40_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 18_000);
+    prolonger_prise(&ent, el, d(2031, 6, 30)).await;
+    let res = facturer_motif(&ent, etab, el).await;
+    assert!(res.is_ok(), "pas de faux refus « le tarif a changé » : {res:?}");
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000,
+        "18 000 déjà posés + 22 000 : plafond de 400 € atteint, pas dépassé"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000,
+        "450 € − 400 € au payeur suivant"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu et double rejeu : aucune ligne de plus");
+}
+
+/// M4 : un taux de remise qui monte à clé et période identiques est refusé avec un motif propre à la remise.
+#[tokio::test]
+async fn f3s5_m4_taux_de_remise_modifie_motif_distinct() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    grille_en_vigueur(&ent, &c).await;
+    let red = ent
+        .creer_reduction_for_actor(
+            etab,
+            u,
+            r,
+            &ReductionBody {
+                annee_scolaire: ANNEE.into(),
+                code: "REMX".into(),
+                libelle: "Remise test".into(),
+                nature: "autre".into(),
+                rang_min: None,
+                taux_bps: 500,
+                categories: vec!["restauration".into()],
+            },
+        )
+        .await
+        .unwrap();
+    let el = eleve(&ent, etab, "Remise", "demi_pension").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer remise").await;
+    ent.accorder_reduction_for_actor(etab, u, r, red.id, el).await.unwrap();
+    facturer(&ent, etab, el).await;
+    let avant = lignes_de(&ent, el).await;
+    sqlx::query("UPDATE ent_fin_reduction SET taux_bps = 1000 WHERE id = $1")
+        .bind(red.id)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let res = facturer_motif(&ent, etab, el).await;
+    let motif = res.expect_err("la remise a changé sur des mois facturés");
+    assert!(motif.contains("remise"), "motif propre à la remise : {motif}");
+    assert!(!motif.contains("le tarif de l'article"), "pas le motif du tarif : {motif}");
+    assert_eq!(lignes_de(&ent, el).await, avant, "rien n'est refacturé");
+}
+
+/// Faible 9 : un changement de régime facture la restauration (`regime:{événement}`) ; un rejeu **annuel** ensuite
+/// (régime désormais demi-pension) ne refacture pas ces mois sous le préfixe `annuel:`.
+#[tokio::test]
+async fn f3s5_faible9_rejeu_annuel_apres_changement_de_regime_sans_double_facturation() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = eleve(&ent, etab, "Bascule", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer bascule").await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 0, "externe : pas de demi-pension");
+    let _ = changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    let apres_regime = somme_art(&ent, dp, el).await;
+    assert!(apres_regime > 0, "la demi-pension est facturée à partir de novembre");
+    sqlx::query("UPDATE ent_eleve SET regime = 'demi_pension' WHERE id = $1")
+        .bind(el)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let res = facturer_motif(&ent, etab, el).await;
+    assert_eq!(
+        somme_art(&ent, dp, el).await,
+        apres_regime,
+        "aucune double facturation des mois déjà facturés par le changement de régime ({res:?})"
     );
 }
