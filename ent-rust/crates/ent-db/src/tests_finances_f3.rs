@@ -6143,9 +6143,266 @@ async fn f3s5_faible9_rejeu_annuel_apres_changement_de_regime_sans_double_factur
         .await
         .unwrap();
     let res = facturer_motif(&ent, etab, el).await;
+    assert!(res.is_ok(), "le rejeu annuel passe : {res:?}");
+    // Octobre-septembre : le changement a facturé novembre-juin (8 mois, 360 €) ; le rejeu annuel (régime désormais
+    // demi-pension) n'écarte que ces mois et facture septembre-octobre (2 mois, 90 €) : 450 € au total, aucun mois deux fois.
+    assert_eq!(apres_regime, 36_000);
+    assert_eq!(somme_art(&ent, dp, el).await, 45_000, "10 mois facturés une fois chacun");
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu et double rejeu : aucune ligne de plus");
+}
+
+async fn facturer_annee(ent: &PgEnt, etab: Uuid, eleve: Uuid, annee: &str) -> Result<(), String> {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    let r = crate::finances::facturer_annee_eleve(&mut tx, etab, annee, eleve, None, None, Default::default())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    r.map(|_| ())
+}
+
+async fn regime_de_a(ent: &PgEnt, etab: Uuid, el: Uuid, de: &str, vers: &str, date: NaiveDate) {
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    crate::finances::facturer_changement_regime(
+        &mut tx, etab, ANNEE, el, de, vers, date, Uuid::new_v4(), None, Default::default(),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+async fn regime_eleve(ent: &PgEnt, el: Uuid, regime: &str) {
+    sqlx::query("UPDATE ent_eleve SET regime = $2 WHERE id = $1")
+        .bind(el)
+        .bind(regime)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+}
+
+/// E-1 (a) : changement de régime en 2030-2031 puis génération annuelle 2031-2032 : la ligne de régime (période
+/// novembre 2030 – juin 2031) ne chevauche pas l'année suivante, les 450 € de 2031-2032 sont facturés.
+#[tokio::test]
+async fn f3s6_e1_changement_de_regime_en_n_puis_generation_annuelle_n_plus_1() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (v1, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = eleve(&ent, etab, "AnneeSuivante", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer N+1").await;
+    facturer(&ent, etab, el).await;
+    changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 36_000);
+    regime_eleve(&ent, el, "demi_pension").await;
+    let v2 = ent
+        .creer_grille_for_actor(
+            etab,
+            u,
+            r,
+            &CreerGrilleBody {
+                annee_scolaire: "2031-2032".into(),
+                libelle: None,
+                copier_de: Some(v1),
+                reprendre_historique: None,
+            },
+        )
+        .await
+        .unwrap();
+    ent.proposer_grille_for_actor(etab, u, r, v2.id).await.unwrap();
+    ent.voter_grille_test(etab, c.admin.user_id, Role::Admin.as_str(), v2.id, &vote("CA du 20 juin"))
+        .await
+        .unwrap();
+    ent.mettre_en_vigueur_for_actor(etab, u, r, v2.id, &MiseEnVigueurBody { du: d(2031, 9, 1) })
+        .await
+        .unwrap();
+    facturer_annee(&ent, etab, el, "2031-2032").await.expect("génération 2031-2032");
     assert_eq!(
         somme_art(&ent, dp, el).await,
-        apres_regime,
-        "aucune double facturation des mois déjà facturés par le changement de régime ({res:?})"
+        36_000 + 45_000,
+        "l'année N+1 est facturée en entier (450 €), la ligne de régime de N n'est pas une couverture"
+    );
+}
+
+/// E-1 (b) : changement de régime en cours d'année puis rejeu annuel : novembre-juin couverts par le régime (360 €),
+/// septembre-octobre facturés par l'annuel (90 €) ; aucun mois deux fois, aucun oublié ; rejeux neutres.
+#[tokio::test]
+async fn f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_fois() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = eleve(&ent, etab, "Milieu", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer milieu").await;
+    facturer(&ent, etab, el).await;
+    changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    regime_eleve(&ent, el, "demi_pension").await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 45_000);
+    let cles: Vec<String> = lignes_de(&ent, el).await.into_iter().map(|(k, _)| k).collect();
+    assert!(
+        cles.iter().any(|k| k.contains(":c2030-09")),
+        "septembre-octobre sous un complément annuel : {cles:?}"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant);
+}
+
+/// E-1 (c) : une ligne de régime **entièrement** créditée par avoir ne couvre rien : le rejeu annuel facture l'année
+/// (450 € nets) ; créditée en partie (fin février), elle ne couvre que les mois conservés.
+#[tokio::test]
+async fn f3s6_e1_ligne_de_regime_creditee_par_avoir_ne_couvre_que_ce_qui_reste() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    // avoir total : retour à l'externat avant le premier mois de la ligne de régime
+    let el = eleve(&ent, etab, "Credite", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el, c.parent_lea.user_id, "Foyer crédité").await;
+    facturer(&ent, etab, el).await;
+    changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 36_000);
+    regime_de_a(&ent, etab, el, "demi_pension", "externe", d(2030, 10, 20)).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 0, "régime crédité en entier");
+    regime_eleve(&ent, el, "demi_pension").await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(somme_art(&ent, dp, el).await, 45_000, "ligne créditée : l'année est facturée une fois");
+    // avoir partiel : retour à l'externat le 10 février (novembre à février gardés, 180 €)
+    let el2 = eleve(&ent, etab, "Partiel", "externe").await;
+    let _ = foyer_payeur(&ent, etab, el2, c.parent_lea.user_id, "Foyer partiel").await;
+    facturer(&ent, etab, el2).await;
+    changer_regime(&ent, etab, el2, Uuid::new_v4()).await;
+    regime_de_a(&ent, etab, el2, "demi_pension", "externe", d(2031, 2, 10)).await;
+    assert_eq!(somme_art(&ent, dp, el2).await, 18_000);
+    regime_eleve(&ent, el2, "demi_pension").await;
+    facturer(&ent, etab, el2).await;
+    assert_eq!(
+        somme_art(&ent, dp, el2).await,
+        45_000,
+        "novembre-février (régime) + septembre-octobre et mars-juin (annuel) : chaque mois une fois"
+    );
+    let avant = lignes_de(&ent, el2).await;
+    facturer(&ent, etab, el2).await;
+    assert_eq!(lignes_de(&ent, el2).await, avant);
+}
+
+
+/// M-1 : la garde refuse (ligne ancienne sans période) alors que la prolongation de la prise aurait clos la tâche
+/// `part_non_couverte` : le refus laisse la tâche ouverte, rien n'est facturé. Une fois la cause levée, la tâche est close.
+#[tokio::test]
+async fn f3s6_m1_refus_de_la_garde_laisse_la_tache_ouverte() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille_en_vigueur(&ent, &c).await;
+    let (el, _, fe, _) =
+        eleve_pris_en_charge(&ent, &c, "RefusGarde", (d(2030, 9, 1), d(2030, 12, 31)), false).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 1);
+    let periodes: Vec<(Uuid, Option<NaiveDate>, Option<NaiveDate>)> = sqlx::query_as(
+        "SELECT id, periode_debut, periode_fin FROM ent_fac_ligne WHERE eleve_id = $1 AND article_id IS NOT NULL
+            AND categorie = 'restauration'",
+    )
+    .bind(el)
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE ent_fac_ligne SET periode_debut = NULL, periode_fin = NULL
+          WHERE eleve_id = $1 AND categorie = 'restauration'",
+    )
+    .bind(el)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    prolonger_prise(&ent, el, d(2031, 6, 30)).await;
+    let avant = lignes_de(&ent, el).await;
+    let res = facturer_motif(&ent, etab, el).await;
+    assert!(res.is_err(), "la garde refuse une ligne ancienne sans période : {res:?}");
+    assert_eq!(lignes_de(&ent, el).await, avant, "rien n'est facturé");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        1,
+        "garde refusée : la tâche reste ouverte"
+    );
+    // cause levée : les périodes sont rétablies, la génération passe et clôt la tâche
+    for (id, pd, pf) in periodes {
+        sqlx::query("UPDATE ent_fac_ligne SET periode_debut = $2, periode_fin = $3 WHERE id = $1")
+            .bind(id)
+            .bind(pd)
+            .bind(pf)
+            .execute(ent.pool_verif())
+            .await
+            .unwrap();
+    }
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 0);
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 45_000);
+}
+
+/// M-2 : plafond **relevé** (400 € → 450 €) à clé et période identiques : le complément est facturé à l'organisme
+/// (50 €), jamais refusé comme « le tarif a changé » ; rejeux neutres. Plafond **abaissé** ensuite (300 €) : rien n'est
+/// refacturé ni crédité d'office, une tâche signale le dépassement.
+#[tokio::test]
+async fn f3s6_m2_plafond_releve_facture_le_complement_puis_abaisse_signale() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    grille_en_vigueur(&ent, &c).await;
+    let (el, _, fe, _) =
+        eleve_pris_en_charge(&ent, &c, "PlafondMonte", (d(2030, 9, 1), d(2031, 6, 30)), false).await;
+    plafonner(&ent, el, 40_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"), 40_000);
+    plafonner(&ent, el, 45_000).await;
+    let res = facturer_motif(&ent, etab, el).await;
+    assert!(res.is_ok(), "plafond relevé : pas de refus « tarif changé » : {res:?}");
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        45_000,
+        "40 000 déjà posés + 5 000 de complément : plafond de 450 € atteint"
+    );
+    assert_eq!(f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await, 0, "tout est couvert");
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu et double rejeu : aucune ligne de plus");
+    // plafond abaissé : règle prudente, rien n'est touché, la tâche signale
+    plafonner(&ent, el, 30_000).await;
+    let res = facturer_motif(&ent, etab, el).await;
+    assert!(res.is_ok(), "plafond abaissé : pas de refus : {res:?}");
+    assert_eq!(lignes_de(&ent, el).await, avant, "rien n'est refacturé ni crédité d'office");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        1,
+        "le plafond abaissé sous le facturé est signalé"
+    );
+}
+
+/// F-1 : l'accès par préfixe de clé est borné (une requête par préfixe, motif constant) ; sous la collation `C`,
+/// l'index unique `(établissement, source_cle)` sert le `LIKE` (sinon la lecture reste bornée par l'établissement).
+#[tokio::test]
+async fn f3s6_f1_lecture_par_prefixe_bornee_par_l_index_unique() {
+    let Some((ent, c)) = labo().await else { return };
+    let (colonne,): (String,) = sqlx::query_as(
+        "SELECT COALESCE(a.attcollation::regcollation::text, '')
+           FROM pg_attribute a WHERE a.attrelid = 'ent_fac_ligne'::regclass AND a.attname = 'source_cle'",
+    )
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL enable_seqscan = off").execute(&mut *tx).await.unwrap();
+    let plan: Vec<(String,)> = sqlx::query_as(
+        "EXPLAIN SELECT l.source_cle FROM ent_fac_ligne l
+          WHERE l.etablissement_id = $1 AND l.source_cle LIKE 'annuel:2030-2031:%'",
+    )
+    .bind(c.etablissement_id)
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    let plan = plan.into_iter().map(|(l,)| l).collect::<Vec<_>>().join("\n");
+    assert!(
+        plan.contains("ent_fac_ligne_source_uq"),
+        "la lecture par préfixe passe par l'index unique (collation de la colonne : {colonne}) :\n{plan}"
     );
 }

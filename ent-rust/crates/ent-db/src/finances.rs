@@ -1013,7 +1013,7 @@ async fn restant_prise(
     eleve: Uuid,
     foyer: Uuid,
     p: &PriseCouvrante,
-    propres: (&str, &[Uuid]),
+    propres: (&str, &[Uuid], (NaiveDate, NaiveDate)),
 ) -> Result<i64, EntDbError> {
     let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
     let (facture,): (i64,) = sqlx::query_as(
@@ -1024,7 +1024,8 @@ async fn restant_prise(
           WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND f.foyer_id = $3 AND f.type_piece = 'facture'
             AND l.ligne_origine_id IS NULL AND l.periode_debut >= $4 AND l.periode_debut <= $5
             AND ($6 OR COALESCE(ar.categorie, l.categorie) = ANY($7))
-            AND NOT (starts_with(l.source_cle, $8) AND l.article_id = ANY($9))",
+            AND NOT (starts_with(l.source_cle, $8) AND l.article_id = ANY($9)
+                     AND l.periode_debut >= $10 AND l.periode_debut <= $11)",
     )
     .bind(etab)
     .bind(eleve)
@@ -1035,6 +1036,8 @@ async fn restant_prise(
     .bind(&p.categories)
     .bind(propres.0)
     .bind(propres.1)
+    .bind(propres.2 .0)
+    .bind(propres.2 .1)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
@@ -1235,6 +1238,7 @@ pub(crate) async fn lignes_annuelles(
     let propres_prefixe = format!("{prefixe}:{eleve_id}:");
     let propres_articles: Vec<Uuid> = articles.iter().map(|a| a.0).collect();
     let mut verrouilles: Vec<Uuid> = Vec::new();
+    let mut a_resoudre: Vec<(&'static str, NaiveDate, NaiveDate)> = Vec::new();
     let mut lignes = Vec::new();
     let mut aucun_tarif = true;
     // Découpage par **(article, foyer payeur)**, au contenu (D-069, faibles c et 2) : les mois consécutifs où un article
@@ -1405,6 +1409,7 @@ pub(crate) async fn lignes_annuelles(
             let mut part = part;
             let mut non_couvert = 0;
             let mut sans_prise = false;
+            let mut plafonnee_org = false;
             let est_organisme = parts_par_cat
                 .get(cat_des)
                 .and_then(|v| v.iter().find(|p| p.foyer_id == *foyer && p.rang == 1))
@@ -1420,6 +1425,9 @@ pub(crate) async fn lignes_annuelles(
                     non_couvert = part;
                     part = 0;
                 } else {
+                    // M-2 : une prise **plafonnée** garde sa ligne sous l'examen de `completer_plafonnee` même quand le plafond
+                    // ne bride pas (encore) : un plafond relevé ou abaissé n'est alors jamais lu comme un « tarif changé ».
+                    plafonnee_org = prises.iter().any(|pr| pr.plafond.is_some());
                     let mut a_placer = part;
                     let mut place = 0_i64;
                     for pr in &prises {
@@ -1428,7 +1436,7 @@ pub(crate) async fn lignes_annuelles(
                         }
                         let restant = match restants.get(&pr.id) {
                             Some(r) => *r,
-                            None => restant_prise(conn, etab, eleve_id, *foyer, pr, (&propres_prefixe, &propres_articles)).await?,
+                            None => restant_prise(conn, etab, eleve_id, *foyer, pr, (&propres_prefixe, &propres_articles, periode)).await?,
                         };
                         let pris = a_placer.min(restant.max(0));
                         restants.insert(pr.id, if restant == i64::MAX { restant } else { restant - pris });
@@ -1473,10 +1481,7 @@ pub(crate) async fn lignes_annuelles(
                     .await?;
                 } else {
                     // la part non couverte est portée par le payeur suivant : la tâche éventuelle est réglée (M3)
-                    crate::facturation_payeurs::resoudre_taches_periode(
-                        conn, etab, "part_non_couverte", eleve_id, cat_des, periode.0, periode.1,
-                    )
-                    .await?;
+                    a_resoudre.push((cat_des, periode.0, periode.1));
                     for (foyer2, montant) in calcul::repartir(non_couvert, &suivants) {
                         if montant == 0 {
                             continue;
@@ -1498,15 +1503,12 @@ pub(crate) async fn lignes_annuelles(
             if est_organisme.is_some() && !sans_prise && non_couvert == 0 {
                 // tronçon entièrement couvert par la prise en charge : une tâche `part_non_couverte` ouverte
                 // pour ces mois (prise renouvelée ou prolongée) est réglée (M3)
-                crate::facturation_payeurs::resoudre_taches_periode(
-                    conn, etab, "part_non_couverte", eleve_id, cat_des, periode.0, periode.1,
-                )
-                .await?;
+                a_resoudre.push((cat_des, periode.0, periode.1));
             }
             if part == 0 {
                 continue;
             }
-            if non_couvert > 0 {
+            if non_couvert > 0 || plafonnee_org {
                 dus.insert(format!("{base_cle}:{foyer}"), part + non_couvert);
             }
             lignes.push(LigneAFacturer {
@@ -1629,7 +1631,25 @@ pub(crate) async fn lignes_annuelles(
     }
     // Garde anti double facturation, **par périodes** (suites 3, E1 + E2 ; D-069) : voir `garde_periodes`.
     let libelles: HashMap<Uuid, String> = articles.iter().map(|a| (a.0, a.1.clone())).collect();
-    garde_periodes(conn, etab, eleve_id, prefixe, lignes, &libelles, &dus).await
+    let mut signaux: Vec<(String, NaiveDate, String)> = Vec::new();
+    let resultat = garde_periodes(conn, etab, eleve_id, prefixe, lignes, &libelles, &dus, &mut signaux).await?;
+    // M-1 (suites 4, correctifs) : les tâches `part_non_couverte` ne sont closes qu'une fois la garde passée, dans la
+    // transaction de l'appelant qui insère ensuite les lignes (une erreur d'insertion annule tout) ; un refus de la
+    // garde laisse les tâches ouvertes, la part n'étant pas facturée.
+    if resultat.is_ok() {
+        for (cat, du, au) in a_resoudre {
+            crate::facturation_payeurs::resoudre_taches_periode(conn, etab, "part_non_couverte", eleve_id, cat, du, au)
+                .await?;
+        }
+        // M-2 : signalements de plafond modifié, après les clôtures (une tâche ouverte par situation)
+        for (cat, depuis, detail) in &signaux {
+            crate::facturation_payeurs::ouvrir_tache(
+                conn, etab, "part_non_couverte", Some(eleve_id), None, Some(cat.as_str()), *depuis, detail, None,
+            )
+            .await?;
+        }
+    }
+    Ok(resultat)
 }
 
 /// Une ligne déjà posée pour (élève, article), lue pour la garde par périodes.
@@ -1697,6 +1717,8 @@ fn premier_du_mois(i: i32) -> NaiveDate {
 ///   **mois manquants** sont facturés, sous une clé nouvelle `:c<mois de début>` ; aucune ligne posée n'est refacturée ;
 /// - mois couverts **à un autre tarif** que celui d'aujourd'hui : refus explicite (régularisation par complément ou
 ///   avoir, F4), jamais d'ignorance silencieuse.
+// 8 arguments : connexion, contexte (établissement, élève, préfixe), lignes, deux tables de lecture et le collecteur de signaux.
+#[allow(clippy::too_many_arguments)]
 async fn garde_periodes(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -1705,6 +1727,7 @@ async fn garde_periodes(
     lignes: Vec<LigneAFacturer>,
     libelles: &HashMap<Uuid, String>,
     dus: &HashMap<String, i64>,
+    signaux: &mut Vec<(String, NaiveDate, String)>,
 ) -> Result<Result<Vec<LigneAFacturer>, String>, EntDbError> {
     // Lignes `:suivant:` d'une ligne principale plafonnée : traitées avec elle (voir plus bas), jamais seules.
     let mut suivants_de: HashMap<String, Vec<LigneAFacturer>> = HashMap::new();
@@ -1729,46 +1752,82 @@ async fn garde_periodes(
     if prefixes.is_empty() {
         return Ok(Ok(lignes));
     }
-    // Faible 5 : `LIKE préfixe%` (borne de plage de l'index unique `(établissement, source_cle)`), le `left()` qui suit
-    // ne fait que confirmer l'égalité exacte du préfixe non échappé.
-    let rows: Vec<(String, Option<NaiveDate>, Option<NaiveDate>, i64)> = sqlx::query_as(
-        "SELECT l.source_cle, l.periode_debut, l.periode_fin, (l.quantite::BIGINT * l.montant_unitaire_centimes)
-           FROM ent_fac_ligne l, unnest($2::text[], $3::text[]) AS p(prefixe, motif)
-          WHERE l.etablissement_id = $1 AND l.source_cle LIKE p.motif
-            AND left(l.source_cle, length(p.prefixe)) = p.prefixe",
-    )
-    .bind(etab)
-    .bind(&prefixes)
-    .bind(prefixes.iter().map(|p| format!("{}%", echapper_like(p))).collect::<Vec<_>>())
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(db)?;
-    // Couverture croisée (faible 9, suites 4) : un changement de régime a facturé la catégorie sous `regime:<événement>` ;
-    // un rejeu **annuel** (régime désormais celui d'arrivée) ne la refacture jamais sous `annuel:` (la clé serait
-    // nouvelle, la période chevaucherait : double facturation). Le changement de régime fait foi pour cet article et ce
-    // foyer ; les mois d'avant le changement ne sont pas dus. Seul le sens annuel → régime est lu : un changement de
-    // régime reste facturable à nouveau après un avoir (les lignes annuelles créditées ne bloquent pas).
-    let mut croisees: std::collections::HashSet<(Uuid, String)> = std::collections::HashSet::new();
-    if prefixe.starts_with("annuel:") {
+    // Faible 5 puis F-1 (suites 4, correctifs) : une requête **par préfixe**, le motif `LIKE` étant alors une
+    // constante pour le planificateur (avec la jointure sur `unnest`, il n'est qu'un paramètre de boucle et ne borne
+    // jamais l'index). Le `left()` confirme l'égalité exacte du préfixe non échappé. Voir `docs/socles/24_…` : la borne
+    // de plage ne sert l'index unique `(établissement, source_cle)` que sous la collation `C` ; sous une autre
+    // collation, la lecture reste bornée par l'établissement et le préfixe (jamais par table entière hors établissement).
+    let mut rows: Vec<(String, Option<NaiveDate>, Option<NaiveDate>, i64)> = Vec::new();
+    for pre in &prefixes {
+        let mut r: Vec<(String, Option<NaiveDate>, Option<NaiveDate>, i64)> = sqlx::query_as(
+            "SELECT l.source_cle, l.periode_debut, l.periode_fin, (l.quantite::BIGINT * l.montant_unitaire_centimes)
+               FROM ent_fac_ligne l
+              WHERE l.etablissement_id = $1 AND l.source_cle LIKE $2 AND left(l.source_cle, length($3)) = $3",
+        )
+        .bind(etab)
+        .bind(format!("{}%", echapper_like(pre)))
+        .bind(pre)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        rows.append(&mut r);
+    }
+    // Couverture croisée (faible 9, suites 4 ; E-1, correctifs) : un changement de régime a facturé la catégorie sous
+    // `regime:<événement>` ; un rejeu **annuel** (régime désormais celui d'arrivée) ne la refacture jamais sous
+    // `annuel:` (la clé serait nouvelle, la période chevaucherait : double facturation). Règle précise, **par mois** :
+    // * seules les lignes de régime dont la **période chevauche** celle des lignes annuelles à poser comptent (l'article
+    //   et la clé ne portent pas l'année : le changement de l'année N ne dit rien de l'année N+1) ;
+    // * seuls les **mois effectivement couverts** par une ligne de régime sont écartés de la ligne annuelle (jamais
+    //   le groupe entier) : les autres mois restent facturés, sous clé `:c<AAAA-MM>` ;
+    // * une ligne de régime **créditée par avoir** ne couvre que les mois que l'avoir lui laisse (les premiers, l'avoir
+    //   créditant la fin de période) : entièrement créditée, elle ne couvre rien ; **règle prudente** pour un avoir
+    //   partiel, la part non créditée est arrondie au mois supérieur (jamais de double facturation) ;
+    // * une ligne de régime sans période (inexistante en pratique : toute génération en pose une) ne couvre rien.
+    // Seul le sens annuel → régime est lu : un changement de régime reste facturable à nouveau après un avoir.
+    let mut croisees: HashMap<(Uuid, String), std::collections::BTreeSet<i32>> = HashMap::new();
+    let bornes = lignes
+        .iter()
+        .filter_map(|l| l.periode)
+        .fold(None, |acc: Option<(NaiveDate, NaiveDate)>, (d, f)| {
+            Some(acc.map_or((d, f), |(a, b)| (a.min(d), b.max(f))))
+        });
+    if let (true, Some((min_d, max_f))) = (prefixe.starts_with("annuel:"), bornes) {
         let arts: Vec<Uuid> = lignes.iter().filter_map(|l| l.article_id).collect();
-        let rows: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT l.article_id, l.source_cle FROM ent_fac_ligne l
+        let rows: Vec<(Uuid, String, NaiveDate, NaiveDate, i64, i64)> = sqlx::query_as(
+            "SELECT l.article_id, l.source_cle, l.periode_debut, l.periode_fin,
+                    (l.quantite::BIGINT * l.montant_unitaire_centimes),
+                    COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes) FROM ent_fac_ligne a
+                               WHERE a.etablissement_id = l.etablissement_id AND a.ligne_origine_id = l.id), 0)::BIGINT
+               FROM ent_fac_ligne l
               WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.article_id = ANY($3)
-                AND l.source_cle LIKE 'regime:%' AND l.source_cle NOT LIKE 'regime:%:avoir:%'",
+                AND l.source_cle LIKE 'regime:%' AND l.source_cle NOT LIKE 'regime:%:avoir:%'
+                AND l.periode_debut IS NOT NULL AND l.periode_fin IS NOT NULL
+                AND l.periode_debut <= $5 AND l.periode_fin >= $4",
         )
         .bind(etab)
         .bind(eleve_id)
         .bind(&arts)
+        .bind(min_d)
+        .bind(max_f)
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
-        for (art, cle) in rows {
+        for (art, cle, pd, pf, total, credits) in rows {
             let marque = format!(":{eleve_id}:{art}");
             let Some(i) = cle.find(&marque) else { continue };
             let pre = &cle[..i + marque.len()];
-            if let Some((groupe, _)) = groupe_de_cle(&cle, pre) {
-                croisees.insert((art, groupe));
+            let Some((groupe, _)) = groupe_de_cle(&cle, pre) else { continue };
+            let net = total + credits;
+            if total == 0 || net == 0 || net.signum() != total.signum() {
+                continue; // entièrement créditée (ou sans montant) : ne couvre rien
             }
+            let nm = i128::from(indice_mois(pf) - indice_mois(pd) + 1);
+            let gardes = (i128::from(net.abs()) * nm + i128::from(total.abs()) - 1) / i128::from(total.abs());
+            let gardes = gardes.clamp(0, nm) as i32;
+            croisees
+                .entry((art, groupe))
+                .or_default()
+                .extend(indice_mois(pd)..indice_mois(pd) + gardes);
         }
     }
     let mut posees: HashMap<String, Vec<LignePosee>> = HashMap::new();
@@ -1797,11 +1856,17 @@ async fn garde_periodes(
         let posees_vide = Vec::new();
         let deja = posees.get(&pre).unwrap_or(&posees_vide);
         let cle_posee = deja.iter().find(|p| p.cle == l.source_cle);
-        if cle_posee.is_none() && croisees.contains(&(art, groupe.clone())) {
+        // mois de cette ligne déjà facturés par un changement de régime (E-1) : écartés, pas le groupe entier
+        let nl_mois = indice_mois(d)..=indice_mois(f);
+        let croises: std::collections::BTreeSet<i32> = croisees
+            .get(&(art, groupe.clone()))
+            .map(|c| c.iter().copied().filter(|m| nl_mois.contains(m)).collect())
+            .unwrap_or_default();
+        if cle_posee.is_none() && croises.len() == nl_mois.clone().count() {
             suivants_de.remove(&l.source_cle);
-            continue; // facturé par un changement de régime : jamais refacturé sous `annuel:`
+            continue; // tous les mois facturés par un changement de régime : jamais refacturés sous `annuel:`
         }
-        if deja.is_empty() {
+        if deja.is_empty() && croises.is_empty() {
             if let Some(suivants) = suivants_de.remove(&l.source_cle) {
                 sortie.extend(suivants);
             }
@@ -1819,7 +1884,13 @@ async fn garde_periodes(
                     // même clé, même période : rejeu. Plus faible = plafond de prise consumé (la part passe au payeur
                     // suivant) ; plus fort = le montant a monté depuis la génération : refus, jamais ignoré.
                     // Une ligne `:suivant:` n'est pas comparée : son montant suit le restant des plafonds, qui varie.
-                    if !queue.starts_with(":suivant:") && l.unitaire.abs() > p.montant.abs() + 1 {
+                    // M-2 (correctifs) : une ligne plafonnée a pour montant le plafond **restant**, qui varie (plafond relevé,
+                    // payeur suivant désigné après coup) : elle est examinée par `completer_plafonnee`, jamais refusée
+                    // comme un « tarif changé ».
+                    if !queue.starts_with(":suivant:")
+                        && !dus.contains_key(&l.source_cle)
+                        && l.unitaire.abs() > p.montant.abs() + 1
+                    {
                         return Ok(Err(refus_tarif(libelles, art, p, &l)));
                     }
                     // Prise plafonnée (M1, suites 4) : le rejeu reste à examiner (payeur suivant désigné après coup).
@@ -1852,7 +1923,8 @@ async fn garde_periodes(
                 l.unitaire
             )));
         }
-        if couverts.is_empty() && cle_posee.is_none() {
+        let couverts_tot: std::collections::BTreeSet<i32> = couverts.union(&croises).copied().collect();
+        if couverts_tot.is_empty() && cle_posee.is_none() {
             // période disjointe : facturable (avec les lignes `:suivant:` de sa prise plafonnée, le cas échéant)
             if let Some(suivants) = suivants_de.remove(&l.source_cle) {
                 sortie.extend(suivants);
@@ -1863,8 +1935,15 @@ async fn garde_periodes(
         if let Some(&du) = dus.get(&l.source_cle) {
             // Prise en charge plafonnée (M1 et M4, suites 4) : voir `completer_plafonnee`.
             let suivants = suivants_de.remove(&l.source_cle).unwrap_or_default();
-            match completer_plafonnee(&pre, art, &l, suivants, du, &memes, &couverts, cle_posee.is_some(), libelles) {
-                Ok(v) => sortie.extend(v),
+            match completer_plafonnee(&pre, art, &l, suivants, du, &memes, &couverts, &croises, cle_posee.is_some(), libelles) {
+                Ok((v, signal)) => {
+                    sortie.extend(v);
+                    if let Some(detail) = signal {
+                        // plafond qui baisse (ou consommé ailleurs) sous ce qui est déjà facturé : jamais refacturé ni
+                        // remboursé en silence ; la tâche est ouverte par l'appelant, après la clôture des tâches réglées
+                        signaux.push((categorie_de_designation(&l.categorie).to_string(), d, detail));
+                    }
+                }
                 Err(motif) => return Ok(Err(motif)),
             }
             continue;
@@ -1889,12 +1968,12 @@ async fn garde_periodes(
         let est_remise = queue.starts_with(":red:");
         let mut m = *mois_l.start();
         while m <= *mois_l.end() {
-            if couverts.contains(&m) {
+            if couverts_tot.contains(&m) {
                 m += 1;
                 continue;
             }
             let debut = m;
-            while m <= *mois_l.end() && !couverts.contains(&m) {
+            while m <= *mois_l.end() && !couverts_tot.contains(&m) {
                 m += 1;
             }
             let nb = i64::from(m - debut);
@@ -1938,10 +2017,11 @@ fn completer_plafonnee(
     du: i64,
     memes: &[&LignePosee],
     couverts: &std::collections::BTreeSet<i32>,
+    croises: &std::collections::BTreeSet<i32>,
     cle_posee: bool,
     libelles: &HashMap<Uuid, String>,
-) -> Result<Vec<LigneAFacturer>, String> {
-    let Some((d, f)) = l.periode else { return Ok(vec![l.clone()]) };
+) -> Result<(Vec<LigneAFacturer>, Option<String>), String> {
+    let Some((d, f)) = l.periode else { return Ok((vec![l.clone()], None)) };
     let mois_l = indice_mois(d)..=indice_mois(f);
     let nl = i64::from(indice_mois(f) - indice_mois(d) + 1);
     let (mut pose_total, mut pose_principal) = (0_i128, 0_i128);
@@ -1978,12 +2058,12 @@ fn completer_plafonnee(
     let mut plafond_libre = (i128::from(l.unitaire) - pose_principal).max(0);
     let mut m = *mois_l.start();
     while m <= *mois_l.end() {
-        if couverts.contains(&m) {
+        if couverts.contains(&m) || croises.contains(&m) {
             m += 1;
             continue;
         }
         let debut = m;
-        while m <= *mois_l.end() && !couverts.contains(&m) {
+        while m <= *mois_l.end() && !couverts.contains(&m) && !croises.contains(&m) {
             m += 1;
         }
         let du_suite = calcul::proportion(du, i64::from(m - debut), nl);
@@ -2016,7 +2096,26 @@ fn completer_plafonnee(
         }
     }
     // mois couverts mais insuffisants : manque au dû, au payeur suivant désigné (après coup)
-    let manque = i128::from(calcul::proportion(du, c as i64, nl)) - pose_total;
+    let mut manque = i128::from(calcul::proportion(du, c as i64, nl)) - pose_total;
+    // M-2 : plafond **relevé** (même clé, même période) : le principal prend d'abord ce que le plafond libre permet,
+    // en complément sous une clé nouvelle `:c<premier mois libre>` ; le reste va au payeur suivant désigné.
+    if manque > 3 * c && plafond_libre > 0 {
+        let extra = manque.min(plafond_libre);
+        let existantes: Vec<&str> = memes.iter().map(|p| p.cle.as_str()).collect();
+        let reste = reste_cle(&l.source_cle);
+        let libre = mois_l.clone().find(|mm| {
+            let cle = format!("{pre}:c{}{reste}", premier_du_mois(*mm).format("%Y-%m"));
+            !existantes.contains(&cle.as_str())
+        });
+        if let Some(mm) = libre {
+            let mut p = l.clone();
+            p.unitaire = extra as i64;
+            p.source_cle = format!("{pre}:c{}{reste}", premier_du_mois(mm).format("%Y-%m"));
+            p.libelle = format!("{} — complément (plafond relevé)", l.libelle);
+            sortie.push(p);
+            manque -= extra;
+        }
+    }
     if manque > 3 * c && !suivants.is_empty() {
         for (i, montant) in calcul::repartir(manque as i64, &poids) {
             if montant == 0 {
@@ -2027,7 +2126,15 @@ fn completer_plafonnee(
             sortie.push(sv);
         }
     }
-    Ok(sortie)
+    // M-2 : plafond qui **baisse** (ou consommé ailleurs) sous le principal déjà facturé : règle prudente, rien n'est
+    // refacturé ni crédité d'office ; le dépassement est signalé par une tâche.
+    let signal = (cle_posee && pose_principal > i128::from(l.unitaire) + 1).then(|| {
+        format!(
+            "plafond de la prise en charge modifié : {pose_principal} c déjà facturés à l'organisme pour {} c de plafond restant ; rien n'est refacturé ni crédité d'office, à régulariser",
+            l.unitaire
+        )
+    });
+    Ok((sortie, signal))
 }
 
 fn refus_tarif(libelles: &HashMap<Uuid, String>, art: Uuid, p: &LignePosee, l: &LigneAFacturer) -> String {
