@@ -54,7 +54,7 @@ const SEUIL_PROCHE_REPLI: i64 = 10;
 /// `FRONTEND_LEPTOS.md` §3 — et reste strictement un sous-ensemble de ce que le serveur accepte : le
 /// serveur refuse de toute façon une valeur qu'il ne connaît pas.
 const CANAUX_REPLI: [&str; 5] = ["courrier", "courriel", "guichet", "dpo", "cnil"];
-const QUALITES_REPLI: [&str; 7] = [
+const QUALITES_REPLI: [&str; 9] = [
     "titulaire_autorite",
     "soi_meme",
     "eleve_mineur",
@@ -62,6 +62,10 @@ const QUALITES_REPLI: [&str; 7] = [
     "representant_majeur_protege",
     "mandataire",
     "ancien_eleve",
+    "personnel",
+    // Un tiers ne dépose pas en ligne, mais il écrit : une demande CADA d'un tiers s'enregistre au
+    // guichet (RGP-316) et se qualifie ensuite.
+    "tiers",
 ];
 const DROITS_REPLI: [&str; 7] = [
     "acces",
@@ -73,17 +77,14 @@ const DROITS_REPLI: [&str; 7] = [
     "consultations",
 ];
 
-fn options_repli(codes: &[&str], libelle: fn(&str) -> &'static str) -> Vec<(String, String)> {
+/// Options d'un `<select>` : code technique en valeur, libellé lisible en texte.
+fn options<S: AsRef<str>>(codes: &[S], libelle: fn(&str) -> &'static str) -> Vec<(String, String)> {
     codes
         .iter()
-        .map(|c| ((*c).to_string(), libelle(c).to_string()))
-        .collect()
-}
-
-fn options(codes: &[String], libelle: fn(&str) -> &'static str) -> Vec<(String, String)> {
-    codes
-        .iter()
-        .map(|c| (c.clone(), libelle(c).to_string()))
+        .map(|c| {
+            let c = c.as_ref();
+            (c.to_string(), libelle(c).to_string())
+        })
         .collect()
 }
 
@@ -324,8 +325,8 @@ fn FormulaireSaisie() -> impl IntoView {
     let cree = RwSignal::new(None::<Uuid>);
     let ecriture = Ecriture::nouveau(Callback::new(move |_| {}));
 
-    let canaux = options_repli(&CANAUX_REPLI, libelle_canal);
-    let qualites = options_repli(&QUALITES_REPLI, libelle_qualite);
+    let canaux = options(&CANAUX_REPLI, libelle_canal);
+    let qualites = options(&QUALITES_REPLI, libelle_qualite);
     let liste_droits: Vec<String> = DROITS_REPLI.iter().map(|d| (*d).to_string()).collect();
 
     let envoyer = move |_| {
@@ -926,8 +927,7 @@ fn Gestes(
                 <h3>"Décider d'un droit"</h3>
                 <Selection id="rgpd-g-droit".to_string() libelle="Droit".to_string()
                     valeur=droit_decide
-                    options=droits_de_la_demande.iter()
-                        .map(|c| (c.clone(), libelle_droit(c).to_string())).collect()/>
+                    options=options(&droits_de_la_demande, libelle_droit)/>
                 <Selection id="rgpd-g-decision".to_string() libelle="Décision".to_string()
                     valeur=decision
                     options=vec![
@@ -989,8 +989,7 @@ fn Gestes(
                 <h3>"Ajouter un droit"</h3>
                 <Selection id="rgpd-g-ajout".to_string() libelle="Droit à ajouter".to_string()
                     valeur=droit_ajout
-                    options=droits_disponibles.iter()
-                        .map(|c| (c.clone(), libelle_droit(c).to_string())).collect()/>
+                    options=options(&droits_disponibles, libelle_droit)/>
                 <Bouton variante=Variante::Secondaire
                     desactive=Signal::derive(move || ecriture.en_cours.get())
                     on_click=Callback::new(move |_| {
