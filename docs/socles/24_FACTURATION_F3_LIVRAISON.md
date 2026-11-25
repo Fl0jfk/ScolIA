@@ -374,7 +374,7 @@ Index `text_pattern_ops` (migration 533) ; régularisation des écarts déjà fa
 `Action::TOUTES` **282**, tables RLS, `SOURCES` **75**, migrations : inchangés.
 
 ### Vérifications
-Base locale neuve `ent_ci_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `f3s6_*` : **6 tests verts** ; régression ent-db (`tests_finances tests_payeurs tests_comptes tests_factur garde_search migrations`) : **105 passés, 0 échec**. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI, rustfmt ciblé, `cargo metadata --locked` (`web`) : voir ci-dessous. Pas de `cargo fmt --all`, pas de `#[ignore]`.
+Base locale neuve `ent_ci_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `f3s6_*` : **6 tests verts** ; régression ent-db (`tests_finances tests_payeurs tests_comptes tests_factur garde_search migrations`) : **105 passés, 0 échec**. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI (`ent-lab` compris) : 0 avertissement ; rustfmt ciblé sur `tests_finances_f3.rs` ; `cargo metadata --locked` (`web`) : OK. Pas de `cargo fmt --all`, pas de `#[ignore]`.
 
 ### Tête de code et CI
-(à compléter)
+Tête de code testée : `a57db1af` (PR 156, brouillon vers `ENT`, `origin/ENT` fusionné avant le push). CI « ENT Rust » : **verte**. Ce commit documentaire ne change aucun code.
