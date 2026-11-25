@@ -339,3 +339,7 @@ Branche `ent-socle-24-code-f3-suites-4` (partie d'`origin/ent-socle-24-code-f3-s
 `Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; migrations : **aucune** (533 libre) ; `SOURCES` **75** (inchangé).
 
 ### Vérifications
+Base locale neuve `ent_f3w_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `tests_finances_f3` : **48 tests verts** (42 + 6 `f3s5_*`, dont l'assertion de tâche close ajoutée à `f3s4_e1/e2`) ; régression ent-db (`tests_finances`, `tests_payeurs`, `tests_comptes`, `garde_search`) : **91 passés, 0 échec**. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI (`ent-lab` compris) : 0 avertissement ; `cargo metadata --locked` (`ent-rust/web`) : OK ; rustfmt ciblé sur `tests_finances_f3.rs` seulement ; pas de `cargo fmt --all`, pas de `#[ignore]`. `ent-api` et `ent-web-server` non rejoués en local : couverts par la CI. `origin/ENT` déjà à jour (fusion sans changement).
+
+### Tête de code et CI
+Voir le message au pilote (tête et CI renseignées après le push).
