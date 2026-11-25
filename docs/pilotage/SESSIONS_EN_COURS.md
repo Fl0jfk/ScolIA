@@ -758,3 +758,4 @@ Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser 
 - **F3 suites 3 (PR 150)** : M2 corrigé par le pilote ; chaîne : fusion de 153 (conflit migrate.rs : 657 puis 532) ; 532 inscrite ; tête **4fc2c701**, CI en attente. Ordre de versement : 153 puis 150.
 - **Livré** : cahier suites 2 (PR 154, code 60375255 CI verte, tête 95c715be doc ; migration 2420 à inscrire) ; contre-revue en cours sur `wt-cdt2`.
 - **Lancé** : F3 suites 4 (session_01KZCbFGCV8satNwVcsUFwME, Sonnet, branche `ent-socle-24-code-f3-suites-4` **depuis la branche de la PR 150**, migration 533 réservée). Sessions qui codent : T3 + F3 suites 4.
+- **Versé** : voyages V3b suites 2 + correctifs du pilote (PR 153, c70c3491, migration 657, CI 45528210440 verte) après CI d'ENT verte sur 53ed4604 (697) : **ENT = c70c3491**. Gel jusqu'au verdict ; ensuite PR 150 (F3 3, 4fc2c701, migration 532).
