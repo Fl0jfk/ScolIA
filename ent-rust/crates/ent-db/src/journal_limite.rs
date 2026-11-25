@@ -49,6 +49,43 @@ pub(crate) fn autoriser_global(cause: &'static str) -> bool {
     }
 }
 
+/// Abonné de test minimal, partagé (T3) : garde (niveau, message) des événements émis sur le **fil courant**
+/// (`tracing::subscriber::with_default`), sans horloge ni base.
+#[cfg(test)]
+pub(crate) mod collecteur {
+    use std::sync::{Arc, Mutex};
+
+    pub(crate) type Journal = Arc<Mutex<Vec<(tracing::Level, String)>>>;
+
+    pub(crate) struct Collecteur(pub(crate) Journal);
+
+    impl tracing::Subscriber for Collecteur {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, e: &tracing::Event<'_>) {
+            struct Message(String);
+            impl tracing::field::Visit for Message {
+                fn record_debug(&mut self, champ: &tracing::field::Field, valeur: &dyn std::fmt::Debug) {
+                    if champ.name() == "message" {
+                        self.0 = format!("{valeur:?}");
+                    }
+                }
+            }
+            let mut m = Message(String::new());
+            e.record(&mut m);
+            self.0.lock().unwrap().push((*e.metadata().level(), m.0));
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +114,27 @@ mod tests {
             "l'intervalle repart de la dernière ligne"
         );
         assert!(l.autoriser("a", t0 + Duration::from_secs(120), m));
+    }
+
+    /// T3 (faible 1 de E1 passe 5) : `signaler_echec_etablissement` — le **compteur** compte chaque échec, le **journal** ne
+    /// porte qu'une ligne par minute et par contexte (ici : cinq échecs d'un contexte → une ligne ; un autre contexte → la
+    /// sienne). Sans base ni horloge (cause propre au test, jamais journalisée ailleurs).
+    #[test]
+    fn les_echecs_par_etablissement_sont_comptes_tous_mais_journalises_une_fois_par_minute() {
+        use super::collecteur::Collecteur;
+        let journal = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let avant = crate::tenant_tx::echecs_par_etablissement();
+        tracing::subscriber::with_default(Collecteur(journal.clone()), || {
+            for _ in 0..5 {
+                crate::tenant_tx::signaler_echec_etablissement("t3_contexte_a", &"base indisponible");
+            }
+            crate::tenant_tx::signaler_echec_etablissement("t3_contexte_b", &"base indisponible");
+        });
+        let lignes = journal.lock().unwrap().len();
+        assert_eq!(lignes, 2, "une ligne par contexte, pas une par échec : {lignes}");
+        assert!(
+            crate::tenant_tx::echecs_par_etablissement() >= avant + 6,
+            "le compteur compte les six échecs, journalisés ou non"
+        );
     }
 }

@@ -403,8 +403,13 @@ fn b64(octets: &[u8], alphabet: &[u8; 64]) -> String {
 }
 
 /// Vrai si `texte` contient `clair` tel quel, en hexadécimal ou en base64 / base64url (trois décalages possibles).
-/// Déterministe : un chiffré aléatoire ne contient jamais un marqueur de cette longueur par hasard.
+/// Déterministe : un chiffré aléatoire ne contient jamais un cœur de 8 caractères base64 par hasard (64⁻⁸ ≈ 3·10⁻¹⁵
+/// par position). Le seuil du cœur est de 8 caractères (et non 12 : T3, faible 1 de T2) pour que la branche base64
+/// reste active sur un NOM d'élève de 10 octets (`Prot` + 6 lettres), pas seulement sur le long marqueur ; un clair de
+/// moins de 7 octets n'aurait plus de cœur exploitable : le détecteur refuse alors de répondre (panique) au lieu de
+/// passer pour « absent » sans rien chercher.
 fn contient_en_clair_ou_encode(texte: &str, clair: &str) -> bool {
+    assert!(clair.len() >= 7, "clair trop court pour le détecteur base64 : {clair:?}");
     const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     if texte.contains(clair) {
@@ -422,7 +427,7 @@ fn contient_en_clair_ou_encode(texte: &str, clair: &str) -> bool {
             // On écarte le premier caractère (mêlé au décalage) et le dernier (mêlé à la suite) : reste le cœur aligné.
             let debut = (decalage * 8).div_ceil(6) + 1;
             let fin = enc.len().saturating_sub(1);
-            enc.get(debut..fin).is_some_and(|coeur| coeur.len() > 12 && texte.contains(coeur))
+            enc.get(debut..fin).is_some_and(|coeur| coeur.len() >= 8 && texte.contains(coeur))
         })
     })
 }
@@ -443,6 +448,23 @@ fn le_detecteur_de_clair_retrouve_le_marqueur_sous_toutes_ses_formes() {
         assert!(contient_en_clair_ou_encode(&texte, m), "non détecté : {texte}");
     }
     assert!(!contient_en_clair_ou_encode("enc:v1:Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg", m));
+}
+
+/// T3 (faible 1 de T2) : la branche base64 est active pour un **nom** de 10 octets (la forme réelle de `e.nom`), aux
+/// trois alignements ; avant, le seuil `> 12` la rendait muette (cœur de 12 caractères au plus). Vecteurs calculés hors
+/// du code ; le dernier texte est un chiffré sans le nom (témoin négatif).
+#[test]
+fn le_detecteur_de_clair_retrouve_un_nom_de_dix_octets_en_base64() {
+    let nom = "ProtQwxzth";
+    assert_eq!(nom.len(), 10);
+    for texte in [
+        "enc:v1:BwkBUHJvdFF3eHp0aAUG",
+        "enc:v1:BwkBAlByb3RRd3h6dGgFBg",
+        "enc:v1:BwkBAgNQcm90UXd4enRoBQY",
+    ] {
+        assert!(contient_en_clair_ou_encode(texte, nom), "nom non détecté : {texte}");
+    }
+    assert!(!contient_en_clair_ou_encode("enc:v1:Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg", nom));
 }
 
 /// Une version sensible devenue non courante est scellée : valeurs en clair vidées, une ligne

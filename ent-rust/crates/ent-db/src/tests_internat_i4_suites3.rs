@@ -8,6 +8,7 @@
 //! |---|---|
 //! | F1 : avis lu, le nombre change → repasse non lu | `s5_avis_regroupe_*` |
 //! | F2 : envoi externe déjà parti : jamais réécrit | `s5_avis_regroupe_*` |
+//! | F1 (contrepartie) : texte identique → l'avis reste lu | `s5_avis_regroupe_texte_identique_*` |
 //! | F4 : le 3e événement est consommé ; `notifier_personne` inchangé | `s5_avis_regroupe_*`, `s5_notifier_personne_*` |
 //! | F7 : aucune connexion supplémentaire dans une transaction ouverte | `s5_eleve_cache_au_tiers_*` |
 //! | T2 : mêmes variantes `_conn` (visibilité, droit d'établissement, appel de groupe) et gestes de `vie.rs` | `t2_*` |
@@ -25,6 +26,15 @@ use domain_eleve::DomainError;
 use ent_auth::Action;
 use ent_types::internat_vie::VigilanceSaisieDto;
 use uuid::Uuid;
+
+async fn corps_et_lecture(conn: &mut sqlx::PgConnection, source: Uuid, user: Uuid) -> (String, Option<DateTime<Utc>>) {
+    sqlx::query_as("SELECT corps, lu_le FROM ent_notification WHERE source_event_id = $1 AND destinataire_user_id = $2")
+        .bind(source)
+        .bind(user)
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
 
 async fn avis(b: &Banc, user: Uuid) -> Vec<(String, Option<DateTime<Utc>>)> {
     sqlx::query_as(
@@ -90,6 +100,29 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
         minute.timestamp().div_euclid(60)
     );
 
+    // T3 (faible 4) : le test ne dépend plus de l'état préalable du banc (établissement de labo partagé : un envoi déjà
+    // `envoye` sous cette clé, ou un avis ouvert d'un test voisin, changerait les verdicts). On part d'un état vide, et on
+    // le vérifie.
+    sqlx::query(
+        "DELETE FROM ent_notification_envoi \
+          WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND canal = 'email' AND kind = 'internat_cas_ouvert'",
+    )
+    .bind(b.etab)
+    .bind(b.cpe)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "DELETE FROM ent_notification \
+          WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND kind = 'internat_cas_ouvert'",
+    )
+    .bind(b.etab)
+    .bind(b.cpe)
+    .execute(b.ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(avis(&b, b.cpe).await.is_empty(), "état de départ : aucun avis");
+
     // 1er événement : un avis simple, non lu.
     cas_dans_la_minute(&b, e1, minute, 16).await;
     let a1 = avis(&b, b.cpe).await;
@@ -103,7 +136,8 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
         "INSERT INTO ent_notification_envoi (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, \
                 source_type, source_id, cle_dedup, statut) \
          VALUES ($1,$2,$3,'email','internat_cas_ouvert','Cas de nuit ouvert',$4,'evenement',$5,$6,'en_attente') \
-         ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
+         ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) \
+         DO UPDATE SET statut = 'en_attente', corps = EXCLUDED.corps",
     )
     .bind(Uuid::new_v4())
     .bind(b.etab)
@@ -114,6 +148,7 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
     .execute(b.ent.pool_verif())
     .await
     .unwrap();
+    assert_eq!(envoi(&b, b.cpe, &cle).await.1, "en_attente", "départ : l'envoi n'est pas parti");
 
     // 2e événement : l'avis et l'envoi encore en attente portent « 2 élèves ».
     cas_dans_la_minute(&b, e2, minute, 30).await;
@@ -173,6 +208,51 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
     .await
     .unwrap();
     assert_eq!(restants, 0, "les trois événements sont consommés");
+}
+
+/// T3 (faible 3 de I4) : la contrepartie de F1 — un avis regroupé relu avec un texte **identique** reste lu ; seul un texte
+/// différent le remet à non lu. Direct sur `notifier_personne_selon` (aucun événement, aucune minute, aucune horloge) et sur
+/// un genre d'avis propre au test : aucun effet sur les avis des autres tests du banc.
+#[tokio::test]
+async fn s5_avis_regroupe_texte_identique_reste_lu_et_texte_different_repasse_non_lu() {
+    use super::notifications::notifier_personne_selon;
+    let Some(b) = banc().await else { return };
+    let source = Uuid::new_v4();
+    let avis_a = |corps: &'static str| EnvoiAPlanifier {
+        etablissement_id: b.etab,
+        user_id: b.cpe,
+        kind: "t3_avis_regroupe_identique",
+        titre: "Titre",
+        corps,
+        eleve_id: None,
+        notification_id: None,
+        source_type: "evenement",
+        source_id: source,
+        cle_dedup: format!("t3:{source}"),
+        droit_requis: None,
+        regroupable: false,
+        canaux_voulus: &[],
+    };
+    let mut conn = b.ent.pool_verif().acquire().await.unwrap();
+    let maintenant = h(1);
+    notifier_personne_selon(&mut conn, avis_a("2 élèves concernés"), source, maintenant, true).await.unwrap();
+    sqlx::query("UPDATE ent_notification SET lu_le = $3 WHERE source_event_id = $1 AND destinataire_user_id = $2")
+        .bind(source)
+        .bind(b.cpe)
+        .bind(maintenant)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    // Texte identique : l'avis reste lu (rien n'a changé pour la personne).
+    notifier_personne_selon(&mut conn, avis_a("2 élèves concernés"), source, maintenant, true).await.unwrap();
+    let (corps, lu) = corps_et_lecture(&mut conn, source, b.cpe).await;
+    assert_eq!(corps, "2 élèves concernés");
+    assert_eq!(lu, Some(maintenant), "texte identique : l'avis reste lu");
+    // Texte différent : texte à jour ET non lu (témoin : le test distingue bien les deux cas).
+    notifier_personne_selon(&mut conn, avis_a("3 élèves concernés"), source, maintenant, true).await.unwrap();
+    let (corps, lu) = corps_et_lecture(&mut conn, source, b.cpe).await;
+    assert_eq!(corps, "3 élèves concernés");
+    assert!(lu.is_none(), "texte différent : l'avis repasse non lu");
 }
 
 #[tokio::test]
@@ -350,4 +430,37 @@ async fn t2_lever_une_vigilance_sur_un_pool_d_une_connexion() {
         .expect("aucun interblocage")
         .expect("élève visible : vigilance levée");
     assert_eq!(ok.id, v_libre.id);
+}
+
+/// T3 (faible 2 de T2) : une variante `_conn` appelée avec la connexion d'un AUTRE établissement est détectée (panique en
+/// test/débogage), la bonne connexion passe. Le mode est donné explicitement (`Permissif`) : le test ne dépend pas de
+/// `ENT_RLS_MODE`.
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn t3_le_contrat_des_variantes_conn_detecte_la_connexion_d_un_autre_etablissement() {
+    use crate::tenant_tx::{verifier_connexion_etablissement_mode as verifier, RlsMode, TenantTx};
+    let Some(b) = banc().await else { return };
+    let (un, _ent1) = pool_une_connexion(&b).await;
+    // Témoin positif : la connexion porte bien l'établissement demandé.
+    let mut tx = TenantTx::begin_mode(&un, b.etab, RlsMode::Permissif).await.unwrap();
+    verifier(&mut tx, b.etab, "témoin", RlsMode::Permissif).await;
+    tx.rollback().await.unwrap();
+    // Autre établissement, puis aucun contexte (mode coupé à l'ouverture) : le contrôle panique, dans les deux cas.
+    let autre = Uuid::new_v4();
+    for ouverture in [RlsMode::Permissif, RlsMode::Off] {
+        let (pool, etab) = (un.clone(), b.etab);
+        let r = tokio::spawn(async move {
+            let mut tx = TenantTx::begin_mode(&pool, if ouverture == RlsMode::Off { etab } else { autre }, ouverture)
+                .await
+                .unwrap();
+            verifier(&mut tx, etab, "variante _conn", RlsMode::Permissif).await;
+        })
+        .await;
+        let e = r.expect_err("le contrôle doit paniquer");
+        assert!(e.is_panic(), "panique attendue ({ouverture:?}) : {e:?}");
+    }
+    // Mode coupé : aucun contrôle (la variable n'est jamais posée).
+    let mut tx = TenantTx::begin_mode(&un, b.etab, RlsMode::Off).await.unwrap();
+    verifier(&mut tx, Uuid::new_v4(), "coupé", RlsMode::Off).await;
+    tx.rollback().await.unwrap();
 }

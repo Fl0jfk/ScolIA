@@ -1793,7 +1793,7 @@ fn c1_aucune_colonne_json_dans_les_migrations_du_lot() {
         let p = e.unwrap().path();
         let nom = p.file_name().unwrap().to_string_lossy().to_string();
         let Some(n) = nom.split('_').next().and_then(|n| n.parse::<u32>().ok()) else { continue };
-        if !(2400..=2419).contains(&n) {
+        if !(2400..=2429).contains(&n) {
             continue;
         }
         vus += 1;

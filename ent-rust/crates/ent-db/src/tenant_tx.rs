@@ -93,6 +93,39 @@ pub struct TenantTx<'c> {
     tx: Transaction<'c, Postgres>,
 }
 
+/// Contrat des variantes `_conn` (T3, faible 2 de T2) : la connexion reçue porte le contexte `app.etablissement_id` de
+/// l'établissement demandé. En **débogage et en test** (`debug_assertions`), panique si la connexion porte un autre
+/// établissement ou aucun : sinon une variante mal appelée répondrait dans le mauvais contexte (sens permissif). Sans
+/// effet en release (aucune requête ajoutée) ni quand la RLS est coupée (`RlsMode::Off` ne pose pas la variable) ; une
+/// erreur de lecture de la variable ne change rien (le contrôle ne bloque jamais).
+#[cfg(debug_assertions)]
+pub(crate) async fn verifier_connexion_etablissement(conn: &mut PgConnection, etab: Uuid, appelant: &str) {
+    verifier_connexion_etablissement_mode(conn, etab, appelant, RlsMode::from_env()).await;
+}
+
+/// Même contrôle avec le mode de RLS donné (testable sans toucher à l'environnement du processus).
+#[cfg(debug_assertions)]
+pub(crate) async fn verifier_connexion_etablissement_mode(conn: &mut PgConnection, etab: Uuid, appelant: &str, mode: RlsMode) {
+    if mode == RlsMode::Off {
+        return;
+    }
+    if let Ok(pose) = sqlx::query_scalar::<_, Option<String>>("SELECT current_setting('app.etablissement_id', true)")
+        .fetch_one(&mut *conn)
+        .await
+    {
+        assert_eq!(
+            pose.as_deref(),
+            Some(etab.to_string().as_str()),
+            "{appelant} : la connexion ne porte pas l'établissement demandé (contrat des variantes `_conn`)"
+        );
+    }
+}
+
+/// Release : aucun contrôle (voir la version de débogage).
+#[cfg(not(debug_assertions))]
+#[inline]
+pub(crate) async fn verifier_connexion_etablissement(_conn: &mut PgConnection, _etab: Uuid, _appelant: &str) {}
+
 impl TenantTx<'static> {
     /// Ouvre la transaction et pose l'établissement (selon `ENT_RLS_MODE`).
     pub async fn begin(pool: &PgPool, etablissement_id: Uuid) -> Result<Self, sqlx::Error> {
@@ -248,13 +281,32 @@ pub fn echecs_par_etablissement() -> u64 {
 
 /// Enregistre l'échec d'un établissement : compteur + journal technique **sans identifiant
 /// d'établissement ni donnée** (E14), seulement le contexte et la nature de l'erreur.
-pub fn signaler_echec_etablissement(contexte: &str, erreur: &dyn std::fmt::Display) {
+///
+/// Journal **limité en fréquence** (T3, faible 1 de E1 passe 5) : au plus une ligne par minute et par `contexte`
+/// (`journal_limite`) ; une base indisponible faisait sinon journaliser une ligne par établissement et par passage (toutes les
+/// 5 s pour le distributeur d'avis). Le **compteur**, lui, compte tous les échecs, journalisés ou non.
+pub fn signaler_echec_etablissement(contexte: &'static str, erreur: &dyn std::fmt::Display) {
     ECHECS_ETABLISSEMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Contre-revue du pilote (T3, M1) : les lignes écartées par le limiteur sont comptées par contexte et le nombre est
+    // journalisé avec la ligne suivante : aucun échec ne disparaît sans trace.
+    static SUPPRIMEES: std::sync::Mutex<Option<std::collections::HashMap<&'static str, u64>>> = std::sync::Mutex::new(None);
+    if !crate::journal_limite::autoriser_global(contexte) {
+        if let Ok(mut m) = SUPPRIMEES.lock() {
+            *m.get_or_insert_with(Default::default).entry(contexte).or_default() += 1;
+        }
+        return;
+    }
+    let supprimees = SUPPRIMEES
+        .lock()
+        .ok()
+        .and_then(|mut m| m.as_mut().and_then(|m| m.remove(contexte)))
+        .unwrap_or(0);
     tracing::error!(
         target: "ent_tache_fond",
         contexte,
         erreur = %erreur,
-        "tâche de fond en échec pour un établissement ; les autres établissements continuent"
+        supprimees,
+        "tâche de fond en échec pour un établissement ; les autres établissements continuent (journal limité à une ligne par minute et par contexte)"
     );
 }
 

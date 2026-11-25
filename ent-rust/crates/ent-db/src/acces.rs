@@ -114,6 +114,7 @@ impl PgEnt {
         conn: &mut sqlx::PgConnection,
         etablissement_id: Uuid,
     ) -> Result<NaiveDate, EntDbError> {
+        crate::tenant_tx::verifier_connexion_etablissement(&mut *conn, etablissement_id, "aujourdhui_etablissement_conn").await;
         let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
             .bind(etablissement_id)
             .fetch_one(&mut *conn)

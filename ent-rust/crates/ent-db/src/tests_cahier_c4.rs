@@ -285,9 +285,11 @@ async fn c4_groupe_de_4_classes_nombres_justes_aucune_matiere_hors_classe_alerte
         nb_requetes_35 > 0,
         "le compteur voit les requêtes (sinon la preuve ne prouve rien)"
     );
-    assert_eq!(
-        nb_requetes_35, nb_requetes_9,
-        "le nombre de requêtes ne dépend pas du nombre d'élèves (jamais une par élève)"
+    // Borne, pas égalité (suites 2, faible 10) : une requête de plus sur le plus gros aperçu (un cas de bord, un contrôle de
+    // droit) ne doit pas faire échouer le test ; une requête PAR ÉLÈVE (26 de plus entre 9 et 35 élèves) le ferait.
+    assert!(
+        nb_requetes_35 <= nb_requetes_9 + 8,
+        "le nombre de requêtes ne dépend pas du nombre d'élèves (jamais une par élève) : {nb_requetes_35} requêtes pour 35 élèves, {nb_requetes_9} pour 9"
     );
     // Mesuré : 19 requêtes. Marge pour une requête ajoutée à l'aperçu ; une requête par élève (35 de plus) dépasserait.
     assert!(
