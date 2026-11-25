@@ -102,6 +102,7 @@ impl PgEnt {
         user_id: Uuid,
         role_base: &str,
     ) -> Result<Vec<Droit>, EntDbError> {
+        crate::tenant_tx::verifier_connexion_etablissement(&mut *conn, etablissement_id, "droits_effectifs_conn").await;
         let Some(base) = Role::parse(role_base) else {
             return Ok(Vec::new());
         };

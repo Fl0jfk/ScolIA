@@ -198,3 +198,107 @@ async fn p5_f3_expedier_observe_la_borne_xmin_hors_flux() {
         "un passage de l'expéditeur observe la borne xmin hors flux pour son établissement"
     );
 }
+
+/// Verrouille le message `FOR UPDATE` dans une transaction ouverte (une annulation en cours) : tant qu'elle vit, tout
+/// contrôle `FOR KEY SHARE` attend.
+async fn annulation_en_cours(
+    ent: &PgEnt,
+    etab: Uuid,
+    message: Uuid,
+) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut lente = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+        .bind(etab.to_string())
+        .execute(&mut *lente)
+        .await
+        .unwrap();
+    sqlx::query("SELECT 1 FROM ent_msg WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
+        .bind(etab)
+        .bind(message)
+        .fetch_one(&mut *lente)
+        .await
+        .unwrap();
+    lente
+}
+
+/// T3 (faible 4 de E1 passe 5) : `message_existe_sous_verrou` (version de domaine, appelée par l'API) et
+/// `message_existe_sous_verrou_brut` (version des tests, SQLSTATE lisible) rendent le **même verdict** dans les trois
+/// états : message existant, message inconnu, message verrouillé par une annulation en cours (la version de domaine rend
+/// alors exactement la réduction de l'erreur brute par `pg_err::map_sqlx`, jamais un SQLSTATE).
+#[tokio::test]
+async fn p5_e1_l_enveloppe_et_la_version_brute_rendent_le_meme_verdict() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Équivalence enveloppe").await;
+    let m = message_differe(&ent, etab, dir, fil, "Existant").await;
+    let attente = Duration::from_millis(200);
+    let repo = crate::msg_repo::PgMsgRepo::new(ent.pool_verif().clone());
+
+    // Existant, puis inconnu.
+    for (id, attendu) in [(m, true), (Uuid::new_v4(), false)] {
+        let brut = repo.message_existe_sous_verrou_brut(etab, id, attente).await.unwrap();
+        let enveloppe = repo.message_existe_sous_verrou(etab, id, attente).await.unwrap();
+        assert_eq!((brut, enveloppe), (attendu, attendu), "message {id}");
+    }
+
+    // Verrouillé : les deux échouent ; le brut garde 55P03, l'enveloppe en rend la réduction de domaine.
+    let lente = annulation_en_cours(&ent, etab, m).await;
+    let brut = repo.message_existe_sous_verrou_brut(etab, m, attente).await.unwrap_err();
+    assert_eq!(code(&brut).as_deref(), Some("55P03"), "{brut:?}");
+    let enveloppe = repo.message_existe_sous_verrou(etab, m, attente).await.unwrap_err();
+    assert_eq!(
+        format!("{enveloppe:?}"),
+        format!("{:?}", crate::pg_err::map_sqlx("msg_repo", brut)),
+        "l'enveloppe est la réduction de l'erreur brute"
+    );
+    lente.rollback().await.unwrap();
+    // Verrou levé : les deux revoient le message.
+    assert!(repo.message_existe_sous_verrou_brut(etab, m, attente).await.unwrap());
+    assert!(repo.message_existe_sous_verrou(etab, m, attente).await.unwrap());
+}
+
+/// T3 (E1 passe 5, test à ajouter) : une annulation **validée après le report** de l'avis. Le distributeur trouve le
+/// message verrouillé par l'annulation en cours : l'avis est reporté (`en_attente`, pas perdu). L'annulation est ensuite
+/// validée (le message disparaît) : au passage suivant, l'avis est écarté avec le motif `message_annule`, et rien n'est parti.
+#[tokio::test]
+async fn p5_e1_une_annulation_validee_apres_le_report_ecarte_l_avis_avec_message_annule() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Annulation après report").await;
+    let m = message_differe(&ent, etab, dir, fil, "Annulé après report").await;
+    let avis = avis_planifie(&ent, etab, lily, cast.eleve_lea_id, m).await;
+    let apres = apres_l_echeance(&ent).await;
+
+    let mut lente = annulation_en_cours(&ent, etab, m).await;
+    let exp = ent.expediteur(crate::notifications::ConfigExpedition {
+        taille_lot: 10,
+        etablissement: Some(etab),
+        attente_verrou: Duration::from_millis(200),
+        ..crate::notifications::ConfigExpedition::default()
+    });
+    let b1 = exp.expedier(apres).await.unwrap();
+    assert!(b1.reportes >= 1, "l'avis est reporté, le message étant verrouillé : {b1:?}");
+    assert_eq!(statut_avis(&ent, avis).await.0, "en_attente", "reporté, pas perdu ni parti");
+
+    // L'annulation est validée : le message disparaît (dans la transaction qui le tenait).
+    sqlx::query("DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab)
+        .bind(m)
+        .execute(&mut *lente)
+        .await
+        .unwrap();
+    lente.commit().await.unwrap();
+
+    // Passage suivant, plus tard que le report : l'avis est écarté pour message annulé, rien n'est parti.
+    let plus_tard = apres + chrono::Duration::minutes(5);
+    let b2 = exp.expedier(plus_tard).await.unwrap();
+    assert_eq!(
+        statut_avis(&ent, avis).await,
+        ("ignore".to_string(), Some("message_annule".to_string())),
+        "annulation validée après report : avis écarté : {b2:?}"
+    );
+}

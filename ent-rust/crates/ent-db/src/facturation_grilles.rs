@@ -1084,6 +1084,7 @@ struct ArticleRow {
     modele_code: Option<String>,
     qualifie_le: Option<DateTime<Utc>>,
     nb_lignes: i64,
+    retire_a_partir_du: Option<NaiveDate>,
 }
 
 impl ArticleRow {
@@ -1111,6 +1112,7 @@ impl ArticleRow {
             modele_code: self.modele_code,
             qualifie_le: self.qualifie_le,
             nb_lignes: self.nb_lignes,
+            retire_a_partir_du: self.retire_a_partir_du,
         }
     }
 }
@@ -1119,7 +1121,8 @@ const SELECT_ARTICLE: &str = "SELECT a.id, a.code, a.libelle, a.categorie, a.com
         a.regime_tva, a.taux_tva_bps, a.unite, a.mode, a.remboursable, a.soumis_reductions, a.soumis_remise_ordre,
         a.modele_code, a.qualifie_le,
         (SELECT count(*) FROM ent_fac_ligne l WHERE l.etablissement_id = a.etablissement_id
-            AND l.article_id = a.id) AS nb_lignes
+            AND l.article_id = a.id) AS nb_lignes,
+        a.retire_a_partir_du
    FROM ent_fin_article a";
 
 async fn articles_tx(
@@ -1545,6 +1548,68 @@ impl PgEnt {
         Ok(dto)
     }
 
+    /// Fin de tarif datée (suites 3, D-069) : l'article n'est plus dû à partir de `a_partir_du` (les mois commencés
+    /// avant le restent) ; `None` le rétablit. Ne réécrit **aucune** ligne déjà posée (régularisation = F4). Droit
+    /// `tarifs`, motif obligatoire, journalisé.
+    pub async fn retirer_article_a_la_date_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &RetraitArticleBody,
+    ) -> Result<ArticleQualifieDto, EntDbError> {
+        self.fin_exiger(etab, actor, role, Action::FacturationTarifs)
+            .await?;
+        let motif = texte(&b.motif, 300, "motif obligatoire (300 caractères)")?;
+        // La facturation est mensuelle : la fin prend effet au premier jour d'un mois (valeur prudente, D-069 : pas de
+        // mois coupé en deux ni de mois commencé mais gratuit).
+        if b.a_partir_du.is_some_and(|j| j.day() != 1) {
+            return Err(invalide("la fin de tarif prend effet au premier jour d'un mois"));
+        }
+        let mut tx = self.fin_tx(etab).await?;
+        let existe: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_fin_article WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        existe.ok_or_else(introuvable)?;
+        sqlx::query("UPDATE ent_fin_article SET retire_a_partir_du = $3 WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(id)
+            .bind(b.a_partir_du)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        journaliser_tx(
+            &mut tx,
+            &Acte::new(
+                etab,
+                Some(actor),
+                role,
+                Chemin::Finances,
+                "article.retirer",
+                "article",
+            )
+            .objet(id)
+            .motif(&motif)
+            .detail(&match b.a_partir_du {
+                Some(j) => format!("article dû jusqu'au mois précédant le {}", j.format("%d/%m/%Y")),
+                None => "article rétabli (fin de tarif levée)".to_string(),
+            }),
+        )
+        .await?;
+        let dto = articles_tx(&mut tx, etab, Some(id))
+            .await?
+            .pop()
+            .ok_or_else(introuvable)?;
+        tx.commit().await.map_err(db)?;
+        Ok(dto)
+    }
+
     /// FAC-106 : usage d'un article (lignes et montants nets par année, aucune personne).
     pub async fn usage_article_for_actor(
         &self,
@@ -1605,14 +1670,15 @@ impl PgEnt {
         self.fin_exiger(etab, actor, role, Action::FacturationLire)
             .await?;
         // les alertes (qui a désactivé le second regard, quand) ne sont servies qu'à ceux qui règlent ou votent
-        let destinataire = self
-            .fin_exiger(etab, actor, role, Action::FacturationParametrer)
-            .await
-            .is_ok()
-            || self
-                .fin_exiger(etab, actor, role, Action::FacturationVoter)
-                .await
-                .is_ok();
+        // Suites 3 (faible 6) : seul le **refus de droit** écarte l'alerte ; une erreur technique remonte (elle ne se
+        // lit jamais comme « pas de droit »).
+        let droit = |r: Result<(), EntDbError>| match r {
+            Ok(()) => Ok(true),
+            Err(EntDbError::Forbidden) => Ok(false),
+            Err(e) => Err(e),
+        };
+        let destinataire = droit(self.fin_exiger(etab, actor, role, Action::FacturationParametrer).await)?
+            || droit(self.fin_exiger(etab, actor, role, Action::FacturationVoter).await)?;
         let mut tx = self.fin_tx(etab).await?;
         let (exiger, second) = reglages_tx(&mut tx, etab).await?;
         let n = nb_non_qualifies_tx(&mut tx, etab).await?;
@@ -2816,7 +2882,7 @@ impl PgEnt {
     ///
     /// Une version `close` reste applicable jusqu'à la veille de la suivante : les familles doivent la voir. Mais
     /// une version **supplantée** (une version plus récente de l'année est déjà entrée en vigueur à ce jour) ne se
-    /// publie plus : seule la version applicable la plus récente se publie (D-069).
+    /// publie plus **pour la première fois** (une version déjà publiée reste relisible) : seule la version applicable la plus récente se publie (D-069).
     pub(crate) async fn publier_grille_au_jour(
         &self,
         etab: Uuid,
@@ -2836,7 +2902,8 @@ impl PgEnt {
                 "seule une grille votée, en vigueur ou encore applicable (close) se publie",
             ));
         }
-        if encore_applicable {
+        // Suites 3 (faible 4) : le refus ne vaut que pour la **première** publication ; une version déjà publiée se relit.
+        if encore_applicable && v.publiee_le.is_none() {
             let (supplantee,): (bool,) = sqlx::query_as(
                 "SELECT EXISTS (SELECT 1 FROM ent_fin_grille_version w
                                  WHERE w.etablissement_id = $1 AND w.annee_scolaire = $2
@@ -3781,7 +3848,7 @@ async fn controles_tx(
     let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT t.article_id, a.code, t.niveau, t.regime FROM ent_fin_tarif t
            JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
-          WHERE t.etablissement_id = $1 AND t.actif AND a.actif
+          WHERE t.etablissement_id = $1 AND t.actif AND a.actif AND a.retire_a_partir_du IS NULL
             AND CASE WHEN $3::UUID IS NULL THEN t.annee_scolaire = $2 AND t.grille_version_id IS NULL
                      ELSE t.grille_version_id = $3 END",
     )
@@ -3803,7 +3870,7 @@ async fn controles_tx(
     let facturees: Vec<(Uuid, String)> = sqlx::query_as(
         "SELECT DISTINCT a.id, a.code FROM ent_fac_ligne l
            JOIN ent_fin_article a ON a.id = l.article_id AND a.etablissement_id = l.etablissement_id
-          WHERE l.etablissement_id = $1 AND a.actif
+          WHERE l.etablissement_id = $1 AND a.actif AND a.retire_a_partir_du IS NULL
             AND (l.source_cle LIKE $2
                  OR (l.source_cle LIKE 'regime:%' AND EXISTS (
                        SELECT 1 FROM ent_fac_facture f WHERE f.id = l.facture_id AND f.etablissement_id = l.etablissement_id
@@ -3820,6 +3887,31 @@ async fn controles_tx(
     .map_err(db)?;
     if !tarifs.is_empty() {
         anomalies.extend(controler_continuite(&precedents, &tarifs, &facturees));
+    }
+    // Suites 3 (faible 1) : la fin de tarif datée ne porte pas d'année ; une grille qui tarifie encore un article retiré
+    // est signalée (avertissement, jamais bloquant) : la date est peut-être périmée (retrait d'une année précédente).
+    let retires: Vec<(Uuid, String, NaiveDate)> = sqlx::query_as(
+        "SELECT DISTINCT a.id, a.code, a.retire_a_partir_du FROM ent_fin_tarif t
+           JOIN ent_fin_article a ON a.id = t.article_id AND a.etablissement_id = t.etablissement_id
+          WHERE t.etablissement_id = $1 AND t.grille_version_id = $2 AND t.actif AND a.actif
+            AND a.retire_a_partir_du IS NOT NULL
+          ORDER BY a.code",
+    )
+    .bind(etab)
+    .bind(version)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for (id, code, date) in retires {
+        anomalies.push(AnomalieGrilleDto {
+            code: "article_retire_tarife".into(),
+            message: format!(
+                "l'article « {code} » est retiré à partir du {} (fin de tarif datée) mais cette grille le tarifie : vérifiez que la date n'est pas périmée",
+                date.format("%d/%m/%Y")
+            ),
+            article_id: Some(id),
+            bloquante: false,
+        });
     }
     let proposable = !anomalies.iter().any(|a| a.bloquante);
     Ok(ControlesGrilleDto {

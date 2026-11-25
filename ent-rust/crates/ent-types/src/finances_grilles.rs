@@ -78,6 +78,8 @@ pub struct ArticleQualifieDto {
     pub proposition: Option<PropositionQualificationDto>,
     /// Nombre de lignes de pièces qui portent l'article (une fois qualifié, la nature ne change plus).
     pub nb_lignes: i64,
+    /// Fin de tarif datée (suites 3) : premier jour où l'article n'est plus dû (les mois commencés avant le restent).
+    pub retire_a_partir_du: Option<NaiveDate>,
 }
 
 /// Modèle d'article fourni par ScolIA (D-023) : copié et renommé par l'établissement (D-022).
@@ -121,6 +123,16 @@ pub struct QualifierArticleBody {
     pub remboursable: Option<bool>,
     pub soumis_reductions: Option<bool>,
     pub soumis_remise_ordre: Option<bool>,
+}
+
+/// Fin de tarif datée d'un article (suites 3, D-069) : `a_partir_du` est le premier jour où l'article n'est plus dû ;
+/// `None` rétablit l'article. Les mois **commencés avant** cette date restent dus, les suivants ne le sont plus.
+/// Distinct de la désactivation de l'article, qui le sort de la génération pour toute l'année.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetraitArticleBody {
+    pub a_partir_du: Option<NaiveDate>,
+    pub motif: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

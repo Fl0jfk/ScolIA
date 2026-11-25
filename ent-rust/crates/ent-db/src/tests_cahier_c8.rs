@@ -2590,7 +2590,9 @@ async fn jeu_gel(fx: &Fx) -> JeuGel {
 
 /// Tables de versions : en ajout seul (UPDATE et DELETE y sont refusés par leur propre garde, avec le même code 23514).
 fn ajout_seul(table: &str) -> bool {
-    table.ends_with("_version") || table == "ent_cdt_continuite_cours"
+    table.ends_with("_version")
+        || table == "ent_cdt_continuite_cours"
+        || table == "ent_cdt_echeance_eleve"
 }
 
 /// Avant le gel, l'INSERT passe sur chaque table (le jeu est valide : un refus plus tard vient bien du gel) et l'UPDATE touche
@@ -3734,7 +3736,7 @@ async fn jeu_gel_filles(fx: &Fx) -> JeuGel {
         .unwrap()
         .id;
     let t1 = travail(fx, cours, "Travail des tables filles", "maintenant").await;
-    let (g1, cont) = (Uuid::new_v4(), Uuid::new_v4());
+    let (g1, cont, demande, echeance) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
     let agent: Uuid =
         sqlx::query_scalar("SELECT id FROM ent_agent WHERE etablissement_id = $1 LIMIT 1")
             .bind(etab)
@@ -3744,6 +3746,9 @@ async fn jeu_gel_filles(fx: &Fx) -> JeuGel {
     for q in [
         format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{g1}', '{etab}', '{t1}', 'G1')"),
         format!("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ('{cont}', '{etab}', '{}', DATE '2026-01-15')", fx.cast.eleves[0].id),
+        // Suites 2 (2420) : une prolongation individuelle et une demande de délai (dates fixes, jamais l'heure réelle).
+        format!("INSERT INTO ent_cdt_echeance_eleve (id, etablissement_id, travail_id, eleve_id, echeance_le, motif_code) VALUES ('{echeance}', '{etab}', '{t1}', '{}', TIMESTAMPTZ '2026-01-20 10:00:00+00', 'autre')", fx.cast.eleves[0].id),
+        format!("INSERT INTO ent_cdt_delai_demande (id, etablissement_id, travail_id, eleve_id, message) VALUES ('{demande}', '{etab}', '{t1}', '{}', 'Besoin de temps')", fx.cast.eleves[0].id),
     ] {
         sqlx::query(&q).execute(fx.ent.pool()).await.unwrap_or_else(|e| panic!("jeu : {q} : {e}"));
     }
@@ -3772,6 +3777,18 @@ async fn jeu_gel_filles(fx: &Fx) -> JeuGel {
             format!("INSERT INTO ent_cdt_continuite_cours (etablissement_id, continuite_id, cours_id) VALUES ('{etab}', '{cont}', '{cours}')"),
             format!("UPDATE ent_cdt_continuite_cours SET cree_le = cree_le WHERE continuite_id = '{cont}'"),
             format!("DELETE FROM ent_cdt_continuite_cours WHERE continuite_id = '{cont}'"),
+        ),
+        (
+            "ent_cdt_echeance_eleve",
+            format!("INSERT INTO ent_cdt_echeance_eleve (id, etablissement_id, travail_id, eleve_id, echeance_le, motif_code) VALUES ('{}', '{etab}', '{t1}', '{eleve}', TIMESTAMPTZ '2026-01-21 10:00:00+00', 'autre')", Uuid::new_v4()),
+            format!("UPDATE ent_cdt_echeance_eleve SET cree_le = cree_le WHERE id = '{echeance}'"),
+            format!("DELETE FROM ent_cdt_echeance_eleve WHERE id = '{echeance}'"),
+        ),
+        (
+            "ent_cdt_delai_demande",
+            format!("INSERT INTO ent_cdt_delai_demande (id, etablissement_id, travail_id, eleve_id, message) VALUES ('{}', '{etab}', '{t1}', '{eleve}', 'Autre demande')", Uuid::new_v4()),
+            format!("UPDATE ent_cdt_delai_demande SET message = message WHERE id = '{demande}'"),
+            format!("DELETE FROM ent_cdt_delai_demande WHERE id = '{demande}'"),
         ),
     ];
     JeuGel { annee, lignes }
@@ -3830,7 +3847,7 @@ async fn c8_suites_f2_tables_filles_hors_gel_ajout_seul_et_sans_truncate() {
     let jeu = jeu_gel_filles(&fx).await;
     inserer_avant_gel(&fx, &jeu).await;
     for (table, _, upd, del) in &jeu.lignes {
-        if table == &"ent_cdt_continuite_cours" {
+        if ajout_seul(table) {
             for (quoi, q) in [("UPDATE", upd), ("DELETE", del)] {
                 assert_eq!(
                     code_sql(sqlx::query(q).execute(fx.ent.pool()).await).as_deref(),
@@ -3859,12 +3876,17 @@ async fn sous_role_applicatif(
     crate::tests_rls_stricte::assurer_role_strict(fx.ent.pool_verif()).await;
     let mut tx = fx.ent.pool_verif().begin().await.unwrap();
     if masquer_annees {
-        for q in [
-            "ALTER TABLE ent_annee_scolaire ENABLE ROW LEVEL SECURITY".to_string(),
-            format!("CREATE POLICY suites_f3_masque ON ent_annee_scolaire AS RESTRICTIVE FOR SELECT TO {role} USING (false)"),
-        ] {
-            sqlx::query(&q).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{q} : {e}"));
-        }
+        // Suites 2 (faible 9) : AUCUN `ALTER TABLE` sur la table commune `ent_annee_scolaire` (il prendrait un verrou ACCESS
+        // EXCLUSIVE et bloquerait les tests voisins) ; la RLS y est déjà activée par les migrations (précondition vérifiée).
+        // `CREATE POLICY` ne prend qu'un verrou SHARE UPDATE EXCLUSIVE, qui laisse passer les lectures concurrentes, et la
+        // politique reste locale à cette transaction, toujours annulée.
+        let (rls,): (bool,) = sqlx::query_as("SELECT relrowsecurity FROM pg_class WHERE oid = 'public.ent_annee_scolaire'::regclass")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert!(rls, "précondition : la RLS est activée sur ent_annee_scolaire");
+        let q = format!("CREATE POLICY suites_f3_masque ON ent_annee_scolaire AS RESTRICTIVE FOR SELECT TO {role} USING (false)");
+        sqlx::query(&q).execute(&mut *tx).await.unwrap_or_else(|e| panic!("{q} : {e}"));
     }
     sqlx::query(&format!("SET LOCAL ROLE {role}"))
         .execute(&mut *tx)
@@ -3936,7 +3958,14 @@ async fn c8_suites_f3_gel_echoue_ferme_quand_l_annee_est_invisible() {
     let masque = sous_role_applicatif(&fx, true, &ordres).await;
     for (q, r) in ordres.iter().zip(&masque) {
         match r {
-            Err((code, _)) => assert_eq!(code, "23514", "{q}"),
+            Err((code, message)) => {
+                assert_eq!(code, "23514", "{q}");
+                // Faible 4 : le MESSAGE aussi (un autre 23514, par exemple une contrainte CHECK, ne doit pas valider ce test).
+                assert!(
+                    message.starts_with("cahier de textes : l'année est figée"),
+                    "« {q} » : refus pour une autre raison que le gel : {message}"
+                );
+            }
             Ok(n) => panic!("année invisible : l'écriture « {q} » a passé ({n} ligne) alors que le gel doit échouer fermé"),
         }
     }
@@ -4004,6 +4033,201 @@ async fn c8_suites_reprise_refusee_au_role_applicatif() {
     assert!(proprietaire, "le propriétaire la garde");
 }
 
+/// Suites 2 (faible 6) : le retrait du droit sur la reprise vaut pour TOUT rôle muni d'une autorisation explicite, sans nom
+/// codé en dur (2419 ne retirait que `ent_app`) et sans toucher au propriétaire. Le rôle d'essai reçoit le droit, la partie
+/// « REVOKE » de 2420 est rejouée (le rejeu des déclencheurs, lui, a son propre test), le droit disparaît.
+#[tokio::test]
+async fn c8_suites2_reprise_retiree_a_tout_role_sauf_au_proprietaire() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    const ROLE: &str = "ent_suites2_reprise_essai";
+    let pool = fx.ent.pool_verif();
+    // Les créations de rôles se sérialisent (verrou 7770042 de `tests_rls_stricte`) : plusieurs processus partagent le cluster.
+    let mut c = pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut *c).await.unwrap();
+    sqlx::query(&format!(
+        "DO $$ BEGIN CREATE ROLE {ROLE} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$"
+    ))
+    .execute(&mut *c)
+    .await
+    .unwrap();
+    async fn a_le_droit(c: &mut sqlx::PgConnection) -> bool {
+        sqlx::query_scalar::<_, bool>(&format!(
+            "SELECT has_function_privilege('{ROLE}', 'public.ent_cdt_reprise(uuid)', 'EXECUTE')"
+        ))
+        .fetch_one(c)
+        .await
+        .unwrap()
+    }
+    sqlx::query(&format!("GRANT EXECUTE ON FUNCTION public.ent_cdt_reprise(uuid) TO {ROLE}"))
+        .execute(&mut *c)
+        .await
+        .unwrap();
+    assert!(a_le_droit(&mut c).await, "témoin : le rôle d'essai a reçu le droit");
+    let script = include_str!("../../../migrations/2420_cdt_suites2_gel_echeances.sql");
+    let fin = script.find("-- ── 2.").expect("repère de la partie 2");
+    sqlx::raw_sql(&script[..fin]).execute(&mut *c).await.expect("REVOKE de 2420");
+    let apres = a_le_droit(&mut c).await;
+    let proprietaire: bool = sqlx::query_scalar(
+        "SELECT has_function_privilege(current_user, 'public.ent_cdt_reprise(uuid)', 'EXECUTE')",
+    )
+    .fetch_one(&mut *c)
+    .await
+    .unwrap();
+    // Rejouable : un second passage ne change rien et n'échoue pas.
+    sqlx::raw_sql(&script[..fin]).execute(&mut *c).await.expect("REVOKE de 2420, rejeu");
+    sqlx::query(&format!("DROP OWNED BY {ROLE}")).execute(&mut *c).await.unwrap();
+    sqlx::query(&format!("DROP ROLE IF EXISTS {ROLE}")).execute(&mut *c).await.unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(7770042)").execute(&mut *c).await.unwrap();
+    assert!(!apres, "le droit d'un rôle quelconque est retiré");
+    assert!(proprietaire, "le propriétaire garde l'exécution");
+}
+
+/// Suites 2 (faibles 3 et 5) : le refus du gel d'une table fille est un conflit lisible (409), jamais un 400 opaque ; les
+/// modules du cahier de la remise et des prolongations passent par la même traduction que ceux de la clôture.
+#[tokio::test]
+async fn c8_suites2_refus_du_gel_d_une_table_fille_est_un_conflit_lisible() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jeu = jeu_gel_filles(&fx).await;
+    cloturer(&fx, jeu.annee).await;
+    for (table, ins, _, _) in &jeu.lignes {
+        let err = sqlx::query(ins).execute(fx.ent.pool()).await.unwrap_err();
+        let e = crate::cahier_c8::db(err);
+        assert!(est_refus(&e, RefusMetier::Conflit), "{table} : {e:?}");
+    }
+    // Les deux modules de la remise (C5) utilisent la même traduction (et non plus `ref_commun::db`, qui rendait un 400).
+    for (module, source) in [
+        ("cahier_c5", include_str!("cahier_c5.rs")),
+        ("cahier_c5_prof", include_str!("cahier_c5_prof.rs")),
+    ] {
+        assert!(source.contains("use crate::cahier_c8::db;"), "{module} : traduction du cahier");
+        assert!(!source.contains("ref_commun::{db,"), "{module} : plus de `ref_commun::db`");
+    }
+}
+
+/// Suites 2 (faible 3) : une ligne ne se déplace NI vers une année close NI depuis une année close, pour les tables dont la
+/// ligne peut changer de travail (groupe, appartenance, note d'accompagnement, demande de délai ; les prolongations et les
+/// cours d'une continuité sont en ajout seul : leur déplacement est déjà refusé par leur propre garde). Témoin : avant la
+/// clôture, les mêmes déplacements passent. Aucune date réelle : les années sont créées à des dates fixes.
+#[tokio::test]
+async fn c8_suites2_deplacement_vers_ou_depuis_une_annee_close_refuse() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = fx.cast.etablissement_id;
+    let pool = fx.ent.pool();
+    let cours = cours_a(&fx).await;
+    let annee_b = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante) VALUES ($1, $2, 'Suites 2 B', DATE '2030-09-01', DATE '2031-07-01', false)")
+        .bind(annee_b)
+        .bind(etab)
+        .execute(pool)
+        .await
+        .unwrap();
+    let t_a = travail(&fx, cours, "Travail de l'année ouverte", "maintenant").await;
+    let t_b = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_cdt_travail (id, etablissement_id, cours_id, annee_id, donne_le, echeance_mode, echeance_le, nature_id, titre, consigne, auteur_user_id)
+         SELECT $3, etablissement_id, cours_id, $2, donne_le, echeance_mode, echeance_le, nature_id, 'Travail de l''année B', consigne, auteur_user_id FROM ent_cdt_travail WHERE id = $1",
+    )
+    .bind(t_a)
+    .bind(annee_b)
+    .bind(t_b)
+    .execute(pool)
+    .await
+    .unwrap();
+    let agent: Uuid = sqlx::query_scalar("SELECT id FROM ent_agent WHERE etablissement_id = $1 LIMIT 1")
+        .bind(etab)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let (e0, e1) = (fx.cast.eleves[0].id, fx.cast.eleves[1].id);
+    let (g_a, g_b, n_a, n_b, d_a, d_b) = (
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+    );
+    for q in [
+        format!("INSERT INTO ent_cdt_groupe (id, etablissement_id, travail_id, libelle) VALUES ('{g_a}', '{etab}', '{t_a}', 'GA'), ('{g_b}', '{etab}', '{t_b}', 'GB')"),
+        format!("INSERT INTO ent_cdt_groupe_membre (etablissement_id, groupe_id, eleve_id) VALUES ('{etab}', '{g_a}', '{e1}'), ('{etab}', '{g_b}', '{e0}')"),
+        format!("INSERT INTO ent_cdt_note_accompagnement (id, etablissement_id, travail_id, eleve_id, agent_aesh_id, texte) VALUES ('{n_a}', '{etab}', '{t_a}', '{e0}', '{agent}', 'NA'), ('{n_b}', '{etab}', '{t_b}', '{e0}', '{agent}', 'NB')"),
+        format!("INSERT INTO ent_cdt_delai_demande (id, etablissement_id, travail_id, eleve_id) VALUES ('{d_a}', '{etab}', '{t_a}', '{e0}'), ('{d_b}', '{etab}', '{t_b}', '{e1}')"),
+    ] {
+        sqlx::query(&q).execute(pool).await.unwrap_or_else(|e| panic!("jeu : {q} : {e}"));
+    }
+    // (libellé, vers la future année close, depuis la future année close)
+    let deplacements = vec![
+        (
+            "ent_cdt_groupe",
+            format!("UPDATE ent_cdt_groupe SET travail_id = '{t_b}' WHERE id = '{g_a}'"),
+            format!("UPDATE ent_cdt_groupe SET travail_id = '{t_a}' WHERE id = '{g_b}'"),
+        ),
+        (
+            "ent_cdt_groupe_membre",
+            format!("UPDATE ent_cdt_groupe_membre SET groupe_id = '{g_b}' WHERE groupe_id = '{g_a}' AND eleve_id = '{e1}'"),
+            format!("UPDATE ent_cdt_groupe_membre SET groupe_id = '{g_a}' WHERE groupe_id = '{g_b}' AND eleve_id = '{e0}'"),
+        ),
+        (
+            "ent_cdt_note_accompagnement",
+            format!("UPDATE ent_cdt_note_accompagnement SET travail_id = '{t_b}' WHERE id = '{n_a}'"),
+            format!("UPDATE ent_cdt_note_accompagnement SET travail_id = '{t_a}' WHERE id = '{n_b}'"),
+        ),
+        (
+            "ent_cdt_delai_demande",
+            format!("UPDATE ent_cdt_delai_demande SET travail_id = '{t_b}' WHERE id = '{d_a}'"),
+            format!("UPDATE ent_cdt_delai_demande SET travail_id = '{t_a}' WHERE id = '{d_b}'"),
+        ),
+    ];
+    // Témoin : tant que l'année B est ouverte, chaque déplacement passe (annulé : la suite repart du même état).
+    for (table, vers, depuis) in &deplacements {
+        let mut tx = pool.begin().await.unwrap();
+        for q in [vers, depuis] {
+            let n = sqlx::query(q)
+                .execute(&mut *tx)
+                .await
+                .unwrap_or_else(|e| panic!("témoin : {table} : {q} : {e}"))
+                .rows_affected();
+            assert_eq!(n, 1, "témoin : {table} : {q}");
+        }
+        tx.rollback().await.unwrap();
+    }
+    sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab)
+        .bind(annee_b)
+        .execute(pool)
+        .await
+        .unwrap();
+    for (table, vers, depuis) in &deplacements {
+        for (sens, q) in [("vers l'année close", vers), ("depuis l'année close", depuis)] {
+            let r = sqlx::query(q).execute(pool).await;
+            let Err(sqlx::Error::Database(d)) = r else {
+                panic!("{table} : le déplacement {sens} a passé : {q}");
+            };
+            assert_eq!(d.code().as_deref(), Some("23514"), "{table} {sens}");
+            assert!(
+                d.message().starts_with("cahier de textes : l'année est figée"),
+                "{table} {sens} : refus pour une autre raison que le gel : {}",
+                d.message()
+            );
+        }
+    }
+    // Rien n'a bougé.
+    let (g_a_t, g_b_t): (Uuid, Uuid) = (
+        sqlx::query_scalar("SELECT travail_id FROM ent_cdt_groupe WHERE id = $1").bind(g_a).fetch_one(pool).await.unwrap(),
+        sqlx::query_scalar("SELECT travail_id FROM ent_cdt_groupe WHERE id = $1").bind(g_b).fetch_one(pool).await.unwrap(),
+    );
+    assert_eq!((g_a_t, g_b_t), (t_a, t_b));
+}
+
 /// Contre-revue du pilote (suites cahier, Moyen 1) : la fusion d'élève ne déplace que les notes d'accompagnement d'une
 /// année NON figée (condition du registre `domain_eleve::TABLES_ELEVE`) ; celles d'une année close restent sur l'absorbé,
 /// au lieu de faire échouer toute la fusion par le gel. Même règle pour les cibles de travail et les variantes d'élève.
@@ -4022,7 +4246,12 @@ async fn c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte() {
             .map(|t| t.condition)
             .expect("table au registre")
     };
-    for table in ["ent_cdt_note_accompagnement", "ent_cdt_travail_cible", "ent_cdt_variante_eleve"] {
+    for table in [
+        "ent_cdt_note_accompagnement",
+        "ent_cdt_travail_cible",
+        "ent_cdt_variante_eleve",
+        "ent_cdt_delai_demande",
+    ] {
         assert!(!cond(table).is_empty(), "{table} : déplacement conditionné à l'année ouverte");
     }
     let deplacables = |etab: Uuid| {
@@ -4033,8 +4262,27 @@ async fn c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte() {
         let pool = fx.ent.pool_verif().clone();
         async move { sqlx::query_scalar::<_, i64>(&q).bind(etab).fetch_one(&pool).await.unwrap() }
     };
+    let delais = |etab: Uuid| {
+        let q = format!(
+            "SELECT count(*) FROM ent_cdt_delai_demande t WHERE t.etablissement_id = $1 AND ({})",
+            cond("ent_cdt_delai_demande")
+        );
+        let pool = fx.ent.pool_verif().clone();
+        async move { sqlx::query_scalar::<_, i64>(&q).bind(etab).fetch_one(&pool).await.unwrap() }
+    };
     let etab = fx.cast.etablissement_id;
     assert_eq!(deplacables(etab).await, 1, "année ouverte : la note suit l'élève conservé");
+    assert_eq!(delais(etab).await, 2, "année ouverte : les deux demandes de délai suivent l'élève conservé");
+    // Contre-revue du pilote (moyen 1) : une demande DÉCIDÉE reste sur l'absorbé, avec la prolongation qu'elle a produite.
+    sqlx::query(
+        "UPDATE ent_cdt_delai_demande SET etat = 'refusee', decide_le = now()
+          WHERE etablissement_id = $1 AND id = (SELECT id FROM ent_cdt_delai_demande WHERE etablissement_id = $1 ORDER BY id LIMIT 1)",
+    )
+    .bind(etab)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(delais(etab).await, 1, "année ouverte : seule la demande encore ouverte suit l'élève conservé");
     sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE etablissement_id = $1 AND id = $2")
         .bind(etab)
         .bind(jeu.annee)
@@ -4042,4 +4290,5 @@ async fn c8_suites_fusion_ne_deplace_que_les_lignes_d_une_annee_ouverte() {
         .await
         .unwrap();
     assert_eq!(deplacables(etab).await, 0, "année close : la note reste sur l'absorbé");
+    assert_eq!(delais(etab).await, 0, "année close : la demande de délai reste sur l'absorbé");
 }

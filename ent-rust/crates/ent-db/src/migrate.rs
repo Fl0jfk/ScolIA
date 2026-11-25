@@ -588,6 +588,16 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // et au payeur de la ligne. 640–656 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses
     // fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("657_sortie_voyages_v3b_suites_2"),
+    // Socle 24, suites 3 du lot F3 (D-069 ; réserve 532–537 de la plage 520–539) : nature de tâche « régularisation de
+    // changement de régime non facturée » (liée à l'événement : `evenement_id`, index d'unicité recréé) et fin de tarif
+    // datée d'un article. 520 à 523 et 531 sont versées et ne
+    // changent pas (règle 25). Règle 38 : en fin de tableau ; aucune fonction. `MIGRATION_TAG` inchangé.
+    m!("532_finances_f3_suites3"),
+    // Socle 20, suites 2 C8/C9 (2420, première de la plage d'extension 2420–2429 ; **fin de tableau**, règle 38) : `REVOKE` de la
+    // reprise pour tout rôle autre que le propriétaire (sans nom codé en dur) ; prolongations individuelles et demandes de délai
+    // rejoignent le gel des années closes (D-069). 2419 est versée et ne change pas (règle 25) ; sa fonction recréée porte son
+    // `search_path`, ses relations sont qualifiées `public.`. `MIGRATION_TAG` inchangé.
+    m!("2420_cdt_suites2_gel_echeances"),
     // Socle 11, lot MB1 (2227, plage 2220–2239) : registre d'idempotence générique (`Idempotency-Key`), cloisonné par
     // établissement et par session, purgé à 24 h. Règle 38 : en fin de tableau ; aucune fonction. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
