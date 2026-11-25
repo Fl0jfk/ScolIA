@@ -77,6 +77,7 @@ pub fn routes() -> Router<AppState> {
         // V3b (Moyen 3) : contournement tracé de la règle « sortie entière » par une seconde personne libre.
         .route("/voyages/{id}/argent/contournements", get(contournements).post(contournement_demander))
         .route("/voyages/{id}/argent/contournements/{cid}/decision", post(contournement_decider))
+        .route("/voyages/{id}/argent/contournements/{cid}/revocation", post(contournement_revoquer))
         .route("/voyages/{id}/participants/{pid}/retour-anticipe", post(retour_anticipe))
         .route("/voyages/{id}/argent/export", post(exporter))
         .route("/voyages/{id}/argent/nominatif", post(nominatif_ouvrir).delete(nominatif_fermer))
@@ -395,6 +396,20 @@ async fn contournement_decider(
     Ok(Json(
         s.ent
             .voyage_contournement_decider(&acteur(&session), id, cid, b.autoriser, b.motif.as_deref())
+            .await
+            .map_err(map_v3)?,
+    ))
+}
+
+/// V3b suites 2 : l'autrice d'une autorisation la révoque tant qu'elle n'a pas servi (ajout seul).
+async fn contournement_revoquer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+) -> Res<Json<ContournementVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_contournement_revoquer(&acteur(&session), id, cid)
             .await
             .map_err(map_v3)?,
     ))

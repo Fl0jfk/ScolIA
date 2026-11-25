@@ -79,7 +79,7 @@ pub struct ContournementVue {
     pub cible_id: Option<Uuid>,
     pub montant_max_centimes: Option<i64>,
     pub prestataire_id: Option<Uuid>,
-    /// `en_attente`, `autorise`, `refuse`, `utilise` ou `expire`.
+    /// `en_attente`, `autorise`, `refuse`, `utilise`, `revoque` ou `expire`.
     pub statut: String,
     #[serde(skip)]
     pub demande_par_user_id: Uuid,
@@ -96,6 +96,9 @@ const LECTURE: &str = "SELECT c.id, c.action, c.motif, c.demande_le, c.demande_p
           WHEN EXISTS (SELECT 1 FROM ent_sortie_argent_contournement_evt e
                         WHERE e.etablissement_id = c.etablissement_id AND e.contournement_id = c.id
                           AND e.evenement = 'utilise') THEN 'utilise'
+          WHEN EXISTS (SELECT 1 FROM ent_sortie_argent_contournement_evt e
+                        WHERE e.etablissement_id = c.etablissement_id AND e.contournement_id = c.id
+                          AND e.evenement = 'revoque') THEN 'revoque'
           WHEN EXISTS (SELECT 1 FROM ent_sortie_argent_contournement_evt e
                         WHERE e.etablissement_id = c.etablissement_id AND e.contournement_id = c.id
                           AND e.evenement = 'refuse') THEN 'refuse'
@@ -419,6 +422,65 @@ impl PgEnt {
         .bind(if autoriser { "autorise" } else { "refuse" })
         .bind(a.user_id)
         .bind(&motif)
+        .execute(&mut *t)
+        .await
+        .map_err(db_pouvoir)?;
+        let vue = lire(&mut t, a.etablissement_id, s.id, c.id, maintenant)
+            .await?
+            .ok_or_else(introuvable)?;
+        t.commit().await.map_err(db)?;
+        Ok(vue)
+    }
+
+    /// L'autrice d'une autorisation la **révoque** tant qu'elle n'a pas servi (fait « revoque », ajout seul). Une autre
+    /// personne, une demande non autorisée, déjà utilisée ou déjà révoquée : refus (la base garde aussi).
+    pub async fn voyage_contournement_revoquer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        contournement: Uuid,
+    ) -> Result<ContournementVue, EntDbError> {
+        self.voyage_contournement_revoquer_a(a, id, contournement, Utc::now())
+            .await
+    }
+
+    /// Variante à horloge passée en paramètre.
+    pub async fn voyage_contournement_revoquer_a(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        contournement: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<ContournementVue, EntDbError> {
+        self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
+            .await?;
+        let mut t = tx(self, a).await?;
+        verrou_sortie(&mut t, id).await?;
+        let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
+        if !peut_argent(&acces) {
+            return Err(introuvable());
+        }
+        let c = lire(&mut t, a.etablissement_id, s.id, contournement, maintenant)
+            .await?
+            .ok_or_else(introuvable)?;
+        if c.statut != "autorise" && c.statut != "expire" {
+            return Err(conflit());
+        }
+        if c.decide_par_user_id != Some(a.user_id) {
+            return Err(refus(
+                RefusMetier::Interdit,
+                "Seule la personne qui a autorisé le contournement peut le révoquer.",
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement_evt
+                 (id, etablissement_id, contournement_id, evenement, par_user_id)
+             VALUES ($1, $2, $3, 'revoque', $4)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(a.etablissement_id)
+        .bind(c.id)
+        .bind(a.user_id)
         .execute(&mut *t)
         .await
         .map_err(db_pouvoir)?;

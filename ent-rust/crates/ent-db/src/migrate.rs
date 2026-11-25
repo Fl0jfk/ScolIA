@@ -583,6 +583,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // par jointure (plus d'appel de fonction par ligne). 313 à 317 sont versées et ne changent pas (règle 25) ; sa fonction
     // porte son `search_path`. `MIGRATION_TAG` inchangé.
     m!("318_inscription_i5_suites_passe7"),
+    // Socle 42, V3b suites 2 (657, plage 640–659) : révocation d'une autorisation de contournement par son autrice (fait
+    // « revoque », ajout seul), borne de l'annulation collective d'avoirs (argent net versé) et garde étendue au participant
+    // et au payeur de la ligne. 640–656 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses
+    // fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("657_sortie_voyages_v3b_suites_2"),
     // Socle 24, suites 3 du lot F3 (D-069 ; réserve 532–537 de la plage 520–539) : nature de tâche « régularisation de
     // changement de régime non facturée » (liée à l'événement : `evenement_id`, index d'unicité recréé) et fin de tarif
     // datée d'un article. 520 à 523 et 531 sont versées et ne
