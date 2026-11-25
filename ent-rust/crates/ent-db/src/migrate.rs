@@ -579,6 +579,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // ses fonctions portent leur `search_path` (l'attendu, SQL inlinée, a ses relations qualifiées `public.`).
     // `MIGRATION_TAG` inchangé.
     m!("656_sortie_voyages_v3b_suites"),
+    // Suites I5 (passe 7, 318, **fin de tableau**, règle 38) : la sentinelle par instruction lit l'offre de la liste d'un dossier
+    // par jointure (plus d'appel de fonction par ligne). 313 à 317 sont versées et ne changent pas (règle 25) ; sa fonction
+    // porte son `search_path`. `MIGRATION_TAG` inchangé.
+    m!("318_inscription_i5_suites_passe7"),
     // Socle 42, V3b suites 2 (657, plage 640–659) : révocation d'une autorisation de contournement par son autrice (fait
     // « revoque », ajout seul), borne de l'annulation collective d'avoirs (argent net versé) et garde étendue au participant
     // et au payeur de la ligne. 640–656 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses
@@ -610,6 +614,9 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
         // Un signal visible, pas un simple avertissement de migration : une contrainte que la reprise n'a pas pu
         // valider reste NOT VALID tant que les données ne sont pas corrigées.
         let _ = contraintes_non_validees(pool).await;
+        // Idem pour la sentinelle des verrous d'offre (I5) : une restauration `pg_restore --disable-triggers` la remet à
+        // l'état « origine » et lui fait perdre `ENABLE ALWAYS`.
+        let _ = sentinelles_non_toujours_actives(pool).await;
     }
 
     let unlock = sqlx::query("SELECT pg_advisory_unlock($1)")
@@ -645,6 +652,43 @@ pub async fn contraintes_non_validees(pool: &PgPool) -> Result<Vec<String>, Migr
         tracing::error!(contrainte = %n, "contrainte NOT VALID : des lignes existantes sont hors règle, à corriger puis à valider");
     }
     Ok(noms)
+}
+
+/// Déclencheurs de la sentinelle des verrous d'offre (317, fonctions de 318) attendus en `ENABLE ALWAYS`.
+pub const SENTINELLES_ATTENDUES: [&str; 7] = [
+    "ent_inscription_sentinelle_decision_del_trg",
+    "ent_inscription_sentinelle_decision_ins_trg",
+    "ent_inscription_sentinelle_decision_upd_trg",
+    "ent_inscription_sentinelle_offre_upd_trg",
+    "ent_inscription_sentinelle_proposition_del_trg",
+    "ent_inscription_sentinelle_proposition_ins_trg",
+    "ent_inscription_sentinelle_proposition_upd_trg",
+];
+
+/// Vérification de santé au démarrage (I5, passe 7, moyen A) : déclencheurs `ent_inscription_sentinelle_*` dont l'état n'est pas
+/// `ENABLE ALWAYS` (`tgenabled <> 'A'`) : suspendus (`DISABLE`) ou remis à « origine » par une restauration
+/// (`pg_restore --disable-triggers` finit par `ENABLE TRIGGER ALL`). Chacun est **journalisé en erreur**, sans bloquer le démarrage
+/// (la sentinelle est un filet, pas un contrôle de sécurité). Procédure : `docs/socles/03_INSCRIPTIONS_I5_LIVRAISON.md`.
+pub async fn sentinelles_non_toujours_actives<'e, E: sqlx::PgExecutor<'e>>(ex: E) -> Result<Vec<String>, MigrateError> {
+    // Contre-revue du pilote (passe 7) : la liste ATTENDUE est explicite, un déclencheur absent (supprimé, omis par une
+    // restauration) est signalé (`absent`) comme un déclencheur non ALWAYS.
+    let noms: Vec<(String, String)> = sqlx::query_as(
+        "SELECT a.nom, COALESCE(t.tgenabled::text, 'absent')
+           FROM unnest($1::text[]) AS a(nom)
+           LEFT JOIN pg_catalog.pg_trigger t ON t.tgname = a.nom AND NOT t.tgisinternal
+          WHERE t.tgenabled IS DISTINCT FROM 'A'
+          ORDER BY 1",
+    )
+    .bind(&SENTINELLES_ATTENDUES[..])
+    .fetch_all(ex)
+    .await?;
+    for (n, etat) in &noms {
+        tracing::error!(
+            declencheur = %n, etat = %etat,
+            "sentinelle des verrous d'offre absente ou non ENABLE ALWAYS : la recréer ou rétablir `ALTER TABLE … ENABLE ALWAYS TRIGGER …` (voir la procédure de restauration)"
+        );
+    }
+    Ok(noms.into_iter().map(|(n, _)| n).collect())
 }
 
 /// Registre des migrations appliquées : `(nom, empreinte SHA-256 du fichier, date)`. Créé par le lanceur
@@ -729,6 +773,23 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
 ///
 /// **Tout futur couple « migration qui recrée une contrainte qu'une migration plus récente remplace » doit être
 /// ajouté ici** (fichier concerné, ordre SQL idempotent, cause).
+/// Retire les déclencheurs de la sentinelle des verrous d'offre sur la table des décisions (gardes de 304, 313 et 314).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+const RETIRER_SENTINELLE_DECISIONS: &str = "DO $$
+    DECLARE
+        t TEXT;
+    BEGIN
+        IF to_regclass('ent_inscription_decision') IS NOT NULL THEN
+            FOR t IN SELECT tgname FROM pg_trigger
+                      WHERE tgrelid = 'ent_inscription_decision'::regclass AND NOT tgisinternal
+                        AND tgname LIKE 'ent\\_inscription\\_sentinelle\\_%'
+            LOOP
+                EXECUTE format('DROP TRIGGER %I ON ent_inscription_decision', t);
+            END LOOP;
+        END IF;
+    END $$";
+
 #[cfg(test)]
 #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 const GARDES_DE_REJEU: &[(&str, &str)] = &[
@@ -741,20 +802,12 @@ const GARDES_DE_REJEU: &[(&str, &str)] = &[
     // rejoue ainsi 304 sans erreur.
     (
         "304_inscription_demarche_dossier",
-        "DO $$
-    DECLARE
-        t TEXT;
-    BEGIN
-        IF to_regclass('ent_inscription_decision') IS NOT NULL THEN
-            FOR t IN SELECT tgname FROM pg_trigger
-                      WHERE tgrelid = 'ent_inscription_decision'::regclass AND NOT tgisinternal
-                        AND tgname LIKE 'ent\\_inscription\\_sentinelle\\_%'
-            LOOP
-                EXECUTE format('DROP TRIGGER %I ON ent_inscription_decision', t);
-            END LOOP;
-        END IF;
-    END $$",
+        RETIRER_SENTINELLE_DECISIONS,
     ),
+    // 313 et 314 rejouent aussi des écritures sur les décisions (reprise de `publiee_le`, chaînage `remplace_decision_id` sur
+    // un historique non chaîné) sans verrou d'offre : même garde (passe 7, faible 1). 316, 317 et 318 recréent la sentinelle.
+    ("313_inscription_decision_i5", RETIRER_SENTINELLE_DECISIONS),
+    ("314_inscription_decision_i5_passe3", RETIRER_SENTINELLE_DECISIONS),
     (
         "644_sortie_prestataires",
         "DO $$ BEGIN
@@ -804,6 +857,13 @@ const GARDES_DE_REJEU: &[(&str, &str)] = &[
 #[cfg(test)]
 #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
 pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
+    rejouer_liste(pool, MIGRATIONS).await
+}
+
+/// Tests : `rejouer_tout` sur une liste donnée (le test d'échec de rejeu y ajoute un fichier qui échoue).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+pub(crate) async fn rejouer_liste(pool: &PgPool, liste: &[(&str, &str)]) -> Result<(), MigrateError> {
     // Ces fichiers (reprises du lot D-036) lisent des colonnes retirées par 668 et 669 : on ne les rejoue
     // pas (il n'y a plus de ligne « héritée » à reprendre, les colonnes n'existent plus).
     const LISENT_UNE_COLONNE_RETIREE: &[&str] = &[
@@ -828,18 +888,52 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
     // 7770042 : verrou des préparations de rôles (GRANT sur le catalogue), cf. `tests_rls_stricte`.
     sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut verrou).await?;
     sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
-    for (nom, sql) in MIGRATIONS {
-        if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
-            continue;
-        }
-        for (fichier, garde) in GARDES_DE_REJEU {
-            if fichier == nom {
-                sqlx::query(garde).execute(&mut verrou).await?;
+    let resultat: Result<(), MigrateError> = async {
+        for (nom, sql) in liste {
+            if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
+                continue;
+            }
+            for (fichier, garde) in GARDES_DE_REJEU {
+                if fichier == nom {
+                    sqlx::query(garde).execute(&mut verrou).await?;
+                }
+            }
+            // Un test voisin qui travaille sur les mêmes tables pendant le rejeu peut faire de lui la victime d'un
+            // verrou mortel (40P01) ou d'un conflit de sérialisation (40001) : les fichiers sont idempotents, on
+            // rejoue le fichier (cinq tentatives au plus, attente croissante).
+            let mut tentative = 0u64;
+            loop {
+                match apply_sql_file_rejeu(pool, sql).await {
+                    Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
+                        if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
+                    {
+                        tentative += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
+                    }
+                    r => break r?,
+                }
             }
         }
-        // Un test voisin qui travaille sur les mêmes tables pendant le rejeu peut faire de lui la victime d'un
-        // verrou mortel (40P01) ou d'un conflit de sérialisation (40001) : les fichiers sont idempotents, on
-        // rejoue le fichier (cinq tentatives au plus, attente croissante).
+        Ok(())
+    }
+    .await;
+    // Moyen C (passe 7) : un rejeu qui échoue après une garde (304, 313, 314 retirent la sentinelle) ne laisse **jamais** la
+    // sentinelle absente pour les tests suivants : 316, 317 et 318 sont rejouées (elles la recréent), l'erreur d'origine est rendue.
+    if resultat.is_err() {
+        restaurer_sentinelle(pool).await;
+    }
+    resultat
+}
+
+/// Tests : recrée la sentinelle des verrous d'offre (316, 317, 318 dans l'ordre), appelée quand un rejeu échoue. Un échec ici est
+/// journalisé et ne masque pas l'erreur d'origine.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+pub(crate) async fn restaurer_sentinelle(pool: &PgPool) {
+    for fichier in ["316_inscription_i5_suites_sentinelle", "317_inscription_i5_suites_passe6", "318_inscription_i5_suites_passe7"] {
+        let (_, sql) = MIGRATIONS.iter().find(|(n, _)| *n == fichier).expect("migration de la sentinelle");
+        // Contre-revue du pilote (passe 7) : mêmes nouvelles tentatives que le rejeu (40P01, 40001) ; un échec définitif est
+        // écrit sur la sortie d'erreur (les tests n'ont pas d'abonné `tracing`).
         let mut tentative = 0u64;
         loop {
             match apply_sql_file_rejeu(pool, sql).await {
@@ -849,11 +943,15 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
                     tentative += 1;
                     tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
                 }
-                r => break r?,
+                Err(e) => {
+                    eprintln!("RESTAURATION DE LA SENTINELLE EN ÉCHEC ({fichier}) : {e}");
+                    tracing::error!(migration = fichier, erreur = %e, "restauration de la sentinelle : échec");
+                    break;
+                }
+                Ok(()) => break,
             }
         }
     }
-    Ok(())
 }
 
 /// Tests (chantier T1) : remet les clauses `search_path` en rejouant **690 seule**, sous les verrous des rejeux. D'autres
