@@ -144,6 +144,7 @@ mod fac_repo;
 mod mail_repo;
 mod sms_repo;
 mod push_repo;
+pub mod idempotence;
 mod bank_repo;
 mod msg_repo;
 mod journal_limite;

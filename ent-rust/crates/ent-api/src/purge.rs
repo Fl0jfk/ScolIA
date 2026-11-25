@@ -20,6 +20,8 @@ pub struct BilanPurge {
     pub reinitialisations_mot_de_passe: u64,
     pub recuperations_passkey: u64,
     pub changements_email: u64,
+    /// Clés d'idempotence de plus de 24 h (socle 11, MB1).
+    pub cles_idempotence: u64,
     /// Catégories dont la purge a échoué (journalisées ; la passe continue).
     pub echecs: u32,
 }
@@ -30,6 +32,7 @@ impl BilanPurge {
             + self.reinitialisations_mot_de_passe
             + self.recuperations_passkey
             + self.changements_email
+            + self.cles_idempotence
     }
 }
 
@@ -62,6 +65,11 @@ pub async fn une_passe(ent: &PgEnt) -> BilanPurge {
         changements_email,
         ent.purger_changements_email(),
         "changements_email"
+    );
+    cat!(
+        cles_idempotence,
+        ent.idem_purger(chrono::Utc::now()),
+        "cles_idempotence"
     );
     b
 }
@@ -107,8 +115,9 @@ mod tests {
             reinitialisations_mot_de_passe: 1,
             recuperations_passkey: 3,
             changements_email: 4,
+            cles_idempotence: 5,
             echecs: 0,
         };
-        assert_eq!(b.total(), 10);
+        assert_eq!(b.total(), 15);
     }
 }

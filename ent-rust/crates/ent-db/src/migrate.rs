@@ -588,6 +588,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // et au payeur de la ligne. 640–656 sont versées et ne changent pas (règle 25). Règle 38 : en fin de tableau ; ses
     // fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
     m!("657_sortie_voyages_v3b_suites_2"),
+    // Socle 11, lot MB1 (2227, plage 2220–2239) : registre d'idempotence générique (`Idempotency-Key`), cloisonné par
+    // établissement et par session, purgé à 24 h. Règle 38 : en fin de tableau ; aucune fonction. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("2227_mob_mb1_idempotence"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
