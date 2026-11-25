@@ -953,7 +953,8 @@ pub fn router() -> Router<AppState> {
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
-        .route("/auth/register", post(register));
+        .route("/auth/register", post(register))
+        .merge(crate::mobile_labo::routes());
     r
 }
 

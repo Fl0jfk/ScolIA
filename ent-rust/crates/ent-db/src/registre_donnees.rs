@@ -825,6 +825,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_groupe_classe", "structure_scolaire", Portee::Etablissement),
     t("ent_groupe_responsable", "structure_scolaire", Portee::Etablissement).perso().export(),
     t("ent_habilitation_signature", "personnels", Portee::Etablissement).perso().export(),
+    // MB1 (2227) : registre d'idempotence des écritures (réponses rejouées 24 h) ; jamais exporté (réponses d'API,
+    // pas des données de la personne), vidé à la restauration (une écriture non rejouée est réémise par l'appareil).
+    t("ent_idempotence_cle", "identite_acces", Portee::Etablissement).perso().neutralise(N_PURGE),
     t("ent_identite_journal", "dossier_eleve", Portee::Etablissement).perso(),
     t("ent_import_ligne", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_import_lot", "dossier_eleve", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),

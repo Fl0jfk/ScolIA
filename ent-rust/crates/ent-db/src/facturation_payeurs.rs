@@ -743,6 +743,35 @@ pub(crate) async fn resoudre_taches_evenement(
     Ok(r.rows_affected())
 }
 
+/// Résout les tâches ouvertes d'une nature pour (élève, catégorie) dont la date `depuis` tombe dans `du..=au` (suites 4,
+/// M3) : la part non couverte d'un tronçon est désormais facturée (prise renouvelée ou prolongée, payeur suivant désigné).
+/// Les tâches des autres périodes de l'élève restent ouvertes.
+pub(crate) async fn resoudre_taches_periode(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    nature: &str,
+    eleve: Uuid,
+    categorie: &str,
+    du: NaiveDate,
+    au: NaiveDate,
+) -> Result<u64, EntDbError> {
+    let r = sqlx::query(
+        "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now()
+          WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'ouverte'
+            AND categorie = $4 AND depuis >= $5 AND depuis <= $6",
+    )
+    .bind(etab)
+    .bind(nature)
+    .bind(eleve)
+    .bind(categorie)
+    .bind(du)
+    .bind(au)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(r.rows_affected())
+}
+
 /// Résout les tâches ouvertes d'une nature pour (élève, catégorie) : la situation est réglée.
 pub(crate) async fn resoudre_taches(
     conn: &mut PgConnection,
@@ -873,7 +902,7 @@ async fn valider_piece(conn: &mut PgConnection, etab: Uuid, piece: &PieceReparti
 }
 
 /// M4 : un compte désigné est **lié à l'élève** (un lien de l'élève dans son foyer, ou la fiche « personne »
-/// de l'élève majeur lui-même) ou est un **organisme** avec une prise en charge active pour cet élève.
+/// de l'élève majeur lui-même) ou est un **organisme** avec une prise en charge **active ou échue** pour cet élève (une prise échue reste valide pour les mois de sa période : M1 des suites 3, faible 7 des suites 4).
 async fn compte_lie_a_eleve(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -893,7 +922,7 @@ async fn compte_lie_a_eleve(
                   OR (c.type_debiteur = 'organisme' AND EXISTS (
                         SELECT 1 FROM ent_fin_prise_en_charge pc
                          WHERE pc.etablissement_id = c.etablissement_id AND pc.compte_id = c.id
-                           AND pc.eleve_id = $2 AND pc.statut = 'active'))))",
+                           AND pc.eleve_id = $2 AND pc.statut IN ('active', 'echue')))))",
     )
     .bind(etab)
     .bind(eleve)

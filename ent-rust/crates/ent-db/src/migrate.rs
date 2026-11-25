@@ -598,6 +598,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // rejoignent le gel des années closes (D-069). 2419 est versée et ne change pas (règle 25) ; sa fonction recréée porte son
     // `search_path`, ses relations sont qualifiées `public.`. `MIGRATION_TAG` inchangé.
     m!("2420_cdt_suites2_gel_echeances"),
+    // Socle 11, lot MB1 (2227, plage 2220–2239) : registre d'idempotence générique (`Idempotency-Key`), cloisonné par
+    // établissement et par session, purgé à 24 h. Règle 38 : en fin de tableau ; aucune fonction. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("2227_mob_mb1_idempotence"),
     // Socle 27, lot G3a (2544, plage 2540–2559) : guichet des demandes de droits (demande, droits demandés,
     // vérification d'identité, journal des transitions, compteur de numéros par établissement). 2540 à 2543
     // sont versées et ne changent pas (règle 25). Règle 38 : **après** 2420, qui est versée, et en fin de
