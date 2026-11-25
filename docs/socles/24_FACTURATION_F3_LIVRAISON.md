@@ -343,3 +343,38 @@ Base locale neuve `ent_f3w_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`
 
 ### Tête de code et CI
 Tête de code testée : `69157d68` (PR n° 156, brouillon vers `ENT`). CI « ENT Rust » : **verte** (run 45541230144, après attente en file des runners). Ce commit documentaire ne change aucun code.
+
+## Suites, 4, correctifs (contre-revue `24_F3_SUITES_4_CONTRE_REVUE.md`, 2026-11-25)
+
+Branche `ent-socle-24-code-f3-suites-4` (PR 156, brouillon, retenue), `origin/ENT` fusionné d'abord (règle 28). **Aucune migration** (533 non consommée, `migrations_versees.txt` non touché). **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.**
+
+### Fait
+
+| Réf. | Correctif | Tests |
+|---|---|---|
+| **E-1 (élevé)** | Couverture croisée `regime:` / `annuel:` **par année et par mois**. La lecture ne retient que les lignes de régime dont la **période chevauche** celle des lignes annuelles à poser ; seuls les **mois effectivement couverts** sont écartés de la ligne annuelle (les autres sont facturés sous `:c<AAAA-MM>`) ; une ligne de régime **créditée par avoir** ne couvre que les mois que l'avoir lui laisse (entièrement créditée : rien). | `f3s6_e1_changement_de_regime_en_n_puis_generation_annuelle_n_plus_1` (360 € + 450 €) ; `f3s6_e1_changement_en_cours_d_annee_puis_rejeu_annuel_chaque_mois_une_fois` (450 € en tout, rejeux neutres) ; `f3s6_e1_ligne_de_regime_creditee_par_avoir_ne_couvre_que_ce_qui_reste` (avoir total : 450 € ; avoir partiel : 450 €) |
+| **M-1** | Les tâches `part_non_couverte` ne sont closes **qu'après** la garde réussie (collectées pendant le calcul, closes à la fin de `lignes_annuelles`, dans la transaction qui insère ensuite ; une erreur d'insertion annule tout). Un refus de la garde laisse la tâche ouverte. | `f3s6_m1_refus_de_la_garde_laisse_la_tache_ouverte` |
+| **M-2** | Les lignes d'une prise **plafonnée** passent toujours par `completer_plafonnee` (jamais refusées comme « le tarif a changé »). Plafond **relevé** : le principal prend le plafond libre en complément (clé `:c<premier mois libre>`), le reste va au payeur suivant. Plafond **abaissé** sous le facturé : rien n'est refacturé ni crédité, une tâche `part_non_couverte` le signale. | `f3s6_m2_plafond_releve_facture_le_complement_puis_abaisse_signale` (400 → 450 € puis 300 €, rejeux neutres) |
+| **F-1** | Requête de préfixe **une par préfixe** (motif constant pour le planificateur, plus de jointure sur `unnest`). | `f3s6_f1_lecture_par_prefixe_bornee_par_l_index_unique` (EXPLAIN) |
+| **F-2** | `restant_prise` n'exclut les lignes propres que si leur période tombe dans la **période générée** : les lignes hors période reformée comptent dans le plafond. | régression `f3s4_faible4`, `f3s5_m1`, `f3s5_m4` vertes |
+| **F-3** | Assertion stricte du test du faible 9 : 360 € après le changement, 450 € après le rejeu annuel, rejeu et double rejeu sans ligne de plus. | `f3s5_faible9_…` |
+
+### Règles métier non tranchées : valeur par défaut prudente (D-069)
+- **Remplace** la règle « mois avant le changement non facturés » des suites 4 : un rejeu annuel facture septembre-octobre au régime d'arrivée (l'annuel porte l'année entière au régime courant, seuls les mois couverts par le régime sont écartés). Sur un élève qui n'a jamais été en demi-pension avant le changement, c'est une surfacturation possible de ces mois : **à valider**, la correction est humaine (avoir).
+- **Avoir partiel d'une ligne de régime** : mois conservés = part non créditée arrondie au mois supérieur (jamais de double facturation).
+- **Ligne de régime sans période** : ne couvre rien (n'existe pas en pratique).
+- **Plafond relevé** : le complément va d'abord à l'organisme (plafond libre), puis au payeur suivant. **Plafond abaissé** : jamais de remboursement automatique, tâche seulement. Une hausse de tarif sur une prise plafonnée non bridée est facturée en complément à l'organisme (plafond libre) au lieu d'être refusée.
+- **F-1** : sous une collation autre que `C`, le `LIKE` n'est pas servi par la borne de plage de l'index unique ; la lecture reste bornée par l'établissement et le préfixe. Un index `text_pattern_ops` demanderait la migration 533 : non faite, à décider.
+- **F-2** : une ligne propre dans la période générée mais que la génération ne reforme plus (prise annulée) reste exclue du restant : limite assumée.
+
+### Non fait
+Index `text_pattern_ops` (migration 533) ; régularisation des écarts déjà facturés (F4) ; écrans Leptos.
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282**, tables RLS, `SOURCES` **75**, migrations : inchangés.
+
+### Vérifications
+Base locale neuve `ent_ci_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`, dates fixes. `f3s6_*` : **6 tests verts** ; régression ent-db (`tests_finances tests_payeurs tests_comptes tests_factur garde_search migrations`) : **105 passés, 0 échec**. Clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI, rustfmt ciblé, `cargo metadata --locked` (`web`) : voir ci-dessous. Pas de `cargo fmt --all`, pas de `#[ignore]`.
+
+### Tête de code et CI
+(à compléter)
