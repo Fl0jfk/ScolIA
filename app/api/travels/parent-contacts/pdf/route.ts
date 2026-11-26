@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 404, headers: NO_STORE });
 
     const participants = await loadTripParticipants(trip, etabId);
-    await auditParentContacts({ etabId, actorUserId: me.id ?? null, tripId: trip.id, action: "travel_parent_contacts_pdf", count: participants.length });
+    await auditParentContacts({ etabId, actorUserId: gate.ctx.userId ?? null, tripId: trip.id, action: "travel_parent_contacts_pdf", count: participants.length });
     const eleves = await loadContactsForEleves(etabId, participants);
     const d = trip.data;
     const dateLabel = trip.type === "COMPLEX" ? [d?.startDate, d?.endDate].filter(Boolean).join(" au ") : String(d?.date || "");

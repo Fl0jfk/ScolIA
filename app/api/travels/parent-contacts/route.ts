@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const target = findParticipant(participants, input.eleveId);
     if (!target) return json({ error: "Cet élève ne participe pas à ce voyage." }, 404);
     // Journal AVANT la réponse : sans trace, pas de données.
-    await auditParentContacts({ etabId, actorUserId: me.id ?? null, tripId: trip.id, eleveId: target.eleveId, action: "travel_parent_contacts_view" });
+    await auditParentContacts({ etabId, actorUserId: gate.ctx.userId ?? null, tripId: trip.id, eleveId: target.eleveId, action: "travel_parent_contacts_view" });
     const [contacts] = await loadContactsForEleves(etabId, [target]);
     return json({ contacts });
   } catch (e) {
