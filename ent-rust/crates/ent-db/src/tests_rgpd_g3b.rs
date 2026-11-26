@@ -233,17 +233,33 @@ async fn g3b_echec_fournisseur_rend_incomplet_et_demande_arbitrage() {
         .await,
         Err(EntDbError::Forbidden)
     ));
-    let apres = ent
-        .droits_extrait_arbitrer_incomplet(
-            etab,
-            dir,
-            DIR,
-            demande,
-            e.id,
-            &[("administratif", "section illisible, signalée au demandeur")],
-        )
+    ent.droits_extrait_arbitrer_incomplet(
+        etab,
+        dir,
+        DIR,
+        demande,
+        e.id,
+        &[("administratif", "section illisible, signalée au demandeur")],
+    )
+    .await
+    .unwrap();
+    // Un marquage encore ouvert (lot G3b-2) bloque aussi la remise : on les décide avant de conclure.
+    for m in ent
+        .droits_masquages(etab, dir, DIR, demande, e.id)
         .await
-        .unwrap();
+        .unwrap()
+    {
+        if m.decision == "a_decider" {
+            ent.droits_masquage_decider(etab, dir, DIR, demande, m.id, "masque", None)
+                .await
+                .unwrap();
+        }
+    }
+    let apres = ent
+        .droits_extraits(etab, dir, DIR, demande)
+        .await
+        .unwrap()
+        .remove(0);
     assert!(apres.remissible_en_l_etat);
     assert!(apres
         .sections

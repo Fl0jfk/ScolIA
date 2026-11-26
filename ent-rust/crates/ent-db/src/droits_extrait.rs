@@ -193,6 +193,8 @@ pub struct ContenuExtrait {
     pub soustraitants: Vec<String>,
     pub durees: Vec<DureeContenu>,
     pub sources: Vec<String>,
+    /// Éléments marqués à relire (lot G3b-2) ; vide hors lecture. Ne fait pas partie de l'empreinte.
+    pub marquages: Vec<crate::droits_extrait_masquage::MarquageVue>,
 }
 
 /// Vue d'une section **sans contenu** (ce que la fiche de la demande affiche).
@@ -228,6 +230,8 @@ pub struct ExtraitVue {
     pub avis_dpo_texte: Option<String>,
     /// Vrai quand l'extrait peut partir : complet, ou chaque section incomplète a une décision motivée de la direction.
     pub remissible_en_l_etat: bool,
+    /// Marquages restant à décider : aucune remise tant qu'il en reste (RGP-150).
+    pub masquages_a_decider: i32,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1181,6 +1185,7 @@ impl PgEnt {
             soustraitants: meta.2,
             durees: meta.3,
             sources: meta.4,
+            marquages: Vec::new(),
         })
     }
 }
@@ -1449,6 +1454,7 @@ fn vue_depuis(r: &sqlx::postgres::PgRow, sections: Vec<SectionVue>) -> ExtraitVu
         avis_dpo_code: r.get("dpo_avis_code"),
         avis_dpo_texte: r.get("dpo_avis_texte"),
         remissible_en_l_etat: remissible,
+        masquages_a_decider: 0,
     }
 }
 
@@ -1473,7 +1479,23 @@ async fn charger_extrait(
     .map_err(db)?
     .ok_or(EntDbError::Domain(DomainError::NotFound))?;
     let sections = sections_de(conn, etab, extrait).await?;
-    Ok(vue_depuis(&r, sections))
+    let mut v = vue_depuis(&r, sections);
+    completer_masquages(conn, etab, &mut v).await?;
+    Ok(v)
+}
+
+/// Compte les marquages à décider : tant qu'il en reste, l'extrait n'est pas remissible.
+async fn completer_masquages(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    v: &mut ExtraitVue,
+) -> Result<(), EntDbError> {
+    let n = crate::droits_extrait_masquage::restant_a_decider(conn, etab, v.id).await?;
+    v.masquages_a_decider = n as i32;
+    if n > 0 {
+        v.remissible_en_l_etat = false;
+    }
+    Ok(())
 }
 
 async fn sections_de(
@@ -1659,8 +1681,22 @@ impl PgEnt {
             let contenu = self
                 .construire_contenu(&mut tx, &ctx, echecs_simules)
                 .await?;
+            let marques = if ctx.est_eleve() {
+                let faits = crate::droits_extrait_masquage::faits_eleve(
+                    &mut tx,
+                    etab,
+                    *sid,
+                    info.demandeur_compte,
+                    ctx.dem_personne,
+                    ctx.dem_est_sujet,
+                )
+                .await?;
+                crate::droits_extrait_masquage::marquer(&contenu, &faits)
+            } else {
+                Vec::new()
+            };
             let v = self
-                .persister_extrait(&mut tx, etab, demande, acteur, role, &contenu)
+                .persister_extrait(&mut tx, etab, demande, acteur, role, &contenu, &marques)
                 .await?;
             vues.push(v);
         }
@@ -1686,6 +1722,7 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
         c: &ContenuExtrait,
+        marques: &[crate::droits_extrait_masquage::MarquageCalcule],
     ) -> Result<ExtraitVue, EntDbError> {
         // Sérialise les assemblages d'un même sujet : la version suivante est calculée sous le verrou de la demande.
         let version: i32 = sqlx::query_scalar(
@@ -1752,7 +1789,17 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        // Le sujet a une ligne dans `rgp_demande_sujet` : l'extrait courant lui est rattaché.
+        crate::droits_extrait_masquage::persister_marquages(
+            tx,
+            etab,
+            demande,
+            id,
+            &c.sujet_type,
+            c.sujet_id,
+            marques,
+        )
+        .await?;
+        // Le sujet a une ligne dans `rgp_demande_sujet` : l'extrait courant lui est rattachée.
         sqlx::query(
             "INSERT INTO rgp_demande_sujet (id, etablissement_id, demande_id, sujet_type, sujet_id, principal,
                                             qualite_constatee, ajoute_par_compte_id, extrait_courant_id)
@@ -1833,7 +1880,9 @@ impl PgEnt {
         for r in rows {
             let id: Uuid = r.get("id");
             let sections = sections_de(&mut tx, etab, id).await?;
-            out.push(vue_depuis(&r, sections));
+            let mut v = vue_depuis(&r, sections);
+            completer_masquages(&mut tx, etab, &mut v).await?;
+            out.push(v);
         }
         Ok(out)
     }
@@ -1940,6 +1989,13 @@ impl PgEnt {
             Some(role),
         )
         .await?;
+        let marques =
+            crate::droits_extrait_masquage::marquages_de(&mut tx, etab, extrait, arbitre).await?;
+        let contenu = if arbitre {
+            crate::droits_extrait_masquage::remplacer_vide(contenu, &marques)
+        } else {
+            crate::droits_extrait_masquage::cacher_protections(&contenu, &marques)
+        };
         tx.commit().await?;
         Ok(contenu)
     }

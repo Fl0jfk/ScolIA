@@ -91,3 +91,50 @@ sur le modèle de menaces du lot : identifiants SQL dynamiques (tables et colonn
 colonnes secrètes/scellées jamais rendues, DPO limité à l'extrait soumis, lecture tracée avant service, verrous de
 concurrence (destruction de pièces, plafond de dépôts), aucune heure réelle dans les tests. À refaire par un relecteur
 indépendant : **à signaler au coordinateur**.
+
+---
+
+## Lot 2 — marquage déterministe et relecture humaine
+
+### Fait
+
+- **Marquage** (`ent-db/src/droits_extrait_masquage.rs`) : règles **écrites**, jamais une IA (R-RG15). Un marquage désigne un
+  élément (table, ligne ou rang, colonne), jamais une copie de la donnée. Raisons : `autre_parent`, `adresse_protegee`
+  (et tout indice de localisation : adresse, ville, code postal, transport… tant qu'un autre parent est protégé),
+  `parent_donnees_propres` (élève demandeur : seule l'identité des responsables reste, R-RG48), `autre_eleve`,
+  `redacteur` (note interne), `signalement`, `piece_tiers` (une pièce du coffre qui concerne un tiers n'est jamais remise
+  ni caviardée, R-RG45), `manuel`. Table `rgp_extrait_masquage` ajoutée à la migration **2545** (6e table RLS du lot).
+- **Relecture** : `droits_masquages`, `droits_masquage_decider` (`masque` ou `leve` avec motif ; lever une protection,
+  l'autre parent, les données propres des parents, un signalement ou une pièce de tiers exige `droits.arbitrer`),
+  `droits_masquage_ajouter` (décidé « masqué » d'emblée). **Aucune remise tant qu'un marquage reste à décider** :
+  `remissible_en_l_etat` tient compte de `masquages_a_decider`. Une décision déjà prise est **reportée** sur la nouvelle
+  version quand l'élément n'a pas changé.
+- **R-RG46** : un porteur de `droits.traiter` sans `droits.arbitrer` ne voit jamais le code `adresse_protegee` (la vue dit
+  `a_arbitrer`), ni la valeur protégée (`[réservé à la direction]`), et reçoit « introuvable » s'il tente de lever.
+  Les protections ne sont lues que pour savoir **si** une protection existe (identifiant de personne), jamais leur contenu.
+- **Pf3** : la qualité `restreinte` ne vise plus que le demandeur protégé lui-même (ou l'élève : on ne sait pas qui est visé,
+  prudence) ; la protection d'un autre parent ne bloque plus le titulaire. **Pf4** : la vue de la demande est épurée pour
+  qui n'a pas `droits.arbitrer` (qualité, note, code d'arbitrage, détails du journal → « à arbitrer »).
+- **API** : 9 routes (`/rgpd/demandes/{id}/extraits…`, `…/masquages…`, `/rgpd/reglages`), DTO `ent-types::rgpd_extrait`.
+- **Écrans** (Leptos, `modules/rgpd_droits/extrait.rs` + `modele_extrait.rs` natif) : section **Extrait** de la fiche
+  (assembler, état des sections, périmé, incomplet), **Relecture** (éléments marqués surlignés, compteur, masquer / lever
+  avec motif), **DPO** (soumettre, avis). `ui.rs` non étendu.
+
+### Tests
+
+`tests_rgpd_g3b2.rs` (5, labo) : jeu fictif « parents séparés + adresse protégée » (l'extrait remis ne contient ni le
+téléphone ni l'adresse de l'autre parent, les données du demandeur restent ; le secrétariat ne voit ni la valeur ni le
+code, la levée lui est refusée ; remise bloquée tant qu'un marquage est ouvert), levée motivée et ajout manuel, report de
+décision, élève demandeur (R-RG48), Pf3 + Pf4. Unitaires purs (5) dans `droits_extrait_masquage.rs`, 2 de modèle d'écran,
+1 test HTTP (`tests_rgpd_g3b_http.rs`). **Non couverts** : « messages de la mère avec le CPE absents de l'extrait du père »
+(M-2711) — la règle est dans le SQL des fils de messagerie du lot 1 mais n'a pas de jeu d'essai dédié ; le CSV (lot 3).
+
+### Valeurs prudentes (D-069)
+
+Tant qu'un autre parent est protégé, toute colonne dont le nom évoque une localisation est masquée dans tout l'extrait
+de l'élève ; un marquage non décidé est traité comme « à masquer » par `appliquer_masques`.
+
+### Compteurs
+
+RLS **+1** (6 pour 2545). Routes : +9 (toutes authentifiées : aucune ligne à ajouter aux inventaires de routes publiques).
+`Action::TOUTES` inchangé (286).

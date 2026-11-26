@@ -240,9 +240,43 @@ ALTER TABLE rgp_demande_journal ADD CONSTRAINT rgp_demande_journal_evenement_che
     'extrait_soumis_dpo', 'extrait_avis_dpo', 'masquage_decide', 'masquage_ajoute',
     'extrait_remis', 'extrait_telecharge', 'extrait_purge', 'renvoi_trace'));
 
+-- ─────────────────────── Marquages d'un extrait (lot G3b-2) ───────────────────────
+-- Un marquage désigne un **élément** de l'extrait (table, ligne ou rang, colonne), jamais une copie de la donnée.
+-- Posé par des règles déterministes (`propose_par = 'sys'`, jamais une IA, R-RG15) ou à la main par un agent.
+-- `a_decider` tant que personne n'a tranché : aucune remise tant qu'il en reste (RGP-150).
+CREATE TABLE IF NOT EXISTS rgp_extrait_masquage (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    extrait_id UUID NOT NULL,
+    fournisseur_code TEXT NOT NULL CHECK (fournisseur_code ~ '^[a-z][a-z0-9_]{1,39}$'),
+    table_nom TEXT NOT NULL CHECK (table_nom ~ '^[a-z][a-z0-9_]{1,62}$'),
+    ligne_id UUID,
+    rang INT NOT NULL DEFAULT 0 CHECK (rang >= 0),
+    colonne TEXT CHECK (colonne IS NULL OR colonne ~ '^[a-z][a-z0-9_]{0,62}$'),
+    raison TEXT NOT NULL CHECK (raison IN (
+        'autre_parent', 'adresse_protegee', 'parent_donnees_propres', 'autre_eleve', 'redacteur',
+        'signalement', 'piece_tiers', 'manuel')),
+    propose_par TEXT NOT NULL CHECK (propose_par IN ('sys', 'agent')),
+    decision TEXT NOT NULL DEFAULT 'a_decider' CHECK (decision IN ('a_decider', 'masque', 'leve')),
+    motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 3 AND 1000),
+    decide_par_compte_id UUID REFERENCES ent_user (id),
+    decide_le TIMESTAMPTZ,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Lever un marquage exige un motif écrit.
+    CONSTRAINT rgp_extrait_masquage_leve_motive CHECK (decision <> 'leve' OR motif IS NOT NULL),
+    CONSTRAINT rgp_extrait_masquage_decision_tracee CHECK (
+        (decision = 'a_decider' AND decide_le IS NULL) OR (decision <> 'a_decider' AND decide_le IS NOT NULL)),
+    CONSTRAINT rgp_extrait_masquage_extrait_fk FOREIGN KEY (etablissement_id, extrait_id)
+        REFERENCES rgp_extrait (etablissement_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS rgp_extrait_masquage_extrait_idx
+    ON rgp_extrait_masquage (etablissement_id, extrait_id, decision);
+
 SELECT ent_rls_poser(ARRAY[
     'rgp_reglage',
     'rgp_reglage_journal',
     'rgp_demande_sujet',
     'rgp_extrait',
-    'rgp_extrait_section']);
+    'rgp_extrait_section',
+    'rgp_extrait_masquage']);

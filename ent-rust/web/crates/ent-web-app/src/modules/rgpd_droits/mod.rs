@@ -17,7 +17,9 @@
 //! que `/roles/mes-droits` n'a pas répondu ; aucune date du jour n'est rendue par le serveur (les échéances
 //! viennent du serveur, qui donne aussi son jour de référence).
 
+pub mod extrait;
 pub mod modele;
+pub mod modele_extrait;
 
 use ent_web_api::rgpd_droits_types::{
     AffectationBody, ArbitrageIdentiteBody, ClotureBody, DecisionBody, DemandeDto, DepotBody,
@@ -681,6 +683,8 @@ fn Fiche(
                 })}
             </Tuile>
         </GrilleBento>
+
+        <extrait::SectionExtrait demande=id ouverte=ouverte/>
 
         <section class="classe-section" aria-labelledby="rgpd-droits-titre">
             <h2 id="rgpd-droits-titre">"Droits exercés"</h2>

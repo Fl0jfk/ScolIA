@@ -1382,6 +1382,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("rgp_document", "conformite", Portee::Etablissement),
     t("rgp_ecart", "conformite", Portee::Etablissement),
     t("rgp_extrait", "conformite", Portee::Etablissement).perso(),
+    t("rgp_extrait_masquage", "conformite", Portee::Etablissement).perso(),
     t("rgp_extrait_section", "conformite", Portee::Etablissement).perso(),
     t("rgp_gouvernance", "conformite", Portee::Etablissement).perso(),
     t("rgp_mention", "conformite", Portee::Etablissement),
