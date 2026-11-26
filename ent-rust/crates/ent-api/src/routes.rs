@@ -920,6 +920,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::rgpd_droits::routes());
     // Socle 27, lot G3b : extrait d'accès (`rgpd_extrait.rs`).
     let r = r.merge(crate::rgpd_extrait::routes());
+    // Socle 27, lot G4-1 : traces d'accès, page « Consultations du dossier » (`acces_traces.rs`).
+    let r = r.merge(crate::acces_traces::routes());
     // Agenda : événements, séries, audience, vue calculée (socle 19, lot AG1 : `agenda.rs`).
     let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
@@ -3169,17 +3171,39 @@ async fn create_eleve(
     Ok((StatusCode::CREATED, Json(EleveDto::from(&eleve))))
 }
 
+/// Paramètres facultatifs de l'ouverture d'une fiche : le motif d'une consultation hors périmètre (RGP-191, S-542).
+#[derive(Debug, Deserialize)]
+struct FicheQuery {
+    motif: Option<String>,
+}
+
 async fn get_eleve(
     State(state): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<FicheQuery>,
 ) -> Result<Json<EleveDto>, (StatusCode, String)> {
-    let vue = state
+    let lu = state
         .ent
-        .get_eleve_vue_for_actor(session.etablissement_id, session.user_id, &session.role, id)
-        .await
-        .map_err(map_db)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "élève introuvable".into()))?;
+        .get_eleve_vue_motive_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            q.motif.as_deref(),
+            true,
+            chrono::Utc::now(),
+        )
+        .await;
+    let vue = match lu {
+        // RGP-191 : fiche hors périmètre sans motif → 409 « motif_requis » + liste S-542 (l'écran la propose).
+        Err(ent_db::EntDbError::ConflitDossier(m)) if m == ent_db::acces_traces::MOTIF_REQUIS => {
+            return Err(crate::acces_traces::motif_requis(&state, &session).await)
+        }
+        Err(e) => return Err(map_db(e)),
+        Ok(v) => v,
+    }
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "élève introuvable".into()))?;
     Ok(Json(EleveDto::depuis_vue(&vue)))
 }
 

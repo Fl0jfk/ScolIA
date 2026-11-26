@@ -612,6 +612,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // demande (fratrie, RGP-302) et réglages RGPD de l'établissement. **Après** 2544, en fin de tableau (règle 38) ;
     // fonctions avec `search_path` et relations qualifiées. `MIGRATION_TAG` inchangé (sous 3808).
     m!("2545_rgpd_g3b_extrait"),
+    // Socle 27, palier G3b + G4, lot 4 (2546) : traces d'accès séparées du journal métier (`acc_trace`, première table
+    // partitionnée de ScolIA : par mois, RLS posée sur chaque partition), contrôles internes, alertes, registre des
+    // purges, réglages S-541/S-542/S-543/S-554, reprise par copie des consultations de `ent_journal_modif`. En fin de
+    // tableau (règle 38) ; fonctions avec `search_path` et relations qualifiées. `MIGRATION_TAG` inchangé (sous 3808).
+    m!("2546_rgpd_g4_traces_acces"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

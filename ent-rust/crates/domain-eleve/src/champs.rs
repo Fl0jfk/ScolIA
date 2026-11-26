@@ -157,6 +157,16 @@ impl GroupesAutorises {
         }
     }
 
+    /// Fiche ouverte **hors périmètre** avec un motif, ou en périmètre temporaire (RGP-191, RGP-310) : la désignation
+    /// seulement (annuaire), tous les autres groupes masqués « hors portée ».
+    pub fn designation_seule() -> Self {
+        let mut g = Self {
+            etats: [EtatGroupe::Masque(RaisonMasquage::HorsPortee); 6],
+        };
+        g.etats[GroupeChamps::Designation.rang()] = EtatGroupe::Ouvert;
+        g
+    }
+
     /// Famille ou élève lui-même : G0 à G3 (selon le lien, vérifié ailleurs), jamais G5 ni G6.
     pub fn famille() -> Self {
         let mut g = Self::tous();

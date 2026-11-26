@@ -318,6 +318,15 @@ const N_AFAIRE: Neutralisation = Neutralisation::Maj {
 
 /// Le registre. Ordre alphabétique (aligné sur le catalogue).
 pub const REGISTRE: &[ClasseTable] = &[
+    // Socle 27, palier G3b + G4, lot 4 (migration 2546) : traces d'accès séparées du journal métier. `acc_trace` est
+    // PARTITIONNÉE par mois : seule la table parent est classée, ses partitions (`acc_trace_AAAAMM`) lui sont rattachées
+    // (le test « chaque partition est couverte par son parent » vérifie RLS, FORCE, politique et déclencheur sur
+    // chacune). Neutralisation : aucune (rien à ré-émettre). `acc_purge` est le registre de plateforme des purges.
+    t("acc_alerte", "conformite", Portee::Etablissement).perso(),
+    t("acc_controle", "conformite", Portee::Etablissement).perso(),
+    t("acc_motif", "conformite", Portee::Etablissement),
+    t("acc_purge", "conformite", Portee::Technique),
+    t("acc_trace", "conformite", Portee::Etablissement).perso(),
     // Socle 27, G1 : règles de conservation décidées par l'établissement ; le catalogue est dans le code.
     t("cons_regle", "conformite", Portee::Etablissement).perso(),
     t("cons_regle_journal", "conformite", Portee::Etablissement).perso(),
@@ -1367,6 +1376,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     // rien n'est à « re-envoyer » (l'accusé de réception part par la file du socle 8, qui a sa propre
     // neutralisation). La pièce d'identité n'est pas en base : seule sa référence au coffre (socle 7) l'est.
     t("rgp_cloture", "conformite", Portee::Etablissement).perso(),
+    t("rgp_cloture_element", "conformite", Portee::Etablissement).perso(),
+    t("rgp_cloture_refus", "conformite", Portee::Etablissement).perso(),
+    t("rgp_cloture_section", "conformite", Portee::Etablissement).perso(),
     t("rgp_defi", "conformite", Portee::Etablissement).perso(),
     t("rgp_demande", "conformite", Portee::Etablissement).perso(),
     // Compteur de numéros : aucune donnée personnelle, un entier par année.
@@ -1389,11 +1401,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("rgp_extrait_section", "conformite", Portee::Etablissement).perso(),
     t("rgp_gouvernance", "conformite", Portee::Etablissement).perso(),
     t("rgp_mention", "conformite", Portee::Etablissement),
+    t("rgp_redirection", "conformite", Portee::Etablissement).perso(),
     // Réglages RGPD de l'établissement : valeurs numériques, aucune donnée personnelle ; leur journal garde seulement qui a changé quoi.
     t("rgp_reglage", "conformite", Portee::Etablissement),
     t("rgp_reglage_journal", "conformite", Portee::Etablissement).perso(),
     t("rgp_remise", "conformite", Portee::Etablissement).perso(),
-    t("rgp_renvoi", "conformite", Portee::Etablissement).perso(),
     t("rgp_soustraitant", "conformite", Portee::Technique),
     t("rgp_soustraitant_annonce", "conformite", Portee::Technique),
     t("rgp_soustraitant_donnee", "conformite", Portee::Technique).exc(Exception::SansHorodatage, "table de liaison de plateforme (clé composite) : l'horodatage est porté par `rgp_soustraitant`"),
@@ -2006,7 +2018,7 @@ mod tests {
                    EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0
                            AND NOT a.attisdropped AND a.attname = 'storage_key') AS skey
             FROM pg_class c
-            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p') AND NOT c.relispartition
             ORDER BY c.relname
             "#,
         )
@@ -2108,6 +2120,55 @@ mod tests {
             }
         }
         assert!(erreurs.is_empty(), "registre non conforme :\n{}", erreurs.join("\n"));
+    }
+
+    /// **Partitions** (premier usage dans ScolIA, migration 2546) : une partition est couverte par son parent. Le
+    /// catalogue ne classe que le parent ; ici chaque partition doit en plus porter, **elle-même**, la RLS stricte
+    /// (une requête qui la vise directement ne passe pas par la politique du parent), FORCE, la politique
+    /// d'établissement et le déclencheur TRUNCATE (ajout seul). Aucune garde n'est affaiblie pour les autres tables.
+    #[tokio::test]
+    async fn chaque_partition_est_couverte_par_son_parent() {
+        let Some(pool) = base().await else { return };
+        let lignes: Vec<(String, String, bool, bool, bool, bool)> = sqlx::query_as(
+            "SELECT c.relname::text, p.relname::text, c.relrowsecurity, c.relforcerowsecurity,
+                    EXISTS (SELECT 1 FROM pg_policies o WHERE o.schemaname = 'public' AND o.tablename = c.relname
+                             AND o.policyname = 'ent_rls_etablissement'
+                             AND o.qual LIKE '%ent_rls_strict()%' AND o.with_check LIKE '%ent_rls_strict()%'),
+                    EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid AND NOT t.tgisinternal
+                             AND (t.tgtype & 32) <> 0)
+               FROM pg_class c
+               JOIN pg_inherits i ON i.inhrelid = c.oid
+               JOIN pg_class p ON p.oid = i.inhparent
+              WHERE c.relnamespace = 'public'::regnamespace AND c.relispartition AND c.relkind = 'r'
+              ORDER BY 1",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("partitions");
+        assert!(!lignes.is_empty(), "au moins une partition de traces (migration 2546)");
+        let mut erreurs: Vec<String> = Vec::new();
+        for (nom, parent, rls, force, politique, truncate) in &lignes {
+            match classer(parent) {
+                None => erreurs.push(format!("{nom} : parent {parent} non classé")),
+                Some(c) if c.portee != Portee::Etablissement => {
+                    erreurs.push(format!("{nom} : parent {parent} hors portée établissement"))
+                }
+                Some(_) => {}
+            }
+            if classer(nom).is_some() {
+                erreurs.push(format!("{nom} : une partition ne se classe pas, c'est son parent qui l'est"));
+            }
+            if !rls || !force {
+                erreurs.push(format!("{nom} : RLS ou FORCE absente sur la partition elle-même"));
+            }
+            if !politique {
+                erreurs.push(format!("{nom} : politique d'établissement stricte absente sur la partition"));
+            }
+            if !truncate {
+                erreurs.push(format!("{nom} : déclencheur TRUNCATE (ajout seul) absent sur la partition"));
+            }
+        }
+        assert!(erreurs.is_empty(), "partitions non conformes :\n{}", erreurs.join("\n"));
     }
 
     /// Liste lisible des tables non conformes (dette déclarée) : exécutée pour

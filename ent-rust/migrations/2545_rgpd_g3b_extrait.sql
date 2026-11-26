@@ -390,8 +390,6 @@ CREATE TABLE IF NOT EXISTS rgp_cloture (
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     demande_id UUID NOT NULL,
-    elements JSONB NOT NULL DEFAULT '[]'::jsonb,
-    refus JSONB NOT NULL DEFAULT '[]'::jsonb,
     cloture_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
     cloture_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -399,9 +397,50 @@ CREATE TABLE IF NOT EXISTS rgp_cloture (
         REFERENCES rgp_demande (etablissement_id, id) ON DELETE RESTRICT
 );
 
+-- Éléments remis (une ligne par extrait remis, empreinte seulement), leurs sections et les refus partiels :
+-- tables typées (D-036, aucun JSON), en ajout seul comme la clôture.
+CREATE TABLE IF NOT EXISTS rgp_cloture_element (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    cloture_id UUID NOT NULL REFERENCES rgp_cloture (id) ON DELETE RESTRICT,
+    rang INTEGER NOT NULL CHECK (rang >= 0),
+    extrait_id UUID NOT NULL,
+    version INTEGER NOT NULL,
+    sujet_type TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    remis_le TIMESTAMPTZ NOT NULL,
+    empreinte TEXT NOT NULL,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rgp_cloture_element_cloture_idx ON rgp_cloture_element (etablissement_id, cloture_id, rang);
+CREATE TABLE IF NOT EXISTS rgp_cloture_section (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    element_id UUID NOT NULL REFERENCES rgp_cloture_element (id) ON DELETE RESTRICT,
+    fournisseur_code TEXT NOT NULL,
+    statut TEXT NOT NULL,
+    empreinte TEXT,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rgp_cloture_section_element_idx ON rgp_cloture_section (etablissement_id, element_id);
+CREATE TABLE IF NOT EXISTS rgp_cloture_refus (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    cloture_id UUID NOT NULL REFERENCES rgp_cloture (id) ON DELETE RESTRICT,
+    droit TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    motif_code TEXT,
+    motif TEXT,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rgp_cloture_refus_cloture_idx ON rgp_cloture_refus (etablissement_id, cloture_id);
+
 -- Renvois tracés : rectification vers le socle propriétaire (RGP-156), retrait de consentement relié au socle 18
 -- (RGP-159), CADA d'un tiers : document agrégé ou occulté (RGP-316).
-CREATE TABLE IF NOT EXISTS rgp_renvoi (
+CREATE TABLE IF NOT EXISTS rgp_redirection (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
@@ -411,10 +450,10 @@ CREATE TABLE IF NOT EXISTS rgp_renvoi (
     texte TEXT NOT NULL CHECK (length(btrim(texte)) BETWEEN 3 AND 2000),
     cree_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT rgp_renvoi_demande_fk FOREIGN KEY (etablissement_id, demande_id)
+    CONSTRAINT rgp_redirection_demande_fk FOREIGN KEY (etablissement_id, demande_id)
         REFERENCES rgp_demande (etablissement_id, id) ON DELETE RESTRICT
 );
-CREATE INDEX IF NOT EXISTS rgp_renvoi_demande_idx ON rgp_renvoi (etablissement_id, demande_id);
+CREATE INDEX IF NOT EXISTS rgp_redirection_demande_idx ON rgp_redirection (etablissement_id, demande_id);
 
 CREATE OR REPLACE FUNCTION rgp_g3b_ajout_seul() RETURNS trigger
 LANGUAGE plpgsql
@@ -432,8 +471,17 @@ CREATE TRIGGER rgp_remise_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_remise
 DROP TRIGGER IF EXISTS rgp_cloture_ajout_seul_trg ON rgp_cloture;
 CREATE TRIGGER rgp_cloture_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_cloture
     FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
-DROP TRIGGER IF EXISTS rgp_renvoi_ajout_seul_trg ON rgp_renvoi;
-CREATE TRIGGER rgp_renvoi_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_renvoi
+DROP TRIGGER IF EXISTS rgp_cloture_element_ajout_seul_trg ON rgp_cloture_element;
+CREATE TRIGGER rgp_cloture_element_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_cloture_element
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_cloture_section_ajout_seul_trg ON rgp_cloture_section;
+CREATE TRIGGER rgp_cloture_section_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_cloture_section
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_cloture_refus_ajout_seul_trg ON rgp_cloture_refus;
+CREATE TRIGGER rgp_cloture_refus_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_cloture_refus
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_redirection_ajout_seul_trg ON rgp_redirection;
+CREATE TRIGGER rgp_redirection_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_redirection
     FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
 
 SELECT ent_rls_poser(ARRAY[
@@ -448,4 +496,7 @@ SELECT ent_rls_poser(ARRAY[
     'rgp_defi',
     'rgp_telechargement',
     'rgp_cloture',
-    'rgp_renvoi']);
+    'rgp_cloture_element',
+    'rgp_cloture_section',
+    'rgp_cloture_refus',
+    'rgp_redirection']);

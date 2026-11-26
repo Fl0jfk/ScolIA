@@ -737,6 +737,10 @@ async fn run_api() {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("purge des extraits RGPD : {e}"),
                 }
+                // Socle 27 (G4) : partitions mensuelles des traces d'accès créées à l'avance (mois courant et deux suivants).
+                if let Err(e) = ent.acces_partitions_assurer().await {
+                    tracing::warn!("partitions des traces d'accès : {e}");
+                }
                 match ent.purger_objets_pieces_infectees_tache(retention).await {
                     Ok(b) if b.purges > 0 || b.echecs > 0 => {
                         tracing::info!(?b, "objets de pièces infectées purgés")

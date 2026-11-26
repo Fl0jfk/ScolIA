@@ -18,6 +18,7 @@ mod transport;
 // Services par domaine (méthodes de `ApiClient`).
 mod absences_personnels;
 mod absences_personnels_hrcd;
+mod acces_traces;
 mod afaire;
 mod agenda;
 mod appel;
@@ -104,6 +105,7 @@ pub use vie_scolaire::DecisionApi;
 
 // Types partagés avec ent-api : crate `ent-types` (lot 1). Les noms historiques
 // du prototype sont conservés comme alias.
+pub use ent_types::acces_traces as acces_traces_types;
 pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi};
 pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,

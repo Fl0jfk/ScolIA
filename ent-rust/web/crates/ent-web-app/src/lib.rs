@@ -163,6 +163,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("rgpd/demandes/:id") view=modules::rgpd_droits::PageDemandeDroit/>
                     <Route path=path!("mes-donnees") view=modules::rgpd_droits::PageMesDonnees/>
                     <Route path=path!("mes-donnees/demande") view=modules::rgpd_droits::PageDeposerDemandeDroit/>
+                    // Socle 27, lot G4-1 : consultations du dossier (traces d'accès).
+                    <Route path=path!("mes-donnees/consultations") view=modules::consultations_dossier::PageConsultationsDossier/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::assiduite_vs::signalements::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>

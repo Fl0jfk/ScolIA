@@ -8,6 +8,8 @@
 
 use std::collections::HashSet;
 
+use chrono::{DateTime, NaiveDate, Utc};
+
 use domain_eleve::{Eleve, GroupeChamps, GroupesAutorises, NiveauIdentite, PorteeGroupe, ProfilChamps};
 use ent_auth::{modele_par_defaut, Action, Portee, Role};
 use uuid::Uuid;
@@ -312,6 +314,74 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<EleveVue>, EntDbError> {
+        self.get_eleve_vue_motive_for_actor(etablissement_id, user_id, role, eleve_id, None, false, Utc::now())
+            .await
+    }
+
+    /// Même lecture pour la **fiche** ouverte par un agent : hors de son périmètre (moteur de droits, hors périmètres
+    /// temporaires), elle exige un motif de la liste S-542 (`exiger_motif`) : sans motif, `ConflitDossier("motif_requis")`,
+    /// avant toute lecture ; avec un motif, la fiche est servie et la consultation tracée avec ce motif (RGP-191, R-RG49).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_eleve_vue_motive_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        motif: Option<&str>,
+        exiger_motif: bool,
+        maintenant: DateTime<Utc>,
+    ) -> Result<Option<EleveVue>, EntDbError> {
+        let staff = Role::parse(role).is_some_and(Role::is_staff);
+        // RGP-191 : hors du périmètre de l'annuaire de l'agent, la fiche s'ouvre **avec un motif** (liste S-542) et ne montre
+        // que la désignation ; un périmètre temporaire (conseil de classe, sortie) l'ouvre sans motif. L'élève absent ou
+        // protégé pour ce tiers répond « introuvable » AVANT toute évaluation : « motif requis » ne révèle rien.
+        let mut coupe_verre = false;
+        if staff {
+            let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?;
+            let existe: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2)")
+                .bind(etablissement_id)
+                .bind(eleve_id)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !existe || self.eleve_cache_au_tiers_conn(&mut tx, etablissement_id, user_id, role, eleve_id).await? {
+                return Ok(None);
+            }
+            let jour: NaiveDate = sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, $2)")
+                .bind(etablissement_id)
+                .bind(maintenant)
+                .fetch_one(&mut *tx)
+                .await?;
+            match self.perimetre_acteur(&mut tx, etablissement_id, user_id, role, eleve_id, jour).await? {
+                crate::acces_traces::Perimetre::Hors => {
+                    if motif.map(str::trim).filter(|m| !m.is_empty()).is_some() {
+                        coupe_verre = true;
+                    } else if exiger_motif {
+                        return Err(EntDbError::ConflitDossier(crate::acces_traces::MOTIF_REQUIS));
+                    }
+                }
+                crate::acces_traces::Perimetre::Temporaire(t) if t != "remplacement" => coupe_verre = true,
+                _ => {}
+            }
+        }
+        if coupe_verre {
+            let eleve_id = self.eleve_effectif(etablissement_id, eleve_id).await?;
+            let Some(e) = self.get_eleve(etablissement_id, eleve_id).await? else {
+                return Ok(None);
+            };
+            self.tracer_consultation_motive_a(
+                etablissement_id,
+                user_id,
+                role,
+                Some(e.id),
+                "fiche_ouverte",
+                "Ouverture de la fiche d'un élève hors du périmètre ou en périmètre temporaire",
+                motif,
+                maintenant,
+            )
+            .await?;
+            return Ok(Some(EleveVue::de(e, domain_eleve::GroupesAutorises::designation_seule())));
+        }
         let Some(e) = self
             .get_eleve_for_actor(etablissement_id, user_id, role, eleve_id)
             .await?
@@ -323,7 +393,7 @@ impl PgEnt {
         // E7 (§10.5) : toute ouverture de la fiche d'un élève protégé, toute lecture de l'état civil
         // ou des identifiants, est journalisée AVANT d'être servie ; un tiers n'arrive jamais ici
         // (`get_eleve_for_actor` l'a déjà écarté).
-        if Role::parse(role).is_some_and(Role::is_staff) {
+        if staff {
             let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)")
                 .bind(etablissement_id)
                 .bind(e.id)
@@ -339,9 +409,8 @@ impl PgEnt {
             if g.ouvert(GroupeChamps::Identifiants) {
                 lectures.push(("identifiants", "Lecture des identifiants de l'élève"));
             }
-            let tiers = protege && !profil.ouvert_partout(GroupeChamps::Sensible);
             for (action, libelle) in lectures {
-                self.tracer_consultation(etablissement_id, user_id, role, Some(e.id), action, libelle, tiers && action == "fiche_protegee")
+                self.tracer_consultation_motive_a(etablissement_id, user_id, role, Some(e.id), action, libelle, motif, maintenant)
                     .await?;
             }
         }

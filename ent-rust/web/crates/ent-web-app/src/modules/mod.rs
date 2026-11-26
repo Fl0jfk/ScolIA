@@ -15,6 +15,7 @@ pub mod campagnes;
 pub mod changements_edt;
 pub mod classes;
 pub mod connexion;
+pub mod consultations_dossier;
 pub mod delegations;
 pub mod demandes;
 pub mod discipline_vs;

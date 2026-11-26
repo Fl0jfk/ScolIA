@@ -154,13 +154,14 @@ pub(crate) async fn journaliser_tx(
     libelle: &str,
     role: &str,
     maintenant: DateTime<Utc>,
-) -> Result<(), EntDbError> {
+) -> Result<Uuid, EntDbError> {
+    let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle, payload,
                                          visible_famille, actor_user_id, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, jsonb_build_object('role', $7::text), false, $8, $9)",
     )
-    .bind(Uuid::new_v4())
+    .bind(id)
     .bind(etab)
     .bind(eleve)
     .bind(domaine)
@@ -171,7 +172,7 @@ pub(crate) async fn journaliser_tx(
     .bind(maintenant)
     .execute(&mut *conn)
     .await?;
-    Ok(())
+    Ok(id)
 }
 
 impl PgEnt {
@@ -748,6 +749,23 @@ impl PgEnt {
         _alerter: bool,
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
+        self.tracer_consultation_motive_a(etab, acteur, role, eleve, action, libelle, None, maintenant).await
+    }
+
+    /// Comme `tracer_consultation_a`, avec le **motif** d'une consultation hors périmètre (RGP-191, liste S-542). La ligne
+    /// de journal ET la trace d'accès (`acc_trace`, lot G4-1) sont écrites dans la même transaction (R-RG8 : un échec
+    /// refuse la lecture) ; fonction et service de l'agent y sont figés (R-RG31).
+    pub(crate) async fn tracer_consultation_motive_a(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve: Option<Uuid>,
+        action: &str,
+        libelle: &str,
+        motif: Option<&str>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(), EntDbError> {
         let sans_g6 = Role::parse(role).is_some_and(Role::is_staff)
             && !self
                 .profil_champs(etab, acteur, role)
@@ -767,11 +785,32 @@ impl PgEnt {
                 return Ok(());
             }
         }
-        journaliser_tx(&mut tx, etab, eleve, acteur, "consultation", action, libelle, role, maintenant)
+        let jour_trace = Self::jour_a(&mut tx, etab, maintenant).await?;
+        let perimetre = match eleve {
+            Some(e) => self.perimetre_acteur(&mut tx, etab, acteur, role, e, jour_trace).await?,
+            None => crate::acces_traces::Perimetre::Dans,
+        };
+        let motif_retenu = crate::acces_traces::valider_motif(&mut tx, etab, motif).await?;
+        let journal_id = journaliser_tx(&mut tx, etab, eleve, acteur, "consultation", action, libelle, role, maintenant)
             .await
             .inspect_err(|e| {
                 tracing::error!(action, error = %e, "échec d'écriture de la trace de consultation : lecture refusée");
             })?;
+        crate::acces_traces::ecrire_trace_tx(
+            &mut tx,
+            etab,
+            journal_id,
+            acteur,
+            role,
+            eleve,
+            action,
+            &crate::acces_traces::ContexteTrace { perimetre, motif: motif_retenu.as_deref() },
+            maintenant,
+        )
+        .await
+        .inspect_err(|e| {
+            tracing::error!(action, error = %e, "échec d'écriture de la trace d'accès : lecture refusée");
+        })?;
         if let (true, Some(e)) = (sans_g6, eleve) {
             let jour = Self::jour_a(&mut tx, etab, maintenant).await?;
             let alerte: bool = sqlx::query_scalar(

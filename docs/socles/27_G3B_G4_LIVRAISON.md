@@ -170,7 +170,7 @@ ligne « non couverte », GET à effet de bord, avis du DPO conservé après une
 
 - **Migration 2545 étendue** (non versée) : `rgp_extrait_fichier` (fichiers scellés, empreintes, échéance de mise à
   disposition, `purge_le` écrit une fois), `rgp_remise` (une par extrait ; en ligne ou main propre avec émargement),
-  `rgp_defi` (défis de passkey récente), `rgp_telechargement` (ajout seul), `rgp_cloture`, `rgp_renvoi` ; RLS sur les 6 ;
+  `rgp_defi` (défis de passkey récente), `rgp_telechargement` (ajout seul), `rgp_cloture`, `rgp_redirection` ; RLS sur les 6 ;
   gardes (ajout seul, fichier : seule la purge s'écrit).
 - **Module** `ent-db/src/droits_remise.rs` : PDF lisible par `ent-pdf` (sections, destinataires, durées, sources,
   exclusions et pièces non remises, masquages rendus « [masqué : …] ») ; **CSV** par section écrit à la main (RFC 4180,
@@ -219,8 +219,66 @@ avec le CPE absents du PDF et des CSV du père), Pf7, et les correctifs E1/E2/E3
 
 ### Compteurs
 
-RLS **+6** (12 tables pour 2545). Routes : +8, toutes authentifiées (aucune ligne aux inventaires de routes publiques).
+RLS **+9** après correction (12 puis 15 tables pour 2545, voir « Correctif de normalisation » au lot 4). Routes : +8, toutes authentifiées (aucune ligne aux inventaires de routes publiques).
 `Action::TOUTES` inchangé (286).
+
+## Lot 4 — traces d'accès séparées, motif hors périmètre, page « Consultations du dossier »
+
+### Fait
+
+- **Migration 2546** (fin du tableau, non versée) : `acc_trace` **partitionnée par mois** sur `le` (clé primaire `(id, le)`), partitions créées
+  par la fonction `acc_trace_assurer_partitions(date)` (mois courant + 2 suivants, `SECURITY DEFINER`, `search_path` fixé), appelée à la
+  migration et chaque heure par le service ; **RLS stricte posée sur le parent ET sur chaque partition** (les partitions n'héritent ni des
+  politiques ni des privilèges), déclencheur d'ajout seul au parent, `TRUNCATE` interdit sur chaque partition. Tables `acc_motif` (liste
+  S-542, personnalisable), `acc_controle` (durée max 31 jours, seule la clôture est modifiable), `acc_alerte` (une alerte par règle, agent
+  et fenêtre), registre de purge de plateforme `acc_purge` (ajout seul, sans RLS ; pas de `cons_execution`). Réglages S-541 (12 mois,
+  minimum 12), S-543 (rafale), S-554 (seuils par rôle) ajoutés à `rgp_reglage`. **Reprise** : copie (pas déplacement) des
+  consultations de `ent_journal_modif` (12 derniers mois), même identifiant, fonction rétablie à la date, `a_preciser` à défaut.
+- **R-RG8** : `tracer_consultation_a` écrit `acc_trace` dans la **même transaction** que la lecture ; un échec d'écriture refuse la lecture.
+  **R-RG31** : fonction et service figés à la date de la consultation (le service est la famille de fonction, aucun nom de personne).
+- **Hors périmètre** (RGP-191/310, R-RG49) : la fiche d'un élève hors du périmètre de l'agent répond **409 `motif_requis`** avec la liste
+  S-542 ; le même geste avec `?motif=` ouvre la fiche (désignation seule) et trace `hors_perimetre = true` avec le motif. Remplaçant,
+  conseil de classe et sortie = périmètres temporaires, jamais « hors périmètre », sans motif.
+- **Page « Consultations du dossier »** (RGP-192) : `GET /acces/consultations` (+ `GET /acces/motifs`) ; fonction et service jamais le nom,
+  regroupement par jour (jour d'établissement), année courante et précédente, jamais santé ni psy ni dossier de droits, diffère
+  l'affichage des consultations reportées, « support sans mention » pour le support éditeur, section protégée en code générique, rien
+  vers le parent visé par la protection (R-RG46 : aucune trace « coordonnées protégées » pour le parent séparé). Écran web
+  `mes-donnees/consultations`, sélecteur de motif sur la fiche élève.
+- **Correctif de normalisation (G3b-3)** : `rgp_cloture.elements/refus` (JSONB, interdit par D-036 et la consigne) remplacés par les
+  tables typées `rgp_cloture_element`, `rgp_cloture_section`, `rgp_cloture_refus` (ajout seul, RLS stricte, registre). L'API de lecture
+  reconstruit la même forme JSON (contrat inchangé). `rgp_renvoi` renommée `rgp_redirection` (le nom déclenchait la garde E9 « file d'envoi »).
+- **Gardes** : catalogue du registre sans partitions, test `chaque_partition_est_couverte_par_son_parent` (parent classé, RLS forcée,
+  politique stricte, `TRUNCATE`), exception ciblée de `garde_rls_stricte` pour l'appel de plateforme `acces_traces`.
+
+### Cas limites couverts
+
+Mois suivant créé à la volée (rien n'échoue la veille du 1er), partition interrogée directement sous rôle strict (isolation), reprise
+idempotente, trace refusée = lecture refusée, fonction figée après changement de poste, titulaire à la date, parent protégé, élève
+majeur (lui seul), agent : sa propre consultation, étab. étranger.
+
+### Tests (lot 4)
+
+`ent-db::tests_acces_g4` (une vingtaine : trace même identifiant que le journal, échec = refus, fonction figée, partitions et
+append-only, reprise égale et idempotente, hors périmètre motif requis, remplaçant sans motif, conseil de classe, page famille sans nom,
+pas de santé, parent protégé, support éditeur, isolation, motifs personnalisés), `tests_rls::rls_partition_de_traces_interrogee_directement`,
+registre `chaque_partition_est_couverte_par_son_parent`, HTTP `tests_acces_g4_http` (401, motifs, 200/409/400, 404), web : 4 tests du
+modèle de page. Aucune heure réelle (règle 33).
+
+### Valeurs prudentes retenues (D-069)
+
+- Service = famille de fonction ; périmètre de permanence non modélisé (pas de motif demandé aux permanences).
+- Lectures du dossier d'un agent non encore tracées (la page sait afficher `sujet_personne_id`).
+- Traces `dossier_droits` non visibles des familles.
+- Purge par partition : on garde la plus longue durée (S-541 ≥ 12 mois) ; reprise limitée aux 12 derniers mois.
+- S-549 (aucun nom d'agent) : constante de code, non réglable. Désignation seule en accès hors périmètre.
+- Filtre de report R-RG28 : lot 5.
+
+### Compteurs
+
+RLS : **+4 tables** (`acc_trace` parent, `acc_motif`, `acc_controle`, `acc_alerte`) **+3** (normalisation de la clôture) ; le catalogue exclut les
+partitions (`NOT relispartition`). Registre : +5 (`acc_alerte`, `acc_controle`, `acc_motif`, `acc_purge`, `acc_trace`) +3 (clôture). Routes :
++2 authentifiées. `Action::TOUTES` inchangé (286). Tests à rejouer isolément (`--test-threads=1`) : trois `tests_search_path_t1` expirent
+sous forte charge parallèle (verrou de rejeu), verts seuls.
 
 ---
 
@@ -232,4 +290,6 @@ Liste tenue à jour à chaque lot ; chaque lot compte au moins un commit de code
 - Lot 1 : `258ae1ef8` (migration 2545, moteur d'extrait, correctifs G3a), `67392f4dd` (livraison), `41c094bad` (résultat de la suite sans labo).
 - Lot 2 : `e2c517e43` (marquage, relecture, Pf3/Pf4, routes, écran, livraison).
 - Contre-revue des lots 1 et 2 : `44dbfe28a` (rapport) ; correctifs `4c8058436`.
-- Lot 3 : `f2a9acffe` (module de remise), puis les commits suivants de la branche (routes, écrans, livraison).
+- Lot 3 : `f2a9acffe` (module de remise), `5cbc85ba1` (routes, écrans, livraison).
+- Fusion de `origin/ENT` : `d8202f755`.
+- Lot 4 : commit de code et de livraison ci-dessous (voir `git log`).

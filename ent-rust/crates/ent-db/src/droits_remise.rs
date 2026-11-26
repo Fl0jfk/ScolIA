@@ -1059,69 +1059,60 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let mut elements = Vec::new();
-        for r in remises {
+        let cloture = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO rgp_cloture (id, etablissement_id, demande_id, cloture_par_compte_id)
+             VALUES ($1,$2,$3,$4)",
+        )
+        .bind(cloture)
+        .bind(etab)
+        .bind(demande)
+        .bind(acteur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        for (rang, r) in remises.iter().enumerate() {
             let extrait: Uuid = r.get("extrait_id");
-            let sections = sqlx::query(
-                "SELECT fournisseur_code, statut, empreinte FROM rgp_extrait_section
-                  WHERE etablissement_id = $1 AND extrait_id = $2 ORDER BY fournisseur_code",
+            let element = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO rgp_cloture_element
+                   (id, etablissement_id, cloture_id, rang, extrait_id, version, sujet_type, mode, remis_le, empreinte)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            )
+            .bind(element)
+            .bind(etab)
+            .bind(cloture)
+            .bind(rang as i32)
+            .bind(extrait)
+            .bind(r.get::<i32, _>("version"))
+            .bind(r.get::<String, _>("sujet_type"))
+            .bind(r.get::<String, _>("mode"))
+            .bind(r.get::<DateTime<Utc>, _>("remis_le"))
+            .bind(r.get::<String, _>("empreinte_extrait"))
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            sqlx::query(
+                "INSERT INTO rgp_cloture_section (id, etablissement_id, element_id, fournisseur_code, statut, empreinte)
+                 SELECT gen_random_uuid(), etablissement_id, $3, fournisseur_code, statut, empreinte
+                   FROM rgp_extrait_section WHERE etablissement_id = $1 AND extrait_id = $2",
             )
             .bind(etab)
             .bind(extrait)
-            .fetch_all(&mut *tx)
+            .bind(element)
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
-            let sections: Vec<serde_json::Value> = sections
-                .iter()
-                .map(|s| {
-                    serde_json::json!({
-                        "fournisseur": s.get::<String, _>("fournisseur_code"),
-                        "statut": s.get::<String, _>("statut"),
-                        "empreinte": s.get::<Option<String>, _>("empreinte"),
-                    })
-                })
-                .collect();
-            elements.push(serde_json::json!({
-                "extrait_id": extrait,
-                "version": r.get::<i32, _>("version"),
-                "sujet_type": r.get::<String, _>("sujet_type"),
-                "mode": r.get::<String, _>("mode"),
-                "remis_le": r.get::<DateTime<Utc>, _>("remis_le"),
-                "empreinte": r.get::<String, _>("empreinte_extrait"),
-                "sections": sections,
-            }));
         }
-        let refus = sqlx::query(
-            "SELECT droit, decision, motif_code, motif_texte FROM rgp_demande_droit
-              WHERE etablissement_id = $1 AND demande_id = $2 AND decision IN ('refuse', 'partiel')
-              ORDER BY droit",
-        )
-        .bind(etab)
-        .bind(demande)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        let refus: Vec<serde_json::Value> = refus
-            .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "droit": r.get::<String, _>("droit"),
-                    "decision": r.get::<String, _>("decision"),
-                    "motif_code": r.get::<Option<String>, _>("motif_code"),
-                    "motif": r.get::<Option<String>, _>("motif_texte"),
-                })
-            })
-            .collect();
         sqlx::query(
-            "INSERT INTO rgp_cloture (id, etablissement_id, demande_id, elements, refus, cloture_par_compte_id)
-             VALUES ($1,$2,$3,$4,$5,$6)",
+            "INSERT INTO rgp_cloture_refus (id, etablissement_id, cloture_id, droit, decision, motif_code, motif)
+             SELECT gen_random_uuid(), etablissement_id, $3, droit, decision, motif_code, motif_texte
+               FROM rgp_demande_droit
+              WHERE etablissement_id = $1 AND demande_id = $2 AND decision IN ('refuse', 'partiel')",
         )
-        .bind(Uuid::new_v4())
         .bind(etab)
         .bind(demande)
-        .bind(serde_json::Value::Array(elements))
-        .bind(serde_json::Value::Array(refus))
-        .bind(acteur)
+        .bind(cloture)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1140,16 +1131,80 @@ impl PgEnt {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsTraiter)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let r = sqlx::query(
-            "SELECT elements, refus FROM rgp_cloture WHERE etablissement_id = $1 AND demande_id = $2
-              ORDER BY cloture_le DESC LIMIT 1",
+        let Some(c) = sqlx::query(
+            "SELECT id FROM rgp_cloture WHERE etablissement_id = $1 AND demande_id = $2
+              ORDER BY cloture_le DESC, id LIMIT 1",
         )
         .bind(etab)
         .bind(demande)
         .fetch_optional(&mut *tx)
         .await
+        .map_err(db)?
+        else {
+            return Ok(None);
+        };
+        let cloture: Uuid = c.get("id");
+        let elements = sqlx::query(
+            "SELECT id, extrait_id, version, sujet_type, mode, remis_le, empreinte FROM rgp_cloture_element
+              WHERE etablissement_id = $1 AND cloture_id = $2 ORDER BY rang",
+        )
+        .bind(etab)
+        .bind(cloture)
+        .fetch_all(&mut *tx)
+        .await
         .map_err(db)?;
-        Ok(r.map(|r| (r.get("elements"), r.get("refus"))))
+        let mut elems = Vec::new();
+        for e in elements {
+            let sections = sqlx::query(
+                "SELECT fournisseur_code, statut, empreinte FROM rgp_cloture_section
+                  WHERE etablissement_id = $1 AND element_id = $2 ORDER BY fournisseur_code",
+            )
+            .bind(etab)
+            .bind(e.get::<Uuid, _>("id"))
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            let sections: Vec<serde_json::Value> = sections
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "fournisseur": s.get::<String, _>("fournisseur_code"),
+                        "statut": s.get::<String, _>("statut"),
+                        "empreinte": s.get::<Option<String>, _>("empreinte"),
+                    })
+                })
+                .collect();
+            elems.push(serde_json::json!({
+                "extrait_id": e.get::<Uuid, _>("extrait_id"),
+                "version": e.get::<i32, _>("version"),
+                "sujet_type": e.get::<String, _>("sujet_type"),
+                "mode": e.get::<String, _>("mode"),
+                "remis_le": e.get::<DateTime<Utc>, _>("remis_le"),
+                "empreinte": e.get::<String, _>("empreinte"),
+                "sections": sections,
+            }));
+        }
+        let refus = sqlx::query(
+            "SELECT droit, decision, motif_code, motif FROM rgp_cloture_refus
+              WHERE etablissement_id = $1 AND cloture_id = $2 ORDER BY droit",
+        )
+        .bind(etab)
+        .bind(cloture)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let refus: Vec<serde_json::Value> = refus
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "droit": r.get::<String, _>("droit"),
+                    "decision": r.get::<String, _>("decision"),
+                    "motif_code": r.get::<Option<String>, _>("motif_code"),
+                    "motif": r.get::<Option<String>, _>("motif"),
+                })
+            })
+            .collect();
+        Ok(Some((serde_json::Value::Array(elems), serde_json::Value::Array(refus))))
     }
 
     /// **Renvoi tracé** (RGP-156, RGP-159, RGP-316) : rectification vers le socle propriétaire, retrait de
@@ -1187,7 +1242,7 @@ impl PgEnt {
         crate::droits_demandes::etat_courant(&mut tx, etab, demande).await?;
         let id = Uuid::new_v4();
         let cree: DateTime<Utc> = sqlx::query_scalar(
-            "INSERT INTO rgp_renvoi (id, etablissement_id, demande_id, nature, cible, texte, cree_par_compte_id)
+            "INSERT INTO rgp_redirection (id, etablissement_id, demande_id, nature, cible, texte, cree_par_compte_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING cree_le",
         )
         .bind(id)
@@ -1231,7 +1286,7 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let rows = sqlx::query(
-            "SELECT id, nature, cible, texte, cree_le FROM rgp_renvoi
+            "SELECT id, nature, cible, texte, cree_le FROM rgp_redirection
               WHERE etablissement_id = $1 AND demande_id = $2 ORDER BY cree_le, id",
         )
         .bind(etab)

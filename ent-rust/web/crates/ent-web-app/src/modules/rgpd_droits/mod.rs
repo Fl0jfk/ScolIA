@@ -1228,6 +1228,9 @@ pub fn PageMesDonnees() -> impl IntoView {
             titre="Mes données".to_string()
             sous_titre="Vos demandes et leur avancement. L'établissement répond dans un délai d'un mois.".to_string()
         >
+            <LienBouton href="/web/mes-donnees/consultations" variante=Variante::Secondaire>
+                "Consultations du dossier"
+            </LienBouton>
             <LienBouton href="/web/mes-donnees/demande" variante=Variante::Primaire>
                 "Déposer une demande"
             </LienBouton>

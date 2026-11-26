@@ -88,6 +88,7 @@ mod accords_s18;
 mod formulaires_s18;
 // Socle 27, lot G3a : guichet des demandes de droits (`/rgpd/demandes`).
 mod rgpd_droits;
+mod acces_traces;
 mod rgpd_extrait;
 mod eleve_propositions;
 mod eleve_fusion;
@@ -440,6 +441,8 @@ mod tests_voyages_v3_http;
 mod tests_rgpd_g3a_http;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rgpd_g3b_http;
+#[cfg(all(test, feature = "labo"))]
+mod tests_acces_g4_http;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
