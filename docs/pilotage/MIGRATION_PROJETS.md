@@ -83,6 +83,11 @@ réglages d'organisation.
 > versées s'ajoutent à `ent-rust/crates/ent-db/src/migrations_versees.txt` au moment de la fusion de chaîne. Toute
 > nouvelle migration va en fin du tableau de `migrate.rs` (règle 38).
 >
+> **Palier** (règle 39) : on verse par **palier**, une fonction complète d'un socle (3 à 5 lots), sur une seule branche
+> partie d'ENT. Dans un palier, les fils codent sans PR et passent la CI en local ; chaque lot a sa contre-revue. La PR
+> s'ouvre à la fin du palier : une seule CI, une contre-revue d'ensemble, puis le versement. Après l'ouverture de la PR,
+> aucun commit hors correctif, pas même de doc. Chaque matin, tu fusionnes ENT dans les paliers ouverts sans PR.
+>
 > **Pilotage écrit** : tout ce qui compte s'écrit sur `ent-mc0hoe` (consignes, rapports, décisions, point quotidien),
 > jamais seulement dans un fil.
 
@@ -90,9 +95,10 @@ réglages d'organisation.
 
 Les consignes actuelles (`docs/pilotage/consignes/*.md`) servent telles quelles. Leurs rubriques obligatoires :
 - **Cadre**
-  - À lire d'abord : `CLAUDE.md`, les règles de `docs/PILOTAGE.md` (17, 25, 27, 28, 31, 33, 34, 36, 38), la doc du socle,
+  - À lire d'abord : `CLAUDE.md`, les règles de `docs/PILOTAGE.md` (17, 25, 27, 28, 31, 33, 34, 36, 38, 39), la doc du socle,
     le rapport de revue s'il y en a un.
-  - Branche : elle part d'`origin/ENT`, sauf chaîne explicite. PR en brouillon vers `ENT`.
+  - Branche : celle du palier, partie d'`origin/ENT` (règle 39). Pas de PR en cours de palier ; le dernier lot ouvre la
+    PR en brouillon vers `ENT`.
   - Migrations : numéro réservé **vérifié libre sur toutes les branches** ; aucune migration versée modifiée ;
     `SET search_path = pg_catalog, public, pg_temp` et relations `public.` ; fin de tableau ; ne pas toucher
     `migrations_versees.txt`.
@@ -102,7 +108,9 @@ Les consignes actuelles (`docs/pilotage/consignes/*.md`) servent telles quelles.
     dans `ent-rust/web` ; base locale neuve dont le nom contient « test » ; compteurs de la règle 28.
 - **Travail** : liste numérotée, cas limites et tests attendus, règle D-069.
 - **Fin**
-  - CI attendue par **une seule** boucle `until` en arrière-plan ; une CI « queued » longtemps n'est pas une panne ;
+  - Lot intermédiaire du palier : équivalent local de la CI (règle 39), commit poussé sur la branche du palier, aucune
+    PR ; message au coordinateur avec la tête et les résultats locaux.
+  - Dernier lot du palier : PR en brouillon vers `ENT`, puis CI attendue par **une seule** boucle `until` en arrière-plan ; une CI « queued » longtemps n'est pas une panne ;
     s'il n'y a aucune CI après 10 min, fusionner `origin/ENT`.
   - Section « livraison » dans la doc du socle.
   - Message au coordinateur avec la tête finale et l'état de la CI.
