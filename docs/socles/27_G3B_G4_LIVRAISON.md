@@ -67,3 +67,26 @@ colonne interdite, protections jamais lues).
 
 RLS : **+5** tables (compte attendu dans `tests_rls.rs`). Aucune route ni action nouvelle dans ce lot
 (`Action::TOUTES` inchangé à 286). Registre des tables : +5 entrées.
+
+### Vérification locale du lot 1 (étape b)
+
+- `rustfmt --check` des fichiers nouveaux : propre (la dette de formatage du backend existant reste non bloquante en CI,
+  `cargo fmt --all --check` n'a pas été « corrigé » : `cargo fmt --all` interdit).
+- Trois commandes clippy de la CI (`--workspace --all-targets` avec et sans `ent-api/labo,ent-lab/labo`, puis `ent-types`) :
+  **0 avertissement** (rustc et clippy 1.99).
+- `cargo nextest` ent-db avec labo, **4 tranches** (`--partition count:i/4`), **base neuve par tranche** :
+  769 / 765 / 764 / 767 tests passés. Les échecs rencontrés (3 + 3 + 2 + 1) sont des tests qui **comptent des lignes
+  globales pendant que d'autres tests écrivent** (`tests_reprise_r2/r3`, `tests_messagerie_p3`) ou des semis concurrents
+  (`Reessayer`) : rejoués seuls avec `-j1`, les **40 tests concernés passent**. Un échec réel a été corrigé
+  (ordre alphabétique du registre des tables).
+- `cargo nextest -p ent-api -p ent-db` sans labo : voir la section suivante (résultat consigné au push du lot).
+
+### Contre-revue locale (étape c) — **non exécutée par `review-sonnet`**
+
+L'agent `review-sonnet` n'existe pas dans l'environnement de cette session (le lancement répond « agent type not found » ;
+seuls `explore`/`general-purpose`… sont listés, et la consigne interdit d'en utiliser d'autres). **Auto-revue** à la place,
+sur le modèle de menaces du lot : identifiants SQL dynamiques (tables et colonnes issues du registre **et** filtrées par
+`identifiant_sur`, jamais d'entrée libre), filtre `etablissement_id` explicite en plus de la RLS, contenu jamais stocké,
+colonnes secrètes/scellées jamais rendues, DPO limité à l'extrait soumis, lecture tracée avant service, verrous de
+concurrence (destruction de pièces, plafond de dépôts), aucune heure réelle dans les tests. À refaire par un relecteur
+indépendant : **à signaler au coordinateur**.
