@@ -20,6 +20,8 @@
 pub mod extrait;
 pub mod modele;
 pub mod modele_extrait;
+pub mod modele_remise;
+pub mod remise;
 
 use ent_web_api::rgpd_droits_types::{
     AffectationBody, ArbitrageIdentiteBody, ClotureBody, DecisionBody, DemandeDto, DepotBody,
@@ -685,6 +687,7 @@ fn Fiche(
         </GrilleBento>
 
         <extrait::SectionExtrait demande=id ouverte=ouverte/>
+        <remise::SectionReponseRemise demande=id ouverte=ouverte/>
 
         <section class="classe-section" aria-labelledby="rgpd-droits-titre">
             <h2 id="rgpd-droits-titre">"Droits exercés"</h2>
@@ -1240,6 +1243,7 @@ pub fn PageMesDonnees() -> impl IntoView {
             }.into_any(),
             Some(Ok(l)) => view! { <Suivi demandes=trier_suivi(l)/> }.into_any(),
         }}
+        <remise::MesExtraits/>
     }
 }
 

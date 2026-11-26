@@ -192,6 +192,142 @@ async fn g3b_http_extrait_parcours_et_refus() {
     )
     .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
+    // Lot G3b-3 : remise, « Mes données », renvois, clôture consignée, pièces à choisir.
+    let defi_uri = format!("/rgpd/demandes/{id}/extraits/{extrait}/remise/defi");
+    for (m, uri) in [
+        ("GET", "/rgpd/mes-donnees".to_string()),
+        ("POST", defi_uri.clone()),
+        ("GET", format!("/rgpd/demandes/{id}/renvois")),
+        ("GET", format!("/rgpd/demandes/{id}/cloture")),
+        ("GET", format!("/rgpd/demandes/{id}/pieces-identite")),
+    ] {
+        let (st, _) = appel(&app, m, &uri, None, Some(json!({}))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {uri}");
+    }
+    // Le secrétariat n'a pas `droits.remettre` : 403.
+    let (st, _) = appel(&app, "POST", &defi_uri, Some(adf), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // La direction : extrait non remissible (marquage ouvert) ou sans passkey enregistrée → 409.
+    let (st, r) = appel(&app, "POST", &defi_uri, Some(dir), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "{r}");
+    // Un extrait inconnu : 404.
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!(
+            "/rgpd/demandes/{id}/extraits/{}/remise/defi",
+            Uuid::new_v4()
+        ),
+        Some(dir),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Remise sans assertion valide : 400 (rien n'est tenté).
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/demandes/{id}/extraits/{extrait}/remise"),
+        Some(dir),
+        Some(json!({ "mode": "en_ligne", "defi_id": Uuid::new_v4(), "credential": {} })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    // « Mes données » : une famille sans extrait voit une liste vide ; un téléchargement sans assertion : 400 ;
+    // un défi sur un extrait qui n'est pas le sien : 404.
+    let (st, mes) = appel(&app, "GET", "/rgpd/mes-donnees", Some(parent), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(mes, json!([]));
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/mes-donnees/extraits/{extrait}/defi"),
+        Some(parent),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/mes-donnees/fichiers/{}/telecharger", Uuid::new_v4()),
+        Some(parent),
+        Some(json!({ "defi_id": Uuid::new_v4(), "credential": {} })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    // Renvois : réservés à `droits.traiter` ; nature inconnue 400 ; trace puis liste.
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/demandes/{id}/renvois"),
+        Some(parent),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/demandes/{id}/renvois"),
+        Some(dir),
+        Some(json!({ "nature": "inconnue", "cible": "x", "texte": "texte" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, r) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/demandes/{id}/renvois"),
+        Some(dir),
+        Some(json!({ "nature": "rectification", "cible": "SIECLE", "texte": "date de naissance à corriger" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    assert!(r["texte"]
+        .as_str()
+        .unwrap()
+        .contains("à corriger dans la source"));
+    let (st, l) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/demandes/{id}/renvois"),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(l.as_array().unwrap().len(), 1);
+    // Aucune clôture consignée tant que la demande est ouverte : 404.
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/demandes/{id}/cloture"),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Pièces d'identité à choisir (Pf7) : liste pour le guichet, 403 pour la famille.
+    let (st, p) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/demandes/{id}/pieces-identite"),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{p}");
+    assert!(p.is_array());
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/demandes/{id}/pieces-identite"),
+        Some(parent),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
     // Réglage : lecture par la direction, valeur hors bornes refusée.
     let (st, r) = appel(&app, "GET", "/rgpd/reglages", Some(dir), None).await;
     assert_eq!(st, StatusCode::OK, "{r}");

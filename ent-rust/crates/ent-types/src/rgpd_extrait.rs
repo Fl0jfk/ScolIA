@@ -185,3 +185,105 @@ pub struct ReglageRgpdBody {
     pub reglage: String,
     pub valeur: i32,
 }
+
+// ─────────────── Remise, téléchargement, clôture, renvois (lot G3b-3) ───────────────
+
+/// Défi de passkey récente : `options` est à jouer tel quel par le navigateur (`navigator.credentials.get`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DefiDto {
+    pub defi_id: Uuid,
+    pub options: serde_json::Value,
+    pub intention: String,
+    pub empreinte: String,
+}
+
+/// Remise : `mode` = `en_ligne` ou `main_propre` (émargement obligatoire dans ce cas).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RemettreBody {
+    pub mode: String,
+    pub defi_id: Uuid,
+    pub credential: serde_json::Value,
+    #[serde(default)]
+    pub emargement_nom: Option<String>,
+    #[serde(default)]
+    pub emargement_piece_vue: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FichierRemisDto {
+    pub id: Uuid,
+    pub nom: String,
+    pub type_fichier: String,
+    pub octets: i32,
+    pub empreinte: String,
+    pub disponible_jusqu_le: DateTime<Utc>,
+    pub purge: bool,
+    pub telechargements: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemiseDto {
+    pub id: Uuid,
+    pub extrait_id: Uuid,
+    pub mode: String,
+    pub remis_le: DateTime<Utc>,
+    pub empreinte_extrait: String,
+    pub fichiers: Vec<FichierRemisDto>,
+    /// Remise en main propre : le PDF à imprimer (base64), rendu une seule fois.
+    #[serde(default)]
+    pub pdf_base64: Option<String>,
+}
+
+/// « Mes données » : un extrait remis en ligne au compte connecté.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonExtraitDto {
+    pub demande_reference: String,
+    pub remise: RemiseDto,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TelechargerBody {
+    pub defi_id: Uuid,
+    pub credential: serde_json::Value,
+}
+
+/// Renvoi tracé : `rectification`, `retrait_consentement` ou `cada_tiers`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenvoiBody {
+    pub nature: String,
+    pub cible: String,
+    pub texte: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenvoiDto {
+    pub id: Uuid,
+    pub nature: String,
+    pub cible: String,
+    pub texte: String,
+    pub cree_le: DateTime<Utc>,
+}
+
+/// Ce que la clôture a consigné : éléments remis **par empreinte** et refus motivés.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClotureDto {
+    pub elements: serde_json::Value,
+    pub refus: serde_json::Value,
+}
+
+/// Pf7 : une pièce d'identité du coffre proposée au guichet (aucun nom, aucun contenu).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceChoisissableDto {
+    pub id: Uuid,
+    pub deposee_le: DateTime<Utc>,
+    pub etat: String,
+    pub pour_cette_demande: bool,
+}
+
+/// Fichier servi au demandeur authentifié : octets en base64url **sans remplissage**, jamais mis en cache.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FichierTelechargeDto {
+    pub nom: String,
+    pub type_fichier: String,
+    pub contenu_base64url: String,
+}

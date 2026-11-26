@@ -11,9 +11,11 @@
 //! d'un autre établissement ou une raison de marquage qu'on n'a pas à connaître.
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::Utc;
 use ent_types::rgpd_extrait::*;
 use uuid::Uuid;
 
@@ -55,6 +57,30 @@ pub fn routes() -> Router<AppState> {
             post(decider_masquage),
         )
         .route("/rgpd/reglages", get(reglages).post(modifier_reglage))
+        // Lot G3b-3 : remise, « Mes données », renvois, clôture consignée, pièces à choisir (Pf7).
+        .route(
+            "/rgpd/demandes/{id}/extraits/{extrait}/remise/defi",
+            post(remise_defi),
+        )
+        .route(
+            "/rgpd/demandes/{id}/extraits/{extrait}/remise",
+            post(remettre),
+        )
+        .route(
+            "/rgpd/demandes/{id}/renvois",
+            get(renvois).post(tracer_renvoi),
+        )
+        .route("/rgpd/demandes/{id}/cloture", get(cloture))
+        .route("/rgpd/demandes/{id}/pieces-identite", get(pieces_identite))
+        .route("/rgpd/mes-donnees", get(mes_donnees))
+        .route(
+            "/rgpd/mes-donnees/extraits/{extrait}/defi",
+            post(telechargement_defi),
+        )
+        .route(
+            "/rgpd/mes-donnees/fichiers/{fichier}/telecharger",
+            post(telecharger),
+        )
 }
 
 fn section(s: ent_db::droits_extrait::SectionVue) -> SectionExtraitDto {
@@ -409,4 +435,277 @@ async fn modifier_reglage(
         plafond_depots_publics_jour: r.plafond_depots_publics_jour,
         extrait_disponible_jours: r.extrait_disponible_jours,
     }))
+}
+
+// ─────────────── Remise, « Mes données », renvois (lot G3b-3) ───────────────
+
+fn defi(d: ent_db::droits_remise::DefiRemise) -> DefiDto {
+    DefiDto {
+        defi_id: d.defi_id,
+        options: d.options,
+        intention: d.intention,
+        empreinte: d.empreinte,
+    }
+}
+
+fn fichier(f: ent_db::droits_remise::FichierVue) -> FichierRemisDto {
+    FichierRemisDto {
+        id: f.id,
+        nom: f.nom,
+        type_fichier: f.type_,
+        octets: f.octets,
+        empreinte: f.empreinte,
+        disponible_jusqu_le: f.disponible_jusqu_le,
+        purge: f.purge,
+        telechargements: f.telechargements,
+    }
+}
+
+fn remise(r: ent_db::droits_remise::RemiseVue, pdf: Option<Vec<u8>>) -> RemiseDto {
+    RemiseDto {
+        id: r.id,
+        extrait_id: r.extrait_id,
+        mode: r.mode,
+        remis_le: r.remis_le,
+        empreinte_extrait: r.empreinte_extrait,
+        fichiers: r.fichiers.into_iter().map(fichier).collect(),
+        pdf_base64: pdf.map(|p| ent_db::droits_remise::base64_encoder(&p)),
+    }
+}
+
+fn credential(v: serde_json::Value) -> Res<ent_auth::PublicKeyCredential> {
+    serde_json::from_value(v).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "assertion de passkey invalide".to_string(),
+        )
+    })
+}
+
+async fn remise_defi(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, extrait)): Path<(Uuid, Uuid)>,
+) -> Res<Json<DefiDto>> {
+    let d = s
+        .ent
+        .droits_remise_defi(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            extrait,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(defi(d)))
+}
+
+async fn remettre(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, extrait)): Path<(Uuid, Uuid)>,
+    Json(b): Json<RemettreBody>,
+) -> Res<Json<RemiseDto>> {
+    use ent_db::droits_remise::{Emargement, ModeRemise};
+    let mode = match b.mode.as_str() {
+        "en_ligne" => ModeRemise::EnLigne,
+        "main_propre" => ModeRemise::MainPropre,
+        _ => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "mode de remise inconnu".into(),
+            ))
+        }
+    };
+    let emargement = match (b.emargement_nom, b.emargement_piece_vue) {
+        (Some(nom), Some(piece_vue)) => Some(Emargement { nom, piece_vue }),
+        _ => None,
+    };
+    let cred = credential(b.credential)?;
+    let f = s
+        .ent
+        .droits_remettre(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            extrait,
+            mode,
+            b.defi_id,
+            &cred,
+            emargement,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(remise(f.remise, f.pdf_a_imprimer)))
+}
+
+async fn mes_donnees(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<MonExtraitDto>>> {
+    let v = s
+        .ent
+        .droits_mes_extraits(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        v.into_iter()
+            .map(|m| MonExtraitDto {
+                demande_reference: m.demande_reference,
+                remise: remise(m.remise, None),
+            })
+            .collect(),
+    ))
+}
+
+async fn telechargement_defi(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(extrait): Path<Uuid>,
+) -> Res<Json<DefiDto>> {
+    let d = s
+        .ent
+        .droits_telechargement_defi(
+            session.etablissement_id,
+            session.user_id,
+            extrait,
+            Utc::now(),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(defi(d)))
+}
+
+/// Téléchargement : octets déchiffrés **au demandeur authentifié seulement**, en base64url dans un JSON que le
+/// navigateur n'interprète jamais (la page enregistre le fichier) ; jamais mis en cache.
+async fn telecharger(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(fichier): Path<Uuid>,
+    Json(b): Json<TelechargerBody>,
+) -> Res<Response> {
+    use base64::Engine;
+    let cred = credential(b.credential)?;
+    let f = s
+        .ent
+        .droits_telecharger(
+            session.etablissement_id,
+            session.user_id,
+            fichier,
+            b.defi_id,
+            &cred,
+            Utc::now(),
+        )
+        .await
+        .map_err(map_db)?;
+    let corps = FichierTelechargeDto {
+        nom: f.nom,
+        type_fichier: f.type_,
+        contenu_base64url: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&f.octets),
+    };
+    let mut res = Json(corps).into_response();
+    let h = res.headers_mut();
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(res)
+}
+
+fn renvoi(r: ent_db::droits_remise::RenvoiVue) -> RenvoiDto {
+    RenvoiDto {
+        id: r.id,
+        nature: r.nature,
+        cible: r.cible,
+        texte: r.texte,
+        cree_le: r.cree_le,
+    }
+}
+
+async fn renvois(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<RenvoiDto>>> {
+    let v = s
+        .ent
+        .droits_renvois(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v.into_iter().map(renvoi).collect()))
+}
+
+async fn tracer_renvoi(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RenvoiBody>,
+) -> Res<Json<RenvoiDto>> {
+    let r = s
+        .ent
+        .droits_renvoi_tracer(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.nature,
+            &b.cible,
+            &b.texte,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(renvoi(r)))
+}
+
+async fn cloture(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<ClotureDto>> {
+    let c = s
+        .ent
+        .droits_cloture_lire(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "aucune clôture consignée".to_string(),
+        ))?;
+    Ok(Json(ClotureDto {
+        elements: c.0,
+        refus: c.1,
+    }))
+}
+
+async fn pieces_identite(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<PieceChoisissableDto>>> {
+    let v = s
+        .ent
+        .droits_pieces_identite_a_choisir(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        v.into_iter()
+            .map(|p| PieceChoisissableDto {
+                id: p.id,
+                deposee_le: p.deposee_le,
+                etat: p.etat,
+                pour_cette_demande: p.pour_cette_demande,
+            })
+            .collect(),
+    ))
 }

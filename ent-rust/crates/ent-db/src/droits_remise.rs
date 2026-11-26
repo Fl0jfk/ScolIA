@@ -75,7 +75,7 @@ pub fn base64_encoder(donnees: &[u8]) -> String {
 /// Décodage du format ci-dessus ; `None` si le texte n'est pas du base64 standard valide.
 pub fn base64_decoder(texte: &str) -> Option<Vec<u8>> {
     let t = texte.as_bytes();
-    if t.len() % 4 != 0 {
+    if !t.len().is_multiple_of(4) {
         return None;
     }
     let val = |c: u8| B64.iter().position(|&x| x == c).map(|p| p as u32);
