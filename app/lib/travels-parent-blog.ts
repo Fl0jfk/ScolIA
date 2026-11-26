@@ -1,13 +1,15 @@
 import "server-only";
 
 import { randomBytes } from "crypto";
-import { and, asc, desc, eq, lt, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, lt, isNull, or } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   travel,
   travelParentBlog,
   travelParentBlogPhoto,
   travelParentBlogPost,
+  user,
+  userMembership,
 } from "@/db/schema";
 import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
@@ -35,7 +37,7 @@ import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
-export const PARENT_BLOG_RETENTION_DAYS = 15;
+export const PARENT_BLOG_RETENTION_DAYS = 7;
 export const PARENT_BLOG_MAX_PHOTOS = 12;
 export const PARENT_BLOG_MAX_PHOTO_BYTES = 900_000;
 const PARENT_BATCH = 40;
@@ -62,10 +64,39 @@ export function computeParentBlogExpiresAt(trip: Pick<TravelsTrip, "type" | "dat
     fallback.setDate(fallback.getDate() + PARENT_BLOG_RETENTION_DAYS);
     return fallback;
   }
-  // Fin du séjour + 15 jours (fin de journée Europe/Paris, approx. +02:00).
-  const expires = new Date(`${endYmd}T23:59:59+02:00`);
-  expires.setUTCDate(expires.getUTCDate() + PARENT_BLOG_RETENTION_DAYS);
-  return expires;
+  // Fin du séjour + 7 jours, à 23:59:59 heure de Paris (été/hiver gérés).
+  return parisEndOfDayUtc(addDaysYmd(endYmd, PARENT_BLOG_RETENTION_DAYS));
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** Instant UTC correspondant à 23:59:59 (Europe/Paris) du jour YYYY-MM-DD. */
+export function parisEndOfDayUtc(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const wall = Date.UTC(y, m - 1, d, 23, 59, 59);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Paris",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  });
+  const offsetAt = (t: number) => {
+    const o: Record<string, number> = {};
+    for (const part of fmt.formatToParts(new Date(t))) {
+      if (part.type !== "literal") o[part.type] = Number(part.value);
+    }
+    return Date.UTC(o.year, o.month - 1, o.day, o.hour, o.minute, o.second) - t;
+  };
+  let t = wall - offsetAt(wall);
+  t = wall - offsetAt(t);
+  return new Date(t);
 }
 
 export function isParentBlogPublicExpired(expiresAt: Date | string, now = new Date()): boolean {
@@ -286,7 +317,7 @@ export async function activateParentBlog(opts: {
         date: now.toISOString(),
         user: activatedByName,
         action: created
-          ? "Blog parents activé (page de suivi publique)"
+          ? "Blog parents activé (page de suivi des familles)"
           : "Blog parents réactivé / mis à jour",
         note: meta.publicPath,
       },
@@ -652,12 +683,26 @@ export async function deleteParentBlogPost(opts: {
 }): Promise<void> {
   const { etablissementId, trip, postId, actorName } = opts;
   const db = getDb();
+  const [ownPost] = await db
+    .select({ id: travelParentBlogPost.id })
+    .from(travelParentBlogPost)
+    .where(
+      and(
+        eq(travelParentBlogPost.etablissementId, etablissementId),
+        eq(travelParentBlogPost.id, postId),
+        eq(travelParentBlogPost.travelId, trip.id),
+      ),
+    )
+    .limit(1);
+  if (!ownPost) throw new Error("Publication introuvable pour ce voyage.");
+
   const photos = await db
     .select()
     .from(travelParentBlogPhoto)
     .where(
       and(
         eq(travelParentBlogPhoto.etablissementId, etablissementId),
+        eq(travelParentBlogPhoto.travelId, trip.id),
         eq(travelParentBlogPhoto.postId, postId),
       ),
     );
@@ -695,6 +740,47 @@ export async function deleteParentBlogPost(opts: {
     ],
   };
   await putJson(`travels/${trip.id}.json`, updatedTrip);
+}
+
+/** Ne garde que les délégués appartenant à l'établissement (compte ou rattachement actif). */
+export async function filterDelegatesInEtablissement(
+  etablissementId: string,
+  delegates: TravelsParentBlogDelegate[],
+): Promise<{ ok: TravelsParentBlogDelegate[]; rejected: string[] }> {
+  const db = getDb();
+  const ok: TravelsParentBlogDelegate[] = [];
+  const rejected: string[] = [];
+  for (const d of delegates) {
+    const [byUser] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(
+        and(
+          eq(user.etablissementId, etablissementId),
+          or(eq(user.id, d.userId), eq(user.externalUserId, d.userId)),
+        ),
+      )
+      .limit(1);
+    let member = Boolean(byUser);
+    if (!member) {
+      const [m] = await db
+        .select({ id: userMembership.id })
+        .from(userMembership)
+        .where(
+          and(
+            eq(userMembership.etablissementId, etablissementId),
+            eq(userMembership.userId, d.userId),
+            eq(userMembership.context, "staff"),
+            eq(userMembership.active, true),
+          ),
+        )
+        .limit(1);
+      member = Boolean(m);
+    }
+    if (member) ok.push(d);
+    else rejected.push(d.userId);
+  }
+  return { ok, rejected };
 }
 
 export async function setParentBlogDelegates(opts: {

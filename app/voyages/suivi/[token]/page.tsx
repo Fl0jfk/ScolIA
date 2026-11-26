@@ -109,7 +109,7 @@ export default function VoyageSuiviPublicPage() {
                 </p>
               ) : null}
               <p className="mt-4 text-xs text-slate-500">
-                Page en lecture seule · fermeture automatique 15 jours après le retour
+                Page en lecture seule · fermeture automatique 7 jours après le retour
               </p>
             </header>
 

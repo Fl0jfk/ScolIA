@@ -3,10 +3,12 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson } from "@/app/lib/s3-storage";
 import {
   assertParentBlogEditAccess,
+  filterDelegatesInEtablissement,
   setParentBlogDelegates,
 } from "@/app/lib/travels-parent-blog";
 import type { TravelsParentBlogDelegate, TravelsTrip } from "@/app/lib/travels-types";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
+import { travelsDbReady } from "@/app/lib/travel-db";
 import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
 
 /** POST — définir les délégués (owner / direction uniquement). */
@@ -36,9 +38,21 @@ export async function POST(req: Request) {
     }
 
     const raw: TravelsParentBlogDelegate[] = Array.isArray(body.delegates) ? body.delegates : [];
+    const etabId = await travelsDbReady();
+    if (!etabId) return NextResponse.json({ error: "Base voyages indisponible." }, { status: 503 });
+    const cleanedIn = raw
+      .filter((d) => d && typeof d.userId === "string")
+      .map((d) => ({ ...d, userId: d.userId.trim() }));
+    const { ok, rejected } = await filterDelegatesInEtablissement(etabId, cleanedIn);
+    if (rejected.length > 0) {
+      return NextResponse.json(
+        { error: "Certains délégués n’appartiennent pas à l’établissement." },
+        { status: 400 },
+      );
+    }
     const updated = await setParentBlogDelegates({
       trip,
-      delegates: raw,
+      delegates: ok,
       actorName: access.user.fullName || "Équipe",
     });
 
