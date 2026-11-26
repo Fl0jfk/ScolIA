@@ -138,3 +138,13 @@ de l'élève ; un marquage non décidé est traité comme « à masquer » par `
 
 RLS **+1** (6 pour 2545). Routes : +9 (toutes authentifiées : aucune ligne à ajouter aux inventaires de routes publiques).
 `Action::TOUTES` inchangé (286).
+
+---
+
+## Commits par lot (pour les contre-revues)
+
+Liste tenue à jour à chaque lot ; chaque lot compte au moins un commit de code et un commit de livraison.
+
+- Préalable : `4e49258ae` (2544 versée dans `migrations_versees.txt`).
+- Lot 1 : `258ae1ef8` (migration 2545, moteur d'extrait, correctifs G3a), `67392f4dd` (livraison), `41c094bad` (résultat de la suite sans labo).
+- Lot 2 : `e2c517e43` (marquage, relecture, Pf3/Pf4, routes, écran, livraison).
