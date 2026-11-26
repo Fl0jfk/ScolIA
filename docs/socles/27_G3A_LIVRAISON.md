@@ -271,7 +271,7 @@ réglage d'établissement : `echeance_effective()` ajoute déjà les jours compt
 | `rgp_demande_sujet` (demande à plusieurs sujets, RGP-302) | migration **2556** attribuée par la conception (§26.6, §26.8) : hors plage de ce lot |
 | Exécution d'un effacement accordé, limitation posée sur l'objet, gel réel | lot **G6** (moteur de conservation) ; ce lot fournit la **décision** et le point de lecture du gel |
 | Journal des accès visible (« qui a consulté ») | lot **G4** ; le droit `consultations` est reçu et décidé, sa réponse viendra de `acc_trace` |
-| Page publique de dépôt sans compte (écran) | la **route** publique existe et est testée ; l'écran public (hors coquille, sans session) est à écrire avec la page « Vos données » publique du lot G4, pour ne pas dupliquer sa mise en page |
+| ~~Page publique de dépôt sans compte (écran)~~ | **fait au passage correctif** : `PageDemandeDroitsPublique`, route `/web/demande-droits`, hors coquille ; test de rendu `page_publique_de_depot_sans_compte_hors_coquille` |
 | Retrait de consentement relié au 27 (RGP-159) | le socle 18 porte déjà le retrait ; le lien de traçabilité est en G3b |
 | Événements d'`outbox` (`droits.demande_recue`, `droits.qualifiee`… §16) | **aucun consommateur** aujourd'hui, et les lots G0 à G2 déjà versés n'en émettent pas non plus : le journal en ajout seul, écrit dans la transaction du fait, porte la même information. À brancher avec le premier consommateur (moteur de conservation G6, tableau de bord G2) pour ne pas poser une file que personne ne vide |
 | Captures d'écran | aucune chaîne `cargo-leptos` / navigateur dans ce conteneur (pas de `_outils-scolia`) : le rendu est vérifié par les tests de `ent-web-server` (structure, étiquettes, CSP, absence de donnée) |
@@ -407,3 +407,42 @@ Compteurs recalculés depuis la base commune (`git merge-base` = `4fc2c701`), co
 Tête de code livrée : `5eb8756c` (fusion d'`origin/ENT` : conflits `migrate.rs` — 2544 après 2227 —, inventaire des routes 77 sources, compteur RLS +1 +5).
 CI : run 45604088988 sur `5eb8756c` = **success**. Historique : le run 45572874024 était rouge sur trois gardes (compteur RLS, deux inventaires de routes), corrigées avant la fusion ; les tests de rendu `ent-web-server` n'ont tourné qu'en CI (échec de compilation locale par manque de mémoire/disque).
 PR #158 laissée en brouillon vers `ENT`.
+
+## 12. Correctifs G3a (passage correctif, consigne `27_G3A_CORRECTIFS.md`)
+
+Même branche, mêmes migrations : 2540–2543 inchangées ; **2544 corrigée en place**, restée **en fin de tableau** (règle 38), fonctions en `SET search_path = pg_catalog, public, pg_temp`. `migrations_versees.txt` non touché (le pilote l'inscrit au versement).
+
+### Fait
+
+| Réf. | Correctif | Où |
+|---|---|---|
+| **E1** | Destruction **réelle** de la pièce d'identité (objet du magasin puis registre). « Détruite » seulement après confirmation du magasin ; échec → événement `piece_destruction_en_attente`, tentative comptée, **reprise par la tâche horaire** (`droits_destruction_pieces_tache`, câblée dans `ent-api/src/main.rs`). `piece_document_id` validé (type `piece_identite`, même établissement, jamais partagée, FK composite). | `droits_demandes.rs`, 2544 |
+| **E2** | `ConfirmeeSansAutorite` et `Restreinte` ne produisent **jamais** « identité vérifiée » : refus neutre ou `a_arbitrer` (route `identite/arbitrage`, action `droits.arbitrer`). | idem + API + écran |
+| M1 | Clôture et décision sans identité vérifiée : bloquées, ou motivées (`decision_sans_identite`). | service |
+| M2 | Qualité `non_verifiable` + rapprochement tracé (`sujet_rapproche`, route `rapprochement`). | service/API |
+| M3 | Le compte du demandeur doit être membre de l'établissement. | service |
+| M4 | Dépôt public : contact normalisé, plafond de dépôts par jour sans compte, **sans numéro officiel** tant que non rapproché (numéro attribué ensuite, `numero_attribue`). | service, 2544 |
+| M5 | `sans_objet` soumis à arbitrage et motivé. | service |
+| M6 | Clôture bloquée tant que des titulaires ne sont pas décidés (compteur `titulaires_a_decider`). | service/écran |
+| F1 | Refus **neutres** (pas de fuite d'existence). | service |
+| F2 | Accès suspendu ou fermé : pas de dépôt. | service |
+| F3 | Réouverture d'un refus : remis en examen. | service |
+| F4 | Alertes d'échéance **par palier franchi**. | service |
+| F5 | Aucune heure réelle dans la logique de délai (jour injecté). | service |
+| F7 | Référence de pièce saisie au guichet, validée côté écran. | écran |
+| F8 | Pièce validée côté serveur. | service |
+| Écran | Page publique de dépôt sans compte ; alertes destruction en attente / à arbitrer / titulaires à décider ; carte « Arbitrer la qualité ». | `ent-web-app` |
+
+### Non fait
+- **F6** (purge des dépôts spam) : noté pour **G6**, comme demandé.
+
+### Défauts prudents (D-069)
+- Plafond de dépôts publics par contact et par jour : valeur constante `PLAFOND_DEPOTS_SANS_COMPTE_JOUR`, à valider par Florian.
+- Pièce non détruite après échec : l'identité reste « vérifiée », la demande est signalée « destruction en attente » et ne se clôt pas définitivement sans confirmation.
+- Qualité non vérifiable : jamais d'effet automatique, toujours arbitrage humain.
+
+### Tests
+- Nouveau fichier `tests_rgpd_g3a_correctifs.rs` : **14 tests** (labo), dont les deux scénarios E1 (réussite / échec puis reprise) et E2.
+- Tests du lot G3a adaptés : 34 verts. Plus 2 tests unitaires `ent-db`, 3 tests `modele.rs`, 1 test de rendu `ent-web-server`.
+- Compteurs règle 28 : **inchangés** (aucune table, aucune route-source nouvelle : 77 sources ; `TOUTES` 286 ; `MIGRATION_TAG` 3808).
+- Clippy 1.99, 3 commandes CI plus `ent-lab` et web (ssr, serveur, labo, wasm32 hydrate) : 0 avertissement.

@@ -209,7 +209,10 @@ impl ApiClient {
     }
 
     /// `POST /rgpd/demandes/sans-compte` : dépôt **public**, sans session. La réponse est invariable.
-    pub async fn rgpd_deposer_public(&self, b: &DepotPublicBody) -> Result<DepotPublicDto, ApiError> {
+    pub async fn rgpd_deposer_public(
+        &self,
+        b: &DepotPublicBody,
+    ) -> Result<DepotPublicDto, ApiError> {
         self.appel(Methode::Post, "/rgpd/demandes/sans-compte", corps(b)?)
             .await
     }

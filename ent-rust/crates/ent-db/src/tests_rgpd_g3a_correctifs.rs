@@ -170,7 +170,10 @@ async fn g3a_c_e1_la_cloture_detruit_l_objet_du_magasin() {
     assert!(mention.piece_detruite_le.is_some() && !mention.piece_detenue);
     // L'ordre du journal : la demande précède la confirmation.
     let j = evenements(&v);
-    let demandee = j.iter().position(|e| e == "piece_destruction_demandee").unwrap();
+    let demandee = j
+        .iter()
+        .position(|e| e == "piece_destruction_demandee")
+        .unwrap();
     let detruite = j.iter().position(|e| e == "piece_detruite").unwrap();
     assert!(demandee < detruite, "{j:?}");
     let close = v.journal.iter().find(|l| l.evenement == "close").unwrap();
@@ -206,9 +209,15 @@ async fn g3a_c_e1_destruction_en_attente_puis_reprise_par_la_tache() {
     assert_eq!(v.etat, "close");
     assert!(v.destruction_en_attente, "visible : destruction en attente");
     assert!(v.piece_a_detruire);
-    assert!(ent.objet_existe(&original).await.unwrap(), "l'objet est encore là");
+    assert!(
+        ent.objet_existe(&original).await.unwrap(),
+        "l'objet est encore là"
+    );
     let j = evenements(&v);
-    assert!(j.contains(&"piece_destruction_en_attente".to_string()), "{j:?}");
+    assert!(
+        j.contains(&"piece_destruction_en_attente".to_string()),
+        "{j:?}"
+    );
     assert!(
         !j.contains(&"piece_detruite".to_string()),
         "jamais « détruite » avant confirmation : {j:?}"
@@ -254,7 +263,16 @@ async fn g3a_c_f8_la_piece_est_validee() {
     let id = saisie_parent(&ent, &cast).await;
     // Identifiant inventé : introuvable.
     let r = ent
-        .droits_verifier_identite(etab, dir, DIR, id, "piece", true, None, Some(Uuid::new_v4()))
+        .droits_verifier_identite(
+            etab,
+            dir,
+            DIR,
+            id,
+            "piece",
+            true,
+            None,
+            Some(Uuid::new_v4()),
+        )
         .await;
     assert!(matches!(
         r,
@@ -285,7 +303,10 @@ async fn g3a_c_f8_la_piece_est_validee() {
     let r = ent
         .droits_verifier_identite(etab, dir, DIR, id, "piece", true, None, Some(autre))
         .await;
-    assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "type : {r:?}");
+    assert!(
+        matches!(r, Err(EntDbError::SaisieInvalide(_))),
+        "type : {r:?}"
+    );
     let r = ent
         .droits_verifier_identite(etab, dir, DIR, id, "piece", true, None, Some(piece))
         .await;
@@ -293,7 +314,10 @@ async fn g3a_c_f8_la_piece_est_validee() {
         matches!(r, Err(EntDbError::ConflitDossier(_))),
         "objet partagé : {r:?}"
     );
-    assert!(ent.objet_existe(&original).await.unwrap(), "rien n'a été détruit");
+    assert!(
+        ent.objet_existe(&original).await.unwrap(),
+        "rien n'a été détruit"
+    );
     assert!(ent.objet_existe(&servi).await.unwrap());
     // Une pièce propre est acceptée, une seule fois.
     let (propre, _, _) = piece_identite(&ent, &cast).await;
@@ -304,11 +328,23 @@ async fn g3a_c_f8_la_piece_est_validee() {
     let r = ent
         .droits_verifier_identite(etab, dir, DIR, id2, "piece", true, None, Some(propre))
         .await;
-    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "déjà rattachée");
+    assert!(
+        matches!(r, Err(EntDbError::ConflitDossier(_))),
+        "déjà rattachée"
+    );
     // Une pièce d'un autre établissement n'est pas visible : introuvable.
     // Une référence hors du mode « pièce » est refusée.
     let r = ent
-        .droits_verifier_identite(etab, dir, DIR, id2, "code_courriel", true, None, Some(propre))
+        .droits_verifier_identite(
+            etab,
+            dir,
+            DIR,
+            id2,
+            "code_courriel",
+            true,
+            None,
+            Some(propre),
+        )
         .await;
     assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))));
 }
@@ -366,10 +402,8 @@ async fn g3a_c_e2_sans_autorite_ou_restreint_jamais_verifie() {
         .unwrap();
     assert_eq!(v.etat, "identite_a_verifier", "bloquée");
     assert_eq!(v.identite_arbitrage_code.as_deref(), Some("sans_autorite"));
-    assert!(v
-        .identites
-        .iter()
-        .all(|i| i.resultat == "a_arbitrer" && i.qualite_constatee.as_deref() == Some("confirmee_sans_autorite")));
+    assert!(v.identites.iter().all(|i| i.resultat == "a_arbitrer"
+        && i.qualite_constatee.as_deref() == Some("confirmee_sans_autorite")));
     assert!(!v.identites.iter().any(|i| i.resultat == "verifiee"));
     assert!(evenements(&v).contains(&"identite_a_arbitrer".to_string()));
     let t = ent.droits_tableau(etab, dir, DIR, false).await.unwrap();
@@ -421,7 +455,10 @@ async fn g3a_c_e2_sans_autorite_ou_restreint_jamais_verifie() {
     let r = ent
         .droits_decider(etab, adf, ADF, id, "acces", "accorde", Some("art15"), None)
         .await;
-    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "secrétariat : {r:?}");
+    assert!(
+        matches!(r, Err(EntDbError::ConflitDossier(_))),
+        "secrétariat : {r:?}"
+    );
     let r = ent
         .droits_decider(etab, dir, DIR, id, "acces", "accorde", Some("art15"), None)
         .await;
@@ -436,7 +473,8 @@ async fn g3a_c_e2_sans_autorite_ou_restreint_jamais_verifie() {
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
-        ent.droits_arbitrer_identite(etab, dir, DIR, id, true, "").await,
+        ent.droits_arbitrer_identite(etab, dir, DIR, id, true, "")
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     // Refus d'arbitrage : l'identité est close en échec, la demande reste bloquée.
@@ -448,7 +486,8 @@ async fn g3a_c_e2_sans_autorite_ou_restreint_jamais_verifie() {
     assert!(v.identite_arbitrage_code.is_none());
     assert!(v.identites.iter().all(|i| i.resultat == "echouee"));
     assert!(matches!(
-        ent.droits_arbitrer_identite(etab, dir, DIR, id2, true, "encore").await,
+        ent.droits_arbitrer_identite(etab, dir, DIR, id2, true, "encore")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     // Acceptation : la qualité est reconnue sur motif, l'instruction reprend, la décision passe.
@@ -499,10 +538,22 @@ async fn g3a_c_m1_cloture_et_decision_sans_identite() {
         Err(EntDbError::ConflitDossier(_))
     ));
     let v = ent
-        .droits_clore(etab, dir, DIR, id, "extrait remis après contrôle de la direction")
+        .droits_clore(
+            etab,
+            dir,
+            DIR,
+            id,
+            "extrait remis après contrôle de la direction",
+        )
         .await
         .expect("la direction clôt");
-    assert!(evenements(&v).iter().filter(|e| *e == "decision_sans_identite").count() >= 2);
+    assert!(
+        evenements(&v)
+            .iter()
+            .filter(|e| *e == "decision_sans_identite")
+            .count()
+            >= 2
+    );
     // Demande entièrement refusée : close sans identité.
     let id2 = saisie_parent(&ent, &cast).await;
     ent.droits_decider(
@@ -567,9 +618,21 @@ async fn g3a_c_m2_qualite_non_verifiable_puis_rapprochement_trace() {
     let v = ent
         .droits_verifier_identite(etab, dir, DIR, id, "piece", true, None, None)
         .await;
-    assert!(matches!(v, Err(EntDbError::SaisieInvalide(_))), "pièce obligatoire");
+    assert!(
+        matches!(v, Err(EntDbError::SaisieInvalide(_))),
+        "pièce obligatoire"
+    );
     let v = ent
-        .droits_verifier_identite(etab, dir, DIR, id, "mandat", true, Some("mandat écrit vu"), None)
+        .droits_verifier_identite(
+            etab,
+            dir,
+            DIR,
+            id,
+            "mandat",
+            true,
+            Some("mandat écrit vu"),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(v.identite_arbitrage_code.as_deref(), Some("non_verifiable"));
@@ -585,7 +648,14 @@ async fn g3a_c_m2_qualite_non_verifiable_puis_rapprochement_trace() {
     );
     // Rapprochement : réservé au guichet, tracé, une fois.
     let r = ent
-        .droits_rapprocher(etab, cast.prof.user_id, "enseignant", id, Some(("eleve", cast.eleve_lea_id)), None)
+        .droits_rapprocher(
+            etab,
+            cast.prof.user_id,
+            "enseignant",
+            id,
+            Some(("eleve", cast.eleve_lea_id)),
+            None,
+        )
         .await;
     assert!(matches!(r, Err(EntDbError::Forbidden)));
     assert!(matches!(
@@ -599,7 +669,14 @@ async fn g3a_c_m2_qualite_non_verifiable_puis_rapprochement_trace() {
     ));
     let personne = ma_personne(&ent, etab, cast.parent_lea.user_id).await;
     let v = ent
-        .droits_rapprocher(etab, adf, ADF, id, Some(("eleve", cast.eleve_lea_id)), Some(personne))
+        .droits_rapprocher(
+            etab,
+            adf,
+            ADF,
+            id,
+            Some(("eleve", cast.eleve_lea_id)),
+            Some(personne),
+        )
         .await
         .unwrap();
     assert_eq!(v.sujet_type, "eleve");
@@ -612,10 +689,23 @@ async fn g3a_c_m2_qualite_non_verifiable_puis_rapprochement_trace() {
     ));
     // Une nouvelle vérification constate maintenant le lien de la fiche rapprochée : confirmé.
     let v = ent
-        .droits_verifier_identite(etab, dir, DIR, id, "mandat", true, Some("revue après rapprochement"), None)
+        .droits_verifier_identite(
+            etab,
+            dir,
+            DIR,
+            id,
+            "mandat",
+            true,
+            Some("revue après rapprochement"),
+            None,
+        )
         .await
         .unwrap();
-    assert_eq!(v.etat, "en_cours", "lien confirmé par la fiche rapprochée : {:?}", v.identites);
+    assert_eq!(
+        v.etat, "en_cours",
+        "lien confirmé par la fiche rapprochée : {:?}",
+        v.identites
+    );
     assert!(v.identite_arbitrage_code.is_none());
 }
 
@@ -659,12 +749,14 @@ async fn g3a_c_m3_compte_du_demandeur_membre_de_l_etablissement() {
         Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
     ));
     // Le compteur n'a pas bougé : la saisie refusée n'a consommé aucun numéro.
-    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM rgp_demande WHERE etablissement_id = $1 AND demandeur_compte_id = $2")
-        .bind(etab)
-        .bind(etranger)
-        .fetch_one(ent.pool())
-        .await
-        .unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rgp_demande WHERE etablissement_id = $1 AND demandeur_compte_id = $2",
+    )
+    .bind(etab)
+    .bind(etranger)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
     assert_eq!(n, 0);
 }
 
@@ -718,7 +810,10 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
     let c0 = compter(&ent).await;
     let n0 = compteur(&ent).await;
     let m = ent
-        .droits_deposer_sans_compte(etab, depot_public("Marie.Dupont@Exemple.test", "Marie Dupont"))
+        .droits_deposer_sans_compte(
+            etab,
+            depot_public("Marie.Dupont@Exemple.test", "Marie Dupont"),
+        )
         .await
         .unwrap();
     // Mêmes contact, autres écritures : même réponse, une seule demande.
@@ -739,7 +834,11 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
         normaliser_contact("marie.dupont+x@exemple.test")
     );
     // Pas de numéro officiel : le compteur de l'établissement n'a pas avancé.
-    assert_eq!(compteur(&ent).await, n0, "le dépôt public ne consomme pas le compteur");
+    assert_eq!(
+        compteur(&ent).await,
+        n0,
+        "le dépôt public ne consomme pas le compteur"
+    );
     let t = ent.droits_tableau(etab, dir, DIR, false).await.unwrap();
     let sans_numero: Vec<_> = t
         .lignes
@@ -753,7 +852,11 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
         .droits_verifier_identite(etab, dir, DIR, id, "code_courriel", true, None, None)
         .await
         .unwrap();
-    assert_ne!(v.reference, REFERENCE_SANS_NUMERO, "numéro attribué : {}", v.reference);
+    assert_ne!(
+        v.reference, REFERENCE_SANS_NUMERO,
+        "numéro attribué : {}",
+        v.reference
+    );
     assert!(evenements(&v).contains(&"numero_attribue".to_string()));
     assert_eq!(compteur(&ent).await, Some(n0.unwrap_or(0) + 1));
     // Une seconde vérification ne change pas le numéro.
@@ -763,7 +866,10 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
         .unwrap();
     assert_eq!(v2.reference, v.reference);
     assert_eq!(
-        v2.journal.iter().filter(|l| l.evenement == "numero_attribue").count(),
+        v2.journal
+            .iter()
+            .filter(|l| l.evenement == "numero_attribue")
+            .count(),
         1
     );
     // Plafond quotidien par établissement : des contacts distincts jusqu'à la limite, puis refus neutre.
@@ -826,14 +932,26 @@ async fn g3a_c_m5_sans_objet_sous_arbitrage_et_motive() {
     for droit in ["effacement", "opposition"] {
         // Le secrétariat ne décide pas « sans objet ».
         let r = ent
-            .droits_decider(etab, adf, ADF, v.id, droit, "sans_objet", Some("hors_champ"), Some("rien à effacer"))
+            .droits_decider(
+                etab,
+                adf,
+                ADF,
+                v.id,
+                droit,
+                "sans_objet",
+                Some("hors_champ"),
+                Some("rien à effacer"),
+            )
             .await;
         assert!(matches!(r, Err(EntDbError::Forbidden)), "{droit} : {r:?}");
         // La direction non plus, sans motif.
         let r = ent
             .droits_decider(etab, dir, DIR, v.id, droit, "sans_objet", None, None)
             .await;
-        assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{droit} : {r:?}");
+        assert!(
+            matches!(r, Err(EntDbError::SaisieInvalide(_))),
+            "{droit} : {r:?}"
+        );
     }
     let v = ent
         .droits_decider(
@@ -888,16 +1006,35 @@ async fn g3a_c_m6_cloture_bloquee_tant_que_les_titulaires_ne_sont_pas_decides() 
         )
         .await
         .expect("dépôt de l'élève");
-    assert!(v.titulaires_a_decider, "la fiche signale la décision à prendre");
+    assert!(
+        v.titulaires_a_decider,
+        "la fiche signale la décision à prendre"
+    );
     let t = ent.droits_tableau(etab, dir, DIR, false).await.unwrap();
     assert!(t.titulaires_a_decider >= 1, "compteur au tableau");
-    ent.droits_decider(etab, dir, DIR, v.id, "acces", "accorde", Some("art15"), None)
-        .await
-        .unwrap();
-    let r = ent.droits_clore(etab, dir, DIR, v.id, "extrait remis").await;
+    ent.droits_decider(
+        etab,
+        dir,
+        DIR,
+        v.id,
+        "acces",
+        "accorde",
+        Some("art15"),
+        None,
+    )
+    .await
+    .unwrap();
+    let r = ent
+        .droits_clore(etab, dir, DIR, v.id, "extrait remis")
+        .await;
     assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
-    let r = ent.droits_refuser(etab, dir, DIR, v.id, "demande excessive").await;
-    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "refus aussi : {r:?}");
+    let r = ent
+        .droits_refuser(etab, dir, DIR, v.id, "demande excessive")
+        .await;
+    assert!(
+        matches!(r, Err(EntDbError::ConflitDossier(_))),
+        "refus aussi : {r:?}"
+    );
     ent.droits_titulaires_information(etab, adf, ADF, v.id, true, None)
         .await
         .unwrap();
@@ -1009,9 +1146,15 @@ async fn g3a_c_f3_reouverture_d_un_refus_remet_en_examen() {
         .await
         .unwrap();
     assert_eq!(v.etat, "en_cours");
-    assert!(v.refus_motif.is_none(), "le motif de refus ne reste pas sur une demande rouverte");
+    assert!(
+        v.refus_motif.is_none(),
+        "le motif de refus ne reste pas sur une demande rouverte"
+    );
     let acces = v.droits.iter().find(|d| d.droit == "acces").unwrap();
-    assert_eq!(acces.decision, "en_examen", "à réexaminer, pas refusé d'avance");
+    assert_eq!(
+        acces.decision, "en_examen",
+        "à réexaminer, pas refusé d'avance"
+    );
     assert!(acces.motif_code.is_none() && acces.decide_le.is_none());
     let effacement = v.droits.iter().find(|d| d.droit == "effacement").unwrap();
     assert_eq!(
@@ -1063,13 +1206,15 @@ async fn g3a_c_f4_alerte_par_palier_franchi() {
     let caler = |jours: i64| {
         let pool = ent.pool().clone();
         async move {
-            sqlx::query("UPDATE rgp_demande SET echeance_le = $3 WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(id)
-                .bind(jour + Duration::days(jours))
-                .execute(&pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "UPDATE rgp_demande SET echeance_le = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(jour + Duration::days(jours))
+            .execute(&pool)
+            .await
+            .unwrap();
         }
     };
     let alertes = |ent: &PgEnt| {
@@ -1089,14 +1234,20 @@ async fn g3a_c_f4_alerte_par_palier_franchi() {
     assert_eq!(ent.droits_alerter_echeances(etab).await.unwrap(), 0);
     // Dans 6 jours : la tâche n'a pas tourné à J-10 ; le palier J-10 est **franchi**, l'alerte part.
     caler(6).await;
-    assert!(ent.droits_alerter_echeances(etab).await.unwrap() > 0, "J-10 franchi : alerte");
+    assert!(
+        ent.droits_alerter_echeances(etab).await.unwrap() > 0,
+        "J-10 franchi : alerte"
+    );
     assert_eq!(alertes(&ent).await, 1);
     // Idempotent : rien de plus, rien au journal.
     assert_eq!(ent.droits_alerter_echeances(etab).await.unwrap(), 0);
     assert_eq!(alertes(&ent).await, 1);
     // Dans 2 jours : le palier J-3 est franchi à son tour, une seule fois.
     caler(2).await;
-    assert!(ent.droits_alerter_echeances(etab).await.unwrap() > 0, "J-3 franchi : alerte");
+    assert!(
+        ent.droits_alerter_echeances(etab).await.unwrap() > 0,
+        "J-3 franchi : alerte"
+    );
     assert_eq!(ent.droits_alerter_echeances(etab).await.unwrap(), 0);
     assert_eq!(alertes(&ent).await, 2);
     // Échéance dépassée : plus d'alerte (le retard est affiché, pas notifié en boucle).

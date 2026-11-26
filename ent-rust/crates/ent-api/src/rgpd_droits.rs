@@ -50,7 +50,10 @@ pub fn routes() -> Router<AppState> {
             "/rgpd/demandes/{id}/identite/precision",
             post(demander_identite),
         )
-        .route("/rgpd/demandes/{id}/identite/arbitrage", post(arbitrer_identite))
+        .route(
+            "/rgpd/demandes/{id}/identite/arbitrage",
+            post(arbitrer_identite),
+        )
         .route("/rgpd/demandes/{id}/rapprochement", post(rapprocher))
         .route("/rgpd/demandes/{id}/affectation", post(affecter))
         .route("/rgpd/demandes/{id}/prolongation", post(prolonger))

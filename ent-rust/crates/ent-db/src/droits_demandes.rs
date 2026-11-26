@@ -579,7 +579,10 @@ pub fn normaliser_contact(contact: &str) -> String {
         return format!("{local}@{domaine}");
     }
     let chiffres: String = c.chars().filter(|ch| ch.is_ascii_digit()).collect();
-    if chiffres.len() >= 8 && c.chars().all(|ch| ch.is_ascii_digit() || "+-./()".contains(ch)) {
+    if chiffres.len() >= 8
+        && c.chars()
+            .all(|ch| ch.is_ascii_digit() || "+-./()".contains(ch))
+    {
         if let Some(reste) = chiffres.strip_prefix("0033") {
             return format!("0{reste}");
         }
@@ -973,7 +976,14 @@ impl PgEnt {
             .await
             .map_err(neutre)?;
         let constatee = qualite_a_la_date(
-            &mut tx, etab, Some(acteur), None, d.qualite, sujet_type, sujet_id, jour,
+            &mut tx,
+            etab,
+            Some(acteur),
+            None,
+            d.qualite,
+            sujet_type,
+            sujet_id,
+            jour,
         )
         .await?;
         // E2 : un parent sans autorité, une qualité restreinte, un lien absent ne déposent **jamais** comme
@@ -1458,7 +1468,14 @@ impl PgEnt {
             }
         }
         let constatee = qualite_a_la_date(
-            &mut tx, etab, compte, personne, &qualite, &sujet_type, sujet_id, recue_le,
+            &mut tx,
+            etab,
+            compte,
+            personne,
+            &qualite,
+            &sujet_type,
+            sujet_id,
+            recue_le,
         )
         .await?;
         let compat = qualite_compatible(&qualite, constatee);
@@ -2035,7 +2052,9 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
         exiger_ouverte(&etat)?;
         // M1 : on n'accorde (en tout ou partie) qu'à une personne dont l'identité **et** la qualité sont
         // établies. Sans cela, seule la direction (`droits.arbitrer`), avec le motif écrit, peut passer outre.
-        if matches!(decision, "accorde" | "partiel") && !identite_etablie(&mut tx, etab, demande).await? {
+        if matches!(decision, "accorde" | "partiel")
+            && !identite_etablie(&mut tx, etab, demande).await?
+        {
             if !(self
                 .a_action_etablissement(etab, acteur, role, Action::DroitsArbitrer)
                 .await?
@@ -2050,7 +2069,9 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
                 etab,
                 demande,
                 "decision_sans_identite",
-                Some(&format!("{droit} : {decision} sans identité établie (direction)")),
+                Some(&format!(
+                    "{droit} : {decision} sans identité établie (direction)"
+                )),
                 Some(acteur),
                 Some(role),
             )
@@ -3226,11 +3247,7 @@ async fn attribuer_numero(
 /// F8 — la pièce d'identité référencée est un `ent_doc_piece` **de cet établissement** (404 neutre sinon),
 /// de type « pièce d'identité », encore détenu, jamais déjà référencé par une demande, et dont aucun objet
 /// n'est partagé avec une autre pièce (sa destruction ne doit priver aucun dossier de son fichier).
-async fn valider_piece(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    piece: Uuid,
-) -> Result<(), EntDbError> {
+async fn valider_piece(conn: &mut PgConnection, etab: Uuid, piece: Uuid) -> Result<(), EntDbError> {
     let r: Option<(String, String, String, Option<String>)> = sqlx::query_as(
         "SELECT type_code, etat, cle_objet_original, cle_objet_servi FROM ent_doc_piece
           WHERE etablissement_id = $1 AND id = $2",
@@ -3654,7 +3671,12 @@ mod tests {
             assert!(qualite_compatible(q, SansObjet).is_ok(), "{q}");
         }
         // Mandat, tutelle, tiers : toujours arbitrés (valeur prudente D-069).
-        for q in ["mandataire", "tiers", "parent_sans_autorite", "representant_majeur_protege"] {
+        for q in [
+            "mandataire",
+            "tiers",
+            "parent_sans_autorite",
+            "representant_majeur_protege",
+        ] {
             assert!(qualite_compatible(q, Confirmee).is_err(), "{q}");
         }
     }

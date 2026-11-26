@@ -21,9 +21,9 @@ pub mod modele;
 
 use ent_web_api::rgpd_droits_types::{
     AffectationBody, ArbitrageIdentiteBody, ClotureBody, DecisionBody, DemandeDto, DepotBody,
-    DepotPublicBody, DroitBody, IdentiteBody,
-    MotifBody, PrecisionIdentiteBody, ProlongationBody, QualificationBody, ReferentielGuichetDto,
-    SaisieBody, SuiviDemandeDto, TableauDemandesDto, TitulairesBody,
+    DepotPublicBody, DroitBody, IdentiteBody, MotifBody, PrecisionIdentiteBody, ProlongationBody,
+    QualificationBody, ReferentielGuichetDto, SaisieBody, SuiviDemandeDto, TableauDemandesDto,
+    TitulairesBody,
 };
 use ent_web_api::ApiError;
 use ent_web_ui::{
@@ -41,10 +41,11 @@ use crate::noyau::ecriture::{Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use modele::{
-    decision_complete, depot_complet, depot_public_complet, filtrer, journal_recent_d_abord, libelle_canal,
-    libelle_decision, libelle_droit, libelle_etat, libelle_evenement, libelle_mode_identite,
-    libelle_qualification, libelle_qualite, libelle_qualite_constatee, motif_recevable,
-    obstacle_cloture, phrase_echeance, piece_depuis_texte, teinte_echeance, trier_suivi, Filtre,
+    decision_complete, depot_complet, depot_public_complet, filtrer, journal_recent_d_abord,
+    libelle_canal, libelle_decision, libelle_droit, libelle_etat, libelle_evenement,
+    libelle_mode_identite, libelle_qualification, libelle_qualite, libelle_qualite_constatee,
+    motif_recevable, obstacle_cloture, phrase_echeance, piece_depuis_texte, teinte_echeance,
+    trier_suivi, Filtre,
 };
 
 /// Seuil de repli quand le référentiel du guichet n'a pas (encore) répondu : la coloration « échéance
@@ -146,6 +147,16 @@ fn File(tableau: TableauDemandesDto, seuil: i64, closes: RwSignal<bool>) -> impl
         tableau.titulaires_a_decider,
     );
     let jour = tableau.jour;
+    let ton_arbitrer = if compteurs.6 > 0 {
+        TonEtat::Avertissement
+    } else {
+        TonEtat::Neutre
+    };
+    let ton_titulaires = if compteurs.7 > 0 {
+        TonEtat::Avertissement
+    } else {
+        TonEtat::Neutre
+    };
     let ton_retard = if compteurs.1 > 0 {
         TonEtat::Mal
     } else {
@@ -182,10 +193,10 @@ fn File(tableau: TableauDemandesDto, seuil: i64, closes: RwSignal<bool>) -> impl
                         valeur=Signal::derive(move || compteurs.4.to_string())/>
                     <Statistique libelle="Qualité à arbitrer".to_string()
                         valeur=Signal::derive(move || compteurs.6.to_string())
-                        ton=if compteurs.6 > 0 { TonEtat::Avertissement } else { TonEtat::Neutre }/>
+                        ton=ton_arbitrer/>
                     <Statistique libelle="Titulaires à décider".to_string()
                         valeur=Signal::derive(move || compteurs.7.to_string())
-                        ton=if compteurs.7 > 0 { TonEtat::Avertissement } else { TonEtat::Neutre }/>
+                        ton=ton_titulaires/>
                 </div>
                 <p class="texte-attenue">
                     {format!("Échéances calculées au {} (jour de l'établissement).", jour.format("%d/%m/%Y"))}
@@ -776,6 +787,7 @@ fn Gestes(
     id: Uuid,
 ) -> impl IntoView {
     let moteur = use_droits_moteur();
+    let arbitrage_identite = d.identite_arbitrage_code.is_some();
     // Qualification.
     let qualification = RwSignal::new(if d.qualification == "a_qualifier" {
         "rgpd".to_string()
@@ -1384,7 +1396,13 @@ pub fn PageDemandeDroitsPublique() -> impl IntoView {
     let perimetre = RwSignal::new(String::new());
     let reponse = RwSignal::new(None::<String>);
     let ecriture = Ecriture::nouveau(Callback::new(move |_| {}));
-    let tous_les_droits = ["acces", "rectification", "effacement", "limitation", "opposition"];
+    let tous_les_droits = [
+        "acces",
+        "rectification",
+        "effacement",
+        "limitation",
+        "opposition",
+    ];
     let envoyer = move |_| {
         if !depot_public_complet(&nom.get(), &contact.get(), &personne.get(), &droits.get()) {
             ecriture.erreur.set(Some(

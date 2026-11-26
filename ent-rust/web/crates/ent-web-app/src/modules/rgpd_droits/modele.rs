@@ -298,12 +298,12 @@ pub fn depot_complet(qualite: &str, sujet_id_renseigne: bool, droits: &[String])
 /// Référence de la pièce d'identité saisie au guichet (F7) : vide → aucune ; un identifiant valide →
 /// la pièce ; autre chose → `Err` (on n'envoie pas une référence qu'on sait fausse). Le serveur valide
 /// ensuite que c'est bien une pièce d'identité de l'établissement.
-pub fn piece_depuis_texte(texte: &str) -> Result<Option<uuid::Uuid>, ()> {
+pub fn piece_depuis_texte(texte: &str) -> Result<Option<uuid::Uuid>, uuid::Error> {
     let t = texte.trim();
     if t.is_empty() {
         return Ok(None);
     }
-    uuid::Uuid::parse_str(t).map(Some).map_err(|_| ())
+    uuid::Uuid::parse_str(t).map(Some)
 }
 
 /// Un dépôt **public** (sans compte) est-il complet ? Nom, moyen de contact, personne concernée et au moins
@@ -548,19 +548,39 @@ mod tests {
     #[test]
     fn reference_de_piece_saisie() {
         assert_eq!(piece_depuis_texte("  "), Ok(None));
-        let id = uuid::Uuid::new_v4();
+        let id = uuid::Uuid::from_u128(0x1234_5678);
         assert_eq!(piece_depuis_texte(&format!(" {id} ")), Ok(Some(id)));
-        assert_eq!(piece_depuis_texte("pas un identifiant"), Err(()));
+        assert!(piece_depuis_texte("pas un identifiant").is_err());
     }
 
     #[test]
     fn depot_public_exige_nom_contact_personne_et_droit() {
         let d = vec!["acces".to_string()];
-        assert!(depot_public_complet("Marie Dupont", "marie@exemple.test", "Léa Dupont", &d));
-        assert!(!depot_public_complet("M", "marie@exemple.test", "Léa Dupont", &d));
+        assert!(depot_public_complet(
+            "Marie Dupont",
+            "marie@exemple.test",
+            "Léa Dupont",
+            &d
+        ));
+        assert!(!depot_public_complet(
+            "M",
+            "marie@exemple.test",
+            "Léa Dupont",
+            &d
+        ));
         assert!(!depot_public_complet("Marie Dupont", "", "Léa Dupont", &d));
-        assert!(!depot_public_complet("Marie Dupont", "marie@exemple.test", " ", &d));
-        assert!(!depot_public_complet("Marie Dupont", "marie@exemple.test", "Léa Dupont", &[]));
+        assert!(!depot_public_complet(
+            "Marie Dupont",
+            "marie@exemple.test",
+            " ",
+            &d
+        ));
+        assert!(!depot_public_complet(
+            "Marie Dupont",
+            "marie@exemple.test",
+            "Léa Dupont",
+            &[]
+        ));
     }
 
     #[test]
@@ -576,7 +596,10 @@ mod tests {
         ] {
             assert_ne!(libelle_evenement(e), "Événement", "{e}");
         }
-        assert_ne!(libelle_qualite_constatee("non_verifiable"), "Qualité inconnue");
+        assert_ne!(
+            libelle_qualite_constatee("non_verifiable"),
+            "Qualité inconnue"
+        );
     }
 
     #[test]
