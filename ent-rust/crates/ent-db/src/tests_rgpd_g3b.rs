@@ -340,7 +340,15 @@ async fn g3b_fratrie_deux_sujets() {
         return;
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
-    let demande = demande_prete(&ent, &cast).await;
+    // Une fratrie n'a de sens que pour un titulaire (E3 : refusée pour une demande « pour soi »).
+    let demande = super::tests_rgpd_g3b2::demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await
+    .id;
     assert!(ent
         .droits_sujet_ajouter(etab, dir, DIR, demande, "eleve", cast.eleve_lea_id)
         .await

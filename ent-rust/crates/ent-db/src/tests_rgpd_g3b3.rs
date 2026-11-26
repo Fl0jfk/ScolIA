@@ -399,7 +399,7 @@ async fn g3c_remise_en_main_propre_et_demandeur_sans_compte() {
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     parents_separes(&ent, &cast, true).await;
     // Demandeur sans compte : la demande porte un courriel, jamais utilisé pour la remise.
-    let d = demande(&ent, &cast, "titulaire_autorite", None).await;
+    let d = demande(&ent, &cast, "soi_meme", None).await;
     let extrait = extrait_pret(&ent, &cast, d.id).await;
     let mut cle = enroler(&ent, etab, dir).await;
 
@@ -490,8 +490,9 @@ async fn g3c_remise_en_main_propre_et_demandeur_sans_compte() {
     );
     // Aucune notification à qui que ce soit : la remise ne part pas d'une adresse de la demande.
     let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM ent_notification WHERE kind = 'rgpd.extrait_pret'",
+        "SELECT count(*) FROM ent_notification WHERE kind = 'rgpd.extrait_pret' AND etablissement_id = $1",
     )
+    .bind(etab)
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
@@ -829,4 +830,411 @@ async fn g3c_pf7_sans_compte_pour_soi_exige_un_sujet_rapproche() {
         .await
         .unwrap_err();
     assert!(matches!(r, EntDbError::Forbidden), "{r:?}");
+}
+
+// ───────────────────── Correctifs de la contre-revue des lots 1 et 2 ─────────────────────
+
+const TEL_MERE: &str = "0677889900";
+const ADRESSE_MERE: &str = "7 chemin Introuvable 33000 Bordeaux";
+
+/// Une mère **sans compte** : fiche personne, lien de responsabilité sans compte, responsable saisi au dossier
+/// d'inscription **sans fiche rapprochée**. Rend sa personne.
+async fn mere_sans_compte(ent: &PgEnt, cast: &LaboCast, protegee: bool) -> Uuid {
+    let etab = cast.etablissement_id;
+    let p = ent.pool_verif();
+    let mere = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom) VALUES ($1, $2, 'Lemaire', 'Odile')")
+        .bind(mere)
+        .bind(etab)
+        .execute(p)
+        .await
+        .expect("personne sans compte");
+    sqlx::query(
+        "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, autorite_parentale)
+         VALUES ($1, $2, $3, NULL, $4, true)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(cast.eleve_lea_id)
+    .bind(mere)
+    .execute(p)
+    .await
+    .expect("lien sans compte");
+    if protegee {
+        sqlx::query(
+            "INSERT INTO ent_adresse_protegee (id, etablissement_id, personne_id, adresse, origine)
+             VALUES ($1, $2, $3, 'enc:v1:fictif', 'saisie')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(mere)
+        .execute(p)
+        .await
+        .expect("protection");
+    }
+    let campagne = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_inscription_campagne (id, etablissement_id, nature, libelle, annee_cible)
+         VALUES ($1, $2, 'reinscription', 'Fictive', '2026-2027')",
+    )
+    .bind(campagne)
+    .bind(etab)
+    .execute(p)
+    .await
+    .unwrap();
+    let dossier = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_inscription_dossier (id, etablissement_id, campagne_id, nature, eleve_id, eleve_nom, eleve_prenom)
+         VALUES ($1, $2, $3, 'reinscription', $4, 'Granger', 'Léa')",
+    )
+    .bind(dossier)
+    .bind(etab)
+    .bind(campagne)
+    .bind(cast.eleve_lea_id)
+    .execute(p)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_inscription_responsable (id, etablissement_id, dossier_id, rang, nom, telephone, adresse, lien, personne_id)
+         VALUES ($1, $2, $3, 2, 'Lemaire', $4, $5, 'autre', NULL)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(dossier)
+    .bind(TEL_MERE)
+    .bind(ADRESSE_MERE)
+    .execute(p)
+    .await
+    .expect("responsable sans fiche");
+    mere
+}
+
+/// E1 : une autre responsable **sans compte** (protégée ou non) ne fait pas échouer l'assemblage, et ses données
+/// (nom, téléphone, adresse protégée) ne sortent pas dans l'extrait du père, même sans fiche rapprochée.
+#[tokio::test]
+async fn g3c_e1_autre_parent_sans_compte_marque_meme_protege() {
+    for protegee in [true, false] {
+        let Some((ent, cast)) = labo().await else {
+            return;
+        };
+        let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+        mere_sans_compte(&ent, &cast, protegee).await;
+        let d = demande(
+            &ent,
+            &cast,
+            "titulaire_autorite",
+            Some(cast.parent_lea.user_id),
+        )
+        .await;
+        assert_eq!(
+            d.etat, "en_cours",
+            "Pf3 : la protection de l'autre parent ne bloque pas le titulaire"
+        );
+        let e = ent
+            .droits_extrait_assembler(etab, dir, DIR, d.id, None)
+            .await
+            .expect("l'assemblage ne tombe pas sur un responsable sans compte");
+        assert!(e[0].masquages_a_decider > 0);
+        let brut = ent
+            .droits_extrait_lire(etab, dir, DIR, d.id, e[0].id)
+            .await
+            .unwrap();
+        assert!(
+            format!("{:?}", brut.sections).contains(TEL_MERE),
+            "le fixture atteint l'extrait brut"
+        );
+        if protegee {
+            assert!(brut
+                .marquages
+                .iter()
+                .any(|m| m.raison == "adresse_protegee"));
+        }
+        for m in &brut.marquages {
+            ent.droits_masquage_decider(etab, dir, DIR, d.id, m.id, "masque", None)
+                .await
+                .unwrap();
+        }
+        let c = contenu_remis(&ent, &cast, d.id, e[0].id).await;
+        let t = tout_le_texte(&c, "2027-001");
+        for donnee in [TEL_MERE, ADRESSE_MERE, "Lemaire"] {
+            assert!(
+                !t.contains(donnee),
+                "{donnee} ne sort pas (protégée : {protegee})"
+            );
+        }
+    }
+}
+
+/// E2 (M-2711) : un père sorti d'un fil ne reçoit pas les messages postérieurs à son départ ; celui qui entre tard
+/// ne reçoit pas l'historique antérieur ; les messages de sa période, eux, figurent.
+#[tokio::test]
+async fn g3c_e2_messages_bornes_par_la_periode_de_participation() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let mere = parents_separes(&ent, &cast, false).await;
+    let pere = personne_de(&ent, etab, cast.parent_lea.user_id).await;
+    let cpe = personne_de(&ent, etab, cast.cpe.user_id).await;
+    let p = ent.pool_verif();
+    // Fil « sortie » : le père participe du -10 j au -5 j (séparation) ; la mère reste.
+    // Fil « entrée tardive » : le père n'entre qu'au -1 j.
+    for (sujet, du_pere, au_pere, messages) in [
+        (
+            "Sortie",
+            "now() - interval '10 days'",
+            Some("now() - interval '5 days'"),
+            [
+                ("-7 days", "AVANT-DEPART visible"),
+                ("-2 days", "APRES-DEPART invisible"),
+            ],
+        ),
+        (
+            "Entree",
+            "now() - interval '1 day'",
+            None,
+            [
+                ("-3 days", "AVANT-ENTREE invisible"),
+                ("-1 hour", "APRES-ENTREE visible"),
+            ],
+        ),
+    ] {
+        let fil = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_msg_fil (id, etablissement_id, eleve_id, sujet, created_by_user_id) VALUES ($1,$2,$3,$4,$5)")
+            .bind(fil).bind(etab).bind(cast.eleve_lea_id).bind(sujet).bind(cast.cpe.user_id)
+            .execute(p).await.expect("fil");
+        sqlx::query(
+            "INSERT INTO ent_msg_fil_eleve (etablissement_id, fil_id, eleve_id) VALUES ($1,$2,$3)",
+        )
+        .bind(etab)
+        .bind(fil)
+        .bind(cast.eleve_lea_id)
+        .execute(p)
+        .await
+        .expect("fil_eleve");
+        for (pers, cote, qualite, raison, du, au) in [
+            (
+                cpe,
+                "etablissement",
+                "auteur",
+                "vie_scolaire",
+                "now() - interval '30 days'",
+                None,
+            ),
+            (
+                mere,
+                "famille",
+                "destinataire",
+                "titulaire_foyer",
+                "now() - interval '30 days'",
+                None,
+            ),
+            (
+                pere,
+                "famille",
+                "destinataire",
+                "titulaire_foyer",
+                du_pere,
+                au_pere,
+            ),
+        ] {
+            let motif = au.map(|_| ", motif_sortie").unwrap_or_default();
+            let motif_v = au.map(|_| ", 'separation'").unwrap_or_default();
+            let (au_c, au_v) = au.map(|a| (", au", format!(", {a}"))).unwrap_or_default();
+            let sql = format!(
+                "INSERT INTO ent_msg_participant (id, etablissement_id, fil_id, personne_id, cote, qualite, raison, du{au_c}{motif})
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,{du}{au_v}{motif_v})"
+            );
+            sqlx::query(&sql)
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(fil)
+                .bind(pers)
+                .bind(cote)
+                .bind(qualite)
+                .bind(raison)
+                .execute(p)
+                .await
+                .expect("participant");
+        }
+        for (quand, corps) in messages {
+            sqlx::query(&format!(
+                "INSERT INTO ent_msg (id, etablissement_id, fil_id, auteur_user_id, corps, created_at)
+                 VALUES ($1,$2,$3,$4,$5, now() + interval '{quand}')"
+            ))
+            .bind(Uuid::new_v4()).bind(etab).bind(fil).bind(cast.cpe.user_id).bind(corps)
+            .execute(p).await.expect("message");
+        }
+    }
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
+    let e = ent
+        .droits_extrait_assembler(etab, dir, DIR, d.id, None)
+        .await
+        .unwrap();
+    let brut = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, e[0].id)
+        .await
+        .unwrap();
+    let t = format!("{:?}", brut.sections);
+    assert!(
+        t.contains("AVANT-DEPART") && t.contains("APRES-ENTREE"),
+        "la période du père figure"
+    );
+    assert!(
+        !t.contains("APRES-DEPART"),
+        "message postérieur au départ du père"
+    );
+    assert!(
+        !t.contains("AVANT-ENTREE"),
+        "historique antérieur à l'entrée du père"
+    );
+}
+
+/// E3 : une demande « pour soi » n'accepte pas de sujet supplémentaire (aucune qualité n'y serait constatée) ;
+/// un titulaire peut ajouter la fratrie.
+#[tokio::test]
+async fn g3c_e3_fratrie_refusee_pour_une_demande_pour_soi() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let pour_soi = demande(&ent, &cast, "eleve_mineur", None).await;
+    let r = ent
+        .droits_sujet_ajouter(etab, dir, DIR, pour_soi.id, "eleve", cast.eleve_tom_id)
+        .await
+        .unwrap_err();
+    assert!(est_conflit(&r), "{r:?}");
+    let titulaire = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
+    let ok = ent
+        .droits_sujet_ajouter(etab, dir, DIR, titulaire.id, "eleve", cast.eleve_tom_id)
+        .await;
+    // Le titulaire n'a pas de lien avec Tom : la qualité constatée sera à arbitrer, mais l'ajout est tracé.
+    assert!(ok.is_ok(), "{ok:?}");
+}
+
+/// M1 : un masquage ajouté à la main survit au réassemblage et bloque encore l'élément.
+#[tokio::test]
+async fn g3c_m1_masquage_manuel_reporte_au_reassemblage() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    parents_separes(&ent, &cast, false).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
+    let e = ent
+        .droits_extrait_assembler(etab, dir, DIR, d.id, None)
+        .await
+        .unwrap();
+    let c = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, e[0].id)
+        .await
+        .unwrap();
+    let sec = c
+        .sections
+        .iter()
+        .find(|s| !s.tables.is_empty())
+        .expect("une section");
+    let (f, t) = (sec.fournisseur.clone(), sec.tables[0].nom.clone());
+    ent.droits_masquage_ajouter(
+        etab,
+        dir,
+        DIR,
+        d.id,
+        e[0].id,
+        &f,
+        &t,
+        None,
+        None,
+        "précision de la famille",
+    )
+    .await
+    .unwrap();
+    let e2 = ent
+        .droits_extrait_assembler(etab, dir, DIR, d.id, None)
+        .await
+        .unwrap();
+    let marques = ent
+        .droits_masquages(etab, dir, DIR, d.id, e2[0].id)
+        .await
+        .unwrap();
+    assert!(
+        marques
+            .iter()
+            .any(|m| m.raison == "manuel" && m.table == t && m.decision == "masque"),
+        "le masquage manuel est recopié sur la nouvelle version"
+    );
+}
+
+/// M3 : une protection posée **après** l'assemblage périme l'extrait : ni lecture, ni remise, tant qu'on n'a pas
+/// réassemblé (et relu les marquages recalculés).
+#[tokio::test]
+async fn g3c_m3_protection_posee_apres_l_assemblage_perime_l_extrait() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
+    let autre = parents_separes(&ent, &cast, false).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
+    let extrait = extrait_pret(&ent, &cast, d.id).await;
+    let _cle = enroler(&ent, etab, dir).await;
+    // Avant : l'extrait est remissible.
+    ent.droits_remise_defi_a(etab, dir, DIR, d.id, extrait, t0())
+        .await
+        .expect("remissible");
+    sqlx::query(
+        "INSERT INTO ent_adresse_protegee (id, etablissement_id, personne_id, adresse, origine)
+         VALUES ($1, $2, $3, 'enc:v1:fictif', 'saisie')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(autre)
+    .execute(ent.pool_verif())
+    .await
+    .expect("protection posée après coup");
+    let r = ent
+        .droits_remise_defi_a(etab, dir, DIR, d.id, extrait, t0())
+        .await
+        .unwrap_err();
+    assert!(est_conflit(&r), "remise refusée : {r:?}");
+    let r = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, extrait)
+        .await
+        .unwrap_err();
+    assert!(est_conflit(&r), "lecture refusée : {r:?}");
+    let vues = ent.droits_extraits(etab, dir, DIR, d.id).await.unwrap();
+    assert!(vues.iter().find(|v| v.id == extrait).unwrap().perime || vues.len() > 1);
+    // Réassembler recalcule les marquages, dont la protection.
+    let e2 = ent
+        .droits_extrait_assembler(etab, dir, DIR, d.id, None)
+        .await
+        .unwrap();
+    let c = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, e2[0].id)
+        .await
+        .unwrap();
+    assert!(c.marquages.iter().any(|m| m.raison == "adresse_protegee"));
 }

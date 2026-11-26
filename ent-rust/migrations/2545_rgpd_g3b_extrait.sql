@@ -102,6 +102,9 @@ CREATE TABLE IF NOT EXISTS rgp_extrait (
     -- Empreinte globale : SHA-256 des empreintes de section, dans l'ordre des fournisseurs.
     empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
     -- Périmé : remplacé par une version plus récente, ou contenu changé depuis l'assemblage relu.
+    -- Empreinte des marquages calculés à l'assemblage (faits de protection, de lien, de participation) : si les
+    -- faits changent depuis (une protection posée après coup), l'extrait est périmé et les marquages à relire.
+    marquage_empreinte TEXT NOT NULL DEFAULT '',
     perime_le TIMESTAMPTZ,
     perime_motif TEXT CHECK (perime_motif IS NULL OR perime_motif IN ('remplace', 'empreinte_changee')),
     -- Relecture du DPO (RGP-152) : seule une demande qu'on lui **soumet** lui ouvre l'extrait (§12.2).
@@ -213,6 +216,7 @@ BEGIN
        OR NEW.version IS DISTINCT FROM OLD.version
        OR NEW.complet IS DISTINCT FROM OLD.complet
        OR NEW.empreinte IS DISTINCT FROM OLD.empreinte
+       OR NEW.marquage_empreinte IS DISTINCT FROM OLD.marquage_empreinte
        OR NEW.nb_sections IS DISTINCT FROM OLD.nb_sections
        OR NEW.nb_lignes IS DISTINCT FROM OLD.nb_lignes
        OR NEW.assemble_le IS DISTINCT FROM OLD.assemble_le THEN

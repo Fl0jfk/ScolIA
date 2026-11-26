@@ -442,8 +442,27 @@ fn fils_de_messagerie(sujet_est_eleve: bool) -> String {
     }
 }
 
+/// E2 (M-2711) : un message n'est rendu que s'il date de la **période de participation** du lecteur au fil
+/// (`du` inclus, `au` exclu, avant une éventuelle suspension). Un père sorti d'un fil ne reçoit pas les échanges
+/// de la mère avec le CPE postérieurs à son départ, ni l'historique antérieur à son entrée.
+fn dans_la_participation(fil: &str, date: &str, sujet_est_eleve: bool) -> String {
+    let qui = if sujet_est_eleve {
+        "(pq.personne_id = p.dem_personne OR (p.dem_est_sujet AND pq.eleve_id = p.sujet))"
+    } else {
+        "pq.personne_id = p.personne"
+    };
+    format!(
+        "EXISTS (SELECT 1 FROM public.ent_msg_participant pq \
+          WHERE pq.etablissement_id = p.etab AND pq.fil_id = {fil} AND {qui} \
+            AND {date} >= pq.du AND (pq.au IS NULL OR {date} < pq.au) \
+            AND (pq.suspendu_le IS NULL OR {date} < pq.suspendu_le))"
+    )
+}
+
 fn regles_messagerie(sujet_est_eleve: bool) -> Vec<Regle> {
     let f = fils_de_messagerie(sujet_est_eleve);
+    let msg_ok = dans_la_participation("x.fil_id", "x.created_at", sujet_est_eleve);
+    let msg_ver = dans_la_participation("m.fil_id", "m.created_at", sujet_est_eleve);
     vec![
         regle_cols(
             "ent_msg_fil",
@@ -452,7 +471,7 @@ fn regles_messagerie(sujet_est_eleve: bool) -> Vec<Regle> {
         ),
         regle_cols(
             "ent_msg",
-            &format!("x.fil_id IN {f} AND x.retire_le IS NULL"),
+            &format!("x.fil_id IN {f} AND x.retire_le IS NULL AND {msg_ok}"),
             &[
                 "id",
                 "fil_id",
@@ -466,7 +485,7 @@ fn regles_messagerie(sujet_est_eleve: bool) -> Vec<Regle> {
         ),
         regle_cols(
             "ent_msg_version",
-            &format!("x.message_id IN (SELECT m.id FROM public.ent_msg m WHERE m.etablissement_id = p.etab AND m.fil_id IN {f} AND m.retire_le IS NULL)"),
+            &format!("x.message_id IN (SELECT m.id FROM public.ent_msg m WHERE m.etablissement_id = p.etab AND m.fil_id IN {f} AND m.retire_le IS NULL AND {msg_ver})"),
             &["message_id", "version", "corps", "remplace_le"],
         ),
         regle_cols(
@@ -481,7 +500,7 @@ fn regles_messagerie(sujet_est_eleve: bool) -> Vec<Regle> {
         ),
         regle_cols(
             "ent_msg_piece",
-            &format!("x.fil_id IN {f}"),
+            &format!("x.fil_id IN {f} AND {msg_ok}"),
             &["fil_id", "message_id", "nom", "mime_type", "taille_octets", "created_at", "etat"],
         ),
     ]
@@ -1421,11 +1440,38 @@ async fn contexte_sujet(
         personne,
         agent,
         dem_personne,
-        dem_est_sujet: sujet_type == "eleve" && qualite_de_soi(&info.qualite),
+        // Le demandeur « pour soi » est l'élève **principal** de la demande, jamais un autre sujet (E3).
+        dem_est_sujet: sujet_type == "eleve"
+            && qualite_de_soi(&info.qualite)
+            && info.sujet_id == Some(sujet_id),
         du: info.du,
         au: info.au,
         module_sante,
     })
+}
+
+/// Marquages **calculés** pour un contenu : faits tirés de la base, règles écrites. Sert à l'assemblage et, pour
+/// détecter qu'un fait a changé depuis (une protection posée après coup), à la lecture et à la remise (M3).
+async fn marques_calculees(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    info: &DemandeInfo,
+    ctx: &ContexteSujet,
+    contenu: &ContenuExtrait,
+) -> Result<Vec<crate::droits_extrait_masquage::MarquageCalcule>, EntDbError> {
+    if !ctx.est_eleve() {
+        return Ok(Vec::new());
+    }
+    let faits = crate::droits_extrait_masquage::faits_eleve(
+        conn,
+        etab,
+        ctx.sujet_id,
+        info.demandeur_compte,
+        ctx.dem_personne,
+        ctx.dem_est_sujet,
+    )
+    .await?;
+    Ok(crate::droits_extrait_masquage::marquer(contenu, &faits))
 }
 
 fn vue_depuis(r: &sqlx::postgres::PgRow, sections: Vec<SectionVue>) -> ExtraitVue {
@@ -1552,6 +1598,13 @@ impl PgEnt {
         if info.sujet_id == Some(sujet_id) && info.sujet_type == sujet_type {
             return Err(EntDbError::ConflitDossier(
                 "cette personne est déjà le sujet principal de la demande",
+            ));
+        }
+        // E3 : une fratrie n'a de sens que pour un **titulaire**. Pour une demande « pour soi », la grille de qualité
+        // rendrait « sans objet » quel que soit le sujet : on refuserait de vérifier, donc on refuse d'ajouter.
+        if qualite_de_soi(&info.qualite) {
+            return Err(EntDbError::ConflitDossier(
+                "demande « pour soi » : une autre personne ne s'y ajoute pas, déposez une demande distincte",
             ));
         }
         let q = qualite_a_la_date(
@@ -1681,20 +1734,7 @@ impl PgEnt {
             let contenu = self
                 .construire_contenu(&mut tx, &ctx, echecs_simules)
                 .await?;
-            let marques = if ctx.est_eleve() {
-                let faits = crate::droits_extrait_masquage::faits_eleve(
-                    &mut tx,
-                    etab,
-                    *sid,
-                    info.demandeur_compte,
-                    ctx.dem_personne,
-                    ctx.dem_est_sujet,
-                )
-                .await?;
-                crate::droits_extrait_masquage::marquer(&contenu, &faits)
-            } else {
-                Vec::new()
-            };
+            let marques = marques_calculees(&mut tx, etab, &info, &ctx, &contenu).await?;
             let v = self
                 .persister_extrait(&mut tx, etab, demande, acteur, role, &contenu, &marques)
                 .await?;
@@ -1751,8 +1791,9 @@ impl PgEnt {
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO rgp_extrait (id, etablissement_id, demande_id, sujet_type, sujet_id, version, periode_du,
-                                      periode_au, assemble_par_compte_id, complet, nb_sections, nb_lignes, empreinte)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                                      periode_au, assemble_par_compte_id, complet, nb_sections, nb_lignes, empreinte,
+                                      marquage_empreinte)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         )
         .bind(id)
         .bind(etab)
@@ -1767,6 +1808,7 @@ impl PgEnt {
         .bind(c.sections.len() as i32)
         .bind(c.nb_lignes as i32)
         .bind(&c.empreinte)
+        .bind(crate::droits_extrait_masquage::empreinte_marques(marques))
         .execute(&mut **tx)
         .await
         .map_err(db)?;
@@ -1954,7 +1996,18 @@ impl PgEnt {
         ctx.du = r.get("periode_du");
         ctx.au = r.get("periode_au");
         let contenu = self.construire_contenu(&mut tx, &ctx, &[]).await?;
-        if contenu.empreinte != stockee {
+        let marq_stockee: String = sqlx::query_scalar(
+            "SELECT marquage_empreinte FROM rgp_extrait WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(extrait)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let marq_courante = crate::droits_extrait_masquage::empreinte_marques(
+            &marques_calculees(&mut tx, etab, &info, &ctx, &contenu).await?,
+        );
+        if contenu.empreinte != stockee || marq_courante != marq_stockee {
             sqlx::query(
                 "UPDATE rgp_extrait SET perime_le = now(), perime_motif = 'empreinte_changee', modifie_le = now()
                   WHERE etablissement_id = $1 AND id = $2 AND perime_le IS NULL",
@@ -2031,9 +2084,20 @@ impl PgEnt {
         ctx.du = r.get("periode_du");
         ctx.au = r.get("periode_au");
         let contenu = self.construire_contenu(&mut *tx, &ctx, &[]).await?;
-        if contenu.empreinte != vue.empreinte {
+        let marq_stockee: String = sqlx::query_scalar(
+            "SELECT marquage_empreinte FROM rgp_extrait WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(extrait)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let marq_courante = crate::droits_extrait_masquage::empreinte_marques(
+            &marques_calculees(&mut *tx, etab, &info, &ctx, &contenu).await?,
+        );
+        if contenu.empreinte != vue.empreinte || marq_courante != marq_stockee {
             return Err(EntDbError::ConflitDossier(
-                "extrait périmé : le contenu a changé, assembler une nouvelle version",
+                "extrait périmé : le contenu ou les protections ont changé, assembler une nouvelle version",
             ));
         }
         if !vue.remissible_en_l_etat {

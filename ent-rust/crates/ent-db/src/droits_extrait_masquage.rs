@@ -128,6 +128,8 @@ fn colonne_localisation(nom: &str) -> bool {
 pub struct Faits {
     pub sujet: Option<Uuid>,
     pub dem_compte: Option<Uuid>,
+    /// Personne du demandeur (fiche rapprochée ou issue de son compte).
+    pub dem_personne: Option<Uuid>,
     pub dem_est_sujet: bool,
     /// Comptes et personnes **liés à l'élève** autres que le demandeur (l'autre parent, les tiers).
     pub autres: BTreeSet<Uuid>,
@@ -210,6 +212,18 @@ fn marquer_section(
                 }
             }
             let mut ligne_autre_parent = false;
+            // Un responsable saisi au dossier d'inscription : sa ligne est marquée dès qu'elle n'est pas celle du
+            // demandeur, **y compris sans fiche rapprochée** (E1).
+            if eleve && t.nom == "ent_inscription_responsable" {
+                let fiche = l
+                    .valeurs
+                    .iter()
+                    .find(|(c, _)| c == "personne_id")
+                    .and_then(|(_, v)| uuid_de(v));
+                if fiche.is_none() || fiche != f.dem_personne {
+                    ligne_autre_parent = true;
+                }
+            }
             for (c, v) in &l.valeurs {
                 let Some(u) = uuid_de(v) else { continue };
                 if eleve && c.ends_with("eleve_id") && u != sujet {
@@ -351,15 +365,16 @@ pub(crate) async fn faits_eleve(
         dem_est_sujet,
         ..Faits::default()
     };
-    // Autres comptes liés à l'élève, et leur personne.
-    let liens: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
-        "SELECT l.user_id, p.id
+    // Autres titulaires : le rattachement est la **personne** (`personne_id`, obligatoire) ; le compte est facultatif.
+    // Un responsable sans compte est donc un « autre » comme les autres (E1).
+    let liens: Vec<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT l.user_id, COALESCE(l.personne_id, p.id)
            FROM public.ent_eleve_lien l
            LEFT JOIN public.ent_personne p
              ON p.etablissement_id = l.etablissement_id AND p.user_id = l.user_id
           WHERE l.etablissement_id = $1 AND l.eleve_id = $2
-            AND l.user_id IS DISTINCT FROM $3
-            AND (p.id IS NULL OR p.id IS DISTINCT FROM $4)",
+            AND NOT (l.user_id IS NOT NULL AND l.user_id = $3)
+            AND NOT (COALESCE(l.personne_id, p.id) IS NOT NULL AND COALESCE(l.personne_id, p.id) = $4)",
     )
     .bind(etab)
     .bind(sujet)
@@ -369,11 +384,35 @@ pub(crate) async fn faits_eleve(
     .await
     .map_err(db)?;
     for (u, p) in &liens {
-        f.autres.insert(*u);
+        if let Some(u) = u {
+            f.autres.insert(*u);
+        }
         if let Some(p) = p {
             f.autres.insert(*p);
         }
     }
+    // Les responsables des dossiers d'inscription et les participants « famille » des fils de l'élève, quand ils
+    // portent une fiche personne : même s'ils n'ont (plus) de lien actif, ils ne sont pas le demandeur.
+    let autres_fiches: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT r.personne_id FROM public.ent_inscription_responsable r
+           JOIN public.ent_inscription_dossier d ON d.etablissement_id = r.etablissement_id AND d.id = r.dossier_id
+          WHERE r.etablissement_id = $1 AND d.eleve_id = $2 AND r.personne_id IS NOT NULL
+         UNION
+         SELECT pa.personne_id FROM public.ent_msg_participant pa
+           JOIN public.ent_msg_fil_eleve fe ON fe.etablissement_id = pa.etablissement_id AND fe.fil_id = pa.fil_id
+          WHERE pa.etablissement_id = $1 AND fe.eleve_id = $2 AND pa.cote = 'famille' AND pa.personne_id IS NOT NULL",
+    )
+    .bind(etab)
+    .bind(sujet)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for p in autres_fiches {
+        if Some(p) != dem_personne {
+            f.autres.insert(p);
+        }
+    }
+    f.dem_personne = dem_personne;
     if !f.autres.is_empty() {
         let ids: Vec<Uuid> = f.autres.iter().copied().collect();
         // Protection : on ne lit que l'identifiant de la personne protégée, jamais l'adresse ni la pièce.
@@ -460,7 +499,45 @@ pub(crate) async fn persister_marquages(
         .await
         .map_err(db)?;
     }
+    // M1 : un masquage ajouté **à la main** (RGP-151) survit au réassemblage : il est recopié, avec sa décision,
+    // sur la nouvelle version. Sinon l'élément retiré par l'agent reviendrait dans l'extrait suivant.
+    sqlx::query(
+        "INSERT INTO rgp_extrait_masquage
+             (id, etablissement_id, extrait_id, fournisseur_code, table_nom, ligne_id, rang, colonne, raison,
+              propose_par, decision, motif, decide_par_compte_id, decide_le)
+         SELECT gen_random_uuid(), mm.etablissement_id, $3, mm.fournisseur_code, mm.table_nom, mm.ligne_id,
+                mm.rang, mm.colonne, mm.raison, mm.propose_par, mm.decision, mm.motif,
+                mm.decide_par_compte_id, mm.decide_le
+           FROM public.rgp_extrait_masquage mm
+          WHERE mm.etablissement_id = $2 AND mm.propose_par = 'agent'
+            AND mm.extrait_id = (SELECT e.id FROM public.rgp_extrait e
+                                  WHERE e.etablissement_id = $2 AND e.demande_id = $1 AND e.sujet_type = $4
+                                    AND e.sujet_id = $5 AND e.id <> $3
+                                  ORDER BY e.version DESC LIMIT 1)",
+    )
+    .bind(demande)
+    .bind(etab)
+    .bind(extrait)
+    .bind(sujet_type)
+    .bind(sujet_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
     Ok(())
+}
+
+/// Empreinte des marquages **calculés** : si les faits (protection, lien, participation) changent après
+/// l'assemblage, elle change, et l'extrait est périmé (M3).
+pub fn empreinte_marques(marques: &[MarquageCalcule]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for m in marques {
+        h.update(format!(
+            "{}|{}|{:?}|{}|{:?}|{}\n",
+            m.fournisseur, m.table, m.ligne_id, m.rang, m.colonne, m.raison
+        ));
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Les marquages d'un extrait, vus par un lecteur selon ses droits.

@@ -852,6 +852,10 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
     assert_eq!(sans_numero.len() as i64, 4);
     // Le guichet confirme (identité vérifiée) : le numéro est attribué, tracé.
     let id = sans_numero[0].id;
+    // Pf7 : sans compte « pour soi », la vérification réussie exige un sujet rapproché d'un dossier.
+    ent.droits_rapprocher(etab, dir, DIR, id, Some(("eleve", cast.eleve_lea_id)), None)
+        .await
+        .unwrap();
     let v = ent
         .droits_verifier_identite(etab, dir, DIR, id, "code_courriel", true, None, None)
         .await
