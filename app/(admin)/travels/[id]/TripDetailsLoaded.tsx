@@ -1885,7 +1885,17 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
         }
         headerActions={
-          <TravelsAssistanceMenu tripId={trip.id} status={assistanceCardStatus} />
+          <>
+            <TravelsAssistanceMenu tripId={trip.id} status={assistanceCardStatus} />
+            {trip.status === "VALIDE" || trip.status === "FINALISE_DIR_ATTENTE_ELEVES" ? (
+              <a
+                href={`/travels/${trip.id}/fil`}
+                className="inline-flex min-h-[40px] items-center rounded-xl bg-white/90 px-3 text-sm font-black text-indigo-800 shadow"
+              >
+                📣 Fil du voyage
+              </a>
+            ) : null}
+          </>
         }
       />
 

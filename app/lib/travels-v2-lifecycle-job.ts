@@ -25,7 +25,8 @@ export function isLifecycleJobEnabled(): boolean {
 }
 
 async function runPass(): Promise<void> {
-  if (!isWithinSendWindow()) return;
+  // Hors plage 8 h – 18 h : seul le fil des voyages (purge, e-mails regroupés) tourne ; le cycle d'inscription attend.
+  const inWindow = isWithinSendWindow();
   const url = process.env.DATABASE_URL?.trim();
   if (!url) return;
   const lockClient = postgres(url, { max: 1, prepare: false, connect_timeout: 5, idle_timeout: 0 });
@@ -41,6 +42,20 @@ async function runPass(): Promise<void> {
         try {
           await runWithTenant(tenant, async () => {
             const { withNamedLock } = await import("@/app/lib/ent-json-postgres");
+            // Fil du voyage : purge à retour + 7 jours et e-mails regroupés (au plus un par famille et par heure).
+            try {
+              const feedLocked = await withNamedLock("jobs", "voyages-feed-cycle", 55 * 60, async () => {
+                const { runFeedCycleForTenant } = await import("@/app/lib/travels-feed-store");
+                const { getTenantAppUrl } = await import("@/app/lib/tenant-context");
+                return runFeedCycleForTenant(await getTenantAppUrl(), { inWindow });
+              });
+              if (!feedLocked.busy && (feedLocked.value.purged || feedLocked.value.emailed || feedLocked.value.failed)) {
+                console.info(`[voyages-fil] ${tenant.slug}: ${feedLocked.value.purged} fil(s) purgé(s), ${feedLocked.value.emailed} e-mail(s) envoyé(s), ${feedLocked.value.failed} échec(s)`);
+              }
+            } catch (err) {
+              console.error("[voyages-fil] passage en échec", err instanceof Error ? err.message : "error");
+            }
+            if (!inWindow) return;
             const locked = await withNamedLock("jobs", "voyages-v2-cycle", 55 * 60, () => runLifecycleForTenant());
             if (locked.busy) return;
             const r = locked.value;
