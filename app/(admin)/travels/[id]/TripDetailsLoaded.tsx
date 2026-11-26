@@ -49,7 +49,7 @@ import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-p
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
-import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
+import { TravelsAssistanceMenu } from "@/app/components/travels/TravelsAssistanceMenu";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
 import { TripDecisionHubPanel } from "@/app/components/travels/hub/TripDecisionHubPanel";
 import { TripDetailsModals } from "@/app/components/travels/hub/TripDetailsModals";
@@ -1885,7 +1885,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
         }
         headerActions={
-          <TravelsAssistanceButton status={assistanceCardStatus} size="md" />
+          <TravelsAssistanceMenu tripId={trip.id} status={assistanceCardStatus} />
         }
       />
 
