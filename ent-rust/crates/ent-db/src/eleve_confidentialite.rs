@@ -804,7 +804,7 @@ impl PgEnt {
             role,
             eleve,
             action,
-            &crate::acces_traces::ContexteTrace { perimetre, motif: motif_retenu.as_deref() },
+            &crate::acces_traces::ContexteTrace { perimetre, motif: motif_retenu.as_deref(), personne: None },
             maintenant,
         )
         .await

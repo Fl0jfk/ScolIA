@@ -118,6 +118,11 @@ pub fn PageGuichetDroits() -> impl IntoView {
                     "Saisir une demande reçue"
                 </LienBouton>
             })}
+            {move || moteur.get().peut_consulter_traces_acces().then(|| view! {
+                <LienBouton href="/web/rgpd/acces" variante=Variante::Secondaire>
+                    "Accès aux dossiers"
+                </LienBouton>
+            })}
         </EnTetePage>
         {move || match file.get() {
             None => view! { <Squelette lignes=6 libelle="Chargement des demandes…"/> }.into_any(),
@@ -688,6 +693,7 @@ fn Fiche(
 
         <extrait::SectionExtrait demande=id ouverte=ouverte/>
         <remise::SectionReponseRemise demande=id ouverte=ouverte/>
+        <crate::modules::acces_controle::SectionTracesDemande demande=id ouverte=ouverte/>
 
         <section class="classe-section" aria-labelledby="rgpd-droits-titre">
             <h2 id="rgpd-droits-titre">"Droits exercés"</h2>

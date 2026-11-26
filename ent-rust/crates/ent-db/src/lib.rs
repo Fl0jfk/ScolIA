@@ -222,6 +222,8 @@ mod tests_rgpd_g3b3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_acces_g4;
 #[cfg(all(test, feature = "labo"))]
+mod tests_acces_g4b;
+#[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_formulaires_fo0;
@@ -393,6 +395,7 @@ pub mod droits_demandes;
 pub mod droits_extrait;
 pub mod droits_extrait_masquage;
 pub mod droits_remise;
+pub mod acces_controle;
 pub mod acces_traces;
 pub mod gouvernance_rgpd;
 pub mod registre_rgpd;

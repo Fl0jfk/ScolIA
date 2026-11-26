@@ -195,6 +195,9 @@ pub struct ContenuExtrait {
     pub sources: Vec<String>,
     /// Éléments marqués à relire (lot G3b-2) ; vide hors lecture. Ne fait pas partie de l'empreinte.
     pub marquages: Vec<crate::droits_extrait_masquage::MarquageVue>,
+    /// Instant d'arrêt de la section « consultations » (conservé à l'assemblage, relu à la remise).
+    #[serde(skip)]
+    pub instant: DateTime<Utc>,
 }
 
 /// Vue d'une section **sans contenu** (ce que la fiche de la demande affiche).
@@ -731,6 +734,9 @@ struct ContexteSujet {
     du: Option<NaiveDate>,
     au: Option<NaiveDate>,
     module_sante: bool,
+    /// Demande concernée et instant d'arrêt de la section « consultations » (lot G4).
+    demande: Uuid,
+    instant: DateTime<Utc>,
 }
 
 impl ContexteSujet {
@@ -1003,6 +1009,9 @@ async fn section_eleve(
             contenu.push(t);
         }
     }
+    if f.code == "conformite" {
+        lignes += ajouter_consultations(conn, ctx, &mut contenu).await?;
+    }
     contenu.sort_by(|a, b| a.nom.cmp(&b.nom));
     let exclue_entierement =
         f.code == "sante" && !ctx.module_sante && !exclusions.is_empty() && contenu.is_empty();
@@ -1014,6 +1023,36 @@ async fn section_eleve(
         lignes,
         exclue_entierement,
     ))
+}
+
+/// Ajoute la table « consultations » (traces d'accès du sujet, RGP-199) ; un point de sauvegarde isole l'échec éventuel.
+async fn ajouter_consultations(
+    conn: &mut PgConnection,
+    ctx: &ContexteSujet,
+    contenu: &mut Vec<TableContenu>,
+) -> Result<usize, EntDbError> {
+    let mut sp = conn.begin().await.map_err(db)?;
+    let l = crate::acces_controle::lignes_extrait(
+        &mut sp,
+        ctx.etab,
+        ctx.demande,
+        &ctx.sujet_type,
+        ctx.sujet_id,
+        ctx.instant,
+    )
+    .await?;
+    sp.commit().await.map_err(db)?;
+    let n = l.len();
+    if n > 0 {
+        contenu.push(TableContenu {
+            nom: "acc_trace".into(),
+            lignes: l
+                .into_iter()
+                .map(|valeurs| LigneContenu { id: None, valeurs })
+                .collect(),
+        });
+    }
+    Ok(n)
 }
 
 fn finir_section(
@@ -1087,6 +1126,12 @@ async fn section_personne(
             })
             .collect();
         return Ok(finir_section(f, vec![], exclusions, 0, 0, true));
+    }
+    if f.code == "conformite" {
+        // Pour une personne, la conformité ne fournit que les consultations de son dossier (lot G4, RGP-199).
+        let mut contenu = Vec::new();
+        let lignes = ajouter_consultations(conn, ctx, &mut contenu).await?;
+        return Ok(finir_section(f, contenu, vec![], 0, lignes, false));
     }
     if !f.personne {
         return Ok(section_sans_contenu(
@@ -1205,6 +1250,7 @@ impl PgEnt {
             durees: meta.3,
             sources: meta.4,
             marquages: Vec::new(),
+            instant: ctx.instant,
         })
     }
 }
@@ -1394,6 +1440,8 @@ async fn contexte_sujet(
     sujet_type: &str,
     sujet_id: Uuid,
     module_sante: bool,
+    demande: Uuid,
+    instant: DateTime<Utc>,
 ) -> Result<ContexteSujet, EntDbError> {
     let (mut compte, mut personne, mut agent) = (None, None, None);
     if sujet_type != "eleve" {
@@ -1447,6 +1495,8 @@ async fn contexte_sujet(
         du: info.du,
         au: info.au,
         module_sante,
+        demande,
+        instant,
     })
 }
 
@@ -1667,7 +1717,22 @@ impl PgEnt {
         demande: Uuid,
         sujet: Option<(&str, Uuid)>,
     ) -> Result<Vec<ExtraitVue>, EntDbError> {
-        self.droits_extrait_assembler_interne(etab, acteur, role, demande, sujet, &[])
+        self.droits_extrait_assembler_a(etab, acteur, role, demande, sujet, Utc::now())
+            .await
+    }
+
+    /// Comme [`Self::droits_extrait_assembler`], avec l'horloge **injectée** (règle 33) : elle arrête la section
+    /// « consultations » (traces d'accès) et décide quelles consultations différées sont encore masquées.
+    pub async fn droits_extrait_assembler_a(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        sujet: Option<(&str, Uuid)>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<Vec<ExtraitVue>, EntDbError> {
+        self.droits_extrait_assembler_interne(etab, acteur, role, demande, sujet, &[], maintenant)
             .await
     }
 
@@ -1679,6 +1744,7 @@ impl PgEnt {
         demande: Uuid,
         sujet: Option<(&str, Uuid)>,
         echecs_simules: &[&str],
+        maintenant: DateTime<Utc>,
     ) -> Result<Vec<ExtraitVue>, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsTraiter)
             .await?;
@@ -1730,7 +1796,7 @@ impl PgEnt {
                     ))
                 }
             }
-            let ctx = contexte_sujet(&mut tx, etab, &info, st, *sid, module_sante).await?;
+            let ctx = contexte_sujet(&mut tx, etab, &info, st, *sid, module_sante, demande, maintenant).await?;
             let contenu = self
                 .construire_contenu(&mut tx, &ctx, echecs_simules)
                 .await?;
@@ -1792,8 +1858,8 @@ impl PgEnt {
         sqlx::query(
             "INSERT INTO rgp_extrait (id, etablissement_id, demande_id, sujet_type, sujet_id, version, periode_du,
                                       periode_au, assemble_par_compte_id, complet, nb_sections, nb_lignes, empreinte,
-                                      marquage_empreinte)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+                                      marquage_empreinte, consultations_jusqu_au)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(id)
         .bind(etab)
@@ -1809,6 +1875,7 @@ impl PgEnt {
         .bind(c.nb_lignes as i32)
         .bind(&c.empreinte)
         .bind(crate::droits_extrait_masquage::empreinte_marques(marques))
+        .bind(c.instant)
         .execute(&mut **tx)
         .await
         .map_err(db)?;
@@ -1954,7 +2021,8 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let info = info_demande(&mut tx, etab, demande).await?;
         let r = sqlx::query(
-            "SELECT sujet_type, sujet_id, empreinte, perime_le, soumis_dpo_le, periode_du, periode_au
+            "SELECT sujet_type, sujet_id, empreinte, perime_le, soumis_dpo_le, periode_du, periode_au,
+                    consultations_jusqu_au
                FROM rgp_extrait WHERE etablissement_id = $1 AND demande_id = $2 AND id = $3",
         )
         .bind(etab)
@@ -1991,8 +2059,18 @@ impl PgEnt {
             Utc::now(),
         )
         .await?;
-        let mut ctx =
-            contexte_sujet(&mut tx, etab, &info, &sujet_type, sujet_id, module_sante).await?;
+        let instant: Option<DateTime<Utc>> = r.get("consultations_jusqu_au");
+        let mut ctx = contexte_sujet(
+            &mut tx,
+            etab,
+            &info,
+            &sujet_type,
+            sujet_id,
+            module_sante,
+            demande,
+            instant.unwrap_or_else(Utc::now),
+        )
+        .await?;
         ctx.du = r.get("periode_du");
         ctx.au = r.get("periode_au");
         let contenu = self.construire_contenu(&mut tx, &ctx, &[]).await?;
@@ -2073,14 +2151,25 @@ impl PgEnt {
             ));
         }
         let r = sqlx::query(
-            "SELECT periode_du, periode_au FROM rgp_extrait WHERE etablissement_id = $1 AND id = $2",
+            "SELECT periode_du, periode_au, consultations_jusqu_au FROM rgp_extrait WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(extrait)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        let mut ctx = contexte_sujet(&mut *tx, etab, &info, &vue.sujet_type, vue.sujet_id, module_sante).await?;
+        let instant: Option<DateTime<Utc>> = r.get("consultations_jusqu_au");
+        let mut ctx = contexte_sujet(
+            &mut *tx,
+            etab,
+            &info,
+            &vue.sujet_type,
+            vue.sujet_id,
+            module_sante,
+            demande,
+            instant.unwrap_or_else(Utc::now),
+        )
+        .await?;
         ctx.du = r.get("periode_du");
         ctx.au = r.get("periode_au");
         let contenu = self.construire_contenu(&mut *tx, &ctx, &[]).await?;

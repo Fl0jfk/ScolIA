@@ -866,6 +866,7 @@ mod tests {
             durees: vec![],
             sources: vec![],
             marquages: vec![],
+            instant: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
         }
     }
 

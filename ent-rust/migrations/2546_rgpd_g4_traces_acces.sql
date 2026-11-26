@@ -10,7 +10,7 @@
 -- parent) : la fonction `acc_trace_assurer_partition` pose donc la RLS stricte, FORCE et la politique d'établissement
 -- sur CHAQUE partition qu'elle crée, ainsi qu'un déclencheur TRUNCATE (un déclencheur d'instruction du parent ne se
 -- déclenche pas pour un TRUNCATE visant une partition). L'ajout seul (ni UPDATE ni DELETE) est un déclencheur de ligne
--- du parent, cloné sur les partitions. La **purge** se fait par DETACH + DROP de la partition (lot 5, RGP-198) : un
+-- du parent, cloné sur les partitions. La **purge** se fait par DROP de la partition (lot 5, RGP-198) : un
 -- DROP ne déclenche ni DELETE ni TRUNCATE, aucune dérogation n'est donc nécessaire dans les déclencheurs.
 --
 -- Fonction et service de l'agent sont **figés à l'écriture** (R-RG31) : un changement de poste ne réécrit jamais
@@ -63,7 +63,7 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public, pg_temp AS $$
         WHEN p_action = 'coordonnees' THEN 'coordonnees'
         WHEN p_action = 'scolarite' THEN 'scolarite'
         WHEN p_action LIKE 'internat%' THEN 'internat'
-        WHEN p_action = 'extrait_droits' THEN 'dossier_droits'
+        WHEN p_action = 'extrait_droits' OR p_action LIKE 'acces_traces%' THEN 'dossier_droits'
         WHEN p_action LIKE 'sante%' OR p_action LIKE 'psy%' OR p_action LIKE 'infirmerie%' THEN 'sante'
         WHEN p_action LIKE 'liste_%' THEN 'liste'
         ELSE 'dossier'
@@ -361,4 +361,94 @@ BEGIN
 END;
 $$;
 
-SELECT ent_rls_poser(ARRAY['acc_trace', 'acc_motif', 'acc_controle', 'acc_alerte']);
+
+-- ─────────────────────── Consultation différée (RGP-197, R-RG28) ───────────────────────
+-- Une consultation liée à un signalement n'est pas montrée à la famille tant que l'enquête dure : décision motivée de la
+-- direction (`droits.arbitrer`), **bornée** (90 jours au plus, renouvelable par une nouvelle décision), jamais effacée.
+-- Pas de clé étrangère vers `acc_trace` (partitionnée, purgée par partition) : la trace est désignée par (id, le).
+CREATE TABLE IF NOT EXISTS acc_differe (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    trace_id UUID NOT NULL,
+    trace_le TIMESTAMPTZ NOT NULL,
+    -- Le signalement est un contrôle interne ouvert pour ce motif sur l'agent qui a consulté.
+    controle_id UUID NOT NULL,
+    motif TEXT NOT NULL CHECK (length(btrim(motif)) BETWEEN 5 AND 500),
+    decide_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
+    decide_le TIMESTAMPTZ NOT NULL,
+    jusqu_au TIMESTAMPTZ NOT NULL,
+    CONSTRAINT acc_differe_controle_fk FOREIGN KEY (etablissement_id, controle_id)
+        REFERENCES acc_controle (etablissement_id, id) ON DELETE RESTRICT,
+    CONSTRAINT acc_differe_borne_chk CHECK (jusqu_au > decide_le AND jusqu_au <= decide_le + interval '90 days')
+);
+CREATE INDEX IF NOT EXISTS acc_differe_trace_idx ON acc_differe (etablissement_id, trace_id);
+CREATE OR REPLACE TRIGGER acc_differe_ajout_seul_trg BEFORE UPDATE OR DELETE ON acc_differe
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+
+-- Nom d'un agent communiqué à la personne concernée (CL27-16, §11.3) : arbitrage **motivé** de la direction, pour une demande.
+CREATE TABLE IF NOT EXISTS acc_nom_communique (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    demande_id UUID NOT NULL,
+    trace_id UUID NOT NULL,
+    motif TEXT NOT NULL CHECK (length(btrim(motif)) BETWEEN 5 AND 500),
+    decide_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
+    decide_le TIMESTAMPTZ NOT NULL,
+    CONSTRAINT acc_nom_communique_demande_fk FOREIGN KEY (etablissement_id, demande_id)
+        REFERENCES rgp_demande (etablissement_id, id) ON DELETE RESTRICT,
+    CONSTRAINT acc_nom_communique_uq UNIQUE (etablissement_id, demande_id, trace_id)
+);
+CREATE OR REPLACE TRIGGER acc_nom_communique_ajout_seul_trg BEFORE UPDATE OR DELETE ON acc_nom_communique
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+
+-- ─────────────────────── Purge par partition (RGP-198, S-541) ───────────────────────
+-- Les partitions couvrent tous les établissements : la purge est une opération de **plateforme**, jamais un `DELETE`
+-- applicatif. La décision (durée de chaque établissement, demande ouverte, contrôle ouvert) est prise par le service, par
+-- établissement et sous RLS ; ces deux fonctions ne lisent aucune ligne : elles listent les partitions d'après le
+-- catalogue et en suppriment une, après un plancher de 12 mois révolus qu'aucun réglage ne peut franchir.
+CREATE OR REPLACE FUNCTION acc_trace_partitions_anciennes(p_avant DATE) RETURNS SETOF DATE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    SELECT to_date(substr(c.relname, 11), 'YYYYMM')
+      FROM pg_catalog.pg_inherits i
+      JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
+      JOIN pg_catalog.pg_class p ON p.oid = i.inhparent
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.relnamespace
+     WHERE n.nspname = 'public' AND p.relname = 'acc_trace' AND c.relname ~ '^acc_trace_[0-9]{6}$'
+       AND to_date(substr(c.relname, 11), 'YYYYMM') < p_avant
+     ORDER BY 1
+$$;
+
+CREATE OR REPLACE FUNCTION acc_trace_purger_partition(p_mois DATE, p_maintenant TIMESTAMPTZ, p_lignes BIGINT, p_motif TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+    v_nom TEXT;
+BEGIN
+    IF p_mois IS DISTINCT FROM date_trunc('month', p_mois::timestamp)::date THEN
+        RAISE EXCEPTION 'mois de partition invalide' USING ERRCODE = '22023';
+    END IF;
+    -- Plancher : aucune partition n'est supprimée avant 12 mois après sa fin, quel que soit le réglage.
+    IF p_maintenant < ((p_mois + interval '1 month') + interval '12 months') THEN
+        RAISE EXCEPTION 'partition trop récente pour être purgée' USING ERRCODE = '22023';
+    END IF;
+    v_nom := 'acc_trace_' || to_char(p_mois, 'YYYYMM');
+    IF to_regclass('public.' || v_nom) IS NULL THEN
+        RETURN false;
+    END IF;
+    EXECUTE format('DROP TABLE public.%I', v_nom);
+    INSERT INTO public.acc_purge (id, partition_mois, issue, lignes, motif, le)
+    VALUES (gen_random_uuid(), p_mois, 'purgee', GREATEST(p_lignes, 0), left(p_motif, 200), p_maintenant);
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION acc_trace_noter_purge_differee(p_mois DATE, p_maintenant TIMESTAMPTZ, p_lignes BIGINT, p_motif TEXT)
+RETURNS VOID
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    INSERT INTO public.acc_purge (id, partition_mois, issue, lignes, motif, le)
+    VALUES (gen_random_uuid(), p_mois, 'differee', GREATEST(p_lignes, 0), left(p_motif, 200), p_maintenant)
+$$;
+
+SELECT ent_rls_poser(ARRAY['acc_trace', 'acc_motif', 'acc_controle', 'acc_alerte', 'acc_differe', 'acc_nom_communique']);

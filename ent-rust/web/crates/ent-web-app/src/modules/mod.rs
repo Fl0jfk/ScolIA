@@ -3,6 +3,7 @@
 
 pub mod absences;
 pub mod absences_personnels;
+pub mod acces_controle;
 pub mod accompagnement;
 pub mod accueil;
 pub mod afaire;

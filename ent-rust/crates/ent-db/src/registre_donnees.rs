@@ -324,7 +324,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     // chacune). Neutralisation : aucune (rien à ré-émettre). `acc_purge` est le registre de plateforme des purges.
     t("acc_alerte", "conformite", Portee::Etablissement).perso(),
     t("acc_controle", "conformite", Portee::Etablissement).perso(),
+    t("acc_differe", "conformite", Portee::Etablissement).perso(),
     t("acc_motif", "conformite", Portee::Etablissement),
+    t("acc_nom_communique", "conformite", Portee::Etablissement).perso(),
     t("acc_purge", "conformite", Portee::Technique),
     t("acc_trace", "conformite", Portee::Etablissement).perso(),
     // Socle 27, G1 : règles de conservation décidées par l'établissement ; le catalogue est dans le code.

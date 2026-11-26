@@ -158,6 +158,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("rendez-vous") view=modules::rendez_vous::PageRendezVous/>
                     <Route path=path!("formulaires") view=modules::formulaires::PageFormulaires/>
                     // Socle 27, lot G3a : guichet des demandes de droits et page « Mes données ».
+                    <Route path=path!("rgpd/acces") view=modules::acces_controle::PageAccesDossiers/>
                     <Route path=path!("rgpd/demandes") view=modules::rgpd_droits::PageGuichetDroits/>
                     <Route path=path!("rgpd/demandes/saisir") view=modules::rgpd_droits::PageSaisirDemandeDroit/>
                     <Route path=path!("rgpd/demandes/:id") view=modules::rgpd_droits::PageDemandeDroit/>

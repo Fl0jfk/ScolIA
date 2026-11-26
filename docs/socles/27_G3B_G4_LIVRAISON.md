@@ -280,6 +280,58 @@ partitions (`NOT relispartition`). Registre : +5 (`acc_alerte`, `acc_controle`, 
 +2 authentifiées. `Action::TOUTES` inchangé (286). Tests à rejouer isolément (`--test-threads=1`) : trois `tests_search_path_t1` expirent
 sous forte charge parallèle (verrou de rejeu), verts seuls.
 
+## Lot 5 — contrôle interne, alertes, purge, consultations dans l'extrait
+
+### Fait
+
+- **Actions** (`Action::TOUTES` 286 → **288**) : `acces.consulter_traces` (Direction ; DPO via un rôle D-017 qui la porte) et `acces.controle_ouvrir` ★
+  (Direction, passkey récent obligatoire). Aucun défaut pour un DPO : l'établissement crée son rôle.
+- **Migrations 2545/2546** (non versées, fin du tableau) : `rgp_defi.extrait_id` nullable et usage `controle` ; `rgp_extrait.consultations_jusqu_au` ;
+  tables `acc_differe` (report R-RG28) et `acc_nom_communique` (nom d'agent communiqué, par demande) ; fonctions `acc_trace_partitions_anciennes`,
+  `acc_trace_purger_partition`, `acc_trace_noter_purge_differee` ; RLS stricte sur 6 tables `acc_*`.
+- **Réglages** avec défauts et historique (`acces_reglages_*`) : seuils d'alerte, rafale, durée de rétention des traces (plancher 12 mois en base).
+- **Contrôle interne** (RGP-194/195, R-RG27) : demande → défi passkey → ouverture (`acces.controle_ouvrir`) ; lecture des traces d'un agent sous
+  libellés génériques, 12 mois au plus, sans totaux ni classement ; clôture motivée ; tout est tracé (la lecture l'est aussi).
+- **Traces d'un sujet** : lisibles seulement dans une demande de droits ouverte ou un contrôle ouvert (lecture tracée).
+- **Report R-RG28** : une consultation liée à un signalement est différée (≤ 90 j) sous `droits.arbitrer`, exige un contrôle ouvert de motif
+  `signalement` sur l'agent consultant ; filtre appliqué à toutes les lectures (famille, extrait, contrôle).
+- **Alertes déterministes** (RGP-196) : rafale, seuil/jour par rôle, adresse protégée hors périmètre, élève sorti ou dossier archivé ; une alerte par
+  fenêtre ; notification `acces.alerte` à la direction et au DPO, **jamais à l'agent** ; suite donnée tracée. Balayage horaire (fenêtre 26 h) dans `main.rs`.
+- **Purge par partition** (RGP-198, S-541) : plus longue rétention des établissements ; une partition qui porte des traces d'une demande ou d'un
+  contrôle ouvert est différée (journal hebdomadaire par partition + alerte `acces.purge_differee` au DPO).
+- **Extrait** (RGP-199) : section « consultations » (jusqu'à `consultations_jusqu_au`, horloge injectée à l'assemblage) ; nom d'agent seulement
+  sur arbitrage motivé de la direction (`acc_nom_communique`).
+- **Écrans** (`/web/rgpd/acces`, lien depuis le guichet) : alertes, contrôles (flux passkey), réglages avec historique ; section « traces » dans la fiche
+  de demande.
+
+### Cas limites couverts
+
+Fenêtre d'alerte unique (pas de doublon sur relance) ; seuil strict `>` ; sujet d'une demande non encore assemblée (UNION avec `rgp_demande`) ; trace
+protégée ou différée exclue de l'extrait ; purge bloquée par demande/contrôle ouvert ; report non renouvelable en levée anticipée ; ouverture sans défi
+valable refusée ; nom d'agent jamais par défaut ; partitions absentes.
+
+### Tests (lot 5)
+
+`ent-db` `tests_acces_g4b.rs` (9 tests, verts avec les 14 du lot 4 : 23/23) ; `ent-api` `g4_http_controles_reglages_alertes` (401/403/404, ouverture sans
+défi refusée) ; web : 686 tests, clippy natif + wasm, `cargo metadata --locked` ; garde (rls, registre, migrations, d036, search_path…) : 212/213, le
+seul échec est un `statement timeout` sous charge (`t1_gel_du_cahier…`), vert seul.
+
+### Valeurs prudentes retenues (D-069)
+
+- Section consultations de l'extrait arrêtée à `consultations_jusqu_au` : relecture et remise restent stables.
+- Traces protégées, différées, de santé ou de droits exclues de l'extrait.
+- Lecture de contrôle : tout l'agent, libellés génériques, 12 mois max, sans totaux ni classement.
+- Report : ≤ 90 jours, renouvelable par nouvelle décision, aucune levée anticipée.
+- Seuil/jour par rôle : direction/admin → seuil direction ; prof → enseignant ; CPE → vie scolaire ; autres → administratif.
+- Adresse protégée = hors périmètre ET protégée ; conservation = élève `sorti` ou dossier `archive`.
+- Purge : plus longue rétention entre établissements ; journal de report une fois par semaine et par partition.
+- DPO : rôle D-017 portant `acces.consulter_traces` ; aucun défaut.
+
+### Compteurs
+
+RLS : **+2 tables** (`acc_differe`, `acc_nom_communique`), soit 6 tables `acc_*` au total ; registre : +2 ; routes : +12 entrées authentifiées ;
+`Action::TOUTES` **288** (à recalculer après la fusion de `origin/ENT`).
+
 ---
 
 ## Commits par lot (pour les contre-revues)
@@ -292,4 +344,5 @@ Liste tenue à jour à chaque lot ; chaque lot compte au moins un commit de code
 - Contre-revue des lots 1 et 2 : `44dbfe28a` (rapport) ; correctifs `4c8058436`.
 - Lot 3 : `f2a9acffe` (module de remise), `5cbc85ba1` (routes, écrans, livraison).
 - Fusion de `origin/ENT` : `d8202f755`.
-- Lot 4 : commit de code et de livraison ci-dessous (voir `git log`).
+- Lot 4 : `49a7cfdb0`.
+- Lot 5 : commit de code et de livraison (voir `git log`).

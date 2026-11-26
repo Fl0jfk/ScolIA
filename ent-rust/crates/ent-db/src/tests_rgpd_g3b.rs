@@ -206,7 +206,7 @@ async fn g3b_echec_fournisseur_rend_incomplet_et_demande_arbitrage() {
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     let demande = demande_prete(&ent, &cast).await;
     let v = ent
-        .droits_extrait_assembler_interne(etab, dir, DIR, demande, None, &["administratif"])
+        .droits_extrait_assembler_interne(etab, dir, DIR, demande, None, &["administratif"], chrono::Utc::now())
         .await
         .unwrap();
     let e = &v[0];

@@ -150,6 +150,16 @@ impl DroitsMoteur {
         self.a_etablissement("droits.arbitrer")
     }
 
+    /// Socle 27, lot G4 : traces d'accès d'un sujet ou d'un agent (demande ou contrôle ouverts), alertes d'accès.
+    pub fn peut_consulter_traces_acces(&self) -> bool {
+        self.a_etablissement("acces.consulter_traces")
+    }
+
+    /// Socle 27, lot G4 : ouvrir un contrôle interne sur un agent (passkey récente).
+    pub fn peut_ouvrir_controle_acces(&self) -> bool {
+        self.a_etablissement("acces.controle_ouvrir")
+    }
+
     /// Lire les contraintes publiées destinées aux enseignants, à la restauration ou aux sorties.
     pub fn peut_lire_contraintes(&self) -> bool {
         self.a("contraintes.lire")

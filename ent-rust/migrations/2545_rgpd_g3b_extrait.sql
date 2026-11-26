@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS rgp_extrait (
     periode_du DATE,
     periode_au DATE,
     assemble_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Instant (horloge du service) jusqu'auquel la section « consultations » (traces d'accès, lot G4) est arrêtée : relire ou
+    -- remettre l'extrait reconstruit le même contenu, malgré les consultations qui s'ajoutent ensuite.
+    consultations_jusqu_au TIMESTAMPTZ,
     assemble_par_compte_id UUID REFERENCES ent_user (id),
     -- R-RG18 : faux dès qu'une section est en échec ou non couverte. Un extrait incomplet ne se remet
     -- jamais comme complet ; sa remise exige une décision motivée de la direction, section par section.
@@ -357,8 +360,9 @@ CREATE TABLE IF NOT EXISTS rgp_defi (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    extrait_id UUID NOT NULL,
-    usage TEXT NOT NULL CHECK (usage IN ('remettre', 'telecharger')),
+    -- Sans extrait pour un défi de contrôle interne (lot G4) : la clé composite n'est alors pas vérifiée.
+    extrait_id UUID,
+    usage TEXT NOT NULL CHECK (usage IN ('remettre', 'telecharger', 'controle')),
     compte_id UUID NOT NULL REFERENCES ent_user (id),
     empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
     intention TEXT NOT NULL CHECK (length(intention) BETWEEN 10 AND 300),

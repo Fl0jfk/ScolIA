@@ -444,7 +444,7 @@ impl PgEnt {
             }
         }
         for (type_, id, libelle) in cibles {
-            let lignes = lire_lignes(&mut tx, etab, acteur, type_, id, depuis, jour).await?;
+            let lignes = lire_lignes(&mut tx, etab, acteur, type_, id, depuis, jour, maintenant).await?;
             let total = i64::try_from(lignes.len()).unwrap_or(i64::MAX);
             let mut par_jour: BTreeMap<NaiveDate, Vec<LigneConsultation>> = BTreeMap::new();
             for l in lignes {
@@ -532,6 +532,7 @@ async fn lire_lignes(
     sujet: Uuid,
     depuis: NaiveDate,
     jour: NaiveDate,
+    maintenant: DateTime<Utc>,
 ) -> Result<Vec<LigneConsultation>, EntDbError> {
     let motifs: BTreeMap<String, String> = motifs_actifs(&mut *conn, etab)
         .await?
@@ -547,6 +548,9 @@ async fn lire_lignes(
             AND (($2 = 'eleve' AND t.sujet_eleve_id = $3) OR ($2 = 'agent' AND t.sujet_personne_id = $3))
             AND t.le >= $4::date::timestamptz AND t.le < ($5::date + 1)::timestamptz
             AND t.affichable
+            -- R-RG28 : une consultation différée (décision motivée et bornée de la direction) n'est pas montrée.
+            AND NOT EXISTS (SELECT 1 FROM acc_differe d WHERE d.etablissement_id = t.etablissement_id
+                             AND d.trace_id = t.id AND d.jusqu_au > $7)
             -- R-RG46 : une trace protégée n'est montrée qu'à la personne protégée elle-même.
             AND (NOT t.protegee OR EXISTS (
                    SELECT 1 FROM ent_personne vp
@@ -575,6 +579,7 @@ async fn lire_lignes(
     .bind(depuis)
     .bind(jour)
     .bind(viewer)
+    .bind(maintenant)
     .fetch_all(&mut *conn)
     .await?;
     Ok(lignes
@@ -671,6 +676,8 @@ pub(crate) async fn valider_motif(
 pub(crate) struct ContexteTrace<'a> {
     pub perimetre: Perimetre,
     pub motif: Option<&'a str>,
+    /// Dossier d'agent visé (lecture des traces d'un agent, lot G4-2) ; jamais avec un élève.
+    pub personne: Option<Uuid>,
 }
 
 /// Écrit la ligne `acc_trace` dans la transaction **de l'appelant** (R-RG8). `id` est celui de la ligne de journal.
@@ -711,8 +718,8 @@ pub(crate) async fn ecrire_trace_tx(
     sqlx::query(
         "INSERT INTO acc_trace (id, etablissement_id, le, acteur_compte_id, acteur_role, fonction_code, fonction_libelle,
                                 service_code, service_libelle, nature, section, action, sujet_eleve_id, hors_perimetre,
-                                perimetre_temporaire, motif_code, affichable, protegee)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, left($12, 120), $13, $14, $15, $16, $17, $18)",
+                                perimetre_temporaire, motif_code, affichable, protegee, sujet_personne_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, left($12, 120), $13, $14, $15, $16, $17, $18, $19)",
     )
     .bind(id)
     .bind(etab)
@@ -732,6 +739,7 @@ pub(crate) async fn ecrire_trace_tx(
     .bind(if hors { ctx.motif } else { None })
     .bind(affichable)
     .bind(protegee)
+    .bind(ctx.personne)
     .execute(&mut *conn)
     .await?;
     Ok(())

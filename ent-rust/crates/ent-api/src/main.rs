@@ -741,6 +741,19 @@ async fn run_api() {
                 if let Err(e) = ent.acces_partitions_assurer().await {
                     tracing::warn!("partitions des traces d'accès : {e}");
                 }
+                // Alertes d'accès (RGP-196) puis purge des partitions échues (RGP-198) : idempotentes, une fois par heure.
+                match ent.acces_alertes_evaluer_tous_a(chrono::Utc::now()).await {
+                    Ok(n) if n > 0 => tracing::info!(n, "alertes d'accès créées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("alertes d'accès : {e}"),
+                }
+                match ent.acces_purger_a(chrono::Utc::now()).await {
+                    Ok(r) if !r.purgees.is_empty() || !r.differees.is_empty() => {
+                        tracing::info!(purgees = r.purgees.len(), differees = r.differees.len(), "purge des traces d'accès")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des traces d'accès : {e}"),
+                }
                 match ent.purger_objets_pieces_infectees_tache(retention).await {
                     Ok(b) if b.purges > 0 || b.echecs > 0 => {
                         tracing::info!(?b, "objets de pièces infectées purgés")

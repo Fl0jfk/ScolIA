@@ -369,12 +369,12 @@ fn non_trouve() -> EntDbError {
 
 impl PgEnt {
     /// Crée un défi de passkey **lié** à l'empreinte de l'extrait et à l'intention (5 minutes, usage unique).
-    async fn defi_creer(
+    pub(crate) async fn defi_creer(
         &self,
         tx: &mut PgConnection,
         etab: Uuid,
         compte: Uuid,
-        extrait: Uuid,
+        extrait: Option<Uuid>,
         usage: &str,
         empreinte: &str,
         intention: &str,
@@ -421,11 +421,11 @@ impl PgEnt {
 
     /// Vérifie l'assertion d'un défi : **brûlé avant** toute vérification (un rejeu échoue toujours), lié au compte,
     /// à l'extrait et à l'usage. Transaction propre, validée quoi qu'il arrive ensuite.
-    async fn defi_consommer(
+    pub(crate) async fn defi_consommer(
         &self,
         etab: Uuid,
         compte: Uuid,
-        extrait: Uuid,
+        extrait: Option<Uuid>,
         usage: &str,
         defi: Uuid,
         credential: &PublicKeyCredential,
@@ -442,7 +442,7 @@ impl PgEnt {
         .await
         .map_err(db)?
         .ok_or_else(non_trouve)?;
-        let (d_compte, d_extrait, d_usage): (Uuid, Uuid, String) =
+        let (d_compte, d_extrait, d_usage): (Uuid, Option<Uuid>, String) =
             (d.get("compte_id"), d.get("extrait_id"), d.get("usage"));
         if d_compte != compte || d_extrait != extrait || d_usage != usage {
             return Err(non_trouve());
@@ -518,7 +518,7 @@ impl PgEnt {
                 &mut tx,
                 etab,
                 acteur,
-                extrait,
+                Some(extrait),
                 "remettre",
                 &vue.empreinte,
                 intention,
@@ -588,7 +588,7 @@ impl PgEnt {
         };
         // Le défi est brûlé d'abord : sans passkey récente du gestionnaire, rien n'est remis.
         self.defi_consommer(
-            etab, acteur, extrait, "remettre", defi, credential, maintenant,
+            etab, acteur, Some(extrait), "remettre", defi, credential, maintenant,
         )
         .await?;
         let jours = self.droits_reglage_extrait_jours(etab).await?;
@@ -836,7 +836,7 @@ impl PgEnt {
                 &mut tx,
                 etab,
                 compte,
-                extrait,
+                Some(extrait),
                 "telecharger",
                 &empreinte,
                 intention,
@@ -887,7 +887,7 @@ impl PgEnt {
         self.defi_consommer(
             etab,
             compte,
-            extrait,
+            Some(extrait),
             "telecharger",
             defi,
             credential,

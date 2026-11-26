@@ -92,3 +92,108 @@ async fn g4_http_consultations_motif_requis_et_refus() {
         "{texte}"
     );
 }
+
+async fn envoi(
+    app: &axum::Router,
+    methode: &str,
+    uri: &str,
+    jeton: Option<&str>,
+    corps: Option<Value>,
+) -> StatusCode {
+    let mut b = Request::builder().method(methode).uri(uri);
+    if let Some(j) = jeton {
+        b = b.header("authorization", format!("Bearer {j}"));
+    }
+    let req = match corps {
+        Some(c) => b
+            .header("content-type", "application/json")
+            .body(Body::from(c.to_string()))
+            .unwrap(),
+        None => b.body(Body::empty()).unwrap(),
+    };
+    app.clone().oneshot(req).await.unwrap().status()
+}
+
+/// Lot G4-5 (HTTP) : réglages, contrôles, alertes et traces de demande exigent une session et le droit ; l'ouverture
+/// d'un contrôle exige un défi passkey récent (refusée sans lui) ; une demande inconnue répond « introuvable ».
+#[tokio::test]
+async fn g4_http_controles_reglages_alertes() {
+    let Some(url) = super::tests_l3::url_locale() else {
+        eprintln!("skip G4-5 HTTP: ENT_DATABASE_URL");
+        return;
+    };
+    let ent = PgEnt::connect(&url).await.unwrap();
+    ent.migrate().await.unwrap();
+    let state = AppState::nouveau(ent);
+    let cast = state.ent.seed_labo_cast().await.expect("cast");
+    let app = app(state.clone());
+    let (prof, dir) = (cast.prof.token.as_str(), cast.direction.token.as_str());
+    let id = uuid::Uuid::new_v4();
+    let corps_defi = serde_json::json!({
+        "agent_compte_id": cast.prof.user_id, "motif_code": "signalement",
+        "motif_texte": "Signalement reçu de la famille", "jours": 30
+    });
+
+    // Session exigée partout.
+    for (m, u) in [
+        ("GET", "/acces/reglages".to_string()),
+        ("GET", "/acces/controles".to_string()),
+        ("GET", "/acces/alertes".to_string()),
+        ("GET", format!("/acces/traces/demandes/{id}")),
+        ("GET", format!("/acces/controles/{id}/traces")),
+        ("POST", "/acces/controles/defi".to_string()),
+    ] {
+        assert_eq!(
+            envoi(&app, m, &u, None, None).await,
+            StatusCode::UNAUTHORIZED,
+            "{m} {u}"
+        );
+    }
+    // Le droit est exigé : un enseignant n'a rien de tout cela.
+    for (m, u, c) in [
+        ("GET", "/acces/reglages".to_string(), None),
+        ("GET", "/acces/controles".to_string(), None),
+        ("GET", "/acces/alertes".to_string(), None),
+        ("GET", format!("/acces/traces/demandes/{id}"), None),
+        (
+            "POST",
+            "/acces/controles/defi".to_string(),
+            Some(corps_defi.clone()),
+        ),
+    ] {
+        assert_eq!(
+            envoi(&app, m, &u, Some(prof), c).await,
+            StatusCode::FORBIDDEN,
+            "{m} {u}"
+        );
+    }
+    // La direction lit les réglages, les contrôles et les alertes.
+    for u in ["/acces/reglages", "/acces/controles", "/acces/alertes"] {
+        let (st, _) = appel(&app, u, Some(dir)).await;
+        assert_eq!(st, StatusCode::OK, "{u}");
+    }
+    // Une demande inconnue : introuvable.
+    let (st, _) = appel(&app, &format!("/acces/traces/demandes/{id}"), Some(dir)).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Ouverture sans défi passkey valable : refusée, jamais créée.
+    let mut ouvrir = corps_defi.clone();
+    ouvrir["defi_id"] = serde_json::json!(id);
+    ouvrir["credential"] = serde_json::json!({});
+    let st = envoi(
+        &app,
+        "POST",
+        "/acces/controles/ouvrir",
+        Some(dir),
+        Some(ouvrir),
+    )
+    .await;
+    assert!(
+        st.is_client_error() && st != StatusCode::UNAUTHORIZED,
+        "ouverture sans défi : {st}"
+    );
+    let (_, liste) = appel(&app, "/acces/controles", Some(dir)).await;
+    assert!(
+        liste.as_array().is_some_and(|l| l.is_empty()) || liste.get("controles").is_some(),
+        "{liste}"
+    );
+}
