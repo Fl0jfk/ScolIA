@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAppUser } from "@/app/lib/app-session";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getTravelTrip } from "@/app/lib/travels-storage";
@@ -44,11 +45,23 @@ export async function POST(req: Request) {
     const target = findParticipant(participants, input.eleveId);
     if (!target) return json({ error: "Cet élève ne participe pas à ce voyage." }, 404);
     // Journal AVANT la réponse : sans trace, pas de données.
-    await auditParentContacts({ etabId, actorUserId: gate.ctx.userId ?? null, tripId: trip.id, eleveId: target.eleveId, action: "travel_parent_contacts_view" });
+    await auditParentContacts({ etabId, actorUserId: await auditActorId(), tripId: trip.id, eleveId: target.eleveId, action: "travel_parent_contacts_view" });
     const [contacts] = await loadContactsForEleves(etabId, [target]);
     return json({ contacts });
   } catch (e) {
     console.error("[travels/parent-contacts]", e instanceof Error ? e.message : "erreur");
-    return json({ error: "Chargement impossible." }, 500);
+    return json({ error: "Chargement impossible.", code: errorCode(e) }, 500);
   }
+}
+
+/** Id du compte (table `user`) pour le journal : PAS le businessUserId historique (clé étrangère). */
+async function auditActorId(): Promise<string | null> {
+  const g = await requireAppUser();
+  return g.ok ? g.user.id : null;
+}
+
+/** Code technique sans donnée personnelle, pour diagnostiquer un 500 depuis le navigateur. */
+function errorCode(e: unknown): string {
+  const c = (e as { code?: unknown; cause?: { code?: unknown } } | null)?.code ?? (e as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof c === "string" ? c.slice(0, 20) : "unknown";
 }
