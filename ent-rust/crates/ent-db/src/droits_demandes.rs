@@ -36,11 +36,11 @@ use serde::Serialize;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-fn db(e: sqlx::Error) -> EntDbError {
+pub(crate) fn db(e: sqlx::Error) -> EntDbError {
     EntDbError::Sqlx(e)
 }
 
-fn invalide(m: &'static str) -> EntDbError {
+pub(crate) fn invalide(m: &'static str) -> EntDbError {
     EntDbError::SaisieInvalide(m)
 }
 
@@ -109,7 +109,7 @@ pub const MESSAGE_SANS_COMPTE: &str = "Votre demande est enregistrée. Si l'éta
 données vous concernant, il vous répondra par un moyen de contact déjà connu de son dossier, ou vous \
 recevrez une réponse au guichet. Le délai légal d'un mois court à compter de la réception.";
 
-fn texte(v: &str, min: usize, max: usize) -> Option<String> {
+pub(crate) fn texte(v: &str, min: usize, max: usize) -> Option<String> {
     let v = v.trim();
     let n = v.chars().count();
     (n >= min && n <= max && !v.chars().any(|c| c.is_control() && c != '\n')).then(|| v.to_string())
@@ -618,7 +618,7 @@ fn attente_jours(b: &Brut) -> i64 {
     (fin - demandee).num_days().max(0)
 }
 
-fn ouverte(etat: &str) -> bool {
+pub(crate) fn ouverte(etat: &str) -> bool {
     !matches!(etat, "close" | "refusee")
 }
 
@@ -644,7 +644,7 @@ fn avancement(b: &Brut, echeance: NaiveDate) -> String {
 // ---------------------------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-async fn journal(
+pub(crate) async fn journal(
     conn: &mut PgConnection,
     etab: Uuid,
     demande: Uuid,
@@ -680,6 +680,7 @@ async fn accuser_reception(
     recue_le: NaiveDate,
     echeance: NaiveDate,
     destinataire: Uuid,
+    maintenant: DateTime<Utc>,
 ) -> Result<bool, EntDbError> {
     let contact: Option<String> =
         sqlx::query_scalar("SELECT dpo_contact FROM rgp_gouvernance WHERE etablissement_id = $1")
@@ -715,7 +716,7 @@ async fn accuser_reception(
             canaux_voulus: &["email", "push"],
         },
         demande,
-        Utc::now(),
+        maintenant,
     )
     .await?;
     Ok(n > 0)
@@ -760,7 +761,7 @@ impl QualiteConstatee {
 /// Lien du demandeur sur l'élève sujet, **à la date** `jour` : un lien hors de ses dates ou suspendu ne
 /// compte pas (socle 4, migration 121). La requête n'utilise jamais `now()` : l'horloge de la demande est
 /// sa date de réception, pas le jour où le guichet regarde (règle 33 des consignes de pilotage).
-async fn qualite_a_la_date(
+pub(crate) async fn qualite_a_la_date(
     conn: &mut PgConnection,
     etab: Uuid,
     demandeur_compte: Option<Uuid>,
@@ -827,26 +828,32 @@ async fn qualite_a_la_date(
     // et la suite passe par un arbitrage de la direction (CL27-02, R-RG38, R-RG46). Le guichet n'apprend ici
     // que l'existence d'une protection, jamais son contenu — et le journal visible ne l'expose jamais au
     // parent qu'elle vise (R-RG46, lot G4).
+    // Pf3 : la qualité n'est restreinte que si la protection vise le **demandeur** lui-même (ou l'élève : on ne
+    // sait alors pas qui elle vise, prudence). La protection d'un **autre** parent ne bloque plus le titulaire :
+    // l'extrait la masque (lot G3b-2).
     let protegee: bool = sqlx::query_scalar(
         "SELECT EXISTS (
              SELECT 1 FROM ent_adresse_protegee a
               JOIN ent_personne p ON p.id = a.personne_id AND p.etablissement_id = a.etablissement_id
               WHERE a.etablissement_id = $1
                 AND (p.eleve_id = $2
-                     OR EXISTS (SELECT 1 FROM ent_eleve_lien l
-                                 WHERE l.etablissement_id = a.etablissement_id
-                                   AND l.eleve_id = $2 AND l.user_id = p.user_id)))
+                     OR (p.user_id = $3
+                         AND EXISTS (SELECT 1 FROM ent_eleve_lien l
+                                      WHERE l.etablissement_id = a.etablissement_id
+                                        AND l.eleve_id = $2 AND l.user_id = p.user_id))))
             OR EXISTS (
              SELECT 1 FROM ent_personne_reserve r
               JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
               WHERE r.etablissement_id = $1 AND r.ne_pas_solliciter
                 AND (p.eleve_id = $2
-                     OR EXISTS (SELECT 1 FROM ent_eleve_lien l
-                                 WHERE l.etablissement_id = r.etablissement_id
-                                   AND l.eleve_id = $2 AND l.user_id = p.user_id)))",
+                     OR (p.user_id = $3
+                         AND EXISTS (SELECT 1 FROM ent_eleve_lien l
+                                      WHERE l.etablissement_id = r.etablissement_id
+                                        AND l.eleve_id = $2 AND l.user_id = p.user_id))))",
     )
     .bind(etab)
     .bind(eleve)
+    .bind(compte)
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
@@ -858,7 +865,7 @@ async fn qualite_a_la_date(
 }
 
 /// L'élève est-il majeur **à la date** donnée (CL27-04, élève majeur de §9.3) ?
-async fn eleve_majeur_le(
+pub(crate) async fn eleve_majeur_le(
     conn: &mut PgConnection,
     etab: Uuid,
     eleve: Uuid,
@@ -883,7 +890,10 @@ async fn eleve_majeur_le(
 /// * qualités « pour soi » : rien à constater (`SansObjet`) ;
 /// * `parent_sans_autorite`, `mandataire`, `representant_majeur_protege`, `tiers` : jamais compatibles seules
 ///   (pièce, mandat ou jugement à apprécier) : toujours arbitrées. Valeur prudente, notée (D-069).
-fn qualite_compatible(invoquee: &str, constatee: QualiteConstatee) -> Result<(), &'static str> {
+pub(crate) fn qualite_compatible(
+    invoquee: &str,
+    constatee: QualiteConstatee,
+) -> Result<(), &'static str> {
     if qualite_de_soi(invoquee) {
         return Ok(());
     }
@@ -934,6 +944,17 @@ impl PgEnt {
     ///   désigne quelqu'un d'autre. Sans ce contrôle, un compte pourrait ouvrir un dossier sur la personne
     ///   de son choix et recevoir son extrait au lot G3b.
     pub async fn droits_deposer_connecte(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        d: DepotConnecte<'_>,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_deposer_connecte_brut(etab, acteur, role, d).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_deposer_connecte_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -1060,6 +1081,7 @@ impl PgEnt {
             jour,
             echeance_legale(jour),
             acteur,
+            Utc::now(),
         )
         .await?;
         if envoye {
@@ -1097,6 +1119,22 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Anti-abus (M4) : plafond **par établissement et par jour** (jour de l'établissement, jamais
         // l'heure réelle) ; au-delà, refus neutre et orientation vers le guichet.
+        // Pf1 : verrou transactionnel par établissement, pour que deux dépôts simultanés ne dépassent pas le plafond.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('rgp_depot_public:' || $1::text, 0))",
+        )
+        .bind(etab)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        let plafond: i64 = sqlx::query_scalar(
+            "SELECT plafond_depots_publics_jour::bigint FROM rgp_reglage WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .unwrap_or(PLAFOND_DEPOTS_SANS_COMPTE_JOUR);
         let deposes: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM rgp_demande
               WHERE etablissement_id = $1 AND canal = 'en_ligne' AND demandeur_compte_id IS NULL
@@ -1107,7 +1145,7 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        if deposes >= PLAFOND_DEPOTS_SANS_COMPTE_JOUR {
+        if deposes >= plafond {
             return Err(EntDbError::ConflitDossier(
                 "trop de demandes reçues aujourd'hui : présentez-vous au guichet ou réessayez demain",
             ));
@@ -1181,6 +1219,17 @@ impl PgEnt {
     /// la saisie, jamais la suivre. RGP-303 : l'écart est conservé (`cree_le` figé par la base) et le
     /// tableau le signale au-delà de [`ECART_SAISIE_ALERTE_JOURS`] jours.
     pub async fn droits_saisir_au_guichet(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        s: SaisieDemande<'_>,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_saisir_au_guichet_brut(etab, acteur, role, s).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_saisir_au_guichet_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -1317,6 +1366,7 @@ impl PgEnt {
                 s.recue_le,
                 echeance_legale(s.recue_le),
                 compte,
+                Utc::now(),
             )
             .await?;
             if envoye {
@@ -1338,6 +1388,19 @@ impl PgEnt {
     /// [`PgEnt::droits_titulaires_information`] l'enregistre et la demande reste signalée tant que rien n'est
     /// décidé.
     pub async fn droits_qualifier(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        qualification: &str,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_qualifier_brut(etab, acteur, role, demande, qualification, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_qualifier_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -1417,6 +1480,21 @@ impl PgEnt {
         note: Option<&str>,
         piece_document_id: Option<Uuid>,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_verifier_identite_brut(etab, acteur, role, demande, mode, reussie, note, piece_document_id).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_verifier_identite_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        mode: &str,
+        reussie: bool,
+        note: Option<&str>,
+        piece_document_id: Option<Uuid>,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsRecevoir)
             .await?;
         if !matches!(mode, "session_forte" | "code_courriel" | "piece" | "mandat") {
@@ -1452,7 +1530,7 @@ impl PgEnt {
         // M-a : la pièce consultée est rattachée (donc détruite à la clôture, R-RG16) même si la
         // vérification échoue.
         if let Some(piece) = piece_document_id {
-            valider_piece(&mut tx, etab, piece).await?;
+            valider_piece(&mut tx, etab, piece, demande).await?;
         }
         let constatee = qualite_a_la_date(
             &mut tx,
@@ -1567,6 +1645,19 @@ impl PgEnt {
         accepte: bool,
         motif: &str,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_arbitrer_identite_brut(etab, acteur, role, demande, accepte, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_arbitrer_identite_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        accepte: bool,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsArbitrer)
             .await?;
         let motif = texte(motif, 3, 1000).ok_or(invalide("motif de l'arbitrage obligatoire"))?;
@@ -1639,6 +1730,19 @@ impl PgEnt {
     /// demandeur. Un sujet déjà rapproché ne se rapproche pas une seconde fois (il se corrige par une
     /// nouvelle saisie : on n'écrase pas une identification).
     pub async fn droits_rapprocher(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        sujet: Option<(&str, Uuid)>,
+        demandeur_personne_id: Option<Uuid>,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_rapprocher_brut(etab, acteur, role, demande, sujet, demandeur_personne_id).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_rapprocher_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -1755,6 +1859,18 @@ impl PgEnt {
         demande: Uuid,
         quoi: &str,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_demander_identite_brut(etab, acteur, role, demande, quoi).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_demander_identite_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        quoi: &str,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsRecevoir)
             .await?;
         let quoi = texte(quoi, 3, 1000).ok_or(invalide("préciser ce qui est demandé"))?;
@@ -1792,6 +1908,18 @@ impl PgEnt {
     /// **RGP-147** — affecte la demande à un gestionnaire (une personne de l'établissement). Direction et
     /// DPO ; le droit `droits.traiter` suffit pour se l'attribuer, l'arbitrage n'est pas requis.
     pub async fn droits_affecter(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        gestionnaire_personne_id: Option<Uuid>,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_affecter_brut(etab, acteur, role, demande, gestionnaire_personne_id).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_affecter_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -1864,6 +1992,19 @@ impl PgEnt {
         jusqu_au: NaiveDate,
         motif: &str,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_prolonger_brut(etab, acteur, role, demande, jusqu_au, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_prolonger_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        jusqu_au: NaiveDate,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsArbitrer)
             .await?;
         let motif = texte(motif, 3, 1000).ok_or(invalide("motif de prolongation obligatoire"))?;
@@ -1918,7 +2059,8 @@ impl PgEnt {
             etab,
             demande,
             "prolongee",
-            Some(&motif),
+            // Le motif libre reste dans la colonne dédiée ; le journal ne porte qu'un texte neutre.
+            Some("délai prolongé (motif au dossier)"),
             Some(acteur),
             Some(role),
         )
@@ -1961,6 +2103,18 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
 
     /// Ajoute un droit à une demande ouverte (un parent qui complète sa demande ne rouvre pas un dossier).
     pub async fn droits_ajouter_droit(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        droit: &str,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_ajouter_droit_brut(etab, acteur, role, demande, droit).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_ajouter_droit_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -2014,6 +2168,21 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
     /// opposition) relève de `droits.arbitrer` — la direction (R-RG17).
     #[allow(clippy::too_many_arguments)]
     pub async fn droits_decider(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        droit: &str,
+        decision: &str,
+        motif_code: Option<&str>,
+        motif_texte: Option<&str>,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_decider_brut(etab, acteur, role, demande, droit, decision, motif_code, motif_texte).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_decider_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -2132,6 +2301,19 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
         informer: bool,
         motif: Option<&str>,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_titulaires_information_brut(etab, acteur, role, demande, informer, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_titulaires_information_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        informer: bool,
+        motif: Option<&str>,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(
             etab,
             acteur,
@@ -2207,6 +2389,18 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
     /// Un droit resté `en_examen` empêche la clôture : on ne clôt pas une demande sans avoir répondu à
     /// chacun des droits exercés (cas limite déduit de §9.4 point 6).
     pub async fn droits_clore(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        reponse_resume: &str,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_clore_brut(etab, acteur, role, demande, reponse_resume).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_clore_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -2317,6 +2511,18 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
         demande: Uuid,
         motif: &str,
     ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_refuser_brut(etab, acteur, role, demande, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_refuser_brut(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::DroitsArbitrer)
             .await?;
         let motif = texte(motif, 3, 2000).ok_or(invalide("motif de refus obligatoire"))?;
@@ -2324,7 +2530,11 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let etat = etat_courant(&mut tx, etab, demande).await?;
         exiger_ouverte(&etat)?;
-        exiger_titulaires_decides(&mut tx, etab, demande).await?;
+        // Pf6 : tant que l'identité n'est pas établie, rien n'est imputable au mineur — le refus
+        // « impossibilité d'identifier » ne demande pas la décision sur l'information des titulaires.
+        if identite_etablie(&mut tx, etab, demande).await? {
+            exiger_titulaires_decides(&mut tx, etab, demande).await?;
+        }
         sqlx::query(
             "UPDATE rgp_demande
                 SET etat = 'refusee', close_le = now(), close_par_compte_id = $3, refus_motif = $4,
@@ -2376,6 +2586,18 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
     /// zéro** : la réouverture est tracée, l'échéance d'origine reste la référence et le retard éventuel
     /// reste visible (on ne réécrit pas le passé). Direction et DPO (`droits.arbitrer`).
     pub async fn droits_rouvrir(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_rouvrir_brut(etab, acteur, role, demande, motif).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_rouvrir_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -2440,6 +2662,17 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
 
     /// Fiche d'une demande, pour le guichet (`droits.traiter`). Journal compris.
     pub async fn droits_demande(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+    ) -> Result<DemandeVue, EntDbError> {
+        let v = self.droits_demande_brut(etab, acteur, role, demande).await?;
+        self.epurer_vue(etab, acteur, role, v).await
+    }
+
+    async fn droits_demande_brut(
         &self,
         etab: Uuid,
         acteur: Uuid,
@@ -2653,6 +2886,18 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
     /// porte le palier, et le journal garde la trace de l'envoi.
     pub async fn droits_alerter_echeances(&self, etab: Uuid) -> Result<usize, EntDbError> {
         let jour = self.aujourdhui_etablissement(etab).await?;
+        self.droits_alerter_echeances_a(etab, jour, Utc::now())
+            .await
+    }
+
+    /// Variante à horloge injectée (Pf8) : `jour` est le jour de l'établissement, `maintenant` l'instant
+    /// d'émission des avis. Les tests ne dépendent ainsi jamais de l'heure réelle.
+    pub async fn droits_alerter_echeances_a(
+        &self,
+        etab: Uuid,
+        jour: NaiveDate,
+        maintenant: DateTime<Utc>,
+    ) -> Result<usize, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let sql = format!(
             "SELECT {COLONNES} FROM rgp_demande
@@ -2713,7 +2958,7 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
                         canaux_voulus: &["email", "push"],
                     },
                     b.id,
-                    Utc::now(),
+                    maintenant,
                 )
                 .await?;
             }
@@ -2735,6 +2980,53 @@ parviendra au plus tard le {}. Le motif de cette prolongation vous est donné da
         }
         tx.commit().await?;
         Ok(envoyes)
+    }
+}
+
+/// Pf4 / R-RG46 : un porteur de `droits.traiter` **sans** `droits.arbitrer` ne voit jamais le code d'une
+/// qualité restreinte ou sans autorité : seulement « à arbitrer par la direction ». Le code d'une protection
+/// ne sort pas du périmètre de l'arbitrage.
+pub(crate) fn epurer_pour_traiteur(mut v: DemandeVue) -> DemandeVue {
+    const OPAQUE: &str = "a_arbitrer";
+    let sensible = |c: &str| matches!(c, "restreinte" | "confirmee_sans_autorite");
+    for i in &mut v.identites {
+        if i.qualite_constatee.as_deref().is_some_and(sensible) {
+            i.qualite_constatee = Some(OPAQUE.to_string());
+            i.qualite_note = None;
+        }
+    }
+    if v.identite_arbitrage_code.is_some() {
+        v.identite_arbitrage_code = Some(OPAQUE.to_string());
+    }
+    for j in &mut v.journal {
+        if let Some(d) = j.detail.as_mut() {
+            if d.contains("restreinte") || d.contains("confirmee_sans_autorite") || d.contains("sans_autorite") {
+                *d = d
+                    .replace("restreinte", OPAQUE)
+                    .replace("confirmee_sans_autorite", OPAQUE)
+                    .replace("sans_autorite", OPAQUE);
+            }
+        }
+    }
+    v
+}
+
+impl PgEnt {
+    async fn epurer_vue(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        v: DemandeVue,
+    ) -> Result<DemandeVue, EntDbError> {
+        if self
+            .a_action_etablissement(etab, acteur, role, Action::DroitsArbitrer)
+            .await?
+        {
+            Ok(v)
+        } else {
+            Ok(epurer_pour_traiteur(v))
+        }
     }
 }
 
@@ -2760,7 +3052,7 @@ fn valider_droits(droits: &[&str]) -> Result<(), EntDbError> {
     Ok(())
 }
 
-fn exiger_ouverte(etat: &str) -> Result<(), EntDbError> {
+pub(crate) fn exiger_ouverte(etat: &str) -> Result<(), EntDbError> {
     if ouverte(etat) {
         Ok(())
     } else {
@@ -2770,7 +3062,7 @@ fn exiger_ouverte(etat: &str) -> Result<(), EntDbError> {
     }
 }
 
-async fn etat_courant(
+pub(crate) async fn etat_courant(
     conn: &mut PgConnection,
     etab: Uuid,
     demande: Uuid,
@@ -2788,7 +3080,7 @@ async fn etat_courant(
 
 /// Le sujet existe-t-il dans **cet** établissement ? Un identifiant d'un autre établissement est
 /// introuvable (404 neutre), jamais « refusé » : rien ne dit qu'il existe ailleurs.
-async fn verifier_sujet(
+pub(crate) async fn verifier_sujet(
     conn: &mut PgConnection,
     etab: Uuid,
     sujet_type: &str,
@@ -2843,7 +3135,7 @@ fn neutre(e: EntDbError) -> EntDbError {
 }
 
 /// Les qualités qui ne valent que **sur soi** (§9.3 : « pour elle-même »).
-fn qualite_de_soi(q: &str) -> bool {
+pub(crate) fn qualite_de_soi(q: &str) -> bool {
     matches!(
         q,
         "soi_meme" | "eleve_mineur" | "personnel" | "ancien_eleve"
@@ -3123,6 +3415,23 @@ impl PgEnt {
                 }
             }
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            // Pf6 : deux passes simultanées ne détruisent pas deux fois. La ligne est reprise sous verrou ;
+            // si une autre passe la tient ou l'a déjà traitée (référence effacée), on passe son tour : un
+            // seul `piece_detruite` est écrit.
+            let reprise: Option<(Uuid,)> = sqlx::query_as(
+                "SELECT id FROM rgp_demande_identite
+                  WHERE etablissement_id = $1 AND id = $2 AND piece_document_id IS NOT NULL
+                  FOR UPDATE SKIP LOCKED",
+            )
+            .bind(etab)
+            .bind(ligne)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if reprise.is_none() {
+                tx.commit().await?;
+                continue;
+            }
             if ok {
                 for cle in &cles {
                     sqlx::query(
@@ -3180,6 +3489,36 @@ impl PgEnt {
                         None,
                     )
                     .await?;
+                    // Pf6 : un fichier partagé ne se détruit jamais seul — la direction en est avertie une
+                    // fois, pour trancher (aucune donnée personnelle dans l'avis).
+                    if partage {
+                        let jour = self.aujourdhui_etablissement_conn(&mut tx, etab).await?;
+                        let habilites = comptes_habilites(self, &mut tx, etab, jour).await?;
+                        for u in habilites {
+                            notifier_personne(
+                                &mut tx,
+                                EnvoiAPlanifier {
+                                    etablissement_id: etab,
+                                    user_id: u,
+                                    kind: KIND_ECHEANCE_PROCHE,
+                                    titre: "Pièce d'identité à détruire manuellement",
+                                    corps: "Le fichier d'une pièce d'identité sert aussi à un autre dossier : \
+                                            sa destruction attend une décision de la direction.",
+                                    eleve_id: None,
+                                    notification_id: None,
+                                    source_type: "systeme",
+                                    source_id: dem,
+                                    cle_dedup: format!("rgpd:demande:{dem}:piece_partagee"),
+                                    droit_requis: None,
+                                    regroupable: false,
+                                    canaux_voulus: &["email", "push"],
+                                },
+                                dem,
+                                Utc::now(),
+                            )
+                            .await?;
+                        }
+                    }
                 }
             }
             tx.commit().await?;
@@ -3255,7 +3594,12 @@ async fn attribuer_numero(
 /// F8 — la pièce d'identité référencée est un `ent_doc_piece` **de cet établissement** (404 neutre sinon),
 /// de type « pièce d'identité », encore détenu, jamais déjà référencé par une demande, et dont aucun objet
 /// n'est partagé avec une autre pièce (sa destruction ne doit priver aucun dossier de son fichier).
-async fn valider_piece(conn: &mut PgConnection, etab: Uuid, piece: Uuid) -> Result<(), EntDbError> {
+async fn valider_piece(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    piece: Uuid,
+    demande: Uuid,
+) -> Result<(), EntDbError> {
     let r: Option<(String, String, String, Option<String>)> = sqlx::query_as(
         "SELECT type_code, etat, cle_objet_original, cle_objet_servi FROM ent_doc_piece
           WHERE etablissement_id = $1 AND id = $2",
@@ -3276,11 +3620,24 @@ async fn valider_piece(conn: &mut PgConnection, etab: Uuid, piece: Uuid) -> Resu
     }
     let deja: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM rgp_demande_identite
-                         WHERE etablissement_id = $1 AND piece_document_id = $2)",
+                         WHERE etablissement_id = $1 AND piece_document_id = $2 AND demande_id <> $3)",
     )
     .bind(etab)
     .bind(piece)
+    .bind(demande)
     .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    // Une pièce déjà rattachée à la **même** demande (nouvelle tentative de vérification) est déplacée
+    // vers la nouvelle ligne : la référence précédente est libérée, sinon l'index d'unicité refuserait.
+    sqlx::query(
+        "UPDATE rgp_demande_identite SET piece_document_id = NULL
+          WHERE etablissement_id = $1 AND piece_document_id = $2 AND demande_id = $3",
+    )
+    .bind(etab)
+    .bind(piece)
+    .bind(demande)
+    .execute(&mut *conn)
     .await
     .map_err(db)?;
     if deja {
@@ -3319,7 +3676,7 @@ async fn objet_partage(
 }
 
 /// Une vérification d'identité **et** de qualité compatible est-elle au dossier ? (M1)
-async fn identite_etablie(
+pub(crate) async fn identite_etablie(
     conn: &mut PgConnection,
     etab: Uuid,
     demande: Uuid,
@@ -3375,9 +3732,6 @@ async fn numero_suivant(
         .map_err(db)
 }
 
-/// Insère la demande, son numéro (compteur de l'année de **réception**, pour que la référence suive l'année
-/// du courrier) et ses droits. Tout vit dans la transaction de l'appelant : une annulation ne consomme pas
-/// de numéro (« sans trou visible »).
 /// M-c (CL27-04) — la qualité **retenue** : un élève **mineur** qui demande pour lui-même (`soi_meme`,
 /// `ancien_eleve`) est traité comme `eleve_mineur`, donc soumis à la décision d'informer les titulaires.
 /// Date de naissance inconnue : prudence, mineur (comme `exiger_coherence_qualite`).
@@ -3399,6 +3753,9 @@ async fn qualite_effective(
     Ok(qualite.to_string())
 }
 
+/// Insère la demande, son numéro (compteur de l'année de **réception**, pour que la référence suive l'année
+/// du courrier) et ses droits. Tout vit dans la transaction de l'appelant : une annulation ne consomme pas
+/// de numéro (« sans trou visible »).
 async fn inserer(
     conn: &mut PgConnection,
     etab: Uuid,

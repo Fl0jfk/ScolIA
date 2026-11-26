@@ -608,6 +608,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // tableau ; chacune de ses fonctions porte `SET search_path = pg_catalog, public, pg_temp` et qualifie
     // ses relations `public.`. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2544_rgpd_g3_demandes"),
+    // Socle 27, palier G3b + G4, lot 1 (2545) : extrait assemblé (sections, empreintes, relecture du DPO), sujets d'une
+    // demande (fratrie, RGP-302) et réglages RGPD de l'établissement. **Après** 2544, en fin de tableau (règle 38) ;
+    // fonctions avec `search_path` et relations qualifiées. `MIGRATION_TAG` inchangé (sous 3808).
+    m!("2545_rgpd_g3b_extrait"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

@@ -1374,11 +1374,20 @@ pub const REGISTRE: &[ClasseTable] = &[
         .perso()
         .fichiers(Fichiers::Reference),
     t("rgp_demande_journal", "conformite", Portee::Etablissement).perso(),
+    // Palier G3b + G4, lot 1 (migration 2545). Le contenu d'un extrait n'est JAMAIS en base : `rgp_extrait*` ne garde
+    // que la structure, les empreintes et les décisions humaines. Neutralisation : aucune (rien à ré-émettre ; une
+    // demande restaurée est vraie, un extrait reste reconstruit à la demande).
+    t("rgp_demande_sujet", "conformite", Portee::Etablissement).perso(),
     t("rgp_destinataire_externe", "conformite", Portee::Etablissement),
     t("rgp_document", "conformite", Portee::Etablissement),
     t("rgp_ecart", "conformite", Portee::Etablissement),
+    t("rgp_extrait", "conformite", Portee::Etablissement).perso(),
+    t("rgp_extrait_section", "conformite", Portee::Etablissement).perso(),
     t("rgp_gouvernance", "conformite", Portee::Etablissement).perso(),
     t("rgp_mention", "conformite", Portee::Etablissement),
+    // Réglages RGPD de l'établissement : valeurs numériques, aucune donnée personnelle ; leur journal garde seulement qui a changé quoi.
+    t("rgp_reglage", "conformite", Portee::Etablissement),
+    t("rgp_reglage_journal", "conformite", Portee::Etablissement).perso(),
     t("rgp_soustraitant", "conformite", Portee::Technique),
     t("rgp_soustraitant_annonce", "conformite", Portee::Technique),
     t("rgp_soustraitant_donnee", "conformite", Portee::Technique).exc(Exception::SansHorodatage, "table de liaison de plateforme (clé composite) : l'horodatage est porté par `rgp_soustraitant`"),
