@@ -6,10 +6,13 @@ import {
   activateParentBlog,
   assertParentBlogEditAccess,
   getParentBlogForTrip,
+  isParentBlogDelegate,
   isParentBlogPublicExpired,
   listParentBlogPosts,
   metaFromBlogRow,
 } from "@/app/lib/travels-parent-blog";
+import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
+import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
 import type { TravelsParentCalendar, TravelsTrip } from "@/app/lib/travels-types";
 
 /** GET ?tripId= — état blog + posts (auth). */
@@ -76,6 +79,18 @@ export async function POST(req: Request) {
 
     const access = await assertParentBlogEditAccess(trip);
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    // Activer la page envoie un e-mail à toutes les familles : réservé à l'organisateur, la direction et aux
+    // délégués historiques. Les accompagnateurs publient seulement.
+    const canActivate =
+      isTripOwnerOrCreator(trip, access.user) ||
+      isParentBlogDelegate(trip, access.user.id) ||
+      (await canSignTravelsDirectionForEtab(access.user, trip.data?.etablissement));
+    if (!canActivate) {
+      return NextResponse.json(
+        { error: "L'activation de la page est réservée à l'organisateur et à la direction." },
+        { status: 403 },
+      );
+    }
 
     const participants = trip.data.participantEleves || [];
     if (participants.length === 0) {

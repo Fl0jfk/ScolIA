@@ -7,6 +7,7 @@ import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { canSignForEstablishmentLabel } from "@/app/lib/establishment-sign-permissions";
 import { userIsAnyDirection } from "@/app/lib/establishment-catalog";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
+import { isTripAccompagnateur } from "@/app/lib/travels-parent-contacts";
 import {
   canEditTravelsDates,
   canEditTravelsEffectif,
@@ -67,7 +68,8 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
     };
     const canEditEffectif = canEditTravelsEffectif({ ...roleFlags, isCompta });
     const canEditDates = canEditTravelsDates(roleFlags);
-    const canEditParentCom = canEditDates;
+    // Page de suivi : les accompagnateurs inscrits sur CE voyage (compte ou e-mail) publient aussi.
+    const canEditParentCom = canEditDates || (trip ? isTripAccompagnateur(trip, user ?? null) : false);
     const canAccessComptaTab = isCompta || isAdministratif || isDirection;
     return {
       user,

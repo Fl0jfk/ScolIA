@@ -21,6 +21,7 @@ import {
   defaultParentCalendarFromTrip,
 } from "@/app/lib/travels-parent-calendar";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
+import { isTripAccompagnateur } from "@/app/lib/travels-parent-contacts";
 import type {
   TravelsParentBlogDelegate,
   TravelsParentBlogMeta,
@@ -146,12 +147,14 @@ export async function assertParentBlogEditAccess(
   const isOwner = isTripOwnerOrCreator(trip, user);
   const canSign = await canSignTravelsDirectionForEtab(user, trip.data?.etablissement);
   const isDelegate = isParentBlogDelegate(trip, user.id);
+  // Accompagnateurs inscrits sur CE voyage (id ou e-mail de compte, jamais le nom).
+  const isEscort = isTripAccompagnateur(trip, user);
 
-  if (!isOwner && !canSign && !isDelegate) {
+  if (!isOwner && !canSign && !isDelegate && !isEscort) {
     return {
       ok: false,
       status: 403,
-      error: "Réservé à l'organisateur, la direction ou un délégué du blog.",
+      error: "Réservé à l'organisateur, aux accompagnateurs du voyage ou à la direction.",
     };
   }
   return { ok: true, user };
