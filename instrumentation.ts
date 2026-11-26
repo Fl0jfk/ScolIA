@@ -23,4 +23,11 @@ export async function register() {
   } catch (err) {
     console.error("[instrumentation] job cycle voyages non démarré", err instanceof Error ? err.name : "error");
   }
+  // Autorisations de sortie des internes : relances parents (J-2) et point final de la veille.
+  try {
+    const { startSortiesClasseJob } = await import("./app/lib/sorties-classe-job");
+    startSortiesClasseJob();
+  } catch (err) {
+    console.error("[instrumentation] job sorties de classe non démarré", err instanceof Error ? err.name : "error");
+  }
 }

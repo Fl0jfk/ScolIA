@@ -42,6 +42,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "requests-staff": "/requests",
   "prof-room": "/prof-room",
   "photocopies-couleur": "/photocopies",
+  "sorties-classe": "/autorisations-sortie",
   qrcreator: "/qrcreator",
   documents: "/documents",
   office: "/documents/office",
@@ -214,6 +215,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   "demandes-hse": "⏱️",
   /** Impression couleur — distinct de ☁️ documents / 📄 bulletins. */
   "photocopies-couleur": "🖨️",
+  "sorties-classe": "🚶",
   /** Réservation de salles — portes physiques. Portes ouvertes = 🏡 (accueil familles). */
   "prof-room": "🚪",
   documents: "☁️",

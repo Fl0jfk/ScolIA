@@ -495,6 +495,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "sorties-classe",
+    pathPrefixes: ["/autorisations-sortie", "/api/sorties-classe"],
+    allowedRoles: [...DIRECTIONS, "professeur"],
+    dashboard: {
+      id: 503,
+      name: "Autorisations de sortie",
+      img: "",
+      link: "/autorisations-sortie",
+      external: false,
+      description: "Sorties de classe avec des internes : accord des parents et de la direction.",
+    },
+  },
+  {
     id: "demandes-hse",
     pathPrefixes: ["/demandes-hse", "/api/demandes-hse"],
     allowedRoles: [...DIRECTIONS, "professeur"],
@@ -1139,6 +1152,8 @@ function findMatchingModules(pathname: string): IntranetModule[] {
  * (sinon météo / hubs legacy passent en 403 dès qu’on personnalise les cases).
  */
 const MODULES_IGNORE_ACCESS_OVERRIDES = new Set([
+  // Nouveau module absent des matrices déjà enregistrées : le rôle métier (prof, direction) fait foi.
+  "sorties-classe",
   "dashboard-week-sheet",
   "legacy-hub-redirects",
   "scolia-ai",
@@ -1298,6 +1313,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   ],
   "pillar-services": [
     "travels",
+    "sorties-classe",
     "prof-room",
     "requests-staff",
     "domain-planning",

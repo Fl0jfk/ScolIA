@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { OUTING_STATUS_LABELS } from "@/app/lib/internat-outing";
-import type { InternatOuting, InternatStudent } from "@/app/lib/internat-types";
-import { studentDisplayName } from "@/app/lib/internat-types";
+import type { InternatOuting } from "@/app/lib/internat-types";
 
 const STATUS_TONE: Record<string, string> = {
   pending_direction: "bg-amber-100 text-amber-900",
@@ -13,13 +12,8 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: "bg-slate-100 text-slate-600",
 };
 
-export default function InternatOutingsPanel({
-  students,
-  canManage,
-}: {
-  students: InternatStudent[];
-  canManage: boolean;
-}) {
+/** Anciennes sorties (circuit remplacé par « Autorisations de sortie ») : suivi seulement. */
+export default function InternatOutingsPanel({ canManage }: { canManage: boolean }) {
   const [outings, setOutings] = useState<InternatOuting[]>([]);
   const [authorizedToday, setAuthorizedToday] = useState<
     Array<{
@@ -32,20 +26,6 @@ export default function InternatOutingsPanel({
   >([]);
   const [authorizedWeek, setAuthorizedWeek] = useState<typeof authorizedToday>([]);
   const [busy, setBusy] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [form, setForm] = useState({
-    title: "",
-    activity: "",
-    destination: "",
-    accompanists: "",
-    outingDate: "",
-    departureTime: "",
-    returnTime: "",
-  });
-
-  const activeStudents = students.filter((s) => s.actif);
-
   const load = useCallback(async () => {
     const [outingsRes, todayRes, weekRes] = await Promise.all([
       fetch("/api/internat/outings", { cache: "no-store" }),
@@ -63,42 +43,6 @@ export default function InternatOutingsPanel({
   useEffect(() => {
     void load();
   }, [load]);
-
-  const createOuting = async () => {
-    const studentIds = activeStudents.filter((s) => selected[s.id]).map((s) => s.id);
-    if (!studentIds.length) return alert("Sélectionnez au moins un interne.");
-    setBusy(true);
-    try {
-      const res = await fetch("/api/internat/outings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, studentIds }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Création impossible");
-      if (data.emailWarnings?.length) {
-        alert(`Sortie créée avec avertissements :\n${data.emailWarnings.join("\n")}`);
-      } else {
-        alert("Sortie créée. Les e-mails de validation ont été envoyés à la direction.");
-      }
-      setShowForm(false);
-      setSelected({});
-      setForm({
-        title: "",
-        activity: "",
-        destination: "",
-        accompanists: "",
-        outingDate: "",
-        departureTime: "",
-        returnTime: "",
-      });
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const directionDecision = async (
     outingId: string,
@@ -161,8 +105,14 @@ export default function InternatOutingsPanel({
     }
   };
 
+  if (!outings.length) return null;
+
   return (
-    <div className="space-y-6">
+    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <summary className="cursor-pointer text-sm font-bold text-slate-700">
+        Anciennes sorties (ancien circuit)
+      </summary>
+    <div className="mt-4 space-y-6">
       <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 text-sm text-indigo-950 space-y-3">
         <div>
           <p className="font-bold mb-1">Autorisations de sortie</p>
@@ -242,101 +192,6 @@ export default function InternatOutingsPanel({
           )}
         </section>
       </div>
-
-      {canManage && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => setShowForm((v) => !v)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
-        >
-          {showForm ? "Fermer le formulaire" : "Nouvelle sortie"}
-        </button>
-      )}
-
-      {showForm && canManage && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-          <h3 className="font-black text-slate-900">Créer une sortie</h3>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <input
-              className="border rounded-xl px-3 py-2 text-sm sm:col-span-2"
-              placeholder="Titre (ex. Sortie cinéma mercredi)"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-            <input
-              className="border rounded-xl px-3 py-2 text-sm sm:col-span-2"
-              placeholder="Activité *"
-              value={form.activity}
-              onChange={(e) => setForm({ ...form, activity: e.target.value })}
-            />
-            <input
-              className="border rounded-xl px-3 py-2 text-sm"
-              placeholder="Lieu / destination"
-              value={form.destination}
-              onChange={(e) => setForm({ ...form, destination: e.target.value })}
-            />
-            <input
-              className="border rounded-xl px-3 py-2 text-sm"
-              placeholder="Accompagnateur(s) *"
-              value={form.accompanists}
-              onChange={(e) => setForm({ ...form, accompanists: e.target.value })}
-            />
-            <input
-              type="date"
-              className="border rounded-xl px-3 py-2 text-sm"
-              value={form.outingDate}
-              onChange={(e) => setForm({ ...form, outingDate: e.target.value })}
-            />
-            <div className="flex gap-2">
-              <input
-                type="time"
-                className="border rounded-xl px-3 py-2 text-sm flex-1"
-                value={form.departureTime}
-                onChange={(e) => setForm({ ...form, departureTime: e.target.value })}
-              />
-              <input
-                type="time"
-                className="border rounded-xl px-3 py-2 text-sm flex-1"
-                placeholder="Retour"
-                value={form.returnTime}
-                onChange={(e) => setForm({ ...form, returnTime: e.target.value })}
-              />
-            </div>
-          </div>
-
-          <div>
-            <p className="text-xs font-bold uppercase text-slate-500 mb-2">Internes concernés</p>
-            <div className="max-h-48 overflow-y-auto border border-slate-100 rounded-xl p-3 space-y-2 text-sm">
-              {activeStudents.map((s) => {
-                const hasEmail = Boolean(s.parent1?.email || s.parent2?.email);
-                return (
-                  <label key={s.id} className={`flex items-center gap-2 ${!hasEmail ? "text-amber-800" : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={!!selected[s.id]}
-                      onChange={(e) => setSelected((prev) => ({ ...prev, [s.id]: e.target.checked }))}
-                    />
-                    <span>
-                      {studentDisplayName(s)} — {s.classe}
-                      {!hasEmail && " (e-mail parent manquant)"}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={createOuting}
-            className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
-          >
-            Envoyer à la direction
-          </button>
-        </div>
-      )}
 
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
@@ -448,5 +303,6 @@ export default function InternatOutingsPanel({
         </table>
       </div>
     </div>
+    </details>
   );
 }

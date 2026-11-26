@@ -30,6 +30,10 @@ const InternatOutingsPanel = dynamic(() => import("@/app/components/internat/Int
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
+const InternatSortiesClassePanel = dynamic(
+  () => import("@/app/components/internat/InternatSortiesClassePanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 const InternatRollCallPanel = dynamic(() => import("@/app/components/internat/InternatRollCallPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
@@ -196,8 +200,9 @@ export default function GestionInternatClient() {
             </div>
           )}
           {activeTab === "sorties" && (
-            <div data-tour="internat-outings">
-              <InternatOutingsPanel students={students} canManage={canManage} />
+            <div data-tour="internat-outings" className="space-y-6">
+              <InternatSortiesClassePanel />
+              <InternatOutingsPanel canManage={canManage} />
             </div>
           )}
           {activeTab === "appel" && <InternatRollCallPanel onRefresh={refresh} />}
