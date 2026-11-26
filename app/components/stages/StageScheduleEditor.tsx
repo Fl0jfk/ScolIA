@@ -119,7 +119,7 @@ function DayHoursEditor({
                 type="checkbox"
                 className="accent-[#2F6B4A]"
                 checked={!worksMorning}
-                disabled={onlyAfternoon}
+                disabled={onlyMorning}
                 onChange={(e) => {
                   if (e.target.checked) {
                     if (!worksAfternoon) return;
@@ -142,7 +142,7 @@ function DayHoursEditor({
                 type="checkbox"
                 className="accent-[#2F6B4A]"
                 checked={!worksAfternoon}
-                disabled={onlyMorning}
+                disabled={onlyAfternoon}
                 onChange={(e) => {
                   if (e.target.checked) {
                     if (!worksMorning) return;
