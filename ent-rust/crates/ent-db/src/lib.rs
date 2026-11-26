@@ -212,6 +212,8 @@ mod tests_rgpd_g2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rgpd_g3a;
 #[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g3a_correctifs;
+#[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_formulaires_fo0;

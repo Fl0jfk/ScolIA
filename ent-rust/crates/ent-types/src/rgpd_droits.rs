@@ -114,6 +114,27 @@ pub struct PrecisionIdentiteBody {
     pub demande: String,
 }
 
+/// E2 : la direction tranche une identité dont la qualité n'est pas compatible (`droits.arbitrer`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArbitrageIdentiteBody {
+    /// La qualité invoquée est-elle reconnue ?
+    pub accepte: bool,
+    /// Motif écrit, obligatoire.
+    pub motif: String,
+}
+
+/// M2 : rapproche une demande d'un dossier (sujet d'un dépôt sans compte, fiche du demandeur).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RapprochementBody {
+    /// `eleve`, `personne` ou `agent`, avec `sujet_id`.
+    #[serde(default)]
+    pub sujet_type: Option<String>,
+    #[serde(default)]
+    pub sujet_id: Option<Uuid>,
+    #[serde(default)]
+    pub demandeur_personne_id: Option<Uuid>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AffectationBody {
     /// `None` retire l'affectation.
@@ -181,6 +202,9 @@ pub struct IdentiteDto {
     pub qualite_note: Option<String>,
     pub verifie_le: Option<DateTime<Utc>>,
     pub piece_detenue: bool,
+    /// E1 : destruction demandée à la clôture, pas encore confirmée par le magasin.
+    #[serde(default)]
+    pub destruction_en_attente: bool,
     pub piece_detruite_le: Option<DateTime<Utc>>,
 }
 
@@ -235,6 +259,15 @@ pub struct DemandeDto {
     pub identites: Vec<IdentiteDto>,
     pub journal: Vec<JournalDto>,
     pub piece_a_detruire: bool,
+    /// E1 : une destruction demandée n'est pas confirmée (reprise automatique).
+    #[serde(default)]
+    pub destruction_en_attente: bool,
+    /// E2 : la qualité du demandeur attend l'arbitrage de la direction (code neutre).
+    #[serde(default)]
+    pub identite_arbitrage_code: Option<String>,
+    /// CL27-04 : la décision d'informer ou non les titulaires reste à prendre (clôture bloquée).
+    #[serde(default)]
+    pub titulaires_a_decider: bool,
 }
 
 /// Ligne de la file. **Métadonnées seulement** : aucun nom, aucun texte de périmètre (R-RG32).
@@ -265,7 +298,13 @@ pub struct TableauDemandesDto {
     pub en_retard: usize,
     pub echeance_proche: usize,
     pub identite_a_verifier: usize,
+    /// Identités à arbitrer par la direction (E2).
+    #[serde(default)]
+    pub identite_a_arbitrer: usize,
     pub a_qualifier: usize,
+    /// CL27-04 : décisions d'information des titulaires à prendre.
+    #[serde(default)]
+    pub titulaires_a_decider: usize,
     pub closes: usize,
 }
 

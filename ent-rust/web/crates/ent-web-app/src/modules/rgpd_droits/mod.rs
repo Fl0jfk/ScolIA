@@ -9,6 +9,7 @@
 //! | Fiche d'une demande (horloge, identité, droits, journal) | `/web/rgpd/demandes/:id` | `droits.traiter` |
 //! | Mes données : suivi de mes demandes | `/web/mes-donnees` | toute personne connectée |
 //! | Déposer une demande | `/web/mes-donnees/demande` | toute personne connectée |
+//! | Demande sans compte (ancien élève, parent sans compte) | `/web/demande-droits` | **public**, hors coquille |
 //!
 //! Règles d'écran appliquées : la file ne porte **que des métadonnées** (R-RG32 : aucun nom, aucun texte de
 //! périmètre) ; aucune page n'est bloquée sur l'absence d'un droit côté client (le serveur répond 403 et
@@ -19,7 +20,8 @@
 pub mod modele;
 
 use ent_web_api::rgpd_droits_types::{
-    AffectationBody, ClotureBody, DecisionBody, DemandeDto, DepotBody, DroitBody, IdentiteBody,
+    AffectationBody, ArbitrageIdentiteBody, ClotureBody, DecisionBody, DemandeDto, DepotBody,
+    DepotPublicBody, DroitBody, IdentiteBody,
     MotifBody, PrecisionIdentiteBody, ProlongationBody, QualificationBody, ReferentielGuichetDto,
     SaisieBody, SuiviDemandeDto, TableauDemandesDto, TitulairesBody,
 };
@@ -39,10 +41,10 @@ use crate::noyau::ecriture::{Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use modele::{
-    decision_complete, depot_complet, filtrer, journal_recent_d_abord, libelle_canal,
+    decision_complete, depot_complet, depot_public_complet, filtrer, journal_recent_d_abord, libelle_canal,
     libelle_decision, libelle_droit, libelle_etat, libelle_evenement, libelle_mode_identite,
     libelle_qualification, libelle_qualite, libelle_qualite_constatee, motif_recevable,
-    obstacle_cloture, phrase_echeance, teinte_echeance, trier_suivi, Filtre,
+    obstacle_cloture, phrase_echeance, piece_depuis_texte, teinte_echeance, trier_suivi, Filtre,
 };
 
 /// Seuil de repli quand le référentiel du guichet n'a pas (encore) répondu : la coloration « échéance
@@ -140,6 +142,8 @@ fn File(tableau: TableauDemandesDto, seuil: i64, closes: RwSignal<bool>) -> impl
         tableau.identite_a_verifier,
         tableau.a_qualifier,
         tableau.closes,
+        tableau.identite_a_arbitrer,
+        tableau.titulaires_a_decider,
     );
     let jour = tableau.jour;
     let ton_retard = if compteurs.1 > 0 {
@@ -176,6 +180,12 @@ fn File(tableau: TableauDemandesDto, seuil: i64, closes: RwSignal<bool>) -> impl
                         valeur=Signal::derive(move || compteurs.3.to_string())/>
                     <Statistique libelle="À qualifier".to_string()
                         valeur=Signal::derive(move || compteurs.4.to_string())/>
+                    <Statistique libelle="Qualité à arbitrer".to_string()
+                        valeur=Signal::derive(move || compteurs.6.to_string())
+                        ton=if compteurs.6 > 0 { TonEtat::Avertissement } else { TonEtat::Neutre }/>
+                    <Statistique libelle="Titulaires à décider".to_string()
+                        valeur=Signal::derive(move || compteurs.7.to_string())
+                        ton=if compteurs.7 > 0 { TonEtat::Avertissement } else { TonEtat::Neutre }/>
                 </div>
                 <p class="texte-attenue">
                     {format!("Échéances calculées au {} (jour de l'établissement).", jour.format("%d/%m/%Y"))}
@@ -559,6 +569,11 @@ fn Fiche(
     let (attente_jours, reouvertures) = (d.identite_attente_jours, d.reouvertures);
     let (saisie_tardive, en_retard, piece_a_detruire) =
         (d.saisie_tardive, d.en_retard, d.piece_a_detruire);
+    let (destruction_en_attente, arbitrage_identite, titulaires_a_decider) = (
+        d.destruction_en_attente,
+        d.identite_arbitrage_code.is_some(),
+        d.titulaires_a_decider,
+    );
     let obstacle_vue = obstacle.clone();
     let obstacle_gestes = obstacle.clone();
     let referentiel_gestes = referentiel.clone();
@@ -594,9 +609,26 @@ fn Fiche(
                 <p>"Reprenez contact par un moyen déjà connu du dossier, jamais par celui que la demande indique."</p>
             </Alerte>
         })}
-        {piece_a_detruire.then(|| view! {
+        {(piece_a_detruire && !destruction_en_attente).then(|| view! {
             <Alerte niveau=Niveau::Avertissement titre="Une pièce d'identité est détenue".to_string()>
-                <p>"Elle sera détruite automatiquement à la clôture ; seule la mention « vérifiée le, par » restera."</p>
+                <p>"Sa destruction sera demandée à la clôture ; seule la mention « vérifiée le, par » restera."</p>
+            </Alerte>
+        })}
+        {destruction_en_attente.then(|| view! {
+            <Alerte niveau=Niveau::Avertissement titre="Destruction de la pièce en attente".to_string()>
+                <p>"La demande est close, mais la pièce d'identité n'est pas encore détruite. Elle est réessayée \
+                    automatiquement ; elle ne sera dite « détruite » qu'une fois confirmée."</p>
+            </Alerte>
+        })}
+        {arbitrage_identite.then(|| view! {
+            <Alerte niveau=Niveau::Avertissement titre="Qualité du demandeur à arbitrer".to_string()>
+                <p>"La personne est identifiée, mais sa qualité n'est pas compatible avec celle qu'elle invoque. \
+                    Rien ne peut lui être accordé avant l'arbitrage de la direction."</p>
+            </Alerte>
+        })}
+        {titulaires_a_decider.then(|| view! {
+            <Alerte niveau=Niveau::Info titre="Titulaires de l'autorité parentale : décision à prendre".to_string()>
+                <p>"L'élève a déposé pour lui-même : décidez d'informer — ou non — ses titulaires avant de clore."</p>
             </Alerte>
         })}
 
@@ -686,8 +718,14 @@ fn Fiche(
                                         <span class="ui-liste__titre">{libelle_mode_identite(&i.mode)}</span>
                                         <span class="ui-liste__detail">{format!("{quand} · {detail}")}</span>
                                     </div>
-                                    {i.piece_detenue.then(|| view! {
+                                    {(i.piece_detenue && !i.destruction_en_attente).then(|| view! {
                                         <Badge libelle="Pièce détenue".to_string() ton=TonEtat::Avertissement/>
+                                    })}
+                                    {i.destruction_en_attente.then(|| view! {
+                                        <Badge libelle="Destruction en attente".to_string() ton=TonEtat::Avertissement/>
+                                    })}
+                                    {(i.resultat == "a_arbitrer").then(|| view! {
+                                        <Badge libelle="À arbitrer".to_string() ton=TonEtat::Avertissement/>
                                     })}
                                     {i.piece_detruite_le.map(|_| view! {
                                         <Badge libelle="Pièce détruite".to_string() ton=TonEtat::Ok/>
@@ -748,6 +786,8 @@ fn Gestes(
     // Identité.
     let mode = RwSignal::new("code_courriel".to_string());
     let note_identite = RwSignal::new(String::new());
+    let piece_ref = RwSignal::new(String::new());
+    let motif_arbitrage = RwSignal::new(String::new());
     let precision = RwSignal::new(String::new());
     // Décision.
     let droit_decide = RwSignal::new(
@@ -824,17 +864,25 @@ fn Gestes(
                         ]/>
                     <ChampTexte id="rgpd-g-note".to_string() libelle="Note de vérification (facultative)".to_string()
                         valeur=note_identite/>
+                    <ChampTexte id="rgpd-g-piece".to_string()
+                        libelle="Référence de la pièce d'identité (mode « pièce »)".to_string()
+                        valeur=piece_ref
+                        aide="Identifiant de la pièce déposée au coffre de l'établissement (type « pièce d'identité »).".to_string()/>
                     <p class="texte-attenue">
                         "Une pièce enregistrée ici est détruite à la clôture ; seule la mention de la vérification reste."
                     </p>
                     <Bouton variante=Variante::Secondaire
                         desactive=Signal::derive(move || ecriture.en_cours.get())
                         on_click=Callback::new(move |_| {
+                            let Ok(piece) = piece_depuis_texte(&piece_ref.get()) else {
+                                ecriture.erreur.set(Some("La référence de la pièce n'est pas un identifiant valide.".into()));
+                                return;
+                            };
                             let b = IdentiteBody {
                                 mode: mode.get(),
                                 reussie: true,
                                 note: Some(note_identite.get()).filter(|n| n.trim().len() >= 3),
-                                piece_document_id: None,
+                                piece_document_id: piece.filter(|_| mode.get() == "piece"),
                             };
                             ecriture.lancer(async move {
                                 session::client().rgpd_verifier_identite(id, &b).await
@@ -873,6 +921,40 @@ fn Gestes(
                             });
                         })>
                         "Demander la précision"
+                    </Bouton>
+                </article>
+            })}
+
+            {(arbitrage_identite && moteur.get().peut_arbitrer_demandes_droits()).then(|| view! {
+                <article class="rgpd-carte">
+                    <h3>"Arbitrer la qualité du demandeur"</h3>
+                    <p>
+                        "Reconnaître la qualité invoquée suppose de l'avoir établie (jugement, mandat, pièce vue) ; \
+                         le motif est conservé. Le refuser laisse la demande bloquée : refusez-la ensuite avec son motif."
+                    </p>
+                    <ChampTexte id="rgpd-g-arbitrage".to_string() libelle="Motif de l'arbitrage".to_string()
+                        valeur=motif_arbitrage requis=true/>
+                    <Bouton variante=Variante::Secondaire
+                        desactive=Signal::derive(move || ecriture.en_cours.get() || !motif_recevable(&motif_arbitrage.get()))
+                        on_click=Callback::new(move |_| {
+                            let b = ArbitrageIdentiteBody { accepte: true, motif: motif_arbitrage.get() };
+                            ecriture.lancer(async move {
+                                session::client().rgpd_arbitrer_identite(id, &b).await
+                                    .map(|_| "Qualité reconnue.".to_string())
+                            });
+                        })>
+                        "Reconnaître la qualité"
+                    </Bouton>
+                    <Bouton variante=Variante::Secondaire
+                        desactive=Signal::derive(move || ecriture.en_cours.get() || !motif_recevable(&motif_arbitrage.get()))
+                        on_click=Callback::new(move |_| {
+                            let b = ArbitrageIdentiteBody { accepte: false, motif: motif_arbitrage.get() };
+                            ecriture.lancer(async move {
+                                session::client().rgpd_arbitrer_identite(id, &b).await
+                                    .map(|_| "Qualité non reconnue.".to_string())
+                            });
+                        })>
+                        "Ne pas la reconnaître"
                     </Bouton>
                 </article>
             })}
@@ -1074,7 +1156,11 @@ fn Gestes(
                         let b = ClotureBody { reponse_resume: resume.get() };
                         ecriture.lancer(async move {
                             session::client().rgpd_clore(id, &b).await
-                                .map(|_| "Demande close. Pièce d'identité détruite.".to_string())
+                                .map(|d| if d.destruction_en_attente {
+                                    "Demande close. La pièce d'identité sera détruite dès que le stockage répond (réessai automatique).".to_string()
+                                } else {
+                                    "Demande close.".to_string()
+                                })
                         });
                     })>
                     "Clôturer la demande"
@@ -1278,6 +1364,110 @@ pub fn PageDeposerDemandeDroit() -> impl IntoView {
                 desactive=Signal::derive(move || ecriture.en_cours.get() || droits.get().is_empty())
                 on_click=Callback::new(envoyer)>
                 "Déposer la demande"
+            </Bouton>
+        </section>
+    }
+}
+
+// ═══════════════════════════ Page publique : dépôt sans compte (F7) ═══════════════════════════
+
+/// Dépôt d'une demande **sans compte** (RGP-142) : ancien élève, parent sans compte. Page publique, hors
+/// coquille, sans session. L'établissement vient de l'adresse du site ; la réponse est **invariable** : elle
+/// ne dit jamais si l'établissement détient des données sur la personne (R-RG42, CL27-66).
+#[component]
+pub fn PageDemandeDroitsPublique() -> impl IntoView {
+    let nom = RwSignal::new(String::new());
+    let contact = RwSignal::new(String::new());
+    let qualite = RwSignal::new("ancien_eleve".to_string());
+    let personne = RwSignal::new(String::new());
+    let droits = RwSignal::new(vec!["acces".to_string()]);
+    let perimetre = RwSignal::new(String::new());
+    let reponse = RwSignal::new(None::<String>);
+    let ecriture = Ecriture::nouveau(Callback::new(move |_| {}));
+    let tous_les_droits = ["acces", "rectification", "effacement", "limitation", "opposition"];
+    let envoyer = move |_| {
+        if !depot_public_complet(&nom.get(), &contact.get(), &personne.get(), &droits.get()) {
+            ecriture.erreur.set(Some(
+                "Indiquez votre nom, un moyen de vous joindre, la personne concernée et au moins un droit."
+                    .into(),
+            ));
+            return;
+        }
+        let b = DepotPublicBody {
+            nom: nom.get(),
+            contact: contact.get(),
+            qualite: qualite.get(),
+            personne_concernee: personne.get(),
+            droits: droits.get(),
+            perimetre_texte: Some(perimetre.get()).filter(|p| !p.trim().is_empty()),
+        };
+        ecriture.lancer(async move {
+            session::client().rgpd_deposer_public(&b).await.map(|r| {
+                reponse.set(Some(r.message));
+                "Demande enregistrée.".to_string()
+            })
+        });
+    };
+    view! {
+        <Title text="Exercer mes droits sur mes données"/>
+        <EnTetePage
+            titre="Exercer mes droits sur mes données".to_string()
+            sous_titre="Pour les personnes qui n'ont pas de compte : ancien élève, parent sans compte.".to_string()
+        />
+        <RetourEcriture ecriture=ecriture/>
+        {move || reponse.get().map(|m| view! {
+            <Alerte niveau=Niveau::Succes titre="Demande enregistrée".to_string()>
+                <p>{m}</p>
+            </Alerte>
+        })}
+        <section class="classe-section" aria-labelledby="rgpd-public">
+            <h2 id="rgpd-public">"Votre demande"</h2>
+            <ChampTexte id="rgpd-p-nom".to_string() libelle="Votre nom".to_string() valeur=nom requis=true/>
+            <ChampTexte id="rgpd-p-contact".to_string() libelle="Un moyen de vous joindre".to_string()
+                valeur=contact requis=true
+                aide="Il aide l'établissement à retrouver votre dossier. La réponse part par un moyen déjà connu de son dossier, ou vous est remise au guichet.".to_string()/>
+            <Selection id="rgpd-p-qualite".to_string() libelle="À quel titre".to_string()
+                valeur=qualite
+                options=vec![
+                    ("ancien_eleve".to_string(), "Je suis un ancien élève".to_string()),
+                    ("soi_meme".to_string(), "Pour moi-même".to_string()),
+                    ("titulaire_autorite".to_string(), "Pour mon enfant (titulaire de l'autorité parentale)".to_string()),
+                ]/>
+            <ChampTexte id="rgpd-p-personne".to_string() libelle="Nom de la personne concernée".to_string()
+                valeur=personne requis=true/>
+            <fieldset class="rgpd-choix">
+                <legend>"Ce que vous demandez"</legend>
+                {tous_les_droits.into_iter().map(|code| {
+                    let id = format!("rgpd-p-droit-{code}");
+                    let pour_label = id.clone();
+                    let coche = Signal::derive(move || droits.get().iter().any(|x| x == code));
+                    view! {
+                        <label class="ui-case" for=pour_label>
+                            <input id=id type="checkbox"
+                                prop:checked=move || coche.get()
+                                on:change=move |_| droits.update(|v| {
+                                    if let Some(i) = v.iter().position(|x| x == code) {
+                                        v.remove(i);
+                                    } else {
+                                        v.push(code.to_string());
+                                    }
+                                })/>
+                            <span>{libelle_droit(code)}</span>
+                        </label>
+                    }
+                }).collect_view()}
+            </fieldset>
+            <ZoneTexte id="rgpd-p-perimetre".to_string()
+                libelle="Précisez votre demande (période, domaine)".to_string()
+                valeur=perimetre/>
+            <p class="texte-attenue">
+                "Une pièce d'identité vous sera demandée avant toute remise ; elle est consultée puis détruite. \
+                 L'établissement répond dans un délai d'un mois à compter de la réception."
+            </p>
+            <Bouton variante=Variante::Primaire
+                desactive=Signal::derive(move || ecriture.en_cours.get() || droits.get().is_empty())
+                on_click=Callback::new(envoyer)>
+                "Envoyer la demande"
             </Bouton>
         </section>
     }

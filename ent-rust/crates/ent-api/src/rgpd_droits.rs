@@ -50,6 +50,8 @@ pub fn routes() -> Router<AppState> {
             "/rgpd/demandes/{id}/identite/precision",
             post(demander_identite),
         )
+        .route("/rgpd/demandes/{id}/identite/arbitrage", post(arbitrer_identite))
+        .route("/rgpd/demandes/{id}/rapprochement", post(rapprocher))
         .route("/rgpd/demandes/{id}/affectation", post(affecter))
         .route("/rgpd/demandes/{id}/prolongation", post(prolonger))
         .route("/rgpd/demandes/{id}/droits", post(ajouter_droit))
@@ -126,6 +128,7 @@ fn vue(v: ent_db::droits_demandes::DemandeVue) -> DemandeDto {
                 qualite_note: i.qualite_note,
                 verifie_le: i.verifie_le,
                 piece_detenue: i.piece_detenue,
+                destruction_en_attente: i.destruction_en_attente,
                 piece_detruite_le: i.piece_detruite_le,
             })
             .collect(),
@@ -140,6 +143,9 @@ fn vue(v: ent_db::droits_demandes::DemandeVue) -> DemandeDto {
             })
             .collect(),
         piece_a_detruire: v.piece_a_detruire,
+        destruction_en_attente: v.destruction_en_attente,
+        identite_arbitrage_code: v.identite_arbitrage_code,
+        titulaires_a_decider: v.titulaires_a_decider,
     }
 }
 
@@ -327,7 +333,9 @@ async fn file(
         en_retard: t.en_retard,
         echeance_proche: t.echeance_proche,
         identite_a_verifier: t.identite_a_verifier,
+        identite_a_arbitrer: t.identite_a_arbitrer,
         a_qualifier: t.a_qualifier,
+        titulaires_a_decider: t.titulaires_a_decider,
         closes: t.closes,
     }))
 }
@@ -418,6 +426,60 @@ async fn verifier_identite(
             b.reussie,
             opt(&b.note),
             b.piece_document_id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(vue(v)))
+}
+
+/// E2 — la direction tranche une qualité non compatible (`droits.arbitrer`).
+async fn arbitrer_identite(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ArbitrageIdentiteBody>,
+) -> Res<Json<DemandeDto>> {
+    let v = s
+        .ent
+        .droits_arbitrer_identite(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            b.accepte,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(vue(v)))
+}
+
+/// M2 — rapprochement du sujet d'un dépôt sans compte et de la fiche du demandeur.
+async fn rapprocher(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RapprochementBody>,
+) -> Res<Json<DemandeDto>> {
+    let sujet = match (opt(&b.sujet_type), b.sujet_id) {
+        (Some(t), Some(i)) => Some((t, i)),
+        (None, None) => None,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "type et identifiant du sujet vont ensemble".to_string(),
+            ))
+        }
+    };
+    let v = s
+        .ent
+        .droits_rapprocher(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            sujet,
+            b.demandeur_personne_id,
         )
         .await
         .map_err(map_db)?;

@@ -25,6 +25,7 @@
 //! Cloisonnement : tout passe par [`TenantTx`] (RLS posée) et par `exiger_action_etab` ; aucune fonction ne
 //! reçoit d'établissement venant de la requête HTTP (il vient de la session).
 
+use crate::acces::EtatAcces;
 use crate::notifications::{notifier_personne, EnvoiAPlanifier};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
@@ -57,6 +58,18 @@ pub const ECART_SAISIE_ALERTE_JOURS: i64 = 5;
 /// ([`DemandeVue::identite_attente_jours`]) pour qu'un DPO qui tranche l'inverse dispose du fait ; aucune
 /// échéance n'est repoussée tant que ce choix n'est pas validé (valeur par défaut prudente, D-069).
 pub const IDENTITE_SUSPEND_DELAI: bool = false;
+
+/// Plafond de dépôts publics sans compte **par établissement et par jour** (jour de l'établissement) : au-delà,
+/// le dépôt est refusé avec un message neutre et la personne est orientée vers le guichet. Valeur prudente
+/// notée (D-069) : un établissement reçoit au plus quelques demandes de droits par semaine, un afflux est un
+/// abus avant d'être un besoin ; le plafond protège la file, le compteur officiel et les délais.
+pub const PLAFOND_DEPOTS_SANS_COMPTE_JOUR: i64 = 30;
+
+/// Refus **unique** d'un dépôt en ligne que le service ne peut pas rattacher à la personne qui le fait :
+/// sujet introuvable, sujet qui n'est pas soi, lien absent, sans autorité parentale ou restreint. Un seul
+/// message pour tous ces cas : le déposant n'apprend ni qu'un dossier existe, ni qu'une protection existe
+/// (F1, R-RG42, R-RG46) ; il est orienté vers le guichet, qui arbitre avec les pièces.
+pub const ORIENTER_GUICHET: &str = "cette demande se dépose au guichet, avec les pièces";
 
 /// Natures de notification déclarées au socle 8 pour ce lot (§18.1).
 pub const KIND_ACCUSE: &str = "rgpd.demande_accusee";
@@ -141,6 +154,9 @@ pub struct IdentiteVue {
     pub verifie_le: Option<DateTime<Utc>>,
     /// Une pièce est encore détenue (elle doit disparaître à la clôture).
     pub piece_detenue: bool,
+    /// E1 : la destruction est **demandée** (demande close) mais pas encore confirmée par le magasin :
+    /// « destruction en attente », reprise automatiquement.
+    pub destruction_en_attente: bool,
     pub piece_detruite_le: Option<DateTime<Utc>>,
 }
 
@@ -201,6 +217,13 @@ pub struct DemandeVue {
     pub journal: Vec<JournalVue>,
     /// Une pièce d'identité est encore détenue : la clôture la détruira (R-RG16).
     pub piece_a_detruire: bool,
+    /// E1 : une destruction demandée n'est pas confirmée (visible au guichet, reprise automatique).
+    pub destruction_en_attente: bool,
+    /// E2 : l'identité est établie mais la qualité attend l'arbitrage de la direction (code neutre, jamais
+    /// le détail d'une protection au dossier).
+    pub identite_arbitrage_code: Option<String>,
+    /// CL27-04 : la décision d'informer ou non les titulaires reste à prendre (la clôture est bloquée).
+    pub titulaires_a_decider: bool,
 }
 
 /// Ligne du tableau des demandes (**métadonnées seulement**, R-RG32 : aucun nom d'élève, aucun contenu).
@@ -231,7 +254,12 @@ pub struct TableauDemandes {
     pub en_retard: usize,
     pub echeance_proche: usize,
     pub identite_a_verifier: usize,
+    /// Identités à arbitrer par la direction (qualité non compatible, E2).
+    pub identite_a_arbitrer: usize,
     pub a_qualifier: usize,
+    /// CL27-04 : demandes d'élèves mineurs dont la décision d'informer (ou non) les titulaires reste à
+    /// prendre — la clôture en est bloquée.
+    pub titulaires_a_decider: usize,
     pub closes: usize,
 }
 
@@ -446,12 +474,13 @@ const COLONNES: &str = "id, annee, numero, canal, recue_le, echeance_le, prolong
 prolongation_motif, demandeur_compte_id, demandeur_nom_saisi, qualite, sujet_type, sujet_id, \
 sujet_nom_saisi, qualification, qualification_motif, perimetre_texte, perimetre_du, perimetre_au, etat, \
 gestionnaire_personne_id, identite_demandee_le, identite_fournie_le, reouvertures, close_le, \
-reponse_resume, refus_motif, titulaires_informes_le, titulaires_non_informes_motif, cree_le";
+reponse_resume, refus_motif, titulaires_informes_le, titulaires_non_informes_motif, \
+identite_arbitrage_code, cree_le";
 
 struct Brut {
     id: Uuid,
-    annee: i32,
-    numero: i32,
+    annee: Option<i32>,
+    numero: Option<i32>,
     canal: String,
     recue_le: NaiveDate,
     echeance_le: NaiveDate,
@@ -478,6 +507,7 @@ struct Brut {
     refus_motif: Option<String>,
     titulaires_informes_le: Option<DateTime<Utc>>,
     titulaires_non_informes_motif: Option<String>,
+    identite_arbitrage_code: Option<String>,
     cree_le: DateTime<Utc>,
 }
 
@@ -512,6 +542,7 @@ fn brut(r: &sqlx::postgres::PgRow) -> Brut {
         refus_motif: r.get("refus_motif"),
         titulaires_informes_le: r.get("titulaires_informes_le"),
         titulaires_non_informes_motif: r.get("titulaires_non_informes_motif"),
+        identite_arbitrage_code: r.get("identite_arbitrage_code"),
         cree_le: r.get("cree_le"),
     }
 }
@@ -519,6 +550,47 @@ fn brut(r: &sqlx::postgres::PgRow) -> Brut {
 /// Référence lisible par l'usager : « 2027-014 ».
 pub fn reference(annee: i32, numero: i32) -> String {
     format!("{annee}-{numero:03}")
+}
+
+/// Référence d'une demande qui n'a **pas encore de numéro** : un dépôt public sans compte n'en reçoit un
+/// qu'une fois confirmé par le guichet (M4).
+pub const REFERENCE_SANS_NUMERO: &str = "en attente de numéro";
+
+fn reference_de(annee: Option<i32>, numero: Option<i32>) -> String {
+    match (annee, numero) {
+        (Some(a), Some(n)) => reference(a, n),
+        _ => REFERENCE_SANS_NUMERO.to_string(),
+    }
+}
+
+/// Contact normalisé (M4) : sans espace ni casse ; pour un courriel, sans étiquette « +xxx » dans la partie
+/// locale ; pour un numéro de téléphone, les seuls chiffres, le préfixe « +33 » ramené à « 0 ». Deux
+/// écritures d'un même contact donnent la même valeur : l'anti-abus ne se contourne plus en changeant la
+/// casse, un espace ou une étiquette.
+pub fn normaliser_contact(contact: &str) -> String {
+    let c: String = contact
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
+    if let Some((local, domaine)) = c.split_once('@') {
+        let local = local.split('+').next().unwrap_or(local);
+        return format!("{local}@{domaine}");
+    }
+    let chiffres: String = c.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if chiffres.len() >= 8 && c.chars().all(|ch| ch.is_ascii_digit() || "+-./()".contains(ch)) {
+        if let Some(reste) = chiffres.strip_prefix("0033") {
+            return format!("0{reste}");
+        }
+        if c.starts_with("+33") {
+            if let Some(reste) = chiffres.strip_prefix("33") {
+                return format!("0{reste}");
+            }
+        }
+        return chiffres;
+    }
+    c
 }
 
 /// Échéance qui s'applique : la prolongation si elle existe, sinon l'échéance légale. La suspension pour
@@ -661,6 +733,10 @@ pub enum QualiteConstatee {
     Restreinte,
     /// Aucun lien actif à cette date.
     Absente,
+    /// Demandeur sans compte et sans lien constatable (fiche sans compte, ou ni l'un ni l'autre) : la
+    /// qualité ne se prouve que par pièce au guichet. Plus honnête que `SansObjet`, qui dirait que rien
+    /// n'était à vérifier.
+    NonVerifiable,
     /// La qualité ne se vérifie pas par un lien familial (élève majeur, personnel, ancien élève, tiers).
     SansObjet,
 }
@@ -672,6 +748,7 @@ impl QualiteConstatee {
             Self::ConfirmeeSansAutorite => "confirmee_sans_autorite",
             Self::Restreinte => "restreinte",
             Self::Absente => "absente",
+            Self::NonVerifiable => "non_verifiable",
             Self::SansObjet => "sans_objet",
         }
     }
@@ -684,16 +761,41 @@ async fn qualite_a_la_date(
     conn: &mut PgConnection,
     etab: Uuid,
     demandeur_compte: Option<Uuid>,
+    demandeur_personne: Option<Uuid>,
+    qualite: &str,
     sujet_type: &str,
     sujet_id: Option<Uuid>,
     jour: NaiveDate,
 ) -> Result<QualiteConstatee, EntDbError> {
-    let (Some(compte), Some(eleve)) = (demandeur_compte, sujet_id) else {
-        return Ok(QualiteConstatee::SansObjet);
-    };
-    if sujet_type != "eleve" {
+    // Une qualité « pour soi » ne se prouve pas par un lien familial : rien à constater. Une autre qualité
+    // sur un sujet qui n'est pas (encore) un élève identifié — dépôt sans compte, sujet `inconnu` — n'est
+    // pas vérifiable : elle attend le rapprochement du guichet.
+    if qualite_de_soi(qualite) {
         return Ok(QualiteConstatee::SansObjet);
     }
+    if sujet_type != "eleve" {
+        return Ok(QualiteConstatee::NonVerifiable);
+    }
+    // Demandeur sans compte : sa fiche personne, quand elle est rapprochée, donne le compte du lien ; sans
+    // compte ni fiche rapprochée, la qualité n'est pas vérifiable (et non « sans objet »).
+    let compte = match demandeur_compte {
+        Some(c) => Some(c),
+        None => match demandeur_personne {
+            Some(p) => sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT user_id FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(p)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+            .flatten(),
+            None => None,
+        },
+    };
+    let (Some(compte), Some(eleve)) = (compte, sujet_id) else {
+        return Ok(QualiteConstatee::NonVerifiable);
+    };
     let l: Option<(bool, bool)> = sqlx::query_as(
         "SELECT l.autorite_parentale, (l.suspendu_le IS NOT NULL) AS suspendu
            FROM ent_eleve_lien l
@@ -771,6 +873,26 @@ async fn eleve_majeur_le(
     Ok(m.map(|d| d.is_some_and(|j| j <= jour)))
 }
 
+/// La qualité constatée est-elle **compatible** avec celle que le demandeur invoque ? Sinon la demande ne
+/// passe pas en « identité vérifiée » : elle attend l'arbitrage de la direction (E2, D-069).
+///
+/// * `titulaire_autorite` : lien actif **avec** autorité parentale et sans protection (`Confirmee`) ;
+/// * qualités « pour soi » : rien à constater (`SansObjet`) ;
+/// * `parent_sans_autorite`, `mandataire`, `representant_majeur_protege`, `tiers` : jamais compatibles seules
+///   (pièce, mandat ou jugement à apprécier) : toujours arbitrées. Valeur prudente, notée (D-069).
+fn qualite_compatible(invoquee: &str, constatee: QualiteConstatee) -> Result<(), &'static str> {
+    if qualite_de_soi(invoquee) {
+        return Ok(());
+    }
+    match (invoquee, constatee) {
+        ("titulaire_autorite", QualiteConstatee::Confirmee) => Ok(()),
+        (_, QualiteConstatee::ConfirmeeSansAutorite) => Err("sans_autorite"),
+        (_, QualiteConstatee::Restreinte) => Err("restreinte"),
+        (_, QualiteConstatee::Absente) => Err("absente"),
+        _ => Err("non_verifiable"),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------------------------
@@ -817,9 +939,12 @@ impl PgEnt {
     ) -> Result<DemandeVue, EntDbError> {
         // Aucun droit d'établissement n'est exigé : toute personne rattachée peut déposer pour elle-même ou
         // pour l'enfant dont elle est titulaire. L'appartenance et la qualité font le contrôle.
-        let membre = self.acces_etat(etab, acteur).await?;
-        if membre.is_none() {
-            return Err(EntDbError::Forbidden);
+        // F2 : un accès **suspendu ou fermé** (ou échu) ne dépose pas : la session peut survivre un instant à
+        // la décision, la demande ne doit pas en profiter.
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        match self.acces_etat(etab, acteur).await? {
+            Some(m) if m.etat == EtatAcces::Ouvert && m.date_fin.is_none_or(|f| f >= jour) => {}
+            _ => return Err(EntDbError::Forbidden),
         }
         valider_droits(d.droits)?;
         if !QUALITES.contains(&d.qualite) {
@@ -836,20 +961,32 @@ impl PgEnt {
             ));
         }
         let perimetre = d.perimetre_texte.and_then(|t| texte(t, 3, 2000));
-        let jour = self.aujourdhui_etablissement(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Qualité « pour moi-même » : le sujet est le compte lui-même. Résolu ici (l'usager ne connaît pas
-        // son identifiant interne) et vérifié quand il est fourni.
+        // son identifiant interne) et vérifié quand il est fourni. F1 : tout refus qui tient au rattachement
+        // (sujet introuvable, pas soi, lien absent) rend le **même** message d'orientation.
         let (sujet_type, sujet_id) =
             resoudre_sujet_de_soi(&mut tx, etab, acteur, d.qualite, d.sujet_type, d.sujet_id)
-                .await?;
-        verifier_sujet(&mut tx, etab, sujet_type, sujet_id, None).await?;
-        let constatee =
-            qualite_a_la_date(&mut tx, etab, Some(acteur), sujet_type, sujet_id, jour).await?;
+                .await
+                .map_err(neutre)?;
+        verifier_sujet(&mut tx, etab, sujet_type, sujet_id, None)
+            .await
+            .map_err(neutre)?;
+        let constatee = qualite_a_la_date(
+            &mut tx, etab, Some(acteur), None, d.qualite, sujet_type, sujet_id, jour,
+        )
+        .await?;
+        // E2 : un parent sans autorité, une qualité restreinte, un lien absent ne déposent **jamais** comme
+        // titulaire — et ne reçoivent jamais « identité vérifiée ». Même refus neutre pour tous : aucun
+        // motif ne révèle l'existence d'une protection au dossier. Le guichet arbitre avec les pièces.
+        if qualite_compatible(d.qualite, constatee).is_err() {
+            return Err(invalide(ORIENTER_GUICHET));
+        }
         exiger_coherence_qualite(
             &mut tx, etab, d.qualite, sujet_type, sujet_id, jour, constatee,
         )
-        .await?;
+        .await
+        .map_err(neutre)?;
         let personne: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND fusionnee_dans IS NULL",
         )
@@ -865,6 +1002,8 @@ impl PgEnt {
                 canal: "en_ligne",
                 recue_le: jour,
                 jour,
+                avec_numero: true,
+                contact_normalise: None,
                 demandeur_compte_id: Some(acteur),
                 demandeur_personne_id: personne,
                 demandeur_nom_saisi: None,
@@ -944,7 +1083,41 @@ impl PgEnt {
         let sujet_nom = texte(d.sujet_nom_saisi, 2, 200).ok_or(invalide("nom invalide"))?;
         let perimetre = d.perimetre_texte.and_then(|t| texte(t, 3, 2000));
         let jour = self.aujourdhui_etablissement(etab).await?;
+        let contact_normalise = normaliser_contact(&contact);
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // Anti-abus (M4) : plafond **par établissement et par jour** (jour de l'établissement, jamais
+        // l'heure réelle) ; au-delà, refus neutre et orientation vers le guichet.
+        let deposes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rgp_demande
+              WHERE etablissement_id = $1 AND canal = 'en_ligne' AND demandeur_compte_id IS NULL
+                AND recue_le = $2",
+        )
+        .bind(etab)
+        .bind(jour)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if deposes >= PLAFOND_DEPOTS_SANS_COMPTE_JOUR {
+            return Err(EntDbError::ConflitDossier(
+                "trop de demandes reçues aujourd'hui : présentez-vous au guichet ou réessayez demain",
+            ));
+        }
+        // Un même contact (normalisé) n'ouvre qu'une demande par jour et par veille : la seconde n'est pas
+        // enregistrée, et le déposant reçoit **la même réponse** (aucun oracle, R-RG42).
+        let doublon: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rgp_demande
+                             WHERE etablissement_id = $1 AND demandeur_contact_normalise = $2
+                               AND recue_le >= $3)",
+        )
+        .bind(etab)
+        .bind(&contact_normalise)
+        .bind(jour - chrono::Duration::days(1))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if doublon {
+            return Ok(MESSAGE_SANS_COMPTE);
+        }
         let id = inserer(
             &mut tx,
             etab,
@@ -952,6 +1125,9 @@ impl PgEnt {
                 canal: "en_ligne",
                 recue_le: jour,
                 jour,
+                // Pas de numéro officiel tant que le guichet n'a pas confirmé le déposant (M4).
+                avec_numero: false,
+                contact_normalise: Some(&contact_normalise),
                 demandeur_compte_id: None,
                 demandeur_personne_id: None,
                 demandeur_nom_saisi: Some(&nom),
@@ -1049,6 +1225,21 @@ impl PgEnt {
             sujet_nom.as_deref(),
         )
         .await?;
+        // M3 : le compte du demandeur est celui d'un **membre de cet établissement** — sinon l'accusé de
+        // réception partirait vers un compte d'ailleurs. 404 neutre : rien ne dit que ce compte existe.
+        if let Some(c) = s.demandeur_compte_id {
+            let membre: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2)",
+            )
+            .bind(etab)
+            .bind(c)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if !membre {
+                return Err(EntDbError::Domain(DomainError::NotFound));
+            }
+        }
         if let Some(p) = s.demandeur_personne_id {
             let existe: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM ent_personne WHERE etablissement_id = $1 AND id = $2)",
@@ -1069,6 +1260,8 @@ impl PgEnt {
                 canal: s.canal,
                 recue_le: s.recue_le,
                 jour,
+                avec_numero: true,
+                contact_normalise: None,
                 demandeur_compte_id: s.demandeur_compte_id,
                 demandeur_personne_id: s.demandeur_personne_id,
                 demandeur_nom_saisi: nom.as_deref(),
@@ -1206,8 +1399,15 @@ impl PgEnt {
     /// date de réception** par le socle 4 (jamais au jour du contrôle) : un lien ouvert ou fermé depuis la
     /// demande ne change pas ce qui était vrai à la réception.
     ///
-    /// `piece_document_id` : document du coffre (socle 7) consulté. Il est **détruit à la clôture**
-    /// (R-RG16, CL27-70) ; aucune autre fonction ne le rend.
+    /// **E2** — la personne peut être identifiée sans que sa **qualité** soit compatible avec celle qu'elle
+    /// invoque (autorité parentale absente, dossier protégé, qualité non vérifiable) : la vérification est
+    /// alors enregistrée `a_arbitrer`, **jamais** « vérifiée » ; la demande reste en `identite_a_verifier`
+    /// avec le drapeau d'arbitrage, et seule la direction (`droits.arbitrer`) peut la débloquer
+    /// ([`PgEnt::droits_arbitrer_identite`]). Valeur prudente, notée (D-069).
+    ///
+    /// `piece_document_id` : pièce d'identité du coffre (socle 7), validée (F8) : un `ent_doc_piece` de
+    /// l'établissement, de type « pièce d'identité », dont l'objet n'est partagé avec aucune autre pièce.
+    /// Elle est **détruite à la clôture** (R-RG16, CL27-70, E1) ; aucune autre fonction ne la rend.
     #[allow(clippy::too_many_arguments)]
     pub async fn droits_verifier_identite(
         &self,
@@ -1228,11 +1428,14 @@ impl PgEnt {
         if mode == "piece" && piece_document_id.is_none() && reussie {
             return Err(invalide("référence de la pièce consultée obligatoire"));
         }
+        if mode != "piece" && piece_document_id.is_some() {
+            return Err(invalide("une pièce ne se référence qu'au mode « pièce »"));
+        }
         let note = note.and_then(|n| texte(n, 3, 1000));
         let jour = self.aujourdhui_etablissement(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = sqlx::query(
-            "SELECT etat, recue_le, demandeur_compte_id, sujet_type, sujet_id, qualite
+            "SELECT etat, recue_le, demandeur_compte_id, demandeur_personne_id, sujet_type, sujet_id, qualite
                FROM rgp_demande WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
@@ -1245,11 +1448,25 @@ impl PgEnt {
         exiger_ouverte(&etat)?;
         let recue_le: NaiveDate = r.get("recue_le");
         let compte: Option<Uuid> = r.get("demandeur_compte_id");
+        let personne: Option<Uuid> = r.get("demandeur_personne_id");
         let sujet_type: String = r.get("sujet_type");
         let sujet_id: Option<Uuid> = r.get("sujet_id");
-        let constatee =
-            qualite_a_la_date(&mut tx, etab, compte, &sujet_type, sujet_id, recue_le).await?;
-        let resultat = if reussie { "verifiee" } else { "echouee" };
+        let qualite: String = r.get("qualite");
+        if reussie {
+            if let Some(piece) = piece_document_id {
+                valider_piece(&mut tx, etab, piece).await?;
+            }
+        }
+        let constatee = qualite_a_la_date(
+            &mut tx, etab, compte, personne, &qualite, &sujet_type, sujet_id, recue_le,
+        )
+        .await?;
+        let compat = qualite_compatible(&qualite, constatee);
+        let resultat = match (reussie, compat) {
+            (false, _) => "echouee",
+            (true, Ok(())) => "verifiee",
+            (true, Err(_)) => "a_arbitrer",
+        };
         sqlx::query(
             "INSERT INTO rgp_demande_identite
                  (id, etablissement_id, demande_id, mode, resultat, qualite_constatee, qualite_note,
@@ -1269,11 +1486,12 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if reussie {
+            // La personne est identifiée : la demande est **confirmée**, elle reçoit son numéro officiel
+            // (un dépôt public sans compte n'en avait pas, M4).
+            attribuer_numero(&mut tx, etab, demande, acteur, role).await?;
             sqlx::query(
                 "UPDATE rgp_demande
-                    SET identite_fournie_le = COALESCE(identite_fournie_le, $3),
-                        etat = CASE WHEN etat = 'identite_a_verifier' THEN 'en_cours' ELSE etat END,
-                        modifie_le = now()
+                    SET identite_fournie_le = COALESCE(identite_fournie_le, $3), modifie_le = now()
                   WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(etab)
@@ -1283,16 +1501,215 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        match compat {
+            Ok(()) if reussie => {
+                sqlx::query(
+                    "UPDATE rgp_demande
+                        SET etat = CASE WHEN etat = 'identite_a_verifier' THEN 'en_cours' ELSE etat END,
+                            identite_arbitrage = false, identite_arbitrage_code = NULL, modifie_le = now()
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(demande)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+            Err(code) if reussie => {
+                sqlx::query(
+                    "UPDATE rgp_demande
+                        SET etat = 'identite_a_verifier', identite_arbitrage = true,
+                            identite_arbitrage_code = $3, modifie_le = now()
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(demande)
+                .bind(code)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+            _ => {}
+        }
         journal(
             &mut tx,
             etab,
             demande,
-            if reussie {
-                "identite_verifiee"
-            } else {
-                "identite_echouee"
+            match resultat {
+                "verifiee" => "identite_verifiee",
+                "a_arbitrer" => "identite_a_arbitrer",
+                _ => "identite_echouee",
             },
             Some(&format!("{mode} — qualité {}", constatee.code())),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
+        let vue = charger(&mut tx, etab, demande, jour).await?;
+        tx.commit().await?;
+        Ok(vue)
+    }
+
+    /// **E2** — la direction tranche une identité dont la qualité n'est pas compatible (`droits.arbitrer`,
+    /// motif obligatoire). `accepte` : la qualité est reconnue sur la base du motif et des pièces vues, la
+    /// vérification devient « vérifiée » et la demande reprend ; sinon la vérification est close en échec
+    /// (la direction refusera ensuite la demande, [`PgEnt::droits_refuser`]). Les deux décisions sont tracées.
+    pub async fn droits_arbitrer_identite(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        accepte: bool,
+        motif: &str,
+    ) -> Result<DemandeVue, EntDbError> {
+        self.exiger_action_etab(etab, acteur, role, Action::DroitsArbitrer)
+            .await?;
+        let motif = texte(motif, 3, 1000).ok_or(invalide("motif de l'arbitrage obligatoire"))?;
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let r = sqlx::query(
+            "SELECT etat, identite_arbitrage FROM rgp_demande
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(demande)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        exiger_ouverte(&r.get::<String, _>("etat"))?;
+        if !r.get::<bool, _>("identite_arbitrage") {
+            return Err(EntDbError::ConflitDossier(
+                "aucune identité n'attend d'arbitrage sur cette demande",
+            ));
+        }
+        sqlx::query(
+            "UPDATE rgp_demande_identite
+                SET resultat = $3, qualite_note = $4, verifie_par_compte_id = $5, verifie_le = now()
+              WHERE etablissement_id = $1 AND demande_id = $2 AND resultat = 'a_arbitrer'",
+        )
+        .bind(etab)
+        .bind(demande)
+        .bind(if accepte { "verifiee" } else { "echouee" })
+        .bind(&motif)
+        .bind(acteur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE rgp_demande
+                SET identite_arbitrage = false, identite_arbitrage_code = NULL,
+                    etat = CASE WHEN $3 AND etat = 'identite_a_verifier' THEN 'en_cours' ELSE etat END,
+                    modifie_le = now()
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(demande)
+        .bind(accepte)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        journal(
+            &mut tx,
+            etab,
+            demande,
+            "identite_arbitree",
+            Some(if accepte {
+                "qualité reconnue par la direction (motif tracé)"
+            } else {
+                "qualité non reconnue par la direction (motif tracé)"
+            }),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
+        let vue = charger(&mut tx, etab, demande, jour).await?;
+        tx.commit().await?;
+        Ok(vue)
+    }
+
+    /// **M2, RGP-307** — rapproche une demande d'un dossier : le **sujet** d'un dépôt sans compte (`inconnu`,
+    /// seul le nom saisi est connu) et/ou la **fiche** du demandeur (dont le lien familial donne ensuite la
+    /// qualité constatée). Geste du guichet (`droits.recevoir`), tracé au journal ; il ne dit rien au
+    /// demandeur. Un sujet déjà rapproché ne se rapproche pas une seconde fois (il se corrige par une
+    /// nouvelle saisie : on n'écrase pas une identification).
+    pub async fn droits_rapprocher(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+        sujet: Option<(&str, Uuid)>,
+        demandeur_personne_id: Option<Uuid>,
+    ) -> Result<DemandeVue, EntDbError> {
+        self.exiger_action_etab(etab, acteur, role, Action::DroitsRecevoir)
+            .await?;
+        if sujet.is_none() && demandeur_personne_id.is_none() {
+            return Err(invalide("rien à rapprocher"));
+        }
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let r = sqlx::query(
+            "SELECT etat, sujet_type, demandeur_personne_id FROM rgp_demande
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(demande)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        exiger_ouverte(&r.get::<String, _>("etat"))?;
+        let mut faits: Vec<&str> = Vec::new();
+        if let Some((t, id)) = sujet {
+            if r.get::<String, _>("sujet_type") != "inconnu" {
+                return Err(EntDbError::ConflitDossier(
+                    "le sujet de cette demande est déjà rapproché d'un dossier",
+                ));
+            }
+            if !matches!(t, "eleve" | "personne" | "agent") {
+                return Err(invalide("personne concernée incohérente"));
+            }
+            verifier_sujet(&mut tx, etab, t, Some(id), None).await?;
+            sqlx::query(
+                "UPDATE rgp_demande SET sujet_type = $3, sujet_id = $4, modifie_le = now()
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(demande)
+            .bind(t)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            faits.push("sujet");
+        }
+        if let Some(p) = demandeur_personne_id {
+            if r.get::<Option<Uuid>, _>("demandeur_personne_id").is_some() {
+                return Err(EntDbError::ConflitDossier(
+                    "le demandeur de cette demande est déjà rapproché d'une fiche",
+                ));
+            }
+            exister(&mut tx, etab, "ent_personne", p).await?;
+            sqlx::query(
+                "UPDATE rgp_demande SET demandeur_personne_id = $3, modifie_le = now()
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(demande)
+            .bind(p)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            faits.push("demandeur");
+        }
+        journal(
+            &mut tx,
+            etab,
+            demande,
+            "sujet_rapproche",
+            Some(&format!("rapprochement : {}", faits.join(" et "))),
             Some(acteur),
             Some(role),
         )
@@ -1483,10 +1900,10 @@ impl PgEnt {
         .await?;
         // Information du demandeur : seulement s'il a un compte ici (sinon, canal du dossier, R-RG42).
         if let Some(compte) = r.get::<Option<Uuid>, _>("demandeur_compte_id") {
-            let reference = reference(r.get("annee"), r.get("numero"));
+            let reference = reference_de(r.get("annee"), r.get("numero"));
             let corps = format!(
                 "Le traitement de votre demande {reference} demande un délai supplémentaire. La réponse vous \
-parviendra au plus tard le {}. Motif : {motif}",
+parviendra au plus tard le {}. Le motif de cette prolongation vous est donné dans le courrier de réponse.",
                 jusqu_au.format("%d/%m/%Y")
             );
             notifier_personne(
@@ -1582,7 +1999,9 @@ parviendra au plus tard le {}. Motif : {motif}",
         motif_code: Option<&str>,
         motif_texte: Option<&str>,
     ) -> Result<DemandeVue, EntDbError> {
-        let arbitrage = matches!(decision, "refuse" | "partiel");
+        // M5 : `sans_objet` est une décision d'**arbitrage** comme le refus : elle ne se prend jamais seule
+        // pour un effacement ou une opposition (R-RG17, §9.5), et toujours avec son motif.
+        let arbitrage = matches!(decision, "refuse" | "partiel" | "sans_objet");
         self.exiger_action_etab(
             etab,
             acteur,
@@ -1607,13 +2026,36 @@ parviendra au plus tard le {}. Motif : {motif}",
         let txt = motif_texte.and_then(|t| texte(t, 3, 4000));
         if arbitrage && (code.is_none() || txt.is_none()) {
             return Err(invalide(
-                "un refus ou un partiel est motivé (article et texte)",
+                "un refus, un partiel ou un « sans objet » est motivé (code et texte)",
             ));
         }
         let jour = self.aujourdhui_etablissement(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let etat = etat_courant(&mut tx, etab, demande).await?;
         exiger_ouverte(&etat)?;
+        // M1 : on n'accorde (en tout ou partie) qu'à une personne dont l'identité **et** la qualité sont
+        // établies. Sans cela, seule la direction (`droits.arbitrer`), avec le motif écrit, peut passer outre.
+        if matches!(decision, "accorde" | "partiel") && !identite_etablie(&mut tx, etab, demande).await? {
+            if !(self
+                .a_action_etablissement(etab, acteur, role, Action::DroitsArbitrer)
+                .await?
+                && txt.is_some())
+            {
+                return Err(EntDbError::ConflitDossier(
+                    "identité et qualité du demandeur à établir avant d'accorder",
+                ));
+            }
+            journal(
+                &mut tx,
+                etab,
+                demande,
+                "decision_sans_identite",
+                Some(&format!("{droit} : {decision} sans identité établie (direction)")),
+                Some(acteur),
+                Some(role),
+            )
+            .await?;
+        }
         let r = sqlx::query(
             "UPDATE rgp_demande_droit
                 SET decision = $4, motif_code = $5, motif_texte = $6, decide_le = now(),
@@ -1765,6 +2207,40 @@ parviendra au plus tard le {}. Motif : {motif}",
                 "chaque droit exercé reçoit une décision avant la clôture",
             ));
         }
+        // CL27-04 (M6) : la décision d'informer — ou non — les titulaires d'un élève mineur qui a demandé
+        // lui-même est prise **avant** de clore.
+        exiger_titulaires_decides(&mut tx, etab, demande).await?;
+        // M1 : une réponse qui accorde quelque chose suppose une identité et une qualité établies ; sinon
+        // seule la direction clôt, et le résumé de réponse tient lieu de motif.
+        let accorde: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rgp_demande_droit
+              WHERE etablissement_id = $1 AND demande_id = $2 AND decision IN ('accorde', 'partiel')",
+        )
+        .bind(etab)
+        .bind(demande)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if accorde > 0 && !identite_etablie(&mut tx, etab, demande).await? {
+            if !self
+                .a_action_etablissement(etab, acteur, role, Action::DroitsArbitrer)
+                .await?
+            {
+                return Err(EntDbError::ConflitDossier(
+                    "identité et qualité du demandeur à établir avant de clore une réponse accordée",
+                ));
+            }
+            journal(
+                &mut tx,
+                etab,
+                demande,
+                "decision_sans_identite",
+                Some("clôture avec réponse accordée sans identité établie (direction)"),
+                Some(acteur),
+                Some(role),
+            )
+            .await?;
+        }
         sqlx::query(
             "UPDATE rgp_demande
                 SET etat = 'close', close_le = now(), close_par_compte_id = $3, reponse_resume = $4,
@@ -1778,25 +2254,32 @@ parviendra au plus tard le {}. Motif : {motif}",
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let pieces = detruire_pieces(&mut tx, etab, demande, acteur, role).await?;
+        let pieces = demander_destruction_pieces(&mut tx, etab, demande, acteur, role).await?;
         journal(
             &mut tx,
             etab,
             demande,
             "close",
-            Some(&format!("{pieces} pièce(s) d'identité détruite(s)")),
+            Some(&format!("{pieces} pièce(s) d'identité à détruire")),
             Some(acteur),
             Some(role),
         )
         .await?;
-        let vue = charger(&mut tx, etab, demande, jour).await?;
+        let vue_avant = charger(&mut tx, etab, demande, jour).await?;
         tx.commit().await?;
-        Ok(vue)
+        // E1 : la destruction se fait **après** le commit, par le service de suppression du socle 7. Elle
+        // peut échouer (magasin indisponible) : la demande reste alors « destruction en attente », visible
+        // et reprise par la tâche. La vue rendue est relue après l'essai.
+        if pieces > 0 {
+            self.executer_destruction_pieces(etab, Some(demande)).await;
+            return self.relire_demande(etab, demande).await;
+        }
+        Ok(vue_avant)
     }
 
     /// **RGP-164** — refus d'une demande manifestement excessive, ou impossibilité d'identifier le
     /// demandeur : **décision motivée de la direction**, jamais automatique (R-RG17, art. 12.5). La pièce
-    /// d'identité est détruite comme à toute clôture (R-RG16).
+    /// d'identité est détruite comme à toute clôture (R-RG16, E1).
     pub async fn droits_refuser(
         &self,
         etab: Uuid,
@@ -1812,6 +2295,7 @@ parviendra au plus tard le {}. Motif : {motif}",
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let etat = etat_courant(&mut tx, etab, demande).await?;
         exiger_ouverte(&etat)?;
+        exiger_titulaires_decides(&mut tx, etab, demande).await?;
         sqlx::query(
             "UPDATE rgp_demande
                 SET etat = 'refusee', close_le = now(), close_par_compte_id = $3, refus_motif = $4,
@@ -1839,20 +2323,24 @@ parviendra au plus tard le {}. Motif : {motif}",
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let pieces = detruire_pieces(&mut tx, etab, demande, acteur, role).await?;
+        let pieces = demander_destruction_pieces(&mut tx, etab, demande, acteur, role).await?;
         journal(
             &mut tx,
             etab,
             demande,
             "refusee",
-            Some(&format!("{pieces} pièce(s) d'identité détruite(s)")),
+            Some(&format!("{pieces} pièce(s) d'identité à détruire")),
             Some(acteur),
             Some(role),
         )
         .await?;
-        let vue = charger(&mut tx, etab, demande, jour).await?;
+        let vue_avant = charger(&mut tx, etab, demande, jour).await?;
         tx.commit().await?;
-        Ok(vue)
+        if pieces > 0 {
+            self.executer_destruction_pieces(etab, Some(demande)).await;
+            return self.relire_demande(etab, demande).await;
+        }
+        Ok(vue_avant)
     }
 
     /// **RGP-167** — rouvre une demande close sur réclamation du demandeur. L'horloge **ne repart pas à
@@ -1875,9 +2363,27 @@ parviendra au plus tard le {}. Motif : {motif}",
         if ouverte(&etat) {
             return Err(EntDbError::ConflitDossier("cette demande n'est pas close"));
         }
+        // F3 : un refus pour demande excessive (art. 12.5) a rendu « refusés » les droits restés en examen,
+        // avec le motif général du refus. Rouvrir une demande **refusée** les remet **en examen** : sans
+        // cela, la demande rouverte porterait des refus que personne n'a réexaminés. Les décisions prises
+        // une à une (accordé, partiel, refus motivé par droit) sont conservées.
+        if etat == "refusee" {
+            sqlx::query(
+                "UPDATE rgp_demande_droit
+                    SET decision = 'en_examen', motif_code = NULL, motif_texte = NULL, decide_le = NULL,
+                        decide_par_compte_id = NULL
+                  WHERE etablissement_id = $1 AND demande_id = $2
+                    AND decision = 'refuse' AND motif_code = 'art12_5'",
+            )
+            .bind(etab)
+            .bind(demande)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         sqlx::query(
             "UPDATE rgp_demande
-                SET etat = 'en_cours', close_le = NULL, close_par_compte_id = NULL,
+                SET etat = 'en_cours', close_le = NULL, close_par_compte_id = NULL, refus_motif = NULL,
                     reouvertures = reouvertures + 1, modifie_le = now()
               WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1920,6 +2426,16 @@ parviendra au plus tard le {}. Motif : {motif}",
         Ok(vue)
     }
 
+    /// Relit la demande après un effet de bord (destruction de pièces) : sans contrôle de droit, l'appelant a
+    /// déjà été autorisé par la fonction qui l'a invoquée.
+    async fn relire_demande(&self, etab: Uuid, demande: Uuid) -> Result<DemandeVue, EntDbError> {
+        let jour = self.aujourdhui_etablissement(etab).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let vue = charger(&mut tx, etab, demande, jour).await?;
+        tx.commit().await?;
+        Ok(vue)
+    }
+
     /// **RGP-169** — tableau des demandes : échéances, retards, par gestionnaire. **Métadonnées seulement**
     /// (R-RG32) : aucun nom de personne concernée, aucun contenu. `closes_aussi` ajoute les demandes closes
     /// des douze derniers mois.
@@ -1938,12 +2454,13 @@ parviendra au plus tard le {}. Motif : {motif}",
             "SELECT {COLONNES} FROM rgp_demande
               WHERE etablissement_id = $1
                 AND (etat NOT IN ('close', 'refusee')
-                     OR ($2 AND close_le >= now() - interval '12 months'))
-              ORDER BY (etat IN ('close', 'refusee')), echeance_le, numero"
+                     OR ($2 AND (close_le AT TIME ZONE 'UTC')::date >= $3 - 365))
+              ORDER BY (etat IN ('close', 'refusee')), echeance_le, recue_le, numero NULLS LAST, cree_le"
         );
         let rows = sqlx::query(&sql)
             .bind(etab)
             .bind(closes_aussi)
+            .bind(jour)
             .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
@@ -1955,7 +2472,9 @@ parviendra au plus tard le {}. Motif : {motif}",
             en_retard: 0,
             echeance_proche: 0,
             identite_a_verifier: 0,
+            identite_a_arbitrer: 0,
             a_qualifier: 0,
+            titulaires_a_decider: 0,
             closes: 0,
         };
         for r in &rows {
@@ -1983,6 +2502,15 @@ parviendra au plus tard le {}. Motif : {motif}",
                 if b.etat == "identite_a_verifier" {
                     t.identite_a_verifier += 1;
                 }
+                if b.identite_arbitrage_code.is_some() {
+                    t.identite_a_arbitrer += 1;
+                }
+                if b.qualite == "eleve_mineur"
+                    && b.titulaires_informes_le.is_none()
+                    && b.titulaires_non_informes_motif.is_none()
+                {
+                    t.titulaires_a_decider += 1;
+                }
                 if b.qualification == "a_qualifier" {
                     t.a_qualifier += 1;
                 }
@@ -1991,7 +2519,7 @@ parviendra au plus tard le {}. Motif : {motif}",
             }
             lignes.push(DemandeLigne {
                 id: b.id,
-                reference: reference(b.annee, b.numero),
+                reference: reference_de(b.annee, b.numero),
                 canal: b.canal.clone(),
                 recue_le: b.recue_le,
                 echeance_effective: eff,
@@ -2026,7 +2554,7 @@ parviendra au plus tard le {}. Motif : {motif}",
         let sql = format!(
             "SELECT {COLONNES} FROM rgp_demande
               WHERE etablissement_id = $1 AND demandeur_compte_id = $2
-              ORDER BY recue_le DESC, numero DESC"
+              ORDER BY recue_le DESC, numero DESC NULLS LAST"
         );
         let rows = sqlx::query(&sql)
             .bind(etab)
@@ -2049,7 +2577,7 @@ parviendra au plus tard le {}. Motif : {motif}",
             let eff = echeance_effective(&b);
             out.push(SuiviDemande {
                 id: b.id,
-                reference: reference(b.annee, b.numero),
+                reference: reference_de(b.annee, b.numero),
                 recue_le: b.recue_le,
                 echeance_effective: eff,
                 etat: b.etat.clone(),
@@ -2114,24 +2642,30 @@ parviendra au plus tard le {}. Motif : {motif}",
             let b = brut(r);
             let eff = echeance_effective(&b);
             let restants = (eff - jour).num_days();
+            // F4 : le palier se franchit, il ne se rencontre pas — un arrêt de la tâche un jour donné ne
+            // doit pas faire manquer l'alerte. Le **plus serré** des paliers atteints est retenu (J-3 si
+            // l'échéance est dans 2 jours) ; la clé de déduplication, qui porte le palier, garde l'envoi
+            // unique d'un passage à l'autre. Une échéance dépassée n'alerte plus : le retard est affiché.
             let Some(palier) = ALERTE_ECHEANCE_JOURS
                 .iter()
                 .copied()
-                .find(|p| *p == restants)
+                .filter(|p| restants >= 0 && restants <= *p)
+                .min()
             else {
                 continue;
             };
             if destinataires.is_empty() {
                 break;
             }
-            let reference = reference(b.annee, b.numero);
+            let reference = reference_de(b.annee, b.numero);
             let corps = format!(
-                "La demande {reference} arrive à échéance le {} ({palier} jours). Qualification : {}.",
+                "La demande {reference} arrive à échéance le {} (dans {restants} jour(s)). Qualification : {}.",
                 eff.format("%d/%m/%Y"),
                 b.qualification
             );
+            let mut nouveaux = 0usize;
             for u in destinataires.iter().copied() {
-                envoyes += notifier_personne(
+                nouveaux += notifier_personne(
                     &mut tx,
                     EnvoiAPlanifier {
                         etablissement_id: etab,
@@ -2154,16 +2688,21 @@ parviendra au plus tard le {}. Motif : {motif}",
                 )
                 .await?;
             }
-            journal(
-                &mut tx,
-                etab,
-                b.id,
-                "echeance_alertee",
-                Some(&format!("J-{palier}")),
-                None,
-                None,
-            )
-            .await?;
+            envoyes += nouveaux;
+            // Le journal ne note que les envois **nouveaux** : une passe qui retombe sur un palier déjà
+            // alerté n'écrit rien (idempotence).
+            if nouveaux > 0 {
+                journal(
+                    &mut tx,
+                    etab,
+                    b.id,
+                    "echeance_alertee",
+                    Some(&format!("J-{palier}")),
+                    None,
+                    None,
+                )
+                .await?;
+            }
         }
         tx.commit().await?;
         Ok(envoyes)
@@ -2261,6 +2800,16 @@ async fn exister(
         Ok(())
     } else {
         Err(EntDbError::Domain(DomainError::NotFound))
+    }
+}
+
+/// F1 : ramène les refus de rattachement (accès refusé, sujet introuvable) au message d'orientation unique.
+fn neutre(e: EntDbError) -> EntDbError {
+    match e {
+        EntDbError::Forbidden | EntDbError::Domain(DomainError::NotFound) => {
+            invalide(ORIENTER_GUICHET)
+        }
+        autre => autre,
     }
 }
 
@@ -2408,33 +2957,46 @@ async fn comptes_habilites(
     Ok(out)
 }
 
-/// **R-RG16** — détruit les pièces d'identité encore détenues par la demande. Idempotent : une pièce déjà
-/// détruite n'est pas retouchée. Rend le nombre de pièces détruites.
-async fn detruire_pieces(
+/// CL27-04 (M6) — une demande d'élève mineur ne se clôt pas tant que la décision d'informer (ou non) ses
+/// titulaires n'est pas prise.
+async fn exiger_titulaires_decides(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+) -> Result<(), EntDbError> {
+    let a_decider: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM rgp_demande
+                         WHERE etablissement_id = $1 AND id = $2 AND qualite = 'eleve_mineur'
+                           AND titulaires_informes_le IS NULL AND titulaires_non_informes_motif IS NULL)",
+    )
+    .bind(etab)
+    .bind(demande)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if a_decider {
+        Err(EntDbError::ConflitDossier(
+            "décider d'informer ou non les titulaires de l'élève avant de clore",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// **R-RG16, E1** — à la clôture, **demande** la destruction des pièces d'identité encore détenues : la
+/// demande est écrite, durablement, dans la transaction de clôture (`piece_destruction_demandee_le`). Rien
+/// n'est dit « détruit » ici : la pièce reste référencée jusqu'à ce que le service de suppression du socle 7
+/// ait détruit l'objet ([`PgEnt::executer_destruction_pieces`]). Rend le nombre de pièces à détruire.
+async fn demander_destruction_pieces(
     conn: &mut PgConnection,
     etab: Uuid,
     demande: Uuid,
     acteur: Uuid,
     role: &str,
 ) -> Result<usize, EntDbError> {
-    let pieces: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT piece_document_id FROM rgp_demande_identite
-          WHERE etablissement_id = $1 AND demande_id = $2 AND piece_document_id IS NOT NULL",
-    )
-    .bind(etab)
-    .bind(demande)
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(db)?;
-    if pieces.is_empty() {
-        return Ok(0);
-    }
-    // La référence disparaît ici ; la destruction du document lui-même appartient au socle 7 (coffre), qui
-    // est le propriétaire (R-RG3 : le 27 ne supprime pas la ligne d'un autre socle). L'ordre est émis par
-    // la même transaction, sous la forme d'une marque de suppression demandée.
-    sqlx::query(
+    let r = sqlx::query(
         "UPDATE rgp_demande_identite
-            SET piece_document_id = NULL, piece_detruite_le = now()
+            SET piece_destruction_demandee_le = COALESCE(piece_destruction_demandee_le, now())
           WHERE etablissement_id = $1 AND demande_id = $2 AND piece_document_id IS NOT NULL",
     )
     .bind(etab)
@@ -2442,23 +3004,319 @@ async fn detruire_pieces(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
+    let n = r.rows_affected() as usize;
+    if n > 0 {
+        journal(
+            conn,
+            etab,
+            demande,
+            "piece_destruction_demandee",
+            Some(&format!("{n} pièce(s)")),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
+    }
+    Ok(n)
+}
+
+impl PgEnt {
+    /// **E1** — exécute les destructions de pièces d'identité **demandées** (à la clôture ou reprises par la
+    /// tâche) : pour chaque pièce, l'objet reçu et l'objet servi sont détruits **au magasin** puis marqués
+    /// supprimés au registre (même ordre que la purge des pièces infectées, socle 7 : une panne entre les
+    /// deux se rattrape à la passe suivante, la suppression est idempotente). **Seulement après** cette
+    /// confirmation, la référence est effacée, « détruite le » est posé et le journal le dit. Un échec
+    /// laisse la pièce référencée (« destruction en attente », visible au guichet, tentatives comptées) ;
+    /// il n'est jamais propagé à la clôture, qui a déjà eu lieu. `demande` : une seule demande, ou toutes.
+    /// Rend le nombre de pièces détruites.
+    pub async fn executer_destruction_pieces(&self, etab: Uuid, demande: Option<Uuid>) -> usize {
+        match self.executer_destruction_pieces_res(etab, demande).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(erreur = %e, "destruction de pièces d'identité : reprise à la prochaine passe");
+                0
+            }
+        }
+    }
+
+    async fn executer_destruction_pieces_res(
+        &self,
+        etab: Uuid,
+        demande: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let a_detruire: Vec<(Uuid, Uuid, Uuid, i32)> = sqlx::query_as(
+            "SELECT i.id, i.demande_id, i.piece_document_id, i.piece_destruction_tentatives
+               FROM rgp_demande_identite i
+              WHERE i.etablissement_id = $1 AND i.piece_document_id IS NOT NULL
+                AND i.piece_destruction_demandee_le IS NOT NULL
+                AND ($2::uuid IS NULL OR i.demande_id = $2)
+              ORDER BY i.piece_destruction_demandee_le, i.id
+              LIMIT 200",
+        )
+        .bind(etab)
+        .bind(demande)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        let mut cibles = Vec::with_capacity(a_detruire.len());
+        for (ligne, dem, piece, tentatives) in a_detruire {
+            let cles: Option<(String, Option<String>)> = sqlx::query_as(
+                "SELECT cle_objet_original, cle_objet_servi FROM ent_doc_piece
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(piece)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            let cles: Vec<String> = match cles {
+                Some((o, s)) => std::iter::once(o).chain(s).collect(),
+                None => Vec::new(),
+            };
+            let partage = !cles.is_empty() && objet_partage(&mut tx, etab, piece, &cles).await?;
+            cibles.push((ligne, dem, cles, partage, tentatives));
+        }
+        tx.commit().await?;
+
+        let mut detruites = 0usize;
+        for (ligne, dem, cles, partage, tentatives) in cibles {
+            // Un objet qui sert aussi à une autre pièce ne se détruit pas : la destruction reste en attente,
+            // visible, plutôt que de priver un autre dossier de son fichier.
+            let mut ok = !partage;
+            if ok {
+                for cle in &cles {
+                    if let Err(e) = self.objet_supprimer(cle).await {
+                        tracing::warn!(demande = %dem, erreur = %e, "pièce d'identité : suppression du magasin impossible");
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            if ok {
+                for cle in &cles {
+                    sqlx::query(
+                        "UPDATE ent_objet SET supprime_le = now()
+                          WHERE etablissement_id = $1 AND cle_objet = $2 AND supprime_le IS NULL",
+                    )
+                    .bind(etab)
+                    .bind(cle)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                }
+                sqlx::query(
+                    "UPDATE rgp_demande_identite
+                        SET piece_document_id = NULL, piece_detruite_le = now()
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(ligne)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                journal(
+                    &mut tx,
+                    etab,
+                    dem,
+                    "piece_detruite",
+                    Some("pièce d'identité détruite (objet supprimé du magasin)"),
+                    None,
+                    None,
+                )
+                .await?;
+                detruites += 1;
+            } else {
+                sqlx::query(
+                    "UPDATE rgp_demande_identite
+                        SET piece_destruction_tentatives = piece_destruction_tentatives + 1
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(ligne)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                // Une seule ligne de journal par pièce, à la première panne : la reprise horaire ne
+                // remplit pas le journal.
+                if tentatives == 0 {
+                    journal(
+                        &mut tx,
+                        etab,
+                        dem,
+                        "piece_destruction_en_attente",
+                        Some("destruction de la pièce d'identité en attente : reprise automatique"),
+                        None,
+                        None,
+                    )
+                    .await?;
+                }
+            }
+            tx.commit().await?;
+        }
+        Ok(detruites)
+    }
+
+    /// Passe de la tâche de fond : rejoue, pour tous les établissements, les destructions de pièces
+    /// d'identité demandées et non exécutées (E1). Appel **système**, aucune route.
+    pub async fn droits_destruction_pieces_tache(&self) -> Result<usize, EntDbError> {
+        let etabs: Vec<(Uuid,)> = crate::tenant_tx::lire_par_etablissement(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("rgpd_pieces_identite"),
+            "SELECT DISTINCT etablissement_id FROM rgp_demande_identite
+              WHERE piece_document_id IS NOT NULL AND piece_destruction_demandee_le IS NOT NULL",
+        )
+        .await
+        .map_err(db)?;
+        let mut n = 0;
+        for (etab,) in etabs {
+            n += self.executer_destruction_pieces(etab, None).await;
+        }
+        Ok(n)
+    }
+}
+
+/// Attribue le numéro officiel à une demande qui n'en a pas encore (dépôt public confirmé par le guichet).
+/// Idempotent : une demande déjà numérotée n'est pas retouchée. Le compteur avance dans **cette**
+/// transaction (« sans trou visible »).
+async fn attribuer_numero(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+    acteur: Uuid,
+    role: &str,
+) -> Result<(), EntDbError> {
+    let recue: Option<(NaiveDate, Option<i32>)> = sqlx::query_as(
+        "SELECT recue_le, numero FROM rgp_demande WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(demande)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some((recue_le, None)) = recue else {
+        return Ok(());
+    };
+    let annee = recue_le.year();
+    let numero = numero_suivant(&mut *conn, etab, annee).await?;
+    sqlx::query(
+        "UPDATE rgp_demande SET annee = $3, numero = $4, modifie_le = now()
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(demande)
+    .bind(annee)
+    .bind(numero)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
     journal(
         conn,
         etab,
         demande,
-        "piece_detruite",
-        Some(&format!("{} pièce(s)", pieces.len())),
+        "numero_attribue",
+        Some("demande confirmée : numéro attribué"),
         Some(acteur),
         Some(role),
     )
-    .await?;
-    Ok(pieces.len())
+    .await
+}
+
+/// F8 — la pièce d'identité référencée est un `ent_doc_piece` **de cet établissement** (404 neutre sinon),
+/// de type « pièce d'identité », encore détenu, jamais déjà référencé par une demande, et dont aucun objet
+/// n'est partagé avec une autre pièce (sa destruction ne doit priver aucun dossier de son fichier).
+async fn valider_piece(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    piece: Uuid,
+) -> Result<(), EntDbError> {
+    let r: Option<(String, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT type_code, etat, cle_objet_original, cle_objet_servi FROM ent_doc_piece
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(piece)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some((type_code, etat, original, servi)) = r else {
+        return Err(EntDbError::Domain(DomainError::NotFound));
+    };
+    if type_code != "piece_identite" {
+        return Err(invalide("ce document n'est pas une pièce d'identité"));
+    }
+    if etat == "retiree" {
+        return Err(invalide("cette pièce a été retirée"));
+    }
+    let deja: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM rgp_demande_identite
+                         WHERE etablissement_id = $1 AND piece_document_id = $2)",
+    )
+    .bind(etab)
+    .bind(piece)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if deja {
+        return Err(EntDbError::ConflitDossier(
+            "cette pièce est déjà rattachée à une demande",
+        ));
+    }
+    let mut cles = vec![original];
+    cles.extend(servi);
+    if objet_partage(conn, etab, piece, &cles).await? {
+        return Err(EntDbError::ConflitDossier(
+            "le fichier de cette pièce sert aussi à un autre dossier : il ne peut pas être détruit",
+        ));
+    }
+    Ok(())
+}
+
+/// L'un de ces objets sert-il à une **autre** pièce de l'établissement ?
+async fn objet_partage(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    piece: Uuid,
+    cles: &[String],
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_doc_piece q
+                         WHERE q.etablissement_id = $1 AND q.id <> $2
+                           AND (q.cle_objet_original = ANY($3) OR q.cle_objet_servi = ANY($3)))",
+    )
+    .bind(etab)
+    .bind(piece)
+    .bind(cles)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
+}
+
+/// Une vérification d'identité **et** de qualité compatible est-elle au dossier ? (M1)
+async fn identite_etablie(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM rgp_demande_identite
+                         WHERE etablissement_id = $1 AND demande_id = $2 AND resultat = 'verifiee')",
+    )
+    .bind(etab)
+    .bind(demande)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)
 }
 
 struct Insertion<'a> {
     canal: &'a str,
     recue_le: NaiveDate,
     jour: NaiveDate,
+    /// Attribue le numéro officiel (compteur de l'établissement). Faux pour un dépôt public non confirmé.
+    avec_numero: bool,
+    contact_normalise: Option<&'a str>,
     demandeur_compte_id: Option<Uuid>,
     demandeur_personne_id: Option<Uuid>,
     demandeur_nom_saisi: Option<&'a str>,
@@ -2477,6 +3335,21 @@ struct Insertion<'a> {
     cree_par: Option<Uuid>,
 }
 
+/// Numéro suivant du compteur de l'établissement pour l'année : à n'appeler que dans la transaction qui
+/// enregistre la demande (une annulation ne consomme rien).
+async fn numero_suivant(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    annee: i32,
+) -> Result<i32, EntDbError> {
+    sqlx::query_scalar("SELECT rgp_demande_numero_suivant($1, $2)")
+        .bind(etab)
+        .bind(annee)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)
+}
+
 /// Insère la demande, son numéro (compteur de l'année de **réception**, pour que la référence suive l'année
 /// du courrier) et ses droits. Tout vit dans la transaction de l'appelant : une annulation ne consomme pas
 /// de numéro (« sans trou visible »).
@@ -2485,21 +3358,22 @@ async fn inserer(
     etab: Uuid,
     i: Insertion<'_>,
 ) -> Result<Uuid, EntDbError> {
-    let annee = i.recue_le.year();
-    let numero: i32 = sqlx::query_scalar("SELECT rgp_demande_numero_suivant($1, $2)")
-        .bind(etab)
-        .bind(annee)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
+    let (annee, numero) = if i.avec_numero {
+        let annee = i.recue_le.year();
+        let numero = numero_suivant(&mut *conn, etab, annee).await?;
+        (Some(annee), Some(numero))
+    } else {
+        (None, None)
+    };
     let id = Uuid::new_v4();
     let echeance = echeance_legale(i.recue_le);
     sqlx::query(
         "INSERT INTO rgp_demande
              (id, etablissement_id, annee, numero, canal, recue_le, echeance_le, demandeur_compte_id,
               demandeur_personne_id, demandeur_nom_saisi, demandeur_contact, qualite, sujet_type, sujet_id,
-              sujet_nom_saisi, perimetre_texte, perimetre_du, perimetre_au, etat, cree_par_compte_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+              sujet_nom_saisi, perimetre_texte, perimetre_du, perimetre_au, etat, cree_par_compte_id,
+              demandeur_contact_normalise)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
     )
     .bind(id)
     .bind(etab)
@@ -2521,6 +3395,7 @@ async fn inserer(
     .bind(i.perimetre_au)
     .bind(i.etat)
     .bind(i.cree_par)
+    .bind(i.contact_normalise)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
@@ -2609,7 +3484,9 @@ async fn charger(
     .collect();
     let identites: Vec<IdentiteVue> = sqlx::query(
         "SELECT mode, resultat, qualite_constatee, qualite_note, verifie_le,
-                (piece_document_id IS NOT NULL) AS piece_detenue, piece_detruite_le
+                (piece_document_id IS NOT NULL) AS piece_detenue,
+                (piece_document_id IS NOT NULL AND piece_destruction_demandee_le IS NOT NULL) AS destruction_en_attente,
+                piece_detruite_le
            FROM rgp_demande_identite
           WHERE etablissement_id = $1 AND demande_id = $2 ORDER BY cree_le",
     )
@@ -2626,6 +3503,7 @@ async fn charger(
         qualite_note: r.get("qualite_note"),
         verifie_le: r.get("verifie_le"),
         piece_detenue: r.get("piece_detenue"),
+        destruction_en_attente: r.get("destruction_en_attente"),
         piece_detruite_le: r.get("piece_detruite_le"),
     })
     .collect();
@@ -2650,7 +3528,7 @@ async fn charger(
     let restants = (eff - jour).num_days();
     Ok(DemandeVue {
         id: b.id,
-        reference: reference(b.annee, b.numero),
+        reference: reference_de(b.annee, b.numero),
         canal: b.canal.clone(),
         recue_le: b.recue_le,
         saisie_le: b.cree_le,
@@ -2685,6 +3563,12 @@ async fn charger(
         titulaires_informes_le: b.titulaires_informes_le,
         titulaires_non_informes_motif: b.titulaires_non_informes_motif.clone(),
         piece_a_detruire: identites.iter().any(|i| i.piece_detenue),
+        destruction_en_attente: identites.iter().any(|i| i.destruction_en_attente),
+        identite_arbitrage_code: b.identite_arbitrage_code.clone(),
+        titulaires_a_decider: ouverte(&b.etat)
+            && b.qualite == "eleve_mineur"
+            && b.titulaires_informes_le.is_none()
+            && b.titulaires_non_informes_motif.is_none(),
         droits,
         identites,
         journal,
@@ -2733,11 +3617,57 @@ mod tests {
     }
 
     #[test]
+    fn contact_normalise_rend_les_ecritures_equivalentes() {
+        // Casse, espaces et étiquette « +xxx » : un seul contact.
+        let a = normaliser_contact("Marie.Dupont@Exemple.TEST");
+        assert_eq!(a, "marie.dupont@exemple.test");
+        assert_eq!(normaliser_contact("  marie.dupont+spam1@exemple.test "), a);
+        assert_eq!(normaliser_contact("MARIE.DUPONT+x@exemple.test"), a);
+        // Téléphone : mêmes chiffres, préfixe international ramené au 0 national.
+        assert_eq!(normaliser_contact("06 12 34 56 78"), "0612345678");
+        assert_eq!(normaliser_contact("+33 6 12 34 56 78"), "0612345678");
+        assert_eq!(normaliser_contact("0033612345678"), "0612345678");
+        assert_eq!(normaliser_contact("06.12.34.56.78"), "0612345678");
+        // Un texte libre (courrier postal) reste un texte, sans espace ni casse.
+        assert_eq!(normaliser_contact("Courrier Postal"), "courrierpostal");
+    }
+
+    #[test]
+    fn qualite_compatible_ne_laisse_passer_que_le_lien_confirme() {
+        use QualiteConstatee::*;
+        assert!(qualite_compatible("titulaire_autorite", Confirmee).is_ok());
+        for (c, code) in [
+            (ConfirmeeSansAutorite, "sans_autorite"),
+            (Restreinte, "restreinte"),
+            (Absente, "absente"),
+            (NonVerifiable, "non_verifiable"),
+            (SansObjet, "non_verifiable"),
+        ] {
+            assert_eq!(
+                qualite_compatible("titulaire_autorite", c),
+                Err(code),
+                "{c:?} n'est jamais « identité vérifiée » pour un titulaire"
+            );
+        }
+        // Les qualités « pour soi » n'ont rien à constater.
+        for q in ["soi_meme", "eleve_mineur", "personnel", "ancien_eleve"] {
+            assert!(qualite_compatible(q, SansObjet).is_ok(), "{q}");
+        }
+        // Mandat, tutelle, tiers : toujours arbitrés (valeur prudente D-069).
+        for q in ["mandataire", "tiers", "parent_sans_autorite", "representant_majeur_protege"] {
+            assert!(qualite_compatible(q, Confirmee).is_err(), "{q}");
+        }
+    }
+
+    #[test]
     fn reference_lisible() {
         assert_eq!(reference(2027, 14), "2027-014");
         assert_eq!(reference(2027, 1), "2027-001");
         // Au-delà de 999, le numéro n'est pas tronqué.
         assert_eq!(reference(2027, 1234), "2027-1234");
+        // Une demande sans numéro (dépôt public non confirmé) ne porte pas de numéro officiel.
+        assert_eq!(reference_de(None, None), REFERENCE_SANS_NUMERO);
+        assert_eq!(reference_de(Some(2027), Some(14)), "2027-014");
     }
 
     #[test]
@@ -2832,8 +3762,8 @@ mod tests {
     fn brut_test() -> Brut {
         Brut {
             id: Uuid::nil(),
-            annee: 2027,
-            numero: 1,
+            annee: Some(2027),
+            numero: Some(1),
             canal: "en_ligne".into(),
             recue_le: NaiveDate::from_ymd_opt(2027, 3, 3).unwrap(),
             echeance_le: NaiveDate::from_ymd_opt(2027, 4, 3).unwrap(),
@@ -2860,6 +3790,7 @@ mod tests {
             refus_motif: None,
             titulaires_informes_le: None,
             titulaires_non_informes_motif: None,
+            identite_arbitrage_code: None,
             cree_le: DateTime::from_timestamp(1_800_000_000, 0).unwrap(),
         }
     }

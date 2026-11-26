@@ -106,6 +106,7 @@ pub fn libelle_qualite_constatee(q: &str) -> &'static str {
         "confirmee_sans_autorite" => "Lien confirmé, sans exercice de l'autorité",
         "restreinte" => "Protection au dossier : arbitrage de la direction",
         "absente" => "Aucun lien à la date de la demande",
+        "non_verifiable" => "Qualité non vérifiable : pièce ou mandat à apprécier",
         "sans_objet" => "Sans objet (la personne demande pour elle-même)",
         _ => "Qualité inconnue",
     }
@@ -127,7 +128,14 @@ pub fn libelle_evenement(e: &str) -> &'static str {
         "close" => "Clôturée",
         "refusee" => "Refusée",
         "rouverte" => "Rouverte",
+        "piece_destruction_demandee" => "Destruction de la pièce demandée",
+        "piece_destruction_en_attente" => "Destruction de la pièce en attente",
         "piece_detruite" => "Pièce d'identité détruite",
+        "numero_attribue" => "Numéro attribué",
+        "sujet_rapproche" => "Rapprochement d'un dossier",
+        "identite_a_arbitrer" => "Qualité à arbitrer",
+        "identite_arbitree" => "Qualité arbitrée par la direction",
+        "decision_sans_identite" => "Décision prise sans identité établie (direction)",
         "accuse_envoye" => "Accusé de réception envoyé",
         "echeance_alertee" => "Alerte d'échéance",
         _ => "Événement",
@@ -285,6 +293,26 @@ pub fn depot_complet(qualite: &str, sujet_id_renseigne: bool, droits: &[String])
         "titulaire_autorite" => sujet_id_renseigne,
         _ => true,
     }
+}
+
+/// Référence de la pièce d'identité saisie au guichet (F7) : vide → aucune ; un identifiant valide →
+/// la pièce ; autre chose → `Err` (on n'envoie pas une référence qu'on sait fausse). Le serveur valide
+/// ensuite que c'est bien une pièce d'identité de l'établissement.
+pub fn piece_depuis_texte(texte: &str) -> Result<Option<uuid::Uuid>, ()> {
+    let t = texte.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    uuid::Uuid::parse_str(t).map(Some).map_err(|_| ())
+}
+
+/// Un dépôt **public** (sans compte) est-il complet ? Nom, moyen de contact, personne concernée et au moins
+/// un droit : le serveur borne ensuite les tailles et les qualités.
+pub fn depot_public_complet(nom: &str, contact: &str, personne: &str, droits: &[String]) -> bool {
+    nom.trim().chars().count() >= 2
+        && contact.trim().chars().count() >= 3
+        && personne.trim().chars().count() >= 2
+        && !droits.is_empty()
 }
 
 /// Journal du plus récent au plus ancien (le guichet lit d'abord ce qui vient de se passer).
@@ -511,7 +539,44 @@ mod tests {
             identites: vec![],
             journal: vec![],
             piece_a_detruire: false,
+            destruction_en_attente: false,
+            identite_arbitrage_code: None,
+            titulaires_a_decider: false,
         }
+    }
+
+    #[test]
+    fn reference_de_piece_saisie() {
+        assert_eq!(piece_depuis_texte("  "), Ok(None));
+        let id = uuid::Uuid::new_v4();
+        assert_eq!(piece_depuis_texte(&format!(" {id} ")), Ok(Some(id)));
+        assert_eq!(piece_depuis_texte("pas un identifiant"), Err(()));
+    }
+
+    #[test]
+    fn depot_public_exige_nom_contact_personne_et_droit() {
+        let d = vec!["acces".to_string()];
+        assert!(depot_public_complet("Marie Dupont", "marie@exemple.test", "Léa Dupont", &d));
+        assert!(!depot_public_complet("M", "marie@exemple.test", "Léa Dupont", &d));
+        assert!(!depot_public_complet("Marie Dupont", "", "Léa Dupont", &d));
+        assert!(!depot_public_complet("Marie Dupont", "marie@exemple.test", " ", &d));
+        assert!(!depot_public_complet("Marie Dupont", "marie@exemple.test", "Léa Dupont", &[]));
+    }
+
+    #[test]
+    fn libelles_des_evenements_du_correctif() {
+        for e in [
+            "piece_destruction_demandee",
+            "piece_destruction_en_attente",
+            "numero_attribue",
+            "sujet_rapproche",
+            "identite_a_arbitrer",
+            "identite_arbitree",
+            "decision_sans_identite",
+        ] {
+            assert_ne!(libelle_evenement(e), "Événement", "{e}");
+        }
+        assert_ne!(libelle_qualite_constatee("non_verifiable"), "Qualité inconnue");
     }
 
     #[test]

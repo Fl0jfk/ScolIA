@@ -44,7 +44,9 @@ async fn demande_guichet(ent: &PgEnt, cast: &LaboCast) -> (Uuid, chrono::NaiveDa
                 demandeur_personne_id: None,
                 demandeur_nom_saisi: Some("Famille Granger"),
                 demandeur_contact: Some("courrier postal"),
-                qualite: "titulaire_autorite",
+                // « soi_meme » : rien à constater par un lien familial (une qualité de titulaire, sans compte
+                // ni fiche rapprochée, est « non vérifiable » et passe par l'arbitrage, E2).
+                qualite: "soi_meme",
                 sujet_type: "eleve",
                 sujet_id: Some(cast.eleve_lea_id),
                 sujet_nom_saisi: None,
@@ -337,10 +339,12 @@ async fn g3a_depot_connecte_accuse_sans_nom_d_eleve() {
     assert_eq!(v.identites.len(), 1);
     assert_eq!(v.identites[0].mode, "session_forte");
     assert_eq!(v.identites[0].resultat, "verifiee");
-    assert!(matches!(
+    // E2 : un dépôt en ligne ne produit « identité vérifiée » que pour une qualité compatible.
+    assert_eq!(
         v.identites[0].qualite_constatee.as_deref(),
-        Some("confirmee" | "confirmee_sans_autorite" | "restreinte")
-    ));
+        Some("confirmee"),
+        "seule une qualité confirmée est vérifiée en ligne"
+    );
     // Accusé de réception : date, échéance, et aucun nom d'élève.
     let avis: Vec<(String, String)> = sqlx::query_as(
         "SELECT titre, corps FROM ent_notification
@@ -425,11 +429,9 @@ async fn g3a_depot_connecte_qualites_refusees() {
             depot("titulaire_autorite", Some(cast.eleve_tom_id), "eleve"),
         )
         .await;
-    assert!(
-        matches!(r, Err(EntDbError::Forbidden)),
-        "aucun lien à la date : refus"
-    );
-    // Sujet inexistant dans cet établissement : introuvable (rien ne dit qu'il existe ailleurs).
+    let sans_lien = r.expect_err("aucun lien à la date : refus");
+    // Sujet inexistant dans cet établissement : **même** refus (F1) — ni « interdit » pour un élève qui
+    // existe, ni « introuvable » pour un autre : le déposant n'apprend rien sur l'existence d'un dossier.
     let r = ent
         .droits_deposer_connecte(
             etab,
@@ -438,10 +440,16 @@ async fn g3a_depot_connecte_qualites_refusees() {
             depot("titulaire_autorite", Some(Uuid::new_v4()), "eleve"),
         )
         .await;
-    assert!(matches!(
-        r,
-        Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
-    ));
+    let inexistant = r.expect_err("sujet inexistant : refus");
+    assert!(
+        matches!(sans_lien, EntDbError::SaisieInvalide(m) if m == crate::droits_demandes::ORIENTER_GUICHET),
+        "aucun lien : message d'orientation unique, obtenu {sans_lien:?}"
+    );
+    assert_eq!(
+        format!("{sans_lien:?}"),
+        format!("{inexistant:?}"),
+        "F1 : élève existant sans lien et élève inexistant donnent le même refus"
+    );
     // Droit inconnu, et liste vide.
     let r = ent
         .droits_deposer_connecte(
@@ -510,9 +518,9 @@ async fn g3a_qualite_pour_soi_ne_vaut_que_sur_soi() {
         matches!(
             ent.droits_deposer_connecte(etab, parent, "parent", depot(Some(autre), "personne"))
                 .await,
-            Err(EntDbError::Forbidden)
+            Err(EntDbError::SaisieInvalide(_))
         ),
-        "« pour moi-même » sur la fiche d'un autre : refusé"
+        "« pour moi-même » sur la fiche d'un autre : refusé, message d'orientation (F1)"
     );
     // Et sur un élève qui n'est pas le compte : refusé aussi.
     assert!(matches!(
@@ -523,7 +531,7 @@ async fn g3a_qualite_pour_soi_ne_vaut_que_sur_soi() {
             depot(Some(cast.eleve_lea_id), "eleve")
         )
         .await,
-        Err(EntDbError::Forbidden)
+        Err(EntDbError::SaisieInvalide(_))
     ));
     // Un élève qui invoque « élève mineur » sur un autre élève : refusé.
     let eleve = cast
@@ -554,7 +562,7 @@ async fn g3a_qualite_pour_soi_ne_vaut_que_sur_soi() {
                 }
             )
             .await,
-            Err(EntDbError::Forbidden)
+            Err(EntDbError::SaisieInvalide(_))
         ),
         "un élève ne demande pas les données d'un autre élève"
     );
@@ -794,7 +802,7 @@ async fn g3a_identite_tracee_et_piece_detruite_a_la_cloture() {
             .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    let piece = Uuid::new_v4();
+    let (piece, _, _) = crate::tests_rgpd_g3a_correctifs::piece_identite(&ent, &cast).await;
     let v = ent
         .droits_verifier_identite(
             etab,
@@ -1021,7 +1029,10 @@ async fn g3a_qualification_motivee_et_decisions_par_droit() {
             .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    // Accorder : `droits.traiter` suffit.
+    // Accorder : `droits.traiter` suffit, une fois l'identité et la qualité établies (M1).
+    ent.droits_verifier_identite(etab, dir, DIR, id, "code_courriel", true, None, None)
+        .await
+        .unwrap();
     let v = ent
         .droits_decider(etab, adf, ADF, id, "acces", "accorde", Some("art15"), None)
         .await
@@ -1082,8 +1093,17 @@ async fn g3a_qualification_motivee_et_decisions_par_droit() {
     assert!(e.motif_texte.is_some());
     // Un droit qui n'a pas été demandé ne se décide pas.
     assert!(matches!(
-        ent.droits_decider(etab, dir, DIR, id, "portabilite", "sans_objet", None, None)
-            .await,
+        ent.droits_decider(
+            etab,
+            dir,
+            DIR,
+            id,
+            "portabilite",
+            "sans_objet",
+            Some("hors_champ"),
+            Some("droit non demandé"),
+        )
+        .await,
         Err(EntDbError::Domain(domain_eleve::DomainError::NotFound))
     ));
 }
@@ -1103,6 +1123,9 @@ async fn g3a_cloture_leve_le_gel_et_reouverture_garde_l_horloge() {
         .await
         .unwrap();
     assert!(gelees.contains(&id), "la demande ouverte gèle le sujet");
+    ent.droits_verifier_identite(etab, dir, DIR, id, "code_courriel", true, None, None)
+        .await
+        .unwrap();
     ent.droits_decider(etab, dir, DIR, id, "acces", "accorde", None, None)
         .await
         .unwrap();

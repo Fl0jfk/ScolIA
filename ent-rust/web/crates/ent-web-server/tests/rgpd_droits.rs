@@ -97,6 +97,22 @@ async fn saisie_d_un_courrier_etiquetee_et_explicite() {
     );
 }
 
+/// F7 — la page de dépôt **sans compte** est publique : hors coquille (ni navigation ni lien vers
+/// l'ENT), elle annonce que la pièce d'identité est consultée puis détruite et ne confirme rien.
+#[tokio::test]
+async fn page_publique_de_depot_sans_compte_hors_coquille() {
+    let base = demarrer().await;
+    let page = html(&base, "/web/demande-droits").await;
+    assert!(page.contains("Exercer mes droits sur mes données"));
+    assert!(page.contains("Je suis un ancien élève"));
+    assert!(page.contains("consultée puis détruite"));
+    assert!(
+        !page.contains("Navigation principale"),
+        "page publique : hors de la coquille de l'ENT"
+    );
+    assert!(!page.contains("Granger") && !page.contains("2027-0"));
+}
+
 /// Le dépôt par la personne annonce le masquage des tiers (R-RG15, art. 15.4) et ne promet rien
 /// d'autre.
 #[tokio::test]

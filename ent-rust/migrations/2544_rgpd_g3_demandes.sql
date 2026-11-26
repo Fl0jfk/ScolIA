@@ -69,15 +69,19 @@ CREATE TABLE IF NOT EXISTS rgp_demande (
     id UUID PRIMARY KEY,
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
-    -- Numéro lisible par l'usager : « 2027-014 ». Unique par établissement et par année.
-    annee INT NOT NULL CHECK (annee BETWEEN 2000 AND 2999),
-    numero INT NOT NULL CHECK (numero > 0),
+    -- Numéro lisible par l'usager : « 2027-014 ». Unique par établissement et par année. **Attribué
+    -- seulement à une demande confirmée** : un dépôt public sans compte n'en reçoit pas tant que le guichet
+    -- n'a pas repris contact et vérifié l'identité (le spam ne consomme ni numéro officiel ni compteur).
+    annee INT CHECK (annee BETWEEN 2000 AND 2999),
+    numero INT CHECK (numero > 0),
 
     -- Entrée (§9.1). `dpo` et `cnil` : demande transmise par le DPO ou par l'autorité.
     canal TEXT NOT NULL CHECK (canal IN ('en_ligne', 'courrier', 'courriel', 'guichet', 'dpo', 'cnil')),
     -- Jour de RÉCEPTION : fait courir le délai (art. 12.3). Pour une demande saisie au guichet, c'est la date
     -- du courrier reçu, qui peut précéder la saisie (`cree_le`) : RGP-303 compare les deux.
     recue_le DATE NOT NULL,
+    -- Contact normalisé du dépôt public (minuscules, sans espace ni « +étiquette ») : sert l'anti-abus.
+    demandeur_contact_normalise TEXT,
     -- Échéance légale d'un mois, calculée au jour de l'établissement par le code (jamais `now()` ici).
     echeance_le DATE NOT NULL,
     -- Prolongation de deux mois au plus (art. 12.3), toujours motivée.
@@ -142,11 +146,22 @@ CREATE TABLE IF NOT EXISTS rgp_demande (
     titulaires_non_informes_motif TEXT
         CHECK (titulaires_non_informes_motif IS NULL OR length(btrim(titulaires_non_informes_motif)) BETWEEN 3 AND 1000),
 
+    -- Identité ou qualité à arbitrer par la direction (`droits.arbitrer`) : le demandeur est identifié mais
+    -- sa qualité n'est pas compatible avec ce qu'il invoque (autorité parentale absente, dossier protégé,
+    -- qualité non vérifiable). Valeur prudente (D-069) : la demande reste en `identite_a_verifier`, rien
+    -- n'est décidé en faveur du demandeur tant que la direction n'a pas tranché. Le motif est un code
+    -- neutre : il ne révèle jamais la protection au dossier.
+    identite_arbitrage BOOLEAN NOT NULL DEFAULT false,
+    identite_arbitrage_code TEXT CHECK (identite_arbitrage_code IS NULL
+        OR identite_arbitrage_code IN ('sans_autorite', 'restreinte', 'absente', 'non_verifiable')),
+
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     cree_par_compte_id UUID REFERENCES ent_user (id),
     modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT rgp_demande_numero_uq UNIQUE (etablissement_id, annee, numero),
+    CONSTRAINT rgp_demande_numero_complet CHECK ((annee IS NULL) = (numero IS NULL)),
+    CONSTRAINT rgp_demande_annee_reception CHECK (annee IS NULL OR annee = EXTRACT(YEAR FROM recue_le)::int),
     CONSTRAINT rgp_demande_personne_fk FOREIGN KEY (etablissement_id, demandeur_personne_id)
         REFERENCES ent_personne (etablissement_id, id),
     CONSTRAINT rgp_demande_gestionnaire_fk FOREIGN KEY (etablissement_id, gestionnaire_personne_id)
@@ -180,6 +195,8 @@ CREATE TABLE IF NOT EXISTS rgp_demande (
     CONSTRAINT rgp_demande_refus_motive CHECK (etat <> 'refusee' OR refus_motif IS NOT NULL),
     CONSTRAINT rgp_demande_affectation_coherente CHECK (
         (gestionnaire_personne_id IS NULL) = (affectee_le IS NULL)),
+    CONSTRAINT rgp_demande_arbitrage_coherent CHECK (
+        identite_arbitrage = (identite_arbitrage_code IS NOT NULL)),
     CONSTRAINT rgp_demande_titulaires_exclusif CHECK (
         titulaires_informes_le IS NULL OR titulaires_non_informes_motif IS NULL)
 );
@@ -194,6 +211,10 @@ CREATE INDEX IF NOT EXISTS rgp_demande_file_idx
 CREATE INDEX IF NOT EXISTS rgp_demande_sujet_idx
     ON rgp_demande (etablissement_id, sujet_type, sujet_id) WHERE sujet_id IS NOT NULL;
 -- Suivi côté demandeur (RGP-155).
+-- Anti-abus du dépôt public : même contact normalisé, mêmes jours.
+CREATE INDEX IF NOT EXISTS rgp_demande_contact_idx
+    ON rgp_demande (etablissement_id, demandeur_contact_normalise, recue_le)
+    WHERE demandeur_contact_normalise IS NOT NULL;
 CREATE INDEX IF NOT EXISTS rgp_demande_demandeur_idx
     ON rgp_demande (etablissement_id, demandeur_compte_id) WHERE demandeur_compte_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS rgp_demande_gestionnaire_idx
@@ -235,16 +256,23 @@ CREATE TABLE IF NOT EXISTS rgp_demande_identite (
     demande_id UUID NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('session_forte', 'code_courriel', 'piece', 'mandat')),
     -- Résultat de la vérification : `verifiee`, `echouee` (réponse motivée « nous ne pouvons pas vous
-    -- identifier »), ou `attendue` (précision demandée, rien reçu).
+    -- identifier »), `attendue` (précision demandée, rien reçu), ou `a_arbitrer` (la personne est identifiée
+    -- mais sa qualité n'est pas compatible avec celle qu'elle invoque : jamais « identité vérifiée »).
     resultat TEXT NOT NULL DEFAULT 'attendue'
-        CHECK (resultat IN ('attendue', 'verifiee', 'echouee')),
+        CHECK (resultat IN ('attendue', 'verifiee', 'echouee', 'a_arbitrer')),
     -- Qualité constatée par le socle 4 À LA DATE de réception (lien actif, autorité, restriction).
     qualite_constatee TEXT CHECK (qualite_constatee IS NULL OR qualite_constatee IN (
-        'confirmee', 'confirmee_sans_autorite', 'restreinte', 'absente', 'sans_objet')),
+        'confirmee', 'confirmee_sans_autorite', 'restreinte', 'absente', 'non_verifiable', 'sans_objet')),
     qualite_note TEXT CHECK (qualite_note IS NULL OR length(btrim(qualite_note)) BETWEEN 3 AND 1000),
     -- Pièce consultée : document du coffre (socle 7), **détruit à la clôture** (R-RG16). Après destruction,
     -- la colonne est nulle et `piece_detruite_le` dit quand : la mention de la vérification subsiste seule.
+    -- C'est un `ent_doc_piece` de l'établissement, de type « pièce d'identité » (validé par le service).
     piece_document_id UUID,
+    -- Destruction **demandée** à la clôture (durable, dans la transaction) puis **exécutée** par le service
+    -- de suppression du socle 7 (objet du magasin, registre) : tant qu'elle ne l'est pas, la pièce reste
+    -- référencée et l'écran dit « destruction en attente » ; une tâche la rejoue.
+    piece_destruction_demandee_le TIMESTAMPTZ,
+    piece_destruction_tentatives INT NOT NULL DEFAULT 0 CHECK (piece_destruction_tentatives >= 0),
     piece_detruite_le TIMESTAMPTZ,
     verifie_par_compte_id UUID REFERENCES ent_user (id),
     verifie_le TIMESTAMPTZ,
@@ -255,14 +283,23 @@ CREATE TABLE IF NOT EXISTS rgp_demande_identite (
         (resultat = 'attendue') = (verifie_le IS NULL)),
     -- Une pièce détruite n'est plus référencée (R-RG16).
     CONSTRAINT rgp_demande_identite_piece_detruite CHECK (
-        piece_detruite_le IS NULL OR piece_document_id IS NULL)
+        piece_detruite_le IS NULL OR piece_document_id IS NULL),
+    CONSTRAINT rgp_demande_identite_piece_fk FOREIGN KEY (etablissement_id, piece_document_id)
+        REFERENCES ent_doc_piece (etablissement_id, id) ON DELETE RESTRICT
 );
+-- Une même pièce ne sert qu'une fois (sa destruction ne doit pas dépendre d'une autre demande).
+CREATE UNIQUE INDEX IF NOT EXISTS rgp_demande_identite_piece_uq
+    ON rgp_demande_identite (etablissement_id, piece_document_id) WHERE piece_document_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS rgp_demande_identite_demande_idx
     ON rgp_demande_identite (etablissement_id, demande_id, cree_le DESC);
--- Une pièce encore détenue, par demande : la clôture les parcourt pour les détruire.
+-- Une pièce encore détenue, par demande : la clôture les parcourt pour demander leur destruction.
 CREATE INDEX IF NOT EXISTS rgp_demande_identite_piece_idx
     ON rgp_demande_identite (etablissement_id, demande_id)
     WHERE piece_document_id IS NOT NULL;
+-- Destructions demandées et pas encore exécutées : la tâche de reprise les parcourt.
+CREATE INDEX IF NOT EXISTS rgp_demande_identite_destruction_idx
+    ON rgp_demande_identite (etablissement_id, piece_destruction_demandee_le)
+    WHERE piece_document_id IS NOT NULL AND piece_destruction_demandee_le IS NOT NULL;
 
 -- ───────────────────────── Journal des transitions (R-RG40, ajout seul) ─────────────────────────
 CREATE TABLE IF NOT EXISTS rgp_demande_journal (
@@ -273,7 +310,9 @@ CREATE TABLE IF NOT EXISTS rgp_demande_journal (
     evenement TEXT NOT NULL CHECK (evenement IN (
         'recue', 'qualifiee', 'identite_demandee', 'identite_verifiee', 'identite_echouee',
         'affectee', 'prolongee', 'droit_ajoute', 'droit_decide', 'titulaires_informes',
-        'close', 'refusee', 'rouverte', 'piece_detruite', 'accuse_envoye', 'echeance_alertee')),
+        'close', 'refusee', 'rouverte', 'piece_destruction_demandee', 'piece_destruction_en_attente',
+        'piece_detruite', 'accuse_envoye', 'echeance_alertee', 'numero_attribue', 'sujet_rapproche',
+        'identite_a_arbitrer', 'identite_arbitree', 'decision_sans_identite')),
     -- Détail court et neutre : jamais une donnée d'élève, jamais le contenu d'un extrait (E14, R-RG32).
     detail TEXT CHECK (detail IS NULL OR length(btrim(detail)) BETWEEN 1 AND 1000),
     par_compte_id UUID,
@@ -311,9 +350,10 @@ BEGIN
         RAISE EXCEPTION 'rgp_demande : suppression interdite (conservation rgpd.demande)'
             USING ERRCODE = '42501';
     END IF;
+    -- Le numéro ne se pose qu'une fois (NULL → valeur, à la confirmation d'un dépôt public) puis ne bouge plus.
     IF NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
-       OR NEW.annee IS DISTINCT FROM OLD.annee
-       OR NEW.numero IS DISTINCT FROM OLD.numero
+       OR (OLD.annee IS NOT NULL AND NEW.annee IS DISTINCT FROM OLD.annee)
+       OR (OLD.numero IS NOT NULL AND NEW.numero IS DISTINCT FROM OLD.numero)
        OR NEW.recue_le IS DISTINCT FROM OLD.recue_le
        OR NEW.canal IS DISTINCT FROM OLD.canal
        OR NEW.cree_le IS DISTINCT FROM OLD.cree_le THEN

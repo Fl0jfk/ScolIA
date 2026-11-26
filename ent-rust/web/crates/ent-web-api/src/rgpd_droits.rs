@@ -1,7 +1,7 @@
 //! Socle 27, lot G3a : guichet des demandes de droits. Routes `/rgpd/*` d'`ent-api` ; types
 //! d'`ent-types::rgpd_droits`.
 //!
-//! Le dépôt **sans compte** n'est pas appelé ici : il vit sur une page publique, sans session.
+//! Le dépôt **sans compte** (`rgpd_deposer_public`) est appelé depuis une page publique, sans session.
 
 use ent_types::rgpd_droits::*;
 use uuid::Uuid;
@@ -178,6 +178,40 @@ impl ApiClient {
             corps(b)?,
         )
         .await
+    }
+
+    /// `POST /rgpd/demandes/{id}/identite/arbitrage` : la direction tranche une qualité non compatible.
+    pub async fn rgpd_arbitrer_identite(
+        &self,
+        id: Uuid,
+        b: &ArbitrageIdentiteBody,
+    ) -> Result<DemandeDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/rgpd/demandes/{id}/identite/arbitrage"),
+            corps(b)?,
+        )
+        .await
+    }
+
+    /// `POST /rgpd/demandes/{id}/rapprochement` : rapproche le sujet et/ou la fiche du demandeur.
+    pub async fn rgpd_rapprocher(
+        &self,
+        id: Uuid,
+        b: &RapprochementBody,
+    ) -> Result<DemandeDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/rgpd/demandes/{id}/rapprochement"),
+            corps(b)?,
+        )
+        .await
+    }
+
+    /// `POST /rgpd/demandes/sans-compte` : dépôt **public**, sans session. La réponse est invariable.
+    pub async fn rgpd_deposer_public(&self, b: &DepotPublicBody) -> Result<DepotPublicDto, ApiError> {
+        self.appel(Methode::Post, "/rgpd/demandes/sans-compte", corps(b)?)
+            .await
     }
 
     /// `POST /rgpd/mes-demandes` : dépôt par le demandeur connecté.

@@ -68,6 +68,8 @@ pub fn App() -> impl IntoView {
                 // Parcours famille sans compte (S2-3) : publics, hors coquille.
                 <Route path=path!("/web/preinscription") view=modules::inscriptions::PagePreinscription/>
                 <Route path=path!("/web/invitation") view=modules::inscriptions::PageInvitation/>
+                // Socle 27, lot G3a (F7) : dépôt d'une demande de droits sans compte, public, hors coquille.
+                <Route path=path!("/web/demande-droits") view=modules::rgpd_droits::PageDemandeDroitsPublique/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("a-faire") view=modules::afaire::PageAFaire/>
