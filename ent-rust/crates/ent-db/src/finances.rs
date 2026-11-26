@@ -1806,10 +1806,11 @@ struct LignePosee {
 /// `(groupe, queue)` d'une clé de ligne annuelle : la queue est ce qui suit `{prefixe}:{eleve}:{article}` sans le
 /// suffixe de tronçon (`:m<AAAA-MM>`) ni de complément (`:c<AAAA-MM>`) ; le groupe rassemble la ligne principale d'un
 /// foyer et ses lignes `:suivant:` (un même mois est porté par l'une ou par l'autre, jamais par les deux).
-fn groupe_de_cle(cle: &str, pre: &str) -> Option<(String, String)> {
-    let reste = cle.strip_prefix(pre)?;
+/// Retire le suffixe de mois `:mAAAA-MM` ou `:cAAAA-MM` d'un reste de clé, **seulement si les chiffres y sont** :
+/// un foyer dont l'UUID commence par `c` ou `m` ne doit pas voir sa clé tronquée.
+pub(crate) fn sans_suffixe_mois(reste: &str) -> &str {
     let b = reste.as_bytes();
-    let reste = if reste.len() >= 9
+    if reste.len() >= 9
         && b[0] == b':'
         && (b[1] == b'm' || b[1] == b'c')
         && b[2..6].iter().all(u8::is_ascii_digit)
@@ -1819,7 +1820,11 @@ fn groupe_de_cle(cle: &str, pre: &str) -> Option<(String, String)> {
         &reste[9..]
     } else {
         reste
-    };
+    }
+}
+
+fn groupe_de_cle(cle: &str, pre: &str) -> Option<(String, String)> {
+    let reste = sans_suffixe_mois(cle.strip_prefix(pre)?);
     let groupe = match reste.strip_prefix(":suivant:") {
         Some(origine) => format!(":{}", origine.split(':').next().unwrap_or("")),
         None => reste.to_string(),
@@ -2167,7 +2172,7 @@ async fn garde_periodes(
             }
             let (d2, f2) = (premier_du_mois(debut), calcul::fin_de_mois(premier_du_mois(m - 1).year(), premier_du_mois(m - 1).month()));
             let reste = l.source_cle.strip_prefix(pre.as_str()).unwrap_or("");
-            let reste = if reste.len() >= 9 && matches!(&reste[..2], ":m" | ":c") { &reste[9..] } else { reste };
+            let reste = sans_suffixe_mois(reste);
             let mut c = l.clone();
             c.unitaire = part;
             c.periode = Some((d2, f2));
@@ -2237,8 +2242,7 @@ fn completer_plafonnee(
     }
     let poids: Vec<(usize, i64)> = suivants.iter().enumerate().map(|(i, s)| (i, s.unitaire)).collect();
     let reste_cle = |cle: &str| -> String {
-        let r = cle.strip_prefix(pre).unwrap_or("");
-        if r.len() >= 9 && matches!(&r[..2], ":m" | ":c") { r[9..].to_string() } else { r.to_string() }
+        sans_suffixe_mois(cle.strip_prefix(pre).unwrap_or("")).to_string()
     };
     // mois manquants : principal sous le plafond non consommé, le reste au payeur suivant
     let mut plafond_libre = (i128::from(l.unitaire) - pose_principal).max(0);

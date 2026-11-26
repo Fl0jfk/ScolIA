@@ -116,7 +116,18 @@ async fn eleve(ent: &PgEnt, etab: Uuid, prenom: &str, regime: &str) -> Uuid {
 }
 
 async fn foyer_payeur(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, libelle: &str) -> Uuid {
-    let f = Uuid::new_v4();
+    foyer_payeur_id(ent, etab, eleve, user, libelle, Uuid::new_v4()).await
+}
+
+/// Même foyer payeur, d'identifiant imposé (clés de complément : un UUID qui commence par `c` ou `m`).
+async fn foyer_payeur_id(
+    ent: &PgEnt,
+    etab: Uuid,
+    eleve: Uuid,
+    user: Uuid,
+    libelle: &str,
+    f: Uuid,
+) -> Uuid {
     sqlx::query("INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1, $2, $3)")
         .bind(f)
         .bind(etab)
@@ -4239,6 +4250,31 @@ async fn eleve_pris_en_charge(
     prise: (NaiveDate, NaiveDate),
     suivant: bool,
 ) -> (Uuid, Uuid, Uuid, Uuid) {
+    eleve_pris_en_charge_gen(
+        ent,
+        c,
+        prenom,
+        prise,
+        suivant,
+        "demi_pension",
+        &["restauration"],
+        &["restauration"],
+    )
+    .await
+}
+
+/// Variante : régime de la fiche, catégories de la prise en charge (`toutes` possible) et catégories dont l'organisme
+/// est le payeur désigné (rang 1 ; la famille en rang 2 si `suivant`).
+async fn eleve_pris_en_charge_gen(
+    ent: &PgEnt,
+    c: &LaboCast,
+    prenom: &str,
+    prise: (NaiveDate, NaiveDate),
+    suivant: bool,
+    fiche: &str,
+    categories_prise: &[&str],
+    categories_designees: &[&str],
+) -> (Uuid, Uuid, Uuid, Uuid) {
     let etab = c.etablissement_id;
     let (u, r) = compta(c);
     let org = ent
@@ -4257,7 +4293,7 @@ async fn eleve_pris_en_charge(
         .await
         .unwrap();
     let fm = f2::foyer(ent, etab, &format!("Foyer {prenom}")).await;
-    let el = eleve(ent, etab, prenom, "demi_pension").await;
+    let el = eleve(ent, etab, prenom, fiche).await;
     f2::payeur_compte(ent, etab, el, c.parent_lea.user_id, fm, 100).await;
     let cm = f2::compte_du_foyer(ent, etab, fm).await;
     ent.creer_prise_en_charge_for_actor(
@@ -4270,7 +4306,7 @@ async fn eleve_pris_en_charge(
             reference: format!("PEC-{prenom}"),
             du: prise.0,
             au: prise.1,
-            categories: vec!["restauration".into()],
+            categories: categories_prise.iter().map(|c| (*c).to_string()).collect(),
             plafond_centimes: None,
         },
     )
@@ -4290,25 +4326,27 @@ async fn eleve_pris_en_charge(
             rang: Some(2),
         });
     }
-    ent.designer_payeurs_for_actor(
-        etab,
-        us,
-        rs,
-        el,
-        &DesignerPayeursBody {
-            categorie: "restauration".into(),
-            parts,
-            date_effet: d(2030, 9, 1),
-            piece: Some(PieceBody {
-                nature: "convention_homologuee".into(),
-                reference: "Convention employeur".into(),
-                document_id: Some(f2::document_de(ent, etab, el).await),
-            }),
-            motif: None,
-        },
-    )
-    .await
-    .unwrap();
+    for categorie in categories_designees {
+        ent.designer_payeurs_for_actor(
+            etab,
+            us,
+            rs,
+            el,
+            &DesignerPayeursBody {
+                categorie: (*categorie).to_string(),
+                parts: parts.clone(),
+                date_effet: d(2030, 9, 1),
+                piece: Some(PieceBody {
+                    nature: "convention_homologuee".into(),
+                    reference: "Convention employeur".into(),
+                    document_id: Some(f2::document_de(ent, etab, el).await),
+                }),
+                motif: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
     let (fe,): (Uuid,) = sqlx::query_as("SELECT foyer_id FROM ent_fin_compte WHERE id = $1")
         .bind(org.id)
         .fetch_one(ent.pool_verif())
@@ -7249,4 +7287,281 @@ async fn regime_mois_d2c_aucune_tache_close_sans_part_non_couverte_facturee() {
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
     assert_eq!(lignes_de(&ent, el).await, avant);
+}
+
+// ---------------------------------------------------------------------------
+// Contre-revue du lot « régime mois par mois » : M-1 à M-4
+// ---------------------------------------------------------------------------
+
+/// Somme nette (avoirs compris) des lignes d'une catégorie pour un élève (un avoir porte la catégorie de sa ligne).
+async fn net_categorie(ent: &PgEnt, e: Uuid, categorie: &str) -> i64 {
+    let (t,): (i64,) = sqlx::query_as(
+        "SELECT COALESCE(sum(montant_unitaire_centimes * quantite), 0)::bigint FROM ent_fac_ligne
+          WHERE eleve_id = $1 AND categorie = $2",
+    )
+    .bind(e)
+    .bind(categorie)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    t
+}
+
+/// M-1 : sortie au 10 avril (avoir de 90 € sur mai-juin), puis historique « externe » de décembre à février posé après
+/// coup : les 3 mois de régime (135 €) sont crédités en entier, jamais 45 € (la valeur déjà créditée par la sortie ne
+/// réserve pas deux fois les mois conservés). Net : 450 − 90 − 135 = 225 € ; rejeux neutres.
+#[tokio::test]
+async fn regime_mois_m1_sortie_deja_posee_puis_regime_externe_credite_en_entier() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "M1", "demi_pension").await;
+    facturer(&ent, etab, el).await;
+    sortie_a(&ent, etab, el, d(2031, 4, 10), Uuid::new_v4()).await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        36_000,
+        "sortie : mai et juin crédités"
+    );
+    nouvelle_periode(
+        &ent,
+        etab,
+        el,
+        "demi_pension",
+        d(2030, 1, 1),
+        Some(d(2030, 11, 30)),
+    )
+    .await;
+    nouvelle_periode(
+        &ent,
+        etab,
+        el,
+        "externe",
+        d(2030, 12, 1),
+        Some(d(2031, 2, 28)),
+    )
+    .await;
+    nouvelle_periode(&ent, etab, el, "demi_pension", d(2031, 3, 1), None).await;
+    reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        22_500,
+        "450 € − 90 € (sortie) − 135 € (décembre à février)"
+    );
+    let avant = lignes_de(&ent, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    assert_eq!(net_art(&ent, dp, el).await, 22_500);
+}
+
+/// M-2 (pur) : le suffixe de mois `:mAAAA-MM` / `:cAAAA-MM` n'est retiré que si les chiffres y sont ; un foyer dont
+/// l'UUID commence par `c` ou `m` garde sa clé entière.
+#[test]
+fn regime_mois_m2_suffixe_de_mois_et_uuid_commencant_par_c() {
+    use crate::finances::sans_suffixe_mois;
+    let foyer = "c0ffee00-1111-4222-8333-444455556666";
+    assert_eq!(sans_suffixe_mois(&format!(":{foyer}")), format!(":{foyer}"));
+    assert_eq!(
+        sans_suffixe_mois(&format!(":c2030-12:{foyer}")),
+        format!(":{foyer}")
+    );
+    assert_eq!(
+        sans_suffixe_mois(&format!(":m2031-01:{foyer}")),
+        format!(":{foyer}")
+    );
+    let m = "m0000000-1111-4222-8333-444455556666";
+    assert_eq!(sans_suffixe_mois(&format!(":{m}")), format!(":{m}"));
+    assert_eq!(sans_suffixe_mois(":c2030"), ":c2030");
+}
+
+/// M-2 : un foyer payeur dont l'UUID commence par `c`, aller-retour de régime, puis retour avancé d'un mois (février
+/// redevient dû : ligne de complément `:c…`) : aucune double facturation, rejeux neutres.
+#[tokio::test]
+async fn regime_mois_m2_foyer_dont_l_uuid_commence_par_c_complement_sans_double_facturation() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = eleve(&ent, etab, "M2", "demi_pension").await;
+    let id = Uuid::parse_str(&format!("c{}", &Uuid::new_v4().to_string()[1..])).unwrap();
+    assert!(id.to_string().starts_with('c'));
+    let _ = foyer_payeur_id(&ent, etab, el, c.parent_lea.user_id, "Foyer M2", id).await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    regime_de_a(&ent, etab, el, "demi_pension", "externe", d(2030, 11, 15)).await;
+    regime_de_a(&ent, etab, el, "externe", "demi_pension", d(2031, 3, 1)).await;
+    assert_eq!(net_art(&ent, dp, el).await, 31_500);
+    // retour avancé au 1er février : février redevient dû
+    sqlx::query(
+        "UPDATE ent_eleve_periode SET date_fin = '2031-01-31' WHERE eleve_id = $1 AND kind = 'regime' AND valeur = 'externe'",
+    )
+    .bind(el)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE ent_eleve_periode SET date_debut = '2031-02-01' WHERE eleve_id = $1 AND kind = 'regime' AND valeur = 'demi_pension' AND date_fin IS NULL",
+    )
+    .bind(el)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    facturer(&ent, etab, el).await;
+    let apres = net_art(&ent, dp, el).await;
+    assert_eq!(apres, 36_000, "février refacturé une fois : 8 mois");
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2031, 2, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    assert_eq!(net_art(&ent, dp, el).await, apres);
+}
+
+/// M-3 : bourse de 300 € déduite de la restauration (450 €) ; demi-pension → externe au 1er novembre : la restauration
+/// tombe à 90 € (septembre-octobre), la bourse est replafonnée à 90 € (l'excédent de 210 € n'est jamais imputé,
+/// R-F14). Rejeux neutres.
+#[tokio::test]
+async fn regime_mois_m3_bourse_replafonnee_apres_un_avoir_de_regime() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "M3", "demi_pension").await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    let bt = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_bourse_type (id, etablissement_id, code, libelle) VALUES ($1, $2, 'M3', 'Bourse M3')")
+        .bind(bt)
+        .bind(etab)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_fin_bourse_bareme (id, etablissement_id, annee_scolaire, bourse_type_id, echelon, montant_annuel_centimes)
+         VALUES ($1, $2, $3, $4, '1', 30000)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(ANNEE)
+    .bind(bt)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_eleve_bourse (id, etablissement_id, eleve_id, bourse_type_id, echelon, avec_procuration, status, date_debut)
+         VALUES ($1, $2, $3, $4, '1', true, 'acceptee', '2030-09-01')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(el)
+    .bind(bt)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        net_categorie(&ent, el, "bourse").await,
+        -30_000,
+        "bourse posée en entier"
+    );
+    regime_de_a(&ent, etab, el, "demi_pension", "externe", d(2030, 11, 1)).await;
+    assert_eq!(net_art(&ent, dp, el).await, 9_000, "septembre et octobre");
+    assert_eq!(
+        net_categorie(&ent, el, "bourse").await,
+        -9_000,
+        "la bourse ne dépasse plus la restauration restant due"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 11, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    assert_eq!(net_categorie(&ent, el, "bourse").await, -9_000);
+}
+
+/// M-4 (a) : prise « toutes » plafonnée à 1 300 €, scolarité (1 200 €) déjà posée à l'organisme ; élève externe puis
+/// demi-pension au 15 octobre : la restauration (360 €) ne reçoit que les 100 € de plafond restant (la scolarité compte
+/// contre le plafond, correctif de la revue interne) ; le reste va au payeur suivant ; rien au-delà du plafond.
+#[tokio::test]
+async fn regime_mois_m4a_prise_toutes_plafonnee_la_scolarite_compte_contre_le_plafond() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) = eleve_pris_en_charge_gen(
+        &ent,
+        &c,
+        "M4a",
+        (d(2030, 9, 1), d(2031, 6, 30)),
+        true,
+        "externe",
+        &["toutes"],
+        &["scolarite", "restauration"],
+    )
+    .await;
+    plafonner(&ent, el, 130_000).await;
+    facturer(&ent, etab, el).await;
+    let scolarite_org = f2::somme(&f2::lignes(&ent, etab, fe).await, "scolarite");
+    assert_eq!(scolarite_org, 120_000, "scolarité à l'organisme");
+    changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    assert_eq!(net_art(&ent, dp, el).await, 36_000);
+    let org = f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration");
+    let suivant = f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration");
+    assert_eq!(
+        org, 10_000,
+        "100 € : le plafond de 1 300 € moins la scolarité"
+    );
+    assert_eq!(suivant, 26_000, "260 € au payeur suivant");
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 10, 15), Uuid::new_v4()).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+}
+
+/// M-4 (b) : régime et prise plafonnée : demi-pension toute l'année, restauration prise en charge à 400 € (450 € dus,
+/// 50 € au payeur suivant), externe de décembre à février : 3 mois crédités ; le net de la restauration est 315 €, sans
+/// jamais dépasser le plafond de l'organisme ; rejeux neutres.
+#[tokio::test]
+async fn regime_mois_m4b_regime_et_prise_plafonnee() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) =
+        eleve_pris_en_charge(&ent, &c, "M4b", (d(2030, 9, 1), d(2031, 6, 30)), true).await;
+    plafonner(&ent, el, 40_000).await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000
+    );
+    nouvelle_periode(
+        &ent,
+        etab,
+        el,
+        "externe",
+        d(2030, 12, 1),
+        Some(d(2031, 2, 28)),
+    )
+    .await;
+    sqlx::query(
+        "UPDATE ent_eleve_periode SET date_fin = '2030-11-30' WHERE eleve_id = $1 AND kind = 'regime' AND date_fin IS NULL",
+    )
+    .bind(el)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    nouvelle_periode(&ent, etab, el, "demi_pension", d(2031, 3, 1), None).await;
+    reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
+    assert_eq!(net_art(&ent, dp, el).await, 31_500, "7 mois dus : 315 €");
+    let org = f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration");
+    assert!(
+        org <= 40_000,
+        "l'organisme ne dépasse pas son plafond : {org}"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
 }

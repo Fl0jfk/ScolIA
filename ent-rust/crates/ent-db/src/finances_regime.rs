@@ -281,8 +281,13 @@ pub(crate) async fn regulariser_regime_annee(
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-    let lignes: Vec<LigneExistante> = lignes_eleve_annee(conn, etab, eleve, annee)
-        .await?
+    let toutes = lignes_eleve_annee(conn, etab, eleve, annee).await?;
+    let bourses: Vec<LigneExistante> = toutes
+        .iter()
+        .filter(|l| l.categorie.as_deref() == Some("bourse"))
+        .cloned()
+        .collect();
+    let lignes: Vec<LigneExistante> = toutes
         .into_iter()
         .filter(|l| {
             est_regime(categorie_de_ligne(l)) && l.periode_debut.zip(l.periode_fin).is_some()
@@ -301,7 +306,10 @@ pub(crate) async fn regulariser_regime_annee(
     let regimes = regimes_par_mois(conn, etab, eleve, &premiers).await?;
     let par_mois: HashMap<i32, RegimeMois> = indices.iter().copied().zip(regimes).collect();
     let mut avoirs: Vec<AvoirAFaire> = Vec::new();
+    // Restauration et internat restant dus par foyer, après les avoirs ci-dessous : plafond de la bourse (R-F14).
+    let mut plafond_bourse: HashMap<Uuid, i64> = HashMap::new();
     for l in lignes {
+        let avoirs_avant = avoirs.len();
         let (Some(d), Some(f)) = (l.periode_debut, l.periode_fin) else {
             continue;
         };
@@ -317,13 +325,27 @@ pub(crate) async fn regulariser_regime_annee(
             .filter(|m| !l.decouverts.contains(m))
             .count() as i64;
         let conserves = (nets - a_crediter.len() as i64).max(0);
-        let reserve = {
-            let v = i128::from(l.total).abs() * i128::from(conserves) / i128::from(nm.max(1));
+        let decouverts = (nm - nets).max(0);
+        // Valeur (au centime inférieur, en valeur absolue) de `k` mois de la ligne, du signe du total.
+        let valeur_mois = |k: i64| -> i64 {
+            let v = i128::from(l.total).abs() * i128::from(k) / i128::from(nm.max(1));
             let v = i64::try_from(v).unwrap_or(i64::MAX);
             if l.total >= 0 {
                 v
             } else {
                 -v
+            }
+        };
+        // Ce que sorties, absences et remises d'ordre ont déjà crédité sur les mois conservés : le déjà-crédité total
+        // moins la valeur des mois découverts (crédités par le régime). Ces mois conservés sont déjà (en partie)
+        // remboursés : la réserve ne compte que le reste dû, jamais deux fois (D-069 : pas de surfacturation).
+        let credit_hors_regime = l.deja_credite - valeur_mois(decouverts);
+        let reserve = {
+            let r = valeur_mois(conserves) - credit_hors_regime;
+            if l.total >= 0 {
+                r.max(0)
+            } else {
+                r.min(0)
             }
         };
         let mut reste = l.total - l.deja_credite - reserve;
@@ -358,6 +380,36 @@ pub(crate) async fn regulariser_regime_annee(
                 origine: l.clone(),
             });
         }
+        if matches!(l.categorie.as_deref(), Some("restauration" | "internat")) {
+            let credites: i64 = avoirs[avoirs_avant..].iter().map(|a| a.credit).sum();
+            *plafond_bourse.entry(l.foyer_id).or_insert(0) += l.total - l.deja_credite - credites;
+        }
+    }
+    // La bourse ne se déduit que de la restauration et de l'internat restant dus (R-F14) : un avoir de régime qui les
+    // réduit réduit d'autant la bourse déjà posée (clé propre à l'état : `d{déjà crédité}`, rejeu neutre).
+    for b in &bourses {
+        let reste = -(b.total - b.deja_credite); // une bourse est une déduction : le reste est positif
+        if reste <= 0 {
+            continue;
+        }
+        let plafond = plafond_bourse.entry(b.foyer_id).or_insert(0);
+        let permis = reste.min((*plafond).max(0));
+        *plafond -= permis;
+        let excedent = reste - permis;
+        if excedent <= 0 {
+            continue;
+        }
+        avoirs.push(AvoirAFaire {
+            credit: -excedent,
+            eleve_id: Some(eleve),
+            libelle: format!(
+                "Bourse replafonnée après changement de régime — {}",
+                b.libelle
+            ),
+            source_cle: format!("bourse:replafonnage:{}:d{}", b.id, b.deja_credite.abs()),
+            periode: None,
+            origine: b.clone(),
+        });
     }
     let resultat = inserer_avoirs(
         conn,
