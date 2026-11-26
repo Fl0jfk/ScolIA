@@ -390,3 +390,47 @@ Rapport : `docs/pilotage/revues/24_F3_SUITES_4_CORRECTIFS_CONTRE_REVUE.md` (bran
   (450 €), deux changements (270 €), internat ↔ demi-pension, ordre inversé.
 - Plafond relevé avec un payeur suivant déjà posé : rien de plus à l'organisme, la famille garde sa part : à signaler par
   tâche (en file). Hausse de tarif sur une prise plafonnée facturée à l'organisme : à valider (D-069).
+
+## Régime mois par mois (consigne 24_F3_REGIME_MOIS, session du 2026-11-26)
+
+Branche `ent-socle-24-code-f3-regime-mois` (partie d'`origin/ENT`, jamais d'`ent-mc0hoe`), PR en brouillon vers `ENT`. Conception : `docs/pilotage/conceptions/24_F3_REGIME_MOIS.md` (branche `ent-mc0hoe`, c99065c5). **Aucune migration** (534 non consommée, `migrations_versees.txt` et `MIGRATION_TAG` non touchés). **Statut : implémenté et testé en local ; non validé par Florian, non prêt pilote, non prêt production.**
+
+### Fait
+
+| Réf. | Changement | Tests |
+|---|---|---|
+| **Régime du mois** (§ 2.1) | Nouveau module `finances_regime.rs` : `regimes_par_mois(conn, etab, élève, mois) -> Vec<RegimeMois>` (`Connu`, `Repli`, `Inconnu`) lu dans `ent_eleve_periode` (`kind = 'regime'`) : période en vigueur le 1er du mois, sinon première commencée dans le mois, sinon `Repli(ent_eleve.regime)` si l'élève n'a aucune période, sinon `Inconnu`. | 5 tests unitaires purs `regime_du_mois_*` (changement le 1er, le 15, arrivée le 3, aucun historique, mois avant la première période) |
+| **Annuel mois par mois** (§ 2.2) | `lignes_annuelles` lit le régime de chaque mois (`categorie_due`, `choisir_tarif`) ; un mois non dû n'est pas un trou de grille ; un article n'est écarté que s'il n'est dû aucun mois ; `regime_force` supprimé ; payeurs lus au **premier mois dû** de la catégorie ; mois `Inconnu` : restauration et internat ni facturés ni crédités, tâche `regularisation_regime_non_facturee` **sans événement**, une seule ouverte par élève (close dès qu'aucun mois inconnu ne reste non posé). | R1, R4, R7, R9, R12 |
+| **Régularisation** (§ 2.3, 2.4) | `regulariser_regime_annee` : verrou d'élève d'abord (`fin-regime:{étab}:{élève}`), avoirs par suite de mois sous `regime:mois:avoir:{ligne}:m{AAAA-MM}` avec période propre, uniquement sur régime `Connu` (jamais `Repli` ni `Inconnu`), arrondi en faveur de la famille (ligne : centime supérieur ; réduction : reprise au centime inférieur), borné au reste. Mois couverts **nets** dans `garde_periodes`, `completer_plafonnee`, `credit_au_mois`, `credit_aux_jours` (ancien format d'avoir : `floor`, un mois en partie crédité reste couvert ; sortie et absence ne découvrent rien). Le rejeu d'une clé posée n'est « neutre » que si la ligne couvre encore tous ses mois : un retour au régime se refacture sous une clé `:c<mois>`. | R5, R6, R7, R10, R11 ; unitaires `mois_decouverts_*`, `credit_prorata_*` |
+| **Réaction** (§ 2.5) | `eleve.regime_changed` : seules `eleve_id` et `date_effet` sont exigées (charge finances `ancien`/`nouveau` **et** charge ELV-10 `ancienne_valeur`/`nouvelle_valeur`, cette dernière n'étant jamais lue avant) ; régularisation puis annuel limité aux catégories **gagnées** (préfixe `annuel:{année}`, `depuis` factorisé avec `generer_annee_for_actor` : `depuis_facturation`) ; plus aucune ligne `regime:` créée ; tâche liée à l'événement ouverte sur refus, close sur réussite. `facturer_changement_regime` supprimée. | R2 (chemin ELV-10 par le consommateur d'événements), R3, R4 |
+| **Génération annuelle** (§ 2.6) | `facturer_annee_eleve` régularise avant de calculer ; les avoirs comptent au rapport. | R4, R7 |
+| **Défaut 2** (§ 1.2, 2.8) | (a) fenêtre des lignes propres de `restant_prise` = période complète de la génération (`periode_gen`, l'ombrage de `periode` disparaît) ; (b) la ligne principale d'une prise plafonnée est inscrite dans `dus` et transmise à la garde même à part 0, aucune ligne à 0 € n'est insérée (filtre en sortie de garde) ; (c) invariant de clôture : une tâche `part_non_couverte` n'est close que si la ligne `:suivant:` qui porte la part non couverte sort de la garde ou est déjà posée (`suivant_porte`). | D2a, D2b, D2c |
+| **Couverture croisée `regime:`** (§ 2.7) | Conservée telle quelle pour les lignes déjà posées (lecture seule) ; plus aucun code n'en crée. | tests existants `f3s5_faible9_…`, `f3s6_e1_…` |
+
+### Règles métier non tranchées : valeur prudente (D-069)
+- **Mois du changement** : régime en vigueur le **1er** du mois ; à défaut, premier régime commencé dans le mois. Changement le 15 : le mois reste à l'ancien régime ; changement le 1er : le mois est au nouveau régime (dans les deux sens).
+- **Mois inconnu** (avant la première période connue) : restauration et internat ni facturés ni crédités, tâche sans événement ; les autres catégories gardent le tarif du régime de la fiche.
+- **Élève sans historique** : `ent_eleve.regime` toute l'année, **jamais d'avoir automatique**.
+- **Un élève dont la première période commence en cours de mois** est au régime de cette période pour ce mois (mois d'arrivée dû, comme avec `depuis`). Conséquence connue : un changement posé par finances **sans période initiale** (élève inséré hors création réelle, qui ouvre toujours la période initiale) fait du mois du changement le mois du nouveau régime, et les mois d'avant restent `Inconnu`.
+- **Avoir partiel d'ancien format** : mois en partie crédité = encore couvert (jamais de refacturation). **Sortie, absence** : ne découvrent aucun mois ; la sortie crédite `total − dû(mois couverts nets jusqu'à la date) − déjà crédité`.
+- **Tarif dépendant du régime** (restauration demi-pension ≠ interne, « faible 9 ») : refus explicite à la génération (F4), inchangé, hors périmètre ; seule la catégorie internat est gagnée ou perdue par une réaction.
+- **Plafond abaissé** : tâche, rien de recrédité d'office (M-2, inchangé).
+- Paramètre d'établissement « mois du changement de régime : ancien / nouveau » : candidat **non créé** (pas de migration pour un réglage que personne n'a demandé).
+
+### Écarts de montant
+- **R3 — changement au 1er septembre** : septembre est dû au nouveau régime (450 € ; l'ancien code, qui partait du mois suivant, facturait 405 €). Test `regime_mois_r3_…`.
+- **R6 — demi-pension → externe au 1er novembre** : novembre n'est plus dû (90 € ; l'ancien code, mois commencé dû, en facturait 135 €). Test `regime_mois_r6_…`.
+- Aucun montant d'un test existant n'est modifié. Les tests de régime existants sont verts : `f3s3_changement_de_regime_sur_un_trou_…`, `f3s4_m2_…`, `f3s5_faible9_…`, `f3s6_e1_*` (R13). Adaptations **de mise en scène seulement** (aucune assertion de montant touchée) : les aides de test écrivent l'historique daté (`historique_regime`) puis appellent `reagir_changement_regime` au lieu de `facturer_changement_regime` ; `f3s6_e1_ligne_de_regime_creditee_…` écrit le retour à la demi-pension dans l'historique (au lieu de la fiche seule, que la facturation ne lit plus pour le passé) ; `avoirs_regime_sortie_absence` (`tests_finances.rs`) pose l'historique initial que la création réelle ouvre (demi-pension dès le 1er janvier 2030), sinon les mois avant le changement seraient `Inconnu`.
+
+### Revue (`review-sonnet`, une passe de correctifs)
+- **Élevé corrigé** : `propres_articles` (fenêtre de `restant_prise`) ne retient que les articles réellement recalculés ; sinon une réaction de régime sous prise plafonnée ignorait les lignes annuelles d'autres catégories (plafond surévalué). **Moyen corrigé** : le crédit de régime est borné par le reste moins la valeur des mois conservés (un avoir de sortie ou d'absence déjà posé ne mène plus à un double crédit). **Faible corrigé** : la tâche « régime inconnu » n'est ni ouverte ni close quand les catégories demandées excluent restauration et internat. Sans test dédié aux deux premiers (non fait).
+- **Non traité, noté** : la bourse n'est pas replafonnée après un avoir de régime (préexistant) ; clés de complément d'un foyer dont l'UUID commence par `c` (préexistant, `groupe_de_cle`/`reste_cle`).
+
+### Non fait
+Écrans Leptos ; paramètre « mois du changement » ; retrait de la couverture croisée `regime:` (à confirmer qu'aucune base de recette n'en contient) ; arrêt de l'annuel à la date de sortie ; régularisation par complément (F4) des écarts déjà facturés ; faible 9 (tarifs de restauration différents par régime).
+
+### Compteurs (règle 28)
+`Action::TOUTES` **282** (inchangé) ; tables RLS inchangées (aucune table) ; `SOURCES` **75** (inchangé) ; `MIGRATION_TAG` inchangé ; migrations : **aucune** (534 libre).
+
+### Tests
+`tests_finances_f3` : 18 tests `regime_mois_*` (R1 à R12, D2a à D2c) + 9 tests unitaires purs (`finances_regime::tests`) ; dates fixes `d(2030, …)`, aucune horloge réelle.

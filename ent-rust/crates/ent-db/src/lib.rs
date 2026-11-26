@@ -368,6 +368,7 @@ mod facturation_mandats;
 pub mod finances;
 pub mod finances_calcul;
 pub mod finances_reactions;
+pub mod finances_regime;
 pub mod finances_sepa;
 pub mod paiement_en_ligne;
 mod securite_repo;

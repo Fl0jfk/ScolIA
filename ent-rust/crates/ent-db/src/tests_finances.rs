@@ -630,6 +630,18 @@ async fn avoirs_regime_sortie_absence() {
     );
     payeur_compte(&ent, etab, eleve, c.parent_lea.user_id, fa, 60).await;
     payeur_personne(&ent, etab, eleve, "Martin", fb, 40).await;
+    // Régime mois par mois : la création réelle d'un élève ouvre sa période de régime initiale (`plan_open_initial`) ;
+    // ce test insère l'élève en SQL, il pose donc l'historique que la création aurait ouvert (demi-pension dès le
+    // 1er janvier 2030), faute de quoi les mois avant le changement seraient « inconnus » et rien n'y serait crédité.
+    sqlx::query(
+        "INSERT INTO ent_eleve_periode (id, etablissement_id, eleve_id, kind, valeur, date_debut)
+         VALUES (gen_random_uuid(), $1, $2, 'regime', 'demi_pension', '2030-01-01')",
+    )
+    .bind(etab)
+    .bind(eleve)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
     inscription_validee(&ent, etab, eleve).await;
     let dist = distributeur(&ent, etab);
     dist.distribuer_tout().await.unwrap();
