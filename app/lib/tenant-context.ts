@@ -13,7 +13,7 @@ import {
   resolveTenantBySlug,
 } from "@/app/lib/tenant-registry";
 import { isLocalDevHostname } from "@/app/lib/local-host-keys";
-import { tenantOrigin } from "@/app/lib/tenant-auth-urls";
+import { tenantCanonicalOrigin, tenantOrigin } from "@/app/lib/tenant-auth-urls";
 import { isPlatformHostname } from "@/app/lib/platform-hostname";
 import { platformTenantFromEnv } from "@/app/lib/platform-tenant";
 
@@ -58,9 +58,20 @@ const getRequestTenant = cache(async (): Promise<TenantConfig> => {
   }
 });
 
+/**
+ * Adresse du tenant courant. Dans une requête : d'après son hôte. Dans une tâche serveur (`runWithTenant`, sans requête,
+ * `headers()` lève) : adresse officielle de l'établissement, jamais `NEXT_PUBLIC_APP_URL` (multi-établissements).
+ */
 export async function getTenantAppUrl(): Promise<string> {
   const tenant = await getTenant();
-  const h = await headers();
+  let h: Awaited<ReturnType<typeof headers>>;
+  try {
+    h = await headers();
+  } catch (err) {
+    const explicit = tenantOverride.getStore();
+    if (!explicit) throw err;
+    return tenantCanonicalOrigin(explicit).replace(/\/$/, "");
+  }
   const host = h.get("x-forwarded-host") || h.get("host") || "";
   if (host) {
     return tenantOrigin(tenant, host).replace(/\/$/, "");
