@@ -65,6 +65,7 @@ pub mod propositions;
 pub mod recherche;
 pub mod referentiel;
 pub mod referentiel_admin;
+pub mod rgpd_droits;
 pub mod sante;
 pub mod scolarite;
 pub mod stages;

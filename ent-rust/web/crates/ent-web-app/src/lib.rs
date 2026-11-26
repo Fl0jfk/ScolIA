@@ -68,6 +68,8 @@ pub fn App() -> impl IntoView {
                 // Parcours famille sans compte (S2-3) : publics, hors coquille.
                 <Route path=path!("/web/preinscription") view=modules::inscriptions::PagePreinscription/>
                 <Route path=path!("/web/invitation") view=modules::inscriptions::PageInvitation/>
+                // Socle 27, lot G3a (F7) : dépôt d'une demande de droits sans compte, public, hors coquille.
+                <Route path=path!("/web/demande-droits") view=modules::rgpd_droits::PageDemandeDroitsPublique/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("a-faire") view=modules::afaire::PageAFaire/>
@@ -155,6 +157,12 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("rencontres") view=modules::rendez_vous::PageRencontres/>
                     <Route path=path!("rendez-vous") view=modules::rendez_vous::PageRendezVous/>
                     <Route path=path!("formulaires") view=modules::formulaires::PageFormulaires/>
+                    // Socle 27, lot G3a : guichet des demandes de droits et page « Mes données ».
+                    <Route path=path!("rgpd/demandes") view=modules::rgpd_droits::PageGuichetDroits/>
+                    <Route path=path!("rgpd/demandes/saisir") view=modules::rgpd_droits::PageSaisirDemandeDroit/>
+                    <Route path=path!("rgpd/demandes/:id") view=modules::rgpd_droits::PageDemandeDroit/>
+                    <Route path=path!("mes-donnees") view=modules::rgpd_droits::PageMesDonnees/>
+                    <Route path=path!("mes-donnees/demande") view=modules::rgpd_droits::PageDeposerDemandeDroit/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::assiduite_vs::signalements::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>

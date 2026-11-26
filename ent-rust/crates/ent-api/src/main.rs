@@ -724,6 +724,13 @@ async fn run_api() {
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
             loop {
+                // Socle 27 (G3a, E1) : destruction des pièces d'identité des demandes de droits closes, demandée
+                // à la clôture et rejouée tant que le magasin ne l'a pas confirmée.
+                match ent.droits_destruction_pieces_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(n, "pièces d'identité de demandes de droits détruites"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("destruction des pièces d'identité (droits) : {e}"),
+                }
                 match ent.purger_objets_pieces_infectees_tache(retention).await {
                     Ok(b) if b.purges > 0 || b.echecs > 0 => {
                         tracing::info!(?b, "objets de pièces infectées purgés")

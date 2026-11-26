@@ -1361,6 +1361,19 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("rep_proposition_raison", "mise_en_service", Portee::Etablissement).exc(Exception::SansHorodatage, "ligne fille de `rep_proposition` (la date de la proposition y est portée)"),
     t("rep_refus", "mise_en_service", Portee::Etablissement),
     t("rep_synonyme", "mise_en_service", Portee::Etablissement),
+    // Socle 27, lot G3a (migration 2544) : guichet des demandes de droits. Catégorie de conservation
+    // `rgpd.demande` (clôture + 60 mois, `conservation.rs`). Neutralisation à la restauration : AUCUNE —
+    // une demande restaurée est vraie (elle a bien été reçue) et son délai légal court depuis sa réception ;
+    // rien n'est à « re-envoyer » (l'accusé de réception part par la file du socle 8, qui a sa propre
+    // neutralisation). La pièce d'identité n'est pas en base : seule sa référence au coffre (socle 7) l'est.
+    t("rgp_demande", "conformite", Portee::Etablissement).perso(),
+    // Compteur de numéros : aucune donnée personnelle, un entier par année.
+    t("rgp_demande_compteur", "conformite", Portee::Etablissement),
+    t("rgp_demande_droit", "conformite", Portee::Etablissement).perso(),
+    t("rgp_demande_identite", "conformite", Portee::Etablissement)
+        .perso()
+        .fichiers(Fichiers::Reference),
+    t("rgp_demande_journal", "conformite", Portee::Etablissement).perso(),
     t("rgp_destinataire_externe", "conformite", Portee::Etablissement),
     t("rgp_document", "conformite", Portee::Etablissement),
     t("rgp_ecart", "conformite", Portee::Etablissement),

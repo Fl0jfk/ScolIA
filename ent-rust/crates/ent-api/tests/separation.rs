@@ -1389,6 +1389,9 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/accords/{id}/code"),
     ("POST", "/accords/{id}/repondre"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
+    // Dépôt d'une demande de droit sans compte (socle 27, G3a, RGP-142) : l'établissement vient de l'adresse, la réponse est
+    // invariable (R-RG42), débit limité par IP et par contact.
+    ("POST", "/rgpd/demandes/sans-compte"),
     // Vérification publique des documents (socle 7, D3) : le code (60 bits) ou l'empreinte du fichier fait foi ;
     // l'établissement vient de l'adresse, réponses identiques pour inconnu et autre établissement.
     ("GET", "/verifier/{code}"),

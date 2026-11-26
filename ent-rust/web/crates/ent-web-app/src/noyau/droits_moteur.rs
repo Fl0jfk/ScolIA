@@ -135,6 +135,21 @@ impl DroitsMoteur {
         self.a("amenagements.lire")
     }
 
+    /// Socle 27, lot G3a : enregistrer une demande de droit et vérifier l'identité du demandeur.
+    pub fn peut_recevoir_demandes_droits(&self) -> bool {
+        self.a_etablissement("droits.recevoir")
+    }
+
+    /// Socle 27, lot G3a : instruire une demande (qualifier, décider, clore).
+    pub fn peut_traiter_demandes_droits(&self) -> bool {
+        self.a_etablissement("droits.traiter")
+    }
+
+    /// Socle 27, lot G3a : arbitrages de la direction (prolonger, refuser, rouvrir).
+    pub fn peut_arbitrer_demandes_droits(&self) -> bool {
+        self.a_etablissement("droits.arbitrer")
+    }
+
     /// Lire les contraintes publiées destinées aux enseignants, à la restauration ou aux sorties.
     pub fn peut_lire_contraintes(&self) -> bool {
         self.a("contraintes.lire")
@@ -225,6 +240,26 @@ mod tests {
         // Les actions de vie scolaire sont proposées quelle que soit la portée.
         let p = DroitsMoteur::new(vec![droit("punitions.donner", "mes_classes")]);
         assert!(p.peut_donner_punition() && !p.peut_gerer_discipline());
+    }
+
+    /// Le guichet des droits exige la portée établissement : une portée réduite n'ouvre rien (§12.1).
+    #[test]
+    fn guichet_des_droits_exige_la_portee_etablissement() {
+        let d = DroitsMoteur::new(vec![
+            droit("droits.recevoir", "etablissement"),
+            droit("droits.traiter", "etablissement"),
+        ]);
+        assert!(d.peut_recevoir_demandes_droits() && d.peut_traiter_demandes_droits());
+        assert!(
+            !d.peut_arbitrer_demandes_droits(),
+            "le secrétariat n'arbitre pas"
+        );
+        let reduit = DroitsMoteur::new(vec![droit("droits.traiter", "mes_classes")]);
+        assert!(!reduit.peut_traiter_demandes_droits());
+        let vide = DroitsMoteur::default();
+        assert!(!vide.peut_recevoir_demandes_droits());
+        assert!(!vide.peut_traiter_demandes_droits());
+        assert!(!vide.peut_arbitrer_demandes_droits());
     }
 
     #[test]

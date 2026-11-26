@@ -602,6 +602,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // établissement et par session, purgé à 24 h. Règle 38 : en fin de tableau ; aucune fonction. Sous 3808 :
     // `MIGRATION_TAG` inchangé.
     m!("2227_mob_mb1_idempotence"),
+    // Socle 27, lot G3a (2544, plage 2540–2559) : guichet des demandes de droits (demande, droits demandés,
+    // vérification d'identité, journal des transitions, compteur de numéros par établissement). 2540 à 2543
+    // sont versées et ne changent pas (règle 25). Règle 38 : **après** 2420, qui est versée, et en fin de
+    // tableau ; chacune de ses fonctions porte `SET search_path = pg_catalog, public, pg_temp` et qualifie
+    // ses relations `public.`. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("2544_rgpd_g3_demandes"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

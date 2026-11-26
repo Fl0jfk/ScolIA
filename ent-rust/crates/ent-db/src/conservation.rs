@@ -332,6 +332,9 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
                 "scol.dossier"
             }
         }
+        // Lot G3a : le guichet des droits a sa propre catégorie (clôture + 60 mois, prescription), distincte
+        // de la gouvernance de conformité. Le compteur de numéros la suit : il est l'ossature des références.
+        "conformite" if n.starts_with("rgp_demande") => "rgpd.demande",
         "conformite" => "rgpd.gouvernance",
         "documents" => "doc.document",
         "espaces" => "esp.espace",

@@ -122,6 +122,16 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some(Quota::new(3, 3600)),
             Some("email"),
         ),
+        // Dépôt d'une demande de droit **sans compte** (socle 27, RGP-142) : route publique. Le seau par
+        // IP est strict (une personne dépose une demande, pas cinquante) ; le seau par `contact` empêche
+        // d'inonder le guichet sous un même courriel. La réponse étant invariable (R-RG42), rien ne
+        // s'énumère ici — la limite protège le guichet, pas un secret.
+        "/rgpd/demandes/sans-compte" => r(
+            "RGPD_DEMANDE_SANS_COMPTE",
+            Some(Quota::new(5, 900)),
+            Some(Quota::new(3, 3600)),
+            Some("contact"),
+        ),
         "/preinscription/verifier" => r(
             "PREINSCRIPTION_VERIFIER",
             Some(Quota::new(30, 900)),
