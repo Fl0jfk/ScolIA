@@ -86,3 +86,18 @@ la restauration (360 €) n'aille à l'organisme que pour 100 €, le reste au p
 
 Lot **versable** (aucun élevé, tous les tests attendus présents, ELV-10 et défaut 2 réellement fermés, R-F1, règle 25 et absence de migration conformes). À mettre en file avec priorité :
 M-1 (introduit par le lot), M-4 (deux tests), puis M-2 et M-3. Doc à corriger : « 18 tests » → 15.
+
+## Moyens — vérification des correctifs (`c59e2d99..eb08f406`, pilote, 2026-11-26)
+
+Relecture en lecture seule du diff (4 fichiers : `finances.rs`, `finances_regime.rs`, `tests_finances_f3.rs`, doc de livraison). Aucun élevé.
+
+- **M-1 — corrigé, testé, mais le correctif rouvre le chevauchement (nouveau moyen M-5).** La réserve vaut désormais `valeur(conservés) − (déjà crédité − valeur(découverts))`, bornée à 0. Sur l'exemple de la revue (450 €, sortie au 10 avril = 90 € sur mai-juin, puis externe décembre-février) : réserve 225 €, reste 135 €, net 225 € : juste. Test `regime_mois_m1_sortie_deja_posee_puis_regime_externe_credite_en_entier` (net 225 €, rejeux neutres).
+- **M-2 — corrigé, testé.** `sans_suffixe_mois` (chiffres vérifiés) remplace les trois découpes (`groupe_de_cle`, `garde_periodes`, `reste_cle`). Test pur (UUID `c…`, `m…`, `:c2030` sans mois) et test en base avec un foyer à UUID imposé `c…` (février refacturé une fois, rejeux neutres).
+- **M-3 — corrigé, testé.** `regulariser_regime_annee` replafonne la bourse sur la restauration et l'internat restant dus par foyer, clé `bourse:replafonnage:{ligne}:d{déjà crédité}` (hors du motif `regime:%:avoir:%`, ne découvre aucun mois). Test `regime_mois_m3_…` : bourse ramenée à 90 €, rejeux neutres. Le cas « restauration gagnée non compensée par la bourse » reste écrit dans la doc du lot.
+- **M-4 — corrigé.** `regime_mois_m4a_…` (prise « toutes » plafonnée, scolarité comptée contre le plafond : 100 € à l'organisme, 260 € au payeur suivant ; échoue avec l'ancien code) et `regime_mois_m4b_…` (régime et prise plafonnée, net 315 €).
+
+**M-5 (nouveau, moyen, introduit par le correctif M-1, en file).** Les avoirs de sortie et d'absence ne découvrent aucun mois (`mois_decouverts`) : un mois déjà crédité par une sortie et que le régime rend non dû est à la fois dans `a_crediter` et dans `credit_hors_regime`. Exemple (calcul à la main, non exécuté) : 450 € sur 10 mois, sortie au 10 avril (90 € sur mai-juin), puis historique externe d'avril à juin. Dû : 7 mois, 315 €. Code : conservés 7, réserve 315 − 90 = 225 €, reste 135 €, trois mois crédités (135 €) : net **225 €**, soit 90 € de **sous-facturation** (mai-juin crédités deux fois). L'ancienne borne donnait 315 €, juste ici, mais faux sur l'exemple de M-1. Sens favorable à la famille (D-069 : jamais de surfacturation), perte côté établissement, d'où **moyen**, pas élevé. Correctif : imputer `credit_hors_regime` mois par mois (périodes des avoirs de sortie et d'absence) et retirer de `a_crediter` les mois déjà crédités, avec un test sortie puis externe sur les mêmes mois.
+
+**Faible (nouveau, F-9).** Le plafond de la bourse ne compte que les lignes de restauration et d'internat **avec période** (filtre de `lignes`) : une telle ligne sans période ferait replafonner la bourse à tort (famille surfacturée). Les lignes annuelles portent toujours une période ; à vérifier si un autre chemin en crée sans.
+
+**Verdict inchangé : versable.** File : M-5 (priorité, introduit par le lot), F-9, puis F-2 à F-8.
