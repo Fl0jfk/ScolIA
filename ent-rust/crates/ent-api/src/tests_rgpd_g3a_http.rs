@@ -190,6 +190,30 @@ async fn g3a_http_guichet_parcours_et_refus() {
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{d}");
+    // E2 : un dépôt au guichet sans lien rapproché ne devient jamais « identité vérifiée » tout seul.
+    assert_eq!(d["etat"], json!("identite_a_verifier"));
+    assert!(d["identite_arbitrage_code"].is_string(), "{d}");
+    // Le secrétariat n'arbitre pas (403) ; la direction reconnaît la qualité, motif à l'appui.
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/demandes/{id}/identite/arbitrage"),
+        &[],
+        Some(adf),
+        Some(json!({ "accepte": true, "motif": "pièces vues au guichet" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, d) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/demandes/{id}/identite/arbitrage"),
+        &[],
+        Some(dir),
+        Some(json!({ "accepte": true, "motif": "pièces vues au guichet" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{d}");
     assert_eq!(d["etat"], json!("en_cours"));
 
     // Prolongation : le secrétariat ne prolonge pas (403), la direction oui (200).
