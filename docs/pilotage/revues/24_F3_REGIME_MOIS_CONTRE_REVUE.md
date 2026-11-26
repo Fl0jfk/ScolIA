@@ -101,3 +101,10 @@ Relecture en lecture seule du diff (4 fichiers : `finances.rs`, `finances_regime
 **Faible (nouveau, F-9).** Le plafond de la bourse ne compte que les lignes de restauration et d'internat **avec période** (filtre de `lignes`) : une telle ligne sans période ferait replafonner la bourse à tort (famille surfacturée). Les lignes annuelles portent toujours une période ; à vérifier si un autre chemin en crée sans.
 
 **Verdict inchangé : versable.** File : M-5 (priorité, introduit par le lot), F-9, puis F-2 à F-8.
+
+## Versement (pilote, 2026-11-26)
+
+- Fusion d'`origin/ENT` (`e7e33d49`, G3a) dans le lot : `5d165264`, sans conflit. Règle 38 : `2544_rgpd_g3_demandes` ajoutée à la fin de `migrations_versees.txt`. Règle 28 : le lot ne touche aucun compteur ; `Action::TOUTES` 286, compte RLS, `SOURCES` et `MIGRATION_TAG` sont ceux d'ENT.
+- CI locale sur `5d165264` (toolchain 1.99.0, PostgreSQL 16, `ENT_ENV=test`) : fmt bloquant (web, `ent-types`) OK ; 3 commandes clippy `-D warnings` : 0 avertissement ; nextest labo en 4 tranches sur bases neuves : **4 337 passés, 0 échec** ; sans labo (`ent-api`, `ent-db`) : **921 passés** ; `cargo metadata --locked` (`web`) : OK.
+- CI de la PR 159 : run 736 **vert** sur `5d165264`. CI d'ENT verte sur `e7e33d49` (run 45821929417). `merge-base --is-ancestor origin/ENT 5d165264` : OK. Règle 25 : 4 commits du lot + la fusion, aucun fichier de pilotage.
+- **Versé** : `git push origin 5d165264:refs/heads/ENT` (avance rapide `e7e33d49..5d165264`). ENT gelé jusqu'au verdict du run d'ENT (commentaire du bot sur la PR 93). File : M-5, F-9, F-2 à F-8.
