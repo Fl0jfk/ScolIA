@@ -458,7 +458,7 @@ async function sendParentBlogActivationMail(opts: {
     publicUrl,
     "",
     "Vous pourrez y consulter les messages et photos publiés par l’équipe pendant le séjour.",
-    "Cette page se ferme automatiquement 15 jours après le retour.",
+    "Cette page se ferme automatiquement 7 jours après le retour.",
     "",
     "Cordialement,",
     senderName || "L'établissement",
@@ -488,7 +488,7 @@ async function sendParentBlogActivationMail(opts: {
       </p>
       <p style="font-size: 13px; color: #64748b;">
         Messages et photos publiés par l’équipe. Pas de réponse attendue sur ce canal.
-        La page se ferme automatiquement <strong>15 jours après le retour</strong>.
+        La page se ferme automatiquement <strong>7 jours après le retour</strong>.
       </p>
       <p>Cordialement,<br/>${escapeHtml(senderName || "L'établissement")}</p>
     </div>
@@ -605,7 +605,7 @@ export async function createParentBlogPost(opts: {
   const blog = await getParentBlogForTrip(etablissementId, trip.id);
   if (!blog?.enabled) throw new Error("Le blog parents n’est pas activé.");
   if (isParentBlogPublicExpired(blog.expiresAt)) {
-    throw new Error("La page publique est fermée (délai de 15 jours après le retour écoulé).");
+    throw new Error("La page publique est fermée (délai de 7 jours après le retour écoulé).");
   }
 
   const db = getDb();

@@ -1425,7 +1425,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                 Si vous activez cette option, les parents recevront dans le mail calendrier un lien
                 vers une page publique en <strong>lecture seule</strong> : vous pourrez y publier des
                 messages et des photos pendant le séjour (onglet Communication). La page se ferme
-                automatiquement <strong>15 jours après le retour</strong>. Vous pourrez aussi
+                automatiquement <strong>7 jours après le retour</strong>. Vous pourrez aussi
                 l’activer plus tard.
               </p>
               {canEdit && !confirmed ? (

@@ -446,7 +446,7 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
         <TripAlert tone="info" icon="✉️" title="Comment ça marche">
           À la confirmation de liste (ou ici), vous pouvez activer une page publique pour les
           familles. Un seul mail part au départ (horaires + .ics + lien). Ensuite, les parents
-          consultent librement — aucun mail à chaque publication. La page se ferme 15 jours après
+          consultent librement — aucun mail à chaque publication. La page se ferme 7 jours après
           le retour.
         </TripAlert>
 
@@ -591,7 +591,7 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
 
           {expired ? (
             <TripAlert tone="warning" title="Page publique fermée">
-              Le délai de 15 jours après le retour est écoulé. Les familles n’y ont plus accès ;
+              Le délai de 7 jours après le retour est écoulé. Les familles n’y ont plus accès ;
               le contenu a été (ou va être) purgé.
             </TripAlert>
           ) : blog?.enabled ? (
