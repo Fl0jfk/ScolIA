@@ -6,6 +6,56 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-26 (jeudi soir, 18 h 45 Paris) — point du jour
+
+Premier jour dans le Projet : le pilote est devenu le coordinateur, chaque lot a son fil, et la veille des CI (PR 93 et PR de lot) réveille un fil dédié.
+
+**Sur ENT, validé par la CI.** ENT = **e7e33d49**, CI verte (run 733, commentaire du bot sur la PR 93). Un lot versé depuis hier soir, après une contre-revue indépendante.
+- **Socle 27, RGPD G3a, guichet des droits, correctifs** (PR 158, migration 2544) : les deux élevés sont corrigés et testés.
+  - la pièce d'identité est réellement détruite du magasin à la clôture ou au refus, avec reprise automatique en cas de panne ;
+  - un parent sans autorité parentale, restreint ou non vérifiable n'est jamais « vérifié » : refus neutre en ligne, arbitrage motivé au guichet.
+
+  Contre-revue : versable, trois réserves moyennes (M-a, M-b, M-c) vérifiées sur e7e33d49. 2544 est à inscrire dans `migrations_versees.txt` à la prochaine fusion de chaîne. La branche garde un commit de doc seule (`7dd0e02a`, CI 732 verte) à reprendre.
+
+**Prêt mais pas encore sur ENT**
+- **Socle 24, facturation F3, régime mois par mois** (PR 159) : corrige le défaut grave préexistant (l'annuel facturait l'année au régime courant). Contre-revue : **versable**, aucun élevé. Moyens M-1 à M-4 corrigés et testés par le pilote (tête `eb08f406`, CI 735 verte). Versement en cours dans son fil.
+
+**En cours** (fils qui travaillent)
+- **Socle 27, palier G3b + G4** : extrait RGPD assemblé, masquages, remise chiffrée, journal des accès (migrations 2545, 2546). Consigne `consignes/27_G3B_G4_PALIER.md`.
+- **Versement du régime mois par mois** (ci-dessus).
+- **Relevé du quota** toutes les 6 heures : semaine à 58 % jeudi 14 h, rythme à ralentir légèrement (environ 0,55 % par heure jusqu'à dimanche).
+
+**Conçu mais pas codé** (file)
+1. **F3 suites** : M-5 (introduit par le correctif M-1 : un mois crédité par une sortie puis rendu non dû par le régime est crédité deux fois, sous-facturation), F-9, puis faibles F-2 à F-8.
+2. Réserves G3a (M-a pièce d'une vérification échouée jamais détruite, M-b, M-c) et faibles Pf1 à Pf8 : avec G3b, avant tout usage avec de vraies pièces.
+3. MB1 client (applis dans le dépôt) : accord de Florian attendu.
+4. Contrôle par une deuxième personne fondé sur la personne physique (conception d'abord).
+5. Lots de faibles regroupés.
+6. G5 (violations).
+
+Nouvelle **règle 39** : l'unité de versement devient le **palier** (fonction complète d'un socle, 3 à 5 lots sur une branche) ; tests locaux par lot, une seule PR et une seule CI à la fin.
+
+**Tableau d'avancement** : socle 27 (RGPD) : guichet des droits versé, palier extrait et journal en cours. Socle 24 (facturation) : régime mois par mois prêt. Autres socles inchangés ; frontend et mobile toujours en retrait, comme convenu.
+
+**Décisions attendues de Florian**
+- **Applis mobiles dans ENT** : intégrer le code Android et iOS dans la branche `ENT`.
+- **Arrêter l'ancien point quotidien** (tâche de 18 h 43 de l'ancien pilote) s'il tourne encore : celui-ci le remplace.
+- Choix pris par défaut, à relire quand tu veux (D-069) :
+  - G3a versé avec ses trois réserves moyennes, à solder avant toute vraie pièce d'identité ;
+  - régime mois par mois versable malgré M-5, qui sous-facture (jamais l'inverse) et passe en tête de file.
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`)
+- **Bientôt** : vers le **5 décembre**, je te donnerai la liste exacte pour ScolIA chez Scaleway avant Noël (F-08) : conteneur et base séparés, sous-domaine, sauvegardes. Rien à faire avant.
+- **F-09** : comptes développeur Apple et Google Play, **avant mars 2027**.
+- Exports anonymisés Charlemagne et SIECLE (F-01 à F-07) : au moment de la reprise, pas urgent.
+
+**Ce qui a coincé**
+- **PR 159 rouge une fois** (`5c1af3df`) : la garde R-F1 a attrapé une écriture sur `ent_fin_tache` hors du service de facturation. Corrigé à la tête suivante (`0832e99d`, verte).
+- **Runs remplacés** : plusieurs runs de lot ont été annulés par une nouvelle tête et signalés « remplacé, ignorer » par le bot ; seul le verdict de la dernière tête compte.
+- **ENT gelé** de 13 h 45 à 14 h 45 (heure de Paris) en attendant le verdict de e7e33d49 : vert.
+
+---
+
 ## 2026-11-25 (mercredi soir, 18 h 45 Paris) — point du jour
 
 **Sur ENT, validé par la CI.** ENT = **b65892dd**, CI verte (run 723). Onze lots versés depuis hier soir, chacun après une contre-revue indépendante ; le pilote a corrigé lui-même les défauts moyens relevés.
