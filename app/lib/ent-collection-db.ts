@@ -343,7 +343,12 @@ export async function insertCollectionRecordIfAbsent(
 
 /* ─── Ajouts voyages v2 : mutation sérialisée et verrou en table (aucune fonction existante modifiée) ─── */
 
-type CollectionTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+/** Clé du verrou par document. Postgres refuse l'octet nul dans un texte : ne jamais l'utiliser ici. */
+export function cleVerrouDocument(etablissementId: string, collection: string, recordId: string): string {
+  return `${etablissementId}|${collection}|${recordId}`;
+}
+
+type CollectionTx =Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
 /**
  * Relit, modifie et réécrit UN enregistrement dans une transaction protégée par un verrou advisory
@@ -363,7 +368,7 @@ export async function mutateCollectionRecordLocked<T extends Record<string, unkn
 ): Promise<{ value: R; saved: boolean } | null> {
   const db = getDb();
   return db.transaction(async (tx: CollectionTx) => {
-    const lockKey = `${etablissementId}\u0000${collection}\u0000${recordId}`;
+    const lockKey = cleVerrouDocument(etablissementId, collection, recordId);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
     const [head] = await tx
       .select({ recordId: entCollectionRecord.recordId })
