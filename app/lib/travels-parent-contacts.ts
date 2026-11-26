@@ -37,15 +37,34 @@ export function isTripAccompagnateur(
   return false;
 }
 
+/**
+ * Organisateur reconnu STRICTEMENT par id de compte ou e-mail de compte : jamais par le seul nom
+ * (le repli sur le nom de `isTripOwnerOrCreator` laisserait un homonyme voir les numéros des parents).
+ */
+export function isTripOrganizerStrict(
+  trip: Pick<TravelsTrip, "ownerId"> & { ownerEmail?: string | null },
+  user: SessionLikeUser | null | undefined,
+): boolean {
+  if (!user) return false;
+  const uid = String(user.id ?? "").trim();
+  if (uid && isTripOwnerOrCreator({ ownerId: trip.ownerId, ownerName: null }, user)) return true;
+  const ownerEmail = normEmail(trip.ownerEmail);
+  if (!ownerEmail) return false;
+  const emails = [user.primaryEmailAddress?.emailAddress, ...(user.emailAddresses ?? []).map((e) => e?.emailAddress)]
+    .map(normEmail)
+    .filter(Boolean);
+  return emails.includes(ownerEmail);
+}
+
 export function resolveContactsAccess(
-  trip: Pick<TravelsTrip, "status" | "data" | "ownerId" | "ownerName">,
+  trip: Pick<TravelsTrip, "status" | "data" | "ownerId" | "ownerName"> & { ownerEmail?: string | null },
   user: SessionLikeUser | null | undefined,
 ): ContactsAccess {
   if (!user) return { allowed: false, reason: "forbidden" };
   const isAdmin = isGlobalAdminUser({ publicMetadata: user.publicMetadata ?? null });
   if (isAdmin) return { allowed: true, reason: "admin" };
   if (CLOSED_STATUSES.has(String(trip.status))) return { allowed: false, reason: "cancelled" };
-  if (isTripOwnerOrCreator(trip, user)) return { allowed: true, reason: "owner" };
+  if (isTripOrganizerStrict(trip, user)) return { allowed: true, reason: "owner" };
   if (isTripAccompagnateur(trip, user)) return { allowed: true, reason: "escort" };
   return { allowed: false, reason: "forbidden" };
 }

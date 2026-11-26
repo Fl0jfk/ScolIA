@@ -44,6 +44,13 @@ describe("droits sur les contacts des parents", () => {
     assert.equal(resolveContactsAccess(trip({}, { accompagnateurs: [{ userId: "u-other", name: "Z", source: "directory" }] }), user("u-escort")).allowed, false));
   it("un simple homonyme (même nom, autre compte) : non", () =>
     assert.equal(resolveContactsAccess(trip(), user("u-zzz", ["professeur"], "zzz@x.fr", "Eric Escort")).allowed, false));
+  it("homonyme de l'ORGANISATEUR (même nom complet, autre compte) : non", () =>
+    assert.equal(resolveContactsAccess(trip(), user("u-zz2", ["professeur"], "zz2@x.fr", "Olivia Owner")).allowed, false));
+  it("organisateur reconnu par l'e-mail du dossier (ancien dossier sans ownerId) : oui", () =>
+    assert.equal(
+      resolveContactsAccess(trip({ ownerId: null, ownerEmail: "olivia@ecole.fr" }), user("u-new", ["professeur"], "Olivia@Ecole.fr")).allowed,
+      true,
+    ));
   it("professeur quelconque : non", () => assert.equal(resolveContactsAccess(trip(), user("u-prof")).allowed, false));
   it("direction : non", () => assert.equal(resolveContactsAccess(trip(), user("u-dir", ["direction"])).allowed, false));
   it("compta : non", () => assert.equal(resolveContactsAccess(trip(), user("u-compta", ["compta"])).allowed, false));
