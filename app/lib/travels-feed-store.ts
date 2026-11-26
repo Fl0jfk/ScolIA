@@ -694,6 +694,12 @@ export async function runFeedCycleForTenant(baseUrl: string, opts?: { inWindow?:
       }
       if (!trip) continue; // voyage momentanément illisible : ni purge ni e-mail, nouvel essai au prochain passage
       if (feedReturnIso(trip) && s.returnDate !== feedReturnIso(trip)) await setFeedReturnDate(etabId, s.tripId, feedReturnIso(trip));
+      // Filet de sécurité : liens de bienvenue jamais partis (l'envoi `after()` de l'ouverture peut ne pas s'exécuter).
+      if (opts?.inWindow !== false && feedPhase({ status: trip.status, returnIso: feedReturnIso(trip), todayIso: todayIsoParis(now) }) === "live") {
+        const w = await sendFeedWelcomeLinks(etabId, trip, baseUrl);
+        total.emailed += w.sent;
+        total.failed += w.failed;
+      }
       const r = await flushFeedNotificationsForTrip({ etabId, trip, baseUrl, now });
       total.emailed += r.sent;
       total.failed += r.failed;
