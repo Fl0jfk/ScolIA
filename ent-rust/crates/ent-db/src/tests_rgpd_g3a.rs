@@ -29,6 +29,10 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 }
 
 /// Une demande d'accès déposée au guichet pour l'élève Léa, reçue le jour de l'établissement.
+async fn jour_du_test(ent: &PgEnt, etab: Uuid) -> chrono::NaiveDate {
+    ent.aujourdhui_etablissement(etab).await.unwrap()
+}
+
 async fn demande_guichet(ent: &PgEnt, cast: &LaboCast) -> (Uuid, chrono::NaiveDate) {
     let etab = cast.etablissement_id;
     let jour = ent.aujourdhui_etablissement(etab).await.unwrap();
@@ -677,7 +681,31 @@ async fn g3a_eleve_mineur_depose_et_information_des_titulaires() {
     assert!(w.titulaires_informes_le.is_none());
     assert!(w.titulaires_non_informes_motif.is_some());
     // La même décision sur une demande qui n'est pas celle d'un élève mineur n'a pas de sens.
-    let (autre, _) = demande_guichet(&ent, &cast).await;
+    let autre = ent
+        .droits_saisir_au_guichet(
+            etab,
+            dir,
+            DIR,
+            SaisieDemande {
+                canal: "courrier",
+                recue_le: jour_du_test(&ent, etab).await,
+                demandeur_compte_id: None,
+                demandeur_personne_id: None,
+                demandeur_nom_saisi: Some("Maître Autre"),
+                demandeur_contact: Some("courrier postal"),
+                qualite: "mandataire",
+                sujet_type: "eleve",
+                sujet_id: Some(cast.eleve_lea_id),
+                sujet_nom_saisi: None,
+                droits: &["acces"],
+                perimetre_texte: None,
+                perimetre_du: None,
+                perimetre_au: None,
+            },
+        )
+        .await
+        .expect("saisie au guichet")
+        .id;
     assert!(matches!(
         ent.droits_titulaires_information(etab, dir, DIR, autre, true, None)
             .await,
@@ -836,6 +864,17 @@ async fn g3a_identite_tracee_et_piece_detruite_a_la_cloture() {
     ent.droits_decider(etab, dir, DIR, id, "acces", "accorde", Some("art15"), None)
         .await
         .expect("décision");
+    // CL27-04 : un mineur qui demande pour lui-même → décision d'informer (ou non) les titulaires avant de clore.
+    ent.droits_titulaires_information(
+        etab,
+        dir,
+        DIR,
+        id,
+        false,
+        Some("motif prudent : sécurité de l'élève"),
+    )
+    .await
+    .unwrap();
     let v = ent
         .droits_clore(
             etab,
@@ -938,6 +977,17 @@ async fn g3a_echec_identite_puis_refus_motive_de_la_direction() {
         ent.droits_refuser(etab, dir, DIR, id, " ").await,
         Err(EntDbError::SaisieInvalide(_))
     ));
+    // CL27-04 : un mineur qui demande pour lui-même → décision d'informer (ou non) les titulaires avant de clore.
+    ent.droits_titulaires_information(
+        etab,
+        dir,
+        DIR,
+        id,
+        false,
+        Some("motif prudent : sécurité de l'élève"),
+    )
+    .await
+    .unwrap();
     let v = ent
         .droits_refuser(
             etab,
@@ -1129,6 +1179,17 @@ async fn g3a_cloture_leve_le_gel_et_reouverture_garde_l_horloge() {
     ent.droits_decider(etab, dir, DIR, id, "acces", "accorde", None, None)
         .await
         .unwrap();
+    // CL27-04 : un mineur qui demande pour lui-même → décision d'informer (ou non) les titulaires avant de clore.
+    ent.droits_titulaires_information(
+        etab,
+        dir,
+        DIR,
+        id,
+        false,
+        Some("motif prudent : sécurité de l'élève"),
+    )
+    .await
+    .unwrap();
     let v = ent
         .droits_clore(etab, dir, DIR, id, "extrait remis, masquages relus")
         .await

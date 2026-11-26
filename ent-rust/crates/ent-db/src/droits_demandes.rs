@@ -1112,22 +1112,9 @@ impl PgEnt {
                 "trop de demandes reçues aujourd'hui : présentez-vous au guichet ou réessayez demain",
             ));
         }
-        // Un même contact (normalisé) n'ouvre qu'une demande par jour et par veille : la seconde n'est pas
-        // enregistrée, et le déposant reçoit **la même réponse** (aucun oracle, R-RG42).
-        let doublon: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM rgp_demande
-                             WHERE etablissement_id = $1 AND demandeur_contact_normalise = $2
-                               AND recue_le >= $3)",
-        )
-        .bind(etab)
-        .bind(&contact_normalise)
-        .bind(jour - chrono::Duration::days(1))
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
-        if doublon {
-            return Ok(MESSAGE_SANS_COMPTE);
-        }
+        // M-b : une seconde demande du même contact (normalisé) est **conservée** (sans numéro, comme la
+        // première) : un droit différent déposé le lendemain a son propre délai légal. Le plafond du jour
+        // borne le spam ; le guichet fusionne ou rapproche à la vérification. Même réponse servie (R-RG42).
         let id = inserer(
             &mut tx,
             etab,
@@ -1462,10 +1449,10 @@ impl PgEnt {
         let sujet_type: String = r.get("sujet_type");
         let sujet_id: Option<Uuid> = r.get("sujet_id");
         let qualite: String = r.get("qualite");
-        if reussie {
-            if let Some(piece) = piece_document_id {
-                valider_piece(&mut tx, etab, piece).await?;
-            }
+        // M-a : la pièce consultée est rattachée (donc détruite à la clôture, R-RG16) même si la
+        // vérification échoue.
+        if let Some(piece) = piece_document_id {
+            valider_piece(&mut tx, etab, piece).await?;
         }
         let constatee = qualite_a_la_date(
             &mut tx,
@@ -1497,7 +1484,7 @@ impl PgEnt {
         .bind(resultat)
         .bind(constatee.code())
         .bind(&note)
-        .bind(if reussie { piece_document_id } else { None })
+        .bind(piece_document_id)
         .bind(acteur)
         .execute(&mut *tx)
         .await
@@ -1700,6 +1687,27 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+            // M-c : le sujet connu est un élève mineur → la demande « pour soi » devient celle d'un mineur.
+            let q: String = sqlx::query_scalar(
+                "SELECT qualite FROM rgp_demande WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(demande)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            let effective = qualite_effective(&mut tx, etab, &q, t, Some(id), jour).await?;
+            if effective != q {
+                sqlx::query(
+                    "UPDATE rgp_demande SET qualite = $3 WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(demande)
+                .bind(effective)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
             faits.push("sujet");
         }
         if let Some(p) = demandeur_personne_id {
@@ -3370,6 +3378,27 @@ async fn numero_suivant(
 /// Insère la demande, son numéro (compteur de l'année de **réception**, pour que la référence suive l'année
 /// du courrier) et ses droits. Tout vit dans la transaction de l'appelant : une annulation ne consomme pas
 /// de numéro (« sans trou visible »).
+/// M-c (CL27-04) — la qualité **retenue** : un élève **mineur** qui demande pour lui-même (`soi_meme`,
+/// `ancien_eleve`) est traité comme `eleve_mineur`, donc soumis à la décision d'informer les titulaires.
+/// Date de naissance inconnue : prudence, mineur (comme `exiger_coherence_qualite`).
+async fn qualite_effective(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    qualite: &str,
+    sujet_type: &str,
+    sujet_id: Option<Uuid>,
+    jour: NaiveDate,
+) -> Result<String, EntDbError> {
+    if matches!(qualite, "soi_meme" | "ancien_eleve") && sujet_type == "eleve" {
+        if let Some(eleve) = sujet_id {
+            if eleve_majeur_le(conn, etab, eleve, jour).await? == Some(false) {
+                return Ok("eleve_mineur".to_string());
+            }
+        }
+    }
+    Ok(qualite.to_string())
+}
+
 async fn inserer(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -3384,6 +3413,15 @@ async fn inserer(
     };
     let id = Uuid::new_v4();
     let echeance = echeance_legale(i.recue_le);
+    let qualite = qualite_effective(
+        &mut *conn,
+        etab,
+        i.qualite,
+        i.sujet_type,
+        i.sujet_id,
+        i.recue_le,
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO rgp_demande
              (id, etablissement_id, annee, numero, canal, recue_le, echeance_le, demandeur_compte_id,
@@ -3403,7 +3441,7 @@ async fn inserer(
     .bind(i.demandeur_personne_id)
     .bind(i.demandeur_nom_saisi)
     .bind(i.demandeur_contact)
-    .bind(i.qualite)
+    .bind(qualite)
     .bind(i.sujet_type)
     .bind(i.sujet_id)
     .bind(i.sujet_nom_saisi)

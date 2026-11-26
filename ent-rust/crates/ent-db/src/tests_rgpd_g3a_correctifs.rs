@@ -816,7 +816,7 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
         )
         .await
         .unwrap();
-    // Mêmes contact, autres écritures : même réponse, une seule demande.
+    // Mêmes contact, autres écritures : même réponse ; M-b : chaque demande est **conservée**.
     for ecriture in [
         "marie.dupont@exemple.test",
         "  MARIE.DUPONT+spam@exemple.TEST ",
@@ -828,7 +828,11 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
             .unwrap();
         assert_eq!(m2, m, "même réponse invariable");
     }
-    assert_eq!(compter(&ent).await, c0 + 1, "une seule demande enregistrée");
+    assert_eq!(
+        compter(&ent).await,
+        c0 + 4,
+        "aucune demande abandonnée (M-b)"
+    );
     assert_eq!(
         normaliser_contact("Marie.Dupont@Exemple.test"),
         normaliser_contact("marie.dupont+x@exemple.test")
@@ -845,7 +849,7 @@ async fn g3a_c_m4_depot_public_normalise_plafonne_sans_numero_officiel() {
         .iter()
         .filter(|l| l.reference == REFERENCE_SANS_NUMERO)
         .collect();
-    assert_eq!(sans_numero.len() as i64, 1);
+    assert_eq!(sans_numero.len() as i64, 4);
     // Le guichet confirme (identité vérifiée) : le numéro est attribué, tracé.
     let id = sans_numero[0].id;
     let v = ent
@@ -1269,4 +1273,161 @@ fn g3a_c_f5_pas_d_heure_reelle_dans_la_logique_de_delai() {
             panic!("ligne {} : calcul de délai sur l'heure réelle : {l}", i + 1);
         }
     }
+}
+
+// ─────────────────────────────── Contre-revue : M-a, M-b, M-c ───────────────────────────────
+
+/// M-a — la pièce consultée lors d'une vérification **échouée** est rattachée aussi : la clôture la
+/// détruit (R-RG16, « jamais gardée au-delà de la clôture »).
+#[tokio::test]
+async fn g3a_c_ma_la_piece_d_une_verification_echouee_est_detruite() {
+    let Some((ent, cast, _)) = labo().await else {
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = cast.direction.user_id;
+    let id = saisie_parent(&ent, &cast).await;
+    let (piece, original, servi) = piece_identite(&ent, &cast).await;
+    let v = ent
+        .droits_verifier_identite(etab, dir, DIR, id, "piece", false, None, Some(piece))
+        .await
+        .expect("vérification échouée, pièce consultée");
+    assert!(v.piece_a_detruire, "la pièce est rattachée malgré l'échec");
+    ent.droits_verifier_identite(etab, dir, DIR, id, "code_courriel", true, None, None)
+        .await
+        .unwrap();
+    ent.droits_decider(etab, dir, DIR, id, "acces", "accorde", Some("art15"), None)
+        .await
+        .unwrap();
+    let v = ent
+        .droits_clore(etab, dir, DIR, id, "extrait remis")
+        .await
+        .unwrap();
+    assert!(!ent.objet_existe(&original).await.unwrap());
+    assert!(!ent.objet_existe(&servi).await.unwrap());
+    assert!(evenements(&v).contains(&"piece_detruite".to_string()));
+    // Une référence de pièce reste validée même en cas d'échec.
+    let id2 = saisie_parent(&ent, &cast).await;
+    let r = ent
+        .droits_verifier_identite(
+            etab,
+            dir,
+            DIR,
+            id2,
+            "piece",
+            false,
+            None,
+            Some(Uuid::new_v4()),
+        )
+        .await;
+    assert!(r.is_err(), "pièce inconnue refusée : {r:?}");
+}
+
+/// M-b — un second dépôt public distinct du même contact (autre droit, lendemain compris) n'est pas
+/// abandonné : il est enregistré, la réponse reste identique.
+#[tokio::test]
+async fn g3a_c_mb_le_second_depot_public_distinct_est_conserve() {
+    let Some((ent, cast, _)) = labo().await else {
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let compter = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM rgp_demande WHERE etablissement_id = $1 AND demandeur_contact_normalise = 'ancien@exemple.test'",
+        )
+        .bind(etab)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap()
+    };
+    let m1 = ent
+        .droits_deposer_sans_compte(etab, depot_public("ancien@exemple.test", "Ancien Élève"))
+        .await
+        .unwrap();
+    let mut second = depot_public("Ancien@exemple.test", "Ancien Élève");
+    second.droits = &["effacement"];
+    let m2 = ent.droits_deposer_sans_compte(etab, second).await.unwrap();
+    assert_eq!(m1, m2, "même réponse");
+    assert_eq!(compter().await, 2, "les deux demandes sont enregistrées");
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rgp_demande_droit d JOIN rgp_demande r ON r.id = d.demande_id
+          WHERE r.etablissement_id = $1 AND r.demandeur_contact_normalise = 'ancien@exemple.test'
+            AND d.droit = 'effacement'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 1, "le droit d'effacement n'est pas perdu");
+}
+
+/// M-c (CL27-04) — un élève mineur qui dépose en « soi-même » (qualité par défaut de l'écran), ou dont
+/// le sujet est rapproché plus tard d'un mineur, est traité comme un mineur : la décision d'informer les
+/// titulaires bloque la clôture.
+#[tokio::test]
+async fn g3a_c_mc_un_mineur_en_soi_meme_est_traite_comme_un_mineur() {
+    let Some((ent, cast, _)) = labo().await else {
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = cast.direction.user_id;
+    let eleve = cast
+        .eleves
+        .iter()
+        .find(|e| e.compte.is_some())
+        .expect("un élève avec un compte");
+    let compte = eleve.compte.as_ref().unwrap().user_id;
+    let v = ent
+        .droits_deposer_connecte(
+            etab,
+            compte,
+            "eleve",
+            DepotConnecte {
+                qualite: "soi_meme",
+                sujet_type: "eleve",
+                sujet_id: Some(eleve.id),
+                droits: &["acces"],
+                perimetre_texte: None,
+                perimetre_du: None,
+                perimetre_au: None,
+            },
+        )
+        .await
+        .expect("dépôt de l'élève");
+    assert!(v.titulaires_a_decider, "soi_meme d'un mineur : à décider");
+    ent.droits_decider(
+        etab,
+        dir,
+        DIR,
+        v.id,
+        "acces",
+        "accorde",
+        Some("art15"),
+        None,
+    )
+    .await
+    .unwrap();
+    let r = ent
+        .droits_clore(etab, dir, DIR, v.id, "extrait remis")
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
+    ent.droits_titulaires_information(etab, dir, DIR, v.id, false, Some("motif prudent"))
+        .await
+        .unwrap();
+    // Dépôt public « ancien élève » rapproché ensuite d'un élève mineur.
+    ent.droits_deposer_sans_compte(etab, depot_public("mineur@exemple.test", "Jeune Élève"))
+        .await
+        .unwrap();
+    let id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM rgp_demande WHERE etablissement_id = $1 AND demandeur_contact_normalise = 'mineur@exemple.test'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    let v = ent
+        .droits_rapprocher(etab, dir, DIR, id, Some(("eleve", eleve.id)), None)
+        .await
+        .unwrap();
+    assert!(v.titulaires_a_decider, "rapproché d'un mineur : à décider");
 }

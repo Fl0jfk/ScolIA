@@ -450,3 +450,13 @@ Même branche, mêmes migrations : 2540–2543 inchangées ; **2544 corrigée en
 ### Tête et CI du passage correctif
 - Premier envoi `b1ac325d` : CI rouge (un seul test, `g3a_http_guichet_parcours_et_refus`, tranche 2/20 des tests labo) — le test HTTP attendait l'ancien passage direct à « en cours » ; les tests HTTP locaux avaient été ignorés faute de `ENT_DATABASE_URL`. Test aligné sur l'arbitrage E2 (403 au secrétariat, accepté par la direction).
 - Tête de code `245020e9` : CI run 45802769167 = **success**. PR #158 laissée en brouillon vers `ENT`.
+
+### Contre-revue du passage correctif : M-a, M-b, M-c (corrigés, un test chacun)
+
+| Réf. | Correctif | Valeur prudente (D-069) | Test |
+|---|---|---|---|
+| **M-a** | La pièce consultée lors d'une vérification **échouée** est rattachée (et validée) comme pour une réussie : la clôture la détruit (R-RG16). | Une référence invalide reste refusée même en cas d'échec. | `g3a_c_ma_la_piece_d_une_verification_echouee_est_detruite` |
+| **M-b** | Un second dépôt public du même contact normalisé est **conservé** (sans numéro officiel), la réponse invariable restant servie : un autre droit déposé plus tard garde son propre délai légal. | Plus de dédoublonnage : le seul frein au spam est le plafond quotidien par établissement ; le guichet fusionne ou rapproche. | `g3a_c_mb_le_second_depot_public_distinct_est_conserve` (et M4 adapté) |
+| **M-c** | CL27-04 : un élève **mineur** qui demande « pour soi » (`soi_meme`, `ancien_eleve`) est traité comme `eleve_mineur` (qualité retenue à l'insertion, et au rapprochement du sujet pour un dépôt public). La clôture et le refus sont bloqués tant que la décision d'informer les titulaires n'est pas prise. | Date de naissance inconnue : traité comme mineur seulement si le sujet est un élève connu ; la qualité d'origine saisie n'est pas conservée séparément. | `g3a_c_mc_un_mineur_en_soi_meme_est_traite_comme_un_mineur` |
+
+Quatre tests anciens du lot ont été adaptés à M-c (décision d'informer avant clôture/refus ; la demande « non-mineure » du test d'information utilise la qualité `mandataire`). Les faibles Pf1 à Pf8 de la contre-revue restent **en file**, non traités.
