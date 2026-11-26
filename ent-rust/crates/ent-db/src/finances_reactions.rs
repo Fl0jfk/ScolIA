@@ -3,7 +3,7 @@
 //! | Déclencheur | Effet (pièces **brouillon**, émission humaine) |
 //! |---|---|
 //! | `inscription.validee` | lignes annuelles de l'année cible (prorata au mois d'entrée), réparties entre les foyers payeurs |
-//! | `eleve.regime_changed` | avoir sur la restauration / l'internat qui ne sont plus dus, lignes pour ceux qui le deviennent |
+//! | `eleve.regime_changed` | régularisation des mois facturés hors régime (avoirs), puis annuel limité aux catégories gagnées (régime mois par mois, `finances_regime`) |
 //! | `eleve.sortie` | avoir des mois postérieurs à la sortie |
 //! | `eleve.absence_justified` | remise d'ordre (avoir au prorata des jours) si l'absence atteint le seuil paramétré |
 //!
@@ -20,6 +20,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::finances;
+use crate::finances_regime;
 use crate::outbox::{Consommateur, EvenementDistribue, FutureTraitement};
 
 pub const CONSOMMATEUR_FACTURATION: &str = "d10.facturation";
@@ -71,18 +72,23 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
                 .map_err(err)?;
         }
         types::ELEVE_REGIME_CHANGED => {
-            let (Some(eleve), Some(ancien), Some(nouveau), Some(effet)) = (
-                e.eleve_id,
-                texte(evt, "ancien"),
-                texte(evt, "nouveau"),
-                date(evt, "date_effet"),
-            ) else {
+            // Les deux chemins publient l'événement (finances : `ancien`/`nouveau` ; ELV-10 : `ancienne_valeur`/
+            // `nouvelle_valeur`) : seules `eleve_id` et `date_effet` sont exigées, le régime de chaque mois se lit dans
+            // l'historique daté ; la charge ne sert qu'en repli quand l'historique ne permet pas de conclure.
+            let (Some(eleve), Some(effet)) = (e.eleve_id, date(evt, "date_effet")) else {
                 return Ok(());
             };
-            let p = finances::params_tx(tx, etab).await.map_err(err)?;
-            let annee = finances::annee_de(&p, effet);
-            finances::facturer_changement_regime(
-                tx, etab, &annee, eleve, ancien, nouveau, effet, e.id, None, causalite,
+            let ancien = texte(evt, "ancien").or_else(|| texte(evt, "ancienne_valeur"));
+            let nouveau = texte(evt, "nouveau").or_else(|| texte(evt, "nouvelle_valeur"));
+            finances_regime::reagir_changement_regime(
+                tx,
+                etab,
+                eleve,
+                effet,
+                e.id,
+                ancien.zip(nouveau),
+                None,
+                causalite,
             )
             .await
             .map_err(err)?;

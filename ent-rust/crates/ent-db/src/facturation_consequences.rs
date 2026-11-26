@@ -155,6 +155,7 @@ pub(crate) async fn decider_tx(
             credit,
             libelle: format!("Changement de payeur au {} — {}", r.date_effet.format("%d/%m/%Y"), l.libelle),
             source_cle: format!("chgpayeur:{}", r.id),
+            periode: None,
         });
         let annee: Option<(Option<String>,)> = sqlx::query_as(
             "SELECT annee_scolaire FROM ent_fac_facture WHERE etablissement_id = $1 AND id = $2",
