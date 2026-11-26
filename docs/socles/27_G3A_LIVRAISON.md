@@ -446,3 +446,7 @@ Même branche, mêmes migrations : 2540–2543 inchangées ; **2544 corrigée en
 - Tests du lot G3a adaptés : 34 verts. Plus 2 tests unitaires `ent-db`, 3 tests `modele.rs`, 1 test de rendu `ent-web-server`.
 - Compteurs règle 28 : **inchangés** (aucune table, aucune route-source nouvelle : 77 sources ; `TOUTES` 286 ; `MIGRATION_TAG` 3808).
 - Clippy 1.99, 3 commandes CI plus `ent-lab` et web (ssr, serveur, labo, wasm32 hydrate) : 0 avertissement.
+
+### Tête et CI du passage correctif
+- Premier envoi `b1ac325d` : CI rouge (un seul test, `g3a_http_guichet_parcours_et_refus`, tranche 2/20 des tests labo) — le test HTTP attendait l'ancien passage direct à « en cours » ; les tests HTTP locaux avaient été ignorés faute de `ENT_DATABASE_URL`. Test aligné sur l'arbitrage E2 (403 au secrétariat, accepté par la direction).
+- Tête de code `245020e9` : CI run 45802769167 = **success**. PR #158 laissée en brouillon vers `ENT`.
