@@ -434,3 +434,7 @@ Branche `ent-socle-24-code-f3-regime-mois` (partie d'`origin/ENT`, jamais d'`ent
 
 ### Tests
 `tests_finances_f3` : 18 tests `regime_mois_*` (R1 à R12, D2a à D2c) + 9 tests unitaires purs (`finances_regime::tests`) ; dates fixes `d(2030, …)`, aucune horloge réelle.
+
+### Vérifications, tête de code et CI (régime mois par mois)
+Base locale neuve `ent_f3_test` (PostgreSQL 16, `ENT_ENV=test`, features `labo`), `--locked`, toolchain 1.99.0, un seul `CARGO_TARGET_DIR`. Régression `tests_finances tests_facturation finances_` : **127 passés, 0 échec** ; clippy 1.99.0 `-D warnings` sur les 3 commandes de la CI (`ent-lab` compris) : 0 avertissement ; `cargo metadata --locked` (`web`) : OK ; rustfmt ciblé (`tests_finances_f3.rs`, `finances_regime.rs`) ; pas de `cargo fmt --all`, pas de `#[ignore]`. Premier run CI (5c1af3df) rouge : garde R-F1 (`aucune_ecriture_financiere_hors_du_service`), une écriture `UPDATE ent_fin_tache` dans `finances_regime.rs` ; déplacée dans le service (`resoudre_taches_sans_evenement`, `facturation_payeurs.rs`).
+Tête de code testée : `0832e99d` (PR n° 159, brouillon vers `ENT`). CI « ENT Rust » : **verte** (run 45819916699). Ce commit documentaire ne change aucun code.
