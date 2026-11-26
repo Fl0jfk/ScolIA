@@ -70,3 +70,14 @@ Aucun.
 ## Limites de cette revue
 
 Rien n'a été compilé ni exécuté : les affirmations « testé » reposent sur la lecture des tests et sur la CI verte du run 727 à `245020e9`. Le frontend a été lu seulement aux points sensibles (saisie de la pièce, alertes).
+
+## Moyens : vérification des correctifs (pilote, 2026-11-26)
+
+Diff relu `aaa6fb83..e7e33d49` (4 fichiers, +296 −26), en lecture seule ; CI run 730 (45814429480) **verte** sur `e7e33d49`, les quatre jobs (formatage, audits, backend 20/20, frontend 6/6).
+
+- **M-a corrigé et testé.** `droits_verifier_identite` valide et rattache la pièce quel que soit `reussie` (`droits_demandes.rs:1451-1456`, `.bind(piece_document_id)`). La file de destruction sélectionne sur `piece_document_id IS NOT NULL` sans regarder le résultat (`:3078-3080`) : la clôture détruit donc la pièce d'un échec (R-RG16). Une référence invalide reste refusée (F8). Test `g3a_c_ma_la_piece_d_une_verification_echouee_est_detruite` (objets original et servi absents, événement `piece_detruite`, pièce inconnue refusée). Effet de bord (faible, non bloquant) : après un échec, la même pièce ne peut plus être référencée par un second essai sur la même demande (`valider_piece` : « déjà rattachée ») ; le guichet doit scanner à nouveau.
+- **M-b corrigé et testé.** Le dédoublonnage par contact normalisé est retiré ; la seconde demande est insérée sans numéro, même réponse invariable (R-RG42). Le seul frein au spam devient le plafond quotidien (Pf1 inchangé, pèse un peu plus). Test `g3a_c_mb_le_second_depot_public_distinct_est_conserve` ; test M4 adapté (4 demandes sans numéro au lieu d'1), adaptation cohérente avec le nouveau comportement.
+- **M-c corrigé et testé.** `qualite_effective` (`:3384-3400`) requalifie `soi_meme` / `ancien_eleve` en `eleve_mineur` quand le sujet est un élève connu non majeur à la date de réception, à l'insertion (`inserer`, donc guichet, connecté et public) et au rapprochement du sujet d'un dépôt public (`:1690-1710`). Date de naissance inconnue : `eleve_majeur_le` rend `Some(false)`, donc mineur (prudent) ; élève introuvable : inchangé. Direction sûre : la clôture et le refus sont bloqués jusqu'à la décision d'informer. Test `g3a_c_mc_un_mineur_en_soi_meme_est_traite_comme_un_mineur` (saisie et rapprochement) ; quatre tests anciens complétés par la décision d'informer, un passé en `mandataire`, sans affaiblir leurs assertions. Détail : le commentaire de `qualite_effective` a été inséré entre la doc de `inserer` et sa fonction, si bien que rustdoc rattache la doc d'`inserer` à `qualite_effective` (cosmétique).
+- **Régressions** : aucune trouvée ; aucun `#[ignore]`, aucune migration modifiée (2544 inchangée depuis la première contre-revue), aucun fichier de pilotage dans le lot.
+
+**Verdict : versable**, aucun élevé.
