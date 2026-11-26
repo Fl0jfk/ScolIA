@@ -79,7 +79,8 @@ RLS : **+5** tables (compte attendu dans `tests_rls.rs`). Aucune route ni action
   globales pendant que d'autres tests écrivent** (`tests_reprise_r2/r3`, `tests_messagerie_p3`) ou des semis concurrents
   (`Reessayer`) : rejoués seuls avec `-j1`, les **40 tests concernés passent**. Un échec réel a été corrigé
   (ordre alphabétique du registre des tables).
-- `cargo nextest -p ent-api -p ent-db` sans labo : voir la section suivante (résultat consigné au push du lot).
+- `cargo nextest -p ent-api -p ent-db` sans labo : 918 tests, 915 passés ; les 3 échecs sont les mêmes tests de reprise qui
+  comptent des lignes globales ; rejoués seuls avec `-j1` : 18 / 18 passent.
 
 ### Contre-revue locale (étape c) — **non exécutée par `review-sonnet`**
 
