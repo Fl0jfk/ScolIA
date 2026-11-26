@@ -44,6 +44,15 @@ pub(crate) fn invalide(m: &'static str) -> EntDbError {
     EntDbError::SaisieInvalide(m)
 }
 
+/// Une pièce d'identité du coffre proposée au guichet (Pf7).
+#[derive(Clone, Debug, Serialize)]
+pub struct PieceChoisissable {
+    pub id: Uuid,
+    pub deposee_le: DateTime<Utc>,
+    pub etat: String,
+    pub pour_cette_demande: bool,
+}
+
 /// Délai légal de réponse, en mois (RGPD art. 12.3).
 pub const DELAI_REPONSE_MOIS: u32 = 1;
 /// Prolongation maximale, en mois (RGPD art. 12.3 : « deux mois supplémentaires »).
@@ -556,7 +565,7 @@ pub fn reference(annee: i32, numero: i32) -> String {
 /// qu'une fois confirmé par le guichet (M4).
 pub const REFERENCE_SANS_NUMERO: &str = "en attente de numéro";
 
-fn reference_de(annee: Option<i32>, numero: Option<i32>) -> String {
+pub(crate) fn reference_de(annee: Option<i32>, numero: Option<i32>) -> String {
     match (annee, numero) {
         (Some(a), Some(n)) => reference(a, n),
         _ => REFERENCE_SANS_NUMERO.to_string(),
@@ -1527,6 +1536,21 @@ impl PgEnt {
         let sujet_type: String = r.get("sujet_type");
         let sujet_id: Option<Uuid> = r.get("sujet_id");
         let qualite: String = r.get("qualite");
+        // Pf7 : un dépôt **sans compte** « pour soi » ne se déclare vérifié que si la personne concernée est
+        // rapprochée d'un dossier et que ce dossier est bien celui du demandeur (sa fiche personne, quand elle
+        // est connue) : sinon la pièce vue ne prouve rien sur le dossier qu'on s'apprête à ouvrir.
+        if reussie && compte.is_none() && qualite_de_soi(&qualite) {
+            let rapproche = sujet_id.is_some() && sujet_type != "inconnu";
+            let est_le_demandeur = match (sujet_type.as_str(), sujet_id, personne) {
+                ("personne" | "agent", Some(s), Some(p)) => s == p,
+                _ => true,
+            };
+            if !rapproche || !est_le_demandeur {
+                return Err(invalide(
+                    "demande sans compte « pour soi » : rapprochez d'abord la personne concernée, qui doit être le demandeur",
+                ));
+            }
+        }
         // M-a : la pièce consultée est rattachée (donc détruite à la clôture, R-RG16) même si la
         // vérification échoue.
         if let Some(piece) = piece_document_id {
@@ -1630,6 +1654,45 @@ impl PgEnt {
         let vue = charger(&mut tx, etab, demande, jour).await?;
         tx.commit().await?;
         Ok(vue)
+    }
+
+    /// Pf7 : les pièces d'identité du coffre que l'on peut rattacher à cette demande (déposées pour elle, ou libres) :
+    /// le guichet **choisit** dans cette liste, il ne saisit plus d'identifiant. `droits.recevoir`. Aucun nom, aucun
+    /// contenu : la date de dépôt, l'état et un numéro d'ordre suffisent à reconnaître le dépôt.
+    pub async fn droits_pieces_identite_a_choisir(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        demande: Uuid,
+    ) -> Result<Vec<PieceChoisissable>, EntDbError> {
+        self.exiger_action_etab(etab, acteur, role, Action::DroitsRecevoir).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        etat_courant(&mut tx, etab, demande).await?;
+        let rows = sqlx::query(
+            "SELECT p.id, p.deposee_le, p.etat, (p.demande_id = $2) AS pour_cette_demande
+               FROM ent_doc_piece p
+              WHERE p.etablissement_id = $1 AND p.type_code = 'piece_identite' AND p.etat <> 'retiree'
+                AND (p.demande_id = $2 OR p.demande_id IS NULL)
+                AND NOT EXISTS (SELECT 1 FROM rgp_demande_identite i
+                                 WHERE i.etablissement_id = p.etablissement_id AND i.piece_document_id = p.id
+                                   AND i.demande_id <> $2)
+              ORDER BY p.deposee_le DESC, p.id LIMIT 50",
+        )
+        .bind(etab)
+        .bind(demande)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(rows
+            .iter()
+            .map(|r| PieceChoisissable {
+                id: r.get("id"),
+                deposee_le: r.get("deposee_le"),
+                etat: r.get("etat"),
+                pour_cette_demande: r.get::<Option<bool>, _>("pour_cette_demande").unwrap_or(false),
+            })
+            .collect())
     }
 
     /// **E2** — la direction tranche une identité dont la qualité n'est pas compatible (`droits.arbitrer`,

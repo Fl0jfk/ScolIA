@@ -214,6 +214,15 @@ fn reponse_limite(retry_after_secs: u64) -> Response {
     res
 }
 
+/// Identifiant tel qu'il compte dans le seau : un `contact` est **normalisé** comme le fait le service du guichet.
+pub fn identifiant_limite(champ: &str, id: &str) -> String {
+    if champ == "contact" {
+        ent_db::droits_demandes::normaliser_contact(id)
+    } else {
+        id.to_string()
+    }
+}
+
 /// Couche axum : contrôle les quotas avant le handler.
 pub async fn limiter_debit(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let gabarit = match req.extensions().get::<MatchedPath>() {
@@ -257,6 +266,10 @@ pub async fn limiter_debit(State(state): State<AppState>, req: Request, next: Ne
             .and_then(|v| v.get(champ).and_then(|c| c.as_str().map(str::to_string)));
         body = Body::from(octets);
         if let Some(id) = identifiant.filter(|s| !s.trim().is_empty()) {
+            // Pf2 (socle 27) : le seau d'un contact porte sur le contact **normalisé**, comme le service
+            // (casse, espaces, étiquette « +xxx » d'un courriel, « +33 » d'un numéro) : changer l'écriture
+            // d'un même contact ne contourne plus le plafond.
+            let id = identifiant_limite(champ, &id);
             if let Decision::Limite { retry_after_secs } =
                 limiteur.verifier(&route, "id", &id, q).await
             {
@@ -266,4 +279,21 @@ pub async fn limiter_debit(State(state): State<AppState>, req: Request, next: Ne
     }
 
     next.run(Request::from_parts(parts, body)).await
+}
+
+#[cfg(test)]
+mod tests_pf2 {
+    use super::identifiant_limite;
+
+    /// Pf2 : changer la casse, les espaces, l'étiquette « +xxx » ou l'écriture d'un numéro ne change pas le seau.
+    #[test]
+    fn le_seau_d_un_contact_porte_sur_le_contact_normalise() {
+        let a = identifiant_limite("contact", "Marie.Durand@Exemple.fr");
+        for v in [" marie.durand@exemple.fr ", "marie.durand+rgpd@exemple.fr", "MARIE.DURAND+x@EXEMPLE.FR"] {
+            assert_eq!(identifiant_limite("contact", v), a, "{v}");
+        }
+        assert_eq!(identifiant_limite("contact", "+33 6 12 34 56 78"), identifiant_limite("contact", "06.12.34.56.78"));
+        // Les autres champs ne sont pas touchés.
+        assert_eq!(identifiant_limite("email", " A@B.fr "), " A@B.fr ");
+    }
 }

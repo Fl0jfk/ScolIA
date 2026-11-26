@@ -6,12 +6,12 @@ use crate::droits_demandes::SaisieDemande;
 use crate::droits_extrait_masquage::appliquer_masques;
 use uuid::Uuid;
 
-const DIR: &str = "direction";
-const ADF: &str = "administratif";
-const TEL_AUTRE: &str = "0611223344";
-const ADRESSE_AUTRE: &str = "12 rue Cachée 69000 Lyon";
+pub(super) const DIR: &str = "direction";
+pub(super) const ADF: &str = "administratif";
+pub(super) const TEL_AUTRE: &str = "0611223344";
+pub(super) const ADRESSE_AUTRE: &str = "12 rue Cachée 69000 Lyon";
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(super) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| {
         e.install_brain_p0();
@@ -20,7 +20,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+pub(super) async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     sqlx::query_scalar(
         "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND fusionnee_dans IS NULL",
     )
@@ -33,7 +33,7 @@ async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
 
 /// Parents séparés : le parent de Tom devient **l'autre parent** de Léa (lien actif), protégé ; un dossier
 /// d'inscription porte les coordonnées des deux responsables. Rend la personne de l'autre parent.
-async fn parents_separes(ent: &PgEnt, cast: &LaboCast, protege: bool) -> Uuid {
+pub(super) async fn parents_separes(ent: &PgEnt, cast: &LaboCast, protege: bool) -> Uuid {
     let etab = cast.etablissement_id;
     let autre = personne_de(ent, etab, cast.parent_tom.user_id).await;
     let moi = personne_de(ent, etab, cast.parent_lea.user_id).await;
@@ -108,7 +108,7 @@ async fn parents_separes(ent: &PgEnt, cast: &LaboCast, protege: bool) -> Uuid {
     autre
 }
 
-async fn demande(
+pub(super) async fn demande(
     ent: &PgEnt,
     cast: &LaboCast,
     qualite: &'static str,

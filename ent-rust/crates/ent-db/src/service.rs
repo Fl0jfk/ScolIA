@@ -2253,7 +2253,7 @@ impl PgEnt {
     }
 
     /// Coffre des secrets au repos : absent seulement hors labo/test sans clé valide.
-    fn secrets(&self) -> Result<&SecretBox, EntDbError> {
+    pub(crate) fn secrets(&self) -> Result<&SecretBox, EntDbError> {
         self.secrets
             .as_ref()
             .ok_or(EntDbError::Secrets(SecretBoxError::KeyMissing))

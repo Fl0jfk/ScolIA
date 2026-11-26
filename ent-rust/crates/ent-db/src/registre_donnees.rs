@@ -1366,6 +1366,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     // une demande restaurée est vraie (elle a bien été reçue) et son délai légal court depuis sa réception ;
     // rien n'est à « re-envoyer » (l'accusé de réception part par la file du socle 8, qui a sa propre
     // neutralisation). La pièce d'identité n'est pas en base : seule sa référence au coffre (socle 7) l'est.
+    t("rgp_cloture", "conformite", Portee::Etablissement).perso(),
+    t("rgp_defi", "conformite", Portee::Etablissement).perso(),
     t("rgp_demande", "conformite", Portee::Etablissement).perso(),
     // Compteur de numéros : aucune donnée personnelle, un entier par année.
     t("rgp_demande_compteur", "conformite", Portee::Etablissement),
@@ -1382,6 +1384,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("rgp_document", "conformite", Portee::Etablissement),
     t("rgp_ecart", "conformite", Portee::Etablissement),
     t("rgp_extrait", "conformite", Portee::Etablissement).perso(),
+    t("rgp_extrait_fichier", "conformite", Portee::Etablissement).perso(),
     t("rgp_extrait_masquage", "conformite", Portee::Etablissement).perso(),
     t("rgp_extrait_section", "conformite", Portee::Etablissement).perso(),
     t("rgp_gouvernance", "conformite", Portee::Etablissement).perso(),
@@ -1389,11 +1392,14 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Réglages RGPD de l'établissement : valeurs numériques, aucune donnée personnelle ; leur journal garde seulement qui a changé quoi.
     t("rgp_reglage", "conformite", Portee::Etablissement),
     t("rgp_reglage_journal", "conformite", Portee::Etablissement).perso(),
+    t("rgp_remise", "conformite", Portee::Etablissement).perso(),
+    t("rgp_renvoi", "conformite", Portee::Etablissement).perso(),
     t("rgp_soustraitant", "conformite", Portee::Technique),
     t("rgp_soustraitant_annonce", "conformite", Portee::Technique),
     t("rgp_soustraitant_donnee", "conformite", Portee::Technique).exc(Exception::SansHorodatage, "table de liaison de plateforme (clé composite) : l'horodatage est porté par `rgp_soustraitant`"),
     t("rgp_soustraitant_local", "conformite", Portee::Etablissement),
     t("rgp_soustraitant_objection", "conformite", Portee::Etablissement).perso(),
+    t("rgp_telechargement", "conformite", Portee::Etablissement).perso(),
     t("rgp_traitement", "conformite", Portee::Etablissement),
     t("rgp_traitement_version", "conformite", Portee::Etablissement).perso(),
 ];

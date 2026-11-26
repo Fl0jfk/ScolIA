@@ -2000,6 +2000,53 @@ impl PgEnt {
         Ok(contenu)
     }
 
+    /// Contenu **prêt à remettre** d'un extrait (lot G3b-3) : reconstruit, empreinte comparée (écart → périmé, 409),
+    /// remissible en l'état (R-RG18 : sections incomplètes décidées ; RGP-150 : plus aucun marquage à décider), puis
+    /// **masqué** : chaque élément non levé est remplacé par son libellé. Aucun droit n'est vérifié ici : l'appelant
+    /// (`droits.remettre`) l'a fait. Renvoie aussi la vue de l'extrait et le demandeur (compte) de la demande.
+    pub(crate) async fn contenu_a_remettre(
+        &self,
+        tx: &mut PgConnection,
+        etab: Uuid,
+        demande: Uuid,
+        extrait: Uuid,
+    ) -> Result<(ExtraitVue, ContenuExtrait, Option<Uuid>), EntDbError> {
+        let module_sante = self.module_sante_actif(etab).await?;
+        let info = info_demande(&mut *tx, etab, demande).await?;
+        let vue = charger_extrait(&mut *tx, etab, demande, extrait).await?;
+        if vue.perime {
+            return Err(EntDbError::ConflitDossier(
+                "extrait périmé : assembler une nouvelle version",
+            ));
+        }
+        let r = sqlx::query(
+            "SELECT periode_du, periode_au FROM rgp_extrait WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(extrait)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        let mut ctx = contexte_sujet(&mut *tx, etab, &info, &vue.sujet_type, vue.sujet_id, module_sante).await?;
+        ctx.du = r.get("periode_du");
+        ctx.au = r.get("periode_au");
+        let contenu = self.construire_contenu(&mut *tx, &ctx, &[]).await?;
+        if contenu.empreinte != vue.empreinte {
+            return Err(EntDbError::ConflitDossier(
+                "extrait périmé : le contenu a changé, assembler une nouvelle version",
+            ));
+        }
+        if !vue.remissible_en_l_etat {
+            return Err(EntDbError::ConflitDossier(
+                "remise impossible : sections incomplètes sans décision ou marquages à décider",
+            ));
+        }
+        let marques =
+            crate::droits_extrait_masquage::marquages_de(&mut *tx, etab, extrait, true).await?;
+        let contenu = crate::droits_extrait_masquage::appliquer_masques(&contenu, &marques);
+        Ok((vue, contenu, info.demandeur_compte))
+    }
+
     /// **R-RG18** — décision motivée de la direction : remettre l'extrait **malgré** des sections en échec ou non
     /// couvertes. Une décision par section, motif écrit ; la réponse au demandeur le dit. `droits.arbitrer`.
     pub async fn droits_extrait_arbitrer_incomplet(

@@ -273,10 +273,175 @@ CREATE TABLE IF NOT EXISTS rgp_extrait_masquage (
 CREATE INDEX IF NOT EXISTS rgp_extrait_masquage_extrait_idx
     ON rgp_extrait_masquage (etablissement_id, extrait_id, decision);
 
+-- ─────────────────────── Remise, téléchargements, clôture (lot G3b-3) ───────────────────────
+-- Les fichiers remis (PDF, CSV) sont **scellés** au repos (SecretBox, usage dérivé « extrait-rgpd:v1 », AAD liée à
+-- l'extrait, à sa version et au fichier). Seules les métadonnées et les empreintes SHA-256 sont en base. Après la
+-- mise à disposition (7 jours par défaut), l'objet est supprimé ; « purgé » n'est écrit qu'après confirmation.
+CREATE TABLE IF NOT EXISTS rgp_extrait_fichier (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    extrait_id UUID NOT NULL,
+    nom TEXT NOT NULL CHECK (nom ~ '^[a-z0-9][a-z0-9_.-]{0,80}$'),
+    type TEXT NOT NULL CHECK (type IN ('pdf', 'csv')),
+    cle_objet TEXT NOT NULL CHECK (length(cle_objet) BETWEEN 10 AND 300),
+    octets INT NOT NULL CHECK (octets >= 0),
+    empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
+    empreinte_scelle TEXT NOT NULL CHECK (empreinte_scelle ~ '^[0-9a-f]{64}$'),
+    disponible_jusqu_le TIMESTAMPTZ NOT NULL,
+    purge_le TIMESTAMPTZ,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_extrait_fichier_nom_uq UNIQUE (etablissement_id, extrait_id, nom),
+    CONSTRAINT rgp_extrait_fichier_etab_id_uq UNIQUE (etablissement_id, id),
+    CONSTRAINT rgp_extrait_fichier_extrait_fk FOREIGN KEY (etablissement_id, extrait_id)
+        REFERENCES rgp_extrait (etablissement_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS rgp_extrait_fichier_purge_idx
+    ON rgp_extrait_fichier (etablissement_id, disponible_jusqu_le) WHERE purge_le IS NULL;
+
+CREATE OR REPLACE FUNCTION rgp_extrait_fichier_garde() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'rgp_extrait_fichier : suppression interdite' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
+       OR NEW.extrait_id IS DISTINCT FROM OLD.extrait_id OR NEW.nom IS DISTINCT FROM OLD.nom
+       OR NEW.cle_objet IS DISTINCT FROM OLD.cle_objet OR NEW.empreinte IS DISTINCT FROM OLD.empreinte
+       OR NEW.empreinte_scelle IS DISTINCT FROM OLD.empreinte_scelle
+       OR NEW.disponible_jusqu_le IS DISTINCT FROM OLD.disponible_jusqu_le
+       OR (OLD.purge_le IS NOT NULL AND NEW.purge_le IS DISTINCT FROM OLD.purge_le) THEN
+        RAISE EXCEPTION 'rgp_extrait_fichier : seule la date de purge s''écrit, une fois' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS rgp_extrait_fichier_garde_trg ON rgp_extrait_fichier;
+CREATE TRIGGER rgp_extrait_fichier_garde_trg
+    BEFORE UPDATE OR DELETE ON rgp_extrait_fichier
+    FOR EACH ROW EXECUTE FUNCTION rgp_extrait_fichier_garde();
+
+-- Une remise par extrait. En ligne : sur le compte du demandeur dans cet établissement, jamais sur une adresse
+-- fournie par la demande. En main propre : émargement (nom saisi, pièce vue, gestionnaire).
+CREATE TABLE IF NOT EXISTS rgp_remise (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    demande_id UUID NOT NULL,
+    extrait_id UUID NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('en_ligne', 'main_propre')),
+    remis_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
+    remis_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    destinataire_compte_id UUID REFERENCES ent_user (id),
+    empreinte_extrait TEXT NOT NULL CHECK (empreinte_extrait ~ '^[0-9a-f]{64}$'),
+    emargement_nom TEXT CHECK (emargement_nom IS NULL OR length(btrim(emargement_nom)) BETWEEN 2 AND 200),
+    emargement_piece_vue TEXT CHECK (emargement_piece_vue IS NULL OR length(btrim(emargement_piece_vue)) BETWEEN 2 AND 100),
+    emargement_le TIMESTAMPTZ,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_remise_extrait_uq UNIQUE (etablissement_id, extrait_id),
+    CONSTRAINT rgp_remise_extrait_fk FOREIGN KEY (etablissement_id, extrait_id)
+        REFERENCES rgp_extrait (etablissement_id, id) ON DELETE RESTRICT,
+    CONSTRAINT rgp_remise_mode_coherent CHECK (
+        (mode = 'en_ligne' AND destinataire_compte_id IS NOT NULL AND emargement_nom IS NULL)
+        OR (mode = 'main_propre' AND emargement_nom IS NOT NULL AND emargement_piece_vue IS NOT NULL
+            AND emargement_le IS NOT NULL AND destinataire_compte_id IS NULL))
+);
+
+-- Défis de passkey récente : un par geste, lié à l'empreinte de l'extrait et à l'intention (remettre, télécharger).
+CREATE TABLE IF NOT EXISTS rgp_defi (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    extrait_id UUID NOT NULL,
+    usage TEXT NOT NULL CHECK (usage IN ('remettre', 'telecharger')),
+    compte_id UUID NOT NULL REFERENCES ent_user (id),
+    empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
+    intention TEXT NOT NULL CHECK (length(intention) BETWEEN 10 AND 300),
+    etat_webauthn TEXT NOT NULL,
+    expire_le TIMESTAMPTZ NOT NULL,
+    consomme_le TIMESTAMPTZ,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_defi_extrait_fk FOREIGN KEY (etablissement_id, extrait_id)
+        REFERENCES rgp_extrait (etablissement_id, id) ON DELETE RESTRICT
+);
+
+-- Journal des téléchargements : ajout seul.
+CREATE TABLE IF NOT EXISTS rgp_telechargement (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    fichier_id UUID NOT NULL,
+    compte_id UUID NOT NULL REFERENCES ent_user (id),
+    le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_telechargement_fichier_fk FOREIGN KEY (etablissement_id, fichier_id)
+        REFERENCES rgp_extrait_fichier (etablissement_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS rgp_telechargement_fichier_idx ON rgp_telechargement (etablissement_id, fichier_id);
+
+-- Clôture d'une demande (RGP-166 ; une ligne par clôture, une demande rouverte puis reclose en ajoute une) : éléments remis par **empreinte** (jamais les données), refus partiels motivés.
+CREATE TABLE IF NOT EXISTS rgp_cloture (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    demande_id UUID NOT NULL,
+    elements JSONB NOT NULL DEFAULT '[]'::jsonb,
+    refus JSONB NOT NULL DEFAULT '[]'::jsonb,
+    cloture_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
+    cloture_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_cloture_demande_fk FOREIGN KEY (etablissement_id, demande_id)
+        REFERENCES rgp_demande (etablissement_id, id) ON DELETE RESTRICT
+);
+
+-- Renvois tracés : rectification vers le socle propriétaire (RGP-156), retrait de consentement relié au socle 18
+-- (RGP-159), CADA d'un tiers : document agrégé ou occulté (RGP-316).
+CREATE TABLE IF NOT EXISTS rgp_renvoi (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    demande_id UUID NOT NULL,
+    nature TEXT NOT NULL CHECK (nature IN ('rectification', 'retrait_consentement', 'cada_tiers')),
+    cible TEXT NOT NULL CHECK (length(btrim(cible)) BETWEEN 2 AND 100),
+    texte TEXT NOT NULL CHECK (length(btrim(texte)) BETWEEN 3 AND 2000),
+    cree_par_compte_id UUID NOT NULL REFERENCES ent_user (id),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT rgp_renvoi_demande_fk FOREIGN KEY (etablissement_id, demande_id)
+        REFERENCES rgp_demande (etablissement_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS rgp_renvoi_demande_idx ON rgp_renvoi (etablissement_id, demande_id);
+
+CREATE OR REPLACE FUNCTION rgp_g3b_ajout_seul() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+    RAISE EXCEPTION '% est en ajout seul (% interdit)', TG_TABLE_NAME, TG_OP USING ERRCODE = '42501';
+END;
+$$;
+DROP TRIGGER IF EXISTS rgp_telechargement_ajout_seul_trg ON rgp_telechargement;
+CREATE TRIGGER rgp_telechargement_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_telechargement
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_remise_ajout_seul_trg ON rgp_remise;
+CREATE TRIGGER rgp_remise_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_remise
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_cloture_ajout_seul_trg ON rgp_cloture;
+CREATE TRIGGER rgp_cloture_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_cloture
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+DROP TRIGGER IF EXISTS rgp_renvoi_ajout_seul_trg ON rgp_renvoi;
+CREATE TRIGGER rgp_renvoi_ajout_seul_trg BEFORE UPDATE OR DELETE ON rgp_renvoi
+    FOR EACH ROW EXECUTE FUNCTION rgp_g3b_ajout_seul();
+
 SELECT ent_rls_poser(ARRAY[
     'rgp_reglage',
     'rgp_reglage_journal',
     'rgp_demande_sujet',
     'rgp_extrait',
     'rgp_extrait_section',
-    'rgp_extrait_masquage']);
+    'rgp_extrait_masquage',
+    'rgp_extrait_fichier',
+    'rgp_remise',
+    'rgp_defi',
+    'rgp_telechargement',
+    'rgp_cloture',
+    'rgp_renvoi']);

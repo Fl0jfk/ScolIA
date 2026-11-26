@@ -731,6 +731,12 @@ async fn run_api() {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("destruction des pièces d'identité (droits) : {e}"),
                 }
+                // Socle 27 (G3b) : objets des extraits remis, supprimés à la fin de la mise à disposition (7 jours).
+                match ent.droits_extraits_purger_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(n, "fichiers d'extraits RGPD purgés"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des extraits RGPD : {e}"),
+                }
                 match ent.purger_objets_pieces_infectees_tache(retention).await {
                     Ok(b) if b.purges > 0 || b.echecs > 0 => {
                         tracing::info!(?b, "objets de pièces infectées purgés")
