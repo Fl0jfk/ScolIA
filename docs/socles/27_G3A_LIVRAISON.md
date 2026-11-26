@@ -460,3 +460,5 @@ Même branche, mêmes migrations : 2540–2543 inchangées ; **2544 corrigée en
 | **M-c** | CL27-04 : un élève **mineur** qui demande « pour soi » (`soi_meme`, `ancien_eleve`) est traité comme `eleve_mineur` (qualité retenue à l'insertion, et au rapprochement du sujet pour un dépôt public). La clôture et le refus sont bloqués tant que la décision d'informer les titulaires n'est pas prise. | Date de naissance inconnue : traité comme mineur seulement si le sujet est un élève connu ; la qualité d'origine saisie n'est pas conservée séparément. | `g3a_c_mc_un_mineur_en_soi_meme_est_traite_comme_un_mineur` |
 
 Quatre tests anciens du lot ont été adaptés à M-c (décision d'informer avant clôture/refus ; la demande « non-mineure » du test d'information utilise la qualité `mandataire`). Les faibles Pf1 à Pf8 de la contre-revue restent **en file**, non traités.
+
+Tête de code du passage M-a/M-b/M-c : `e7e33d49` — CI run 45814429480 = **success** (tous les jobs). PR #158 laissée en brouillon vers `ENT`.
