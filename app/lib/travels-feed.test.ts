@@ -4,6 +4,8 @@ import sharp from "sharp";
 import { evaluateFamilyAccess } from "@/app/lib/travels-feed-access";
 import {
   applyReaction,
+  feedParticipantsForImageRights,
+  feedPurgeDecision,
   checkPhotoPublication,
   familyKeyOf,
   FEED_EMAIL_CAP_PER_FAMILY,
@@ -20,6 +22,7 @@ import {
   summarizeReactions,
   validateFeedPost,
 } from "@/app/lib/travels-feed-logic";
+import { storePhotosPost, type PhotoPostDeps } from "@/app/lib/travels-feed-publish";
 import { FeedImageError, sanitizeFeedImage, sniffImageType } from "@/app/lib/travels-feed-image";
 import { buildInviteToken, generateInviteSecret, hashInviteSecret } from "@/app/lib/travels-v2-registration";
 
@@ -372,5 +375,87 @@ describe("nettoyage des photos", () => {
     const fakeHeic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypheic"), Buffer.alloc(60)]);
     assert.equal(sniffImageType(fakeHeic), "heic");
     await assert.rejects(() => sanitizeFeedImage(fakeHeic), /HEIC/);
+  });
+});
+
+describe("droit à l'image : valeur brute de la pré-liste (fil uniquement)", () => {
+  it("« non renseigné » dans la pré-liste n'est PAS transformé en « oui » : listé, case exigée", () => {
+    const t = tripOf({}, {
+      participantEleves: [participant("A1", true), participant("B2", true), participant("C3", true)], // valeurs forcées à true par la lecture SQL
+      preListeEleves: [participant("A1", true), participant("B2"), participant("C3", false)],
+    });
+    const listed = studentsWithoutImageRight(feedParticipantsForImageRights(t));
+    assert.deepEqual(listed.map((s) => [s.ine, s.status]), [["B2", "non_renseigne"], ["C3", "refuse"]]);
+    assert.equal(checkPhotoPublication({ listed, acknowledged: false, photoCount: 1 }).ok, false);
+  });
+  it("élève absent de la pré-liste : valeur de la liste officielle", () => {
+    const t = tripOf({}, { participantEleves: [participant("A1", false)], preListeEleves: [] });
+    assert.deepEqual(studentsWithoutImageRight(feedParticipantsForImageRights(t)).map((s) => s.status), ["refuse"]);
+  });
+});
+
+describe("purge prudente du fil", () => {
+  const opened = new Date("2026-06-01T10:00:00Z");
+  const base = { openedAt: opened, todayIso: "2026-07-01" };
+  it("voyage illisible (base/cache indisponible) : JAMAIS de purge sur ce seul motif", () => {
+    assert.equal(feedPurgeDecision({ ...base, tripState: "unknown", returnIso: null, todayIso: "2026-06-05" }), false);
+    assert.equal(feedPurgeDecision({ ...base, tripState: "unknown", returnIso: "2026-07-20" }), false);
+  });
+  it("voyage illisible mais date de retour mémorisée échue (J+7) : purge", () => {
+    assert.equal(feedPurgeDecision({ ...base, tripState: "unknown", returnIso: "2026-06-20" }), true);
+  });
+  it("absence CONFIRMÉE par lecture directe : purge ; annulé : purge", () => {
+    assert.equal(feedPurgeDecision({ ...base, tripState: "absent" }), true);
+    assert.equal(feedPurgeDecision({ ...base, tripState: "found", status: "ANNULE", returnIso: "2026-12-01" }), true);
+  });
+  it("sans date de retour : ouverture + 30 jours", () => {
+    assert.equal(feedPurgeDecision({ openedAt: opened, tripState: "found", status: "VALIDE", returnIso: null, todayIso: "2026-06-30" }), false);
+    assert.equal(feedPurgeDecision({ openedAt: opened, tripState: "found", status: "VALIDE", returnIso: null, todayIso: "2026-07-01" }), true);
+  });
+});
+
+describe("publication de photos tout ou rien", () => {
+  const cleaned = [1, 2, 3].map(() => ({ bytes: Buffer.from("x"), width: 10, height: 10 }));
+  const mk = (failPhotos: boolean, failPut = false) => {
+    const log = { puts: [] as string[], deletedObjects: [] as string[], posts: new Set<string>(), photos: 0 };
+    let n = 0;
+    const deps: PhotoPostDeps = {
+      newId: () => `id${++n}`,
+      putObject: async (path) => {
+        if (failPut && log.puts.length === 1) throw new Error("S3 en panne");
+        log.puts.push(path);
+        return path;
+      },
+      insertPost: async () => {
+        log.posts.add("post1");
+        return { id: "post1" };
+      },
+      insertPhotos: async () => {
+        if (failPhotos) throw new Error("base en panne");
+        log.photos = 3;
+      },
+      deletePost: async (id) => void log.posts.delete(id),
+      deleteObject: async (k) => void log.deletedObjects.push(k),
+    };
+    return { deps, log };
+  };
+  it("succès : une publication, trois photos", async () => {
+    const { deps, log } = mk(false);
+    const r = await storePhotosPost(deps, { pathPrefix: "p", cleaned });
+    assert.equal(r.postId, "post1");
+    assert.equal(log.posts.size, 1);
+    assert.equal(log.photos, 3);
+  });
+  it("échec d'insertion des photos : la publication est supprimée (jamais de post vide) et les objets retirés", async () => {
+    const { deps, log } = mk(true);
+    await assert.rejects(() => storePhotosPost(deps, { pathPrefix: "p", cleaned }), /base en panne/);
+    assert.equal(log.posts.size, 0);
+    assert.equal(log.deletedObjects.length, 3);
+  });
+  it("échec de dépôt d'un objet : aucune publication créée, objets déjà déposés retirés", async () => {
+    const { deps, log } = mk(false, true);
+    await assert.rejects(() => storePhotosPost(deps, { pathPrefix: "p", cleaned }), /S3/);
+    assert.equal(log.posts.size, 0);
+    assert.equal(log.deletedObjects.length, 1);
   });
 });

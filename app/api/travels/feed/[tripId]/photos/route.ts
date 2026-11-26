@@ -30,6 +30,10 @@ export async function POST(req: Request, { params }: Params) {
       return json({ error: "Trop de publications. Réessayez plus tard." }, 429);
     }
 
+    // Taille contrôlée AVANT de lire le corps (jamais de mise en mémoire d'un envoi démesuré).
+    const declared = Number(req.headers.get("content-length"));
+    if (!Number.isFinite(declared) || declared <= 0) return json({ error: "Longueur de la requête requise." }, 411);
+    if (declared > TOTAL_MAX_BYTES + 1024 * 1024) return json({ error: "Envoi trop volumineux." }, 413);
     const form = await req.formData().catch(() => null);
     if (!form) return json({ error: "Requête invalide." }, 400);
     const entries = form.getAll("files").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f);

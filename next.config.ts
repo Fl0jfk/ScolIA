@@ -113,6 +113,16 @@ const nextConfig: NextConfig = {
         source: "/((?!api/)(?!documents/rentree/).*)",
         headers: securityHeaders,
       },
+      {
+        // Fil privé des voyages (lien personnel) : jamais indexé, jamais mis en cache, aucun « referrer » transmis.
+        // Déclaré APRÈS la règle générale pour la remplacer sur ce seul chemin.
+        source: "/voyages/famille/fil/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
     ];
   },
 };

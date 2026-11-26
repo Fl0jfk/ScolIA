@@ -43,6 +43,7 @@ import {
   type FeedSettingsRow,
   type FeedPostWithMedia,
 } from "@/app/lib/travels-feed-db";
+import { storePhotosPost } from "@/app/lib/travels-feed-publish";
 import { sanitizeFeedImage, FeedImageError } from "@/app/lib/travels-feed-image";
 import {
   canOpenFeedOnStatus,
@@ -52,10 +53,11 @@ import {
   buildFeedUpdateEmail,
   type FeedEmailItem,
   feedParticipants,
+  feedParticipantsForImageRights,
+  feedPurgeDecision,
   feedPhase,
   feedPostText,
   feedReturnIso,
-  isFeedPurgeDue,
   isReactionEmoji,
   pendingDelta,
   planFeedEmail,
@@ -71,6 +73,7 @@ import {
   type ImageRightListed,
 } from "@/app/lib/travels-feed-logic";
 import { evaluateFamilyAccess } from "@/app/lib/travels-feed-access";
+import { getTravelFromDb } from "@/app/lib/travel-db";
 import { getTravelTrip } from "@/app/lib/travels-storage";
 import type { TravelsParticipantEleve, TravelsTrip } from "@/app/lib/travels-types";
 import { todayIsoParis } from "@/app/lib/travels-v2";
@@ -90,17 +93,22 @@ import { escapeHtml, familyMail, mailContext } from "@/app/lib/travels-v2-regist
 
 const PHOTO_PREFIX = "travels-feed";
 
+/** Une seule ligne (jamais de CR/LF dans un objet d'e-mail). */
+function singleLine(v: string): string {
+  return v.replace(/[\r\n]+/g, " ").trim().slice(0, 90);
+}
+
 function tripTitle(trip: Pick<TravelsTrip, "data">): string {
   return String(trip.data?.title || trip.data?.destination || "Voyage scolaire");
 }
 
 /* ─── URL pré-signées courtes (sans HEAD, jamais stockées) ─── */
 
-export async function signFeedPhotoUrl(storageKey: string): Promise<string | null> {
+export async function signFeedPhotoUrl(storageKey: string, opts?: { download?: boolean }): Promise<string | null> {
   try {
     const client = await getS3Client();
     const bucket = await getBucketName();
-    return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: s3Key(storageKey), ResponseContentDisposition: "inline" }), {
+    return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: s3Key(storageKey), ResponseContentDisposition: opts?.download ? `attachment; filename="photo-voyage.jpg"` : "inline" }), {
       expiresIn: SIGNED_PHOTO_TTL_SECONDS,
     });
   } catch {
@@ -165,7 +173,7 @@ export type FamilyFeedView = {
     kind: string;
     text: string;
     createdAt: string;
-    photos: { id: string; url: string; width: number; height: number }[];
+    photos: { id: string; url: string; downloadUrl?: string; width: number; height: number }[];
     reactions: Record<string, number>;
     mine: string[];
   }[];
@@ -174,7 +182,7 @@ export type FamilyFeedView = {
 export async function buildFamilyFeedView(ctx: FeedFamilyContext, reactionEmojis: readonly string[]): Promise<FamilyFeedView> {
   const posts = await listFeedPosts(ctx.etabId, ctx.trip.id, { includeHidden: false });
   const shown = posts.slice(0, 80);
-  const views = await Promise.all(shown.map((p) => toPostView(p, ctx.familyKey)));
+  const views = await Promise.all(shown.map((p) => toPostView(p, ctx.familyKey, ctx.settings.allowDownload)));
   const ret = feedReturnIso(ctx.trip);
   return {
     tripTitle: tripTitle(ctx.trip),
@@ -191,11 +199,14 @@ function addDays(iso: string, n: number): string {
   return new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
 }
 
-async function toPostView(p: FeedPostWithMedia, myFamilyKey: string) {
+async function toPostView(p: FeedPostWithMedia, myFamilyKey: string, withDownload = false) {
   const photos = await Promise.all(
     p.photos.map(async (ph) => {
       const url = await signFeedPhotoUrl(ph.storageKey);
-      return url ? { id: ph.id, url, width: ph.width, height: ph.height } : null;
+      if (!url) return null;
+      // Lien de téléchargement SEULEMENT si l'option du voyage est activée : URL signée « attachment » (un attribut download ne marche pas entre origines).
+      const downloadUrl = withDownload ? await signFeedPhotoUrl(ph.storageKey, { download: true }) : null;
+      return { id: ph.id, url, ...(downloadUrl ? { downloadUrl } : {}), width: ph.width, height: ph.height };
     }),
   );
   const { counts, mine } = summarizeReactions(p.reactions, myFamilyKey);
@@ -286,7 +297,7 @@ export async function buildStaffFeedView(ctx: FeedStaffContext): Promise<StaffFe
     canModerate: ctx.rights.canModerate,
     tripTitle: tripTitle(ctx.trip),
     allowDownload: ctx.settings?.allowDownload ?? false,
-    imageRightList: studentsWithoutImageRight(participants),
+    imageRightList: studentsWithoutImageRight(feedParticipantsForImageRights(ctx.trip)),
     participantCount: participants.length,
     emailCap: FEED_EMAIL_CAP_PER_TRIP,
     deletedOn: ret ? addDays(ret, 7) : null,
@@ -323,6 +334,7 @@ export async function buildStaffFeedView(ctx: FeedStaffContext): Promise<StaffFe
 /* ─── Ouverture du fil et envoi des liens personnels ─── */
 
 const OPEN_LOCK = "travel-feed-open";
+const WELCOME_LOCK = "travel-feed-welcome";
 const NOTIFY_LOCK = "travel-feed-notify";
 const LOCK_TTL = 15 * 60;
 
@@ -359,7 +371,7 @@ async function sendFeedLinkMail(opts: {
     }
     ({ subject, html, text } = built);
   } else {
-    subject = `Le fil du voyage est ouvert — ${title}`;
+    subject = `Le fil du voyage est ouvert — ${singleLine(title)}`;
     html = `
     <div style="font-family: Arial, sans-serif; max-width: 560px; color: #1e293b;">
       <p>Bonjour,</p>
@@ -393,15 +405,17 @@ ${school}`;
 }
 
 export type OpenFeedResult =
-  | { ok: true; families: number; sent: number; failed: number; withoutAddress: number; smtp: boolean; busy?: boolean }
+  | { ok: true; families: number; withoutAddress: number; toSend: number; busy?: boolean }
   | { ok: false; status: number; error: string };
 
 /**
- * Ouvre le fil (ou envoie les liens aux familles qui n'en ont pas encore reçu — idempotent, rejouable).
+ * Ouvre le fil (ou prépare le renvoi des liens aux familles qui n'en ont pas encore reçu — idempotent, rejouable).
+ * Cette étape est RAPIDE (base seulement) : l'envoi des e-mails de bienvenue est fait ensuite, hors de la requête HTTP,
+ * par `sendFeedWelcomeLinks`.
  * Une adresse = un accès personnel, quel que soit le voyage (v1 ou v2) : indépendant des invitations d'inscription,
  * qui sont purgées dès le lendemain du retour alors que le fil vit jusqu'à J+7.
  */
-export async function openFeedAndSendLinks(ctx: FeedStaffContext, baseUrl: string): Promise<OpenFeedResult> {
+export async function openFeedAndSendLinks(ctx: FeedStaffContext): Promise<OpenFeedResult> {
   if (!ctx.rights.canModerate) return { ok: false, status: 403, error: "Seuls l'organisateur et la direction ouvrent le fil." };
   if (!canOpenFeedOnStatus(ctx.trip.status)) return { ok: false, status: 409, error: "Le fil s'ouvre une fois le voyage finalisé." };
   if (ctx.phase !== "live") return { ok: false, status: 409, error: "Le fil n'est plus ouvrable (voyage terminé ou sans date de retour)." };
@@ -423,24 +437,33 @@ export async function openFeedAndSendLinks(ctx: FeedStaffContext, baseUrl: strin
       await upsertFeedAccess(ctx.etabId, ctx.trip.id, { email, ines, familyKey: familyKeyOf(ines) });
     }
     await insertFeedAudit(ctx.etabId, { tripId: ctx.trip.id, actorUserId: ctx.me.id ?? null, actorName: actorName(ctx.me), action: wasOpen ? "feed_links_resent" : "feed_opened" });
+    const toSend = (await listFeedAccess(ctx.etabId, ctx.trip.id)).filter((a) => !a.firstSentAt && a.sendFailures < 3).length;
+    return { families: byEmail.size, withoutAddress: withoutAddress.length, toSend };
+  });
+  if (locked.busy) return { ok: true, families: 0, withoutAddress: 0, toSend: 0, busy: true };
+  return { ok: true, ...locked.value };
+}
 
+/** Envoi des e-mails de bienvenue (lien personnel) aux familles qui n'en ont pas reçu. À appeler HORS de la requête (after/job). */
+export async function sendFeedWelcomeLinks(etabId: string, trip: TravelsTrip, baseUrl: string): Promise<{ sent: number; failed: number; smtp: boolean; busy?: boolean }> {
+  const locked = await withNamedLock(WELCOME_LOCK, trip.id, LOCK_TTL, async () => {
     const mail = await mailContext();
-    if (!mail) return { families: byEmail.size, sent: 0, failed: 0, withoutAddress: withoutAddress.length, smtp: false };
+    if (!mail) return { sent: 0, failed: 0, smtp: false };
     let sent = 0;
     let failed = 0;
-    const all = await listFeedAccess(ctx.etabId, ctx.trip.id);
-    for (const a of all) {
+    for (const a of await listFeedAccess(etabId, trip.id)) {
       if (a.firstSentAt) continue;
       if (a.sendFailures >= 3) continue; // pas d'insistance sur une adresse en échec répété
-      if (await sendFeedLinkMail({ etabId: ctx.etabId, trip: ctx.trip, access: a, baseUrl, mail })) {
-        await markFeedLinkSent(ctx.etabId, ctx.trip.id, a.id);
+      if (await sendFeedLinkMail({ etabId, trip, access: a, baseUrl, mail })) {
+        await markFeedLinkSent(etabId, trip.id, a.id);
         sent += 1;
       } else failed += 1;
     }
-    return { families: byEmail.size, sent, failed, withoutAddress: withoutAddress.length, smtp: true };
+    return { sent, failed, smtp: true };
   });
-  if (locked.busy) return { ok: true, families: 0, sent: 0, failed: 0, withoutAddress: 0, smtp: true, busy: true };
-  return { ok: true, ...locked.value };
+  if (locked.busy) return { sent: 0, failed: 0, smtp: true, busy: true };
+  console.info(`[voyages-fil] liens de bienvenue du voyage ${trip.id}: ${locked.value.sent} envoyé(s), ${locked.value.failed} échec(s)${locked.value.smtp ? "" : ", SMTP absent"}`);
+  return locked.value;
 }
 
 /* ─── Publication ─── */
@@ -477,7 +500,7 @@ export async function publishFeedPhotos(
 ): Promise<PublishResult> {
   const gate = publishGate(ctx);
   if (gate) return gate;
-  const listed = studentsWithoutImageRight(feedParticipants(ctx.trip));
+  const listed = studentsWithoutImageRight(feedParticipantsForImageRights(ctx.trip));
   const check = checkPhotoPublication({ listed, acknowledged: input.acknowledged, photoCount: input.files.length });
   if (!check.ok) return { ok: false, status: 400, error: check.error };
 
@@ -491,36 +514,39 @@ export async function publishFeedPhotos(
     }
   }
   const caption = String(input.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 500) || null;
-  const postId = randomUUID();
-  const stored: { id: string; storageKey: string; width: number; height: number; bytes: number; position: number }[] = [];
+  const folder = randomUUID();
   try {
-    for (let i = 0; i < cleaned.length; i++) {
-      const id = randomUUID();
-      const key = await putObject(`${PHOTO_PREFIX}/${ctx.trip.id}/${postId}/${id}.jpg`, cleaned[i].bytes, "image/jpeg");
-      stored.push({ id, storageKey: key, width: cleaned[i].width, height: cleaned[i].height, bytes: cleaned[i].bytes.length, position: i });
-    }
-    const post = await insertFeedPost(ctx.etabId, {
-      tripId: ctx.trip.id,
-      kind: "photos",
-      body: caption,
-      delayMinutes: null,
-      authorUserId: ctx.me.id ?? null,
-      authorName: actorName(ctx.me),
-    });
-    await insertFeedPhotos(ctx.etabId, ctx.trip.id, post.id, stored);
+    const { postId, stored } = await storePhotosPost(
+      {
+        putObject: (path, bytes) => putObject(path, bytes, "image/jpeg"),
+        insertPost: () =>
+          insertFeedPost(ctx.etabId, {
+            tripId: ctx.trip.id,
+            kind: "photos",
+            body: caption,
+            delayMinutes: null,
+            authorUserId: ctx.me.id ?? null,
+            authorName: actorName(ctx.me),
+          }),
+        insertPhotos: (postId, photos) => insertFeedPhotos(ctx.etabId, ctx.trip.id, postId, photos),
+        deletePost: (postId) => deleteFeedPost(ctx.etabId, ctx.trip.id, postId),
+        deleteObject,
+        newId: randomUUID,
+      },
+      { pathPrefix: `${PHOTO_PREFIX}/${ctx.trip.id}/${folder}`, cleaned },
+    );
+    // La publication est en ligne : un échec de journal ou de compteur ne doit pas la défaire.
     await insertFeedAudit(ctx.etabId, {
       tripId: ctx.trip.id,
       actorUserId: ctx.me.id ?? null,
       actorName: actorName(ctx.me),
       action: "photos_published",
-      postId: post.id,
+      postId,
       detail: `${stored.length} photo(s) ; case « non reconnaissables » ${listed.length > 0 ? "cochée" : "non requise"} (${listed.length} élève(s) listé(s))`,
-    });
-    await bumpPendingForTrip(ctx.etabId, ctx.trip.id, pendingDelta("photos"));
-    return { ok: true, postId: post.id };
+    }).catch(() => undefined);
+    await bumpPendingForTrip(ctx.etabId, ctx.trip.id, pendingDelta("photos")).catch(() => undefined);
+    return { ok: true, postId };
   } catch (e) {
-    // Rien de publié : on retire les objets déjà déposés.
-    await Promise.all(stored.map((s) => deleteObject(s.storageKey).catch(() => undefined)));
     console.error("[travels-feed] publication photos", e instanceof Error ? e.message : "erreur");
     return { ok: false, status: 500, error: "Publication impossible." };
   }
@@ -648,15 +674,26 @@ export async function runFeedCycleForTenant(baseUrl: string, opts?: { inWindow?:
   const rows = await listFeedSettings(etabId);
   for (const s of rows) {
     try {
-      const trip = await getTravelTrip(s.tripId);
-      const returnIso = trip ? feedReturnIso(trip) : s.returnDate;
-      // Voyage introuvable : on se rabat sur la date de retour mémorisée à l'ouverture, jamais de fil sans échéance.
-      if (!trip || isFeedPurgeDue({ status: trip.status, returnIso, todayIso: todayIsoParis(now) })) {
-        await purgeFeedForTrip(etabId, s.tripId, trip ? "retour + 7 jours" : "voyage introuvable");
+      // Jamais de purge parce qu'une lecture renvoie « rien » (base indisponible, cache) : absence CONFIRMÉE par lecture directe,
+      // sinon date de retour mémorisée dans les réglages du fil.
+      let trip = await getTravelTrip(s.tripId);
+      let tripState: "found" | "absent" | "unknown" = trip ? "found" : "unknown";
+      if (!trip) {
+        try {
+          trip = await getTravelFromDb(etabId, s.tripId);
+          tripState = trip ? "found" : "absent";
+        } catch {
+          tripState = "unknown";
+        }
+      }
+      const returnIso = (trip ? feedReturnIso(trip) : null) ?? s.returnDate;
+      if (feedPurgeDecision({ tripState, status: trip?.status, returnIso, openedAt: s.openedAt, todayIso: todayIsoParis(now) })) {
+        await purgeFeedForTrip(etabId, s.tripId, tripState === "absent" ? "voyage supprimé" : returnIso ? "retour + 7 jours" : "30 jours sans date de retour");
         total.purged += 1;
         continue;
       }
-      if (trip && s.returnDate !== returnIso) await setFeedReturnDate(etabId, s.tripId, returnIso);
+      if (!trip) continue; // voyage momentanément illisible : ni purge ni e-mail, nouvel essai au prochain passage
+      if (feedReturnIso(trip) && s.returnDate !== feedReturnIso(trip)) await setFeedReturnDate(etabId, s.tripId, feedReturnIso(trip));
       const r = await flushFeedNotificationsForTrip({ etabId, trip, baseUrl, now });
       total.emailed += r.sent;
       total.failed += r.failed;

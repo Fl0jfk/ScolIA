@@ -11,6 +11,7 @@ import {
   openFeedAndSendLinks,
   publishFeedText,
   resolveFeedStaffContext,
+  sendFeedWelcomeLinks,
   setDownloadAllowed,
 } from "@/app/lib/travels-feed-store";
 
@@ -24,6 +25,7 @@ const publishLimiter = createMemoryRateLimiter({ name: "voyfeed-publish", window
 
 const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("open") }),
+  z.object({ action: z.literal("access") }),
   z.object({
     action: z.literal("publish"),
     kind: z.string().max(40),
@@ -63,9 +65,22 @@ export async function POST(req: Request, { params }: Params) {
     const ctx = await resolveFeedStaffContext(tripId, me);
     if (!ctx) return json({ error: "Accès refusé." }, 403);
 
+    // Résolution du contexte réussie = au moins un droit (publier ou modérer) sur CE voyage.
+    if (input.action === "access") return json({ allowed: true });
     if (input.action === "open") {
-      const res = await openFeedAndSendLinks(ctx, await getTenantAppUrl());
-      return res.ok ? json(res) : json({ error: res.error }, res.status);
+      const res = await openFeedAndSendLinks(ctx);
+      if (!res.ok) return json({ error: res.error }, res.status);
+      if (!res.busy && res.toSend > 0) {
+        // Les e-mails de bienvenue partent APRÈS la réponse (contexte établissement conservé), la page répond tout de suite.
+        const tenant = await getTenant();
+        const baseUrl = await getTenantAppUrl();
+        after(() =>
+          runWithTenant(tenant, () => sendFeedWelcomeLinks(ctx.etabId, ctx.trip, baseUrl)).catch((e) =>
+            console.error("[travels/feed] liens de bienvenue", e instanceof Error ? e.message : "erreur"),
+          ),
+        );
+      }
+      return json({ ...res, sending: !res.busy && res.toSend > 0 });
     }
     if (input.action === "moderate") {
       const res = await moderateFeedPost(ctx, input.postId, input.op);

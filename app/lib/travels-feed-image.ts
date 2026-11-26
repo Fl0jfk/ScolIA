@@ -36,7 +36,26 @@ export class FeedImageError extends Error {
   }
 }
 
-export async function sanitizeFeedImage(input: Buffer): Promise<CleanImage> {
+/** File d'attente simple : au plus 2 traitements sharp en parallèle par instance (mémoire et CPU). */
+const MAX_PARALLEL = 2;
+let running = 0;
+const waiting: (() => void)[] = [];
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  while (running >= MAX_PARALLEL) await new Promise<void>((resolve) => waiting.push(resolve));
+  running += 1;
+  try {
+    return await fn();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
+}
+
+export function sanitizeFeedImage(input: Buffer): Promise<CleanImage> {
+  return withSlot(() => sanitizeFeedImageNow(input));
+}
+
+async function sanitizeFeedImageNow(input: Buffer): Promise<CleanImage> {
   if (input.length > FEED_IMAGE_MAX_INPUT_BYTES) throw new FeedImageError("Photo trop volumineuse.");
   const type = sniffImageType(input);
   if (!type) throw new FeedImageError("Format de photo non reconnu (JPEG, PNG, WebP ou HEIC).");

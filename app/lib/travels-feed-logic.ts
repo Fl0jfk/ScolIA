@@ -392,3 +392,43 @@ export function buildFeedUpdateEmail(opts: {
 export function pendingDelta(kind: string): { messages: number; photos: number } {
   return pendingBucket(kind) === "photos" ? { messages: 0, photos: 1 } : { messages: 1, photos: 0 };
 }
+
+/* ─── Droit à l'image : valeur BRUTE (fil uniquement) ─── */
+
+/**
+ * Les autres écrans forcent `droitImageOk !== false` (donc « non renseigné » devient « oui »). Pour le FIL, on lit la valeur
+ * brute : la pré-liste du voyage (JSON, non normalisée) l'emporte pour les élèves qu'elle contient — absente = non renseigné,
+ * donc listé et case exigée ; sinon la valeur de la liste officielle. (La colonne SQL `droit_image_ok` est NOT NULL défaut true :
+ * un « non renseigné » n'y est plus distinguable.)
+ */
+export function feedParticipantsForImageRights(trip: Pick<TravelsTrip, "data">): TravelsParticipantEleve[] {
+  const pre = new Map<string, { droitImageOk?: boolean | null }>();
+  for (const p of trip.data?.preListeEleves ?? []) pre.set(keyOfIne(p.ine), p as { droitImageOk?: boolean | null });
+  return feedParticipants(trip).map((p) => {
+    const raw = pre.get(keyOfIne(p.ine));
+    if (!raw) return p;
+    return { ...p, droitImageOk: (typeof raw.droitImageOk === "boolean" ? raw.droitImageOk : undefined) as unknown as boolean };
+  });
+}
+
+/* ─── Purge : décision prudente ─── */
+
+/**
+ * - voyage CONFIRMÉ absent (lecture directe) : purge ;
+ * - voyage illisible (`unknown` : base ou cache indisponible) : jamais de purge sur ce seul motif, seulement sur la date de
+ *   retour mémorisée dans les réglages du fil (retour + 7 jours) ;
+ * - voyage annulé / refusé : purge ;
+ * - sans date de retour du tout : ouverture + 30 jours (pas de photos gardées indéfiniment).
+ */
+export function feedPurgeDecision(opts: {
+  tripState: "found" | "absent" | "unknown";
+  status?: string | null;
+  returnIso?: string | null;
+  openedAt: Date;
+  todayIso: string;
+}): boolean {
+  if (opts.tripState === "absent") return true;
+  if (opts.tripState === "found" && CLOSED_STATUSES.has(String(opts.status))) return true;
+  if (isIsoDate(opts.returnIso)) return opts.todayIso >= feedPurgeDay(opts.returnIso);
+  return opts.todayIso >= addDaysIso(opts.openedAt.toISOString().slice(0, 10), 30);
+}

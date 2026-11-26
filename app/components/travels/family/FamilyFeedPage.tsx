@@ -12,7 +12,7 @@ type FeedPost = {
   kind: string;
   text: string;
   createdAt: string;
-  photos: { id: string; url: string; width: number; height: number }[];
+  photos: { id: string; url: string; downloadUrl?: string; width: number; height: number }[];
   reactions: Record<string, number>;
   mine: string[];
 };
@@ -180,8 +180,8 @@ export function FamilyFeedPage({ token }: { token: string }) {
                         onClick={() => setZoom({ url: ph.url, w: ph.width, h: ph.height })}
                         className="aspect-[4/3] w-full cursor-zoom-in select-none object-cover"
                       />
-                      {view.allowDownload ? (
-                        <a href={ph.url} download className="absolute bottom-1.5 right-1.5 rounded-lg bg-white/90 px-2 py-1 text-xs font-bold text-slate-800 shadow">
+                      {view.allowDownload && ph.downloadUrl ? (
+                        <a href={ph.downloadUrl} rel="noreferrer" className="absolute bottom-1.5 right-1.5 rounded-lg bg-white/90 px-2 py-1 text-xs font-bold text-slate-800 shadow">
                           Télécharger
                         </a>
                       ) : null}

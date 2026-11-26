@@ -107,7 +107,7 @@ export function TripFeedPublisher({ tripId }: { tripId: string }) {
       const res = await fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Action impossible.");
-      say(body.action === "open" ? `${okMsg} (${j.families} famille(s), ${j.sent} lien(s) envoyé(s)${j.failed ? `, ${j.failed} échec(s)` : ""}${j.withoutAddress ? `, ${j.withoutAddress} élève(s) sans adresse` : ""})` : okMsg);
+      say(body.action === "open" ? (j.busy ? "Envoi déjà en cours." : `${okMsg} : ${j.toSend} lien(s) en cours d'envoi (${j.families} famille(s)${j.withoutAddress ? `, ${j.withoutAddress} élève(s) sans adresse` : ""}). Rafraîchissez dans une minute.`) : okMsg);
       await load();
       return true;
     } catch (e) {
