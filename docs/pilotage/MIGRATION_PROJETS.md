@@ -149,3 +149,13 @@ Florian a un forfait individuel à 100 $ par mois, c'est-à-dire Max. Claude Shi
 est réservé aux offres **Team et Enterprise** et se facture en **crédits d'usage en plus**. Ce n'est donc ni disponible
 ni gratuit : écarté. Le coordinateur garde les contre-revues indépendantes et traite lui-même les CI rouges. Les Projets
 (bêta), eux, sont ouverts aux offres Pro et Max.
+
+## 8. Veille des CI dans le Projet (2026-11-26)
+Incident du premier lot : la CI de la PR 158 (G3a) est passée au rouge sans que personne ne le voie. Le fil avait rendu la
+main en écrivant « j'attends la CI », sans boucle d'attente, et le coordinateur ne suivait que la PR 93 (verdict d'ENT).
+Règle :
+- le coordinateur **s'abonne à chaque PR de lot** (`subscribe_pr_activity`) dès son ouverture, et s'en désabonne au
+  versement ou à la fermeture ; chaque verdict de CI le réveille : rouge → il relance le fil sur la cause ; vert → il lance
+  la contre-revue ;
+- chaque fil garde sa boucle d'attente jusqu'au verdict (règle 36) et ne rend jamais la main sur « j'attends la CI » ;
+- la veille de la PR 93 reste en place pour le verdict d'ENT.
