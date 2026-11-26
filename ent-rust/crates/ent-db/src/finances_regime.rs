@@ -16,7 +16,9 @@ use sqlx::PgConnection;
 use std::collections::{BTreeSet, HashMap};
 use uuid::Uuid;
 
-use crate::facturation_payeurs::{ouvrir_tache, ouvrir_tache_evenement, resoudre_taches_evenement};
+use crate::facturation_payeurs::{
+    ouvrir_tache, ouvrir_tache_evenement, resoudre_taches_evenement, resoudre_taches_sans_evenement,
+};
 use crate::finances::{
     db, indice_mois, inserer_avoirs, lignes_eleve_annee, params_tx, premier_du_mois, AvoirAFaire,
     LigneExistante, ResultatInsertion, NATURE_TACHE_REGIME_NON_FACTURE,
@@ -426,17 +428,7 @@ pub(crate) async fn signaler_mois_inconnus(
         )
         .await?;
     } else {
-        sqlx::query(
-            "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now()
-              WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'ouverte'
-                AND evenement_id IS NULL",
-        )
-        .bind(etab)
-        .bind(NATURE_TACHE_REGIME_NON_FACTURE)
-        .bind(eleve)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
+        resoudre_taches_sans_evenement(conn, etab, NATURE_TACHE_REGIME_NON_FACTURE, eleve).await?;
     }
     Ok(())
 }

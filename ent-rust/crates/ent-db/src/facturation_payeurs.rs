@@ -743,6 +743,28 @@ pub(crate) async fn resoudre_taches_evenement(
     Ok(r.rows_affected())
 }
 
+/// Résout les tâches ouvertes d'une nature **sans événement** pour un élève (régime mois par mois : la tâche « régime
+/// inconnu » est close quand plus aucun mois inconnu n'est à poser) ; les tâches liées à un événement restent ouvertes.
+pub(crate) async fn resoudre_taches_sans_evenement(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    nature: &str,
+    eleve: Uuid,
+) -> Result<u64, EntDbError> {
+    let r = sqlx::query(
+        "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now()
+          WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'ouverte'
+            AND evenement_id IS NULL",
+    )
+    .bind(etab)
+    .bind(nature)
+    .bind(eleve)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(r.rows_affected())
+}
+
 /// Résout les tâches ouvertes d'une nature pour (élève, catégorie) dont la date `depuis` tombe dans `du..=au` (suites 4,
 /// M3) : la part non couverte d'un tronçon est désormais facturée (prise renouvelée ou prolongée, payeur suivant désigné).
 /// Les tâches des autres périodes de l'élève restent ouvertes.
