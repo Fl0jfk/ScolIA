@@ -1252,6 +1252,12 @@ impl Expediteur {
         bilan: &mut BilanExpedition,
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
+        // Palier des faibles n° 2 (contre-revue) : les avis mis de côté d'un message en échec sont reportés dès qu'on passe
+        // à un autre message (les avis sont triés par message) : jamais laissés en `envoi` pendant l'envoi d'un autre avis,
+        // qui peut échouer et interrompre le lot.
+        if !controle.a_reporter.is_empty() && e.source_id != controle.en_echec {
+            self.reporter_en_attente(e.etablissement_id, controle, budget, bilan, maintenant).await;
+        }
         // `Err(None)` : contrôle non refait (même message déjà en échec dans ce lot, faible 2) ; `Err(Some(_))` : échec.
         let existe: Result<bool, Option<EntDbError>> = match (controle.derniere, controle.en_echec) {
             // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque

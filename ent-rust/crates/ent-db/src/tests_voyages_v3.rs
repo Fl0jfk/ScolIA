@@ -5596,6 +5596,22 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
         "réglage précédent restauré"
     );
     tx.commit().await.unwrap();
+    // Contre-revue du palier : ne remet QUE les contraintes écartées (sans rejouer 656 ni 657 sur la base commune), et
+    // dès que les lignes du montage sont rattrapées, avant toute assertion : un échec plus bas ne laisse pas la base
+    // commune sans elles.
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
+            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
+    )
+    .execute(proprietaire.pool())
+    .await
+    .expect("contrainte rétablie");
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_annulee_le_chk CHECK ((etat = 'annulee') = (annulee_le IS NOT NULL))",
+    )
+    .execute(proprietaire.pool())
+    .await
+    .expect("contrainte d'annulation rétablie");
     let premier: Option<DateTime<Utc>> =
         sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
             .bind(x.s.id)
@@ -5661,21 +5677,6 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
         apres_premier,
         "F-8 : second passage sans effet sur aucune ligne (rentrée, annulation, modification)"
     );
-    // Contre-revue du pilote (M-4) : ne remet QUE la contrainte écartée, sans rejouer 656 ni 657 sur la base commune (le
-    // rejeu de 656 remettait un instant les fonctions d'avant 657 sous les tests voisins).
-    sqlx::query(
-        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
-            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
-    )
-    .execute(proprietaire.pool())
-    .await
-    .expect("contrainte rétablie");
-    sqlx::query(
-        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_annulee_le_chk CHECK ((etat = 'annulee') = (annulee_le IS NOT NULL))",
-    )
-    .execute(proprietaire.pool())
-    .await
-    .expect("contrainte d'annulation rétablie");
     crate::tenant_tx::forcer_mode_test(None);
 }
 

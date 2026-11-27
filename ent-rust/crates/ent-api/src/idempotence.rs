@@ -40,7 +40,10 @@
 //! un nouvel essai : seconde exécution. Elle est donc bornée à [`IDEMPOTENCE_EXECUTION_MAX_S`] (strictement moins
 //! que le délai d'abandon) ; au-delà, l'exécution est interrompue (sa transaction est annulée) et la clé est close
 //! **non rejouable** (D-069 : jamais une seconde exécution, même si l'écriture avait abouti juste avant la borne).
-//! La réponse est `408 delai.depasse`.
+//! La réponse est `408 delai.depasse`. La borne vaut quel que soit `ENT_REQUEST_TIMEOUT_SECS` : un délai de requête
+//! plus long ne prolonge pas une écriture idempotente. Limites connues : un handler interrompu après son propre
+//! `commit` (effets qui suivent la validation) l'est à mi-chemin ; si la clôture de la clé échoue trois fois (base
+//! indisponible), la clé reste « en cours » et peut être reprise après le délai d'abandon (journalisé en erreur).
 
 use crate::enveloppe::{avec_code, declare_appli};
 use crate::AppState;
@@ -132,7 +135,7 @@ fn delais_de_test() -> &'static Mutex<HashMap<Uuid, u64>> {
 }
 
 /// Tests : borne d'exécution raccourcie pour un établissement.
-#[cfg(test)]
+#[cfg(all(test, feature = "labo"))]
 pub(crate) fn raccourcir_delai_execution(etab: Uuid, ms: u64) {
     delais_de_test()
         .lock()
@@ -354,12 +357,28 @@ async fn executer_et_conserver(
                 corps: None,
                 rejouable: false,
             };
-            if let Err(e) = state
-                .ent
-                .idem_terminer(etab, session, cle, &close, (state.horloge)())
-                .await
-            {
-                tracing::error!(error = %e, "clé d'idempotence restée en cours après la borne d'exécution");
+            // Contre-revue du palier : trois essais (base souvent lente à la borne) ; une clé restée « en cours »
+            // serait reprise après le délai d'abandon, donc réexécutée.
+            let mut close_ok = false;
+            for essai in 0..3u64 {
+                match state
+                    .ent
+                    .idem_terminer(etab, session, cle, &close, (state.horloge)())
+                    .await
+                {
+                    Ok(()) => {
+                        close_ok = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, essai, "clôture de la clé après la borne d'exécution impossible");
+                        tokio::time::sleep(std::time::Duration::from_millis(200 * (essai + 1)))
+                            .await;
+                    }
+                }
+            }
+            if !close_ok {
+                tracing::error!("clé d'idempotence restée en cours après la borne d'exécution");
             }
             return avec_code(
                 CodeErreur::DelaiDepasse,
