@@ -129,9 +129,15 @@ fn deja_enveloppe(corps: &[u8]) -> bool {
 /// Routes `/auth/*` qui ne demandent **aucune** session (connexion, récupération, SSO) : un 401 y refuse des
 /// identifiants, même si un en-tête `Authorization` résiduel accompagne la requête.
 fn route_sans_session(chemin: &str) -> bool {
+    // `/auth/register` n'existe qu'avec le labo : son nom ne doit pas entrer dans le binaire de production
+    // (contrôle de séparation L4 de la CI).
+    #[cfg(feature = "labo")]
+    if chemin == "/auth/register" {
+        return true;
+    }
     matches!(
         chemin,
-        "/auth/login" | "/auth/register" | "/auth/forgot-password" | "/auth/reset-password"
+        "/auth/login" | "/auth/forgot-password" | "/auth/reset-password"
     ) || chemin.starts_with("/auth/passkey/login/")
         || chemin.starts_with("/auth/oidc/")
         || chemin == "/auth/passkey/recuperation"

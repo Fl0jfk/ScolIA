@@ -13,6 +13,11 @@ use uuid::Uuid;
 
 const MDP: &str = "DevLocalPass1!";
 
+/// Mot de passe jetable tiré au hasard : aucun littéral ressemblant à un secret dans les tests (alerte GitGuardian).
+fn faux_mdp() -> String {
+    format!("Jetable-{}-Aa1!", Uuid::new_v4().simple())
+}
+
 struct Banc {
     app: axum::Router,
     ent: Arc<PgEnt>,
@@ -636,7 +641,7 @@ async fn mb2_401_jeton_mort_sur_auth_et_mot_de_passe_actuel_refuse() {
         "/auth/password",
         Some(&jeton),
         &[APPLI],
-        Some(json!({"current_password": "PasLeBon1!", "new_password": "NouveauPass1!x"})),
+        Some(json!({"current_password": faux_mdp(), "new_password": faux_mdp()})),
     )
     .await;
     assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte);
@@ -660,7 +665,7 @@ async fn mb2_401_jeton_mort_sur_auth_et_mot_de_passe_actuel_refuse() {
         "/auth/password",
         Some(&jeton),
         &[APPLI],
-        Some(json!({"current_password": MDP, "new_password": "NouveauPass1!x"})),
+        Some(json!({"current_password": MDP, "new_password": faux_mdp()})),
     )
     .await;
     assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte);
