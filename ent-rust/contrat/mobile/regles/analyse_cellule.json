@@ -390,6 +390,196 @@
     },
     {
       "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "message": "la note doit être un multiple de 0,01",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "000012"
+    },
+    {
+      "attendu": {
         "type": "vide"
       },
       "bareme_m": 20000,
@@ -775,6 +965,196 @@
       "hors_bareme_autorise": true,
       "pas_m": 10,
       "texte": "une note bien trop longue pour un champ"
+    },
+    {
+      "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "message": "la note doit être un multiple de 0,01",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": true,
+      "pas_m": 10,
+      "texte": "000012"
     },
     {
       "attendu": {
@@ -1166,6 +1546,196 @@
     },
     {
       "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (10) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (10) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (10) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "message": "la note doit être un multiple de 0,5",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7500
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "message": "la note doit être un multiple de 0,5",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (10) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 10000,
+      "hors_bareme_autorise": false,
+      "pas_m": 500,
+      "texte": "000012"
+    },
+    {
+      "attendu": {
         "type": "vide"
       },
       "bareme_m": 20000,
@@ -1551,6 +2121,1352 @@
       "hors_bareme_autorise": false,
       "pas_m": 0,
       "texte": "une note bien trop longue pour un champ"
+    },
+    {
+      "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 5
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 0,
+      "texte": "000012"
+    },
+    {
+      "attendu": {
+        "type": "vide"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": ""
+    },
+    {
+      "attendu": {
+        "type": "vide"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "   "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": " 12,5 "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12.25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": ",5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 20000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "20"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 0
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "0"
+    },
+    {
+      "attendu": {
+        "message": "21 dépasse le barème (20) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "21"
+    },
+    {
+      "attendu": {
+        "message": "22 dépasse le barème (20) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "22"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "-1"
+    },
+    {
+      "attendu": {
+        "message": "« douze » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "douze"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12345
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12,345"
+    },
+    {
+      "attendu": {
+        "message": "« 1,2,3 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "1,2,3"
+    },
+    {
+      "attendu": {
+        "message": "« 1e3 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "1e3"
+    },
+    {
+      "attendu": {
+        "message": "« +5 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "+5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12,25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 13125
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "13,125"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "ABS"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "Absente"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "absent."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "ar"
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "à rattraper"
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "rattrapage"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "disp"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "Dispensé"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "dispensee"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "nr"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "non rendu"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "N.R"
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "nn"
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "non noté"
+    },
+    {
+      "attendu": {
+        "message": "« 1234567 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "1234567"
+    },
+    {
+      "attendu": {
+        "message": "123456 dépasse le barème (20) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "123456"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12,"
+    },
+    {
+      "attendu": {
+        "message": "« . » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "."
+    },
+    {
+      "attendu": {
+        "message": "« ab » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "ab"
+    },
+    {
+      "attendu": {
+        "message": "« une note bien trop l » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "une note bien trop longue pour un champ"
+    },
+    {
+      "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 5
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7500
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 7250
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 12000
+      },
+      "bareme_m": 20000,
+      "hors_bareme_autorise": false,
+      "pas_m": 5,
+      "texte": "000012"
+    },
+    {
+      "attendu": {
+        "type": "vide"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": ""
+    },
+    {
+      "attendu": {
+        "type": "vide"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "   "
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12"
+    },
+    {
+      "attendu": {
+        "message": "12,5 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": " 12,5 "
+    },
+    {
+      "attendu": {
+        "message": "12,25 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12.25"
+    },
+    {
+      "attendu": {
+        "message": "0,5 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": ",5"
+    },
+    {
+      "attendu": {
+        "message": "20 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "20"
+    },
+    {
+      "attendu": {
+        "type": "note",
+        "valeur_m": 0
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "0"
+    },
+    {
+      "attendu": {
+        "message": "21 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "21"
+    },
+    {
+      "attendu": {
+        "message": "22 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "22"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-1"
+    },
+    {
+      "attendu": {
+        "message": "« douze » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "douze"
+    },
+    {
+      "attendu": {
+        "message": "12,345 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12,345"
+    },
+    {
+      "attendu": {
+        "message": "« 1,2,3 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "1,2,3"
+    },
+    {
+      "attendu": {
+        "message": "« 1e3 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "1e3"
+    },
+    {
+      "attendu": {
+        "message": "« +5 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "+5"
+    },
+    {
+      "attendu": {
+        "message": "12,25 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12,25"
+    },
+    {
+      "attendu": {
+        "message": "13,125 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "13,125"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "ABS"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "Absente"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "absent."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "ar"
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "à rattraper"
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "rattrapage"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "disp"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "Dispensé"
+    },
+    {
+      "attendu": {
+        "statut": "dispense",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "dispensee"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "nr"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "non rendu"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "N.R"
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "nn"
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "non noté"
+    },
+    {
+      "attendu": {
+        "message": "« 1234567 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "1234567"
+    },
+    {
+      "attendu": {
+        "message": "123456 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "123456"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12,"
+    },
+    {
+      "attendu": {
+        "message": "« . » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "."
+    },
+    {
+      "attendu": {
+        "message": "« ab » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "ab"
+    },
+    {
+      "attendu": {
+        "message": "« une note bien trop l » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "une note bien trop longue pour un champ"
+    },
+    {
+      "attendu": {
+        "message": "« éééééééééééééééééééé » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "ééééééééééééééééééééééé"
+    },
+    {
+      "attendu": {
+        "message": "« 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": " 12 "
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "\t12\n"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-0"
+    },
+    {
+      "attendu": {
+        "message": "une note ne peut pas être négative",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "-abs"
+    },
+    {
+      "attendu": {
+        "statut": "absent",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "absent.."
+    },
+    {
+      "attendu": {
+        "statut": "a_rattraper",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "à rattraper."
+    },
+    {
+      "attendu": {
+        "statut": "non_note",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "N.N"
+    },
+    {
+      "attendu": {
+        "statut": "non_rendu",
+        "type": "statut"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "nonrendu"
+    },
+    {
+      "attendu": {
+        "message": "« non  rendu » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "non  rendu"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "12."
+    },
+    {
+      "attendu": {
+        "message": "0,5 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": ".5"
+    },
+    {
+      "attendu": {
+        "message": "0,005 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "0,005"
+    },
+    {
+      "attendu": {
+        "message": "« ١٢ » n'est ni une note ni un code (abs, ar, disp, nr, nn)",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "١٢"
+    },
+    {
+      "attendu": {
+        "message": "7,5 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "7,5"
+    },
+    {
+      "attendu": {
+        "message": "7,25 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "7,25"
+    },
+    {
+      "attendu": {
+        "message": "12 dépasse le barème (0) : vérifiez le barème de l'évaluation",
+        "type": "erreur"
+      },
+      "bareme_m": 0,
+      "hors_bareme_autorise": false,
+      "pas_m": 10,
+      "texte": "000012"
     }
   ],
   "format": [

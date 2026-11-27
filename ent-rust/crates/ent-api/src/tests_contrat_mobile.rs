@@ -767,6 +767,60 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
         Some(json!({"action": "maintenant"})),
     )
     .await;
+    // Un lot de plusieurs cases : une réécriture identique sur la version lue (`inchange`) et une note hors barème
+    // (`refuse`, avec son message) ; puis la grille relue, cases remplies et statistiques calculées (contre-revue M5, M6).
+    let autre_eleve = grille["eleves"]
+        .as_array()
+        .and_then(|a| {
+            a.iter().find(|l| {
+                let c = &l["cellules"][rang];
+                l["eleve_id"] != eleve_saisi.as_str()
+                    && c["concerne"] == true
+                    && c["saisie_ouverte"] == true
+            })
+        })
+        .unwrap_or_else(|| panic!("une seule case ouverte dans la grille : {grille}"))["eleve_id"]
+        .as_str()
+        .expect("eleve_id")
+        .to_string();
+    let version_lue = retour["cellules"][0]["version"].clone();
+    let lot = b
+        .jouer(
+            "eva_saisie_lot",
+            "POST /eva/saisie",
+            "/eva/saisie",
+            Some(&prof),
+            Some(json!({
+                "cours_id": cours_id,
+                "cellules": [
+                    {"evaluation_id": evaluation_id, "eleve_id": eleve_saisi, "texte": "15,5", "version_attendue": version_lue},
+                    {"evaluation_id": evaluation_id, "eleve_id": autre_eleve, "texte": "21", "version_attendue": null},
+                ],
+            })),
+        )
+        .await;
+    assert_eq!(lot["cellules"][0]["issue"], "inchange", "lot : {lot}");
+    assert_eq!(lot["cellules"][1]["issue"], "refuse", "lot : {lot}");
+    assert!(lot["cellules"][1]["message"].is_string(), "lot : {lot}");
+    let relue = b
+        .jouer(
+            "eva_grille_apres_saisie",
+            "GET /eva/grille",
+            &format!("/eva/grille?cours_id={cours_id}&periode_id={periode_eva}"),
+            Some(&prof),
+            None,
+        )
+        .await;
+    assert!(
+        !relue["evaluations"][rang]["stats"].is_null(),
+        "statistiques absentes : {relue}"
+    );
+    assert!(
+        relue["eleves"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|l| l["cellules"][rang]["valeur_m"] == 15500)),
+        "case saisie absente de la grille relue : {relue}"
+    );
 
     // Annonces : la direction en publie une pour tous et une pour les familles de la classe de Harry (sinon les
     // fixtures n'auraient que des listes vides, que tout modèle décode).
@@ -1104,7 +1158,6 @@ async fn contrat_mobile_banc_de_parite() {
     // si web et appli fuyaient ensemble.
     let autre_etab = state_autre_etab(&b).await;
     let eleve_harry = harry.compte.as_ref().map(|c| c.token.clone());
-    let autre_etab_grille = autre_etab.clone();
     let mut refus_attendus: Vec<(&str, String, String)> = vec![
         (
             "parent_harry",
@@ -1142,34 +1195,124 @@ async fn contrat_mobile_banc_de_parite() {
             format!("/famille/enfants/{lea}/resume"),
         ),
     ];
-    // La grille d'évaluation n'est jamais lisible d'une famille ni d'un élève (403), ni d'un autre établissement (404).
+    // La grille d'évaluation : refus exacts plus bas (lectures et écritures `/eva/*`).
     let grille_uri = b
         .cas
         .iter()
         .find(|c| c.nom == "eva_grille")
         .map(|c| c.uri.clone())
         .expect("grille jouée");
-    refus_attendus.push((
-        "parent_harry",
-        cast.parent_lea.token.clone(),
-        grille_uri.clone(),
-    ));
-    refus_attendus.push(("autre_etablissement", autre_etab_grille, grille_uri.clone()));
-    if let Some(t) = eleve_harry.as_ref() {
-        refus_attendus.push(("eleve_harry", t.clone(), grille_uri.clone()));
-    }
     if let Some(t) = eleve_harry {
         refus_attendus.push(("eleve_harry", t.clone(), format!("/eleves/{tom}/notes")));
         refus_attendus.push(("eleve_harry", t, format!("/vs/absences?jour={jour}")));
     }
     let mut fuites = Vec::new();
+    // Grille et écritures `/eva/*` (contre-revue E1, M1) : statut exact (403 ou 404, jamais 400, 401 ni 429) et
+    // enveloppe codée, pour chaque persona qui n'enseigne pas ce cours, y compris un collègue du même établissement.
+    let cas_de = |nom: &str| {
+        b.cas
+            .iter()
+            .find(|c| c.nom == nom)
+            .unwrap_or_else(|| panic!("{nom} non joué"))
+            .corps
+            .clone()
+    };
+    let evaluation = cas_de("eva_evaluations");
+    let ev_id = id(&evaluation);
+    let cours_id = cas_de("eva_grille")["enseignement"]["cours_id"]
+        .as_str()
+        .expect("cours")
+        .to_string();
+    let eleve_eva = cas_de("eva_saisie")["cellules"][0]["eleve_id"]
+        .as_str()
+        .expect("élève")
+        .to_string();
+    let autre_prof = cast
+        .profs
+        .get(1)
+        .expect("second professeur du labo")
+        .token
+        .clone();
+    let eleve_tok = harry
+        .compte
+        .as_ref()
+        .expect("compte élève de Harry")
+        .token
+        .clone();
+    let mut refus_eva: Vec<(&str, String)> = vec![
+        ("autre_prof", autre_prof),
+        ("parent_harry", cast.parent_lea.token.clone()),
+        ("eleve_harry", eleve_tok),
+        ("autre_etablissement", state_autre_etab(&b).await),
+    ];
+    let saisie = json!({
+        "cours_id": cours_id,
+        "cellules": [{"evaluation_id": ev_id, "eleve_id": eleve_eva, "texte": "2", "version_attendue": null}],
+    });
+    let creation = json!({
+        "cours_id": cours_id, "titre": "Intrusion", "date_eval": evaluation["date_eval"],
+        "bareme_m": 20000, "coef_m": 1000,
+    });
+    for (nom, jeton) in refus_eva.drain(..) {
+        let ecritures: [(&str, String, Option<&Value>); 5] = [
+            ("GET", grille_uri.clone(), None),
+            ("GET", format!("/eva/cours/{cours_id}/periodes"), None),
+            ("POST", "/eva/saisie".into(), Some(&saisie)),
+            ("POST", "/eva/evaluations".into(), Some(&creation)),
+            (
+                "POST",
+                format!("/eva/evaluations/{ev_id}/publication"),
+                Some(&json!({"action": "retirer", "motif": "intrusion"})),
+            ),
+        ];
+        for (methode, uri, corps) in ecritures {
+            let cle = Uuid::new_v4().to_string();
+            let r = envoyer(
+                &b.app,
+                methode,
+                &uri,
+                Some(&jeton),
+                &[APPLI, ("idempotency-key", cle.as_str())],
+                corps,
+            )
+            .await;
+            let code = r.json()["erreur"]["code"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            if !matches!(r.statut.as_u16(), 403 | 404) || code.is_empty() {
+                fuites.push(format!(
+                    "{nom} {methode} {uri} : {} (code « {code} ») au lieu de 403 ou 404 codé",
+                    r.statut
+                ));
+            }
+        }
+    }
+    // La grille n'a pas bougé : aucune écriture refusée n'a laissé de trace.
+    let relue = envoyer(
+        &b.app,
+        "GET",
+        &grille_uri,
+        Some(&cast.prof.token),
+        &[APPLI],
+        None,
+    )
+    .await;
+    let relue = relue.json();
+    assert!(
+        relue["evaluations"]
+            .as_array()
+            .is_some_and(|a| a.iter().all(|e| e["titre"] != "Intrusion")),
+        "évaluation créée par un tiers : {relue}"
+    );
     for (nom, jeton, uri) in &refus_attendus {
         for avec_appli in [false, true] {
             let en_tetes: &[(&str, &str)] = if avec_appli { &[APPLI] } else { &[] };
             let r = envoyer(&b.app, "GET", uri, Some(jeton), en_tetes, None).await;
-            if !r.statut.is_client_error() {
+            // 403 ou 404 seulement : un 400, 401 ou 429 ne prouverait pas le cloisonnement (contre-revue M1).
+            if !matches!(r.statut.as_u16(), 403 | 404) {
                 fuites.push(format!(
-                    "{nom} GET {uri} (appli : {avec_appli}) : {} au lieu d'un refus",
+                    "{nom} GET {uri} (appli : {avec_appli}) : {} au lieu de 403 ou 404",
                     r.statut
                 ));
             }

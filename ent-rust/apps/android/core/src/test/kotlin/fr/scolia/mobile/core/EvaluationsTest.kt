@@ -113,6 +113,7 @@ class EvaluationsTest {
         b.taper("e1", "15,5")
         b.taper("e2", "9")
         b.taper("e3", "abs")
+        val envoye = b.lot()
         val n = b.appliquer(
             SaisieEvaRetour(
                 listOf(
@@ -121,6 +122,7 @@ class EvaluationsTest {
                     CelluleRetourEva("ev1", "e3", "refuse", message = "période arrêtée"),
                 ),
             ),
+            envoye,
         )
         assertEquals(1, n)
         assertEquals("15,5", b.texte("e1"))
@@ -136,7 +138,7 @@ class EvaluationsTest {
         // L'autre choix : reprendre la valeur du serveur.
         val c = BrouillonSaisie(grille("e2" to cellule("note", 8_000, 1)), "ev1")
         c.taper("e2", "9")
-        c.appliquer(SaisieEvaRetour(listOf(CelluleRetourEva("ev1", "e2", "conflit", conflit = ConflitEva("note", 11_000, 2)))))
+        c.appliquer(SaisieEvaRetour(listOf(CelluleRetourEva("ev1", "e2", "conflit", conflit = ConflitEva("note", 11_000, 2)))), c.lot())
         c.reprendreServeur("e2")
         assertEquals("11", c.texte("e2"))
         assertNull(c.conflit("e2"))
@@ -148,10 +150,40 @@ class EvaluationsTest {
         val b = BrouillonSaisie(grille("e1" to cellule(), "e2" to cellule("note", 8_000, 4)), "ev1")
         b.taper("e2", "9")
         b.taper("e1", "15")
-        assertEquals("eva-saisie:ev1:e1=15@-;e2=9@4", b.intention())
+        assertEquals("eva-saisie:ev1:e1=15@-;e2=9@4", b.intention(b.lot()))
         b.taper("e1", "16")
-        assertEquals("eva-saisie:ev1:e1=16@-;e2=9@4", b.intention())
-        assertTrue(b.intention().startsWith(b.famille()))
+        assertEquals("eva-saisie:ev1:e1=16@-;e2=9@4", b.intention(b.lot()))
+        assertTrue(b.intention(b.lot()).startsWith(b.famille()))
+    }
+
+    @Test
+    fun frappe_pendant_l_envoi_gardee_et_conflit_sans_etat_bloque() {
+        val b = BrouillonSaisie(grille("e1" to cellule(), "e2" to cellule("note", 8_000, 1)), "ev1")
+        b.taper("e1", "12")
+        b.taper("e2", "9")
+        val envoye = b.lot()
+        b.taper("e1", "14") // retapée pendant la requête
+        b.appliquer(
+            SaisieEvaRetour(
+                listOf(
+                    CelluleRetourEva("ev1", "e1", "ecrit", 1, "note", 12_000),
+                    CelluleRetourEva("ev1", "e2", "conflit", message = "la case a changé depuis votre lecture"),
+                ),
+            ),
+            envoye,
+        )
+        assertEquals("14", b.texte("e1"))
+        assertEquals(listOf(CelluleSaisieEva("ev1", "e1", "14", 1)), b.aEnvoyer())
+        assertEquals("la case a changé depuis votre lecture", b.refus("e2"))
+        b.taper("e2", "10")
+        assertTrue(b.aEnvoyer().none { it.eleveId == "e2" }) // relire la grille d'abord
+    }
+
+    @Test
+    fun grille_degeneree_sans_plantage() {
+        val g = grille("e1" to cellule())
+        val tronquee = g.copy(eleves = g.eleves + LigneEleveEva("e9", "X", "Y", null, emptyList(), null, 0))
+        assertEquals(listOf("e1"), BrouillonSaisie(tronquee, "ev1").eleves.map { it.eleveId })
     }
 
     @Test

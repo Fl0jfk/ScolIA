@@ -317,17 +317,24 @@ object SaisieNotes {
  *   L'écran propose alors « garder la mienne » (renvoi sur la version actuelle) ou « reprendre celle du serveur ».
  */
 class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
-    val evaluation: EvaluationEva = grille.evaluations.first { it.id == evaluationId }
-    private val rang = grille.evaluations.indexOfFirst { it.id == evaluationId }
+    private val rang = grille.evaluations.indexOfFirst { it.id == evaluationId }.also {
+        require(it >= 0) { "évaluation absente de la grille" }
+    }
+    val evaluation: EvaluationEva = grille.evaluations[rang]
 
-    /** Case actuelle de chaque élève (mise à jour par les retours du serveur). */
-    private val cases = grille.eleves.associate { it.eleveId to it.cellules[rang] }.toMutableMap()
+    /**
+     * Case actuelle de chaque élève (mise à jour par les retours du serveur). Une ligne sans case pour cette colonne
+     * (réponse dégénérée, cache ancien) est ignorée plutôt que de faire planter l'écran (contre-revue M8).
+     */
+    private val cases = grille.eleves.mapNotNull { l -> l.cellules.getOrNull(rang)?.let { l.eleveId to it } }.toMap().toMutableMap()
     private val textes = mutableMapOf<String, String>()
     private val conflits = mutableMapOf<String, ConflitEva>()
     private val refus = mutableMapOf<String, String>()
+    /** Cases à relire avant tout nouvel envoi (conflit sans état actuel). */
+    private val bloquees = mutableSetOf<String>()
 
     /** Élèves concernés par l'évaluation, dans l'ordre de la grille (les non concernés ne sont jamais saisis). */
-    val eleves: List<LigneEleveEva> = grille.eleves.filter { it.cellules[rang].concerne }
+    val eleves: List<LigneEleveEva> = grille.eleves.filter { it.cellules.getOrNull(rang)?.concerne == true }.distinctBy { it.eleveId }
 
     fun caseDe(eleveId: String): CelluleEva? = cases[eleveId]
     fun texte(eleveId: String): String = textes[eleveId] ?: cases[eleveId]?.let(SaisieNotes::texteDe).orEmpty()
@@ -360,7 +367,7 @@ class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
     /** Cases prêtes à partir : modifiées, comprises, ouvertes, sans conflit en attente d'un choix. */
     fun aEnvoyer(): List<CelluleSaisieEva> = eleves.mapNotNull { l ->
         val id = l.eleveId
-        if (!modifiable(id) || !modifiee(id) || conflits.containsKey(id)) return@mapNotNull null
+        if (!modifiable(id) || !modifiee(id) || conflits.containsKey(id) || id in bloquees) return@mapNotNull null
         when (analyse(id)) {
             is AnalyseCellule.Note, is AnalyseCellule.Statut -> CelluleSaisieEva(
                 evaluationId,
@@ -378,13 +385,17 @@ class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
     fun lot(): SaisieEvaBody = SaisieEvaBody(grille.enseignement.coursId, aEnvoyer())
 
     /** Intention d'idempotence du lot : le contenu exact (élève, texte, version), pas un hachage (D-069). */
-    fun intention(lot: SaisieEvaBody = lot()): String =
+    fun intention(lot: SaisieEvaBody): String =
         famille() + lot.cellules.sortedBy { it.eleveId }.joinToString(";") { "${it.eleveId}=${it.texte}@${it.versionAttendue ?: "-"}" }
 
     fun famille(): String = "eva-saisie:$evaluationId:"
 
-    /** Applique les issues du serveur, case par case. Rend le nombre de cases écrites. */
-    fun appliquer(retour: SaisieEvaRetour): Int {
+    /**
+     * Applique les issues du serveur, case par case. Rend le nombre de cases écrites. `envoye` : le lot parti ; une
+     * case retapée pendant l'envoi garde sa nouvelle frappe (contre-revue M3), qui repartira sur la nouvelle version.
+     */
+    fun appliquer(retour: SaisieEvaRetour, envoye: SaisieEvaBody): Int {
+        val textesEnvoyes = envoye.cellules.filter { it.evaluationId == evaluationId }.associate { it.eleveId to it.texte }
         var ecrites = 0
         for (r in retour.cellules) {
             if (r.evaluationId != evaluationId) continue
@@ -393,7 +404,7 @@ class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
             when (r.issue) {
                 "ecrit", "inchange" -> {
                     cases[id] = avant.copy(statut = r.statut ?: avant.statut, valeurM = r.valeurM, version = r.version ?: avant.version)
-                    textes.remove(id)
+                    if (textes[id]?.trim() == textesEnvoyes[id]) textes.remove(id)
                     conflits.remove(id)
                     refus.remove(id)
                     if (r.issue == "ecrit") ecrites++
@@ -403,8 +414,15 @@ class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
                     conflits.remove(id)
                 }
                 "conflit" -> {
-                    r.conflit?.let { conflits[id] = it }
-                    refus.remove(id)
+                    val c = r.conflit
+                    if (c != null) {
+                        conflits[id] = c
+                        refus.remove(id)
+                    } else {
+                        // Conflit sans l'état actuel (case disparue) : ne pas renvoyer en boucle, relire la grille.
+                        refus[id] = r.message ?: "La case a changé : revenez à la liste pour relire la grille."
+                        bloquees += id
+                    }
                 }
                 else -> refus[id] = r.message ?: "Case refusée par le serveur."
             }

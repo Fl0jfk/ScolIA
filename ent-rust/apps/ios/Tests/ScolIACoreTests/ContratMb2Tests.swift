@@ -77,6 +77,13 @@ final class ContratMb2Tests: XCTestCase {
         "eva_saisie_conflit": {
             _ = try await $0.saisirNotes(SaisieEvaBody(coursId: "c1", cellules: [CelluleSaisieEva(evaluationId: "ev1", eleveId: "e1", texte: "abs")]))
         },
+        "eva_saisie_lot": {
+            _ = try await $0.saisirNotes(SaisieEvaBody(coursId: "c1", cellules: [
+                CelluleSaisieEva(evaluationId: "ev1", eleveId: "e1", texte: "15,5", versionAttendue: 1),
+                CelluleSaisieEva(evaluationId: "ev1", eleveId: "e2", texte: "21"),
+            ]))
+        },
+        "eva_grille_apres_saisie": { _ = try await $0.evaGrille(coursId: "c1", periodeId: "p1") },
         "eva_evaluations_publication": { _ = try await $0.publierEvaluation("ev1", action: "maintenant") },
     ]
 

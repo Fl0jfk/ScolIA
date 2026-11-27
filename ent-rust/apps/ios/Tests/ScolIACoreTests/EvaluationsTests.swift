@@ -86,11 +86,12 @@ final class EvaluationsTests: XCTestCase {
             ("e1", CelluleEva()), ("e2", CelluleEva(statut: "note", valeurM: 8_000, version: 1)), ("e3", CelluleEva()),
         ]), evaluationId: "ev1"))
         b.taper("e1", "15,5"); b.taper("e2", "9"); b.taper("e3", "abs")
+        let envoye = b.lot()
         let n = b.appliquer(SaisieEvaRetour(cellules: [
             CelluleRetourEva(evaluationId: "ev1", eleveId: "e1", issue: "ecrit", version: 1, statut: "note", valeurM: 15_500),
             CelluleRetourEva(evaluationId: "ev1", eleveId: "e2", issue: "conflit", conflit: ConflitEva(statut: "note", valeurM: 11_000, version: 2, parNom: "Mme Autre")),
             CelluleRetourEva(evaluationId: "ev1", eleveId: "e3", issue: "refuse", message: "période arrêtée"),
-        ]))
+        ]), envoye: envoye)
         XCTAssertEqual(n, 1)
         XCTAssertEqual(b.texte("e1"), "15,5")
         XCTAssertFalse(b.modifiee("e1"))
@@ -102,7 +103,7 @@ final class EvaluationsTests: XCTestCase {
         XCTAssertEqual(b.aEnvoyer().first { $0.eleveId == "e2" }, CelluleSaisieEva(evaluationId: "ev1", eleveId: "e2", texte: "9", versionAttendue: 2))
         var c = try XCTUnwrap(BrouillonSaisie(grille: grille([("e2", CelluleEva(statut: "note", valeurM: 8_000, version: 1))]), evaluationId: "ev1"))
         c.taper("e2", "9")
-        c.appliquer(SaisieEvaRetour(cellules: [CelluleRetourEva(evaluationId: "ev1", eleveId: "e2", issue: "conflit", conflit: ConflitEva(statut: "note", valeurM: 11_000, version: 2))]))
+        c.appliquer(SaisieEvaRetour(cellules: [CelluleRetourEva(evaluationId: "ev1", eleveId: "e2", issue: "conflit", conflit: ConflitEva(statut: "note", valeurM: 11_000, version: 2))]), envoye: c.lot())
         c.reprendreServeur("e2")
         XCTAssertEqual(c.texte("e2"), "11")
         XCTAssertNil(c.conflit("e2"))
@@ -112,8 +113,30 @@ final class EvaluationsTests: XCTestCase {
     func testIntentionDuLotSuitSonContenu() throws {
         var b = try XCTUnwrap(BrouillonSaisie(grille: grille([("e1", CelluleEva()), ("e2", CelluleEva(statut: "note", valeurM: 8_000, version: 4))]), evaluationId: "ev1"))
         b.taper("e2", "9"); b.taper("e1", "15")
-        XCTAssertEqual(b.intention(), "eva-saisie:ev1:e1=15@-;e2=9@4")
-        XCTAssertTrue(b.intention().hasPrefix(b.famille))
+        XCTAssertEqual(b.intention(b.lot()), "eva-saisie:ev1:e1=15@-;e2=9@4")
+        XCTAssertTrue(b.intention(b.lot()).hasPrefix(b.famille))
+    }
+
+    func testFrappePendantLEnvoiGardeeEtConflitSansEtatBloque() throws {
+        var b = try XCTUnwrap(BrouillonSaisie(grille: grille([("e1", CelluleEva()), ("e2", CelluleEva(statut: "note", valeurM: 8_000, version: 1))]), evaluationId: "ev1"))
+        b.taper("e1", "12"); b.taper("e2", "9")
+        let envoye = b.lot()
+        b.taper("e1", "14")
+        b.appliquer(SaisieEvaRetour(cellules: [
+            CelluleRetourEva(evaluationId: "ev1", eleveId: "e1", issue: "ecrit", version: 1, statut: "note", valeurM: 12_000),
+            CelluleRetourEva(evaluationId: "ev1", eleveId: "e2", issue: "conflit", message: "la case a changé depuis votre lecture"),
+        ]), envoye: envoye)
+        XCTAssertEqual(b.texte("e1"), "14")
+        XCTAssertEqual(b.aEnvoyer(), [CelluleSaisieEva(evaluationId: "ev1", eleveId: "e1", texte: "14", versionAttendue: 1)])
+        XCTAssertEqual(b.refus("e2"), "la case a changé depuis votre lecture")
+        b.taper("e2", "10")
+        XCTAssertTrue(b.aEnvoyer().allSatisfy { $0.eleveId != "e2" })
+    }
+
+    func testGrilleDegenereeSansPlantage() throws {
+        let g = grille([("e1", CelluleEva()), ("e1", CelluleEva())])
+        let b = try XCTUnwrap(BrouillonSaisie(grille: g, evaluationId: "ev1"))
+        XCTAssertEqual(b.eleves.map(\.eleveId), ["e1"])
     }
 
     func testLotEnvoyeAvecLaCleEtSansVersionNulle() async throws {

@@ -268,7 +268,8 @@ public enum SaisieNotes {
 
     public static func statutDuCode(_ texte: String) -> String? {
         var t = sansAccentsMinuscules(texte)
-        while t.hasSuffix(".") { t.removeLast() }
+        // Par scalaires Unicode, comme Rust (un signe combinant ne doit pas changer la découpe).
+        while t.unicodeScalars.last == "." { t.unicodeScalars.removeLast() }
         switch t {
         case "abs", "absent", "absente": return "absent"
         case "ar", "a rattraper", "arattraper", "rattrapage": return "a_rattraper"
@@ -284,12 +285,13 @@ public enum SaisieNotes {
     /// Nombre décimal en millièmes (« 12 », « 12,5 », « 12.25 »), au plus trois décimales.
     public static func milliemesDepuisTexte(_ texte: String) -> Int64? {
         let t = nettoye(texte).replacingOccurrences(of: ",", with: ".")
-        if t.isEmpty || t.hasPrefix("+") { return nil }
+        let u = t.unicodeScalars
+        if u.isEmpty || u.first == "+" { return nil }
         let entier: Substring
         let frac: Substring
-        if let i = t.firstIndex(of: ".") {
-            entier = t[t.startIndex..<i]
-            frac = t[t.index(after: i)...]
+        if let i = u.firstIndex(of: ".") {
+            entier = Substring(String(String.UnicodeScalarView(u[u.startIndex..<i])))
+            frac = Substring(String(String.UnicodeScalarView(u[u.index(after: i)...])))
         } else {
             entier = Substring(t)
             frac = ""
@@ -321,7 +323,7 @@ public enum SaisieNotes {
         let t = nettoye(texte)
         if t.isEmpty { return .vide }
         if let s = statutDuCode(t) { return .statut(s) }
-        if t.hasPrefix("-") { return .erreur("une note ne peut pas être négative") }
+        if t.unicodeScalars.first == "-" { return .erreur("une note ne peut pas être négative") }
         guard let m = milliemesDepuisTexte(t) else {
             let debut = String(String.UnicodeScalarView(t.unicodeScalars.prefix(20)))
             return .erreur("« \(debut) » n'est ni une note ni un code (abs, ar, disp, nr, nn)")
@@ -359,6 +361,8 @@ public struct BrouillonSaisie: Sendable {
     private var textes: [String: String] = [:]
     private var conflits: [String: ConflitEva] = [:]
     private var refus: [String: String] = [:]
+    /// Cases à relire avant tout nouvel envoi (conflit sans état actuel).
+    private var bloquees: Set<String> = []
     /// Élèves concernés, dans l'ordre de la grille (les non concernés ne sont jamais saisis).
     public let eleves: [LigneEleveEva]
 
@@ -368,8 +372,13 @@ public struct BrouillonSaisie: Sendable {
         self.evaluationId = evaluationId
         evaluation = grille.evaluations[r]
         rang = r
-        cases = Dictionary(uniqueKeysWithValues: grille.eleves.map { ($0.eleveId, $0.cellules[r]) })
-        eleves = grille.eleves.filter { $0.cellules[r].concerne }
+        // Réponse dégénérée (doublon, ligne sans case pour cette colonne) : ignorée sans planter (contre-revue M8).
+        cases = Dictionary(grille.eleves.compactMap { l in l.cellules.indices.contains(r) ? (l.eleveId, l.cellules[r]) : nil },
+                           uniquingKeysWith: { premier, _ in premier })
+        var vus = Set<String>()
+        eleves = grille.eleves.filter { l in
+            l.cellules.indices.contains(r) && l.cellules[r].concerne && vus.insert(l.eleveId).inserted
+        }
     }
 
     public func caseDe(_ id: String) -> CelluleEva? { cases[id] }
@@ -407,7 +416,7 @@ public struct BrouillonSaisie: Sendable {
     public func aEnvoyer() -> [CelluleSaisieEva] {
         eleves.compactMap { l in
             let id = l.eleveId
-            guard modifiable(id), modifiee(id), conflits[id] == nil else { return nil }
+            guard modifiable(id), modifiee(id), conflits[id] == nil, !bloquees.contains(id) else { return nil }
             switch analyse(id) {
             case .note, .statut:
                 return CelluleSaisieEva(evaluationId: evaluationId, eleveId: id, texte: SaisieNotes.nettoye(texte(id)), versionAttendue: cases[id]?.version)
@@ -428,15 +437,17 @@ public struct BrouillonSaisie: Sendable {
     public var famille: String { "eva-saisie:\(evaluationId):" }
 
     /// Intention d'idempotence du lot : le contenu exact (élève, texte, version), pas un hachage (D-069).
-    public func intention(_ l: SaisieEvaBody? = nil) -> String {
-        let lot = l ?? self.lot()
-        return famille + lot.cellules.sorted { $0.eleveId < $1.eleveId }
+    public func intention(_ lot: SaisieEvaBody) -> String {
+        famille + lot.cellules.sorted { $0.eleveId < $1.eleveId }
             .map { "\($0.eleveId)=\($0.texte)@\($0.versionAttendue.map(String.init) ?? "-")" }.joined(separator: ";")
     }
 
-    /// Applique les issues du serveur, case par case. Rend le nombre de cases écrites.
+    /// Applique les issues du serveur, case par case. Rend le nombre de cases écrites. `envoye` : le lot parti ; une
+    /// case retapée pendant l'envoi garde sa nouvelle frappe (contre-revue M3).
     @discardableResult
-    public mutating func appliquer(_ retour: SaisieEvaRetour) -> Int {
+    public mutating func appliquer(_ retour: SaisieEvaRetour, envoye: SaisieEvaBody) -> Int {
+        var envoyes: [String: String] = [:]
+        for c in envoye.cellules where c.evaluationId == evaluationId { envoyes[c.eleveId] = c.texte }
         var ecrites = 0
         for r in retour.cellules where r.evaluationId == evaluationId {
             let id = r.eleveId
@@ -447,13 +458,20 @@ public struct BrouillonSaisie: Sendable {
                 c.valeurM = r.valeurM
                 c.version = r.version ?? c.version
                 cases[id] = c
-                textes[id] = nil; conflits[id] = nil; refus[id] = nil
+                if let t = textes[id], SaisieNotes.nettoye(t) == envoyes[id] { textes[id] = nil }
+                conflits[id] = nil; refus[id] = nil
                 if r.issue == "ecrit" { ecrites += 1 }
             case "vide":
                 textes[id] = nil; conflits[id] = nil
             case "conflit":
-                if let k = r.conflit { conflits[id] = k }
-                refus[id] = nil
+                if let k = r.conflit {
+                    conflits[id] = k
+                    refus[id] = nil
+                } else {
+                    // Conflit sans l'état actuel (case disparue) : ne pas renvoyer en boucle, relire la grille.
+                    refus[id] = r.message ?? "La case a changé : revenez à la liste pour relire la grille."
+                    bloquees.insert(id)
+                }
             default:
                 refus[id] = r.message ?? "Case refusée par le serveur."
             }

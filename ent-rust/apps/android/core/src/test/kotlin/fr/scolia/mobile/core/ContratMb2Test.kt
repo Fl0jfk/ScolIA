@@ -83,6 +83,8 @@ class ContratMb2Test {
         "eva_evaluations" to { c -> c.creerEvaluation(CreerEvaluationEvaBody("c1", "Interro", "2027-03-08", 20_000, 1_000)) },
         "eva_saisie" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "15,5")))) },
         "eva_saisie_conflit" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "abs")))) },
+        "eva_saisie_lot" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "15,5", 1), CelluleSaisieEva("ev1", "e2", "21")))) },
+        "eva_grille_apres_saisie" to { c -> c.evaGrille("c1", "p1") },
         "eva_evaluations_publication" to { c -> c.publierEvaluation("ev1", "maintenant") },
     )
 

@@ -677,6 +677,26 @@ mod tests {
             ".",
             "ab",
             "une note bien trop longue pour un champ",
+            // Contre-revue M7 : troncature avec accents et emoji, blancs exotiques, signes, points, chiffres non ASCII.
+            "ééééééééééééééééééééééé",
+            "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "\u{a0}12\u{a0}",
+            "\t12\n",
+            "-",
+            "-0",
+            "-abs",
+            "absent..",
+            "à rattraper.",
+            "N.N",
+            "nonrendu",
+            "non  rendu",
+            "12.",
+            ".5",
+            "0,005",
+            "١٢",
+            "7,5",
+            "7,25",
+            "000012",
         ];
         let contraintes = [
             ContrainteCellule {
@@ -698,6 +718,16 @@ mod tests {
                 bareme_m: 20_000,
                 hors_bareme_autorise: false,
                 pas_m: 0,
+            },
+            ContrainteCellule {
+                bareme_m: 20_000,
+                hors_bareme_autorise: false,
+                pas_m: 5,
+            },
+            ContrainteCellule {
+                bareme_m: 0,
+                hors_bareme_autorise: false,
+                pas_m: 10,
             },
         ];
         let mut cas = Vec::new();

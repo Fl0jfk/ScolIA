@@ -1,0 +1,28 @@
+{
+  "corps": {
+    "cellules": [
+      {
+        "conflit": null,
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "evaluation_id": "00000000-0000-4000-8000-000000000002",
+        "issue": "inchange",
+        "message": null,
+        "statut": "note",
+        "valeur_m": 15500,
+        "version": 1
+      },
+      {
+        "conflit": null,
+        "eleve_id": "00000000-0000-4000-8000-000000000003",
+        "evaluation_id": "00000000-0000-4000-8000-000000000002",
+        "issue": "refuse",
+        "message": "21 dépasse le barème (20) : vérifiez le barème de l'évaluation",
+        "statut": null,
+        "valeur_m": null,
+        "version": null
+      }
+    ]
+  },
+  "route": "POST /eva/saisie",
+  "statut": 200
+}
