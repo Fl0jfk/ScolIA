@@ -14,10 +14,17 @@ plugins {
 // « -i7 » = PREINSTRUMENTED_VERSION de Robolectric 4.14.1. Monter Robolectric ou changer @Config
 // impose de mettre cette liste à jour : en mode hors ligne, une image absente fait échouer les tests.
 val versionsImageRobolectric = listOf("14-robolectric-10818077-i7", "15-robolectric-12650502-i7")
-val imageRobolectric: Configuration by configurations.creating { isTransitive = false }
+// Une configuration par version : dans une seule, Gradle ne garderait que la plus haute (conflit
+// de versions du même module).
+val imagesRobolectric: List<Configuration> = versionsImageRobolectric.map { v ->
+    configurations.create("imageRobolectric-$v") {
+        isTransitive = false
+        dependencies.add(project.dependencies.create("org.robolectric:android-all-instrumented:$v"))
+    }
+}
 val dossierImageRobolectric = layout.buildDirectory.dir("robolectric-sdk")
 val preparerImageRobolectric = tasks.register<Sync>("preparerImageRobolectric") {
-    from(imageRobolectric)
+    from(imagesRobolectric)
     into(dossierImageRobolectric)
 }
 
@@ -120,7 +127,6 @@ dependencies {
     testImplementation(kotlin("test"))
     // Tests Compose sans appareil ni émulateur (JVM + Robolectric).
     testImplementation("org.robolectric:robolectric:4.14.1")
-    versionsImageRobolectric.forEach { imageRobolectric("org.robolectric:android-all-instrumented:$it") }
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core-ktx:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
