@@ -7,11 +7,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// Image Android instrumentée de Robolectric pour le SDK des tests (@Config(sdk = [34]) de
-// EcransComposeTest). La version suit Robolectric : 14-robolectric-10818077 = Android 14 (SDK 34),
-// « -i7 » = PREINSTRUMENTED_VERSION de Robolectric 4.14.1. Changer l'un impose de changer l'autre :
-// en mode hors ligne, une image absente fait échouer les tests avec un message explicite.
-val versionImageRobolectric = "14-robolectric-10818077-i7"
+// Images Android instrumentées de Robolectric (DefaultSdkProvider de Robolectric 4.14.1) :
+// - SDK d'exécution des tests, @Config(sdk = [34]) de EcransComposeTest : 14-robolectric-10818077 ;
+// - « compileSdk » de Robolectric = plus haut SDK qu'il connaît (35, ressources système) :
+//   15-robolectric-12650502 ; il est chargé quel que soit le SDK des tests.
+// « -i7 » = PREINSTRUMENTED_VERSION de Robolectric 4.14.1. Monter Robolectric ou changer @Config
+// impose de mettre cette liste à jour : en mode hors ligne, une image absente fait échouer les tests.
+val versionsImageRobolectric = listOf("14-robolectric-10818077-i7", "15-robolectric-12650502-i7")
 val imageRobolectric: Configuration by configurations.creating { isTransitive = false }
 val dossierImageRobolectric = layout.buildDirectory.dir("robolectric-sdk")
 val preparerImageRobolectric = tasks.register<Sync>("preparerImageRobolectric") {
@@ -70,9 +72,11 @@ android {
             t.systemProperty("robolectric.dependency.dir", dossier.absolutePath)
             // Échec lisible plutôt que l'IllegalArgumentException muette de LocalDependencyResolver.
             t.doFirst {
-                val attendu = dossier.resolve("android-all-instrumented-$versionImageRobolectric.jar")
-                check(attendu.isFile) {
-                    "Image Robolectric absente : $attendu (contenu : ${dossier.list()?.toList()})"
+                for (v in versionsImageRobolectric) {
+                    val attendu = dossier.resolve("android-all-instrumented-$v.jar")
+                    check(attendu.isFile) {
+                        "Image Robolectric absente : $attendu (contenu : ${dossier.list()?.toList()})"
+                    }
                 }
             }
         }
@@ -116,7 +120,7 @@ dependencies {
     testImplementation(kotlin("test"))
     // Tests Compose sans appareil ni émulateur (JVM + Robolectric).
     testImplementation("org.robolectric:robolectric:4.14.1")
-    imageRobolectric("org.robolectric:android-all-instrumented:$versionImageRobolectric")
+    versionsImageRobolectric.forEach { imageRobolectric("org.robolectric:android-all-instrumented:$it") }
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core-ktx:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
