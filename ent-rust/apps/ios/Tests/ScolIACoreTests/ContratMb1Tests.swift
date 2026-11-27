@@ -85,6 +85,16 @@ final class ContratMb1Tests: XCTestCase {
         } catch { XCTFail() }
     }
 
+    func testJetonMortSurUneRouteQuiRedemandeLeMotDePasseEstUneSessionPerdue() async {
+        // MB2 : le serveur pose `session.expiree` sur un jeton mort, même sur /auth/password.
+        let s = FauxServeur(["POST /auth/passkey/register/finish": (401, enveloppe("session.expiree", "Session expirée."))])
+        do {
+            try await client(s).passkeyRegisterFinish(token: "t", credential: [:], nom: "n", motDePasse: "x"); XCTFail()
+        } catch let e as ErreurApi {
+            XCTAssertEqual(e, .nonAuthentifie)
+        } catch { XCTFail() }
+    }
+
     func testJetonMortSurUneRouteAuthEstUneSessionPerdue() async throws {
         let s = FauxServeur(["GET /auth/me": (401, enveloppe("auth.refusee", "Identifiants refusés."))])
         let coffre = CoffreMemoire("jeton-mort")

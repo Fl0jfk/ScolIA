@@ -366,9 +366,11 @@ class ApiClient(
         fun msg(defaut: String) = e?.message?.takeIf { it.isNotBlank() && it.length <= 500 } ?: messageServeur(reponse.corps, defaut)
         return when (reponse.statut) {
             // 401 = identifiants refusés (pas de purge) seulement sur une route **sans jeton** (connexion) ou sur une route
-            // qui redemande le mot de passe (`REFUS_401_ATTENDU`). Ailleurs, même avec `auth.refusee` (que le serveur pose
-            // sur tout 401 de `/auth/*`, y compris un jeton mort sur `/auth/me`), c'est une session perdue.
-            401 -> if (!authentifie || chemin.substringBefore('?') in REFUS_401_ATTENDU) {
+            // qui redemande le mot de passe (`REFUS_401_ATTENDU`) quand le serveur dit `auth.refusee` (MB2 : il pose
+            // `session.expiree` sur un jeton mort, même là). Ailleurs, c'est toujours une session perdue.
+            401 -> if (!authentifie ||
+                (chemin.substringBefore('?') in REFUS_401_ATTENDU && (code == null || code == CODE_AUTH_REFUSEE))
+            ) {
                 ErreurApi.Refus(401, msg("Identifiants incorrects."), code ?: CODE_AUTH_REFUSEE, trace = trace)
             } else {
                 ErreurApi.NonAuthentifie("Session expirée : reconnectez-vous.", code, trace)

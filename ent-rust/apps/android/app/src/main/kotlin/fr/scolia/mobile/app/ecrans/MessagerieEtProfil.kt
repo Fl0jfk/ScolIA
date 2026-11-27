@@ -120,7 +120,7 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
                             erreur = null
                             try {
                                 val texte = reponse.trim()
-                                modele.cles.executer("repondre:$filId:${texte.hashCode()}") { k -> client.repondre(filId, texte, k) }
+                                modele.cles.executer("repondre:$filId:$texte") { k -> client.repondre(filId, texte, k) }
                                 reponse = ""
                                 recharger()
                             } catch (e: ErreurApi.NonAuthentifie) {

@@ -177,7 +177,9 @@ struct EcranAppel: View {
     private func lancer(_ bloc: @escaping () async throws -> Void) {
         Task {
             erreur = nil
-            do { try await bloc() } catch ErreurApi.nonAuthentifie { modele.sessionPerdue() } catch { erreur = error.localizedDescription }
+            do { try await bloc() } catch ErreurApi.nonAuthentifie { modele.sessionPerdue() } catch ErreurApi.appliTropAncienne(let m) {
+                modele.miseAJourRequise = m
+            } catch { erreur = error.localizedDescription }
         }
     }
 
@@ -222,7 +224,7 @@ struct EcranAppel: View {
                         set: { nouvel in
                             guard let e = nouvel else { return }
                             lancer {
-                                try await modele.cles.executer("marquer:\(a.id):\(l.eleveId):\(e.rawValue)") { k in try await modele.client!.marquer(appelId: a.id, eleveId: l.eleveId, etat: e, cle: k) }
+                                try await modele.cles.executer("marquer:\(a.id):\(l.eleveId):\(e.rawValue)", famille: "marquer:\(a.id):\(l.eleveId):") { k in try await modele.client!.marquer(appelId: a.id, eleveId: l.eleveId, etat: e, cle: k) }
                                 guard var copie = appel else { return }
                                 if let i = copie.lignes.firstIndex(where: { $0.eleveId == l.eleveId }) { copie.lignes[i].etat = e.rawValue }
                                 appel = copie
@@ -338,7 +340,7 @@ struct EcranAbsences: View {
                                         defer { envoi = false }
                                         do {
                                             let texte = String(motif.prefix(500))
-                                            _ = try await modele.cles.executer("justifier:\(a.id):\(texte.hashValue)") { k in try await modele.client!.justifierAbsence(a.id, motif: texte, cle: k) }
+                                            _ = try await modele.cles.executer("justifier:\(a.id):\(texte)", famille: "justifier:\(a.id):") { k in try await modele.client!.justifierAbsence(a.id, motif: texte, cle: k) }
                                             aJustifier = nil
                                             rechargement += 1
                                         } catch ErreurApi.nonAuthentifie {
@@ -546,7 +548,7 @@ struct EcranFil: View {
                     defer { envoi = false }
                     do {
                         let texte = String(reponse.prefix(5000)).trimmingCharacters(in: .whitespacesAndNewlines)
-                        _ = try await modele.cles.executer("repondre:\(filId):\(texte.hashValue)") { k in try await modele.client!.repondre(filId: filId, corps: texte, cle: k) }
+                        _ = try await modele.cles.executer("repondre:\(filId):\(texte)") { k in try await modele.client!.repondre(filId: filId, corps: texte, cle: k) }
                         reponse = ""
                         rechargement += 1
                     } catch ErreurApi.nonAuthentifie {

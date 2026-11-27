@@ -45,6 +45,8 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         ActiviteCourante.definir(this)
         modele.auPremierPlan()
+        // M5 : recalculé à chaque reprise (connexion fraîche comprise, réglage changé entre-temps).
+        modele.appareilSansVerrou = Verrou(this).etat() == Verrou.Etat.AUCUN_VERROU_CONFIGURE
         // `verrouille` vaut déjà true au démarrage ; ici : retour après plus de 5 min.
         val depuis = modele.arrierePlanDepuis
         if (depuis != 0L && SystemClock.elapsedRealtime() - depuis > Verrou.DELAI_MS) modele.verrouille = true
@@ -58,9 +60,7 @@ class MainActivity : FragmentActivity() {
 
     private fun deverrouiller() {
         val v = Verrou(this)
-        val etat = v.etat()
-        modele.appareilSansVerrou = etat == Verrou.Etat.AUCUN_VERROU_CONFIGURE
-        when (etat) {
+        when (v.etat()) {
             Verrou.Etat.DISPONIBLE -> lifecycleScope.launch { if (v.deverrouiller()) modele.verrouille = false }
             // Aucun verrouillage configuré sur l'appareil : on n'empêche pas l'usage (jeton chiffré), la coquille
             // le signale en bandeau (M5).

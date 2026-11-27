@@ -25,15 +25,7 @@ const APPLI: (&str, &str) = ("x-scolia-appli", "android/1.4.2 (build 142)");
 /// Routes de la liste blanche que le banc ne joue pas, avec la raison (revue à chaque palier).
 const NON_JOUEES: &[(&str, &str)] = &[
     (
-        "POST /auth/passkey/login/start",
-        "cérémonie WebAuthn : demande un authentificateur réel (MB4)",
-    ),
-    (
         "POST /auth/passkey/login/finish",
-        "cérémonie WebAuthn : demande un authentificateur réel (MB4)",
-    ),
-    (
-        "POST /auth/passkey/register/start",
         "cérémonie WebAuthn : demande un authentificateur réel (MB4)",
     ),
     (
@@ -125,8 +117,14 @@ impl Normaliseur {
     }
 
     fn texte(&mut self, cle: Option<&str>, s: &str) -> String {
-        if matches!(cle, Some("token" | "access_token" | "refresh_token")) {
-            return "jeton-masque".into();
+        // Tout champ qui porte un secret (jeton, mot de passe, code) est masqué, quel que soit son nom exact.
+        if cle.is_some_and(|c| {
+            let c = c.to_ascii_lowercase();
+            ["token", "secret", "password", "jeton", "mot_de_passe"]
+                .iter()
+                .any(|m| c.contains(m))
+        }) {
+            return "secret-masque".into();
         }
         if Uuid::parse_str(s).is_ok() && s.len() == 36 {
             let n = self.uuids.len() + 1;
@@ -201,7 +199,15 @@ fn fusion(a: Forme, b: Forme) -> Forme {
 fn ecarts(chemin: &str, a: &Forme, b: &Forme, sortie: &mut Vec<String>) {
     match (a, b) {
         (Forme::Nul, _) | (_, Forme::Nul) => {}
-        (Forme::Tableau(None), Forme::Tableau(_)) | (Forme::Tableau(_), Forme::Tableau(None)) => {}
+        (Forme::Tableau(None), Forme::Tableau(None)) => {}
+        // Liste vide d'un seul côté : la forme de ses éléments n'est plus vérifiée ; on le signale (le semis est
+        // déterministe : si la liste se remplit ou se vide, la fixture doit suivre).
+        (Forme::Tableau(None), Forme::Tableau(Some(_))) => sortie.push(format!(
+            "{chemin} : liste vide dans la fixture, remplie dans la réponse"
+        )),
+        (Forme::Tableau(Some(_)), Forme::Tableau(None)) => sortie.push(format!(
+            "{chemin} : liste remplie dans la fixture, vide dans la réponse"
+        )),
         (Forme::Tableau(Some(x)), Forme::Tableau(Some(y))) => {
             ecarts(&format!("{chemin}[]"), x, y, sortie)
         }
@@ -241,6 +247,7 @@ struct Cas {
 
 struct Banc {
     app: axum::Router,
+    ent: Arc<PgEnt>,
     cas: Vec<Cas>,
 }
 
@@ -330,6 +337,7 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
     let state_ent = state.ent.clone();
     let jour = domain_eleve::horloge::jour_paris().to_string();
     let mut b = Banc {
+        ent: state.ent.clone(),
         app: app(state),
         cas: Vec::new(),
     };
@@ -377,6 +385,16 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
         corps: r.json(),
     });
 
+    // Connexion par passkey, première étape : défi (factice pour un compte sans passkey, anti-énumération), sans
+    // authentificateur. Les étapes suivantes demandent une cérémonie réelle (MB4).
+    b.jouer(
+        "auth_passkey_login_start",
+        "POST /auth/passkey/login/start",
+        "/auth/passkey/login/start",
+        None,
+        Some(json!({"email": cast.parent_lea.email, "etablissement_id": etab, "client": "mobile"})),
+    )
+    .await;
     let corps_login = json!({"email": cast.parent_lea.email, "password": LABO_PASSWORD, "etablissement_id": etab, "client": "mobile"});
     let session = b
         .jouer(
@@ -391,6 +409,14 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
         session["token"].as_str().is_some_and(|t| !t.is_empty()),
         "jeton : {session}"
     );
+    b.jouer(
+        "auth_passkey_register_start",
+        "POST /auth/passkey/register/start",
+        "/auth/passkey/register/start",
+        Some(&parent),
+        Some(json!({})),
+    )
+    .await;
     b.jouer("auth_me", "GET /auth/me", "/auth/me", Some(&parent), None)
         .await;
     b.jouer(
@@ -804,6 +830,12 @@ async fn contrat_mobile_fixtures_dorees() {
     );
 }
 
+/// Jeton d'un professeur d'un **autre** établissement de labo (même base).
+async fn state_autre_etab(b: &Banc) -> String {
+    let autre = b.ent.seed_labo_cast().await.expect("second cast");
+    autre.prof.token
+}
+
 #[tokio::test]
 async fn contrat_mobile_banc_de_parite() {
     let Some((b, cast, jour)) = parcours().await else {
@@ -916,6 +948,70 @@ async fn contrat_mobile_banc_de_parite() {
         "parité web / appli rompue :\n  {}",
         ecarts_parite.join("\n  ")
     );
+    // Cloisonnement attendu, cellule par cellule (contre-revue du lot 1, M1) : la parité seule serait vraie même
+    // si web et appli fuyaient ensemble.
+    let autre_etab = state_autre_etab(&b).await;
+    let eleve_harry = harry.compte.as_ref().map(|c| c.token.clone());
+    let mut refus_attendus: Vec<(&str, String, String)> = vec![
+        (
+            "parent_harry",
+            cast.parent_lea.token.clone(),
+            format!("/eleves/{tom}/notes"),
+        ),
+        (
+            "parent_harry",
+            cast.parent_lea.token.clone(),
+            format!("/famille/enfants/{tom}/resume"),
+        ),
+        (
+            "parent_harry",
+            cast.parent_lea.token.clone(),
+            format!("/eleves/{tom}/edt?jour={jour}"),
+        ),
+        (
+            "parent_draco",
+            cast.parent_tom.token.clone(),
+            format!("/eleves/{lea}/notes"),
+        ),
+        (
+            "parent_harry",
+            cast.parent_lea.token.clone(),
+            format!("/vs/absences?jour={jour}"),
+        ),
+        (
+            "autre_etablissement",
+            autre_etab.clone(),
+            format!("/eleves/{lea}/notes"),
+        ),
+        (
+            "autre_etablissement",
+            autre_etab,
+            format!("/famille/enfants/{lea}/resume"),
+        ),
+    ];
+    if let Some(t) = eleve_harry {
+        refus_attendus.push(("eleve_harry", t.clone(), format!("/eleves/{tom}/notes")));
+        refus_attendus.push(("eleve_harry", t, format!("/vs/absences?jour={jour}")));
+    }
+    let mut fuites = Vec::new();
+    for (nom, jeton, uri) in &refus_attendus {
+        for avec_appli in [false, true] {
+            let en_tetes: &[(&str, &str)] = if avec_appli { &[APPLI] } else { &[] };
+            let r = envoyer(&b.app, "GET", uri, Some(jeton), en_tetes, None).await;
+            if !r.statut.is_client_error() {
+                fuites.push(format!(
+                    "{nom} GET {uri} (appli : {avec_appli}) : {} au lieu d'un refus",
+                    r.statut
+                ));
+            }
+        }
+    }
+    assert!(
+        fuites.is_empty(),
+        "cloisonnement rompu :\n  {}",
+        fuites.join("\n  ")
+    );
+
     // Le banc doit voir des refus (cloisonnement) et des succès : sinon il ne prouve rien.
     assert!(
         matrice.get(&200).is_some_and(|n| *n > 20),

@@ -117,6 +117,15 @@ class ContratMb1Test {
     }
 
     @Test
+    fun jeton_mort_sur_une_route_qui_redemande_le_mot_de_passe_est_une_session_perdue() = runTest {
+        // MB2 : le serveur pose `session.expiree` sur un jeton mort, même sur /auth/password.
+        val s = FauxServeur(mapOf("POST /auth/passkey/register/finish" to ReponseHttp(401, enveloppe("session.expiree", "Session expirée."))))
+        assertFailsWith<ErreurApi.NonAuthentifie> {
+            client(s).post("/auth/passkey/register/finish", "{}", PasskeyChallengeEnrolement.serializer())
+        }
+    }
+
+    @Test
     fun jeton_mort_sur_une_route_auth_est_une_session_perdue() = runTest {
         // Le serveur pose `auth.refusee` sur tout 401 de `/auth/*` : un jeton révoqué sur `/auth/me` en reçoit un.
         val s = FauxServeur(mapOf("GET /auth/me" to ReponseHttp(401, enveloppe("auth.refusee", "Identifiants refusés."))))

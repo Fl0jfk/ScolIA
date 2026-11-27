@@ -652,6 +652,19 @@ async fn mb2_401_jeton_mort_sur_auth_et_mot_de_passe_actuel_refuse() {
         assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{chemin} : {}", r.texte);
         assert_eq!(r.code(), "session.expiree", "{chemin}");
     }
+    // Jeton mort sur une route qui redemande le mot de passe : c'est la session qui est perdue, pas le mot de
+    // passe qui est refusé (contre-revue du lot 1 de MB2, M3).
+    let r = envoyer(
+        &b.app,
+        "POST",
+        "/auth/password",
+        Some(&jeton),
+        &[APPLI],
+        Some(json!({"current_password": MDP, "new_password": "NouveauPass1!x"})),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte);
+    assert_eq!(r.code(), "session.expiree");
     // Jeton inventé : idem.
     let r = envoyer(
         &b.app,

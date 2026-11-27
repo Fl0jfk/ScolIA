@@ -43,6 +43,9 @@ class ContratMb2Test {
     private val cas: Map<String, suspend (ApiClient) -> Unit> = mapOf(
         "auth_etablissement" to { c -> c.etablissementDeLAdresse() },
         "auth_login" to { c -> c.login("persona@ent.test", "x") },
+        "auth_passkey_login_start" to { c -> c.passkeyLoginStart("persona@ent.test") },
+        // Enrôlement : appelé par `ServiceConnexion.enrolerPasskey` avec le même décodeur.
+        "auth_passkey_register_start" to { c -> c.post("/auth/passkey/register/start", "{}", PasskeyChallengeEnrolement.serializer()) },
         "auth_me" to { c -> c.me() },
         "roles_mes_droits" to { c -> c.mesDroits() },
         "auth_sessions" to { c -> c.sessions() },
@@ -78,7 +81,6 @@ class ContratMb2Test {
 
     /** Méthodes publiques d'[ApiClient] qui ne consomment pas une fixture, avec la raison. */
     private val horsFixtures = mapOf(
-        "passkeyLoginStart" to "cérémonie WebAuthn, non jouée par le banc serveur (MB4)",
         "passkeyLoginFinish" to "cérémonie WebAuthn, non jouée par le banc serveur (MB4)",
         "getBrut" to "lecture brute du cache hors ligne : chemins de la liste blanche (HorsLigne)",
         "get" to "primitive générique",
@@ -142,7 +144,7 @@ class ContratMb2Test {
     @Test
     fun chaque_methode_publique_du_client_est_couverte() {
         val couvertes = setOf(
-            "etablissementDeLAdresse", "login", "me", "mesDroits", "sessions", "revoquerSession", "logout",
+            "etablissementDeLAdresse", "login", "passkeyLoginStart", "me", "mesDroits", "sessions", "revoquerSession", "logout",
             "enregistrerPush", "desinscrirePush", "mesCreneaux", "edtEleve", "ouvrirAppel", "appel", "marquer", "clore",
             "mesEnfants", "resumeEnfant", "justifierAbsence", "absencesATraiter", "periodesNotes", "notes", "moyennes",
             "devoirsClasse", "devoirsEleve", "effectif", "cahierTexte", "fils", "fil", "repondre",
@@ -213,6 +215,18 @@ class ContratMb2Test {
         assertTrue(ClesIntention.incertaine(ErreurApi.DebitDepasse("lent", 5)))
         assertFalse(ClesIntention.incertaine(ErreurApi.Refus(422, "invalide")))
         assertFalse(ClesIntention.incertaine(ErreurApi.AppliTropAncienne("vieille")))
+        assertFalse(ClesIntention.incertaine(ErreurApi.Refus(409, "appel clos", "appel.clos")))
+    }
+
+    @Test
+    fun un_succes_oublie_les_intentions_soeurs() = runTest {
+        var n = 0
+        val cles = ClesIntention { "cle-${++n}" }
+        val f = "marquer:a1:e1:"
+        // « Absent » incertain (clé gardée), puis « Retard » réussi, puis « Absent » à nouveau : clé neuve.
+        runCatching { cles.executer("${f}absent", famille = f) { throw ErreurApi.HorsLigne(null) } }
+        cles.executer("${f}retard", famille = f) { }
+        assertEquals("cle-3", cles.executer("${f}absent", famille = f) { it })
     }
 
     private fun gabaritVersRegex(route: String): String {

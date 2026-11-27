@@ -32,6 +32,8 @@ final class ContratMb2Tests: XCTestCase {
     let cas: [String: @Sendable (ApiClient) async throws -> Void] = [
         "auth_etablissement": { _ = try await $0.etablissementDeLAdresse() },
         "auth_login": { _ = try await $0.login(email: "persona@ent.test", motDePasse: "x") },
+        "auth_passkey_login_start": { _ = try await $0.passkeyLoginStart(email: "persona@ent.test") },
+        "auth_passkey_register_start": { _ = try await $0.passkeyRegisterStart() },
         "auth_me": { _ = try await $0.me() },
         "roles_mes_droits": { _ = try await $0.mesDroits() },
         "auth_sessions": { _ = try await $0.sessions() },
@@ -180,5 +182,17 @@ final class ContratMb2Tests: XCTestCase {
         XCTAssertTrue(ClesIntention.incertaine(.debitDepasse("lent", 5)))
         XCTAssertFalse(ClesIntention.incertaine(.refus(422, "invalide")))
         XCTAssertFalse(ClesIntention.incertaine(.appliTropAncienne("vieille")))
+        XCTAssertFalse(ClesIntention.incertaine(.codee(409, ErreurCodee(code: "appel.clos", message: "clos", champs: [], reessayerApresS: nil, trace: nil))))
+    }
+
+    func testUnSuccesOublieLesIntentionsSoeurs() async throws {
+        final class Compteur: @unchecked Sendable { var n = 0 }
+        let k = Compteur()
+        let cles = ClesIntention { k.n += 1; return "cle-\(k.n)" }
+        let f = "marquer:a1:e1:"
+        _ = try? await cles.executer("\(f)absent", famille: f) { _ -> Void in throw ErreurApi.horsLigne }
+        try await cles.executer("\(f)retard", famille: f) { _ in }
+        let neuve = try await cles.executer("\(f)absent", famille: f) { $0 }
+        XCTAssertEqual(neuve, "cle-3")
     }
 }

@@ -71,7 +71,7 @@ fun RacineScolIA(modele: AppModele, onDeverrouiller: () -> Unit) {
     val actif = modele.actif
     val miseAJour = MiseAJour.requise
     when {
-        miseAJour != null -> EcranMiseAJour(miseAJour)
+        miseAJour != null -> EcranMiseAJour(miseAJour, modele)
         actif == null -> EcranRattachement(modele)
         modele.etat is EtatConnexion.Deconnecte || modele.etat is EtatConnexion.SecondFacteur -> EcranConnexion(modele)
         modele.verrouille -> EcranVerrou(onDeverrouiller, modele.erreur)
@@ -210,17 +210,20 @@ fun EcranVerrou(onDeverrouiller: () -> Unit, erreur: String? = null) {
 @Composable
 private fun BandeauAvertissement(a: Avertissement, ouvrirCompte: (() -> Unit)?) {
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp).semantics(mergeDescendants = true) {}.testTag("avertissement-${a.name}"),
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("avertissement-${a.name}"),
     ) {
-        Text(a.titre, style = MaterialTheme.typography.titleSmall)
-        Text(a.texte, style = MaterialTheme.typography.bodySmall)
+        // Titre et texte lus ensemble ; le bouton reste un élément distinct pour TalkBack.
+        Column(Modifier.semantics(mergeDescendants = true) {}) {
+            Text(a.titre, style = MaterialTheme.typography.titleSmall)
+            Text(a.texte, style = MaterialTheme.typography.bodySmall)
+        }
         if (ouvrirCompte != null) TextButton(onClick = ouvrirCompte) { Text("Ajouter une passkey") }
     }
 }
 
 /** 426 : version refusée par le serveur. Seule sortie : la fiche de l'appli dans le magasin. */
 @Composable
-fun EcranMiseAJour(message: String) {
+fun EcranMiseAJour(message: String, modele: AppModele) {
     val contexte = LocalContext.current
     Page {
         Titre("Mise à jour nécessaire")
@@ -233,6 +236,12 @@ fun EcranMiseAJour(message: String) {
             },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mise_a_jour"),
         ) { Text("Mettre à jour") }
+        if (modele.rattachements.size > 1) {
+            Text("Ou changez d'établissement :")
+            modele.rattachements.filter { it.baseUrl != modele.actif?.baseUrl }.forEach { r ->
+                TextButton(onClick = { modele.choisir(r) }, modifier = Modifier.heightIn(min = 48.dp)) { Text(r.nom ?: r.slug) }
+            }
+        }
     }
 }
 
@@ -316,7 +325,7 @@ fun Coquille(modele: AppModele, connecte: EtatConnexion.Connecte) {
     ) { marges ->
         Column(Modifier.padding(marges).padding(horizontal = 16.dp).fillMaxSize()) {
             Avertissement.pour(connecte.me, modele.appareilSansVerrou).forEach { a ->
-                BandeauAvertissement(a, ouvrirCompte = if (a == Avertissement.SESSION_COURTE && Module.PROFIL in espace.modules) {
+                BandeauAvertissement(a, ouvrirCompte = if (a == Avertissement.SESSION_COURTE && connecte.me.passkeyCount == 0L && Module.PROFIL in espace.modules) {
                     { courant = Module.PROFIL }
                 } else {
                     null

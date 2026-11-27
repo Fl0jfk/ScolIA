@@ -44,6 +44,7 @@ import fr.scolia.mobile.app.ui.ChoixEnfant
 import fr.scolia.mobile.app.ui.Chargeur
 import fr.scolia.mobile.app.ui.Ligne
 import fr.scolia.mobile.app.ui.MessageErreur
+import fr.scolia.mobile.app.ui.MiseAJour
 import fr.scolia.mobile.app.ui.Titre
 import fr.scolia.mobile.app.ui.dateFr
 import fr.scolia.mobile.app.ui.note
@@ -137,6 +138,8 @@ private fun EcranAppel(modele: AppModele) {
             bloc()
         } catch (e: ErreurApi.NonAuthentifie) {
             modele.sessionPerdue()
+        } catch (e: ErreurApi.AppliTropAncienne) {
+            MiseAJour.exiger(e.message)
         } catch (e: Exception) {
             erreur = e.message
         }
@@ -183,7 +186,7 @@ private fun EcranAppel(modele: AppModele) {
                             selected = l.etat == e.code,
                             onClick = {
                                 lancer {
-                                    modele.cles.executer("marquer:${a.id}:${l.eleveId}:${e.code}") { k -> client.marquer(a.id, l.eleveId, e, k) }
+                                    modele.cles.executer("marquer:${a.id}:${l.eleveId}:${e.code}", famille = "marquer:${a.id}:${l.eleveId}:") { k -> client.marquer(a.id, l.eleveId, e, k) }
                                     // Repartir de la valeur courante (deux marquages rapprochés).
                                     appel = appel?.let { cur -> cur.copy(lignes = cur.lignes.map { if (it.eleveId == l.eleveId) it.copy(etat = e.code) else it }) }
                                 }
@@ -288,7 +291,7 @@ private fun EcranAbsences(modele: AppModele) {
                             portee.launch {
                                 erreur = null
                                 try {
-                                    modele.cles.executer("justifier:${a.id}:${motif.hashCode()}") { k -> client.justifierAbsence(a.id, motif, k) }
+                                    modele.cles.executer("justifier:${a.id}:$motif", famille = "justifier:${a.id}:") { k -> client.justifierAbsence(a.id, motif, k) }
                                     aJustifier = null
                                     recharger()
                                 } catch (e: ErreurApi.NonAuthentifie) {

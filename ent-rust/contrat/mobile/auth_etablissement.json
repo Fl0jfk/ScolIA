@@ -2,7 +2,7 @@
   "corps": {
     "id": "00000000-0000-4000-8000-000000000001",
     "nom": "Collège du banc MB2",
-    "slug": "mb2-c9c595240c08"
+    "slug": "mb2-d44ea624e015"
   },
   "route": "GET /auth/etablissement",
   "statut": 200

@@ -12,12 +12,12 @@
       },
       {
         "eleve_id": "00000000-0000-4000-8000-000000000004",
-        "eleve_label": "Harry Potter",
+        "eleve_label": "Hermione Granger",
         "etat": "present"
       },
       {
         "eleve_id": "00000000-0000-4000-8000-000000000005",
-        "eleve_label": "Hermione Granger",
+        "eleve_label": "Harry Potter",
         "etat": "present"
       }
     ],

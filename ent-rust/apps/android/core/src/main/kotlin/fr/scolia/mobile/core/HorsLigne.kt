@@ -146,11 +146,23 @@ class ClesIntention(private val nouvelleCle: () -> String = { java.util.UUID.ran
         cles.remove(intention)
     }
 
-    /** Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine. */
-    suspend fun <T> executer(intention: String, bloc: suspend (cle: String) -> T): T {
+    @Synchronized
+    fun oublierFamille(prefixe: String) {
+        cles.keys.removeAll { it.startsWith(prefixe) }
+    }
+
+    /**
+     * Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine. `famille` : après un
+     * succès, oublie aussi les intentions sœurs (ex. `marquer:<appel>:<élève>:` pour tous les états), sinon une
+     * ancienne clé gardée (« absent » incertain) ferait rejouer une réponse périmée après un « retard » réussi.
+     */
+    suspend fun <T> executer(intention: String, famille: String? = null, bloc: suspend (cle: String) -> T): T {
         val cle = cle(intention)
         try {
-            return bloc(cle).also { oublier(intention) }
+            return bloc(cle).also {
+                oublier(intention)
+                famille?.let(::oublierFamille)
+            }
         } catch (e: ErreurApi) {
             if (!incertaine(e)) oublier(intention)
             throw e
@@ -161,7 +173,8 @@ class ClesIntention(private val nouvelleCle: () -> String = { java.util.UUID.ran
         /** Le serveur a peut-être exécuté (ou exécute encore) la demande : un nouvel essai doit garder la clé. */
         fun incertaine(e: ErreurApi): Boolean = when (e) {
             is ErreurApi.HorsLigne, is ErreurApi.Serveur, is ErreurApi.DebitDepasse, is ErreurApi.Format -> true
-            is ErreurApi.Refus -> e.statut == 409
+            // Seul le 409 « en cours » est incertain ; un conflit métier (appel déjà clos…) est définitif.
+            is ErreurApi.Refus -> e.statut == 409 && e.code == "idempotence.en_cours"
             else -> false
         }
     }

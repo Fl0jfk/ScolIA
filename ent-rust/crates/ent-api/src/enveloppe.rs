@@ -126,26 +126,24 @@ fn deja_enveloppe(corps: &[u8]) -> bool {
     serde_json::from_slice::<EnveloppeErreur>(corps).is_ok()
 }
 
-/// Routes authentifiées qui redemandent le mot de passe actuel : un 401 y veut dire « mot de passe refusé »
-/// (`auth.refusee`), jamais « session perdue ». Liste tenue en miroir par les deux cœurs mobiles
-/// (`ApiClient.REFUS_401_ATTENDU`, `ApiClient.refus401Attendu`).
-pub fn redemande_mot_de_passe(methode: &axum::http::Method, chemin: &str) -> bool {
-    match *methode {
-        axum::http::Method::POST => {
-            chemin == "/auth/passkey/register/finish" || chemin == "/auth/password"
-        }
-        axum::http::Method::DELETE => chemin
-            .strip_prefix("/auth/passkeys/")
-            .is_some_and(|id| !id.is_empty() && !id.contains('/')),
-        _ => false,
-    }
+/// Routes `/auth/*` qui ne demandent **aucune** session (connexion, récupération, SSO) : un 401 y refuse des
+/// identifiants, même si un en-tête `Authorization` résiduel accompagne la requête.
+fn route_sans_session(chemin: &str) -> bool {
+    matches!(
+        chemin,
+        "/auth/login" | "/auth/register" | "/auth/forgot-password" | "/auth/reset-password"
+    ) || chemin.starts_with("/auth/passkey/login/")
+        || chemin.starts_with("/auth/oidc/")
+        || chemin == "/auth/passkey/recuperation"
 }
 
-/// Code d'un 401 sans code explicite (palier MB2, reste de MB1) : `auth.refusee` seulement quand des identifiants
-/// sont refusés (route `/auth/*` appelée **sans** jeton, ou qui redemande le mot de passe actuel) ; partout ailleurs,
-/// jeton présent compris sur `/auth/me`, `/auth/sessions`…, c'est `session.expiree` (l'appli purge et reconnecte).
-fn code_401(route_auth: bool, avec_jeton: bool, mot_de_passe: bool) -> CodeErreur {
-    if route_auth && (!avec_jeton || mot_de_passe) {
+/// Code d'un 401 sans code explicite (palier MB2, reste de MB1) : `auth.refusee` quand des identifiants sont
+/// refusés (route `/auth/*` appelée sans jeton, ou route sans session) ; partout ailleurs, jeton présent compris
+/// sur `/auth/me` ou `/auth/password`, c'est `session.expiree` (l'appli purge et reconnecte). Les routes avec
+/// session qui vérifient un mot de passe ou une attestation posent elles-mêmes `auth.refusee`
+/// (`routes::refus_identifiants`).
+fn code_401(route_auth: bool, avec_jeton: bool, sans_session: bool) -> CodeErreur {
+    if route_auth && (!avec_jeton || sans_session) {
         CodeErreur::AuthRefusee
     } else {
         CodeErreur::SessionExpiree
@@ -156,7 +154,7 @@ pub async fn enveloppe_erreur(req: Request, next: Next) -> Response<Body> {
     let appli = requete_appli(req.headers(), req.uri().path());
     let route_auth = req.uri().path().starts_with("/auth/");
     let avec_jeton = req.headers().contains_key(header::AUTHORIZATION);
-    let mot_de_passe = redemande_mot_de_passe(req.method(), req.uri().path());
+    let sans_session = route_sans_session(req.uri().path());
     let trace = trace_de(&req);
     let mut res = next.run(req).await;
 
@@ -180,7 +178,7 @@ pub async fn enveloppe_erreur(req: Request, next: Next) -> Response<Body> {
 
     let code = explicite.unwrap_or_else(|| {
         if statut == StatusCode::UNAUTHORIZED {
-            code_401(route_auth, avec_jeton, mot_de_passe)
+            code_401(route_auth, avec_jeton, sans_session)
         } else {
             CodeErreur::par_defaut(statut.as_u16())
         }
@@ -254,19 +252,18 @@ mod tests_f1 {
 
 #[cfg(test)]
 mod tests_mb2_401 {
-    use super::{code_401, redemande_mot_de_passe};
-    use axum::http::Method;
+    use super::{code_401, route_sans_session};
     use ent_types::erreurs::CodeErreur;
 
-    /// Palier MB2 (reste de MB1, élevé E1 de la contre-revue du lot 2 de MB1 client) : un jeton mort sur `/auth/me`
+    /// Palier MB2 (reste de MB1, élevé E1 de la contre-revue du lot 2 de MB1 client) : un jeton mort sur `/auth/*`
     /// donne `session.expiree`, pas `auth.refusee` ; les identifiants refusés gardent `auth.refusee`.
     #[test]
     fn code_401_selon_le_jeton_et_la_route() {
         // Connexion sans jeton : identifiants refusés.
         assert_eq!(code_401(true, false, false), CodeErreur::AuthRefusee);
-        // Jeton mort sur une route /auth/* qui ne redemande pas le mot de passe : session perdue.
+        // Jeton mort sur /auth/me, /auth/password… : session perdue.
         assert_eq!(code_401(true, true, false), CodeErreur::SessionExpiree);
-        // Mot de passe actuel refusé avec une session valide : refus, la session reste.
+        // Connexion avec un en-tête résiduel : toujours un refus d'identifiants.
         assert_eq!(code_401(true, true, true), CodeErreur::AuthRefusee);
         // Hors /auth/* : toujours session perdue.
         assert_eq!(code_401(false, true, false), CodeErreur::SessionExpiree);
@@ -274,26 +271,26 @@ mod tests_mb2_401 {
     }
 
     #[test]
-    fn routes_qui_redemandent_le_mot_de_passe() {
-        assert!(redemande_mot_de_passe(
-            &Method::POST,
-            "/auth/passkey/register/finish"
-        ));
-        assert!(redemande_mot_de_passe(&Method::POST, "/auth/password"));
-        assert!(redemande_mot_de_passe(
-            &Method::DELETE,
-            "/auth/passkeys/0b6c4b4e-0d6f-4d3e-9d5e-8f1a2b3c4d5e"
-        ));
-        assert!(!redemande_mot_de_passe(&Method::GET, "/auth/passkeys/x"));
-        assert!(!redemande_mot_de_passe(&Method::DELETE, "/auth/passkeys/"));
-        assert!(!redemande_mot_de_passe(
-            &Method::DELETE,
-            "/auth/passkeys/x/y"
-        ));
-        assert!(!redemande_mot_de_passe(&Method::GET, "/auth/me"));
-        assert!(!redemande_mot_de_passe(
-            &Method::POST,
-            "/auth/passkey/register/start"
-        ));
+    fn routes_sans_session() {
+        for c in [
+            "/auth/login",
+            "/auth/passkey/login/start",
+            "/auth/passkey/login/finish",
+            "/auth/forgot-password",
+            "/auth/reset-password",
+            "/auth/oidc/callback",
+            "/auth/passkey/recuperation",
+        ] {
+            assert!(route_sans_session(c), "{c}");
+        }
+        for c in [
+            "/auth/me",
+            "/auth/password",
+            "/auth/sessions",
+            "/auth/passkey/register/finish",
+            "/auth/passkeys/x",
+        ] {
+            assert!(!route_sans_session(c), "{c}");
+        }
     }
 }

@@ -13,7 +13,7 @@ public struct RacineScolIA: View {
     public var body: some View {
         Group {
             if let m = modele.miseAJourRequise {
-                EcranMiseAJour(message: m)
+                EcranMiseAJour(message: m, modele: modele)
             } else if modele.actif == nil {
                 EcranRattachement(modele: modele)
             } else {
@@ -31,6 +31,7 @@ public struct RacineScolIA: View {
                 }
             }
         }
+        .task { modele.appareilSansVerrou = Verrou.appareilSansCode() }
         // Lien d'invitation (Universal Link https://<etab>.scolia.fr/rejoindre?invitation=…).
         .onOpenURL { modele.rattacher($0.absoluteString) }
         .onChange(of: phase) { _, nouvelle in
@@ -38,6 +39,8 @@ public struct RacineScolIA: View {
             case .background: arrierePlan = Date()
             case .active:
                 modele.auPremierPlan()
+                // M5 : recalculé à chaque retour (connexion fraîche comprise, réglage changé entre-temps).
+                modele.appareilSansVerrou = Verrou.appareilSansCode()
                 if let t = arrierePlan, Date().timeIntervalSince(t) > Verrou.delai { modele.verrouille = true }
                 arrierePlan = nil
             default: break
@@ -157,7 +160,6 @@ struct EcranVerrou: View {
     }
 
     private func deverrouiller() async {
-        modele.appareilSansVerrou = Verrou.appareilSansCode()
         if await Verrou.deverrouiller() { modele.verrouille = false }
     }
 }
@@ -165,6 +167,7 @@ struct EcranVerrou: View {
 /// 426 : version refusée par le serveur. Seule sortie : la fiche de l'appli dans l'App Store.
 struct EcranMiseAJour: View {
     let message: String
+    let modele: AppModele
     @Environment(\.openURL) private var ouvrir
 
     var body: some View {
@@ -179,6 +182,9 @@ struct EcranMiseAJour: View {
                 if let u = URL(string: "itms-apps://apps.apple.com/app/scolia") { ouvrir(u) }
             }
             .buttonStyle(.borderedProminent)
+            ForEach(modele.rattachements.filter { $0.id != modele.actif?.id }) { r in
+                Button("Passer à \(r.nom ?? r.slug)") { modele.choisir(r) }
+            }
         }
         .padding()
     }

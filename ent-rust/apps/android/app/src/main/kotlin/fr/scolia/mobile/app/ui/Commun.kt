@@ -96,6 +96,10 @@ object MiseAJour {
     var requise by mutableStateOf<String?>(null)
         private set
 
+    fun reinitialiser() {
+        requise = null
+    }
+
     fun exiger(message: String?) {
         requise = message?.takeIf { it.isNotBlank() } ?: "Mettez l'application à jour pour continuer."
     }

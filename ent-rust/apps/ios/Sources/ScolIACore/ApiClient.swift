@@ -323,11 +323,12 @@ public final class ApiClient: @unchecked Sendable {
         }
         switch reponse.statut {
         // 401 = identifiants refusés (pas de purge) seulement sur une route sans jeton (connexion) ou qui redemande le
-        // mot de passe (`refus401Attendu`). Ailleurs, même avec `auth.refusee` (posé par le serveur sur tout 401 de
-        // `/auth/*`, y compris un jeton mort sur `/auth/me`), c'est une session perdue.
+        // mot de passe (`refus401Attendu`) quand le serveur dit `auth.refusee` (MB2 : il pose `session.expiree` sur un
+        // jeton mort, même là). Ailleurs, c'est toujours une session perdue.
         case 401:
             let p = chemin.split(separator: "?", maxSplits: 1).first.map(String.init) ?? chemin
-            guard !authentifie || refus401Attendu.contains(p) else { return .nonAuthentifie }
+            let refusAttendu = refus401Attendu.contains(p) && (e == nil || e?.code == "auth.refusee")
+            guard !authentifie || refusAttendu else { return .nonAuthentifie }
             if let e { return .codee(401, e) }
             return .refus(401, message("Identifiants incorrects."))
         case 403: return .interdit(message("Action non autorisée."))

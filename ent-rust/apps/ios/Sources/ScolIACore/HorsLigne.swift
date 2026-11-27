@@ -143,12 +143,19 @@ public final class ClesIntention: @unchecked Sendable {
         cles[intention] = nil
     }
 
-    /// Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine.
-    public func executer<T>(_ intention: String, _ bloc: (String) async throws -> T) async throws -> T {
+    public func oublierFamille(_ prefixe: String) {
+        verrou.lock(); defer { verrou.unlock() }
+        cles = cles.filter { !$0.key.hasPrefix(prefixe) }
+    }
+
+    /// Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine. `famille` : après un
+    /// succès, oublie aussi les intentions sœurs (ex. `marquer:<appel>:<élève>:` pour tous les états).
+    public func executer<T>(_ intention: String, famille: String? = nil, _ bloc: (String) async throws -> T) async throws -> T {
         let c = cle(intention)
         do {
             let r = try await bloc(c)
             oublier(intention)
+            if let f = famille { oublierFamille(f) }
             return r
         } catch let e as ErreurApi {
             if !Self.incertaine(e) { oublier(intention) }
@@ -159,8 +166,8 @@ public final class ClesIntention: @unchecked Sendable {
     public static func incertaine(_ e: ErreurApi) -> Bool {
         switch e {
         case .horsLigne, .serveur, .debitDepasse, .format: return true
-        case .refus(let s, _): return s == 409
-        case .codee(let s, _): return s == 409
+        // Seul le 409 « en cours » est incertain ; un conflit métier (appel déjà clos…) est définitif.
+        case .codee(let s, let e): return s == 409 && e.code == "idempotence.en_cours"
         default: return false
         }
     }

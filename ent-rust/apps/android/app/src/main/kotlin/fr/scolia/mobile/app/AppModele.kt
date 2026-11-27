@@ -165,6 +165,8 @@ class AppModele(app: Application) : AndroidViewModel(app) {
     }
 
     fun choisir(r: Rattachement) {
+        // 426 : propre à un serveur ; changer d'établissement repart sans l'écran de mise à jour.
+        fr.scolia.mobile.app.ui.MiseAJour.reinitialiser()
         actif = r
         prefs.actif = r.baseUrl
         etat = EtatConnexion.Deconnecte
@@ -206,6 +208,8 @@ class AppModele(app: Application) : AndroidViewModel(app) {
                 if (actif?.baseUrl == cible) etat = e
             } catch (e: ErreurApi.HorsLigne) {
                 erreur = "Pas de connexion au serveur. Réessayez quand le réseau revient."
+            } catch (e: ErreurApi.AppliTropAncienne) {
+                fr.scolia.mobile.app.ui.MiseAJour.exiger(e.message)
             } catch (e: ErreurApi) {
                 erreur = e.message
             }

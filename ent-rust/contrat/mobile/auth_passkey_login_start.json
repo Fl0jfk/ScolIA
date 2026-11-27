@@ -1,0 +1,30 @@
+{
+  "corps": {
+    "expires_at": "2027-03-08T09:00:00Z",
+    "options": {
+      "publicKey": {
+        "allowCredentials": [
+          {
+            "id": "RRkTnhdgSfeVau2PK3lFJDWKobBxtUQ1t72S-RCU6kw",
+            "type": "public-key"
+          },
+          {
+            "id": "HkaeDHSeQb6YmXVGYY_xCvd8hmI5SEQ5qCkapBMMHcI",
+            "type": "public-key"
+          },
+          {
+            "id": "-ALvaof0RNGnG93cGKnbsE1qxufutESwpb1cxoj2GN4",
+            "type": "public-key"
+          }
+        ],
+        "challenge": "MLLtRkzXSlmtZZYBEKmMQPPpVSd6tEAunrVUJbj4RW8",
+        "rpId": "localhost",
+        "timeout": 300000,
+        "userVerification": "required"
+      }
+    },
+    "token": "secret-masque"
+  },
+  "route": "POST /auth/passkey/login/start",
+  "statut": 200
+}

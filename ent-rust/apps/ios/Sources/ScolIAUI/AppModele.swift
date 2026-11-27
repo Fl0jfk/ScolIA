@@ -101,6 +101,8 @@ public final class AppModele {
     }
 
     public func choisir(_ r: Rattachement) {
+        // 426 : propre à un serveur ; changer d'établissement repart sans l'écran de mise à jour.
+        miseAJourRequise = nil
         actif = r
         etat = .deconnecte
         sauver()
@@ -146,6 +148,8 @@ public final class AppModele {
                 if !Task.isCancelled, actif?.id == cible { etat = e }
             } catch ErreurApi.horsLigne {
                 erreur = "Pas de connexion au serveur. Réessayez quand le réseau revient."
+            } catch ErreurApi.appliTropAncienne(let m) {
+                miseAJourRequise = m
             } catch {
                 if !Task.isCancelled { erreur = error.localizedDescription }
             }
