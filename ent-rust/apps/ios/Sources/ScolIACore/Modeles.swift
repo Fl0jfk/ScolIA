@@ -168,6 +168,12 @@ public struct Droit: Codable, Equatable, Sendable {
     }
 }
 
+/// Réponse de `POST /devices/push` (MB0, DS3 : jamais le jeton, seulement l'identifiant de l'inscription).
+public struct PushDevice: Codable, Equatable, Sendable {
+    public let id: String
+    public let platform: String?
+}
+
 public struct EtablissementPublic: Codable, Sendable {
     public let id: String
     public let slug: String

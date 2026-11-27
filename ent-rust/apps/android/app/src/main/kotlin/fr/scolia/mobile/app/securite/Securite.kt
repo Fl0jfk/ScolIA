@@ -14,6 +14,7 @@ import androidx.fragment.app.FragmentActivity
 import fr.scolia.mobile.core.Cache
 import fr.scolia.mobile.core.CoffreJeton
 import fr.scolia.mobile.core.EntreeCache
+import fr.scolia.mobile.core.MemoirePush
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -88,18 +89,24 @@ class CoffreKeystore(context: Context, private val etablissement: String) : Coff
     }
 }
 
-/** Cache hors ligne chiffré sur disque (répertoire privé, exclu des sauvegardes). */
+/**
+ * Cache hors ligne chiffré sur disque (répertoire privé, exclu des sauvegardes).
+ * Format chiffré : `v2\n<horodatage>\n<expiration>\n<json>`. Une entrée d'un format antérieur (sans date de fin,
+ * DA1) ou illisible est effacée, jamais servie.
+ */
 class CacheChiffre(context: Context) : Cache {
     private val dossier = File(context.noBackupFilesDir, "cache_lecture").apply { mkdirs() }
     private val chiffreur = ChiffreurKeystore("scolia.cache")
 
-    override fun lire(cle: String): EntreeCache? {
-        val f = File(dossier, empreinte(cle))
+    override fun lire(cle: String): EntreeCache? = lireFichier(File(dossier, empreinte(cle)))
+
+    private fun lireFichier(f: File): EntreeCache? {
         if (!f.exists()) return null
         return try {
             val clair = String(chiffreur.dechiffrer(f.readBytes()), Charsets.UTF_8)
-            val sep = clair.indexOf('\n')
-            EntreeCache(clair.substring(sep + 1), clair.substring(0, sep).toLong())
+            val lignes = clair.split('\n', limit = 4)
+            require(lignes.size == 4 && lignes[0] == "v2")
+            EntreeCache(lignes[3], lignes[1].toLong(), lignes[2].toLong())
         } catch (e: Exception) {
             f.delete()
             null
@@ -107,12 +114,47 @@ class CacheChiffre(context: Context) : Cache {
     }
 
     override fun ecrire(cle: String, entree: EntreeCache) {
-        val clair = "${entree.horodatageMs}\n${entree.json}".toByteArray(Charsets.UTF_8)
-        File(dossier, empreinte(cle)).writeBytes(chiffreur.chiffrer(clair))
+        val clair = "v2\n${entree.horodatageMs}\n${entree.expireMs}\n${entree.json}".toByteArray(Charsets.UTF_8)
+        // Écriture atomique : fichier temporaire puis renommage (pas d'entrée à moitié écrite).
+        val cible = File(dossier, empreinte(cle))
+        val tmp = File(dossier, cible.name + ".tmp")
+        tmp.writeBytes(chiffreur.chiffrer(clair))
+        if (!tmp.renameTo(cible)) {
+            tmp.delete()
+            cible.delete()
+        }
+    }
+
+    override fun effacer(cle: String) {
+        File(dossier, empreinte(cle)).delete()
+    }
+
+    override fun purgerEchues(maintenantMs: Long) {
+        dossier.listFiles()?.forEach { f ->
+            if (f.name.endsWith(".tmp")) {
+                f.delete()
+            } else {
+                val e = lireFichier(f) // illisible ou ancien format : déjà effacé
+                if (e != null && e.echue(maintenantMs)) f.delete()
+            }
+        }
     }
 
     override fun toutEffacer() {
         dossier.listFiles()?.forEach { it.delete() }
+    }
+}
+
+/** Identifiant de l'inscription de notification, par établissement (non secret : ce n'est pas le jeton). */
+class MemoirePushPrefs(context: Context, etablissement: String) : MemoirePush {
+    private val prefs: SharedPreferences = context.getSharedPreferences("scolia_push", Context.MODE_PRIVATE)
+    private val cle = "push." + empreinte(etablissement)
+    override fun lire(): String? = prefs.getString(cle, null)
+    override fun ecrire(id: String) {
+        prefs.edit().putString(cle, id).apply()
+    }
+    override fun effacer() {
+        prefs.edit().remove(cle).apply()
     }
 }
 

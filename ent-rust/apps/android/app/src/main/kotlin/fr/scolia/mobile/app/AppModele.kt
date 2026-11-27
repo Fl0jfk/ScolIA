@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.scolia.mobile.app.securite.CacheChiffre
 import fr.scolia.mobile.app.securite.CoffreKeystore
+import fr.scolia.mobile.app.securite.MemoirePushPrefs
 import fr.scolia.mobile.app.securite.PasskeyAndroid
 import fr.scolia.mobile.core.ApiClient
 import fr.scolia.mobile.core.ErreurApi
@@ -19,7 +20,7 @@ import fr.scolia.mobile.core.LecteurRattachement
 import fr.scolia.mobile.core.PasskeyChallenge
 import fr.scolia.mobile.core.Rattachement
 import fr.scolia.mobile.core.ServiceConnexion
-import fr.scolia.mobile.core.TransportOkHttp
+import fr.scolia.mobile.core.TransportHttps
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -90,7 +91,18 @@ class AppModele(app: Application) : AndroidViewModel(app) {
         private set
     private var service: ServiceConnexion? = null
 
+    /** `X-ScolIA-Appli` : plateforme et version, aucun identifiant d'appareil (§5.2). */
+    private val appli = ApiClient.valeurAppli("android", BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong())
+
+    private fun transport() = TransportHttps(
+        userAgent = "ScolIA-Android/${BuildConfig.VERSION_NAME}",
+        // Texte clair seulement vers le labo local, en debug (la configuration réseau release le refuse aussi).
+        autoriserHttp = BuildConfig.MODE_LABO,
+    )
+
     init {
+        // DA1 : aucune lecture échue ne survit au démarrage.
+        cache.purgerEchues(System.currentTimeMillis())
         // Session mobile existante (jeton au coffre) : reprise directe, verrou biométrique ensuite.
         actif?.let {
             configurer(it)
@@ -110,9 +122,16 @@ class AppModele(app: Application) : AndroidViewModel(app) {
 
     private fun configurer(r: Rattachement) {
         val coffre = CoffreKeystore(getApplication(), r.baseUrl)
-        val c = ApiClient(r.baseUrl, TransportOkHttp(userAgent = "ScolIA-Android/${BuildConfig.VERSION_NAME}"), coffre::lire, r.etablissementIdLabo)
+        val c = ApiClient(r.baseUrl, transport(), coffre::lire, r.etablissementIdLabo, appli)
         client = c
-        service = ServiceConnexion(c, coffre, cache, PasskeyAndroid(ActiviteCourante::exiger), rpId = BuildConfig.DOMAINE_SCOLIA)
+        service = ServiceConnexion(
+            c,
+            coffre,
+            cache,
+            PasskeyAndroid(ActiviteCourante::exiger),
+            memoirePush = MemoirePushPrefs(getApplication(), r.baseUrl),
+            rpId = BuildConfig.DOMAINE_SCOLIA,
+        )
         lecteur = LecteurHorsLigne(c, cache, {
             val me = (etat as? EtatConnexion.Connecte)?.me
             "${r.baseUrl}|${me?.userId}"
@@ -125,7 +144,7 @@ class AppModele(app: Application) : AndroidViewModel(app) {
             is LecteurRattachement.Resultat.Refuse -> erreur = r.raison
             is LecteurRattachement.Resultat.Ok -> {
                 val brut = r.rattachement
-                val sonde = ApiClient(brut.baseUrl, TransportOkHttp(), { null }, brut.etablissementIdLabo)
+                val sonde = ApiClient(brut.baseUrl, transport(), { null }, brut.etablissementIdLabo, appli)
                 val nom = try {
                     sonde.etablissementDeLAdresse().nom
                 } catch (e: ErreurApi.Introuvable) {
@@ -173,6 +192,7 @@ class AppModele(app: Application) : AndroidViewModel(app) {
     /** Reprise de session ; annule une reprise en cours pour un autre établissement. */
     fun reprendre() {
         reprise?.cancel()
+        lecteur?.purger()
         val s = service
         val cible = actif?.baseUrl
         reprise = viewModelScope.launch {
@@ -185,6 +205,11 @@ class AppModele(app: Application) : AndroidViewModel(app) {
                 erreur = e.message
             }
         }
+    }
+
+    /** Retour au premier plan : purge des lectures échues (DA1 : minuit passé pendant l'arrière-plan). */
+    fun auPremierPlan() {
+        cache.purgerEchues(System.currentTimeMillis())
     }
 
     /** Horodatage de mise en arrière-plan (survit aux recréations de l'activité). */

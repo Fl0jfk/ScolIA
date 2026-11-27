@@ -44,6 +44,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         ActiviteCourante.definir(this)
+        modele.auPremierPlan()
         // `verrouille` vaut déjà true au démarrage ; ici : retour après plus de 5 min.
         val depuis = modele.arrierePlanDepuis
         if (depuis != 0L && SystemClock.elapsedRealtime() - depuis > Verrou.DELAI_MS) modele.verrouille = true

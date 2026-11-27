@@ -72,7 +72,11 @@ public final class CacheFichiers: Cache, @unchecked Sendable {
 
     public func lire(_ cle: String) -> EntreeCache? {
         guard let d = try? Data(contentsOf: fichier(cle)) else { return nil }
-        return try? JSONDecoder().decode(EntreeCache.self, from: d)
+        guard let e = try? JSONDecoder().decode(EntreeCache.self, from: d) else {
+            effacer(cle) // ancien format (sans date de fin, DA1) ou illisible : jamais servi
+            return nil
+        }
+        return e
     }
 
     public func ecrire(_ cle: String, _ entree: EntreeCache) {
@@ -80,10 +84,32 @@ public final class CacheFichiers: Cache, @unchecked Sendable {
         try? d.write(to: fichier(cle), options: [.atomic, .completeFileProtection])
     }
 
+    public func effacer(_ cle: String) { try? FileManager.default.removeItem(at: fichier(cle)) }
+
+    /// DA1 : efface les entrées échues, et celles d'un ancien format (sans date de fin) ou illisibles.
+    public func purgerEchues(_ maintenant: Date) {
+        let fichiers = (try? FileManager.default.contentsOfDirectory(at: dossier, includingPropertiesForKeys: nil)) ?? []
+        for f in fichiers {
+            let e = (try? Data(contentsOf: f)).flatMap { try? JSONDecoder().decode(EntreeCache.self, from: $0) }
+            if e == nil || e!.echue(maintenant) { try? FileManager.default.removeItem(at: f) }
+        }
+    }
+
     public func toutEffacer() {
         let fichiers = (try? FileManager.default.contentsOfDirectory(at: dossier, includingPropertiesForKeys: nil)) ?? []
         fichiers.forEach { try? FileManager.default.removeItem(at: $0) }
     }
+}
+
+/// Identifiant de l'inscription de notification par établissement (non secret : ce n'est pas le jeton).
+public final class MemoirePushDefauts: MemoirePush, @unchecked Sendable {
+    private let cle: String
+    public init(etablissement: String) {
+        cle = "push." + SHA256.hash(data: Data(etablissement.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    public func lire() -> String? { UserDefaults.standard.string(forKey: cle) }
+    public func ecrire(_ id: String) { UserDefaults.standard.set(id, forKey: cle) }
+    public func effacer() { UserDefaults.standard.removeObject(forKey: cle) }
 }
 
 /// Déverrouillage Face ID / Touch ID / code (D-011).

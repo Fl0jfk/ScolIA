@@ -18,7 +18,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ScolIA"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:targetApi="35">
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="36">
 
         <activity
             android:name=".MainActivity"

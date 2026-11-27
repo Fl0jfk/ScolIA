@@ -129,6 +129,10 @@ data class SessionAppareil(
     val courante: Boolean,
 )
 
+/** Réponse de `POST /devices/push` (MB0, DS3 : jamais le jeton, seulement l'identifiant de l'inscription). */
+@Serializable
+data class PushDevice(val id: String, val platform: String? = null)
+
 /** Corps de `POST /devices/push`. */
 @Serializable
 data class PushDeviceBody(

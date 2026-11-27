@@ -352,7 +352,7 @@ class ApiEtConnexionTest {
     fun session_revoquee_efface_tout() = runTest {
         val s = FauxServeur(mapOf("GET /auth/me" to ReponseHttp(401, "session invalide")))
         val coffre = CoffreMemoire().apply { ecrire("ancien") }
-        val cache = CacheMemoire().apply { ecrire("k", EntreeCache("[]", 1)) }
+        val cache = CacheMemoire().apply { ecrire("k", EntreeCache("[]", 1, Long.MAX_VALUE)) }
         val svc = ServiceConnexion(client(s, coffre), coffre, cache, FauxPasskey())
         assertEquals(EtatConnexion.Deconnecte, svc.reprendre())
         assertNull(coffre.lire())

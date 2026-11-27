@@ -35,6 +35,7 @@ public struct RacineScolIA: View {
             switch nouvelle {
             case .background: arrierePlan = Date()
             case .active:
+                modele.auPremierPlan()
                 if let t = arrierePlan, Date().timeIntervalSince(t) > Verrou.delai { modele.verrouille = true }
                 arrierePlan = nil
             default: break

@@ -22,6 +22,23 @@ public protocol AuthentificateurPasskey: Sendable {
     func creer(_ demande: PasskeyPont.DemandeCreation) async throws -> (credentialId: Data, attestationObject: Data, clientDataJSON: Data)
 }
 
+/// Identifiant de l'inscription de notification (pas le jeton, jamais renvoyé, DS3), gardé pour la
+/// désinscription à la déconnexion (DS4).
+public protocol MemoirePush: AnyObject, Sendable {
+    func lire() -> String?
+    func ecrire(_ id: String)
+    func effacer()
+}
+
+public final class MemoirePushMemoire: MemoirePush, @unchecked Sendable {
+    private var id: String?
+    private let verrou = NSLock()
+    public init() {}
+    public func lire() -> String? { verrou.lock(); defer { verrou.unlock() }; return id }
+    public func ecrire(_ id: String) { verrou.lock(); self.id = id; verrou.unlock() }
+    public func effacer() { verrou.lock(); id = nil; verrou.unlock() }
+}
+
 /// Push : interface prête, fournisseur non choisi (APNs direct, relais…). Par défaut : rien.
 public protocol FournisseurPush: Sendable {
     var plateforme: String { get }
@@ -49,14 +66,15 @@ public final class ServiceConnexion: @unchecked Sendable {
     let cache: Cache
     let passkey: AuthentificateurPasskey
     let push: FournisseurPush
+    let memoirePush: MemoirePush
     let rpId: String
     let appId: String
 
     public init(client: ApiClient, coffre: CoffreJeton, cache: Cache, passkey: AuthentificateurPasskey,
-                push: FournisseurPush = PushInactif(), rpId: String = LecteurRattachement.domaineScolia,
-                appId: String = "fr.scolia.mobile") {
+                push: FournisseurPush = PushInactif(), memoirePush: MemoirePush = MemoirePushMemoire(),
+                rpId: String = LecteurRattachement.domaineScolia, appId: String = "fr.scolia.mobile") {
         self.client = client; self.coffre = coffre; self.cache = cache; self.passkey = passkey
-        self.push = push; self.rpId = rpId; self.appId = appId
+        self.push = push; self.memoirePush = memoirePush; self.rpId = rpId; self.appId = appId
     }
 
     public func connexionPasskey(email: String) async throws -> EtatConnexion {
@@ -99,6 +117,8 @@ public final class ServiceConnexion: @unchecked Sendable {
     }
 
     public func deconnexion() async {
+        // DS4 : désinscription du jeton de notification d'abord (la révocation de session la coupe aussi, DS1).
+        if let id = memoirePush.lire() { try? await client.desinscrirePush(id) }
         // Hors ligne : on oublie quand même le jeton localement.
         try? await client.logout()
         oublier()
@@ -107,13 +127,16 @@ public final class ServiceConnexion: @unchecked Sendable {
     public func oublier() {
         coffre.effacer()
         cache.toutEffacer()
+        memoirePush.effacer()
     }
 
     private func ouvrir(_ jeton: String) async throws -> EtatConnexion {
         coffre.ecrire(jeton)
         let etat = try await charger()
         if let j = await push.jetonAppareil() {
-            try? await client.enregistrerPush(plateforme: push.plateforme, jeton: j, appId: appId)
+            if let inscription = try? await client.enregistrerPush(plateforme: push.plateforme, jeton: j, appId: appId) {
+                memoirePush.ecrire(inscription.id)
+            }
         }
         return etat
     }

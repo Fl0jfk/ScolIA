@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "fr.scolia.mobile.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "fr.scolia.mobile"
         minSdk = 28 // Android 9 : passkeys via Credential Manager + services Play.
-        targetSdk = 35
+        targetSdk = 36 // DA2 : Google Play exige l'API 36 depuis le 31/08/2026.
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

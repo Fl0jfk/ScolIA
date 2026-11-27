@@ -30,8 +30,18 @@ public final class AppModele {
 
     public var dernierEmail: String { defauts.string(forKey: "email") ?? "" }
 
+    /// `X-ScolIA-Appli` (§5.2) : plateforme et version de l'appli, aucun identifiant d'appareil.
+    @ObservationIgnored private let appli: String = {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = info?["CFBundleVersion"] as? String ?? "0"
+        return ApiClient.valeurAppli(plateforme: "ios", version: version, build: build)
+    }()
+
     public init(modeLabo: Bool = false) {
         lecteurLiens = LecteurRattachement(modeLabo: modeLabo)
+        // DA1 : aucune lecture échue ne survit au démarrage.
+        cache.purgerEchues(Date())
         // Le Keychain survit à la désinstallation : au premier lancement, on repart de zéro.
         if !UserDefaults.standard.bool(forKey: "deja_lance") {
             CoffreKeychain.toutEffacer()
@@ -48,9 +58,10 @@ public final class AppModele {
 
     private func configurer(_ r: Rattachement) {
         let coffre = CoffreKeychain(etablissement: r.id)
-        let c = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { coffre.lire() }, etablissementIdLabo: r.etablissementIdLabo)
+        let c = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { coffre.lire() }, etablissementIdLabo: r.etablissementIdLabo, appli: appli)
         client = c
-        service = ServiceConnexion(client: c, coffre: coffre, cache: cache, passkey: passkey)
+        service = ServiceConnexion(client: c, coffre: coffre, cache: cache, passkey: passkey,
+                                   memoirePush: MemoirePushDefauts(etablissement: r.id))
         let id = r.id
         let u = utilisateur
         lecteur = LecteurHorsLigne(client: c, cache: cache, prefixe: { "\(id)|\(u.valeur)" })
@@ -68,7 +79,7 @@ public final class AppModele {
             switch self.lecteurLiens.lire(saisie) {
             case .refuse(let raison): self.erreur = raison
             case .ok(var r):
-                let sonde = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { nil }, etablissementIdLabo: r.etablissementIdLabo)
+                let sonde = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { nil }, etablissementIdLabo: r.etablissementIdLabo, appli: self.appli)
                 do {
                     r.nom = try await sonde.etablissementDeLAdresse().nom
                 } catch ErreurApi.introuvable(_) where r.etablissementIdLabo != nil {
@@ -111,8 +122,12 @@ public final class AppModele {
     @ObservationIgnored private var reprise: Task<Void, Never>?
 
     /// Reprise de session ; annule une reprise en cours pour un autre établissement.
+    /// Retour au premier plan : purge des lectures échues (minuit passé pendant l'arrière-plan, DA1).
+    public func auPremierPlan() { cache.purgerEchues(Date()) }
+
     public func reprendre() {
         reprise?.cancel()
+        lecteur?.purger()
         let s = service
         let cible = actif?.id
         reprise = Task { @MainActor [self] in

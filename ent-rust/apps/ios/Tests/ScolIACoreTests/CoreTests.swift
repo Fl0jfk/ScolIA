@@ -256,7 +256,7 @@ final class ConnexionTests: XCTestCase {
         let s = FauxServeur(["GET /auth/me": (401, "")])
         let coffre = CoffreMemoire("ancien")
         let cache = CacheMemoire()
-        cache.ecrire("k", EntreeCache(json: Data("[]".utf8), horodatage: Date()))
+        cache.ecrire("k", EntreeCache(json: Data("[]".utf8), horodatage: Date(), expire: .distantFuture))
         let svc = ServiceConnexion(client: client(s, coffre), coffre: coffre, cache: cache, passkey: FauxPasskey())
         let etat = try await svc.reprendre()
         XCTAssertEqual(etat, .deconnecte)

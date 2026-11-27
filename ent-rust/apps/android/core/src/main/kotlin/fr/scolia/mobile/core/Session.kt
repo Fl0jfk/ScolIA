@@ -2,13 +2,11 @@ package fr.scolia.mobile.core
 
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.concurrent.TimeUnit
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
 
 /** Stockage sécurisé du jeton (Android : chiffré par une clé du Keystore). */
 interface CoffreJeton {
@@ -49,6 +47,27 @@ object PushInactif : FournisseurPush {
     override val plateforme = "android"
 }
 
+/**
+ * Identifiant de l'inscription de notification renvoyé par le serveur (pas le jeton, qui n'est jamais renvoyé, DS3).
+ * Gardé pour la désinscription à la déconnexion (DS4), y compris après un redémarrage de l'appli.
+ */
+interface MemoirePush {
+    fun lire(): String?
+    fun ecrire(id: String)
+    fun effacer()
+}
+
+class MemoirePushMemoire : MemoirePush {
+    @Volatile private var id: String? = null
+    override fun lire() = id
+    override fun ecrire(id: String) {
+        this.id = id
+    }
+    override fun effacer() {
+        id = null
+    }
+}
+
 /** État de connexion présenté à l'interface. */
 sealed class EtatConnexion {
     data object Deconnecte : EtatConnexion()
@@ -69,6 +88,7 @@ class ServiceConnexion(
     private val cache: Cache,
     private val passkey: AuthentificateurPasskey,
     private val push: FournisseurPush = PushInactif,
+    private val memoirePush: MemoirePush = MemoirePushMemoire(),
     private val rpId: String = LecteurRattachement.DOMAINE_SCOLIA,
     private val appId: String = "fr.scolia.mobile",
 ) {
@@ -120,6 +140,15 @@ class ServiceConnexion(
     }
 
     suspend fun deconnexion() {
+        // DS4 : la déconnexion désinscrit d'abord le jeton de notification (le serveur coupe aussi les inscriptions
+        // liées à la session révoquée, DS1 ; l'appel explicite couvre une session qui resterait vivante).
+        memoirePush.lire()?.let { id ->
+            try {
+                client.desinscrirePush(id)
+            } catch (_: ErreurApi) {
+                // Hors ligne ou déjà retirée : la révocation de la session suffit côté serveur (DS1).
+            }
+        }
         try {
             client.logout()
         } catch (_: ErreurApi) {
@@ -132,6 +161,7 @@ class ServiceConnexion(
     fun oublier() {
         coffre.effacer()
         cache.toutEffacer()
+        memoirePush.effacer()
     }
 
     private suspend fun ouvrir(jeton: String): EtatConnexion {
@@ -162,7 +192,8 @@ class ServiceConnexion(
             null
         } ?: return
         try {
-            client.enregistrerPush(PushDeviceBody(push.plateforme, jeton, appId))
+            val inscription = client.enregistrerPush(PushDeviceBody(push.plateforme, jeton, appId))
+            memoirePush.ecrire(inscription.id)
         } catch (_: ErreurApi) {
             // Non bloquant : l'appli fonctionne sans push.
         }
@@ -182,21 +213,54 @@ data class EnrolementFinishBody(
     override fun toString() = "EnrolementFinishBody(name=$name, current_password=<masqué>)"
 }
 
-/** Transport réel (OkHttp). Pas de journalisation des corps ni des en-têtes. */
-class TransportOkHttp(
-    private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .build(),
+/**
+ * Transport réel sur `HttpsURLConnection` de la plateforme (D-062 : OkHttp retiré, aucune dépendance HTTP tierce).
+ * - délais : 10 s pour se connecter, 15 s pour lire (contrat §5.8 : l'appli abandonne à 15 s) ;
+ * - **aucune redirection suivie** (une redirection ne doit jamais emporter le jeton ailleurs) ;
+ * - HTTPS seulement, sauf `autoriserHttp` (labo local en debug ; la configuration réseau Android refuse de toute
+ *   façon le texte clair hors debug) ;
+ * - pas de journalisation des corps ni des en-têtes.
+ */
+class TransportHttps(
     private val userAgent: String = "ScolIA-Android",
+    private val autoriserHttp: Boolean = false,
+    private val delaiConnexionMs: Int = 10_000,
+    private val delaiLectureMs: Int = 15_000,
 ) : Transport {
     override suspend fun executer(requete: RequeteHttp): ReponseHttp = withContext(Dispatchers.IO) {
-        val corps = requete.corps?.toRequestBody("application/json; charset=utf-8".toMediaType())
-        val b = Request.Builder().url(requete.url).method(requete.methode, corps ?: if (requete.methode == "POST") ByteArray(0).toRequestBody() else null)
-        requete.entetes.forEach { (k, v) -> b.header(k, v) }
-        b.header("User-Agent", userAgent)
-        http.newCall(b.build()).execute().use { r -> ReponseHttp(r.code, r.body?.string() ?: "") }
+        val url = URI(requete.url).toURL()
+        if (url.protocol != "https" && !(autoriserHttp && url.protocol == "http")) {
+            throw IOException("Adresse refusée : HTTPS obligatoire.")
+        }
+        // PATCH n'existe pas dans HttpURLConnection ; l'API mobile n'en sert aucun aujourd'hui.
+        require(requete.methode in METHODES) { "Méthode non prise en charge : ${requete.methode}" }
+        val c = url.openConnection() as HttpURLConnection
+        try {
+            c.instanceFollowRedirects = false
+            c.useCaches = false
+            c.connectTimeout = delaiConnexionMs
+            c.readTimeout = delaiLectureMs
+            c.requestMethod = requete.methode
+            requete.entetes.forEach { (k, v) -> c.setRequestProperty(k, v) }
+            c.setRequestProperty("User-Agent", userAgent)
+            val corps = requete.corps?.toByteArray(Charsets.UTF_8)
+                ?: if (requete.methode == "POST" || requete.methode == "PUT") ByteArray(0) else null
+            if (corps != null) {
+                c.doOutput = true
+                c.setFixedLengthStreamingMode(corps.size)
+                c.outputStream.use { it.write(corps) }
+            }
+            val statut = c.responseCode
+            val flux = if (statut >= 400) c.errorStream else c.inputStream
+            val texte = flux?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+            ReponseHttp(statut, texte)
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    private companion object {
+        val METHODES = setOf("GET", "POST", "PUT", "DELETE")
     }
 }
 
