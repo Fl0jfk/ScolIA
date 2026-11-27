@@ -89,6 +89,15 @@ branche de préfixe ancienne de `db_pouvoir` presque morte ; le groupe `REJEUX_G
 liste (aujourd'hui toujours vrai) ; un avis du même message en échec ouvre encore sa propre transaction de report ; les tests
 MB1 du labo dépendent d'`ENT_ENV` non productif (vrai en CI).
 
-## Vérifications locales
+## Vérifications locales (2026-11-27, toolchain 1.99.0, base neuve `ent_faibles_labo_test`)
 
-Voir la section « Tests locaux » ci-dessous, remplie en fin de palier.
+- `rustfmt --check` sur les fichiers Rust modifiés : propre. `ent-types` et `web/` non touchés.
+- Les trois clippy du backend (`--workspace --all-targets`, avec labo, `-p ent-types`) en `-D warnings` : verts.
+- Tests ciblés du palier (`faibles_l*`, `tests_messagerie_p5`, `v3b2_*`, `v3b_*`, `c8_gel*`, `c8_suites2*`,
+  `journal_limite`, `garde_rls_stricte`, `tests_rls`, `s7_sante`) : 51 sur 51 verts.
+- Suite complète avec labo, trois fils (la CI en lance un par tranche) : arrêtée à la limite de 2 h, 2 970 tests verts sur
+  2 978 lancés. 1 376 tests n'ont pas été lancés. Cinq échecs, relancés seuls sur un fil :
+  - `tests_dossier_personnes::reprise_des_liens_idempotente` et `tests_edt_s2::annulation_en_masse_apercu_vacances_ab_cle_et_droits` : verts, donc des interférences du parallélisme.
+  - `tests_eleve_scolarite::sortie_future_puis_tache_quotidienne` : passe la tâche nocturne sur tous les élèves de la base, déjà remplie par 3 000 tests ; plus de 45 min, non conclu. Ce domaine n'est pas touché par le palier.
+  - `tests_eleve_scolarite::statut_de_tous_les_eleves_du_labo_est_celui_attendu` et `tests_inscriptions_i3_i4::i4_reponse_en_ligne_sans_compte` : non relancés (limite de temps). Ce domaine n'est pas touché par le palier.
+- Suite sans labo et vérifications du frontend : laissées à la CI, faute de temps machine (4 cœurs, 15 Go).
