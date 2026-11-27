@@ -70,7 +70,6 @@ final class CapacitesTests: XCTestCase {
         XCTAssertEqual(e.profil, .personnel)
         XCTAssertTrue(e.enseigne)
         XCTAssertEqual(Array(e.modules.prefix(2)), [.accueil, .appel])
-        XCTAssertTrue(e.contient(.saisieNotes))
         XCTAssertTrue(e.contient(.agenda))
         XCTAssertFalse(e.contient(.vieScolaire)) // absences.lire limité à « mes classes »
         XCTAssertFalse(e.contient(.absences))
@@ -83,7 +82,6 @@ final class CapacitesTests: XCTestCase {
         XCTAssertTrue(e.contient(.absences))
         XCTAssertTrue(e.contient(.notes))
         XCTAssertFalse(e.contient(.appel))
-        XCTAssertFalse(e.contient(.saisieNotes))
     }
 
     func testEleve() {
@@ -99,7 +97,6 @@ final class CapacitesTests: XCTestCase {
         XCTAssertEqual(e.profil, .personnel)
         XCTAssertTrue(e.contient(.vieScolaire))
         XCTAssertFalse(e.contient(.appel))
-        XCTAssertFalse(e.contient(.saisieNotes))
     }
 
     func testEcransIndependantsDuNomDuRole() {
@@ -115,9 +112,11 @@ final class CapacitesTests: XCTestCase {
         XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .profil])
     }
 
-    func testSaisieDeNotesSelonLeDroit() {
-        XCTAssertTrue(Capacites.espace(me: me("x"), droits: [Droit(action: "notes.saisir", portee: "designes", cibles: ["c1"])]).contient(.saisieNotes))
-        XCTAssertFalse(Capacites.espace(me: me("x"), droits: [Droit(action: "notes.lire", portee: "etablissement")]).contient(.saisieNotes))
+    func testSaisieDeNotesRetireeDuMobileMemeAvecLeDroit() {
+        // MB2 : `POST /eleves/{id}/notes` est fermée (410) ; la saisie se fait par la grille `/eva/*` sur le web.
+        let e = Capacites.espace(me: me("x"), droits: [Droit(action: "notes.saisir", portee: "designes", cibles: ["c1"])])
+        XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .profil])
+        XCTAssertFalse(Module.allCases.map(\.rawValue).contains("saisieNotes"))
     }
 
     func testEnrolement() {

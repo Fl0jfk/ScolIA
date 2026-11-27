@@ -407,15 +407,5 @@ data class EleveEffectif(
 data class Effectif(val classe: String, val jour: String, val eleves: List<EleveEffectif> = emptyList())
 
 /** Corps de `POST /eleves/{id}/notes`. */
-@Serializable
-data class SaisirNoteBody(
-    @SerialName("matiere_id") val matiereId: String,
-    val valeur: Double,
-    val sur: Double? = null,
-    @SerialName("date_note") val dateNote: String,
-    val libelle: String? = null,
-    @SerialName("devoir_id") val devoirId: String? = null,
-    @SerialName("periode_id") val periodeId: String? = null,
-)
 
 const val CLIENT_MOBILE = "mobile"

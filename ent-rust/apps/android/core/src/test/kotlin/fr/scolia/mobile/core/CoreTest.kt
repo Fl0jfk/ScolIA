@@ -117,7 +117,7 @@ class CapacitesTest {
         assertEquals(Profil.PERSONNEL, e.profil)
         assertTrue(e.enseigne)
         assertEquals(listOf(Module.ACCUEIL, Module.APPEL), e.modules.take(2))
-        assertTrue(e.contient(Module.SAISIE_NOTES))
+        assertFalse(Module.entries.any { it.name == "SAISIE_NOTES" }) // retirée en MB2 (route historique fermée)
         assertTrue(e.contient(Module.AGENDA))
         assertFalse(e.contient(Module.VIE_SCOLAIRE)) // absences.lire limité à « mes classes »
         assertFalse(e.contient(Module.ABSENCES))
@@ -131,7 +131,6 @@ class CapacitesTest {
         assertTrue(e.contient(Module.ABSENCES))
         assertTrue(e.contient(Module.NOTES))
         assertFalse(e.contient(Module.APPEL))
-        assertFalse(e.contient(Module.SAISIE_NOTES))
     }
 
     @Test
@@ -149,7 +148,6 @@ class CapacitesTest {
         assertEquals(Profil.PERSONNEL, e.profil)
         assertTrue(e.contient(Module.VIE_SCOLAIRE))
         assertFalse(e.contient(Module.APPEL))
-        assertFalse(e.contient(Module.SAISIE_NOTES))
     }
 
     @Test
@@ -169,9 +167,10 @@ class CapacitesTest {
     }
 
     @Test
-    fun saisie_de_notes_selon_le_droit() {
-        assertTrue(Capacites.espacePour(me("x"), listOf(Droit("notes.saisir", "designes", listOf("c1")))).contient(Module.SAISIE_NOTES))
-        assertFalse(Capacites.espacePour(me("x"), listOf(Droit("notes.lire", "etablissement"))).contient(Module.SAISIE_NOTES))
+    fun saisie_de_notes_retiree_du_mobile_meme_avec_le_droit() {
+        // MB2 : `POST /eleves/{id}/notes` est fermée (410) ; la saisie se fait par la grille `/eva/*` sur le web.
+        val e = Capacites.espacePour(me("x"), listOf(Droit("notes.saisir", "designes", listOf("c1"))))
+        assertEquals(listOf(Module.ACCUEIL, Module.MESSAGERIE, Module.EDT, Module.PROFIL), e.modules)
     }
 
     @Test

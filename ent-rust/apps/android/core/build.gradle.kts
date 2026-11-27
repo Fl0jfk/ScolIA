@@ -23,3 +23,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 }
+
+// MB2 : fixtures dorées du contrat mobile, produites par le banc serveur (ent-rust/contrat/mobile).
+tasks.test {
+    systemProperty("scolia.contrat", rootProject.file("../../contrat/mobile").absolutePath)
+    inputs.dir(rootProject.file("../../contrat/mobile")).withPropertyName("contratMobile")
+}

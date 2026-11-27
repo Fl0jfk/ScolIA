@@ -11,11 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,8 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,7 +38,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import fr.scolia.mobile.app.AppModele
 import fr.scolia.mobile.app.ui.ChoixEnfant
@@ -60,7 +58,7 @@ import fr.scolia.mobile.core.EtatConnexion
 import fr.scolia.mobile.core.Lecture
 import fr.scolia.mobile.core.Module
 import fr.scolia.mobile.core.Profil
-import fr.scolia.mobile.core.SaisirNoteBody
+import fr.scolia.mobile.core.Annonce
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -75,7 +73,6 @@ fun EcranModule(module: Module, modele: AppModele, c: EtatConnexion.Connecte, ou
         Module.VIE_SCOLAIRE -> EcranVieScolaire(modele)
         Module.ABSENCES -> EcranAbsences(modele)
         Module.NOTES -> EcranNotes(modele, c)
-        Module.SAISIE_NOTES -> EcranSaisieNotes(modele)
         Module.AGENDA -> EcranAgenda(modele, c)
         Module.EDT -> EcranEdt(modele, c)
         Module.MESSAGERIE -> EcranMessagerie(modele)
@@ -108,10 +105,20 @@ private fun Accueil(modele: AppModele, c: EtatConnexion.Connecte, ouvrir: (Modul
             }
         }
         Titre("Annonces")
-        Chargeur("annonces", modele::sessionPerdue, { direct(modele.client!!.annonces()) }) { a, _ ->
-            if (a.isEmpty()) Text("Aucune annonce.")
-            a.take(5).forEach { Ligne(it.titre, it.corps.take(140)) }
+        // MB2 : `/annonces` est réservée au personnel ; l'élève et la famille lisent celles de l'élève.
+        when (c.espace.profil) {
+            Profil.PERSONNEL -> Annonces(modele, "annonces") { modele.client!!.annonces() }
+            Profil.ELEVE -> c.me.eleveId?.let { id -> Annonces(modele, "annonces-$id") { modele.client!!.annoncesEleve(id) } }
+            Profil.FAMILLE -> AvecEnfants(modele) { e -> Annonces(modele, "annonces-${e.id}") { modele.client!!.annoncesEleve(e.id) } }
         }
+    }
+}
+
+@Composable
+private fun Annonces(modele: AppModele, cle: String, charger: suspend () -> List<Annonce>) {
+    Chargeur(cle, modele::sessionPerdue, { direct(charger()) }) { a, _ ->
+        if (a.isEmpty()) Text("Aucune annonce.")
+        a.take(5).forEach { Ligne(it.titre, it.corps.take(140)) }
     }
 }
 
@@ -147,7 +154,7 @@ private fun EcranAppel(modele: AppModele) {
                         "${s.heureDebut.take(5)}–${s.heureFin.take(5)} · ${s.classe}",
                         s.matiereLibelle + (s.salle?.let { " · salle $it" } ?: ""),
                         "Faire l'appel",
-                        Modifier.clickable(role = Role.Button) { lancer { appel = client.ouvrirAppel(s.id, aujourdHui()) } },
+                        Modifier.clickable(role = Role.Button) { lancer { val j = aujourdHui(); appel = modele.cles.executer("ouvrir:${s.id}:$j") { k -> client.ouvrirAppel(s.id, j, k) } } },
                     )
                     HorizontalDivider()
                 }
@@ -176,7 +183,7 @@ private fun EcranAppel(modele: AppModele) {
                             selected = l.etat == e.code,
                             onClick = {
                                 lancer {
-                                    client.marquer(a.id, l.eleveId, e)
+                                    modele.cles.executer("marquer:${a.id}:${l.eleveId}:${e.code}") { k -> client.marquer(a.id, l.eleveId, e, k) }
                                     // Repartir de la valeur courante (deux marquages rapprochés).
                                     appel = appel?.let { cur -> cur.copy(lignes = cur.lignes.map { if (it.eleveId == l.eleveId) it.copy(etat = e.code) else it }) }
                                 }
@@ -200,7 +207,7 @@ private fun EcranAppel(modele: AppModele) {
             onDismissRequest = { confirmer = false },
             title = { Text("Valider l'appel ?") },
             text = { Text("$absents absent(s), $retards retard(s). Les familles seront prévenues ; l'appel ne sera plus modifiable.") },
-            confirmButton = { TextButton(onClick = { confirmer = false; lancer { appel = client.clore(a.id) } }) { Text("Valider") } },
+            confirmButton = { TextButton(onClick = { confirmer = false; lancer { appel = modele.cles.executer("clore:${a.id}") { k -> client.clore(a.id, k) } } }) { Text("Valider") } },
             dismissButton = { TextButton(onClick = { confirmer = false }) { Text("Annuler") } },
         )
     }
@@ -281,7 +288,7 @@ private fun EcranAbsences(modele: AppModele) {
                             portee.launch {
                                 erreur = null
                                 try {
-                                    client.justifierAbsence(a.id, motif)
+                                    modele.cles.executer("justifier:${a.id}:${motif.hashCode()}") { k -> client.justifierAbsence(a.id, motif, k) }
                                     aJustifier = null
                                     recharger()
                                 } catch (e: ErreurApi.NonAuthentifie) {
@@ -330,101 +337,11 @@ private fun EcranNotes(modele: AppModele, c: EtatConnexion.Connecte) {
     }
 }
 
-// ---------- Saisie de notes (professeur) ----------
-
-@Composable
-private fun EcranSaisieNotes(modele: AppModele) {
-    val client = modele.client!!
-    var classe by rememberSaveable { mutableStateOf<String?>(null) }
-    var devoirId by rememberSaveable { mutableStateOf<String?>(null) }
-    // Saisies propres au devoir choisi : changer de devoir repart de zéro.
-    val saisies = remember(devoirId) { mutableStateMapOf<String, String>() }
-    val enregistrees = remember(devoirId) { mutableStateListOf<String>() }
-    var erreur by remember { mutableStateOf<String?>(null) }
-    var enCours by remember { mutableStateOf(false) }
-    var confirmer by remember { mutableStateOf(false) }
-    val portee = rememberCoroutineScope()
-
-    Column(Modifier.verticalScroll(rememberScrollState())) {
-    Chargeur("classes", modele::sessionPerdue, { modele.lecteur!!.lire(Chemins.mesCreneaux(aujourdHui()), Chemins.listeCreneaux) }) { cr, _ ->
-        val classes = cr.map { it.classe }.distinct().sorted()
-        Titre("Classe")
-        if (classes.isEmpty()) Text("Aucune classe aujourd'hui. La saisie complète est sur le web.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            classes.forEach { k -> OutlinedButton(onClick = { classe = k; devoirId = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text(k) } }
-        }
-    }
-    val k = classe ?: return@Column
-    Chargeur(k, modele::sessionPerdue, {
-        val periodes = client.periodesNotes()
-        val p = periodes.firstOrNull { it.statut == "ouverte" } ?: periodes.firstOrNull()
-        direct(p?.let { client.devoirsClasse(it.id, k) }.orEmpty())
-    }) { devoirs, _ ->
-        Titre("Devoir")
-        if (devoirs.isEmpty()) Text("Aucun devoir pour $k sur la période ouverte. Créez-le sur le web.")
-        devoirs.forEach { d ->
-            Ligne(d.titre, "${d.matiereLibelle ?: ""} · ${dateFr(d.dateDevoir)} · sur ${note(d.sur)}", if (d.id == devoirId) "✓" else null,
-                Modifier.clickable(role = Role.Button) { devoirId = d.id })
-        }
-        val d = devoirs.firstOrNull { it.id == devoirId } ?: return@Chargeur
-        Chargeur(d.id, modele::sessionPerdue, { direct(client.effectif(k, aujourdHui())) }) { eff, _ ->
-            Titre("Notes sur ${note(d.sur)}")
-            MessageErreur(erreur)
-            Column(Modifier.fillMaxWidth()) {
-                eff.eleves.forEach { el ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Text("${el.nom} ${el.prenom}", Modifier.weight(1f).padding(top = 16.dp))
-                        OutlinedTextField(
-                            saisies[el.id] ?: "", { saisies[el.id] = it.replace(',', '.').take(5) },
-                            label = { Text(if (el.id in enregistrees) "Enregistrée" else "Note") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(0.6f),
-                        )
-                    }
-                }
-            }
-            val aEnvoyer = saisies.filter { (eleve, t) -> eleve !in enregistrees && t.isNotBlank() }
-            Button(onClick = { confirmer = true }, enabled = !enCours && aEnvoyer.isNotEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Enregistrer les notes")
-            }
-            if (confirmer) AlertDialog(properties = DIALOGUE_SECURISE, 
-                onDismissRequest = { confirmer = false },
-                title = { Text("Enregistrer ${aEnvoyer.size} note(s) ?") },
-                text = { Text("« ${d.titre} », $k, notes sur ${note(d.sur)}.") },
-                dismissButton = { TextButton(onClick = { confirmer = false }) { Text("Annuler") } },
-                confirmButton = { TextButton(onClick = {
-                confirmer = false
-                enCours = true
-                portee.launch {
-                    erreur = null
-                    try { for ((eleve, texte) in aEnvoyer) {
-                        val v = texte.toDoubleOrNull()
-                        if (v == null || !v.isFinite() || v < 0 || v > d.sur) { erreur = "Note invalide : « $texte »."; continue }
-                        try {
-                            client.saisirNote(eleve, SaisirNoteBody(d.matiereId, v, d.sur, aujourdHui(), d.titre, d.id, d.periodeId))
-                            enregistrees += eleve
-                        } catch (e: ErreurApi.NonAuthentifie) {
-                            modele.sessionPerdue(); return@launch
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            erreur = e.message
-                        }
-                    } } finally { enCours = false }
-                }
-            }) { Text("Enregistrer") } },
-            )
-        }
-    }
-    }
-}
-
 // ---------- Cahier de textes ----------
 
 @Composable
-private fun ListeCahier(modele: AppModele, eleveId: String?) {
-    Chargeur(eleveId, modele::sessionPerdue, { modele.lecteur!!.lire(Chemins.cahier(eleveId), Chemins.listeCahier) }) { liste, _ ->
+private fun ListeCahier(modele: AppModele, chemin: String) {
+    Chargeur(chemin, modele::sessionPerdue, { modele.lecteur!!.lire(chemin, Chemins.listeCahier) }) { liste, _ ->
         val aVenir = liste.filter { it.pourLe >= aujourdHui() }.sortedBy { it.pourLe }
         if (aVenir.isEmpty()) Text("Rien à faire pour les prochains jours.")
         LazyColumn {
@@ -439,9 +356,31 @@ private fun ListeCahier(modele: AppModele, eleveId: String?) {
 @Composable
 private fun EcranAgenda(modele: AppModele, c: EtatConnexion.Connecte) {
     when (c.espace.profil) {
-        Profil.ELEVE -> ListeCahier(modele, c.me.eleveId)
-        Profil.FAMILLE -> AvecEnfants(modele) { ListeCahier(modele, it.id) }
-        else -> ListeCahier(modele, null)
+        Profil.ELEVE -> ListeCahier(modele, Chemins.cahier(c.me.eleveId))
+        Profil.FAMILLE -> AvecEnfants(modele) { ListeCahier(modele, Chemins.cahier(it.id)) }
+        else -> AgendaPersonnel(modele)
+    }
+}
+
+/** Personnel : cahier de textes d'une des classes de ses séances du jour (le serveur borne au périmètre). */
+@Composable
+private fun AgendaPersonnel(modele: AppModele) {
+    var choisie by rememberSaveable { mutableStateOf<String?>(null) }
+    Chargeur("agenda-classes", modele::sessionPerdue, { modele.lecteur!!.lire(Chemins.mesCreneaux(aujourdHui()), Chemins.listeCreneaux) }) { cr, _ ->
+        val classes = cr.map { it.classe }.distinct().sorted()
+        if (classes.isEmpty()) {
+            Text("Aucune classe dans vos séances du jour. Le cahier de textes complet est sur le web.")
+        } else {
+            val classe = choisie?.takeIf { it in classes } ?: classes.first()
+            if (classes.size > 1) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                    items(classes, key = { it }) { k ->
+                        FilterChip(selected = k == classe, onClick = { choisie = k }, label = { Text(k) }, modifier = Modifier.heightIn(min = 48.dp))
+                    }
+                }
+            }
+            ListeCahier(modele, Chemins.cahierClasse(classe))
+        }
     }
 }
 

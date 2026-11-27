@@ -61,6 +61,9 @@ struct Chargeur<T, Contenu: View>: View {
                 lecture = try await charger()
             } catch ErreurApi.nonAuthentifie {
                 modele.sessionPerdue()
+            } catch ErreurApi.appliTropAncienne(let m) {
+                modele.miseAJourRequise = m
+                erreur = m
             } catch {
                 if Task.isCancelled || error is CancellationError { derniere = nil; return }
                 erreur = error.localizedDescription
@@ -99,12 +102,11 @@ struct EcranModule: View {
 
     var body: some View {
         switch module {
-        case .accueil: Accueil(modele: modele, espace: espace, ouvrir: ouvrir)
+        case .accueil: Accueil(modele: modele, me: me, espace: espace, ouvrir: ouvrir)
         case .appel: EcranAppel(modele: modele)
         case .vieScolaire: EcranVieScolaire(modele: modele)
         case .absences: AvecEnfants(modele: modele) { EcranAbsences(modele: modele, enfant: $0) }
         case .notes: EcranNotes(modele: modele, me: me, espace: espace)
-        case .saisieNotes: EcranSaisieNotes(modele: modele)
         case .agenda: EcranAgenda(modele: modele, me: me, espace: espace)
         case .edt: EcranEdt(modele: modele, me: me, espace: espace)
         case .messagerie: EcranMessagerie(modele: modele)
@@ -117,6 +119,7 @@ struct EcranModule: View {
 
 struct Accueil: View {
     let modele: AppModele
+    let me: Me
     let espace: Espace
     let ouvrir: (Module) -> Void
 
@@ -138,11 +141,27 @@ struct Accueil: View {
                 }
             }
             Section("Annonces") {
-                Chargeur(modele: modele, cle: "annonces", charger: { direct(try await modele.client!.annonces()) }) { a, _ in
-                    if a.isEmpty { Text("Aucune annonce.") }
-                    ForEach(a.prefix(5)) { Ligne(titre: $0.titre, detail: String($0.corps.prefix(140))) }
+                // MB2 : `/annonces` est réservée au personnel ; l'élève et la famille lisent celles de l'élève.
+                switch espace.profil {
+                case .personnel: Annonces(modele: modele, cle: "annonces") { try await modele.client!.annonces() }
+                case .eleve:
+                    if let id = me.eleveId { Annonces(modele: modele, cle: "annonces-\(id)") { try await modele.client!.annoncesEleve(id) } }
+                case .famille:
+                    AvecEnfants(modele: modele) { e in Annonces(modele: modele, cle: "annonces-\(e.id)") { try await modele.client!.annoncesEleve(e.id) } }
                 }
             }
+        }
+    }
+}
+
+struct Annonces: View {
+    let modele: AppModele
+    let cle: String
+    let charger: () async throws -> [Annonce]
+    var body: some View {
+        Chargeur(modele: modele, cle: cle, charger: { direct(try await charger()) }) { a, _ in
+            if a.isEmpty { Text("Aucune annonce.") }
+            ForEach(a.prefix(5)) { Ligne(titre: $0.titre, detail: String($0.corps.prefix(140))) }
         }
     }
 }
@@ -172,7 +191,10 @@ struct EcranAppel: View {
                     if cr.isEmpty { Text("Aucune séance aujourd'hui.") }
                     ForEach(cr.sorted { $0.heureDebut < $1.heureDebut }) { s in
                         Button {
-                            lancer { appel = try await modele.client!.ouvrirAppel(creneauId: s.id, jour: aujourdHui()) }
+                            lancer {
+                                let j = aujourdHui()
+                                appel = try await modele.cles.executer("ouvrir:\(s.id):\(j)") { k in try await modele.client!.ouvrirAppel(creneauId: s.id, jour: j, cle: k) }
+                            }
                         } label: {
                             Ligne(titre: "\(s.heureDebut.prefix(5))–\(s.heureFin.prefix(5)) · \(s.classe)", detail: s.matiereLibelle, droite: "Faire l'appel")
                         }
@@ -200,7 +222,7 @@ struct EcranAppel: View {
                         set: { nouvel in
                             guard let e = nouvel else { return }
                             lancer {
-                                try await modele.client!.marquer(appelId: a.id, eleveId: l.eleveId, etat: e)
+                                try await modele.cles.executer("marquer:\(a.id):\(l.eleveId):\(e.rawValue)") { k in try await modele.client!.marquer(appelId: a.id, eleveId: l.eleveId, etat: e, cle: k) }
                                 guard var copie = appel else { return }
                                 if let i = copie.lignes.firstIndex(where: { $0.eleveId == l.eleveId }) { copie.lignes[i].etat = e.rawValue }
                                 appel = copie
@@ -219,7 +241,7 @@ struct EcranAppel: View {
         }
         // Action sensible : confirmation explicite.
         .confirmationDialog("Valider l'appel ?", isPresented: $confirmer, titleVisibility: .visible) {
-            Button("Valider l'appel") { lancer { appel = try await modele.client!.clore(appelId: a.id) } }
+            Button("Valider l'appel") { lancer { appel = try await modele.cles.executer("clore:\(a.id)") { k in try await modele.client!.clore(appelId: a.id, cle: k) } } }
         } message: {
             Text("\(absents) absent(s), \(retards) retard(s). L'appel ne sera plus modifiable.")
         }
@@ -315,7 +337,8 @@ struct EcranAbsences: View {
                                     Task { @MainActor in
                                         defer { envoi = false }
                                         do {
-                                            _ = try await modele.client!.justifierAbsence(a.id, motif: String(motif.prefix(500)))
+                                            let texte = String(motif.prefix(500))
+                                            _ = try await modele.cles.executer("justifier:\(a.id):\(texte.hashValue)") { k in try await modele.client!.justifierAbsence(a.id, motif: texte, cle: k) }
                                             aJustifier = nil
                                             rechargement += 1
                                         } catch ErreurApi.nonAuthentifie {
@@ -370,112 +393,14 @@ struct EcranNotes: View {
     }
 }
 
-// MARK: - Saisie de notes (professeur)
-
-struct EcranSaisieNotes: View {
-    let modele: AppModele
-    @State private var classe: String?
-    @State private var devoir: Devoir?
-    @State private var saisies: [String: String] = [:]
-    @State private var enregistrees: Set<String> = []
-    @State private var erreur: String?
-    @State private var enCours = false
-    @State private var confirmer = false
-
-    var body: some View {
-        List {
-            Section("Classe") {
-                Chargeur(modele: modele, cle: "classes", charger: { try await modele.lecteur!.lire(Chemins.mesCreneaux(aujourdHui()), [EdtCreneau].self) }) { cr, _ in
-                    let classes = Array(Set(cr.map(\.classe))).sorted()
-                    if classes.isEmpty { Text("Aucune classe aujourd'hui. La saisie complète est sur le web.") }
-                    ForEach(classes, id: \.self) { k in
-                        Button { classe = k; devoir = nil } label: { Ligne(titre: k, droite: k == classe ? "✓" : nil) }
-                    }
-                }
-            }
-            if let k = classe {
-                Section("Devoir") {
-                    Chargeur(modele: modele, cle: k, charger: {
-                        let periodes = try await modele.client!.periodesNotes()
-                        guard let p = periodes.first(where: { $0.statut == "ouverte" }) ?? periodes.first else { return direct([Devoir]()) }
-                        return direct(try await modele.client!.devoirsClasse(periodeId: p.id, classe: k))
-                    }) { devoirs, _ in
-                        if devoirs.isEmpty { Text("Aucun devoir pour \(k) sur la période ouverte. Créez-le sur le web.") }
-                        ForEach(devoirs) { d in
-                            Button { devoir = d } label: {
-                                Ligne(titre: d.titre, detail: "\(d.matiereLibelle ?? "") · \(dateFr(d.dateDevoir)) · sur \(formatNote(d.sur))", droite: d.id == devoir?.id ? "✓" : nil)
-                            }
-                        }
-                    }
-                }
-            }
-            if let k = classe, let d = devoir {
-                Section("Notes sur \(formatNote(d.sur))") {
-                    Chargeur(modele: modele, cle: d.id, charger: { direct(try await modele.client!.effectif(classe: k, jour: aujourdHui())) }) { eff, _ in
-                        ForEach(eff.eleves) { el in
-                            HStack {
-                                Text("\(el.nom) \(el.prenom)")
-                                Spacer()
-                                TextField(enregistrees.contains(el.id) ? "Enregistrée" : "Note", text: Binding(
-                                    get: { saisies[el.id] ?? "" },
-                                    set: { saisies[el.id] = String($0.replacingOccurrences(of: ",", with: ".").prefix(5)) }))
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(maxWidth: 90)
-                                    .accessibilityLabel("Note de \(el.prenom) \(el.nom)")
-                            }
-                        }
-                    }
-                    if let e = erreur { MessageErreur(texte: e) }
-                    Button("Enregistrer les notes") { confirmer = true }
-                        .disabled(enCours || aEnvoyer.isEmpty)
-                        .confirmationDialog("Enregistrer \(aEnvoyer.count) note(s) ?", isPresented: $confirmer, titleVisibility: .visible) {
-                            Button("Enregistrer") { enregistrer(d) }
-                        } message: {
-                            Text("« \(d.titre) », \(k), notes sur \(formatNote(d.sur)).")
-                        }
-                }
-            }
-        }
-        // Saisies propres au devoir choisi : changer de devoir ou de classe repart de zéro.
-        .onChange(of: devoir?.id) { _, _ in saisies = [:]; enregistrees = []; erreur = nil }
-        .onChange(of: classe) { _, _ in saisies = [:]; enregistrees = []; erreur = nil }
-    }
-
-    private var aEnvoyer: [String: String] {
-        saisies.filter { !enregistrees.contains($0.key) && !$0.value.trimmingCharacters(in: .whitespaces).isEmpty }
-    }
-
-    private func enregistrer(_ d: Devoir) {
-        enCours = true
-        let lot = aEnvoyer
-        Task { @MainActor in
-            defer { enCours = false }
-            erreur = nil
-            for (eleve, texte) in lot {
-                guard let v = Double(texte), v.isFinite, v >= 0, v <= d.sur else { erreur = "Note invalide : « \(texte) »."; continue }
-                do {
-                    _ = try await modele.client!.saisirNote(eleveId: eleve, SaisirNoteBody(
-                        matiereId: d.matiereId, valeur: v, sur: d.sur, dateNote: aujourdHui(), libelle: d.titre, devoirId: d.id, periodeId: d.periodeId))
-                    enregistrees.insert(eleve)
-                } catch ErreurApi.nonAuthentifie {
-                    modele.sessionPerdue(); return
-                } catch {
-                    erreur = error.localizedDescription
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Cahier de textes, EDT
 
 struct ListeCahier: View {
     let modele: AppModele
-    let eleveId: String?
+    let chemin: String
     var body: some View {
         List {
-            Chargeur(modele: modele, cle: eleveId ?? "moi", charger: { try await modele.lecteur!.lire(Chemins.cahier(eleveId), [CahierTexte].self) }) { liste, _ in
+            Chargeur(modele: modele, cle: chemin, charger: { try await modele.lecteur!.lire(chemin, [CahierTexte].self) }) { liste, _ in
                 let aVenir = liste.filter { $0.pourLe >= aujourdHui() }.sorted { $0.pourLe < $1.pourLe }
                 if aVenir.isEmpty { Text("Rien à faire pour les prochains jours.") }
                 ForEach(aVenir) { e in Ligne(titre: "\(e.matiereLibelle) · pour le \(dateFr(e.pourLe))", detail: "\(e.titre)\n\(e.consigne)") }
@@ -490,9 +415,36 @@ struct EcranAgenda: View {
     let espace: Espace
     var body: some View {
         switch espace.profil {
-        case .eleve: ListeCahier(modele: modele, eleveId: me.eleveId)
-        case .famille: AvecEnfants(modele: modele) { ListeCahier(modele: modele, eleveId: $0.id) }
-        default: ListeCahier(modele: modele, eleveId: nil)
+        case .eleve: ListeCahier(modele: modele, chemin: Chemins.cahier(me.eleveId))
+        case .famille: AvecEnfants(modele: modele) { ListeCahier(modele: modele, chemin: Chemins.cahier($0.id)) }
+        default: AgendaPersonnel(modele: modele)
+        }
+    }
+}
+
+/// Personnel : cahier de textes d'une des classes de ses séances du jour (le serveur borne au périmètre).
+struct AgendaPersonnel: View {
+    let modele: AppModele
+    @State private var choisie: String?
+
+    var body: some View {
+        Chargeur(modele: modele, cle: "agenda-classes", charger: { try await modele.lecteur!.lire(Chemins.mesCreneaux(aujourdHui()), [EdtCreneau].self) }) { cr, _ in
+            let classes = Array(Set(cr.map(\.classe))).sorted()
+            if let premiere = classes.first {
+                let classe = choisie.flatMap { classes.contains($0) ? $0 : nil } ?? premiere
+                VStack {
+                    if classes.count > 1 {
+                        Picker("Classe", selection: Binding(get: { classe }, set: { choisie = $0 })) {
+                            ForEach(classes, id: \.self) { Text($0).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+                    }
+                    ListeCahier(modele: modele, chemin: Chemins.cahierClasse(classe)).id(classe)
+                }
+            } else {
+                Text("Aucune classe dans vos séances du jour. Le cahier de textes complet est sur le web.")
+            }
         }
     }
 }
@@ -593,7 +545,8 @@ struct EcranFil: View {
                 Task { @MainActor in
                     defer { envoi = false }
                     do {
-                        _ = try await modele.client!.repondre(filId: filId, corps: String(reponse.prefix(5000)).trimmingCharacters(in: .whitespacesAndNewlines))
+                        let texte = String(reponse.prefix(5000)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        _ = try await modele.cles.executer("repondre:\(filId):\(texte.hashValue)") { k in try await modele.client!.repondre(filId: filId, corps: texte, cle: k) }
                         reponse = ""
                         rechargement += 1
                     } catch ErreurApi.nonAuthentifie {
@@ -618,6 +571,7 @@ struct EcranProfil: View {
     @State private var erreur: String?
     @State private var aRevoquer: SessionAppareil?
     @State private var rechargement = 0
+    @State private var motDePasse = ""
 
     var body: some View {
         List {
@@ -625,6 +579,17 @@ struct EcranProfil: View {
                 Ligne(titre: me.email, detail: "\(modele.actif?.nom ?? "") · rôle : \(me.role)")
                 Ligne(titre: "Passkeys : \(me.passkeyCount)",
                       detail: me.passkeyCount == 0 ? "Ajoutez une passkey : elle sera bientôt obligatoire." : "Connexion sans mot de passe active.")
+                if me.passkeyCount == 0 {
+                    // M3 (MB1) : la passkey se crée ici aussi, sans attendre qu'elle soit exigée.
+                    SecureField("Mot de passe actuel", text: $motDePasse)
+                        .textContentType(.password)
+                    Button("Ajouter une passkey") {
+                        modele.enroler(motDePasse)
+                        motDePasse = ""
+                    }
+                    .disabled(motDePasse.isEmpty || modele.occupe)
+                    if let e = modele.erreur { MessageErreur(texte: e) }
+                }
             }
             Section("Appareils connectés") {
                 Chargeur(modele: modele, cle: "sessions#\(rechargement)", charger: { direct(try await modele.client!.sessions()) }) { sessions, _ in

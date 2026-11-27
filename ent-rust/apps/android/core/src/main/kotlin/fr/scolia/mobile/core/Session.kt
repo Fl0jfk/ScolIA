@@ -270,6 +270,8 @@ object Chemins {
     fun mesCreneaux(jour: String) = "/edt/mes-creneaux?jour=${ApiClient.q(jour)}"
     fun edtEleve(id: String, jour: String) = "/eleves/${ApiClient.seg(id)}/edt?jour=${ApiClient.q(jour)}"
     fun cahier(eleveId: String?) = "/cahier-texte" + (eleveId?.let { "?eleve_id=${ApiClient.q(it)}" } ?: "")
+    /** Personnel : le serveur exige la classe (périmètre à la date, C-D7) ; sans elle, 403 (trouvé par MB2). */
+    fun cahierClasse(classe: String) = "/cahier-texte?classe=${ApiClient.q(classe)}"
     fun notes(eleveId: String) = "/eleves/${ApiClient.seg(eleveId)}/notes"
     const val FILS = "/messages/fils"
     const val ENFANTS = "/famille/enfants"

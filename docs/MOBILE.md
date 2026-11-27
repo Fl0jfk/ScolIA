@@ -35,10 +35,10 @@ Le serveur décide de tout (D-003) : la liste d'écrans n'est qu'un **affichage*
 |---|---|
 | Élève (`eleve`, ou `eleve_id` présent) | Accueil, EDT, Messages, Notes, Cahier de textes, Mon compte |
 | Famille (`parent`) | Accueil, **Absences** (justification), Messages, Notes, EDT, Cahier de textes, Mon compte — choix de l'enfant, droits par enfant (`peut_voir_notes`, `peut_justifier_absence`) |
-| Professeur (`prof`) | Accueil (cours du jour), **Appel**, Messages, EDT, Cahier de textes, Saisir des notes, Mon compte |
+| Professeur (`prof`) | Accueil (cours du jour), **Appel**, Messages, EDT, Cahier de textes (classes des séances du jour), Mon compte |
 | Vie scolaire (`cpe`, ou rôle libre avec `appel.verifier` / `absences.lire` portée établissement, D-017) | Accueil, Vie scolaire (absences à traiter), Messages, EDT, Mon compte |
 | Direction (`admin`, `direction`) | Accueil, Vie scolaire, Messages, EDT, Mon compte |
-| Autre personnel | Accueil, Messages, EDT, Mon compte (+ Vie scolaire / Saisie de notes selon droits) |
+| Autre personnel | Accueil, Messages, EDT, Mon compte (+ Vie scolaire selon droits) |
 | Passkey à enrôler (`portee = enrolement`) | **uniquement** l'écran d'enrôlement (D-009) |
 
 Écrans livrés et API utilisées :
@@ -48,16 +48,18 @@ Le serveur décide de tout (D-003) : la liste d'écrans n'est qu'un **affichage*
 | Rattachement | `GET /auth/etablissement` (vérifie l'adresse, récupère le nom) |
 | Connexion | `POST /auth/passkey/login/start` + `/finish` ; `POST /auth/login` (secours, second facteur) ; `GET /auth/me` ; `GET /roles/mes-droits` |
 | Enrôlement passkey | `POST /auth/passkey/register/start` + `/finish` (mot de passe actuel exigé par le serveur) |
-| Accueil | `GET /edt/mes-creneaux?jour=` (professeur), `GET /annonces` |
+| Accueil | `GET /edt/mes-creneaux?jour=` (professeur), `GET /annonces` (personnel), `GET /eleves/{id}/annonces` (élève, famille) |
 | Appel | `GET /edt/mes-creneaux?jour=`, `POST /appels`, `POST /appels/{id}/lignes`, `POST /appels/{id}/clore` (**confirmation** avant clôture) |
 | Vie scolaire | `GET /vs/absences` (lecture ; traitement sur le web) |
 | Absences (famille) | `GET /famille/enfants`, `GET /famille/enfants/{id}/resume`, `POST /absences/{id}/justifier` |
 | Notes | `GET /eleves/{id}/notes` |
-| Saisie de notes | `GET /note-periodes`, `GET /devoirs?periode_id=&classe=`, `GET /classes/{classe}/effectif?jour=`, `POST /eleves/{id}/notes` |
-| Cahier de textes | `GET /cahier-texte[?eleve_id=]` |
+| Cahier de textes | `GET /cahier-texte?eleve_id=` (élève, famille), `GET /cahier-texte?classe=` (personnel : le serveur exige la classe) |
 | EDT | `GET /eleves/{id}/edt?jour=`, `GET /edt/mes-creneaux?jour=` |
 | Messagerie | `GET /messages/fils`, `GET /messages/fils/{id}`, `POST /messages/fils/{id}/repondre` (**confirmation** avant envoi) |
-| Mon compte | `GET /auth/sessions`, `DELETE /auth/sessions/{id}` (révoquer un autre appareil), `POST /auth/logout` |
+| Mon compte | `GET /auth/sessions`, `DELETE /auth/sessions/{id}` (révoquer un autre appareil), `POST /auth/logout` ; ajout d'une passkey (mot de passe actuel) tant qu'il n'y en a aucune |
+| Mise à jour requise (426) | aucune : écran bloquant, lien vers le magasin d'applis |
+
+**Saisie de notes retirée du mobile (MB2, 2026-11-27)** : l'écran appelait `POST /eleves/{id}/notes`, fermée côté serveur (410, V0 D1) ; la saisie passe désormais par la grille d'évaluation (`/eva/*`), que l'appli ne porte pas encore. Le banc MB2 l'a détecté, avec deux autres écrans cassés (cahier de textes du personnel sans classe : 403 ; annonces de l'établissement pour une famille ou un élève : 403), corrigés.
 
 Hors périmètre mobile (restent sur le web, D-003) : création de fil avec choix des destinataires, pièces jointes, signature du carnet, factures, internat, cantine, PAI, réinscription, séjours, décisions de vie scolaire. Ces fonctions existaient dans les prototypes ; elles pourront revenir au cas par cas, après arbitrage.
 
@@ -121,6 +123,11 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 - Erreurs : `{ "erreur": { code, message, champs, reessayer_apres_s, trace } }` lu par les deux cœurs ; 401 `session.expiree`/`session.revoquee` → session perdue (purge) ; 401 `auth.refusee` → simple refus (pas de purge) ; 426 → `AppliTropAncienne` ; 429 → `DebitDepasse` avec délai ; 4xx → refus avec `code`, `champs`, `reessayer_apres_s`. Repli sur le texte court des routes plus anciennes ; jamais de JSON ni de HTML brut affiché.
 - Transport Android : `HttpsURLConnection` (D-062, OkHttp retiré), 10 s de connexion, 15 s de lecture (§5.8), aucune redirection suivie, HTTPS seul hors labo debug. iOS : `URLSession` éphémère, 15 s.
 - Android cible l'**API 36** (DA2), bord à bord et retour prédictif déclarés.
+- **MB2 (2026-11-27)** : `ent-rust/contrat/mobile/` contient la **liste blanche** des routes appelables par les applis (`routes.txt`) et une **fixture dorée** par route jouée (réponse réelle du serveur sur un établissement de labo, normalisée). Le banc serveur (`ent-api/src/tests_contrat_mobile.rs`) compare la forme des réponses aux fixtures et vérifie la **parité** web/appli (même statut, même corps, pour 9 personas × les lectures des applis) ; les cœurs Kotlin (`ContratMb2Test`) et Swift (`ContratMb2Tests`) décodent chaque fixture avec la vraie méthode du client et vérifient que chaque requête est dans la liste blanche. Changer un DTO : CI rouge côté serveur ; régénérer (`ENT_CONTRAT_ECRIRE=1`) sans mettre à jour les cœurs : CI rouge côté applis.
+- **Clés gardées par intention** (`ClesIntention`, MB2) : ouvrir, marquer et clore un appel, justifier une absence et répondre à un fil gardent leur clé après un échec incertain (réseau, 5xx, 429, 409 en cours) ; un nouvel essai rejoue au lieu d'exécuter deux fois. Mémoire du processus ; les opérations différées durables restent pour MB7.
+- **Bandeaux** (MB2) : « Session courte » quand la session n'a pas été ouverte par passkey (le serveur lui donne la durée du web, MB0) ; « Téléphone sans verrouillage » quand l'appareil n'a ni code ni biométrie (l'appli ne peut alors pas se verrouiller).
+- **Build Debug et passkeys** : le build Debug a l'identifiant `fr.scolia.mobile.debug` ; une passkey native n'y fonctionne que si `assetlinks.json` déclare aussi ce paquet et son empreinte de signature debug (M1). Sans cela, se connecter au labo par mot de passe.
+- **Invitation** (lien ou QR) : le code est lu et validé, jamais mémorisé ni envoyé, tant que le serveur n'a pas de route d'activation (M2 ci-dessous).
 
 ## 9. API manquantes ou à adapter pour le mobile
 
@@ -135,8 +142,8 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 | M7 | Marquer une notification comme lue | absent (aucune route `/notifications/{id}/…` ; pour les messages, l'ouverture d'un fil semble marquer lu, à vérifier) | route dédiée ; compteur de non-lus pour l'accueil |
 | M8 | Accueil mobile agrégé | optionnel | `GET /mobile/accueil` (cours du jour, non-lus, absences à justifier) : 1 appel au lieu de 3–4 |
 | M9 | Pagination et `If-None-Match` | absent | pagination de `/messages/fils`, ETag sur les lectures mises en cache |
-| M10 | Saisie de notes en lot | absent | `POST /devoirs/{id}/notes` (liste), au lieu d'un appel par élève |
-| M11 | Test de contrat mobile | à écrire (MB2) | fixtures dorées `ent-rust/contrat/mobile/` décodées par les deux cœurs, banc de parité |
+| M10 | Saisie de notes depuis le mobile | **retirée** (MB2 : `POST /eleves/{id}/notes` fermée, 410) | porter l'écran sur la grille d'évaluation (`/eva/grille`, `/eva/saisie`), saisie en lot |
+| M11 | Test de contrat mobile | **fait** (MB2) | fixtures dorées `ent-rust/contrat/mobile/` décodées par les deux cœurs, banc de parité, liste blanche |
 | M12 | Signature du carnet, pièces jointes, nouveau fil | existe | non porté (web) ; à réévaluer |
 
 Aucune modification du backend n'a été faite dans ce chantier. Depuis : enveloppe d'erreur codée et `Idempotency-Key` (MB1 serveur), désinscription push et durée mobile réservée à la passkey (MB0).
@@ -159,7 +166,7 @@ Aucune modification du backend n'a été faite dans ce chantier. Depuis : envelo
 - Premier build réel de `:app` : aucune correction de code n'a été nécessaire pour compiler.
 
 ### CI GitHub (palier MB1 client)
-Le workflow `ent-rust.yml` lance `mobile-android` (validation du wrapper Gradle, `:core:test`, `:app:testDebugUnitTest`, `:app:lintDebug`, `:app:assembleRelease`, SDK 36) et `mobile-ios-coeur` (`swift test` dans l'image `swift:6.1-noble`) sur ENT et sur toute branche dont le diff touche `ent-rust/apps/**` ou le workflow ; leurs résultats figurent dans le commentaire de veille. L'interface SwiftUI reste en passe Mac (§11).
+Le workflow `ent-rust.yml` lance `mobile-android` (validation du wrapper Gradle, `:core:test`, `:app:testDebugUnitTest`, `:app:lintDebug`, `:app:assembleRelease`, SDK 36) et `mobile-ios-coeur` (`swift test` dans l'image `swift:6.1-noble`) sur ENT et sur toute branche dont le diff touche `ent-rust/apps/**`, `ent-rust/contrat/**` (fixtures MB2) ou le workflow ; leurs résultats figurent dans le commentaire de veille. L'interface SwiftUI reste en passe Mac (§11).
 
 ### Lancer les vérifications
 ```

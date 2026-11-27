@@ -12,7 +12,9 @@ public struct RacineScolIA: View {
 
     public var body: some View {
         Group {
-            if modele.actif == nil {
+            if let m = modele.miseAJourRequise {
+                EcranMiseAJour(message: m)
+            } else if modele.actif == nil {
                 EcranRattachement(modele: modele)
             } else {
                 switch modele.etat {
@@ -155,7 +157,45 @@ struct EcranVerrou: View {
     }
 
     private func deverrouiller() async {
+        modele.appareilSansVerrou = Verrou.appareilSansCode()
         if await Verrou.deverrouiller() { modele.verrouille = false }
+    }
+}
+
+/// 426 : version refusée par le serveur. Seule sortie : la fiche de l'appli dans l'App Store.
+struct EcranMiseAJour: View {
+    let message: String
+    @Environment(\.openURL) private var ouvrir
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "arrow.down.app").font(.largeTitle).accessibilityHidden(true)
+            Text("Mise à jour nécessaire").font(.title2).accessibilityAddTraits(.isHeader)
+            Text(message).multilineTextAlignment(.center)
+            Text("Vos données restent sur le serveur de l'établissement : rien n'est perdu.")
+                .font(.footnote).multilineTextAlignment(.center)
+            Button("Mettre à jour") {
+                // Fiche de l'appli : `itms-apps://` ouvre l'App Store ; l'identifiant viendra avec la publication (MB14).
+                if let u = URL(string: "itms-apps://apps.apple.com/app/scolia") { ouvrir(u) }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+}
+
+/// Bandeau de sécurité (M3, M5) : informe sans bloquer.
+struct BandeauAvertissement: View {
+    let avertissement: Avertissement
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(avertissement.titre).font(.subheadline.bold())
+            Text(avertissement.texte).font(.footnote)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.yellow.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -195,6 +235,14 @@ struct Coquille: View {
                 NavigationStack {
                     EcranModule(module: m, modele: modele, me: me, espace: espace, ouvrir: { courant = $0 })
                         .navigationTitle(m.titre)
+                        .safeAreaInset(edge: .top) {
+                            VStack(spacing: 6) {
+                                ForEach(Avertissement.pour(me, appareilSansVerrou: modele.appareilSansVerrou), id: \.self) {
+                                    BandeauAvertissement(avertissement: $0)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
                 }
                 .tabItem { Label(m.titre, systemImage: m.symbole) }
                 .tag(m)

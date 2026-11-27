@@ -124,3 +124,45 @@ class LecteurHorsLigne(
         return Lecture(client.decoder(e.json, ser), true, e.horodatageMs)
     }
 }
+
+/**
+ * Clés d'idempotence **gardées par intention** (contrat §5.5, M3 du lot 2 de MB1) : un écran qui renvoie la même
+ * intention après un échec incertain (réseau coupé, délai dépassé, 5xx, 429, 409 « en cours ») renvoie la même clé,
+ * et le serveur rejoue la première réponse au lieu d'exécuter deux fois. La clé est oubliée après un succès ou un
+ * refus définitif : une nouvelle demande est alors une nouvelle intention.
+ *
+ * L'intention est décrite par l'écran (ex. `marquer:<appel>:<élève>:absent`) ; changer d'avis (autre état) est une
+ * autre intention, donc une autre clé. Mémoire du processus seulement : les opérations différées durables viendront
+ * avec MB7.
+ */
+class ClesIntention(private val nouvelleCle: () -> String = { java.util.UUID.randomUUID().toString() }) {
+    private val cles = mutableMapOf<String, String>()
+
+    @Synchronized
+    fun cle(intention: String): String = cles.getOrPut(intention, nouvelleCle)
+
+    @Synchronized
+    fun oublier(intention: String) {
+        cles.remove(intention)
+    }
+
+    /** Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine. */
+    suspend fun <T> executer(intention: String, bloc: suspend (cle: String) -> T): T {
+        val cle = cle(intention)
+        try {
+            return bloc(cle).also { oublier(intention) }
+        } catch (e: ErreurApi) {
+            if (!incertaine(e)) oublier(intention)
+            throw e
+        }
+    }
+
+    companion object {
+        /** Le serveur a peut-être exécuté (ou exécute encore) la demande : un nouvel essai doit garder la clé. */
+        fun incertaine(e: ErreurApi): Boolean = when (e) {
+            is ErreurApi.HorsLigne, is ErreurApi.Serveur, is ErreurApi.DebitDepasse, is ErreurApi.Format -> true
+            is ErreurApi.Refus -> e.statut == 409
+            else -> false
+        }
+    }
+}

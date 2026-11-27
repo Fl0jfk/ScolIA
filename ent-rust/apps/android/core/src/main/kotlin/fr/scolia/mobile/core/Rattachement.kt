@@ -14,7 +14,10 @@ data class Rattachement(
     val slug: String,
     /** Nom renvoyé par `GET /auth/etablissement`, une fois vérifié. */
     val nom: String? = null,
-    /** Code d'invitation présent dans le lien ou le QR code (consommé à la connexion). */
+    /**
+     * Code d'invitation présent dans le lien ou le QR code. Lu et validé, **jamais mémorisé ni envoyé** : le serveur
+     * n'a pas encore de route d'activation par invitation (l'activation se fait sur le web, M2 de MB1).
+     */
     val invitation: String? = null,
     /** Identifiant d'établissement : labo local uniquement (pas de sous-domaine). */
     val etablissementIdLabo: String? = null,

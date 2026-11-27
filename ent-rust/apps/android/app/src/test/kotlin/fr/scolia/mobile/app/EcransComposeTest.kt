@@ -125,10 +125,11 @@ class EcransComposeTest {
         rule.onNodeWithTag("module-APPEL").assertIsDisplayed()
         rule.onNodeWithTag("module-ABSENCES").assertDoesNotExist()
         rule.onNodeWithTag("module-VIE_SCOLAIRE").assertDoesNotExist()
-        // Modules restants dans « Plus » : saisie de notes et cahier de textes (droits notes.saisir / mes classes).
+        // « Plus » : cahier de textes (mes classes) ; la saisie de notes n'est plus sur le mobile (MB2, route
+        // historique fermée).
         rule.onNodeWithText("Plus").performClick()
-        rule.onNodeWithTag("module-SAISIE_NOTES").assertIsDisplayed()
         rule.onNodeWithTag("module-AGENDA").assertIsDisplayed()
+        rule.onNodeWithTag("module-SAISIE_NOTES").assertDoesNotExist()
         rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Maths") > 0 }
         assertTrue("GET /edt/mes-creneaux" in api.recues)
     }
@@ -141,7 +142,6 @@ class EcransComposeTest {
         afficher()
         rule.onNodeWithTag("module-ABSENCES").assertIsDisplayed()
         rule.onNodeWithTag("module-APPEL").assertDoesNotExist()
-        rule.onNodeWithText("Plus").performClick()
         rule.onNodeWithTag("module-SAISIE_NOTES").assertDoesNotExist()
     }
 

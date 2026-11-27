@@ -10,7 +10,6 @@ enum class Module(val titre: String) {
     VIE_SCOLAIRE("Vie scolaire"),
     ABSENCES("Absences"),
     NOTES("Notes"),
-    SAISIE_NOTES("Saisir des notes"),
     AGENDA("Cahier de textes"),
     EDT("Emploi du temps"),
     MESSAGERIE("Messages"),
@@ -75,7 +74,8 @@ object Capacites {
                 ) {
                     m += Module.VIE_SCOLAIRE
                 }
-                if (a("notes.saisir")) m += Module.SAISIE_NOTES
+                // Saisie de notes : retirée du mobile (MB2). L'ancienne route `POST /eleves/{id}/notes` est fermée
+                // (410, V0 D1) et la saisie passe par la grille d'évaluation `/eva/*`, que l'appli ne porte pas encore.
                 if (enseigne) m += Module.AGENDA
                 m += listOf(Module.MESSAGERIE, Module.EDT)
             }
@@ -98,10 +98,35 @@ object Capacites {
     private fun ordreNavigation(modules: List<Module>): List<Module> {
         val prioritaires = listOf(
             Module.ACCUEIL, Module.APPEL, Module.VIE_SCOLAIRE, Module.ABSENCES,
-            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA, Module.SAISIE_NOTES,
+            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA,
         )
         val tri = modules.sortedBy { mod -> prioritaires.indexOf(mod).let { if (it < 0) Int.MAX_VALUE else it } }
         // « Mon compte » toujours en dernier.
         return tri.filter { it != Module.PROFIL } + modules.filter { it == Module.PROFIL }
+    }
+}
+
+/**
+ * Bandeaux de sécurité de la coquille (M3 et M5 de MB1), calculés ici pour être testés hors Android.
+ * Ils informent sans bloquer : le serveur reste seul juge de la durée de session (MB0, DS2).
+ */
+enum class Avertissement(val titre: String, val texte: String) {
+    /** Session ouverte sans passkey : le serveur lui donne la durée du web (quelques heures), pas celle du mobile. */
+    SESSION_COURTE(
+        "Session courte",
+        "Vous êtes connecté sans passkey : la session expirera dans quelques heures. Connectez-vous avec une passkey (à créer dans « Mon compte » si besoin) pour rester connecté sur ce téléphone.",
+    ),
+
+    /** Aucun code ni biométrie sur l'appareil : ScolIA ne peut pas se verrouiller (D-011). */
+    APPAREIL_SANS_VERROU(
+        "Téléphone sans verrouillage",
+        "Ce téléphone n'a ni code ni empreinte : ScolIA ne peut pas se verrouiller. Activez un verrouillage d'écran dans les réglages pour protéger les données des élèves.",
+    );
+
+    companion object {
+        fun pour(me: Me, appareilSansVerrou: Boolean): List<Avertissement> = buildList {
+            if (me.portee == "complete" && me.assurance != "passkey") add(SESSION_COURTE)
+            if (appareilSansVerrou) add(APPAREIL_SANS_VERROU)
+        }
     }
 }

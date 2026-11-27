@@ -2,7 +2,7 @@ import Foundation
 
 /// Écrans de l'appli quotidienne (D-003), dans l'ordre d'affichage par défaut.
 public enum Module: String, CaseIterable, Identifiable, Sendable {
-    case accueil, appel, vieScolaire, absences, notes, saisieNotes, agenda, edt, messagerie, profil
+    case accueil, appel, vieScolaire, absences, notes, agenda, edt, messagerie, profil
     public var id: String { rawValue }
     public var titre: String {
         switch self {
@@ -11,7 +11,6 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .vieScolaire: return "Vie scolaire"
         case .absences: return "Absences"
         case .notes: return "Notes"
-        case .saisieNotes: return "Saisir des notes"
         case .agenda: return "Cahier de textes"
         case .edt: return "Emploi du temps"
         case .messagerie: return "Messages"
@@ -26,7 +25,6 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .vieScolaire: return "exclamationmark.triangle"
         case .absences: return "calendar.badge.exclamationmark"
         case .notes: return "star"
-        case .saisieNotes: return "square.and.pencil"
         case .agenda: return "book"
         case .edt: return "calendar"
         case .messagerie: return "envelope"
@@ -91,11 +89,12 @@ public enum Capacites {
                 || a("absences.justifier") || a("assiduite.signaler") {
                 m.append(.vieScolaire)
             }
-            if a("notes.saisir") { m.append(.saisieNotes) }
+            // Saisie de notes : retirée du mobile (MB2). L'ancienne route `POST /eleves/{id}/notes` est fermée
+            // (410, V0 D1) et la saisie passe par la grille d'évaluation `/eva/*`, que l'appli ne porte pas encore.
             if enseigne { m.append(.agenda) }
             m += [.messagerie, .edt]
         }
-        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda, .saisieNotes]
+        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda]
         let tries = m.sorted { (ordre.firstIndex(of: $0) ?? 99) < (ordre.firstIndex(of: $1) ?? 99) }
         return Espace(profil: profil, modules: tries + [.profil], enrolementRequis: false, enseigne: enseigne)
     }
@@ -106,5 +105,37 @@ public enum Capacites {
         if role == "eleve" || me.eleveId != nil { return .eleve }
         if role == "parent" { return .famille }
         return .personnel
+    }
+}
+
+/// Bandeaux de sécurité de la coquille (M3 et M5 de MB1), miroir de `Avertissement` (Kotlin).
+/// Ils informent sans bloquer : le serveur reste seul juge de la durée de session (MB0, DS2).
+public enum Avertissement: String, CaseIterable, Sendable {
+    /// Session ouverte sans passkey : le serveur lui donne la durée du web (quelques heures).
+    case sessionCourte
+    /// Aucun code sur l'appareil : ScolIA ne peut pas se verrouiller (D-011).
+    case appareilSansVerrou
+
+    public var titre: String {
+        switch self {
+        case .sessionCourte: return "Session courte"
+        case .appareilSansVerrou: return "iPhone sans code"
+        }
+    }
+
+    public var texte: String {
+        switch self {
+        case .sessionCourte:
+            return "Vous êtes connecté sans passkey : la session expirera dans quelques heures. Connectez-vous avec une passkey (à créer dans « Mon compte » si besoin) pour rester connecté sur cet iPhone."
+        case .appareilSansVerrou:
+            return "Cet iPhone n'a pas de code : ScolIA ne peut pas se verrouiller. Activez un code dans Réglages pour protéger les données des élèves."
+        }
+    }
+
+    public static func pour(_ me: Me, appareilSansVerrou: Bool) -> [Avertissement] {
+        var a: [Avertissement] = []
+        if me.portee == "complete" && me.assurance != "passkey" { a.append(.sessionCourte) }
+        if appareilSansVerrou { a.append(.appareilSansVerrou) }
+        return a
     }
 }

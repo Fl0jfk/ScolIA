@@ -117,3 +117,51 @@ public final class LecteurHorsLigne: @unchecked Sendable {
         }
     }
 }
+
+/// Clés d'idempotence **gardées par intention** (contrat §5.5, M3 du lot 2 de MB1), miroir de `ClesIntention`
+/// (Kotlin) : après un échec incertain (réseau, 5xx, 429, 409 « en cours »), un nouvel essai de la même intention
+/// renvoie la même clé et le serveur rejoue sa première réponse. Oubliée après un succès ou un refus définitif.
+public final class ClesIntention: @unchecked Sendable {
+    private let verrou = NSLock()
+    private var cles: [String: String] = [:]
+    private let nouvelleCle: @Sendable () -> String
+
+    public init(nouvelleCle: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() }) {
+        self.nouvelleCle = nouvelleCle
+    }
+
+    public func cle(_ intention: String) -> String {
+        verrou.lock(); defer { verrou.unlock() }
+        if let c = cles[intention] { return c }
+        let c = nouvelleCle()
+        cles[intention] = c
+        return c
+    }
+
+    public func oublier(_ intention: String) {
+        verrou.lock(); defer { verrou.unlock() }
+        cles[intention] = nil
+    }
+
+    /// Exécute `bloc` avec la clé de l'intention ; la garde seulement si l'issue est incertaine.
+    public func executer<T>(_ intention: String, _ bloc: (String) async throws -> T) async throws -> T {
+        let c = cle(intention)
+        do {
+            let r = try await bloc(c)
+            oublier(intention)
+            return r
+        } catch let e as ErreurApi {
+            if !Self.incertaine(e) { oublier(intention) }
+            throw e
+        }
+    }
+
+    public static func incertaine(_ e: ErreurApi) -> Bool {
+        switch e {
+        case .horsLigne, .serveur, .debitDepasse, .format: return true
+        case .refus(let s, _): return s == 409
+        case .codee(let s, _): return s == 409
+        default: return false
+        }
+    }
+}

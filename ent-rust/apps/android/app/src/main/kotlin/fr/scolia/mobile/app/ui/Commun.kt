@@ -89,6 +89,19 @@ fun BandeauHorsLigne(horodatageMs: Long) {
 }
 
 /**
+ * 426 `appli.trop_ancienne` (contrat §5.3, MB14) : le serveur refuse cette version. Dès qu'une réponse le dit,
+ * l'appli n'affiche plus que l'écran de mise à jour (Racine), jusqu'au redémarrage avec la nouvelle version.
+ */
+object MiseAJour {
+    var requise by mutableStateOf<String?>(null)
+        private set
+
+    fun exiger(message: String?) {
+        requise = message?.takeIf { it.isNotBlank() } ?: "Mettez l'application à jour pour continuer."
+    }
+}
+
+/**
  * Charge une donnée (réseau, cache en secours) et gère attente, erreur, hors ligne
  * et nouvel essai. `cle` relance le chargement quand elle change.
  */
@@ -108,6 +121,9 @@ fun <T> Chargeur(
             lecture = charger()
         } catch (e: ErreurApi.NonAuthentifie) {
             surSessionPerdue()
+        } catch (e: ErreurApi.AppliTropAncienne) {
+            MiseAJour.exiger(e.message)
+            erreur = e.message
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e // « Réessayer » ou changement de clé : pas un message d'erreur.
         } catch (e: Exception) {

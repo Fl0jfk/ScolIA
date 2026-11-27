@@ -125,6 +125,13 @@ public enum Verrou {
         }
         return (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Déverrouiller ScolIA")) ?? false
     }
+
+    /// M5 (MB1) : vrai si l'appareil n'a aucun code (le verrou de l'appli ne peut alors rien protéger).
+    public static func appareilSansCode() -> Bool {
+        var err: NSError?
+        let ok = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &err)
+        return !ok && err?.code == LAError.passcodeNotSet.rawValue
+    }
 }
 
 /// Passkeys natives. Le domaine `scolia.fr` doit être déclaré dans les entitlements

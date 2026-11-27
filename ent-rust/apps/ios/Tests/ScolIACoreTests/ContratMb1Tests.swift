@@ -131,7 +131,7 @@ final class ContratMb1Tests: XCTestCase {
     func testChampsEtRegleMetier() async {
         let s = FauxServeur([
             "POST /absences/ab1/justifier": (400, #"{"erreur":{"code":"requete.invalide","message":"Motif manquant.","champs":[{"champ":"motif","code":"champ.requis"}],"reessayer_apres_s":null,"trace":"t"}}"#),
-            "POST /eleves/el1/notes": (422, enveloppe("periode.arretee", "Période arrêtée.")),
+            "POST /messages/fils/f1/repondre": (422, enveloppe("periode.arretee", "Période arrêtée.")),
         ])
         let c = client(s)
         do { _ = try await c.justifierAbsence("ab1", motif: ""); XCTFail() } catch let ErreurApi.codee(statut, e) {
@@ -139,8 +139,7 @@ final class ContratMb1Tests: XCTestCase {
             XCTAssertEqual(e.code, "requete.invalide")
             XCTAssertEqual(e.champs, [ErreurCodee.Champ(champ: "motif", code: "champ.requis")])
         } catch { XCTFail("\(error)") }
-        let corps = SaisirNoteBody(matiereId: "m1", valeur: 12, sur: nil, dateNote: "2027-03-14", libelle: nil, devoirId: nil, periodeId: nil)
-        do { _ = try await c.saisirNote(eleveId: "el1", corps); XCTFail() } catch let e as ErreurApi {
+        do { _ = try await c.repondre(filId: "f1", corps: "Bonjour"); XCTFail() } catch let e as ErreurApi {
             XCTAssertEqual(e.code, "periode.arretee")
             XCTAssertEqual(e.errorDescription, "Période arrêtée.")
         } catch { XCTFail() }

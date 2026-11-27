@@ -223,7 +223,9 @@ public final class ApiClient: @unchecked Sendable {
     public func justifierAbsence(_ id: String, motif: String, cle: String? = nil) async throws -> Absence {
         try await post("/absences/\(seg(id))/justifier", ["motif_justif": motif.trimmingCharacters(in: .whitespacesAndNewlines)], cle: cle)
     }
-    public func absencesATraiter() async throws -> [Absence] { try await get("/vs/absences") }
+    public func absencesATraiter(jour: String? = nil) async throws -> [Absence] {
+        try await get("/vs/absences" + (jour.map { "?jour=\(q($0))" } ?? ""))
+    }
 
     // MARK: Notes
 
@@ -232,22 +234,31 @@ public final class ApiClient: @unchecked Sendable {
     public func devoirsClasse(periodeId: String, classe: String) async throws -> [Devoir] {
         try await get("/devoirs?periode_id=\(q(periodeId))&classe=\(q(classe))")
     }
+    public func moyennes(_ eleveId: String, periodeId: String) async throws -> [MoyenneMatiere] {
+        try await get("/eleves/\(seg(eleveId))/moyennes?periode_id=\(q(periodeId))")
+    }
+    public func devoirsEleve(_ eleveId: String, periodeId: String) async throws -> [Devoir] {
+        try await get("/eleves/\(seg(eleveId))/devoirs?periode_id=\(q(periodeId))")
+    }
     public func effectif(classe: String, jour: String) async throws -> Effectif {
         try await get("/classes/\(seg(classe))/effectif?jour=\(q(jour))")
-    }
-    public func saisirNote(eleveId: String, _ corps: SaisirNoteBody, cle: String? = nil) async throws -> Note {
-        try decoder(try await envoyer("POST", "/eleves/\(seg(eleveId))/notes", corps: try Self.encodeur.encode(corps), cle: cle))
     }
 
     // MARK: Cahier de textes, messagerie, annonces
 
     public func cahierTexte(eleveId: String?) async throws -> [CahierTexte] { try await get(Chemins.cahier(eleveId)) }
+    /// Personnel : cahier de textes d'une classe de son périmètre.
+    public func cahierTexte(classe: String) async throws -> [CahierTexte] { try await get(Chemins.cahierClasse(classe)) }
     public func fils() async throws -> [MsgFil] { try await get(Chemins.fils) }
     public func fil(_ id: String) async throws -> FilDetail { try await get("/messages/fils/\(seg(id))") }
     public func repondre(filId: String, corps: String, cle: String? = nil) async throws -> Message {
         try await post("/messages/fils/\(seg(filId))/repondre", ["corps": corps], cle: cle)
     }
+    /// Annonces de l'établissement : personnel seulement (403 pour une famille ou un élève).
     public func annonces() async throws -> [Annonce] { try await get("/annonces") }
+    /// Annonces visibles par la famille d'un élève (ciblage par classe), pour l'élève ou son parent (MB2).
+    public func annoncesEleve(_ eleveId: String) async throws -> [Annonce] { try await get("/eleves/\(seg(eleveId))/annonces") }
+    public func notifications() async throws -> [NotificationEnt] { try await get("/notifications") }
 
     // MARK: Mécanique
 
@@ -336,6 +347,8 @@ public enum Chemins {
     public static func mesCreneaux(_ jour: String) -> String { "/edt/mes-creneaux?jour=\(q(jour))" }
     public static func edtEleve(_ id: String, _ jour: String) -> String { "/eleves/\(seg(id))/edt?jour=\(q(jour))" }
     public static func cahier(_ eleveId: String?) -> String { "/cahier-texte" + (eleveId.map { "?eleve_id=\(q($0))" } ?? "") }
+    /// Personnel : le serveur exige la classe (périmètre à la date, C-D7) ; sans elle, 403 (trouvé par MB2).
+    public static func cahierClasse(_ classe: String) -> String { "/cahier-texte?classe=\(q(classe))" }
     public static func notes(_ eleveId: String) -> String { "/eleves/\(seg(eleveId))/notes" }
     public static let fils = "/messages/fils"
     public static let enfants = "/famille/enfants"

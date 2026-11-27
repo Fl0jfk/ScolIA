@@ -1,5 +1,7 @@
 package fr.scolia.mobile.app.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -34,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -49,6 +51,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -57,6 +61,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import fr.scolia.mobile.app.AppModele
 import fr.scolia.mobile.app.ecrans.EcranModule
+import fr.scolia.mobile.core.Avertissement
 import fr.scolia.mobile.core.EtatConnexion
 import fr.scolia.mobile.core.Module
 
@@ -64,7 +69,9 @@ import fr.scolia.mobile.core.Module
 @Composable
 fun RacineScolIA(modele: AppModele, onDeverrouiller: () -> Unit) {
     val actif = modele.actif
+    val miseAJour = MiseAJour.requise
     when {
+        miseAJour != null -> EcranMiseAJour(miseAJour)
         actif == null -> EcranRattachement(modele)
         modele.etat is EtatConnexion.Deconnecte || modele.etat is EtatConnexion.SecondFacteur -> EcranConnexion(modele)
         modele.verrouille -> EcranVerrou(onDeverrouiller, modele.erreur)
@@ -199,6 +206,36 @@ fun EcranVerrou(onDeverrouiller: () -> Unit, erreur: String? = null) {
     }
 }
 
+/** Bandeau de sécurité (M3, M5) : informe sans bloquer. */
+@Composable
+private fun BandeauAvertissement(a: Avertissement, ouvrirCompte: (() -> Unit)?) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).semantics(mergeDescendants = true) {}.testTag("avertissement-${a.name}"),
+    ) {
+        Text(a.titre, style = MaterialTheme.typography.titleSmall)
+        Text(a.texte, style = MaterialTheme.typography.bodySmall)
+        if (ouvrirCompte != null) TextButton(onClick = ouvrirCompte) { Text("Ajouter une passkey") }
+    }
+}
+
+/** 426 : version refusée par le serveur. Seule sortie : la fiche de l'appli dans le magasin. */
+@Composable
+fun EcranMiseAJour(message: String) {
+    val contexte = LocalContext.current
+    Page {
+        Titre("Mise à jour nécessaire")
+        Text(message)
+        Text("Vos données restent sur le serveur de l'établissement : rien n'est perdu.")
+        Button(
+            onClick = {
+                val fiche = Uri.parse("https://play.google.com/store/apps/details?id=${contexte.packageName}")
+                runCatching { contexte.startActivity(Intent(Intent.ACTION_VIEW, fiche).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mise_a_jour"),
+        ) { Text("Mettre à jour") }
+    }
+}
+
 /** Passkey obligatoire (D-009) : seul cet écran est accessible tant qu'elle n'est pas créée. */
 @Composable
 fun EcranEnrolement(modele: AppModele) {
@@ -227,7 +264,6 @@ fun icone(m: Module): ImageVector = when (m) {
     Module.VIE_SCOLAIRE -> Icons.Filled.Warning
     Module.ABSENCES -> Icons.Filled.Info
     Module.NOTES -> Icons.Filled.Star
-    Module.SAISIE_NOTES -> Icons.Filled.Edit
     Module.AGENDA -> Icons.Filled.List
     Module.EDT -> Icons.Filled.DateRange
     Module.MESSAGERIE -> Icons.Filled.Email
@@ -279,6 +315,13 @@ fun Coquille(modele: AppModele, connecte: EtatConnexion.Connecte) {
         },
     ) { marges ->
         Column(Modifier.padding(marges).padding(horizontal = 16.dp).fillMaxSize()) {
+            Avertissement.pour(connecte.me, modele.appareilSansVerrou).forEach { a ->
+                BandeauAvertissement(a, ouvrirCompte = if (a == Avertissement.SESSION_COURTE && Module.PROFIL in espace.modules) {
+                    { courant = Module.PROFIL }
+                } else {
+                    null
+                })
+            }
             EcranModule(courant, modele, connecte, ouvrir = { courant = it })
         }
     }

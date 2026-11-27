@@ -58,9 +58,12 @@ class MainActivity : FragmentActivity() {
 
     private fun deverrouiller() {
         val v = Verrou(this)
-        when (v.etat()) {
+        val etat = v.etat()
+        modele.appareilSansVerrou = etat == Verrou.Etat.AUCUN_VERROU_CONFIGURE
+        when (etat) {
             Verrou.Etat.DISPONIBLE -> lifecycleScope.launch { if (v.deverrouiller()) modele.verrouille = false }
-            // Aucun verrouillage configuré sur l'appareil : on n'empêche pas l'usage (jeton chiffré).
+            // Aucun verrouillage configuré sur l'appareil : on n'empêche pas l'usage (jeton chiffré), la coquille
+            // le signale en bandeau (M5).
             Verrou.Etat.AUCUN_VERROU_CONFIGURE -> modele.verrouille = false
             // Capteur indisponible, état inconnu : on reste verrouillé.
             Verrou.Etat.INDISPONIBLE -> modele.erreur = "Déverrouillage impossible pour le moment. Réessayez."

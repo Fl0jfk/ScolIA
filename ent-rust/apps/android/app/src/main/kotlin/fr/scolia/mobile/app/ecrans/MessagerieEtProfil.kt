@@ -30,6 +30,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -115,7 +119,8 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
                         portee.launch {
                             erreur = null
                             try {
-                                client.repondre(filId, reponse.trim())
+                                val texte = reponse.trim()
+                                modele.cles.executer("repondre:$filId:${texte.hashCode()}") { k -> client.repondre(filId, texte, k) }
                                 reponse = ""
                                 recharger()
                             } catch (e: ErreurApi.NonAuthentifie) {
@@ -150,6 +155,25 @@ fun EcranProfil(modele: AppModele, c: EtatConnexion.Connecte) {
             "Passkeys : ${c.me.passkeyCount}",
             if (c.me.passkeyCount == 0L) "Ajoutez une passkey : elle sera bientôt obligatoire." else "Connexion sans mot de passe active.",
         )
+        if (c.me.passkeyCount == 0L) {
+            // M3 (MB1) : la passkey se crée ici aussi, sans attendre qu'elle soit exigée (le serveur redemande le
+            // mot de passe actuel pour l'enregistrer).
+            var mdp by remember { mutableStateOf("") }
+            OutlinedTextField(
+                mdp, { mdp = it },
+                label = { Text("Mot de passe actuel") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth().testTag("profil-mdp"),
+            )
+            Button(
+                onClick = { modele.enroler(mdp); mdp = "" },
+                enabled = mdp.isNotEmpty() && !modele.occupe,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("profil-passkey"),
+            ) { Text("Ajouter une passkey") }
+            MessageErreur(modele.erreur)
+        }
         Titre("Appareils connectés")
         Chargeur("sessions", modele::sessionPerdue, { Lecture(client.sessions(), false, System.currentTimeMillis()) }) { sessions, recharger ->
             sessions.forEach { s ->

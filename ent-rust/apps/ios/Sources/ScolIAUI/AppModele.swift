@@ -17,7 +17,13 @@ public final class AppModele {
     public var verrouille = true
     public private(set) var occupe = false
     public var erreur: String?
+    /// 426 `appli.trop_ancienne` (§5.3) : dès qu'une réponse le dit, seul l'écran de mise à jour s'affiche.
+    public var miseAJourRequise: String?
+    /// M5 (MB1) : aucun code sur l'appareil ; la coquille l'affiche en bandeau.
+    public var appareilSansVerrou = false
     public private(set) var client: ApiClient?
+    /// Clés d'idempotence gardées par intention pour les nouveaux essais (§5.5).
+    @ObservationIgnored public let cles = ClesIntention()
     public private(set) var lecteur: LecteurHorsLigne?
 
     @ObservationIgnored private var service: ServiceConnexion?
@@ -188,6 +194,8 @@ public final class AppModele {
                 try await bloc()
             } catch ErreurApi.nonAuthentifie {
                 sessionPerdue()
+            } catch ErreurApi.appliTropAncienne(let m) {
+                miseAJourRequise = m
             } catch {
                 erreur = error.localizedDescription
             }

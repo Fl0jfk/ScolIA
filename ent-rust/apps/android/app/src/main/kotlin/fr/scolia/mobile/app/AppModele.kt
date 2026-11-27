@@ -13,6 +13,7 @@ import fr.scolia.mobile.app.securite.CoffreKeystore
 import fr.scolia.mobile.app.securite.MemoirePushPrefs
 import fr.scolia.mobile.app.securite.PasskeyAndroid
 import fr.scolia.mobile.core.ApiClient
+import fr.scolia.mobile.core.ClesIntention
 import fr.scolia.mobile.core.ErreurApi
 import fr.scolia.mobile.core.EtatConnexion
 import fr.scolia.mobile.core.LecteurHorsLigne
@@ -81,12 +82,14 @@ class AppModele(app: Application) : AndroidViewModel(app) {
     var occupe by mutableStateOf(false)
         private set
     var erreur by mutableStateOf<String?>(null)
-    var invitationEnAttente by mutableStateOf<String?>(null)
-        private set
+    /** M5 (MB1) : aucun code ni biométrie sur l'appareil ; la coquille l'affiche en bandeau. */
+    var appareilSansVerrou by mutableStateOf(false)
     val dernierEmail: String? get() = prefs.dernierEmail
 
     var client: ApiClient? = null
         private set
+    /** Clés d'idempotence gardées par intention pour les nouveaux essais (§5.5). */
+    val cles = ClesIntention()
     var lecteur: LecteurHorsLigne? = null
         private set
     private var service: ServiceConnexion? = null
@@ -154,7 +157,8 @@ class AppModele(app: Application) : AndroidViewModel(app) {
                 val ok = brut.copy(nom = nom)
                 rattachements = rattachements.filter { it.baseUrl != ok.baseUrl } + ok
                 prefs.sauver(rattachements)
-                invitationEnAttente = ok.invitation
+                // M2 (MB1) : le code d'invitation n'est ni gardé ni envoyé tant que le serveur n'a pas de route
+                // d'activation par invitation ; l'activation du compte se fait sur le web (lien reçu).
                 choisir(ok)
             }
         }
@@ -258,6 +262,8 @@ class AppModele(app: Application) : AndroidViewModel(app) {
                 bloc()
             } catch (e: ErreurApi.NonAuthentifie) {
                 sessionPerdue()
+            } catch (e: ErreurApi.AppliTropAncienne) {
+                fr.scolia.mobile.app.ui.MiseAJour.exiger(e.message)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

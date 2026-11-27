@@ -302,6 +302,13 @@ public struct Devoir: Codable, Identifiable, Sendable {
     public let sur: Double
 }
 
+public struct MoyenneMatiere: Codable, Sendable {
+    public let matiereId: String
+    public let matiereLibelle: String?
+    public let periodeId: String
+    public let moyenneSur20: Double
+}
+
 public struct EleveEffectif: Codable, Identifiable, Sendable {
     public let id: String
     public let nom: String
@@ -312,20 +319,6 @@ public struct Effectif: Codable, Sendable {
     public let classe: String
     public let jour: String
     public let eleves: [EleveEffectif]
-}
-
-public struct SaisirNoteBody: Codable, Sendable {
-    public let matiereId: String
-    public let valeur: Double
-    public let sur: Double?
-    public let dateNote: String
-    public let libelle: String?
-    public let devoirId: String?
-    public let periodeId: String?
-    public init(matiereId: String, valeur: Double, sur: Double?, dateNote: String, libelle: String?, devoirId: String?, periodeId: String?) {
-        self.matiereId = matiereId; self.valeur = valeur; self.sur = sur; self.dateNote = dateNote
-        self.libelle = libelle; self.devoirId = devoirId; self.periodeId = periodeId
-    }
 }
 
 public struct CahierTexte: Codable, Identifiable, Sendable {
@@ -371,5 +364,16 @@ public struct Annonce: Codable, Identifiable, Sendable {
     public let id: String
     public let titre: String
     public let corps: String
+    public let createdAt: String
+}
+
+/// Notification de l'ENT (`GET /notifications`) ; nommée ainsi pour ne pas masquer `Foundation.Notification`.
+public struct NotificationEnt: Codable, Identifiable, Sendable {
+    public let id: String
+    public let eleveId: String?
+    public let kind: String
+    public let titre: String
+    public let corps: String
+    public let lu: Bool
     public let createdAt: String
 }

@@ -163,14 +163,14 @@ class ContratMb1Test {
                     400,
                     """{"erreur":{"code":"requete.invalide","message":"Motif manquant.","champs":[{"champ":"motif","code":"champ.requis"}],"reessayer_apres_s":null,"trace":"t"}}""",
                 ),
-                "POST /eleves/el1/notes" to ReponseHttp(422, enveloppe("periode.arretee", "Période arrêtée.")),
+                "POST /messages/fils/f1/repondre" to ReponseHttp(422, enveloppe("periode.arretee", "Période arrêtée.")),
             ),
         )
         val c = client(s)
         val e = assertFailsWith<ErreurApi.Refus> { c.justifierAbsence("ab1", "") }
         assertEquals("requete.invalide", e.code)
         assertEquals(listOf(ErreurChampCodee("motif", "champ.requis")), e.champs)
-        val r = assertFailsWith<ErreurApi.Refus> { c.saisirNote("el1", SaisirNoteBody(matiereId = "m1", valeur = 12.0, dateNote = "2027-03-14")) }
+        val r = assertFailsWith<ErreurApi.Refus> { c.repondre("f1", "Bonjour") }
         assertEquals(422, r.statut)
         assertEquals("periode.arretee", r.code)
     }

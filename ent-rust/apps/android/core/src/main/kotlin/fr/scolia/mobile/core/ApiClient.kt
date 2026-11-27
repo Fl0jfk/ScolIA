@@ -257,16 +257,6 @@ class ApiClient(
     suspend fun effectif(classe: String, jour: String): Effectif =
         get("/classes/${seg(classe)}/effectif?jour=${q(jour)}", Effectif.serializer())
 
-    suspend fun saisirNote(eleveId: String, body: SaisirNoteBody, cle: String? = null): Note =
-        post(
-            "/eleves/${seg(eleveId)}/notes",
-            json.encodeToString(SaisirNoteBody.serializer(), body),
-            Note.serializer(),
-            cle = cle,
-        )
-
-    // ---------- Cahier de textes ----------
-
     suspend fun cahierTexte(eleveId: String? = null, classe: String? = null, du: String? = null, au: String? = null): List<CahierTexte> {
         val params = listOfNotNull(
             eleveId?.let { "eleve_id=${q(it)}" },
@@ -295,7 +285,12 @@ class ApiClient(
 
     // ---------- Annonces, notifications ----------
 
+    /** Annonces de l'établissement : personnel seulement (403 pour une famille ou un élève). */
     suspend fun annonces(): List<Annonce> = get("/annonces", ListSerializer(Annonce.serializer()))
+
+    /** Annonces visibles par la famille d'un élève (ciblage par classe), pour l'élève ou son parent (MB2). */
+    suspend fun annoncesEleve(eleveId: String): List<Annonce> =
+        get("/eleves/${seg(eleveId)}/annonces", ListSerializer(Annonce.serializer()))
 
     suspend fun notifications(): List<Notification> =
         get("/notifications", ListSerializer(Notification.serializer()))
