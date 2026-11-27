@@ -1,0 +1,41 @@
+# Projet Xcode de l'appli iOS ScolIA, généré par XcodeGen (`xcodegen generate`).
+# Le .xcodeproj n'est pas versionné : ce fichier est la source.
+name: ScolIA
+options:
+  bundleIdPrefix: fr.scolia
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: fr
+packages:
+  ScolIA:
+    path: .
+targets:
+  ScolIA:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: ScolIA
+        product: ScolIAUI
+      - package: ScolIA
+        product: ScolIACore
+    info:
+      path: App/Info.plist
+    entitlements:
+      path: App/ScolIA.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.scolia.mobile
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  ScolIA:
+    build:
+      targets:
+        ScolIA: all
+    test:
+      targets:
+        - package: ScolIA/ScolIACoreTests
