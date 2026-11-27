@@ -11,7 +11,10 @@
 //! - pour 401, 403, 404 et 500 le message est **toujours** le message neutre du code : le texte d'origine d'une route
 //!   (qui peut dire « vous êtes visé par une interdiction » ou « cet élève existe mais… ») n'est jamais reproduit
 //!   (pas d'oracle d'existence, pas de cause d'un refus d'accès à une personne) ;
-//! - ailleurs (400, 409, 422…) le texte de la route est conservé (message d'affichage), borné à 500 caractères ;
+//! - ailleurs (400, 409, 422…) le texte de la route est conservé (message d'affichage), borné à 500 caractères,
+//!   **sauf** s'il a l'air d'un texte technique (fragment SQL, nom de contrainte, SQLSTATE, chemin de code : voir
+//!   [`texte_technique`]) : le message neutre du code le remplace (faibles F1 de la contre-revue MB1) ;
+//! - 503 (maintenance) et tout 5xx : message neutre seulement ;
 //! - `trace` = identifiant de requête (`x-request-id`, corrélé au journal) : jamais une donnée personnelle.
 
 use axum::body::Body;
@@ -69,6 +72,43 @@ fn trace_de(req: &Request) -> String {
         .to_string()
 }
 
+/// Marqueurs d'un texte **technique** (base de données, panique, chemin de code) qu'une route aurait relayé tel quel :
+/// un tel texte ne sort jamais dans l'enveloppe d'une appli (faible F1, contre-revue MB1). Liste volontairement large :
+/// un faux positif ne coûte qu'un message neutre.
+const MARQUEURS_TECHNIQUES: &[&str] = &[
+    "sqlstate",
+    "duplicate key",
+    "violates",
+    "constraint",
+    "contrainte",
+    "relation \"",
+    "column \"",
+    "colonne \"",
+    "syntax error",
+    "error returned from database",
+    "erreur de base",
+    "pg_",
+    "ent_",
+    "sqlx",
+    "panicked",
+    "deadlock",
+    "could not serialize",
+    "lock timeout",
+    "canceling statement",
+    "null value in column",
+    "foreign key",
+    "unique_violation",
+    "::",
+    ".rs:",
+];
+
+/// `true` si le texte d'une route a l'air technique (voir [`MARQUEURS_TECHNIQUES`]) : il est alors remplacé par le
+/// message neutre du code.
+pub fn texte_technique(texte: &str) -> bool {
+    let bas = texte.to_lowercase();
+    MARQUEURS_TECHNIQUES.iter().any(|m| bas.contains(m))
+}
+
 /// Corps déjà au format de l'enveloppe (une route future qui la construit elle-même) : laissé tel quel.
 fn deja_enveloppe(corps: &[u8]) -> bool {
     serde_json::from_slice::<EnveloppeErreur>(corps).is_ok()
@@ -105,13 +145,15 @@ pub async fn enveloppe_erreur(req: Request, next: Next) -> Response<Body> {
             CodeErreur::par_defaut(statut.as_u16())
         }
     });
-    let message = if code.message_toujours_neutre() {
+    let message = if code.message_toujours_neutre() || statut.is_server_error() {
         code.message_neutre().to_string()
     } else {
         std::str::from_utf8(&brut)
             .ok()
             .map(str::trim)
-            .filter(|t| !t.is_empty() && !t.starts_with('{') && !t.starts_with('<'))
+            .filter(|t| {
+                !t.is_empty() && !t.starts_with('{') && !t.starts_with('<') && !texte_technique(t)
+            })
             .map(|t| t.chars().take(MESSAGE_MAX).collect::<String>())
             .unwrap_or_else(|| code.message_neutre().to_string())
     };
@@ -134,4 +176,34 @@ pub async fn enveloppe_erreur(req: Request, next: Next) -> Response<Body> {
         HeaderValue::from_static("application/json; charset=utf-8"),
     );
     Response::from_parts(parts, Body::from(json))
+}
+
+#[cfg(test)]
+mod tests_f1 {
+    use super::texte_technique;
+
+    /// Faible F1 (contre-revue MB1) : les fragments SQL et les textes de panique ne passent jamais ; les messages
+    /// d'affichage ordinaires passent.
+    #[test]
+    fn textes_techniques_reconnus_messages_ordinaires_conserves() {
+        for t in [
+            "duplicate key value violates unique constraint \"ent_sortie_avoir_pkey\"",
+            "error returned from database: relation \"ent_x\" does not exist",
+            "ERROR: could not serialize access due to concurrent update (SQLSTATE 40001)",
+            "null value in column \"eleve_id\" violates not-null constraint",
+            "thread 'main' panicked at crates/ent-db/src/lib.rs:12:5",
+            "ent_db::finances::Erreur",
+            "canceling statement due to lock timeout",
+        ] {
+            assert!(texte_technique(t), "doit être reconnu technique : {t}");
+        }
+        for t in [
+            "échec simulé 422",
+            "La date de fin précède la date de début.",
+            "Ce créneau est déjà réservé.",
+            "Le montant doit être positif.",
+        ] {
+            assert!(!texte_technique(t), "message d'affichage conservé : {t}");
+        }
+    }
 }

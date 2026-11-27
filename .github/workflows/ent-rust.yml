@@ -113,7 +113,7 @@ jobs:
         run: |
           set -eu
           test -f target/debug/ent-api
-          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do
+          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast' '/mobile/labo'; do
             if grep -aqF -- "$motif" target/debug/ent-api; then
               echo "::error::le binaire ent-api (sans feature labo) contient « $motif »"
               exit 1
