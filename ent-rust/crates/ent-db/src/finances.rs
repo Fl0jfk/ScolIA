@@ -679,6 +679,29 @@ pub(crate) async fn lignes_eleve_annee(
     Ok(lignes)
 }
 
+/// Lignes de l'élève pour l'année **sans période complète** (consommation saisie sans dates, par exemple) : elles ne
+/// passent pas par la facturation au mois, mais comptent dans le plafond de la bourse (F-9, R-F14).
+pub(crate) async fn lignes_eleve_annee_sans_periode(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    annee: &str,
+) -> Result<Vec<LigneExistante>, EntDbError> {
+    sqlx::query_as::<_, LigneExistante>(&format!(
+        "{SELECT_LIGNE_EXISTANTE}
+          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND f.annee_scolaire = $3
+            AND f.type_piece = 'facture' AND l.ligne_origine_id IS NULL
+            AND (l.periode_debut IS NULL OR l.periode_fin IS NULL)
+          ORDER BY l.id"
+    ))
+    .bind(etab)
+    .bind(eleve)
+    .bind(annee)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)
+}
+
 pub(crate) fn nb_mois_entre(a: NaiveDate, b: NaiveDate) -> i64 {
     (b.year() - a.year()) as i64 * 12 + b.month() as i64 - a.month() as i64 + 1
 }
@@ -2581,7 +2604,12 @@ pub(crate) async fn facturer_absence_prolongee(
                     l.libelle
                 ),
                 source_cle: format!("absence:{absence_id}:{}", l.id),
-                periode: None,
+                // période propre : les jours de l'absence sur la ligne (M-5, imputation mois par mois)
+                periode: l
+                    .periode_debut
+                    .zip(l.periode_fin)
+                    .map(|(ld, lf)| (debut.max(ld), fin.min(lf)))
+                    .filter(|(a, b)| a <= b),
                 origine: l,
             })
             .collect();

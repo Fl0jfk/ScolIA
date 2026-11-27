@@ -13,7 +13,7 @@
 
 use chrono::{Datelike, NaiveDate};
 use sqlx::PgConnection;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uuid::Uuid;
 
 use crate::facturation_payeurs::{
@@ -216,6 +216,120 @@ pub(crate) async fn remplir_decouverts(
 }
 
 // ---------------------------------------------------------------------------
+// Crédits de sortie et d'absence imputés mois par mois (M-5)
+// ---------------------------------------------------------------------------
+
+/// Avoirs déjà posés sur une ligne, vus par la régularisation de régime.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AvoirsDeLigne {
+    /// Total crédité par les avoirs de régime (ancien et nouveau format), en valeur absolue.
+    pub regime_abs: i64,
+    /// Les autres avoirs (sortie, absence, avoir manuel, changement de payeur…).
+    pub hors_regime: Vec<AvoirRegime>,
+}
+
+/// Avoirs posés sur les lignes `ids`, rangés par ligne d'origine.
+async fn avoirs_des_lignes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, AvoirsDeLigne>, EntDbError> {
+    let rows: Vec<(Uuid, String, Option<NaiveDate>, Option<NaiveDate>, i64)> = sqlx::query_as(
+        "SELECT a.ligne_origine_id, a.source_cle, a.periode_debut, a.periode_fin,
+                (a.quantite::BIGINT * a.montant_unitaire_centimes)::BIGINT
+           FROM ent_fac_ligne a
+          WHERE a.etablissement_id = $1 AND a.ligne_origine_id = ANY($2) AND a.source_cle IS NOT NULL
+          ORDER BY a.source_cle",
+    )
+    .bind(etab)
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut out: HashMap<Uuid, AvoirsDeLigne> = HashMap::new();
+    for (id, cle, d, f, montant) in rows {
+        let e = out.entry(id).or_default();
+        if est_cle_avoir_regime(&cle) {
+            e.regime_abs = e.regime_abs.saturating_add(montant.saturating_abs());
+        } else {
+            e.hors_regime.push(AvoirRegime {
+                cle,
+                periode: d.zip(f),
+                montant,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Clé d'un avoir de régime (`regime:{…}:avoir:…`), comme le filtre `LIKE 'regime:%:avoir:%'`.
+fn est_cle_avoir_regime(cle: &str) -> bool {
+    cle.strip_prefix("regime:")
+        .is_some_and(|reste| reste.contains(":avoir:"))
+}
+
+/// Part des avoirs de **sortie** et d'**absence** d'une ligne imputée à chacun de ses mois (indice → centimes, en valeur
+/// absolue), fonction pure. Chaque mois reçoit au plus sa valeur (centime supérieur) ; ce qui ne trouve pas de mois reste
+/// « sans mois » pour l'appelant.
+/// * sortie (`sortie:…`) : `credit_au_mois` crédite les **derniers** mois non découverts : on remplit depuis la fin ;
+/// * absence (`absence:…`) : `credit_aux_jours` crédite des jours ; on répartit au prorata des jours de la période
+///   propre de l'avoir dans chaque mois non découvert (ancien format sans période propre : celle de la ligne) ;
+/// * les autres avoirs (manuel, changement de payeur) ne portent sur aucun mois : non imputés.
+pub(crate) fn imputer_hors_regime(
+    debut: NaiveDate,
+    fin: NaiveDate,
+    total: i64,
+    decouverts: &BTreeSet<i32>,
+    avoirs: &[AvoirRegime],
+) -> BTreeMap<i32, i64> {
+    let (premier, dernier) = (indice_mois(debut), indice_mois(fin));
+    let nm = i64::from(dernier - premier + 1);
+    let plafond = credit_prorata(total.saturating_abs(), 1, nm);
+    let mut imputes: BTreeMap<i32, i64> = BTreeMap::new();
+    let ajouter = |imputes: &mut BTreeMap<i32, i64>, m: i32, voulu: i64| -> i64 {
+        let deja = imputes.get(&m).copied().unwrap_or(0);
+        let pris = voulu.min(plafond.saturating_sub(deja)).max(0);
+        if pris > 0 {
+            imputes.insert(m, deja + pris);
+        }
+        pris
+    };
+    let mois_nets: Vec<i32> = (premier..=dernier)
+        .filter(|m| !decouverts.contains(m))
+        .collect();
+    for a in avoirs {
+        let mut reste = a.montant.saturating_abs();
+        if a.cle.starts_with("sortie:") {
+            for &m in mois_nets.iter().rev() {
+                if reste <= 0 {
+                    break;
+                }
+                reste -= ajouter(&mut imputes, m, reste);
+            }
+        } else if a.cle.starts_with("absence:") {
+            let (pd, pf) = a.periode.unwrap_or((debut, fin));
+            let (pd, pf) = (pd.max(debut), pf.min(fin));
+            if pf < pd {
+                continue;
+            }
+            let jours: Vec<(i32, i64)> = (indice_mois(pd)..=indice_mois(pf))
+                .filter(|m| !decouverts.contains(m))
+                .map(|m| {
+                    let p1 = premier_du_mois(m);
+                    let p2 = calcul::fin_de_mois(p1.year(), p1.month());
+                    (m, (pf.min(p2) - pd.max(p1)).num_days() + 1)
+                })
+                .filter(|(_, j)| *j > 0)
+                .collect();
+            for (m, part) in calcul::repartir(reste, &jours) {
+                ajouter(&mut imputes, m, part);
+            }
+        }
+    }
+    imputes
+}
+
+// ---------------------------------------------------------------------------
 // Régularisation (§ 2.3)
 // ---------------------------------------------------------------------------
 
@@ -287,6 +401,17 @@ pub(crate) async fn regulariser_regime_annee(
         .filter(|l| l.categorie.as_deref() == Some("bourse"))
         .cloned()
         .collect();
+    // F-9 : la restauration et l'internat sans période complète ne sont pas régularisés au mois, mais comptent
+    // dans le plafond de la bourse (sinon la bourse serait replafonnée à tort, famille surfacturée).
+    let mut plafond_bourse: HashMap<Uuid, i64> = HashMap::new();
+    let sans_periode =
+        crate::finances::lignes_eleve_annee_sans_periode(conn, etab, eleve, annee).await?;
+    for l in sans_periode
+        .iter()
+        .filter(|l| matches!(l.categorie.as_deref(), Some("restauration" | "internat")))
+    {
+        *plafond_bourse.entry(l.foyer_id).or_insert(0) += l.total - l.deja_credite;
+    }
     let lignes: Vec<LigneExistante> = toutes
         .into_iter()
         .filter(|l| {
@@ -305,9 +430,10 @@ pub(crate) async fn regulariser_regime_annee(
     let premiers: Vec<NaiveDate> = indices.iter().map(|i| premier_du_mois(*i)).collect();
     let regimes = regimes_par_mois(conn, etab, eleve, &premiers).await?;
     let par_mois: HashMap<i32, RegimeMois> = indices.iter().copied().zip(regimes).collect();
+    let ids: Vec<Uuid> = lignes.iter().map(|l| l.id).collect();
+    let avoirs_lignes = avoirs_des_lignes(conn, etab, &ids).await?;
     let mut avoirs: Vec<AvoirAFaire> = Vec::new();
     // Restauration et internat restant dus par foyer, après les avoirs ci-dessous : plafond de la bourse (R-F14).
-    let mut plafond_bourse: HashMap<Uuid, i64> = HashMap::new();
     for l in lignes {
         let avoirs_avant = avoirs.len();
         let (Some(d), Some(f)) = (l.periode_debut, l.periode_fin) else {
@@ -319,52 +445,43 @@ pub(crate) async fn regulariser_regime_annee(
             .filter(|m| !l.decouverts.contains(m))
             .filter(|m| matches!(par_mois.get(m), Some(RegimeMois::Connu(r)) if !calcul::categorie_due(&categorie, r)))
             .collect();
-        // Reste créditable : ce qui reste sur la ligne moins la valeur des mois **conservés** (couverts nets non crédités),
-        // pour qu'un avoir de sortie ou d'absence déjà posé ne mène jamais à rembourser des mois dus (double crédit).
-        let nets = (indice_mois(d)..=indice_mois(f))
-            .filter(|m| !l.decouverts.contains(m))
-            .count() as i64;
-        let conserves = (nets - a_crediter.len() as i64).max(0);
-        let decouverts = (nm - nets).max(0);
-        // Valeur (au centime inférieur, en valeur absolue) de `k` mois de la ligne, du signe du total.
-        let valeur_mois = |k: i64| -> i64 {
-            let v = i128::from(l.total).abs() * i128::from(k) / i128::from(nm.max(1));
-            let v = i64::try_from(v).unwrap_or(i64::MAX);
-            if l.total >= 0 {
-                v
-            } else {
-                -v
-            }
-        };
-        // Ce que sorties, absences et remises d'ordre ont déjà crédité sur les mois conservés : le déjà-crédité total
-        // moins la valeur des mois découverts (crédités par le régime). Ces mois conservés sont déjà (en partie)
-        // remboursés : la réserve ne compte que le reste dû, jamais deux fois (D-069 : pas de surfacturation).
-        let credit_hors_regime = l.deja_credite - valeur_mois(decouverts);
-        let reserve = {
-            let r = valeur_mois(conserves) - credit_hors_regime;
-            if l.total >= 0 {
-                r.max(0)
-            } else {
-                r.min(0)
-            }
-        };
-        let mut reste = l.total - l.deja_credite - reserve;
+        // M-5 : les crédits de sortie et d'absence sont **imputés mois par mois** (`imputer_hors_regime`). Un mois à
+        // créditer par le régime n'est crédité que de ce que ces avoirs ne lui ont pas déjà rendu (jamais deux fois) ;
+        // la réserve des mois **conservés** retire ce qui leur est imputé, puis les crédits sans mois (avoir manuel,
+        // changement de payeur), imputés d'abord aux mois conservés (D-069 : jamais de surfacturation). Calcul en
+        // valeur absolue, du signe du total à la fin (une réduction est créditée au centime inférieur).
+        let signe = if l.total < 0 { -1 } else { 1 };
+        let total_abs = l.total.abs();
+        let deja_abs = signe * l.deja_credite;
+        let vide = AvoirsDeLigne::default();
+        let de_ligne = avoirs_lignes.get(&l.id).unwrap_or(&vide);
+        let imputes = imputer_hors_regime(d, f, l.total, &l.decouverts, &de_ligne.hors_regime);
+        let impute_total: i64 = imputes.values().sum();
+        let sans_mois = (deja_abs - de_ligne.regime_abs - impute_total).max(0);
+        let conserves: Vec<i32> = (indice_mois(d)..=indice_mois(f))
+            .filter(|m| !l.decouverts.contains(m) && !a_crediter.contains(m))
+            .collect();
+        let impute_conserves: i64 = conserves.iter().filter_map(|m| imputes.get(m)).sum();
+        // valeur des mois conservés au centime inférieur
+        let valeur_conserves = calcul::proportion(total_abs, conserves.len() as i64, nm);
+        let reserve = valeur_conserves
+            .saturating_sub(impute_conserves)
+            .saturating_sub(sans_mois)
+            .max(0);
+        let mut reste = total_abs
+            .saturating_sub(deja_abs)
+            .saturating_sub(reserve)
+            .max(0);
         for (debut, fin) in suites(&a_crediter) {
-            let credit = credit_prorata(l.total, i64::from(fin - debut + 1), nm);
-            // borné par ce qui reste sur la ligne (même signe que le total)
-            let credit = if reste.signum() == l.total.signum() && l.total != 0 {
-                if l.total > 0 {
-                    credit.min(reste)
-                } else {
-                    credit.max(reste)
-                }
-            } else {
-                0
-            };
+            let base = credit_prorata(l.total, i64::from(fin - debut + 1), nm).abs();
+            let deja_rendu: i64 = (debut..=fin).filter_map(|m| imputes.get(&m)).sum();
+            // borné par ce qui reste sur la ligne
+            let credit = base.saturating_sub(deja_rendu).max(0).min(reste);
             if credit == 0 {
                 continue;
             }
             reste -= credit;
+            let credit = signe * credit;
             let (p1, p2) = (premier_du_mois(debut), premier_du_mois(fin));
             avoirs.push(AvoirAFaire {
                 credit,

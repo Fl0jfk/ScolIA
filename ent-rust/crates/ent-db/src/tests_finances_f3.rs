@@ -7565,3 +7565,243 @@ async fn regime_mois_m4b_regime_et_prise_plafonnee() {
     reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
 }
+
+/// M-5 : sortie au 10 avril (mai et juin crédités, 90 €), puis historique externe d'avril à juin : les 7 mois de
+/// septembre à mars restent dus, 315 €. Mai et juin ne sont pas crédités une seconde fois (l'ancien calcul donnait
+/// 225 €, 90 € de sous-facturation). Rejeux neutres.
+#[tokio::test]
+async fn regime_mois_m5_sortie_puis_regime_externe_sur_les_memes_mois_credites_une_fois() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "M5", "demi_pension").await;
+    facturer(&ent, etab, el).await;
+    sortie_a(&ent, etab, el, d(2031, 4, 10), Uuid::new_v4()).await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        36_000,
+        "sortie : mai et juin crédités"
+    );
+    nouvelle_periode(
+        &ent,
+        etab,
+        el,
+        "demi_pension",
+        d(2030, 1, 1),
+        Some(d(2031, 3, 31)),
+    )
+    .await;
+    nouvelle_periode(&ent, etab, el, "externe", d(2031, 4, 1), None).await;
+    reaction_regime(&ent, etab, el, d(2031, 4, 1), Uuid::new_v4()).await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        31_500,
+        "septembre à mars : avril crédité par le régime, mai et juin une seule fois"
+    );
+    let avant = lignes_de(&ent, el).await;
+    reaction_regime(&ent, etab, el, d(2031, 4, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    assert_eq!(net_art(&ent, dp, el).await, 31_500);
+}
+
+/// M-5 (absence) : remise d'ordre du 10 au 24 mai (15 jours sur 303 : 22,27 €), puis externe à partir de mai : mai et
+/// juin ne sont plus dus ; mai n'est crédité que de ce que la remise ne lui a pas rendu. Net : septembre à avril, 360 €
+/// (l'ancien calcul donnait 337,73 €).
+#[tokio::test]
+async fn regime_mois_m5_remise_d_ordre_puis_regime_externe_sur_le_meme_mois() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "M5b", "demi_pension").await;
+    facturer(&ent, etab, el).await;
+    absence_de(&ent, etab, el, d(2031, 5, 10), d(2031, 5, 24)).await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        45_000 - 2_227,
+        "remise d'ordre de 15 jours"
+    );
+    let (debut, fin): (Option<NaiveDate>, Option<NaiveDate>) = sqlx::query_as(
+        "SELECT periode_debut, periode_fin FROM ent_fac_ligne WHERE eleve_id = $1 AND source_cle LIKE 'absence:%'",
+    )
+    .bind(el)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(
+        (debut, fin),
+        (Some(d(2031, 5, 10)), Some(d(2031, 5, 24))),
+        "l'avoir d'absence porte les jours de l'absence"
+    );
+    nouvelle_periode(
+        &ent,
+        etab,
+        el,
+        "demi_pension",
+        d(2030, 1, 1),
+        Some(d(2031, 4, 30)),
+    )
+    .await;
+    nouvelle_periode(&ent, etab, el, "externe", d(2031, 5, 1), None).await;
+    reaction_regime(&ent, etab, el, d(2031, 5, 1), Uuid::new_v4()).await;
+    assert_eq!(net_art(&ent, dp, el).await, 36_000, "septembre à avril");
+    let avant = lignes_de(&ent, el).await;
+    reaction_regime(&ent, etab, el, d(2031, 5, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+}
+
+/// M-5 (pur) : imputation mois par mois des avoirs de sortie (depuis la fin, hors mois découverts) et d'absence (au
+/// prorata des jours) ; un avoir manuel n'est imputé à aucun mois ; jamais plus que la valeur d'un mois.
+#[test]
+fn regime_mois_m5_imputation_des_sorties_et_absences() {
+    use crate::finances::indice_mois;
+    use crate::finances_regime::{imputer_hors_regime, AvoirRegime};
+    let (debut, fin) = (d(2030, 9, 1), d(2031, 6, 30));
+    let av = |cle: &str, periode: Option<(NaiveDate, NaiveDate)>, montant: i64| AvoirRegime {
+        cle: cle.into(),
+        periode,
+        montant,
+    };
+    let m = |a: i32, mo: u32| indice_mois(d(a, mo, 1));
+    let aucun = std::collections::BTreeSet::new();
+    // sortie de 90 € : mai et juin
+    let i = imputer_hors_regime(
+        debut,
+        fin,
+        45_000,
+        &aucun,
+        &[av("sortie:e:l", Some((debut, fin)), -9_000)],
+    );
+    assert_eq!(
+        i.into_iter().collect::<Vec<_>>(),
+        vec![(m(2031, 5), 4_500), (m(2031, 6), 4_500)]
+    );
+    // juin découvert par le régime : la sortie remplit mai puis avril
+    let juin: std::collections::BTreeSet<i32> = [m(2031, 6)].into_iter().collect();
+    let i = imputer_hors_regime(debut, fin, 45_000, &juin, &[av("sortie:e:l", None, -9_000)]);
+    assert_eq!(
+        i.into_iter().collect::<Vec<_>>(),
+        vec![(m(2031, 4), 4_500), (m(2031, 5), 4_500)]
+    );
+    // absence du 25 avril au 4 mai (10 jours : 6 en avril, 4 en mai), 30 €
+    let i = imputer_hors_regime(
+        debut,
+        fin,
+        45_000,
+        &aucun,
+        &[av(
+            "absence:a:l",
+            Some((d(2031, 4, 25), d(2031, 5, 4))),
+            -3_000,
+        )],
+    );
+    assert_eq!(
+        i.into_iter().collect::<Vec<_>>(),
+        vec![(m(2031, 4), 1_800), (m(2031, 5), 1_200)]
+    );
+    // avoir manuel et changement de payeur : aucun mois
+    let i = imputer_hors_regime(
+        debut,
+        fin,
+        45_000,
+        &aucun,
+        &[
+            av("avoir:x:l", Some((debut, fin)), -10_000),
+            av("chgpayeur:r", Some((debut, fin)), -5_000),
+        ],
+    );
+    assert!(i.is_empty());
+    // jamais plus d'un mois de valeur : sortie et absence sur juin
+    let i = imputer_hors_regime(
+        debut,
+        fin,
+        45_000,
+        &aucun,
+        &[
+            av("sortie:e:l", None, -4_500),
+            av("absence:a:l", Some((d(2031, 6, 1), d(2031, 6, 20))), -2_970),
+        ],
+    );
+    assert_eq!(i.into_iter().collect::<Vec<_>>(), vec![(m(2031, 6), 4_500)]);
+    // réduction (total négatif) : mêmes mois, en valeur absolue
+    let i = imputer_hors_regime(debut, fin, -4_500, &aucun, &[av("sortie:e:l", None, 900)]);
+    assert_eq!(
+        i.into_iter().collect::<Vec<_>>(),
+        vec![(m(2031, 5), 450), (m(2031, 6), 450)]
+    );
+}
+
+/// F-9 : bourse de 300 €, demi-pension (450 €) et une consommation de restauration **sans période** (200 €) ;
+/// demi-pension → externe au 1er novembre : la restauration restant due vaut 90 € + 200 € ; la bourse est replafonnée
+/// à 290 €, pas à 90 € (la consommation compte dans le plafond, R-F14). Rejeux neutres.
+#[tokio::test]
+async fn regime_mois_f9_consommation_sans_periode_comptee_dans_le_plafond_de_la_bourse() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "F9", "demi_pension").await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    let bt = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_bourse_type (id, etablissement_id, code, libelle) VALUES ($1, $2, 'F9', 'Bourse F9')")
+        .bind(bt)
+        .bind(etab)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_fin_bourse_bareme (id, etablissement_id, annee_scolaire, bourse_type_id, echelon, montant_annuel_centimes)
+         VALUES ($1, $2, $3, $4, '1', 30000)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(ANNEE)
+    .bind(bt)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ent_eleve_bourse (id, etablissement_id, eleve_id, bourse_type_id, echelon, avec_procuration, status, date_debut)
+         VALUES ($1, $2, $3, $4, '1', true, 'acceptee', '2030-09-01')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(el)
+    .bind(bt)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        net_categorie(&ent, el, "bourse").await,
+        -30_000,
+        "bourse posée en entier"
+    );
+    // consommation de restauration saisie sans dates, sur la facture de l'élève
+    sqlx::query(
+        "INSERT INTO ent_fac_ligne (id, etablissement_id, facture_id, eleve_id, libelle, quantite,
+                montant_unitaire_centimes, source_cle, categorie)
+         SELECT $1, l.etablissement_id, l.facture_id, l.eleve_id, 'Repas hors forfait', 1, 20000, $2, 'restauration'
+           FROM ent_fac_ligne l WHERE l.eleve_id = $3 AND l.article_id = $4 AND l.ligne_origine_id IS NULL LIMIT 1",
+    )
+    .bind(Uuid::new_v4())
+    .bind(format!("conso:f9:{el}"))
+    .bind(el)
+    .bind(dp)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    regime_de_a(&ent, etab, el, "demi_pension", "externe", d(2030, 11, 1)).await;
+    assert_eq!(net_art(&ent, dp, el).await, 9_000, "septembre et octobre");
+    assert_eq!(
+        net_categorie(&ent, el, "bourse").await,
+        -29_000,
+        "plafond : 90 € de forfait + 200 € de consommation"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 11, 1), Uuid::new_v4()).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    assert_eq!(net_categorie(&ent, el, "bourse").await, -29_000);
+}
