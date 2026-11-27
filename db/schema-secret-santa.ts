@@ -54,4 +54,22 @@ export const secretSantaParticipant = pgTable(
   ],
 );
 
-export const secretSantaSchema = { secretSanta, secretSantaParticipant };
+/**
+ * Incompatibilités confidentielles de l'établissement (`userA` < `userB`). Les liens vers `user`
+ * (suppression en cascade) sont posés par la migration SQL.
+ */
+export const secretSantaIncompatibility = pgTable(
+  "secret_santa_incompatibility",
+  {
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    userA: text("user_a").notNull(),
+    userB: text("user_b").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "secret_santa_incompatibility_pk", columns: [t.etablissementId, t.userA, t.userB] })],
+);
+
+export const secretSantaSchema = { secretSanta, secretSantaParticipant, secretSantaIncompatibility };

@@ -30,6 +30,8 @@ const BLOCKER_TEXT = {
   not_enough: "Moins de 3 personnes ont accepté : le tirage n'a pas eu lieu.",
   too_many_exclusions:
     "Avec les personnes qui ont accepté, les paires interdites sont trop nombreuses pour garder le secret : le tirage n'a pas eu lieu.",
+  confidential_rules:
+    "Le tirage ne peut pas avoir lieu avec les personnes qui ont accepté. La personne qui organise doit contacter l'administrateur.",
 };
 
 type Loaded = { view: SantaView; offsetMs: number };

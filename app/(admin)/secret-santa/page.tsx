@@ -6,6 +6,7 @@ import Link from "@/app/components/ui/AppLink";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import SantaForm, { type SantaFormValues } from "@/app/components/secret-santa/SantaForm";
+import SantaRulesPanel from "@/app/components/secret-santa/SantaRulesPanel";
 
 type Item = {
   id: string;
@@ -125,6 +126,7 @@ export default function SecretSantaListPage() {
           ))}
         </ul>
       )}
+      {!creating && <SantaRulesPanel />}
     </ModulePageShell>
   );
 }

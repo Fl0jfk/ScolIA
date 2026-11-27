@@ -14,8 +14,13 @@ export async function GET(_req: Request, { params }: Params) {
   try {
     const { id } = await params;
     const now = new Date();
-    const { santa, participants } = await readSantaFor(auth.ctx.etablissementId, id, auth.ctx.userId, now);
-    const view = buildSantaView(santa, participants, auth.ctx.userId, now);
+    const { santa, participants, confidential } = await readSantaFor(
+      auth.ctx.etablissementId,
+      id,
+      auth.ctx.userId,
+      now,
+    );
+    const view = buildSantaView(santa, participants, auth.ctx.userId, now, confidential);
     const receiver = view.mine ? receiverOf(participants, auth.ctx.userId) : null;
     if (view.mine && receiver && (await listAvatarVersions([receiver.userId])).size) {
       // La version force le rechargement après un changement, sans désigner la personne.

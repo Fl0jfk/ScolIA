@@ -6,11 +6,13 @@ import { getDb } from "@/db/index";
 import { secretSanta, secretSantaParticipant, user, userMembership } from "@/db/schema";
 import { listUserRolesBatchFromDb } from "@/app/lib/auth-roles-db";
 import { canUseMessaging } from "@/app/lib/messaging/access";
+import { listIncompatibilities } from "@/app/lib/secret-santa-rules-db";
 import {
   SantaError,
   canSeeSanta,
-  drawBlocker,
+  drawBlockerWithRules,
   drawSecretSanta,
+  mergeExclusions,
   exclusionsAmong,
   isRevealDue,
   repairAfterWithdrawal,
@@ -156,8 +158,10 @@ async function readParticipants(tx: Tx, santaId: string): Promise<ParticipantRow
 async function drawIfDue(tx: Tx, row: SantaRow, now: Date): Promise<SantaRow> {
   if (row.drawnAt || !isRevealDue(row.revealAt, now)) return row;
   const accepted = (await readParticipants(tx, row.id)).filter((p) => p.response === "accepted").map((p) => p.userId);
-  if (drawBlocker(accepted, row.exclusions ?? [])) return row;
-  const pairs = drawSecretSanta(accepted, exclusionsAmong(accepted, row.exclusions ?? []), (max) => randomInt(max));
+  const confidential = await listIncompatibilities(row.etablissementId, tx);
+  if (drawBlockerWithRules(accepted, row.exclusions ?? [], confidential)) return row;
+  const rules = mergeExclusions(row.exclusions ?? [], confidential);
+  const pairs = drawSecretSanta(accepted, exclusionsAmong(accepted, rules), (max) => randomInt(max));
   for (const pair of pairs) {
     await tx
       .update(secretSantaParticipant)
@@ -189,7 +193,11 @@ export async function readSantaFor(etabId: string, santaId: string, userId: stri
       .where(eq(secretSantaParticipant.santaId, current.id))
       .orderBy(asc(secretSantaParticipant.displayName), asc(secretSantaParticipant.userId));
     if (!canSeeSanta(current, participants, userId)) throw NOT_FOUND();
-    return { santa: toRecord(current), participants: participants.map(toParticipant) };
+    return {
+      santa: toRecord(current),
+      participants: participants.map(toParticipant),
+      confidential: [],
+    };
   }
   return db.transaction(async (tx) => {
     let row = await lockSanta(tx, etabId, santaId);
@@ -198,7 +206,11 @@ export async function readSantaFor(etabId: string, santaId: string, userId: stri
     const wasDrawn = row.drawnAt !== null;
     row = await drawIfDue(tx, row, now);
     const participants = !wasDrawn && row.drawnAt ? await readParticipants(tx, row.id) : before;
-    return { santa: toRecord(row), participants: participants.map(toParticipant) };
+    return {
+      santa: toRecord(row),
+      participants: participants.map(toParticipant),
+      confidential: row.drawnAt ? [] : await listIncompatibilities(etabId, tx),
+    };
   });
 }
 
@@ -403,7 +415,8 @@ export async function withdrawAfterDraw(etabId: string, santaId: string, organiz
       throw new SantaError("Cette personne ne fait pas partie du tirage.", 409);
     }
     const before = inDraw.map((p) => ({ giver: p.userId, receiver: p.receiverUserId! }));
-    const after = repairAfterWithdrawal(before, targetId, row.exclusions ?? [], (max) => randomInt(max));
+    const rules = mergeExclusions(row.exclusions ?? [], await listIncompatibilities(etabId, tx));
+    const after = repairAfterWithdrawal(before, targetId, rules, (max) => randomInt(max));
     const now = new Date();
     const toNotify: ParticipantRow[] = [];
     for (const pair of after) {

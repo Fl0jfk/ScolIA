@@ -6,12 +6,14 @@
 export const SANTA_MIN_PARTICIPANTS = 3;
 export const SANTA_MAX_PARTICIPANTS = 300;
 export const SANTA_MAX_EXCLUSIONS = 200;
+/** Plafond de personnes à éviter pour chacun, quel que soit le groupe. */
+export const SANTA_MAX_RULES_PER_PERSON = 5;
 /**
  * Nombre de paires interdites par personne. Sans cette limite, l'organisateur pourrait réduire les
  * choix au point d'imposer (donc de connaître) des paires. Il en reste au moins les deux tiers.
  */
 export const santaMaxExclusionsPerPerson = (participantCount: number) =>
-  Math.min(3, Math.floor((participantCount - 1) / 3));
+  Math.min(SANTA_MAX_RULES_PER_PERSON, Math.floor((participantCount - 1) / 3));
 /** Délai minimal entre deux e-mails d'invitation à la même personne. */
 export const SANTA_RESEND_MIN_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -170,7 +172,7 @@ function parseEvent(b: Record<string, unknown>, revealAt: Date | null): { eventP
  * Ce qui empêche le tirage entre les personnes qui ont accepté. Les règles qui concernent une
  * personne absente ne comptent pas ; celles qui restent doivent préserver le secret.
  */
-export type SantaBlocker = "not_enough" | "too_many_exclusions";
+export type SantaBlocker = "not_enough" | "too_many_exclusions" | "confidential_rules";
 
 export function exclusionsAmong(ids: string[], exclusions: SantaExclusion[]): SantaExclusion[] {
   const present = new Set(ids);
@@ -191,6 +193,31 @@ export function drawBlocker(acceptedIds: string[], exclusions: SantaExclusion[])
     return "too_many_exclusions";
   }
   return null;
+}
+
+/** Réunit les règles de l'organisateur et les incompatibilités confidentielles, sans doublon. */
+export function mergeExclusions(...lists: SantaExclusion[][]): SantaExclusion[] {
+  const out = new Map<string, SantaExclusion>();
+  for (const [a, b] of lists.flat()) {
+    const pair: SantaExclusion = a < b ? [a, b] : [b, a];
+    out.set(pairKey(...pair), pair);
+  }
+  return [...out.values()];
+}
+
+/**
+ * Comme `drawBlocker`, avec les incompatibilités confidentielles : si elles seules empêchent le
+ * tirage, le motif ne dit rien de leur contenu. La limite par personne vaut pour l'ensemble.
+ */
+export function drawBlockerWithRules(
+  acceptedIds: string[],
+  exclusions: SantaExclusion[],
+  confidential: SantaExclusion[],
+): SantaBlocker | null {
+  return (
+    drawBlocker(acceptedIds, exclusions) ??
+    (drawBlocker(acceptedIds, mergeExclusions(exclusions, confidential)) ? "confidential_rules" : null)
+  );
 }
 
 /**
@@ -215,7 +242,7 @@ export function repairAfterWithdrawal(
   const relevant = exclusionsAmong(remaining, exclusions);
   if (exceedsExclusionLimit(remaining, relevant) || !isDrawFeasible(remaining, relevant)) {
     throw new SantaError(
-      "Impossible : avec les paires interdites, le tirage entre les personnes restantes ne serait plus secret.",
+      "Impossible : avec les règles de ce tirage, le résultat entre les personnes restantes ne serait plus secret. Voyez avec l'administrateur.",
       409,
     );
   }
@@ -392,6 +419,8 @@ export function buildSantaView(
   participants: SantaParticipantRecord[],
   userId: string,
   now: Date,
+  /** Sert au seul motif de blocage : n'apparaît jamais dans la vue. */
+  confidential: SantaExclusion[] = [],
 ): SantaView {
   const me = participants.find((p) => p.userId === userId) ?? null;
   const isOrganizer = santa.organizerUserId === userId;
@@ -417,9 +446,10 @@ export function buildSantaView(
     canRespond: Boolean(me) && me!.response !== "withdrawn" && !santa.drawnAt && !due,
     blocker:
       !santa.drawnAt && due
-        ? drawBlocker(
+        ? drawBlockerWithRules(
             accepted.map((p) => p.userId),
             santa.exclusions,
+            confidential,
           )
         : null,
     invitedCount: participants.length,

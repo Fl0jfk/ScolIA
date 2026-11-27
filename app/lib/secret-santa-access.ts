@@ -6,6 +6,7 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { canUseMessaging } from "@/app/lib/messaging/access";
 import { resolveActiveSupervision } from "@/app/lib/supervision";
 import { SantaError } from "@/app/lib/secret-santa";
+import { canManageSantaRules } from "@/app/lib/secret-santa-rules";
 
 export type SantaContext = { userId: string; name: string; etablissementId: string };
 
@@ -40,6 +41,17 @@ export async function requireSantaContext(): Promise<
   if (!etablissementId) return refuse("Établissement introuvable.", "ETABLISSEMENT_REQUIRED", 503);
   const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.name || user.email;
   return { ok: true, ctx: { userId: user.id, name, etablissementId } };
+}
+
+/** Incompatibilités : administrateur de l'établissement courant seulement, jamais en supervision. */
+export async function requireSantaRulesAdmin(): ReturnType<typeof requireSantaContext> {
+  const auth = await requireSantaContext();
+  if (!auth.ok) return auth;
+  const session = await getAppSession();
+  if (!session || !canManageSantaRules(session.user)) {
+    return refuse("Réservé à l'administrateur.", "SANTA_RULES_FORBIDDEN", 403);
+  }
+  return auth;
 }
 
 function errorSummary(error: unknown): string {
