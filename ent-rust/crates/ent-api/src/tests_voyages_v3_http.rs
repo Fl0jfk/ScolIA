@@ -880,4 +880,79 @@ async fn routes_d_argent_de_v3_repondent_201_202_403_404_422() {
             .0,
         StatusCode::CONFLICT
     );
+
+    // Palier des faibles n° 2 (F-7 de la contre-revue V3b suites 2) : révocation par HTTP. La comptabilité devient parent
+    // d'un participant (liée : elle doit demander un contournement), la direction (libre) autorise ; seule l'autrice
+    // révoque (200), la demandeuse reçoit 403, un autre établissement 404 ; une seconde révocation : 409.
+    sqlx::query("INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, lien) VALUES ($1, $2, $3, $4, 'pere')")
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(cast.eleve_lea_id)
+        .bind(cast.compta.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (st, c) = appel(
+        &app,
+        "POST",
+        &url_cont,
+        Some(compta),
+        Some(json!({"action": "annulation_collective", "motif": "Liée à un participant"})),
+    )
+    .await;
+    assert!(st.is_success(), "{st} {c}");
+    assert_eq!(c["statut"].as_str(), Some("en_attente"), "{c}");
+    let cid = c["id"]
+        .as_str()
+        .expect("identifiant de la demande")
+        .to_string();
+    // F-1 : une famille ne décide jamais d'un contournement (elle ne voit pas l'argent de la sortie) ; la demande reste
+    // en attente.
+    assert_eq!(
+        appel(
+            &app,
+            "POST",
+            &format!("{url_cont}/{cid}/decision"),
+            Some(parent),
+            Some(json!({"autoriser": true}))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let (st, c) = appel(
+        &app,
+        "POST",
+        &format!("{url_cont}/{cid}/decision"),
+        Some(dir),
+        Some(json!({"autoriser": true})),
+    )
+    .await;
+    assert_eq!(
+        (st, c["statut"].as_str()),
+        (StatusCode::OK, Some("autorise")),
+        "{c}"
+    );
+    let url_rev = format!("{url_cont}/{cid}/revocation");
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(compta), None).await.0,
+        StatusCode::FORBIDDEN,
+        "la demandeuse n'est pas l'autrice de l'autorisation"
+    );
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(b_dir), None).await.0,
+        StatusCode::NOT_FOUND,
+        "un autre établissement ne voit pas la sortie"
+    );
+    let (st, c) = appel(&app, "POST", &url_rev, Some(dir), None).await;
+    assert_eq!(
+        (st, c["statut"].as_str()),
+        (StatusCode::OK, Some("revoque")),
+        "{c}"
+    );
+    assert_eq!(
+        appel(&app, "POST", &url_rev, Some(dir), None).await.0,
+        StatusCode::CONFLICT,
+        "une autorisation révoquée ne se révoque pas deux fois"
+    );
 }

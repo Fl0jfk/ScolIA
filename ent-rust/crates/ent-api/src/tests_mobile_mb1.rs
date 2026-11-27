@@ -682,3 +682,187 @@ async fn mb2_401_jeton_mort_sur_auth_et_mot_de_passe_actuel_refuse() {
     .await;
     assert_eq!(r.code(), "session.expiree");
 }
+
+// ───────────────────────── Palier des faibles regroupés n° 2 (restes de la contre-revue MB1) ─────────────────────────
+
+/// Attend (au plus 10 s, sans horloge métier) que le nom ait été exécuté `n` fois.
+async fn attendre_executions(b: &Banc, jeton: &str, nom: &str, n: u64) {
+    for _ in 0..400 {
+        if executions(b, jeton, nom).await >= n {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!("{nom} : {n} exécution(s) attendue(s)");
+}
+
+/// F3 : au plus `ATTENTES_MAX_PAR_SESSION` requêtes d'une session attendent une clé en cours ; les suivantes reçoivent
+/// `409 idempotence.en_cours` tout de suite (avec `Retry-After`) ; celles qui attendaient rejouent l'unique exécution.
+#[tokio::test]
+async fn faibles2_mb1_f3_attente_plafonnee_par_session() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    let nom = format!("plafond-{}", Uuid::new_v4().simple());
+    let k = cle();
+    let premiere = {
+        let (app, jeton, k, nom) = (b.app.clone(), jeton.clone(), k.clone(), nom.clone());
+        tokio::spawn(async move {
+            envoyer(
+                &app,
+                "POST",
+                "/mobile/labo/echo",
+                Some(&jeton),
+                &[APPLI, ("idempotency-key", &k)],
+                Some(json!({"nom": nom, "delai_ms": 3000})),
+            )
+            .await
+            .statut
+        })
+    };
+    attendre_executions(&b, &jeton, &nom, 1).await;
+    let n = crate::idempotence::ATTENTES_MAX_PAR_SESSION + 2;
+    let mut ensemble = tokio::task::JoinSet::new();
+    for _ in 0..n {
+        let (app, jeton, k, nom) = (b.app.clone(), jeton.clone(), k.clone(), nom.clone());
+        ensemble.spawn(async move {
+            envoyer(
+                &app,
+                "POST",
+                "/mobile/labo/echo",
+                Some(&jeton),
+                &[APPLI, ("idempotency-key", &k)],
+                Some(json!({"nom": nom, "delai_ms": 3000})),
+            )
+            .await
+        });
+    }
+    let suivantes = ensemble.join_all().await;
+    assert_eq!(premiere.await.unwrap(), StatusCode::CREATED);
+    let rejouees = suivantes
+        .iter()
+        .filter(|r| {
+            r.statut == StatusCode::CREATED && r.en_tetes.contains_key("idempotent-replayed")
+        })
+        .count();
+    let refusees: Vec<_> = suivantes
+        .iter()
+        .filter(|r| r.statut == StatusCode::CONFLICT)
+        .collect();
+    assert_eq!(
+        rejouees,
+        crate::idempotence::ATTENTES_MAX_PAR_SESSION,
+        "les places d'attente rejouent"
+    );
+    assert_eq!(refusees.len(), 2, "au-delà du plafond : refus immédiat");
+    for r in refusees {
+        assert_eq!(
+            r.code(),
+            CodeErreur::IdempotenceEnCours.as_str(),
+            "{}",
+            r.texte
+        );
+        assert!(r.en_tetes.contains_key("retry-after"));
+    }
+    assert_eq!(executions(&b, &jeton, &nom).await, 1, "une seule exécution");
+}
+
+/// Reprise après abandon : le client coupe pendant l'exécution ; la tâche détachée conserve quand même la réponse, et
+/// le nouvel essai de même clé la rejoue au lieu de réexécuter.
+#[tokio::test]
+async fn faibles2_mb1_reprise_apres_abandon_du_client_rejoue_sans_reexecuter() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    let nom = format!("abandon-{}", Uuid::new_v4().simple());
+    let k = cle();
+    let coupee = {
+        let (app, jeton, k, nom) = (b.app.clone(), jeton.clone(), k.clone(), nom.clone());
+        tokio::spawn(async move {
+            envoyer(
+                &app,
+                "POST",
+                "/mobile/labo/echo",
+                Some(&jeton),
+                &[APPLI, ("idempotency-key", &k)],
+                Some(json!({"nom": nom, "delai_ms": 600})),
+            )
+            .await
+        })
+    };
+    attendre_executions(&b, &jeton, &nom, 1).await;
+    coupee.abort();
+    assert!(
+        matches!(coupee.await, Err(e) if e.is_cancelled()),
+        "le client a coupé"
+    );
+    let r = echo(&b, &jeton, &k, &nom, 600).await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte);
+    assert!(
+        r.en_tetes.contains_key("idempotent-replayed"),
+        "réponse rejouée"
+    );
+    assert_eq!(r.json()["execution"], 1);
+    assert_eq!(executions(&b, &jeton, &nom).await, 1, "jamais réexécutée");
+}
+
+/// Borne d'exécution : une écriture plus longue que la borne est interrompue (`408 delai.depasse`) et sa clé est
+/// close non rejouable : un nouvel essai ne l'exécute pas une seconde fois. La borne est raccourcie pour ce seul
+/// établissement.
+#[tokio::test]
+async fn faibles2_mb1_execution_bornee_cle_close_non_rejouable() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    crate::idempotence::raccourcir_delai_execution(b.etab, 200);
+    let (_, jeton) = inscrire(&b).await;
+    let nom = format!("borne-{}", Uuid::new_v4().simple());
+    let k = cle();
+    let r = echo(&b, &jeton, &k, &nom, 2000).await;
+    assert_eq!(r.statut, StatusCode::REQUEST_TIMEOUT, "{}", r.texte);
+    assert_eq!(r.code(), CodeErreur::DelaiDepasse.as_str());
+    // Même requête (même corps, donc même empreinte) : close, jamais réexécutée.
+    let r = echo(&b, &jeton, &k, &nom, 2000).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte);
+    assert_eq!(r.code(), CodeErreur::IdempotenceNonRejouable.as_str());
+    assert_eq!(
+        executions(&b, &jeton, &nom).await,
+        1,
+        "une seule exécution, jamais reprise"
+    );
+    // Une autre clé s'exécute normalement (sous la borne).
+    let r = echo(&b, &jeton, &cle(), &nom, 0).await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte);
+}
+
+/// Échec de conservation évité : une réponse dont l'en-tête `Location` dépasse la borne de la table est close non
+/// rejouable (jamais « en cours », jamais réexécutée) ; la première réponse est servie intacte.
+#[tokio::test]
+async fn faibles2_mb1_reponse_hors_bornes_non_rejouable_sans_seconde_execution() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    let nom = format!("hors-bornes-{}", Uuid::new_v4().simple());
+    let k = cle();
+    let en_tetes = [APPLI, ("idempotency-key", k.as_str())];
+    let envoi = || {
+        envoyer(
+            &b.app,
+            "POST",
+            "/mobile/labo/emplacement",
+            Some(&jeton),
+            &en_tetes,
+            Some(json!({"nom": nom})),
+        )
+    };
+    let r = envoi().await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte);
+    assert!(r.en_tetes.get("location").is_some_and(|l| l.len() > 500));
+    let r = envoi().await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte);
+    assert_eq!(r.code(), CodeErreur::IdempotenceNonRejouable.as_str());
+    assert_eq!(executions(&b, &jeton, &nom).await, 1);
+}

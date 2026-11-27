@@ -875,6 +875,10 @@ enum Issue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BudgetVerrou {
     restant: std::time::Duration,
+    /// Palier des faibles n° 2 (seconde partie du faible 3 de la contre-revue E1 passe 5) : début du lot, mesuré sur
+    /// l'horloge monotone (une durée écoulée, jamais une date) ; le report d'un avis se compte depuis l'instant réel
+    /// du report (`maintenant` du passage + temps écoulé), pas depuis le début du passage.
+    debut: std::time::Instant,
 }
 
 /// Attente d'un contrôle une fois le budget épuisé.
@@ -882,7 +886,15 @@ pub(crate) const ATTENTE_MINIMALE: std::time::Duration = std::time::Duration::fr
 
 impl BudgetVerrou {
     pub(crate) fn nouveau(total: std::time::Duration) -> Self {
-        Self { restant: total }
+        Self {
+            restant: total,
+            debut: std::time::Instant::now(),
+        }
+    }
+
+    /// Temps écoulé depuis le début du lot.
+    pub(crate) fn ecoule(&self) -> std::time::Duration {
+        self.debut.elapsed()
     }
 
     /// Attente à accorder au prochain contrôle.
@@ -910,6 +922,9 @@ struct ControleMessage {
     /// autre message passe ensuite. Les avis suivants du même message sont reportés sans nouvelle attente : 500 avis d'un
     /// message verrouillé ne coûtent plus 500 attentes de verrou.
     en_echec: Option<Uuid>,
+    /// Palier des faibles n° 2 : avis du message `en_echec` à reporter. Ils sont reportés **ensemble**, en une seule
+    /// transaction à la fin de la boucle ([`Expediteur::reporter_en_attente`]), au lieu d'une transaction par avis.
+    a_reporter: Vec<Uuid>,
 }
 
 /// Palier des faibles, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069) : un avis dont le contrôle d'existence échoue
@@ -1141,6 +1156,7 @@ impl Expediteur {
             let issue = self.expedier_un(&e, &e.titre, &e.corps, maintenant).await?;
             self.finaliser(&e, issue, None, &mut bilan, maintenant).await?;
         }
+        self.reporter_en_attente(etab, &mut controle, &budget, &mut bilan, maintenant).await;
         for ((_, _, _), mut membres) in groupes {
             membres.sort_by_key(|e| e.source_id);
             let mut controle = ControleMessage::default();
@@ -1150,6 +1166,7 @@ impl Expediteur {
                     vivants.push(e);
                 }
             }
+            self.reporter_en_attente(etab, &mut controle, &budget, &mut bilan, maintenant).await;
             let membres = vivants;
             if membres.is_empty() {
                 continue;
@@ -1235,6 +1252,12 @@ impl Expediteur {
         bilan: &mut BilanExpedition,
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
+        // Palier des faibles n° 2 (contre-revue) : les avis mis de côté d'un message en échec sont reportés dès qu'on passe
+        // à un autre message (les avis sont triés par message) : jamais laissés en `envoi` pendant l'envoi d'un autre avis,
+        // qui peut échouer et interrompre le lot.
+        if !controle.a_reporter.is_empty() && e.source_id != controle.en_echec {
+            self.reporter_en_attente(e.etablissement_id, controle, budget, bilan, maintenant).await;
+        }
         // `Err(None)` : contrôle non refait (même message déjà en échec dans ce lot, faible 2) ; `Err(Some(_))` : échec.
         let existe: Result<bool, Option<EntDbError>> = match (controle.derniere, controle.en_echec) {
             // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque
@@ -1273,51 +1296,92 @@ impl Expediteur {
                         tracing::warn!(error = %err, avis = %e.id, supprimees, "expéditeur : contrôle d'existence du message impossible, avis reporté (journal limité à une ligne par minute)");
                     }
                 }
-                // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
-                // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
-                let reporte: Result<Option<String>, EntDbError> = async {
-                    let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
-                    let statut: Option<String> = sqlx::query_scalar(
-                        // Passe 5, faible 1 : `planifie_pour` est **reporté** (jamais avancé) d'au moins l'attente de
-                        // verrou. Sans cela, ≥ `taille_lot` avis verrouillés gardaient leur place en tête de file
-                        // (`ORDER BY planifie_pour`) et le lot tournait à vide, les avis libres derrière restant affamés.
-                        // Faible 3 : au-delà de `REPORT_CONTROLE_MAX` depuis le **premier** échec de contrôle (495,
-                        // point fixe, jamais avancé), l'avis passe en échec. Contre-revue : pas depuis `created_at`, sinon
-                        // un avis planifié loin devant serait perdu au premier échec.
-                        "UPDATE ent_notification_envoi
-                            SET statut = CASE WHEN controle_echec_depuis < $4 THEN 'echec' ELSE 'en_attente' END,
-                                motif = CASE WHEN controle_echec_depuis < $4 THEN 'controle_existence_impossible' ELSE motif END,
-                                traite_le = CASE WHEN controle_echec_depuis < $4 THEN $5 ELSE traite_le END,
-                                controle_echec_depuis = COALESCE(controle_echec_depuis, $5),
-                                tentative_le = NULL,
-                                planifie_pour = GREATEST(planifie_pour, $3)
-                          WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'
-                          RETURNING statut",
-                    )
-                    .bind(e.etablissement_id)
-                    .bind(e.id)
-                    .bind(
-                        maintenant
-                            + Duration::from_std(self.config.attente_verrou.max(self.config.intervalle))
-                                .unwrap_or(Duration::seconds(5)),
-                    )
-                    .bind(maintenant - REPORT_CONTROLE_MAX)
-                    .bind(maintenant)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    tx.commit().await.map_err(db)?;
-                    Ok(statut)
-                }
-                .await;
-                match reporte {
-                    Ok(Some(s)) if s == "echec" => bilan.echecs += 1,
-                    Ok(_) => bilan.reportes += 1,
-                    Err(err) => {
-                        tracing::error!(error = %err, avis = %e.id, "expéditeur : report de l'avis impossible, avis laissé en envoi")
-                    }
+                // Palier des faibles n° 2 : les avis suivants du même message (contrôle non refait) sont reportés
+                // ensemble à la fin de la boucle ; le premier échec, lui, est reporté tout de suite.
+                if err.is_none() {
+                    controle.a_reporter.push(e.id);
+                } else {
+                    self.reporter(e.etablissement_id, &[e.id], budget, bilan, maintenant).await;
                 }
                 Ok(false)
+            }
+        }
+    }
+
+    /// Reporte ensemble les avis mis de côté par [`Self::controler_avant_envoi`] (même message déjà en échec dans la
+    /// boucle) : une seule transaction pour eux.
+    async fn reporter_en_attente(
+        &self,
+        etab: Uuid,
+        controle: &mut ControleMessage,
+        budget: &BudgetVerrou,
+        bilan: &mut BilanExpedition,
+        maintenant: DateTime<Utc>,
+    ) {
+        let ids = std::mem::take(&mut controle.a_reporter);
+        if !ids.is_empty() {
+            self.reporter(etab, &ids, budget, bilan, maintenant).await;
+        }
+    }
+
+    /// Report d'avis dont le contrôle d'existence a échoué (une transaction pour tous). Contre-revue, M2 : un échec du
+    /// report lui-même n'interrompt pas le lot ; il est journalisé, les avis restent `envoi` et le passage suivant les
+    /// traite comme des envois interrompus.
+    async fn reporter(
+        &self,
+        etab: Uuid,
+        ids: &[Uuid],
+        budget: &BudgetVerrou,
+        bilan: &mut BilanExpedition,
+        maintenant: DateTime<Utc>,
+    ) {
+        // Instant réel du report : le passage a pu durer (envois, attentes de verrou) depuis `maintenant`.
+        let instant = maintenant + Duration::from_std(budget.ecoule()).unwrap_or(Duration::zero());
+        let reporte: Result<Vec<String>, EntDbError> = async {
+            let mut tx = TenantTx::begin(&self.pool, etab).await?;
+            let statuts: Vec<String> = sqlx::query_scalar(
+                // Passe 5, faible 1 : `planifie_pour` est **reporté** (jamais avancé) d'au moins l'attente de
+                // verrou. Sans cela, ≥ `taille_lot` avis verrouillés gardaient leur place en tête de file
+                // (`ORDER BY planifie_pour`) et le lot tournait à vide, les avis libres derrière restant affamés.
+                // Faible 3 : au-delà de `REPORT_CONTROLE_MAX` depuis le **premier** échec de contrôle (495,
+                // point fixe, jamais avancé), l'avis passe en échec. Contre-revue : pas depuis `created_at`, sinon
+                // un avis planifié loin devant serait perdu au premier échec. Palier des faibles n° 2 : le **report**
+                // (`$3`) se compte depuis l'instant réel du report (début du passage + temps écoulé), pas depuis le
+                // début du passage ; les horodatages (`$5`) restent l'instant du passage (horloge injectée).
+                "UPDATE ent_notification_envoi
+                    SET statut = CASE WHEN controle_echec_depuis < $4 THEN 'echec' ELSE 'en_attente' END,
+                        motif = CASE WHEN controle_echec_depuis < $4 THEN 'controle_existence_impossible' ELSE motif END,
+                        traite_le = CASE WHEN controle_echec_depuis < $4 THEN $5 ELSE traite_le END,
+                        controle_echec_depuis = COALESCE(controle_echec_depuis, $5),
+                        tentative_le = NULL,
+                        planifie_pour = GREATEST(planifie_pour, $3)
+                  WHERE etablissement_id = $1 AND id = ANY($2) AND statut = 'envoi'
+                  RETURNING statut",
+            )
+            .bind(etab)
+            .bind(ids)
+            .bind(
+                instant
+                    + Duration::from_std(self.config.attente_verrou.max(self.config.intervalle))
+                        .unwrap_or(Duration::seconds(5)),
+            )
+            .bind(maintenant - REPORT_CONTROLE_MAX)
+            .bind(maintenant)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            Ok(statuts)
+        }
+        .await;
+        match reporte {
+            Ok(statuts) => {
+                let echecs = statuts.iter().filter(|s| s.as_str() == "echec").count();
+                bilan.echecs += echecs;
+                bilan.reportes += statuts.len() - echecs;
+            }
+            Err(err) => {
+                tracing::error!(error = %err, avis = ids.len(), "expéditeur : report d'avis impossible, avis laissés en envoi")
             }
         }
     }

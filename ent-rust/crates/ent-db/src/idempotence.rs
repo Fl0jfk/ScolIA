@@ -19,6 +19,9 @@ pub const IDEMPOTENCE_DUREE_H: i64 = 24;
 /// Au-delà de ce délai, une revendication « en cours » est tenue pour abandonnée (processus tombé) : un rejeu la
 /// reprend. Supérieur au délai maximal d'une requête (120 s).
 pub const IDEMPOTENCE_ABANDON_S: i64 = 150;
+/// Borne de l'exécution d'une écriture idempotente (palier des faibles n° 2) : strictement inférieure au délai
+/// d'abandon, pour qu'une exécution encore en cours ne soit jamais reprise par un nouvel essai.
+pub const IDEMPOTENCE_EXECUTION_MAX_S: i64 = 120;
 /// Taille maximale d'un corps de réponse conservé (alignée sur la contrainte de la table).
 pub const IDEMPOTENCE_CORPS_MAX: usize = 262_144;
 

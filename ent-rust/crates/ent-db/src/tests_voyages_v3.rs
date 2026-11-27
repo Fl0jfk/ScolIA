@@ -5535,20 +5535,44 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
     let debut = sql.find("-- DEBUT-DONNEES").expect("repère de début") + "-- DEBUT-DONNEES".len();
     let fin = sql.find("-- FIN-DONNEES").expect("repère de fin");
     let bloc = &sql[debut..fin];
+    // Palier des faibles n° 2 (F-8) : deux autres lignes du même établissement, copies de la sortie : une sortie annulée
+    // sans `annulee_le` (rattrapée comme `rentree_le`) et une annulée dont l'instant est déjà posé (jamais modifiée).
+    let (annulee_vide, annulee_posee) = (Uuid::new_v4(), Uuid::new_v4());
+    let posee_le: DateTime<Utc> = "2030-01-15T08:00:00Z".parse().unwrap();
+    let copie = |nid: Uuid, instant: Option<DateTime<Utc>>| {
+        format!(
+            "INSERT INTO ent_sortie SELECT (jsonb_populate_record(NULL::ent_sortie, to_jsonb(s) || jsonb_build_object(
+                 'id', '{nid}', 'reference', 'F8-{nid}', 'etat', 'annulee', 'rentree_le', NULL, 'annulee_le', {}))).*
+               FROM ent_sortie s WHERE s.id = '{}'",
+            instant.map_or("NULL".to_string(), |t| format!("'{}'", t.to_rfc3339())),
+            x.s.id
+        )
+    };
     for ddl in [
         "ALTER TABLE ent_sortie DISABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+        "ALTER TABLE ent_sortie DISABLE TRIGGER ent_sortie_annulee_le_tg".to_string(),
         "ALTER TABLE ent_sortie DROP CONSTRAINT IF EXISTS ent_sortie_rentree_le_chk".to_string(),
+        "ALTER TABLE ent_sortie DROP CONSTRAINT IF EXISTS ent_sortie_annulee_le_chk".to_string(),
+        copie(annulee_vide, None),
+        copie(annulee_posee, Some(posee_le)),
         format!(
             "UPDATE ent_sortie SET etat = 'rentree', rentree_le = NULL WHERE id = '{}'",
             x.s.id
         ),
         "ALTER TABLE ent_sortie ENABLE TRIGGER ent_sortie_rentree_le_tg".to_string(),
+        "ALTER TABLE ent_sortie ENABLE TRIGGER ent_sortie_annulee_le_tg".to_string(),
     ] {
         sqlx::query(&ddl)
             .execute(proprietaire.pool())
             .await
             .unwrap();
     }
+    let modifie_avant: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT modifie_le FROM ent_sortie WHERE id = $1")
+            .bind(annulee_vide)
+            .fetch_one(proprietaire.pool())
+            .await
+            .unwrap();
     let sentinelle = Uuid::new_v4().to_string();
     // Réglage précédent posé : restauré à l'identique après le bloc ; la ligne masquée sans contexte est rattrapée.
     let mut tx = strict.pool().begin().await.unwrap();
@@ -5572,6 +5596,22 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
         "réglage précédent restauré"
     );
     tx.commit().await.unwrap();
+    // Contre-revue du palier : ne remet QUE les contraintes écartées (sans rejouer 656 ni 657 sur la base commune), et
+    // dès que les lignes du montage sont rattrapées, avant toute assertion : un échec plus bas ne laisse pas la base
+    // commune sans elles.
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
+            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
+    )
+    .execute(proprietaire.pool())
+    .await
+    .expect("contrainte rétablie");
+    sqlx::query(
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_annulee_le_chk CHECK ((etat = 'annulee') = (annulee_le IS NOT NULL))",
+    )
+    .execute(proprietaire.pool())
+    .await
+    .expect("contrainte d'annulation rétablie");
     let premier: Option<DateTime<Utc>> =
         sqlx::query_scalar("SELECT rentree_le FROM ent_sortie WHERE id = $1")
             .bind(x.s.id)
@@ -5579,6 +5619,35 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
             .await
             .unwrap();
     assert!(premier.is_some(), "rentree_le rattrapée");
+    // F-8 : l'état de toutes les sorties de l'établissement après le premier passage (instants de rentrée et
+    // d'annulation) ; le second passage doit le laisser identique, ligne par ligne.
+    let etat_des_sorties = || async {
+        sqlx::query_as::<_, (Uuid, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<DateTime<Utc>>)>(
+            "SELECT id, rentree_le, annulee_le, modifie_le FROM ent_sortie WHERE etablissement_id = $1 ORDER BY id",
+        )
+        .bind(x.c.etab)
+        .fetch_all(proprietaire.pool())
+        .await
+        .unwrap()
+    };
+    let apres_premier = etat_des_sorties().await;
+    let ligne = |id: Uuid| {
+        apres_premier
+            .iter()
+            .find(|l| l.0 == id)
+            .copied()
+            .expect("ligne présente")
+    };
+    assert_eq!(
+        ligne(annulee_vide).2,
+        modifie_avant,
+        "annulee_le rattrapée sur l'instant de modification d'avant le passage"
+    );
+    assert_eq!(
+        ligne(annulee_posee).2,
+        Some(posee_le),
+        "un instant d'annulation déjà posé n'est jamais modifié"
+    );
     // Sans réglage préalable : rien ne reste posé après le bloc (vide ou absent).
     let mut tx = strict.pool().begin().await.unwrap();
     sqlx::raw_sql(bloc)
@@ -5603,15 +5672,11 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
             .await
             .unwrap();
     assert_eq!(premier, second, "second passage sans effet");
-    // Contre-revue du pilote (M-4) : ne remet QUE la contrainte écartée, sans rejouer 656 ni 657 sur la base commune (le
-    // rejeu de 656 remettait un instant les fonctions d'avant 657 sous les tests voisins).
-    sqlx::query(
-        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
-            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
-    )
-    .execute(proprietaire.pool())
-    .await
-    .expect("contrainte rétablie");
+    assert_eq!(
+        etat_des_sorties().await,
+        apres_premier,
+        "F-8 : second passage sans effet sur aucune ligne (rentrée, annulation, modification)"
+    );
     crate::tenant_tx::forcer_mode_test(None);
 }
 
@@ -5651,13 +5716,43 @@ async fn faibles_l2_m2_revocation_et_usage_concurrents_en_sql_direct_un_seul_pas
             .execute(&mut *t1)
             .await
             .unwrap_or_else(|e| panic!("{premier} : {e}"));
-        // La seconde transaction démarre pendant que la première tient le verrou de la sortie.
-        let pool = ent.pool_verif().clone();
+        // La seconde transaction démarre pendant que la première tient le verrou de la sortie. Palier des faibles n° 2 :
+        // plus de délai fixe ; on attend que la connexion de la seconde soit **en attente d'un verrou** (catalogue
+        // `pg_stat_activity`, connexion identifiée par son pid), ce qui prouve le blocage sans dépendre de la machine.
+        let mut c2 = ent.pool_verif().acquire().await.unwrap().detach();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut c2)
+            .await
+            .unwrap();
         let q = fait(&x, c.id, second, qui(second), cible(second));
-        let h = tokio::spawn(async move { q.execute(&pool).await });
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let h = tokio::spawn(async move {
+            let r = q.execute(&mut c2).await;
+            drop(c2);
+            r
+        });
+        let mut bloquee = false;
+        for _ in 0..400 {
+            let attente: Option<String> = sqlx::query_scalar(
+                "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
+            )
+            .bind(pid)
+            .fetch_optional(ent.pool_verif())
+            .await
+            .unwrap()
+            .flatten();
+            if attente.as_deref() == Some("Lock") {
+                bloquee = true;
+                break;
+            }
+            assert!(
+                !h.is_finished(),
+                "{second} a fini sans attendre le verrou de la sortie tenu par {premier}"
+            );
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
         assert!(
-            !h.is_finished(),
+            bloquee && !h.is_finished(),
             "{second} attend le verrou de la sortie tenu par {premier}"
         );
         t1.commit().await.unwrap();
