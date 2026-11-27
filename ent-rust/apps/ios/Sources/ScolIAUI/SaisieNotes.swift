@@ -164,7 +164,7 @@ private struct NouvelleEvaluation: View {
                         guard let b = baremeM, let c = coefM else { return }
                         let corps = CreerEvaluationEvaBody(coursId: grille.enseignement.coursId, titre: t, dateEval: dateIso, baremeM: b, coefM: c)
                         occupe = true
-                        Task {
+                        Task { @MainActor in
                             defer { occupe = false }
                             erreur = nil
                             do {
@@ -204,6 +204,7 @@ private struct SaisieEvaluation: View {
     @State private var occupe = false
     @State private var publier = false
     @State private var motif = ""
+    @State private var quitter = false
 
     init(modele: AppModele, brouillon: BrouillonSaisie, evaluation: EvaluationEva, retour: @escaping () -> Void) {
         self.modele = modele
@@ -213,14 +214,15 @@ private struct SaisieEvaluation: View {
     }
 
     private func lancer(_ bloc: @escaping () async throws -> Void) {
+        guard !occupe else { return }
         occupe = true
-        Task {
+        Task { @MainActor in
             defer { occupe = false }
             erreur = nil
             do { try await bloc() } catch ErreurApi.nonAuthentifie { modele.sessionPerdue() } catch ErreurApi.appliTropAncienne(let m) {
                 modele.miseAJourRequise = m
             } catch ErreurApi.horsLigne {
-                erreur = "Hors ligne : rien n'est perdu, réessayez « Enregistrer » une fois le réseau revenu."
+                erreur = "Hors ligne : rien n'est perdu, réessayez une fois le réseau revenu."
             } catch { erreur = error.localizedDescription }
         }
     }
@@ -233,7 +235,7 @@ private struct SaisieEvaluation: View {
             Section {
                 Text("\(dateFr(evaluation.dateEval)) · sur \(SaisieNotes.formater(evaluation.baremeM)) · coef \(SaisieNotes.formater(evaluation.coefM))" + etatEvaluation(evaluation))
                 HStack {
-                    Button("Retour", action: retour).buttonStyle(.bordered)
+                    Button("Retour") { if brouillon.enAttente() { quitter = true } else { retour() } }.buttonStyle(.bordered)
                     Button(lot.cellules.isEmpty ? "Enregistrer" : "Enregistrer (\(lot.cellules.count))") {
                         lancer {
                             let r = try await modele.cles.executer(brouillon.intention(lot), famille: brouillon.famille) { k in
@@ -248,7 +250,8 @@ private struct SaisieEvaluation: View {
                     if peutPublier {
                         Button(evaluation.publiee ? "Retirer" : "Publier") { motif = ""; publier = true }
                             .buttonStyle(.bordered)
-                            .disabled(occupe || !lot.cellules.isEmpty)
+                            // Rien en attente (case modifiée, en erreur ou en conflit) : publier n'abandonne rien en silence.
+                            .disabled(occupe || brouillon.enAttente())
                     }
                 }
                 if erreurs > 0 { MessageErreur(texte: "\(erreurs) case(s) non comprise(s) : corrigez-les avant d'enregistrer.") }
@@ -265,7 +268,7 @@ private struct SaisieEvaluation: View {
         .alert(evaluation.publiee ? "Retirer la publication ?" : "Publier les notes ?", isPresented: $publier) {
             if evaluation.publiee { TextField("Motif", text: $motif) }
             Button("Annuler", role: .cancel) {}
-            Button(evaluation.publiee ? "Retirer" : "Publier") {
+            Button(evaluation.publiee ? "Retirer" : "Publier", role: evaluation.publiee ? .destructive : nil) {
                 let retirer = evaluation.publiee
                 let m = motif.trimmingCharacters(in: .whitespacesAndNewlines)
                 if retirer && !(3...500).contains(m.count) { erreur = "Motif écrit obligatoire pour retirer (3 à 500 caractères)."; return }
@@ -280,7 +283,13 @@ private struct SaisieEvaluation: View {
             }
         } message: {
             Text(evaluation.publiee ? "Les élèves et les familles ne verront plus ces notes. Un motif écrit est exigé."
-                 : "Les élèves et les familles verront aussitôt les notes de « \(evaluation.titre) ».")
+                 : "Les élèves et les familles verront aussitôt les notes de « \(evaluation.titre) ». \(brouillon.nbRemplies()) élève(s) sur \(brouillon.eleves.count) ont une note ou un statut.")
+        }
+        .confirmationDialog("Abandonner la saisie ?", isPresented: $quitter, titleVisibility: .visible) {
+            Button("Abandonner", role: .destructive, action: retour)
+            Button("Continuer la saisie", role: .cancel) {}
+        } message: {
+            Text("Des cases tapées ne sont pas enregistrées (ou attendent un choix de conflit). Elles seront perdues.")
         }
     }
 

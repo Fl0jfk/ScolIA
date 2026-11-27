@@ -180,6 +180,18 @@ class EvaluationsTest {
     }
 
     @Test
+    fun attente_remplies_et_frappes_sauvegardees() {
+        val b = BrouillonSaisie(grille("e1" to cellule(), "e2" to cellule("note", 8_000, 1)), "ev1")
+        assertFalse(b.enAttente())
+        assertEquals(1, b.nbRemplies())
+        b.taper("e1", "25") // en erreur : en attente quand même
+        assertTrue(b.enAttente())
+        val c = BrouillonSaisie(b.grille, "ev1")
+        c.reprendreFrappes(b.frappes())
+        assertEquals("25", c.texte("e1"))
+    }
+
+    @Test
     fun grille_degeneree_sans_plantage() {
         val g = grille("e1" to cellule())
         val tronquee = g.copy(eleves = g.eleves + LigneEleveEva("e9", "X", "Y", null, emptyList(), null, 0))

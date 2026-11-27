@@ -48,7 +48,9 @@ Restent sur le web : `PUT /eva/evaluations/{id}`, `annuler`, `en-cours-de-correc
 
 ## 5. Tests (local, 2026-11-27)
 - Rust : banc MB2 avec `/eva` (fixtures, parité, refus d'écriture), vecteurs d'analyse : verts.
-- Cœur Kotlin et cœur Swift : voir la PR (nombres à jour dans la livraison).
+- Cœur Kotlin : **75/75** ; cœur Swift : **68/68** (`swift:6.1-noble`) ; clippy `-D warnings` sur `ent-api` (avec labo) et `ent-types` : vert.
+- `:app` (dont le test Robolectric de la saisie) : compilé et joué par la CI.
 
 ## 6. Contre-revues
 - Lots 1 et 2 : aucun élevé confirmé. **E1** (saisie hors droit non prouvée) **corrigé** : refus exacts en écriture, dont un collègue du même établissement. **M1** (refus `is_client_error`) **corrigé** : 403 ou 404 exigés partout. **M2** (personas absents ignorés) **corrigé** pour `/eva`. **M3** (frappe pendant l'envoi) **corrigé**. **M4** (conflit sans état) **corrigé**. **M5** et **M6** (grille remplie, issues `inchange` et `refuse`) **corrigés**. **M7** (vecteurs) **corrigé**, de 156 à 348 vecteurs. **M8** (scalaires Swift, grille dégénérée) **corrigé**. **F3** (intention sur le lot envoyé) **corrigé**. F1, F2 et F4 à F8 sont sans impact ou conformes.
+- Lot 3 : 1 élevé (frappes perdues à la rotation, à l'arrêt du processus ou au retour) **corrigé** : navigation et frappes en état sauvegardé, confirmation « Abandonner la saisie ? » sur Retour et retour système. Le second élevé (brouillon iOS non observé) est sans objet : c'est une `struct`. Moyens **corrigés** : publication bloquée tant qu'une case attend, confirmation avec le nombre d'élèves notés, double appui sans double envoi, en-tête qui défile avec la liste, codes en texte simple. Faibles **corrigés** : message hors ligne, auto-correction coupée, libellés des boutons de conflit, Swift `Task { @MainActor in }`, retrait destructif. En file : date de création en texte sur Android (sélecteur de date à venir), ligne vide du choix automatique de période sur iOS.

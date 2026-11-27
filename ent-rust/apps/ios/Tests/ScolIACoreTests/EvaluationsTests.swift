@@ -133,6 +133,14 @@ final class EvaluationsTests: XCTestCase {
         XCTAssertTrue(b.aEnvoyer().allSatisfy { $0.eleveId != "e2" })
     }
 
+    func testAttenteEtRemplies() throws {
+        var b = try XCTUnwrap(BrouillonSaisie(grille: grille([("e1", CelluleEva()), ("e2", CelluleEva(statut: "note", valeurM: 8_000, version: 1))]), evaluationId: "ev1"))
+        XCTAssertFalse(b.enAttente())
+        XCTAssertEqual(b.nbRemplies(), 1)
+        b.taper("e1", "25")
+        XCTAssertTrue(b.enAttente())
+    }
+
     func testGrilleDegenereeSansPlantage() throws {
         let g = grille([("e1", CelluleEva()), ("e1", CelluleEva())])
         let b = try XCTUnwrap(BrouillonSaisie(grille: g, evaluationId: "ev1"))

@@ -386,6 +386,10 @@ public struct BrouillonSaisie: Sendable {
     public func conflit(_ id: String) -> ConflitEva? { conflits[id] }
     public func refus(_ id: String) -> String? { refus[id] }
     public var nbConflits: Int { conflits.count }
+    /// Une frappe attend encore (modifiée, en erreur ou en conflit) : publier ou quitter l'abandonnerait en silence.
+    public func enAttente() -> Bool { eleves.contains { modifiee($0.eleveId) } || !conflits.isEmpty }
+    /// Élèves concernés qui ont déjà une note ou un statut côté serveur (confirmation de publication).
+    public func nbRemplies() -> Int { eleves.filter { cases[$0.eleveId]?.statut != nil }.count }
 
     /// La case peut-elle être écrite d'ici ? (Une correction motivée après l'arrêt reste sur le web.)
     public func modifiable(_ id: String) -> Bool {

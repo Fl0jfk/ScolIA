@@ -447,4 +447,20 @@ class BrouillonSaisie(val grille: GrilleEva, val evaluationId: String) {
     }
 
     val nbConflits: Int get() = conflits.size
+
+    /**
+     * Une frappe attend encore (modifiée, en erreur ou en conflit) : publier ou quitter l'abandonnerait en silence
+     * (contre-revue du lot 3).
+     */
+    fun enAttente(): Boolean = eleves.any { modifiee(it.eleveId) } || conflits.isNotEmpty()
+
+    /** Élèves concernés qui ont déjà une note ou un statut côté serveur (confirmation de publication). */
+    fun nbRemplies(): Int = eleves.count { cases[it.eleveId]?.statut != null }
+
+    /** Frappes en cours, pour survivre à une rotation ou à l'arrêt du processus (état sauvegardé de l'écran). */
+    fun frappes(): Map<String, String> = textes.toMap()
+
+    fun reprendreFrappes(f: Map<String, String>) {
+        for ((id, t) in f) taper(id, t)
+    }
 }

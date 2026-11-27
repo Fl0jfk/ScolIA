@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -27,6 +25,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -63,20 +62,26 @@ import java.time.LocalDate
 
 private fun <T> direct(v: T): Lecture<T> = Lecture(v, false, System.currentTimeMillis())
 
+// État de navigation sauvegardé (rotation, arrêt du processus) : listes de chaînes, rangées dans le Bundle.
+private fun EnseignementEva.enListe() = arrayListOf(coursId, libelle, cibleCode)
+private fun ArrayList<String>.enCours() = EnseignementEva(this[0], this[1], this[2], null, false, "saisie")
+private fun PeriodeEva.enListe() = arrayListOf(id, code, libelle, dateDebut, dateFin)
+private fun ArrayList<String>.enPeriode() = PeriodeEva(this[0], this[1], this[2], this[3], this[4])
+
 @Composable
 fun EcranSaisieNotes(modele: AppModele) {
-    var cours by remember { mutableStateOf<EnseignementEva?>(null) }
-    var periode by remember { mutableStateOf<PeriodeEva?>(null) }
-    var evaluationId by remember { mutableStateOf<String?>(null) }
+    var coursSauve by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
+    var periodeSauvee by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
+    var evaluationId by rememberSaveable { mutableStateOf<String?>(null) }
     // La période du jour s'ouvre d'elle-même une fois par cours ; « Autre période » rend ensuite le choix.
-    var auto by remember { mutableStateOf(true) }
-    val c = cours
-    val p = periode
+    var auto by rememberSaveable { mutableStateOf(true) }
+    val c = coursSauve?.enCours()
+    val p = periodeSauvee?.enPeriode()
     when {
-        c == null -> ChoixCours(modele) { cours = it; periode = null; auto = true }
-        p == null -> ChoixPeriode(modele, c, auto, retour = { cours = null }) { periode = it; auto = false }
+        c == null -> ChoixCours(modele) { coursSauve = it.enListe(); periodeSauvee = null; auto = true }
+        p == null -> ChoixPeriode(modele, c, auto, retour = { coursSauve = null }) { periodeSauvee = it.enListe(); auto = false }
         else -> GrilleCours(modele, c, p, evaluationId, ouvrir = { evaluationId = it }, retour = {
-            if (evaluationId != null) evaluationId = null else periode = null
+            if (evaluationId != null) evaluationId = null else periodeSauvee = null
         })
     }
 }
@@ -230,9 +235,21 @@ private fun NouvelleEvaluation(modele: AppModele, g: GrilleEva, fermer: () -> Un
 
 @Composable
 private fun SaisieEvaluation(modele: AppModele, g: GrilleEva, ev: EvaluationEva, retour: () -> Unit) {
-    val brouillon = remember(g, ev.id) { BrouillonSaisie(g, ev.id) }
+    // Frappes sauvegardées (rotation, arrêt du processus) : [élève, texte, élève, texte…] ; reprises sur la grille relue.
+    var frappesSauvees by rememberSaveable(ev.id) { mutableStateOf(arrayListOf<String>()) }
+    val brouillon = remember(g, ev.id) {
+        BrouillonSaisie(g, ev.id).also { b -> b.reprendreFrappes(frappesSauvees.chunked(2).filter { it.size == 2 }.associate { it[0] to it[1] }) }
+    }
     // Le brouillon n'est pas observable : `tick` force la recomposition après chaque changement.
     var tick by remember { mutableIntStateOf(0) }
+    var quitter by remember { mutableStateOf(false) }
+    androidx.compose.runtime.SideEffect {
+        frappesSauvees = ArrayList(brouillon.frappes().flatMap { (k, v) -> listOf(k, v) })
+    }
+    fun sortir() {
+        if (brouillon.enAttente()) quitter = true else retour()
+    }
+    androidx.activity.compose.BackHandler(onBack = ::sortir)
     var erreur by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
     var occupe by remember { mutableStateOf(false) }
@@ -241,9 +258,8 @@ private fun SaisieEvaluation(modele: AppModele, g: GrilleEva, ev: EvaluationEva,
     val portee = rememberCoroutineScope()
     tick.let { }
 
-    fun lancer(bloc: suspend () -> Unit) = portee.launch {
+    suspend fun executer(bloc: suspend () -> Unit) {
         erreur = null
-        occupe = true
         try {
             bloc()
         } catch (e: ErreurApi.NonAuthentifie) {
@@ -251,58 +267,81 @@ private fun SaisieEvaluation(modele: AppModele, g: GrilleEva, ev: EvaluationEva,
         } catch (e: ErreurApi.AppliTropAncienne) {
             MiseAJour.exiger(e.message)
         } catch (e: ErreurApi.HorsLigne) {
-            erreur = "Hors ligne : rien n'est perdu, réessayez « Enregistrer » une fois le réseau revenu."
+            erreur = "Hors ligne : rien n'est perdu, réessayez une fois le réseau revenu."
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            erreur = e.message
+            erreur = e.message ?: "Envoi impossible."
         } finally {
             occupe = false
             tick++
         }
     }
 
-    Titre(evaluation.titre)
-    Text("${dateFr(evaluation.dateEval)} · sur ${SaisieNotes.formater(evaluation.baremeM)} · coef ${SaisieNotes.formater(evaluation.coefM)}" + etatEvaluation(evaluation))
+    // `occupe` est posé avant le lancement : deux appuis rapides ne partent pas deux fois (contre-revue du lot 3).
+    fun lancer(bloc: suspend () -> Unit) {
+        if (occupe) return
+        occupe = true
+        portee.launch { executer(bloc) }
+    }
+
     val lot = brouillon.lot()
     val erreurs = brouillon.enErreur().size
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-        OutlinedButton(onClick = retour, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retour") }
-        Button(
-            enabled = lot.cellules.isNotEmpty() && !occupe,
-            onClick = {
-                lancer {
-                    val retourServeur = modele.cles.executer(brouillon.intention(lot), famille = brouillon.famille()) { k -> modele.client!!.saisirNotes(lot, k) }
-                    val n = brouillon.appliquer(retourServeur, lot)
-                    info = buildString {
-                        append("$n case(s) enregistrée(s).")
-                        if (brouillon.nbConflits > 0) append(" ${brouillon.nbConflits} conflit(s) à trancher.")
+    // Tout l'en-tête défile avec la liste : clavier ouvert sur un petit écran, les élèves restent visibles.
+    LazyColumn(Modifier.fillMaxWidth()) {
+        item {
+            Titre(evaluation.titre)
+            Text("${dateFr(evaluation.dateEval)} · sur ${SaisieNotes.formater(evaluation.baremeM)} · coef ${SaisieNotes.formater(evaluation.coefM)}" + etatEvaluation(evaluation))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                OutlinedButton(onClick = ::sortir, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retour") }
+                Button(
+                    enabled = lot.cellules.isNotEmpty() && !occupe,
+                    onClick = {
+                        lancer {
+                            val retourServeur = modele.cles.executer(brouillon.intention(lot), famille = brouillon.famille()) { k -> modele.client!!.saisirNotes(lot, k) }
+                            val n = brouillon.appliquer(retourServeur, lot)
+                            info = buildString {
+                                append("$n case(s) enregistrée(s).")
+                                if (brouillon.nbConflits > 0) append(" ${brouillon.nbConflits} conflit(s) à trancher.")
+                            }
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("eva-enregistrer"),
+                ) { Text(if (lot.cellules.isEmpty()) "Enregistrer" else "Enregistrer (${lot.cellules.size})") }
+                val peutPublier = g.peutSaisir && evaluation.ouverte && (!evaluation.publiee || evaluation.retraitPossible)
+                if (peutPublier) {
+                    // Rien en attente (case modifiée, en erreur ou en conflit) : publier ne doit rien abandonner en silence.
+                    OutlinedButton(onClick = { publier = true }, enabled = !occupe && !brouillon.enAttente(), modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(if (evaluation.publiee) "Retirer" else "Publier")
                     }
                 }
-            },
-            modifier = Modifier.heightIn(min = 48.dp).testTag("eva-enregistrer"),
-        ) { Text(if (lot.cellules.isEmpty()) "Enregistrer" else "Enregistrer (${lot.cellules.size})") }
-        val peutPublier = g.peutSaisir && evaluation.ouverte && (!evaluation.publiee || evaluation.retraitPossible)
-        if (peutPublier) {
-            OutlinedButton(onClick = { publier = true }, enabled = !occupe && lot.cellules.isEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(if (evaluation.publiee) "Retirer" else "Publier")
             }
+            if (erreurs > 0) MessageErreur("$erreurs case(s) non comprise(s) : corrigez-les avant d'enregistrer.")
+            MessageErreur(erreur)
+            info?.let { Text(it) }
+            if (!evaluation.ouverte) Text("Évaluation ${if (evaluation.etat == "annulee") "annulée" else "non ouverte"} : lecture seule.")
+            Text(
+                "Codes : " + SaisieNotes.CODES_RAPIDES.joinToString(", ") { (code, _, libelle) -> "$code ${libelle.lowercase()}" },
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-    }
-    if (erreurs > 0) MessageErreur("$erreurs case(s) non comprise(s) : corrigez-les avant d'enregistrer.")
-    MessageErreur(erreur)
-    info?.let { Text(it) }
-    if (!evaluation.ouverte) Text("Évaluation ${if (evaluation.etat == "annulee") "annulée" else "non ouverte"} : lecture seule.")
-    // Codes rapides : rappel, la frappe suffit (abs, ar, disp, nr, nn).
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(SaisieNotes.CODES_RAPIDES) { (code, _, libelle) -> AssistChip(onClick = {}, label = { Text("$code : $libelle") }) }
-    }
-    LazyColumn(Modifier.fillMaxWidth()) {
         items(brouillon.eleves, key = { it.eleveId }) { l ->
             CaseEleve(brouillon, l.eleveId, "${l.nom} ${l.prenom}", l.mouvement, ev.baremeM, tick) { tick++ }
             HorizontalDivider()
         }
     }
+    if (quitter) {
+        AlertDialog(
+            onDismissRequest = { quitter = false },
+            properties = DIALOGUE_SECURISE,
+            title = { Text("Abandonner la saisie ?") },
+            text = { Text("Des cases tapées ne sont pas enregistrées (ou attendent un choix de conflit). Elles seront perdues.") },
+            confirmButton = { TextButton(onClick = { quitter = false; retour() }) { Text("Abandonner") } },
+            dismissButton = { TextButton(onClick = { quitter = false }) { Text("Continuer la saisie") } },
+        )
+    }
     if (publier) {
-        ConfirmerPublication(evaluation, fermer = { publier = false }) { action, motif ->
+        ConfirmerPublication(evaluation, brouillon.nbRemplies(), brouillon.eleves.size, fermer = { publier = false }) { action, motif ->
             publier = false
             lancer {
                 evaluation = modele.cles.executer("eva-pub:${evaluation.id}:$action:${motif.orEmpty()}", famille = "eva-pub:${evaluation.id}:") { k ->
@@ -334,7 +373,7 @@ private fun CaseEleve(b: BrouillonSaisie, id: String, nom: String, mouvement: St
                 enabled = b.modifiable(id),
                 singleLine = true,
                 isError = a is AnalyseCellule.Erreur || refus != null,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
                 modifier = Modifier.weight(0.6f).semantics { contentDescription = "Note de $nom" },
             )
         }
@@ -352,8 +391,14 @@ private fun CaseEleve(b: BrouillonSaisie, id: String, nom: String, mouvement: St
                             SaisieNotes.resume(conflit.statut, conflit.valeurM, baremeM),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { b.reprendreServeur(id); change() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Garder la sienne") }
-                        TextButton(onClick = { b.garderLaMienne(id); change() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Garder la mienne") }
+                        TextButton(
+                            onClick = { b.reprendreServeur(id); change() },
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$nom : garder la valeur du serveur" },
+                        ) { Text("Garder la sienne") }
+                        TextButton(
+                            onClick = { b.garderLaMienne(id); change() },
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "$nom : garder ma saisie" },
+                        ) { Text("Garder la mienne") }
                     }
                 }
             }
@@ -362,7 +407,7 @@ private fun CaseEleve(b: BrouillonSaisie, id: String, nom: String, mouvement: St
 }
 
 @Composable
-private fun ConfirmerPublication(e: EvaluationEva, fermer: () -> Unit, confirmer: (action: String, motif: String?) -> Unit) {
+private fun ConfirmerPublication(e: EvaluationEva, remplies: Int, effectif: Int, fermer: () -> Unit, confirmer: (action: String, motif: String?) -> Unit) {
     var motif by remember { mutableStateOf("") }
     val retirer = e.publiee
     val motifValide = motif.trim().length in 3..500
@@ -374,7 +419,7 @@ private fun ConfirmerPublication(e: EvaluationEva, fermer: () -> Unit, confirmer
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     if (retirer) "Les élèves et les familles ne verront plus ces notes. Un motif écrit est exigé."
-                    else "Les élèves et les familles verront aussitôt les notes de « ${e.titre} ».",
+                    else "Les élèves et les familles verront aussitôt les notes de « ${e.titre} ». $remplies élève(s) sur $effectif ont une note ou un statut.",
                 )
                 if (retirer) OutlinedTextField(motif, { motif = it }, label = { Text("Motif") }, isError = !motifValide)
             }
