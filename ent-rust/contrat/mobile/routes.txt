@@ -1,0 +1,47 @@
+# Liste blanche des routes que les applis mobiles ont le droit d'appeler (socle 11, MB2).
+# Une ligne « MÉTHODE /gabarit », segments variables entre accolades, sans chaîne de requête.
+# Le banc Rust (`ent-api/src/tests_contrat_mobile.rs`) joue chaque route ou explique pourquoi il ne la joue pas ;
+# les tests des cœurs Kotlin et Swift vérifient que leur client n'appelle aucune route hors de cette liste.
+# Aucune route historique fermée (410) : la saisie de notes `POST /eleves/{id}/notes` en est sortie en MB2.
+# Ajouter une route : l'ajouter ici, la jouer dans le banc, régénérer les fixtures (ENT_CONTRAT_ECRIRE=1).
+
+GET /auth/etablissement
+POST /auth/login
+POST /auth/passkey/login/start
+POST /auth/passkey/login/finish
+POST /auth/passkey/register/start
+POST /auth/passkey/register/finish
+GET /auth/me
+GET /roles/mes-droits
+GET /auth/sessions
+DELETE /auth/sessions/{id}
+POST /auth/logout
+POST /devices/push
+DELETE /devices/push/{id}
+
+GET /edt/mes-creneaux
+GET /eleves/{id}/edt
+POST /appels
+GET /appels/{id}
+POST /appels/{id}/lignes
+POST /appels/{id}/clore
+
+GET /famille/enfants
+GET /famille/enfants/{id}/resume
+POST /absences/{id}/justifier
+GET /vs/absences
+
+GET /note-periodes
+GET /eleves/{id}/notes
+GET /eleves/{id}/moyennes
+GET /devoirs
+GET /eleves/{id}/devoirs
+GET /classes/{classe}/effectif
+GET /cahier-texte
+
+GET /messages/fils
+GET /messages/fils/{id}
+POST /messages/fils/{id}/repondre
+GET /annonces
+GET /eleves/{id}/annonces
+GET /notifications

@@ -767,7 +767,9 @@ pub(crate) async fn resoudre_taches_sans_evenement(
 
 /// Résout les tâches ouvertes d'une nature pour (élève, catégorie) dont la date `depuis` tombe dans `du..=au` (suites 4,
 /// M3) : la part non couverte d'un tronçon est désormais facturée (prise renouvelée ou prolongée, payeur suivant désigné).
-/// Les tâches des autres périodes de l'élève restent ouvertes.
+/// Les tâches des autres périodes de l'élève restent ouvertes, ainsi que les signalements de plafond modifié ou non
+/// consommé (« plafond de la prise en charge … ») : ils attendent une régularisation humaine, la garde les rouvrirait à
+/// chaque rejeu (contre-revue du palier, M-2).
 pub(crate) async fn resoudre_taches_periode(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -780,7 +782,8 @@ pub(crate) async fn resoudre_taches_periode(
     let r = sqlx::query(
         "UPDATE ent_fin_tache SET statut = 'resolue', resolue_le = now()
           WHERE etablissement_id = $1 AND nature = $2 AND eleve_id = $3 AND statut = 'ouverte'
-            AND categorie = $4 AND depuis >= $5 AND depuis <= $6",
+            AND categorie = $4 AND depuis >= $5 AND depuis <= $6
+            AND NOT starts_with(coalesce(detail, ''), 'plafond de la prise en charge')",
     )
     .bind(etab)
     .bind(nature)

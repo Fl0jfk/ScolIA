@@ -1,0 +1,221 @@
+{
+  "corps": [
+    {
+      "action": "referentiel.lire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "personnels.annuaire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "personnels.services.lire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "agenda.evenements.creer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "agenda.lire_structure",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "agenda.lieux.lire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "agenda.lieux.reserver",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "stages.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "appel.faire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "appel.deleguer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "afaire.file.prendre",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "recherche.globale",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "voyages.annuaire",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "voyages.creer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "demandes.deposer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "cahier.retirer",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "cahier.contribuer",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "autorisations.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "formulaires.creer",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "messagerie.boite.traiter",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "messagerie.lot.envoyer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "espaces.utiliser",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "espaces.creer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "espaces.partager",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "eleves.annuaire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "cahier.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "cahier.ecrire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "notes.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "notes.saisir",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "competences.evaluer",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "absences.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "dossier.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "journal.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "messagerie.eleve",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "suivi.eleve",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "punitions.donner",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "amenagements.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "contraintes.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "sante.urgence_lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "incidents.declarer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "conseils.gerer",
+      "cibles": [],
+      "portee": "etablissement"
+    },
+    {
+      "action": "responsables.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    },
+    {
+      "action": "remise.lire",
+      "cibles": [],
+      "portee": "mes_classes"
+    }
+  ],
+  "route": "GET /roles/mes-droits",
+  "statut": 200
+}

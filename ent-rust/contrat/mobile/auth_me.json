@@ -1,0 +1,16 @@
+{
+  "corps": {
+    "assurance": "mot_de_passe",
+    "casquette": "principale",
+    "client": "web",
+    "email": "persona@ent.test",
+    "etablissement_id": "00000000-0000-4000-8000-000000000001",
+    "passkey_count": 0,
+    "passkey_obligatoire": false,
+    "portee": "complete",
+    "role": "parent",
+    "user_id": "00000000-0000-4000-8000-000000000002"
+  },
+  "route": "GET /auth/me",
+  "statut": 200
+}

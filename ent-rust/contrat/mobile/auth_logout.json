@@ -1,0 +1,5 @@
+{
+  "corps": null,
+  "route": "POST /auth/logout",
+  "statut": 204
+}

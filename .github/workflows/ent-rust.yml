@@ -113,7 +113,7 @@ jobs:
         run: |
           set -eu
           test -f target/debug/ent-api
-          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do
+          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast' '/mobile/labo'; do
             if grep -aqF -- "$motif" target/debug/ent-api; then
               echo "::error::le binaire ent-api (sans feature labo) contient « $motif »"
               exit 1
@@ -446,6 +446,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       frontend: ${{ steps.calcul.outputs.frontend }}
+      mobile: ${{ steps.calcul.outputs.mobile }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -453,16 +454,23 @@ jobs:
       - id: calcul
         run: |
           requis=true
+          mobile=true
           if [ "${{ github.ref }}" != "refs/heads/ENT" ] && git fetch --no-tags origin ENT:refs/remotes/origin/ENT 2>/dev/null; then
             if fichiers=$(git diff --name-only origin/ENT...HEAD) && [ -n "$fichiers" ]; then
               echo "$fichiers" | head -n 50
               if ! echo "$fichiers" | grep -qE '^(ent-rust/web/|ent-rust/crates/ent-types/|ent-rust/crates/ent-api/|\.github/workflows/ent-rust\.yml$)'; then
                 requis=false
               fi
+              # Applis mobiles (socle 11, MB1) : requises si le diff touche ent-rust/apps/**, les fixtures du contrat
+              # mobile (ent-rust/contrat/**, MB2 : les cœurs les décodent) ou ce workflow.
+              if ! echo "$fichiers" | grep -qE '^(ent-rust/apps/|ent-rust/contrat/|\.github/workflows/ent-rust\.yml$)'; then
+                mobile=false
+              fi
             fi
           fi
           echo "frontend=$requis" >> "$GITHUB_OUTPUT"
-          echo "Frontend requis : $requis"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "Frontend requis : $requis ; applis mobiles requises : $mobile"
 
   # Frontend en jobs parallèles (lot ent-ci-frontend-rapide). Le job unique de 74-78 min (run 391/396) est
   # découpé ; aucune vérification retirée. Les jobs ci-dessous ne tournent que si `portee` le demande (règle 27) ;
@@ -736,13 +744,98 @@ jobs:
             [ "$r" = "success" ] || { echo "::error::une partie du frontend n'est pas verte ($r)"; exit 1; }
           done
 
+  # ---------------------------------------------------------------------------------------------
+  # Applis mobiles (socle 11, lot MB1) : Linux seulement (11_APPLICATIONS_MOBILES.md §10). Requises sur ENT,
+  # et sur une branche dont le diff touche ent-rust/apps/** ou ce workflow (job `portee`). L'interface SwiftUI,
+  # la signature et le simulateur restent en passe Mac (docs/MOBILE.md).
+  # ---------------------------------------------------------------------------------------------
+  mobile-android:
+    name: Appli Android (cœur, tests Robolectric, lint, build release)
+    needs: portee
+    if: needs.portee.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ent-rust/apps/android
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wrapper Gradle authentique (somme de contrôle officielle)
+        uses: gradle/actions/wrapper-validation@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            ent-rust/apps/android/**/*.gradle.kts
+            ent-rust/apps/android/gradle/wrapper/gradle-wrapper.properties
+      - name: SDK Android (API 36)
+        run: |
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+      - name: Cœur Kotlin (JVM)
+        run: ./gradlew --no-daemon --stacktrace :core:test
+      - name: Appli (tests Compose sans appareil, Robolectric)
+        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+      - name: Lint Android
+        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+      - name: Build release (R8, non signé)
+        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease
+      - name: Comptes de tests
+        if: always()
+        run: |
+          python3 -I - <<'PY'
+          import glob, re, os
+          for nom, motif in (("cœur", "core/build/test-results/test/*.xml"), ("appli", "app/build/test-results/testDebugUnitTest/*.xml")):
+              t = f = 0
+              for p in glob.glob(motif):
+                  s = open(p, encoding="utf8").read()
+                  m = re.search(r'tests="(\d+)" skipped="\d+" failures="(\d+)" errors="(\d+)"', s)
+                  if m:
+                      t += int(m.group(1)); f += int(m.group(2)) + int(m.group(3))
+              ligne = f"Android {nom} : {t} tests, {f} en échec"
+              print(ligne)
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf8") as o:
+                  o.write(ligne + "\n\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rapports-android
+          path: |
+            ent-rust/apps/android/*/build/reports/
+          retention-days: 7
+
+  mobile-ios-coeur:
+    name: Cœur iOS (swift test, Linux)
+    needs: portee
+    if: needs.portee.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Image officielle Swift (Docker Hub) : même chaîne qu'en local (Swift 6.1, Ubuntu 24.04).
+    container: swift:6.1-noble
+    defaults:
+      run:
+        # bash explicite : `-eo pipefail` (un `swift test` en échec derrière `tee` fait échouer le job).
+        shell: bash
+        working-directory: ent-rust/apps/ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test (ScolIACore ; ScolIAUI est réservé à iOS)
+        run: |
+          swift --version
+          swift test 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+          grep -E "Executed [0-9]+ tests" "$RUNNER_TEMP/swift-test.log" | tail -n 1 >> "$GITHUB_STEP_SUMMARY" || true
+
   # Règle 35 (PILOTAGE.md) : à la fin d'un run sur ENT (push), écrire le résultat sur la pull request
   # de veille n° 93 (jamais fusionnée), à laquelle la session pilote est abonnée : elle se réveille
   # sans ronde à l'aveugle. Jeton automatique du run, aucun secret ; seul droit : commenter.
   veille-pilote:
     name: Veille du pilote (commentaire sur la PR 93)
     if: always() && github.ref == 'refs/heads/ENT' && github.event_name == 'push'
-    needs: [formatage, audits, backend]
+    needs: [formatage, audits, backend, mobile-android, mobile-ios-coeur]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -752,7 +845,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }}"
+          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }} android=${{ needs.mobile-android.result }} ios=${{ needs.mobile-ios-coeur.result }}"
         run: |
           verdict=vert
           case "$RESULTATS" in *failure*|*cancelled*) verdict=rouge;; esac
@@ -763,7 +856,7 @@ jobs:
   veille-pilote-pr:
     name: Veille du pilote (commentaire sur la pull request du lot)
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    needs: [formatage, audits, backend]
+    needs: [formatage, audits, backend, mobile-android, mobile-ios-coeur]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -775,7 +868,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           TETE: ${{ github.event.pull_request.head.sha }}
-          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }}"
+          RESULTATS: "formatage=${{ needs.formatage.result }} audits=${{ needs.audits.result }} backend=${{ needs.backend.result }} android=${{ needs.mobile-android.result }} ios=${{ needs.mobile-ios-coeur.result }}"
         run: |
           verdict=vert
           case "$RESULTATS" in *failure*) verdict=rouge;; *cancelled*) verdict=annulé;; esac

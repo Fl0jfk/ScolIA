@@ -68,6 +68,11 @@ pub struct DemandeContournement {
 pub(crate) const MSG_DEMANDEUSE_DECIDE: &str =
     "Une seconde personne autorise : la demandeuse ne décide pas de sa propre demande.";
 
+/// Refus : une autre personne que l'autrice d'une autorisation tente de la révoquer (tracé comme les refus de la règle 3,
+/// faible F-6 de la contre-revue V3b suites 2).
+pub(crate) const MSG_REVOCATION_AUTRICE: &str =
+    "Seule la personne qui a autorisé le contournement peut le révoquer.";
+
 /// Vue d'un contournement pour le personnel habilité (`voyages.argent`).
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct ContournementVue {
@@ -452,6 +457,21 @@ impl PgEnt {
         contournement: Uuid,
         maintenant: DateTime<Utc>,
     ) -> Result<ContournementVue, EntDbError> {
+        // F-6 : un refus de révocation par une autre personne que l'autrice se trace (comme la règle 3).
+        let r = self
+            .voyage_contournement_revoquer_corps(a, id, contournement, maintenant)
+            .await;
+        self.tracer_refus_regle3(a, Some(id), "voyage_contournement_revoquer_a", r)
+            .await
+    }
+
+    async fn voyage_contournement_revoquer_corps(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        contournement: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<ContournementVue, EntDbError> {
         self.avant_verrou(a, Some(ent_auth::Action::VoyagesArgent))
             .await?;
         let mut t = tx(self, a).await?;
@@ -466,11 +486,13 @@ impl PgEnt {
         if c.statut != "autorise" && c.statut != "expire" {
             return Err(conflit());
         }
+        // F-4 : une demande expirée **sans** autorisation n'a rien à révoquer : conflit d'état (409), pas un refus de
+        // personne (403). `decide_par_user_id` ne porte qu'« autorise » ou « refuse », et « refuse » a son propre statut.
+        if c.statut == "expire" && c.decide_par_user_id.is_none() {
+            return Err(conflit());
+        }
         if c.decide_par_user_id != Some(a.user_id) {
-            return Err(refus(
-                RefusMetier::Interdit,
-                "Seule la personne qui a autorisé le contournement peut le révoquer.",
-            ));
+            return Err(refus(RefusMetier::Interdit, MSG_REVOCATION_AUTRICE));
         }
         sqlx::query(
             "INSERT INTO ent_sortie_argent_contournement_evt

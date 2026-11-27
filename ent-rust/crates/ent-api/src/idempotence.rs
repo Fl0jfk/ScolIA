@@ -20,6 +20,18 @@
 //! un refus ou une erreur libère la clé (un nouvel essai s'exécute pour de bon, et ne rejoue jamais un refus de droit
 //! devenu faux) ; une réponse de plus de 256 Kio ou non textuelle est marquée non rejouable (un rejeu reçoit
 //! `409 idempotence.non_rejouable`, jamais une seconde exécution).
+//!
+//! Limites connues et assumées (faibles F2, F3 et F6 de la contre-revue MB1, D-069) :
+//! - **F2** : la couche est posée **à l'extérieur** des gardes `sante::exiger_module` et
+//!   `eleve_garde::exiger_eleve_visible`. Un rejeu ne repasse donc pas par elles. Ce n'est pas une élévation : seule
+//!   la **même session** rejoue **sa propre** réponse de succès, dans les 24 h, et les réponses de santé, de psy et
+//!   de finances ne sont jamais conservées (`reponse_sensible`). Une écriture refusée par une garde (403, 404) n'est
+//!   jamais conservée non plus.
+//! - **F3** : une requête dont la clé est « en cours » interroge le registre toutes les 50 ms, 10 s au plus (200
+//!   lectures). Le nombre de requêtes simultanées d'une session reste borné par la limitation de débit et le délai
+//!   de requête ; un plafond propre par session est en file.
+//! - **F6** : le corps d'une écriture avec clé est lu en mémoire pour l'empreinte, dans la limite de
+//!   `max_body_bytes()` (la même que `RequestBodyLimitLayer`) : aucune lecture non bornée.
 
 use crate::enveloppe::{avec_code, declare_appli};
 use crate::AppState;

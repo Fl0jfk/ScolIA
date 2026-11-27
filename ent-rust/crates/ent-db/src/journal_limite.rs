@@ -14,6 +14,9 @@ pub(crate) const INTERVALLE_JOURNAL: Duration = Duration::from_secs(60);
 #[derive(Debug, Default)]
 pub(crate) struct LimiteurJournal {
     derniere: HashMap<&'static str, Instant>,
+    /// Palier des faibles, lot 3 (faible 5 de la contre-revue E1 passe 5) : lignes écartées par cause depuis la dernière
+    /// ligne écrite. Le nombre part avec la ligne suivante : aucun échec ne disparaît sans trace.
+    supprimees: HashMap<&'static str, u64>,
 }
 
 impl LimiteurJournal {
@@ -24,11 +27,25 @@ impl LimiteurJournal {
         maintenant: Instant,
         intervalle: Duration,
     ) -> bool {
+        self.autoriser_compte(cause, maintenant, intervalle).is_some()
+    }
+
+    /// Comme [`Self::autoriser`], et rend, quand la ligne peut s'écrire, le nombre de lignes écartées pour `cause` depuis
+    /// la précédente (remis à zéro).
+    pub(crate) fn autoriser_compte(
+        &mut self,
+        cause: &'static str,
+        maintenant: Instant,
+        intervalle: Duration,
+    ) -> Option<u64> {
         match self.derniere.get(cause) {
-            Some(d) if maintenant.saturating_duration_since(*d) < intervalle => false,
+            Some(d) if maintenant.saturating_duration_since(*d) < intervalle => {
+                *self.supprimees.entry(cause).or_default() += 1;
+                None
+            }
             _ => {
                 self.derniere.insert(cause, maintenant);
-                true
+                Some(self.supprimees.remove(cause).unwrap_or(0))
             }
         }
     }
@@ -38,14 +55,19 @@ impl LimiteurJournal {
 static GLOBAL: Mutex<Option<LimiteurJournal>> = Mutex::new(None);
 
 pub(crate) fn autoriser_global(cause: &'static str) -> bool {
+    autoriser_global_compte(cause).is_some()
+}
+
+/// Limiteur du processus avec le nombre de lignes écartées depuis la précédente (`None` : ligne retenue).
+pub(crate) fn autoriser_global_compte(cause: &'static str) -> Option<u64> {
     // Verrou empoisonné : on journalise (mieux vaut une ligne de trop qu'un silence).
     match GLOBAL.lock() {
-        Ok(mut g) => g.get_or_insert_with(LimiteurJournal::default).autoriser(
+        Ok(mut g) => g.get_or_insert_with(LimiteurJournal::default).autoriser_compte(
             cause,
             Instant::now(),
             INTERVALLE_JOURNAL,
         ),
-        Err(_) => true,
+        Err(_) => Some(0),
     }
 }
 
@@ -114,6 +136,22 @@ mod tests {
             "l'intervalle repart de la dernière ligne"
         );
         assert!(l.autoriser("a", t0 + Duration::from_secs(120), m));
+    }
+
+    /// Palier des faibles, lot 3 (faible 5 de E1 passe 5) : les lignes écartées sont comptées par cause et le compte part
+    /// avec la ligne suivante, puis repart de zéro ; une autre cause a son propre compte.
+    #[test]
+    fn les_lignes_ecartees_sont_comptees_par_cause_et_rendues_avec_la_suivante() {
+        let t0 = Instant::now();
+        let mut l = LimiteurJournal::default();
+        let m = INTERVALLE_JOURNAL;
+        assert_eq!(l.autoriser_compte("a", t0, m), Some(0));
+        for s in 1..=3 {
+            assert_eq!(l.autoriser_compte("a", t0 + Duration::from_secs(s), m), None);
+        }
+        assert_eq!(l.autoriser_compte("b", t0 + Duration::from_secs(4), m), Some(0));
+        assert_eq!(l.autoriser_compte("a", t0 + Duration::from_secs(60), m), Some(3));
+        assert_eq!(l.autoriser_compte("a", t0 + Duration::from_secs(120), m), Some(0));
     }
 
     /// T3 (faible 1 de E1 passe 5) : `signaler_echec_etablissement` — le **compteur** compte chaque échec, le **journal** ne

@@ -679,6 +679,29 @@ pub(crate) async fn lignes_eleve_annee(
     Ok(lignes)
 }
 
+/// Lignes de l'élève pour l'année **sans période complète** (consommation saisie sans dates, par exemple) : elles ne
+/// passent pas par la facturation au mois, mais comptent dans le plafond de la bourse (F-9, R-F14).
+pub(crate) async fn lignes_eleve_annee_sans_periode(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+    annee: &str,
+) -> Result<Vec<LigneExistante>, EntDbError> {
+    sqlx::query_as::<_, LigneExistante>(&format!(
+        "{SELECT_LIGNE_EXISTANTE}
+          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND f.annee_scolaire = $3
+            AND f.type_piece = 'facture' AND l.ligne_origine_id IS NULL
+            AND (l.periode_debut IS NULL OR l.periode_fin IS NULL)
+          ORDER BY l.id"
+    ))
+    .bind(etab)
+    .bind(eleve)
+    .bind(annee)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)
+}
+
 pub(crate) fn nb_mois_entre(a: NaiveDate, b: NaiveDate) -> i64 {
     (b.year() - a.year()) as i64 * 12 + b.month() as i64 - a.month() as i64 + 1
 }
@@ -1028,7 +1051,8 @@ pub(crate) async fn prises_couvrantes(
 }
 
 /// Restant d'**une** prise en charge (M2) : son plafond moins ce qui est déjà facturé au compte pour **ses**
-/// catégories et **sa** période ; jamais additionné aux autres prises. Arithmétique contrôlée.
+/// catégories et **sa** période, **net des avoirs** posés sur ces lignes (F-5 : une ligne entièrement créditée ne
+/// consomme plus le plafond) ; jamais additionné aux autres prises. Arithmétique contrôlée.
 ///
 /// `propres` = (préfixe `{génération}:{élève}:`, articles de la génération) : les lignes que **cette** génération
 /// reforme (même préfixe, mêmes articles) ne comptent pas, la génération les recalcule à neuf et les consomme dans
@@ -1044,7 +1068,11 @@ async fn restant_prise(
 ) -> Result<i64, EntDbError> {
     let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
     let (facture,): (i64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes), 0)::BIGINT
+        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes
+                             + COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes)
+                                           FROM ent_fac_ligne a
+                                          WHERE a.etablissement_id = l.etablissement_id
+                                            AND a.ligne_origine_id = l.id), 0)), 0)::BIGINT
            FROM ent_fac_ligne l
            JOIN ent_fac_facture f ON f.etablissement_id = l.etablissement_id AND f.id = l.facture_id
            LEFT JOIN ent_fin_article ar ON ar.etablissement_id = l.etablissement_id AND ar.id = l.article_id
@@ -2304,6 +2332,7 @@ fn completer_plafonnee(
             p.libelle = format!("{} — complément (plafond relevé)", l.libelle);
             sortie.push(p);
             manque -= extra;
+            plafond_libre -= extra;
         }
     }
     if manque > 3 * c && !suivants.is_empty() {
@@ -2323,6 +2352,17 @@ fn completer_plafonnee(
             "plafond de la prise en charge modifié : {pose_principal} c déjà facturés à l'organisme pour {} c de plafond restant ; rien n'est refacturé ni crédité d'office, à régulariser",
             l.unitaire
         )
+    });
+    // Suites 4, moyen 5 : plafond **non consommé** (relevé, ou libéré par un avoir de régime) alors qu'une part est déjà
+    // facturée au payeur suivant : l'organisme pourrait désormais la prendre, mais rien n'est crédité ni refacturé
+    // d'office (règle prudente, D-069) ; c'est signalé, sans montant (le calcul est par tronçon, une tâche par
+    // catégorie : le montant d'un tronçon serait partiel).
+    let pose_suivant = pose_total - pose_principal;
+    let signal = signal.or_else(|| {
+        let reprenable = plafond_libre.min(pose_suivant);
+        (cle_posee && reprenable > 3 * (c + 1)).then(|| {
+            "plafond de la prise en charge non consommé alors qu'une part est facturée au payeur suivant : elle pourrait revenir à l'organisme ; rien n'est crédité ni refacturé d'office, à régulariser".to_string()
+        })
     });
     Ok((sortie, signal))
 }
@@ -2581,7 +2621,12 @@ pub(crate) async fn facturer_absence_prolongee(
                     l.libelle
                 ),
                 source_cle: format!("absence:{absence_id}:{}", l.id),
-                periode: None,
+                // période propre : les jours de l'absence sur la ligne (M-5, imputation mois par mois)
+                periode: l
+                    .periode_debut
+                    .zip(l.periode_fin)
+                    .map(|(ld, lf)| (debut.max(ld), fin.min(lf)))
+                    .filter(|(a, b)| a <= b),
                 origine: l,
             })
             .collect();

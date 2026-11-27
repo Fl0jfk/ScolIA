@@ -1,0 +1,18 @@
+{
+  "corps": [
+    {
+      "classe": "4B",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "lien": "mère",
+      "nom": "Potter",
+      "peut_autoriser_sorties": true,
+      "peut_justifier_absence": true,
+      "peut_voir_notes": true,
+      "peut_voir_vs": true,
+      "prenom": "Harry",
+      "status": "actif"
+    }
+  ],
+  "route": "GET /famille/enfants",
+  "statut": 200
+}

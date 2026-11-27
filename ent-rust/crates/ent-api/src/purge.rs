@@ -36,8 +36,15 @@ impl BilanPurge {
     }
 }
 
-/// Une passe de purge. Un échec d'une catégorie n'empêche pas les autres.
+/// Une passe de purge à l'heure réelle (tâche périodique de production). Un échec d'une catégorie n'empêche pas les
+/// autres.
 pub async fn une_passe(ent: &PgEnt) -> BilanPurge {
+    une_passe_a(ent, chrono::Utc::now()).await
+}
+
+/// Une passe de purge à l'instant `maintenant` (faible F7, contre-revue MB1 : les tests injectent l'instant, règle 33 ;
+/// seules les catégories qui prennent déjà un instant l'utilisent, les autres comparent à l'heure de la base).
+pub async fn une_passe_a(ent: &PgEnt, maintenant: chrono::DateTime<chrono::Utc>) -> BilanPurge {
     let mut b = BilanPurge::default();
     macro_rules! cat {
         ($champ:ident, $appel:expr, $nom:literal) => {
@@ -68,7 +75,7 @@ pub async fn une_passe(ent: &PgEnt) -> BilanPurge {
     );
     cat!(
         cles_idempotence,
-        ent.idem_purger(chrono::Utc::now()),
+        ent.idem_purger(maintenant),
         "cles_idempotence"
     );
     b

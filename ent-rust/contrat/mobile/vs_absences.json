@@ -1,0 +1,18 @@
+{
+  "corps": [
+    {
+      "debut": "2027-03-08",
+      "decision_note": null,
+      "eleve_id": "00000000-0000-4000-8000-000000000001",
+      "eleve_label": "Harry Potter",
+      "etablissement_id": "00000000-0000-4000-8000-000000000002",
+      "fin": "2027-03-08",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "motif": "maladie",
+      "motif_justif": "maladie",
+      "statut": "a_traiter"
+    }
+  ],
+  "route": "GET /vs/absences",
+  "statut": 200
+}

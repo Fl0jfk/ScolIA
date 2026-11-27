@@ -20,7 +20,7 @@ COPY . .
 # Production : SANS la feature `labo` (L4) — ni /labo/bootstrap, ni /auth/register
 # libre, ni mot de passe public dans le binaire. Ne JAMAIS ajouter `--features labo` ici.
 RUN GIT_SHA="$GIT_SHA" cargo build --release -p ent-api \
-    && for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do \
+    && for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast' '/mobile/labo'; do \
          if grep -aqF -- "$motif" target/release/ent-api; then \
            echo "ERREUR : le binaire de production contient du code de labo ($motif)" >&2; exit 1; \
          fi; \

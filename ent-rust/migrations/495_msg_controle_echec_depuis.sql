@@ -1,0 +1,11 @@
+-- 495 — Socle 16 (plage 482–499), palier des faibles regroupés, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069).
+-- Réf. : docs/socles/PALIER_FAIBLES_1_LIVRAISON.md.
+--
+-- Additive : 482–494 sont versées et ne changent pas (règle 25). Règle 38 : en FIN de tableau. Aucune fonction.
+-- Rejouable : colonne posée seulement si elle manque. Aucune donnée touchée.
+--
+-- Instant du PREMIER échec du contrôle d'existence d'un avis (verrou d'annulation trop long, base indisponible). Posé une
+-- fois, jamais avancé ; un avis dont le contrôle échoue encore 24 h après cet instant passe en `echec`
+-- (`controle_existence_impossible`). L'âge se mesure depuis ce point fixe, et non depuis `created_at` : un avis planifié loin
+-- devant (résumé du lendemain) n'est pas perdu au premier échec ; ni depuis `planifie_pour`, qui avance à chaque report.
+ALTER TABLE public.ent_notification_envoi ADD COLUMN IF NOT EXISTS controle_echec_depuis TIMESTAMPTZ;

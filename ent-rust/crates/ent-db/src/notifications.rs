@@ -905,7 +905,17 @@ impl BudgetVerrou {
 #[derive(Default)]
 struct ControleMessage {
     derniere: Option<(Uuid, bool)>,
+    /// Palier des faibles, lot 3 (faible 2 de la contre-revue E1 passe 5) : message dont le contrôle d'existence a déjà
+    /// échoué **dans ce lot** (verrou d'une annulation trop long, erreur de base) ; gardé jusqu'à la fin du lot, même si un
+    /// autre message passe ensuite. Les avis suivants du même message sont reportés sans nouvelle attente : 500 avis d'un
+    /// message verrouillé ne coûtent plus 500 attentes de verrou.
+    en_echec: Option<Uuid>,
 }
+
+/// Palier des faibles, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069) : un avis dont le contrôle d'existence échoue
+/// encore plus de 24 h après son **premier** échec de contrôle (`controle_echec_depuis`, 495) ne reboucle plus sans fin.
+/// Il passe en `echec` (motif `controle_existence_impossible`), comme un envoi interrompu : jamais renvoyé automatiquement.
+pub const REPORT_CONTROLE_MAX: Duration = Duration::hours(24);
 
 impl Expediteur {
     pub fn nouveau(
@@ -1225,11 +1235,14 @@ impl Expediteur {
         bilan: &mut BilanExpedition,
         maintenant: DateTime<Utc>,
     ) -> Result<bool, EntDbError> {
-        let existe = match controle.derniere {
+        // `Err(None)` : contrôle non refait (même message déjà en échec dans ce lot, faible 2) ; `Err(Some(_))` : échec.
+        let existe: Result<bool, Option<EntDbError>> = match (controle.derniere, controle.en_echec) {
             // Seul « inexistant » se garde : une ligne supprimée ne revient pas. « Existe » se relit avant chaque
             // envoi (contre-revue, F3 : une annulation pendant le lot rattrape aussi le SMS qui suit le push).
-            Some((id, false)) if e.source_id == Some(id) => Ok(false),
-            _ => self.message_source_existe(e, budget).await,
+            (Some((id, false)), _) if e.source_id == Some(id) => Ok(false),
+            // Faible 2 : même message déjà en échec dans ce lot : report immédiat, sans nouvelle attente de verrou.
+            (_, Some(id)) if e.source_id == Some(id) => Err(None),
+            _ => self.message_source_existe(e, budget).await.map_err(Some),
         };
         match existe {
             Ok(existe) => {
@@ -1243,23 +1256,43 @@ impl Expediteur {
             }
             Err(err) => {
                 controle.derniere = None;
+                controle.en_echec = e.source_id;
                 // Contre-revue du pilote (passe 5, F1) : un message verrouillé visé par des centaines d'avis ne journalise pas
-                // une ligne par avis : au plus une par minute (le bilan compte les reports).
-                if crate::journal_limite::autoriser_global("controle_existence_message") {
-                    tracing::warn!(error = %err, avis = %e.id, "expéditeur : contrôle d'existence du message impossible, avis reporté (journal limité à une ligne par minute)");
+                // une ligne par avis : au plus une par minute et **par nature d'erreur** (faible 5 : un verrou tenu ne
+                // masque pas une panne d'une autre nature), avec le nombre de lignes écartées depuis la précédente.
+                if let Some(err) = &err {
+                    // Le verrou tenu (55P03) et une base indisponible sont tous deux classés `Infrastructure` ; une
+                    // erreur d'une autre classe (sérialisation, donnée) a sa propre cause.
+                    let cause = match err {
+                        EntDbError::Domain(domain_eleve::DomainError::Infrastructure) => {
+                            "controle_existence_message_base"
+                        }
+                        _ => "controle_existence_message_autre",
+                    };
+                    if let Some(supprimees) = crate::journal_limite::autoriser_global_compte(cause) {
+                        tracing::warn!(error = %err, avis = %e.id, supprimees, "expéditeur : contrôle d'existence du message impossible, avis reporté (journal limité à une ligne par minute)");
+                    }
                 }
                 // Contre-revue, M2 : un échec du report lui-même ne doit pas interrompre le lot. Il est journalisé ;
                 // l'avis reste `envoi` et le passage suivant le traite comme un envoi interrompu.
-                let reporte: Result<(), EntDbError> = async {
+                let reporte: Result<Option<String>, EntDbError> = async {
                     let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
-                    sqlx::query(
+                    let statut: Option<String> = sqlx::query_scalar(
                         // Passe 5, faible 1 : `planifie_pour` est **reporté** (jamais avancé) d'au moins l'attente de
                         // verrou. Sans cela, ≥ `taille_lot` avis verrouillés gardaient leur place en tête de file
                         // (`ORDER BY planifie_pour`) et le lot tournait à vide, les avis libres derrière restant affamés.
+                        // Faible 3 : au-delà de `REPORT_CONTROLE_MAX` depuis le **premier** échec de contrôle (495,
+                        // point fixe, jamais avancé), l'avis passe en échec. Contre-revue : pas depuis `created_at`, sinon
+                        // un avis planifié loin devant serait perdu au premier échec.
                         "UPDATE ent_notification_envoi
-                            SET statut = 'en_attente', tentative_le = NULL,
+                            SET statut = CASE WHEN controle_echec_depuis < $4 THEN 'echec' ELSE 'en_attente' END,
+                                motif = CASE WHEN controle_echec_depuis < $4 THEN 'controle_existence_impossible' ELSE motif END,
+                                traite_le = CASE WHEN controle_echec_depuis < $4 THEN $5 ELSE traite_le END,
+                                controle_echec_depuis = COALESCE(controle_echec_depuis, $5),
+                                tentative_le = NULL,
                                 planifie_pour = GREATEST(planifie_pour, $3)
-                          WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'",
+                          WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'
+                          RETURNING statut",
                     )
                     .bind(e.etablissement_id)
                     .bind(e.id)
@@ -1268,15 +1301,18 @@ impl Expediteur {
                             + Duration::from_std(self.config.attente_verrou.max(self.config.intervalle))
                                 .unwrap_or(Duration::seconds(5)),
                     )
-                    .execute(&mut *tx)
+                    .bind(maintenant - REPORT_CONTROLE_MAX)
+                    .bind(maintenant)
+                    .fetch_optional(&mut *tx)
                     .await
                     .map_err(db)?;
                     tx.commit().await.map_err(db)?;
-                    Ok(())
+                    Ok(statut)
                 }
                 .await;
                 match reporte {
-                    Ok(()) => bilan.reportes += 1,
+                    Ok(Some(s)) if s == "echec" => bilan.echecs += 1,
+                    Ok(_) => bilan.reportes += 1,
                     Err(err) => {
                         tracing::error!(error = %err, avis = %e.id, "expéditeur : report de l'avis impossible, avis laissé en envoi")
                     }

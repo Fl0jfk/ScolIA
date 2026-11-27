@@ -1,0 +1,225 @@
+{
+  "corps": {
+    "absences_a_justifier": [
+      {
+        "debut": "2027-03-08",
+        "decision_note": null,
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "etablissement_id": "00000000-0000-4000-8000-000000000002",
+        "fin": "2027-03-08",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "motif": "maladie",
+        "motif_justif": null,
+        "statut": "a_traiter"
+      }
+    ],
+    "carnet_a_signer": [
+      {
+        "categorie": "information",
+        "corps": "Seed labo lot CM-A — entrée carnet visible famille pour audit portail Harry Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000004",
+        "id": "00000000-0000-4000-8000-000000000005",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT CM-A: Harry (famille)",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Seed labo lot CC-A — entrée carnet visible famille pour audit portail Harry Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000006",
+        "id": "00000000-0000-4000-8000-000000000007",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT CC-A: Harry (famille)",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Seed labo lot BX-A — entrée carnet visible famille pour audit portail Harry Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000008",
+        "id": "00000000-0000-4000-8000-000000000009",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT BX-A: Harry (famille)",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Seed labo lot BI-A — entrée carnet visible famille pour audit portail Harry Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000010",
+        "id": "00000000-0000-4000-8000-000000000011",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT BI-A: Suivi conduite Harry (famille)",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Seed labo lot BA-A — entrée carnet visible famille pour audit portail Harry Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000012",
+        "id": "00000000-0000-4000-8000-000000000013",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT BA-A: Suivi conduite Harry (famille)",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Seed labo — entrée carnet déclenchant mail + SMS outbox (dry-run) vers Lily Potter.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000014",
+        "id": "00000000-0000-4000-8000-000000000015",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT: Outbox dry-run Harry",
+        "visible_famille": true
+      },
+      {
+        "categorie": "information",
+        "corps": "Merci de rappeler à Harry les règles de courtoisie en classe — signature parent attendue.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000016",
+        "id": "00000000-0000-4000-8000-000000000017",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "AUDIT: Rappel conduite",
+        "visible_famille": true
+      },
+      {
+        "categorie": "correspondance",
+        "corps": "Harry doit rattraper le chapitre Potions avant vendredi.",
+        "date_entree": "2027-03-08",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "eleve_label": "Harry Potter",
+        "fil_notif_id": "00000000-0000-4000-8000-000000000018",
+        "id": "00000000-0000-4000-8000-000000000019",
+        "signe_at": null,
+        "signe_par_user_id": null,
+        "titre": "Travail à revoir",
+        "visible_famille": true
+      }
+    ],
+    "eleve_id": "00000000-0000-4000-8000-000000000001",
+    "notes": [
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000020",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000021",
+        "libelle": "DS Potions T1",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 14.5
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000024",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000025",
+        "libelle": "Interro Français lab (Harry BN-A)",
+        "matiere_id": "00000000-0000-4000-8000-000000000026",
+        "matiere_libelle": "Français",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 14.0
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000027",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000028",
+        "libelle": "Interro Potions lab (Harry BC-A)",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 15.0
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000029",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000030",
+        "libelle": "Harry CH-A",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 14.0
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000031",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000032",
+        "libelle": "Harry CA-A",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 13.0
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000033",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000034",
+        "libelle": "Interro Potions lab (Harry BV-A)",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 12.5
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000035",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000036",
+        "libelle": "Interro chapitre 2",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000023",
+        "sur": 20.0,
+        "valeur": 16.0
+      },
+      {
+        "date_note": "2027-03-08",
+        "devoir_id": "00000000-0000-4000-8000-000000000037",
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000038",
+        "libelle": "Contrôle T0 démo bulletin",
+        "matiere_id": "00000000-0000-4000-8000-000000000022",
+        "matiere_libelle": "Potions",
+        "periode_id": "00000000-0000-4000-8000-000000000039",
+        "sur": 20.0,
+        "valeur": 15.0
+      }
+    ]
+  },
+  "route": "GET /famille/enfants/{id}/resume",
+  "statut": 200
+}
