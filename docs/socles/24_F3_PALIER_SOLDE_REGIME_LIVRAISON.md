@@ -142,3 +142,26 @@ Toolchain 1.99.0, PostgreSQL 16 local, `ENT_ENV=test`, une base neuve par tranch
 - `cargo metadata --locked` dans `ent-rust/web` : OK.
 - Aucune migration, aucun `#[ignore]` ajouté, aucun compteur de la règle 28 touché. Les seuls fichiers modifiés sont
   `finances.rs`, `finances_regime.rs`, `tests_finances_f3.rs` et ce document.
+
+## Suite locale refaite après les correctifs de contre-revue (tête `c217acdc`)
+
+- Clippy, les 3 commandes de la CI avec `-D warnings` : **0 avertissement**.
+- nextest **avec labo** : les **4 344 tests passent**. Quatre tranches parallèles ont été coupées par la limite de
+  durée de la session ; les 833 tests qu'elles n'avaient pas encore lancés ont été rejoués à part, et tous passent.
+  Le test xid de messagerie, instable au premier passage, est passé cette fois.
+- nextest **sans labo** (`ent-api`, `ent-db`) : **921 passés**.
+- `merge-base --is-ancestor origin/ENT` : OK (ENT toujours à `5d165264`).
+
+## Commits du palier
+
+| Commit | Objet |
+|---|---|
+| `5765655b` | Lot 1 : M-5 et F-9 |
+| `3cb4566e` | Doc du lot 1 |
+| `da0de074` | Lot 2 : faibles F-2 à F-5 |
+| `b32622ce` | Lot 3 : moyen 5 des suites 4 |
+| `60712a1e` | Doc des lots 2 et 3 et fin de palier |
+| `c217acdc` | Correctifs de la contre-revue des lots 2 et 3 (M-1, M-2) |
+| (ce commit) | Doc : suite locale refaite |
+
+En file, hors palier : F-7 (conception), et les faibles de la contre-revue des lots 2 et 3.
