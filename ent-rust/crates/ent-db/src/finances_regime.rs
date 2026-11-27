@@ -250,7 +250,7 @@ async fn avoirs_des_lignes(
     for (id, cle, d, f, montant) in rows {
         let e = out.entry(id).or_default();
         if est_cle_avoir_regime(&cle) {
-            e.regime_abs = e.regime_abs.saturating_add(montant.saturating_abs());
+            e.regime_abs = plus(e.regime_abs, abs_c(montant)?)?;
         } else {
             e.hors_regime.push(AvoirRegime {
                 cle,
@@ -260,6 +260,30 @@ async fn avoirs_des_lignes(
         }
     }
     Ok(out)
+}
+
+// Arithmétique **contrôlée** des montants de la régularisation (palier des faibles de facturation, C4 ; F-3 de la
+// contre-revue des lots 2 et 3) : un dépassement rend `montant hors limites` (rien n'est posé, la transaction de
+// l'appelant est annulée) au lieu d'un montant faux en silence. Inatteignable en centimes réalistes.
+
+fn hors_limites() -> EntDbError {
+    crate::finances::invalide("montant hors limites")
+}
+
+fn plus(a: i64, b: i64) -> Result<i64, EntDbError> {
+    a.checked_add(b).ok_or_else(hors_limites)
+}
+
+fn moins(a: i64, b: i64) -> Result<i64, EntDbError> {
+    a.checked_sub(b).ok_or_else(hors_limites)
+}
+
+fn abs_c(a: i64) -> Result<i64, EntDbError> {
+    a.checked_abs().ok_or_else(hors_limites)
+}
+
+fn somme(valeurs: impl IntoIterator<Item = i64>) -> Result<i64, EntDbError> {
+    valeurs.into_iter().try_fold(0_i64, plus)
 }
 
 /// Clé d'un avoir de régime (`regime:{…}:avoir:…`), comme le filtre `LIKE 'regime:%:avoir:%'`.
@@ -275,6 +299,9 @@ fn est_cle_avoir_regime(cle: &str) -> bool {
 /// * absence (`absence:…`) : `credit_aux_jours` crédite des jours ; on répartit au prorata des jours de la période
 ///   propre de l'avoir dans chaque mois non découvert (ancien format sans période propre : celle de la ligne) ;
 /// * les autres avoirs (manuel, changement de payeur) ne portent sur aucun mois : non imputés.
+///
+/// Arithmétique saturée assumée ici (fonction pure) : chaque mois reçoit au plus sa valeur, bornée par le total de la
+/// ligne ; la régularisation, elle, contrôle ses opérations (`plus`, `moins`, `somme`).
 pub(crate) fn imputer_hors_regime(
     debut: NaiveDate,
     fin: NaiveDate,
@@ -411,7 +438,7 @@ pub(crate) async fn regulariser_regime_annee(
         .filter(|l| matches!(l.categorie.as_deref(), Some("restauration" | "internat")))
     {
         let e = plafond_bourse.entry(l.foyer_id).or_insert(0);
-        *e = e.saturating_add(l.total.saturating_sub(l.deja_credite));
+        *e = plus(*e, moins(l.total, l.deja_credite)?)?;
     }
     let lignes: Vec<LigneExistante> = toutes
         .into_iter()
@@ -452,37 +479,31 @@ pub(crate) async fn regulariser_regime_annee(
         // changement de payeur), imputés d'abord aux mois conservés (D-069 : jamais de surfacturation). Calcul en
         // valeur absolue, du signe du total à la fin (une réduction est créditée au centime inférieur).
         let signe = if l.total < 0 { -1 } else { 1 };
-        let total_abs = l.total.abs();
-        let deja_abs = signe * l.deja_credite;
+        let total_abs = abs_c(l.total)?;
+        let deja_abs = l.deja_credite.checked_mul(signe).ok_or_else(hors_limites)?;
         let vide = AvoirsDeLigne::default();
         let de_ligne = avoirs_lignes.get(&l.id).unwrap_or(&vide);
         let imputes = imputer_hors_regime(d, f, l.total, &l.decouverts, &de_ligne.hors_regime);
-        let impute_total: i64 = imputes.values().sum();
-        let sans_mois = (deja_abs - de_ligne.regime_abs - impute_total).max(0);
+        let impute_total = somme(imputes.values().copied())?;
+        let sans_mois = moins(moins(deja_abs, de_ligne.regime_abs)?, impute_total)?.max(0);
         let conserves: Vec<i32> = (indice_mois(d)..=indice_mois(f))
             .filter(|m| !l.decouverts.contains(m) && !a_crediter.contains(m))
             .collect();
-        let impute_conserves: i64 = conserves.iter().filter_map(|m| imputes.get(m)).sum();
+        let impute_conserves = somme(conserves.iter().filter_map(|m| imputes.get(m).copied()))?;
         // valeur des mois conservés au centime inférieur
         let valeur_conserves = calcul::proportion(total_abs, conserves.len() as i64, nm);
-        let reserve = valeur_conserves
-            .saturating_sub(impute_conserves)
-            .saturating_sub(sans_mois)
-            .max(0);
-        let mut reste = total_abs
-            .saturating_sub(deja_abs)
-            .saturating_sub(reserve)
-            .max(0);
+        let reserve = moins(moins(valeur_conserves, impute_conserves)?, sans_mois)?.max(0);
+        let mut reste = moins(moins(total_abs, deja_abs)?, reserve)?.max(0);
         for (debut, fin) in suites(&a_crediter) {
             let base = credit_prorata(l.total, i64::from(fin - debut + 1), nm).abs();
-            let deja_rendu: i64 = (debut..=fin).filter_map(|m| imputes.get(&m)).sum();
+            let deja_rendu = somme((debut..=fin).filter_map(|m| imputes.get(&m).copied()))?;
             // borné par ce qui reste sur la ligne
-            let credit = base.saturating_sub(deja_rendu).max(0).min(reste);
+            let credit = moins(base, deja_rendu)?.max(0).min(reste);
             if credit == 0 {
                 continue;
             }
-            reste -= credit;
-            let credit = signe * credit;
+            reste = moins(reste, credit)?;
+            let credit = credit.checked_mul(signe).ok_or_else(hors_limites)?;
             let (p1, p2) = (premier_du_mois(debut), premier_du_mois(fin));
             avoirs.push(AvoirAFaire {
                 credit,
@@ -499,27 +520,23 @@ pub(crate) async fn regulariser_regime_annee(
             });
         }
         if matches!(l.categorie.as_deref(), Some("restauration" | "internat")) {
-            let credites: i64 = avoirs[avoirs_avant..].iter().map(|a| a.credit).sum();
+            let credites = somme(avoirs[avoirs_avant..].iter().map(|a| a.credit))?;
             let e = plafond_bourse.entry(l.foyer_id).or_insert(0);
-            *e = e.saturating_add(
-                l.total
-                    .saturating_sub(l.deja_credite)
-                    .saturating_sub(credites),
-            );
+            *e = plus(*e, moins(moins(l.total, l.deja_credite)?, credites)?)?;
         }
     }
     // La bourse ne se déduit que de la restauration et de l'internat restant dus (R-F14) : un avoir de régime qui les
     // réduit réduit d'autant la bourse déjà posée (clé propre à l'état : `d{déjà crédité}`, rejeu neutre).
     for b in &bourses {
         // une bourse est une déduction : le reste est positif
-        let reste = b.deja_credite.saturating_sub(b.total);
+        let reste = moins(b.deja_credite, b.total)?;
         if reste <= 0 {
             continue;
         }
         let plafond = plafond_bourse.entry(b.foyer_id).or_insert(0);
         let permis = reste.min((*plafond).max(0));
-        *plafond = plafond.saturating_sub(permis);
-        let excedent = reste.saturating_sub(permis);
+        *plafond = moins(*plafond, permis)?;
+        let excedent = moins(reste, permis)?;
         if excedent <= 0 {
             continue;
         }
@@ -787,6 +804,19 @@ mod tests {
     }
     fn connu(v: &str) -> RegimeMois {
         RegimeMois::Connu(v.into())
+    }
+
+    #[test]
+    fn faibles_fac_c4_arithmetique_controlee_de_la_regularisation() {
+        assert_eq!(somme([45_000, -9_000, 13_663]).unwrap(), 49_663);
+        assert!(
+            somme([i64::MAX, 1]).is_err(),
+            "somme hors limites : erreur, jamais saturée"
+        );
+        assert!(plus(i64::MAX, 1).is_err());
+        assert!(moins(i64::MIN, 1).is_err());
+        assert!(abs_c(i64::MIN).is_err());
+        assert_eq!(moins(45_000, 9_000).unwrap(), 36_000);
     }
 
     #[test]
