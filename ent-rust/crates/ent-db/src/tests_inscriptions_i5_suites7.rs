@@ -374,7 +374,8 @@ async fn s7_sante_sentinelle_signale_un_declencheur_non_always() {
     let mut tx = ent.pool_verif().begin().await.unwrap();
     // T3 : aucun `ALTER TABLE` hors `lock_timeout` — si un test voisin tient un verrou sur ces tables, celui-ci échoue vite
     // (et lisiblement) au lieu d'attendre indéfiniment, et il ne bloque pas non plus les sessions des autres tests plus de
-    // 3 s (`SET LOCAL` : valable pour cette seule transaction, annulée en fin de test).
+    // 15 s (`SET LOCAL` : valable pour cette seule transaction, annulée en fin de test ; 15 s depuis la contre-revue T3, M2,
+    // commentaire mis à jour au palier des faibles, lot 4).
     sqlx::query("SET LOCAL lock_timeout = '15s'").execute(&mut *tx).await.unwrap();
     sqlx::query("ALTER TABLE ent_inscription_decision ENABLE TRIGGER ent_inscription_sentinelle_decision_ins_trg")
         .execute(&mut *tx)
