@@ -6,6 +6,53 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-27 (vendredi soir, 18 h 45 Paris) — point du jour
+
+**Sur ENT, validé par la CI.** ENT = **f9c54101**, CI verte (run 741, commentaire du bot sur la PR 93). Trois paliers versés depuis hier soir, chacun après une contre-revue indépendante, et chaque versement suivi d'une CI d'ENT verte (737, 739, 741).
+- **Socle 24, facturation F3, régime mois par mois** (PR 159, ENT = 5d165264, run 737) : le défaut grave préexistant est corrigé, l'annuel ne facture plus l'année au régime courant.
+- **Socle 24, palier « solde du régime mois par mois »** (ENT = 5022055a, run 739) :
+  - un mois crédité par une sortie puis rendu non dû par le régime n'est crédité qu'une fois (M-5, F-9) ;
+  - un plafond relevé alors qu'un payeur suivant est déjà facturé est signalé ;
+  - faibles F-2 à F-5 corrigés, et deux moyens de sa contre-revue (signal de plafond non consommé).
+- **Palier des faibles regroupés n° 1** (PR 161, ENT = f9c54101, migrations 658 puis 495, run 741) :
+  - mobile MB1 serveur : faibles F1, F4, F5, F7 et tests manquants ;
+  - voyages : verrou des faits de contournement (M-2), refus de la base traduits, révocation tracée (F-3 à F-6) ;
+  - messagerie E1 p5 et T3 : message verrouillé attendu une fois par lot, report borné à 24 h, limiteur qui compte vraiment ;
+  - cahier suites 2 et I5 p7 : gel discriminant, verrou de test libéré sur panique.
+
+  **658 puis 495** sont à inscrire en fin de `migrations_versees.txt` : le fil G5 le fait à sa fusion d'ENT.
+
+**Prêt mais pas encore sur ENT** : rien de versable.
+
+**En cours** (fils qui travaillent)
+- **Socle 27, palier G3b + G4** (extrait RGPD assemblé, masquages, remise chiffrée, journal des accès ; 2545, 2546) : lots 1 à 5 poussés, validation locale complète en cours avant la PR. La contre-revue des lots 1 et 2 avait trouvé **trois élevés** sur l'isolation entre titulaires (parent sans compte non masqué, parent sorti d'un fil qui reçoit tout le fil, frère ou sœur ajouté sans vérification de qualité) : à confirmer corrigés à la contre-revue finale du palier.
+- **Socle 27, palier G5, registre des violations** (migration 2547) : lots 1 et 2 verts en local, lot 3 (violations de la plateforme et écrans) en cours, puis fusion d'ENT et contre-revue.
+- **Relevé du quota** : semaine à 63 % vendredi 13 h ; au rythme actuel, environ 86 % dimanche, sous l'objectif de 95 % : marge pour accélérer un peu.
+
+**Conçu mais pas codé** (file)
+1. Réserves G3a (M-a, M-b, M-c) et faibles Pf1 à Pf8 : dans le palier G3b + G4.
+2. MB1 client (applis dans le dépôt) : accord de Florian attendu.
+3. Contrôle par une deuxième personne fondé sur la personne physique (conception d'abord).
+4. Palier des faibles regroupés n° 2 (faibles restants des rapports de `revues/`).
+
+**Tableau d'avancement** : socle 24 (facturation) : régime mois par mois et son solde versés, plus de défaut grave connu. Socle 27 (RGPD) : guichet versé ; extrait, journal des accès et registre des violations en cours. Socles 11, 16, 20, 3, 42 : faibles soldés en partie. Frontend et mobile toujours en retrait, comme convenu.
+
+**Décisions attendues de Florian**
+- **Applis mobiles dans ENT** : intégrer le code Android et iOS dans la branche `ENT`.
+- Choix pris par défaut, à relire quand tu veux (D-069) : palier des faibles versé par son propre fil, en avance rapide sur le SHA vert, sans nouvelle vérification complète (règle 30).
+
+**À fournir par Florian plus tard** (`A_FOURNIR_PAR_FLORIAN.md`)
+- **Bientôt** : vers le **5 décembre**, je te donnerai la liste exacte pour ScolIA chez Scaleway avant Noël (F-08) : conteneur et base séparés, sous-domaine, sauvegardes. Rien à faire avant.
+- **F-09** : comptes développeur Apple et Google Play, **avant mars 2027**.
+- Exports anonymisés Charlemagne et SIECLE (F-01 à F-07) : au moment de la reprise, pas urgent.
+
+**Ce qui a coincé**
+- **Contre-revue G3b + G4 lots 1 et 2 : non versable en l'état** (trois élevés), d'où la poursuite du palier avant toute PR. Le rapport a été poussé sur une branche de fil et doit être repris sur la branche du palier.
+- **Suite locale du palier G3b + G4** : sept échecs dans la première tranche, à rejouer isolément (dont deux sur les droits, à vérifier).
+- Aucune CI rouge sur ENT aujourd'hui.
+
+---
+
 ## 2026-11-26 (jeudi soir, 18 h 45 Paris) — point du jour
 
 Premier jour dans le Projet : le pilote est devenu le coordinateur, chaque lot a son fil, et la veille des CI (PR 93 et PR de lot) réveille un fil dédié.
