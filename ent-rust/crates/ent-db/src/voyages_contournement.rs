@@ -411,7 +411,8 @@ impl PgEnt {
         if c.statut != "en_attente" {
             return Err(conflit());
         }
-        if c.demande_par_user_id == a.user_id {
+        // Transverse « individu » (659) : un second compte de la demandeuse ne décide pas non plus.
+        if crate::individu::meme_individu(&mut t, a.etablissement_id, c.demande_par_user_id, a.user_id).await? {
             return Err(refus(RefusMetier::Interdit, MSG_DEMANDEUSE_DECIDE));
         }
         // La seconde personne est libre de tout lien avec la sortie (même règle que pour l'action elle-même).

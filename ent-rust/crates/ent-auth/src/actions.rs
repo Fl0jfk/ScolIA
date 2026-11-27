@@ -199,6 +199,11 @@ pub enum Action {
     /// Créer et modifier les personnes (responsables, contacts), leurs liens
     /// à l'élève et les contacts d'urgence (DOS-03, DOS-05, DOS-08).
     PersonnesGerer,
+    /// Transverse « individu » (migration 279) : relier deux fiches du même humain (deux comptes, agent et fiche
+    /// parent sans compte), consulter les liens et les propositions, écarter une proposition. Ne fait que restreindre.
+    PersonnesIndividuRelier,
+    /// Lever un lien d'individu (retire des refus) : direction seule, jamais l'individu concerné.
+    PersonnesIndividuLever,
     /// Désigner les payeurs et leurs parts (DOS-07).
     PayeursDefinir,
     /// Suspendre ou rétablir le lien d'un responsable (décision de justice, DOS-06).
@@ -696,7 +701,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 286] = [
+    pub const TOUTES: [Action; 288] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -743,6 +748,8 @@ impl Action {
         Action::ReferentielLire,
         Action::ReferentielGerer,
         Action::PersonnesGerer,
+        Action::PersonnesIndividuRelier,
+        Action::PersonnesIndividuLever,
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
@@ -1099,6 +1106,8 @@ impl Action {
             Self::ReferentielLire => "referentiel.lire",
             Self::ReferentielGerer => "referentiel.gerer",
             Self::PersonnesGerer => "personnes.gerer",
+            Self::PersonnesIndividuRelier => "personnes.individu.relier",
+            Self::PersonnesIndividuLever => "personnes.individu.lever",
             Self::PayeursDefinir => "payeurs.definir",
             Self::LiensSuspendre => "liens.suspendre",
             Self::PersonnesFusionner => "personnes.fusionner",
@@ -1391,6 +1400,8 @@ impl Action {
             Self::ReferentielLire => "Consulter le référentiel scolaire",
             Self::ReferentielGerer => "Gérer le référentiel scolaire (années, classes, périodes…)",
             Self::PersonnesGerer => "Gérer les responsables, contacts et liens d'un élève",
+            Self::PersonnesIndividuRelier => "Relier deux fiches d'un même individu (deux comptes, agent et parent), propositions",
+            Self::PersonnesIndividuLever => "Lever un lien d'individu (jamais le sien)",
             Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
             Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
             Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
@@ -1760,6 +1771,8 @@ impl Action {
             // S2-1 : actions sur les personnes (non rattachées à une classe) :
             // établissement entier seulement.
             Self::PersonnesGerer
+            | Self::PersonnesIndividuRelier
+            | Self::PersonnesIndividuLever
             | Self::PayeursDefinir
             | Self::LiensSuspendre
             | Self::PersonnesFusionner
@@ -2278,6 +2291,14 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role == Role::Compta {
         d.push(etab(PayeursDefinir));
+    }
+    // Transverse « individu » (279) : relier deux fiches du même humain (direction, secrétariat) ; lever un lien
+    // retire des refus : direction seule.
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnesIndividuRelier));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnesIndividuLever));
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(LiensSuspendre));

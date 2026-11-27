@@ -621,7 +621,10 @@ async fn exiger_seconde_personne_annulation(
     if !(montant > seuil || cumul > seuil || (fonds && source == Some("fonds_social"))) {
         return Ok(());
     }
-    if user == decide || demande == Some(user) {
+    // Transverse « individu » (659) : ni l'individu qui a décidé, ni celui qui a demandé (un second compte non plus).
+    if crate::individu::meme_individu(conn, etab, user, decide).await?
+        || crate::individu::meme_individu_opt(conn, etab, demande, user).await?
+    {
         return Err(refus(RefusMetier::Interdit, MSG_SECONDE_ANNULATION));
     }
     Ok(())
@@ -2021,7 +2024,10 @@ impl PgEnt {
         if issue_de(&mut t, a.etablissement_id, d.id).await?.is_some() {
             return Err(conflit());
         }
-        if d.seconde_validation && d.demande_par_user_id == a.user_id {
+        // Transverse « individu » (659) : la seconde personne est un autre individu que le demandeur.
+        if d.seconde_validation
+            && crate::individu::meme_individu(&mut t, a.etablissement_id, d.demande_par_user_id, a.user_id).await?
+        {
             return Err(refus(RefusMetier::Interdit, MSG_SECONDE_VALIDATION));
         }
         // F-c : une demande en attente expire ; on ne la valide plus (on la refuse ou on la retire, puis on la redépose).
