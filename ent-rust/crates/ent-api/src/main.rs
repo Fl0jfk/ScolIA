@@ -609,6 +609,23 @@ async fn run_api() {
         })
     });
 
+    // Socle 27 (G5) : alertes H-24 et H-6 avant l'échéance de notification à la CNIL d'une violation non réglée.
+    // Toutes les 5 minutes, idempotente (une alerte par palier et par violation).
+    let violations_echeances = (std::env::var("ENT_TACHES_VIOLATIONS").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(75)).await;
+            loop {
+                match ent.violations_echeances_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(n, "alertes d'échéance CNIL envoyées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("alertes d'échéance CNIL : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            }
+        })
+    });
+
     // Socle 15 (A5) : état du remplacement des absences longues (« nommé » → « en cours » → « terminé »), une
     // seule notification par étape. Chaque minute, idempotente.
     let remplacements_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
@@ -828,6 +845,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = sollicitations_absences {
+        t.abort();
+    }
+    if let Some(t) = violations_echeances {
         t.abort();
     }
     if let Some(t) = remplacements_absences {

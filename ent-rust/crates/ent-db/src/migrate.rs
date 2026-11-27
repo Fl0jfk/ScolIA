@@ -608,6 +608,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // tableau ; chacune de ses fonctions porte `SET search_path = pg_catalog, public, pg_temp` et qualifie
     // ses relations `public.`. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2544_rgpd_g3_demandes"),
+    // Socle 27, palier G5 (2547, plage 2540–2559) : registre des violations de données (violation, catégories,
+    // mesures, notifications CNIL, personnes concernées, chronologie en ajout seul, violation de plateforme et sa
+    // propagation). Règle 38 : en fin de tableau ; chacune de ses fonctions porte
+    // `SET search_path = pg_catalog, public, pg_temp` et qualifie ses relations `public.`. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("2547_rgpd_g5_violations"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

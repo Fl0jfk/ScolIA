@@ -918,6 +918,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::formulaires_s18::routes());
     // Socle 27, lot G3a : guichet des demandes de droits (`rgpd_droits.rs`).
     let r = r.merge(crate::rgpd_droits::routes());
+    // Socle 27, palier G5 : registre des violations de données (`rgpd_violations.rs`).
+    let r = r.merge(crate::rgpd_violations::routes());
     // Agenda : événements, séries, audience, vue calculée (socle 19, lot AG1 : `agenda.rs`).
     let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).

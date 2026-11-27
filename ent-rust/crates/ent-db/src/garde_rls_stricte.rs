@@ -58,6 +58,8 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("controle_demarrage", ".fetch_one(pool)", "contrôle au démarrage (T2) : lit le catalogue (to_regprocedure, has_function_privilege) pour le rôle courant ; aucune table métier, aucune donnée d'établissement (T3 : exception ciblée sur la ligne, plus sur le fichier)"),
     ("controle_demarrage", "droit_annulation(self.pool())", "même contrôle : passe le pool à la requête de catalogue ci-dessus, rien d'autre"),
     ("controle_demarrage", "droit_execution(pool,", "même contrôle : délègue au catalogue (signature SQL en paramètre), aucune table"),
+    ("violations_plateforme", "self.pool().begin()", "rgp_violation_plateforme : table de plateforme sans établissement ni RLS (socle 27, G5) ; appel système réservé à la console plateforme"),
+    ("violations_plateforme", ".execute(self.pool())", "rgp_violation_plateforme : clôture par l'éditeur, table de plateforme sans RLS (socle 27, G5) ; appel système"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
 ];
 
