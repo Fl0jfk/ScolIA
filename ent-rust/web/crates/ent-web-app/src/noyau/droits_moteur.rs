@@ -150,6 +150,21 @@ impl DroitsMoteur {
         self.a_etablissement("droits.arbitrer")
     }
 
+    /// Socle 27, palier G5 : déclarer un incident de données (tout personnel).
+    pub fn peut_declarer_violations(&self) -> bool {
+        self.a_etablissement("violations.declarer")
+    }
+
+    /// Socle 27, palier G5 : tenir le registre des violations (qualifier, mesures, notification, clôture).
+    pub fn peut_gerer_violations(&self) -> bool {
+        self.a_etablissement("violations.gerer")
+    }
+
+    /// Socle 27, palier G5 : décisions de la direction (risque, non-notification, information des personnes).
+    pub fn peut_decider_violations(&self) -> bool {
+        self.a_etablissement("violations.decider")
+    }
+
     /// Lire les contraintes publiées destinées aux enseignants, à la restauration ou aux sorties.
     pub fn peut_lire_contraintes(&self) -> bool {
         self.a("contraintes.lire")

@@ -616,6 +616,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // échec du contrôle d'existence d'un avis (faible 3 de la contre-revue E1 passe 5). 482 à 494 sont versées et ne changent
     // pas (règle 25). Aucune fonction. `MIGRATION_TAG` inchangé.
     m!("495_msg_controle_echec_depuis"),
+    // Socle 27, palier G5 (2547, plage 2540–2559) : registre des violations de données (violation, catégories,
+    // mesures, notifications CNIL, personnes concernées, chronologie en ajout seul, violation de plateforme et sa
+    // propagation). Règle 38 : en fin de tableau ; chacune de ses fonctions porte
+    // `SET search_path = pg_catalog, public, pg_temp` et qualifie ses relations `public.`. Sous 3808 :
+    // `MIGRATION_TAG` inchangé.
+    m!("2547_rgpd_g5_violations"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

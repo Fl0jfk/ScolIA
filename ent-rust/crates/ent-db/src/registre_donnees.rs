@@ -1386,6 +1386,20 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("rgp_soustraitant_objection", "conformite", Portee::Etablissement).perso(),
     t("rgp_traitement", "conformite", Portee::Etablissement),
     t("rgp_traitement_version", "conformite", Portee::Etablissement).perso(),
+    // Socle 27, palier G5 (migration 2547) : registre des violations. Catégorie `rgpd.violation` (clôture + 60 mois).
+    // Neutralisation à la restauration : AUCUNE — une violation restaurée est vraie (elle a bien eu lieu) et son horloge
+    // court depuis la prise de connaissance ; les alertes partent par la file du socle 8, qui a sa propre neutralisation.
+    t("rgp_violation", "conformite", Portee::Etablissement).perso(),
+    t("rgp_violation_categorie", "conformite", Portee::Etablissement),
+    // Compteur de numéros : aucune donnée personnelle, un entier par année.
+    t("rgp_violation_compteur", "conformite", Portee::Etablissement),
+    t("rgp_violation_etape", "conformite", Portee::Etablissement).perso(),
+    t("rgp_violation_mesure", "conformite", Portee::Etablissement).perso(),
+    t("rgp_violation_notification", "conformite", Portee::Etablissement).perso(),
+    t("rgp_violation_personne", "conformite", Portee::Etablissement).perso(),
+    // Violation de plateforme : déclarée par l'éditeur, sans établissement ni donnée d'un établissement (P).
+    t("rgp_violation_plateforme", "conformite", Portee::Technique),
+    t("rgp_violation_plateforme_etab", "conformite", Portee::Etablissement),
 ];
 
 /// Classement d'une table par nom.

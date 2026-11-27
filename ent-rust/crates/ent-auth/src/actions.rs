@@ -595,6 +595,16 @@ pub enum Action {
     /// Socle 27, lot G3a : arbitrages réservés à la direction — refus motivé, demande manifestement excessive
     /// (R-RG17), prolongation de deux mois, communication du nom d'un agent. Établissement seulement.
     DroitsArbitrer,
+    /// Socle 27, palier G5 : déclarer un incident ou une violation de données, en trente secondes, sans être accusé
+    /// (RGP-240, CL27-45). Tous les personnels. Établissement seulement.
+    ViolationsDeclarer,
+    /// Socle 27, palier G5 : lire le registre des violations, qualifier, consigner l'avis du DPO, les mesures, la
+    /// notification à la CNIL, clore. Direction ; le DPO et le référent sécurité par un rôle D-017. Établissement seulement.
+    ViolationsGerer,
+    /// ★ Socle 27, palier G5 : décider le niveau de risque d'une violation (après avis du DPO tracé), justifier sa
+    /// non-notification et confirmer l'information des personnes (RGP-245, RGP-252, RGP-253). Direction ; établissement
+    /// seulement. Jamais auto-attribuable.
+    ViolationsDecider,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -696,7 +706,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 286] = [
+    pub const TOUTES: [Action; 289] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -888,6 +898,9 @@ impl Action {
         Action::DroitsTraiter,
         Action::DroitsRemettre,
         Action::DroitsArbitrer,
+        Action::ViolationsDeclarer,
+        Action::ViolationsGerer,
+        Action::ViolationsDecider,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -1267,6 +1280,9 @@ impl Action {
             Self::DroitsTraiter => "droits.traiter",
             Self::DroitsRemettre => "droits.remettre",
             Self::DroitsArbitrer => "droits.arbitrer",
+            Self::ViolationsDeclarer => "violations.declarer",
+            Self::ViolationsGerer => "violations.gerer",
+            Self::ViolationsDecider => "violations.decider",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1561,6 +1577,9 @@ impl Action {
             Self::DroitsTraiter => "Qualifier, instruire et clore une demande de droit",
             Self::DroitsRemettre => "Remettre l'extrait d'une demande de droit",
             Self::DroitsArbitrer => "Prolonger, refuser ou arbitrer une demande de droit (direction)",
+            Self::ViolationsDeclarer => "Déclarer un incident ou une violation de données",
+            Self::ViolationsGerer => "Qualifier, notifier et clore une violation de données ; lire le registre",
+            Self::ViolationsDecider => "Décider le risque d'une violation et l'information des personnes (direction)",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1885,6 +1904,9 @@ impl Action {
             | Self::DroitsRecevoir
             | Self::DroitsTraiter
             | Self::DroitsRemettre
+            | Self::ViolationsDeclarer
+            | Self::ViolationsGerer
+            | Self::ViolationsDecider
             | Self::DroitsArbitrer => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
@@ -2728,6 +2750,15 @@ fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
         d.push(etab(DroitsTraiter));
         d.push(etab(DroitsRemettre));
         d.push(etab(DroitsArbitrer));
+        // Palier G5, violations (§12.1) : la direction gère le registre et décide le risque ; le DPO et le référent
+        // sécurité reçoivent `violations.gerer` par un rôle D-017, jamais par défaut.
+        d.push(etab(ViolationsGerer));
+        d.push(etab(ViolationsDecider));
+    }
+    // Palier G5 : tout personnel déclare un incident (RGP-240) ; ni les familles ni les élèves (ils le signalent à
+    // l'établissement, qui déclare).
+    if role.is_staff() {
+        d.push(etab(ViolationsDeclarer));
     }
     // Secrétariat (scolarité) : enregistre une demande et l'instruit. La REMISE de l'extrait reste
     // réservée (« secrétariat habilité », §12.1) : elle s'attribue nommément, jamais par défaut ;
@@ -3098,6 +3129,20 @@ mod tests {
         assert!(a(Role::Direction, ConformiteValider));
         assert!(a(Role::Direction, SoustraitantsGerer));
         assert!(!a(Role::Direction, ConservationReglesValider), "la validation est celle du DPO");
+        // Palier G5 : tout personnel déclare ; seule la direction gère et décide (le DPO par un rôle D-017).
+        for r in [
+            Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
+            Role::Psy, Role::Accueil, Role::Personnel,
+        ] {
+            assert!(a(r, ViolationsDeclarer), "{r:?} déclare un incident");
+            assert_eq!(a(r, ViolationsGerer), r == Role::Direction, "{r:?} : gérer le registre");
+            assert_eq!(a(r, ViolationsDecider), r == Role::Direction, "{r:?} : décider le risque");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            for x in [ViolationsDeclarer, ViolationsGerer, ViolationsDecider] {
+                assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?}");
+            }
+        }
     }
 
     #[test]
