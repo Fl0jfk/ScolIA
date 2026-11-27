@@ -332,6 +332,37 @@ seul échec est un `statement timeout` sous charge (`t1_gel_du_cahier…`), vert
 RLS : **+2 tables** (`acc_differe`, `acc_nom_communique`), soit 6 tables `acc_*` au total ; registre : +2 ; routes : +12 entrées authentifiées ;
 `Action::TOUTES` **288** (à recalculer après la fusion de `origin/ENT`).
 
+## Validation finale du palier (règle 39)
+
+- `origin/ENT` : déjà intégré (fusion `d8202f755`) ; `git merge-base HEAD origin/ENT` = tête d'`origin/ENT` au moment de la PR.
+  Compteurs recalculés : `Action::TOUTES` **288** (286 + 2), RLS +9 tables au total sur le palier (`acc_*` ×6, normalisation de la clôture ×3),
+  tableau `migrate.rs` : 2545 et 2546 en fin, `MIGRATION_TAG` 3808, `migrations_versees.txt` inchangé pour 2545/2546.
+- Clippy ×3 (workspace, workspace avec `ent-api/labo,ent-lab/labo`, `ent-types`) : 0 avertissement. Web : clippy natif + wasm, 686 tests,
+  `cargo metadata --locked`, `cargo fmt` des trois crates web propre.
+- `ent-db` avec labo, 4 tranches `nextest` sur base neuve : 3 132 tests ; les seuls échecs (10 tests : reprise r2/r3, `tests_eleve_e9`,
+  `tests_eleve_identifiants`, `tests_personnels_p4/p5`, `tests_portail_p1`, `tests_structure_s7`) comptent des lignes globales ou
+  expirent sous charge parallèle ; **rejoués seuls (`-j1`) : 10/10 verts**.
+- `ent-api` avec labo : 356 tests. Deux vrais écarts trouvés et corrigés (commit `0a9ae4e23`) : `acces_traces.rs` et `rgpd_extrait.rs`
+  manquaient à l'inventaire des routes (`routes_src`) ; l'accès hors périmètre répond désormais 409 « motif requis » (lot 4), compté comme
+  **refus** dans les quatre harnais (`separation`, `recette_personas_1`, `_2`, `_2_dossier`) car aucune donnée n'est servie. Binaires
+  impactés rejoués : 94/94 verts.
+- Sans labo (workspace, nextest) : 1 848 tests, seuls échecs les trois tests de reprise qui comptent des lignes globales (verts seuls).
+- Contre-revue `review-sonnet` : **non exécutée** (consigne).
+
+### Restent en file (revue indépendante à faire après la PR)
+
+M2, M4, M5, M6, F1 à F8 (voir plus haut). Faibles du lot 5 : balayage d'alertes horaire sans reprise si le serveur est arrêté plus de 26 h ;
+libellés génériques de la lecture de contrôle à relire avec la DPO ; `acc_purge` reste en portée technique.
+
+### Pour le coordinateur
+
+- **2556** est allégée de `rgp_demande_sujet` (créée en 2545 parce qu'elle sert l'assemblage) ; 2556 garde `cons_visa_exclusion` et le reste.
+- **S-555** reste à reporter (non traité dans ce palier).
+- **Tables partitionnées** : premier usage (`acc_trace`). Gardes adaptées : seul le parent est classé au registre ; le catalogue RLS exclut
+  les partitions (`NOT relispartition`) mais un test vérifie RLS, FORCE, politique et déclencheur sur chaque partition ; exception
+  `garde_rls_stricte` pour `acces_traces.rs` et `acces_controle.rs` (accès par `self.pool().acquire()` hors transaction).
+- Environnement : le conteneur de dev redémarre à l'inactivité (Postgres local à reconstruire) ; sans incidence sur la CI.
+
 ---
 
 ## Commits par lot (pour les contre-revues)
@@ -345,4 +376,5 @@ Liste tenue à jour à chaque lot ; chaque lot compte au moins un commit de code
 - Lot 3 : `f2a9acffe` (module de remise), `5cbc85ba1` (routes, écrans, livraison).
 - Fusion de `origin/ENT` : `d8202f755`.
 - Lot 4 : `49a7cfdb0`.
-- Lot 5 : commit de code et de livraison (voir `git log`).
+- Lot 5 : `6cc37b942`.
+- Correctif d'inventaire et de harnais (validation finale) : `0a9ae4e23`.
