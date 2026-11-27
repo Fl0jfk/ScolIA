@@ -122,7 +122,7 @@ class ContratMb1Test {
         val s = FauxServeur(mapOf("GET /auth/me" to ReponseHttp(401, enveloppe("auth.refusee", "Identifiants refusés."))))
         val coffre = CoffreMemoire().apply { ecrire("jeton-mort") }
         assertFailsWith<ErreurApi.NonAuthentifie> { client(s, coffre).me() }
-        val cache = CacheMemoire().apply { ecrire("k", EntreeCache("[]", 0, Long.MAX_VALUE)) }
+        val cache = CacheMemoire().apply { ecrire("k", EntreeCache("[]", System.currentTimeMillis(), Long.MAX_VALUE)) }
         val etat = ServiceConnexion(client(s, coffre), coffre, cache, FauxPasskey()).reprendre()
         assertIs<EtatConnexion.Deconnecte>(etat)
         assertNull(coffre.lire())

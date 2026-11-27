@@ -43,4 +43,4 @@ Branche `ent-socle-11-palier-mb1-client` (base `origin/ENT` = `f9c54101`), règl
 ## Contre-revues
 - Lot 1 : 4 élevés, tous attendus et du ressort du lot 2 (contrat MB1 absent, DA1, DA2, OkHttp) ; moyens M1 (réponse de `/devices/push`, fait), M2–M5 (invitation non consommée, session courte sans passkey non signalée, passkey du build debug, verrou absent) en file.
 - Lot 2 : 1 élevé (jeton mort sur `/auth/*` non détecté) **corrigé** ; M1 (streaming et 401) et M2 (garde HTTPS iOS) **corrigés** ; M3 (clé gardée par les écrans) en file (MB7) ; F1 (plafond revérifié), F3 (push oublié avec l'établissement), F5 **corrigés** ; F2, F4, F6 en file.
-- Lot 3 : voir la PR.
+- Lot 3 (CI) : aucun élevé ni moyen ; un test renforcé (horodatage réel dans le test du jeton mort). Risques résiduels : lint et R8 avec l'API 36 (jamais exécutés hors CI).
