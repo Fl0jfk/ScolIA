@@ -7933,3 +7933,54 @@ async fn regime_mois_f5_ligne_creditee_ne_consomme_plus_le_plafond_de_la_prise()
         "rien au payeur suivant"
     );
 }
+
+/// Suites 4, moyen 5 : plafond de 400 € (450 € dus : 50 € au payeur suivant), puis relevé à 450 € : la part du payeur
+/// suivant pourrait revenir à l'organisme ; rien n'est crédité ni refacturé d'office, une tâche le signale. Rejeu neutre,
+/// une seule tâche.
+#[tokio::test]
+async fn regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signale() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let _ = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) =
+        eleve_pris_en_charge(&ent, &c, "S4M5", (d(2030, 9, 1), d(2031, 6, 30)), true).await;
+    plafonner(&ent, el, 40_000).await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000
+    );
+    plafonner(&ent, el, 45_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000,
+        "rien n'est refacturé d'office à l'organisme"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000,
+        "rien n'est crédité d'office"
+    );
+    let releve = || async {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_fin_tache WHERE eleve_id = $1 AND nature = 'part_non_couverte'
+                AND statut = 'ouverte' AND detail LIKE '%relevé%'",
+        )
+        .bind(el)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+        n
+    };
+    assert_eq!(releve().await, 1, "tâche « plafond relevé » ouverte");
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu neutre");
+    assert_eq!(releve().await, 1, "une seule tâche");
+}

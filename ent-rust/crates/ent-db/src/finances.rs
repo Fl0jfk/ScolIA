@@ -2332,6 +2332,7 @@ fn completer_plafonnee(
             p.libelle = format!("{} — complément (plafond relevé)", l.libelle);
             sortie.push(p);
             manque -= extra;
+            plafond_libre -= extra;
         }
     }
     if manque > 3 * c && !suivants.is_empty() {
@@ -2351,6 +2352,17 @@ fn completer_plafonnee(
             "plafond de la prise en charge modifié : {pose_principal} c déjà facturés à l'organisme pour {} c de plafond restant ; rien n'est refacturé ni crédité d'office, à régulariser",
             l.unitaire
         )
+    });
+    // Suites 4, moyen 5 : plafond **relevé** alors qu'une part est déjà facturée au payeur suivant : l'organisme pourrait
+    // désormais la prendre, mais rien n'est crédité ni refacturé d'office (règle prudente, D-069) ; c'est signalé.
+    let pose_suivant = pose_total - pose_principal;
+    let signal = signal.or_else(|| {
+        let reprenable = plafond_libre.min(pose_suivant);
+        (cle_posee && reprenable > 3 * (c + 1)).then(|| {
+            format!(
+                "plafond de la prise en charge relevé : {reprenable} c déjà facturés au payeur suivant pourraient revenir à l'organisme ; rien n'est crédité ni refacturé d'office, à régulariser"
+            )
+        })
     });
     Ok((sortie, signal))
 }
