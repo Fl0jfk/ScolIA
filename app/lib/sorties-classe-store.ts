@@ -9,6 +9,7 @@ import { listJsonRecordsInDir, mutateJsonRecordLocked } from "@/app/lib/ent-json
 import { loadAppConfig } from "@/app/lib/app-config";
 import { groupeDirection } from "@/app/lib/sorties-classe-direction";
 import { getInternatStudents } from "@/app/lib/internat-storage";
+import { withDossierParentContacts } from "@/app/lib/internat-famille-db";
 import {
   emailValide,
   sortieIdDuJeton,
@@ -95,9 +96,10 @@ export async function trouverParJeton(token: string): Promise<
 
 /** Liste minimale des internes pour la sélection : ni santé, ni contacts, ni chambre. */
 export async function listerInternesPourSelection() {
-  const students = await getInternatStudents();
+  const students = await withDossierParentContacts(
+    (await getInternatStudents()).filter((s) => s.actif),
+  );
   return students
-    .filter((s) => s.actif)
     .map((s) => ({
       id: s.id,
       nom: s.eleveRef.nom,
@@ -117,7 +119,11 @@ export async function creerSortie(
   saisie: SaisieSortie,
   createur: SortieClasse["createdBy"],
 ): Promise<{ ok: true; sortie: SortieClasse } | { ok: false; error: string }> {
-  const [students, bundle] = await Promise.all([getInternatStudents(), loadAppConfig()]);
+  const [all, bundle] = await Promise.all([getInternatStudents(), loadAppConfig()]);
+  // E-mails parents à jour (foyers du dossier élève) ; en cas d'échec de lecture, rien n'est créé.
+  const students = await withDossierParentContacts(
+    all.filter((s) => s.actif && saisie.studentIds.includes(s.id)),
+  );
   const id = `sc_${Date.now().toString(36)}${randomBytes(6).toString("hex")}`;
   const eleves: SortieEleve[] = [];
   const directions = new Map<string, SortieDirection>();

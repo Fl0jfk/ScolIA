@@ -1,40 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type {
-  InternatBuilding,
-  InternatIncident,
-  InternatIncidentKind,
-  InternatRoom,
-  InternatStudent,
-} from "@/app/lib/internat-types";
-import {
-  INTERNAT_ROLL_MARK_LABELS,
-  roomLocationLabel,
-  studentDisplayName,
-  type InternatRollMark,
-} from "@/app/lib/internat-types";
-
-const KIND_LABELS: Record<InternatIncidentKind, string> = {
-  incident: "Incident",
-  remarque: "Remarque",
-  sanction: "Sanction",
-  valorisation: "Valorisation",
-};
-
-const KIND_TONE: Record<InternatIncidentKind, string> = {
-  incident: "bg-red-100 text-red-900",
-  remarque: "bg-amber-100 text-amber-900",
-  sanction: "bg-slate-200 text-slate-800",
-  valorisation: "bg-emerald-100 text-emerald-900",
-};
-
-type HistoryRow = {
-  date: string;
-  period: string;
-  mark: InternatRollMark;
-  markLabel: string;
-};
+import { useEffect, useState } from "react";
+import InternatFicheAppels from "@/app/components/internat/InternatFicheAppels";
+import InternatFicheFamille from "@/app/components/internat/InternatFicheFamille";
+import InternatFicheSuivi from "@/app/components/internat/InternatFicheSuivi";
+import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
+import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";
 
 function formatRoomOption(buildings: InternatBuilding[], room: InternatRoom) {
   const loc = roomLocationLabel(buildings, room);
@@ -75,70 +46,9 @@ export default function InternatStudentFiche({
   const [underWatchNote, setUnderWatchNote] = useState(student.underWatchNote || "");
   const [authLabel, setAuthLabel] = useState("");
   const [authValidUntil, setAuthValidUntil] = useState("");
-  const [parent1, setParent1] = useState({
-    nom: student.parent1?.nom || "",
-    email: student.parent1?.email || "",
-    telephone: student.parent1?.telephone || "",
-  });
-  const [parent2, setParent2] = useState({
-    nom: student.parent2?.nom || "",
-    email: student.parent2?.email || "",
-    telephone: student.parent2?.telephone || "",
-  });
-
-  const [incidents, setIncidents] = useState<InternatIncident[]>([]);
-  const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [loadingExtra, setLoadingExtra] = useState(false);
-  const [incidentForm, setIncidentForm] = useState({
-    kind: "sanction" as InternatIncidentKind,
-    title: "",
-    description: "",
-    occurredAt: new Date().toISOString().slice(0, 10),
-  });
-
   const initials =
     `${student.eleveRef.prenom?.[0] ?? ""}${student.eleveRef.nom?.[0] ?? ""}`.toUpperCase() || "?";
   const room = rooms.find((r) => r.id === student.roomId);
-
-  const loadExtra = useCallback(async () => {
-    setLoadingExtra(true);
-    try {
-      const [incRes, histRes] = await Promise.all([
-        fetch(`/api/internat/incidents?studentId=${encodeURIComponent(student.id)}`, {
-          cache: "no-store",
-        }),
-        fetch(
-          `/api/internat/roll-call/history?studentId=${encodeURIComponent(student.id)}&limit=40`,
-          { cache: "no-store" },
-        ),
-      ]);
-      const incData = await incRes.json();
-      const histData = await histRes.json();
-      if (incRes.ok) setIncidents(incData.incidents || []);
-      if (histRes.ok) {
-        const rows = (histData.history || []) as Array<{
-          date: string;
-          period: string;
-          mark: InternatRollMark;
-          markLabel?: string;
-        }>;
-        setHistory(
-          rows.map((r) => ({
-            date: r.date,
-            period: r.period,
-            mark: r.mark,
-            markLabel: r.markLabel || INTERNAT_ROLL_MARK_LABELS[r.mark] || r.mark,
-          })),
-        );
-      }
-    } finally {
-      setLoadingExtra(false);
-    }
-  }, [student.id]);
-
-  useEffect(() => {
-    void loadExtra();
-  }, [loadExtra]);
 
   useEffect(() => {
     setMedical({
@@ -149,16 +59,6 @@ export default function InternatStudentFiche({
     });
     setUnderWatch(!!student.underWatch);
     setUnderWatchNote(student.underWatchNote || "");
-    setParent1({
-      nom: student.parent1?.nom || "",
-      email: student.parent1?.email || "",
-      telephone: student.parent1?.telephone || "",
-    });
-    setParent2({
-      nom: student.parent2?.nom || "",
-      email: student.parent2?.email || "",
-      telephone: student.parent2?.telephone || "",
-    });
   }, [student]);
 
   const saveInfos = async () => {
@@ -177,8 +77,6 @@ export default function InternatStudentFiche({
       medical,
       underWatch,
       underWatchNote,
-      parent1,
-      parent2,
       specialAuthorizations: newAuth,
       note: "Fiche interne",
     });
@@ -186,39 +84,9 @@ export default function InternatStudentFiche({
     setAuthValidUntil("");
   };
 
-  const createIncident = async () => {
-    if (!incidentForm.title.trim()) {
-      alert("Titre requis.");
-      return;
-    }
-    const res = await fetch("/api/internat/incidents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...incidentForm, studentId: student.id }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data?.error || "Enregistrement impossible");
-      return;
-    }
-    setIncidentForm({
-      kind: "sanction",
-      title: "",
-      description: "",
-      occurredAt: new Date().toISOString().slice(0, 10),
-    });
-    await loadExtra();
-  };
-
-  const removeIncident = async (id: string) => {
-    if (!confirm("Supprimer cette entrée ?")) return;
-    await fetch(`/api/internat/incidents?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    await loadExtra();
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4">
-      <div className="bg-white w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden rounded-t-2xl">
+      <div className="bg-white w-full sm:max-w-3xl sm:rounded-2xl shadow-2xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden rounded-t-2xl">
         <div className="relative bg-gradient-to-br from-slate-800 to-slate-900 text-white px-5 pt-5 pb-6">
           <button
             type="button"
@@ -282,61 +150,7 @@ export default function InternatStudentFiche({
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {tab === "infos" && (
             <>
-              <section className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Famille</h3>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                    <p className="text-xs font-bold text-slate-500">Parent 1</p>
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="Nom"
-                      disabled={!canManage}
-                      value={parent1.nom}
-                      onChange={(e) => setParent1({ ...parent1, nom: e.target.value })}
-                    />
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="E-mail"
-                      type="email"
-                      disabled={!canManage}
-                      value={parent1.email}
-                      onChange={(e) => setParent1({ ...parent1, email: e.target.value })}
-                    />
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="Téléphone"
-                      disabled={!canManage}
-                      value={parent1.telephone}
-                      onChange={(e) => setParent1({ ...parent1, telephone: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                    <p className="text-xs font-bold text-slate-500">Parent 2</p>
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="Nom"
-                      disabled={!canManage}
-                      value={parent2.nom}
-                      onChange={(e) => setParent2({ ...parent2, nom: e.target.value })}
-                    />
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="E-mail"
-                      type="email"
-                      disabled={!canManage}
-                      value={parent2.email}
-                      onChange={(e) => setParent2({ ...parent2, email: e.target.value })}
-                    />
-                    <input
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="Téléphone"
-                      disabled={!canManage}
-                      value={parent2.telephone}
-                      onChange={(e) => setParent2({ ...parent2, telephone: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </section>
+              <InternatFicheFamille student={student} />
 
               <section className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Médical</h3>
@@ -433,132 +247,15 @@ export default function InternatStudentFiche({
           )}
 
           {tab === "suivi" && (
-            <section className="space-y-4">
-              {canManage && (
-                <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/80">
-                  <h3 className="font-bold text-slate-900 text-sm">Nouvelle entrée</h3>
-                  <div className="grid sm:grid-cols-2 gap-2">
-                    <select
-                      className="border rounded-xl px-3 py-2 text-sm"
-                      value={incidentForm.kind}
-                      onChange={(e) =>
-                        setIncidentForm({
-                          ...incidentForm,
-                          kind: e.target.value as InternatIncidentKind,
-                        })
-                      }
-                    >
-                      {(Object.keys(KIND_LABELS) as InternatIncidentKind[]).map((k) => (
-                        <option key={k} value={k}>
-                          {KIND_LABELS[k]}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="date"
-                      className="border rounded-xl px-3 py-2 text-sm"
-                      value={incidentForm.occurredAt}
-                      onChange={(e) =>
-                        setIncidentForm({ ...incidentForm, occurredAt: e.target.value })
-                      }
-                    />
-                    <input
-                      className="border rounded-xl px-3 py-2 text-sm sm:col-span-2"
-                      placeholder="Titre *"
-                      value={incidentForm.title}
-                      onChange={(e) => setIncidentForm({ ...incidentForm, title: e.target.value })}
-                    />
-                    <textarea
-                      className="border rounded-xl px-3 py-2 text-sm sm:col-span-2 min-h-[64px]"
-                      placeholder="Description"
-                      value={incidentForm.description}
-                      onChange={(e) =>
-                        setIncidentForm({ ...incidentForm, description: e.target.value })
-                      }
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void createIncident()}
-                    className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold"
-                  >
-                    Enregistrer
-                  </button>
-                </div>
-              )}
-              {loadingExtra && <p className="text-sm text-slate-500">Chargement…</p>}
-              {!loadingExtra && incidents.length === 0 && (
-                <p className="text-sm text-slate-500">Aucune entrée de suivi.</p>
-              )}
-              {incidents.map((i) => (
-                <article key={i.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="flex justify-between gap-2">
-                    <div>
-                      <span
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${KIND_TONE[i.kind]}`}
-                      >
-                        {KIND_LABELS[i.kind]}
-                      </span>
-                      <h4 className="font-bold text-slate-900 mt-1.5">{i.title}</h4>
-                      <p className="text-xs text-slate-500">{i.occurredAt}</p>
-                      {i.description && (
-                        <p className="text-sm text-slate-600 mt-1">{i.description}</p>
-                      )}
-                    </div>
-                    {canManage && (
-                      <button
-                        type="button"
-                        className="text-xs text-red-600 font-bold shrink-0"
-                        onClick={() => void removeIncident(i.id)}
-                      >
-                        Suppr.
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </section>
+            <InternatFicheSuivi
+              key={student.id}
+              studentId={student.id}
+              canManage={canManage}
+              busy={busy}
+            />
           )}
 
-          {tab === "appel" && (
-            <section className="space-y-2">
-              {loadingExtra && <p className="text-sm text-slate-500">Chargement…</p>}
-              {!loadingExtra && history.length === 0 && (
-                <p className="text-sm text-slate-500">Aucun appel enregistré pour cet interne.</p>
-              )}
-              {history.map((h, idx) => (
-                <div
-                  key={`${h.date}-${h.period}-${idx}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {new Date(h.date + "T12:00:00").toLocaleDateString("fr-FR", {
-                        weekday: "short",
-                        day: "numeric",
-                        month: "short",
-                      })}
-                    </p>
-                    <p className="text-xs text-slate-500 capitalize">Appel du {h.period}</p>
-                  </div>
-                  <span
-                    className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
-                      h.mark === "present"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : h.mark === "absent"
-                          ? "bg-red-100 text-red-800"
-                          : h.mark === "excuse"
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-sky-100 text-sky-800"
-                    }`}
-                  >
-                    {h.markLabel}
-                  </span>
-                </div>
-              ))}
-            </section>
-          )}
+          {tab === "appel" && <InternatFicheAppels key={student.id} studentId={student.id} />}
         </div>
 
         <div className="border-t border-slate-200 p-4 flex flex-wrap gap-2 justify-between bg-white">

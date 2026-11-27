@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withDossierParentContacts } from "@/app/lib/internat-famille-db";
 import { requireInternatAccess, requireInternatManage } from "@/app/api/internat/_auth";
 import { loadAppConfig } from "@/app/lib/app-config";
 import {
@@ -82,14 +83,25 @@ export async function POST(req: Request) {
   }
 
   const students = await getInternatStudents();
-  const { participants, missingParents } = buildOutingParticipants(studentIds, students);
+  // E-mails parents à jour : ceux des foyers du dossier élève.
+  let selected: Awaited<ReturnType<typeof withDossierParentContacts>>;
+  try {
+    selected = await withDossierParentContacts(students.filter((s) => studentIds.includes(s.id)));
+  } catch (e) {
+    console.error("[internat/outings] contacts du dossier élève", e);
+    return NextResponse.json(
+      { error: "Lecture des familles impossible : sortie non créée, réessayez." },
+      { status: 500 },
+    );
+  }
+  const { participants, missingParents } = buildOutingParticipants(studentIds, selected);
   if (!participants.length) {
     return NextResponse.json({ error: "Aucun interne valide sélectionné." }, { status: 400 });
   }
   if (missingParents.length) {
     return NextResponse.json(
       {
-        error: `E-mail parent manquant pour : ${missingParents.join(", ")}. Complétez la fiche interne avant de créer la sortie.`,
+        error: `E-mail parent manquant pour : ${missingParents.join(", ")}. Dans le dossier élève, renseignez l’e-mail d’un responsable ayant l’autorité parentale.`,
       },
       { status: 400 },
     );

@@ -118,7 +118,7 @@ export default function InternatOutingsPanel({ canManage }: { canManage: boolean
           <p className="font-bold mb-1">Autorisations de sortie</p>
           <p>
             La direction valide d&apos;abord la sortie par e-mail, puis les parents reçoivent un lien sécurisé pour
-            autoriser ou refuser. Un e-mail parent suffit par interne (parent 1 ou parent 2).
+            autoriser ou refuser. Un e-mail suffit par interne : celui d’un responsable avec autorité parentale, au dossier élève.
           </p>
         </div>
         {canManage && (

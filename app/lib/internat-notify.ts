@@ -301,6 +301,13 @@ export async function notifyInternatRollCallCorrection(params: {
   return { sent: true, recipients, kind };
 }
 
+const INCIDENT_MAIL_LABELS: Record<InternatIncident["kind"], { titre: string; phrase: string }> = {
+  incident: { titre: "Incident", phrase: "Un incident internat a été déclaré" },
+  remarque: { titre: "Remarque", phrase: "Une remarque internat a été enregistrée" },
+  sanction: { titre: "Sanction", phrase: "Une sanction internat a été enregistrée" },
+  valorisation: { titre: "Valorisation", phrase: "Une valorisation internat a été enregistrée" },
+};
+
 export async function notifyInternatIncident(params: {
   incident: InternatIncident;
   students: InternatStudent[];
@@ -348,7 +355,7 @@ export async function notifyInternatIncident(params: {
   const text = [
     "Bonjour,",
     "",
-    `Un incident internat a été déclaré (${scopeLabel}).`,
+    `${INCIDENT_MAIL_LABELS[params.incident.kind].phrase} (${scopeLabel}).`,
     "",
     "Internes concernés :",
     ...studentLines,
@@ -373,7 +380,7 @@ export async function notifyInternatIncident(params: {
   await transporter.sendMail({
     from: `"Internat ${schoolName}" <${smtp.user}>`,
     to: [...recipients].join(", "),
-    subject: `[Internat] Incident ${scopeLabel} — ${params.incident.title}`,
+    subject: `[Internat] ${INCIDENT_MAIL_LABELS[params.incident.kind].titre} ${scopeLabel} — ${params.incident.title}`,
     text,
   });
 

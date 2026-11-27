@@ -12,8 +12,15 @@ import {
   newId,
   studentDisplayName,
   type InternatIncident,
+  type InternatIncidentKind,
   type InternatIncidentWitnessStaff,
 } from "@/app/lib/internat-types";
+
+const INCIDENT_KINDS: InternatIncidentKind[] = ["incident", "remarque", "sanction", "valorisation"];
+
+function parseIncidentKind(raw: unknown): InternatIncidentKind {
+  return INCIDENT_KINDS.find((k) => k === raw) ?? "incident";
+}
 
 function isWitnessStaffRole(roles: string[]) {
   return hasRole(roles, "surveillant") || hasRole(roles, "internat");
@@ -125,7 +132,7 @@ export async function POST(req: Request) {
     studentName: studentDisplayName(primary),
     studentIds: involved.map((s) => s.id),
     studentNames: involved.map((s) => studentDisplayName(s)),
-    kind: "incident",
+    kind: parseIncidentKind(body.kind),
     title,
     description: String(body.description || "").trim() || undefined,
     location: String(body.location || "").trim() || undefined,

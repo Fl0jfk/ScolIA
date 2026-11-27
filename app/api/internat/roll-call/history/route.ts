@@ -48,6 +48,12 @@ export async function GET(req: Request) {
   const students = filterInternatStudentsByViewerScope(allStudents, viewerScope, bundle.establishments);
   const allowedIds = new Set(students.map((s) => s.id));
   const studentMap = new Map(students.map((s) => [s.id, s]));
+  if (studentId && !allowedIds.has(studentId)) {
+    return NextResponse.json(
+      { error: "Les appels de cet interne ne sont pas dans votre périmètre (collège / lycée)." },
+      { status: 403 },
+    );
+  }
 
   const rows = history.flatMap((day) =>
     day.marks
@@ -66,6 +72,7 @@ export async function GET(req: Request) {
             : undefined,
           mark: m.mark,
           markLabel: INTERNAT_ROLL_MARK_LABELS[m.mark as keyof typeof INTERNAT_ROLL_MARK_LABELS] || m.mark,
+          note: m.note,
           validatedAt: day.validatedAt,
           validatedBy: day.validatedBy,
         };

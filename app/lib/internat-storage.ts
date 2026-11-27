@@ -179,12 +179,14 @@ export async function getInternatRollCall(
       completedBy: raw.boys?.completedBy,
       completedAt: raw.boys?.completedAt,
       marks: raw.boys?.marks && typeof raw.boys.marks === "object" ? raw.boys.marks : {},
+      markMeta: raw.boys?.markMeta,
     },
     girls: {
       completed: !!raw.girls?.completed,
       completedBy: raw.girls?.completedBy,
       completedAt: raw.girls?.completedAt,
       marks: raw.girls?.marks && typeof raw.girls.marks === "object" ? raw.girls.marks : {},
+      markMeta: raw.girls?.markMeta,
     },
   };
 }
@@ -257,18 +259,17 @@ export async function listRollCallHistory(params: {
     status: InternatRollCall["status"];
     validatedAt?: string;
     validatedBy?: string;
-    marks: Array<{ studentId: string; mark: string }>;
+    marks: Array<{ studentId: string; mark: string; note?: string }>;
   }> = [];
 
   for await (const { date, period, rc } of readRollCallsInOrder(filtered)) {
     if (out.length >= limit) break;
     if (rc.status !== "validee") continue;
-    const marks: Array<{ studentId: string; mark: string }> = [];
-    for (const [studentId, mark] of Object.entries(rc.boys.marks)) {
-      marks.push({ studentId, mark });
-    }
-    for (const [studentId, mark] of Object.entries(rc.girls.marks)) {
-      marks.push({ studentId, mark });
+    const marks: Array<{ studentId: string; mark: string; note?: string }> = [];
+    for (const section of [rc.boys, rc.girls]) {
+      for (const [studentId, mark] of Object.entries(section.marks)) {
+        marks.push({ studentId, mark, note: section.markMeta?.[studentId]?.note });
+      }
     }
     const scoped =
       params.studentId ? marks.filter((m) => m.studentId === params.studentId) : marks;
