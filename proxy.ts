@@ -194,8 +194,11 @@ function nextWithTenant(
   requestHeaders.set(TENANT_SLUG_HEADER, tenant.slug);
   requestHeaders.set(TENANT_REQUEST_URL_HEADER, request.nextUrl.pathname + request.nextUrl.search);
   requestHeaders.set("x-nonce", nonce);
-  if (authSnapshot) {
-    requestHeaders.set(SCOLA_AUTH_SNAPSHOT_HEADER, encodeAuthSnapshot(authSnapshot));
+  // Jamais la valeur envoyée par le navigateur : seul le proxy peut poser cet en-tête.
+  requestHeaders.delete(SCOLA_AUTH_SNAPSHOT_HEADER);
+  const signedSnapshot = authSnapshot ? encodeAuthSnapshot(authSnapshot) : null;
+  if (signedSnapshot) {
+    requestHeaders.set(SCOLA_AUTH_SNAPSHOT_HEADER, signedSnapshot);
   }
   return withTenantHeaders(
     NextResponse.next({
