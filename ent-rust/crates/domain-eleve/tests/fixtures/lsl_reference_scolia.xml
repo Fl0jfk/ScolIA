@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- [NV] Format de travail NON OFFICIEL, documenté par ScolIA d'après les spécifications publiques connues ; non validé contre le schéma XSD officiel (non disponible : réservé aux éditeurs validés par le ministère). Ne pas importer dans LSU/LSL sans qualification préalable. -->
+<scolia-lsl version="0.1" uai="0750001A" millesime="2026" periode="T1">
+  <eleve ine="123456789AB" nom="Granger" prenom="Hermione" division="4B">
+    <discipline code="MATHS" libelle="Mathématiques" moyenne="18.50" moyenne-classe="12.25">Excellent travail &amp; rigueur &lt;toujours&gt;.</discipline>
+    <discipline code="EPS" libelle="Éducation physique" moyenne="" moyenne-classe="14.00"></discipline>
+  </eleve>
+</scolia-lsl>

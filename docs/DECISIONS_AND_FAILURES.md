@@ -1,0 +1,141 @@
+# Journal des échecs et apprentissages
+
+Pour chaque échec significatif : date/contexte, objectif, approche, résultat observé, cause probable (distincte des faits), coût/risque, décision de reprise/arrêt et apprentissage durable.
+
+Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser chaque erreur triviale. Ne pas répéter une approche déjà échouée sans expliquer ce qui a changé.
+
+---
+
+## F-001 — Interface web de l'ENT en JavaScript dans une chaîne Rust
+
+- **Date / contexte :** constaté à l'audit du 2026-11-02 ; UI construite du 15 au 18 octobre 2026 (commits « lot A » à « lot CO » sur `ENT`).
+- **Objectif :** livrer vite une interface web (staff, famille, élève) au-dessus de l'API Rust.
+- **Approche :** une SPA JavaScript sans framework, écrite comme une seule chaîne de texte (`const APP: &str`) dans `ent-rust/crates/ent-api/src/ui.rs`, Tailwind v4 pour le style.
+- **Résultat observé (faits) :** 54 000 lignes dans un seul fichier ; aucun test d'interface ; la pile Tokio a dû être augmentée (`RUST_MIN_STACK` 16 Mo, commit `f06fcc1d`) pour éviter un dépassement de pile ; la décision documentée (Leptos, `docs/ent-vision-rust.md`) n'a jamais été appliquée.
+- **Cause probable (hypothèse) :** recherche de vitesse lors de lots générés en série, sans revue d'architecture du frontend.
+- **Coût / risque :** UI difficile à maintenir et à tester ; contraire à l'objectif « tout en Rust ».
+- **Décision :** remplacer par un frontend Rust (D-002 dans `DECISIONS.md`) ; framework à choisir.
+- **Apprentissage :** une décision d'architecture écrite doit être vérifiée dans le code à chaque lot ; un fichier qui dépasse quelques milliers de lignes est un signal d'alerte à traiter tout de suite.
+
+## F-002 — Reformatage involontaire du backend par `cargo fmt --all`
+
+- **Date / contexte :** 2026-11-03, mission « Reproductibilité et industrialisation ».
+- **Objectif :** formater uniquement le code du frontend (`ent-rust/web`).
+- **Approche :** `cargo fmt --all` lancé dans le workspace `ent-rust/web`.
+- **Résultat observé (faits) :** 76 fichiers du backend (`ent-api`, `ent-db`, `domain-eleve`…) reformatés, alors que le formatage du backend attend une décision. Détecté avant commit (relecture de `git status`), fichiers restaurés à l'identique (`git checkout`), aucune modification commitée.
+- **Cause :** `cargo fmt --all` formate aussi les dépendances locales par chemin ; le workspace `web` dépend d'`ent-api` et d'`ent-types`.
+- **Correction :** commande limitée aux crates du frontend (`cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server`) dans la CI, `CI_REPRODUCTIBILITE.md` et `FRONTEND_LEPTOS.md`.
+- **Apprentissage :** toujours relire `git status` avant un commit ; dans un workspace qui dépend d'autres crates locales, ne jamais utiliser `--all` avec un outil qui modifie les fichiers.
+
+## F-003 — Premier passage de la CI sur GitHub : échec des tests frontend contre le backend
+
+- **Date / contexte :** 2026-11-03, premier push du workflow `ent-rust.yml` (run 41599498046).
+- **Résultat observé (faits) :** formatage, audits et backend verts ; job frontend en échec à l'étape « Tests contre le vrai backend ». Journaux GitHub illisibles sans compte connecté ; échec **reproduit localement** sur une base PostgreSQL vierge, sans variables `LEPTOS_*` : `pages_rendues_par_le_serveur` ne trouvait pas `/pkg/ent-web.js` dans la page.
+- **Cause :** Leptos lit `LEPTOS_OUTPUT_NAME` **à la compilation** pour nommer le script d'hydratation. `scripts/env.sh` la pose en local, le workflow non : la simulation locale du 2026-11-03 n'était donc pas identique à la CI.
+- **Correction :** `LEPTOS_OUTPUT_NAME` et `LEPTOS_SITE_PKG_DIR` ajoutées à l'environnement du job frontend ; 6/6 tests verts en local dans les conditions de la CI (base vierge, sans autres variables). Correction **non poussée** (attente d'autorisation).
+- **Apprentissage :** une simulation locale de CI doit partir d'un environnement vide (base vierge, variables de `env.sh` retirées), sinon elle masque les différences.
+
+## F-004 — Tranche 1 du frontend : compilation interrompue, mauvaise chaîne Rust, pièges Leptos
+
+- **Date / contexte :** 2026-11-03, tranche 1 (parcours enseignant, `FRONTEND_CIBLE.md`).
+- **Résultat observé (faits) :**
+  - la 1re compilation de la tranche avait été interrompue lors de la session précédente ; reprise en nouvelle session ;
+  - compilation tentée avec la chaîne Rust système : échec (pas de cible `wasm32`, Perl MSYS sans module pour `openssl-src`) ;
+  - lecture d'une ressource Leptos hors `<Suspense/>` (avertissement d'hydratation) ; `location.search` sans « ? » initial a cassé l'adresse de retour ; `Uuid::new_v4` indisponible (feature `v4` non activée) ; test `pages_rendues` cassé par un changement de balisage ;
+  - la restriction des agents `explore-haiku` / `review-sonnet` à `tools: Read, Grep, Glob` n'a pas été prise en compte dans la session où les fichiers ont été modifiés (définitions lues au démarrage).
+- **Cause :** chaîne non dédiée utilisée (fait) ; définitions d'agents lues au démarrage (hypothèse à confirmer).
+- **Correction :** règle « toujours `. ent-rust/web/scripts/env.sh` » (chaîne `_outils-scolia` : Rust 1.99 + wasm32, Strawberry Perl, cargo-leptos) ; conventions ajoutées à `FRONTEND_LEPTOS.md` (§ 11) ; restriction des agents **à vérifier dans une nouvelle session**.
+- **Apprentissage :** ne jamais compiler avec la chaîne système ; relire les assertions des tests de rendu quand le balisage change.
+
+## F-005 — Défauts de sécurité trouvés par revue pendant la tranche 1
+
+- **Date / contexte :** 2026-11-03, revue de la tranche 1.
+- **Résultat observé (faits) :** (1) porte du labo (`POST /labo/bootstrap`) et inscription libre **fail-open** : `ENT_ENV` absent = ouvert ; (2) accès horizontal sur l'appel : seul `ouvrir_appel` contrôlait titulaire / remplaçant / supervision, lire, pointer et clore étaient permis à tout professeur de l'établissement connaissant l'`appel_id` ; (3) garde « base locale uniquement » des tests par sous-chaîne (`contains("@127.0.0.1:")`), contournable.
+- **Cause probable (hypothèse) :** contrôle écrit sur le point d'entrée seulement ; garde par motif textuel au lieu d'une analyse d'URL.
+- **Correction (implémentée, testée en local, non poussée) :** `gate_open` fail-closed (`ENVS_NON_PROD`) ; `autoriser_acces_appel` appliqué partout (403) avec tests ent-db et `appel_d_un_collegue_inaccessible` ; `ent_db::assert_local_postgres_url` (garde d’hôte loopback seulement, `url_guard.rs:17-29`) ; le nom de base test/proto/lab n’est vérifié que dans les tests `contre_backend.rs` et `session_cookie.rs` (ent-lab et les scénarios ent-db n’ont que la garde d’hôte) ; hôte exact dans `seed_labo_web`.
+- **Apprentissage :** une règle d'autorisation doit être portée par une fonction unique appelée par chaque opération ; défaut sûr = fermé ; faire relire toute porte de dev par un second regard.
+
+## F-006 — Incidents pendant l'intégration de la vague 1 du socle de confiance
+
+- **Date / contexte :** 2026-11-04, intégration des correctifs de la vague 1 (lots L1 à L8, tranche 2) par des copies de travail d'agents, puis fusion des modifications.
+- **Objectif :** intégrer les correctifs de sécurité sur `ENT` sans régression.
+- **Approche :** copies de travail Git par agent ; intégration de blocs de code par correspondance de texte ; fusion à trois versions.
+- **Résultat observé (faits) :**
+  1. Copies de travail Git des agents créées sur `main` au lieu de `ENT` ; corrigé par `git checkout --detach f1e46f9b`.
+  2. Un bloc de correctif intégré par correspondance approximative s'est appliqué dans la mauvaise fonction (commissions au lieu des points de vie scolaire) ; détecté par la matrice L8 (`separation.rs`).
+  3. Fusion à trois versions faussée par les fins de ligne (CRLF du dépôt principal contre LF des copies) ; refaite après normalisation.
+  4. Saturation de la machine avec six compilations Rust simultanées.
+- **Cause probable (hypothèse) :** (1) point de départ des copies non fixé sur `ENT` ; (2) correspondance de contexte trop souple, sans vérification de la fonction cible ; (3) absence de normalisation des fins de ligne avant fusion ; (4) parallélisme non borné.
+- **Coût / risque :** deux intégrations fausses à reprendre ; risque de régression silencieuse ; temps machine perdu.
+- **Décision :** pas de décision structurante. Créer les copies de travail depuis `ENT`, normaliser les fins de ligne avant fusion, limiter à environ quatre compilations simultanées.
+- **Correction :** copies ramenées sur `ENT` (détachées au commit `f1e46f9b`) ; fusion refaite après normalisation ; bloc mal placé détecté puis contrôlé par la matrice L8, dont la suite passe le 2026-11-04.
+- **Apprentissage :** une vraie fusion à trois voies vaut mieux qu'une application de patch par correspondance approximative ; normaliser les fins de ligne avant toute fusion ; garder une matrice de tests de séparation comme filet d'intégration ; borner le nombre de compilations simultanées.
+
+## F-007 — Sous-agents « remote » exécutés dans le dossier principal
+
+- **Date / contexte :** 2026-11-05, socle 1, parallélisation demandée par Florian (7-8 agents).
+- **Approche :** trois sous-agents lancés avec l'isolation `remote` du tool Agent, consignes « crée ta branche, pousse-la ».
+- **Résultat observé (faits) :** les trois agents ont tourné **dans le dossier principal** (`/home/user/ScolIA`), ont changé la branche courante (`git checkout -b`) et créé un fichier de migration pendant qu'une suite de tests y tournait. Détecté par le hook « changements non commités » ; agents arrêtés, branches parasites supprimées (aucun commit, aucun push), dossier remis sur `ent-mc0hoe`, suite de tests relancée.
+- **Cause probable (hypothèse) :** l'isolation `remote` n'est pas disponible dans cet environnement et retombe sur une exécution locale sans copie isolée.
+- **Correction :** travaux parallèles qui compilent confiés à de **vraies sessions cloud** (`create_session`, une machine et un clone par session, branche de sortie dédiée) ; sous-agents locaux seulement en `worktree` ou en lecture seule.
+- **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
+
+
+## F-008 — Sessions cloud lancées sur Opus par défaut
+
+## F-008 — Contrôles d'accès oubliés sur des chemins annexes (revue finale du socle 1, 2026-11-06)
+- **Fait** : la règle « professeur → ses élèves » (B1, D-017) était appliquée aux routes principales mais pas à des chemins voisins qui renvoient ou écrivent les mêmes données : appréciations, copilote, dispenses du jour, exports LSL/LSUN, bulletins, conseils, devoirs. Le droit coché « autoriser les sorties » d'un responsable n'était vérifié que par l'ancienne UI JavaScript, pas par le serveur.
+- **Cause** : contrôle pensé route par route ; une donnée exposée par plusieurs chemins n'était bornée que sur le premier ; confiance implicite dans l'interface.
+- **Leçon** : pour chaque donnée sensible, recenser **tous** les chemins qui la lisent ou l'écrivent (listes, exports, copilote, PDF, journaux) et les faire passer par `autoriser_eleve` / `eleves_autorises` ; aucun droit ne doit être appliqué seulement côté interface. Détail : `docs/REVUE_SECURITE_SOCLE1.md` (RF-02, RF-04).
+
+## F-009 — Contrainte redéfinie par une migration et rejeu des migrations
+
+- **Date / contexte :** 2026-11-05, socle 2, lot S2-3 (branche `ent-socle2-inscriptions`).
+- **Approche :** élargir la contrainte `ent_affectation_source_chk` dans une nouvelle migration (`144`) pour ajouter les sources « inscription » et « import », alors que la migration `110` la redéfinit déjà (`DROP CONSTRAINT` puis `ADD CONSTRAINT`).
+- **Résultat observé (faits) :** repéré à la relecture, avant tout test : `migrate.rs` rejoue **toutes** les migrations à chaque démarrage ; la `110` rejouée recréerait la contrainte étroite et échouerait dès qu'une ligne porte une nouvelle source.
+- **Correction :** aucune nouvelle valeur ; les réactions S2-3 utilisent les sources existantes (`saisie` pour une inscription validée, `lot` pour un import).
+- **Apprentissage :** tant que les migrations sont rejouées, une contrainte `CHECK` ne doit être redéfinie qu'à un seul endroit ; pour l'élargir, modifier cette migration-là (et seulement en élargissant) ou introduire un suivi des migrations appliquées.
+
+## F-010 — Sessions cloud lancées sur Opus par défaut
+
+- **Date / contexte :** 2026-11-06, socle 2, sessions cloud parallèles.
+- **Résultat observé (faits) :** `create_session` hérite du modèle de la session appelante (Opus). Sur 9 sessions actives, 6 tournaient sur Opus, dont une intégration de lot (fusion + tests, environ 6 $), contrairement à la règle « Sonnet par défaut » de `CLAUDE.md`. Relevé par Florian.
+- **Cause :** paramètre `model` non renseigné au lancement ; pas de choix explicite par session.
+- **Correction / règle :** à chaque `create_session`, renseigner `model` explicitement. **Sonnet par défaut** (lots métier, écrans, intégrations, mobile). **Opus seulement** pour une revue de sécurité adverse, un domaine à risque (finances/SEPA) ou une décision d'architecture structurante, en le justifiant dans le titre ou la consigne. **Haiku** pour recherches ciblées et doc légère (sous-agents). Les sessions déjà lancées ne sont pas interrompues.
+- **Apprentissage :** un défaut hérité n'est pas un choix ; le modèle fait partie de la conception de chaque tâche déléguée.
+
+## F-011 — Artefacts de build (1,26 Go) commités sur une branche de domaine
+
+- **Date / contexte :** 2026-11-06, intégration du lot 7 (`ent-socle2-evaluations`).
+- **Résultat observé (faits) :** deux commits de la branche (`b996b7a`, `19e678b`) ajoutaient `ent-rust/target-s27/debug/` : 4 156 fichiers, 1,26 Go (dossier de compilation d'un `CARGO_TARGET_DIR` choisi dans le dépôt, probablement ajouté par `git add -A`). Une vraie fusion aurait poussé ces objets dans l'historique de la branche d'intégration.
+- **Cause probable (hypothèse) :** `target-s27` ne figure pas dans `.gitignore` (seul `target/` l'est) .
+- **Correction :** les cinq commits de la branche ont été rejoués localement sur leur base (`43180f7`) sans ce dossier (copie `eval-propre`, contenu identique hors `target-s27/`, vérifié par `git diff`), puis fusionnés avec `--no-ff`. La branche d'origine n'est pas modifiée ; son ancêtre git diffère donc de celui fusionné.
+- **Apprentissage :** ignorer tout `target*/` dans `.gitignore` ; contrôler la taille d'une branche (`git diff --stat`) avant de la fusionner ; ne pas choisir un `CARGO_TARGET_DIR` dans l'arbre suivi.
+
+## F-012 — Pilotage multi-sessions : consignes perdues, conteneurs qui redémarrent, intégration bloquée
+
+- **Date / contexte :** 2026-11-06 → 07, socles 2 à 4 et lots d'intégration 6 à 8.
+- **Faits :** (1) des consignes envoyées par message à des sessions déjà lancées (correctifs des personas, D-022) ont été **refusées** par ces sessions, à raison, car elles ne venaient pas du porteur du projet ; (2) les conteneurs cloud ont redémarré à de nombreuses reprises et ont coupé les suites de tests longues (70 à 100 min), bloquant le lot 7 pendant une nuit ; (3) la CI GitHub, lancée à la main sur la branche, a trouvé en 30 min une erreur de compilation que les suites locales coupées n'atteignaient pas ; (4) aucun regard extérieur sur les consignes du pilote avant lancement.
+- **Correction :** règles du §2 de `docs/PILOTAGE.md` (consignes dans le message de lancement, CI GitHub comme juge, file d'intégration unique, rôle de contradicteur avant chaque vague).
+- **Apprentissage :** le goulot n'est pas l'écriture du code mais l'assemblage et la validation ; il faut un rôle dédié et une validation fiable.
+
+## F-013 — Capacités de sauvegarde supposées, non vérifiées (constat de la mission PRA, 2026-11-10)
+- **Faits** : `ent-rust-observabilite-pra.md` §2.1 annonçait « snapshots + PITR de la RDB Scaleway, RPO quelques minutes » et des objets « bucket S3/Scaleway, versionné (`ent-object`) ». Vérification du 2026-11-10 : la documentation publique de la base managée Scaleway décrit une sauvegarde **quotidienne** (7 j) et des snapshots, **aucun PITR ni accès aux WAL** ; `ent-object` garde le **disque local** comme source de vérité et n'envoie à S3 qu'un `PUT` HTTP non signé, facultatif, dont l'échec est ignoré (`let _ = http_put_object(…)`).
+- **Cause probable (hypothèse)** : capacités d'un fournisseur supposées d'après l'usage courant (« une base managée a un PITR ») ; stockage objet écrit pour le labo puis décrit comme s'il était prêt pour la production.
+- **Coût / risque** : RPO réel jusqu'à 24 h au lieu de quelques minutes ; fichiers potentiellement jamais envoyés au stockage objet ; fausse confiance dans le PRA.
+- **Correction** : notes ajoutées à `ent-rust-observabilite-pra.md` ; architecture et décisions proposées dans `PRA_SAUVEGARDES.md` (D-039, D-040).
+- **Apprentissage** : toute capacité d'un fournisseur citée dans un document porte sa **source et sa date de consultation** ; « une sauvegarde existe » ne vaut que si une **restauration** a été faite.
+
+## F-014 — Contenu de fichiers stocké en base (`BYTEA`) et effets de bord restaurables (constat de conception, 2026-11-10)
+- **Faits** : `ent_msg_piece.contenu` et `ent_pai_piece.contenu` sont en `BYTEA` (migrations 038, 053) ; les files `ent_outbox` et courriels ne figurent pas dans `TABLES_VOLATILES`.
+- **Risque** : base, WAL et sauvegardes gonflés ; deux circuits de fichiers (base et stockage objet) à exporter et contrôler ; une restauration naïve **renverrait** des messages en attente aux familles.
+- **Correction proposée** : exigences E5 et E9 (`PRA_SAUVEGARDES.md` §18.4) ; reprise des deux tables vers le stockage objet à planifier.
+- **Apprentissage** : décider dès la conception d'une table si elle est « à restaurer » ou « à neutraliser » ; un fichier n'a rien à faire dans la base.
+## F-015 — Tests rouges seulement vers minuit de Paris : « aujourd'hui » calculé en UTC
+
+- **Date / contexte :** 2026-11-11, branche `ent-tests-fuseau-minuit` ; CI rouge environ une heure par jour (23 h–0 h UTC).
+- **Faits :** entre 23 h et 0 h UTC (hiver ; 22 h–0 h UTC en été) la date UTC précède celle de l'établissement (Europe/Paris, fuseau du profil S2). Reproduit en local (PostgreSQL et binaire de test sous `faketime` à 23 h 30 UTC) : `tests_eleve_scolarite::entree_sortie_reintegration_et_non_chevauchement`, `tests_dossier_personnes::suspension_coupe_l_acces_partout`, `tests_finances::sepa_rejets_reglements_relances_export`, `tests_structure_s5::controle_choix_sans_groupe` échouaient ; S7 et P1 (ent-api) prennent aussi la date UTC.
+- **Cause :** (a) **tests** : date de référence `Utc::now().date_naive()` alors que la base (`ent_aujourdhui_etab`, `ent_jour_etablissement`, vues `*_actif`) et la finance (`date_paris`) raisonnent en Paris ; assertions inchangées. (b) **code** : `domain_eleve::today_utc()` (≈ 200 appels, ent-db / ent-api) et une quinzaine de `Utc::now().date_naive()` calculaient le jour en UTC ; des requêtes SQL utilisaient `CURRENT_DATE` (fuseau de session = UTC) au lieu du fuseau de l'établissement.
+- **Correction :** module `domain_eleve::horloge` (`date_paris`, `jour_paris`, trait `Horloge` / `Fixe` injectables, règle UE de l'heure d'été, sans dépendance de fuseaux) ; `today_utc()` conserve son nom historique mais renvoie le jour de Paris ; les `Utc::now().date_naive()` passent par `jour_paris()` ; les `CURRENT_DATE` du code Rust (santé, accompagnement, rencontres, formulaires, offre, inscriptions, résynchronisation d'identité) passent par `ent_aujourdhui_etab($etab)`. Garde statique `ent-db/tests/jour_utc_interdit.rs` ; tests `tests_horloge_fuseau` (règle Rust = base de fuseaux sur trois ans, scénario 23 h 30 UTC) et scénario pur dans `horloge.rs`.
+- **Risques restants :** fonctions et déclencheurs SQL des migrations 098, 111/112, 280–286, 340, 353 qui utilisent `current_date` (numérotation, identifiants, options, valeurs par défaut) : décalage d'un jour entre 23 h et 0 h UTC, à traiter par migration dédiée si besoin ; `today_utc()` suppose Europe/Paris (établissement hors métropole : utiliser `ent_aujourdhui_etab`) ; frontend (`ent-web-app` : `chrono::Local`) = heure du navigateur/serveur, hors périmètre.
+- **Apprentissage :** une date « du jour » est toujours celle de l'établissement ; la CI doit être rejouable à toute heure, sans dépendre de l'heure du runner.

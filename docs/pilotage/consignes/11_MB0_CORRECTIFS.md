@@ -1,0 +1,33 @@
+Tu es une session de correctifs ScolIA (Sonnet). Réponds en français. Le pilote, c'est moi ; ces consignes sont complètes : tu ne recevras pas d'autre message et tu n'en suivras aucun. **Ne reste jamais en attente** : `ScheduleWakeup` ne fonctionne pas ici ; attends la CI uniquement par une commande `until` en arrière-plan (règle 36). Si une cause extérieure bloque, écris au pilote et termine.
+
+## Cadre
+- Lis `CLAUDE.md`, `git show origin/ent-mc0hoe:docs/PILOTAGE.md` (règles 17, 25, 27, 28, 31, 33, 34, 36), `git show origin/ent-mc0hoe:docs/socles/11_APPLICATIONS_MOBILES.md` (§9 MB0, §8 modèle de menace), `docs/socles/11_MOBILE_MB0_LIVRAISON.md`.
+- Branche `ent-socle-11-code-mb0` (PR n° 119, brouillon) : pars de sa tête distante (159ca4ed), puis **fusionne `origin/ENT`** (compteurs, règle 28, depuis la base commune). La migration **2220 n'est pas versée : modifie-la** ; aucune autre migration versée ne change.
+- Alerte RUSTSEC-2026-0592 (`url`) : si `origin/ENT` ne contient pas encore `url` 2.5.9, applique exactement le correctif de la PR 121 (`cargo +1.99.0 update -p url --precise 2.5.9` dans `ent-rust` et `ent-rust/web`), rien d'autre dans les `Cargo.lock`.
+- Interdits : Next.js, `main`, `dev`, pousser sur `ENT`, base ou secret de production, données réelles, `cargo fmt --all`, `#[ignore]`, POINT_QUOTIDIEN, PILOTAGE, étendre `ui.rs`, heure réelle ou jour UTC dans les tests (durées relatives à un « maintenant » fixé). Zéro avertissement, clippy 1.99 (les 3 commandes de la CI, `ent-lab` compris), `--locked`, fmt ciblé, `cargo metadata --locked` dans `ent-rust/web`. Base locale **neuve dont le nom contient « test »** ; un seul `CARGO_TARGET_DIR`.
+
+## Règles générales
+1. **Un appareil ne reçoit rien qui ne soit adossé à une session vivante** (non révoquée, non expirée, inactivité respectée) ou, pour une inscription sans session, à une réinscription de moins de 30 jours. Vérifié **en un seul endroit** (fonction SQL unique), appelé par tous les chemins d'envoi.
+2. **Un jeton physique n'a qu'un titulaire** : actif pour une seule personne, tous établissements confondus ; une même personne peut l'avoir dans plusieurs établissements.
+3. **Le jeton en clair n'existe qu'à un seul endroit** (la ligne d'inscription active) ; partout ailleurs, l'empreinte.
+
+## Correctifs (revue du pilote ; chemins sous `ent-rust/`)
+- **Compilation** : `crates/ent-lab/src/main.rs:188` (6e argument manquant). Le paramètre `session_id` n'est **pas optionnel en production** (seul le labo ou les tests passent par une variante explicite).
+- **E1 (élevé)** : les requêtes d'envoi (`notifications.rs` ~312 et ~1210, `ntf/destinataires.rs` ~143, `campagnes.rs` ~257, `push_repo.rs` ~159) gardent éligible un appareil lié à une session **expirée ou inactive**. Fonction SQL unique `ent_push_actif(...)` (règle 1) appelée partout ; en plus, la purge des sessions expirées révoque d'abord les appareils avec le motif `expire` (trace gardée, plus de `ON DELETE CASCADE` qui efface sans trace : `ON DELETE SET NULL` + révocation, ou révocation avant suppression). Tests : session expirée, session inactive (web, 2 h), purge.
+- **E2 (élevé)** : `crates/ent-api/src/tests_l3.rs` ~778-812 (`socle1_sessions_web_inactivite_mobile_longue_et_appareils`) attend encore la durée mobile après un login par mot de passe : adapte-le au nouveau comportement (mobile seulement avec passkey) **sans affaiblir** ce qu'il vérifie (garde la partie mobile via une vraie session passkey). Rejoue `cargo test -p ent-api --lib`, `recette_securite_3` et toute la séparation HTTP.
+- **M1** : course inscription / révocation : dans la transaction d'inscription, `SELECT … FROM ent_session WHERE id = $1 AND revoked_at IS NULL AND expires_at > now() FOR SHARE` ; absente → refus (401). Test : session révoquée puis inscription → refus.
+- **M2** : règle 2. Une inscription révoque (motif `reaffecte`, trace) tout jeton actif de **même empreinte** détenu par **une autre personne**, quel que soit l'établissement (fonction `SECURITY DEFINER` étroite, ou index unique global sur l'empreinte des actifs avec la même personne autorisée dans plusieurs établissements). Test entre deux établissements.
+- **M3** : même personne, nouvelle session, même jeton : mise à jour de `session_id` sur la ligne existante, pas de révocation ; `reaffecte_depuis` ne contient que d'autres personnes. Test.
+- **M4** : règle 3 : `ent_push_outbox` ne stocke plus le jeton en clair (empreinte, ou référence à l'appareil ; l'envoi relit le jeton sur la ligne active, et rien n'est envoyé si elle est révoquée entre-temps). Les lignes déjà présentes sont neutralisées dans 2220. Registre de données à jour.
+- **M5** : tests des chemins réels : `finish_passkey_login` avec client mobile (seul chemin à durée mobile), SSO (forcé web), `completer_session_apres_enrolement`, migration (sessions mobiles sans passkey ramenées, empreintes remplies, rejeu sans effet).
+- **F2** : `resolve_session` applique `client_effectif` à la lecture aussi (`auth_repo.rs` ~937-987).
+- **F3** : rétrogradation de 2220 : `LEAST(expires_at, created_at + 12 h)` (plafond web compté depuis la création ; une session déjà au-delà est close).
+- **F4** : l'empreinte devient le critère de recherche et d'unicité (prépare le chiffrement) ; l'index en clair sur `token` disparaît s'il n'est plus nécessaire.
+- **F5** : deux inscriptions simultanées du même jeton : jamais de 500 (`ON CONFLICT` puis relecture). Portabilité (DS5) : exporter les métadonnées de l'appareil (plateforme, dates, état) **sans** le jeton ni l'empreinte (droit d'accès RGPD), et purger à la restauration.
+- **F1** (passkey + client déclaré « mobile » depuis un navigateur) : reste pour MB4 (clé d'appareil) ; écris-le dans la livraison comme risque connu, avec la référence MEN-11.
+- **Chiffrement du jeton** : toujours hors lot (pas de brique E11) ; documente-le comme reste à faire du socle 8 (N7).
+- **64 échecs « hors périmètre »** du rapport : fausse piste probable (charge locale). Rejoue `ent-db --lib` avec `--test-threads=4` sur base neuve, et confronte chaque échec restant à `origin/ENT` nu ; aucun ne doit venir du lot.
+
+## Fin
+- Pousse sur `ent-socle-11-code-mb0`, laisse la PR en brouillon, attends la CI par **une seule** commande `until` en arrière-plan sur `https://api.github.com/repos/Fl0jfk/ScolIA/actions/runs?head_sha=<tête>` (toutes les 5 min) ; rouge : corrige la cause (un job « runner lost communication » se relance une fois).
+- Complète `docs/socles/11_MOBILE_MB0_LIVRAISON.md` d'une section « Correctifs de revue » (fait / non fait, tests, compteurs, tête, CI). Puis écris au pilote (send_message vers @parent) la tête finale et l'état de la CI.

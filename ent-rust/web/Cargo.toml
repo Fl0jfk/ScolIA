@@ -1,0 +1,87 @@
+# Prototype frontend Leptos de l'ENT (décision D-008).
+# Workspace séparé du workspace principal `ent-rust/` : il réutilise `ent-api`
+# tel quel (dépendance par chemin) sans modifier son manifeste ni son code.
+[workspace]
+resolver = "2"
+members = [
+    "crates/ent-web-ui",
+    "crates/ent-web-api",
+    "crates/ent-web-app",
+    "crates/ent-web-server",
+    "crates/ent-web-session",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+# Versions épinglées (stables sur crates.io au 2026-11-02).
+[workspace.dependencies]
+leptos = "=0.8.23"
+leptos_router = "=0.8.17"
+leptos_meta = "=0.8.7"
+leptos_axum = "=0.8.10"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+tower-http = { version = "0.6", features = ["fs", "set-header"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+# Types partagés avec ent-api (workspace principal).
+ent-types = { path = "../crates/ent-types" }
+ent-web-ui = { path = "crates/ent-web-ui" }
+ent-web-session = { path = "crates/ent-web-session" }
+ent-web-api = { path = "crates/ent-web-api" }
+ent-web-app = { path = "crates/ent-web-app", default-features = false }
+# Backend existant, réutilisé sans modification.
+ent-api = { path = "../crates/ent-api" }
+# Tests uniquement (parité des droits de l'interface), lecture seule.
+ent-auth = { path = "../crates/ent-auth" }
+ent-db = { path = "../crates/ent-db" }
+
+# Profil de développement allégé (D-015, mesuré : ≈ −80 % d'espace disque) :
+# numéros de ligne conservés pour notre code, pas d'info de débogage pour les dépendances.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
+
+# Profil du WebAssembly envoyé au navigateur (taille minimale).
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[workspace.metadata.leptos]]
+name = "ent-web"
+bin-package = "ent-web-server"
+lib-package = "ent-web-app"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "style/ent-web.css"
+# Fusionne les @import (design system ent-web-ui) en un seul fichier CSS.
+style-bundle = true
+site-addr = "127.0.0.1:8090"
+reload-port = 8091
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
+bin-target = "ent-web-server"
+# Mêmes options de compilation pour cargo-leptos et `cargo test` : sinon le serveur
+# recompilé par les tests ne produit plus le HTML attendu par le WebAssembly.
+disable-erase-components = true

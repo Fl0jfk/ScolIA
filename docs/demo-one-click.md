@@ -1,15 +1,8 @@
 # Démo one-click — ENT du matin (25 %)
 
-## URL publique (maintenant)
+## Ouvrir
 
-**https://lecture-settled-invitations-heated.trycloudflare.com/demo?dev_tenant=default**
-
-Un clic parent ou staff. Tunnel Cloudflare → Cloud Agent (tant que l’agent tourne).
-
-## Ouvrir (Cursor Desktop, sans tunnel)
-
-1. Agents Window → **Forwarded Ports** → **3000** → Open in internal browser.
-2. Page **`/demo`**.
+`npm run dev` puis **http://localhost:3000/demo?dev_tenant=default**
 
 ## Un clic
 
