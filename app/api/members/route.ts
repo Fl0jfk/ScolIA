@@ -17,6 +17,8 @@ import { getDb } from "@/db/index";
 import { session, user } from "@/db/schema";
 import { validatePersonnelBirthDate } from "@/app/lib/personnel-birthdate";
 import { hasInternalRole } from "@/app/lib/anniversaires-date";
+import { parseMemberName } from "@/app/lib/member-name";
+import { renameMember } from "@/app/lib/member-name-db";
 
 export async function GET(req: Request) {
   const actor = await requireAppUser();
@@ -230,6 +232,10 @@ export async function PATCH(req: Request) {
     if (!externalUserId) {
       return NextResponse.json({ error: "userId requis." }, { status: 400 });
     }
+    const nameCheck = parseMemberName(body.firstName, body.lastName);
+    if (!nameCheck.ok) {
+      return NextResponse.json({ error: nameCheck.error }, { status: 400 });
+    }
     if (roles.some((r) => r === "master")) {
       return NextResponse.json({ error: "Le rôle Master ne peut pas être attribué ici." }, { status: 403 });
     }
@@ -318,6 +324,10 @@ export async function PATCH(req: Request) {
         .where(and(eq(user.id, dbUser.id), eq(user.etablissementId, etablissementId)));
     }
 
+    if (nameCheck.value) {
+      updatedAt = await renameMember(etablissementId, dbUser, nameCheck.value);
+    }
+
     await setUserRolesInDb(dbUser.id, etablissementId, roles);
     await syncUserAdminFlagsInDb(dbUser.id, roles);
     return NextResponse.json({
@@ -326,13 +336,13 @@ export async function PATCH(req: Request) {
       user: {
         externalUserId: dbUser.externalUserId ?? dbUser.id,
         email,
-        firstName: dbUser.firstName ?? undefined,
-        lastName: dbUser.lastName ?? undefined,
+        firstName: nameCheck.value?.firstName ?? dbUser.firstName ?? undefined,
+        lastName: nameCheck.value?.lastName ?? dbUser.lastName ?? undefined,
         roles,
         pending: !emailVerified,
         createdAt: dbUser.createdAt.toISOString(),
         updatedAt: updatedAt.toISOString(),
-        displayName: dbUser.name,
+        displayName: nameCheck.value?.displayName ?? dbUser.name,
       },
     });
   } catch (e) {

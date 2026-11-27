@@ -10,6 +10,7 @@ import {
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
 import { invitationRecentlySent } from "@/app/lib/invitation-window";
+import { MEMBER_NAME_MAX } from "@/app/lib/member-name";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
 import SessionsManager from "@/app/components/account/SessionsManager";
@@ -118,6 +119,8 @@ export default function MembresPanel() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editEmail, setEditEmail] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [sessionsFor, setSessionsFor] = useState<RegistryUserRow | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
@@ -225,6 +228,8 @@ export default function MembresPanel() {
     setEditingKey(u.externalUserId || u.email);
     setEditRoles([...u.roles]);
     setEditEmail(u.email);
+    setEditFirstName(u.firstName ?? "");
+    setEditLastName(u.lastName ?? "");
     setEditDateNaissance(u.dateNaissance ?? "");
   };
 
@@ -236,6 +241,13 @@ export default function MembresPanel() {
     }
     if (editRoles.length === 0) {
       setError("Sélectionnez au moins un rôle.");
+      return;
+    }
+    // Le nom n'est envoyé que s'il a été touché : certains comptes anciens n'ont pas les deux champs.
+    const nameChanged =
+      editFirstName.trim() !== (u.firstName ?? "").trim() || editLastName.trim() !== (u.lastName ?? "").trim();
+    if (nameChanged && (!editFirstName.trim() || !editLastName.trim())) {
+      setError("Indiquez le prénom et le nom.");
       return;
     }
     setSavingEdit(true);
@@ -250,6 +262,7 @@ export default function MembresPanel() {
           email: nextEmail,
           intranetRoles: editRoles,
           dateNaissance: editDateNaissance || undefined,
+          ...(nameChanged ? { firstName: editFirstName.trim(), lastName: editLastName.trim() } : {}),
         }),
       });
       const j = (await res.json()) as {
@@ -711,6 +724,28 @@ export default function MembresPanel() {
                 </div>
                 {canManageRoles && editingKey === key && (
                   <div className="mt-4 pt-4 border-t space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block space-y-1">
+                        <span className="text-xs font-bold text-slate-500">Prénom</span>
+                        <input
+                          className={settingsInputClass}
+                          value={editFirstName}
+                          onChange={(e) => setEditFirstName(e.target.value)}
+                          maxLength={MEMBER_NAME_MAX}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-xs font-bold text-slate-500">Nom</span>
+                        <input
+                          className={settingsInputClass}
+                          value={editLastName}
+                          onChange={(e) => setEditLastName(e.target.value)}
+                          maxLength={MEMBER_NAME_MAX}
+                          autoComplete="off"
+                        />
+                      </label>
+                    </div>
                     <label className="block space-y-1">
                       <span className="text-xs font-bold text-slate-500">E-mail de connexion</span>
                       <input
