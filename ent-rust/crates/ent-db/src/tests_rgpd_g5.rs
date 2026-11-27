@@ -8,10 +8,12 @@
 
 use super::*;
 use crate::droits_repo::{Droit, RoleSaisie};
-use crate::violations::{echeance_cnil, Declaration, FiltreRegistre, Qualification, MERCI_DECLARANT};
+use crate::violations::{
+    echeance_cnil, Declaration, FiltreRegistre, Qualification, MERCI_DECLARANT,
+};
 use chrono::{DateTime, Duration, SubsecRound, Utc};
-use ent_auth::{Action, Portee};
 use domain_eleve::DomainError;
+use ent_auth::{Action, Portee};
 use uuid::Uuid;
 
 const DIR: &str = "direction";
@@ -77,7 +79,11 @@ fn qualif<'a>(cats: &'a [&'a str], mineurs: bool) -> Qualification<'a> {
 }
 
 async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
-    sqlx::query_scalar(sql).bind(id).fetch_one(ent.pool_verif()).await.unwrap()
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap()
 }
 
 // ─────────────────────────────── Déclaration et alerte ───────────────────────────────
@@ -93,13 +99,23 @@ async fn g5_declaration_en_un_geste_et_alerte_immediate() {
     let etab = cast.etablissement_id;
     let maintenant = instant();
     let m = ent
-        .violations_declarer_a(etab, cast.prof.user_id, PROF, decl("clé USB perdue"), maintenant)
+        .violations_declarer_a(
+            etab,
+            cast.prof.user_id,
+            PROF,
+            decl("clé USB perdue"),
+            maintenant,
+        )
         .await
         .expect("déclaration");
     assert!(m.reference.starts_with("V-"), "{}", m.reference);
     assert_eq!(m.avancement, "recue");
     assert_eq!(m.message, MERCI_DECLARANT);
-    assert_eq!(m.connue_le.timestamp(), maintenant.timestamp(), "prise de connaissance = déclaration");
+    assert_eq!(
+        m.connue_le.timestamp(),
+        maintenant.timestamp(),
+        "prise de connaissance = déclaration"
+    );
     // Alerte : la direction la reçoit, le déclarant non.
     let direction = compter(
         &ent,
@@ -122,7 +138,10 @@ async fn g5_declaration_en_un_geste_et_alerte_immediate() {
         m.id,
     )
     .await;
-    assert_eq!(declarant, 0, "le déclarant n'est pas alerté de sa propre déclaration");
+    assert_eq!(
+        declarant, 0,
+        "le déclarant n'est pas alerté de sa propre déclaration"
+    );
     // Hors plage calme : chaque envoi externe planifié l'est pour l'instant de la déclaration, jamais plus tard.
     let tard = compter(
         &ent,
@@ -133,17 +152,22 @@ async fn g5_declaration_en_un_geste_et_alerte_immediate() {
     .await;
     assert_eq!(tard, 0, "aucun envoi d'alerte différé par une plage calme");
     // La chronologie dit la déclaration et l'alerte, sans nom.
-    let v = ent.violations_fiche_a(etab, cast.direction.user_id, DIR, m.id, maintenant).await.unwrap();
+    let v = ent
+        .violations_fiche_a(etab, cast.direction.user_id, DIR, m.id, maintenant)
+        .await
+        .unwrap();
     let etapes: Vec<&str> = v.chronologie.iter().map(|e| e.etape.as_str()).collect();
     assert_eq!(&etapes[..2], &["declaree", "alerte_envoyee"], "{etapes:?}");
     assert_eq!(v.declaree_par_compte_id, Some(cast.prof.user_id));
     // Une famille ne déclare pas ; un texte vide est refusé.
     assert!(matches!(
-        ent.violations_declarer(etab, cast.parent_lea.user_id, "parent", decl("je signale")).await,
+        ent.violations_declarer(etab, cast.parent_lea.user_id, "parent", decl("je signale"))
+            .await,
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
-        ent.violations_declarer(etab, cast.prof.user_id, PROF, decl("  ")).await,
+        ent.violations_declarer(etab, cast.prof.user_id, PROF, decl("  "))
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
 }
@@ -155,22 +179,37 @@ async fn g5_le_declarant_ne_voit_que_l_avancement() {
         return;
     };
     let etab = cast.etablissement_id;
-    let m = ent.violations_declarer(etab, cast.prof.user_id, PROF, decl("écran laissé ouvert")).await.unwrap();
-    let mes = ent.violations_mes_declarations(etab, cast.prof.user_id, PROF).await.unwrap();
+    let m = ent
+        .violations_declarer(etab, cast.prof.user_id, PROF, decl("écran laissé ouvert"))
+        .await
+        .unwrap();
+    let mes = ent
+        .violations_mes_declarations(etab, cast.prof.user_id, PROF)
+        .await
+        .unwrap();
     assert!(mes.iter().any(|d| d.id == m.id));
-    let cpe = ent.violations_mes_declarations(etab, cast.cpe.user_id, "cpe").await.unwrap();
-    assert!(!cpe.iter().any(|d| d.id == m.id), "un autre personnel ne voit pas la déclaration");
+    let cpe = ent
+        .violations_mes_declarations(etab, cast.cpe.user_id, "cpe")
+        .await
+        .unwrap();
+    assert!(
+        !cpe.iter().any(|d| d.id == m.id),
+        "un autre personnel ne voit pas la déclaration"
+    );
     assert!(matches!(
-        ent.violations_fiche(etab, cast.prof.user_id, PROF, m.id).await,
+        ent.violations_fiche(etab, cast.prof.user_id, PROF, m.id)
+            .await,
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
-        ent.violations_registre(etab, cast.prof.user_id, PROF, FiltreRegistre::default()).await,
+        ent.violations_registre(etab, cast.prof.user_id, PROF, FiltreRegistre::default())
+            .await,
         Err(EntDbError::Forbidden)
     ));
     // Le secrétariat ne gère pas les violations par défaut.
     assert!(matches!(
-        ent.violations_fiche(etab, cast.administratif.user_id, ADF, m.id).await,
+        ent.violations_fiche(etab, cast.administratif.user_id, ADF, m.id)
+            .await,
         Err(EntDbError::Forbidden)
     ));
 }
@@ -186,7 +225,10 @@ async fn g5_horloge_72_h_et_numeros() {
     let dir = cast.direction.user_id;
     let maintenant = instant();
     let a = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(5)).await;
-    let va = ent.violations_fiche_a(etab, dir, DIR, a, maintenant).await.unwrap();
+    let va = ent
+        .violations_fiche_a(etab, dir, DIR, a, maintenant)
+        .await
+        .unwrap();
     assert_eq!(va.echeance_cnil_le, echeance_cnil(va.connue_le));
     assert_eq!((va.echeance_cnil_le - va.connue_le).num_minutes(), 72 * 60);
     assert_eq!(va.heures_restantes, 67);
@@ -197,23 +239,49 @@ async fn g5_horloge_72_h_et_numeros() {
     ] {
         assert!(
             matches!(
-                ent.violations_saisir_a(etab, dir, DIR, decl("refusée"), Some(connue), maintenant).await,
+                ent.violations_saisir_a(etab, dir, DIR, decl("refusée"), Some(connue), maintenant)
+                    .await,
                 Err(EntDbError::SaisieInvalide(_))
             ),
             "prise de connaissance {quoi}"
         );
     }
     let b = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(1)).await;
-    let vb = ent.violations_fiche_a(etab, dir, DIR, b, maintenant).await.unwrap();
-    let n = |r: &str| r.rsplit_once('-').unwrap().1.parse::<i32>().unwrap();
-    assert_eq!(n(&vb.reference), n(&va.reference) + 1, "{} puis {}", va.reference, vb.reference);
+    let vb = ent
+        .violations_fiche_a(etab, dir, DIR, b, maintenant)
+        .await
+        .unwrap();
+    // Numéros croissants dans l'année de l'établissement (d'autres tests déclarent en parallèle dans le même
+    // établissement : on n'exige pas la contiguïté ; autour du 1er janvier, les deux années diffèrent).
+    let (annee_a, na) = va.reference[2..].split_once('-').unwrap();
+    let (annee_b, nb) = vb.reference[2..].split_once('-').unwrap();
+    if annee_a == annee_b {
+        assert!(
+            nb.parse::<i32>().unwrap() > na.parse::<i32>().unwrap(),
+            "{} puis {}",
+            va.reference,
+            vb.reference
+        );
+    }
     // Connue il y a 80 h, non notifiée : en retard.
     let c = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(80)).await;
-    let vc = ent.violations_fiche_a(etab, dir, DIR, c, maintenant).await.unwrap();
+    let vc = ent
+        .violations_fiche_a(etab, dir, DIR, c, maintenant)
+        .await
+        .unwrap();
     assert!(vc.en_retard);
     assert_eq!(vc.heures_restantes, -8);
     let a_notifier = ent
-        .violations_registre_a(etab, dir, DIR, FiltreRegistre { a_notifier: true, ..Default::default() }, maintenant)
+        .violations_registre_a(
+            etab,
+            dir,
+            DIR,
+            FiltreRegistre {
+                a_notifier: true,
+                ..Default::default()
+            },
+            maintenant,
+        )
         .await
         .unwrap();
     assert!(a_notifier.iter().any(|l| l.id == c && l.en_retard));
@@ -234,7 +302,8 @@ async fn g5_qualification_grille_puis_decision_apres_avis_dpo() {
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(2)).await;
     // Catégorie inconnue : refusée ; atteinte non qualifiée : refusée.
     assert!(matches!(
-        ent.violations_qualifier(etab, dir, DIR, id, qualif(&["inconnue.x"], false)).await,
+        ent.violations_qualifier(etab, dir, DIR, id, qualif(&["inconnue.x"], false))
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     let mut sans = qualif(&["scol.registre"], false);
@@ -245,21 +314,34 @@ async fn g5_qualification_grille_puis_decision_apres_avis_dpo() {
     ));
     // Décider avant de qualifier : refusé.
     assert!(matches!(
-        ent.violations_decider_risque(etab, dir, DIR, id, "faible", "liste nom et classe").await,
+        ent.violations_decider_risque(etab, dir, DIR, id, "faible", "liste nom et classe")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     // CL27-41 : nom + classe → faible proposé.
-    let v = ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false)).await.unwrap();
+    let v = ent
+        .violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false))
+        .await
+        .unwrap();
     assert_eq!(v.etat, "qualifiee");
     assert_eq!(v.risque_propose.as_deref(), Some("faible"));
     assert!(!v.raisons_proposition.is_empty());
     assert_eq!(v.categories, vec!["scol.registre".to_string()]);
     // Sans avis du DPO : refusé.
     assert!(matches!(
-        ent.violations_decider_risque(etab, dir, DIR, id, "faible", "liste nom et classe").await,
+        ent.violations_decider_risque(etab, dir, DIR, id, "faible", "liste nom et classe")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    ent.violations_avis_dpo(etab, dir, DIR, id, "DPO consulté : risque faible, pas de donnée sensible").await.unwrap();
+    ent.violations_avis_dpo(
+        etab,
+        dir,
+        DIR,
+        id,
+        "DPO consulté : risque faible, pas de donnée sensible",
+    )
+    .await
+    .unwrap();
     // Un gestionnaire DPO (rôle D-017 : `violations.gerer` seul) qualifie mais ne décide pas.
     let role_dpo = ent
         .creer_role_for_actor(
@@ -270,33 +352,65 @@ async fn g5_qualification_grille_puis_decision_apres_avis_dpo() {
                 nom: format!("DPO {}", Uuid::new_v4()),
                 description: Some("délégué à la protection des données".into()),
                 modele: None,
-                droits: vec![Droit { action: Action::ViolationsGerer, portee: Portee::Etablissement, cibles: vec![] }],
+                droits: vec![Droit {
+                    action: Action::ViolationsGerer,
+                    portee: Portee::Etablissement,
+                    cibles: vec![],
+                }],
             },
         )
         .await
         .expect("rôle DPO")
         .id;
-    ent.attribuer_role_for_actor(etab, cast.admin.user_id, "admin", role_dpo, cast.administratif.user_id, None)
+    ent.attribuer_role_for_actor(
+        etab,
+        cast.admin.user_id,
+        "admin",
+        role_dpo,
+        cast.administratif.user_id,
+        None,
+    )
+    .await
+    .expect("attribution");
+    ent.violations_fiche(etab, cast.administratif.user_id, ADF, id)
         .await
-        .expect("attribution");
-    ent.violations_fiche(etab, cast.administratif.user_id, ADF, id).await.expect("le DPO lit la fiche");
+        .expect("le DPO lit la fiche");
     assert!(matches!(
-        ent.violations_decider_risque(etab, cast.administratif.user_id, ADF, id, "faible", "avis").await,
+        ent.violations_decider_risque(etab, cast.administratif.user_id, ADF, id, "faible", "avis")
+            .await,
         Err(EntDbError::Forbidden)
     ));
     // Mineurs touchés : la proposition monte à « avéré » ; la direction décide « faible » avec motif (écart tracé).
-    let v = ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], true)).await.unwrap();
+    let v = ent
+        .violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], true))
+        .await
+        .unwrap();
     assert_eq!(v.risque_propose.as_deref(), Some("avere"));
     let v = ent
-        .violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe déjà connus de ces familles (même niveau)")
+        .violations_decider_risque(
+            etab,
+            dir,
+            DIR,
+            id,
+            "faible",
+            "nom et classe déjà connus de ces familles (même niveau)",
+        )
         .await
         .unwrap();
     assert_eq!(v.risque.as_deref(), Some("faible"));
-    let decide = v.chronologie.iter().find(|e| e.etape == "risque_decide").unwrap();
-    assert!(decide.texte.as_deref().unwrap().contains("écart"), "{decide:?}");
+    let decide = v
+        .chronologie
+        .iter()
+        .find(|e| e.etape == "risque_decide")
+        .unwrap();
+    assert!(
+        decide.texte.as_deref().unwrap().contains("écart"),
+        "{decide:?}"
+    );
     // Un risque inconnu est refusé.
     assert!(matches!(
-        ent.violations_decider_risque(etab, dir, DIR, id, "moyen", "x pour test").await,
+        ent.violations_decider_risque(etab, dir, DIR, id, "moyen", "x pour test")
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
 }
@@ -316,16 +430,35 @@ async fn g5_notification_tardive_acceptee_avec_motif_puis_complement() {
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(96)).await;
     let notif_le = maintenant - Duration::hours(2);
     assert!(matches!(
-        ent.violations_notifier_cnil(etab, dir, DIR, id, notif_le, "CNIL-2027-0042", None).await,
+        ent.violations_notifier_cnil(etab, dir, DIR, id, notif_le, "CNIL-2027-0042", None)
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     // Avant la prise de connaissance, ou dans le futur : refusé.
     assert!(matches!(
-        ent.violations_notifier_cnil(etab, dir, DIR, id, maintenant - Duration::hours(97), "CNIL-1", Some("x pour test")).await,
+        ent.violations_notifier_cnil(
+            etab,
+            dir,
+            DIR,
+            id,
+            maintenant - Duration::hours(97),
+            "CNIL-1",
+            Some("x pour test")
+        )
+        .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     assert!(matches!(
-        ent.violations_notifier_cnil(etab, dir, DIR, id, maintenant + Duration::hours(1), "CNIL-1", None).await,
+        ent.violations_notifier_cnil(
+            etab,
+            dir,
+            DIR,
+            id,
+            maintenant + Duration::hours(1),
+            "CNIL-1",
+            None
+        )
+        .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     let v = ent
@@ -336,7 +469,9 @@ async fn g5_notification_tardive_acceptee_avec_motif_puis_complement() {
             id,
             notif_le,
             "CNIL-2027-0042",
-            Some("incident appris pendant les vacances, direction joignable seulement à la rentrée"),
+            Some(
+                "incident appris pendant les vacances, direction joignable seulement à la rentrée",
+            ),
         )
         .await
         .expect("notification tardive acceptée");
@@ -347,11 +482,20 @@ async fn g5_notification_tardive_acceptee_avec_motif_puis_complement() {
     assert_eq!(v.notifications.len(), 1);
     // Une seconde notification « initiale » est refusée ; un complément s'ajoute.
     assert!(matches!(
-        ent.violations_notifier_cnil(etab, dir, DIR, id, notif_le, "CNIL-2", Some("x pour test")).await,
+        ent.violations_notifier_cnil(etab, dir, DIR, id, notif_le, "CNIL-2", Some("x pour test"))
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     let v = ent
-        .violations_notification_complementaire(etab, dir, DIR, id, maintenant - Duration::hours(1), "CNIL-2027-0042-2", "nombre de personnes précisé : 118")
+        .violations_notification_complementaire(
+            etab,
+            dir,
+            DIR,
+            id,
+            maintenant - Duration::hours(1),
+            "CNIL-2027-0042-2",
+            "nombre de personnes précisé : 118",
+        )
         .await
         .unwrap();
     assert_eq!(v.notifications.len(), 2);
@@ -370,10 +514,21 @@ async fn g5_notification_tardive_acceptee_avec_motif_puis_complement() {
     // Une notification dans les 72 h n'exige aucun motif.
     let id2 = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(10)).await;
     let v2 = ent
-        .violations_notifier_cnil(etab, dir, DIR, id2, maintenant - Duration::hours(1), "CNIL-2027-0043", Some("ignoré"))
+        .violations_notifier_cnil(
+            etab,
+            dir,
+            DIR,
+            id2,
+            maintenant - Duration::hours(1),
+            "CNIL-2027-0043",
+            Some("ignoré"),
+        )
         .await
         .unwrap();
-    assert!(v2.retard_motif.is_none(), "dans le délai, aucun motif de retard n'est conservé");
+    assert!(
+        v2.retard_motif.is_none(),
+        "dans le délai, aucun motif de retard n'est conservé"
+    );
 }
 
 /// Art. 33.5 : la non-notification n'est possible que pour un risque décidé faible, par la direction ; la clôture exige
@@ -388,41 +543,85 @@ async fn g5_non_notification_cloture_et_registre_fige() {
     let maintenant = instant();
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(3)).await;
     // Clore trop tôt : refusé, avec ce qui manque.
-    match ent.violations_clore(etab, dir, DIR, id, "rien appris").await {
+    match ent
+        .violations_clore(etab, dir, DIR, id, "rien appris")
+        .await
+    {
         Err(EntDbError::ConflitDossierDetail(m)) => assert!(m.contains("qualifier"), "{m}"),
         r => panic!("clôture prématurée acceptée : {r:?}"),
     }
-    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false)).await.unwrap();
+    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false))
+        .await
+        .unwrap();
     // Non-notification sans risque décidé : refusée.
     assert!(matches!(
-        ent.violations_justifier_non_notification(etab, dir, DIR, id, "risque faible").await,
+        ent.violations_justifier_non_notification(etab, dir, DIR, id, "risque faible")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    ent.violations_avis_dpo(etab, dir, DIR, id, "avis : faible").await.unwrap();
-    ent.violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe seulement").await.unwrap();
+    ent.violations_avis_dpo(etab, dir, DIR, id, "avis : faible")
+        .await
+        .unwrap();
+    ent.violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe seulement")
+        .await
+        .unwrap();
     // Le secrétariat (sans `violations.decider`) ne justifie pas la non-notification.
     assert!(matches!(
-        ent.violations_justifier_non_notification(etab, cast.administratif.user_id, ADF, id, "faible").await,
+        ent.violations_justifier_non_notification(
+            etab,
+            cast.administratif.user_id,
+            ADF,
+            id,
+            "faible"
+        )
+        .await,
         Err(EntDbError::Forbidden)
     ));
     let v = ent
-        .violations_justifier_non_notification(etab, dir, DIR, id, "risque faible : noms et classes, aucune donnée sensible")
+        .violations_justifier_non_notification(
+            etab,
+            dir,
+            DIR,
+            id,
+            "risque faible : noms et classes, aucune donnée sensible",
+        )
         .await
         .unwrap();
     assert!(v.non_notification_motif.is_some());
-    // Monter le risque après une non-notification : refusé (il faudrait notifier).
+    // Relever le risque après une non-notification : voir `g5_risque_releve_apres_non_notification`.
+    ent.violations_ajouter_mesure(
+        etab,
+        dir,
+        DIR,
+        id,
+        "prise",
+        "message de retrait envoyé aux familles",
+    )
+    .await
+    .unwrap();
+    ent.violations_ajouter_mesure(
+        etab,
+        dir,
+        DIR,
+        id,
+        "envisagee",
+        "liste de diffusion par classe, plus par niveau",
+    )
+    .await
+    .unwrap();
     assert!(matches!(
-        ent.violations_decider_risque(etab, dir, DIR, id, "avere", "faits nouveaux").await,
-        Err(EntDbError::ConflitDossier(_))
-    ));
-    ent.violations_ajouter_mesure(etab, dir, DIR, id, "prise", "message de retrait envoyé aux familles").await.unwrap();
-    ent.violations_ajouter_mesure(etab, dir, DIR, id, "envisagee", "liste de diffusion par classe, plus par niveau").await.unwrap();
-    assert!(matches!(
-        ent.violations_ajouter_mesure(etab, dir, DIR, id, "oubliee", "x pour test").await,
+        ent.violations_ajouter_mesure(etab, dir, DIR, id, "oubliee", "x pour test")
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
     let v = ent
-        .violations_clore(etab, dir, DIR, id, "listes de diffusion revues ; rappel fait à l'équipe")
+        .violations_clore(
+            etab,
+            dir,
+            DIR,
+            id,
+            "listes de diffusion revues ; rappel fait à l'équipe",
+        )
         .await
         .expect("clôture");
     assert_eq!(v.etat, "close");
@@ -431,7 +630,8 @@ async fn g5_non_notification_cloture_et_registre_fige() {
     assert_eq!(v.revue_le, Some(jour + Duration::days(30)));
     // Plus rien ne change : le service le dit, la base le garantit.
     assert!(matches!(
-        ent.violations_ajouter_mesure(etab, dir, DIR, id, "prise", "trop tard").await,
+        ent.violations_ajouter_mesure(etab, dir, DIR, id, "prise", "trop tard")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     for sql in [
@@ -458,18 +658,40 @@ async fn g5_risque_eleve_exige_information_ou_exception() {
     let dir = cast.direction.user_id;
     let maintenant = instant();
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(1)).await;
-    let v = ent.violations_qualifier(etab, dir, DIR, id, qualif(&["sante.dossier"], true)).await.unwrap();
+    let v = ent
+        .violations_qualifier(etab, dir, DIR, id, qualif(&["sante.dossier"], true))
+        .await
+        .unwrap();
     assert_eq!(v.risque_propose.as_deref(), Some("eleve"));
     // L'exception à l'information n'a de sens que pour un risque élevé décidé.
     assert!(matches!(
-        ent.violations_motiver_non_information(etab, dir, DIR, id, "chiffré").await,
+        ent.violations_motiver_non_information(etab, dir, DIR, id, "chiffré")
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    ent.violations_avis_dpo(etab, dir, DIR, id, "DPO : risque élevé, informer les familles").await.unwrap();
-    ent.violations_decider_risque(etab, dir, DIR, id, "eleve", "données de santé de mineurs").await.unwrap();
-    ent.violations_notifier_cnil(etab, dir, DIR, id, maintenant - Duration::minutes(30), "CNIL-2027-0100", None)
+    ent.violations_avis_dpo(
+        etab,
+        dir,
+        DIR,
+        id,
+        "DPO : risque élevé, informer les familles",
+    )
+    .await
+    .unwrap();
+    ent.violations_decider_risque(etab, dir, DIR, id, "eleve", "données de santé de mineurs")
         .await
         .unwrap();
+    ent.violations_notifier_cnil(
+        etab,
+        dir,
+        DIR,
+        id,
+        maintenant - Duration::minutes(30),
+        "CNIL-2027-0100",
+        None,
+    )
+    .await
+    .unwrap();
     // Risque élevé décidé : la non-notification est impossible.
     match ent.violations_clore(etab, dir, DIR, id, "fin").await {
         Err(EntDbError::ConflitDossierDetail(m)) => assert!(m.contains("informer"), "{m}"),
@@ -486,7 +708,9 @@ async fn g5_risque_eleve_exige_information_ou_exception() {
         .await
         .unwrap();
     assert!(v.manque_pour_clore.is_empty(), "{:?}", v.manque_pour_clore);
-    ent.violations_clore(etab, dir, DIR, id, "chiffrement des exports généralisé").await.expect("clôture");
+    ent.violations_clore(etab, dir, DIR, id, "chiffrement des exports généralisé")
+        .await
+        .expect("clôture");
 }
 
 /// RGP-259 : un incident de sécurité sans atteinte aux données est au même registre, sans horloge exigée, et se clôt
@@ -504,24 +728,64 @@ async fn g5_incident_de_securite_sans_atteinte() {
             etab,
             cast.cpe.user_id,
             "cpe",
-            Declaration { intitule: "tentative d'hameçonnage reçue", incident_securite: true, ..Default::default() },
+            Declaration {
+                intitule: "tentative d'hameçonnage reçue",
+                incident_securite: true,
+                ..Default::default()
+            },
             maintenant,
         )
         .await
         .unwrap();
-    let v = ent.violations_fiche_a(etab, dir, DIR, m.id, maintenant + Duration::hours(100)).await.unwrap();
+    // Le déclarant ne range pas lui-même l'incident hors des violations : son avis est noté, l'horloge court.
+    let v = ent
+        .violations_fiche_a(etab, dir, DIR, m.id, maintenant)
+        .await
+        .unwrap();
+    assert_eq!(v.nature_incident, "violation");
+    assert!(v
+        .chronologie
+        .iter()
+        .any(|e| e.texte.as_deref().is_some_and(|t| t.contains("aucune donnée personnelle"))));
+    // La direction requalifie.
+    let mut q = qualif(&[], false);
+    q.nature_incident = "incident_securite";
+    q.confidentialite = false;
+    ent.violations_qualifier(etab, dir, DIR, m.id, q).await.expect("requalification");
+    let v = ent
+        .violations_fiche_a(etab, dir, DIR, m.id, maintenant + Duration::hours(100))
+        .await
+        .unwrap();
     assert_eq!(v.nature_incident, "incident_securite");
-    assert!(!v.en_retard, "aucune horloge CNIL pour un incident sans atteinte");
+    assert!(
+        !v.en_retard,
+        "aucune horloge CNIL pour un incident sans atteinte"
+    );
     assert!(matches!(
-        ent.violations_notifier_cnil(etab, dir, DIR, m.id, maintenant, "CNIL-x", None).await,
+        ent.violations_notifier_cnil(etab, dir, DIR, m.id, maintenant, "CNIL-x", None)
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    ent.violations_clore(etab, dir, DIR, m.id, "personne n'a cliqué ; rappel à l'équipe").await.expect("clôture");
+    ent.violations_clore(
+        etab,
+        dir,
+        DIR,
+        m.id,
+        "personne n'a cliqué ; rappel à l'équipe",
+    )
+    .await
+    .expect("clôture");
     // Une violation décidée ne redevient pas un simple incident.
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(1)).await;
-    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false)).await.unwrap();
-    ent.violations_avis_dpo(etab, dir, DIR, id, "avis").await.unwrap();
-    ent.violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe").await.unwrap();
+    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false))
+        .await
+        .unwrap();
+    ent.violations_avis_dpo(etab, dir, DIR, id, "avis")
+        .await
+        .unwrap();
+    ent.violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe")
+        .await
+        .unwrap();
     let mut q = qualif(&[], false);
     q.nature_incident = "incident_securite";
     assert!(matches!(
@@ -541,16 +805,33 @@ async fn g5_port_systeme_idempotent() {
     let etab = cast.etablissement_id;
     let source = Uuid::new_v4();
     let (id, nouveau) = ent
-        .violations_declarer_systeme(etab, "socle28.export_anormal", source, "export complet depuis un pays inhabituel", None, Some(640))
+        .violations_declarer_systeme(
+            etab,
+            "socle28.export_anormal",
+            source,
+            "export complet depuis un pays inhabituel",
+            None,
+            Some(640),
+        )
         .await
         .unwrap();
     assert!(nouveau);
     let (id2, nouveau2) = ent
-        .violations_declarer_systeme(etab, "socle28.export_anormal", source, "export complet depuis un pays inhabituel", None, Some(640))
+        .violations_declarer_systeme(
+            etab,
+            "socle28.export_anormal",
+            source,
+            "export complet depuis un pays inhabituel",
+            None,
+            Some(640),
+        )
         .await
         .unwrap();
     assert_eq!((id2, nouveau2), (id, false));
-    let v = ent.violations_fiche(etab, cast.direction.user_id, DIR, id).await.unwrap();
+    let v = ent
+        .violations_fiche(etab, cast.direction.user_id, DIR, id)
+        .await
+        .unwrap();
     assert_eq!(v.origine, "supervision");
     assert_eq!(v.source_code.as_deref(), Some("socle28.export_anormal"));
     assert_eq!(v.personnes_nombre, Some(640));
@@ -562,9 +843,13 @@ async fn g5_port_systeme_idempotent() {
         id,
     )
     .await;
-    assert!(alertes >= 1, "la direction est prévenue d'une déclaration automatique");
+    assert!(
+        alertes >= 1,
+        "la direction est prévenue d'une déclaration automatique"
+    );
     assert!(matches!(
-        ent.violations_declarer_systeme(etab, "Code Invalide", source, "x pour test", None, None).await,
+        ent.violations_declarer_systeme(etab, "Code Invalide", source, "x pour test", None, None)
+            .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
 }
@@ -581,7 +866,9 @@ async fn g5_alertes_h24_h6_une_fois_par_palier() {
     let t0 = instant();
     let id = violation_connue_il_y_a(&ent, &cast, t0, Duration::zero()).await;
     let notifiee = violation_connue_il_y_a(&ent, &cast, t0, Duration::zero()).await;
-    ent.violations_notifier_cnil(etab, dir, DIR, notifiee, t0, "CNIL-2027-0200", None).await.unwrap();
+    ent.violations_notifier_cnil(etab, dir, DIR, notifiee, t0, "CNIL-2027-0200", None)
+        .await
+        .unwrap();
     let alertes = |palier: &'static str| {
         let ent = &ent;
         async move {
@@ -597,17 +884,27 @@ async fn g5_alertes_h24_h6_une_fois_par_palier() {
         }
     };
     // À H-30 : rien.
-    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(42)).await.unwrap();
+    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(42))
+        .await
+        .unwrap();
     assert_eq!(alertes("H-24").await, 0);
     // À H-23 : H-24 ; rejoué : pas de doublon.
-    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(49)).await.unwrap();
-    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(50)).await.unwrap();
+    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(49))
+        .await
+        .unwrap();
+    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(50))
+        .await
+        .unwrap();
     assert_eq!(alertes("H-24").await, 1);
     // La tâche ne repasse qu'à H-2 : H-6 est franchi, il part.
-    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(70)).await.unwrap();
+    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(70))
+        .await
+        .unwrap();
     assert_eq!(alertes("H-6").await, 1);
     // Après l'échéance : plus d'alerte (le retard est affiché au registre).
-    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(73)).await.unwrap();
+    ent.violations_alerter_echeances_a(etab, t0 + Duration::hours(73))
+        .await
+        .unwrap();
     assert_eq!(alertes("H-6").await, 1);
     let avis = compter(
         &ent,
@@ -638,21 +935,35 @@ async fn g5_cloisonnement_entre_etablissements() {
     let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let id = violation_connue_il_y_a(&ent, &cast, instant(), Duration::hours(1)).await;
     assert!(matches!(
-        ent.violations_fiche(autre.etablissement_id, autre.direction.user_id, DIR, id).await,
+        ent.violations_fiche(autre.etablissement_id, autre.direction.user_id, DIR, id)
+            .await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
     let reg = ent
-        .violations_registre(autre.etablissement_id, autre.direction.user_id, DIR, FiltreRegistre::default())
+        .violations_registre(
+            autre.etablissement_id,
+            autre.direction.user_id,
+            DIR,
+            FiltreRegistre::default(),
+        )
         .await
         .unwrap();
     assert!(!reg.iter().any(|l| l.id == id));
     assert!(matches!(
-        ent.violations_qualifier(autre.etablissement_id, autre.direction.user_id, DIR, id, qualif(&[], false)).await,
+        ent.violations_qualifier(
+            autre.etablissement_id,
+            autre.direction.user_id,
+            DIR,
+            id,
+            qualif(&[], false)
+        )
+        .await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
     // La direction de A ne gère pas B avec sa session de A.
     assert!(matches!(
-        ent.violations_fiche(autre.etablissement_id, cast.direction.user_id, DIR, id).await,
+        ent.violations_fiche(autre.etablissement_id, cast.direction.user_id, DIR, id)
+            .await,
         Err(EntDbError::Forbidden) | Err(EntDbError::Domain(DomainError::NotFound))
     ));
 }
@@ -672,42 +983,86 @@ async fn g5_personnes_calculees_puis_informees_une_fois() {
     let dir = cast.direction.user_id;
     let maintenant = instant();
     let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(2)).await;
-    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["eva.note"], true)).await.unwrap();
+    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["eva.note"], true))
+        .await
+        .unwrap();
     // Un professeur ne calcule pas les personnes.
     assert!(matches!(
-        ent.violations_calculer_personnes(etab, cast.prof.user_id, "prof", id, OriginePersonnes::Eleves(vec![cast.eleve_lea_id]))
-            .await,
+        ent.violations_calculer_personnes(
+            etab,
+            cast.prof.user_id,
+            "prof",
+            id,
+            OriginePersonnes::Eleves(vec![cast.eleve_lea_id])
+        )
+        .await,
         Err(EntDbError::Forbidden)
     ));
     // Liste vide refusée.
-    assert!(ent.violations_calculer_personnes(etab, dir, DIR, id, OriginePersonnes::Eleves(vec![])).await.is_err());
+    assert!(ent
+        .violations_calculer_personnes(etab, dir, DIR, id, OriginePersonnes::Eleves(vec![]))
+        .await
+        .is_err());
     let v = ent
         .violations_calculer_personnes(
             etab,
             dir,
             DIR,
             id,
-            OriginePersonnes::Eleves(vec![cast.eleve_lea_id, cast.eleve_tom_id, cast.eleve_lea_id]),
+            OriginePersonnes::Eleves(vec![
+                cast.eleve_lea_id,
+                cast.eleve_tom_id,
+                cast.eleve_lea_id,
+            ]),
         )
         .await
         .expect("calcul");
     assert_eq!(v.personnes_nombre, Some(2), "doublon retiré");
     assert!(!v.personnes_estime);
-    let a = ent.violations_apercu_information(etab, dir, DIR, id).await.unwrap();
+    let a = ent
+        .violations_apercu_information(etab, dir, DIR, id)
+        .await
+        .unwrap();
     assert_eq!(a.personnes, 2);
-    assert!(a.destinataires >= 2, "au moins un titulaire par élève : {a:?}");
+    assert!(
+        a.destinataires >= 2,
+        "au moins un titulaire par élève : {a:?}"
+    );
     assert!(!a.deja_informees);
-    let message = "Des notes de votre enfant ont été visibles par d'autres familles pendant une heure.";
+    let message =
+        "Des notes de votre enfant ont été visibles par d'autres familles pendant une heure.";
     // Risque non décidé : rien ne part.
     assert!(matches!(
-        ent.violations_informer_personnes_a(etab, dir, DIR, id, message, a.destinataires, maintenant).await,
+        ent.violations_informer_personnes_a(
+            etab,
+            dir,
+            DIR,
+            id,
+            message,
+            a.destinataires,
+            maintenant
+        )
+        .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    ent.violations_avis_dpo(etab, dir, DIR, id, "DPO : informer les familles concernées").await.unwrap();
-    ent.violations_decider_risque(etab, dir, DIR, id, "eleve", "notes de mineurs visibles").await.unwrap();
+    ent.violations_avis_dpo(etab, dir, DIR, id, "DPO : informer les familles concernées")
+        .await
+        .unwrap();
+    ent.violations_decider_risque(etab, dir, DIR, id, "eleve", "notes de mineurs visibles")
+        .await
+        .unwrap();
     // Confirmation par un nombre faux : rien ne part.
     assert!(matches!(
-        ent.violations_informer_personnes_a(etab, dir, DIR, id, message, a.destinataires + 1, maintenant).await,
+        ent.violations_informer_personnes_a(
+            etab,
+            dir,
+            DIR,
+            id,
+            message,
+            a.destinataires + 1,
+            maintenant
+        )
+        .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     let avant: i64 =
@@ -720,7 +1075,10 @@ async fn g5_personnes_calculees_puis_informees_une_fois() {
         .expect("information");
     assert_eq!(v.personnes_informees_nombre, Some(a.destinataires as i32));
     assert_eq!(v.personnes_informees_le, Some(maintenant));
-    assert!(v.chronologie.iter().any(|e| e.etape == "personnes_informees"));
+    assert!(v
+        .chronologie
+        .iter()
+        .any(|e| e.etape == "personnes_informees"));
     let parent_lea = compter(
         &ent,
         &format!(
@@ -745,14 +1103,35 @@ async fn g5_personnes_calculees_puis_informees_une_fois() {
     assert_eq!(prof, 0, "personne d'autre");
     // Une seule fois ; le calcul est figé.
     assert!(matches!(
-        ent.violations_informer_personnes_a(etab, dir, DIR, id, message, a.destinataires, maintenant).await,
+        ent.violations_informer_personnes_a(
+            etab,
+            dir,
+            DIR,
+            id,
+            message,
+            a.destinataires,
+            maintenant
+        )
+        .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     assert!(matches!(
-        ent.violations_calculer_personnes(etab, dir, DIR, id, OriginePersonnes::Eleves(vec![cast.eleve_lea_id])).await,
+        ent.violations_calculer_personnes(
+            etab,
+            dir,
+            DIR,
+            id,
+            OriginePersonnes::Eleves(vec![cast.eleve_lea_id])
+        )
+        .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    assert!(ent.violations_apercu_information(etab, dir, DIR, id).await.unwrap().deja_informees);
+    assert!(
+        ent.violations_apercu_information(etab, dir, DIR, id)
+            .await
+            .unwrap()
+            .deja_informees
+    );
     // En base aussi : l'information ne se réécrit pas.
     let r = sqlx::query("UPDATE rgp_violation SET personnes_informees_nombre = 1 WHERE id = $1")
         .bind(id)
@@ -783,7 +1162,14 @@ async fn g5_personnes_par_comptes_de_l_etablissement() {
         .expect("calcul");
     assert_eq!(v.personnes_nombre, Some(2));
     assert!(matches!(
-        ent.violations_calculer_personnes(etab, dir, DIR, id, OriginePersonnes::Comptes(vec![Uuid::new_v4()])).await,
+        ent.violations_calculer_personnes(
+            etab,
+            dir,
+            DIR,
+            id,
+            OriginePersonnes::Comptes(vec![Uuid::new_v4()])
+        )
+        .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
 }
@@ -803,7 +1189,8 @@ async fn g5_violation_de_plateforme_propagee_a_chaque_etablissement() {
     let maintenant = instant();
     let d = DeclarationPlateforme {
         intitule: "Journaux d'un sous-traitant d'envoi de courriels exposés",
-        description: "Un compartiment de stockage du sous-traitant d'envoi a été exposé six heures.",
+        description:
+            "Un compartiment de stockage du sous-traitant d'envoi a été exposé six heures.",
         connue_le: maintenant - Duration::hours(3),
         confidentialite: true,
         ..Default::default()
@@ -812,25 +1199,49 @@ async fn g5_violation_de_plateforme_propagee_a_chaque_etablissement() {
     assert!(matches!(
         ent.violations_plateforme_declarer(
             "Équipe sécurité ScolIA",
-            DeclarationPlateforme { confidentialite: false, ..d.clone() },
+            DeclarationPlateforme {
+                confidentialite: false,
+                ..d.clone()
+            },
             maintenant
         )
         .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    let (pv, reference) = ent.violations_plateforme_declarer("Équipe sécurité ScolIA", d.clone(), maintenant).await.unwrap();
-    assert!(reference.starts_with("P-") && reference.len() >= 10, "{reference}");
-    let (_, reference2) = ent.violations_plateforme_declarer("Équipe sécurité ScolIA", d, maintenant).await.unwrap();
+    let (pv, reference) = ent
+        .violations_plateforme_declarer("Équipe sécurité ScolIA", d.clone(), maintenant)
+        .await
+        .unwrap();
+    assert!(
+        reference.starts_with("P-") && reference.len() >= 10,
+        "{reference}"
+    );
+    let (_, reference2) = ent
+        .violations_plateforme_declarer("Équipe sécurité ScolIA", d, maintenant)
+        .await
+        .unwrap();
     assert_ne!(reference, reference2, "numérotation sans doublon");
 
     let informe = maintenant + Duration::hours(1);
     let (va, cree) = ent
-        .violations_plateforme_propager(pv, cast.etablissement_id, "212 adresses de familles du lycée", Some(212), informe)
+        .violations_plateforme_propager(
+            pv,
+            cast.etablissement_id,
+            "212 adresses de familles du lycée",
+            Some(212),
+            informe,
+        )
         .await
         .unwrap();
     assert!(cree);
     let (vb, _) = ent
-        .violations_plateforme_propager(pv, autre.etablissement_id, "37 adresses de personnels", Some(37), informe)
+        .violations_plateforme_propager(
+            pv,
+            autre.etablissement_id,
+            "37 adresses de personnels",
+            Some(37),
+            informe,
+        )
         .await
         .unwrap();
     // Idempotent.
@@ -841,23 +1252,56 @@ async fn g5_violation_de_plateforme_propagee_a_chaque_etablissement() {
     assert_eq!(va2, va);
     assert!(!cree2);
 
-    let fa = ent.violations_fiche_a(cast.etablissement_id, cast.direction.user_id, DIR, va, informe).await.unwrap();
+    let fa = ent
+        .violations_fiche_a(
+            cast.etablissement_id,
+            cast.direction.user_id,
+            DIR,
+            va,
+            informe,
+        )
+        .await
+        .unwrap();
     assert_eq!(fa.origine, "plateforme");
     assert!(fa.plateforme);
     assert!(fa.intitule.starts_with(&reference));
-    assert_eq!(fa.connue_le, informe, "l'horloge de l'établissement part de l'information par l'éditeur");
+    assert_eq!(
+        fa.connue_le, informe,
+        "l'horloge de l'établissement part de l'information par l'éditeur"
+    );
     assert!(fa.confidentialite);
-    let e = fa.plateforme_element.as_ref().expect("éléments de la plateforme");
+    let e = fa
+        .plateforme_element
+        .as_ref()
+        .expect("éléments de la plateforme");
     assert_eq!(e.reference, reference);
-    assert_eq!(e.elements, "212 adresses de familles du lycée", "la seconde propagation n'a rien réécrit");
+    assert_eq!(
+        e.elements, "212 adresses de familles du lycée",
+        "la seconde propagation n'a rien réécrit"
+    );
     assert_eq!(e.personnes_nombre, Some(212));
     assert!(!e.couche_compte);
     // Seuls ses éléments : rien de l'autre établissement dans la fiche.
     let json = serde_json::to_string(&fa).unwrap();
-    assert!(!json.contains("37 adresses"), "éléments d'un autre établissement exposés");
+    assert!(
+        !json.contains("37 adresses"),
+        "éléments d'un autre établissement exposés"
+    );
     assert!(fa.chronologie.iter().any(|x| x.etape == "propagee"));
-    let fb = ent.violations_fiche_a(autre.etablissement_id, autre.direction.user_id, DIR, vb, informe).await.unwrap();
-    assert_eq!(fb.plateforme_element.unwrap().elements, "37 adresses de personnels");
+    let fb = ent
+        .violations_fiche_a(
+            autre.etablissement_id,
+            autre.direction.user_id,
+            DIR,
+            vb,
+            informe,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fb.plateforme_element.unwrap().elements,
+        "37 adresses de personnels"
+    );
     // La direction de chaque établissement est alertée.
     let alerte = compter(
         &ent,
@@ -874,7 +1318,8 @@ async fn g5_violation_de_plateforme_propagee_a_chaque_etablissement() {
 
     // ScolIA n'est que sous-traitant ici : pas de notification de sa part.
     assert!(matches!(
-        ent.violations_plateforme_notifier_cnil(pv, maintenant, "CNIL-P-1", informe).await,
+        ent.violations_plateforme_notifier_cnil(pv, maintenant, "CNIL-P-1", informe)
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
     // Close : plus de propagation, mais les violations propagées restent au registre.
@@ -882,10 +1327,20 @@ async fn g5_violation_de_plateforme_propagee_a_chaque_etablissement() {
     assert!(ent.violations_plateforme_clore(pv, informe).await.is_err());
     let troisieme = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert!(matches!(
-        ent.violations_plateforme_propager(pv, troisieme.etablissement_id, "rien", None, informe).await,
+        ent.violations_plateforme_propager(pv, troisieme.etablissement_id, "rien", None, informe)
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    assert!(ent.violations_fiche_a(cast.etablissement_id, cast.direction.user_id, DIR, va, informe).await.is_ok());
+    assert!(ent
+        .violations_fiche_a(
+            cast.etablissement_id,
+            cast.direction.user_id,
+            DIR,
+            va,
+            informe
+        )
+        .await
+        .is_ok());
 }
 
 /// RGP-311 (R-RG50) : quand la couche compte est touchée, ScolIA est responsable et saisit sa notification, une fois.
@@ -912,12 +1367,63 @@ async fn g5_couche_compte_notifiee_par_scolia() {
         .await
         .unwrap();
     assert!(matches!(
-        ent.violations_plateforme_notifier_cnil(pv, maintenant - Duration::hours(11), "CNIL-P-2", maintenant).await,
+        ent.violations_plateforme_notifier_cnil(
+            pv,
+            maintenant - Duration::hours(11),
+            "CNIL-P-2",
+            maintenant
+        )
+        .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    ent.violations_plateforme_notifier_cnil(pv, maintenant - Duration::hours(1), "CNIL-P-2", maintenant).await.unwrap();
+    ent.violations_plateforme_notifier_cnil(
+        pv,
+        maintenant - Duration::hours(1),
+        "CNIL-P-2",
+        maintenant,
+    )
+    .await
+    .unwrap();
     assert!(matches!(
-        ent.violations_plateforme_notifier_cnil(pv, maintenant, "CNIL-P-3", maintenant).await,
+        ent.violations_plateforme_notifier_cnil(pv, maintenant, "CNIL-P-3", maintenant)
+            .await,
         Err(EntDbError::ConflitDossier(_))
     ));
+}
+
+/// Contre-revue : des faits nouveaux relèvent le risque après une non-notification justifiée ; la justification
+/// tombe et la notification (tardive, motivée au besoin) redevient possible.
+#[tokio::test]
+async fn g5_risque_releve_apres_non_notification() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = cast.direction.user_id;
+    let maintenant = instant();
+    let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(2)).await;
+    ent.violations_qualifier(etab, dir, DIR, id, qualif(&["scol.registre"], false))
+        .await
+        .unwrap();
+    ent.violations_avis_dpo(etab, dir, DIR, id, "DPO : nom et classe seulement")
+        .await
+        .unwrap();
+    ent.violations_decider_risque(etab, dir, DIR, id, "faible", "nom et classe")
+        .await
+        .unwrap();
+    ent.violations_justifier_non_notification(etab, dir, DIR, id, "risque faible : nom et classe seulement")
+        .await
+        .unwrap();
+    let v = ent
+        .violations_decider_risque(etab, dir, DIR, id, "avere", "les notes étaient aussi jointes")
+        .await
+        .expect("risque relevé");
+    assert!(v.non_notification_motif.is_none(), "la justification tombe");
+    assert!(v
+        .chronologie
+        .iter()
+        .any(|e| e.texte.as_deref().is_some_and(|t| t.contains("justification de non-notification tombe"))));
+    ent.violations_notifier_cnil(etab, dir, DIR, id, maintenant, "CNIL-2027-0200", None)
+        .await
+        .expect("notification après relèvement");
 }

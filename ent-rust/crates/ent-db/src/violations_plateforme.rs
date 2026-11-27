@@ -63,14 +63,25 @@ impl PgEnt {
         d: DeclarationPlateforme<'_>,
         maintenant: DateTime<Utc>,
     ) -> Result<(Uuid, String), EntDbError> {
-        let declaree_par = texte(declaree_par, 2, 120, "déclarant de l'éditeur : 2 à 120 caractères")?;
+        let declaree_par = texte(
+            declaree_par,
+            2,
+            120,
+            "déclarant de l'éditeur : 2 à 120 caractères",
+        )?;
         let intitule = texte(d.intitule, 3, 200, "intitulé : 3 à 200 caractères")?;
         let description = texte(d.description, 3, 4000, "description : 3 à 4 000 caractères")?;
         if !(d.confidentialite || d.integrite || d.disponibilite) {
-            return Err(invalide("dites ce qui est atteint : confidentialité, intégrité ou disponibilité"));
+            return Err(invalide(
+                "dites ce qui est atteint : confidentialité, intégrité ou disponibilité",
+            ));
         }
-        if d.connue_le > maintenant || d.connue_le < maintenant - Duration::days(crate::violations::CONNUE_LE_MAX_JOURS) {
-            return Err(invalide("prise de connaissance : dans l'année écoulée, jamais dans le futur"));
+        if d.connue_le > maintenant
+            || d.connue_le < maintenant - Duration::days(crate::violations::CONNUE_LE_MAX_JOURS)
+        {
+            return Err(invalide(
+                "prise de connaissance : dans l'année écoulée, jamais dans le futur",
+            ));
         }
         let annee = d.connue_le.year();
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -126,11 +137,22 @@ impl PgEnt {
         personnes_nombre: Option<i32>,
         maintenant: DateTime<Utc>,
     ) -> Result<(Uuid, bool), EntDbError> {
-        let elements = texte(elements, 3, 4000, "éléments propres à l'établissement : 3 à 4 000 caractères")?;
+        let elements = texte(
+            elements,
+            3,
+            4000,
+            "éléments propres à l'établissement : 3 à 4 000 caractères",
+        )?;
         if personnes_nombre.is_some_and(|n| n < 0) {
             return Err(invalide("nombre de personnes négatif"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // Deux propagations simultanées au même établissement se suivent : la seconde trouve la première.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("rgp_violation_plateforme:{violation_plateforme}:{etab}"))
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let p: Option<(String, String, bool, bool, bool, String)> = sqlx::query_as(
             "SELECT reference, intitule, confidentialite, integrite, disponibilite, etat
                FROM rgp_violation_plateforme WHERE id = $1 FOR SHARE",
@@ -139,7 +161,8 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (reference, intitule, c, i, d, etat) = p.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let (reference, intitule, c, i, d, etat) =
+            p.ok_or(EntDbError::Domain(DomainError::NotFound))?;
         let deja: Option<Uuid> = sqlx::query_scalar(
             "SELECT violation_id FROM rgp_violation_plateforme_etab
               WHERE etablissement_id = $1 AND violation_plateforme_id = $2",
@@ -154,10 +177,15 @@ impl PgEnt {
             return Ok((v, false));
         }
         if etat == "close" {
-            return Err(EntDbError::ConflitDossier("violation de la plateforme close : plus de propagation"));
+            return Err(EntDbError::ConflitDossier(
+                "violation de la plateforme close : plus de propagation",
+            ));
         }
         // L'intitulé porte la référence de l'éditeur ; tronqué au besoin à la longueur du registre.
-        let titre: String = format!("{reference} : {intitule}").chars().take(200).collect();
+        let titre: String = format!("{reference} : {intitule}")
+            .chars()
+            .take(200)
+            .collect();
         let (id, _, _) = inserer(
             &mut tx,
             etab,
@@ -211,7 +239,9 @@ impl PgEnt {
             etab,
             id,
             "propagee",
-            Some(&format!("violation de la plateforme {reference}, signalée par l'éditeur")),
+            Some(&format!(
+                "violation de la plateforme {reference}, signalée par l'éditeur"
+            )),
             None,
             Some("plateforme"),
         )
@@ -231,7 +261,12 @@ impl PgEnt {
         reference_cnil: &str,
         maintenant: DateTime<Utc>,
     ) -> Result<(), EntDbError> {
-        let reference_cnil = texte(reference_cnil, 2, 120, "référence CNIL : 2 à 120 caractères")?;
+        let reference_cnil = texte(
+            reference_cnil,
+            2,
+            120,
+            "référence CNIL : 2 à 120 caractères",
+        )?;
         if notifiee_le > maintenant {
             return Err(invalide("date de notification dans le futur"));
         }
@@ -244,17 +279,22 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (couche_compte, deja, connue_le) = r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let (couche_compte, deja, connue_le) =
+            r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
         if !couche_compte {
             return Err(EntDbError::ConflitDossier(
                 "ScolIA n'est que sous-traitant : chaque établissement notifie pour sa part",
             ));
         }
         if deja {
-            return Err(EntDbError::ConflitDossier("notification de ScolIA déjà saisie"));
+            return Err(EntDbError::ConflitDossier(
+                "notification de ScolIA déjà saisie",
+            ));
         }
         if notifiee_le < connue_le {
-            return Err(invalide("notification antérieure à la prise de connaissance"));
+            return Err(invalide(
+                "notification antérieure à la prise de connaissance",
+            ));
         }
         sqlx::query(
             "UPDATE rgp_violation_plateforme SET notifiee_cnil_le = $2, reference_cnil = $3, modifie_le = $4 WHERE id = $1",
@@ -289,7 +329,9 @@ impl PgEnt {
         .map_err(db)?
         .rows_affected();
         if n == 0 {
-            return Err(EntDbError::ConflitDossier("violation de la plateforme inconnue ou déjà close"));
+            return Err(EntDbError::ConflitDossier(
+                "violation de la plateforme inconnue ou déjà close",
+            ));
         }
         Ok(())
     }

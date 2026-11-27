@@ -51,6 +51,7 @@ mod portail;
 mod referentiel;
 mod referentiel_admin;
 mod rgpd_droits;
+mod rgpd_violations;
 mod roles;
 mod sante;
 mod securite;
@@ -136,6 +137,7 @@ pub use ent_types::referentiel::{
     ServiceDto as ServiceApi,
 };
 pub use ent_types::rgpd_droits as rgpd_droits_types;
+pub use ent_types::rgpd_violations as rgpd_violations_types;
 pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,
     EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,

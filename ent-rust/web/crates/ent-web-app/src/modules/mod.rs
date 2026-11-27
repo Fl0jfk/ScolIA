@@ -40,6 +40,7 @@ pub mod referentiel_admin;
 pub mod remplacements;
 pub mod rendez_vous;
 pub mod rgpd_droits;
+pub mod rgpd_violations;
 pub mod roles;
 pub mod sante_famille;
 pub mod securite;

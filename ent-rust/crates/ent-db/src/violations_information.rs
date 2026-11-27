@@ -132,13 +132,14 @@ async fn eleves_de_classe(
     classe: Uuid,
     jour: NaiveDate,
 ) -> Result<Vec<Uuid>, EntDbError> {
-    let existe: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_classe WHERE etablissement_id = $1 AND id = $2)")
-            .bind(etab)
-            .bind(classe)
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(db)?;
+    let existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_classe WHERE etablissement_id = $1 AND id = $2)",
+    )
+    .bind(etab)
+    .bind(classe)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
     if !existe {
         return Err(invalide("classe inconnue dans cet établissement"));
     }
@@ -159,7 +160,11 @@ async fn eleves_de_classe(
     .map_err(db)
 }
 
-async fn apercu(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<ApercuInformation, EntDbError> {
+async fn apercu(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<ApercuInformation, EntDbError> {
     let (personnes, destinataires, sans, deja): (i64, i64, i64, bool) = sqlx::query_as(
         "SELECT count(DISTINCT (sujet_type, sujet_id)),
                 count(DISTINCT destinataire_user_id),
@@ -195,7 +200,11 @@ struct EtatViolation {
     informees: bool,
 }
 
-async fn etat_verrouille(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<EtatViolation, EntDbError> {
+async fn etat_verrouille(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<EtatViolation, EntDbError> {
     let r: Option<(String, String, Option<String>, bool)> = sqlx::query_as(
         "SELECT etat, nature_incident, risque, personnes_informees_le IS NOT NULL
            FROM rgp_violation WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -207,10 +216,14 @@ async fn etat_verrouille(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Resul
     .map_err(db)?;
     let (etat, nature, risque, informees) = r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
     if etat == "close" {
-        return Err(EntDbError::ConflitDossier("la violation est close : le registre ne se modifie plus"));
+        return Err(EntDbError::ConflitDossier(
+            "la violation est close : le registre ne se modifie plus",
+        ));
     }
     if nature != "violation" {
-        return Err(EntDbError::ConflitDossier("un incident de sécurité sans atteinte aux données n'a pas de personnes à informer"));
+        return Err(EntDbError::ConflitDossier(
+            "un incident de sécurité sans atteinte aux données n'a pas de personnes à informer",
+        ));
     }
     Ok(EtatViolation { risque, informees })
 }
@@ -229,7 +242,9 @@ impl PgEnt {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
             .await?;
         match &origine {
-            OriginePersonnes::Eleves(l) | OriginePersonnes::Comptes(l) if l.is_empty() || l.len() > PLAFOND_LISTE => {
+            OriginePersonnes::Eleves(l) | OriginePersonnes::Comptes(l)
+                if l.is_empty() || l.len() > PLAFOND_LISTE =>
+            {
                 return Err(invalide("liste vide ou trop longue (5 000 au plus) : passez par une classe ou une estimation"));
             }
             _ => {}
@@ -239,31 +254,39 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let e = etat_verrouille(&mut tx, etab, id).await?;
         if e.informees {
-            return Err(EntDbError::ConflitDossier("les personnes ont déjà été informées : le calcul est figé"));
+            return Err(EntDbError::ConflitDossier(
+                "les personnes ont déjà été informées : le calcul est figé",
+            ));
         }
-        sqlx::query("DELETE FROM rgp_violation_personne WHERE etablissement_id = $1 AND violation_id = $2")
-            .bind(etab)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        let (type_origine, id_origine, lignes, mineurs): (&str, Option<Uuid>, Vec<(&str, Uuid, Option<Uuid>)>, bool) =
-            match origine {
-                OriginePersonnes::Classe(c) => {
-                    let eleves = eleves_de_classe(&mut tx, etab, c, jour).await?;
-                    let (l, m) = lignes_eleves(&mut tx, etab, &eleves, jour).await?;
-                    ("classe", Some(c), l, m)
-                }
-                OriginePersonnes::Eleves(mut l) => {
-                    l.sort_unstable();
-                    l.dedup();
-                    let (l, m) = lignes_eleves(&mut tx, etab, &l, jour).await?;
-                    ("eleves", None, l, m)
-                }
-                OriginePersonnes::Comptes(mut l) => {
-                    l.sort_unstable();
-                    l.dedup();
-                    let membres: Vec<Uuid> = sqlx::query_scalar(
+        sqlx::query(
+            "DELETE FROM rgp_violation_personne WHERE etablissement_id = $1 AND violation_id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (type_origine, id_origine, lignes, mineurs): (
+            &str,
+            Option<Uuid>,
+            Vec<(&str, Uuid, Option<Uuid>)>,
+            bool,
+        ) = match origine {
+            OriginePersonnes::Classe(c) => {
+                let eleves = eleves_de_classe(&mut tx, etab, c, jour).await?;
+                let (l, m) = lignes_eleves(&mut tx, etab, &eleves, jour).await?;
+                ("classe", Some(c), l, m)
+            }
+            OriginePersonnes::Eleves(mut l) => {
+                l.sort_unstable();
+                l.dedup();
+                let (l, m) = lignes_eleves(&mut tx, etab, &l, jour).await?;
+                ("eleves", None, l, m)
+            }
+            OriginePersonnes::Comptes(mut l) => {
+                l.sort_unstable();
+                l.dedup();
+                let membres: Vec<Uuid> = sqlx::query_scalar(
                         "SELECT DISTINCT user_id FROM ent_membership WHERE etablissement_id = $1 AND user_id = ANY($2)",
                     )
                     .bind(etab)
@@ -271,17 +294,22 @@ impl PgEnt {
                     .fetch_all(&mut *tx)
                     .await
                     .map_err(db)?;
-                    if membres.len() != l.len() {
-                        return Err(invalide("un compte désigné n'est pas rattaché à cet établissement"));
-                    }
-                    (
-                        "comptes",
-                        None,
-                        membres.into_iter().map(|u| ("compte", u, Some(u))).collect(),
-                        false,
-                    )
+                if membres.len() != l.len() {
+                    return Err(invalide(
+                        "un compte désigné n'est pas rattaché à cet établissement",
+                    ));
                 }
-            };
+                (
+                    "comptes",
+                    None,
+                    membres
+                        .into_iter()
+                        .map(|u| ("compte", u, Some(u)))
+                        .collect(),
+                    false,
+                )
+            }
+        };
         for (sujet_type, sujet, dest) in &lignes {
             sqlx::query(
                 "INSERT INTO rgp_violation_personne (id, etablissement_id, violation_id, sujet_type, sujet_id, destinataire_user_id)
@@ -343,13 +371,14 @@ impl PgEnt {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let existe: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM rgp_violation WHERE etablissement_id = $1 AND id = $2)")
-                .bind(etab)
-                .bind(id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
+        let existe: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rgp_violation WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
         if !existe {
             return Err(EntDbError::Domain(DomainError::NotFound));
         }
@@ -372,8 +401,16 @@ impl PgEnt {
         message: &str,
         confirmation: i64,
     ) -> Result<ViolationVue, EntDbError> {
-        self.violations_informer_personnes_a(etab, acteur, role, id, message, confirmation, Utc::now())
-            .await
+        self.violations_informer_personnes_a(
+            etab,
+            acteur,
+            role,
+            id,
+            message,
+            confirmation,
+            Utc::now(),
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -392,25 +429,38 @@ impl PgEnt {
         let message = message.trim();
         let n = message.chars().count();
         if !(20..=4000).contains(&n) || message.chars().any(|c| c.is_control() && c != '\n') {
-            return Err(invalide("message aux personnes : 20 à 4 000 caractères, en langage clair"));
+            return Err(invalide(
+                "message aux personnes : 20 à 4 000 caractères, en langage clair",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let e = etat_verrouille(&mut tx, etab, id).await?;
         if e.informees {
-            return Err(EntDbError::ConflitDossier("les personnes ont déjà été informées"));
+            return Err(EntDbError::ConflitDossier(
+                "les personnes ont déjà été informées",
+            ));
         }
         match e.risque.as_deref() {
             Some("eleve") | Some("avere") => {}
-            Some(_) => {
+            Some(_) => return Err(EntDbError::ConflitDossier(
+                "risque décidé faible : l'information des personnes n'est pas exigée (art. 34.1)",
+            )),
+            None => {
                 return Err(EntDbError::ConflitDossier(
-                    "risque décidé faible : l'information des personnes n'est pas exigée (art. 34.1)",
+                    "décider le risque avant d'informer les personnes",
                 ))
             }
-            None => return Err(EntDbError::ConflitDossier("décider le risque avant d'informer les personnes")),
         }
         let a = apercu(&mut tx, etab, id).await?;
         if a.personnes == 0 {
-            return Err(EntDbError::ConflitDossier("calculer d'abord les personnes concernées"));
+            return Err(EntDbError::ConflitDossier(
+                "calculer d'abord les personnes concernées",
+            ));
+        }
+        if a.destinataires == 0 {
+            return Err(EntDbError::ConflitDossier(
+                "aucun destinataire joignable : informez par un autre moyen (courrier) puis motivez l'exception (art. 34.3)",
+            ));
         }
         if confirmation != a.destinataires {
             return Err(EntDbError::ConflitDossier(
@@ -434,7 +484,8 @@ impl PgEnt {
         .map_err(db)?;
         let corps = format!(
             "{message}{}",
-            dpo.map(|c| format!("\n\nContact du délégué à la protection des données : {c}.")).unwrap_or_default()
+            dpo.map(|c| format!("\n\nContact du délégué à la protection des données : {c}."))
+                .unwrap_or_default()
         );
         let destinataires: Vec<Uuid> = sqlx::query_scalar(
             "SELECT DISTINCT destinataire_user_id FROM rgp_violation_personne

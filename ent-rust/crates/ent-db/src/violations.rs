@@ -75,7 +75,8 @@ pub const CATEGORIES_PARTICULIERES: [&str; 7] = [
 pub const CATEGORIES_IDENTIFICATION: [&str; 1] = ["scol.registre"];
 
 /// Message invariable rendu au déclarant (RGP-240, CL27-45) : merci, rien d'autre.
-pub const MERCI_DECLARANT: &str = "Merci : votre déclaration est enregistrée et la direction est prévenue. \
+pub const MERCI_DECLARANT: &str =
+    "Merci : votre déclaration est enregistrée et la direction est prévenue. \
 Déclarer vite est le bon réflexe ; aucune suite ne vise la personne qui déclare.";
 
 fn texte(v: &str, min: usize, max: usize) -> Option<String> {
@@ -136,7 +137,10 @@ pub const SEUIL_PERSONNES_AVERE: i32 = 50;
 pub fn proposer_risque(e: &EntreesGrille<'_>) -> RisquePropose {
     let mut raisons = Vec::new();
     let sante = e.categories.contains(&"sante.dossier");
-    let particuliere = e.categories.iter().any(|c| CATEGORIES_PARTICULIERES.contains(c));
+    let particuliere = e
+        .categories
+        .iter()
+        .any(|c| CATEGORIES_PARTICULIERES.contains(c));
     let au_dela_identification = e
         .categories
         .iter()
@@ -149,7 +153,10 @@ pub fn proposer_risque(e: &EntreesGrille<'_>) -> RisquePropose {
         raisons.push("catégorie particulière divulguée ou altérée (santé, justice, discipline, banque, aides, secrets)");
     }
     if !raisons.is_empty() {
-        return RisquePropose { risque: "eleve", raisons };
+        return RisquePropose {
+            risque: "eleve",
+            raisons,
+        };
     }
     if atteinte && au_dela_identification {
         raisons.push("données au-delà de l'identification seule divulguées ou altérées");
@@ -160,20 +167,31 @@ pub fn proposer_risque(e: &EntreesGrille<'_>) -> RisquePropose {
     if e.disponibilite && particuliere {
         raisons.push("données particulières indisponibles");
     }
-    if atteinte && au_dela_identification && e.personnes_nombre.is_some_and(|n| n > SEUIL_PERSONNES_AVERE) {
+    if atteinte
+        && au_dela_identification
+        && e.personnes_nombre
+            .is_some_and(|n| n > SEUIL_PERSONNES_AVERE)
+    {
         raisons.push("nombre important de personnes concernées");
     }
     if !raisons.is_empty() {
-        return RisquePropose { risque: "avere", raisons };
+        return RisquePropose {
+            risque: "avere",
+            raisons,
+        };
     }
     if e.confidentialite {
-        raisons.push("identification seule divulguée (nom, classe) : risque faible proposé (CL27-41)");
+        raisons
+            .push("identification seule divulguée (nom, classe) : risque faible proposé (CL27-41)");
     } else if e.disponibilite {
         raisons.push("indisponibilité de données ordinaires, sans divulgation ni altération");
     } else {
         raisons.push("aucune atteinte qualifiée pour l'instant");
     }
-    RisquePropose { risque: "faible", raisons }
+    RisquePropose {
+        risque: "faible",
+        raisons,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -452,7 +470,9 @@ impl Brut {
 
     fn heures_restantes(&self, maintenant: DateTime<Utc>) -> i64 {
         // Arrondi vers le bas (une heure entamée n'est pas restante), y compris en négatif.
-        (self.echeance_cnil_le - maintenant).num_minutes().div_euclid(60)
+        (self.echeance_cnil_le - maintenant)
+            .num_minutes()
+            .div_euclid(60)
     }
 
     fn en_retard(&self, maintenant: DateTime<Utc>) -> bool {
@@ -481,14 +501,17 @@ impl Brut {
             && self.personnes_informees_le.is_none()
             && self.personnes_non_information_motif.is_none()
         {
-            m.push("informer les personnes concernées (risque élevé, art. 34), ou motiver l'exception");
+            m.push(
+                "informer les personnes concernées (risque élevé, art. 34), ou motiver l'exception",
+            );
         }
         m
     }
 }
 
 async fn charger_brut(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Brut, EntDbError> {
-    let sql = format!("SELECT {COLONNES} FROM rgp_violation WHERE etablissement_id = $1 AND id = $2");
+    let sql =
+        format!("SELECT {COLONNES} FROM rgp_violation WHERE etablissement_id = $1 AND id = $2");
     let r = sqlx::query(&sql)
         .bind(etab)
         .bind(id)
@@ -501,7 +524,9 @@ async fn charger_brut(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<B
 
 /// Verrou de ligne : deux gestionnaires qui agissent en même temps sur la même violation se suivent.
 async fn verrouiller(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Brut, EntDbError> {
-    let sql = format!("SELECT {COLONNES} FROM rgp_violation WHERE etablissement_id = $1 AND id = $2 FOR UPDATE");
+    let sql = format!(
+        "SELECT {COLONNES} FROM rgp_violation WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+    );
     let r = sqlx::query(&sql)
         .bind(etab)
         .bind(id)
@@ -514,7 +539,9 @@ async fn verrouiller(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Br
 
 fn exiger_non_close(b: &Brut) -> Result<(), EntDbError> {
     if b.etat == "close" {
-        Err(EntDbError::ConflitDossier("la violation est close : le registre ne se modifie plus"))
+        Err(EntDbError::ConflitDossier(
+            "la violation est close : le registre ne se modifie plus",
+        ))
     } else {
         Ok(())
     }
@@ -530,7 +557,11 @@ fn exiger_violation(b: &Brut) -> Result<(), EntDbError> {
     }
 }
 
-async fn categories_de(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Vec<String>, EntDbError> {
+async fn categories_de(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<Vec<String>, EntDbError> {
     sqlx::query_scalar(
         "SELECT categorie_code FROM rgp_violation_categorie
           WHERE etablissement_id = $1 AND violation_id = $2 ORDER BY categorie_code",
@@ -744,11 +775,15 @@ pub(crate) async fn gestionnaires(
     .map_err(db)?;
     let mut out = Vec::new();
     for (u, role) in membres {
-        let droits = ent.droits_effectifs_conn(&mut *conn, etab, u, &role).await?;
-        if droits
-            .iter()
-            .any(|d| matches!(d.action, Action::ViolationsGerer | Action::ViolationsDecider))
-            && !out.contains(&u)
+        let droits = ent
+            .droits_effectifs_conn(&mut *conn, etab, u, &role)
+            .await?;
+        if droits.iter().any(|d| {
+            matches!(
+                d.action,
+                Action::ViolationsGerer | Action::ViolationsDecider
+            )
+        }) && !out.contains(&u)
         {
             out.push(u);
         }
@@ -757,7 +792,11 @@ pub(crate) async fn gestionnaires(
 }
 
 /// Instant lisible dans le fuseau de l'établissement (« 12/03/2027 à 14 h 05 »).
-async fn instant_local(conn: &mut PgConnection, etab: Uuid, t: DateTime<Utc>) -> Result<String, EntDbError> {
+async fn instant_local(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    t: DateTime<Utc>,
+) -> Result<String, EntDbError> {
     sqlx::query_scalar(
         "SELECT to_char($2::timestamptz AT TIME ZONE COALESCE(
                     (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $1),
@@ -871,7 +910,10 @@ pub(crate) async fn alerter_declaration(
         etab,
         violation,
         "alerte_envoyee",
-        Some(&format!("{} gestionnaire(s) prévenu(s)", destinataires.len())),
+        Some(&format!(
+            "{} gestionnaire(s) prévenu(s)",
+            destinataires.len()
+        )),
         None,
         None,
     )
@@ -963,13 +1005,25 @@ fn valider_declaration(
     d: &Declaration<'_>,
     connue_le: DateTime<Utc>,
 ) -> Result<(String, Option<String>), EntDbError> {
-    let intitule = texte_exige(d.intitule, 3, 200, "dites en une phrase ce qui s'est passé (3 à 200 caractères)")?;
+    let intitule = texte_exige(
+        d.intitule,
+        3,
+        200,
+        "dites en une phrase ce qui s'est passé (3 à 200 caractères)",
+    )?;
     let description = match d.description.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(v) => Some(texte_exige(v, 3, 4000, "précisions : 3 à 4 000 caractères")?),
+        Some(v) => Some(texte_exige(
+            v,
+            3,
+            4000,
+            "précisions : 3 à 4 000 caractères",
+        )?),
         None => None,
     };
     if d.constatee_le.is_some_and(|c| c > connue_le) {
-        return Err(invalide("la date de constat ne peut pas suivre la prise de connaissance"));
+        return Err(invalide(
+            "la date de constat ne peut pas suivre la prise de connaissance",
+        ));
     }
     Ok((intitule, description))
 }
@@ -994,10 +1048,16 @@ fn ma_declaration(b: &Brut) -> MaDeclaration {
 // ---------------------------------------------------------------------------------------------
 
 impl PgEnt {
-    async fn violations_exiger_acces_ouvert(&self, etab: Uuid, acteur: Uuid) -> Result<(), EntDbError> {
+    async fn violations_exiger_acces_ouvert(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+    ) -> Result<(), EntDbError> {
         let jour = self.aujourdhui_etablissement(etab).await?;
         match self.acces_etat(etab, acteur).await? {
-            Some(m) if m.etat == EtatAcces::Ouvert && m.date_fin.is_none_or(|f| f >= jour) => Ok(()),
+            Some(m) if m.etat == EtatAcces::Ouvert && m.date_fin.is_none_or(|f| f >= jour) => {
+                Ok(())
+            }
             _ => Err(EntDbError::Forbidden),
         }
     }
@@ -1013,7 +1073,8 @@ impl PgEnt {
         role: &str,
         d: Declaration<'_>,
     ) -> Result<MaDeclaration, EntDbError> {
-        self.violations_declarer_a(etab, acteur, role, d, Utc::now()).await
+        self.violations_declarer_a(etab, acteur, role, d, Utc::now())
+            .await
     }
 
     pub(crate) async fn violations_declarer_a(
@@ -1033,7 +1094,9 @@ impl PgEnt {
             &mut tx,
             etab,
             Insertion {
-                nature_incident: if d.incident_securite { "incident_securite" } else { "violation" },
+                // Un déclarant ne range pas lui-même l'incident hors des violations (il éteindrait l'horloge et les
+                // rappels) : son avis est noté à la chronologie, la direction requalifie (D-069).
+                nature_incident: "violation",
                 origine: "declaration",
                 plateforme_violation_id: None,
                 source_code: None,
@@ -1048,7 +1111,20 @@ impl PgEnt {
             maintenant,
         )
         .await?;
-        etape(&mut tx, etab, id, "declaree", Some("déclaration par un personnel"), Some(acteur), Some(role)).await?;
+        etape(
+            &mut tx,
+            etab,
+            id,
+            "declaree",
+            Some(if d.incident_securite {
+                "déclaration par un personnel, qui estime qu'aucune donnée personnelle n'est touchée"
+            } else {
+                "déclaration par un personnel"
+            }),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
         alerter_declaration(self, &mut tx, etab, id, Some(acteur), maintenant).await?;
         let b = charger_brut(&mut tx, etab, id).await?;
         tx.commit().await?;
@@ -1065,7 +1141,8 @@ impl PgEnt {
         d: Declaration<'_>,
         connue_le: Option<DateTime<Utc>>,
     ) -> Result<ViolationVue, EntDbError> {
-        self.violations_saisir_a(etab, acteur, role, d, connue_le, Utc::now()).await
+        self.violations_saisir_a(etab, acteur, role, d, connue_le, Utc::now())
+            .await
     }
 
     pub(crate) async fn violations_saisir_a(
@@ -1081,10 +1158,14 @@ impl PgEnt {
             .await?;
         let connue_le = connue_le.unwrap_or(maintenant);
         if connue_le > maintenant {
-            return Err(invalide("la prise de connaissance ne peut pas être dans le futur"));
+            return Err(invalide(
+                "la prise de connaissance ne peut pas être dans le futur",
+            ));
         }
         if connue_le < maintenant - Duration::days(CONNUE_LE_MAX_JOURS) {
-            return Err(invalide("prise de connaissance trop ancienne (plus d'un an) : vérifiez la date"));
+            return Err(invalide(
+                "prise de connaissance trop ancienne (plus d'un an) : vérifiez la date",
+            ));
         }
         let (intitule, description) = valider_declaration(&d, connue_le)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1092,7 +1173,11 @@ impl PgEnt {
             &mut tx,
             etab,
             Insertion {
-                nature_incident: if d.incident_securite { "incident_securite" } else { "violation" },
+                nature_incident: if d.incident_securite {
+                    "incident_securite"
+                } else {
+                    "violation"
+                },
                 origine: "declaration",
                 plateforme_violation_id: None,
                 source_code: None,
@@ -1112,7 +1197,16 @@ impl PgEnt {
         } else {
             "saisie par un gestionnaire"
         };
-        etape(&mut tx, etab, id, "declaree", Some(detail), Some(acteur), Some(role)).await?;
+        etape(
+            &mut tx,
+            etab,
+            id,
+            "declaree",
+            Some(detail),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
         alerter_declaration(self, &mut tx, etab, id, Some(acteur), maintenant).await?;
         let v = charger(&mut tx, etab, id, maintenant).await?;
         tx.commit().await?;
@@ -1262,7 +1356,8 @@ impl PgEnt {
         role: &str,
         f: FiltreRegistre<'_>,
     ) -> Result<Vec<ViolationLigne>, EntDbError> {
-        self.violations_registre_a(etab, acteur, role, f, Utc::now()).await
+        self.violations_registre_a(etab, acteur, role, f, Utc::now())
+            .await
     }
 
     pub(crate) async fn violations_registre_a(
@@ -1275,10 +1370,14 @@ impl PgEnt {
     ) -> Result<Vec<ViolationLigne>, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
             .await?;
-        if f.etat.is_some_and(|e| !["ouverte", "qualifiee", "notifiee", "close"].contains(&e)) {
+        if f.etat
+            .is_some_and(|e| !["ouverte", "qualifiee", "notifiee", "close"].contains(&e))
+        {
             return Err(invalide("état inconnu"));
         }
-        if f.nature_incident.is_some_and(|n| !NATURES_INCIDENT.contains(&n)) {
+        if f.nature_incident
+            .is_some_and(|n| !NATURES_INCIDENT.contains(&n))
+        {
             return Err(invalide("nature d'incident inconnue"));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1335,7 +1434,8 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<ViolationVue, EntDbError> {
-        self.violations_fiche_a(etab, acteur, role, id, Utc::now()).await
+        self.violations_fiche_a(etab, acteur, role, id, Utc::now())
+            .await
     }
 
     pub(crate) async fn violations_fiche_a(
@@ -1377,11 +1477,19 @@ impl PgEnt {
         let mut cats: Vec<&str> = q.categories.iter().map(|c| c.trim()).collect();
         cats.sort_unstable();
         cats.dedup();
-        if cats.iter().any(|c| crate::conservation::categorie(c).is_none()) {
+        if cats
+            .iter()
+            .any(|c| crate::conservation::categorie(c).is_none())
+        {
             return Err(invalide("catégorie de données inconnue du catalogue"));
         }
         let consequences = match q.consequences.map(str::trim).filter(|v| !v.is_empty()) {
-            Some(v) => Some(texte_exige(v, 3, 4000, "conséquences : 3 à 4 000 caractères")?),
+            Some(v) => Some(texte_exige(
+                v,
+                3,
+                4000,
+                "conséquences : 3 à 4 000 caractères",
+            )?),
             None => None,
         };
         let violation = q.nature_incident == "violation";
@@ -1395,7 +1503,9 @@ impl PgEnt {
         let b = verrouiller(&mut tx, etab, id).await?;
         exiger_non_close(&b)?;
         if !violation
-            && (b.risque.is_some() || b.notifiee_cnil_le.is_some() || b.non_notification_motif.is_some())
+            && (b.risque.is_some()
+                || b.notifiee_cnil_le.is_some()
+                || b.non_notification_motif.is_some())
         {
             return Err(EntDbError::ConflitDossier(
                 "la violation est déjà décidée ou notifiée : elle ne redevient pas un simple incident",
@@ -1474,7 +1584,11 @@ impl PgEnt {
             etab,
             id,
             "qualifiee",
-            Some(if violation { "violation de données" } else { "incident de sécurité sans atteinte aux données" }),
+            Some(if violation {
+                "violation de données"
+            } else {
+                "incident de sécurité sans atteinte aux données"
+            }),
             Some(acteur),
             Some(role),
         )
@@ -1537,7 +1651,11 @@ impl PgEnt {
             etab,
             id,
             "mesure",
-            Some(if nature == "prise" { "mesure prise" } else { "mesure envisagée" }),
+            Some(if nature == "prise" {
+                "mesure prise"
+            } else {
+                "mesure envisagée"
+            }),
             Some(acteur),
             Some(role),
         )
@@ -1577,7 +1695,16 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        etape(&mut tx, etab, id, "avis_dpo", Some("avis du DPO consigné"), Some(acteur), Some(role)).await?;
+        etape(
+            &mut tx,
+            etab,
+            id,
+            "avis_dpo",
+            Some("avis du DPO consigné"),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
         let v = charger(&mut tx, etab, id, maintenant).await?;
         tx.commit().await?;
         Ok(v)
@@ -1601,26 +1728,35 @@ impl PgEnt {
         if !RISQUES.contains(&risque) {
             return Err(invalide("risque inconnu : faible, avéré ou élevé"));
         }
-        let motif = texte_exige(motif, 3, 2000, "motif de la décision : 3 à 2 000 caractères")?;
+        let motif = texte_exige(
+            motif,
+            3,
+            2000,
+            "motif de la décision : 3 à 2 000 caractères",
+        )?;
         let maintenant = Utc::now();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let b = verrouiller(&mut tx, etab, id).await?;
         exiger_non_close(&b)?;
         exiger_violation(&b)?;
         if b.qualifiee_le.is_none() {
-            return Err(EntDbError::ConflitDossier("qualifier la violation avant de décider le risque"));
-        }
-        if b.avis_dpo.is_none() {
-            return Err(EntDbError::ConflitDossier("consigner l'avis du DPO avant de décider le risque"));
-        }
-        if risque != "faible" && b.non_notification_motif.is_some() {
             return Err(EntDbError::ConflitDossier(
-                "la non-notification a été justifiée pour un risque faible : notifiez la CNIL",
+                "qualifier la violation avant de décider le risque",
             ));
         }
+        if b.avis_dpo.is_none() {
+            return Err(EntDbError::ConflitDossier(
+                "consigner l'avis du DPO avant de décider le risque",
+            ));
+        }
+        // Des faits nouveaux relèvent le risque après une non-notification justifiée : la justification tombe (elle
+        // ne valait que pour un risque faible), la chronologie le dit, et l'horloge reprend (notification tardive
+        // motivée).
+        let leve_non_notification = risque != "faible" && b.non_notification_motif.is_some();
         sqlx::query(
             "UPDATE rgp_violation
                 SET risque = $3, risque_motif = $4, risque_decide_le = $5, risque_decide_par_compte_id = $6,
+                    non_notification_motif = CASE WHEN $7 THEN NULL ELSE non_notification_motif END,
                     modifie_le = $5
               WHERE etablissement_id = $1 AND id = $2",
         )
@@ -1630,6 +1766,7 @@ impl PgEnt {
         .bind(&motif)
         .bind(maintenant)
         .bind(acteur)
+        .bind(leve_non_notification)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1640,8 +1777,17 @@ impl PgEnt {
             id,
             "risque_decide",
             Some(&format!(
-                "risque {risque}{}",
-                if ecart { " (écart à la proposition de la grille, motivé)" } else { "" }
+                "risque {risque}{}{}",
+                if ecart {
+                    " (écart à la proposition de la grille, motivé)"
+                } else {
+                    ""
+                },
+                if leve_non_notification {
+                    " ; la justification de non-notification tombe : notifier la CNIL"
+                } else {
+                    ""
+                }
             )),
             Some(acteur),
             Some(role),
@@ -1668,14 +1814,26 @@ impl PgEnt {
     ) -> Result<ViolationVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
             .await?;
-        let reference_cnil = texte_exige(reference_cnil, 2, 120, "référence de la notification CNIL : 2 à 120 caractères")?;
+        let reference_cnil = texte_exige(
+            reference_cnil,
+            2,
+            120,
+            "référence de la notification CNIL : 2 à 120 caractères",
+        )?;
         let retard_motif = match retard_motif.map(str::trim).filter(|v| !v.is_empty()) {
-            Some(v) => Some(texte_exige(v, 3, 2000, "motif du retard : 3 à 2 000 caractères")?),
+            Some(v) => Some(texte_exige(
+                v,
+                3,
+                2000,
+                "motif du retard : 3 à 2 000 caractères",
+            )?),
             None => None,
         };
         let maintenant = Utc::now();
         if notifiee_le > maintenant {
-            return Err(invalide("la notification ne peut pas être datée dans le futur"));
+            return Err(invalide(
+                "la notification ne peut pas être datée dans le futur",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let b = verrouiller(&mut tx, etab, id).await?;
@@ -1692,7 +1850,9 @@ impl PgEnt {
             ));
         }
         if notifiee_le < b.connue_le {
-            return Err(invalide("la notification ne peut pas précéder la prise de connaissance"));
+            return Err(invalide(
+                "la notification ne peut pas précéder la prise de connaissance",
+            ));
         }
         let tardive = notifiee_le > b.echeance_cnil_le;
         if tardive && retard_motif.is_none() {
@@ -1733,7 +1893,11 @@ impl PgEnt {
             etab,
             id,
             "notifiee_cnil",
-            Some(if tardive { "notification à la CNIL, au-delà de 72 h, retard motivé" } else { "notification à la CNIL dans les 72 h" }),
+            Some(if tardive {
+                "notification à la CNIL, au-delà de 72 h, retard motivé"
+            } else {
+                "notification à la CNIL dans les 72 h"
+            }),
             Some(acteur),
             Some(role),
         )
@@ -1757,20 +1921,36 @@ impl PgEnt {
     ) -> Result<ViolationVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
             .await?;
-        let reference_cnil = texte_exige(reference_cnil, 2, 120, "référence de la notification CNIL : 2 à 120 caractères")?;
-        let resume = texte_exige(resume, 3, 2000, "résumé du complément : 3 à 2 000 caractères")?;
+        let reference_cnil = texte_exige(
+            reference_cnil,
+            2,
+            120,
+            "référence de la notification CNIL : 2 à 120 caractères",
+        )?;
+        let resume = texte_exige(
+            resume,
+            3,
+            2000,
+            "résumé du complément : 3 à 2 000 caractères",
+        )?;
         let maintenant = Utc::now();
         if notifiee_le > maintenant {
-            return Err(invalide("la notification ne peut pas être datée dans le futur"));
+            return Err(invalide(
+                "la notification ne peut pas être datée dans le futur",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let b = verrouiller(&mut tx, etab, id).await?;
         exiger_non_close(&b)?;
         let Some(initiale) = b.notifiee_cnil_le else {
-            return Err(EntDbError::ConflitDossier("saisissez d'abord la notification initiale"));
+            return Err(EntDbError::ConflitDossier(
+                "saisissez d'abord la notification initiale",
+            ));
         };
         if notifiee_le < initiale {
-            return Err(invalide("un complément ne précède pas la notification initiale"));
+            return Err(invalide(
+                "un complément ne précède pas la notification initiale",
+            ));
         }
         let rang: i32 = sqlx::query_scalar(
             "SELECT COALESCE(max(rang), 0) + 1 FROM rgp_violation_notification
@@ -1797,13 +1977,15 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        sqlx::query("UPDATE rgp_violation SET modifie_le = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(id)
-            .bind(maintenant)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "UPDATE rgp_violation SET modifie_le = $3 WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(maintenant)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         etape(
             &mut tx,
             etab,
@@ -1856,8 +2038,16 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        etape(&mut tx, etab, id, "non_notification", Some("non-notification justifiée (risque faible)"), Some(acteur), Some(role))
-            .await?;
+        etape(
+            &mut tx,
+            etab,
+            id,
+            "non_notification",
+            Some("non-notification justifiée (risque faible)"),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
         let v = charger(&mut tx, etab, id, maintenant).await?;
         tx.commit().await?;
         Ok(v)
@@ -1876,14 +2066,21 @@ impl PgEnt {
     ) -> Result<ViolationVue, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::ViolationsDecider)
             .await?;
-        let motif = texte_exige(motif, 3, 2000, "motif de l'exception (art. 34.3) : 3 à 2 000 caractères")?;
+        let motif = texte_exige(
+            motif,
+            3,
+            2000,
+            "motif de l'exception (art. 34.3) : 3 à 2 000 caractères",
+        )?;
         let maintenant = Utc::now();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let b = verrouiller(&mut tx, etab, id).await?;
         exiger_non_close(&b)?;
         exiger_violation(&b)?;
         if b.personnes_informees_le.is_some() {
-            return Err(EntDbError::ConflitDossier("les personnes ont déjà été informées"));
+            return Err(EntDbError::ConflitDossier(
+                "les personnes ont déjà été informées",
+            ));
         }
         if b.risque.as_deref() != Some("eleve") {
             return Err(EntDbError::ConflitDossier(
@@ -1961,7 +2158,16 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        etape(&mut tx, etab, id, "close", Some("clôture, revue à 30 jours"), Some(acteur), Some(role)).await?;
+        etape(
+            &mut tx,
+            etab,
+            id,
+            "close",
+            Some("clôture, revue à 30 jours"),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
         let v = charger(&mut tx, etab, id, maintenant).await?;
         tx.commit().await?;
         Ok(v)
@@ -1978,13 +2184,18 @@ impl PgEnt {
     /// Tâche planifiée : alertes d'échéance CNIL de tous les établissements (un échec n'arrête pas les autres).
     pub async fn violations_echeances_tache(&self) -> Result<usize, EntDbError> {
         let mut total = 0;
-        for etab in etablissements_systeme(self.pool(), ContexteSysteme::JobPlanifie("violations_echeances"))
-            .await
-            .map_err(db)?
+        for etab in etablissements_systeme(
+            self.pool(),
+            ContexteSysteme::JobPlanifie("violations_echeances"),
+        )
+        .await
+        .map_err(db)?
         {
             match self.violations_alerter_echeances(etab).await {
                 Ok(n) => total += n,
-                Err(e) => tracing::warn!(error = %e, "alertes d'échéance des violations non exécutées pour un établissement"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "alertes d'échéance des violations non exécutées pour un établissement")
+                }
             }
         }
         Ok(total)
@@ -2026,6 +2237,16 @@ impl PgEnt {
             else {
                 continue;
             };
+            if destinataires.is_empty() {
+                // Personne à prévenir : l'étape (clé de dédoublonnage) n'est pas posée, le prochain passage réessaiera.
+                continue;
+            }
+            // Plusieurs instances d'ent-api font tourner la tâche : un verrou par violation et par palier les sérialise.
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(format!("rgp_violation_echeance:{}:{palier}", b.id))
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
             let deja: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM rgp_violation_etape
                                  WHERE etablissement_id = $1 AND violation_id = $2 AND etape_code = 'echeance_alertee'
@@ -2058,7 +2279,16 @@ impl PgEnt {
                 maintenant,
             )
             .await?;
-            etape(&mut tx, etab, b.id, "echeance_alertee", Some(&format!("H-{palier}")), None, Some("systeme")).await?;
+            etape(
+                &mut tx,
+                etab,
+                b.id,
+                "echeance_alertee",
+                Some(&format!("H-{palier}")),
+                None,
+                Some("systeme"),
+            )
+            .await?;
         }
         tx.commit().await?;
         Ok(envoyes)
@@ -2085,7 +2315,12 @@ pub struct BrouillonCnil {
 const NON_RENSEIGNE: &str = "non renseigné";
 
 /// Assemble le brouillon (fonction pure, testée sans base).
-pub fn assembler_brouillon(v: &ViolationVue, dpo: Option<(&str, &str)>, connue_local: &str, echeance_local: &str) -> BrouillonCnil {
+pub fn assembler_brouillon(
+    v: &ViolationVue,
+    dpo: Option<(&str, &str)>,
+    connue_local: &str,
+    echeance_local: &str,
+) -> BrouillonCnil {
     let mut a_completer = Vec::new();
     let mut atteintes = Vec::new();
     if v.confidentialite {
@@ -2115,8 +2350,16 @@ pub fn assembler_brouillon(v: &ViolationVue, dpo: Option<(&str, &str)>, connue_l
     let personnes = match v.personnes_nombre {
         Some(n) => format!(
             "{} {n} personne(s){}",
-            if v.personnes_estime { "environ" } else { "exactement" },
-            if v.personnes_mineurs { ", dont des mineurs" } else { "" }
+            if v.personnes_estime {
+                "environ"
+            } else {
+                "exactement"
+            },
+            if v.personnes_mineurs {
+                ", dont des mineurs"
+            } else {
+                ""
+            }
         ),
         None => {
             a_completer.push("nombre de personnes concernées");
@@ -2128,7 +2371,11 @@ pub fn assembler_brouillon(v: &ViolationVue, dpo: Option<(&str, &str)>, connue_l
         NON_RENSEIGNE.to_string()
     });
     let mesures = |nature: &str| -> Vec<String> {
-        v.mesures.iter().filter(|m| m.nature == nature).map(|m| format!("- {}", m.texte)).collect()
+        v.mesures
+            .iter()
+            .filter(|m| m.nature == nature)
+            .map(|m| format!("- {}", m.texte))
+            .collect()
     };
     let (prises, envisagees) = (mesures("prise"), mesures("envisagee"));
     if prises.is_empty() && envisagees.is_empty() {
@@ -2137,7 +2384,9 @@ pub fn assembler_brouillon(v: &ViolationVue, dpo: Option<(&str, &str)>, connue_l
     let dpo_texte = match dpo {
         Some((nom, contact)) => format!("{nom} — {contact}"),
         None => {
-            a_completer.push("coordonnées du délégué à la protection des données (ou d'un point de contact)");
+            a_completer.push(
+                "coordonnées du délégué à la protection des données (ou d'un point de contact)",
+            );
             NON_RENSEIGNE.to_string()
         }
     };
@@ -2193,13 +2442,21 @@ pub fn assembler_brouillon(v: &ViolationVue, dpo: Option<(&str, &str)>, connue_l
         });
         a_completer.push("motif du retard");
     }
-    BrouillonCnil { reference: v.reference.clone(), rubriques, a_completer }
+    BrouillonCnil {
+        reference: v.reference.clone(),
+        rubriques,
+        a_completer,
+    }
 }
 
 /// Échappement d'une cellule CSV (séparateur `;`, guillemets doublés) ; une cellule qui commence par `=`, `+`, `-`
 /// ou `@` est préfixée d'une apostrophe (injection de formule dans un tableur).
 fn csv(v: &str) -> String {
-    let v = if v.starts_with(['=', '+', '-', '@']) { format!("'{v}") } else { v.to_string() };
+    let v = if v.starts_with(['=', '+', '-', '@']) {
+        format!("'{v}")
+    } else {
+        v.to_string()
+    };
     if v.contains([';', '"', '\n', '\r']) {
         format!("\"{}\"", v.replace('"', "\"\""))
     } else {
@@ -2285,7 +2542,11 @@ impl PgEnt {
              reference_cnil;motif_retard;motif_non_notification;personnes_informees;motif_non_information;etat;close_le\n",
         );
         for r in rows {
-            let opt = |c: &str| -> String { r.get::<Option<String>, _>(c).map(|v| csv(&v)).unwrap_or_default() };
+            let opt = |c: &str| -> String {
+                r.get::<Option<String>, _>(c)
+                    .map(|v| csv(&v))
+                    .unwrap_or_default()
+            };
             let ligne = [
                 reference(r.get("annee"), r.get("numero")),
                 csv(r.get::<&str, _>("nature_incident")),
@@ -2293,14 +2554,24 @@ impl PgEnt {
                 csv(r.get::<&str, _>("intitule")),
                 opt("connue"),
                 opt("categories"),
-                r.get::<Option<i32>, _>("personnes_nombre").map(|n| n.to_string()).unwrap_or_default(),
-                if r.get::<bool, _>("personnes_estime") { "oui".into() } else { "non".into() },
+                r.get::<Option<i32>, _>("personnes_nombre")
+                    .map(|n| n.to_string())
+                    .unwrap_or_default(),
+                if r.get::<bool, _>("personnes_estime") {
+                    "oui".into()
+                } else {
+                    "non".into()
+                },
                 opt("risque"),
                 opt("notifiee"),
                 opt("reference_cnil"),
                 opt("retard_motif"),
                 opt("non_notification_motif"),
-                if r.get::<bool, _>("informees") { "oui".into() } else { "non".into() },
+                if r.get::<bool, _>("informees") {
+                    "oui".into()
+                } else {
+                    "non".into()
+                },
                 opt("personnes_non_information_motif"),
                 csv(r.get::<&str, _>("etat")),
                 opt("close"),
@@ -2330,35 +2601,74 @@ mod tests_grille {
 
     #[test]
     fn la_sante_est_toujours_elevee() {
-        assert_eq!(g(false, false, true, &["sante.dossier"], Some(1), false), "eleve");
-        assert_eq!(g(true, false, false, &["sante.dossier", "scol.registre"], None, false), "eleve");
+        assert_eq!(
+            g(false, false, true, &["sante.dossier"], Some(1), false),
+            "eleve"
+        );
+        assert_eq!(
+            g(
+                true,
+                false,
+                false,
+                &["sante.dossier", "scol.registre"],
+                None,
+                false
+            ),
+            "eleve"
+        );
     }
 
     #[test]
     fn categorie_particuliere_divulguee_ou_alteree_est_elevee() {
         for c in CATEGORIES_PARTICULIERES {
-            assert_eq!(g(true, false, false, &[c], Some(1), false), "eleve", "{c} divulguée");
-            assert_eq!(g(false, true, false, &[c], Some(1), false), "eleve", "{c} altérée");
+            assert_eq!(
+                g(true, false, false, &[c], Some(1), false),
+                "eleve",
+                "{c} divulguée"
+            );
+            assert_eq!(
+                g(false, true, false, &[c], Some(1), false),
+                "eleve",
+                "{c} altérée"
+            );
         }
     }
 
     #[test]
     fn liste_de_classe_envoyee_par_erreur_est_faible_cl27_41() {
         // Nom + classe d'élèves envoyés à toutes les familles d'un niveau : l'identification seule.
-        assert_eq!(g(true, false, false, &["scol.registre"], Some(120), false), "faible");
+        assert_eq!(
+            g(true, false, false, &["scol.registre"], Some(120), false),
+            "faible"
+        );
     }
 
     #[test]
     fn mineurs_divulgues_ou_donnees_ordinaires_sont_averes() {
-        assert_eq!(g(true, false, false, &["scol.registre"], Some(3), true), "avere");
-        assert_eq!(g(true, false, false, &["eva.note"], Some(3), false), "avere");
-        assert_eq!(g(false, true, false, &["vs.appel"], Some(3), false), "avere");
-        assert_eq!(g(false, false, true, &["fin.iban"], Some(3), false), "avere");
+        assert_eq!(
+            g(true, false, false, &["scol.registre"], Some(3), true),
+            "avere"
+        );
+        assert_eq!(
+            g(true, false, false, &["eva.note"], Some(3), false),
+            "avere"
+        );
+        assert_eq!(
+            g(false, true, false, &["vs.appel"], Some(3), false),
+            "avere"
+        );
+        assert_eq!(
+            g(false, false, true, &["fin.iban"], Some(3), false),
+            "avere"
+        );
     }
 
     #[test]
     fn indisponibilite_ordinaire_ou_rien_de_qualifie_est_faible() {
-        assert_eq!(g(false, false, true, &["edt.planning"], Some(500), false), "faible");
+        assert_eq!(
+            g(false, false, true, &["edt.planning"], Some(500), false),
+            "faible"
+        );
         assert_eq!(g(false, false, false, &[], None, false), "faible");
     }
 
@@ -2376,7 +2686,9 @@ mod tests_grille {
 
     #[test]
     fn echeance_exactement_72_h_et_reference() {
-        let t = DateTime::parse_from_rfc3339("2027-03-28T00:30:00Z").unwrap().with_timezone(&Utc);
+        let t = DateTime::parse_from_rfc3339("2027-03-28T00:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
         // Passage à l'heure d'été la nuit du 28 mars 2027 à Paris : 72 h restent 72 h.
         assert_eq!((echeance_cnil(t) - t).num_hours(), 72);
         assert_eq!(reference(2027, 3), "V-2027-003");
@@ -2394,8 +2706,14 @@ mod tests_grille {
 
     #[test]
     fn categories_proposees_existent_au_catalogue() {
-        for c in CATEGORIES_PARTICULIERES.iter().chain(CATEGORIES_IDENTIFICATION.iter()) {
-            assert!(crate::conservation::categorie(c).is_some(), "{c} inconnue du catalogue");
+        for c in CATEGORIES_PARTICULIERES
+            .iter()
+            .chain(CATEGORIES_IDENTIFICATION.iter())
+        {
+            assert!(
+                crate::conservation::categorie(c).is_some(),
+                "{c} inconnue du catalogue"
+            );
         }
     }
 }

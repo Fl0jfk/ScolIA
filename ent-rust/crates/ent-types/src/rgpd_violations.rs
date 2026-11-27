@@ -331,15 +331,18 @@ mod tests {
     #[test]
     fn saisie_aplatit_la_declaration() {
         let s: SaisieViolationBody =
-            serde_json::from_str(r#"{"intitule":"appel reçu","connue_le":"2027-03-01T08:00:00Z"}"#).unwrap();
+            serde_json::from_str(r#"{"intitule":"appel reçu","connue_le":"2027-03-01T08:00:00Z"}"#)
+                .unwrap();
         assert_eq!(s.declaration.intitule, "appel reçu");
         assert!(s.connue_le.is_some());
     }
 
     #[test]
     fn personnes_se_lisent_par_origine() {
-        let p: PersonnesBody =
-            serde_json::from_str(r#"{"origine":"classe","classe_id":"00000000-0000-0000-0000-000000000001"}"#).unwrap();
+        let p: PersonnesBody = serde_json::from_str(
+            r#"{"origine":"classe","classe_id":"00000000-0000-0000-0000-000000000001"}"#,
+        )
+        .unwrap();
         assert!(matches!(p, PersonnesBody::Classe { .. }));
         assert!(serde_json::from_str::<PersonnesBody>(r#"{"origine":"tous"}"#).is_err());
     }

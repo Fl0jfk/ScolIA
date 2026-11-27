@@ -32,7 +32,10 @@ type Res<T> = Result<T, (StatusCode, String)>;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/rgpd/violations/declarations", get(mes_declarations).post(declarer))
+        .route(
+            "/rgpd/violations/declarations",
+            get(mes_declarations).post(declarer),
+        )
         .route("/rgpd/violations", get(registre).post(saisir))
         .route("/rgpd/violations/export.csv", get(export_csv))
         .route("/rgpd/violations/{id}", get(fiche))
@@ -41,12 +44,27 @@ pub fn routes() -> Router<AppState> {
         .route("/rgpd/violations/{id}/mesures", post(ajouter_mesure))
         .route("/rgpd/violations/{id}/avis-dpo", post(avis_dpo))
         .route("/rgpd/violations/{id}/risque", post(decider_risque))
-        .route("/rgpd/violations/{id}/notification-cnil", post(notifier_cnil))
-        .route("/rgpd/violations/{id}/notification-complementaire", post(complement_cnil))
-        .route("/rgpd/violations/{id}/non-notification", post(non_notification))
+        .route(
+            "/rgpd/violations/{id}/notification-cnil",
+            post(notifier_cnil),
+        )
+        .route(
+            "/rgpd/violations/{id}/notification-complementaire",
+            post(complement_cnil),
+        )
+        .route(
+            "/rgpd/violations/{id}/non-notification",
+            post(non_notification),
+        )
         .route("/rgpd/violations/{id}/personnes", post(calculer_personnes))
-        .route("/rgpd/violations/{id}/information", get(apercu_information).post(informer_personnes))
-        .route("/rgpd/violations/{id}/non-information", post(non_information))
+        .route(
+            "/rgpd/violations/{id}/information",
+            get(apercu_information).post(informer_personnes),
+        )
+        .route(
+            "/rgpd/violations/{id}/non-information",
+            post(non_information),
+        )
         .route("/rgpd/violations/{id}/cloture", post(clore))
 }
 
@@ -96,7 +114,11 @@ pub(crate) fn vue(v: ViolationVue) -> ViolationDto {
         consequences: v.consequences,
         qualifiee_le: v.qualifiee_le,
         risque_propose: v.risque_propose,
-        raisons_proposition: v.raisons_proposition.iter().map(|r| r.to_string()).collect(),
+        raisons_proposition: v
+            .raisons_proposition
+            .iter()
+            .map(|r| r.to_string())
+            .collect(),
         avis_dpo: v.avis_dpo,
         avis_dpo_le: v.avis_dpo_le,
         risque: v.risque,
@@ -116,7 +138,11 @@ pub(crate) fn vue(v: ViolationVue) -> ViolationDto {
         mesures: v
             .mesures
             .into_iter()
-            .map(|m| MesureDto { nature: m.nature, texte: m.texte, le: m.le })
+            .map(|m| MesureDto {
+                nature: m.nature,
+                texte: m.texte,
+                le: m.le,
+            })
             .collect(),
         notifications: v
             .notifications
@@ -132,7 +158,12 @@ pub(crate) fn vue(v: ViolationVue) -> ViolationDto {
         chronologie: v
             .chronologie
             .into_iter()
-            .map(|e| EtapeViolationDto { etape: e.etape, texte: e.texte, par_role: e.par_role, le: e.le })
+            .map(|e| EtapeViolationDto {
+                etape: e.etape,
+                texte: e.texte,
+                par_role: e.par_role,
+                le: e.le,
+            })
             .collect(),
         manque_pour_clore: v.manque_pour_clore.iter().map(|m| m.to_string()).collect(),
         plateforme_element: v.plateforme_element.map(|e| ElementPlateformeDto {
@@ -157,13 +188,21 @@ async fn declarer(
 ) -> Res<(StatusCode, Json<MaDeclarationDto>)> {
     let m = s
         .ent
-        .violations_declarer(session.etablissement_id, session.user_id, &session.role, declaration(&b))
+        .violations_declarer(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            declaration(&b),
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(ma(m))))
 }
 
-async fn mes_declarations(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<MaDeclarationDto>>> {
+async fn mes_declarations(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<MaDeclarationDto>>> {
     let l = s
         .ent
         .violations_mes_declarations(session.etablissement_id, session.user_id, &session.role)
@@ -209,7 +248,12 @@ async fn registre(
 ) -> Res<Json<Vec<ViolationLigneDto>>> {
     let l = s
         .ent
-        .violations_registre(session.etablissement_id, session.user_id, &session.role, filtre(&q))
+        .violations_registre(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            filtre(&q),
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -248,20 +292,32 @@ async fn export_csv(
 ) -> Res<impl IntoResponse> {
     let corps = s
         .ent
-        .violations_registre_csv(session.etablissement_id, session.user_id, &session.role, q.annee)
+        .violations_registre_csv(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            q.annee,
+        )
         .await
         .map_err(map_db)?;
     Ok((
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"registre-violations.csv\""),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"registre-violations.csv\"",
+            ),
             (header::CACHE_CONTROL, "no-store"),
         ],
         corps,
     ))
 }
 
-async fn fiche(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<ViolationDto>> {
+async fn fiche(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
         .violations_fiche(session.etablissement_id, session.user_id, &session.role, id)
@@ -286,7 +342,10 @@ async fn brouillon_cnil(
         rubriques: b
             .rubriques
             .into_iter()
-            .map(|r| RubriqueDto { titre: r.titre.to_string(), texte: r.texte })
+            .map(|r| RubriqueDto {
+                titre: r.titre.to_string(),
+                texte: r.texte,
+            })
             .collect(),
         a_completer: b.a_completer.iter().map(|a| a.to_string()).collect(),
     }))
@@ -331,7 +390,14 @@ async fn ajouter_mesure(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_ajouter_mesure(session.etablissement_id, session.user_id, &session.role, id, &b.nature, &b.texte)
+        .violations_ajouter_mesure(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.nature,
+            &b.texte,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -345,7 +411,13 @@ async fn avis_dpo(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_avis_dpo(session.etablissement_id, session.user_id, &session.role, id, &b.texte)
+        .violations_avis_dpo(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.texte,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -360,7 +432,14 @@ async fn decider_risque(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_decider_risque(session.etablissement_id, session.user_id, &session.role, id, &b.risque, &b.motif)
+        .violations_decider_risque(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.risque,
+            &b.motif,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -419,7 +498,13 @@ async fn non_notification(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_justifier_non_notification(session.etablissement_id, session.user_id, &session.role, id, &b.texte)
+        .violations_justifier_non_notification(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.texte,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -439,7 +524,13 @@ async fn calculer_personnes(
     };
     let v = s
         .ent
-        .violations_calculer_personnes(session.etablissement_id, session.user_id, &session.role, id, origine)
+        .violations_calculer_personnes(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            origine,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -496,7 +587,13 @@ async fn non_information(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_motiver_non_information(session.etablissement_id, session.user_id, &session.role, id, &b.texte)
+        .violations_motiver_non_information(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.texte,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))
@@ -511,7 +608,13 @@ async fn clore(
 ) -> Res<Json<ViolationDto>> {
     let v = s
         .ent
-        .violations_clore(session.etablissement_id, session.user_id, &session.role, id, &b.texte)
+        .violations_clore(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.texte,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(vue(v)))

@@ -13,7 +13,13 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-async fn appel(app: &axum::Router, m: &str, uri: &str, jeton: Option<&str>, corps: Option<Value>) -> (StatusCode, Value) {
+async fn appel(
+    app: &axum::Router,
+    m: &str,
+    uri: &str,
+    jeton: Option<&str>,
+    corps: Option<Value>,
+) -> (StatusCode, Value) {
     let mut b = Request::builder().method(m).uri(uri);
     if let Some(j) = jeton {
         b = b.header("authorization", format!("Bearer {j}"));
@@ -28,7 +34,8 @@ async fn appel(app: &axum::Router, m: &str, uri: &str, jeton: Option<&str>, corp
     let res = app.clone().oneshot(req).await.unwrap();
     let st = res.status();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    let v = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
+    let v = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
     (st, v)
 }
 
@@ -44,8 +51,11 @@ async fn g5_http_registre_parcours_et_refus() {
     let state = AppState::nouveau(ent);
     let cast = state.ent.seed_labo_cast().await.expect("cast");
     let app = app(state.clone());
-    let (dir, prof, parent) =
-        (cast.direction.token.as_str(), cast.prof.token.as_str(), cast.parent_lea.token.as_str());
+    let (dir, prof, parent) = (
+        cast.direction.token.as_str(),
+        cast.prof.token.as_str(),
+        cast.parent_lea.token.as_str(),
+    );
 
     // Sans session : 401 (la route existe).
     for (m, uri) in [
@@ -60,7 +70,14 @@ async fn g5_http_registre_parcours_et_refus() {
     }
 
     // Une famille ne déclare pas (elle passe par le guichet des droits) ; un professeur déclare.
-    let (st, _) = appel(&app, "POST", "/rgpd/violations/declarations", Some(parent), Some(json!({"intitule": "x"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/rgpd/violations/declarations",
+        Some(parent),
+        Some(json!({"intitule": "x"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
     let (st, v) = appel(
         &app,
@@ -78,23 +95,52 @@ async fn g5_http_registre_parcours_et_refus() {
     for champ in ["risque", "echeance_cnil_le", "chronologie", "categories"] {
         assert!(v.get(champ).is_none(), "{champ} exposé au déclarant");
     }
-    let (st, v) = appel(&app, "GET", "/rgpd/violations/declarations", Some(prof), None).await;
+    let (st, v) = appel(
+        &app,
+        "GET",
+        "/rgpd/violations/declarations",
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    assert!(v.as_array().unwrap().iter().any(|d| d["id"] == id.to_string()));
+    assert!(v
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d["id"] == id.to_string()));
 
     // Le registre et la fiche sont fermés au professeur.
-    for uri in ["/rgpd/violations".to_string(), format!("/rgpd/violations/{id}"), "/rgpd/violations/export.csv".into()] {
+    for uri in [
+        "/rgpd/violations".to_string(),
+        format!("/rgpd/violations/{id}"),
+        "/rgpd/violations/export.csv".into(),
+    ] {
         let (st, _) = appel(&app, "GET", &uri, Some(prof), None).await;
         assert_eq!(st, StatusCode::FORBIDDEN, "{uri}");
     }
 
     // La direction voit la fiche, avec l'horloge des 72 h.
-    let (st, v) = appel(&app, "GET", &format!("/rgpd/violations/{id}"), Some(dir), None).await;
+    let (st, v) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/violations/{id}"),
+        Some(dir),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{v}");
     assert_eq!(v["etat"], "ouverte");
     assert!(v["heures_restantes"].as_i64().unwrap() >= 71);
     // Violation inconnue : 404 neutre.
-    let (st, _) = appel(&app, "GET", &format!("/rgpd/violations/{}", Uuid::new_v4()), Some(dir), None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/violations/{}", Uuid::new_v4()),
+        Some(dir),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 
     // Qualification, avis du DPO, décision, non-notification, clôture.
@@ -113,10 +159,20 @@ async fn g5_http_registre_parcours_et_refus() {
     assert_eq!(st, StatusCode::OK, "{v}");
     assert!(v["risque_propose"].is_string());
     // Valeur hors liste : 400.
-    let (st, _) =
-        appel(&app, "POST", &format!("/rgpd/violations/{id}/risque"), Some(dir), Some(json!({"risque": "moyen", "motif": "x"})))
-            .await;
-    assert!(st == StatusCode::BAD_REQUEST || st == StatusCode::CONFLICT || st == StatusCode::UNPROCESSABLE_ENTITY, "{st}");
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/rgpd/violations/{id}/risque"),
+        Some(dir),
+        Some(json!({"risque": "moyen", "motif": "x"})),
+    )
+    .await;
+    assert!(
+        st == StatusCode::BAD_REQUEST
+            || st == StatusCode::CONFLICT
+            || st == StatusCode::UNPROCESSABLE_ENTITY,
+        "{st}"
+    );
     let (st, _) = appel(
         &app,
         "POST",
@@ -166,8 +222,21 @@ async fn g5_http_registre_parcours_et_refus() {
     assert_eq!(st, StatusCode::CONFLICT);
 
     // Le déclarant voit l'avancement, rien d'autre.
-    let (_, v) = appel(&app, "GET", "/rgpd/violations/declarations", Some(prof), None).await;
-    let d = v.as_array().unwrap().iter().find(|d| d["id"] == id.to_string()).unwrap().clone();
+    let (_, v) = appel(
+        &app,
+        "GET",
+        "/rgpd/violations/declarations",
+        Some(prof),
+        None,
+    )
+    .await;
+    let d = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == id.to_string())
+        .unwrap()
+        .clone();
     assert_eq!(d["avancement"], "close");
 
     // Registre filtré et export CSV.
@@ -186,8 +255,15 @@ async fn g5_http_registre_parcours_et_refus() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-    let ct = res.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+    let ct = res
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     assert!(ct.starts_with("text/csv"), "{ct}");
-    let corps = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    let corps =
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
     assert!(corps.contains("Clé USB avec les notes"));
 }

@@ -1,0 +1,15 @@
+/* Socle 27, palier G5 : registre des violations de données (`modules/rgpd_violations`). */
+
+/* Champs côte à côte (date et heure, nombre et cases) ; empilés sur téléphone. */
+.vio-ligne { display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: flex-end; }
+.vio-ligne > * { flex: 1 1 12rem; min-width: 0; }
+
+/* Brouillon de notification à la CNIL : rubriques à recopier sur le téléservice. */
+.vio-brouillon {
+    margin-top: var(--esp-3);
+    padding: var(--esp-4);
+    border: 1px solid var(--c-ligne);
+    border-radius: var(--rayon);
+}
+.vio-brouillon > h3 { margin-top: 0; font-size: var(--taille-m); }
+.vio-brouillon dd { white-space: pre-wrap; }
