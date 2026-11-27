@@ -112,6 +112,8 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
    * Chaque route vérifie elle-même session, personnel, établissement et supervision.
    */
   "/api/push",
+  /** Photos de profil du personnel — la route vérifie session, personnel, établissement et droits. */
+  "/api/avatars",
   /** Retour OAuth MSAL (popup / redirect) — doit rester accessible hors module OCR. */
   "/agentIAOCR/msal-callback",
   "/onboarding",

@@ -109,7 +109,7 @@ const after = new Date("2026-12-04T11:05:00Z");
 
 test("chacun ne reçoit que sa propre paire", () => {
   const view = buildSantaView(santa, people, "a", after);
-  assert.deepEqual(view.mine, { receiverName: "Nom b", alreadyOpened: false });
+  assert.deepEqual(view.mine, { receiverName: "Nom b", photoUrl: null, alreadyOpened: false });
   assert.equal(view.organizer, null);
   assert.ok(!JSON.stringify(view).includes("receiverUserId"));
 });

@@ -13,6 +13,7 @@ import { invitationRecentlySent } from "@/app/lib/invitation-window";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
 import SessionsManager from "@/app/components/account/SessionsManager";
+import StaffPhotosPanel from "@/app/components/settings/StaffPhotosPanel";
 import RhBirthdatesImportModal from "@/app/components/personnel/RhBirthdatesImportModal";
 
 type RoleOption = { slug: string; label: string };
@@ -461,6 +462,8 @@ export default function MembresPanel() {
 
       {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
       {success ? <SettingsNotice tone="ok">{success}</SettingsNotice> : null}
+
+      {canManageRoles ? <StaffPhotosPanel /> : null}
 
       <SettingsSection className="sticky top-2 z-10">
         <div className="flex flex-wrap gap-3 items-end">

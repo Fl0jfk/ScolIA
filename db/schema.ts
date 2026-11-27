@@ -25,6 +25,7 @@ import { invitationSchema } from "./schema-invitation";
 import { messagingSchema } from "./schema-messaging";
 import { webPushSchema } from "./schema-web-push";
 import { secretSantaSchema } from "./schema-secret-santa";
+import { userAvatarSchema } from "./schema-user-avatar";
 import { partenariatsSchema } from "./schema-partenariats";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
 import { socleFaitsSchema } from "./schema-socle-faits";
@@ -44,6 +45,7 @@ export * from "./schema-invitation";
 export * from "./schema-messaging";
 export * from "./schema-web-push";
 export * from "./schema-secret-santa";
+export * from "./schema-user-avatar";
 export * from "./schema-partenariats";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
@@ -992,6 +994,7 @@ export const appSchema = {
   ...messagingSchema,
   ...webPushSchema,
   ...secretSantaSchema,
+  ...userAvatarSchema,
   ...partenariatsSchema,
   ...rdvInscriptionSchema,
   ...socleFaitsSchema,

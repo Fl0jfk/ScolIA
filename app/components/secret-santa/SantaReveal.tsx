@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import SantaGift, { GIFT_SHAKE_MS, type GiftPhase } from "@/app/components/secret-santa/SantaGift";
 
 /**
- * Le moment du tirage : compte à rebours (calé sur l'heure du serveur), puis cadeau qui s'agite,
- * s'ouvre et révèle le nom. Le nom n'arrive du serveur qu'à partir de l'heure prévue.
+ * Le moment du tirage : compte à rebours (calé sur l'heure du serveur), puis cadeau qui se secoue,
+ * éclate et laisse sortir la tête de la personne tirée. Le nom n'arrive du serveur qu'à partir de l'heure prévue.
  */
 
 const COLORS = ["#fca5a5", "#fde68a", "#86efac", "#ffffff", "#fbcfe8", "#93c5fd"];
-const SHAKE_MS = 3200;
 
 /** Positions calculées à partir de l'indice : rendu stable, sans tirage au rendu. */
 const SNOW = Array.from({ length: 40 }, (_, i) => ({
@@ -37,8 +37,6 @@ function splitDuration(ms: number) {
   };
 }
 
-type Phase = "closed" | "shaking" | "open";
-
 export default function SantaReveal({
   revealAt,
   serverOffsetMs,
@@ -51,14 +49,14 @@ export default function SantaReveal({
   /** Heure du serveur moins heure du poste. */
   serverOffsetMs: number;
   isParticipant: boolean;
-  mine: { receiverName: string; alreadyOpened: boolean } | null;
+  mine: { receiverName: string; photoUrl: string | null; alreadyOpened: boolean } | null;
   /** Demande le résultat au serveur (rappelé tant qu'il n'est pas arrivé). */
   onDue: () => void;
   onOpened: () => void;
 }) {
   const target = new Date(revealAt).getTime();
   const [remaining, setRemaining] = useState(() => target - (Date.now() + serverOffsetMs));
-  const [phase, setPhase] = useState<Phase>("closed");
+  const [phase, setPhase] = useState<GiftPhase>("closed");
   /** La personne a attendu devant le compte à rebours : le cadeau s'ouvrira tout seul. */
   const waited = useRef(remaining > 0);
   const callbacks = useRef({ onDue, onOpened });
@@ -96,7 +94,7 @@ export default function SantaReveal({
         setPhase("open");
         callbacks.current.onOpened();
       },
-      reduced ? 0 : SHAKE_MS,
+      reduced ? 0 : GIFT_SHAKE_MS,
     );
     return () => window.clearTimeout(timer);
   }, [phase]);
@@ -158,9 +156,9 @@ export default function SantaReveal({
                 ))}
               </div>
             )}
-            <p className="santa-float mt-8 text-7xl" aria-hidden>
-              🎁
-            </p>
+            <div className="mt-4">
+              <SantaGift phase="closed" head={null} />
+            </div>
             <p className="mt-4 text-sm text-white/80">
               {isParticipant
                 ? "Restez sur cette page : votre cadeau s'ouvrira tout seul à l'heure du tirage."
@@ -181,25 +179,27 @@ export default function SantaReveal({
           <p className="py-10 text-lg font-bold" role="status">
             Le Père Noël tire les noms…
           </p>
-        ) : phase === "open" ? (
-          <div aria-live="polite">
-            <p className="text-sm font-bold uppercase tracking-[0.25em] text-amber-200">Vous offrez un cadeau à</p>
-            <p className="santa-pop mt-5 break-words text-4xl font-black sm:text-6xl">{mine.receiverName}</p>
-            <p className="mt-8 text-sm text-white/80">Chut… c&apos;est un secret. 🤫</p>
-            <button
-              type="button"
-              onClick={() => setPhase("closed")}
-              className="mt-4 rounded-xl bg-white/15 px-5 py-2 text-sm font-bold hover:bg-white/25"
-            >
-              Masquer le nom
-            </button>
-          </div>
         ) : (
           <>
-            <p className={`text-8xl ${phase === "shaking" ? "santa-shake" : "santa-float"}`} aria-hidden>
-              🎁
-            </p>
-            {phase === "shaking" ? (
+            {phase === "open" && (
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-amber-200">Vous offrez un cadeau à</p>
+            )}
+            <SantaGift phase={phase} head={{ name: mine.receiverName, photoUrl: mine.photoUrl }} />
+            {phase === "open" ? (
+              <div aria-live="polite">
+                <p className="santa-pop santa-name mt-5 break-words text-4xl font-black sm:text-6xl">
+                  {mine.receiverName}
+                </p>
+                <p className="mt-5 text-sm text-white/80">Chut… c&apos;est un secret. 🤫</p>
+                <button
+                  type="button"
+                  onClick={() => setPhase("closed")}
+                  className="mt-4 rounded-xl bg-white/15 px-5 py-2 text-sm font-bold hover:bg-white/25"
+                >
+                  Masquer
+                </button>
+              </div>
+            ) : phase === "shaking" ? (
               <p className="mt-6 text-lg font-bold" role="status">
                 Roulement de tambour…
               </p>
@@ -230,30 +230,18 @@ export default function SantaReveal({
           10% { opacity: 1; }
           100% { opacity: 0; transform: translate3d(var(--santa-drift, 20px), 620px, 0) rotate(540deg); }
         }
-        @keyframes santa-shake-box {
-          0%, 100% { transform: rotate(0deg) scale(1); }
-          20% { transform: rotate(-14deg) scale(1.06); }
-          40% { transform: rotate(12deg) scale(1.1); }
-          60% { transform: rotate(-10deg) scale(1.16); }
-          80% { transform: rotate(8deg) scale(1.2); }
-        }
         @keyframes santa-pop-in {
           0% { opacity: 0; transform: scale(0.3); }
           70% { opacity: 1; transform: scale(1.12); }
           100% { opacity: 1; transform: scale(1); }
         }
-        @keyframes santa-float-box {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-10px); }
-        }
         .santa-snow { animation: santa-snow-fall linear infinite; }
         .santa-confetti { animation: santa-confetti-fall cubic-bezier(0.25, 0.7, 0.35, 1) both; }
-        .santa-shake { animation: santa-shake-box 0.55s ease-in-out infinite; }
         .santa-pop { animation: santa-pop-in 0.6s ease-out both; }
-        .santa-float { animation: santa-float-box 2.4s ease-in-out infinite; }
+        .santa-name { animation-delay: 0.7s; }
         @media (prefers-reduced-motion: reduce) {
           .santa-snow, .santa-confetti { display: none; }
-          .santa-shake, .santa-pop, .santa-float { animation: none; }
+          .santa-pop { animation: none; }
         }
       `}</style>
     </section>

@@ -209,6 +209,15 @@ export function isRevealDue(revealAt: Date, now: Date): boolean {
 
 /* ─── Ce que voit une personne ─── */
 
+/** La personne à qui `userId` offre. Serveur uniquement, après contrôle de l'heure. */
+export function receiverOf<T extends { userId: string; receiverUserId: string | null }>(
+  participants: T[],
+  userId: string,
+): T | null {
+  const receiverUserId = participants.find((p) => p.userId === userId)?.receiverUserId;
+  return participants.find((p) => p.userId === receiverUserId) ?? null;
+}
+
 export type SantaRecord = {
   id: string;
   organizerUserId: string;
@@ -245,7 +254,7 @@ export type SantaView = {
   /** Visible de tous : personne ne découvre après coup que des règles existaient. */
   exclusionCount: number;
   /** La seule paire jamais envoyée : la sienne, à partir de l'heure du tirage. */
-  mine: { receiverName: string; alreadyOpened: boolean } | null;
+  mine: { receiverName: string; photoUrl: string | null; alreadyOpened: boolean } | null;
   /** Réservé à l'organisateur : suivi et réglages, sans aucune paire. */
   organizer: {
     exclusions: SantaExclusion[];
@@ -269,10 +278,7 @@ export function buildSantaView(
 ): SantaView {
   const me = participants.find((p) => p.userId === userId) ?? null;
   const isOrganizer = santa.organizerUserId === userId;
-  const receiver =
-    me?.receiverUserId && santa.drawnAt && isRevealDue(santa.revealAt, now)
-      ? participants.find((p) => p.userId === me.receiverUserId)
-      : null;
+  const receiver = santa.drawnAt && isRevealDue(santa.revealAt, now) ? receiverOf(participants, userId) : null;
   return {
     id: santa.id,
     title: santa.title,
@@ -286,7 +292,10 @@ export function buildSantaView(
     isParticipant: me !== null,
     participants: participants.map((p) => ({ userId: p.userId, displayName: p.displayName })),
     exclusionCount: santa.exclusions.length,
-    mine: receiver ? { receiverName: receiver.displayName, alreadyOpened: me!.openedAt !== null } : null,
+    // L'adresse de la photo est ajoutée par la route, si la personne en a une.
+    mine: receiver
+      ? { receiverName: receiver.displayName, photoUrl: null, alreadyOpened: me!.openedAt !== null }
+      : null,
     organizer: isOrganizer
       ? {
           exclusions: santa.exclusions,

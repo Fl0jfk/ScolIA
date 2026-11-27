@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSantaContext, santaErrorResponse } from "@/app/lib/secret-santa-access";
 import { deleteSanta, readSantaFor, updateSantaBeforeDraw, updateSantaTexts } from "@/app/lib/secret-santa-db";
-import { buildSantaView, parseSantaInput, parseSantaTextUpdate } from "@/app/lib/secret-santa";
+import { buildSantaView, parseSantaInput, parseSantaTextUpdate, receiverOf } from "@/app/lib/secret-santa";
+import { listAvatarVersions } from "@/app/lib/avatar-db";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,12 @@ export async function GET(_req: Request, { params }: Params) {
     const { id } = await params;
     const now = new Date();
     const { santa, participants } = await readSantaFor(auth.ctx.etablissementId, id, auth.ctx.userId, now);
-    return NextResponse.json(buildSantaView(santa, participants, auth.ctx.userId, now), {
+    const view = buildSantaView(santa, participants, auth.ctx.userId, now);
+    const receiver = view.mine ? receiverOf(participants, auth.ctx.userId) : null;
+    if (view.mine && receiver && (await listAvatarVersions([receiver.userId])).size) {
+      view.mine.photoUrl = `/api/secret-santa/${encodeURIComponent(id)}/photo`;
+    }
+    return NextResponse.json(view, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

@@ -603,6 +603,13 @@
       "when": 1787420679851,
       "tag": "0076_secret_santa",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1787420739851,
+      "tag": "0077_user_avatar",
+      "breakpoints": true
     }
   ]
 }

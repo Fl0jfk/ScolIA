@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAppSession, getEffectiveViewUser } from "@/app/lib/app-session";
 import { isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { resolveActiveSupervision } from "@/app/lib/supervision";
+import { readUserImage } from "@/app/lib/avatar-db";
 
 /** Profil client unifié (rôles inclus) — vue effective (supervision si active). */
 export async function GET() {
@@ -20,8 +21,9 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ user: null });
     }
+    const imageUrl = await readUserImage(user.id).catch(() => user.imageUrl);
     return NextResponse.json({
-      user,
+      user: { ...user, imageUrl },
       supervisionActive: Boolean(supervision),
     });
   } catch (error) {

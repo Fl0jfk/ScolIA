@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import UserSignaturePad from "@/app/components/account/UserSignaturePad";
+import PhotoEditor from "@/app/components/account/PhotoEditor";
 import PasswordInput from "@/app/components/auth/PasswordInput";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import SessionsManager from "@/app/components/account/SessionsManager";
@@ -10,7 +11,7 @@ import { useAppUser } from "@/app/hooks/useAppUser";
 import { resolvePasskeyRegisterHints } from "@/app/lib/passkey-client-hints";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
-type Mode = "menu" | "password" | "email" | "sessions" | "signature" | "passkeys";
+type Mode = "menu" | "password" | "email" | "sessions" | "signature" | "passkeys" | "photo";
 
 type Props = {
   open: boolean;
@@ -32,6 +33,9 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     { id: string; name: string; createdAt: string | null }[]
   >([]);
   const [passkeysLoading, setPasskeysLoading] = useState(false);
+
+  /** Dernière photo enregistrée ici : l'aperçu change sans attendre le rechargement du profil. */
+  const [savedPhoto, setSavedPhoto] = useState<string | null | undefined>(undefined);
 
   if (!open) return null;
 
@@ -225,6 +229,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
             {mode === "sessions" && "Appareils & sessions"}
             {mode === "signature" && "Ma signature"}
             {mode === "passkeys" && "Passkeys"}
+            {mode === "photo" && "Ma photo de profil"}
           </h2>
           {success && mode === "password" ? null : (
             <button
@@ -244,6 +249,16 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 Connecté en tant que{" "}
                 <span className="font-semibold text-slate-900">{user?.email ?? "—"}</span>
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("photo");
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+              >
+                Ma photo de profil
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -315,6 +330,34 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 Appareils & sessions connectées
               </button>
             </>
+          )}
+
+          {mode === "photo" && (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("menu");
+                }}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+              >
+                ← Retour
+              </button>
+              <PhotoEditor
+                target="me"
+                name={`${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() || user?.email || "Moi"}
+                photoUrl={savedPhoto === undefined ? user?.imageUrl || null : savedPhoto}
+                size={128}
+                onChange={(url) => {
+                  setSavedPhoto(url);
+                  void refresh();
+                }}
+              />
+              <p className="text-center text-xs text-slate-500">
+                Visible par le personnel : menu, messagerie et Secret Santa.
+              </p>
+            </div>
           )}
 
           {mode === "passkeys" && (

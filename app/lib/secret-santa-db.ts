@@ -22,7 +22,14 @@ import {
  * avec une modification des participants, ni avoir lieu deux fois.
  */
 
-export type SantaStaffMember = { userId: string; displayName: string; email: string; roles: string[] };
+export type SantaStaffMember = {
+  userId: string;
+  displayName: string;
+  email: string;
+  roles: string[];
+  isHome: boolean;
+  platformAdmin: boolean;
+};
 
 type SantaRow = typeof secretSanta.$inferSelect;
 type ParticipantRow = typeof secretSantaParticipant.$inferSelect;
@@ -33,7 +40,15 @@ const NOT_FOUND = () => new SantaError("Secret Santa introuvable.", 404);
 /** Personnel de l'établissement (ni parents seuls, ni élèves). */
 export async function listSantaStaff(etabId: string): Promise<SantaStaffMember[]> {
   const rows = await getDb()
-    .select({ id: user.id, email: user.email, name: user.name, firstName: user.firstName, lastName: user.lastName })
+    .select({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      etablissementId: user.etablissementId,
+      platformAdmin: user.platformAdmin,
+    })
     .from(user)
     .where(
       or(
@@ -64,6 +79,8 @@ export async function listSantaStaff(etabId: string): Promise<SantaStaffMember[]
       displayName: `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() || r.name || r.email,
       email: r.email,
       roles: roles.get(r.id) ?? [],
+      isHome: r.etablissementId === etabId,
+      platformAdmin: r.platformAdmin,
     }))
     .filter((m) => !m.roles.includes("master") && canUseMessaging(m.roles))
     .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
