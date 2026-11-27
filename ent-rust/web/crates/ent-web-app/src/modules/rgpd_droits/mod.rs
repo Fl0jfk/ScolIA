@@ -17,7 +17,11 @@
 //! que `/roles/mes-droits` n'a pas répondu ; aucune date du jour n'est rendue par le serveur (les échéances
 //! viennent du serveur, qui donne aussi son jour de référence).
 
+pub mod extrait;
 pub mod modele;
+pub mod modele_extrait;
+pub mod modele_remise;
+pub mod remise;
 
 use ent_web_api::rgpd_droits_types::{
     AffectationBody, ArbitrageIdentiteBody, ClotureBody, DecisionBody, DemandeDto, DepotBody,
@@ -112,6 +116,11 @@ pub fn PageGuichetDroits() -> impl IntoView {
             {move || moteur.get().peut_recevoir_demandes_droits().then(|| view! {
                 <LienBouton href="/web/rgpd/demandes/saisir" variante=Variante::Primaire>
                     "Saisir une demande reçue"
+                </LienBouton>
+            })}
+            {move || moteur.get().peut_consulter_traces_acces().then(|| view! {
+                <LienBouton href="/web/rgpd/acces" variante=Variante::Secondaire>
+                    "Accès aux dossiers"
                 </LienBouton>
             })}
         </EnTetePage>
@@ -682,6 +691,10 @@ fn Fiche(
             </Tuile>
         </GrilleBento>
 
+        <extrait::SectionExtrait demande=id ouverte=ouverte/>
+        <remise::SectionReponseRemise demande=id ouverte=ouverte/>
+        <crate::modules::acces_controle::SectionTracesDemande demande=id ouverte=ouverte/>
+
         <section class="classe-section" aria-labelledby="rgpd-droits-titre">
             <h2 id="rgpd-droits-titre">"Droits exercés"</h2>
             <ul class="ui-liste">
@@ -1221,6 +1234,9 @@ pub fn PageMesDonnees() -> impl IntoView {
             titre="Mes données".to_string()
             sous_titre="Vos demandes et leur avancement. L'établissement répond dans un délai d'un mois.".to_string()
         >
+            <LienBouton href="/web/mes-donnees/consultations" variante=Variante::Secondaire>
+                "Consultations du dossier"
+            </LienBouton>
             <LienBouton href="/web/mes-donnees/demande" variante=Variante::Primaire>
                 "Déposer une demande"
             </LienBouton>
@@ -1236,6 +1252,7 @@ pub fn PageMesDonnees() -> impl IntoView {
             }.into_any(),
             Some(Ok(l)) => view! { <Suivi demandes=trier_suivi(l)/> }.into_any(),
         }}
+        <remise::MesExtraits/>
     }
 }
 

@@ -622,7 +622,7 @@ async fn clore(
 ) -> Res<Json<DemandeDto>> {
     let v = s
         .ent
-        .droits_clore(
+        .droits_cloturer(
             session.etablissement_id,
             session.user_id,
             &session.role,

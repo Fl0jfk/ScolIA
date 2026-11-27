@@ -44,12 +44,16 @@ pub fn PageFicheHub() -> impl IntoView {
             .with(|p| p.get("id"))
             .and_then(|i| i.parse::<Uuid>().ok())
     });
+    // RGP-191 : motif choisi pour ouvrir une fiche hors du périmètre de l'agent (liste S-542).
+    let motif: RwSignal<Option<String>> = RwSignal::new(None);
     let fiche = LocalResource::new(move || {
         let id = id.get();
+        let motif = motif.get();
         async move {
-            match id {
-                Some(id) => session::client().eleve_fiche(id).await,
-                None => Err(ApiError::Introuvable("identifiant d'élève invalide".into())),
+            match (id, motif) {
+                (Some(id), Some(m)) => session::client().eleve_fiche_motive(id, &m).await,
+                (Some(id), None) => session::client().eleve_fiche(id).await,
+                (None, _) => Err(ApiError::Introuvable("identifiant d'élève invalide".into())),
             }
         }
     });
@@ -76,6 +80,17 @@ pub fn PageFicheHub() -> impl IntoView {
                             "Retour à la liste des élèves"
                         </LienBouton>
                     </EtatVide>
+                }
+                    .into_any()
+            }
+            // Hors périmètre : le serveur demande un motif ; la liste est proposée, un geste suffit.
+            Some(Err(e)) if crate::modules::consultations_dossier::est_motif_requis(&e) => {
+                view! {
+                    <Title text="Motif de consultation"/>
+                    <h1 class="ui-sr">"Motif de consultation"</h1>
+                    <crate::modules::consultations_dossier::MotifRequis
+                        on_choisir=Callback::new(move |m: String| motif.set(Some(m)))
+                    />
                 }
                     .into_any()
             }

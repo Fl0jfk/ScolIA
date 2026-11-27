@@ -238,7 +238,7 @@ async fn rls_politiques_presentes_et_forcees() {
     };
     let n: i64 = sqlx::query(
         "SELECT count(*) FROM pg_class c JOIN pg_policies p ON p.tablename = c.relname \
-         WHERE c.relrowsecurity AND c.relforcerowsecurity AND p.policyname = 'ent_rls_etablissement'",
+         WHERE c.relrowsecurity AND c.relforcerowsecurity AND NOT c.relispartition AND p.policyname = 'ent_rls_etablissement'",
     )
     .fetch_one(&e.admin).await.unwrap().get(0);
     // 22 tables pilotes (migration 100) + 17 finances (S2-9, 206) + 6 santé/accompagnement (S2-11, 215)
@@ -373,7 +373,10 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 2 du socle 42 (V3b suites, migration 656 : contournement tracé de la règle « sortie entière » et ses faits).
     // + 1 du socle 11 (MB1, migration 2227 : registre d'idempotence des écritures).
     // + 5 du socle 27, lot G3a (migration 2544 : demandes, droits demandés, identité, journal, compteur de numéros).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10 + 5 + 3 + 1 + 1 + 2 + 5 + 1, "tables avec RLS activée et forcée");
+    // + 1 de l'ENT (rétabli : le compte du lot G3b l'avait absorbé) ; + 5 du socle 27, lot G3b (migration 2545 : réglages et leur journal, sujets, extraits, sections d'extrait) ; +1 au lot G3b-2 (marquages d'extrait) ; +9 au lot G3b-3 (fichiers, remises, défis, téléchargements, clôtures et leurs éléments, sections et refus, redirections).
+    // + 4 du socle 27, lot G4-1 (migration 2546 : traces d'accès — le parent partitionné seul, ses partitions mensuelles ne sont
+    // pas comptées : le test `chaque_partition_est_couverte_par_son_parent` les vérifie une à une —, motifs, contrôles, alertes).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4 + 3 + 4 + 2 + 5 + 6 + 9 + 5 + 16 + 18 + 5 + 1 + 1 + 7 + 14 + 3 + 31 + 13 + 5 + 2 + 2 + 4 + 8 + 1 + 6 + 8 + 6 + 10 + 5 + 3 + 1 + 1 + 2 + 5 + 1 + 5 + 1 + 9 + 6, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
@@ -533,5 +536,64 @@ async fn rechiffrement_par_etablissement_sous_rls_strict_et_permissif() {
     let rapport = rechiffrer_champs_sensibles(&e.app_permissif, &champs).await.expect("permissif");
     assert_eq!(rapport.detail.iter().filter(|(t, _)| t.starts_with("ent_fiche_sante")).count(), 0);
     crate::tenant_tx::forcer_mode_test(None);
+    nettoyer(&e).await;
+}
+
+/// Socle 27, lot G4-1 : la RLS d'une **partition** de `acc_trace` s'applique quand on l'interroge directement (une
+/// partition n'hérite pas de la politique de son parent). Rôle non propriétaire, mode strict.
+#[tokio::test]
+async fn rls_partition_de_traces_interrogee_directement() {
+    let Some(e) = preparer().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    sqlx::query("SELECT public.acc_trace_assurer_partition('2031-01-15'::date)").execute(&e.admin).await.unwrap();
+    sqlx::query(&format!("GRANT SELECT, INSERT, UPDATE, DELETE ON acc_trace, acc_trace_203101 TO {ROLE}"))
+        .execute(&e.admin)
+        .await
+        .unwrap();
+    for etab in [e.etab_a, e.etab_b] {
+        sqlx::query(
+            "INSERT INTO acc_trace_203101 (id, etablissement_id, le, acteur_compte_id, acteur_role, fonction_code, fonction_libelle,
+                                           service_code, service_libelle, nature, section, action)
+             VALUES ($1, $2, '2031-01-15T09:00:00Z', $1, 'prof', 'x', 'x', 'x', 'x', 'consultation', 'dossier', 'x')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .execute(&e.admin)
+        .await
+        .unwrap();
+    }
+    for etab in [e.etab_a, e.etab_b] {
+        let mut tx = TenantTx::begin_mode(&e.app, etab, RlsMode::Strict).await.unwrap();
+        let (n, autre): (i64, i64) = (
+            sqlx::query("SELECT count(*) FROM acc_trace_203101").fetch_one(&mut *tx).await.unwrap().get(0),
+            sqlx::query("SELECT count(*) FROM acc_trace_203101 WHERE etablissement_id <> $1")
+                .bind(etab)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap()
+                .get(0),
+        );
+        assert_eq!((n, autre), (1, 0), "la partition interrogée directement ne montre que son établissement");
+        // Écrire pour un autre établissement est refusé (WITH CHECK), sur la partition comme sur le parent.
+        let intrus = if etab == e.etab_a { e.etab_b } else { e.etab_a };
+        for table in ["acc_trace_203101", "acc_trace"] {
+            let r = sqlx::query(&format!(
+                "INSERT INTO {table} (id, etablissement_id, le, acteur_compte_id, acteur_role, fonction_code, fonction_libelle,
+                                       service_code, service_libelle, nature, section, action)
+                 VALUES ($1, $2, '2031-01-20T09:00:00Z', $1, 'prof', 'x', 'x', 'x', 'x', 'consultation', 'dossier', 'x')"
+            ))
+            .bind(Uuid::new_v4())
+            .bind(intrus)
+            .execute(&mut *tx)
+            .await;
+            assert!(r.is_err(), "{table} : écriture pour un autre établissement");
+            // Une instruction refusée abandonne la transaction : on repart d'une nouvelle.
+            tx = TenantTx::begin_mode(&e.app, etab, RlsMode::Strict).await.unwrap();
+        }
+    }
+    // Sans contexte d'établissement, rien n'est visible (fail-closed).
+    let n: i64 = sqlx::query("SELECT count(*) FROM acc_trace_203101").fetch_one(&e.app).await.unwrap().get(0);
+    assert_eq!(n, 0);
     nettoyer(&e).await;
 }

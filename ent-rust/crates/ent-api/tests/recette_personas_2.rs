@@ -74,10 +74,13 @@ struct Rep {
 
 impl Rep {
     fn est_refus(&self) -> bool {
+        // « motif requis » (socle 27, G4) : l'accès hors périmètre n'est servi qu'avec un motif ; aucune donnée
+        // n'est rendue, c'est donc un refus au sens de la séparation.
         matches!(
             self.statut,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
         )
+            || (self.statut == StatusCode::CONFLICT && self.texte.contains("\"motif_requis\""))
     }
 }
 

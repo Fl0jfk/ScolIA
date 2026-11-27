@@ -363,6 +363,19 @@ fn destinataires_internes(
     out
 }
 
+/// Destinataires internes (rôles de base) qui lisent **l'un** des domaines donnés : sert l'extrait d'une demande de droit
+/// (§9.4 point 3). Sans les rôles propres de l'établissement (le registre généré de l'établissement les donne).
+pub(crate) fn destinataires_internes_de(domaines: &[&str]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for b in TRAITEMENTS_BASE
+        .iter()
+        .filter(|b| b.domaines.iter().any(|d| domaines.contains(d)))
+    {
+        out.extend(destinataires_internes(b, &BTreeSet::new()));
+    }
+    out
+}
+
 /// Génère la fiche d'un traitement de base à partir des entrées. Fonction pure.
 pub fn generer_fiche(base: &TraitementBase, e: &EntreesFiche) -> FicheGeneree {
     let tables: Vec<&ClasseTable> = tables_du_traitement(base).collect();

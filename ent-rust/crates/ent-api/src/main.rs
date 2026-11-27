@@ -731,6 +731,29 @@ async fn run_api() {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("destruction des pièces d'identité (droits) : {e}"),
                 }
+                // Socle 27 (G3b) : objets des extraits remis, supprimés à la fin de la mise à disposition (7 jours).
+                match ent.droits_extraits_purger_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(n, "fichiers d'extraits RGPD purgés"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des extraits RGPD : {e}"),
+                }
+                // Socle 27 (G4) : partitions mensuelles des traces d'accès créées à l'avance (mois courant et deux suivants).
+                if let Err(e) = ent.acces_partitions_assurer().await {
+                    tracing::warn!("partitions des traces d'accès : {e}");
+                }
+                // Alertes d'accès (RGP-196) puis purge des partitions échues (RGP-198) : idempotentes, une fois par heure.
+                match ent.acces_alertes_evaluer_tous_a(chrono::Utc::now()).await {
+                    Ok(n) if n > 0 => tracing::info!(n, "alertes d'accès créées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("alertes d'accès : {e}"),
+                }
+                match ent.acces_purger_a(chrono::Utc::now()).await {
+                    Ok(r) if !r.purgees.is_empty() || !r.differees.is_empty() => {
+                        tracing::info!(purgees = r.purgees.len(), differees = r.differees.len(), "purge des traces d'accès")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des traces d'accès : {e}"),
+                }
                 match ent.purger_objets_pieces_infectees_tache(retention).await {
                     Ok(b) if b.purges > 0 || b.echecs > 0 => {
                         tracing::info!(?b, "objets de pièces infectées purgés")
