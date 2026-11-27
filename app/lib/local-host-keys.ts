@@ -16,10 +16,18 @@ export function isLabTunnelHostname(hostname: string): boolean {
   );
 }
 
+/**
+ * Un tunnel public est un nom que n'importe qui peut obtenir : hors développement, il faut
+ * l'autoriser explicitement, sinon les liens des e-mails pourraient pointer vers un site tiers.
+ */
+function tunnelHostsAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.SCOLIA_ALLOW_TUNNEL_HOSTS === "1";
+}
+
 export function isLocalDevHostname(hostname: string): boolean {
   const host = normalizeHostname(hostname);
   if (LOCAL_DEV_HOSTS.has(host)) return true;
   // Démo labo exposée via tunnel : même résolution tenant que localhost.
-  if (isLabTunnelHostname(host)) return true;
+  if (tunnelHostsAllowed() && isLabTunnelHostname(host)) return true;
   return false;
 }

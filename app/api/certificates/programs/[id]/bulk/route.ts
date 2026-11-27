@@ -1,3 +1,4 @@
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
@@ -37,13 +38,6 @@ function safeFileNamePart(value: string): string {
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function requestOrigin(req: Request): string {
-  const reqUrl = new URL(req.url);
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || reqUrl.host;
-  const proto = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-  return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
 function canManageOcrFromRoles(roles: string[]): boolean {
@@ -147,7 +141,7 @@ export async function POST(req: Request, { params }: Params) {
     const tenant = await getTenant();
     const canonicalOrigin = tenantCanonicalOrigin(tenant);
     const canonicalHost = normalizeHostname(new URL(canonicalOrigin).host);
-    const requestHost = normalizeHostname(new URL(requestOrigin(req)).host);
+    const requestHost = normalizeHostname(new URL(await getTenantAppUrl()).host);
     const requestIsTenantHost = tenant.hostnames.some((h) => normalizeHostname(h) === requestHost);
     const canonicalLooksPlatform = isPlatformHostname(canonicalHost);
     const origin =
@@ -266,7 +260,7 @@ export async function POST(req: Request, { params }: Params) {
       updatedAt: now,
       accessToken,
       refreshToken,
-      originUrl: requestOrigin(req),
+      originUrl: await getTenantAppUrl(),
       items,
       currentItemIndex: 0,
       results: [],

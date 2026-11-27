@@ -10,6 +10,9 @@ import {
   resolveBusinessUserId,
 } from "@/app/lib/auth-roles-db";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { assertUserBelongsToTenant, ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { getTenant } from "@/app/lib/tenant-context";
+import { resolveTenantScope, scopedOrgAdminFlag } from "@/app/lib/tenant-session-scope";
 import { userHasPasskey } from "@/app/lib/passkey-db";
 import { isMfaSatisfied } from "@/app/lib/two-factor-policy";
 import {
@@ -107,7 +110,27 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       twoFactorEnabled?: boolean;
     };
 
-    const etablissementId = u.etablissementId;
+    // Sans passage par le proxy (route publique, supervision…) : mêmes règles d'appartenance que lui.
+    const homeEtablissementId = u.etablissementId ?? null;
+    const tenant = await getTenant();
+    const scope = await resolveTenantScope(
+      { homeEtablissementId, platformAdmin: Boolean(u.platformAdmin), tenantSlug: tenant.slug },
+      {
+        belongs: async () =>
+          (
+            await assertUserBelongsToTenant({
+              userId: u.id,
+              userEtablissementId: homeEtablissementId,
+              platformAdmin: false,
+              tenant,
+            })
+          ).ok,
+        tenantEtablissementId: () => ensureEtablissementFromTenant(tenant),
+      },
+    );
+    if (!scope) return null;
+    const etablissementId = scope.activeEtablissementId ?? undefined;
+    const orgAdminFlag = scopedOrgAdminFlag(Boolean(u.orgAdmin), homeEtablissementId, scope.activeEtablissementId);
     const roles = etablissementId
       ? await listUserRolesFromDb(u.id, etablissementId)
       : normalizeIntranetRoles([]);
@@ -128,7 +151,7 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       imageUrl: u.image ?? undefined,
       etablissementId,
       roles,
-      orgAdmin: Boolean(u.orgAdmin) || isOrgAdminFromAppUser({ roles, orgAdmin: u.orgAdmin }),
+      orgAdmin: orgAdminFlag || isOrgAdminFromAppUser({ roles, orgAdmin: orgAdminFlag }),
       platformAdmin:
         Boolean(u.platformAdmin) ||
         isPlatformMasterFromAppUser({ roles, platformAdmin: u.platformAdmin }),
@@ -140,6 +163,27 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
     };
   } catch (error) {
     console.error("[getAppSession:better-auth]", error);
+    return null;
+  }
+}
+
+/**
+ * Identité du compte, quel que soit l'établissement visité, SANS aucun droit. Réservé à l'aiguillage
+ * après connexion (« vos établissements ») : ne jamais s'en servir pour autoriser une action.
+ */
+export async function getAccountIdentity(): Promise<{
+  id: string;
+  etablissementId?: string;
+  platformAdmin: boolean;
+} | null> {
+  if (!isBetterAuthActive()) return null;
+  try {
+    const session = await getBetterAuth().api.getSession({ headers: await headers() });
+    if (!session?.user) return null;
+    const u = session.user as typeof session.user & { etablissementId?: string; platformAdmin?: boolean };
+    return { id: u.id, etablissementId: u.etablissementId, platformAdmin: Boolean(u.platformAdmin) };
+  } catch (error) {
+    console.error("[getAccountIdentity]", error);
     return null;
   }
 }

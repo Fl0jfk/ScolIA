@@ -1,3 +1,4 @@
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
 import { and, eq, like, ne, sql } from "drizzle-orm";
@@ -68,14 +69,6 @@ async function sendSecurityMail(opts: {
     console.error("[account/security] mail", error);
     return false;
   }
-}
-
-function requestOrigin(req: Request): string {
-  const url = new URL(req.url);
-  const proto = req.headers.get("x-forwarded-proto") || url.protocol.replace(":", "");
-  const host =
-    req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
-  return `${proto}://${host}`;
 }
 
 /** Mise à jour e-mail / mot de passe du compte connecté. */
@@ -205,7 +198,7 @@ export async function POST(req: Request) {
       expiresAt,
     });
 
-    const confirmUrl = `${requestOrigin(req)}/auth/confirm-email-change?token=${encodeURIComponent(rawToken)}`;
+    const confirmUrl = `${await getTenantAppUrl()}/auth/confirm-email-change?token=${encodeURIComponent(rawToken)}`;
     const mailed = await sendSecurityMail({
       to: newEmail,
       subject: "Confirmez votre nouvel e-mail ScolIA",

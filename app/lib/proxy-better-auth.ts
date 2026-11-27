@@ -1,5 +1,6 @@
 import "server-only";
 
+import { scopedOrgAdminFlag } from "@/app/lib/tenant-session-scope";
 import type { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { isBetterAuthActive } from "@/app/lib/auth-config";
@@ -132,7 +133,9 @@ export async function resolveBetterAuthProxyState(
       : [];
     // Aligné sur useIsOrgAdmin / isOrgAdminFromAppUser : flag DB OU rôle admin.
     const orgAdmin =
-      Boolean(row?.orgAdmin ?? u.orgAdmin) || platformAdmin || roles.includes("admin");
+      scopedOrgAdminFlag(Boolean(row?.orgAdmin ?? u.orgAdmin), homeEtablissementId, activeEtablissementId) ||
+      platformAdmin ||
+      roles.includes("admin");
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);

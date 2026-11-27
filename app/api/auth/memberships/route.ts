@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { getAppSession } from "@/app/lib/app-session";
+import { getAccountIdentity } from "@/app/lib/app-session";
 import { isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { isLocalDevHostname } from "@/app/lib/local-host-keys";
 import { LOCAL_DEV_TENANT_QUERY } from "@/app/lib/local-dev";
@@ -38,19 +38,20 @@ export async function GET() {
   }
 
   try {
-    const session = await getAppSession();
-    if (!session?.user) {
+    // La liste sert justement à rediriger un compte arrivé sur le mauvais établissement.
+    const account = await getAccountIdentity();
+    if (!account) {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     }
 
-    const userId = session.user.id;
-    const platformAdmin = session.user.platformAdmin;
+    const userId = account.id;
+    const platformAdmin = account.platformAdmin;
 
     // Auto-heal : membership manquant alors que user.etablissement_id est posé
-    if (session.user.etablissementId) {
+    if (account.etablissementId) {
       await ensureUserMembership({
         userId,
-        etablissementId: session.user.etablissementId,
+        etablissementId: account.etablissementId,
         context: "staff",
       });
     } else {

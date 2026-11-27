@@ -1,5 +1,9 @@
 import "server-only";
 
+import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { getTenant } from "@/app/lib/tenant-context";
+import type { TenantConfig } from "@/app/lib/tenant-types";
+import { scopedOrgAdminFlag } from "@/app/lib/tenant-session-scope";
 import { createHmac, timingSafeEqual } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { cookies } from "next/headers";
@@ -182,7 +186,10 @@ export async function loadSupervisionTargetProfile(
 
   const roles = await listUserRolesFromDb(row.id, etablissementId);
   const platformAdmin = Boolean(row.platformAdmin);
-  const orgAdmin = Boolean(row.orgAdmin) || platformAdmin || roles.includes("admin");
+  const orgAdmin =
+    scopedOrgAdminFlag(Boolean(row.orgAdmin), row.etablissementId, etablissementId) ||
+    platformAdmin ||
+    roles.includes("admin");
   const businessUserId =
     row.externalUserId?.trim() || (await resolveBusinessUserId(row.id, etablissementId));
 
@@ -231,6 +238,8 @@ export function supervisionTargetToAppUser(profile: SupervisionTargetProfile): A
 export async function resolveActiveSupervision(opts: {
   actorUserId: string;
   cookie?: SupervisionCookiePayload | null;
+  /** Établissement visité ; par défaut celui de la requête (le proxy le fournit). */
+  tenant?: TenantConfig;
 }): Promise<{
   cookie: SupervisionCookiePayload;
   target: SupervisionTargetProfile;
@@ -238,6 +247,9 @@ export async function resolveActiveSupervision(opts: {
   const cookie = opts.cookie ?? (await readSupervisionCookieFromJar());
   if (!cookie) return null;
   if (cookie.actorUserId !== opts.actorUserId) return null;
+  // Les droits de supervision sont obtenus sur un établissement : ils ne valent que là.
+  const visited = await ensureEtablissementFromTenant(opts.tenant ?? (await getTenant()));
+  if (cookie.etablissementId !== visited) return null;
   const target = await loadSupervisionTargetProfile(cookie.targetUserId, cookie.etablissementId);
   if (!target) return null;
   return { cookie, target };

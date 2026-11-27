@@ -1,3 +1,4 @@
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import { after, NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
@@ -7,13 +8,6 @@ import {
 } from "@/app/lib/rh/rh-ocr-batch";
 
 export const maxDuration = 60;
-
-function requestOrigin(req: Request): string {
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "https";
-  if (host) return `${proto}://${host}`.replace(/\/+$/, "");
-  return new URL(req.url).origin;
-}
 
 /** Chunk worker OCR RH (auto-relance si job incomplet). */
 export async function POST(req: Request) {
@@ -33,7 +27,7 @@ export async function POST(req: Request) {
   if (!job) return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
 
   if (job.status === "processing" || job.items.some((i) => i.status === "pending")) {
-    scheduleRhOcrContinuation(jobId, requestOrigin(req));
+    scheduleRhOcrContinuation(jobId, await getTenantAppUrl());
   }
 
   return NextResponse.json({ job });

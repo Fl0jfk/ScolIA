@@ -10,20 +10,10 @@ import {
 } from "./batch-job";
 import { runOcrBatchJob, resolveWorkerOrigin, kickOcrBatchWorker } from "@/app/lib/ocr-batch-process";
 import { ocrTrace } from "@/app/lib/ocr-trace";
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import { flushOcrJobTraces } from "@/app/lib/ocr-job-trace-store";
 
 export const maxDuration = 60;
-
-/** Origine HTTP réelle (derrière le reverse-proxy) pour l'auto-relance serveur. */
-function resolveRequestOrigin(req: Request): string | undefined {
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  if (host) {
-    const proto =
-      req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
-    return `${proto}://${host}`.replace(/\/+$/, "");
-  }
-  return resolveWorkerOrigin(null);
-}
 
 export async function POST(req: Request) {
   const session = await resolveSession();
@@ -78,7 +68,8 @@ export async function POST(req: Request) {
     startedAt: now,
     updatedAt: now,
     accessToken,
-    originUrl: resolveRequestOrigin(req),
+    // Adresse de confiance : l'auto-relance y envoie le secret du worker.
+    originUrl: (await getTenantAppUrl()) || resolveWorkerOrigin(null),
     items,
     currentItemIndex: 0,
     results: [],

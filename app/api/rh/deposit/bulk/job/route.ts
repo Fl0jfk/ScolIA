@@ -1,3 +1,4 @@
+import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import { after, NextResponse } from "next/server";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -11,13 +12,6 @@ import {
 
 export const maxDuration = 60;
 
-
-function requestOrigin(req: Request): string {
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "https";
-  if (host) return `${proto}://${host}`.replace(/\/+$/, "");
-  return new URL(req.url).origin;
-}
 
 /** Crée un job OCR RH et lance le traitement. */
 export async function POST(req: Request) {
@@ -49,7 +43,7 @@ export async function POST(req: Request) {
       })),
     );
 
-    const origin = requestOrigin(req);
+    const origin = await getTenantAppUrl();
     after(async () => {
       const updated = await runRhOcrJob(job.jobId);
       if (

@@ -390,6 +390,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     supervisionActive = await resolveActiveSupervision({
       actorUserId: betterAuthState.authUserId,
       cookie: supervisionCookie,
+      tenant,
     });
   }
 
