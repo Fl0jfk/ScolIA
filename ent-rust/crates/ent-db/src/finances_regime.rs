@@ -410,7 +410,8 @@ pub(crate) async fn regulariser_regime_annee(
         .iter()
         .filter(|l| matches!(l.categorie.as_deref(), Some("restauration" | "internat")))
     {
-        *plafond_bourse.entry(l.foyer_id).or_insert(0) += l.total - l.deja_credite;
+        let e = plafond_bourse.entry(l.foyer_id).or_insert(0);
+        *e = e.saturating_add(l.total.saturating_sub(l.deja_credite));
     }
     let lignes: Vec<LigneExistante> = toutes
         .into_iter()
@@ -499,20 +500,26 @@ pub(crate) async fn regulariser_regime_annee(
         }
         if matches!(l.categorie.as_deref(), Some("restauration" | "internat")) {
             let credites: i64 = avoirs[avoirs_avant..].iter().map(|a| a.credit).sum();
-            *plafond_bourse.entry(l.foyer_id).or_insert(0) += l.total - l.deja_credite - credites;
+            let e = plafond_bourse.entry(l.foyer_id).or_insert(0);
+            *e = e.saturating_add(
+                l.total
+                    .saturating_sub(l.deja_credite)
+                    .saturating_sub(credites),
+            );
         }
     }
     // La bourse ne se déduit que de la restauration et de l'internat restant dus (R-F14) : un avoir de régime qui les
     // réduit réduit d'autant la bourse déjà posée (clé propre à l'état : `d{déjà crédité}`, rejeu neutre).
     for b in &bourses {
-        let reste = -(b.total - b.deja_credite); // une bourse est une déduction : le reste est positif
+        // une bourse est une déduction : le reste est positif
+        let reste = b.deja_credite.saturating_sub(b.total);
         if reste <= 0 {
             continue;
         }
         let plafond = plafond_bourse.entry(b.foyer_id).or_insert(0);
         let permis = reste.min((*plafond).max(0));
-        *plafond -= permis;
-        let excedent = reste - permis;
+        *plafond = plafond.saturating_sub(permis);
+        let excedent = reste.saturating_sub(permis);
         if excedent <= 0 {
             continue;
         }

@@ -7033,9 +7033,11 @@ async fn regime_mois_r11_remise_d_ordre_puis_rejeu_et_sortie_puis_rejeu() {
     facturer(&ent, etab, el).await;
     absence_de(&ent, etab, el, d(2030, 10, 1), d(2030, 12, 31)).await;
     let apres_absence = net_art(&ent, dp, el).await;
-    assert!(
-        apres_absence < 45_000 && apres_absence > 0,
-        "remise d'ordre : {apres_absence}"
+    // F-3 : montant exact, 92 jours sur 303 (1er septembre au 30 juin) : 136,63 € crédités
+    assert_eq!(
+        apres_absence,
+        45_000 - 13_663,
+        "remise d'ordre d'octobre à décembre"
     );
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
@@ -7049,7 +7051,10 @@ async fn regime_mois_r11_remise_d_ordre_puis_rejeu_et_sortie_puis_rejeu() {
     // sortie en octobre : le dû tombe sous le net restant après la remise d'ordre, le solde est crédité
     sortie_a(&ent, etab, el, d(2030, 10, 20), Uuid::new_v4()).await;
     let apres_sortie = net_art(&ent, dp, el).await;
-    assert!(apres_sortie < apres_absence);
+    assert_eq!(
+        apres_sortie, 9_000,
+        "F-3 : septembre et octobre restent dus"
+    );
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
     assert_eq!(
@@ -7804,4 +7809,127 @@ async fn regime_mois_f9_consommation_sans_periode_comptee_dans_le_plafond_de_la_
     facturer(&ent, etab, el).await;
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
     assert_eq!(net_categorie(&ent, el, "bourse").await, -29_000);
+}
+
+/// F-2 : R2 de bout en bout par le vrai chemin ELV-10 (`changer_regime_ou_site`, charge publiée par la scolarité, pas
+/// à la main) : externe puis demi-pension au 15 octobre ; la réaction facture novembre à juin, 360 €. Rejeux neutres.
+#[tokio::test]
+async fn regime_mois_f2_changement_par_le_chemin_elv10_de_bout_en_bout() {
+    use crate::outbox::ConfigDistribution;
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let el = el_regime(&ent, &c, "F2", "externe").await;
+    nouvelle_periode(&ent, etab, el, "externe", d(2030, 1, 1), None).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(net_art(&ent, dp, el).await, 0);
+    ent.changer_regime_ou_site(
+        "administratif",
+        crate::scolarite::ChangementRegimeSite {
+            etablissement_id: etab,
+            eleve_id: el,
+            kind: domain_eleve::AttributKind::Regime,
+            valeur: "demi-pensionnaire".into(),
+            date_effet: d(2030, 10, 15),
+            derogation: None,
+            acteur: c.administratif.user_id,
+        },
+    )
+    .await
+    .unwrap();
+    let distribuer = || async {
+        ent.distributeur(ConfigDistribution {
+            taille_lot: 100,
+            max_tentatives: 3,
+            delai_base: std::time::Duration::ZERO,
+            delai_max: std::time::Duration::ZERO,
+            intervalle: std::time::Duration::from_millis(20),
+            etablissement: Some(etab),
+        })
+        .distribuer_tout()
+        .await
+        .unwrap();
+    };
+    distribuer().await;
+    assert_eq!(
+        net_art(&ent, dp, el).await,
+        36_000,
+        "novembre à juin facturés par la réaction"
+    );
+    assert_eq!(lignes_regime_residuelles(&ent, el).await, 0);
+    let avant = lignes_de(&ent, el).await;
+    distribuer().await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+}
+
+/// F-5 : une ligne déjà facturée à l'organisme puis **entièrement créditée** ne consomme plus le plafond de la prise
+/// « toutes » (1 300 €) : la scolarité (1 200 €) va en entier à l'organisme, rien au payeur suivant. L'ancien calcul
+/// comptait la ligne créditée (200 €) : 1 100 € à l'organisme et 100 € à la famille.
+#[tokio::test]
+async fn regime_mois_f5_ligne_creditee_ne_consomme_plus_le_plafond_de_la_prise() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let _ = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) = eleve_pris_en_charge_gen(
+        &ent,
+        &c,
+        "F5",
+        (d(2030, 9, 1), d(2031, 6, 30)),
+        true,
+        "externe",
+        &["toutes"],
+        &["scolarite"],
+    )
+    .await;
+    plafonner(&ent, el, 130_000).await;
+    // ligne de 200 € posée à l'organisme sur la période de la prise, puis créditée en entier
+    let (facture, avoir, ligne) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    for (id, type_piece, origine) in [(facture, "facture", None), (avoir, "avoir", Some(facture))] {
+        sqlx::query(
+            "INSERT INTO ent_fac_facture (id, etablissement_id, foyer_id, numero, libelle, statut, total_centimes,
+                    nature, annee_scolaire, type_piece, origine, facture_origine_id, created_at)
+             VALUES ($1, $2, $3, 'F5-' || $1::text, 'F5', 'brouillon', 0, 'evenement', $4, $5, 'evenement', $6, now())",
+        )
+        .bind(id)
+        .bind(etab)
+        .bind(fe)
+        .bind(ANNEE)
+        .bind(type_piece)
+        .bind(origine)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    for (id, facture_id, montant, cle, origine) in [
+        (ligne, facture, 20_000_i64, "manuel:f5", None),
+        (Uuid::new_v4(), avoir, -20_000, "avoir:f5", Some(ligne)),
+    ] {
+        sqlx::query(
+            "INSERT INTO ent_fac_ligne (id, etablissement_id, facture_id, eleve_id, libelle, quantite,
+                    montant_unitaire_centimes, source_cle, categorie, ligne_origine_id, periode_debut, periode_fin)
+             VALUES ($1, $2, $3, $4, 'Frais F5', 1, $5, $6, 'frais', $7, '2030-09-01', '2030-09-30')",
+        )
+        .bind(id)
+        .bind(etab)
+        .bind(facture_id)
+        .bind(el)
+        .bind(montant)
+        .bind(format!("{cle}:{el}"))
+        .bind(origine)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    }
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "scolarite"),
+        120_000,
+        "scolarité en entier à l'organisme"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "scolarite"),
+        0,
+        "rien au payeur suivant"
+    );
 }

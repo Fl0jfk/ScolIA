@@ -1051,7 +1051,8 @@ pub(crate) async fn prises_couvrantes(
 }
 
 /// Restant d'**une** prise en charge (M2) : son plafond moins ce qui est déjà facturé au compte pour **ses**
-/// catégories et **sa** période ; jamais additionné aux autres prises. Arithmétique contrôlée.
+/// catégories et **sa** période, **net des avoirs** posés sur ces lignes (F-5 : une ligne entièrement créditée ne
+/// consomme plus le plafond) ; jamais additionné aux autres prises. Arithmétique contrôlée.
 ///
 /// `propres` = (préfixe `{génération}:{élève}:`, articles de la génération) : les lignes que **cette** génération
 /// reforme (même préfixe, mêmes articles) ne comptent pas, la génération les recalcule à neuf et les consomme dans
@@ -1067,7 +1068,11 @@ async fn restant_prise(
 ) -> Result<i64, EntDbError> {
     let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
     let (facture,): (i64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes), 0)::BIGINT
+        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes
+                             + COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes)
+                                           FROM ent_fac_ligne a
+                                          WHERE a.etablissement_id = l.etablissement_id
+                                            AND a.ligne_origine_id = l.id), 0)), 0)::BIGINT
            FROM ent_fac_ligne l
            JOIN ent_fac_facture f ON f.etablissement_id = l.etablissement_id AND f.id = l.facture_id
            LEFT JOIN ent_fin_article ar ON ar.etablissement_id = l.etablissement_id AND ar.id = l.article_id
