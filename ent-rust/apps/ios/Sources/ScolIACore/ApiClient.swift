@@ -295,11 +295,14 @@ public final class ApiClient: @unchecked Sendable {
             throw ErreurApi.horsLigne
         }
         if (200..<300).contains(reponse.statut) { return reponse.corps }
-        throw Self.erreur(reponse, authentifie: authentifie)
+        throw Self.erreur(reponse, authentifie: authentifie, chemin: chemin)
     }
 
+    /// Routes authentifiées où un 401 signifie « mot de passe actuel refusé », jamais « session perdue ».
+    public static let refus401Attendu: Set<String> = ["/auth/passkey/register/finish", "/auth/password"]
+
     /// Traduit une réponse d'erreur : enveloppe codée d'abord, texte court du serveur en repli (anciennes routes).
-    static func erreur(_ reponse: ReponseHttp, authentifie: Bool) -> ErreurApi {
+    static func erreur(_ reponse: ReponseHttp, authentifie: Bool, chemin: String = "") -> ErreurApi {
         let e = try? decodeurBrut.decode(EnveloppeErreur.self, from: reponse.corps).erreur
         let texte = String(decoding: reponse.corps, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         func message(_ defaut: String) -> String {
@@ -308,12 +311,14 @@ public final class ApiClient: @unchecked Sendable {
             return (texte.isEmpty || texte.count > 300 || texte.hasPrefix("<") || texte.hasPrefix("{")) ? defaut : texte
         }
         switch reponse.statut {
-        // 401 : `auth.refusee` (identifiants refusés) n'est pas une session perdue — on ne purge pas.
-        // Sans enveloppe, 401 sur une route sans jeton (connexion) = identifiants refusés.
+        // 401 = identifiants refusés (pas de purge) seulement sur une route sans jeton (connexion) ou qui redemande le
+        // mot de passe (`refus401Attendu`). Ailleurs, même avec `auth.refusee` (posé par le serveur sur tout 401 de
+        // `/auth/*`, y compris un jeton mort sur `/auth/me`), c'est une session perdue.
         case 401:
-            if let e, e.code == "auth.refusee" { return .codee(401, e) }
-            if e == nil && !authentifie { return .refus(401, message("Identifiants incorrects.")) }
-            return .nonAuthentifie
+            let p = chemin.split(separator: "?", maxSplits: 1).first.map(String.init) ?? chemin
+            guard !authentifie || refus401Attendu.contains(p) else { return .nonAuthentifie }
+            if let e { return .codee(401, e) }
+            return .refus(401, message("Identifiants incorrects."))
         case 403: return .interdit(message("Action non autorisée."))
         case 404: return .introuvable(message("Élément introuvable."))
         case 426: return .appliTropAncienne(message("Mettez l'application à jour pour continuer."))
@@ -364,10 +369,15 @@ public final class TransportURLSession: NSObject, Transport, URLSessionTaskDeleg
         return URLSession(configuration: conf, delegate: self, delegateQueue: nil)
     }()
     private let userAgent: String
+    private let autoriserHttp: Bool
 
-    public init(userAgent: String = "ScolIA-iOS") { self.userAgent = userAgent }
+    /// `autoriserHttp` : labo local en Debug seulement ; sinon HTTPS obligatoire (en plus d'ATS).
+    public init(userAgent: String = "ScolIA-iOS", autoriserHttp: Bool = false) {
+        self.userAgent = userAgent; self.autoriserHttp = autoriserHttp
+    }
 
     public func executer(_ r: RequeteHttp) async throws -> ReponseHttp {
+        try Self.verifierSchema(r.url, autoriserHttp: autoriserHttp)
         var req = URLRequest(url: r.url)
         req.httpMethod = r.methode
         req.httpBody = r.corps
@@ -375,6 +385,11 @@ public final class TransportURLSession: NSObject, Transport, URLSessionTaskDeleg
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, rep) = try await session.data(for: req)
         return ReponseHttp(statut: (rep as? HTTPURLResponse)?.statusCode ?? 0, corps: data)
+    }
+
+    static func verifierSchema(_ url: URL, autoriserHttp: Bool) throws {
+        let schema = url.scheme?.lowercased()
+        guard schema == "https" || (autoriserHttp && schema == "http") else { throw URLError(.secureConnectionFailed) }
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

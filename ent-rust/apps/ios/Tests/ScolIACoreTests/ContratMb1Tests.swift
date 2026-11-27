@@ -74,15 +74,41 @@ final class ContratMb1Tests: XCTestCase {
         do { _ = try await client(s).me(); XCTFail() } catch { XCTAssertEqual(error as? ErreurApi, .nonAuthentifie) }
     }
 
-    func testAuthRefuseeNEstPasUneSessionPerdueMemeAvecJeton() async {
-        let s = FauxServeur(["POST /auth/passkey/register/start": (401, enveloppe("auth.refusee", "Identifiants refusés."))])
+    func testMotDePasseActuelRefuseNEstPasUneSessionPerdue() async {
+        let s = FauxServeur(["POST /auth/passkey/register/finish": (401, enveloppe("auth.refusee", "Identifiants refusés."))])
         do {
-            _ = try await client(s).passkeyRegisterStart(); XCTFail()
+            try await client(s).passkeyRegisterFinish(token: "t", credential: [:], nom: "n", motDePasse: "faux"); XCTFail()
         } catch let e as ErreurApi {
             XCTAssertEqual(e.code, "auth.refusee")
             XCTAssertEqual(e.errorDescription, "Identifiants refusés.")
             XCTAssertNotEqual(e, .nonAuthentifie)
         } catch { XCTFail() }
+    }
+
+    func testJetonMortSurUneRouteAuthEstUneSessionPerdue() async throws {
+        let s = FauxServeur(["GET /auth/me": (401, enveloppe("auth.refusee", "Identifiants refusés."))])
+        let coffre = CoffreMemoire("jeton-mort")
+        do { _ = try await client(s, coffre).me(); XCTFail() } catch { XCTAssertEqual(error as? ErreurApi, .nonAuthentifie) }
+        let cache = CacheMemoire()
+        cache.ecrire("k", EntreeCache(json: Data("[]".utf8), horodatage: Date(), expire: .distantFuture))
+        let etat = try await ServiceConnexion(client: client(s, coffre), coffre: coffre, cache: cache, passkey: FauxPasskey()).reprendre()
+        XCTAssertEqual(etat, .deconnecte)
+        XCTAssertNil(coffre.lire())
+        XCTAssertEqual(cache.taille, 0)
+    }
+
+    func testTransportRefuseLeTexteClairHorsLabo() throws {
+        XCTAssertThrowsError(try TransportURLSession.verifierSchema(URL(string: "http://lpnb.scolia.fr/auth/me")!, autoriserHttp: false))
+        XCTAssertNoThrow(try TransportURLSession.verifierSchema(URL(string: "http://127.0.0.1:3001/auth/me")!, autoriserHttp: true))
+        XCTAssertNoThrow(try TransportURLSession.verifierSchema(URL(string: "https://lpnb.scolia.fr/auth/me")!, autoriserHttp: false))
+    }
+
+    func testHorlogeReculeeOuPlafondDepasseRendLEntreeEchue() {
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        let e = EntreeCache(json: Data(), horodatage: t, expire: .distantFuture)
+        XCTAssertFalse(e.echue(t.addingTimeInterval(1)))
+        XCTAssertTrue(e.echue(t.addingTimeInterval(-1)))
+        XCTAssertTrue(e.echue(t.addingTimeInterval(DureeCache.max)))
     }
 
     func testConnexionRefuseeAvecEnveloppe() async {

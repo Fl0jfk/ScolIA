@@ -246,8 +246,9 @@ class TransportHttps(
             val corps = requete.corps?.toByteArray(Charsets.UTF_8)
                 ?: if (requete.methode == "POST" || requete.methode == "PUT") ByteArray(0) else null
             if (corps != null) {
+                // Pas de mode « streaming » : sur la JVM, il transforme un 401 en `HttpRetryException` (le refus
+                // d'identifiants deviendrait « hors ligne »). Les corps sont petits (≤ 1 Mo, §5.8).
                 c.doOutput = true
-                c.setFixedLengthStreamingMode(corps.size)
                 c.outputStream.use { it.write(corps) }
             }
             val statut = c.responseCode

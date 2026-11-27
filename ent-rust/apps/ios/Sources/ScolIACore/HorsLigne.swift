@@ -21,7 +21,10 @@ public struct EntreeCache: Codable, Equatable, Sendable {
     /// ne se décode pas : elle est effacée, jamais servie.
     public let expire: Date
     public init(json: Data, horodatage: Date, expire: Date) { self.json = json; self.horodatage = horodatage; self.expire = expire }
-    public func echue(_ maintenant: Date) -> Bool { maintenant >= expire }
+    /// Échue aussi si l'horloge a reculé avant l'écriture ou dépasse 24 h après (plafond revérifié à la lecture).
+    public func echue(_ maintenant: Date) -> Bool {
+        maintenant >= expire || maintenant < horodatage || maintenant.timeIntervalSince(horodatage) >= DureeCache.max
+    }
 }
 
 public final class CacheMemoire: Cache, @unchecked Sendable {

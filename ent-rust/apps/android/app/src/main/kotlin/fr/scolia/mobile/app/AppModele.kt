@@ -176,6 +176,7 @@ class AppModele(app: Application) : AndroidViewModel(app) {
             s?.deconnexion() // révocation côté serveur au mieux (le jeton est lu avant effacement)
             coffre.effacer()
             cache.toutEffacer()
+            MemoirePushPrefs(getApplication(), r.baseUrl).effacer()
         }
         prefs.dernierEmail = null
         rattachements = rattachements.filter { it.baseUrl != r.baseUrl }

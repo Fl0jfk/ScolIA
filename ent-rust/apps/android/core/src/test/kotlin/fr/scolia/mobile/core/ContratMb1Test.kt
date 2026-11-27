@@ -104,16 +104,29 @@ class ContratMb1Test {
     }
 
     @Test
-    fun auth_refusee_n_est_pas_une_session_perdue_meme_avec_jeton() = runTest {
-        // Ex. : enrôlement passkey avec un mauvais mot de passe actuel : 401 `auth.refusee`, la session reste.
-        val s = FauxServeur(mapOf("POST /auth/passkey/register/start" to ReponseHttp(401, enveloppe("auth.refusee", "Identifiants refusés."))))
+    fun mot_de_passe_actuel_refuse_n_est_pas_une_session_perdue() = runTest {
+        // Enrôlement passkey avec un mauvais mot de passe actuel : 401 `auth.refusee`, la session reste.
+        val s = FauxServeur(mapOf("POST /auth/passkey/register/finish" to ReponseHttp(401, enveloppe("auth.refusee", "Identifiants refusés."))))
         val c = client(s)
         val e = assertFailsWith<ErreurApi.Refus> {
-            c.post("/auth/passkey/register/start", "{}", PasskeyChallengeEnrolement.serializer())
+            c.post("/auth/passkey/register/finish", "{}", PasskeyChallengeEnrolement.serializer())
         }
         assertEquals(401, e.statut)
         assertEquals("auth.refusee", e.code)
         assertEquals("Identifiants refusés.", e.message)
+    }
+
+    @Test
+    fun jeton_mort_sur_une_route_auth_est_une_session_perdue() = runTest {
+        // Le serveur pose `auth.refusee` sur tout 401 de `/auth/*` : un jeton révoqué sur `/auth/me` en reçoit un.
+        val s = FauxServeur(mapOf("GET /auth/me" to ReponseHttp(401, enveloppe("auth.refusee", "Identifiants refusés."))))
+        val coffre = CoffreMemoire().apply { ecrire("jeton-mort") }
+        assertFailsWith<ErreurApi.NonAuthentifie> { client(s, coffre).me() }
+        val cache = CacheMemoire().apply { ecrire("k", EntreeCache("[]", 0, Long.MAX_VALUE)) }
+        val etat = ServiceConnexion(client(s, coffre), coffre, cache, FauxPasskey()).reprendre()
+        assertIs<EtatConnexion.Deconnecte>(etat)
+        assertNull(coffre.lire())
+        assertEquals(0, cache.taille)
     }
 
     @Test
@@ -247,6 +260,14 @@ class ContratMb1Test {
     }
 
     @Test
+    fun horloge_reculee_ou_plafond_depasse_rend_l_entree_echue() {
+        val e = EntreeCache("[]", 1_000_000, Long.MAX_VALUE)
+        assertFalse(e.echue(1_000_000 + 1))
+        assertTrue(e.echue(999_999)) // horloge reculée avant l'écriture
+        assertTrue(e.echue(1_000_000 + DureeCache.MAX_MS)) // plafond de 24 h revérifié à la lecture
+    }
+
+    @Test
     fun purge_au_demarrage_ne_garde_que_le_valide() {
         val cache = CacheMemoire()
         cache.ecrire("a", EntreeCache("[]", 0, 100))
@@ -327,6 +348,12 @@ class ContratMb1Test {
             ex.sendResponseHeaders(404, b.size.toLong())
             ex.responseBody.use { it.write(b) }
         }
+        serveur.createContext("/refus") { ex ->
+            ex.requestBody.readBytes()
+            val b = enveloppe("auth.refusee").toByteArray()
+            ex.sendResponseHeaders(401, b.size.toLong())
+            ex.responseBody.use { it.write(b) }
+        }
         serveur.createContext("/ecrire") { ex ->
             val corps = ex.requestBody.readBytes().toString(Charsets.UTF_8)
             val ok = ex.requestHeaders.getFirst("X-ScolIA-Appli") == APPLI && corps == "{\"a\":1}"
@@ -345,6 +372,10 @@ class ContratMb1Test {
             assertTrue(e.corps.contains("objet.introuvable"))
             val w = t.executer(RequeteHttp("POST", "$base/ecrire", mapOf("X-ScolIA-Appli" to APPLI, "Content-Type" to "application/json"), "{\"a\":1}"))
             assertEquals("ok", w.corps)
+            // Un 401 sur un POST est rendu tel quel (pas d'exception « hors ligne »).
+            val r = t.executer(RequeteHttp("POST", "$base/refus", mapOf("Content-Type" to "application/json"), "{\"email\":\"a\"}"))
+            assertEquals(401, r.statut)
+            assertTrue(r.corps.contains("auth.refusee"))
         } finally {
             serveur.stop(0)
         }

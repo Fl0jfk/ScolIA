@@ -360,19 +360,20 @@ class ApiClient(
             throw ErreurApi.HorsLigne(e)
         }
         if (reponse.statut in 200..299) return reponse.corps
-        throw erreurDe(reponse, authentifie)
+        throw erreurDe(reponse, authentifie, chemin)
     }
 
     /** Traduit une réponse d'erreur : enveloppe codée d'abord, texte court du serveur en repli (anciennes routes). */
-    internal fun erreurDe(reponse: ReponseHttp, authentifie: Boolean): ErreurApi {
+    internal fun erreurDe(reponse: ReponseHttp, authentifie: Boolean, chemin: String = ""): ErreurApi {
         val e = lireEnveloppe(reponse.corps)
         val code = e?.code
         val trace = e?.trace
         fun msg(defaut: String) = e?.message?.takeIf { it.isNotBlank() && it.length <= 500 } ?: messageServeur(reponse.corps, defaut)
         return when (reponse.statut) {
-            // 401 : `auth.refusee` (mauvais identifiants, connexion) n'est pas une session perdue — on ne purge pas.
-            // Sans enveloppe, une route sans jeton (connexion) qui répond 401 = identifiants refusés.
-            401 -> if (code == CODE_AUTH_REFUSEE || (code == null && !authentifie)) {
+            // 401 = identifiants refusés (pas de purge) seulement sur une route **sans jeton** (connexion) ou sur une route
+            // qui redemande le mot de passe (`REFUS_401_ATTENDU`). Ailleurs, même avec `auth.refusee` (que le serveur pose
+            // sur tout 401 de `/auth/*`, y compris un jeton mort sur `/auth/me`), c'est une session perdue.
+            401 -> if (!authentifie || chemin.substringBefore('?') in REFUS_401_ATTENDU) {
                 ErreurApi.Refus(401, msg("Identifiants incorrects."), code ?: CODE_AUTH_REFUSEE, trace = trace)
             } else {
                 ErreurApi.NonAuthentifie("Session expirée : reconnectez-vous.", code, trace)
@@ -414,6 +415,9 @@ class ApiClient(
         const val APPLI_INCONNUE = "android/0.0.0 (build 0)"
         const val CODE_AUTH_REFUSEE = "auth.refusee"
         private val ECRITURES = setOf("POST", "PUT", "PATCH", "DELETE")
+
+        /** Routes authentifiées où un 401 signifie « mot de passe actuel refusé », jamais « session perdue ». */
+        val REFUS_401_ATTENDU = setOf("/auth/passkey/register/finish", "/auth/password")
 
         /** Valeur de `X-ScolIA-Appli` : plateforme et version, aucun identifiant d'appareil. */
         fun valeurAppli(plateforme: String, version: String, build: Long): String = "$plateforme/$version (build $build)"

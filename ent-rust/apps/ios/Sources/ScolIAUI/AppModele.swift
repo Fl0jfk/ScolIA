@@ -38,7 +38,10 @@ public final class AppModele {
         return ApiClient.valeurAppli(plateforme: "ios", version: version, build: build)
     }()
 
+    @ObservationIgnored private let modeLabo: Bool
+
     public init(modeLabo: Bool = false) {
+        self.modeLabo = modeLabo
         lecteurLiens = LecteurRattachement(modeLabo: modeLabo)
         // DA1 : aucune lecture échue ne survit au démarrage.
         cache.purgerEchues(Date())
@@ -58,7 +61,7 @@ public final class AppModele {
 
     private func configurer(_ r: Rattachement) {
         let coffre = CoffreKeychain(etablissement: r.id)
-        let c = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { coffre.lire() }, etablissementIdLabo: r.etablissementIdLabo, appli: appli)
+        let c = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(autoriserHttp: modeLabo), jeton: { coffre.lire() }, etablissementIdLabo: r.etablissementIdLabo, appli: appli)
         client = c
         service = ServiceConnexion(client: c, coffre: coffre, cache: cache, passkey: passkey,
                                    memoirePush: MemoirePushDefauts(etablissement: r.id))
@@ -79,7 +82,7 @@ public final class AppModele {
             switch self.lecteurLiens.lire(saisie) {
             case .refuse(let raison): self.erreur = raison
             case .ok(var r):
-                let sonde = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(), jeton: { nil }, etablissementIdLabo: r.etablissementIdLabo, appli: self.appli)
+                let sonde = ApiClient(baseURL: r.baseURL, transport: TransportURLSession(autoriserHttp: self.modeLabo), jeton: { nil }, etablissementIdLabo: r.etablissementIdLabo, appli: self.appli)
                 do {
                     r.nom = try await sonde.etablissementDeLAdresse().nom
                 } catch ErreurApi.introuvable(_) where r.etablissementIdLabo != nil {
@@ -108,6 +111,7 @@ public final class AppModele {
             await s?.deconnexion() // lit le jeton avant de l'effacer
             coffre.effacer()
             c.toutEffacer()
+            MemoirePushDefauts(etablissement: r.id).effacer()
         }
         defauts.removeObject(forKey: "email")
         rattachements.removeAll { $0.id == r.id }
@@ -121,10 +125,10 @@ public final class AppModele {
 
     @ObservationIgnored private var reprise: Task<Void, Never>?
 
-    /// Reprise de session ; annule une reprise en cours pour un autre établissement.
     /// Retour au premier plan : purge des lectures échues (minuit passé pendant l'arrière-plan, DA1).
     public func auPremierPlan() { cache.purgerEchues(Date()) }
 
+    /// Reprise de session ; annule une reprise en cours pour un autre établissement.
     public func reprendre() {
         reprise?.cancel()
         lecteur?.purger()

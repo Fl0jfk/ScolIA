@@ -30,7 +30,9 @@ interface Cache {
 
 /** `expireMs` : instant après lequel l'entrée ne doit plus être servie ni gardée. */
 data class EntreeCache(val json: String, val horodatageMs: Long, val expireMs: Long) {
-    fun echue(maintenantMs: Long) = maintenantMs >= expireMs
+    /** Échue aussi si l'horloge a reculé avant l'écriture ou dépasse 24 h après (plafond revérifié à la lecture). */
+    fun echue(maintenantMs: Long) =
+        maintenantMs >= expireMs || maintenantMs < horodatageMs || maintenantMs - horodatageMs >= DureeCache.MAX_MS
 }
 
 class CacheMemoire : Cache {
