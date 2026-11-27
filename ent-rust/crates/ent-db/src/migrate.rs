@@ -608,6 +608,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // tableau ; chacune de ses fonctions porte `SET search_path = pg_catalog, public, pg_temp` et qualifie
     // ses relations `public.`. Sous 3808 : `MIGRATION_TAG` inchangé.
     m!("2544_rgpd_g3_demandes"),
+    // Palier des faibles regroupés, lot 2 (658, plage 640–659 du socle 42 ; **fin de tableau**, règle 38) : la garde des
+    // faits de contournement (657) prend le verrou consultatif de la sortie (M-2 de la contre-revue V3b suites 2). 640 à
+    // 657 sont versées et ne changent pas (règle 25) ; sa fonction porte son `search_path`. `MIGRATION_TAG` inchangé.
+    m!("658_sortie_voyages_faibles_verrou_faits"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
@@ -913,6 +917,31 @@ pub(crate) async fn rejouer_liste(pool: &PgPool, liste: &[(&str, &str)]) -> Resu
             if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
                 continue;
             }
+            // Palier des faibles, lot 4 (moyen 2 de la contre-revue cahier suites 2, en file) : un groupe de fichiers qui
+            // recréent la même fonction se rejoue d'un bloc, dans une transaction, à la place de son premier membre ;
+            // les membres suivants sont alors sautés.
+            if let Some(groupe) = REJEUX_GROUPES.iter().find(|g| g.contains(nom)) {
+                if groupe[0] != *nom {
+                    continue;
+                }
+                let sqls: Vec<&str> = groupe
+                    .iter()
+                    .filter_map(|m| liste.iter().find(|(n, _)| n == m).map(|(_, q)| *q))
+                    .collect();
+                let mut tentative = 0u64;
+                loop {
+                    match apply_sql_files_rejeu_tx(pool, &sqls).await {
+                        Err(MigrateError::Sqlx(sqlx::Error::Database(e)))
+                            if tentative < 4 && e.code().is_some_and(|c| c.starts_with("40")) =>
+                        {
+                            tentative += 1;
+                            tokio::time::sleep(std::time::Duration::from_millis(200 * tentative)).await;
+                        }
+                        r => break r?,
+                    }
+                }
+                continue;
+            }
             for (fichier, garde) in GARDES_DE_REJEU {
                 if fichier == nom {
                     sqlx::query(garde).execute(&mut verrou).await?;
@@ -1053,6 +1082,46 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
     for stmt in ordres(sql) {
         sqlx::query(&stmt).execute(pool).await?;
     }
+    Ok(())
+}
+
+/// Groupes de fichiers rejoués **d'un bloc** par `rejouer_liste` (tests seulement). 2420 recrée
+/// `ent_cdt_ecriture_gardee_fille()`, déjà recréée par 2419 : rejouées une à une sur une base partagée, la version de 2419
+/// servait un instant les déclencheurs des tables posées par 2420 (`record "r" has no field "cours_id"`, rouges locaux de la
+/// contre-revue cahier suites 2, moyen 2). Rejouées dans **une** transaction, les autres sessions ne voient que l'état
+/// d'avant ou l'état d'après. Le groupe est rejoué à la place de son premier membre (2420 ne dépend d'aucun fichier placé
+/// entre les deux dans le tableau).
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+const REJEUX_GROUPES: &[&[&str]] = &[&["2419_cdt_suites_gel_filles", "2420_cdt_suites2_gel_echeances"]];
+
+/// Rejeu d'un groupe de fichiers dans une seule transaction ; un échec toléré (liste fermée de [`rejeu_tolere`]) est
+/// annulé par un point de reprise, sans interrompre la transaction.
+#[cfg(test)]
+#[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // utilisé seulement par des tests réservés à la feature labo
+async fn apply_sql_files_rejeu_tx(pool: &PgPool, sqls: &[&str]) -> Result<(), MigrateError> {
+    let mut tx = pool.begin().await?;
+    for sql in sqls {
+        for stmt in ordres(sql) {
+            sqlx::query("SAVEPOINT ent_rejeu_groupe").execute(&mut *tx).await?;
+            match sqlx::query(&stmt).execute(&mut *tx).await {
+                Ok(_) => {
+                    sqlx::query("RELEASE SAVEPOINT ent_rejeu_groupe").execute(&mut *tx).await?;
+                }
+                Err(e) => {
+                    let code = match &e {
+                        sqlx::Error::Database(d) => d.code().map(|c| c.to_string()).unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    if !rejeu_tolere(&code, &stmt) {
+                        return Err(e.into());
+                    }
+                    sqlx::query("ROLLBACK TO SAVEPOINT ent_rejeu_groupe").execute(&mut *tx).await?;
+                }
+            }
+        }
+    }
+    tx.commit().await?;
     Ok(())
 }
 

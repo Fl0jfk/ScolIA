@@ -3857,18 +3857,20 @@ async fn v3b_le_rattrapage_de_656_atteint_les_lignes_sous_la_rls_stricte() {
         .unwrap();
         assert!(pose, "{colonne} rattrapée sous la RLS stricte");
     }
-    // Rejeu complet par le propriétaire : remet les contraintes écartées.
-    sqlx::raw_sql(sql)
-        .execute(proprietaire.pool())
-        .await
-        .expect("rejeu de 656");
-    // 657 recrée les fonctions que le rejeu de 656 vient de remplacer : elle est rejouée à sa suite (même base, autres tests).
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/657_sortie_voyages_v3b_suites_2.sql"
-    ))
-    .execute(proprietaire.pool())
-    .await
-    .expect("rejeu de 657");
+    // Palier des faibles, lot 2 (précédent de M-4, contre-revue V3b suites 2) : ne remet QUE les deux contraintes
+    // écartées. Un rejeu complet de 656 puis 657 remettait un instant (et, depuis 658, durablement) des fonctions d'avant
+    // sous les tests voisins de la même base.
+    for ddl in [
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_rentree_le_chk
+            CHECK ((etat <> 'rentree' OR rentree_le IS NOT NULL) AND (rentree_le IS NULL OR etat IN ('rentree', 'close')))",
+        "ALTER TABLE ent_sortie ADD CONSTRAINT ent_sortie_annulee_le_chk
+            CHECK ((etat = 'annulee') = (annulee_le IS NOT NULL))",
+    ] {
+        sqlx::query(ddl)
+            .execute(proprietaire.pool())
+            .await
+            .expect("contrainte rétablie");
+    }
     crate::tenant_tx::forcer_mode_test(None);
 }
 
@@ -5611,4 +5613,172 @@ async fn v3b2_le_rattrapage_restaure_le_reglage_de_l_etablissement_et_se_rejoue_
     .await
     .expect("contrainte rétablie");
     crate::tenant_tx::forcer_mode_test(None);
+}
+
+// ───────────────────────── Palier des faibles regroupés, lot 2 (contre-revue V3b suites 2) ─────────────────────────
+
+/// M-2 (658) : en SQL direct, une révocation et un usage concurrents d'une même autorisation ne passent plus tous les deux.
+/// La garde des faits prend le verrou de la sortie : la seconde transaction attend la première, puis lit son fait.
+#[tokio::test]
+async fn faibles_l2_m2_revocation_et_usage_concurrents_en_sql_direct_un_seul_passe() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    for (premier, second, attendu) in [
+        ("revoque", "utilise", "révoqué"),
+        ("utilise", "revoque", "déjà utilisé"),
+    ] {
+        let ac = ent
+            .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+            .await
+            .unwrap();
+        let c = ent
+            .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac.id, "Course"), t0)
+            .await
+            .unwrap();
+        ent.voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, t0)
+            .await
+            .unwrap();
+        let qui = |ev: &str| if ev == "revoque" { libre.user_id } else { lie.user_id };
+        let cible = |ev: &str| (ev == "utilise").then_some(ac.id);
+        let mut t1 = ent.pool_verif().begin().await.unwrap();
+        fait(&x, c.id, premier, qui(premier), cible(premier))
+            .execute(&mut *t1)
+            .await
+            .unwrap_or_else(|e| panic!("{premier} : {e}"));
+        // La seconde transaction démarre pendant que la première tient le verrou de la sortie.
+        let pool = ent.pool_verif().clone();
+        let q = fait(&x, c.id, second, qui(second), cible(second));
+        let h = tokio::spawn(async move { q.execute(&pool).await });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            !h.is_finished(),
+            "{second} attend le verrou de la sortie tenu par {premier}"
+        );
+        t1.commit().await.unwrap();
+        let r = h.await.unwrap();
+        assert_eq!(code_sql(&r).as_deref(), Some("23514"), "{premier} puis {second}");
+        assert!(message_sql(&r).contains(attendu), "{}", message_sql(&r));
+    }
+}
+
+/// F-4 : une demande expirée qui n'a jamais été autorisée n'a rien à révoquer : conflit d'état (409), pas un refus de
+/// personne (403). F-6 : le refus de révocation par une autre personne que l'autrice est tracé.
+#[tokio::test]
+async fn faibles_l2_f4_f6_revocation_d_une_demande_expiree_et_refus_trace() {
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let autre = compta_libre(&x).await;
+    let ac = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac.id, "Expirée"), t0)
+        .await
+        .unwrap();
+    for qui in [&libre, &autre] {
+        let e = ent
+            .voyage_contournement_revoquer_a(qui, x.s.id, c.id, plus(t0, 31))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(e, EntDbError::Domain(domain_eleve::DomainError::Conflit)),
+            "expirée sans autorisation : conflit, pas un refus de personne : {e:?}"
+        );
+    }
+    // Une autorisation : une autre personne que l'autrice ne révoque pas, et son refus laisse une trace.
+    let ac2 = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let c2 = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac2.id, "Autorisée"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, c2.id, true, None, t0)
+        .await
+        .unwrap();
+    let avant = nb_refus(&x, autre.user_id, "voyage_contournement_revoquer_a").await;
+    let e = ent
+        .voyage_contournement_revoquer_a(&autre, x.s.id, c2.id, t0)
+        .await
+        .unwrap_err();
+    assert!(est_interdit_metier(&e), "{e:?}");
+    assert_eq!(
+        nb_refus(&x, autre.user_id, "voyage_contournement_revoquer_a").await,
+        avant + 1,
+        "refus de révocation tracé"
+    );
+}
+
+/// F-3 et F-5 : les refus de cycle de vie d'un contournement venus de la base (course) sont des conflits d'état, pas des
+/// interdictions de la règle 3 ; la révocation par une autre personne reste une interdiction ; un refus de portée
+/// (« ne couvre pas cette cible ») reste celui de la règle 3.
+#[tokio::test]
+async fn faibles_l2_f3_f5_refus_de_la_base_traduits_en_refus_metier() {
+    use crate::voyages_argent_v3::{db_pouvoir, est_refus_regle3};
+    let Some(x) = suivi_v3().await else { return };
+    x.sync().await;
+    let ent = &x.c.ent;
+    let t0 = instant_base(&x).await;
+    let jour = x.c.jour_etab().await;
+    let presta = un_prestataire(&x).await;
+    let lie = compta_parent_de(&x, x.c.eleves[1]).await;
+    let libre = x.compta();
+    let autre = compta_libre(&x).await;
+    let ac = ent
+        .voyage_acompte_creer(&libre, x.s.id, acompte_de(presta, jour))
+        .await
+        .unwrap();
+    let c = ent
+        .voyage_contournement_demander_a(&lie, x.s.id, dem_annuler(ac.id, "Traduction"), t0)
+        .await
+        .unwrap();
+    ent.voyage_contournement_decider_a(&libre, x.s.id, c.id, true, None, t0)
+        .await
+        .unwrap();
+    // Portée : une autre cible reste un refus de la règle 3.
+    let r = fait(&x, c.id, "utilise", lie.user_id, Some(Uuid::new_v4()))
+        .execute(ent.pool_verif())
+        .await;
+    assert!(est_refus_regle3(&db_pouvoir(r.unwrap_err())));
+    // Révocation par une autre personne : interdiction (tracée par le service).
+    let r = fait(&x, c.id, "revoque", autre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    let e = db_pouvoir(r.unwrap_err());
+    assert!(est_interdit_metier(&e) && !est_refus_regle3(&e), "{e:?}");
+    // Révoquée, puis utilisée : conflit d'état.
+    fait(&x, c.id, "revoque", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let r = fait(&x, c.id, "utilise", lie.user_id, Some(ac.id))
+        .execute(ent.pool_verif())
+        .await;
+    let e = db_pouvoir(r.unwrap_err());
+    assert!(
+        matches!(e, EntDbError::Refus(RefusMetier::Conflit, _)),
+        "révoquée puis utilisée : {e:?}"
+    );
+    // Une seconde révocation (index d'unicité) reste un conflit ordinaire.
+    let r = fait(&x, c.id, "revoque", libre.user_id, None)
+        .execute(ent.pool_verif())
+        .await;
+    assert!(matches!(
+        db_pouvoir(r.unwrap_err()),
+        EntDbError::Domain(domain_eleve::DomainError::Conflit)
+    ));
 }
