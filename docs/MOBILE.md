@@ -174,8 +174,9 @@ Le workflow `ent-rust.yml` lance `mobile-android` (validation du wrapper Gradle,
 cd ent-rust/apps/android
 ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 # Sans SDK Android : ./gradlew -Pscolia.coreSeulement=true :core:test
-# Si Maven Central répond 429 (limite de débit) : miroir au choix, hors dépôt (~/.gradle/init.d) ;
-#   pour l'image Android de Robolectric : -Pscolia.robolectricRepo=https://<miroir>/maven2/
+# Si Maven Central répond 429 (limite de débit) : miroir au choix, hors dépôt (~/.gradle/init.d).
+#   Robolectric tourne hors ligne : son image Android (android-all-instrumented) est une dépendance
+#   Gradle (configuration imageRobolectric), donc couverte par ce miroir et par le cache Gradle de la CI.
 
 # iOS, cœur seul (Linux ou Mac, Swift 5.9+)
 cd ent-rust/apps/ios && swift test

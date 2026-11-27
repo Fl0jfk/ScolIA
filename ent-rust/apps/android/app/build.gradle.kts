@@ -7,6 +7,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Image Android instrumentée de Robolectric pour le SDK des tests (@Config(sdk = [34]) de
+// EcransComposeTest). La version suit Robolectric : 14-robolectric-10818077 = Android 14 (SDK 34),
+// « -i7 » = PREINSTRUMENTED_VERSION de Robolectric 4.14.1. Changer l'un impose de changer l'autre :
+// en mode hors ligne, une image absente fait échouer les tests avec un message explicite.
+val imageRobolectric: Configuration by configurations.creating { isTransitive = false }
+val dossierImageRobolectric = layout.buildDirectory.dir("robolectric-sdk")
+val preparerImageRobolectric = tasks.register<Sync>("preparerImageRobolectric") {
+    from(imageRobolectric)
+    into(dossierImageRobolectric)
+}
+
 android {
     namespace = "fr.scolia.mobile.app"
     compileSdk = 36
@@ -48,13 +59,13 @@ android {
     testOptions {
         // Robolectric (tests Compose sans appareil) a besoin des ressources fusionnées.
         unitTests.isIncludeAndroidResources = true
-        // Facultatif : miroir Maven pour le téléchargement de l'image Android de Robolectric
-        // (-Pscolia.robolectricRepo=https://miroir/maven2/) quand Maven Central limite le débit.
+        // Robolectric hors ligne : l'image Android est résolue par Gradle (cache Gradle de la CI,
+        // nouvelles tentatives, miroirs de ~/.gradle/init.d) au lieu d'être téléchargée en direct
+        // par Robolectric pendant les tests (échecs réseau HttpURLConnection sur les runners).
         unitTests.all { t ->
-            providers.gradleProperty("scolia.robolectricRepo").orNull?.let {
-                t.systemProperty("robolectric.dependency.repo.url", it)
-                t.systemProperty("robolectric.dependency.repo.id", "miroir")
-            }
+            t.dependsOn(preparerImageRobolectric)
+            t.systemProperty("robolectric.offline", "true")
+            t.systemProperty("robolectric.dependency.dir", dossierImageRobolectric.get().asFile.absolutePath)
         }
     }
 
@@ -96,6 +107,7 @@ dependencies {
     testImplementation(kotlin("test"))
     // Tests Compose sans appareil ni émulateur (JVM + Robolectric).
     testImplementation("org.robolectric:robolectric:4.14.1")
+    imageRobolectric("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core-ktx:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
