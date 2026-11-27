@@ -508,6 +508,20 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "secret-santa",
+    pathPrefixes: ["/secret-santa", "/api/secret-santa"],
+    // Tout le personnel : chacun organise le sien ; les routes limitent chaque Secret Santa à ses membres.
+    allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
+    dashboard: {
+      id: 504,
+      name: "Secret Santa",
+      img: "",
+      link: "/secret-santa",
+      external: false,
+      description: "Organiser un tirage entre collègues et découvrir ensemble à qui offrir.",
+    },
+  },
+  {
     id: "demandes-hse",
     pathPrefixes: ["/demandes-hse", "/api/demandes-hse"],
     allowedRoles: [...DIRECTIONS, "professeur"],
@@ -1154,6 +1168,7 @@ function findMatchingModules(pathname: string): IntranetModule[] {
 const MODULES_IGNORE_ACCESS_OVERRIDES = new Set([
   // Nouveau module absent des matrices déjà enregistrées : le rôle métier (prof, direction) fait foi.
   "sorties-classe",
+  "secret-santa",
   "dashboard-week-sheet",
   "legacy-hub-redirects",
   "scolia-ai",
@@ -1314,6 +1329,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-services": [
     "travels",
     "sorties-classe",
+    "secret-santa",
     "prof-room",
     "requests-staff",
     "domain-planning",

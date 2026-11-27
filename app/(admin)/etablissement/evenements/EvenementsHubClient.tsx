@@ -281,7 +281,7 @@ export default function EvenementsHubClient() {
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "portes-ouvertes" || t === "rentree" || t === "secret-santa") {
+    if (t === "portes-ouvertes" || t === "rentree") {
       setTab(t);
     }
   }, []);
@@ -635,7 +635,6 @@ export default function EvenementsHubClient() {
             { id: "overview", label: "Vue d’ensemble" },
             { id: "portes-ouvertes", label: "Portes ouvertes" },
             { id: "rentree", label: "Rentrée" },
-            { id: "secret-santa", label: "Secret Santa" },
           ]}
           active={tab}
           onChange={(id) => {
@@ -669,17 +668,21 @@ export default function EvenementsHubClient() {
                     </span>
                   </div>
                   <p className="text-sm opacity-90 flex-1">{ev.description}</p>
-                  <p className="text-[11px] font-bold opacity-70">
-                    {enabled ? "Activé" : "Désactivé"}
-                  </p>
+                  {ev.id !== "secret-santa" ? (
+                    <p className="text-[11px] font-bold opacity-70">
+                      {enabled ? "Activé" : "Désactivé"}
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setTab(ev.id)}
-                      className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
-                    >
-                      Configurer
-                    </button>
+                    {ev.id !== "secret-santa" ? (
+                      <button
+                        type="button"
+                        onClick={() => setTab(ev.id)}
+                        className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                      >
+                        Configurer
+                      </button>
+                    ) : null}
                     {ev.publicHref && enabled ? (
                       <Link
                         href={ev.publicHref}
@@ -688,12 +691,12 @@ export default function EvenementsHubClient() {
                         Page publique
                       </Link>
                     ) : null}
-                    {ev.id === "secret-santa" && enabled ? (
+                    {ev.id === "secret-santa" ? (
                       <Link
-                        href="/etablissement/evenements/secret-santa"
-                        className="inline-flex rounded-xl border border-current/20 bg-white/70 px-3 py-2 text-xs font-bold hover:bg-white"
+                        href="/secret-santa"
+                        className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
                       >
-                        Lancer le tirage
+                        Ouvrir
                       </Link>
                     ) : null}
                   </div>
@@ -1152,55 +1155,6 @@ export default function EvenementsHubClient() {
                 </a>
               </>
             ) : null}
-          </section>
-        ) : null}
-
-        {tab === "secret-santa" ? (
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-            <Toggle
-              checked={config.tools["secret-santa"].enabled}
-              onChange={(v) => patchTool("secret-santa", { enabled: v })}
-              label="Activer Secret Santa"
-            />
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">Titre</span>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                value={config.tools["secret-santa"].title}
-                onChange={(e) => patchTool("secret-santa", { title: e.target.value })}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">Budget indicatif</span>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                value={config.tools["secret-santa"].budgetHint}
-                onChange={(e) => patchTool("secret-santa", { budgetHint: e.target.value })}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">
-                Participants (un nom par ligne)
-              </span>
-              <textarea
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[140px] font-mono"
-                value={config.tools["secret-santa"].participantNames.join("\n")}
-                onChange={(e) =>
-                  patchTool("secret-santa", {
-                    participantNames: e.target.value
-                      .split(/\r?\n/)
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </label>
-            <Link
-              href="/etablissement/evenements/secret-santa"
-              className="inline-block rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white"
-            >
-              Lancer le tirage →
-            </Link>
           </section>
         ) : null}
 

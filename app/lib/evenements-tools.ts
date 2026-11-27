@@ -66,7 +66,7 @@ export const EVENEMENTS_TOOLS_META: {
   {
     id: "secret-santa",
     title: "Secret Santa",
-    description: "Tirage au sort anonyme pour l’équipe ou une classe.",
+    description: "Plusieurs tirages entre collègues, découverte en même temps à l’heure choisie.",
     season: "Décembre",
     accent: "border-rose-200 bg-rose-50/80 text-rose-900",
   },

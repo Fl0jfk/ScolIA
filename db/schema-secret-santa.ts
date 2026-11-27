@@ -1,0 +1,47 @@
+import { index, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { etablissement } from "./etablissement-table";
+
+/** Secret Santa : un organisateur, ses participants, un tirage à une heure précise. */
+export const secretSanta = pgTable(
+  "secret_santa",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    organizerUserId: text("organizer_user_id").notNull(),
+    organizerName: text("organizer_name").notNull(),
+    title: text("title").notNull(),
+    budget: text("budget").notNull().default(""),
+    message: text("message").notNull().default(""),
+    revealAt: timestamp("reveal_at", { withTimezone: true }).notNull(),
+    drawnAt: timestamp("drawn_at", { withTimezone: true }),
+    /** Paires interdites : `[[userId, userId], …]`. */
+    exclusions: jsonb("exclusions").$type<[string, string][]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("secret_santa_organizer_idx").on(t.etablissementId, t.organizerUserId)],
+);
+
+export const secretSantaParticipant = pgTable(
+  "secret_santa_participant",
+  {
+    santaId: uuid("santa_id")
+      .notNull()
+      .references(() => secretSanta.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    displayName: text("display_name").notNull(),
+    email: text("email").notNull(),
+    /** Rempli au tirage. Montré uniquement à la personne `userId`. */
+    receiverUserId: text("receiver_user_id"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ name: "secret_santa_participant_pk", columns: [t.santaId, t.userId] }),
+    index("secret_santa_participant_user_idx").on(t.userId),
+  ],
+);
+
+export const secretSantaSchema = { secretSanta, secretSantaParticipant };
