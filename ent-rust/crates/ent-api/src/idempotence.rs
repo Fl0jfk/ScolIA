@@ -28,10 +28,19 @@
 //!   de finances ne sont jamais conservées (`reponse_sensible`). Une écriture refusée par une garde (403, 404) n'est
 //!   jamais conservée non plus.
 //! - **F3** : une requête dont la clé est « en cours » interroge le registre toutes les 50 ms, 10 s au plus (200
-//!   lectures). Le nombre de requêtes simultanées d'une session reste borné par la limitation de débit et le délai
-//!   de requête ; un plafond propre par session est en file.
+//!   lectures). Palier des faibles n° 2 : **au plus [`ATTENTES_MAX_PAR_SESSION`] requêtes d'une même session
+//!   attendent à la fois** (compteur du processus) ; au-delà, `409 idempotence.en_cours` tout de suite, avec
+//!   `Retry-After`. Une session ne peut donc plus occuper le registre par une rafale de requêtes de même clé.
 //! - **F6** : le corps d'une écriture avec clé est lu en mémoire pour l'empreinte, dans la limite de
 //!   `max_body_bytes()` (la même que `RequestBodyLimitLayer`) : aucune lecture non bornée.
+//!
+//! **Délai d'exécution** (palier des faibles n° 2, reste du moyen M2 de la contre-revue MB1). L'exécution tourne
+//! dans une tâche détachée : le délai de requête (`TimeoutLayer`, `ENT_REQUEST_TIMEOUT_SECS`) ne l'arrête pas.
+//! Sans borne propre, une exécution plus longue que [`IDEMPOTENCE_ABANDON_S`] voyait sa revendication reprise par
+//! un nouvel essai : seconde exécution. Elle est donc bornée à [`IDEMPOTENCE_EXECUTION_MAX_S`] (strictement moins
+//! que le délai d'abandon) ; au-delà, l'exécution est interrompue (sa transaction est annulée) et la clé est close
+//! **non rejouable** (D-069 : jamais une seconde exécution, même si l'écriture avait abouti juste avant la borne).
+//! La réponse est `408 delai.depasse`.
 
 use crate::enveloppe::{avec_code, declare_appli};
 use crate::AppState;
@@ -40,14 +49,107 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, Response, StatusCode};
 use axum::middleware::Next;
 use ent_db::idempotence::{
-    empreinte_requete, ReponseConservee, RevendicationCle, IDEMPOTENCE_CORPS_MAX,
+    empreinte_requete, ReponseConservee, RevendicationCle, IDEMPOTENCE_ABANDON_S,
+    IDEMPOTENCE_CORPS_MAX, IDEMPOTENCE_EXECUTION_MAX_S,
 };
 use ent_types::erreurs::CodeErreur;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 /// Attente maximale d'une requête dont la clé est en cours chez une autre requête.
 const ATTENTE_MAX_MS: u64 = 10_000;
 const PAS_ATTENTE_MS: u64 = 50;
+
+/// F3 (palier des faibles n° 2) : nombre maximal de requêtes d'une même session qui attendent à la fois une clé en
+/// cours, dans ce processus.
+pub(crate) const ATTENTES_MAX_PAR_SESSION: usize = 4;
+
+const _: () = assert!(IDEMPOTENCE_EXECUTION_MAX_S < IDEMPOTENCE_ABANDON_S);
+
+fn attentes() -> &'static Mutex<HashMap<Uuid, usize>> {
+    static A: OnceLock<Mutex<HashMap<Uuid, usize>>> = OnceLock::new();
+    A.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Place d'attente d'une session : rendue à la destruction (fin de l'attente, réponse, abandon du client).
+struct PlaceAttente(Uuid);
+
+impl PlaceAttente {
+    /// `None` si la session a déjà [`ATTENTES_MAX_PAR_SESSION`] requêtes en attente.
+    fn prendre(session: Uuid) -> Option<Self> {
+        let mut a = attentes().lock().unwrap_or_else(|e| e.into_inner());
+        let n = a.entry(session).or_insert(0);
+        if *n >= ATTENTES_MAX_PAR_SESSION {
+            return None;
+        }
+        *n += 1;
+        Some(PlaceAttente(session))
+    }
+}
+
+impl Drop for PlaceAttente {
+    fn drop(&mut self) {
+        let mut a = attentes().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = a.get_mut(&self.0) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                a.remove(&self.0);
+            }
+        }
+    }
+}
+
+fn reponse_en_cours() -> Response<Body> {
+    let mut res = avec_code(
+        CodeErreur::IdempotenceEnCours,
+        "Cette opération est déjà en cours de traitement.",
+    );
+    res.headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+    res
+}
+
+/// Borne de l'exécution d'une écriture idempotente. Les tests peuvent la raccourcir pour **leur** établissement
+/// (aucun effet sur les autres tests du même processus).
+fn delai_execution(etab: Uuid) -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(ms) = delais_de_test()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&etab)
+    {
+        return std::time::Duration::from_millis(*ms);
+    }
+    let _ = etab;
+    std::time::Duration::from_secs(IDEMPOTENCE_EXECUTION_MAX_S as u64)
+}
+
+#[cfg(test)]
+fn delais_de_test() -> &'static Mutex<HashMap<Uuid, u64>> {
+    static D: OnceLock<Mutex<HashMap<Uuid, u64>>> = OnceLock::new();
+    D.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Tests : borne d'exécution raccourcie pour un établissement.
+#[cfg(test)]
+pub(crate) fn raccourcir_delai_execution(etab: Uuid, ms: u64) {
+    delais_de_test()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(etab, ms);
+}
+
+/// Tests : nombre de requêtes en attente d'une session.
+#[cfg(test)]
+pub(crate) fn attentes_de(session: Uuid) -> usize {
+    attentes()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&session)
+        .copied()
+        .unwrap_or(0)
+}
 
 fn est_ecriture(m: &Method) -> bool {
     matches!(
@@ -161,6 +263,7 @@ pub async fn idempotence(
 
     let (etab, session) = (info.etablissement_id, info.session_id);
     let mut attendu_ms = 0;
+    let mut place: Option<PlaceAttente> = None;
     loop {
         let maintenant = (state.horloge)();
         match state
@@ -184,13 +287,14 @@ pub async fn idempotence(
             }
             Ok(RevendicationCle::EnCours) => {
                 if attendu_ms >= ATTENTE_MAX_MS {
-                    let mut res = avec_code(
-                        CodeErreur::IdempotenceEnCours,
-                        "Cette opération est déjà en cours de traitement.",
-                    );
-                    res.headers_mut()
-                        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
-                    return res;
+                    return reponse_en_cours();
+                }
+                // F3 : une place d'attente par requête, au plus ATTENTES_MAX_PAR_SESSION par session.
+                if place.is_none() {
+                    match PlaceAttente::prendre(session) {
+                        Some(p) => place = Some(p),
+                        None => return reponse_en_cours(),
+                    }
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(PAS_ATTENTE_MS)).await;
                 attendu_ms += PAS_ATTENTE_MS;
@@ -201,6 +305,9 @@ pub async fn idempotence(
             }
         }
     }
+
+    // Fin de l'attente : la place est rendue avant l'exécution (reprise d'une revendication abandonnée).
+    drop(place);
 
     // Contre-revue du pilote (MB1, M2) : l'exécution ET la conservation tournent dans une tâche détachée : un client qui
     // coupe la connexion après l'écriture métier n'empêche plus la conservation (sinon la clé restait « en cours » et une
@@ -228,9 +335,38 @@ async fn executer_et_conserver(
     cle: Uuid,
     sensible: bool,
 ) -> Response<Body> {
-    let res = next
-        .run(Request::from_parts(parts, Body::from(octets)))
-        .await;
+    let execution = next.run(Request::from_parts(parts, Body::from(octets)));
+    let res = match tokio::time::timeout(delai_execution(etab), execution).await {
+        Ok(res) => res,
+        Err(_) => {
+            // Exécution interrompue à la borne (sa transaction est annulée à l'abandon du futur) : clé close non
+            // rejouable, jamais libérée (un nouvel essai ne s'exécute pas une seconde fois).
+            tracing::error!(
+                borne_s = IDEMPOTENCE_EXECUTION_MAX_S,
+                "écriture idempotente interrompue à la borne d'exécution ; clé close non rejouable"
+            );
+            // La table n'admet que des statuts de succès (200 à 399, migration 2227) : 202 (« accepté, issue
+            // inconnue ») marque la clé ; une clé non rejouable ne sert jamais son statut (le rejeu reçoit 409).
+            let close = ReponseConservee {
+                statut_http: StatusCode::ACCEPTED.as_u16(),
+                type_contenu: None,
+                emplacement: None,
+                corps: None,
+                rejouable: false,
+            };
+            if let Err(e) = state
+                .ent
+                .idem_terminer(etab, session, cle, &close, (state.horloge)())
+                .await
+            {
+                tracing::error!(error = %e, "clé d'idempotence restée en cours après la borne d'exécution");
+            }
+            return avec_code(
+                CodeErreur::DelaiDepasse,
+                "Le délai de traitement est dépassé.",
+            );
+        }
+    };
     let statut = res.status();
     if !(statut.is_success() || statut.is_redirection()) {
         if let Err(e) = state.ent.idem_abandonner(etab, session, cle).await {
@@ -343,5 +479,24 @@ mod tests_pilote {
         }
         assert!(!reponse_sensible("/mobile/labo/ecrire"));
         assert!(!reponse_sensible("/messages/lien-utile/envoi"));
+    }
+
+    /// F3 (palier des faibles n° 2) : au plus `ATTENTES_MAX_PAR_SESSION` places d'attente par session, rendues à la
+    /// destruction ; une autre session a les siennes.
+    #[test]
+    fn places_d_attente_plafonnees_par_session_et_rendues() {
+        let (s1, s2) = (Uuid::new_v4(), Uuid::new_v4());
+        let places: Vec<_> = (0..ATTENTES_MAX_PAR_SESSION)
+            .map(|_| PlaceAttente::prendre(s1).expect("place libre"))
+            .collect();
+        assert!(PlaceAttente::prendre(s1).is_none(), "plafond atteint");
+        assert!(
+            PlaceAttente::prendre(s2).is_some(),
+            "autre session : ses propres places"
+        );
+        assert_eq!(attentes_de(s1), ATTENTES_MAX_PAR_SESSION);
+        drop(places);
+        assert_eq!(attentes_de(s1), 0, "places rendues");
+        assert!(PlaceAttente::prendre(s1).is_some());
     }
 }

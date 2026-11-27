@@ -55,6 +55,35 @@ async fn echo(_s: EntSession, Json(b): Json<EchoBody>) -> (StatusCode, Json<Echo
     )
 }
 
+/// Écriture de labo (palier des faibles n° 2) : comme `echo`, mais la réponse porte un en-tête `Location` plus long
+/// que ce que le registre conserve (500 caractères) : la réponse est marquée non rejouable, jamais réexécutée.
+async fn emplacement_long(
+    _s: EntSession,
+    Json(b): Json<EchoBody>,
+) -> (
+    StatusCode,
+    [(axum::http::HeaderName, String); 1],
+    Json<EchoDto>,
+) {
+    let n = {
+        let mut c = compteurs().lock().unwrap_or_else(|e| e.into_inner());
+        let n = c.entry(b.nom.clone()).or_insert(0);
+        *n += 1;
+        *n
+    };
+    (
+        StatusCode::CREATED,
+        [(
+            axum::http::header::LOCATION,
+            format!("/mobile/labo/echo/{}", "x".repeat(600)),
+        )],
+        Json(EchoDto {
+            nom: b.nom,
+            execution: n,
+        }),
+    )
+}
+
 /// Nombre d'exécutions d'un nom (lecture).
 async fn executions(_s: EntSession, Path(nom): Path<String>) -> Json<EchoDto> {
     let n = compteurs()
@@ -99,6 +128,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/mobile/labo/echo", post(echo))
         .route("/mobile/labo/echo/{nom}", get(executions))
+        .route("/mobile/labo/emplacement", post(emplacement_long))
         .route(
             "/mobile/labo/echec/{statut}",
             post(echec).get(echec_lecture),
