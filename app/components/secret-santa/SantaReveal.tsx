@@ -199,7 +199,9 @@ export default function SantaReveal({
         ) : (
           <>
             {phase === "open" && (
-              <p className="text-sm font-bold uppercase tracking-[0.25em] text-amber-200">Vous offrez un cadeau à</p>
+              <p className="text-base font-black uppercase tracking-[0.15em] text-amber-200 sm:text-lg">
+                C&apos;est vous qui offrez un cadeau à
+              </p>
             )}
             <SantaGift phase={phase} head={{ name: mine.receiverName, photoUrl: mine.photoUrl }} />
             {phase === "open" ? (
@@ -207,7 +209,16 @@ export default function SantaReveal({
                 <p className="santa-pop santa-name mt-5 break-words text-4xl font-black sm:text-6xl">
                   {mine.receiverName}
                 </p>
-                <p className="mt-5 text-sm text-white/80">Chut… c&apos;est un secret. 🤫</p>
+                <div className="santa-pop santa-name mx-auto mt-5 max-w-md rounded-2xl bg-white/10 px-4 py-3 text-sm leading-relaxed">
+                  <p>
+                    🎁 C&apos;est la personne <strong>à qui vous devez offrir</strong> un cadeau, et non celle qui vous
+                    en offrira un.
+                  </p>
+                  <p className="mt-2">
+                    🤫 <strong>Gardez le secret :</strong> ne dites ce nom à personne, surtout pas à la personne
+                    concernée.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setPhase("closed")}

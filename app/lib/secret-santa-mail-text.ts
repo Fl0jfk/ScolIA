@@ -67,10 +67,15 @@ export function santaMail(
       ...details(santa),
       "",
       ...(drawn
-        ? ["Le tirage a eu lieu : ouvrez votre cadeau pour découvrir à qui l'offrir."]
+        ? [
+            "Le tirage a eu lieu : ouvrez votre cadeau pour découvrir la personne à qui vous devez offrir un cadeau.",
+            "Gardez ce nom secret.",
+          ]
         : [
             "La participation est libre. Répondez avant le tirage : « Je participe » ou « Non merci ».",
             "À l'heure du tirage, les participants découvrent en même temps à qui offrir un cadeau.",
+            "",
+            "Le principe : chacun découvre le nom de la personne à qui il doit offrir un cadeau (et non celle qui lui en offrira un). Ce nom doit rester secret.",
           ]),
       "",
       access,
