@@ -8010,3 +8010,204 @@ async fn regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signal
     .unwrap();
     assert_eq!(ouvertes, 1);
 }
+
+// ---------------------------------------------------------------------------
+// Palier des faibles de facturation (docs/socles/24_F3_PALIER_FAIBLES_FACTURATION.md)
+// ---------------------------------------------------------------------------
+
+/// Mise en scène d'un dû **antérieur plus bas** sur le même tronçon (même clé, même période : niveau de l'élève corrigé
+/// sur toute l'année, par exemple) : la ligne déjà posée du payeur suivant est ramenée à `montant`. Seule la ligne change
+/// (le total de la facture brouillon n'est pas recalculé : aucun calcul de la garde ne le lit).
+async fn suivant_pose_a(ent: &PgEnt, el: Uuid, montant: i64) {
+    let r = sqlx::query(
+        "UPDATE ent_fac_ligne SET montant_unitaire_centimes = $2 WHERE eleve_id = $1 AND source_cle LIKE '%:suivant:%'",
+    )
+    .bind(el)
+    .bind(montant)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(r.rows_affected(), 1, "une ligne du payeur suivant");
+}
+
+async fn taches_signal(ent: &PgEnt, el: Uuid, debut: &str) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE statut = 'ouverte') FROM ent_fin_tache
+          WHERE eleve_id = $1 AND nature = 'part_non_couverte' AND starts_with(detail, $2)",
+    )
+    .bind(el)
+    .bind(debut)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap()
+}
+
+/// C1 (F-5 par le vrai chemin, avoir partiel) : prise « toutes » plafonnée à 1 300 €, scolarité (1 200 €) facturée à
+/// l'organisme, facture émise, **avoir manuel partiel** de 200 € accordé à l'organisme ; puis externe → demi-pension au
+/// 15 octobre : restauration due 360 €. Plafond restant 300 € (1 300 − 1 000 net) : 300 € à l'organisme, 60 € à la
+/// famille. L'ancien calcul (brut) donnait 100 € et 260 €. Rejeux neutres.
+#[tokio::test]
+async fn faibles_fac_c1_avoir_manuel_partiel_libere_le_plafond_par_le_vrai_chemin() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let (u, r) = compta(&c);
+    let (_, _, dp) = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) = eleve_pris_en_charge_gen(
+        &ent,
+        &c,
+        "FacC1",
+        (d(2030, 9, 1), d(2031, 6, 30)),
+        true,
+        "externe",
+        &["toutes"],
+        &["scolarite", "restauration"],
+    )
+    .await;
+    plafonner(&ent, el, 130_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "scolarite"),
+        120_000
+    );
+    let ids: Vec<Uuid> = sqlx::query_as::<_, (Uuid,)>(
+        "SELECT id FROM ent_fac_facture WHERE etablissement_id = $1 AND foyer_id = $2 AND statut = 'brouillon'",
+    )
+    .bind(etab)
+    .bind(fe)
+    .fetch_all(ent.pool_verif())
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|x| x.0)
+    .collect();
+    assert_eq!(ids.len(), 1, "une facture de l'organisme");
+    let emises = ent
+        .emettre_for_actor(
+            etab,
+            u,
+            r,
+            &EmissionBody {
+                factures: ids.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(emises.emises.len(), 1);
+    ent.creer_avoir_for_actor(
+        etab,
+        u,
+        r,
+        ids[0],
+        &AvoirBody {
+            motif: "contestation de l'employeur".into(),
+            montant_centimes: Some(20_000),
+        },
+    )
+    .await
+    .unwrap();
+    changer_regime(&ent, etab, el, Uuid::new_v4()).await;
+    assert_eq!(net_art(&ent, dp, el).await, 36_000, "huit mois dus");
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        30_000,
+        "300 € : 1 300 € de plafond moins la scolarité nette (1 000 €)"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        6_000,
+        "60 € à la famille (l'ancien calcul en mettait 260 €)"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    reaction_regime(&ent, etab, el, d(2030, 10, 15), Uuid::new_v4()).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    // contre-revue M-2 : l'organisme est exactement à son plafond (1 000 € + 300 €) : aucun signal de plafond
+    assert_eq!(
+        taches_signal(&ent, el, "plafond de la prise en charge").await,
+        (0, 0),
+        "aucune fausse tâche de plafond au rejeu annuel"
+    );
+}
+
+/// C2 (F-2, décrément du plafond libre) : demi-pension (450 € dus), plafond 350 € ; état d'avant (dû de 400 €) : 350 € à
+/// l'organisme, 50 € à la famille. Plafond porté à 400 € : l'organisme reçoit un complément de 50 € (plafond atteint),
+/// la famille garde ses 50 €. Plus de plafond libre après le complément : aucune tâche « plafond non consommé » (sans le
+/// décrément, la garde voyait 50 € libres face aux 50 € de la famille). Rejeu neutre.
+#[tokio::test]
+async fn faibles_fac_c2_complement_du_plafond_releve_consomme_le_plafond_libre() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let _ = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) =
+        eleve_pris_en_charge(&ent, &c, "FacC2", (d(2030, 9, 1), d(2031, 6, 30)), true).await;
+    plafonner(&ent, el, 35_000).await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        35_000
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        10_000
+    );
+    suivant_pose_a(&ent, el, 5_000).await;
+    plafonner(&ent, el, 40_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000,
+        "complément de 50 € : plafond atteint"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000,
+        "famille inchangée"
+    );
+    assert_eq!(
+        taches_signal(&ent, el, "plafond de la prise en charge non consommé").await,
+        (0, 0),
+        "plus aucun plafond libre : rien à signaler"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu neutre");
+}
+
+/// C3 (F-7) : demi-pension (450 € dus), plafond 400 € épuisé ; état d'avant (dû de 420 €) : 400 € à l'organisme, 20 € à
+/// la famille. Les 30 € de hausse vont à la famille, sous une clé de complément : la clé `:suivant:` d'origine est déjà
+/// posée, la base l'ignorait (30 € facturés à personne, tâche close quand même). Rejeu neutre ; aucune tâche ouverte.
+#[tokio::test]
+async fn faibles_fac_c3_hausse_sur_plafond_epuise_facturee_au_payeur_suivant_deja_pose() {
+    let Some((ent, c)) = labo().await else { return };
+    let etab = c.etablissement_id;
+    let _ = grille_en_vigueur(&ent, &c).await;
+    let (el, fm, fe, _org) =
+        eleve_pris_en_charge(&ent, &c, "FacC3", (d(2030, 9, 1), d(2031, 6, 30)), true).await;
+    plafonner(&ent, el, 40_000).await;
+    nouvelle_periode_si_absente(&ent, etab, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000
+    );
+    suivant_pose_a(&ent, el, 2_000).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fe).await, "restauration"),
+        40_000,
+        "l'organisme reste à son plafond"
+    );
+    assert_eq!(
+        f2::somme(&f2::lignes(&ent, etab, fm).await, "restauration"),
+        5_000,
+        "la hausse de 30 € va à la famille (20 € + 30 € de complément)"
+    );
+    let avant = lignes_de(&ent, el).await;
+    facturer(&ent, etab, el).await;
+    assert_eq!(lignes_de(&ent, el).await, avant, "rejeu neutre");
+    assert_eq!(
+        f2::taches_ouvertes(&ent, etab, "part_non_couverte", el).await,
+        0
+    );
+}

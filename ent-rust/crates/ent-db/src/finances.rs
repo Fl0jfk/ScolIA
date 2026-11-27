@@ -1067,20 +1067,29 @@ async fn restant_prise(
     propres: (&str, &[Uuid], (NaiveDate, NaiveDate)),
 ) -> Result<i64, EntDbError> {
     let Some(plafond) = p.plafond else { return Ok(i64::MAX) };
+    // Palier des faibles de facturation (contre-revue, M-2) : une ligne **propre** est recalculée brute par la génération,
+    // mais les avoirs **hors régime** posés dessus (avoir manuel, sortie, remise d'ordre) ont réellement rendu du plafond :
+    // ils sont rendus au restant (les avoirs de régime, eux, découvrent des mois que la garde refacture).
     let (facture,): (i64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(l.quantite::BIGINT * l.montant_unitaire_centimes
-                             + COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes)
-                                           FROM ent_fac_ligne a
-                                          WHERE a.etablissement_id = l.etablissement_id
-                                            AND a.ligne_origine_id = l.id), 0)), 0)::BIGINT
+        "SELECT COALESCE(SUM(CASE
+                    WHEN starts_with(l.source_cle, $8) AND l.article_id = ANY($9)
+                         AND l.periode_debut >= $10 AND l.periode_debut <= $11
+                    THEN COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes)
+                                     FROM ent_fac_ligne a
+                                    WHERE a.etablissement_id = l.etablissement_id AND a.ligne_origine_id = l.id
+                                      AND COALESCE(a.source_cle, '') NOT LIKE 'regime:%:avoir:%'), 0)
+                    ELSE l.quantite::BIGINT * l.montant_unitaire_centimes
+                         + COALESCE((SELECT SUM(a.quantite::BIGINT * a.montant_unitaire_centimes)
+                                       FROM ent_fac_ligne a
+                                      WHERE a.etablissement_id = l.etablissement_id
+                                        AND a.ligne_origine_id = l.id), 0)
+                END), 0)::BIGINT
            FROM ent_fac_ligne l
            JOIN ent_fac_facture f ON f.etablissement_id = l.etablissement_id AND f.id = l.facture_id
            LEFT JOIN ent_fin_article ar ON ar.etablissement_id = l.etablissement_id AND ar.id = l.article_id
           WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND f.foyer_id = $3 AND f.type_piece = 'facture'
             AND l.ligne_origine_id IS NULL AND l.periode_debut >= $4 AND l.periode_debut <= $5
-            AND ($6 OR COALESCE(ar.categorie, l.categorie) = ANY($7))
-            AND NOT (starts_with(l.source_cle, $8) AND l.article_id = ANY($9)
-                     AND l.periode_debut >= $10 AND l.periode_debut <= $11)",
+            AND ($6 OR COALESCE(ar.categorie, l.categorie) = ANY($7))",
     )
     .bind(etab)
     .bind(eleve)
@@ -1096,7 +1105,9 @@ async fn restant_prise(
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
-    Ok(plafond.checked_sub(facture.max(0)).unwrap_or(0).max(0))
+    // `facture` peut être négatif (avoirs hors régime de lignes propres) : le restant dépasse alors le plafond, car la
+    // génération reconsomme les lignes propres **brutes** ; le net de l'organisme reste sous son plafond.
+    Ok(plafond.checked_sub(facture).unwrap_or(0).max(0))
 }
 
 /// Condition SQL « ce tarif s'applique au jour `{jour}` » (M1, règle 2) : une grille ne tarifie qu'à partir de son
@@ -1594,13 +1605,13 @@ pub(crate) async fn lignes_annuelles(
                             periode: Some(periode),
                         });
                     }
-                    a_resoudre.push((cat_des, periode.0, periode.1, porteurs));
+                    a_resoudre.push((cat_des, periode.0, periode.1, porteurs, format!("{base_cle}:{foyer}")));
                 }
             }
             if est_organisme.is_some() && !sans_prise && non_couvert == 0 {
                 // tronçon entièrement couvert par la prise en charge : une tâche `part_non_couverte` ouverte
                 // pour ces mois (prise renouvelée ou prolongée) est réglée (M3)
-                a_resoudre.push((cat_des, periode.0, periode.1, Vec::new()));
+                a_resoudre.push((cat_des, periode.0, periode.1, Vec::new(), format!("{base_cle}:{foyer}")));
             }
             // Défaut 2 (§ 2.8 b) : sur une prise **plafonnée**, la ligne principale est toujours transmise à la garde,
             // même à part 0 (plafond épuisé : `completer_plafonnee` y rattache la ligne `:suivant:`) ; une ligne à 0 €
@@ -1752,13 +1763,17 @@ pub(crate) async fn lignes_annuelles(
     // Garde anti double facturation, **par périodes** (suites 3, E1 + E2 ; D-069) : voir `garde_periodes`.
     let libelles: HashMap<Uuid, String> = articles.iter().map(|a| (a.0, a.1.clone())).collect();
     let mut signaux: Vec<(String, NaiveDate, String)> = Vec::new();
-    let resultat = garde_periodes(conn, etab, eleve_id, prefixe, lignes, &libelles, &dus, &mut signaux).await?;
+    let mut non_portes: HashMap<String, i64> = HashMap::new();
+    let resultat =
+        garde_periodes(conn, etab, eleve_id, prefixe, lignes, &libelles, &dus, (&mut signaux, &mut non_portes)).await?;
     // M-1 (suites 4, correctifs) : les tâches `part_non_couverte` ne sont closes qu'une fois la garde passée, dans la
     // transaction de l'appelant qui insère ensuite les lignes (une erreur d'insertion annule tout) ; un refus de la
     // garde laisse les tâches ouvertes, la part n'étant pas facturée.
     if let Ok(sortie) = &resultat {
-        for (cat, du, au, porteurs) in a_resoudre {
-            let mut portee = true;
+        for (cat, du, au, porteurs, principal) in a_resoudre {
+            // F-7 : invariant par **montant** : la garde a rendu, pour chaque ligne principale plafonnée examinée, ce qui
+            // du dû du tronçon n'est ni déjà posé ni réellement insérable ; la tâche reste ouverte tant qu'il en reste.
+            let mut portee = non_portes.get(&principal).is_none_or(|r| *r == 0);
             for (pre, queue) in &porteurs {
                 if !suivant_porte(conn, etab, sortie, pre, queue, du, au).await? {
                     portee = false;
@@ -1781,8 +1796,9 @@ pub(crate) async fn lignes_annuelles(
     Ok(resultat)
 }
 
-/// Tâche `part_non_couverte` à régler après la garde : (catégorie, début, fin, lignes `:suivant:` qui doivent la porter).
-type ARegler = (&'static str, NaiveDate, NaiveDate, Vec<(String, String)>);
+/// Tâche `part_non_couverte` à régler après la garde : (catégorie, début, fin, lignes `:suivant:` qui doivent la porter,
+/// clé de la ligne principale du tronçon, pour l'invariant par montant de F-7).
+type ARegler = (&'static str, NaiveDate, NaiveDate, Vec<(String, String)>, String);
 
 /// La part non couverte d'un tronçon est-elle réellement portée par une ligne `:suivant:` (invariant de clôture, § 2.8 c) ?
 /// Oui si la sortie de la garde en contient une (clé d'origine ou complément `:c…`) qui chevauche la période, ou si une
@@ -1892,7 +1908,10 @@ pub(crate) fn premier_du_mois(i: i32) -> NaiveDate {
 ///   **mois manquants** sont facturés, sous une clé nouvelle `:c<mois de début>` ; aucune ligne posée n'est refacturée ;
 /// - mois couverts **à un autre tarif** que celui d'aujourd'hui : refus explicite (régularisation par complément ou
 ///   avoir, F4), jamais d'ignorance silencieuse.
-// 8 arguments : connexion, contexte (établissement, élève, préfixe), lignes, deux tables de lecture et le collecteur de signaux.
+///
+/// `sorties.1` reçoit, pour chaque ligne principale plafonnée examinée par `completer_plafonnee`, le montant du dû de son
+/// tronçon qui n'est **porté par personne** au-delà des arrondis (F-7) : 0 quand tout est posé ou insérable.
+// 8 arguments : connexion, contexte (établissement, élève, préfixe), lignes, deux tables de lecture et les collecteurs.
 #[allow(clippy::too_many_arguments)]
 async fn garde_periodes(
     conn: &mut PgConnection,
@@ -1902,8 +1921,9 @@ async fn garde_periodes(
     lignes: Vec<LigneAFacturer>,
     libelles: &HashMap<Uuid, String>,
     dus: &HashMap<String, i64>,
-    signaux: &mut Vec<(String, NaiveDate, String)>,
+    sorties: (&mut Vec<(String, NaiveDate, String)>, &mut HashMap<String, i64>),
 ) -> Result<Result<Vec<LigneAFacturer>, String>, EntDbError> {
+    let (signaux, non_portes) = sorties;
     // Lignes `:suivant:` d'une ligne principale plafonnée : traitées avec elle (voir plus bas), jamais seules.
     let mut suivants_de: HashMap<String, Vec<LigneAFacturer>> = HashMap::new();
     let mut lignes = lignes;
@@ -2151,7 +2171,8 @@ async fn garde_periodes(
             // Prise en charge plafonnée (M1 et M4, suites 4) : voir `completer_plafonnee`.
             let suivants = suivants_de.remove(&l.source_cle).unwrap_or_default();
             match completer_plafonnee(&pre, art, &l, suivants, du, &memes, &couverts, &croises, cle_posee.is_some(), libelles) {
-                Ok((v, signal)) => {
+                Ok((v, signal, non_porte)) => {
+                    non_portes.insert(l.source_cle.clone(), non_porte);
                     sortie.extend(v);
                     if let Some(detail) = signal {
                         // plafond qui baisse (ou consommé ailleurs) sous ce qui est déjà facturé : jamais refacturé ni
@@ -2225,7 +2246,13 @@ async fn garde_periodes(
 /// * **mois couverts mais insuffisants** (payeur suivant désigné après coup) : le manque au dû
 ///   (`dû × mois couverts / mois − déjà posé`) est facturé au payeur suivant, sous la clé `:suivant:` d'origine, une
 ///   seule fois (la base ignore une clé déjà posée) ;
-/// * déjà posé **au-dessus** du dû (tarif baissé) : refus explicite ; jamais de refacturation.
+/// * déjà posé **au-dessus** du dû (tarif baissé) : refus explicite ; jamais de refacturation ;
+/// * manque d'un payeur suivant dont la ligne `:suivant:` est **déjà posée** (dû en hausse sur le même tronçon : quotient
+///   familial ou niveau corrigés) : clé de complément `:c<premier mois libre>`, la clé d'origine étant ignorée par la base
+///   (palier des faibles de facturation, C3 : la hausse n'était facturée à personne).
+///
+/// Rend aussi le **non porté** (F-7) : dû du tronçon (hors mois facturés par un changement de régime) − déjà posé (mois
+/// couverts nets) − lignes rendues réellement insérables (une clé déjà posée ne compte pas), 0 aux arrondis près.
 #[allow(clippy::too_many_arguments)]
 fn completer_plafonnee(
     pre: &str,
@@ -2238,8 +2265,8 @@ fn completer_plafonnee(
     croises: &std::collections::BTreeSet<i32>,
     cle_posee: bool,
     libelles: &HashMap<Uuid, String>,
-) -> Result<(Vec<LigneAFacturer>, Option<String>), String> {
-    let Some((d, f)) = l.periode else { return Ok((vec![l.clone()], None)) };
+) -> Result<(Vec<LigneAFacturer>, Option<String>, i64), String> {
+    let Some((d, f)) = l.periode else { return Ok((vec![l.clone()], None, 0)) };
     let mois_l = indice_mois(d)..=indice_mois(f);
     let nl = i64::from(indice_mois(f) - indice_mois(d) + 1);
     let (mut pose_total, mut pose_principal) = (0_i128, 0_i128);
@@ -2317,13 +2344,13 @@ fn completer_plafonnee(
     let mut manque = i128::from(calcul::proportion(du, c as i64, nl)) - pose_total;
     // M-2 : plafond **relevé** (même clé, même période) : le principal prend d'abord ce que le plafond libre permet,
     // en complément sous une clé nouvelle `:c<premier mois libre>` ; le reste va au payeur suivant désigné.
+    let existantes: Vec<&str> = memes.iter().map(|p| p.cle.as_str()).collect();
     if manque > 3 * c && plafond_libre > 0 {
         let extra = manque.min(plafond_libre);
-        let existantes: Vec<&str> = memes.iter().map(|p| p.cle.as_str()).collect();
         let reste = reste_cle(&l.source_cle);
         let libre = mois_l.clone().find(|mm| {
             let cle = format!("{pre}:c{}{reste}", premier_du_mois(*mm).format("%Y-%m"));
-            !existantes.contains(&cle.as_str())
+            !existantes.contains(&cle.as_str()) && !sortie.iter().any(|s| s.source_cle == cle)
         });
         if let Some(mm) = libre {
             let mut p = l.clone();
@@ -2342,6 +2369,21 @@ fn completer_plafonnee(
             }
             let mut sv = suivants[i].clone();
             sv.unitaire = montant;
+            if existantes.contains(&sv.source_cle.as_str()) {
+                // C3 : ligne `:suivant:` déjà posée (à un dû plus bas) : la même clé serait ignorée par la base ; le
+                // manque va sous une clé de complément, au premier mois libre (rejeu : plus de manque, rien de posé)
+                let reste = reste_cle(&sv.source_cle);
+                // contre-revue M-1 : ni une clé posée, ni une clé déjà rendue par cette passe (complément des mois
+                // manquants du même payeur suivant)
+                let Some(mm) = mois_l.clone().find(|mm| {
+                    let cle = format!("{pre}:c{}{reste}", premier_du_mois(*mm).format("%Y-%m"));
+                    !existantes.contains(&cle.as_str()) && !sortie.iter().any(|s| s.source_cle == cle)
+                }) else {
+                    continue; // tous les mois portent déjà un complément : non porté, la tâche reste ouverte
+                };
+                sv.source_cle = format!("{pre}:c{}{reste}", premier_du_mois(mm).format("%Y-%m"));
+                sv.libelle = format!("{} — complément", suivants[i].libelle);
+            }
             sortie.push(sv);
         }
     }
@@ -2364,7 +2406,19 @@ fn completer_plafonnee(
             "plafond de la prise en charge non consommé alors qu'une part est facturée au payeur suivant : elle pourrait revenir à l'organisme ; rien n'est crédité ni refacturé d'office, à régulariser".to_string()
         })
     });
-    Ok((sortie, signal))
+    // F-7 : non porté = dû du tronçon (hors mois facturés par un changement de régime) − déjà posé − insérable.
+    let hors = croises.iter().filter(|m| !couverts.contains(m)).count() as i64;
+    let attendu = i128::from(du) - i128::from(calcul::proportion(du, hors, nl));
+    // chaque clé une seule fois (la base garde la première ligne d'une clé et ignore les suivantes)
+    let mut vues: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let insere: i128 = sortie
+        .iter()
+        .filter(|s| !existantes.contains(&s.source_cle.as_str()) && vues.insert(s.source_cle.as_str()))
+        .map(|s| i128::from(s.unitaire) * i128::from(s.quantite))
+        .sum();
+    let non_porte = attendu - pose_total - insere;
+    let non_porte = if non_porte > 3 * (i128::from(nl) + 1) { i64::try_from(non_porte).unwrap_or(i64::MAX) } else { 0 };
+    Ok((sortie, signal, non_porte))
 }
 
 fn refus_tarif(libelles: &HashMap<Uuid, String>, art: Uuid, p: &LignePosee, l: &LigneAFacturer) -> String {
@@ -5027,5 +5081,105 @@ mod tests_fuseau_f0 {
         assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 24, 22, 30, 0).unwrap()), d(2026, 10, 25));
         assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 25, 22, 30, 0).unwrap()), d(2026, 10, 25));
         assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 25, 23, 30, 0).unwrap()), d(2026, 10, 26));
+    }
+}
+
+/// Palier des faibles de facturation (C3 et F-7) : `completer_plafonnee` en fonction pure.
+#[cfg(test)]
+mod tests_faibles_fac_plafonnee {
+    use super::*;
+
+    fn d(a: i32, m: u32, j: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(a, m, j).unwrap()
+    }
+
+    /// Demi-pension 450 € dus, plafond 400 € épuisé : organisme 400 € et famille 20 € déjà posés (dû d'avant : 420 €).
+    fn cas(avec_suivant: bool, complements_poses: bool) -> (Vec<LigneAFacturer>, i64) {
+        cas_du(avec_suivant, complements_poses, false, 45_000)
+    }
+
+    /// `septembre_credite` : septembre découvert par un avoir de régime (mois manquant de la passe).
+    fn cas_du(avec_suivant: bool, complements_poses: bool, septembre_credite: bool, du: i64) -> (Vec<LigneAFacturer>, i64) {
+        let (art, fo, ff) = (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
+        let pre = format!("annuel:2030-2031:{}:{art}", Uuid::from_u128(4));
+        let periode = (d(2030, 9, 1), d(2031, 6, 30));
+        let mois: std::collections::BTreeSet<i32> = (indice_mois(periode.0)..=indice_mois(periode.1)).collect();
+        let nets: std::collections::BTreeSet<i32> =
+            mois.iter().copied().filter(|m| !(septembre_credite && *m == indice_mois(periode.0))).collect();
+        let ligne = |foyer: Uuid, cle: String, unitaire: i64| LigneAFacturer {
+            foyer_id: foyer,
+            eleve_id: None,
+            article_id: Some(art),
+            categorie: "restauration".into(),
+            libelle: "Demi-pension".into(),
+            quantite: 1,
+            unitaire,
+            source_cle: cle,
+            periode: Some(periode),
+        };
+        let principal = ligne(fo, format!("{pre}:{fo}"), 40_000);
+        let cle_suivant = format!("{pre}:suivant:{fo}:{ff}");
+        let posee = |cle: String, montant: i64| {
+            let (groupe, queue) = groupe_de_cle(&cle, &pre).unwrap();
+            LignePosee { cle, groupe, queue, periode: Some(periode), montant, nets: nets.clone() }
+        };
+        let suivant_pose = if septembre_credite { 5_000 } else { 2_000 };
+        let mut posees = vec![posee(principal.source_cle.clone(), 40_000), posee(cle_suivant.clone(), suivant_pose)];
+        if complements_poses {
+            for m in mois.iter() {
+                let cle = format!("{pre}:c{}:suivant:{fo}:{ff}", premier_du_mois(*m).format("%Y-%m"));
+                posees.push(posee(cle, 0));
+            }
+        }
+        let memes: Vec<&LignePosee> = posees.iter().collect();
+        let suivants = if avec_suivant { vec![ligne(ff, cle_suivant, 5_000)] } else { Vec::new() };
+        let (sortie, _signal, non_porte) = completer_plafonnee(
+            &pre,
+            art,
+            &principal,
+            suivants,
+            du,
+            &memes,
+            &nets,
+            &Default::default(),
+            true,
+            &HashMap::new(),
+        )
+        .unwrap();
+        (sortie, non_porte)
+    }
+
+    #[test]
+    fn c3_manque_du_payeur_suivant_deja_pose_sous_une_cle_de_complement() {
+        let (sortie, non_porte) = cas(true, false);
+        let complement: Vec<&LigneAFacturer> = sortie.iter().filter(|l| l.source_cle.contains(":c2030-09:suivant:")).collect();
+        assert_eq!(complement.len(), 1, "{sortie:?}");
+        assert_eq!(complement[0].unitaire, 3_000, "30 € de hausse à la famille");
+        assert_eq!(non_porte, 0, "tout est posé ou insérable");
+    }
+
+    /// Contre-revue M-1 : septembre crédité (régime) puis redevenu dû, et dû passé à 500 € : le complément des mois
+    /// manquants du payeur suivant prend `:c2030-09` ; le manque (45 €) ne doit pas reprendre la même clé.
+    #[test]
+    fn m1_complement_du_manque_distinct_du_complement_des_mois_manquants() {
+        let (sortie, non_porte) = cas_du(true, false, true, 50_000);
+        let cles: Vec<&str> = sortie.iter().map(|l| l.source_cle.as_str()).collect();
+        let mut uniques = cles.clone();
+        uniques.sort();
+        uniques.dedup();
+        assert_eq!(uniques.len(), cles.len(), "aucune clé deux fois dans la passe : {cles:?}");
+        let famille: i64 = sortie.iter().filter(|l| l.source_cle.contains(":suivant:")).map(|l| l.unitaire).sum();
+        assert_eq!(famille, 1_000 + 4_500, "10 € de septembre et 45 € de manque");
+        assert_eq!(non_porte, 0);
+    }
+
+    #[test]
+    fn f7_non_porte_rendu_par_la_garde() {
+        // sans payeur suivant : les 30 € ne sont portés par personne
+        assert_eq!(cas(false, false).1, 3_000);
+        // toutes les clés de complément déjà prises : rien d'insérable, non porté
+        let (sortie, non_porte) = cas(true, true);
+        assert!(sortie.iter().all(|l| !l.source_cle.contains(":suivant:")), "{sortie:?}");
+        assert_eq!(non_porte, 3_000);
     }
 }
