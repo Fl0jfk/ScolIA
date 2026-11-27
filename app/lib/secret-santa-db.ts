@@ -7,6 +7,7 @@ import { secretSanta, secretSantaParticipant, user, userMembership } from "@/db/
 import { listUserRolesBatchFromDb } from "@/app/lib/auth-roles-db";
 import { canUseMessaging } from "@/app/lib/messaging/access";
 import { listIncompatibilities } from "@/app/lib/secret-santa-rules-db";
+import { santaHomeStatus, type SantaHomeCard } from "@/app/lib/secret-santa-accueil";
 import {
   SantaError,
   canSeeSanta,
@@ -265,6 +266,45 @@ export async function listSantasFor(etabId: string, userId: string) {
         own.some((m) => m.userId === userId && m.response === "pending"),
     };
   });
+}
+
+/** Les Secret Santa en cours où la personne est invitée. Aucune paire n'est lue. */
+export async function listSantaHomeCards(etabId: string, userId: string, now: Date): Promise<SantaHomeCard[]> {
+  const rows = await getDb()
+    .select({
+      id: secretSanta.id,
+      title: secretSanta.title,
+      organizerName: secretSanta.organizerName,
+      revealAt: secretSanta.revealAt,
+      drawnAt: secretSanta.drawnAt,
+      eventAt: secretSanta.eventAt,
+      eventPlace: secretSanta.eventPlace,
+      response: secretSantaParticipant.response,
+      openedAt: secretSantaParticipant.openedAt,
+      changedAt: secretSantaParticipant.changedAt,
+    })
+    .from(secretSantaParticipant)
+    .innerJoin(secretSanta, eq(secretSanta.id, secretSantaParticipant.santaId))
+    .where(and(eq(secretSanta.etablissementId, etabId), eq(secretSantaParticipant.userId, userId)))
+    .orderBy(desc(secretSanta.revealAt))
+    .limit(50);
+  return rows
+    .reverse()
+    .flatMap((r) => {
+      const status = santaHomeStatus(r, now);
+      if (!status) return [];
+      return [
+        {
+          id: r.id,
+          title: r.title,
+          organizerName: r.organizerName,
+          status,
+          revealAt: r.revealAt.toISOString(),
+          eventAt: r.eventAt?.toISOString() ?? null,
+          eventPlace: r.eventPlace,
+        },
+      ];
+    });
 }
 
 export async function createSanta(

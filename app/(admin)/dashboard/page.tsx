@@ -7,6 +7,7 @@ import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import HomeMainTasks from "@/app/components/Dashboard/HomeMainTasks";
 import HomeSignalBento from "@/app/components/Dashboard/HomeSignalBento";
 import HomeScoliaHeroBar from "@/app/components/Dashboard/HomeScoliaHeroBar";
+import HomeSecretSanta from "@/app/components/secret-santa/HomeSecretSanta";
 import { useData } from "@/app/contexts/data";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
@@ -91,6 +92,7 @@ export default function Home() {
             </div>
           ) : (
             <>
+              <HomeSecretSanta />
               <HomeScoliaHeroBar />
               <HomeMainTasks tasks={mainTasks} />
               <HomeSignalBento
