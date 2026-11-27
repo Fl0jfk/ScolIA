@@ -1,0 +1,15 @@
+{
+  "corps": {
+    "debut": "2027-03-08",
+    "decision_note": null,
+    "eleve_id": "00000000-0000-4000-8000-000000000001",
+    "etablissement_id": "00000000-0000-4000-8000-000000000002",
+    "fin": "2027-03-08",
+    "id": "00000000-0000-4000-8000-000000000003",
+    "motif": "maladie",
+    "motif_justif": "Rendez-vous médical (banc MB2)",
+    "statut": "a_traiter"
+  },
+  "route": "POST /absences/{id}/justifier",
+  "statut": 200
+}

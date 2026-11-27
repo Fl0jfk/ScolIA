@@ -1,0 +1,29 @@
+{
+  "corps": {
+    "classe": "4B",
+    "creneau_id": "00000000-0000-4000-8000-000000000001",
+    "id": "00000000-0000-4000-8000-000000000002",
+    "jour": "2027-03-08",
+    "lignes": [
+      {
+        "eleve_id": "00000000-0000-4000-8000-000000000003",
+        "eleve_label": "Ginny Weasley",
+        "etat": "present"
+      },
+      {
+        "eleve_id": "00000000-0000-4000-8000-000000000004",
+        "eleve_label": "Harry Potter",
+        "etat": "present"
+      },
+      {
+        "eleve_id": "00000000-0000-4000-8000-000000000005",
+        "eleve_label": "Hermione Granger",
+        "etat": "present"
+      }
+    ],
+    "matiere_libelle": "Potions",
+    "statut": "ouvert"
+  },
+  "route": "POST /appels",
+  "statut": 201
+}

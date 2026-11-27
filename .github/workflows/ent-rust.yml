@@ -461,8 +461,9 @@ jobs:
               if ! echo "$fichiers" | grep -qE '^(ent-rust/web/|ent-rust/crates/ent-types/|ent-rust/crates/ent-api/|\.github/workflows/ent-rust\.yml$)'; then
                 requis=false
               fi
-              # Applis mobiles (socle 11, MB1) : requises si le diff touche ent-rust/apps/** ou ce workflow.
-              if ! echo "$fichiers" | grep -qE '^(ent-rust/apps/|\.github/workflows/ent-rust\.yml$)'; then
+              # Applis mobiles (socle 11, MB1) : requises si le diff touche ent-rust/apps/**, les fixtures du contrat
+              # mobile (ent-rust/contrat/**, MB2 : les cœurs les décodent) ou ce workflow.
+              if ! echo "$fichiers" | grep -qE '^(ent-rust/apps/|ent-rust/contrat/|\.github/workflows/ent-rust\.yml$)'; then
                 mobile=false
               fi
             fi

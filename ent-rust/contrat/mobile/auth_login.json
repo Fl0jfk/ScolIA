@@ -1,0 +1,13 @@
+{
+  "corps": {
+    "email": "persona@ent.test",
+    "etablissement_id": "00000000-0000-4000-8000-000000000001",
+    "expires_at": "2027-03-08T09:00:00Z",
+    "mfa_required": false,
+    "role": "parent",
+    "token": "jeton-masque",
+    "user_id": "00000000-0000-4000-8000-000000000002"
+  },
+  "route": "POST /auth/login",
+  "statut": 200
+}

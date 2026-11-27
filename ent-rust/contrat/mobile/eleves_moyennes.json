@@ -1,0 +1,18 @@
+{
+  "corps": [
+    {
+      "matiere_id": "00000000-0000-4000-8000-000000000001",
+      "matiere_libelle": "Potions",
+      "moyenne_sur_20": 14.21,
+      "periode_id": "00000000-0000-4000-8000-000000000002"
+    },
+    {
+      "matiere_id": "00000000-0000-4000-8000-000000000003",
+      "matiere_libelle": "Français",
+      "moyenne_sur_20": 14.0,
+      "periode_id": "00000000-0000-4000-8000-000000000002"
+    }
+  ],
+  "route": "GET /eleves/{id}/moyennes",
+  "statut": 200
+}

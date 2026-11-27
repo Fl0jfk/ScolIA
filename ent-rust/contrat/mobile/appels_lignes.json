@@ -1,0 +1,5 @@
+{
+  "corps": null,
+  "route": "POST /appels/{id}/lignes",
+  "statut": 204
+}

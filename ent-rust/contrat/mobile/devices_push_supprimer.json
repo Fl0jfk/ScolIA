@@ -1,0 +1,5 @@
+{
+  "corps": null,
+  "route": "DELETE /devices/push/{id}",
+  "statut": 204
+}

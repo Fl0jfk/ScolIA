@@ -1,0 +1,18 @@
+{
+  "corps": [
+    {
+      "classe": "4B",
+      "heure_debut": "08:00",
+      "heure_fin": "09:00",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "jour_semaine": 5,
+      "matiere_libelle": "Potions",
+      "prof_label": "Severus Rogue",
+      "prof_user_id": "00000000-0000-4000-8000-000000000002",
+      "salle": "Donjons",
+      "semaine_ab": "toutes"
+    }
+  ],
+  "route": "GET /eleves/{id}/edt",
+  "statut": 200
+}
