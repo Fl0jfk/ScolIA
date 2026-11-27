@@ -629,6 +629,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // du cahier et l'accès d'inspection jugent l'individu. 2407 est versée et ne change pas (règle 25) ; sa fonction recréée
     // porte son `search_path`. `MIGRATION_TAG` inchangé.
     m!("2421_cdt_individu"),
+    // Même transverse, lot 3 (2316, plage du socle 15 ; **après 279**, fin de tableau) : R-AP10 juge l'individu (projection
+    // `ent_absence_rh`, valideur du circuit, décisions). 2300 et 2302 sont versées et ne changent pas (règle 25).
+    m!("2316_absp_individu"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

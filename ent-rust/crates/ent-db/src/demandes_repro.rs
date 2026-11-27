@@ -866,6 +866,20 @@ impl PgEnt {
         if a.demandeur_ou_deposant() {
             return Err(RefusDemande::Interdit);
         }
+        // R-DM40 sur l'individu (transverse 2026-11-27) : ni depuis une autre fiche reliée au demandeur ou au déposant.
+        let (moi_aussi,): (bool,) = sqlx::query_as(
+            "SELECT COALESCE($2 = ANY (public.ent_individu_personnes_du_compte($1, $4)), false)
+                 OR COALESCE($3 = ANY (public.ent_individu_personnes_du_compte($1, $4)), false)",
+        )
+        .bind(etab)
+        .bind(a.ligne.demandeur_personne_id)
+        .bind(a.ligne.deposant_personne_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if moi_aussi {
+            return Err(RefusDemande::Interdit);
+        }
         if a.etat != "a_valider" {
             return Err(RefusDemande::Conflit(
                 "Cette demande n'attend pas de validation.",

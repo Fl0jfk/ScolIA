@@ -1,6 +1,6 @@
 # Transverse : la deuxième personne fondée sur la personne physique
 
-Conception courte du palier (2026-11-27), puis livraison (§9). Origine : faible 9 de la contre-revue V3
+Conception courte du palier (2026-11-27), puis livraison (§9, qui fait foi là où elle diffère). Origine : faible 9 de la contre-revue V3
 (`42_VOYAGES_V3_LIVRAISON.md`) : « la règle 3 repose sur `user_id`, pas sur la personne physique : un même individu à
 deux comptes n'est pas reconnu ». Le même défaut existe partout où une règle dit « une autre personne » ou « jamais pour
 soi ni pour son enfant » et compare deux comptes. Réserve connue de `04_ADMINISTRATIF.md` §22 : « un agent qui est
@@ -72,14 +72,14 @@ l'appelant), et les commandes ci-dessous.
 |---|---|---|
 | Déclarer « cet autre compte est aussi moi » (`POST /individu/declarations`, cible par e-mail du compte) | tout compte de l'établissement | réponse neutre si l'e-mail est inconnu (anti-énumération) ; 5 par jour |
 | Confirmer (`POST /individu/declarations/{id}/confirmer`) | le compte cible seulement | dans les 24 h, pas depuis le compte déclarant |
-| Relier deux fiches (`POST /individu/liens`) | `personnes.individu.relier` (direction, secrétariat) | jamais une fiche de soi-même (le sujet ne relie pas ses propres fiches côté direction : il déclare) |
+| Relier deux fiches (`POST /individu/liens`) | `personnes.individu.relier` (direction, secrétariat) | motif codé ; fiches du même établissement, pas déjà le même individu (relier ses propres fiches est permis : cela ne fait qu'ajouter des refus, voir §9) |
 | Lever (`POST /individu/liens/{id}/lever`) | `personnes.individu.lever` (direction seule) | **jamais par l'individu concerné** (lever retire des refus) ; motif codé |
 | Propositions (`GET /individu/propositions`) | `personnes.individu.relier` | paires de fiches de comptes différents, dont l'une est un agent, qui partagent un téléphone E.164 ou une adresse e-mail (fiche ou compte) ; nombres et désignations, jamais la coordonnée |
 | Écarter une proposition | `personnes.individu.relier` | motif codé |
 | Lire mes liens (`GET /individu/moi`) | le compte | sans les fiches des autres |
 
-Événements : `individu.lien_pose`, `individu.lien_leve` (identifiants seuls). Journal en ajout seul (les tables le
-sont).
+Journal : les tables elles-mêmes, en ajout seul (auteur, date, motif codé, levée). Aucun événement métier n'est émis
+dans ce palier (voir §9).
 
 ## 5. Où l'appliquer (inventaire de ce palier)
 
@@ -129,8 +129,8 @@ diffusions (NTF-50, pas de commande encore) ; RGPD (PR 165, 166 en cours : ne pa
 2. **Voyages** : 659 redéfinit `ent_sortie_argent_decideur_interdit` et les gardes de seconde personne et de
    contournement sur l'individu ; application convertie ; tests sur un individu à deux comptes et sur une fiche sans
    compte (nouveau fichier de tests : `tests_voyages_v3.rs` est touché par la PR 167).
-3. **Autres socles** : conversions du tableau, CHECK de 2407 doublé d'un déclencheur (migration 2421), conflit
-   d'intérêts ; un test par règle convertie ; garde statique : aucune comparaison `== a.user_id` restante dans les
+3. **Autres socles** : conversions du tableau, CHECK de 2407 doublé d'un déclencheur (migration 2421), déclencheurs
+   R-AP10 des absences (migration 2316), conflit d'intérêts ; un test par règle convertie ; garde statique : aucune comparaison `== a.user_id` restante dans les
    refus listés.
 4. **Docs** : livraison (§9), `PROJECT_STATUS.md`, `ROLES_ET_DROITS.md`, `MIGRATIONS.md`.
 
@@ -140,3 +140,69 @@ diffusions (NTF-50, pas de commande encore) ; RGPD (PR 165, 166 en cours : ne pa
 - Lever retire des refus : direction seule, jamais l'individu concerné.
 - Déclaration par la personne : confirmation depuis l'autre compte, sinon elle ne vaut rien.
 - Les règles qui accordent restent sur le compte.
+
+## 9. Livraison (2026-11-27, branche `claude/project-thread-lfmutb`)
+
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`, `ENT_ENV=test`) ; CI sur la PR en brouillon ;
+non validé par Florian, pas prêt pilote.** Pas d'écran (frontend en retrait) : API seule.
+
+### 9.1 Ce qui est livré
+
+- **Migration 279** `personne_individu` : `ent_individu_lien`, `ent_individu_declaration`,
+  `ent_individu_proposition_ecartee` (RLS, clés composites, motifs codés, ajout seul tenu par la base : TRUNCATE refusé,
+  DELETE seulement par la cascade d'une fiche supprimée, levée et issue posées une fois ; une déclaration expirée ne se
+  confirme pas ; verrou consultatif par établissement à chaque pose ; refus si les deux fiches sont déjà le même
+  individu). Fonctions `ent_individu_personnes`, `ent_individu_personnes_du_compte`, `ent_individu_comptes`,
+  `ent_meme_individu` (`STABLE`, `search_path` figé, relations `public.`, fermeture bornée à 16).
+- **Port Rust** `ent_db::individu` : `meme_individu`, `meme_individu_opt`, `comptes_de`, `personnes_du_compte`,
+  `compte_est_agent`, `agents_meme_individu`, et les commandes `individu_*_for_actor`.
+- **Actions** `personnes.individu.relier` (direction, secrétariat) et `personnes.individu.lever` (direction) ;
+  `TOUTES` 286 → 288.
+- **Routes** (dans `dossier.rs`) : `GET /dossier/individu/moi`, `POST /dossier/individu/declarations` (202, réponse
+  neutre), `POST /dossier/individu/declarations/{id}/reponse`, `GET|POST /dossier/individu/liens`,
+  `POST /dossier/individu/liens/{id}/lever`, `GET /dossier/individu/propositions`,
+  `POST /dossier/individu/propositions/ecarter`.
+- **Migration 659** `sortie_regle3_individu` (lot 2) : `ent_sortie_argent_decideur_interdit` voit les liens familiaux,
+  comptes d'élève et comptes payeurs de **toutes** les fiches de l'individu (par `personne_id`, donc aussi une fiche sans
+  compte) ; seconde validation (653), décision de contournement (658) et contournement ouvert (657) jugés par
+  `ent_meme_individu`. Application : annulation au-dessus du seuil, validation, contournement, bordereau.
+- **Migration 2421** `cdt_individu` (lot 3) : réouverture du cahier et accès d'inspection (nouveau déclencheur ; les
+  CHECK de 2407 restent, plus faibles et toujours vrais).
+- **Migration 2316** `absp_individu` (lot 3) : `ent_trg_absence_rh_valideur`, `ent_trg_absp_circuit_valideur`,
+  `ent_trg_absp_decision` (R-AP10) recréées sur l'individu (2300 et 2302 inchangées, règle 25).
+- **Conversions de l'application (lot 3)** : formulaires (FRM-145, auteur et co-auteurs), cahier (accès d'inspection,
+  prolongation, réouverture), sorties de groupe de l'internat (auteur), absences des personnels (R-AP10 : seulement les
+  branches qui refusent ; `suis_absent` garde ce qu'il accorde à l'absent), projection historique `ent_absence_rh`,
+  signature (constat au guichet, contrôle du papier : par compte **ou** par fiche du signataire), délégations (fiches
+  d'agent reliées), reprographie R-DM40 (fiches reliées au demandeur ou au déposant), conflit d'intérêts R-A18
+  (détection par les fiches de l'individu et par les conflits déclarés sur ses autres comptes).
+
+### 9.2 Écarts avec la conception (font foi)
+
+- **Relier ses propres fiches** est permis à la direction et au secrétariat : un lien ne fait qu'ajouter des refus
+  (principe 1). Seule la **levée** est interdite à l'individu concerné.
+- **Aucun événement** `individu.lien_pose` / `individu.lien_leve` : le journal est la table en ajout seul elle-même.
+  Un événement (notification de l'intéressé) est une suite possible, pas un manque de sécurité.
+- **Migration 2316** ajoutée (absences, en base) ; la conception ne citait que 2421.
+- **Propositions** : sur l'adresse e-mail (fiche ou compte) ou le téléphone E.164 (`ent_tel_e164`) partagés, au moins un
+  agent dans la paire, 200 au plus, sans la coordonnée ; aucune ne relie rien.
+
+### 9.3 Tests
+
+- `tests_individu.rs` (7) : chaîne et levée, la direction ne lève pas son propre lien, déclaration en deux temps
+  (expiration, quota, anti-énumération), ajout seul, cloisonnement entre établissements, fusion de fiches,
+  propositions sans rapprochement automatique.
+- `tests_individu_voyages.rs` (5) : règle 3 par un second compte parent et par une fiche parent sans compte, seconde
+  validation et annulation (application et base), contournement, bordereau.
+- `tests_individu_socles.rs` : R-AP10 (application et les trois déclencheurs de 2316), délégation, accès d'inspection
+  (2421, en base), conflit d'intérêts R-A18 par une fiche parent sans compte reliée, et une **garde statique** : aucune
+  égalité de comptes ne reste dans les refus convertis.
+
+### 9.4 Limites connues (faits)
+
+- Formulaires, sorties de groupe, signature, reprographie et réouverture du cahier : la conversion est un appel au port
+  (testé) et la garde statique verrouille l'ancien motif ; pas de test de bout en bout par règle pour ces cinq-là.
+- Le tableau de bord des conflits d'intérêts (direction) liste toujours les conflits par compte ; seule la détection
+  (qui ferme les groupes) voit l'individu.
+- Hors palier, inchangés : noter son propre enfant (Q-P3), quatre yeux des diffusions (NTF-50), RGPD (PR 165, 166),
+  écrans.

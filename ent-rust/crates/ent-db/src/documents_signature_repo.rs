@@ -333,6 +333,37 @@ pub(crate) async fn compte_du_signataire(
     Ok(r.and_then(|x| x.0))
 }
 
+/// Le signataire est-il le même individu que ce compte ? Par son compte (fiche, agent, compte d'élève) parmi les comptes
+/// de l'individu, ou par sa fiche (fiche sans compte reliée) parmi ses fiches. Sert seulement à **refuser** (transverse
+/// « individu », 2026-11-27) : un agent ne constate pas sa propre signature, ne contrôle pas son propre papier.
+pub(crate) async fn signataire_est_l_individu(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    signataire_id: Uuid,
+    user: Uuid,
+) -> Result<bool, EntDbError> {
+    let r: Option<(bool,)> = sqlx::query_as(
+        "WITH moi AS (SELECT public.ent_individu_comptes($1, $3) AS us,
+                             public.ent_individu_personnes_du_compte($1, $3) AS ps)
+         SELECT COALESCE(COALESCE(p.user_id, ap.user_id, ec.user_id) = ANY (moi.us), false)
+             OR COALESCE(COALESCE(s.personne_id, ag.personne_id) = ANY (moi.ps), false)
+           FROM public.ent_doc_signataire s
+           CROSS JOIN moi
+           LEFT JOIN public.ent_personne p ON p.etablissement_id = s.etablissement_id AND p.id = s.personne_id
+           LEFT JOIN public.ent_agent ag ON ag.etablissement_id = s.etablissement_id AND ag.id = s.agent_id
+           LEFT JOIN public.ent_personne ap ON ap.etablissement_id = ag.etablissement_id AND ap.id = ag.personne_id
+           LEFT JOIN public.ent_eleve_compte ec ON ec.etablissement_id = s.etablissement_id AND ec.eleve_id = s.eleve_id
+          WHERE s.etablissement_id = $1 AND s.id = $2",
+    )
+    .bind(etab)
+    .bind(signataire_id)
+    .bind(user)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    Ok(r.is_some_and(|x| x.0))
+}
+
 async fn nom_signataire(conn: &mut PgConnection, etab: Uuid, signataire_id: Uuid) -> Result<String, EntDbError> {
     let r: Option<(Option<String>,)> = sqlx::query_as(
         "SELECT COALESCE(s.externe_nom,

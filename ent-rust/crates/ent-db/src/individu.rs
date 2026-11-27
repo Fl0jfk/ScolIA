@@ -115,6 +115,48 @@ pub(crate) async fn personnes_du_compte(
         .map_err(db)
 }
 
+/// Le compte est-il le même individu que cet agent (sa fiche, ou une fiche reliée) ? Faux si l'agent n'existe pas.
+pub(crate) async fn compte_est_agent(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    u: Uuid,
+    agent_id: Uuid,
+) -> Result<bool, EntDbError> {
+    sqlx::query_scalar(
+        "SELECT COALESCE((SELECT ag.personne_id = ANY (public.ent_individu_personnes_du_compte($1, $2)) \
+           FROM public.ent_agent ag WHERE ag.etablissement_id = $1 AND ag.id = $3), false)",
+    )
+    .bind(etab)
+    .bind(u)
+    .bind(agent_id)
+    .fetch_one(conn)
+    .await
+    .map_err(db)
+}
+
+/// Deux agents sont-ils le même individu (leurs fiches reliées) ? `a1 == a2` compris.
+pub(crate) async fn agents_meme_individu(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    a1: Uuid,
+    a2: Uuid,
+) -> Result<bool, EntDbError> {
+    if a1 == a2 {
+        return Ok(true);
+    }
+    sqlx::query_scalar(
+        "SELECT COALESCE((SELECT b.personne_id = ANY (public.ent_individu_personnes($1, ARRAY[a.personne_id])) \
+           FROM public.ent_agent a, public.ent_agent b \
+          WHERE a.etablissement_id = $1 AND a.id = $2 AND b.etablissement_id = $1 AND b.id = $3), false)",
+    )
+    .bind(etab)
+    .bind(a1)
+    .bind(a2)
+    .fetch_one(conn)
+    .await
+    .map_err(db)
+}
+
 // ───────────────────────── Vues ─────────────────────────
 
 /// Un lien d'individu, vu de la direction ou du secrétariat.

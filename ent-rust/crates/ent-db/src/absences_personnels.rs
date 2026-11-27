@@ -1451,6 +1451,10 @@ impl PgEnt {
         let a = charger(&mut tx, etab, id, true).await?;
         let mon_agent = agent_du_user_tx(&mut tx, etab, actor).await?;
         let suis_absent = mon_agent == Some(a.agent_id) || a.agent_user_id == Some(actor);
+        // R-AP10 sur l'individu (transverse 2026-11-27) : un autre compte du même individu ne décide pas non plus ;
+        // `suis_absent` (le compte) garde ce qu'il accorde à l'absent lui-même.
+        let absent_individu =
+            suis_absent || crate::individu::compte_est_agent(&mut tx, etab, actor, a.agent_id).await?;
         let instructeur = self
             .peut_instruire_abs(&mut tx, etab, actor, role, &a)
             .await?;
@@ -1461,17 +1465,17 @@ impl PgEnt {
         // Droits par commande. Personne ne valide ni ne refuse sa propre absence (R-AP10), même s'il
         // détient `valider` ; l'agent peut annuler la sienne avant son début (ABP-113).
         let autorise = match cmd {
-            Cmd::Valider | Cmd::Refuser | Cmd::Rouvrir => valider_droit && !suis_absent,
-            Cmd::Instruction => (valider_droit || instructeur) && !suis_absent,
-            Cmd::Traiter => instructeur && !suis_absent,
-            Cmd::Clore => (valider_droit || instructeur) && !suis_absent,
+            Cmd::Valider | Cmd::Refuser | Cmd::Rouvrir => valider_droit && !absent_individu,
+            Cmd::Instruction => (valider_droit || instructeur) && !absent_individu,
+            Cmd::Traiter => instructeur && !absent_individu,
+            Cmd::Clore => (valider_droit || instructeur) && !absent_individu,
             Cmd::Annuler => {
-                (valider_droit && !suis_absent) || (suis_absent && a.debut > Utc::now())
+                (valider_droit && !absent_individu) || (suis_absent && a.debut > Utc::now())
             }
         };
         if !autorise {
             // Une tentative sur sa propre absence est un refus explicite ; le reste est un 403 net.
-            if suis_absent
+            if absent_individu
                 && matches!(cmd, Cmd::Valider | Cmd::Refuser | Cmd::Rouvrir)
                 && valider_droit
             {
@@ -1824,8 +1828,12 @@ impl PgEnt {
         let a = charger(&mut tx, etab, id, true).await?;
         let mon_agent = agent_du_user_tx(&mut tx, etab, actor).await?;
         let suis_absent = mon_agent == Some(a.agent_id) || a.agent_user_id == Some(actor);
+        // R-AP10 sur l'individu (transverse 2026-11-27) : un autre compte du même individu ne décide pas non plus ;
+        // `suis_absent` (le compte) garde ce qu'il accorde à l'absent lui-même.
+        let absent_individu =
+            suis_absent || crate::individu::compte_est_agent(&mut tx, etab, actor, a.agent_id).await?;
         if par_rappel {
-            let ok = !suis_absent
+            let ok = !absent_individu
                 && (self
                     .a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesValider)
                     .await?
@@ -1951,12 +1959,16 @@ impl PgEnt {
         let a = charger(&mut tx, etab, id, true).await?;
         let mon_agent = agent_du_user_tx(&mut tx, etab, actor).await?;
         let suis_absent = mon_agent == Some(a.agent_id) || a.agent_user_id == Some(actor);
+        // R-AP10 sur l'individu (transverse 2026-11-27) : un autre compte du même individu ne décide pas non plus ;
+        // `suis_absent` (le compte) garde ce qu'il accorde à l'absent lui-même.
+        let absent_individu =
+            suis_absent || crate::individu::compte_est_agent(&mut tx, etab, actor, a.agent_id).await?;
         let instructeur = self
             .peut_instruire_abs(&mut tx, etab, actor, role, &a)
             .await?;
         let avant_decision = matches!(a.etat.as_str(), "signalee" | "declaree" | "en_instruction");
         let autorise =
-            ((valider || instructeur) && !suis_absent) || (suis_absent && avant_decision);
+            ((valider || instructeur) && !absent_individu) || (suis_absent && avant_decision);
         if !autorise {
             return Err(EntDbError::Forbidden);
         }
@@ -2348,10 +2360,14 @@ impl PgEnt {
         let a = charger(&mut tx, etab, id, true).await?;
         let mon_agent = agent_du_user_tx(&mut tx, etab, actor).await?;
         let suis_absent = mon_agent == Some(a.agent_id) || a.agent_user_id == Some(actor);
+        // R-AP10 sur l'individu (transverse 2026-11-27) : un autre compte du même individu ne décide pas non plus ;
+        // `suis_absent` (le compte) garde ce qu'il accorde à l'absent lui-même.
+        let absent_individu =
+            suis_absent || crate::individu::compte_est_agent(&mut tx, etab, actor, a.agent_id).await?;
         let instructeur = self
             .peut_instruire_abs(&mut tx, etab, actor, role, &a)
             .await?;
-        if suis_absent || !(valider || instructeur) {
+        if absent_individu || !(valider || instructeur) {
             return Err(EntDbError::Forbidden);
         }
         let nature = match a.nature_id {

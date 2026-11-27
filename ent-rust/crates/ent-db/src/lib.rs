@@ -635,6 +635,8 @@ mod tests_individu;
 #[cfg(all(test, feature = "labo"))]
 mod tests_individu_voyages;
 #[cfg(all(test, feature = "labo"))]
+mod tests_individu_socles;
+#[cfg(all(test, feature = "labo"))]
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t1_t2;

@@ -576,3 +576,19 @@ Plage **520–539** du socle 24 : **531** `finances_f3_suites` consommée (rése
 Plage **640–659** du socle 42 : **658** `sortie_voyages_faibles_verrou_faits` consommée (vérifiée libre sur toutes les branches distantes le 2026-11-27) ; **659 reste réservée**. 640–657 sont versées et **ne changent pas** (règle 25). Ajoutée **à la fin** de `migrate.rs` (règle 38) ; `migrations_versees.txt` reste au pilote ; `MIGRATION_TAG` **inchangé** (3808). **658** recrée seulement `ent_sortie_contournement_evt_garde()` (657) avec le verrou consultatif de la sortie (`hashtextextended('voyages_argent:' || sortie_id, 0)`, même clé que `verrou_sortie`) avant toute lecture des faits : moyen M-2 de la contre-revue V3b suites 2. `search_path` fixé, relations `public.`, aucune table, aucun déclencheur recréé, aucune donnée touchée. Détail : `PALIER_FAIBLES_1_LIVRAISON.md`.
 
 **495** `msg_controle_echec_depuis` prise dans la plage 482–499 du socle 16 (482–494 versées et **inchangées**, règle 25 ; 496–497 restent en réserve, 498–499 réservées ; numéro vérifié libre sur toutes les branches distantes le 2026-11-27). **À la fin du tableau de `migrate.rs`** (règle 38, après 658). Contenu (faible 3 de la contre-revue E1 passe 5, D-069, reprise après la contre-revue du palier) : colonne `ent_notification_envoi.controle_echec_depuis TIMESTAMPTZ` (nullable, `ADD COLUMN IF NOT EXISTS`), instant du premier échec du contrôle d'existence d'un avis, posé une fois et jamais avancé ; un avis dont le contrôle échoue encore 24 h après cet instant passe en `echec` (`controle_existence_impossible`). Aucune fonction, aucune table, aucune donnée touchée. `MIGRATION_TAG` **inchangé** (3808). Compteurs : 0 table (`tests_rls.rs` inchangé), registre des données inchangé (colonne d'une table déjà inscrite), migrations **+1**. Détail : `PALIER_FAIBLES_1_LIVRAISON.md`.
+
+## Mise à jour du 2026-11-27 (transverse « la deuxième personne fondée sur la personne physique », branche `claude/project-thread-lfmutb`)
+Quatre migrations, chacune vérifiée libre sur toutes les branches distantes le 2026-11-27, ajoutées **à la fin** du
+tableau de `migrate.rs` dans cet ordre (règle 38 : 279 d'abord, ses fonctions servent aux trois autres) ;
+`migrations_versees.txt` reste au pilote ; `MIGRATION_TAG` **inchangé** ; aucune migration versée modifiée (règle 25).
+- **279** `personne_individu` (plage du socle 4 ; 277–278 restent réservées au lot A14) : `ent_individu_lien`,
+  `ent_individu_declaration`, `ent_individu_proposition_ecartee` (**+3 tables avec RLS**, `tests_rls.rs` `+ 3` ;
+  registre des données +3), gardes d'ajout seul, fonctions de l'individu (`search_path` figé, relations `public.`).
+- **659** `sortie_regle3_individu` : **dernier numéro de la plage 640–659 du socle 42, désormais épuisée**. Recrée
+  `ent_sortie_argent_decideur_interdit`, `ent_sortie_argent_garde_decideur` (653), `ent_sortie_contournement_evt_garde`
+  (658) et `ent_sortie_contournement_ouvert` (657) sur l'individu.
+- **2421** `cdt_individu` (plage d'extension 2420–2429 du socle 20) : `ent_cdt_cloture_coherence` (2407) recréée,
+  réouverture jugée sur l'individu ; nouveau déclencheur `ent_cdt_acces_inspection_pas_soi_trg`.
+- **2316** `absp_individu` (plage du socle 15 ; 2313–2314 et 2317–2319 restent réservées) : trois fonctions R-AP10 de
+  2300 et 2302 recréées sur l'individu.
+Détail : `TRANSVERSE_INDIVIDU.md` §9.
