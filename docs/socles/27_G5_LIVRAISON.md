@@ -124,10 +124,18 @@ sécurité, close).
 
 ## 5. Vérifications locales
 
-PostgreSQL 16 local (base `ent_ci_test`), Rust 1.99.0, nextest 0.9.150, `ENT_ENV=test`. Tests ciblés `ent-db`,
-`ent-api`, `ent-types`, `ent-auth` (G5, RLS, gardes, `separation`) : verts ; un test sans rapport
-(`tests_search_path_t1`, délai d'instruction sous charge) a échoué une fois puis réussi seul. Frontend : clippy SSR
-`-D warnings` vert ; le reste de la CI locale est consigné au §6 avant la PR.
+PostgreSQL 16 local (base `ent_ci_test`), Rust 1.99.0, nextest 0.9.150, `ENT_ENV=test`, conteneur de 15 Go.
+
+| Vérification | Résultat |
+|---|---|
+| `cargo fmt --check` (frontend, `ent-types`) | vert |
+| 3 clippy `-D warnings` (espace de travail, avec labo, `ent-types`) | verts, 0 avertissement |
+| Tests ciblés G5, RLS, gardes, `separation` (`ent-db`, `ent-api`, `ent-types`, `ent-auth`) | verts |
+| Frontend : clippy SSR, serveur (avec et sans labo), wasm ; tests `ent-web-*` ; rendu serveur (`rgpd_violations`, `rgpd_droits`, `entetes_securite`, `droits_parite`) | verts |
+| Suite complète avec labo | **interrompue** à 2 757 / 4 386 tests (limite de 2 h du conteneur, compilation sur un cœur faute de mémoire) ; 11 échecs, tous hors G5 : délais d'instruction sous charge (`57014`) et deux tests globaux de `tests_eleve_scolarite` sur une base partagée de 17 000 élèves ; les quatre échecs relancés seuls sont verts |
+| Suite complète sans labo | non menée (compilation tuée par manque de mémoire) |
+
+La CI de la PR fait foi pour la suite complète.
 
 ## 6. Contre-revue (relecture indépendante du serveur)
 
