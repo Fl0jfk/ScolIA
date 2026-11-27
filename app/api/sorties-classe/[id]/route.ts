@@ -15,6 +15,7 @@ import {
   apresAnnulation,
   apresDecisionDirection,
   apresReponseParent,
+  relancerDirection,
   relancerParents,
 } from "@/app/lib/sorties-classe-mail";
 
@@ -81,6 +82,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     );
     if (!out.ok) return erreur(out.error, out.status);
     await suite(() => apresReponseParent(out.sortie, studentId));
+    return repondre(out.sortie);
+  }
+
+  if (action === "relancer_direction") {
+    const out = await relancerDirection(id, String(body.etablissement || ""));
+    if (!out.ok) return erreur(out.error, out.status);
     return repondre(out.sortie);
   }
 

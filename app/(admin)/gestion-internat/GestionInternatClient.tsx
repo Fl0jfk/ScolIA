@@ -9,6 +9,9 @@ import InternatHubNav, { type InternatTab } from "@/app/components/internat/Inte
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { getIntranetModuleById, rolesAllowModule } from "@/app/lib/intranet-modules";
+import { useCanAccessModule } from "@/app/hooks/useCanAccessModule";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
   canAccessInternatFromMetadata,
@@ -34,6 +37,10 @@ const InternatSortiesClassePanel = dynamic(
   () => import("@/app/components/internat/InternatSortiesClassePanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const SortiesClasseGestion = dynamic(() => import("@/app/components/sorties-classe/SortiesClasseGestion"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 const InternatRollCallPanel = dynamic(() => import("@/app/components/internat/InternatRollCallPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
@@ -101,8 +108,14 @@ export default function GestionInternatClient() {
 
   const isOrgAdmin = useIsOrgAdmin();
   const roles = useMemo(() => rolesFromMetadata(user?.publicMetadata), [user]);
-  const allowed =
-    isLoaded && (canAccessInternatFromMetadata(user?.publicMetadata) || isOrgAdmin);
+  // La matrice « Droits modules » peut retirer l'Internat à un compte : il garde alors le seul onglet des sorties.
+  const { canAccess: moduleInternat } = useCanAccessModule("internat");
+  const accesComplet =
+    isLoaded && moduleInternat && (canAccessInternatFromMetadata(user?.publicMetadata) || isOrgAdmin);
+  // Professeurs : seulement l'onglet « Autorisations de sortie ».
+  const accesSorties =
+    isLoaded && rolesAllowModule(roles, getIntranetModuleById("sorties-classe")!, isOrgAdmin);
+  const allowed = accesComplet || accesSorties;
   const canManage = isOrgAdmin || canManageInternatConfig(roles);
 
   const [rooms, setRooms] = useState<InternatRoom[]>([]);
@@ -150,14 +163,30 @@ export default function GestionInternatClient() {
       router.replace("/dashboard");
       return;
     }
+    if (!accesComplet) return;
     setLoading(true);
     void refresh().finally(() => setLoading(false));
-  }, [isLoaded, allowed, router, refresh]);
+  }, [isLoaded, allowed, accesComplet, router, refresh]);
 
   if (!isLoaded || !allowed) {
     return (
       <ModulePageShell maxWidthClass="max-w-[1400px]">
         <p className="text-slate-500 text-sm">Chargement…</p>
+      </ModulePageShell>
+    );
+  }
+
+  if (!accesComplet) {
+    return (
+      <ModulePageShell maxWidthClass="max-w-[1100px]">
+        <ModulePageHeader eyebrow="Élèves" title="Internat" description="Autorisations de sortie des internes." />
+        <ModuleTabNav
+          tabs={[{ id: "sorties", label: "Autorisations de sortie" }]}
+          active="sorties"
+          onChange={() => {}}
+          className="mb-6"
+        />
+        <SortiesClasseGestion />
       </ModulePageShell>
     );
   }
@@ -201,7 +230,8 @@ export default function GestionInternatClient() {
           )}
           {activeTab === "sorties" && (
             <div data-tour="internat-outings" className="space-y-6">
-              <InternatSortiesClassePanel />
+              <InternatSortiesClassePanel aujourdhuiSeulement={accesSorties} />
+              {accesSorties && <SortiesClasseGestion />}
               <InternatOutingsPanel canManage={canManage} />
             </div>
           )}

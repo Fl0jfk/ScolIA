@@ -22,6 +22,7 @@ export type SortieActions = {
   direction: (sortie: VueSortie, etablissement: string, decision: "approve" | "refuse") => void;
   manuel: (sortie: VueSortie, studentId: string, nom: string, decision: "approve" | "refuse") => void;
   relancer: (sortie: VueSortie) => void;
+  relancerDirection: (sortie: VueSortie, etablissement: string) => void;
   annuler: (sortie: VueSortie) => void;
 };
 
@@ -61,9 +62,14 @@ export default function SortieClasseCard({
                 {c.refuses > 0 && (
                   <span className="rounded-lg bg-red-100 px-2 py-1 text-red-900">{c.refuses} refus</span>
                 )}
-                {c.attente > 0 && (
+                {c.attenteDirection > 0 && (
+                  <span className="rounded-lg bg-blue-100 px-2 py-1 text-blue-900">
+                    {c.attenteDirection} accord parent, attente direction
+                  </span>
+                )}
+                {c.attenteParent > 0 && (
                   <span className="rounded-lg bg-amber-100 px-2 py-1 text-amber-900">
-                    {c.attente} en attente
+                    {c.attenteParent} sans réponse parent
                   </span>
                 )}
               </>
@@ -89,6 +95,25 @@ export default function SortieClasseCard({
                   {d.decidedBy ? ` par ${d.decidedBy}` : ""}
                   {d.note ? ` — « ${d.note} »` : ""}
                 </span>
+                {d.status === "pending" && (
+                  <span className="text-xs text-slate-500">
+                    {d.relanceLe
+                      ? `(relancée le ${new Date(d.relanceLe).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })})`
+                      : d.emailEnvoye
+                        ? "(e-mail envoyé)"
+                        : "(e-mail non parti)"}
+                  </span>
+                )}
+                {actions && sortie.gerable && modifiable && d.status === "pending" && (
+                  <button
+                    type="button"
+                    disabled={actions.busy}
+                    onClick={() => actions.relancerDirection(sortie, d.etablissement)}
+                    className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-bold disabled:opacity-50"
+                  >
+                    {d.emailEnvoye ? "Relancer la direction" : "Envoyer à la direction"}
+                  </button>
+                )}
                 {actions && d.peutDecider && modifiable && (
                   <>
                     <button

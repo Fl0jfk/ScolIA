@@ -5,7 +5,7 @@ import SortieClasseCard from "@/app/components/sorties-classe/SortieClasseCard";
 import type { VueSortie } from "@/app/lib/sorties-classe";
 
 /** Équipe internat : qui est autorisé à sortir ce soir et les jours suivants (consultation seule). */
-export default function InternatSortiesClassePanel() {
+export default function InternatSortiesClassePanel({ aujourdhuiSeulement = false }: { aujourdhuiSeulement?: boolean }) {
   const [data, setData] = useState<{ sorties: VueSortie[]; aujourdhui: string } | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -65,6 +65,7 @@ export default function InternatSortiesClassePanel() {
         )}
       </section>
 
+      {!aujourdhuiSeulement && (
       <section className="space-y-3">
         <h3 className="font-black text-slate-900">Sorties de classe à venir</h3>
         <p className="text-xs text-slate-500">
@@ -73,6 +74,7 @@ export default function InternatSortiesClassePanel() {
         {data && data.sorties.length === 0 && <p className="text-sm text-slate-500">Aucune sortie à venir.</p>}
         {data?.sorties.map((s) => <SortieClasseCard key={s.id} sortie={s} ouverte={s.date === data.aujourdhui} />)}
       </section>
+      )}
     </div>
   );
 }

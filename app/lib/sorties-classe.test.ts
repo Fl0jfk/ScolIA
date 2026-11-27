@@ -4,6 +4,7 @@ import {
   appliquerDecisionDirection,
   appliquerReponseParent,
   compterStatuts,
+  reserverRappelDirection,
   parisStamp,
   peutCreer,
   peutDeciderDirection,
@@ -22,7 +23,7 @@ import {
 } from "./sorties-classe";
 import { groupeDirection } from "./sorties-classe-direction";
 import { flattenCollectionRecord, inflateFromAttrs } from "./ent-attr-codec";
-import { getIntranetModuleById, rolesAllowModule } from "./intranet-modules";
+import { getIntranetModuleById, rolesAllowModule, canAccessIntranetPath } from "./intranet-modules";
 import { PROXY_PUBLIC_ROUTE_MATCHERS } from "./public-routes";
 
 const AVANT = new Date("2026-12-01T08:00:00Z");
@@ -83,7 +84,7 @@ test("le refus d'un parent ne touche pas les autres élèves", () => {
   appliquerDecisionDirection(s, "Lycée", { status: "approved", par: "D" }, AVANT);
   appliquerReponseParent(s, "a", { decision: "refused", source: "lien", par: "P" }, AVANT);
   appliquerReponseParent(s, "b", { decision: "authorized", source: "lien", par: "P" }, AVANT);
-  assert.deepEqual(compterStatuts(s), { total: 2, autorises: 1, refuses: 1, attente: 0 });
+  assert.deepEqual(compterStatuts(s), { total: 2, autorises: 1, refuses: 1, attenteParent: 0, attenteDirection: 0 });
   assert.ok(reponsesCompletes(s));
 });
 
@@ -254,4 +255,41 @@ test("les pages de réponse sont publiques, l'espace des professeurs ne l'est pa
   assert.ok(!isPublicPath("/api/sorties-classe"));
   assert.ok(!isPublicPath("/api/internat/outings/classe"));
   assert.ok(!isPublicPath("/autorisations-sortie"));
+});
+
+test("professeur : la page Internat seulement, ni ses sous-pages ni les données de l'internat", () => {
+  const peut = (path: string, roles = ["professeur"]) => canAccessIntranetPath(path, roles, false);
+  assert.ok(peut("/gestion-internat"));
+  assert.ok(peut("/gestion-internat?tab=internes"));
+  assert.ok(peut("/api/sorties-classe"));
+  for (const path of [
+    "/gestion-internat/appel-soir",
+    "/gestion-internat/affectations",
+    "/api/internat",
+    "/api/internat/students",
+    "/api/internat/rooms",
+    "/api/internat/incidents",
+    "/api/internat/stats",
+    "/api/internat/outings",
+    "/api/internat/outings/classe",
+  ]) {
+    assert.ok(!peut(path), path);
+  }
+  assert.ok(peut("/gestion-internat/appel-soir", ["surveillant"]));
+  assert.ok(!peut("/gestion-internat", ["parent"]));
+});
+
+test("rappel à la direction : sans réponse seulement, une fois par heure ; compteurs séparés", () => {
+  const s = sortie({ eleves: [eleve("a", { parentStatus: "authorized" }), eleve("b")] });
+  s.directions[0]!.status = "pending";
+  const nom = s.directions[0]!.etablissement;
+  for (const e of s.eleves) e.etablissement = nom;
+  assert.deepEqual(compterStatuts(s), { total: 2, autorises: 0, refuses: 0, attenteParent: 1, attenteDirection: 1 });
+  const now = new Date(`${s.date}T00:00:00Z`);
+  now.setUTCDate(now.getUTCDate() - 3);
+  assert.ok(reserverRappelDirection(s, nom, now).ok);
+  assert.ok(!reserverRappelDirection(s, nom, new Date(now.getTime() + 10 * 60_000)).ok);
+  assert.ok(reserverRappelDirection(s, nom, new Date(now.getTime() + 61 * 60_000)).ok);
+  s.directions[0]!.status = "approved";
+  assert.ok(!reserverRappelDirection(s, nom, new Date(now.getTime() + 180 * 60_000)).ok);
 });

@@ -25,7 +25,7 @@ const VISIBLE_TABS: { id: InternatTab; label: string }[] = [
   { id: "appel", label: "Appel" },
   { id: "incidents", label: "Incidents" },
   { id: "chambres", label: "Chambres" },
-  { id: "sorties", label: "Sorties" },
+  { id: "sorties", label: "Autorisations de sortie" },
 ];
 
 export default function InternatHubNav({

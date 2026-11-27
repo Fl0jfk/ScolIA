@@ -15,6 +15,7 @@ import {
   pointVeilleDu,
   relanceDue,
   reponsesCompletes,
+  reserverRappelDirection,
   sortiePartie,
   statutEleve,
   type SortieClasse,
@@ -218,6 +219,71 @@ async function envoiUnique(
   return parti;
 }
 
+/** Demande de validation à la direction (première fois ou rappel, avec l'état à jour des réponses). */
+async function messageDirection(envoyer: Envoyer, s: SortieClasse, d: SortieDirection, rappel: boolean) {
+  const base = await adresseSite();
+  const eleves = s.eleves.filter((e) => e.etablissement === d.etablissement);
+  return envoyerAChacun(envoyer, await adressesDirection(d), {
+    subject: `${rappel ? "Rappel — " : ""}[Internat] Sortie à valider — ${titre(s)}`,
+    lines: [
+      "Bonjour,",
+      "",
+      rappel
+        ? `Votre validation est attendue pour la sortie organisée par ${s.createdBy.name} avec des internes (${d.etablissement}).`
+        : `${s.createdBy.name} organise une sortie avec des internes (${d.etablissement}). Les parents sont prévenus en même temps que vous.`,
+      "",
+      ...lignesSortie(s),
+      "",
+      "Élèves concernés :",
+      ...eleves.map(
+        (e) => `• ${nomEleve(e)} (${e.classe})${rappel ? ` — ${STATUT_ELEVE_LABELS[statutEleve(s, e)]}` : ""}`,
+      ),
+      "",
+      "Un élève ne sortira que si son parent ET la direction ont donné leur accord.",
+      "Valider ou refuser (lien personnel, ne le transférez pas) :",
+      `${base}/internat/autorisation/classe?token=${encodeURIComponent(d.token)}`,
+      "",
+      `Suivi des réponses : ${base}/gestion-internat?tab=sorties`,
+    ],
+  });
+}
+
+/** Rappel manuel à la direction. Réservé sous verrou, libéré si l'e-mail ne part pas. */
+export async function relancerDirection(
+  id: string,
+  etablissement: string,
+): Promise<{ ok: true; sortie: SortieClasse } | { ok: false; error: string; status: number }> {
+  const envoyer = await ouvrirMessagerie();
+  if (!envoyer) return { ok: false, error: "La messagerie n'est pas configurée.", status: 502 };
+  let precedent: string | undefined;
+  const reservation = await modifierSortie(id, (s) => {
+    precedent = s.directions.find((d) => d.etablissement === etablissement)?.remindedAt;
+    return reserverRappelDirection(s, etablissement);
+  });
+  if (!reservation.ok) return reservation;
+  const direction = reservation.sortie.directions.find((d) => d.etablissement === etablissement)!;
+  let parti = false;
+  try {
+    parti = await messageDirection(envoyer, reservation.sortie, direction, true);
+  } catch (e) {
+    console.error("[sorties-classe] rappel direction en échec", e instanceof Error ? e.name : "error");
+  }
+  await marquer(id, (cur) => {
+    const x = cur.directions.find((d) => d.etablissement === etablissement);
+    if (!x) return;
+    if (parti) x.emailSentAt ??= x.remindedAt;
+    else x.remindedAt = precedent;
+  });
+  if (!parti) {
+    return {
+      ok: false,
+      error: "L'e-mail à la direction n'est pas parti : vérifiez l'adresse du directeur dans la fiche de l'établissement.",
+      status: 502,
+    };
+  }
+  return reservation;
+}
+
 /** Envoi initial : parents et direction en même temps. Chaque envoi réussi est noté aussitôt. */
 export async function envoyerInvitations(s: SortieClasse): Promise<string[]> {
   const envoyer = await ouvrirMessagerie();
@@ -237,29 +303,8 @@ export async function envoyerInvitations(s: SortieClasse): Promise<string[]> {
     }
   });
 
-  const base = await adresseSite();
   for (const d of s.directions) {
-    const eleves = s.eleves.filter((e) => e.etablissement === d.etablissement);
-    const parti = await envoyerAChacun(envoyer, await adressesDirection(d), {
-      subject: `[Internat] Sortie à valider — ${titre(s)}`,
-      lines: [
-        "Bonjour,",
-        "",
-        `${s.createdBy.name} organise une sortie avec des internes (${d.etablissement}). Les parents sont prévenus en même temps que vous.`,
-        "",
-        ...lignesSortie(s),
-        "",
-        "Élèves concernés :",
-        ...eleves.map((e) => `• ${nomEleve(e)} (${e.classe})`),
-        "",
-        "Un élève ne sortira que si son parent ET la direction ont donné leur accord.",
-        "Valider ou refuser (lien personnel, ne le transférez pas) :",
-        `${base}/internat/autorisation/classe?token=${encodeURIComponent(d.token)}`,
-        "",
-        `Suivi des réponses : ${base}/autorisations-sortie`,
-      ],
-    });
-    if (parti) {
+    if (await messageDirection(envoyer, s, d, false)) {
       await marquer(s.id, (cur) => {
         const x = cur.directions.find((y) => y.etablissement === d.etablissement);
         if (x) x.emailSentAt = new Date().toISOString();
@@ -284,7 +329,7 @@ async function envoyerRecap(envoyer: Envoyer, s: SortieClasse, moment: "complet"
     ...lignesSortie(s),
     ...listeStatuts(s),
     "",
-    `Suivi en direct : ${await adresseSite()}/autorisations-sortie`,
+    `Suivi en direct : ${await adresseSite()}/gestion-internat?tab=sorties`,
   ];
   const subject = `[Sortie] ${moment === "complet" ? "Réponses complètes" : "Point avant sortie"} : ${c.autorises}/${c.total} autorisés — ${titre(s)}`;
   const directions = (await Promise.all(s.directions.map(adressesDirection))).flat();

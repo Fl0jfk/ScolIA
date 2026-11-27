@@ -31,7 +31,7 @@ async function getAssistanceTargetEmail(): Promise<string> {
 export function getAssistanceScopeOptions(): AssistanceScopeOption[] {
   const modules = getDashboardCategories()
     .filter((c) => c.moduleId !== "assistance" && !c.orgAdminOnly)
-    .map((c) => ({ id: c.moduleId, label: c.name }));
+    .map((c) => ({ id: c.moduleId, label: c.moduleId === "sorties-classe" ? "Internat – autorisations de sortie" : c.name }));
 
   return [{ id: ASSISTANCE_DASHBOARD_SCOPE, label: "Tableau de bord" }, ...modules];
 }

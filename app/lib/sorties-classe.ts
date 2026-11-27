@@ -19,6 +19,8 @@ export type SortieDirection = {
   decidedBy?: string;
   note?: string;
   emailSentAt?: string;
+  /** Dernier rappel envoyé à la direction. */
+  remindedAt?: string;
 };
 
 export type SortieEleve = {
@@ -96,14 +98,37 @@ export function statutEleve(sortie: SortieClasse, eleve: SortieEleve): StatutEle
 }
 
 export function compterStatuts(sortie: SortieClasse) {
-  const out = { total: sortie.eleves.length, autorises: 0, refuses: 0, attente: 0 };
+  const out = { total: sortie.eleves.length, autorises: 0, refuses: 0, attenteParent: 0, attenteDirection: 0 };
   for (const e of sortie.eleves) {
     const s = statutEleve(sortie, e);
     if (s === "autorise") out.autorises += 1;
     else if (s === "refus_parent" || s === "refus_direction") out.refuses += 1;
-    else if (s !== "annulee") out.attente += 1;
+    else if (s === "attente_parent") out.attenteParent += 1;
+    else if (s === "attente_direction") out.attenteDirection += 1;
   }
   return out;
+}
+
+const DELAI_ENTRE_RAPPELS_MS = 60 * 60_000;
+
+/** Réserve un rappel à la direction : seulement si elle n'a pas répondu, et pas plus d'une fois par heure. */
+export function reserverRappelDirection(
+  sortie: SortieClasse,
+  etablissement: string,
+  now: Date = new Date(),
+): Resultat {
+  if (sortie.cancelledAt) return { ok: false, error: "Cette sortie a été annulée." };
+  if (sortiePartie(sortie, now)) return { ok: false, error: "L'heure de départ est passée." };
+  const direction = sortie.directions.find((d) => d.etablissement === etablissement);
+  if (!direction) return { ok: false, error: "Établissement introuvable pour cette sortie." };
+  if (direction.status !== "pending") {
+    return { ok: false, error: "La direction a déjà répondu pour cet établissement." };
+  }
+  if (direction.remindedAt && now.getTime() - new Date(direction.remindedAt).getTime() < DELAI_ENTRE_RAPPELS_MS) {
+    return { ok: false, error: "La direction a été relancée il y a moins d'une heure." };
+  }
+  direction.remindedAt = now.toISOString();
+  return { ok: true };
 }
 
 /** Plus aucune réponse attendue (parents et directions). */
@@ -407,6 +432,7 @@ export function vueSortie(sortie: SortieClasse, acteur: Acteur | null) {
       note: d.note,
       peutDecider: acteur ? d.status === "pending" && peutDeciderDirection(acteur, d) : false,
       emailEnvoye: Boolean(d.emailSentAt),
+      relanceLe: d.remindedAt,
     })),
     eleves: sortie.eleves
       .map((e) => ({

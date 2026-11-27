@@ -42,7 +42,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "requests-staff": "/requests",
   "prof-room": "/prof-room",
   "photocopies-couleur": "/photocopies",
-  "sorties-classe": "/autorisations-sortie",
+  "sorties-classe": "/gestion-internat?tab=sorties",
   "secret-santa": "/secret-santa",
   qrcreator: "/qrcreator",
   documents: "/documents",

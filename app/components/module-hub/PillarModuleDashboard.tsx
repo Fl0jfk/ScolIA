@@ -6,7 +6,7 @@ import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import HomeSignalBento from "@/app/components/Dashboard/HomeSignalBento";
 import {
   DASHBOARD_PILLARS,
-  categoriesForPillar,
+  categoriesForPillar, sansDoublonInternat,
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
@@ -251,8 +251,10 @@ export default function PillarModuleDashboard({
   });
 
   const modules = useMemo(() => {
-    return categoriesForPillar(pillar, categories, roles, { orgAdmin }).filter((c) =>
-      accessibleModuleIds.has(c.moduleId),
+    return sansDoublonInternat(
+      categoriesForPillar(pillar, categories, roles, { orgAdmin }).filter((c) =>
+        accessibleModuleIds.has(c.moduleId),
+      ),
     );
   }, [pillar, categories, accessibleModuleIds, roles, orgAdmin]);
 

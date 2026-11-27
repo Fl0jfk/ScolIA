@@ -70,6 +70,8 @@ export type IntranetModule = {
   orgAdminOnly?: boolean;
   /** Routes page + API. Omis pour les liens externes (tuile seulement). */
   pathPrefixes?: string[];
+  /** Pages ouvertes à l'adresse exacte seulement : ni leurs sous-pages, ni leurs API. */
+  exactPaths?: string[];
   excludePrefixes?: string[];
   /** Tuile sur le dashboard. Omis si module API-only (ex. règle complémentaire). */
   dashboard?: Omit<DashboardCategory, "allowedRoles" | "orgAdminOnly" | "moduleId">;
@@ -499,13 +501,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "sorties-classe",
     pathPrefixes: ["/autorisations-sortie", "/api/sorties-classe"],
+    // Onglet de la page Internat : les professeurs ouvrent la page, jamais les données de l'internat (/api/internat).
+    exactPaths: ["/gestion-internat"],
     allowedRoles: [...DIRECTIONS, "professeur"],
     dashboard: {
       id: 503,
-      name: "Autorisations de sortie",
+      name: "Internat",
       img: "",
-      link: "/autorisations-sortie",
+      link: "/gestion-internat?tab=sorties",
       external: false,
+      variant: "internat",
       description: "Sorties de classe avec des internes : accord des parents et de la direction.",
     },
   },
@@ -1150,6 +1155,7 @@ function isExcluded(pathname: string, excludePrefixes?: string[]): boolean {
 }
 
 function moduleMatchesPath(module: IntranetModule, pathname: string): boolean {
+  if (module.exactPaths?.includes(pathname)) return true;
   if (!module.pathPrefixes?.length) return false;
   if (isExcluded(pathname, module.excludePrefixes)) return false;
   return module.pathPrefixes.some(
@@ -1330,7 +1336,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   ],
   "pillar-services": [
     "travels",
-    "sorties-classe",
     "secret-santa",
     "prof-room",
     "requests-staff",
@@ -1342,6 +1347,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   ],
   "pillar-vie-scolaire": [
     "internat",
+    "sorties-classe",
     "vs-calendrier",
     "vs-appels",
     "vs-sanctions",

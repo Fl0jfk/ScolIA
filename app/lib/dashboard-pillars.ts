@@ -115,7 +115,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "documents",
       "qrcreator",
       "photocopies-couleur",
-      "sorties-classe",
       "secret-santa",
       "assistance",
     ],
@@ -137,6 +136,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     ],
     moduleIds: [
       "internat",
+      "sorties-classe",
       "vs-calendrier",
       "accueil-absences",
       "groupes-pedagogiques",
@@ -204,7 +204,7 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   channels: "services",
   assistance: "services",
   "photocopies-couleur": "services",
-  "sorties-classe": "services",
+  "sorties-classe": "vie_scolaire",
   "secret-santa": "services",
   covoiturage: "services",
   "repartition-classes": "administratif",
@@ -243,6 +243,13 @@ export function moduleIdsForPillarViewer(
     return [...ADMINISTRATIF_PROF_MODULE_IDS];
   }
   return pillar.moduleIds;
+}
+
+/** La tuile « Internat » des professeurs (autorisations de sortie) disparaît si l'on a déjà le vrai Internat. */
+export function sansDoublonInternat<T extends { moduleId: string }>(tuiles: T[]): T[] {
+  return tuiles.some((t) => t.moduleId === "internat")
+    ? tuiles.filter((t) => t.moduleId !== "sorties-classe")
+    : tuiles;
 }
 
 export function categoriesForPillar(
