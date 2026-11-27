@@ -378,3 +378,4 @@ Liste tenue à jour à chaque lot ; chaque lot compte au moins un commit de code
 - Lot 4 : `49a7cfdb0`.
 - Lot 5 : `6cc37b942`.
 - Correctif d'inventaire et de harnais (validation finale) : `0a9ae4e23`.
+- Fusion de `origin/ENT` (016636d98) après l'ouverture de la PR, conflit unique dans `migrate.rs` : `f5efe9ca1` (658 et 495 d'ENT placées avant 2545/2546, qui restent en fin de tableau). Garde/RLS/migrations, inventaires et tests HTTP `ent-api`, clippy ×3 rejoués : verts.
