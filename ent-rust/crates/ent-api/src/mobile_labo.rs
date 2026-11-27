@@ -1,10 +1,14 @@
 //! Routes de **labo** du lot MB1 (feature `labo` seulement, jamais dans le binaire de production) : elles servent de
 //! support aux tests HTTP de l'enveloppe d'erreur codée et de l'`Idempotency-Key` (`docs/socles/11_MB1_SERVEUR_LIVRAISON.md`).
 //! Elles ne touchent aucune donnée : un compteur d'exécutions en mémoire, indexé par un nom choisi par l'appelant.
+//!
+//! Faible F5 (contre-revue MB1) : même dans un binaire de labo, elles ne répondent que si `ENT_ENV` désigne un
+//! environnement non productif ([`crate::routes::env_non_prod`]) ; sinon `404`, comme si elles n'existaient pas. Le
+//! Dockerfile de production refuse aussi tout binaire qui contient le motif `/mobile/labo`.
 
 use crate::auth::EntSession;
 use crate::AppState;
-use axum::extract::Path;
+use axum::extract::{Path, Request};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -69,6 +73,10 @@ async fn echec(_s: EntSession, Path(statut): Path<u16>) -> (StatusCode, String) 
     let texte = match statut {
         403 => "vous êtes visé par une interdiction de contact avec cet élève".to_string(),
         404 => "l'élève existe mais n'est pas dans votre périmètre".to_string(),
+        // F1 : un texte de base de données relayé tel quel par une route (il ne doit jamais sortir dans l'enveloppe).
+        400 | 409 => "error returned from database: duplicate key value violates unique constraint \"ent_eleve_pkey\""
+            .to_string(),
+        503 => "pool timed out while waiting for an open connection (sqlx)".to_string(),
         _ => format!("échec simulé {statut}"),
     };
     (code, texte)
@@ -79,6 +87,14 @@ async fn echec_lecture(s: EntSession, p: Path<u16>) -> (StatusCode, String) {
     echec(s, p).await
 }
 
+/// Garde F5 : hors environnement non productif déclaré, les routes de labo répondent `404`.
+async fn garde_env(req: Request, next: axum::middleware::Next) -> axum::response::Response {
+    if !crate::routes::env_non_prod() {
+        return axum::response::IntoResponse::into_response(StatusCode::NOT_FOUND);
+    }
+    next.run(req).await
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/mobile/labo/echo", post(echo))
@@ -87,4 +103,5 @@ pub fn routes() -> Router<AppState> {
             "/mobile/labo/echec/{statut}",
             post(echec).get(echec_lecture),
         )
+        .route_layer(axum::middleware::from_fn(garde_env))
 }

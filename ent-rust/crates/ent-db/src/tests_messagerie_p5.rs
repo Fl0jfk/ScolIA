@@ -11,6 +11,7 @@ use super::tests_messagerie_p3::{code, pool_applicatif};
 use super::tests_messagerie_revue::message_differe;
 use super::*;
 use crate::tenant_tx::RlsMode;
+use chrono::{DateTime, Utc};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -295,10 +296,133 @@ async fn p5_e1_une_annulation_validee_apres_le_report_ecarte_l_avis_avec_message
 
     // Passage suivant, plus tard que le report : l'avis est écarté pour message annulé, rien n'est parti.
     let plus_tard = apres + chrono::Duration::minutes(5);
+    // Palier des faibles, lot 3 (faible de la contre-revue T3) : la constante « report < 5 min » est vérifiée, pas
+    // supposée ; sinon le passage suivant ne reprendrait pas l'avis et le test passerait pour une autre raison.
+    let replanifie: DateTime<Utc> =
+        sqlx::query_scalar("SELECT planifie_pour FROM ent_notification_envoi WHERE id = $1")
+            .bind(avis)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert!(replanifie > apres && replanifie < plus_tard, "report de {replanifie} hors de ]{apres}, {plus_tard}[");
     let b2 = exp.expedier(plus_tard).await.unwrap();
     assert_eq!(
         statut_avis(&ent, avis).await,
         ("ignore".to_string(), Some("message_annule".to_string())),
         "annulation validée après report : avis écarté : {b2:?}"
     );
+}
+
+/// Palier des faibles, lot 3 (faible 2 de la contre-revue E1 passe 5) : trois avis du **même** message verrouillé ne
+/// coûtent qu'une attente de verrou dans le lot (les suivants sont reportés aussitôt), et tous les trois sont reportés.
+#[tokio::test]
+async fn faibles_l3_f2_un_message_verrouille_n_est_attendu_qu_une_fois_par_lot() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Une attente par lot").await;
+    let m = message_differe(&ent, etab, dir, fil, "Verrouillé longtemps").await;
+    let mut avis = Vec::new();
+    for canal in ["push", "email", "sms"] {
+        avis.push(avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, canal).await);
+    }
+    let apres = apres_l_echeance(&ent).await;
+    let lente = annulation_en_cours(&ent, etab, m).await;
+    let attente = Duration::from_millis(1500);
+    let exp = ent.expediteur(crate::notifications::ConfigExpedition {
+        taille_lot: 10,
+        etablissement: Some(etab),
+        attente_verrou: attente,
+        ..crate::notifications::ConfigExpedition::default()
+    });
+    // Mesure d'une durée écoulée (pas une date) : une attente de 1,5 s, pas trois.
+    let debut = std::time::Instant::now();
+    let b = exp.expedier(apres).await.unwrap();
+    let duree = debut.elapsed();
+    assert!(b.reportes >= 3, "les trois avis sont reportés : {b:?}");
+    assert!(
+        duree < attente * 2,
+        "une seule attente de verrou pour le même message ({duree:?})"
+    );
+    for a in avis {
+        assert_eq!(statut_avis(&ent, a).await.0, "en_attente", "reporté, pas perdu");
+    }
+    lente.rollback().await.unwrap();
+}
+
+/// Palier des faibles, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069) : un avis dont le contrôle d'existence
+/// échoue encore plus de 24 h après son **premier** échec passe en `echec` (`controle_existence_impossible`) au lieu de
+/// reboucler. Contre-revue : un avis créé il y a longtemps (planifié loin devant) dont c'est le premier échec est seulement
+/// reporté, jamais perdu.
+#[tokio::test]
+async fn faibles_l3_f3_un_avis_en_echec_de_controle_depuis_24_heures_passe_en_echec() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let (etab, dir, lily) = (cast.etablissement_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (fil, _) = fil_de_lily(&ent, &cast, "Report sans fin").await;
+    let m = message_differe(&ent, etab, dir, fil, "Toujours verrouillé").await;
+    let vieux = avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, "push").await;
+    let ancien_neuf = avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, "email").await;
+    let apres = apres_l_echeance(&ent).await;
+    // `vieux` : premier échec de contrôle il y a 25 h. `ancien_neuf` : créé il y a 36 h (planifié loin devant), jamais en
+    // échec de contrôle.
+    sqlx::query("UPDATE ent_notification_envoi SET controle_echec_depuis = $2 - interval '25 hours' WHERE id = $1")
+        .bind(vieux)
+        .bind(apres)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_notification_envoi SET created_at = $2 - interval '36 hours' WHERE id = $1")
+        .bind(ancien_neuf)
+        .bind(apres)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let lente = annulation_en_cours(&ent, etab, m).await;
+    let exp = ent.expediteur(crate::notifications::ConfigExpedition {
+        taille_lot: 10,
+        etablissement: Some(etab),
+        attente_verrou: Duration::from_millis(200),
+        ..crate::notifications::ConfigExpedition::default()
+    });
+    let b = exp.expedier(apres).await.unwrap();
+    assert!(b.echecs >= 1 && b.reportes >= 1, "{b:?}");
+    assert_eq!(
+        statut_avis(&ent, vieux).await,
+        ("echec".to_string(), Some("controle_existence_impossible".to_string()))
+    );
+    assert_eq!(statut_avis(&ent, ancien_neuf).await.0, "en_attente", "premier échec : reporté, pas perdu");
+    let depuis: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT controle_echec_depuis FROM ent_notification_envoi WHERE id = $1")
+            .bind(ancien_neuf)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(depuis, Some(apres), "premier échec daté de l'instant du passage");
+    lente.rollback().await.unwrap();
+}
+
+/// Avis d'un message sur un canal donné (même message, plusieurs canaux : clé de dédoublonnage par canal).
+async fn avis_canal(ent: &PgEnt, etab: Uuid, lily: Uuid, eleve: Uuid, m: Uuid, canal: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_notification_envoi
+            (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
+             source_type, source_id, cle_dedup, droit_requis, planifie_pour)
+         VALUES ($1,$2,$3,$7,'messagerie','Nouveau message','Un message vous attend',$4,'systeme',$5,$6,'lien',
+                 now() + interval '2 hours')",
+    )
+    .bind(id)
+    .bind(etab)
+    .bind(lily)
+    .bind(eleve)
+    .bind(m)
+    .bind(format!("msg-avis:{m}:{canal}"))
+    .bind(canal)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    id
 }

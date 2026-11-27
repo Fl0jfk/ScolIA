@@ -100,9 +100,9 @@ async fn s5_avis_regroupe_lu_repasse_non_lu_et_envoi_parti_jamais_reecrit() {
         minute.timestamp().div_euclid(60)
     );
 
-    // T3 (faible 4) : le test ne dépend plus de l'état préalable du banc (établissement de labo partagé : un envoi déjà
-    // `envoye` sous cette clé, ou un avis ouvert d'un test voisin, changerait les verdicts). On part d'un état vide, et on
-    // le vérifie.
+    // T3 (faible 4) : le test ne dépend pas de l'état préalable du banc. Chaque banc a son propre établissement de labo
+    // (`seed_labo_cast` en crée un neuf ; commentaire corrigé au palier des faibles, lot 3), mais on part quand même d'un
+    // état vide pour cette clé, et on le vérifie.
     sqlx::query(
         "DELETE FROM ent_notification_envoi \
           WHERE etablissement_id = $1 AND destinataire_user_id = $2 AND canal = 'email' AND kind = 'internat_cas_ouvert'",

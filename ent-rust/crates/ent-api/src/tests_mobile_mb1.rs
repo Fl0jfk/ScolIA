@@ -463,11 +463,9 @@ async fn mb1_idempotence_purge_a_24_heures_horloge_injectee() {
     assert!(r.en_tetes.contains_key("idempotent-replayed"));
     // À 24 h 01 : la purge supprime l'entrée (au moins la nôtre), et la clé ne rejoue plus rien.
     b.decalage.store(24 * 3600 + 60, Ordering::SeqCst);
-    let supprimees = b
-        .ent
-        .idem_purger(b.base + Duration::seconds(24 * 3600 + 60))
-        .await
-        .unwrap();
+    // F7 : la passe périodique elle-même, à l'instant injecté (et non `Utc::now()`).
+    let bilan = crate::purge::une_passe_a(&b.ent, b.base + Duration::seconds(24 * 3600 + 60)).await;
+    let supprimees = bilan.cles_idempotence;
     assert!(
         supprimees >= 1,
         "la purge doit supprimer l'entrée de plus de 24 h ({supprimees})"
@@ -492,4 +490,112 @@ async fn mb1_idempotence_cle_expiree_non_purgee_ne_rejoue_pas() {
     let r = echo(&b, &jeton, &k, &nom, 0).await;
     assert_eq!(r.json()["execution"], 2);
     assert!(!r.en_tetes.contains_key("idempotent-replayed"));
+}
+
+/// Faible F1 (contre-revue MB1) : un texte de base de données relayé par une route (400, 409, 503) ne sort jamais
+/// dans l'enveloppe ; et un 5xx ne garde pas la clé (un nouvel essai s'exécute pour de bon, rien n'est rejoué).
+#[tokio::test]
+async fn mb1_f1_texte_technique_jamais_relaye_et_5xx_non_conserve() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    for (statut, code) in [
+        (400, CodeErreur::RequeteInvalide),
+        (409, CodeErreur::ObjetConflit),
+        (503, CodeErreur::ServiceMaintenance),
+    ] {
+        let k = cle();
+        for essai in 0..2 {
+            let r = envoyer(
+                &b.app,
+                "POST",
+                &format!("/mobile/labo/echec/{statut}"),
+                Some(&jeton),
+                &[APPLI, ("idempotency-key", &k)],
+                None,
+            )
+            .await;
+            assert_eq!(r.statut.as_u16(), statut, "{}", r.texte);
+            assert_eq!(r.code(), code.as_str());
+            assert_eq!(r.json()["erreur"]["message"], code.message_neutre());
+            for interdit in ["duplicate", "constraint", "ent_eleve", "database", "sqlx", "pool"] {
+                assert!(!r.texte.contains(interdit), "fuite « {interdit} » : {}", r.texte);
+            }
+            assert!(
+                r.en_tetes.get("idempotent-replayed").is_none(),
+                "essai {essai} : un échec n'est jamais rejoué"
+            );
+        }
+    }
+}
+
+/// Faible F4 (contre-revue MB1) : l'en-tête interne `x-scolia-code` ne sort jamais, y compris vers le web (route
+/// hors `/mobile`, sans en-tête d'appli) quand c'est une couche **intérieure** (idempotence) qui l'a posé.
+#[tokio::test]
+async fn mb1_f4_en_tete_interne_jamais_servi_au_web() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    let r = envoyer(
+        &b.app,
+        "POST",
+        "/roles/mes-droits",
+        Some(&jeton),
+        &[("idempotency-key", "pas-un-uuid")],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{}", r.texte);
+    assert!(r.en_tetes.get("x-scolia-code").is_none());
+    assert!(
+        serde_json::from_str::<Value>(&r.texte).is_err(),
+        "le web reçoit le texte, pas l'enveloppe : {}",
+        r.texte
+    );
+}
+
+/// Tests manquants de la contre-revue MB1 : le web qui envoie une clé est rejoué comme l'appli ; la requête (`?x=1`)
+/// fait partie de l'empreinte ; une même clé dans un autre établissement ne rejoue rien.
+#[tokio::test]
+async fn mb1_web_avec_cle_requete_dans_l_empreinte_et_autre_etablissement() {
+    let Some(b) = banc().await else {
+        return eprintln!("skip MB1 : ENT_DATABASE_URL");
+    };
+    let (_, jeton) = inscrire(&b).await;
+    let nom = format!("web-{}", Uuid::new_v4().simple());
+    let k = cle();
+    let corps = json!({"nom": nom, "delai_ms": 0});
+    let web = |uri: &'static str| {
+        let (app, jeton, k, corps) = (b.app.clone(), jeton.clone(), k.clone(), corps.clone());
+        async move {
+            envoyer(&app, "POST", uri, Some(&jeton), &[("idempotency-key", &k)], Some(corps)).await
+        }
+    };
+    let r1 = web("/mobile/labo/echo").await;
+    assert_eq!(r1.statut, StatusCode::CREATED, "{}", r1.texte);
+    let r2 = web("/mobile/labo/echo").await;
+    assert_eq!(r2.texte, r1.texte);
+    assert_eq!(r2.en_tetes.get("idempotent-replayed").unwrap(), "true");
+    let r3 = web("/mobile/labo/echo?x=1").await;
+    assert_eq!(r3.statut, StatusCode::CONFLICT);
+    assert_eq!(r3.code(), "idempotence.conflit");
+    assert_eq!(executions(&b, &jeton, &nom).await, 1);
+
+    // Autre établissement, même clé, même corps : exécuté, rien de rejoué.
+    let Some(b2) = banc().await else { return };
+    let (_, jeton2) = inscrire(&b2).await;
+    let r = envoyer(
+        &b2.app,
+        "POST",
+        "/mobile/labo/echo",
+        Some(&jeton2),
+        &[APPLI, ("idempotency-key", &k)],
+        Some(json!({"nom": nom, "delai_ms": 0})),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED);
+    assert!(r.en_tetes.get("idempotent-replayed").is_none());
+    assert_eq!(r.json()["execution"], 2);
 }

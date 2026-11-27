@@ -98,6 +98,15 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// Palier des faibles, lot 3 (faible de la contre-revue T3) : exceptions ciblées sur **une ligne** et qui doivent
+/// le rester. Un extrait de ligne (`contains`) couvrirait sinon en silence une seconde requête ajoutée plus tard dans
+/// le même fichier ; le nombre d'occurrences est exigé exactement.
+const OCCURRENCES_EXACTES: &[(&str, &str, usize)] = &[
+    ("controle_demarrage", ".fetch_one(pool)", 1),
+    ("controle_demarrage", "droit_annulation(self.pool())", 1),
+    ("controle_demarrage", "droit_execution(pool,", 1),
+];
+
 /// **Aucun accès direct au pool** dans le code d'`ent-db` hors exceptions motivées : tout accès à une table
 /// « par établissement » passe par `TenantTx` (ou le contexte système nommé). Garde contre la
 /// régression : un nouveau dépôt qui oublie le contexte échoue ici, avant la CI strict de domaine.
@@ -105,6 +114,7 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
 fn aucun_acces_direct_au_pool_hors_exception() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut utilisees = std::collections::BTreeSet::new();
+    let mut occurrences: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut violations = Vec::new();
     for entree in std::fs::read_dir(&dir).unwrap() {
         let chemin = entree.unwrap().path();
@@ -123,6 +133,7 @@ fn aucun_acces_direct_au_pool_hors_exception() {
             {
                 Some(k) => {
                     utilisees.insert(k);
+                    *occurrences.entry(k).or_default() += 1;
                 }
                 None => violations.push(format!("{nom}.rs:{ligne} : {texte}")),
             }
@@ -140,4 +151,15 @@ fn aucun_acces_direct_au_pool_hors_exception() {
         .map(|(_, (f, e, _))| format!("{f} : {e}"))
         .collect();
     assert!(inutiles.is_empty(), "exceptions devenues inutiles (à retirer) :\n{}", inutiles.join("\n"));
+    for (f, extrait, attendu) in OCCURRENCES_EXACTES {
+        let k = EXCEPTIONS_ACCES_DIRECTS
+            .iter()
+            .position(|(g, e, _)| g == f && e == extrait)
+            .unwrap_or_else(|| panic!("exception ciblée inconnue : {f} : {extrait}"));
+        let vu = occurrences.get(&k).copied().unwrap_or(0);
+        assert_eq!(
+            vu, *attendu,
+            "{f} : « {extrait} » couvre {vu} ligne(s), {attendu} attendue(s) : déclarer la nouvelle requête à part"
+        );
+    }
 }

@@ -2629,11 +2629,42 @@ async fn verifier_gel(fx: &Fx, jeu: &JeuGel, contexte: &str) {
         .await
         .unwrap();
         for (verbe, q) in [("INSERT", ins), ("UPDATE", upd), ("DELETE", del)] {
+            let r = sqlx::query(q).execute(pool).await;
+            let message = match &r {
+                Err(sqlx::Error::Database(d)) => d.message().to_string(),
+                _ => String::new(),
+            };
             assert_eq!(
-                code_sql(sqlx::query(q).execute(pool).await).as_deref(),
+                code_sql(r).as_deref(),
                 Some("23514"),
                 "{contexte} : {verbe} sur {table} doit être refusé par la base"
             );
+            // Palier des faibles, lot 4 (faible de la contre-revue cahier suites 2) : le refus vient bien du **gel**
+            // (R-C28), pas d'une autre garde. Sur une table en ajout seul, l'UPDATE et le DELETE sont refusés d'abord par
+            // l'ajout seul (déclencheur `…_ajout_seul`, avant `…_annee_figee` dans l'ordre des noms) : la preuve est alors
+            // faite sur le catalogue (le déclencheur de gel couvre bien ces deux ordres).
+            if verbe == "INSERT" || !ajout_seul(table) {
+                assert!(
+                    message.contains("R-C28"),
+                    "{contexte} : {verbe} sur {table} refusé par le gel, pas par une autre garde : {message}"
+                );
+            } else {
+                let couvre: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM pg_trigger t
+                                      JOIN pg_proc p ON p.oid = t.tgfoid
+                                     WHERE t.tgrelid = $1::regclass AND p.proname LIKE 'ent\\_cdt\\_ecriture\\_gardee%'
+                                       AND t.tgenabled <> 'D'
+                                       AND (t.tgtype & 8) <> 0 AND (t.tgtype & 16) <> 0)",
+                )
+                .bind(*table)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+                assert!(
+                    couvre || message.contains("R-C28"),
+                    "{contexte} : le gel de {table} couvre UPDATE et DELETE ({verbe} : {message})"
+                );
+            }
         }
         let (apres,): (i64,) = sqlx::query_as(&format!(
             "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
@@ -4045,12 +4076,15 @@ async fn c8_suites2_reprise_retiree_a_tout_role_sauf_au_proprietaire() {
     const ROLE: &str = "ent_suites2_reprise_essai";
     let pool = fx.ent.pool_verif();
     // Les créations de rôles se sérialisent (verrou 7770042 de `tests_rls_stricte`) : plusieurs processus partagent le cluster.
-    let mut c = pool.acquire().await.unwrap();
-    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut *c).await.unwrap();
+    // Palier des faibles, lot 4 (faible de la contre-revue cahier suites 2) : connexion **détachée** du pool. Si le test
+    // panique avant le déverrouillage, la connexion est fermée en sortant de la portée et le verrou de session 7770042 est
+    // libéré par le serveur (une connexion rendue au pool l'aurait gardé et bloqué les tests suivants en cascade).
+    let mut c = pool.acquire().await.unwrap().detach();
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut c).await.unwrap();
     sqlx::query(&format!(
         "DO $$ BEGIN CREATE ROLE {ROLE} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$"
     ))
-    .execute(&mut *c)
+    .execute(&mut c)
     .await
     .unwrap();
     async fn a_le_droit(c: &mut sqlx::PgConnection) -> bool {
@@ -4062,25 +4096,25 @@ async fn c8_suites2_reprise_retiree_a_tout_role_sauf_au_proprietaire() {
         .unwrap()
     }
     sqlx::query(&format!("GRANT EXECUTE ON FUNCTION public.ent_cdt_reprise(uuid) TO {ROLE}"))
-        .execute(&mut *c)
+        .execute(&mut c)
         .await
         .unwrap();
     assert!(a_le_droit(&mut c).await, "témoin : le rôle d'essai a reçu le droit");
     let script = include_str!("../../../migrations/2420_cdt_suites2_gel_echeances.sql");
     let fin = script.find("-- ── 2.").expect("repère de la partie 2");
-    sqlx::raw_sql(&script[..fin]).execute(&mut *c).await.expect("REVOKE de 2420");
+    sqlx::raw_sql(&script[..fin]).execute(&mut c).await.expect("REVOKE de 2420");
     let apres = a_le_droit(&mut c).await;
     let proprietaire: bool = sqlx::query_scalar(
         "SELECT has_function_privilege(current_user, 'public.ent_cdt_reprise(uuid)', 'EXECUTE')",
     )
-    .fetch_one(&mut *c)
+    .fetch_one(&mut c)
     .await
     .unwrap();
     // Rejouable : un second passage ne change rien et n'échoue pas.
-    sqlx::raw_sql(&script[..fin]).execute(&mut *c).await.expect("REVOKE de 2420, rejeu");
-    sqlx::query(&format!("DROP OWNED BY {ROLE}")).execute(&mut *c).await.unwrap();
-    sqlx::query(&format!("DROP ROLE IF EXISTS {ROLE}")).execute(&mut *c).await.unwrap();
-    sqlx::query("SELECT pg_advisory_unlock(7770042)").execute(&mut *c).await.unwrap();
+    sqlx::raw_sql(&script[..fin]).execute(&mut c).await.expect("REVOKE de 2420, rejeu");
+    sqlx::query(&format!("DROP OWNED BY {ROLE}")).execute(&mut c).await.unwrap();
+    sqlx::query(&format!("DROP ROLE IF EXISTS {ROLE}")).execute(&mut c).await.unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(7770042)").execute(&mut c).await.unwrap();
     assert!(!apres, "le droit d'un rôle quelconque est retiré");
     assert!(proprietaire, "le propriétaire garde l'exécution");
 }

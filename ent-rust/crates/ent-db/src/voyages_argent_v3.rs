@@ -355,7 +355,8 @@ pub(crate) const MSG_SECONDE_VALIDATION: &str =
 pub(crate) fn est_refus_a_tracer(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Refus(RefusMetier::Interdit, m)
         if *m == MSG_REGLE3 || *m == MSG_SECONDE_ANNULATION || *m == MSG_SECONDE_VALIDATION
-            || *m == crate::voyages_contournement::MSG_DEMANDEUSE_DECIDE)
+            || *m == crate::voyages_contournement::MSG_DEMANDEUSE_DECIDE
+            || *m == crate::voyages_contournement::MSG_REVOCATION_AUTRICE)
 }
 
 /// Faible 4 : un `23514` des déclencheurs de pouvoir sur l'argent (656/655/653), venu **après** le contrôle applicatif
@@ -363,6 +364,41 @@ pub(crate) fn est_refus_a_tracer(e: &EntDbError) -> bool {
 /// erreur 500 ni en refus muet, il se trace comme elle.
 pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
     if let sqlx::Error::Database(d) = &err {
+        // Palier des faibles, lot 2 (F-3 et F-5 de la contre-revue V3b suites 2) : un refus de **cycle de vie** d'un
+        // contournement (déjà utilisé, révoqué, expiré, non autorisé), venu de la base après le contrôle applicatif
+        // (course), est un conflit d'état (409), pas une interdiction de la règle 3 tracée comme telle ; un second avoir
+        // collectif pour un payeur déjà couvert aussi. La révocation par une autre personne que l'autrice reste une
+        // interdiction (tracée).
+        if d.code().as_deref() == Some("23514") {
+            let m = d.message();
+            if m.starts_with("seule l'autrice d'une autorisation") {
+                return refus(
+                    RefusMetier::Interdit,
+                    crate::voyages_contournement::MSG_REVOCATION_AUTRICE,
+                );
+            }
+            // « non autorisé ne s'utilise pas » n'est pas dans la liste : un usage sans autorisation reste une tentative de
+            // contourner la règle 3, tracée comme elle (contre-revue du palier). Les autres messages en « un
+            // contournement… » (cible non couverte, autorisatrice plus habilitée, inconnu) aussi, plus bas.
+            if [
+                "un contournement déjà utilisé",
+                "un contournement révoqué",
+                "un contournement expiré",
+                "un contournement non autorisé ne se révoque pas",
+                "la décision d'un contournement ne se prend plus",
+            ]
+            .iter()
+            .any(|p| m.starts_with(p))
+            {
+                return refus(RefusMetier::Conflit, MSG_CONTOURNEMENT_ETAT);
+            }
+            if m.starts_with("un avoir d'annulation collective ne dépasse pas l'argent versé : ce payeur est déjà couvert") {
+                return refus(RefusMetier::Conflit, MSG_AVOIR_COLLECTIF_BORNE);
+            }
+            if m.starts_with("un avoir d'annulation collective ne dépasse pas l'argent versé par ce payeur") {
+                return refus(RefusMetier::Invalide, MSG_AVOIR_COLLECTIF_MONTANT);
+            }
+        }
         if d.code().as_deref() == Some("23514")
             && (d.message().starts_with("un pouvoir sur l'argent")
                 || d.message().starts_with("la décision d'un contournement")
@@ -381,6 +417,18 @@ pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
     }
     db(err)
 }
+
+/// Refus de cycle de vie d'un contournement venu de la base (course) : son état a changé entre-temps.
+pub(crate) const MSG_CONTOURNEMENT_ETAT: &str =
+    "Ce contournement a changé d'état entre-temps (utilisé, révoqué ou expiré) : rechargez la page.";
+
+/// Refus d'un avoir collectif venu de la base (course) : ce payeur est déjà couvert, ou rien n'a été versé.
+pub(crate) const MSG_AVOIR_COLLECTIF_BORNE: &str =
+    "Un avoir d'annulation collective ne dépasse pas l'argent versé : ce payeur est déjà couvert pour ce participant.";
+
+/// Refus d'un avoir collectif venu de la base : son montant dépasse l'argent net versé par ce payeur pour ce participant.
+pub(crate) const MSG_AVOIR_COLLECTIF_MONTANT: &str =
+    "Un avoir d'annulation collective ne dépasse pas l'argent versé par ce payeur pour ce participant.";
 
 /// Faible 4 : nombre maximal de traces de refus par personne et par heure.
 pub const PLAFOND_TRACES_REFUS_PAR_HEURE: i64 = 30;
