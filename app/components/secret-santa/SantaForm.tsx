@@ -43,6 +43,8 @@ export default function SantaForm({
   onCancel: () => void;
 }) {
   const [staff, setStaff] = useState<Member[] | null>(null);
+  /** La personne qui organise : seule elle peut ouvrir ce formulaire en modification. */
+  const [me, setMe] = useState("");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [budget, setBudget] = useState(initial?.budget ?? "");
   const [message, setMessage] = useState(initial?.message ?? "");
@@ -66,7 +68,8 @@ export default function SantaForm({
         if (!res.ok) throw new Error(data?.error || "Annuaire indisponible.");
         if (!alive) return;
         setStaff(data.staff);
-        // Nouvel événement : l'organisateur participe par défaut (case décochable).
+        setMe(data.me);
+        // Nouvel événement : l'organisateur participe par défaut (il peut se retirer).
         if (!initial) setSelected(new Set([data.me]));
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : "Annuaire indisponible.");
@@ -83,9 +86,9 @@ export default function SantaForm({
   const visible = useMemo(
     () =>
       (staff ?? []).filter(
-        (m) => (!role || m.roles.includes(role)) && norm(m.displayName).includes(norm(search.trim())),
+        (m) => m.userId !== me && (!role || m.roles.includes(role)) && norm(m.displayName).includes(norm(search.trim())),
       ),
-    [staff, role, search],
+    [staff, role, search, me],
   );
   const roleOptions = INTRANET_ROLE_OPTIONS.filter((o) => (staff ?? []).some((m) => m.roles.includes(o.slug)));
   const chosen = (staff ?? []).filter((m) => selected.has(m.userId));
@@ -206,6 +209,26 @@ export default function SantaForm({
 
       <fieldset>
         <legend className={label}>Personnes invitées ({chosen.length})</legend>
+        {staff && names.has(me) && (
+          <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-xl border-2 border-emerald-300 bg-emerald-50 px-4 py-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={selected.has(me)}
+              onChange={(e) => setMany([me], e.target.checked)}
+            />
+            <span className="text-sm">
+              <span className="block font-bold text-slate-900">
+                Je participe aussi ({names.get(me)}, organisateur)
+              </span>
+              <span className="text-slate-600">
+                {initial
+                  ? "Décochez pour vous retirer de la liste."
+                  : "Coché par défaut : vous êtes inscrit d'office. Décochez pour organiser sans participer."}
+              </span>
+            </span>
+          </label>
+        )}
         <div className="mt-2 flex flex-wrap gap-2">
           <input
             className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
@@ -260,8 +283,7 @@ export default function SantaForm({
           ))}
         </ul>
         <p className="mt-1 text-xs text-slate-500">
-          Seules les personnes qui ont un compte ScolIA apparaissent. Chaque invité répond oui ou non ; si votre
-          nom est coché, vous répondez aussi.
+          Seules les personnes qui ont un compte ScolIA apparaissent. Chaque invité répond oui ou non.
         </p>
         {missing.length > 0 && (
           <p className="mt-1 text-xs text-amber-700">

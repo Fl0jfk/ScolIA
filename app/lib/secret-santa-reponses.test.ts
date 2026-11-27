@@ -157,6 +157,11 @@ test("les invités ne voient que les participants ; seul l'organisateur voit ref
   );
 });
 
+test("la liste de l'organisateur le désigne, pour qu'il ne s'invite pas lui-même", () => {
+  const view = buildSantaView({ ...santa, organizerUserId: "a" }, people, "a", NOW);
+  assert.deepEqual(view.organizer!.invitees.map((i) => i.isOrganizer), [true, false, false]);
+});
+
 test("à l'heure dite, les réponses sont closes et un tirage impossible s'explique", () => {
   const late = new Date("2026-12-04T11:00:00Z");
   const view = buildSantaView(santa, people, "c", late);

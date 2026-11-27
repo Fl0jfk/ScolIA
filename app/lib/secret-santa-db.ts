@@ -307,6 +307,19 @@ export async function listSantaHomeCards(etabId: string, userId: string, now: Da
     });
 }
 
+/** L'organisateur qui s'inscrit participe d'office (il peut se retirer) ; les autres ont à répondre. */
+function newParticipant(santaId: string, m: SantaStaffMember, organizerUserId: string) {
+  const isOrganizer = m.userId === organizerUserId;
+  return {
+    santaId,
+    userId: m.userId,
+    displayName: m.displayName,
+    email: m.email,
+    response: isOrganizer ? ("accepted" as const) : ("pending" as const),
+    respondedAt: isOrganizer ? new Date() : null,
+  };
+}
+
 export async function createSanta(
   etabId: string,
   organizer: { userId: string; name: string },
@@ -329,9 +342,9 @@ export async function createSanta(
         exclusions: input.exclusions,
       })
       .returning({ id: secretSanta.id });
-    await tx.insert(secretSantaParticipant).values(
-      members.map((m) => ({ santaId: row!.id, userId: m.userId, displayName: m.displayName, email: m.email })),
-    );
+    await tx
+      .insert(secretSantaParticipant)
+      .values(members.map((m) => newParticipant(row!.id, m, organizer.userId)));
     return row!.id;
   });
 }
@@ -383,7 +396,7 @@ export async function updateSantaBeforeDraw(
     // Les personnes déjà là gardent leur suivi d'invitation.
     await tx
       .insert(secretSantaParticipant)
-      .values(members.map((m) => ({ santaId: row.id, userId: m.userId, displayName: m.displayName, email: m.email })))
+      .values(members.map((m) => newParticipant(row.id, m, userId)))
       .onConflictDoNothing();
   });
 }
@@ -549,6 +562,7 @@ export async function claimInvitations(
     }
 
     const targets = participants.filter((p) => {
+      if (p.userId === row.organizerUserId) return false;
       if (mode === "new") {
         return !p.invitedAt && (row.drawnAt ? p.response === "accepted" : p.response !== "withdrawn");
       }

@@ -402,7 +402,14 @@ export type SantaView = {
   /** Réservé à l'organisateur : suivi et réglages, sans aucune paire. */
   organizer: {
     exclusions: SantaExclusion[];
-    invitees: { userId: string; displayName: string; response: SantaResponse; invited: boolean; opened: boolean }[];
+    invitees: {
+      userId: string;
+      displayName: string;
+      response: SantaResponse;
+      invited: boolean;
+      opened: boolean;
+      isOrganizer: boolean;
+    }[];
   } | null;
 };
 
@@ -474,6 +481,7 @@ export function buildSantaView(
             response: p.response,
             invited: p.invitedAt !== null,
             opened: p.openedAt !== null,
+            isOrganizer: p.userId === santa.organizerUserId,
           })),
         }
       : null,

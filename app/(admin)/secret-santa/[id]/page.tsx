@@ -169,9 +169,9 @@ export default function SecretSantaDetailPage() {
   const organizer = view?.organizer ?? null;
   const invitees = organizer?.invitees ?? [];
   const open = Boolean(view && !view.drawn && !view.blocker);
-  const notInvited = invitees.filter((s) => !s.invited && s.response !== "withdrawn").length;
-  const toRemind = invitees.filter((s) =>
-    view?.drawn ? s.response === "accepted" && !s.opened : s.response === "pending",
+  const notInvited = invitees.filter((s) => !s.isOrganizer && !s.invited && s.response !== "withdrawn").length;
+  const toRemind = invitees.filter(
+    (s) => !s.isOrganizer && (view?.drawn ? s.response === "accepted" && !s.opened : s.response === "pending"),
   ).length;
   const toUpdate = invitees.filter(
     (s) => s.invited && (s.response === "accepted" || (open && s.response === "pending")),
@@ -351,11 +351,14 @@ export default function SecretSantaDetailPage() {
                     ))}
                   {invitees.map((p) => (
                     <li key={p.userId} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5">
-                      <span>{p.displayName}</span>
+                      <span>
+                        {p.displayName}
+                        {p.isOrganizer && <span className="text-xs text-slate-500"> (vous, organisateur)</span>}
+                      </span>
                       <span className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
                         <span>
                           {RESPONSE_LABELS[p.response]}
-                          {!p.invited && " · pas encore invité"}
+                          {!p.invited && !p.isOrganizer && " · pas encore invité"}
                           {p.opened && p.response === "accepted" && " · 🎁 a ouvert"}
                         </span>
                         {view.drawn && p.response === "accepted" && (
