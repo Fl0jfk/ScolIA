@@ -75,6 +75,7 @@ fun EcranModule(module: Module, modele: AppModele, c: EtatConnexion.Connecte, ou
         Module.ABSENCES -> EcranAbsences(modele)
         Module.NOTES -> EcranNotes(modele, c)
         Module.AGENDA -> EcranAgenda(modele, c)
+        Module.SAISIE_NOTES -> EcranSaisieNotes(modele)
         Module.EDT -> EcranEdt(modele, c)
         Module.MESSAGERIE -> EcranMessagerie(modele)
         Module.PROFIL -> EcranProfil(modele, c)

@@ -108,6 +108,7 @@ struct EcranModule: View {
         case .absences: AvecEnfants(modele: modele) { EcranAbsences(modele: modele, enfant: $0) }
         case .notes: EcranNotes(modele: modele, me: me, espace: espace)
         case .agenda: EcranAgenda(modele: modele, me: me, espace: espace)
+        case .saisieNotes: EcranSaisieNotes(modele: modele)
         case .edt: EcranEdt(modele: modele, me: me, espace: espace)
         case .messagerie: EcranMessagerie(modele: modele)
         case .profil: EcranProfil(modele: modele, me: me)

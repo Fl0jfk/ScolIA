@@ -59,7 +59,7 @@ Le serveur décide de tout (D-003) : la liste d'écrans n'est qu'un **affichage*
 | Mon compte | `GET /auth/sessions`, `DELETE /auth/sessions/{id}` (révoquer un autre appareil), `POST /auth/logout` ; ajout d'une passkey (mot de passe actuel) tant qu'il n'y en a aucune |
 | Mise à jour requise (426) | aucune : écran bloquant, lien vers le magasin d'applis |
 
-**Saisie de notes retirée du mobile (MB2, 2026-11-27)** : l'écran appelait `POST /eleves/{id}/notes`, fermée côté serveur (410, V0 D1) ; la saisie passe désormais par la grille d'évaluation (`/eva/*`), que l'appli ne porte pas encore. Le banc MB2 l'a détecté, avec deux autres écrans cassés (cahier de textes du personnel sans classe : 403 ; annonces de l'établissement pour une famille ou un élève : 403), corrigés.
+**Saisie de notes (MB2 puis palier « notes eva », 2026-11-27)** : l'ancien écran appelait `POST /eleves/{id}/notes`, fermée côté serveur (410, V0 D1), et a été retiré en MB2 ; il est remplacé par l'écran « Saisir des notes » sur la grille d'évaluation `/eva/*` (cours, période, création, saisie par lot avec versions et conflits, publication confirmée ; `docs/socles/11_MB_NOTES_EVA.md`). Le banc MB2 l'a détecté, avec deux autres écrans cassés (cahier de textes du personnel sans classe : 403 ; annonces de l'établissement pour une famille ou un élève : 403), corrigés.
 
 Hors périmètre mobile (restent sur le web, D-003) : création de fil avec choix des destinataires, pièces jointes, signature du carnet, factures, internat, cantine, PAI, réinscription, séjours, décisions de vie scolaire. Ces fonctions existaient dans les prototypes ; elles pourront revenir au cas par cas, après arbitrage.
 
@@ -142,7 +142,7 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 | M7 | Marquer une notification comme lue | absent (aucune route `/notifications/{id}/…` ; pour les messages, l'ouverture d'un fil semble marquer lu, à vérifier) | route dédiée ; compteur de non-lus pour l'accueil |
 | M8 | Accueil mobile agrégé | optionnel | `GET /mobile/accueil` (cours du jour, non-lus, absences à justifier) : 1 appel au lieu de 3–4 |
 | M9 | Pagination et `If-None-Match` | absent | pagination de `/messages/fils`, ETag sur les lectures mises en cache |
-| M10 | Saisie de notes depuis le mobile | **retirée** (MB2 : `POST /eleves/{id}/notes` fermée, 410) | porter l'écran sur la grille d'évaluation (`/eva/grille`, `/eva/saisie`), saisie en lot |
+| M10 | Saisie de notes depuis le mobile | **portée sur `/eva/*`** (palier « notes eva ») | corrections motivées, import et historique restent sur le web ; saisie différée durable avec MB7 |
 | M11 | Test de contrat mobile | **fait** (MB2) | fixtures dorées `ent-rust/contrat/mobile/` décodées par les deux cœurs, banc de parité, liste blanche |
 | M12 | Signature du carnet, pièces jointes, nouveau fil | existe | non porté (web) ; à réévaluer |
 

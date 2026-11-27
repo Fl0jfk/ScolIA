@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 
 import androidx.test.core.app.ApplicationProvider
@@ -125,11 +126,10 @@ class EcransComposeTest {
         rule.onNodeWithTag("module-APPEL").assertIsDisplayed()
         rule.onNodeWithTag("module-ABSENCES").assertDoesNotExist()
         rule.onNodeWithTag("module-VIE_SCOLAIRE").assertDoesNotExist()
-        // « Plus » : cahier de textes (mes classes) ; la saisie de notes n'est plus sur le mobile (MB2, route
-        // historique fermée).
+        // « Plus » : cahier de textes (mes classes) et saisie de notes par la grille `/eva/*` (palier « notes eva »).
         rule.onNodeWithText("Plus").performClick()
         rule.onNodeWithTag("module-AGENDA").assertIsDisplayed()
-        rule.onNodeWithTag("module-SAISIE_NOTES").assertDoesNotExist()
+        rule.onNodeWithTag("module-SAISIE_NOTES").assertIsDisplayed()
         rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Maths") > 0 }
         assertTrue("GET /edt/mes-creneaux" in api.recues)
     }
@@ -183,7 +183,63 @@ class EcransComposeTest {
         rule.waitUntil(5_000) { api.recues.any { it.endsWith("/clore") } }
         assertEquals(1, api.recues.count { it.endsWith("/clore") })
     }
+
+    @Test
+    fun saisie_de_notes_par_la_grille_puis_publication_confirmee() {
+        val api = FauxApi(
+            mapOf(
+                "GET /edt/mes-creneaux" to "[]",
+                "GET /annonces" to "[]",
+                "GET /eva/enseignements" to ENSEIGNEMENTS,
+                "GET /eva/cours/c1/periodes" to PERIODES,
+                "GET /eva/grille" to GRILLE,
+                "POST /eva/saisie" to """{"cellules":[{"evaluation_id":"ev1","eleve_id":"e1","issue":"ecrit","version":1,"statut":"note","valeur_m":15500}]}""",
+                "POST /eva/evaluations/ev1/publication" to EVALUATION.replace("\"publiee_le\":null", "\"publiee_le\":\"2027-03-08T10:00:00Z\""),
+            ),
+        )
+        connecter(api, "prof", listOf(Droit("notes.saisir", "mes_classes")))
+        modele.verrouille = false
+        afficher()
+        rule.onNodeWithTag("module-SAISIE_NOTES").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Maths 4B") > 0 }
+        rule.onNodeWithText("Maths 4B").performClick()
+        // La période du jour s'ouvre d'elle-même, puis la grille.
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Interrogation") > 0 }
+        rule.onNodeWithText("Interrogation").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Martin Léa") > 0 }
+        // Hors barème : compris localement comme une erreur, rien ne part.
+        rule.onNodeWithContentDescription("Note de Martin Léa").performTextInput("25")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("1 case(s) non comprise(s) : corrigez-les avant d'enregistrer.") > 0 }
+        rule.onNodeWithTag("eva-enregistrer").performClick()
+        assertTrue(api.recues.none { it == "POST /eva/saisie" })
+        rule.onNodeWithContentDescription("Note de Martin Léa").performTextClearance()
+        rule.onNodeWithContentDescription("Note de Martin Léa").performTextInput("15,5")
+        rule.onNodeWithTag("eva-enregistrer").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("1 case(s) enregistrée(s).") > 0 }
+        assertEquals(1, api.recues.count { it == "POST /eva/saisie" })
+        // Publication : action sensible, rien ne part sans confirmation.
+        rule.onNodeWithText("Publier").performClick()
+        rule.onNodeWithText("Publier les notes ?").assertIsDisplayed()
+        assertTrue(api.recues.none { it.endsWith("/publication") })
+        rule.onNodeWithTag("eva-publication-confirmer").performClick()
+        rule.waitUntil(5_000) { api.recues.any { it.endsWith("/publication") } }
+    }
 }
 
+private const val ENSEIGNEMENTS = """[{"cours_id":"c1","libelle":"Maths 4B","cible_code":"4B","matiere_id":null,"sans_matiere":false,"droit":"saisie"},
+ {"cours_id":"c2","libelle":"Latin (lecture)","cible_code":"3A","matiere_id":null,"sans_matiere":true,"droit":"lecture"}]"""
+private const val PERIODES = """[{"id":"p1","code":"T1","libelle":"Toute l'année","date_debut":"2000-01-01","date_fin":"2999-12-31"}]"""
+private const val EVALUATION = """{"id":"ev1","titre":"Interrogation","date_eval":"2027-03-08","bareme_m":20000,"coef_m":1000,
+ "comptage":"normal","hors_bareme_autorise":false,"etat":"ouverte","motif_annulation":null,"version":1,"publication":"explicite",
+ "publication_prevue_le":null,"publiee_le":null,"retiree_le":null,"en_cours_de_correction":false,"sous_matiere_id":null,
+ "restreinte":false,"commune":false,"annoncee":false,"a_des_resultats":false,"peut_modifier":true,"retrait_possible":false,"stats":null}"""
+private val GRILLE = """{"enseignement":{"cours_id":"c1","libelle":"Maths 4B","cible_code":"4B","matiere_id":null,"sans_matiere":false,"droit":"saisie"},
+ "periode":{"id":"p1","code":"T1","libelle":"Toute l'année","date_debut":"2000-01-01","date_fin":"2999-12-31"},"jour":"2027-03-08",
+ "peut_saisir":true,"peut_corriger":false,"echelle_m":20000,"pas_m":10,"delai_publication_max_jours":null,
+ "evaluations":[$EVALUATION],
+ "eleves":[{"eleve_id":"e1","nom":"Martin","prenom":"Léa","mouvement":null,"moyenne_m":null,"nb_comptees":0,
+   "cellules":[{"concerne":true,"statut":null,"valeur_m":null,"version":null,"resultat_id":null,"saisie_ouverte":true,
+     "rattrapage_autorise":false,"hors_periode":false,"corrige":false,"commentaire":false}]}],
+ "moyenne_classe":null,"avertissements":[]}"""
 private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTextCount(t: String): Int =
     onAllNodesWithText(t).fetchSemanticsNodes().size
