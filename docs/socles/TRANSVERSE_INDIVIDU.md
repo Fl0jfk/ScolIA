@@ -1,0 +1,142 @@
+# Transverse : la deuxième personne fondée sur la personne physique
+
+Conception courte du palier (2026-11-27), puis livraison (§9). Origine : faible 9 de la contre-revue V3
+(`42_VOYAGES_V3_LIVRAISON.md`) : « la règle 3 repose sur `user_id`, pas sur la personne physique : un même individu à
+deux comptes n'est pas reconnu ». Le même défaut existe partout où une règle dit « une autre personne » ou « jamais pour
+soi ni pour son enfant » et compare deux comptes. Réserve connue de `04_ADMINISTRATIF.md` §22 : « un agent qui est
+aussi parent a deux comptes ; seule la déclaration protège ».
+
+## 1. Le problème
+
+- Un compte (`ent_user`) a au plus **une** fiche personne par établissement (`ent_personne_compte_uq`), et une fiche a
+  au plus un compte. Le professeur-parent qui a **un seul compte** (casquettes, migration 357) a une seule fiche : il est
+  déjà reconnu.
+- Mais le cas courant reste **deux comptes** : l'adresse professionnelle (casquette personnel) et l'adresse personnelle
+  (casquette parent), donc **deux fiches** sans rien qui les relie. Ou bien une fiche parent **sans compte** (parent
+  saisi par le secrétariat) et un agent sur une autre fiche.
+- Conséquences aujourd'hui :
+  1. **Règle 3 des voyages** (`ent_sortie_argent_decideur_interdit`, 653) : le comptable qui est parent d'un élève
+     accorde une aide à son propre enfant depuis son compte professionnel ; ni l'application ni la base ne le voient.
+  2. **Quatre yeux** : la seconde validation compare `par_user_id` et `demande_par_user_id`. Deux comptes du même
+     humain habilités passent pour deux personnes.
+  3. **Conflit d'intérêts (R-A18)** : la détection automatique ne voit que la fiche du compte de l'agent.
+
+## 2. Principes
+
+1. **L'individu ne fait que restreindre.** Reconnaître deux comptes comme le même individu ajoute des refus, jamais un
+   droit. Une règle qui *permet* parce que c'est soi (l'autrice révoque son autorisation, l'auteur modifie son brouillon,
+   l'agent annule sa propre absence) reste sur le **compte**.
+2. **Pas de fusion de comptes** (D-013) ni de fiches (123 refuse déjà deux fiches à comptes différents) : on **relie**
+   des fiches, chacune garde ses coordonnées, ses liens et son compte. Le lien est réversible et tracé.
+3. **Un humain décide.** Une ressemblance (même téléphone, même adresse, même nom) donne une **proposition**, jamais un
+   rapprochement automatique (D-069 : faux positif = refus à tort d'un collègue, faux négatif = statu quo d'aujourd'hui).
+4. **Dans un établissement seulement.** Aucune visibilité ni aucun rapprochement entre établissements (D-013).
+5. **Une seule définition**, en base, servie à l'application (message clair) et aux déclencheurs (garde) comme la règle
+   3 aujourd'hui. Aucun module ne réécrit sa propre requête « même personne ».
+
+## 3. Modèle (migration 279, socle 4)
+
+`ent_individu_lien` : deux fiches du même établissement sont le même individu.
+
+| Colonne | Sens |
+|---|---|
+| `personne_a`, `personne_b` | les deux fiches, rangées (`a < b`), distinctes, clés composites `(etablissement_id, id)` |
+| `origine` | `declaration_direction`, `declaration_confirmee` (déclarée depuis un compte, confirmée depuis l'autre), `proposition_acceptee` |
+| `motif_code` | `deux_comptes`, `fiche_sans_compte`, `doublon_agent`, `autre` (aucun texte libre en base) |
+| `pose_par_user_id`, `pose_le` | l'auteur (jamais le sujet pour `declaration_direction`) |
+| `leve_par_user_id`, `leve_le`, `leve_motif_code` | levée unique ; ligne sinon immuable |
+
+Une seule ligne active par paire (index unique partiel). La relation est **transitive** : l'individu d'une fiche est la
+fermeture des liens actifs, plus la chaîne de fusion (`fusionnee_dans`).
+
+`ent_individu_declaration` : déclaration en deux temps depuis un compte (A) vers un autre compte (B) du même
+établissement ; B confirme dans les 24 h depuis sa propre session (preuve de possession des deux comptes) ; sinon
+elle expire. Ajout seul ; l'issue est une colonne posée une fois.
+
+`ent_individu_proposition_ecartee` : paire écartée par la direction (motif codé) : jamais reproposée.
+
+Fonctions (SQL, `STABLE`, `search_path` figé, `SECURITY INVOKER`) :
+- `ent_individu_personnes(etab, personne) → uuid[]` : fermeture.
+- `ent_individu_personnes_du_compte(etab, user) → uuid[]` : fiches de l'individu du compte (fiche du compte, fiche de
+  l'élève dont c'est le compte, plus leur fermeture).
+- `ent_individu_comptes(etab, user) → uuid[]` : tous les comptes de l'individu (fiches, comptes d'élève), `user`
+  compris.
+- `ent_meme_individu(etab, u1, u2) → bool`.
+
+Port Rust `ent_db::individu` : `meme_individu`, `comptes_de`, `personnes_de` (une requête, dans la transaction de
+l'appelant), et les commandes ci-dessous.
+
+## 4. Commandes et routes (API seule, pas d'écran : frontend en retrait)
+
+| Geste | Qui | Garde |
+|---|---|---|
+| Déclarer « cet autre compte est aussi moi » (`POST /individu/declarations`, cible par e-mail du compte) | tout compte de l'établissement | réponse neutre si l'e-mail est inconnu (anti-énumération) ; 5 par jour |
+| Confirmer (`POST /individu/declarations/{id}/confirmer`) | le compte cible seulement | dans les 24 h, pas depuis le compte déclarant |
+| Relier deux fiches (`POST /individu/liens`) | `personnes.individu.relier` (direction, secrétariat) | jamais une fiche de soi-même (le sujet ne relie pas ses propres fiches côté direction : il déclare) |
+| Lever (`POST /individu/liens/{id}/lever`) | `personnes.individu.lever` (direction seule) | **jamais par l'individu concerné** (lever retire des refus) ; motif codé |
+| Propositions (`GET /individu/propositions`) | `personnes.individu.relier` | paires de fiches de comptes différents, dont l'une est un agent, qui partagent un téléphone E.164 ou une adresse e-mail (fiche ou compte) ; nombres et désignations, jamais la coordonnée |
+| Écarter une proposition | `personnes.individu.relier` | motif codé |
+| Lire mes liens (`GET /individu/moi`) | le compte | sans les fiches des autres |
+
+Événements : `individu.lien_pose`, `individu.lien_leve` (identifiants seuls). Journal en ajout seul (les tables le
+sont).
+
+## 5. Où l'appliquer (inventaire de ce palier)
+
+**Restrictions converties en « même individu »** :
+
+| Socle | Règle | Aujourd'hui | Lot |
+|---|---|---|---|
+| 42 | Règle 3 : pas pour son enfant ni pour son compte (`ent_sortie_argent_decideur_interdit`) | `l.user_id = usr`, `p.user_id = usr`, `ec.user_id = usr` | 2 |
+| 42 | Seconde validation : le valideur n'est pas le demandeur (application + déclencheur 653) | `par_user_id = demande_par_user_id` | 2 |
+| 42 | Annulation au-dessus du seuil : ni l'auteur ni le demandeur | égalité de comptes | 2 |
+| 42 | Contournement : la demandeuse ne décide pas (application + 658) | égalité de comptes | 2 |
+| 42 | Bordereau remis par une autre personne que la saisie | égalité de comptes | 2 |
+| 4 | Conflit d'intérêts R-A18, détection automatique | fiche du compte seulement | 3 |
+| 18 | FRM-145 : un formulaire ne se valide pas soi-même (auteur, co-auteurs) | égalité | 3 |
+| 20 | C8 : réouverture du cahier validée par une autre personne (application + CHECK de 2407) ; accès d'inspection jamais à soi | égalité | 3 |
+| 41 | Sortie de groupe : l'auteur ne la décide pas | égalité | 3 |
+| 15 | Absence d'un personnel : jamais validée ni refusée par l'absent | égalité | 3 |
+| 7 | Signature : l'agent ne constate pas sa propre signature, ne contrôle pas son propre papier | égalité | 3 |
+| 6 | Délégation : jamais à soi-même | égalité d'agents | 3 |
+| 29 / N1 | Reprographie R-DM40 : jamais sur sa propre demande | égalité | 3 |
+
+**Gardées sur le compte** (principe 1) : révocation d'un contournement par son autrice, auto-validation d'une réservation
+de salle par son valideur (`agenda_lieux`), droits d'auteur sur un brouillon, annulation de sa propre absence.
+
+**Hors palier, notés** : noter son propre enfant (Q-P3, avertissement seulement, socle 21) ; quatre yeux des
+diffusions (NTF-50, pas de commande encore) ; RGPD (PR 165, 166 en cours : ne pas chevaucher) ; écrans.
+
+## 6. Cas limites
+
+- **Fiche sans compte** reliée à un agent : la règle 3 la voit par `personne_id` des liens et du compte payeur, pas par
+  un compte (c'est le gain principal pour les fiches saisies par le secrétariat).
+- **Chaîne** A–B, B–C : A et C sont le même individu ; lever A–B ne lève pas B–C.
+- **Fusion** de fiches : la fiche absorbée suit sa cible (`fusionnee_dans`), défusion = retour.
+- **Lien levé** : n'agit plus dès la levée ; les écritures passées restent (rien n'est rejugé).
+- **Concurrence** : le déclencheur juge au moment de l'écriture ; un lien posé entre le contrôle et l'écriture donne le
+  `23514` déjà traduit (`db_pouvoir`), tracé comme la règle 3.
+- **Direction unique** sujette : elle ne lève pas son propre lien ; un autre membre de la direction, ou personne
+  (refus tant qu'il n'y en a pas : prudent).
+- **Élève majeur AED** (P48) relié : ses propres classes lui restent fermées (R-P5, inchangé) ; la règle 3 le voit aussi.
+- **Performance** : fermeture récursive bornée (profondeur 16, établissement seulement) ; index par fiche.
+
+## 7. Lots
+
+1. **Socle de l'individu** : 279 (tables, fonctions, RLS, gardes d'ajout seul), port `individu`, actions
+   `personnes.individu.relier/lever`, routes, propositions, tests (fermeture, levée, chaîne, fusion, déclaration en deux
+   temps, expiration, anti-énumération, isolation entre établissements, garde d'ajout seul).
+2. **Voyages** : 659 redéfinit `ent_sortie_argent_decideur_interdit` et les gardes de seconde personne et de
+   contournement sur l'individu ; application convertie ; tests sur un individu à deux comptes et sur une fiche sans
+   compte (nouveau fichier de tests : `tests_voyages_v3.rs` est touché par la PR 167).
+3. **Autres socles** : conversions du tableau, CHECK de 2407 doublé d'un déclencheur (migration 2421), conflit
+   d'intérêts ; un test par règle convertie ; garde statique : aucune comparaison `== a.user_id` restante dans les
+   refus listés.
+4. **Docs** : livraison (§9), `PROJECT_STATUS.md`, `ROLES_ET_DROITS.md`, `MIGRATIONS.md`.
+
+## 8. Choix prudents (D-069)
+
+- Rapprochement jamais automatique ; propositions limitées aux paires où un agent est en jeu.
+- Lever retire des refus : direction seule, jamais l'individu concerné.
+- Déclaration par la personne : confirmation depuis l'autre compte, sinon elle ne vaut rien.
+- Les règles qui accordent restent sur le compte.
