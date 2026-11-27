@@ -254,6 +254,35 @@ class ApiClient(
     suspend fun devoirsEleve(eleveId: String, periodeId: String): List<Devoir> =
         get("/eleves/${seg(eleveId)}/devoirs?periode_id=${q(periodeId)}", ListSerializer(Devoir.serializer()))
 
+    // ---------- Saisie des notes : grille d'évaluation `/eva/*` ----------
+
+    /** Cours où le compte saisit (`droit = saisie`) ou lit la grille. */
+    suspend fun evaEnseignements(): List<EnseignementEva> =
+        get("/eva/enseignements", ListSerializer(EnseignementEva.serializer()))
+
+    suspend fun evaPeriodes(coursId: String): List<PeriodeEva> =
+        get("/eva/cours/${seg(coursId)}/periodes", ListSerializer(PeriodeEva.serializer()))
+
+    suspend fun evaGrille(coursId: String, periodeId: String): GrilleEva =
+        get("/eva/grille?cours_id=${q(coursId)}&periode_id=${q(periodeId)}", GrilleEva.serializer())
+
+    /** 201 : la colonne créée (ouverte, non publiée). */
+    suspend fun creerEvaluation(body: CreerEvaluationEvaBody, cle: String? = null): EvaluationEva =
+        post("/eva/evaluations", json.encodeToString(CreerEvaluationEvaBody.serializer(), body), EvaluationEva.serializer(), cle = cle)
+
+    /** Saisie par lot : une issue par case (`ecrit`, `inchange`, `vide`, `conflit`, `refuse`), jamais d'écrasement. */
+    suspend fun saisirNotes(body: SaisieEvaBody, cle: String? = null): SaisieEvaRetour =
+        post("/eva/saisie", json.encodeToString(SaisieEvaBody.serializer(), body), SaisieEvaRetour.serializer(), cle = cle)
+
+    /** `maintenant` (les familles voient les notes) ou `retirer` (motif écrit de 3 à 500 caractères). */
+    suspend fun publierEvaluation(evaluationId: String, action: String, motif: String? = null, cle: String? = null): EvaluationEva =
+        post(
+            "/eva/evaluations/${seg(evaluationId)}/publication",
+            json.encodeToString(PublierEvaBody.serializer(), PublierEvaBody(action, motif?.trim())),
+            EvaluationEva.serializer(),
+            cle = cle,
+        )
+
     suspend fun effectif(classe: String, jour: String): Effectif =
         get("/classes/${seg(classe)}/effectif?jour=${q(jour)}", Effectif.serializer())
 

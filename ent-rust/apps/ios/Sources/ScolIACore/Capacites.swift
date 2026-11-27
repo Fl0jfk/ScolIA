@@ -2,7 +2,7 @@ import Foundation
 
 /// Écrans de l'appli quotidienne (D-003), dans l'ordre d'affichage par défaut.
 public enum Module: String, CaseIterable, Identifiable, Sendable {
-    case accueil, appel, vieScolaire, absences, notes, agenda, edt, messagerie, profil
+    case accueil, appel, vieScolaire, absences, notes, saisieNotes, agenda, edt, messagerie, profil
     public var id: String { rawValue }
     public var titre: String {
         switch self {
@@ -11,6 +11,7 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .vieScolaire: return "Vie scolaire"
         case .absences: return "Absences"
         case .notes: return "Notes"
+        case .saisieNotes: return "Saisir des notes"
         case .agenda: return "Cahier de textes"
         case .edt: return "Emploi du temps"
         case .messagerie: return "Messages"
@@ -25,6 +26,7 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .vieScolaire: return "exclamationmark.triangle"
         case .absences: return "calendar.badge.exclamationmark"
         case .notes: return "star"
+        case .saisieNotes: return "square.and.pencil"
         case .agenda: return "book"
         case .edt: return "calendar"
         case .messagerie: return "envelope"
@@ -89,12 +91,13 @@ public enum Capacites {
                 || a("absences.justifier") || a("assiduite.signaler") {
                 m.append(.vieScolaire)
             }
-            // Saisie de notes : retirée du mobile (MB2). L'ancienne route `POST /eleves/{id}/notes` est fermée
-            // (410, V0 D1) et la saisie passe par la grille d'évaluation `/eva/*`, que l'appli ne porte pas encore.
+            // Saisie de notes sur la grille d'évaluation `/eva/*` (palier « notes eva ») ; l'ancienne route
+            // `POST /eleves/{id}/notes` reste fermée (410, V0 D1). Le serveur ne rend que les cours du compte.
+            if a("notes.saisir") { m.append(.saisieNotes) }
             if enseigne { m.append(.agenda) }
             m += [.messagerie, .edt]
         }
-        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda]
+        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda, .saisieNotes]
         let tries = m.sorted { (ordre.firstIndex(of: $0) ?? 99) < (ordre.firstIndex(of: $1) ?? 99) }
         return Espace(profil: profil, modules: tries + [.profil], enrolementRequis: false, enseigne: enseigne)
     }

@@ -112,11 +112,11 @@ final class CapacitesTests: XCTestCase {
         XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .profil])
     }
 
-    func testSaisieDeNotesRetireeDuMobileMemeAvecLeDroit() {
-        // MB2 : `POST /eleves/{id}/notes` est fermée (410) ; la saisie se fait par la grille `/eva/*` sur le web.
+    func testSaisieDeNotesParLaGrilleAvecLeDroit() {
+        // Palier « notes eva » : la saisie passe par `/eva/*` (l'ancienne `POST /eleves/{id}/notes` reste fermée, 410).
         let e = Capacites.espace(me: me("x"), droits: [Droit(action: "notes.saisir", portee: "designes", cibles: ["c1"])])
-        XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .profil])
-        XCTAssertFalse(Module.allCases.map(\.rawValue).contains("saisieNotes"))
+        XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .saisieNotes, .profil])
+        XCTAssertFalse(Capacites.espace(me: me("x"), droits: [Droit(action: "notes.lire", portee: "etablissement")]).modules.contains(.saisieNotes))
     }
 
     func testEnrolement() {

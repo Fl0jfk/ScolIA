@@ -65,6 +65,19 @@ final class ContratMb2Tests: XCTestCase {
         "annonces": { _ = try await $0.annonces() },
         "eleves_annonces": { _ = try await $0.annoncesEleve("e1") },
         "notifications": { _ = try await $0.notifications() },
+        "eva_enseignements": { _ = try await $0.evaEnseignements() },
+        "eva_cours_periodes": { _ = try await $0.evaPeriodes(coursId: "c1") },
+        "eva_grille": { _ = try await $0.evaGrille(coursId: "c1", periodeId: "p1") },
+        "eva_evaluations": {
+            _ = try await $0.creerEvaluation(CreerEvaluationEvaBody(coursId: "c1", titre: "Interro", dateEval: "2027-03-08", baremeM: 20_000, coefM: 1_000))
+        },
+        "eva_saisie": {
+            _ = try await $0.saisirNotes(SaisieEvaBody(coursId: "c1", cellules: [CelluleSaisieEva(evaluationId: "ev1", eleveId: "e1", texte: "15,5")]))
+        },
+        "eva_saisie_conflit": {
+            _ = try await $0.saisirNotes(SaisieEvaBody(coursId: "c1", cellules: [CelluleSaisieEva(evaluationId: "ev1", eleveId: "e1", texte: "abs")]))
+        },
+        "eva_evaluations_publication": { _ = try await $0.publierEvaluation("ev1", action: "maintenant") },
     ]
 
     static func gabaritVersRegex(_ route: String) -> NSRegularExpression {

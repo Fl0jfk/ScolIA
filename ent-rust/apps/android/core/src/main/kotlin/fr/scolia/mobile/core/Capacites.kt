@@ -10,6 +10,7 @@ enum class Module(val titre: String) {
     VIE_SCOLAIRE("Vie scolaire"),
     ABSENCES("Absences"),
     NOTES("Notes"),
+    SAISIE_NOTES("Saisir des notes"),
     AGENDA("Cahier de textes"),
     EDT("Emploi du temps"),
     MESSAGERIE("Messages"),
@@ -74,8 +75,9 @@ object Capacites {
                 ) {
                     m += Module.VIE_SCOLAIRE
                 }
-                // Saisie de notes : retirée du mobile (MB2). L'ancienne route `POST /eleves/{id}/notes` est fermée
-                // (410, V0 D1) et la saisie passe par la grille d'évaluation `/eva/*`, que l'appli ne porte pas encore.
+                // Saisie de notes sur la grille d'évaluation `/eva/*` (palier « notes eva ») ; l'ancienne route
+                // `POST /eleves/{id}/notes` reste fermée (410, V0 D1). Le serveur ne rend que les cours du compte.
+                if (a("notes.saisir")) m += Module.SAISIE_NOTES
                 if (enseigne) m += Module.AGENDA
                 m += listOf(Module.MESSAGERIE, Module.EDT)
             }
@@ -98,7 +100,7 @@ object Capacites {
     private fun ordreNavigation(modules: List<Module>): List<Module> {
         val prioritaires = listOf(
             Module.ACCUEIL, Module.APPEL, Module.VIE_SCOLAIRE, Module.ABSENCES,
-            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA,
+            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA, Module.SAISIE_NOTES,
         )
         val tri = modules.sortedBy { mod -> prioritaires.indexOf(mod).let { if (it < 0) Int.MAX_VALUE else it } }
         // « Mon compte » toujours en dernier.

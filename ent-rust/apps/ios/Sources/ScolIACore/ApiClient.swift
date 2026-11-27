@@ -260,6 +260,31 @@ public final class ApiClient: @unchecked Sendable {
     public func annoncesEleve(_ eleveId: String) async throws -> [Annonce] { try await get("/eleves/\(seg(eleveId))/annonces") }
     public func notifications() async throws -> [NotificationEnt] { try await get("/notifications") }
 
+    // MARK: Saisie des notes : grille d'évaluation `/eva/*`
+
+    /// Cours où le compte saisit (`droit = saisie`) ou lit la grille.
+    public func evaEnseignements() async throws -> [EnseignementEva] { try await get("/eva/enseignements") }
+    public func evaPeriodes(coursId: String) async throws -> [PeriodeEva] { try await get("/eva/cours/\(seg(coursId))/periodes") }
+    public func evaGrille(coursId: String, periodeId: String) async throws -> GrilleEva {
+        try await get("/eva/grille?cours_id=\(q(coursId))&periode_id=\(q(periodeId))")
+    }
+
+    /// 201 : la colonne créée (ouverte, non publiée).
+    public func creerEvaluation(_ body: CreerEvaluationEvaBody, cle: String? = nil) async throws -> EvaluationEva {
+        try decoder(try await envoyer("POST", "/eva/evaluations", corps: try Self.encodeur.encode(body), cle: cle))
+    }
+
+    /// Saisie par lot : une issue par case (`ecrit`, `inchange`, `vide`, `conflit`, `refuse`), jamais d'écrasement.
+    public func saisirNotes(_ body: SaisieEvaBody, cle: String? = nil) async throws -> SaisieEvaRetour {
+        try decoder(try await envoyer("POST", "/eva/saisie", corps: try Self.encodeur.encode(body), cle: cle))
+    }
+
+    /// `maintenant` (les familles voient les notes) ou `retirer` (motif écrit de 3 à 500 caractères).
+    public func publierEvaluation(_ evaluationId: String, action: String, motif: String? = nil, cle: String? = nil) async throws -> EvaluationEva {
+        let corps = PublierEvaBody(action: action, motif: motif.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        return try decoder(try await envoyer("POST", "/eva/evaluations/\(seg(evaluationId))/publication", corps: try Self.encodeur.encode(corps), cle: cle))
+    }
+
     // MARK: Mécanique
 
     public func getBrut(_ chemin: String) async throws -> Data { try await envoyer("GET", chemin, corps: nil) }

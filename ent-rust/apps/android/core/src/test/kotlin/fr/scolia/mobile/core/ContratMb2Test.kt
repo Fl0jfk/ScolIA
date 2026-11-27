@@ -77,6 +77,13 @@ class ContratMb2Test {
         "annonces" to { c -> c.annonces() },
         "eleves_annonces" to { c -> c.annoncesEleve("e1") },
         "notifications" to { c -> c.notifications() },
+        "eva_enseignements" to { c -> c.evaEnseignements() },
+        "eva_cours_periodes" to { c -> c.evaPeriodes("c1") },
+        "eva_grille" to { c -> c.evaGrille("c1", "p1") },
+        "eva_evaluations" to { c -> c.creerEvaluation(CreerEvaluationEvaBody("c1", "Interro", "2027-03-08", 20_000, 1_000)) },
+        "eva_saisie" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "15,5")))) },
+        "eva_saisie_conflit" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "abs")))) },
+        "eva_evaluations_publication" to { c -> c.publierEvaluation("ev1", "maintenant") },
     )
 
     /** Méthodes publiques d'[ApiClient] qui ne consomment pas une fixture, avec la raison. */
@@ -149,6 +156,7 @@ class ContratMb2Test {
             "mesEnfants", "resumeEnfant", "justifierAbsence", "absencesATraiter", "periodesNotes", "notes", "moyennes",
             "devoirsClasse", "devoirsEleve", "effectif", "cahierTexte", "fils", "fil", "repondre",
             "annonces", "annoncesEleve", "notifications",
+            "evaEnseignements", "evaPeriodes", "evaGrille", "creerEvaluation", "saisirNotes", "publierEvaluation",
         ) + horsFixtures.keys
         val publiques = ApiClient::class.java.declaredMethods
             .filter { java.lang.reflect.Modifier.isPublic(it.modifiers) && !it.isSynthetic }
