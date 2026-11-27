@@ -92,7 +92,7 @@ Hors périmètre mobile (restent sur le web, D-003) : création de fil avec choi
 
 ## 6. Notifications push
 
-Interface prête (`FournisseurPush`), implémentation par défaut inactive. À la connexion, si un jeton d'appareil est disponible, `POST /devices/push` (`platform` `android`/`ios`, `app_id`). Fournisseur **non choisi** (FCM, APNs direct, relais, UnifiedPush…) : à arbitrer (RGPD, dépendance Google/Apple). Le contenu des notifications ne doit pas porter de données sensibles (titre générique, détail après ouverture authentifiée).
+Interface prête (`FournisseurPush`), implémentation par défaut inactive. À la connexion, si un jeton d'appareil est disponible, `POST /devices/push` (`platform` `android`/`ios`, `app_id`) ; la réponse ne renvoie que l'identifiant de l'inscription (MB0, DS3), gardé par établissement (`MemoirePush`) ; **à la déconnexion, `DELETE /devices/push/{id}`** avant `POST /auth/logout` (DS4, palier MB1 client). Fournisseur **non choisi** (FCM, APNs direct, relais, UnifiedPush…) : à arbitrer (RGPD, dépendance Google/Apple). Le contenu des notifications ne doit pas porter de données sensibles (titre générique, détail après ouverture authentifiée).
 
 ## 7. Hors ligne (minimal, lecture seule)
 
@@ -101,6 +101,7 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 - Clé = établissement + utilisateur + chemin (pas de lecture du cache d'un autre compte, testé).
 - Android : fichiers chiffrés (clé Keystore dédiée), dossier `noBackupFilesDir`, noms hachés. iOS : protection `complete`, exclus de la sauvegarde, noms hachés.
 - Effacé à la déconnexion et à tout 401.
+- **Date de fin sur chaque entrée (DA1, palier MB1 client)** : minuit (fuseau de l'appareil) pour l'EDT, les créneaux et l'appel ; 24 h au plus pour le reste. Une entrée échue n'est jamais servie ; purge au démarrage, à chaque reprise de session et à chaque retour au premier plan ; une entrée d'un format antérieur (sans date de fin) est effacée. Les baux de MB7 remplaceront ce plafond provisoire.
 
 ## 8. Sécurité et accessibilité
 
@@ -113,6 +114,14 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 - Confirmation humaine avant clôture d'appel et envoi de message.
 - Accessibilité : tailles de texte du système respectées (Dynamic Type / `sp`), cibles ≥ 48 dp, libellés et états pour les boutons d'appel (`contentDescription`/`stateDescription`), titres marqués (`heading` / `.isHeader`), erreurs annoncées (`liveRegion` / annonce VoiceOver), éléments de liste combinés. **Non vérifié** avec TalkBack / VoiceOver réels.
 
+## 8 bis. Contrat d'API mobile appliqué par les applis (palier MB1 client, 2026-11-27)
+
+- `X-ScolIA-Appli: android/<version> (build <n>)` ou `ios/<version> (build <n>)` sur **toute** requête (aucun identifiant d'appareil) : le serveur répond alors par l'enveloppe d'erreur codée (`11_MB1_SERVEUR_LIVRAISON.md`).
+- `Idempotency-Key` (UUID v4) sur toute écriture authentifiée hors `/auth/*` ; une clé par intention ; un nouvel essai de la même intention repasse la même clé (paramètre `cle` des méthodes d'écriture des deux cœurs), le serveur rejoue la première réponse.
+- Erreurs : `{ "erreur": { code, message, champs, reessayer_apres_s, trace } }` lu par les deux cœurs ; 401 `session.expiree`/`session.revoquee` → session perdue (purge) ; 401 `auth.refusee` → simple refus (pas de purge) ; 426 → `AppliTropAncienne` ; 429 → `DebitDepasse` avec délai ; 4xx → refus avec `code`, `champs`, `reessayer_apres_s`. Repli sur le texte court des routes plus anciennes ; jamais de JSON ni de HTML brut affiché.
+- Transport Android : `HttpsURLConnection` (D-062, OkHttp retiré), 10 s de connexion, 15 s de lecture (§5.8), aucune redirection suivie, HTTPS seul hors labo debug. iOS : `URLSession` éphémère, 15 s.
+- Android cible l'**API 36** (DA2), bord à bord et retour prédictif déclarés.
+
 ## 9. API manquantes ou à adapter pour le mobile
 
 | # | Besoin | État | Proposition |
@@ -121,16 +130,16 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 | M2 | Acceptation d'une invitation (lien / QR) | absent | `GET /auth/invitation/{code}` (public, limité en débit : établissement, rôle attendu, expiration) puis rattachement / création de compte (D-013) |
 | M3 | Recherche d'établissement par nom ou ville | absent | annuaire public minimal (`GET /etablissements?q=`) au niveau ENT, sans donnée personnelle |
 | M4 | Attestation de l'appli (E7 : `client = mobile` déclaré par le client) | à faire | Play Integrity / App Attest à la création de session mobile ; sinon durée web |
-| M5 | Désinscription push | absent | `DELETE /devices/push/{id}` à la déconnexion ; purge des jetons à la révocation de session |
+| M5 | Désinscription push | **fait** (serveur MB0, applis MB1 client) | `DELETE /devices/push/{id}` appelé à la déconnexion ; révocation de session en cascade côté serveur (DS1) |
 | M6 | Absences de l'enfant (historique, pas seulement « à justifier ») | partiel | liste paginée famille, ou exposer `/eleves/{id}/demi-journees` dans le résumé |
 | M7 | Marquer une notification comme lue | absent (aucune route `/notifications/{id}/…` ; pour les messages, l'ouverture d'un fil semble marquer lu, à vérifier) | route dédiée ; compteur de non-lus pour l'accueil |
 | M8 | Accueil mobile agrégé | optionnel | `GET /mobile/accueil` (cours du jour, non-lus, absences à justifier) : 1 appel au lieu de 3–4 |
 | M9 | Pagination et `If-None-Match` | absent | pagination de `/messages/fils`, ETag sur les lectures mises en cache |
 | M10 | Saisie de notes en lot | absent | `POST /devoirs/{id}/notes` (liste), au lieu d'un appel par élève |
-| M11 | Test de contrat mobile | à écrire | rejouer les fixtures JSON des tests mobiles contre `ent-api` (comme `contre_backend.rs`) |
+| M11 | Test de contrat mobile | à écrire (MB2) | fixtures dorées `ent-rust/contrat/mobile/` décodées par les deux cœurs, banc de parité |
 | M12 | Signature du carnet, pièces jointes, nouveau fil | existe | non porté (web) ; à réévaluer |
 
-Aucune modification du backend n'a été faite dans ce chantier.
+Aucune modification du backend n'a été faite dans ce chantier. Depuis : enveloppe d'erreur codée et `Idempotency-Key` (MB1 serveur), désinscription push et durée mobile réservée à la passkey (MB0).
 
 ## 10. Vérifications (2026-11-06, conteneur Linux, deuxième passe)
 
@@ -149,9 +158,12 @@ Aucune modification du backend n'a été faite dans ce chantier.
 - `FLAG_SECURE` posé aussi sur les boîtes de dialogue Compose.
 - Premier build réel de `:app` : aucune correction de code n'a été nécessaire pour compiler.
 
+### CI GitHub (palier MB1 client)
+Le workflow `ent-rust.yml` lance `mobile-android` (validation du wrapper Gradle, `:core:test`, `:app:testDebugUnitTest`, `:app:lintDebug`, `:app:assembleRelease`, SDK 36) et `mobile-ios-coeur` (`swift test` dans l'image `swift:6.1-noble`) sur ENT et sur toute branche dont le diff touche `ent-rust/apps/**` ou le workflow ; leurs résultats figurent dans le commentaire de veille. L'interface SwiftUI reste en passe Mac (§11).
+
 ### Lancer les vérifications
 ```
-# Android (JDK 17+, Android SDK 35 : ANDROID_HOME ou local.properties sdk.dir=…)
+# Android (JDK 17+, Android SDK 36 : ANDROID_HOME ou local.properties sdk.dir=…)
 cd ent-rust/apps/android
 ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 # Sans SDK Android : ./gradlew -Pscolia.coreSeulement=true :core:test
@@ -160,6 +172,8 @@ cd ent-rust/apps/android
 
 # iOS, cœur seul (Linux ou Mac, Swift 5.9+)
 cd ent-rust/apps/ios && swift test
+# Sans chaîne Swift locale (conteneur) : docker run --rm -v "$PWD":/src:ro swift:6.1-noble \
+#   bash -c "cp -r /src /tmp/w && cd /tmp/w && swift test"
 ```
 
 ### Hôtes réseau nécessaires (conteneur à accès limité)
