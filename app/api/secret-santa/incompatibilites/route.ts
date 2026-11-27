@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSantaRulesAdmin, santaErrorResponse } from "@/app/lib/secret-santa-access";
-import { listSantaStaff } from "@/app/lib/secret-santa-db";
+import { listOrganizedLists, listSantaStaff } from "@/app/lib/secret-santa-db";
 import { addIncompatibility, listIncompatibilities, removeIncompatibility } from "@/app/lib/secret-santa-rules-db";
 import { SantaError } from "@/app/lib/secret-santa";
 
@@ -26,6 +26,7 @@ export async function GET() {
       {
         staff: staff.map(({ userId, displayName }) => ({ userId, displayName })),
         rules: await listIncompatibilities(auth.ctx.etablissementId),
+        lists: await listOrganizedLists(auth.ctx.etablissementId, auth.ctx.userId),
       },
       { headers: NO_STORE },
     );

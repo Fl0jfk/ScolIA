@@ -320,6 +320,28 @@ function newParticipant(santaId: string, m: SantaStaffMember, organizerUserId: s
   };
 }
 
+/** Listes d'invités (hors refus et retraits) des Secret Santa organisés par `userId`. */
+export async function listOrganizedLists(etabId: string, userId: string) {
+  const rows = await getDb()
+    .select({
+      id: secretSanta.id,
+      title: secretSanta.title,
+      userId: secretSantaParticipant.userId,
+      response: secretSantaParticipant.response,
+    })
+    .from(secretSanta)
+    .innerJoin(secretSantaParticipant, eq(secretSantaParticipant.santaId, secretSanta.id))
+    .where(and(eq(secretSanta.etablissementId, etabId), eq(secretSanta.organizerUserId, userId)))
+    .orderBy(desc(secretSanta.revealAt));
+  const lists = new Map<string, { id: string; title: string; participantIds: string[] }>();
+  for (const r of rows) {
+    const list = lists.get(r.id) ?? { id: r.id, title: r.title, participantIds: [] };
+    if (r.response === "pending" || r.response === "accepted") list.participantIds.push(r.userId);
+    lists.set(r.id, list);
+  }
+  return [...lists.values()];
+}
+
 export async function createSanta(
   etabId: string,
   organizer: { userId: string; name: string },

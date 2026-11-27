@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import SantaRehearsalPanel, { type RehearsalList } from "@/app/components/secret-santa/SantaRehearsalPanel";
 
-type Data = { staff: { userId: string; displayName: string }[]; rules: [string, string][] };
+type Data = {
+  staff: { userId: string; displayName: string }[];
+  rules: [string, string][];
+  lists: RehearsalList[];
+};
 
 const URL = "/api/secret-santa/incompatibilites";
 
@@ -135,6 +140,7 @@ export default function SantaRulesPanel() {
               ))}
             </ul>
           )}
+          <SantaRehearsalPanel staff={data.staff} lists={data.lists} rulesVersion={JSON.stringify(data.rules)} />
         </div>
       )}
     </section>
