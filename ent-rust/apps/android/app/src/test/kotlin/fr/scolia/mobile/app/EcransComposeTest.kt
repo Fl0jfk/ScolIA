@@ -3,6 +3,7 @@ package fr.scolia.mobile.app
 import android.app.Application
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -200,6 +201,8 @@ class EcransComposeTest {
         connecter(api, "prof", listOf(Droit("notes.saisir", "mes_classes")))
         modele.verrouille = false
         afficher()
+        // Cinq modules : « Saisir des notes » est rangé dans « Plus » (barre limitée).
+        if (rule.onAllNodesWithTag("module-SAISIE_NOTES").fetchSemanticsNodes().isEmpty()) rule.onNodeWithText("Plus").performClick()
         rule.onNodeWithTag("module-SAISIE_NOTES").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Maths 4B") > 0 }
         rule.onNodeWithText("Maths 4B").performClick()
