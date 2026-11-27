@@ -241,6 +241,8 @@ fn ecarts(chemin: &str, a: &Forme, b: &Forme, sortie: &mut Vec<String>) {
 struct Cas {
     nom: String,
     route: String,
+    /// Chemin réellement joué (avec la chaîne de requête) : rejoué par le banc de parité.
+    uri: String,
     statut: StatusCode,
     corps: Value,
 }
@@ -279,6 +281,7 @@ impl Banc {
         self.cas.push(Cas {
             nom: nom.into(),
             route: route.into(),
+            uri: uri.into(),
             statut: r.statut,
             corps: corps.clone(),
         });
@@ -381,6 +384,7 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
     b.cas.push(Cas {
         nom: "auth_etablissement".into(),
         route: "GET /auth/etablissement".into(),
+        uri: "/auth/etablissement".into(),
         statut: r.statut,
         corps: r.json(),
     });
@@ -620,6 +624,147 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
         &format!("/cahier-texte?eleve_id={lea}"),
         Some(&parent),
         None,
+    )
+    .await;
+
+    // --- Saisie des notes sur la grille d'évaluation `/eva/*` (palier « notes eva » du socle 11) ------------
+    // Le professeur choisit un cours, une période, crée une évaluation, saisit une case puis publie.
+    let enseignements = b
+        .jouer(
+            "eva_enseignements",
+            "GET /eva/enseignements",
+            "/eva/enseignements",
+            Some(&prof),
+            None,
+        )
+        .await;
+    let cours = enseignements
+        .as_array()
+        .and_then(|a| a.iter().find(|e| e["droit"] == "saisie"))
+        .unwrap_or_else(|| panic!("aucun cours en saisie pour le professeur : {enseignements}"));
+    let cours_id = cours["cours_id"].as_str().expect("cours_id").to_string();
+    let periodes_eva = b
+        .jouer(
+            "eva_cours_periodes",
+            "GET /eva/cours/{id}/periodes",
+            &format!("/eva/cours/{cours_id}/periodes"),
+            Some(&prof),
+            None,
+        )
+        .await;
+    // La période du jour si elle existe (c'est celle que l'appli choisit par défaut), sinon la première.
+    let p_eva = periodes_eva
+        .as_array()
+        .and_then(|a| {
+            a.iter()
+                .find(|p| {
+                    p["date_debut"].as_str().is_some_and(|d| d <= jour.as_str())
+                        && p["date_fin"].as_str().is_some_and(|f| f >= jour.as_str())
+                })
+                .or_else(|| a.first())
+        })
+        .unwrap_or_else(|| panic!("aucune période pour le cours : {periodes_eva}"))
+        .clone();
+    let periode_eva = id(&p_eva);
+    let date_eval = if p_eva["date_debut"]
+        .as_str()
+        .is_some_and(|d| d <= jour.as_str())
+        && p_eva["date_fin"]
+            .as_str()
+            .is_some_and(|f| f >= jour.as_str())
+    {
+        jour.clone()
+    } else {
+        p_eva["date_debut"]
+            .as_str()
+            .expect("date_debut")
+            .to_string()
+    };
+    let evaluation = b
+        .jouer(
+            "eva_evaluations",
+            "POST /eva/evaluations",
+            "/eva/evaluations",
+            Some(&prof),
+            Some(json!({
+                "cours_id": cours_id,
+                "titre": "Interrogation (banc mobile)",
+                "date_eval": date_eval,
+                "bareme_m": 20000,
+                "coef_m": 1000,
+            })),
+        )
+        .await;
+    let evaluation_id = id(&evaluation);
+    let grille = b
+        .jouer(
+            "eva_grille",
+            "GET /eva/grille",
+            &format!("/eva/grille?cours_id={cours_id}&periode_id={periode_eva}"),
+            Some(&prof),
+            None,
+        )
+        .await;
+    let rang = grille["evaluations"]
+        .as_array()
+        .and_then(|a| a.iter().position(|e| e["id"] == evaluation_id.as_str()))
+        .unwrap_or_else(|| panic!("évaluation créée absente de la grille : {grille}"));
+    let eleve_saisi = grille["eleves"]
+        .as_array()
+        .and_then(|a| {
+            a.iter().find(|l| {
+                let c = &l["cellules"][rang];
+                c["concerne"] == true && c["saisie_ouverte"] == true
+            })
+        })
+        .unwrap_or_else(|| panic!("aucune case ouverte dans la grille : {grille}"))["eleve_id"]
+        .as_str()
+        .expect("eleve_id")
+        .to_string();
+    let retour = b
+        .jouer(
+            "eva_saisie",
+            "POST /eva/saisie",
+            "/eva/saisie",
+            Some(&prof),
+            Some(json!({
+                "cours_id": cours_id,
+                "cellules": [
+                    {"evaluation_id": evaluation_id, "eleve_id": eleve_saisi, "texte": "15,5", "version_attendue": null},
+                ],
+            })),
+        )
+        .await;
+    assert_eq!(retour["cellules"][0]["issue"], "ecrit", "saisie : {retour}");
+    assert_eq!(
+        retour["cellules"][0]["valeur_m"], 15500,
+        "saisie : {retour}"
+    );
+    // Seconde saisie avec une version périmée : le serveur rend le conflit, jamais un écrasement (l'appli le montre).
+    let conflit = b
+        .jouer(
+            "eva_saisie_conflit",
+            "POST /eva/saisie",
+            "/eva/saisie",
+            Some(&prof),
+            Some(json!({
+                "cours_id": cours_id,
+                "cellules": [
+                    {"evaluation_id": evaluation_id, "eleve_id": eleve_saisi, "texte": "abs", "version_attendue": null},
+                ],
+            })),
+        )
+        .await;
+    assert_eq!(
+        conflit["cellules"][0]["issue"], "conflit",
+        "conflit : {conflit}"
+    );
+    b.jouer(
+        "eva_evaluations_publication",
+        "POST /eva/evaluations/{id}/publication",
+        &format!("/eva/evaluations/{evaluation_id}/publication"),
+        Some(&prof),
+        Some(json!({"action": "maintenant"})),
     )
     .await;
 
@@ -879,6 +1024,7 @@ async fn contrat_mobile_banc_de_parite() {
         "/messages/fils".into(),
         "/annonces".into(),
         "/notifications".into(),
+        "/eva/enseignements".into(),
     ];
     for (eleve, classe) in [(lea, &harry.classe), (tom, &draco.classe)] {
         lectures.extend([
@@ -898,6 +1044,12 @@ async fn contrat_mobile_banc_de_parite() {
     for c in &b.cas {
         if c.route == "GET /appels/{id}" {
             lectures.push(format!("/appels/{}", id(&c.corps)));
+        }
+        if c.nom == "eva_cours_periodes" {
+            lectures.push(c.uri.clone());
+        }
+        if c.nom == "eva_grille" {
+            lectures.push(c.uri.clone());
         }
         if c.nom == "messages_fils" {
             lectures.push(format!("/messages/fils/{}", id(premier(&c.corps, "fils"))));
@@ -952,6 +1104,7 @@ async fn contrat_mobile_banc_de_parite() {
     // si web et appli fuyaient ensemble.
     let autre_etab = state_autre_etab(&b).await;
     let eleve_harry = harry.compte.as_ref().map(|c| c.token.clone());
+    let autre_etab_grille = autre_etab.clone();
     let mut refus_attendus: Vec<(&str, String, String)> = vec![
         (
             "parent_harry",
@@ -985,10 +1138,26 @@ async fn contrat_mobile_banc_de_parite() {
         ),
         (
             "autre_etablissement",
-            autre_etab,
+            autre_etab.clone(),
             format!("/famille/enfants/{lea}/resume"),
         ),
     ];
+    // La grille d'évaluation n'est jamais lisible d'une famille ni d'un élève (403), ni d'un autre établissement (404).
+    let grille_uri = b
+        .cas
+        .iter()
+        .find(|c| c.nom == "eva_grille")
+        .map(|c| c.uri.clone())
+        .expect("grille jouée");
+    refus_attendus.push((
+        "parent_harry",
+        cast.parent_lea.token.clone(),
+        grille_uri.clone(),
+    ));
+    refus_attendus.push(("autre_etablissement", autre_etab_grille, grille_uri.clone()));
+    if let Some(t) = eleve_harry.as_ref() {
+        refus_attendus.push(("eleve_harry", t.clone(), grille_uri.clone()));
+    }
     if let Some(t) = eleve_harry {
         refus_attendus.push(("eleve_harry", t.clone(), format!("/eleves/{tom}/notes")));
         refus_attendus.push(("eleve_harry", t, format!("/vs/absences?jour={jour}")));

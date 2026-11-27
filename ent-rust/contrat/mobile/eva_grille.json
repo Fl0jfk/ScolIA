@@ -1,0 +1,124 @@
+{
+  "corps": {
+    "avertissements": [],
+    "delai_publication_max_jours": null,
+    "echelle_m": 20000,
+    "eleves": [
+      {
+        "cellules": [
+          {
+            "commentaire": false,
+            "concerne": true,
+            "corrige": false,
+            "hors_periode": false,
+            "rattrapage_autorise": false,
+            "resultat_id": null,
+            "saisie_ouverte": true,
+            "statut": null,
+            "valeur_m": null,
+            "version": null
+          }
+        ],
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "mouvement": null,
+        "moyenne_m": null,
+        "nb_comptees": 0,
+        "nom": "Granger",
+        "prenom": "Hermione"
+      },
+      {
+        "cellules": [
+          {
+            "commentaire": false,
+            "concerne": true,
+            "corrige": false,
+            "hors_periode": false,
+            "rattrapage_autorise": false,
+            "resultat_id": null,
+            "saisie_ouverte": true,
+            "statut": null,
+            "valeur_m": null,
+            "version": null
+          }
+        ],
+        "eleve_id": "00000000-0000-4000-8000-000000000002",
+        "mouvement": null,
+        "moyenne_m": null,
+        "nb_comptees": 0,
+        "nom": "Potter",
+        "prenom": "Harry"
+      },
+      {
+        "cellules": [
+          {
+            "commentaire": false,
+            "concerne": true,
+            "corrige": false,
+            "hors_periode": false,
+            "rattrapage_autorise": false,
+            "resultat_id": null,
+            "saisie_ouverte": true,
+            "statut": null,
+            "valeur_m": null,
+            "version": null
+          }
+        ],
+        "eleve_id": "00000000-0000-4000-8000-000000000003",
+        "mouvement": null,
+        "moyenne_m": null,
+        "nb_comptees": 0,
+        "nom": "Weasley",
+        "prenom": "Ginny"
+      }
+    ],
+    "enseignement": {
+      "cible_code": "4B",
+      "cours_id": "00000000-0000-4000-8000-000000000004",
+      "droit": "saisie",
+      "libelle": "Potions",
+      "matiere_id": null,
+      "sans_matiere": true
+    },
+    "evaluations": [
+      {
+        "a_des_resultats": false,
+        "annoncee": false,
+        "bareme_m": 20000,
+        "coef_m": 1000,
+        "commune": false,
+        "comptage": "normal",
+        "date_eval": "2027-03-08",
+        "en_cours_de_correction": false,
+        "etat": "ouverte",
+        "hors_bareme_autorise": false,
+        "id": "00000000-0000-4000-8000-000000000005",
+        "motif_annulation": null,
+        "peut_modifier": true,
+        "publication": "explicite",
+        "publication_prevue_le": null,
+        "publiee_le": null,
+        "restreinte": false,
+        "retiree_le": null,
+        "retrait_possible": false,
+        "sous_matiere_id": null,
+        "stats": null,
+        "titre": "Interrogation (banc mobile)",
+        "version": 1
+      }
+    ],
+    "jour": "2027-03-08",
+    "moyenne_classe": null,
+    "pas_m": 10,
+    "periode": {
+      "code": "T1",
+      "date_debut": "2027-03-08",
+      "date_fin": "2027-03-08",
+      "id": "00000000-0000-4000-8000-000000000006",
+      "libelle": "Trimestre 1"
+    },
+    "peut_corriger": false,
+    "peut_saisir": true
+  },
+  "route": "GET /eva/grille",
+  "statut": 200
+}

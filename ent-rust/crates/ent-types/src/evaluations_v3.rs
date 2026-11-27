@@ -633,6 +633,112 @@ mod tests {
         assert_eq!(formater_milliemes(0), "0");
     }
 
+    /// Vecteurs de l'analyse d'une cellule partagés avec les applis mobiles (palier « notes eva » du socle 11) :
+    /// les cœurs Kotlin et Swift rejouent ce fichier, au message près. `ENT_CONTRAT_ECRIRE=1` le régénère.
+    #[test]
+    fn contrat_mobile_analyse_cellule() {
+        let textes = [
+            "",
+            "   ",
+            "12",
+            " 12,5 ",
+            "12.25",
+            ",5",
+            "20",
+            "0",
+            "21",
+            "22",
+            "-1",
+            "douze",
+            "12,345",
+            "1,2,3",
+            "1e3",
+            "+5",
+            "12,25",
+            "13,125",
+            "abs",
+            "ABS",
+            "Absente",
+            "absent.",
+            "ar",
+            "à rattraper",
+            "rattrapage",
+            "disp",
+            "Dispensé",
+            "dispensee",
+            "nr",
+            "non rendu",
+            "N.R",
+            "nn",
+            "non noté",
+            "1234567",
+            "123456",
+            "12,",
+            ".",
+            "ab",
+            "une note bien trop longue pour un champ",
+        ];
+        let contraintes = [
+            ContrainteCellule {
+                bareme_m: 20_000,
+                hors_bareme_autorise: false,
+                pas_m: 10,
+            },
+            ContrainteCellule {
+                bareme_m: 20_000,
+                hors_bareme_autorise: true,
+                pas_m: 10,
+            },
+            ContrainteCellule {
+                bareme_m: 10_000,
+                hors_bareme_autorise: false,
+                pas_m: 500,
+            },
+            ContrainteCellule {
+                bareme_m: 20_000,
+                hors_bareme_autorise: false,
+                pas_m: 0,
+            },
+        ];
+        let mut cas = Vec::new();
+        for c in &contraintes {
+            for t in textes {
+                let attendu = match analyser_cellule(t, c) {
+                    Analyse::Vide => serde_json::json!({"type": "vide"}),
+                    Analyse::Statut(s) => serde_json::json!({"type": "statut", "statut": s}),
+                    Analyse::Note(m) => serde_json::json!({"type": "note", "valeur_m": m}),
+                    Analyse::Erreur(e) => serde_json::json!({"type": "erreur", "message": e}),
+                };
+                cas.push(serde_json::json!({
+                    "texte": t,
+                    "bareme_m": c.bareme_m,
+                    "hors_bareme_autorise": c.hors_bareme_autorise,
+                    "pas_m": c.pas_m,
+                    "attendu": attendu,
+                }));
+            }
+        }
+        let formats: Vec<_> = [0i64, 8_000, 12_500, 13_125, 20_000, 500, 10]
+            .iter()
+            .map(|m| serde_json::json!({"valeur_m": m, "texte": formater_milliemes(*m)}))
+            .collect();
+        let doc = serde_json::json!({"analyse": cas, "format": formats});
+        let texte = serde_json::to_string_pretty(&doc).unwrap() + "\n";
+        let chemin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contrat/mobile/regles/analyse_cellule.json");
+        if std::env::var("ENT_CONTRAT_ECRIRE").is_ok_and(|v| v == "1") {
+            std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+            std::fs::write(&chemin, &texte).unwrap();
+        }
+        let lu = std::fs::read_to_string(&chemin).unwrap_or_else(|e| {
+            panic!(
+                "{} : {e} (ENT_CONTRAT_ECRIRE=1 pour l'écrire)",
+                chemin.display()
+            )
+        });
+        assert_eq!(lu, texte, "analyse d'une cellule changée : régénérer avec ENT_CONTRAT_ECRIRE=1 et adapter les applis");
+    }
+
     #[test]
     fn aller_retour_serie() {
         let c = CelluleSaisieDto {

@@ -1,0 +1,14 @@
+{
+  "corps": [
+    {
+      "cible_code": "4B",
+      "cours_id": "00000000-0000-4000-8000-000000000001",
+      "droit": "saisie",
+      "libelle": "Potions",
+      "matiere_id": null,
+      "sans_matiere": true
+    }
+  ],
+  "route": "GET /eva/enseignements",
+  "statut": 200
+}

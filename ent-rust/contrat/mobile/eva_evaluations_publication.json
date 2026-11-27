@@ -1,0 +1,35 @@
+{
+  "corps": {
+    "a_des_resultats": true,
+    "annoncee": false,
+    "bareme_m": 20000,
+    "coef_m": 1000,
+    "commune": false,
+    "comptage": "normal",
+    "date_eval": "2027-03-08",
+    "en_cours_de_correction": false,
+    "etat": "ouverte",
+    "hors_bareme_autorise": false,
+    "id": "00000000-0000-4000-8000-000000000001",
+    "motif_annulation": null,
+    "peut_modifier": true,
+    "publication": "explicite",
+    "publication_prevue_le": null,
+    "publiee_le": "2027-03-08T09:00:00Z",
+    "restreinte": false,
+    "retiree_le": null,
+    "retrait_possible": true,
+    "sous_matiere_id": null,
+    "stats": {
+      "effectif": 1,
+      "max_m": 15500,
+      "mediane_m": 15500,
+      "min_m": 15500,
+      "moyenne_m": 15500
+    },
+    "titre": "Interrogation (banc mobile)",
+    "version": 2
+  },
+  "route": "POST /eva/evaluations/{id}/publication",
+  "statut": 200
+}
