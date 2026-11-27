@@ -14,7 +14,8 @@
 //! - ailleurs (400, 409, 422…) le texte de la route est conservé (message d'affichage), borné à 500 caractères,
 //!   **sauf** s'il a l'air d'un texte technique (fragment SQL, nom de contrainte, SQLSTATE, chemin de code : voir
 //!   [`texte_technique`]) : le message neutre du code le remplace (faibles F1 de la contre-revue MB1) ;
-//! - 503 (maintenance) et tout 5xx : message neutre seulement ;
+//! - un 503 garde son texte d'affichage (« réessayez ») s'il passe le même filtre ; les autres 5xx ont le message
+//!   neutre (`ErreurInterne`) ;
 //! - `trace` = identifiant de requête (`x-request-id`, corrélé au journal) : jamais une donnée personnelle.
 
 use axum::body::Body;
@@ -79,16 +80,15 @@ const MARQUEURS_TECHNIQUES: &[&str] = &[
     "sqlstate",
     "duplicate key",
     "violates",
-    "constraint",
-    "contrainte",
+    "constraint \"",
+    "contrainte \"",
+    "contrainte « ",
     "relation \"",
     "column \"",
     "colonne \"",
     "syntax error",
     "error returned from database",
     "erreur de base",
-    "pg_",
-    "ent_",
     "sqlx",
     "panicked",
     "deadlock",
@@ -102,11 +102,23 @@ const MARQUEURS_TECHNIQUES: &[&str] = &[
     ".rs:",
 ];
 
-/// `true` si le texte d'une route a l'air technique (voir [`MARQUEURS_TECHNIQUES`]) : il est alors remplacé par le
-/// message neutre du code.
+/// Préfixes d'identifiants SQL (`ent_eleve_pkey`, `pg_catalog`) : reconnus seulement en **début de mot** (contre-revue
+/// du palier : « changement_etat_civil » ou « paiement_… » contiennent `ent_` sans être un nom de table).
+const PREFIXES_IDENTIFIANTS: &[&str] = &["ent_", "pg_"];
+
+/// `true` si le texte d'une route a l'air technique (voir [`MARQUEURS_TECHNIQUES`] et [`PREFIXES_IDENTIFIANTS`]) : il
+/// est alors remplacé par le message neutre du code.
 pub fn texte_technique(texte: &str) -> bool {
     let bas = texte.to_lowercase();
     MARQUEURS_TECHNIQUES.iter().any(|m| bas.contains(m))
+        || PREFIXES_IDENTIFIANTS.iter().any(|p| {
+            bas.match_indices(p).any(|(i, _)| {
+                bas[..i]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !(c.is_alphanumeric() || c == '_'))
+            })
+        })
 }
 
 /// Corps déjà au format de l'enveloppe (une route future qui la construit elle-même) : laissé tel quel.
@@ -145,7 +157,7 @@ pub async fn enveloppe_erreur(req: Request, next: Next) -> Response<Body> {
             CodeErreur::par_defaut(statut.as_u16())
         }
     });
-    let message = if code.message_toujours_neutre() || statut.is_server_error() {
+    let message = if code.message_toujours_neutre() {
         code.message_neutre().to_string()
     } else {
         std::str::from_utf8(&brut)
@@ -200,6 +212,10 @@ mod tests_f1 {
         for t in [
             "échec simulé 422",
             "La date de fin précède la date de début.",
+            // Messages réels d'ent-api (contre-revue du palier) : ils restent affichés.
+            "nature : correction ou changement_etat_civil",
+            "kind contrainte EDT invalide",
+            "Opération concurrente, veuillez réessayer.",
             "Ce créneau est déjà réservé.",
             "Le montant doit être positif.",
         ] {

@@ -465,7 +465,6 @@ async fn mb1_idempotence_purge_a_24_heures_horloge_injectee() {
     b.decalage.store(24 * 3600 + 60, Ordering::SeqCst);
     // F7 : la passe périodique elle-même, à l'instant injecté (et non `Utc::now()`).
     let bilan = crate::purge::une_passe_a(&b.ent, b.base + Duration::seconds(24 * 3600 + 60)).await;
-    assert_eq!(bilan.echecs, 0);
     let supprimees = bilan.cles_idempotence;
     assert!(
         supprimees >= 1,

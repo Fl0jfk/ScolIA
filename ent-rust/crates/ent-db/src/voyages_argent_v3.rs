@@ -377,11 +377,14 @@ pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
                     crate::voyages_contournement::MSG_REVOCATION_AUTRICE,
                 );
             }
+            // « non autorisé ne s'utilise pas » n'est pas dans la liste : un usage sans autorisation reste une tentative de
+            // contourner la règle 3, tracée comme elle (contre-revue du palier). Les autres messages en « un
+            // contournement… » (cible non couverte, autorisatrice plus habilitée, inconnu) aussi, plus bas.
             if [
                 "un contournement déjà utilisé",
                 "un contournement révoqué",
                 "un contournement expiré",
-                "un contournement non autorisé",
+                "un contournement non autorisé ne se révoque pas",
                 "la décision d'un contournement ne se prend plus",
             ]
             .iter()
@@ -389,8 +392,11 @@ pub(crate) fn db_pouvoir(err: sqlx::Error) -> EntDbError {
             {
                 return refus(RefusMetier::Conflit, MSG_CONTOURNEMENT_ETAT);
             }
-            if m.starts_with("un avoir d'annulation collective") {
+            if m.starts_with("un avoir d'annulation collective ne dépasse pas l'argent versé : ce payeur est déjà couvert") {
                 return refus(RefusMetier::Conflit, MSG_AVOIR_COLLECTIF_BORNE);
+            }
+            if m.starts_with("un avoir d'annulation collective ne dépasse pas l'argent versé par ce payeur") {
+                return refus(RefusMetier::Invalide, MSG_AVOIR_COLLECTIF_MONTANT);
             }
         }
         if d.code().as_deref() == Some("23514")
@@ -419,6 +425,10 @@ pub(crate) const MSG_CONTOURNEMENT_ETAT: &str =
 /// Refus d'un avoir collectif venu de la base (course) : ce payeur est déjà couvert, ou rien n'a été versé.
 pub(crate) const MSG_AVOIR_COLLECTIF_BORNE: &str =
     "Un avoir d'annulation collective ne dépasse pas l'argent versé : ce payeur est déjà couvert pour ce participant.";
+
+/// Refus d'un avoir collectif venu de la base : son montant dépasse l'argent net versé par ce payeur pour ce participant.
+pub(crate) const MSG_AVOIR_COLLECTIF_MONTANT: &str =
+    "Un avoir d'annulation collective ne dépasse pas l'argent versé par ce payeur pour ce participant.";
 
 /// Faible 4 : nombre maximal de traces de refus par personne et par heure.
 pub const PLAFOND_TRACES_REFUS_PAR_HEURE: i64 = 30;

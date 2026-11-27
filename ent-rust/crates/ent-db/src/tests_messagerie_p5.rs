@@ -352,10 +352,11 @@ async fn faibles_l3_f2_un_message_verrouille_n_est_attendu_qu_une_fois_par_lot()
 }
 
 /// Palier des faibles, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069) : un avis dont le contrôle d'existence
-/// échoue plus de 24 h après sa création passe en `echec` (`controle_existence_impossible`) au lieu de reboucler ; un avis
-/// récent du même message est seulement reporté.
+/// échoue encore plus de 24 h après son **premier** échec passe en `echec` (`controle_existence_impossible`) au lieu de
+/// reboucler. Contre-revue : un avis créé il y a longtemps (planifié loin devant) dont c'est le premier échec est seulement
+/// reporté, jamais perdu.
 #[tokio::test]
-async fn faibles_l3_f3_un_avis_reporte_plus_de_24_heures_passe_en_echec() {
+async fn faibles_l3_f3_un_avis_en_echec_de_controle_depuis_24_heures_passe_en_echec() {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
@@ -363,10 +364,18 @@ async fn faibles_l3_f3_un_avis_reporte_plus_de_24_heures_passe_en_echec() {
     let (fil, _) = fil_de_lily(&ent, &cast, "Report sans fin").await;
     let m = message_differe(&ent, etab, dir, fil, "Toujours verrouillé").await;
     let vieux = avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, "push").await;
-    let recent = avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, "email").await;
+    let ancien_neuf = avis_canal(&ent, etab, lily, cast.eleve_lea_id, m, "email").await;
     let apres = apres_l_echeance(&ent).await;
-    sqlx::query("UPDATE ent_notification_envoi SET created_at = $2 - interval '25 hours' WHERE id = $1")
+    // `vieux` : premier échec de contrôle il y a 25 h. `ancien_neuf` : créé il y a 36 h (planifié loin devant), jamais en
+    // échec de contrôle.
+    sqlx::query("UPDATE ent_notification_envoi SET controle_echec_depuis = $2 - interval '25 hours' WHERE id = $1")
         .bind(vieux)
+        .bind(apres)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ent_notification_envoi SET created_at = $2 - interval '36 hours' WHERE id = $1")
+        .bind(ancien_neuf)
         .bind(apres)
         .execute(ent.pool_verif())
         .await
@@ -384,7 +393,14 @@ async fn faibles_l3_f3_un_avis_reporte_plus_de_24_heures_passe_en_echec() {
         statut_avis(&ent, vieux).await,
         ("echec".to_string(), Some("controle_existence_impossible".to_string()))
     );
-    assert_eq!(statut_avis(&ent, recent).await.0, "en_attente");
+    assert_eq!(statut_avis(&ent, ancien_neuf).await.0, "en_attente", "premier échec : reporté, pas perdu");
+    let depuis: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT controle_echec_depuis FROM ent_notification_envoi WHERE id = $1")
+            .bind(ancien_neuf)
+            .fetch_one(ent.pool_verif())
+            .await
+            .unwrap();
+    assert_eq!(depuis, Some(apres), "premier échec daté de l'instant du passage");
     lente.rollback().await.unwrap();
 }
 

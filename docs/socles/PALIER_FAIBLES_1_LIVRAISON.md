@@ -2,7 +2,7 @@
 
 Palier de correctifs (règle 39), branche unique `claude/project-thread-98w8lf`, partie d'`origin/ENT` (`5022055a`) le
 2026-11-27. N° 5 de la file du point quotidien du 26-11 (« lots de faibles regroupés »). Quatre lots, une contre-revue par
-lot, une seule PR en brouillon et une seule CI à la fin. Une migration : **658** (lot 2). Aucune dépendance nouvelle.
+lot, une seule PR en brouillon et une seule CI à la fin. Deux migrations : **658** (lot 2) et **495** (lot 3, après la contre-revue). Aucune dépendance nouvelle.
 
 Rapports d'origine (sur `ent-mc0hoe`, `docs/pilotage/revues/`) : `11_MB1_SERVEUR_CONTRE_REVUE.md`,
 `42_VOYAGES_V3B_SUITES_2_CONTRE_REVUE.md`, `16_E1_SUITES_5_CONTRE_REVUE.md`, `T3_FIABILITE_CONTRE_REVUE.md`,
@@ -48,7 +48,7 @@ règle 3, puisque la personne n'a rien tenté d'interdit.
 | Point | Fait | Preuve |
 |---|---|---|
 | E1 faible 2 : 55P03 non mémorisé | Un message dont le contrôle d'existence a échoué dans le lot n'est plus réattendu : les avis suivants du même message sont reportés aussitôt (`ControleMessage::en_echec`). | `faibles_l3_f2_un_message_verrouille_n_est_attendu_qu_une_fois_par_lot` (trois canaux, une seule attente). |
-| E1 faible 3 : report sans fin | D-069 : un avis dont le contrôle échoue encore plus de 24 h après sa création passe en `echec`, motif `controle_existence_impossible`, jamais renvoyé (`REPORT_CONTROLE_MAX`). Aucune migration : `created_at` existe déjà. | `faibles_l3_f3_un_avis_reporte_plus_de_24_heures_passe_en_echec` |
+| E1 faible 3 : report sans fin | D-069 : un avis dont le contrôle échoue encore 24 h après son **premier** échec de contrôle passe en `echec`, motif `controle_existence_impossible`, jamais renvoyé (`REPORT_CONTROLE_MAX`). **495** : colonne `controle_echec_depuis`, posée au premier échec, jamais avancée. Ni `created_at` (un avis planifié loin devant serait perdu au premier échec), ni `planifie_pour` (avance à chaque report). | `faibles_l3_f3_un_avis_en_echec_de_controle_depuis_24_heures_passe_en_echec` (vieux échec : `echec` ; avis créé il y a 36 h, premier échec maintenant : reste en attente) |
 | E1 faible 5 : limiteur | Le limiteur compte les lignes écartées par cause et rend le compte avec la ligne suivante (`autoriser_global_compte`) ; `signaler_echec_etablissement` s'en sert. Le contrôle d'existence a une cause par classe d'erreur (base, autre). | `journal_limite::les_lignes_ecartees_sont_comptees_par_cause_et_rendues_avec_la_suivante` |
 | T3 : exemption par extrait de ligne | Les trois exceptions de `controle_demarrage` exigent un nombre exact d'occurrences (`OCCURRENCES_EXACTES`). | `garde_rls_stricte::aucun_acces_direct_au_pool_hors_exception` |
 | T3 : commentaire inexact | Corrigé (`tests_internat_i4_suites3.rs`) : chaque banc a son propre établissement. | — |
@@ -73,7 +73,21 @@ I5 : offre « d'avant » lue dans l'état courant, restauration non couverte en 
 ## Compteurs (règle 28)
 
 Aucune action ajoutée (`Action::TOUTES` inchangé), aucune table (compte RLS inchangé), aucune route, aucune source.
-`migrate.rs` : +1 (658, en fin de tableau). `MIGRATION_TAG` inchangé (3808).
+`migrate.rs` : +2 (658 puis 495, en fin de tableau). Aucune table : 495 ajoute une colonne à `ent_notification_envoi`. `MIGRATION_TAG` inchangé (3808).
+
+## Contre-revue (une par lot, lecture seule)
+
+| Lot | Verdict | Points relevés et suite donnée |
+|---|---|---|
+| 1 | Après correctifs | `texte_technique` trop large (« contrainte » et `ent_` partout attrapaient des messages métier) : marqueurs ancrés (`constraint "`, `contrainte "`, `contrainte « `), préfixes `ent_` et `pg_` seulement en début de mot ; cas négatifs avec de vrais messages métier dans `tests_f1`. Un 503 garde son texte s'il passe le filtre (« Opération concurrente, veuillez réessayer. ») ; le texte technique y est toujours remplacé. Assertion fragile `bilan.echecs == 0` retirée du test de purge. |
+| 2 | Versable | Le message « un contournement non autorisé ne se révoque pas » devient un conflit ; « … ne s'utilise pas » reste un refus de la règle 3, tracé. Avoir collectif séparé : « payeur déjà couvert » = conflit (`MSG_AVOIR_COLLECTIF_BORNE`), « montant supérieur à l'argent versé » = invalide (`MSG_AVOIR_COLLECTIF_MONTANT`). |
+| 3 | Après correctifs | 24 h comptées depuis `created_at` : remplacé par `controle_echec_depuis` (495). |
+| 4 | Versable | `verifier_gel` vérifié vert sur les tables en ajout seul (`c8_gel_*`). |
+
+Faibles de la contre-revue laissés en file : le test M-2 attend 300 ms pour constater le blocage (pas d'horloge, mais un délai) ;
+branche de préfixe ancienne de `db_pouvoir` presque morte ; le groupe `REJEUX_GROUPES` n'est rejoué que si 2419 est dans la
+liste (aujourd'hui toujours vrai) ; un avis du même message en échec ouvre encore sa propre transaction de report ; les tests
+MB1 du labo dépendent d'`ENT_ENV` non productif (vrai en CI).
 
 ## Vérifications locales
 

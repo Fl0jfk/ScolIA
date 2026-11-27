@@ -906,14 +906,15 @@ impl BudgetVerrou {
 struct ControleMessage {
     derniere: Option<(Uuid, bool)>,
     /// Palier des faibles, lot 3 (faible 2 de la contre-revue E1 passe 5) : message dont le contrôle d'existence a déjà
-    /// échoué **dans ce lot** (verrou d'une annulation trop long, erreur de base). Les avis suivants du même message sont
-    /// reportés sans nouvelle attente : 500 avis d'un message verrouillé ne coûtent plus 500 attentes de verrou.
+    /// échoué **dans ce lot** (verrou d'une annulation trop long, erreur de base) ; gardé jusqu'à la fin du lot, même si un
+    /// autre message passe ensuite. Les avis suivants du même message sont reportés sans nouvelle attente : 500 avis d'un
+    /// message verrouillé ne coûtent plus 500 attentes de verrou.
     en_echec: Option<Uuid>,
 }
 
 /// Palier des faibles, lot 3 (faible 3 de la contre-revue E1 passe 5, D-069) : un avis dont le contrôle d'existence échoue
-/// encore plus de 24 h après sa création ne reboucle plus sans fin. Il passe en `echec` (motif
-/// `controle_existence_impossible`), comme un envoi interrompu : jamais renvoyé automatiquement.
+/// encore plus de 24 h après son **premier** échec de contrôle (`controle_echec_depuis`, 495) ne reboucle plus sans fin.
+/// Il passe en `echec` (motif `controle_existence_impossible`), comme un envoi interrompu : jamais renvoyé automatiquement.
 pub const REPORT_CONTROLE_MAX: Duration = Duration::hours(24);
 
 impl Expediteur {
@@ -1280,11 +1281,14 @@ impl Expediteur {
                         // Passe 5, faible 1 : `planifie_pour` est **reporté** (jamais avancé) d'au moins l'attente de
                         // verrou. Sans cela, ≥ `taille_lot` avis verrouillés gardaient leur place en tête de file
                         // (`ORDER BY planifie_pour`) et le lot tournait à vide, les avis libres derrière restant affamés.
-                        // Faible 3 : au-delà de `REPORT_CONTROLE_MAX` depuis sa création, l'avis passe en échec.
+                        // Faible 3 : au-delà de `REPORT_CONTROLE_MAX` depuis le **premier** échec de contrôle (495,
+                        // point fixe, jamais avancé), l'avis passe en échec. Contre-revue : pas depuis `created_at`, sinon
+                        // un avis planifié loin devant serait perdu au premier échec.
                         "UPDATE ent_notification_envoi
-                            SET statut = CASE WHEN created_at < $4 THEN 'echec' ELSE 'en_attente' END,
-                                motif = CASE WHEN created_at < $4 THEN 'controle_existence_impossible' ELSE motif END,
-                                traite_le = CASE WHEN created_at < $4 THEN $5 ELSE traite_le END,
+                            SET statut = CASE WHEN controle_echec_depuis < $4 THEN 'echec' ELSE 'en_attente' END,
+                                motif = CASE WHEN controle_echec_depuis < $4 THEN 'controle_existence_impossible' ELSE motif END,
+                                traite_le = CASE WHEN controle_echec_depuis < $4 THEN $5 ELSE traite_le END,
+                                controle_echec_depuis = COALESCE(controle_echec_depuis, $5),
                                 tentative_le = NULL,
                                 planifie_pour = GREATEST(planifie_pour, $3)
                           WHERE etablissement_id = $1 AND id = $2 AND statut = 'envoi'

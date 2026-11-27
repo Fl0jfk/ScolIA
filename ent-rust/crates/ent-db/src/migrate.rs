@@ -612,6 +612,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // faits de contournement (657) prend le verrou consultatif de la sortie (M-2 de la contre-revue V3b suites 2). 640 à
     // 657 sont versées et ne changent pas (règle 25) ; sa fonction porte son `search_path`. `MIGRATION_TAG` inchangé.
     m!("658_sortie_voyages_faibles_verrou_faits"),
+    // Palier des faibles regroupés, lot 3 (495, plage 482–499 du socle 16 ; **fin de tableau**, règle 38) : instant du premier
+    // échec du contrôle d'existence d'un avis (faible 3 de la contre-revue E1 passe 5). 482 à 494 sont versées et ne changent
+    // pas (règle 25). Aucune fonction. `MIGRATION_TAG` inchangé.
+    m!("495_msg_controle_echec_depuis"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

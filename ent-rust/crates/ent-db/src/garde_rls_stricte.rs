@@ -96,9 +96,6 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// **Aucun accès direct au pool** dans le code d'`ent-db` hors exceptions motivées : tout accès à une table
-/// « par établissement » passe par `TenantTx` (ou le contexte système nommé). Garde contre la
-/// régression : un nouveau dépôt qui oublie le contexte échoue ici, avant la CI strict de domaine.
 /// Palier des faibles, lot 3 (faible de la contre-revue T3) : exceptions ciblées sur **une ligne** et qui doivent
 /// le rester. Un extrait de ligne (`contains`) couvrirait sinon en silence une seconde requête ajoutée plus tard dans
 /// le même fichier ; le nombre d'occurrences est exigé exactement.
@@ -108,6 +105,9 @@ const OCCURRENCES_EXACTES: &[(&str, &str, usize)] = &[
     ("controle_demarrage", "droit_execution(pool,", 1),
 ];
 
+/// **Aucun accès direct au pool** dans le code d'`ent-db` hors exceptions motivées : tout accès à une table
+/// « par établissement » passe par `TenantTx` (ou le contexte système nommé). Garde contre la
+/// régression : un nouveau dépôt qui oublie le contexte échoue ici, avant la CI strict de domaine.
 #[test]
 fn aucun_acces_direct_au_pool_hors_exception() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
