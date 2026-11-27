@@ -14,7 +14,7 @@ type Item = {
   revealAt: string;
   participantCount: number;
   isOrganizer: boolean;
-  isParticipant: boolean;
+  awaitingMyAnswer: boolean;
 };
 
 const formatDate = (iso: string) =>
@@ -105,6 +105,11 @@ export default function SecretSantaListPage() {
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-bold text-slate-900">{s.title}</span>
+                  {s.awaitingMyAnswer && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+                      À vous de répondre
+                    </span>
+                  )}
                   {s.isOrganizer && (
                     <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">
                       J&apos;organise
@@ -113,7 +118,7 @@ export default function SecretSantaListPage() {
                 </div>
                 <p className="mt-1 text-sm text-slate-600">
                   {new Date(s.revealAt).getTime() > serverNow ? "Tirage" : "Tirage fait"} {formatDate(s.revealAt)} ·{" "}
-                  {s.participantCount} participants · organisé par {s.organizerName}
+                  {s.participantCount} participant(s) · organisé par {s.organizerName}
                 </p>
               </Link>
             </li>

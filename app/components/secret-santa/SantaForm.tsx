@@ -12,6 +12,9 @@ export type SantaFormValues = {
   message: string;
   /** ISO. */
   revealAt: string;
+  eventPlace: string;
+  /** ISO, ou vide. */
+  eventAt: string;
   participantIds: string[];
   exclusions: SantaExclusion[];
 };
@@ -44,6 +47,8 @@ export default function SantaForm({
   const [budget, setBudget] = useState(initial?.budget ?? "");
   const [message, setMessage] = useState(initial?.message ?? "");
   const [revealAt, setRevealAt] = useState(toLocalInput(initial?.revealAt ?? ""));
+  const [eventPlace, setEventPlace] = useState(initial?.eventPlace ?? "");
+  const [eventAt, setEventAt] = useState(toLocalInput(initial?.eventAt ?? ""));
   const [selected, setSelected] = useState<Set<string>>(new Set(initial?.participantIds ?? []));
   const [exclusions, setExclusions] = useState<SantaExclusion[]>(initial?.exclusions ?? []);
   const [pair, setPair] = useState<[string, string]>(["", ""]);
@@ -121,6 +126,8 @@ export default function SantaForm({
         budget,
         message,
         revealAt: date.toISOString(),
+        eventPlace,
+        eventAt: eventAt ? new Date(eventAt).toISOString() : "",
         participantIds,
         exclusions: exclusions.filter(([a, b]) => selected.has(a) && selected.has(b)),
       });
@@ -161,8 +168,28 @@ export default function SantaForm({
             className={input}
             value={budget}
             maxLength={80}
-            placeholder="Environ 15 €"
+            placeholder="Laisser vide pour ne pas en parler"
             onChange={(e) => setBudget(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className={label}>Lieu de la rencontre (facultatif)</span>
+          <input
+            className={input}
+            value={eventPlace}
+            maxLength={200}
+            placeholder="Salle des professeurs"
+            onChange={(e) => setEventPlace(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className={label}>Date et heure de la rencontre (facultatif)</span>
+          <input
+            type="datetime-local"
+            className={input}
+            value={eventAt}
+            min={revealAt || undefined}
+            onChange={(e) => setEventAt(e.target.value)}
           />
         </label>
         <label className="block sm:col-span-2">
@@ -178,7 +205,7 @@ export default function SantaForm({
       </div>
 
       <fieldset>
-        <legend className={label}>Participants ({chosen.length})</legend>
+        <legend className={label}>Personnes invitées ({chosen.length})</legend>
         <div className="mt-2 flex flex-wrap gap-2">
           <input
             className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
@@ -233,7 +260,8 @@ export default function SantaForm({
           ))}
         </ul>
         <p className="mt-1 text-xs text-slate-500">
-          Seules les personnes qui ont un compte ScolIA apparaissent. Vous participez si votre nom est coché.
+          Seules les personnes qui ont un compte ScolIA apparaissent. Chaque invité répond oui ou non ; si votre
+          nom est coché, vous répondez aussi.
         </p>
         {missing.length > 0 && (
           <p className="mt-1 text-xs text-amber-700">
@@ -308,7 +336,7 @@ export default function SantaForm({
           Annuler
         </button>
         {staff && chosen.length < SANTA_MIN_PARTICIPANTS && (
-          <span className="text-xs text-slate-500">Il faut au moins {SANTA_MIN_PARTICIPANTS} participants.</span>
+          <span className="text-xs text-slate-500">Invitez au moins {SANTA_MIN_PARTICIPANTS} personnes.</span>
         )}
       </div>
     </form>

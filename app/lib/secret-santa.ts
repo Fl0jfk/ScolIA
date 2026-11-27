@@ -119,6 +119,8 @@ export type SantaInput = {
   budget: string;
   message: string;
   revealAt: Date;
+  eventPlace: string;
+  eventAt: Date | null;
   participantIds: string[];
   exclusions: SantaExclusion[];
 };
@@ -150,6 +152,93 @@ function cleanExclusions(value: unknown, participants: Set<string>): SantaExclus
   }
   if (out.size > SANTA_MAX_EXCLUSIONS) throw new SantaError("Trop de paires interdites.");
   return [...out.values()];
+}
+
+/** Rendez-vous : lieu et date facultatifs ; la rencontre a forcément lieu après le tirage. */
+function parseEvent(b: Record<string, unknown>, revealAt: Date | null): { eventPlace: string; eventAt: Date | null } {
+  const eventPlace = oneLine(cleanText(b.eventPlace, 200, "Lieu"));
+  if (typeof b.eventAt !== "string" || !b.eventAt.trim()) return { eventPlace, eventAt: null };
+  const eventAt = new Date(b.eventAt);
+  if (Number.isNaN(eventAt.getTime())) throw new SantaError("La date du rendez-vous n'est pas valide.");
+  if (revealAt && eventAt.getTime() <= revealAt.getTime()) {
+    throw new SantaError("Le rendez-vous doit avoir lieu après le tirage, pour laisser le temps d'acheter les cadeaux.");
+  }
+  return { eventPlace, eventAt };
+}
+
+/**
+ * Ce qui empêche le tirage entre les personnes qui ont accepté. Les règles qui concernent une
+ * personne absente ne comptent pas ; celles qui restent doivent préserver le secret.
+ */
+export type SantaBlocker = "not_enough" | "too_many_exclusions";
+
+export function exclusionsAmong(ids: string[], exclusions: SantaExclusion[]): SantaExclusion[] {
+  const present = new Set(ids);
+  return exclusions.filter(([a, b]) => present.has(a) && present.has(b));
+}
+
+function exceedsExclusionLimit(ids: string[], exclusions: SantaExclusion[]): boolean {
+  const perPerson = new Map<string, number>();
+  for (const id of exclusions.flat()) perPerson.set(id, (perPerson.get(id) ?? 0) + 1);
+  const limit = santaMaxExclusionsPerPerson(ids.length);
+  return [...perPerson.values()].some((n) => n > limit);
+}
+
+export function drawBlocker(acceptedIds: string[], exclusions: SantaExclusion[]): SantaBlocker | null {
+  if (acceptedIds.length < SANTA_MIN_PARTICIPANTS) return "not_enough";
+  const relevant = exclusionsAmong(acceptedIds, exclusions);
+  if (exceedsExclusionLimit(acceptedIds, relevant) || !isDrawFeasible(acceptedIds, relevant)) {
+    return "too_many_exclusions";
+  }
+  return null;
+}
+
+/**
+ * Désistement après le tirage, en changeant le moins de noms possible : la personne qui offrait à
+ * la personne partie reprend son destinataire. Si ce n'est pas permis (elles s'offraient l'une à
+ * l'autre, ou paire interdite), elle s'insère dans une autre paire : deux noms changent.
+ */
+export function repairAfterWithdrawal(
+  pairs: SantaPair[],
+  leaver: string,
+  exclusions: SantaExclusion[],
+  randomInt: RandomInt,
+): SantaPair[] {
+  const remaining = pairs.map((p) => p.giver).filter((id) => id !== leaver);
+  if (remaining.length < SANTA_MIN_PARTICIPANTS) {
+    throw new SantaError(
+      `Impossible : il resterait moins de ${SANTA_MIN_PARTICIPANTS} participants et le secret ne tiendrait plus.`,
+      409,
+    );
+  }
+  // Sans ce contrôle, quelques retraits suffiraient à ne laisser qu'un seul tirage possible.
+  const relevant = exclusionsAmong(remaining, exclusions);
+  if (exceedsExclusionLimit(remaining, relevant) || !isDrawFeasible(remaining, relevant)) {
+    throw new SantaError(
+      "Impossible : avec les paires interdites, le tirage entre les personnes restantes ne serait plus secret.",
+      409,
+    );
+  }
+  const orphan = pairs.find((p) => p.receiver === leaver)?.giver;
+  const freed = pairs.find((p) => p.giver === leaver)?.receiver;
+  if (!orphan || !freed) throw new SantaError("Cette personne ne fait pas partie du tirage.", 409);
+
+  const forbidden = forbiddenKeys(exclusions);
+  const allowed = (giver: string, receiver: string) => giver !== receiver && !forbidden.has(pairKey(giver, receiver));
+  const kept = pairs.filter((p) => p.giver !== leaver && p.giver !== orphan);
+  if (allowed(orphan, freed)) return [...kept, { giver: orphan, receiver: freed }];
+
+  const swaps = kept.filter((p) => allowed(orphan, p.receiver) && allowed(p.giver, freed));
+  if (swaps.length) {
+    const swap = swaps[randomInt(swaps.length)]!;
+    return [
+      ...kept.filter((p) => p.giver !== swap.giver),
+      { giver: orphan, receiver: swap.receiver },
+      { giver: swap.giver, receiver: freed },
+    ];
+  }
+  // Dernier recours : nouveau tirage entre les personnes restantes.
+  return drawSecretSanta(remaining, relevant, randomInt);
 }
 
 /** Valide une saisie complète (création, ou modification avant le tirage). */
@@ -189,19 +278,25 @@ export function parseSantaInput(body: unknown, now: Date): SantaInput {
     budget: oneLine(cleanText(b.budget, 80, "Budget")),
     message: cleanText(b.message, 1000, "Message"),
     revealAt,
+    ...parseEvent(b, revealAt),
     participantIds,
     exclusions,
   };
 }
 
-/** Champs encore modifiables après le tirage (texte seulement). */
-export function parseSantaTextUpdate(body: unknown): { budget: string; message: string } {
+/** Champs encore modifiables après le tirage : informations pratiques. */
+export type SantaTexts = { budget: string; message: string; eventPlace: string; eventAt: Date | null };
+
+export function parseSantaTextUpdate(body: unknown): SantaTexts {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   return {
     budget: oneLine(cleanText(b.budget, 80, "Budget")),
     message: cleanText(b.message, 1000, "Message"),
+    ...parseEvent(b, null),
   };
 }
+
+export type SantaResponse = "pending" | "accepted" | "declined" | "withdrawn";
 
 export function isRevealDue(revealAt: Date, now: Date): boolean {
   return now.getTime() >= revealAt.getTime();
@@ -227,7 +322,11 @@ export type SantaRecord = {
   message: string;
   revealAt: Date;
   drawnAt: Date | null;
+  eventPlace: string;
+  eventAt: Date | null;
   exclusions: SantaExclusion[];
+  /** Change à chaque modification. */
+  version: number;
 };
 
 export type SantaParticipantRecord = {
@@ -236,6 +335,8 @@ export type SantaParticipantRecord = {
   receiverUserId: string | null;
   invitedAt: Date | null;
   openedAt: Date | null;
+  response: SantaResponse;
+  changedAt: Date | null;
 };
 
 export type SantaView = {
@@ -247,18 +348,34 @@ export type SantaView = {
   revealAt: string;
   /** Heure du serveur : le compte à rebours ne dépend pas de l'horloge du poste. */
   serverNow: string;
+  eventPlace: string;
+  eventAt: string | null;
   drawn: boolean;
   isOrganizer: boolean;
+  /** A accepté : entre dans le tirage. */
   isParticipant: boolean;
+  /** Réponse de la personne connectée ; `null` si elle n'est pas invitée. */
+  myResponse: SantaResponse | null;
+  canRespond: boolean;
+  /** L'heure est passée mais le tirage ne peut pas avoir lieu. */
+  blocker: SantaBlocker | null;
+  invitedCount: number;
+  /** Seulement les personnes qui participent : les refus restent discrets. */
   participants: { userId: string; displayName: string }[];
   /** Visible de tous : personne ne découvre après coup que des règles existaient. */
   exclusionCount: number;
   /** La seule paire jamais envoyée : la sienne, à partir de l'heure du tirage. */
-  mine: { receiverName: string; photoUrl: string | null; alreadyOpened: boolean } | null;
+  mine: {
+    receiverKey: string;
+    receiverName: string;
+    photoUrl: string | null;
+    alreadyOpened: boolean;
+    changed: boolean;
+  } | null;
   /** Réservé à l'organisateur : suivi et réglages, sans aucune paire. */
   organizer: {
     exclusions: SantaExclusion[];
-    status: { userId: string; invited: boolean; opened: boolean }[];
+    invitees: { userId: string; displayName: string; response: SantaResponse; invited: boolean; opened: boolean }[];
   } | null;
 };
 
@@ -278,7 +395,11 @@ export function buildSantaView(
 ): SantaView {
   const me = participants.find((p) => p.userId === userId) ?? null;
   const isOrganizer = santa.organizerUserId === userId;
-  const receiver = santa.drawnAt && isRevealDue(santa.revealAt, now) ? receiverOf(participants, userId) : null;
+  const due = isRevealDue(santa.revealAt, now);
+  const accepted = participants.filter((p) => p.response === "accepted");
+  const isParticipant = me?.response === "accepted";
+  const receiver = isParticipant && santa.drawnAt && due ? receiverOf(participants, userId) : null;
+  const changed = Boolean(me?.changedAt);
   return {
     id: santa.id,
     title: santa.title,
@@ -287,20 +408,40 @@ export function buildSantaView(
     organizerName: santa.organizerName,
     revealAt: santa.revealAt.toISOString(),
     serverNow: now.toISOString(),
+    eventPlace: santa.eventPlace,
+    eventAt: santa.eventAt?.toISOString() ?? null,
     drawn: santa.drawnAt !== null,
     isOrganizer,
-    isParticipant: me !== null,
-    participants: participants.map((p) => ({ userId: p.userId, displayName: p.displayName })),
+    isParticipant,
+    myResponse: me?.response ?? null,
+    canRespond: Boolean(me) && me!.response !== "withdrawn" && !santa.drawnAt && !due,
+    blocker:
+      !santa.drawnAt && due
+        ? drawBlocker(
+            accepted.map((p) => p.userId),
+            santa.exclusions,
+          )
+        : null,
+    invitedCount: participants.length,
+    participants: accepted.map((p) => ({ userId: p.userId, displayName: p.displayName })),
     exclusionCount: santa.exclusions.length,
     // L'adresse de la photo est ajoutée par la route, si la personne en a une.
     mine: receiver
-      ? { receiverName: receiver.displayName, photoUrl: null, alreadyOpened: me!.openedAt !== null }
+      ? {
+          receiverKey: receiver.userId,
+          receiverName: receiver.displayName,
+          photoUrl: null,
+          alreadyOpened: me!.openedAt !== null && !changed,
+          changed,
+        }
       : null,
     organizer: isOrganizer
       ? {
           exclusions: santa.exclusions,
-          status: participants.map((p) => ({
+          invitees: participants.map((p) => ({
             userId: p.userId,
+            displayName: p.displayName,
+            response: p.response,
             invited: p.invitedAt !== null,
             opened: p.openedAt !== null,
           })),

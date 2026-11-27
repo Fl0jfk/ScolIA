@@ -610,6 +610,13 @@
       "when": 1787420739851,
       "tag": "0077_user_avatar",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1787420799851,
+      "tag": "0078_secret_santa_reponses",
+      "breakpoints": true
     }
   ]
 }

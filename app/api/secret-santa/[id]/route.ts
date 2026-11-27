@@ -18,7 +18,8 @@ export async function GET(_req: Request, { params }: Params) {
     const view = buildSantaView(santa, participants, auth.ctx.userId, now);
     const receiver = view.mine ? receiverOf(participants, auth.ctx.userId) : null;
     if (view.mine && receiver && (await listAvatarVersions([receiver.userId])).size) {
-      view.mine.photoUrl = `/api/secret-santa/${encodeURIComponent(id)}/photo`;
+      // La version force le rechargement après un changement, sans désigner la personne.
+      view.mine.photoUrl = `/api/secret-santa/${encodeURIComponent(id)}/photo?v=${santa.version}`;
     }
     return NextResponse.json(view, {
       headers: { "Cache-Control": "no-store" },

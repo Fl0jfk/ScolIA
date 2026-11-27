@@ -16,6 +16,11 @@ export const secretSanta = pgTable(
     message: text("message").notNull().default(""),
     revealAt: timestamp("reveal_at", { withTimezone: true }).notNull(),
     drawnAt: timestamp("drawn_at", { withTimezone: true }),
+    /** Rendez-vous de remise des cadeaux (facultatif). */
+    eventPlace: text("event_place").notNull().default(""),
+    eventAt: timestamp("event_at", { withTimezone: true }),
+    /** Dernier envoi « les informations ont changé ». */
+    updatesSentAt: timestamp("updates_sent_at", { withTimezone: true }),
     /** Paires interdites : `[[userId, userId], …]`. */
     exclusions: jsonb("exclusions").$type<[string, string][]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -37,6 +42,11 @@ export const secretSantaParticipant = pgTable(
     receiverUserId: text("receiver_user_id"),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     openedAt: timestamp("opened_at", { withTimezone: true }),
+    /** pending | accepted | declined | withdrawn (retiré après le tirage). */
+    response: text("response").$type<"pending" | "accepted" | "declined" | "withdrawn">().notNull().default("pending"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    /** Son nom tiré a changé après qu'elle l'a vu ; effacé quand elle rouvre son cadeau. */
+    changedAt: timestamp("changed_at", { withTimezone: true }),
   },
   (t) => [
     primaryKey({ name: "secret_santa_participant_pk", columns: [t.santaId, t.userId] }),

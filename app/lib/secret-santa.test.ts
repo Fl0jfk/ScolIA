@@ -95,6 +95,9 @@ const santa: SantaRecord = {
   message: "",
   revealAt: new Date("2026-12-04T11:00:00Z"),
   drawnAt: new Date("2026-12-04T11:00:01Z"),
+  eventPlace: "",
+  version: 0,
+  eventAt: null,
   exclusions: [],
 };
 const person = (userId: string, receiverUserId: string): SantaParticipantRecord => ({
@@ -103,13 +106,15 @@ const person = (userId: string, receiverUserId: string): SantaParticipantRecord 
   receiverUserId,
   invitedAt: null,
   openedAt: null,
+  response: "accepted",
+  changedAt: null,
 });
 const people = [person("a", "b"), person("b", "c"), person("c", "a")];
 const after = new Date("2026-12-04T11:05:00Z");
 
 test("chacun ne reçoit que sa propre paire", () => {
   const view = buildSantaView(santa, people, "a", after);
-  assert.deepEqual(view.mine, { receiverName: "Nom b", photoUrl: null, alreadyOpened: false });
+  assert.deepEqual(view.mine, { receiverKey: "b", receiverName: "Nom b", photoUrl: null, alreadyOpened: false, changed: false });
   assert.equal(view.organizer, null);
   assert.ok(!JSON.stringify(view).includes("receiverUserId"));
 });
@@ -117,7 +122,7 @@ test("chacun ne reçoit que sa propre paire", () => {
 test("l'organisateur suit les ouvertures sans voir aucune paire", () => {
   const view = buildSantaView(santa, people, "org", after);
   assert.equal(view.mine, null);
-  assert.equal(view.organizer?.status.length, 3);
+  assert.equal(view.organizer?.invitees.length, 3);
   assert.ok(!JSON.stringify(view).includes("receiver"));
 });
 

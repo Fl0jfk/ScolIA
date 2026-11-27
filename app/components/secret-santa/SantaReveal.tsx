@@ -49,10 +49,17 @@ export default function SantaReveal({
   /** Heure du serveur moins heure du poste. */
   serverOffsetMs: number;
   isParticipant: boolean;
-  mine: { receiverName: string; photoUrl: string | null; alreadyOpened: boolean } | null;
+  mine: {
+    receiverKey: string;
+    receiverName: string;
+    photoUrl: string | null;
+    alreadyOpened: boolean;
+    changed: boolean;
+  } | null;
   /** Demande le résultat au serveur (rappelé tant qu'il n'est pas arrivé). */
   onDue: () => void;
-  onOpened: () => void;
+  /** Reçoit le repère de la personne affichée. */
+  onOpened: (seenReceiver: string) => void;
 }) {
   const target = new Date(revealAt).getTime();
   const [remaining, setRemaining] = useState(() => target - (Date.now() + serverOffsetMs));
@@ -92,12 +99,22 @@ export default function SantaReveal({
     const timer = window.setTimeout(
       () => {
         setPhase("open");
-        callbacks.current.onOpened();
+        callbacks.current.onOpened(keyRef.current);
       },
       reduced ? 0 : GIFT_SHAKE_MS,
     );
     return () => window.clearTimeout(timer);
   }, [phase]);
+
+  /** Le nom a changé pendant que la page était ouverte : on referme le cadeau. */
+  const receiverKey = mine?.receiverKey ?? null;
+  const [shownKey, setShownKey] = useState(receiverKey);
+  if (receiverKey !== shownKey) {
+    setShownKey(receiverKey);
+    if (shownKey) setPhase("closed");
+  }
+  const keyRef = useRef("");
+  keyRef.current = receiverKey ?? "";
 
   const parts = splitDuration(remaining);
   const lastSeconds = !due && parts.total <= 10;
@@ -162,7 +179,7 @@ export default function SantaReveal({
             <p className="mt-4 text-sm text-white/80">
               {isParticipant
                 ? "Restez sur cette page : votre cadeau s'ouvrira tout seul à l'heure du tirage."
-                : "Les participants découvriront leur nom à cette heure-là."}
+                : "Les participants découvriront leur nom à cette heure-là. Sans votre « oui », vous n'êtes pas dans le tirage."}
             </p>
           </>
         ) : !isParticipant ? (
@@ -205,7 +222,9 @@ export default function SantaReveal({
               </p>
             ) : (
               <>
-                <p className="mt-6 text-lg font-bold">Le tirage a eu lieu !</p>
+                <p className="mt-6 text-lg font-bold">
+                  {mine.changed ? "Du changement : rouvrez votre cadeau" : "Le tirage a eu lieu !"}
+                </p>
                 <p className="mt-1 text-sm text-white/80">Vérifiez que personne ne regarde votre écran.</p>
                 <button
                   type="button"

@@ -3,30 +3,24 @@ import "server-only";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { createTenantTransporter, getTenantSmtpConfig, sendMailWithTimeout } from "@/app/lib/tenant-mail";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
-import { releaseInvitation } from "@/app/lib/secret-santa-db";
-import { SantaError, isRevealDue, type SantaParticipantRecord, type SantaRecord } from "@/app/lib/secret-santa";
+import { SantaError, type SantaRecord } from "@/app/lib/secret-santa";
+import { santaMail, type SantaMailKind } from "@/app/lib/secret-santa-mail-text";
 
-type Target = SantaParticipantRecord & { email: string };
+type Target = { userId: string; displayName: string; email: string };
 
-const dateParis = (date: Date) =>
-  new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Europe/Paris",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-
-/** Un message par personne, sans aucun nom tiré. Les échecs sont comptés et restent à renvoyer. */
-export async function sendSantaInvitations(
+/**
+ * Un message par personne, sans aucun nom tiré. `onFailure` est appelé pour chaque personne non
+ * servie (y compris si l'envoi n'est pas configuré) afin d'annuler sa réservation.
+ */
+export async function sendSantaMails<T extends Target>(
+  kind: SantaMailKind,
   santa: SantaRecord,
-  targets: Target[],
+  targets: T[],
+  onFailure: (target: T) => Promise<void> = async () => {},
 ): Promise<{ sent: number; failed: number }> {
   if (!targets.length) return { sent: 0, failed: 0 };
-  const releaseAll = () => Promise.all(targets.map((t) => releaseInvitation(santa.id, t.userId, t.invitedAt)));
 
-  let send: (target: Target) => Promise<void>;
+  let send: (target: T) => Promise<void>;
   try {
     const smtp = await getTenantSmtpConfig();
     const transporter = smtp ? await createTenantTransporter() : null;
@@ -34,32 +28,17 @@ export async function sendSantaInvitations(
     const bundle = await loadAppConfig();
     const school = bundle.identity.shortName || bundle.identity.name || "Établissement";
     const link = await tenantAbsolutePath(`/secret-santa/${santa.id}`);
-    const lines = [
-      `${santa.organizerName} vous invite au Secret Santa « ${santa.title} ».`,
-      "",
-      ...(isRevealDue(santa.revealAt, new Date())
-        ? ["Le tirage a eu lieu : ouvrez votre cadeau pour découvrir à qui l'offrir."]
-        : [
-            `Le tirage aura lieu ${dateParis(santa.revealAt)} (heure de Paris).`,
-            "À cette heure-là, tout le monde découvre en même temps à qui offrir un cadeau.",
-          ]),
-      santa.budget ? `Budget : ${santa.budget}` : null,
-      santa.message ? `\n${santa.message}` : null,
-      "",
-      `Votre lien (connexion à ScolIA demandée) : ${link}`,
-      "",
-      "Chut : le nom que vous découvrirez doit rester secret.",
-    ].filter((line): line is string => line !== null);
+    const { subject, lines } = santaMail(kind, santa, link, new Date());
     send = async (target) => {
       await sendMailWithTimeout(transporter, {
         from: `"${school.replace(/["\r\n]/g, "")}" <${smtp.user}>`,
         to: target.email,
-        subject: `Secret Santa : ${santa.title}`.replace(/[\r\n]+/g, " "),
+        subject,
         text: [`Bonjour ${target.displayName},`, "", ...lines].join("\n"),
       });
     };
   } catch (error) {
-    await releaseAll();
+    await Promise.all(targets.map(onFailure));
     throw error;
   }
 
@@ -71,8 +50,8 @@ export async function sendSantaInvitations(
       sent++;
     } catch (error) {
       failed++;
-      console.error("[secret-santa] envoi en échec", error instanceof Error ? error.message : "erreur");
-      await releaseInvitation(santa.id, target.userId, target.invitedAt);
+      console.error("[secret-santa] envoi en échec", error instanceof Error ? error.name : "erreur");
+      await onFailure(target);
     }
   }
   return { sent, failed };
