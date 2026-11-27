@@ -11,6 +11,7 @@ plugins {
 // EcransComposeTest). La version suit Robolectric : 14-robolectric-10818077 = Android 14 (SDK 34),
 // « -i7 » = PREINSTRUMENTED_VERSION de Robolectric 4.14.1. Changer l'un impose de changer l'autre :
 // en mode hors ligne, une image absente fait échouer les tests avec un message explicite.
+val versionImageRobolectric = "14-robolectric-10818077-i7"
 val imageRobolectric: Configuration by configurations.creating { isTransitive = false }
 val dossierImageRobolectric = layout.buildDirectory.dir("robolectric-sdk")
 val preparerImageRobolectric = tasks.register<Sync>("preparerImageRobolectric") {
@@ -64,8 +65,16 @@ android {
         // par Robolectric pendant les tests (échecs réseau HttpURLConnection sur les runners).
         unitTests.all { t ->
             t.dependsOn(preparerImageRobolectric)
+            val dossier = dossierImageRobolectric.get().asFile
             t.systemProperty("robolectric.offline", "true")
-            t.systemProperty("robolectric.dependency.dir", dossierImageRobolectric.get().asFile.absolutePath)
+            t.systemProperty("robolectric.dependency.dir", dossier.absolutePath)
+            // Échec lisible plutôt que l'IllegalArgumentException muette de LocalDependencyResolver.
+            t.doFirst {
+                val attendu = dossier.resolve("android-all-instrumented-$versionImageRobolectric.jar")
+                check(attendu.isFile) {
+                    "Image Robolectric absente : $attendu (contenu : ${dossier.list()?.toList()})"
+                }
+            }
         }
     }
 
@@ -107,7 +116,7 @@ dependencies {
     testImplementation(kotlin("test"))
     // Tests Compose sans appareil ni émulateur (JVM + Robolectric).
     testImplementation("org.robolectric:robolectric:4.14.1")
-    imageRobolectric("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7")
+    imageRobolectric("org.robolectric:android-all-instrumented:$versionImageRobolectric")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.test:core-ktx:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

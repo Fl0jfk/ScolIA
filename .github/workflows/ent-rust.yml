@@ -758,6 +758,9 @@ jobs:
     defaults:
       run:
         working-directory: ent-rust/apps/android
+    env:
+      # Maven Central limite le débit (429) : plus de tentatives, attente initiale de 2 s (exponentielle).
+      GRADLE_RESEAU: -Dorg.gradle.internal.repository.max.retries=6 -Dorg.gradle.internal.repository.initial.backoff=2000
     steps:
       - uses: actions/checkout@v4
       - name: Wrapper Gradle authentique (somme de contrôle officielle)
@@ -766,23 +769,26 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
-          cache-dependency-path: |
-            ent-rust/apps/android/**/*.gradle.kts
-            ent-rust/apps/android/gradle/wrapper/gradle-wrapper.properties
+      # Cache Gradle (dépendances, distribution du wrapper, image Robolectric) avec clés de repli :
+      # une modification d'un *.gradle.kts réutilise le cache précédent au lieu de tout retélécharger
+      # depuis Maven Central (429 Too Many Requests au run ENT 748). Écriture autorisée hors branche
+      # par défaut (main = production Next.js, jamais construite ici), sinon le cache ne serait jamais écrit.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: SDK Android (API 36)
         run: |
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
       - name: Cœur Kotlin (JVM)
-        run: ./gradlew --no-daemon --stacktrace :core:test
+        run: ./gradlew --no-daemon --stacktrace $GRADLE_RESEAU :core:test
       - name: Appli (tests Compose sans appareil, Robolectric)
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --stacktrace $GRADLE_RESEAU :app:testDebugUnitTest
       - name: Lint Android
-        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+        run: ./gradlew --no-daemon --stacktrace $GRADLE_RESEAU :app:lintDebug
       - name: Build release (R8, non signé)
-        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease
+        run: ./gradlew --no-daemon --stacktrace $GRADLE_RESEAU :app:assembleRelease
       - name: Comptes de tests
         if: always()
         run: |
