@@ -93,14 +93,30 @@ l'ancien format est répartie sur toute la ligne.
 
 ## Lot 3 : restes des suites 4 de F3
 
-- **Moyen 5** : le plafond est relevé alors qu'une part est déjà facturée au payeur suivant. Avant, la famille
-  gardait sa part sans aucun signal. Désormais, `completer_plafonnee` ouvre une tâche `part_non_couverte`
-  « plafond de la prise en charge relevé : N c déjà facturés au payeur suivant pourraient revenir à l'organisme ».
-  N vaut le plafond encore libre, borné par la part du suivant. Rien n'est crédité ni refacturé d'office : c'est la
-  même règle prudente que pour le plafond abaissé (D-069), et un seul signal est émis par ligne. Le plafond libre est
-  aussi décompté du complément « plafond relevé » déjà posé, pour ne pas signaler deux fois.
-  Test `regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signale` : 400 € puis 450 € de plafond,
-  rien ne bouge, une tâche ouverte, rejeu neutre.
+- **Moyen 5** : le plafond est relevé, ou libéré par un avoir de régime, alors qu'une part est déjà facturée au payeur
+  suivant. Avant, la famille gardait sa part sans aucun signal. Désormais, `completer_plafonnee` ouvre une tâche
+  `part_non_couverte` : « plafond de la prise en charge non consommé alors qu'une part est facturée au payeur suivant ».
+  La tâche ne donne pas de montant : le calcul se fait par tronçon et il n'y a qu'une tâche par catégorie, donc le
+  montant d'un tronçon serait partiel. Rien n'est crédité ni refacturé d'office. C'est la même règle prudente que pour
+  le plafond abaissé (D-069), avec un seul signal par ligne. Le plafond libre retire aussi le complément « plafond
+  relevé » posé dans la même passe.
+  Test `regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signale` : plafond de 400 € puis 450 €, rien
+  ne bouge, une tâche ouverte, rejeu neutre.
+- **Contre-revue des lots 2 et 3** (`docs/pilotage/revues/24_F3_PALIER_SOLDE_LOTS_2_3_CONTRE_REVUE.md`, dans le
+  dossier du Projet). Verdict : versable, avec deux moyens, corrigés dans le commit de correctifs :
+  - **M-1** : le libellé disait « relevé » alors que le signal se déclenche aussi après un avoir de régime (M4b), et
+    le montant était partiel. Le libellé est devenu neutre, sans montant. M4b vérifie maintenant la tâche : une seule,
+    ouverte.
+  - **M-2** : `resoudre_taches_periode` fermait la tâche de signalement, puis la garde la rouvrait à chaque rejeu
+    (rejeu non neutre sur les tâches et les événements). Désormais, les tâches dont le détail commence par « plafond
+    de la prise en charge » ne sont jamais closes par la facturation : elles attendent une régularisation humaine.
+    Cela vaut aussi pour le signal de plafond abaissé, qui avait le même défaut avant le palier. Les tests comptent
+    les tâches tous statuts confondus.
+  - Faibles mis en file :
+    - test F-5 sans cas par le vrai chemin de régime ni avoir partiel ;
+    - arithmétique saturée plutôt que `checked_*`, avec quelques `.sum()` nus ;
+    - le faible 7 n'est couvert qu'en partie.
+  - Décision de gestion notée : un avoir manuel sur une ligne facturée à l'organisme libère aussi son plafond (F-5).
 - **Faible 6** (hausse de tarif sur une prise plafonnée, facturée à l'organisme sans validation) : **laissé en
   l'état** (D-069, valeur par défaut prudente). Le complément reste dans le plafond que l'organisme a lui-même
   accordé, donc rien n'est facturé au-delà de son engagement.

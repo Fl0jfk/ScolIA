@@ -2353,15 +2353,15 @@ fn completer_plafonnee(
             l.unitaire
         )
     });
-    // Suites 4, moyen 5 : plafond **relevé** alors qu'une part est déjà facturée au payeur suivant : l'organisme pourrait
-    // désormais la prendre, mais rien n'est crédité ni refacturé d'office (règle prudente, D-069) ; c'est signalé.
+    // Suites 4, moyen 5 : plafond **non consommé** (relevé, ou libéré par un avoir de régime) alors qu'une part est déjà
+    // facturée au payeur suivant : l'organisme pourrait désormais la prendre, mais rien n'est crédité ni refacturé
+    // d'office (règle prudente, D-069) ; c'est signalé, sans montant (le calcul est par tronçon, une tâche par
+    // catégorie : le montant d'un tronçon serait partiel).
     let pose_suivant = pose_total - pose_principal;
     let signal = signal.or_else(|| {
         let reprenable = plafond_libre.min(pose_suivant);
         (cle_posee && reprenable > 3 * (c + 1)).then(|| {
-            format!(
-                "plafond de la prise en charge relevé : {reprenable} c déjà facturés au payeur suivant pourraient revenir à l'organisme ; rien n'est crédité ni refacturé d'office, à régulariser"
-            )
+            "plafond de la prise en charge non consommé alors qu'une part est facturée au payeur suivant : elle pourrait revenir à l'organisme ; rien n'est crédité ni refacturé d'office, à régulariser".to_string()
         })
     });
     Ok((sortie, signal))

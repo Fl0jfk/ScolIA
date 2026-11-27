@@ -7569,6 +7569,18 @@ async fn regime_mois_m4b_regime_et_prise_plafonnee() {
     facturer(&ent, etab, el).await;
     reaction_regime(&ent, etab, el, d(2030, 12, 1), Uuid::new_v4()).await;
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeux neutres");
+    // l'avoir de régime libère du plafond alors que 50 € sont au payeur suivant : signalé une fois, jamais fermé puis
+    // rouvert par les rejeux (contre-revue du palier, M-1 et M-2)
+    let (toutes, ouvertes): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE statut = 'ouverte') FROM ent_fin_tache
+          WHERE eleve_id = $1 AND nature = 'part_non_couverte'
+            AND detail LIKE 'plafond de la prise en charge non consommé%'",
+    )
+    .bind(el)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!((toutes, ouvertes), (1, 1));
 }
 
 /// M-5 : sortie au 10 avril (mai et juin crédités, 90 €), puis historique externe d'avril à juin : les 7 mois de
@@ -7967,10 +7979,11 @@ async fn regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signal
         5_000,
         "rien n'est crédité d'office"
     );
+    // toutes les tâches de ce signal, quel que soit leur statut : un rejeu ne la ferme ni ne la rouvre
     let releve = || async {
         let (n,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_fin_tache WHERE eleve_id = $1 AND nature = 'part_non_couverte'
-                AND statut = 'ouverte' AND detail LIKE '%relevé%'",
+                AND detail LIKE 'plafond de la prise en charge non consommé%'",
         )
         .bind(el)
         .fetch_one(ent.pool_verif())
@@ -7978,9 +7991,22 @@ async fn regime_mois_s4m5_plafond_releve_avec_payeur_suivant_deja_facture_signal
         .unwrap();
         n
     };
-    assert_eq!(releve().await, 1, "tâche « plafond relevé » ouverte");
+    assert_eq!(releve().await, 1, "tâche « plafond non consommé » ouverte");
     let avant = lignes_de(&ent, el).await;
     facturer(&ent, etab, el).await;
     assert_eq!(lignes_de(&ent, el).await, avant, "rejeu neutre");
-    assert_eq!(releve().await, 1, "une seule tâche");
+    assert_eq!(
+        releve().await,
+        1,
+        "une seule tâche, jamais fermée puis rouverte"
+    );
+    let (ouvertes,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fin_tache WHERE eleve_id = $1 AND nature = 'part_non_couverte'
+            AND detail LIKE 'plafond de la prise en charge non consommé%' AND statut = 'ouverte'",
+    )
+    .bind(el)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(ouvertes, 1);
 }
