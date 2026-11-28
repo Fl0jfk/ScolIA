@@ -302,6 +302,53 @@ Rapport : `/mnt/project-files/revues/TRANSVERSE_INDIVIDU_ECRANS_CONTRE_REVUE.md`
 
 ### 10.5 Limites (faits)
 
-- Applis mobiles : rien (les avis y arrivent comme toute notification ; répondre se fait sur le web).
-- Aucun parcours navigateur (Playwright, axe-core, 375 px) ni test au lecteur d'écran n'a été fait pour ces écrans.
+- Applis mobiles : levé au §11 (« Mes autres comptes » dans « Mon compte »).
+- Parcours navigateur : voir §11.4. Aucun test au lecteur d'écran réel.
 - Le tableau de bord des conflits d'intérêts liste toujours par compte (inchangé, §9.4).
+
+## 11. Complément : applis mobiles et parcours navigateur (2026-11-28, branche `claude/project-thread-7n7s4t`, sur la PR 172)
+
+**Niveau : implémenté ; cœur Kotlin testé ; test de contrat Rust contre le vrai serveur vert ; Swift, interface Compose
+et tests Robolectric écrits mais non compilés ici (pas de SDK iOS, dépôt Google Maven inaccessible) ; non validé par
+Florian.** Aucune migration, aucune route nouvelle.
+
+### 11.1 Ce qui est porté, et ce qui ne l'est pas
+
+- **« Mes autres comptes »** dans les deux applis, pour **tout compte** (comme sur le web) : Android, section de
+  « Mon compte » (`ecrans/MesAutresComptes.kt`) ; iOS, écran ouvert depuis « Mon compte » (`MesAutresComptes.swift`).
+  Ce que l'établissement reconnaît (nombres, liens datés : origine et motif, **jamais l'autre fiche**), demandes reçues
+  (« C'est moi », « Ce n'est pas moi »), déclaration d'un autre compte par son adresse (réponse neutre identique au
+  web), « Pourquoi ? ». Mêmes textes que le web (copiés de `modele.rs`, testés des deux côtés).
+- **Écarts voulus avec le web** : le refus demande aussi une confirmation (un appui de travers est plus probable sur un
+  téléphone, et il bloque ce compte 30 jours) ; l'adresse du compte connecté est refusée localement (le clavier la
+  propose ; le serveur l'ignorerait en silence, la refuser ne révèle rien) ; heures dans le fuseau de l'appareil.
+- **Direction et secrétariat : rien sur mobile.** Relier deux fiches demande la recherche de fiches, un motif et une
+  vérification : c'est une tâche de bureau (D-003). Les propositions portent des noms de personnels qu'il vaut mieux ne
+  pas garder sur un téléphone. Les avis renvoient au web pour ce geste.
+- **Jamais en cache hors ligne** : demandes datées, réponses qui exigent le réseau.
+- **Écritures** : clé d'idempotence gardée par intention (`ClesIntention`), une écriture à la fois, saisie effacée
+  après l'accord du serveur, liste rechargée après un refus définitif (demande expirée ou déjà traitée), 401 → session
+  perdue, 426 → écran de mise à jour. Résultat annoncé (TalkBack `liveRegion`, VoiceOver `announcement`).
+- **Avis** (`ent-db/src/individu.rs`) : « Mes autres comptes (Compte sur le web, Mon compte dans l'appli) » au lieu de
+  « sur le web » ; 240 caractères au plus (inchangé, testé).
+
+### 11.2 Contrat
+
+Les trois routes appelées (`GET /dossier/individu/moi`, `POST …/declarations`, `POST …/declarations/{id}/reponse`) sont
+listées dans `ent-rust/contrat/mobile/individu/routes.txt` ; `ent-web-server/tests/individu_contrat_mobile.rs` les joue
+en Bearer avec l'en-tête des applis contre le vrai backend, et compare les réponses normalisées aux fixtures du même
+dossier (`ENT_CONTRAT_ECRIRE=1` pour régénérer). Les cœurs Kotlin (`IndividuTest`) et Swift (`IndividuTests`) les
+décodent avec les vraies méthodes et vérifient la liste blanche. **Dossier à part** de `contrat/mobile/` et méthodes en
+fonctions d'extension (fichiers `Individu.kt`, `Individu.swift`) pour ne pas toucher `routes.txt`, le banc MB2,
+`ApiClient` et `Modeles`, modifiés par les PR 171 et 173 : **à fondre dans le banc MB2 une fois celles-ci fusionnées**
+(et la PR 173 vérifie que chaque clé de fixture est lue : les trois champs de chaque type le sont).
+
+### 11.3 Tests
+
+- Kotlin `:core` : 11 tests dans `IndividuTest` (fixtures réelles, 202 vide, `null`, chemin encodé, clé gardée sur une
+  issue incertaine et oubliée sur un 409, liste blanche, contrôle d'adresse en octets et adresse du compte, libellés,
+  tris, dates) ; 76 tests du module, tous verts.
+- Swift `ScolIACoreTests/IndividuTests.swift` : mêmes cas ; **non exécuté** (pas de chaîne Swift ici).
+- Robolectric `MesAutresComptesComposeTest` (3) : confirmer et refuser passent par une confirmation, contrôle local
+  puis réponse neutre ; **non exécuté** (Google Maven inaccessible).
+- `ent-web-server --test individu_contrat_mobile` : vert (lancé trois fois) ; `--test individu` (PR 172) : 3 verts.

@@ -99,6 +99,10 @@ final class IndividuTests: XCTestCase {
         for faux in ["ab.fr", "@b.fr", "a@", "a b@c.fr", String(repeating: "x", count: 250) + "@b.fr"] {
             XCTAssertEqual(Individu.adresseAEnvoyer(faux), .failure(.invalide), faux)
         }
+        // Longueur en octets comme le serveur : 125 « é » font 250 octets (255 avec « @b.fr »).
+        XCTAssertEqual(Individu.adresseAEnvoyer(String(repeating: "é", count: 125) + "@b.fr"), .failure(.invalide))
+        XCTAssertEqual(Individu.adresseAEnvoyer(" Moi@Lpnb.fr", monEmail: "moi@lpnb.fr"), .failure(.saPropreAdresse))
+        XCTAssertEqual(try Individu.adresseAEnvoyer("autre@lpnb.fr", monEmail: "moi@lpnb.fr").get(), "autre@lpnb.fr")
         XCTAssertEqual(Individu.AdresseInvalide.invalide.localizedDescription, "Cette adresse e-mail n'est pas valide.")
     }
 

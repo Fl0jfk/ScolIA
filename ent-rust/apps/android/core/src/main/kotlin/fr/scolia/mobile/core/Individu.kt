@@ -165,13 +165,21 @@ object Individu {
             null
         }
 
-    /** Contrôle local d'une adresse (le serveur refait le même) : l'adresse normalisée, ou le message d'erreur. */
-    fun adresseAEnvoyer(saisie: String): Result<String> {
+    const val MSG_SA_PROPRE_ADRESSE = "C'est l'adresse de ce compte : saisissez celle de votre autre compte."
+
+    /**
+     * Contrôle local d'une adresse (le serveur refait le même) : l'adresse normalisée, ou le message d'erreur.
+     * `monEmail` : l'adresse du compte connecté. Le serveur ignorerait la demande en silence (réponse neutre) ; la
+     * refuser ici ne révèle rien et évite d'afficher « Demande enregistrée » pour rien (proposition du clavier).
+     */
+    fun adresseAEnvoyer(saisie: String, monEmail: String? = null): Result<String> {
         val e = saisie.trim().lowercase()
         if (e.isEmpty()) return Result.failure(IllegalArgumentException("Saisissez l'adresse e-mail de votre autre compte."))
-        if (e.length > 254 || !e.contains('@') || e.startsWith('@') || e.endsWith('@') || e.any { it.isWhitespace() }) {
+        // Longueur en octets, comme `str::len` côté serveur.
+        if (e.toByteArray(Charsets.UTF_8).size > 254 || !e.contains('@') || e.startsWith('@') || e.endsWith('@') || e.any { it.isWhitespace() }) {
             return Result.failure(IllegalArgumentException("Cette adresse e-mail n'est pas valide."))
         }
+        if (monEmail != null && e == monEmail.trim().lowercase()) return Result.failure(IllegalArgumentException(MSG_SA_PROPRE_ADRESSE))
         return Result.success(e)
     }
 

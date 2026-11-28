@@ -2,7 +2,8 @@ package fr.scolia.mobile.app.ecrans
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -37,7 +39,9 @@ import fr.scolia.mobile.app.ui.Chargeur
 import fr.scolia.mobile.app.ui.DIALOGUE_SECURISE
 import fr.scolia.mobile.app.ui.Ligne
 import fr.scolia.mobile.app.ui.MessageErreur
+import fr.scolia.mobile.app.ui.MiseAJour
 import fr.scolia.mobile.app.ui.Titre
+import fr.scolia.mobile.core.ClesIntention
 import fr.scolia.mobile.core.DeclarationRecue
 import fr.scolia.mobile.core.ErreurApi
 import fr.scolia.mobile.core.Individu
@@ -53,8 +57,9 @@ import kotlinx.coroutines.launch
  * confirmation qui rappelle l'effet) et la déclaration d'un autre compte (réponse neutre). Mêmes textes que le web.
  * Jamais mis en cache hors ligne : les demandes sont datées et les réponses exigent le réseau.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SectionMesAutresComptes(modele: AppModele) {
+fun SectionMesAutresComptes(modele: AppModele, monEmail: String? = null) {
     val client = modele.client ?: return
     val portee = rememberCoroutineScope()
     var annonce by remember { mutableStateOf<String?>(null) }
@@ -68,7 +73,7 @@ fun SectionMesAutresComptes(modele: AppModele) {
     var pourquoi by rememberSaveable { mutableStateOf(false) }
 
     /** Une écriture à la fois ; message annoncé ; la session perdue ramène à la connexion. */
-    fun ecrire(intention: String, bloc: suspend (cle: String) -> Unit, succes: String, puis: () -> Unit) {
+    fun ecrire(intention: String, bloc: suspend (cle: String) -> Unit, succes: String, rechargerSiRefus: (() -> Unit)? = null, puis: () -> Unit) {
         if (envoi) return
         envoi = true
         annonce = null
@@ -80,8 +85,14 @@ fun SectionMesAutresComptes(modele: AppModele) {
                 puis()
             } catch (e: ErreurApi.NonAuthentifie) {
                 modele.sessionPerdue()
+            } catch (e: ErreurApi.AppliTropAncienne) {
+                MiseAJour.exiger(e.message)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: ErreurApi) {
+                erreur = e.message ?: "Envoi impossible."
+                // Refus définitif (demande expirée, déjà traitée : 409, 404) : la liste n'est plus à jour.
+                if (!ClesIntention.incertaine(e)) rechargerSiRefus?.invoke()
             } catch (e: Exception) {
                 erreur = e.message ?: "Envoi impossible."
             } finally {
@@ -103,23 +114,26 @@ fun SectionMesAutresComptes(modele: AppModele) {
             }
 
             val demandes = Individu.trierDemandes(moi.declarationsRecues)
-            if (demandes.isNotEmpty()) {
-                Text("Demandes à confirmer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Demandes à confirmer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
+            if (demandes.isEmpty()) {
+                Text(Individu.AUCUNE_DEMANDE, style = MaterialTheme.typography.bodySmall)
+            } else {
                 Text(Individu.INTRO_DEMANDES)
                 demandes.forEach { d ->
                     Ligne("Compte « ${d.declarant} »", Individu.detailDemande(d))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Retour à la ligne si le texte est grand (taille de police du système).
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { aConfirmer = d },
                             enabled = !envoi,
                             modifier = Modifier.heightIn(min = 48.dp).testTag("individu-confirmer-${d.id}")
-                                .semantics { contentDescription = "Confirmer : le compte ${d.declarant} est le mien" },
+                                .semantics { contentDescription = "C'est moi : le compte ${d.declarant} est le mien" },
                         ) { Text("C'est moi") }
                         OutlinedButton(
                             onClick = { aRefuser = d },
                             enabled = !envoi,
                             modifier = Modifier.heightIn(min = 48.dp).testTag("individu-refuser-${d.id}")
-                                .semantics { contentDescription = "Refuser la demande du compte ${d.declarant}" },
+                                .semantics { contentDescription = "Ce n'est pas moi : refuser la demande du compte ${d.declarant}" },
                         ) { Text("Ce n'est pas moi") }
                     }
                     HorizontalDivider()
@@ -139,6 +153,7 @@ fun SectionMesAutresComptes(modele: AppModele) {
                                 Individu.intentionRepondre(d.id, true),
                                 { k -> client.repondreDeclaration(d.id, true, k) },
                                 Individu.messageReponse(true),
+                                recharger,
                                 recharger,
                             )
                         }) { Text("Oui, c'est mon compte") }
@@ -162,6 +177,7 @@ fun SectionMesAutresComptes(modele: AppModele) {
                                 { k -> client.repondreDeclaration(d.id, false, k) },
                                 Individu.messageReponse(false),
                                 recharger,
+                                recharger,
                             )
                         }) { Text("Refuser") }
                     },
@@ -182,10 +198,10 @@ fun SectionMesAutresComptes(modele: AppModele) {
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("individu-ouvrir-declarer"),
             ) { Text("Déclarer un autre compte…") }
         } else {
-            Text("Déclarer un autre compte", style = MaterialTheme.typography.titleMedium)
+            Text("Déclarer un autre compte", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             Text(Individu.AIDE_DECLARER)
             val envoyer = {
-                Individu.adresseAEnvoyer(email).fold(
+                Individu.adresseAEnvoyer(email, monEmail).fold(
                     onSuccess = { e ->
                         erreurEmail = null
                         ecrire(
@@ -199,7 +215,7 @@ fun SectionMesAutresComptes(modele: AppModele) {
             }
             OutlinedTextField(
                 email,
-                { email = it.take(254); erreurEmail = null },
+                { email = it; erreurEmail = null },
                 label = { Text("Adresse e-mail de l'autre compte") },
                 singleLine = true,
                 isError = erreurEmail != null,

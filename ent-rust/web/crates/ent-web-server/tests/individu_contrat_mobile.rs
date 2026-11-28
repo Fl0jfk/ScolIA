@@ -1,6 +1,6 @@
 //! Contrat mobile de « Mes autres comptes » (transverse individu) : les trois routes qu'appellent les
 //! applis sont jouées contre le **vrai** backend (`ent_api::app`), en Bearer avec l'en-tête des applis,
-//! sur un établissement neuf. Les réponses, normalisées (identifiants, dates, noms tirés au hasard),
+//! sur un établissement neuf. Les réponses, normalisées (identifiants, dates, adresses tirées au hasard),
 //! sont comparées aux fixtures `ent-rust/contrat/mobile/individu/*.json`, que décodent les cœurs
 //! Kotlin (`IndividuTest`) et Swift (`IndividuTests`) avec la vraie méthode du client.
 //!
@@ -143,15 +143,12 @@ fn normaliser(v: &mut Value, ids: &mut BTreeMap<String, String>, noms: &[String]
                     .or_insert_with(|| format!("00000000-0000-4000-8000-{n:012}"))
                     .clone();
             } else if chrono::DateTime::parse_from_rfc3339(s).is_ok() {
-                // Même précision que le serveur (fraction présente ou non), valeur fixe.
-                let fraction = s
-                    .split_once('.')
-                    .map(|(_, f)| f.trim_end_matches(|c: char| !c.is_ascii_digit()).len())
-                    .unwrap_or(0);
-                *s = if fraction == 0 {
-                    "2027-03-08T07:15:30Z".to_string()
+                // Valeur fixe ; seule la présence d'une fraction de seconde est gardée (chrono en écrit 3, 6 ou 9
+                // chiffres selon la valeur : en garder le nombre rendrait le test instable).
+                *s = if s.contains('.') {
+                    "2027-03-08T07:15:30.111111Z".to_string()
                 } else {
-                    format!("2027-03-08T07:15:30.{}Z", "1".repeat(fraction))
+                    "2027-03-08T07:15:30Z".to_string()
                 };
             } else if noms.iter().any(|n| s.contains(n.as_str())) {
                 *s = "Compte déclarant".to_string();
@@ -198,7 +195,8 @@ async fn routes_mes_autres_comptes_de_l_appli() {
     for jeton in [&cible, &premier, &second] {
         fiche_du_compte(&base, &direction, jeton).await;
     }
-    // Les noms affichés des déclarants dérivent de leur adresse, tirée au hasard.
+    // Un compte sans nom s'affiche « Un autre compte » ; si le serveur se mettait à montrer l'adresse (tirée au
+    // hasard), elle serait normalisée, et la fixture le montrerait.
     let noms: Vec<String> = [&email_premier, &email_second]
         .iter()
         .map(|e| e.split('@').next().unwrap().to_string())
@@ -264,7 +262,7 @@ async fn routes_mes_autres_comptes_de_l_appli() {
     assert_eq!(s, 200, "{c}");
     verifier("reponse_refuser", &c, &noms, &mut erreurs);
 
-    // Le déclarant ne voit jamais la demande ni le refus (anti-énumération) ; son « moi » montre le lien confirmé.
+    // Le second déclarant, refusé, ne voit ni la demande ni le refus (anti-énumération) : il n'est relié à personne.
     let (_, c) = appel(&base, &second, "GET", "/dossier/individu/moi", None).await;
     let v: Value = serde_json::from_str(&c).unwrap();
     assert_eq!(v["autres_comptes"], 0, "{c}");

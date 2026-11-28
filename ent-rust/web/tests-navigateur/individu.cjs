@@ -48,6 +48,13 @@ async function compte(role) {
   return { email, jeton: s.token };
 }
 
+/** Une fiche de responsable rattachée au compte (`PUT /dossier/personnes/{id}/compte`). */
+async function ficheDuCompte(dir, c) {
+  const me = await api('GET', '/auth/me', null, c.jeton);
+  const p = await api('POST', '/dossier/personnes', { nom: 'Parcours', prenom: 'Navigateur' }, dir.jeton);
+  await api('PUT', `/dossier/personnes/${p.id}/compte`, { user_id: me.user_id }, dir.jeton);
+}
+
 /** Connexion par l'écran (le cookie de session est posé par le serveur). */
 async function connecter(page, email) {
   await page.goto(`${BASE}/web/connexion?etablissement_id=${ETAB}`);
@@ -94,8 +101,11 @@ async function focusDans(page, selecteur) {
 }
 
 async function mesAutresComptes(navigateur, largeur) {
-  const cible = await compte('prof');
+  // La confirmation exige une fiche par compte : deux responsables rattachés à leur fiche par la direction.
+  const dir = await compte('direction');
+  const cible = await compte('parent');
   const declarant = await compte('parent');
+  for (const c of [cible, declarant]) await ficheDuCompte(dir, c);
   // Le parent déclare le professeur (par l'API, comme le ferait son propre écran).
   await api('POST', '/dossier/individu/declarations', { email: cible.email }, declarant.jeton);
 
@@ -110,7 +120,7 @@ async function mesAutresComptes(navigateur, largeur) {
   await audit(page, `Mes autres comptes ${largeur} px (demande reçue)`);
 
   // Clavier : « C'est moi » → la boîte s'ouvre, focus sur « Annuler » ; Échap la ferme ; on recommence et on confirme.
-  verifier(await tabJusqua(page, 'Confirmer : le compte'), `Mes autres comptes ${largeur} px : « C'est moi » atteint au clavier`);
+  verifier(await tabJusqua(page, "C'est moi : le compte"), `Mes autres comptes ${largeur} px : « C'est moi » atteint au clavier`);
   await page.keyboard.press('Enter');
   await page.getByRole('dialog').waitFor();
   verifier(await focusDans(page, '[role=dialog], dialog'), `Mes autres comptes ${largeur} px : le focus entre dans la confirmation`);
@@ -118,7 +128,7 @@ async function mesAutresComptes(navigateur, largeur) {
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
   const retour = await page.evaluate(() => (document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName || ''));
-  verifier(retour.startsWith('Confirmer : le compte'), `Mes autres comptes ${largeur} px : Échap ferme et rend le focus au bouton (focus sur « ${retour} »)`);
+  verifier(retour.startsWith("C'est moi : le compte"), `Mes autres comptes ${largeur} px : Échap ferme et rend le focus au bouton (focus sur « ${retour} »)`);
   await page.keyboard.press('Enter');
   await page.getByRole('dialog').waitFor();
   verifier(await tabJusqua(page, "Oui, c'est mon compte"), `Mes autres comptes ${largeur} px : bouton de confirmation atteint au clavier`);

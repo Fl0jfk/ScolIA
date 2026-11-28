@@ -78,10 +78,29 @@ class IndividuTest {
     }
 
     @Test
-    fun un_refus_du_serveur_reste_un_refus() = runTest {
-        val s = FauxServeur(mapOf("POST /dossier/individu/declarations" to ReponseHttp(429, """{"erreur":{"code":"quota","message":"Trop de demandes aujourd'hui."}}""")))
-        val e = assertFailsWith<ErreurApi> { client(s).declarerAutreCompte("a@b.fr") }
-        assertEquals("Trop de demandes aujourd'hui.", e.message)
+    fun un_refus_du_serveur_est_definitif() = runTest {
+        // Le quota de 5 par jour et les demandes expirées répondent 409 : issue définitive, la clé est oubliée.
+        val s = FauxServeur(mapOf("POST /dossier/individu/declarations" to ReponseHttp(409, """{"erreur":{"code":"objet.conflit","message":"Cinq demandes par jour au plus."}}""")))
+        val cles = ClesIntention(nouvelleCle = sequenceOf("k1", "k2").iterator()::next)
+        val c = client(s)
+        val intention = Individu.intentionDeclarer("a@b.fr")
+        repeat(2) {
+            val e = assertFailsWith<ErreurApi> { cles.executer(intention) { k -> c.declarerAutreCompte("a@b.fr", k) } }
+            assertEquals("Cinq demandes par jour au plus.", e.message)
+            assertFalse(ClesIntention.incertaine(e))
+        }
+        assertEquals(listOf("k1", "k2"), s.recues.map { it.entetes["Idempotency-Key"] })
+    }
+
+    @Test
+    fun une_issue_incertaine_garde_la_cle() = runTest {
+        val s = FauxServeur(mapOf("POST /dossier/individu/declarations/d1/reponse" to ReponseHttp(503, "")))
+        val cles = ClesIntention(nouvelleCle = sequenceOf("k1", "k2").iterator()::next)
+        val c = client(s)
+        repeat(2) {
+            assertFailsWith<ErreurApi> { cles.executer(Individu.intentionRepondre("d1", true)) { k -> c.repondreDeclaration("d1", true, k) } }
+        }
+        assertEquals(listOf("k1", "k1"), s.recues.map { it.entetes["Idempotency-Key"] }, "même intention, même clé : le serveur rejoue")
     }
 
     @Test
@@ -112,6 +131,10 @@ class IndividuTest {
         for (faux in listOf("ab.fr", "@b.fr", "a@", "a b@c.fr", "x".repeat(250) + "@b.fr")) {
             assertEquals("Cette adresse e-mail n'est pas valide.", Individu.adresseAEnvoyer(faux).exceptionOrNull()?.message, faux)
         }
+        // Longueur en octets comme le serveur : 125 « é » font 250 octets (255 avec « @b.fr »).
+        assertTrue(Individu.adresseAEnvoyer("é".repeat(125) + "@b.fr").isFailure)
+        assertEquals(Individu.MSG_SA_PROPRE_ADRESSE, Individu.adresseAEnvoyer(" Moi@Lpnb.fr", "moi@lpnb.fr").exceptionOrNull()?.message)
+        assertTrue(Individu.adresseAEnvoyer("autre@lpnb.fr", "moi@lpnb.fr").isSuccess)
     }
 
     @Test

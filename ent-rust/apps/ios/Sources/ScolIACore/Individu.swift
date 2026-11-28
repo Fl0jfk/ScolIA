@@ -147,9 +147,10 @@ public enum Individu {
     }
 
     public enum AdresseInvalide: Error, Equatable, LocalizedError {
-        case vide, invalide
+        case vide, invalide, saPropreAdresse
         public var errorDescription: String? {
             switch self {
+            case .saPropreAdresse: return "C'est l'adresse de ce compte : saisissez celle de votre autre compte."
             case .vide: return "Saisissez l'adresse e-mail de votre autre compte."
             case .invalide: return "Cette adresse e-mail n'est pas valide."
             }
@@ -157,7 +158,8 @@ public enum Individu {
     }
 
     /// Contrôle local d'une adresse (le serveur refait le même) : l'adresse normalisée, ou l'erreur à afficher.
-    public static func adresseAEnvoyer(_ saisie: String) -> Result<String, AdresseInvalide> {
+    /// `monEmail` : l'adresse du compte connecté, que le serveur ignorerait en silence (le clavier la propose).
+    public static func adresseAEnvoyer(_ saisie: String, monEmail: String? = nil) -> Result<String, AdresseInvalide> {
         let e = saisie.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if e.isEmpty { return .failure(.vide) }
         // Longueur en octets, comme `str::len` côté serveur.
@@ -165,6 +167,7 @@ public enum Individu {
             || e.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) {
             return .failure(.invalide)
         }
+        if let m = monEmail, e == m.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() { return .failure(.saPropreAdresse) }
         return .success(e)
     }
 

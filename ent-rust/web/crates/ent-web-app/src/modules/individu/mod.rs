@@ -145,8 +145,9 @@ fn DemandesRecues(recues: Vec<DeclarationRecue>, ecriture: Ecriture) -> impl Int
                                 date_heure_paris(d.declare_le),
                                 date_heure_paris(d.expire_le)
                             );
-                            let acc_confirmer = format!("Confirmer : le compte {nom} est le mien");
-                            let acc_refuser = format!("Refuser la demande du compte {nom}");
+                            // Le nom accessible commence par le libellé visible (WCAG 2.5.3, commande vocale).
+                            let acc_confirmer = format!("C'est moi : le compte {nom} est le mien");
+                            let acc_refuser = format!("Ce n'est pas moi : refuser la demande du compte {nom}");
                             view! {
                                 <li class="ui-liste__element">
                                     <div class="ui-liste__principal">

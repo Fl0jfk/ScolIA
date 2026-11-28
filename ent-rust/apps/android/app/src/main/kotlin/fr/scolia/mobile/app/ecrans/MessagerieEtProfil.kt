@@ -174,7 +174,7 @@ fun EcranProfil(modele: AppModele, c: EtatConnexion.Connecte) {
             ) { Text("Ajouter une passkey") }
             MessageErreur(modele.erreur)
         }
-        SectionMesAutresComptes(modele) // transverse individu (MesAutresComptes.kt)
+        SectionMesAutresComptes(modele, c.me.email) // transverse individu (MesAutresComptes.kt)
         Titre("Appareils connectés")
         Chargeur("sessions", modele::sessionPerdue, { Lecture(client.sessions(), false, System.currentTimeMillis()) }) { sessions, recharger ->
             sessions.forEach { s ->

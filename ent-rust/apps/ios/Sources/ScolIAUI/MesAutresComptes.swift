@@ -8,7 +8,10 @@ import SwiftUI
 /// cache hors ligne.
 struct EcranMesAutresComptes: View {
     let modele: AppModele
-    @State private var rechargement = 0
+    /// Adresse du compte connecté : le clavier la propose, le serveur l'ignorerait en silence.
+    var monEmail: String?
+    /// Relance du `Chargeur` sans vider l'écran (VoiceOver garde sa place).
+    @State private var recharger: (() -> Void)?
     @State private var envoi = false
     @State private var annonce: String?
     @State private var erreur: String?
@@ -20,9 +23,9 @@ struct EcranMesAutresComptes: View {
 
     var body: some View {
         List {
-            Chargeur(modele: modele, cle: "individu-moi#\(rechargement)", charger: {
+            Chargeur(modele: modele, cle: "individu-moi", charger: {
                 Lecture(valeur: try await modele.client!.individuMoi(), horsLigne: false, horodatage: Date())
-            }) { moi, _ in
+            }) { moi, relancer in
                 Section("Ce que l'établissement reconnaît") {
                     Text(Individu.resumeMoi(moi))
                     if let f = Individu.resumeFiches(moi) { Text(f) }
@@ -31,6 +34,7 @@ struct EcranMesAutresComptes: View {
                     }
                     if !moi.liens.isEmpty { Text(Individu.lienFaux).font(.footnote) }
                 }
+                .onAppear { recharger = relancer }
                 Section("Demandes à confirmer") {
                     let demandes = Individu.trierDemandes(moi.declarationsRecues)
                     if demandes.isEmpty {
@@ -40,13 +44,10 @@ struct EcranMesAutresComptes: View {
                         ForEach(demandes) { d in
                             VStack(alignment: .leading, spacing: 8) {
                                 Ligne(titre: "Compte « \(d.declarant) »", detail: Individu.detailDemande(d))
-                                HStack {
-                                    Button("C'est moi") { aConfirmer = d }
-                                        .buttonStyle(.borderedProminent)
-                                        .accessibilityLabel("Confirmer : le compte \(d.declarant) est le mien")
-                                    Button("Ce n'est pas moi") { aRefuser = d }
-                                        .buttonStyle(.bordered)
-                                        .accessibilityLabel("Refuser la demande du compte \(d.declarant)")
+                                // Côte à côte si la place le permet, l'un sous l'autre en grande taille de texte.
+                                ViewThatFits {
+                                    HStack { boutons(d) }
+                                    VStack(alignment: .leading) { boutons(d) }
                                 }
                                 .disabled(envoi)
                             }
@@ -99,12 +100,22 @@ struct EcranMesAutresComptes: View {
         }
     }
 
+    @ViewBuilder private func boutons(_ d: DeclarationRecue) -> some View {
+        // Le nom accessible commence par le libellé visible (commande vocale « Appuyer sur C'est moi »).
+        Button("C'est moi") { aConfirmer = d }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel("C'est moi : le compte \(d.declarant) est le mien")
+        Button("Ce n'est pas moi") { aRefuser = d }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Ce n'est pas moi : refuser la demande du compte \(d.declarant)")
+    }
+
     private func present<T>(_ b: Binding<T?>) -> Binding<Bool> {
         Binding(get: { b.wrappedValue != nil }, set: { if !$0 { b.wrappedValue = nil } })
     }
 
     /// Une écriture à la fois ; le résultat est annoncé à VoiceOver ; la session perdue ramène à la connexion.
-    private func ecrire(_ intention: String, succes: String, _ bloc: @escaping (String) async throws -> Void, puis: @escaping () -> Void) {
+    private func ecrire(_ intention: String, succes: String, rechargerSiRefus: Bool = false, _ bloc: @escaping (String) async throws -> Void, puis: @escaping () -> Void) {
         guard !envoi else { return }
         envoi = true
         annonce = nil
@@ -118,21 +129,26 @@ struct EcranMesAutresComptes: View {
                 puis()
             } catch ErreurApi.nonAuthentifie {
                 modele.sessionPerdue()
+            } catch ErreurApi.appliTropAncienne(let m) {
+                modele.miseAJourRequise = m
             } catch {
                 erreur = error.localizedDescription
                 UIAccessibility.post(notification: .announcement, argument: error.localizedDescription)
+                // Refus définitif (demande expirée, déjà traitée : 409, 404) : la liste n'est plus à jour.
+                if rechargerSiRefus, let e = error as? ErreurApi, !ClesIntention.incertaine(e) { recharger?() }
             }
         }
     }
 
     private func repondre(_ d: DeclarationRecue, confirmer: Bool) {
-        ecrire(Individu.intentionRepondre(d.id, confirmer: confirmer), succes: Individu.messageReponse(confirmer: confirmer), { k in
+        ecrire(Individu.intentionRepondre(d.id, confirmer: confirmer), succes: Individu.messageReponse(confirmer: confirmer),
+               rechargerSiRefus: true, { k in
             _ = try await modele.client!.repondreDeclaration(d.id, confirmer: confirmer, cle: k)
-        }, puis: { rechargement += 1 })
+        }, puis: { recharger?() })
     }
 
     private func declarer() {
-        switch Individu.adresseAEnvoyer(email) {
+        switch Individu.adresseAEnvoyer(email, monEmail: monEmail) {
         case .failure(let e):
             erreurEmail = e.localizedDescription
             champEmail = true
