@@ -3,6 +3,12 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V11 « alertes précoces », partie déterministe (2026-11-28, branche `claude/project-thread-bsie86`, base `origin/ENT` 06333a59)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir la PR ; non validé par Florian, pas prêt pilote.** Détail, décisions par défaut (D-069) et reste à faire : `docs/socles/21_EVALUATIONS_V11_LIVRAISON.md`. Migration **706** (+2 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé.
+- Alertes précoces **sans aucun modèle** : baisse de la moyenne générale, matières sous 8, absences et non-rendus aux évaluations ; trois positions de réglage (S-118) ; chaque alerte dit ses faits, jamais un score ; jamais visible de la famille ni de l'élève ; CE-70 (aménagement de scolarité jamais compté ni dit).
+- Vue de classe (PP, CPE référent par mission, direction), vue d'un cours (son professeur), « ce qui a changé depuis le dernier conseil », suites humaines tracées en ajout seul, exclusions écrites de l'IA (R-V40), journal des consultations. 7 chemins, 9 points d'entrée (API seule).
+- **Non fait** : cumul avec l'absentéisme (socle 12), avis hebdomadaire, transmission à la cellule de veille, capacités à modèle de langage (après l'étude juridique), écrans Leptos.
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).

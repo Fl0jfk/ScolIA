@@ -1244,6 +1244,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_vs_commission_dossier", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_vs_regle_assiduite", "assiduite", Portee::Etablissement),
     t("eva_aesh_indisponibilite_port", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    // V11 (706) : suite humaine donnée à une alerte (nature, note interne, auteur) et journal des consultations des
+    // alertes : données internes du personnel, jamais montrées à la famille (profilage, §13.8).
+    t("eva_alerte_consultation", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_alerte_suite", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // Suites V5 passe 4 (M2, RGPD art. 15) : n'est exportée que l'appréciation **que la famille voit**, même règle que la
     // vue `ent_note_appreciation_v` (468, M5) : validée, de type cours ou générale, et appréciations closes pour la classe de
     // l'élève (rang d'état de période ≥ 2). Validée par le professeur ne veut pas dire publiée (contre-revue, E1). Ni auteur,
