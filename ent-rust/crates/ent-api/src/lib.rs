@@ -82,6 +82,7 @@ mod evaluations;
 mod evaluations_v3;
 mod evaluations_v4;
 mod evaluations_v5;
+mod evaluations_v6;
 mod agenda;
 mod communication_s28;
 mod accords_s18;

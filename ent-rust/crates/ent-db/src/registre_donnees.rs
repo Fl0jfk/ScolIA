@@ -1251,8 +1251,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_appreciation", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .hors_export(&["auteur", "modifie_par", "origine_appreciation_id"])
         .export_si("x.etat = 'validee' AND x.type IN ('cours', 'generale') AND EXISTS (SELECT 1 FROM ent_periode p WHERE p.id = x.periode_id AND p.etablissement_id = x.etablissement_id AND EXISTS (SELECT 1 FROM eva_periode_eleve_jour(x.etablissement_id, x.eleve_id, p.date_fin) pe WHERE pe.periode_id = x.periode_id AND eva_etat_rang(pe.etat) >= 2))"),
+    // Socle 21, lot V6 (migration 702) : corrections de la direction après la fenêtre (motif) et remarques de relecture
+    // adressées aux auteurs : internes à l'équipe, jamais remises à la famille (comme l'historique des versions).
+    t("eva_appreciation_correction", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // Journal en ajout seul : versions successives (brouillons, textes écartés) et éditeur de chacune : interne.
     t("eva_appreciation_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_appreciation_mot_interdit", "evaluations_pedagogie", Portee::Etablissement),
+    t("eva_appreciation_remarque", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_banque_phrase", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_bareme_item", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_matiere", "evaluations_pedagogie", Portee::Etablissement),
