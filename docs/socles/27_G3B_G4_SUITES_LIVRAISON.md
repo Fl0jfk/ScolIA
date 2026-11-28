@@ -24,6 +24,30 @@ Source de la file : `docs/pilotage/revues/27_G3B_G4_LOTS_1_2_CONTRE_REVUE.md` (M
 | **F8** | Rien à changer : conforme à l'intention (double suppression idempotente, un seul `piece_detruite`). | — | — |
 | Lot 5, alertes | Le balayage horaire repart du dernier balayage réussi (moins 2 h de recouvrement, au plus 35 jours) : un arrêt de plus de 26 h ne laisse plus de trou. Table `acc_balayage` (2546, RLS posée, registre). L'instant ne recule jamais. | `acces_alertes_evaluer_a`, `fenetre_de_balayage` | `g4b_le_balayage_des_alertes_note_sa_reprise`, `la_fenetre_reprend_apres_un_arret_long_sans_remonter_au_dela_de_35_jours` |
 
+## Contre-revue indépendante (lecture seule, sur le premier commit) et suites
+
+Relecteur indépendant (agent de revue, lecture seule). Deux élevés, corrigés avec un test chacun :
+
+- **E1** : sur la ligne d'un responsable protégé, le marquage `autre_parent` (ou `parent_donnees_propres`) qui double
+  la protection restait listé (alias `a_arbitrer`) et désignait une ligne absente du contenu : signal distinctif.
+  Correctif : `Reserve` (calculée depuis les seuls marquages, donc aussi pour la liste sans contenu) cache **tout**
+  marquage dont la cible (ligne ou cellule) est retirée ; le compteur compte tous les marquages cachés. Test
+  `aucun_marquage_visible_ne_situe_une_ligne_protegee`.
+- **E2** : le retrait des lignes décalait les rangs montrés au secrétariat ; un ajout manuel par rang pouvait viser
+  la ligne protégée et laisser partir la ligne voulue. Correctif : rangs **affichés** recalculés pour ce lecteur, et
+  rang désigné retraduit en rang d'origine avant stockage (`Reserve::rang_d_origine`). Même test.
+
+Moyens et faibles de cette revue :
+
+- *M6, sujet sans fiche personne* : sans objet, un sujet « personne » ou « agent » est toujours une fiche personne
+  (`contexte_sujet`). *Sur-marquage d'un extrait d'agent* : risque noté, à mesurer sur un extrait réel d'enseignant ;
+  une décision en lot serait la suite naturelle si le volume gêne.
+- *F7* : limites assumées (prénom seul non cherché, élèves cités sans identifiant non cherchés, accents non normalisés).
+- *Compteur `masquages_a_decider`* : il compte aussi les marquages cachés ; l'écran l'explique par l'encart
+  « réservé(s) à la direction ».
+- *Message 409* de la reconstruction rendu neutre (« extrait périmé »).
+- *Clé de secrets* : l'assemblage exige désormais `ENT_SECRETS_KEY` hors labo (empreinte à clé M2), comme la remise.
+
 ## Non traité ici, à décider par une personne
 
 - **Libellés génériques de la lecture de contrôle** (lot 5) : à relire avec la DPO, aucun changement de code sans elle.

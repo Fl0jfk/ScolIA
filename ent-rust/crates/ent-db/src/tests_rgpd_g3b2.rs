@@ -210,12 +210,18 @@ async fn g3b2_parents_separes_adresse_protegee() {
         .unwrap();
     assert!(!texte(&vu).contains(ADRESSE_AUTRE) && !texte(&vu).contains(TEL_AUTRE));
     assert!(!vu.marquages.iter().any(|m| m.raison == "adresse_protegee"));
-    // Lever une protection : refus neutre pour le secrétariat.
-    let protege = vu
+    // Lever une protection : refus neutre pour le secrétariat (il ne la voit pas ; même avec son identifiant, refus
+    // identique à un marquage inexistant).
+    assert!(vu
         .marquages
         .iter()
-        .find(|m| m.raison == "a_arbitrer")
-        .expect("marquage opaque");
+        .filter(|m| m.levee_reservee_direction)
+        .all(|m| m.raison == "a_arbitrer"));
+    let protege = brut
+        .marquages
+        .iter()
+        .find(|m| m.raison == "adresse_protegee")
+        .expect("marquage de protection");
     assert!(matches!(
         ent.droits_masquage_decider(
             etab,

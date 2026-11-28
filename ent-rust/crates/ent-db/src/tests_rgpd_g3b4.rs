@@ -33,7 +33,7 @@ fn est_introuvable(e: &EntDbError) -> bool {
 }
 
 fn est_invalide(e: &EntDbError) -> bool {
-    !est_introuvable(e) && !est_conflit(e) && !matches!(e, EntDbError::Forbidden)
+    matches!(e, EntDbError::SaisieInvalide(_))
 }
 
 /// Section qui porte le dossier d'inscription (et ses responsables) dans un extrait.
@@ -58,13 +58,22 @@ async fn g3b4_gardes_des_marquages_et_des_extraits() {
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     parents_separes(&ent, &cast, true).await;
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let e = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
         .await
         .unwrap();
     let id = e[0].id;
-    let c = ent.droits_extrait_lire(etab, dir, DIR, d.id, id).await.unwrap();
+    let c = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, id)
+        .await
+        .unwrap();
     let m = c.marquages[0].id;
     let p = ent.pool_verif();
     assert!(
@@ -148,7 +157,13 @@ async fn g3b4_le_secretariat_ne_situe_pas_une_protection() {
         cast.administratif.user_id,
     );
     parents_separes(&ent, &cast, true).await;
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let e = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
         .await
@@ -163,12 +178,20 @@ async fn g3b4_le_secretariat_ne_situe_pas_une_protection() {
         .filter(|m| m.raison == "adresse_protegee")
         .count();
     assert!(proteges > 0, "le jeu porte bien une protection");
-    assert_eq!(brut.elements_reserves_direction, 0, "la direction voit tout");
+    assert_eq!(
+        brut.elements_reserves_direction, 0,
+        "la direction voit tout"
+    );
     let vu = ent
         .droits_extrait_lire(etab, adm, ADF, d.id, e[0].id)
         .await
         .unwrap();
-    assert_eq!(vu.elements_reserves_direction, proteges);
+    // E1 : la protection et les marquages qui la doubleraient sur la même cible sont tous cachés, et comptés.
+    assert!(vu.elements_reserves_direction >= proteges);
+    assert_eq!(
+        vu.elements_reserves_direction,
+        brut.marquages.len() - vu.marquages.len()
+    );
     assert!(vu
         .marquages
         .iter()
@@ -207,16 +230,28 @@ async fn g3b4_ajout_manuel_valide_et_masque_toutes_les_lignes() {
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     parents_separes(&ent, &cast, false).await;
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let e = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
         .await
         .unwrap();
     let x = e[0].id;
-    let brut = ent.droits_extrait_lire(etab, dir, DIR, d.id, x).await.unwrap();
+    let brut = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, x)
+        .await
+        .unwrap();
     let f = section_responsables(&brut);
     let t = "ent_inscription_responsable";
-    let ajouter = |table: &'static str, ligne: Option<Uuid>, rang: Option<i32>, colonne: Option<&'static str>| {
+    let ajouter = |table: &'static str,
+                   ligne: Option<Uuid>,
+                   rang: Option<i32>,
+                   colonne: Option<&'static str>| {
         let (ent, f) = (&ent, f.clone());
         async move {
             ent.droits_masquage_ajouter(
@@ -235,15 +270,23 @@ async fn g3b4_ajout_manuel_valide_et_masque_toutes_les_lignes() {
             .await
         }
     };
-    let err = ajouter("ent_table_inconnue", None, None, None).await.unwrap_err();
+    let err = ajouter("ent_table_inconnue", None, None, None)
+        .await
+        .unwrap_err();
     assert!(est_invalide(&err), "table absente : {err:?}");
-    let err = ajouter(t, Some(Uuid::new_v4()), None, None).await.unwrap_err();
+    let err = ajouter(t, Some(Uuid::new_v4()), None, None)
+        .await
+        .unwrap_err();
     assert!(est_invalide(&err), "ligne absente : {err:?}");
     let err = ajouter(t, None, Some(99), None).await.unwrap_err();
     assert!(est_invalide(&err), "rang absent : {err:?}");
-    let err = ajouter(t, None, None, Some("colonne_inconnue")).await.unwrap_err();
+    let err = ajouter(t, None, None, Some("colonne_inconnue"))
+        .await
+        .unwrap_err();
     assert!(est_invalide(&err), "colonne absente : {err:?}");
-    let err = ajouter(t, Some(Uuid::new_v4()), Some(0), None).await.unwrap_err();
+    let err = ajouter(t, Some(Uuid::new_v4()), Some(0), None)
+        .await
+        .unwrap_err();
     assert!(est_invalide(&err), "ligne et rang ensemble : {err:?}");
     let v = ajouter(t, None, None, Some("telephone")).await.unwrap();
     let m = v
@@ -267,7 +310,13 @@ async fn g3b4_decision_non_reportee_quand_l_element_change() {
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     parents_separes(&ent, &cast, false).await;
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let e1 = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
         .await
@@ -277,9 +326,17 @@ async fn g3b4_decision_non_reportee_quand_l_element_change() {
         .await
         .unwrap();
     for m in &c.marquages {
-        ent.droits_masquage_decider(etab, dir, DIR, d.id, m.id, "leve", Some("pièce vue par la direction"))
-            .await
-            .unwrap();
+        ent.droits_masquage_decider(
+            etab,
+            dir,
+            DIR,
+            d.id,
+            m.id,
+            "leve",
+            Some("pièce vue par la direction"),
+        )
+        .await
+        .unwrap();
     }
     // Rien n'a changé : tout est reporté.
     let e2 = ent
@@ -315,7 +372,13 @@ async fn g3b4_avis_dpo_efface_et_refus_neutre() {
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     parents_separes(&ent, &cast, false).await;
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let dpo = donner_role_dpo(&ent, &cast).await;
     let e = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
@@ -335,16 +398,30 @@ async fn g3b4_avis_dpo_efface_et_refus_neutre() {
     ent.droits_extrait_soumettre_dpo(etab, dir, DIR, d.id, x)
         .await
         .unwrap();
-    ent.droits_extrait_avis_dpo(etab, dpo, "personnel", d.id, x, "favorable", "rien à signaler")
+    ent.droits_extrait_avis_dpo(
+        etab,
+        dpo,
+        "personnel",
+        d.id,
+        x,
+        "favorable",
+        "rien à signaler",
+    )
+    .await
+    .unwrap();
+    let c = ent
+        .droits_extrait_lire(etab, dir, DIR, d.id, x)
         .await
         .unwrap();
-    let c = ent.droits_extrait_lire(etab, dir, DIR, d.id, x).await.unwrap();
     ent.droits_masquage_decider(etab, dir, DIR, d.id, c.marquages[0].id, "masque", None)
         .await
         .unwrap();
     let v = ent.droits_extraits(etab, dir, DIR, d.id).await.unwrap();
     let v = v.iter().find(|v| v.id == x).unwrap();
-    assert_eq!(v.avis_dpo_code, None, "l'avis portait sur une autre relecture");
+    assert_eq!(
+        v.avis_dpo_code, None,
+        "l'avis portait sur une autre relecture"
+    );
     assert!(v.soumis_dpo, "la soumission reste");
 }
 
@@ -355,7 +432,13 @@ async fn g3b4_tables_de_messagerie_ecartees_declarees() {
         return;
     };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
-    let d = demande(&ent, &cast, "titulaire_autorite", Some(cast.parent_lea.user_id)).await;
+    let d = demande(
+        &ent,
+        &cast,
+        "titulaire_autorite",
+        Some(cast.parent_lea.user_id),
+    )
+    .await;
     let e = ent
         .droits_extrait_assembler(etab, dir, DIR, d.id, None)
         .await
@@ -369,9 +452,15 @@ async fn g3b4_tables_de_messagerie_ecartees_declarees() {
         .iter()
         .find(|s| s.fournisseur == "messagerie")
         .expect("section messagerie");
-    for t in ["ent_msg_telephone", "ent_msg_lien_decision", "ent_msg_brouillon"] {
+    for t in [
+        "ent_msg_telephone",
+        "ent_msg_lien_decision",
+        "ent_msg_brouillon",
+    ] {
         assert!(
-            s.exclusions.iter().any(|x| x.table == t && !x.motif.is_empty()),
+            s.exclusions
+                .iter()
+                .any(|x| x.table == t && !x.motif.is_empty()),
             "{t} déclarée"
         );
     }

@@ -2232,8 +2232,9 @@ impl PgEnt {
             &marques_calculees(&mut *tx, etab, &info, &ctx, &contenu).await?,
         );
         if contenu.empreinte != stockee || marq_courante != marq_stockee {
+            // Message neutre : il ne dit pas si c'est une protection qui a changé.
             return Err(EntDbError::ConflitDossier(
-                "extrait périmé : le contenu ou les protections ont changé, assembler une nouvelle version",
+                "extrait périmé : assembler une nouvelle version",
             ));
         }
         Ok(contenu)

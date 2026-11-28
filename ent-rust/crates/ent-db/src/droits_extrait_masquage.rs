@@ -191,7 +191,10 @@ fn cite_un_nom(valeur: &str, noms: &[String]) -> bool {
         while let Some(i) = v[depart..].find(&n) {
             let a = depart + i;
             let b = a + n.len();
-            let avant = v[..a].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+            let avant = v[..a]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !c.is_alphanumeric());
             let apres = v[b..].chars().next().is_none_or(|c| !c.is_alphanumeric());
             if avant && apres {
                 return true;
@@ -361,39 +364,168 @@ pub fn appliquer_masques(contenu: &ContenuExtrait, marques: &[MarquageVue]) -> C
     })
 }
 
+/// Ce qu'un lecteur sans `droits.arbitrer` ne doit ni voir ni situer (R-RG46, M4), calculé **depuis les seuls
+/// marquages** : les marquages calculés portent toujours le rang d'origine de leur ligne.
+#[derive(Debug, Default)]
+pub(crate) struct Reserve {
+    /// Lignes retirées entières : (fournisseur, table) → (identifiant, rang d'origine).
+    lignes: std::collections::BTreeMap<(String, String), Vec<(Option<Uuid>, i32)>>,
+    /// Cellules retirées : (fournisseur, table, identifiant, rang d'origine, colonne).
+    cellules: Vec<(String, String, Option<Uuid>, i32, String)>,
+}
+
+impl Reserve {
+    pub(crate) fn depuis(marques: &[MarquageVue]) -> Self {
+        let mut r = Reserve::default();
+        for m in marques
+            .iter()
+            .filter(|m| m.raison_interne == "adresse_protegee")
+        {
+            let Some(rang) = m.rang else { continue };
+            match &m.colonne {
+                None => r
+                    .lignes
+                    .entry((m.fournisseur.clone(), m.table.clone()))
+                    .or_default()
+                    .push((m.ligne_id, rang)),
+                Some(c) => r.cellules.push((
+                    m.fournisseur.clone(),
+                    m.table.clone(),
+                    m.ligne_id,
+                    rang,
+                    c.clone(),
+                )),
+            }
+        }
+        r
+    }
+
+    fn meme_ligne(a: (Option<Uuid>, i32), b: (Option<Uuid>, Option<i32>)) -> bool {
+        match (a.0, b.0) {
+            (Some(x), Some(y)) => x == y,
+            (None, None) => b.1 == Some(a.1),
+            _ => false,
+        }
+    }
+
+    /// La ligne (fournisseur, table, identifiant, rang d'origine) est-elle retirée entière ?
+    fn ligne_retiree(&self, f: &str, t: &str, lid: Option<Uuid>, rang: Option<i32>) -> bool {
+        self.lignes
+            .get(&(f.to_string(), t.to_string()))
+            .is_some_and(|v| v.iter().any(|x| Self::meme_ligne(*x, (lid, rang))))
+    }
+
+    fn cellule_retiree(
+        &self,
+        f: &str,
+        t: &str,
+        lid: Option<Uuid>,
+        rang: Option<i32>,
+        c: &str,
+    ) -> bool {
+        self.cellules.iter().any(|(cf, ct, cl, cr, cc)| {
+            cf == f && ct == t && cc == c && Self::meme_ligne((*cl, *cr), (lid, rang))
+        })
+    }
+
+    /// Rangs d'origine retirés d'une table (lignes sans identifiant comme avec : toutes décalent l'affichage).
+    fn rangs_retires(&self, f: &str, t: &str) -> BTreeSet<i32> {
+        self.lignes
+            .get(&(f.to_string(), t.to_string()))
+            .map(|v| v.iter().map(|x| x.1).collect())
+            .unwrap_or_default()
+    }
+
+    /// Rang **affiché** (lignes retirées ôtées) d'un rang d'origine.
+    fn rang_affiche(&self, f: &str, t: &str, origine: i32) -> i32 {
+        origine
+            - self
+                .rangs_retires(f, t)
+                .iter()
+                .filter(|r| **r < origine)
+                .count() as i32
+    }
+
+    /// E2 : rang **d'origine** d'un rang affiché au lecteur (ce qu'il désigne à l'écran).
+    pub(crate) fn rang_d_origine(&self, f: &str, t: &str, affiche: i32) -> i32 {
+        let retires = self.rangs_retires(f, t);
+        let (mut o, mut k) = (0i32, 0i32);
+        loop {
+            if !retires.contains(&o) {
+                if k == affiche {
+                    return o;
+                }
+                k += 1;
+            }
+            o += 1;
+        }
+    }
+
+    /// Un marquage qui situerait une protection : la protection elle-même, ou tout marquage dont la cible (ligne
+    /// entière ou cellule) est retirée. E1 : sur la ligne d'un responsable protégé, le marquage `autre_parent` qui la
+    /// double désignerait une ligne absente du contenu, signal distinctif d'une protection.
+    fn cache(&self, m: &MarquageVue) -> bool {
+        if m.raison_interne == "adresse_protegee" {
+            return true;
+        }
+        if m.ligne_id.is_none() && m.rang.is_none() {
+            return false; // toute la table : ne situe rien
+        }
+        if self.ligne_retiree(&m.fournisseur, &m.table, m.ligne_id, m.rang) {
+            return true;
+        }
+        m.colonne
+            .as_deref()
+            .is_some_and(|c| self.cellule_retiree(&m.fournisseur, &m.table, m.ligne_id, m.rang, c))
+    }
+
+    /// Marquages visibles du lecteur, rangs **affichés** ; et le nombre de ceux qu'on lui cache.
+    pub(crate) fn filtrer(&self, marques: Vec<MarquageVue>) -> (Vec<MarquageVue>, usize) {
+        let mut caches = 0;
+        let mut v = Vec::with_capacity(marques.len());
+        for mut m in marques {
+            if self.cache(&m) {
+                caches += 1;
+                continue;
+            }
+            if let Some(r) = m.rang {
+                m.rang = Some(self.rang_affiche(&m.fournisseur, &m.table, r));
+            }
+            v.push(m);
+        }
+        (v, caches)
+    }
+}
+
 /// Pour un lecteur sans `droits.arbitrer` (R-RG46, M4) : les éléments protégés sont **absents** de ce qu'il voit
-/// (la cellule, ou la ligne entière, est retirée du contenu ; le marquage n'est pas listé) et seul un compteur global
-/// `elements_reserves_direction` dit qu'il en reste, sans dire où. Les autres raisons réservées à la direction gardent
-/// leur emplacement, avec le libellé neutre « à arbitrer » : le code ne distingue plus une protection.
+/// (la cellule, ou la ligne entière, est retirée du contenu) ; aucun marquage visible ne les situe (ni le marquage de
+/// protection, ni un autre marquage sur la même cible, E1) ; les rangs montrés sont ceux du contenu filtré (E2). Seul
+/// un compteur global `elements_reserves_direction` dit combien de marquages lui sont cachés, sans dire où. Les autres
+/// raisons réservées à la direction gardent l'alias neutre « à arbitrer ».
 pub fn cacher_protections(contenu: &ContenuExtrait, marques: &[MarquageVue]) -> ContenuExtrait {
-    let (proteges, visibles): (Vec<MarquageVue>, Vec<MarquageVue>) = marques
-        .iter()
-        .cloned()
-        .partition(|m| m.raison_interne == "adresse_protegee");
+    let r = Reserve::depuis(marques);
     let mut c = contenu.clone();
     for s in &mut c.sections {
         for t in &mut s.tables {
             let mut rang = 0i32;
             t.lignes.retain_mut(|l| {
-                let r = rang;
+                let o = rang;
                 rang += 1;
                 let lid = l.id;
-                let concernes: Vec<&MarquageVue> = proteges
-                    .iter()
-                    .filter(|m| m.fournisseur == s.fournisseur && m.table == t.nom && vise(m, lid, r))
-                    .collect();
-                if concernes.iter().any(|m| m.colonne.is_none()) {
+                if r.ligne_retiree(&s.fournisseur, &t.nom, lid, Some(o)) {
                     return false;
                 }
-                l.valeurs
-                    .retain(|(col, _)| !concernes.iter().any(|m| m.colonne.as_deref() == Some(col)));
+                l.valeurs.retain(|(col, _)| {
+                    !r.cellule_retiree(&s.fournisseur, &t.nom, lid, Some(o), col)
+                });
                 true
             });
         }
         let n: usize = s.tables.iter().map(|t| t.lignes.len()).sum();
         s.lignes = n;
     }
-    c.elements_reserves_direction = proteges.len();
+    let (visibles, caches) = r.filtrer(marques.to_vec());
+    c.elements_reserves_direction = caches;
     c.marquages = visibles;
     c
 }
@@ -650,8 +782,12 @@ pub(crate) async fn noms_des_autres_eleves(
     .map_err(db)?;
     let mut noms: BTreeSet<String> = BTreeSet::new();
     for (prenom, nom) in rows {
-        let nom = nom.map(|n| n.trim().to_string()).filter(|n| n.chars().count() >= 3);
-        let prenom = prenom.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+        let nom = nom
+            .map(|n| n.trim().to_string())
+            .filter(|n| n.chars().count() >= 3);
+        let prenom = prenom
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty());
         if let (Some(p), Some(n)) = (&prenom, &nom) {
             noms.insert(format!("{p} {n}"));
         }
@@ -826,13 +962,12 @@ pub(crate) async fn marquages_de(
 }
 
 /// M4 : pour un lecteur sans `droits.arbitrer`, les marquages de protection ne sont pas listés.
+/// Même filtre que [`cacher_protections`] (E1, E2), sans le contenu.
 pub(crate) fn sans_protections_si(v: Vec<MarquageVue>, peut_arbitrer: bool) -> Vec<MarquageVue> {
     if peut_arbitrer {
         v
     } else {
-        v.into_iter()
-            .filter(|m| m.raison_interne != "adresse_protegee")
-            .collect()
+        Reserve::depuis(&v).filtrer(v).0
     }
 }
 
@@ -1075,7 +1210,9 @@ impl PgEnt {
             return Err(invalide("élément à masquer incohérent"));
         }
         if ligne_id.is_some() && rang.is_some() {
-            return Err(invalide("désigner la ligne par son identifiant ou par son rang, pas les deux"));
+            return Err(invalide(
+                "désigner la ligne par son identifiant ou par son rang, pas les deux",
+            ));
         }
         if rang.is_some_and(|r| r < 0) {
             return Err(invalide("rang de ligne incohérent"));
@@ -1111,6 +1248,14 @@ impl PgEnt {
             cacher_protections(&contenu, &m)
         };
         element_existe(&contenu, fournisseur, table, ligne_id, rang, colonne)?;
+        // E2 : le rang désigné est celui que le lecteur voit ; on stocke le rang d'origine, que `vise` compare.
+        let rang = match (rang, peut_arbitrer) {
+            (Some(r), false) => {
+                let m = marquages_de(&mut tx, etab, extrait, false).await?;
+                Some(Reserve::depuis(&m).rang_d_origine(fournisseur, table, r))
+            }
+            (r, _) => r,
+        };
         let deja: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM rgp_extrait_masquage
                              WHERE etablissement_id = $1 AND extrait_id = $2 AND fournisseur_code = $3
@@ -1128,7 +1273,9 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if deja {
-            return Err(EntDbError::ConflitDossier("cet élément est déjà masqué à la main"));
+            return Err(EntDbError::ConflitDossier(
+                "cet élément est déjà masqué à la main",
+            ));
         }
         sqlx::query(
             "INSERT INTO rgp_extrait_masquage
@@ -1420,15 +1567,24 @@ mod tests {
             TableContenu {
                 nom: "ent_doc_piece".into(),
                 lignes: vec![
-                    l(Some(Uuid::from_u128(31)), &[("type_code", "livret_famille")]),
+                    l(
+                        Some(Uuid::from_u128(31)),
+                        &[("type_code", "livret_famille")],
+                    ),
                     l(Some(Uuid::from_u128(32)), &[("type_code", "type_disparu")]),
                 ],
             },
             TableContenu {
                 nom: "ent_rdv".into(),
                 lignes: vec![
-                    l(Some(Uuid::from_u128(41)), &[("eleve_id", &enfant.to_string())]),
-                    l(Some(Uuid::from_u128(42)), &[("eleve_id", &autre.to_string())]),
+                    l(
+                        Some(Uuid::from_u128(41)),
+                        &[("eleve_id", &enfant.to_string())],
+                    ),
+                    l(
+                        Some(Uuid::from_u128(42)),
+                        &[("eleve_id", &autre.to_string())],
+                    ),
                 ],
             },
         ]);
@@ -1488,12 +1644,18 @@ mod tests {
         let c = contenu(vec![
             TableContenu {
                 nom: "ent_eleve".into(),
-                lignes: vec![l(Some(Uuid::from_u128(1)), &[("nom", "Lea"), ("ville", "Lyon")])],
+                lignes: vec![l(
+                    Some(Uuid::from_u128(1)),
+                    &[("nom", "Lea"), ("ville", "Lyon")],
+                )],
             },
             TableContenu {
                 nom: "ent_inscription_responsable".into(),
                 lignes: vec![
-                    l(Some(Uuid::from_u128(9)), &[("nom", "Dupont"), ("personne_id", &mere.to_string())]),
+                    l(
+                        Some(Uuid::from_u128(9)),
+                        &[("nom", "Dupont"), ("personne_id", &mere.to_string())],
+                    ),
                     l(Some(Uuid::from_u128(10)), &[("nom", "Granger")]),
                 ],
             },
@@ -1511,12 +1673,23 @@ mod tests {
             .collect();
         let vu = cacher_protections(&c, &marques);
         let t = format!("{:?}", vu.sections[0].tables);
-        assert!(!t.contains("Lyon") && !t.contains("ville") && !t.contains("Dupont"), "{t}");
+        assert!(
+            !t.contains("Lyon") && !t.contains("ville") && !t.contains("Dupont"),
+            "{t}"
+        );
         assert!(t.contains("Lea"));
         assert!(vu.elements_reserves_direction > 0);
-        assert!(vu.marquages.iter().all(|m| m.raison_interne != "adresse_protegee"));
+        assert!(vu
+            .marquages
+            .iter()
+            .all(|m| m.raison_interne != "adresse_protegee"));
         // Toutes les raisons réservées portent le même alias.
-        for r in ["autre_parent", "adresse_protegee", "piece_tiers", "signalement"] {
+        for r in [
+            "autre_parent",
+            "adresse_protegee",
+            "piece_tiers",
+            "signalement",
+        ] {
             assert_eq!(raison_visible(r, false), "a_arbitrer");
         }
         assert_eq!(raison_visible("redacteur", false), "redacteur");
@@ -1544,14 +1717,103 @@ mod tests {
         m.decision = "masque".into();
         m.rang = None;
         let r = appliquer_masques(&c, std::slice::from_ref(&m));
-        assert!(r.sections[0].tables[0].lignes.iter().all(|l| l.valeurs[0].1 == "[masqué]"));
+        assert!(r.sections[0].tables[0]
+            .lignes
+            .iter()
+            .all(|l| l.valeurs[0].1 == "[masqué]"));
         m.rang = Some(1);
         let r = appliquer_masques(&c, &[m]);
         assert_eq!(r.sections[0].tables[0].lignes[0].valeurs[0].1, "a");
         assert_eq!(r.sections[0].tables[0].lignes[1].valeurs[0].1, "[masqué]");
-        assert!(element_existe(&c, "administratif", "ent_note", None, Some(1), Some("texte")).is_ok());
+        assert!(element_existe(
+            &c,
+            "administratif",
+            "ent_note",
+            None,
+            Some(1),
+            Some("texte")
+        )
+        .is_ok());
         assert!(element_existe(&c, "administratif", "ent_note", None, Some(2), None).is_err());
         assert!(element_existe(&c, "administratif", "ent_absente", None, None, None).is_err());
         assert!(element_existe(&c, "autre", "ent_note", None, None, None).is_err());
+    }
+
+    /// E1, E2 (contre-revue des suites) : aucun marquage visible ne désigne une ligne protégée retirée ; les rangs
+    /// montrés suivent le contenu filtré, et le rang que désigne le lecteur se retraduit en rang d'origine.
+    #[test]
+    fn aucun_marquage_visible_ne_situe_une_ligne_protegee() {
+        let mere = Uuid::from_u128(7);
+        let c = contenu(vec![TableContenu {
+            nom: "ent_inscription_responsable".into(),
+            lignes: vec![
+                l(
+                    None,
+                    &[("nom", "Dupont"), ("personne_id", &mere.to_string())],
+                ),
+                l(None, &[("nom", "Martin")]),
+                l(
+                    None,
+                    &[
+                        ("nom", "Granger"),
+                        ("personne_id", &Uuid::from_u128(99).to_string()),
+                    ],
+                ),
+            ],
+        }]);
+        let f = Faits {
+            autres: [mere].into_iter().collect(),
+            proteges: [mere].into_iter().collect(),
+            dem_personne: Some(Uuid::from_u128(99)),
+            ..Faits::default()
+        };
+        let marques: Vec<MarquageVue> = marquer(&c, &f)
+            .iter()
+            .enumerate()
+            .map(|(i, m)| vue_de(m, i as u128 + 1))
+            .collect();
+        assert!(
+            marques
+                .iter()
+                .any(|m| m.raison_interne == "autre_parent" && m.rang == Some(0)),
+            "la ligne protégée porte aussi un marquage « autre parent » : {marques:?}"
+        );
+        let vu = cacher_protections(&c, &marques);
+        let lignes = &vu.sections[0].tables[0].lignes;
+        assert_eq!(lignes.len(), 2);
+        assert!(
+            vu.marquages
+                .iter()
+                .all(|m| m.rang != Some(0) || lignes[0].valeurs.iter().any(|(_, v)| v == "Martin")),
+            "{:?}",
+            vu.marquages
+        );
+        // La ligne « Martin » (rang d'origine 1) est montrée au rang 0, et son marquage aussi.
+        let martin = vu
+            .marquages
+            .iter()
+            .find(|m| m.raison_interne == "autre_parent")
+            .expect("marquage de la ligne sans fiche");
+        assert_eq!(martin.rang, Some(0));
+        assert_eq!(
+            vu.elements_reserves_direction,
+            marques.len() - vu.marquages.len()
+        );
+        assert!(
+            vu.elements_reserves_direction >= 2,
+            "protection et marquage frère cachés"
+        );
+        let r = Reserve::depuis(&marques);
+        assert_eq!(
+            r.rang_d_origine("administratif", "ent_inscription_responsable", 0),
+            1
+        );
+        assert_eq!(
+            r.rang_d_origine("administratif", "ent_inscription_responsable", 1),
+            2
+        );
+        // Même filtre sans le contenu.
+        let liste = sans_protections_si(marques.clone(), false);
+        assert_eq!(liste.len(), vu.marquages.len());
     }
 }

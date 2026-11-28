@@ -1104,11 +1104,12 @@ impl PgEnt {
     ) -> Result<usize, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = lire_reglage_acces(&mut tx, etab).await?;
-        let dernier: Option<DateTime<Utc>> =
-            sqlx::query_scalar("SELECT jusqu_au FROM acc_balayage WHERE etablissement_id = $1 FOR UPDATE")
-                .bind(etab)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let dernier: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT jusqu_au FROM acc_balayage WHERE etablissement_id = $1 FOR UPDATE",
+        )
+        .bind(etab)
+        .fetch_optional(&mut *tx)
+        .await?;
         let depuis = fenetre_de_balayage(dernier, maintenant);
         // (règle, agent, début de fenêtre, fin, nombre)
         let mut trouvees: Vec<(&'static str, Uuid, DateTime<Utc>, DateTime<Utc>, i32)> = Vec::new();
@@ -1736,14 +1737,20 @@ mod tests_balayage {
     fn la_fenetre_reprend_apres_un_arret_long_sans_remonter_au_dela_de_35_jours() {
         let maintenant = t("2027-03-10T12:00:00Z");
         // Premier balayage, ou balayage récent : 26 h.
-        assert_eq!(fenetre_de_balayage(None, maintenant), maintenant - Duration::hours(26));
+        assert_eq!(
+            fenetre_de_balayage(None, maintenant),
+            maintenant - Duration::hours(26)
+        );
         assert_eq!(
             fenetre_de_balayage(Some(maintenant - Duration::hours(1)), maintenant),
             maintenant - Duration::hours(26)
         );
         // Serveur arrêté 3 jours : on repart du dernier balayage, moins 2 h de recouvrement.
         let dernier = maintenant - Duration::days(3);
-        assert_eq!(fenetre_de_balayage(Some(dernier), maintenant), dernier - Duration::hours(2));
+        assert_eq!(
+            fenetre_de_balayage(Some(dernier), maintenant),
+            dernier - Duration::hours(2)
+        );
         // Arrêt de deux mois : plancher de 35 jours.
         assert_eq!(
             fenetre_de_balayage(Some(maintenant - Duration::days(60)), maintenant),
