@@ -593,6 +593,8 @@ struct EcranProfil: View {
                     if let e = modele.erreur { MessageErreur(texte: e) }
                 }
             }
+            // Transverse individu (MesAutresComptes.swift) : demandes reçues, déclarer un autre compte.
+            Section { NavigationLink("Mes autres comptes") { EcranMesAutresComptes(modele: modele) } }
             Section("Appareils connectés") {
                 Chargeur(modele: modele, cle: "sessions#\(rechargement)", charger: { direct(try await modele.client!.sessions()) }) { sessions, _ in
                     ForEach(sessions) { s in

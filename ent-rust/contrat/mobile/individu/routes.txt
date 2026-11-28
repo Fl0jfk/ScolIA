@@ -1,0 +1,9 @@
+# Liste blanche des routes de « Mes autres comptes » (transverse individu) appelées par les applis.
+# Même format que `contrat/mobile/routes.txt` (socle 11, MB2) ; dossier à part le temps que les branches qui
+# modifient `routes.txt` et le banc MB2 soient fusionnées, puis à fondre dans `routes.txt`.
+# Jouées par `ent-web-server/tests/individu_contrat_mobile.rs` ; vérifiées par `IndividuTest` (Kotlin) et
+# `IndividuTests` (Swift). Les routes de la direction (relier, lever, propositions) restent sur le web (D-003).
+
+GET /dossier/individu/moi
+POST /dossier/individu/declarations
+POST /dossier/individu/declarations/{id}/reponse

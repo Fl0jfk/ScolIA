@@ -1,0 +1,19 @@
+{
+  "autres_comptes": 1,
+  "declarations_recues": [
+    {
+      "declarant": "Un autre compte",
+      "declare_le": "2027-03-08T07:15:30.111111Z",
+      "expire_le": "2027-03-08T07:15:30.111111Z",
+      "id": "00000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "fiches_reliees": 2,
+  "liens": [
+    {
+      "motif_code": "deux_comptes",
+      "origine": "declaration_confirmee",
+      "pose_le": "2027-03-08T07:15:30.111111Z"
+    }
+  ]
+}

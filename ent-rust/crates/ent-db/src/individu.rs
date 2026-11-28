@@ -171,7 +171,7 @@ pub(crate) async fn agents_meme_individu(
 // Un lien posé ou levé change ce que la personne peut faire (des refus en plus, ou en moins) : elle en est prévenue
 // sur **tous** ses comptes de l'établissement, dans l'ENT et par e-mail ou push selon ses préférences. Les textes ne
 // nomment ni une fiche ni une personne (un lien posé à tort désignerait quelqu'un d'autre, et l'e-mail sort de l'ENT) ;
-// le détail est dans « Compte › Mes autres comptes ». Le geste qui ne regarde que son auteur ne prévient personne : un
+// le détail est dans « Mes autres comptes » (« Compte » sur le web, « Mon compte » dans les applis). Le geste qui ne regarde que son auteur ne prévient personne : un
 // refus de déclaration n'est jamais annoncé au déclarant (anti-énumération des adresses).
 
 /// Longueur maximale du texte d'un avis : un push coupe au-delà de 240 caractères.
@@ -188,22 +188,22 @@ pub const AVIS_LIEN_POSE: (&str, &str, &str) = (
 pub const AVIS_LIEN_LEVE: (&str, &str, &str) = (
     "individu_lien_leve",
     "Un lien entre vos fiches a été levé",
-    "La direction a levé un lien entre deux fiches qui vous désignaient comme une seule personne. Détail dans ScolIA \
-     sur le web : Compte, Mes autres comptes.",
+    "La direction a levé un lien entre deux fiches qui vous désignaient comme une seule personne. Détail dans ScolIA, \
+     Mes autres comptes (Compte sur le web, Mon compte dans l'appli).",
 );
 /// Avis : un autre compte déclare être aussi la personne.
 pub const AVIS_DECLARATION_RECUE: (&str, &str, &str) = (
     "individu_declaration_recue",
     "Un autre compte déclare être aussi vous",
-    "Un autre compte de l'établissement déclare être à vous. Répondez sous 24 h dans ScolIA sur le web : Compte, Mes \
-     autres comptes. Vous ne le reconnaissez pas ? Refusez.",
+    "Un autre compte de l'établissement déclare être à vous. Répondez sous 24 h dans ScolIA, Mes \
+     autres comptes (Compte sur le web, Mon compte dans l'appli). Vous ne le reconnaissez pas ? Refusez.",
 );
 /// Avis : la déclaration a été confirmée depuis l'autre compte.
 pub const AVIS_DECLARATION_CONFIRMEE: (&str, &str, &str) = (
     "individu_declaration_confirmee",
     "Votre autre compte est reconnu",
     "Votre déclaration a été confirmée depuis l'autre compte : l'établissement sait que ces comptes sont à la même \
-     personne. Détail dans ScolIA sur le web : Compte, Mes autres comptes.",
+     personne. Détail dans ScolIA, Mes autres comptes (Compte sur le web, Mon compte dans l'appli).",
 );
 
 /// Comptes de l'individu formé par ces fiches (fiches reliées, fusions, comptes d'élève), triés.
