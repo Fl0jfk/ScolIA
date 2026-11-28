@@ -1,0 +1,69 @@
+# Clés des fixtures dorées que les cœurs mobiles ne lisent pas, volontairement (socle 11, complément de MB2).
+# Une ligne : « plateformes fixture:chemin — raison ». plateformes = tous, android ou ios. Chemin : clés séparées par
+# des points, « [] » pour un élément de liste (ex. « famille_enfants:[].classe »).
+# Lues par `ContratClesTest.kt` (Android) et `ContratClesTests.swift` (iOS). Toute clé non nulle servie par le serveur
+# et absente du modèle doit être lue, ou déclarée ici avec sa raison ; une ligne périmée rend aussi les tests rouges.
+
+# Ignorées par les deux cœurs.
+tous annonces:[].apercu_nb_eleves — aperçu de diffusion destiné à l'auteur (web), non affiché dans l'appli
+tous annonces:[].apercu_nb_responsables — aperçu de diffusion destiné à l'auteur (web), non affiché dans l'appli
+tous annonces:[].statut — le serveur ne sert à l'appli que les annonces publiées : statut implicite
+tous auth_me:casquette — casquette de session : sélecteur de casquette prévu avec le manifeste (MB5)
+tous classes_effectif:eleves[].etablissement_id — redondant : l'établissement est celui de la session
+tous classes_effectif:eleves[].masques — explications des champs masqués de la fiche : l'appli n'affiche que nom, prénom et classe
+tous classes_effectif:eleves[].site — site d'enseignement : l'appli ne gère pas encore les établissements multisites
+tous eleves_annonces:[].apercu_nb_eleves — aperçu de diffusion destiné à l'auteur (web), non affiché dans l'appli
+tous eleves_annonces:[].apercu_nb_responsables — aperçu de diffusion destiné à l'auteur (web), non affiché dans l'appli
+tous eleves_annonces:[].statut — le serveur ne sert à l'appli que les annonces publiées : statut implicite
+tous famille_resume:carnet_a_signer[].eleve_label — signature du carnet non portée sur mobile (M12, web)
+tous famille_resume:carnet_a_signer[].fil_notif_id — signature du carnet non portée sur mobile (M12, web)
+
+# Écarts de parité Android / iOS : lues par le cœur Kotlin, pas par le cœur Swift. `Modeles.swift` est modifié
+# par une PR ouverte (PR 171) ; l'alignement vient après son versement, ligne par ligne retirée d'ici.
+ios absences_justifier:etablissement_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios annonces:[].audience — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios annonces:[].auteur_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios annonces:[].cible_classe — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios cahier_texte:[].created_at — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios cahier_texte:[].cree_le — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios cahier_texte_eleve:[].created_at — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios cahier_texte_eleve:[].cree_le — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios classes_effectif:eleves[].classe — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios classes_effectif:eleves[].status — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios devoirs:[].coef — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios edt_mes_creneaux:[].semaine_ab — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_annonces:[].audience — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_annonces:[].auteur_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_annonces:[].cible_classe — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_devoirs:[].coef — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_edt:[].semaine_ab — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_moyennes:[].moyenne_sur_20 — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_notes:[].devoir_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios eleves_notes:[].periode_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_enfants:[].lien — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_enfants:[].peut_autoriser_sorties — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_enfants:[].status — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:absences_a_justifier[].etablissement_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:carnet_a_signer[].categorie — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:carnet_a_signer[].corps — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:carnet_a_signer[].eleve_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:carnet_a_signer[].visible_famille — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:notes[].devoir_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios famille_resume:notes[].periode_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:fil.archive — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:fil.created_at — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:fil.created_by_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:fil.priorite — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:messages[].auteur_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:messages[].lu_par_moi — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fil:messages[].nb_accuses — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fils:[].archive — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fils:[].created_at — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fils:[].created_by_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_fils:[].priorite — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_repondre:auteur_user_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_repondre:lu_par_moi — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios messages_repondre:nb_accuses — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios note_periodes:[].date_debut — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios note_periodes:[].date_fin — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
+ios vs_absences:[].etablissement_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
