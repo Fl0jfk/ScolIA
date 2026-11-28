@@ -616,6 +616,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // échec du contrôle d'existence d'un avis (faible 3 de la contre-revue E1 passe 5). 482 à 494 sont versées et ne changent
     // pas (règle 25). Aucune fonction. `MIGRATION_TAG` inchangé.
     m!("495_msg_controle_echec_depuis"),
+    // Socle 21, lot V10 « pilotage et statistiques » (705, plage d'extension 700–719 du socle 21 ; **fin de tableau**,
+    // règle 38) : marque « examen blanc » de l'évaluation commune, une évaluation par cours et par commune, journal des
+    // consultations de statistiques (R-V44, ajout seul, RLS). 462 est versée et ne change pas (règle 25). Aucune
+    // fonction. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("705_eva_v10_pilotage"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

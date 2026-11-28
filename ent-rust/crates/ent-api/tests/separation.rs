@@ -3429,3 +3429,38 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }
+
+/// V10 : les 13 points d'entrée `/eva/v10/*` (évaluations communes, comparaison, écarts à l'examen blanc, statistiques,
+/// natures, harmonisation, charge, non publiées, journal des consultations) sont réservés au personnel : la famille et
+/// l'élève reçoivent **403**, quel que soit le corps, avant toute lecture ni écriture (aucune ligne de journal).
+#[test]
+fn evaluations_v10_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
+    let Some(m) = monde() else { return };
+    let p = Uuid::new_v4();
+    let id = Uuid::new_v4();
+    let evals = json!({"evaluations": [id]});
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", "/eva/v10/communes".into(), None),
+        ("POST", "/eva/v10/communes".into(), Some(json!({"libelle": "Bac blanc", "date_eval": "2031-12-05", "bareme_m": 20000, "evaluations": [id]}))),
+        ("GET", format!("/eva/v10/communes/{id}"), None),
+        ("POST", format!("/eva/v10/communes/{id}/rattacher"), Some(evals.clone())),
+        ("POST", format!("/eva/v10/communes/{id}/detacher"), Some(evals.clone())),
+        ("GET", format!("/eva/v10/communes/{id}/comparaison"), None),
+        ("GET", format!("/eva/v10/communes/{id}/ecarts-examen"), None),
+        ("GET", format!("/eva/v10/periodes/{p}/statistiques?axe=professeur"), None),
+        ("GET", format!("/eva/v10/periodes/{p}/natures"), None),
+        ("GET", format!("/eva/v10/periodes/{p}/niveaux/{id}/harmonisation"), None),
+        ("GET", format!("/eva/v10/classes/{id}/charge?du=2031-10-13&au=2031-10-26"), None),
+        ("GET", "/eva/v10/non-publiees?delai_jours=5".into(), None),
+        ("GET", "/eva/v10/consultations".into(), None),
+    ];
+    assert_eq!(routes.len(), 13, "toutes les routes de evaluations_v10.rs sont couvertes (GET et POST d'un même chemin comptés)");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}

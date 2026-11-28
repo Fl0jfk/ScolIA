@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V10 « pilotage et statistiques » (2026-11-28, branche `claude/project-thread-6vmdbh`, base `origin/ENT` 06333a59)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir la PR ; non validé par Florian, pas prêt pilote.** Détail, décisions par défaut (D-069) et reste à faire : `docs/socles/21_EVALUATIONS_V10_LIVRAISON.md`. Migration **705** (+1 table avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé.
+- Évaluations communes (examens blancs) : création par la direction, une évaluation par cours, même date et même barème ; comparaison entre groupes (la direction voit tout, le professeur ses groupes et la moyenne anonyme des autres sous le seuil, R-V44) ; écarts entre examen blanc et contrôle continu.
+- Statistiques de période par matière, classe, niveau ou professeur (le professeur : ses cours seulement), répartition par nature, harmonisation entre les classes d'un niveau ; jamais de classement ; chaque consultation journalisée.
+- Charge d'une classe par semaine et évaluations non publiées depuis longtemps (sans note). 12 chemins, 13 points d'entrée (API seule).
+- **Non fait** : écrans Leptos, lien avec l'organisation des examens (socle 38), tableau de fin de période (EVA-212, couvert en partie par V8).
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).
