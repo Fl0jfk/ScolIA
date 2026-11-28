@@ -13,6 +13,11 @@ use uuid::Uuid;
 
 const MDP: &str = "DevLocalPass1!";
 
+/// Mot de passe jetable tiré au hasard : aucun littéral ressemblant à un secret dans les tests (alerte GitGuardian).
+fn faux_mdp() -> String {
+    format!("Jetable-{}-Aa1!", Uuid::new_v4().simple())
+}
+
 struct Banc {
     app: axum::Router,
     ent: Arc<PgEnt>,
@@ -519,8 +524,19 @@ async fn mb1_f1_texte_technique_jamais_relaye_et_5xx_non_conserve() {
             assert_eq!(r.statut.as_u16(), statut, "{}", r.texte);
             assert_eq!(r.code(), code.as_str());
             assert_eq!(r.json()["erreur"]["message"], code.message_neutre());
-            for interdit in ["duplicate", "constraint", "ent_eleve", "database", "sqlx", "pool"] {
-                assert!(!r.texte.contains(interdit), "fuite « {interdit} » : {}", r.texte);
+            for interdit in [
+                "duplicate",
+                "constraint",
+                "ent_eleve",
+                "database",
+                "sqlx",
+                "pool",
+            ] {
+                assert!(
+                    !r.texte.contains(interdit),
+                    "fuite « {interdit} » : {}",
+                    r.texte
+                );
             }
             assert!(
                 r.en_tetes.get("idempotent-replayed").is_none(),
@@ -570,7 +586,15 @@ async fn mb1_web_avec_cle_requete_dans_l_empreinte_et_autre_etablissement() {
     let web = |uri: &'static str| {
         let (app, jeton, k, corps) = (b.app.clone(), jeton.clone(), k.clone(), corps.clone());
         async move {
-            envoyer(&app, "POST", uri, Some(&jeton), &[("idempotency-key", &k)], Some(corps)).await
+            envoyer(
+                &app,
+                "POST",
+                uri,
+                Some(&jeton),
+                &[("idempotency-key", &k)],
+                Some(corps),
+            )
+            .await
         }
     };
     let r1 = web("/mobile/labo/echo").await;
@@ -598,4 +622,63 @@ async fn mb1_web_avec_cle_requete_dans_l_empreinte_et_autre_etablissement() {
     assert_eq!(r.statut, StatusCode::CREATED);
     assert!(r.en_tetes.get("idempotent-replayed").is_none());
     assert_eq!(r.json()["execution"], 2);
+}
+
+/// Palier MB2 (reste de MB1) : un jeton mort sur une route `/auth/*` est une session perdue (`session.expiree`),
+/// et un mot de passe actuel refusé avec une session valide reste un refus (`auth.refusee`), session intacte.
+#[tokio::test]
+async fn mb2_401_jeton_mort_sur_auth_et_mot_de_passe_actuel_refuse() {
+    let Some(b) = banc().await else {
+        eprintln!("ENT_DATABASE_URL absent : test ignoré");
+        return;
+    };
+    let (_email, jeton) = inscrire(&b).await;
+
+    // Mot de passe actuel refusé : `auth.refusee`, la session reste utilisable.
+    let r = envoyer(
+        &b.app,
+        "POST",
+        "/auth/password",
+        Some(&jeton),
+        &[APPLI],
+        Some(json!({"current_password": faux_mdp(), "new_password": faux_mdp()})),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte);
+    assert_eq!(r.code(), "auth.refusee");
+    let me = envoyer(&b.app, "GET", "/auth/me", Some(&jeton), &[APPLI], None).await;
+    assert_eq!(me.statut, StatusCode::OK, "{}", me.texte);
+
+    // Jeton révoqué (déconnexion), puis `/auth/me` et `/auth/sessions` : session perdue.
+    let out = envoyer(&b.app, "POST", "/auth/logout", Some(&jeton), &[APPLI], None).await;
+    assert!(out.statut.is_success(), "logout : {}", out.texte);
+    for chemin in ["/auth/me", "/auth/sessions"] {
+        let r = envoyer(&b.app, "GET", chemin, Some(&jeton), &[APPLI], None).await;
+        assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{chemin} : {}", r.texte);
+        assert_eq!(r.code(), "session.expiree", "{chemin}");
+    }
+    // Jeton mort sur une route qui redemande le mot de passe : c'est la session qui est perdue, pas le mot de
+    // passe qui est refusé (contre-revue du lot 1 de MB2, M3).
+    let r = envoyer(
+        &b.app,
+        "POST",
+        "/auth/password",
+        Some(&jeton),
+        &[APPLI],
+        Some(json!({"current_password": MDP, "new_password": faux_mdp()})),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte);
+    assert_eq!(r.code(), "session.expiree");
+    // Jeton inventé : idem.
+    let r = envoyer(
+        &b.app,
+        "GET",
+        "/auth/me",
+        Some("jeton-invente"),
+        &[APPLI],
+        None,
+    )
+    .await;
+    assert_eq!(r.code(), "session.expiree");
 }

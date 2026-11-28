@@ -1,0 +1,45 @@
+{
+  "corps": {
+    "options": {
+      "publicKey": {
+        "attestation": "none",
+        "authenticatorSelection": {
+          "requireResidentKey": false,
+          "residentKey": "discouraged",
+          "userVerification": "required"
+        },
+        "challenge": "D7BTuPaDBh-4cCdtOeyA4ZSM5WdbXHLkfQqmFmZJBaE",
+        "excludeCredentials": [],
+        "extensions": {
+          "credProps": true,
+          "credentialProtectionPolicy": "userVerificationRequired",
+          "enforceCredentialProtectionPolicy": false,
+          "uvm": true
+        },
+        "pubKeyCredParams": [
+          {
+            "alg": -7,
+            "type": "public-key"
+          },
+          {
+            "alg": -257,
+            "type": "public-key"
+          }
+        ],
+        "rp": {
+          "id": "localhost",
+          "name": "ScolIA ENT"
+        },
+        "timeout": 300000,
+        "user": {
+          "displayName": "Lily Potter",
+          "id": "ylIAexFoSwSYS46Fgu-6zg",
+          "name": "persona@ent.test"
+        }
+      }
+    },
+    "token": "secret-masque"
+  },
+  "route": "POST /auth/passkey/register/start",
+  "statut": 200
+}

@@ -1,0 +1,24 @@
+{
+  "corps": {
+    "cellules": [
+      {
+        "conflit": {
+          "le": "2027-03-08T09:00:00Z",
+          "par_nom": "Severus Rogue",
+          "statut": "note",
+          "valeur_m": 15500,
+          "version": 1
+        },
+        "eleve_id": "00000000-0000-4000-8000-000000000001",
+        "evaluation_id": "00000000-0000-4000-8000-000000000002",
+        "issue": "conflit",
+        "message": "la case a changé depuis votre lecture",
+        "statut": null,
+        "valeur_m": null,
+        "version": null
+      }
+    ]
+  },
+  "route": "POST /eva/saisie",
+  "statut": 200
+}

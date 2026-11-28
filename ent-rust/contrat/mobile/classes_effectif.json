@@ -1,0 +1,163 @@
+{
+  "corps": {
+    "classe": "4B",
+    "eleves": [
+      {
+        "classe": "4B",
+        "date_entree": null,
+        "date_naissance": null,
+        "date_sortie": null,
+        "etablissement_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "ine": null,
+        "masques": [
+          {
+            "action": "eleves.lire",
+            "groupe": "scolarite",
+            "message": "Votre rôle n'ouvre pas la scolarité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.etat_civil.lire",
+            "groupe": "etat_civil",
+            "message": "Votre rôle n'ouvre pas l'état civil de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.identifiants.lire",
+            "groupe": "identifiants",
+            "message": "Votre rôle n'ouvre pas les identifiants de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.historique.lire",
+            "groupe": "historique",
+            "message": "Votre rôle n'ouvre pas l'historique d'identité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.confidentiel.gerer",
+            "groupe": "sensible",
+            "message": "Votre rôle n'ouvre pas les données sensibles de l'élève.",
+            "raison": "droit_manquant"
+          }
+        ],
+        "mef": null,
+        "motif_sortie": null,
+        "nom": "Granger",
+        "numero_badge": null,
+        "prenom": "Hermione",
+        "redoublant": null,
+        "regime": null,
+        "sexe": null,
+        "site": "principal",
+        "status": "actif"
+      },
+      {
+        "classe": "4B",
+        "date_entree": null,
+        "date_naissance": null,
+        "date_sortie": null,
+        "etablissement_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "ine": null,
+        "masques": [
+          {
+            "action": "eleves.lire",
+            "groupe": "scolarite",
+            "message": "Votre rôle n'ouvre pas la scolarité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.etat_civil.lire",
+            "groupe": "etat_civil",
+            "message": "Votre rôle n'ouvre pas l'état civil de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.identifiants.lire",
+            "groupe": "identifiants",
+            "message": "Votre rôle n'ouvre pas les identifiants de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.historique.lire",
+            "groupe": "historique",
+            "message": "Votre rôle n'ouvre pas l'historique d'identité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.confidentiel.gerer",
+            "groupe": "sensible",
+            "message": "Votre rôle n'ouvre pas les données sensibles de l'élève.",
+            "raison": "droit_manquant"
+          }
+        ],
+        "mef": null,
+        "motif_sortie": null,
+        "nom": "Potter",
+        "numero_badge": null,
+        "prenom": "Harry",
+        "redoublant": null,
+        "regime": null,
+        "sexe": null,
+        "site": "principal",
+        "status": "actif"
+      },
+      {
+        "classe": "4B",
+        "date_entree": null,
+        "date_naissance": null,
+        "date_sortie": null,
+        "etablissement_id": "00000000-0000-4000-8000-000000000001",
+        "id": "00000000-0000-4000-8000-000000000004",
+        "ine": null,
+        "masques": [
+          {
+            "action": "eleves.lire",
+            "groupe": "scolarite",
+            "message": "Votre rôle n'ouvre pas la scolarité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.etat_civil.lire",
+            "groupe": "etat_civil",
+            "message": "Votre rôle n'ouvre pas l'état civil de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.identifiants.lire",
+            "groupe": "identifiants",
+            "message": "Votre rôle n'ouvre pas les identifiants de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.historique.lire",
+            "groupe": "historique",
+            "message": "Votre rôle n'ouvre pas l'historique d'identité de l'élève.",
+            "raison": "droit_manquant"
+          },
+          {
+            "action": "eleves.confidentiel.gerer",
+            "groupe": "sensible",
+            "message": "Votre rôle n'ouvre pas les données sensibles de l'élève.",
+            "raison": "droit_manquant"
+          }
+        ],
+        "mef": null,
+        "motif_sortie": null,
+        "nom": "Weasley",
+        "numero_badge": null,
+        "prenom": "Ginny",
+        "redoublant": null,
+        "regime": null,
+        "sexe": null,
+        "site": "principal",
+        "status": "actif"
+      }
+    ],
+    "jour": "2027-03-08"
+  },
+  "route": "GET /classes/{classe}/effectif",
+  "statut": 200
+}

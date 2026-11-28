@@ -1,0 +1,17 @@
+{
+  "corps": [
+    {
+      "classe": "4B",
+      "coef": 1.0,
+      "date_devoir": "2027-03-08",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "matiere_id": "00000000-0000-4000-8000-000000000002",
+      "matiere_libelle": "Potions",
+      "periode_id": "00000000-0000-4000-8000-000000000003",
+      "sur": 20.0,
+      "titre": "Contrôle T0 démo bulletin"
+    }
+  ],
+  "route": "GET /devoirs",
+  "statut": 200
+}

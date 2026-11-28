@@ -1,0 +1,5 @@
+{
+  "corps": null,
+  "route": "DELETE /auth/sessions/{id}",
+  "statut": 204
+}

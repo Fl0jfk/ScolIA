@@ -1,0 +1,29 @@
+{
+  "corps": [
+    {
+      "apercu_nb_eleves": 3,
+      "apercu_nb_responsables": 3,
+      "audience": "classe",
+      "auteur_user_id": "00000000-0000-4000-8000-000000000001",
+      "cible_classe": "4B",
+      "corps": "Salle B12.",
+      "created_at": "2027-03-08T09:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000002",
+      "statut": "publiee",
+      "titre": "Réunion parents (banc MB2)"
+    },
+    {
+      "apercu_nb_eleves": 10,
+      "apercu_nb_responsables": 9,
+      "audience": "tous",
+      "auteur_user_id": "00000000-0000-4000-8000-000000000001",
+      "corps": "Départ 8 h.",
+      "created_at": "2027-03-08T09:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "statut": "publiee",
+      "titre": "Sortie au musée (banc MB2)"
+    }
+  ],
+  "route": "GET /eleves/{id}/annonces",
+  "statut": 200
+}

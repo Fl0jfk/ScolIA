@@ -1,0 +1,13 @@
+{
+  "corps": [
+    {
+      "code": "T1",
+      "date_debut": "2027-03-08",
+      "date_fin": "2027-03-08",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "libelle": "Trimestre 1"
+    }
+  ],
+  "route": "GET /eva/cours/{id}/periodes",
+  "statut": 200
+}

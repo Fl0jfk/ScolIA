@@ -2543,11 +2543,17 @@ async fn passkey_register_finish(
     State(state): State<AppState>,
     session: EntSession,
     Json(body): Json<PasskeyRegisterFinishBody>,
-) -> Result<(StatusCode, Json<PasskeyDto>), (StatusCode, String)> {
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
     let credential: ent_auth::RegisterPublicKeyCredential =
-        serde_json::from_value(body.credential)
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("credential invalide: {e}")))?;
-    let row = state
+        match serde_json::from_value(body.credential) {
+            Ok(c) => c,
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, format!("credential invalide: {e}"))
+                    .into_response()
+            }
+        };
+    match state
         .ent
         .passkey_register_finish_session(
             session.etablissement_id,
@@ -2561,8 +2567,10 @@ async fn passkey_register_finish(
             body.name.clone(),
         )
         .await
-        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_passkey(e)))?;
-    Ok((StatusCode::CREATED, Json(row.into())))
+    {
+        Ok(row) => (StatusCode::CREATED, Json(PasskeyDto::from(row))).into_response(),
+        Err(e) => refus_identifiants(map_compte_sensible(&e).unwrap_or_else(|| map_passkey(e))),
+    }
 }
 
 /// Passkeys du compte connecté.
@@ -2864,8 +2872,9 @@ async fn change_password(
     State(state): State<AppState>,
     session: EntSession,
     Json(body): Json<ChangePasswordBody>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    state
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match state
         .ent
         .change_password(
             session.etablissement_id,
@@ -2875,8 +2884,10 @@ async fn change_password(
             &body.new_password,
         )
         .await
-        .map_err(map_auth)?;
-    Ok(StatusCode::NO_CONTENT)
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => refus_identifiants(map_auth(e)),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -11172,6 +11183,17 @@ pub(crate) fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
             (StatusCode::BAD_REQUEST, "Configuration du fournisseur invalide.".to_string())
         }
         _ => (StatusCode::BAD_REQUEST, err.to_string()),
+    }
+}
+
+/// Route authentifiée qui vérifie des identifiants (mot de passe actuel, attestation passkey) : un 401 du
+/// traitement veut dire « identifiants refusés », pas « session perdue ». Le code est posé explicitement
+/// (`auth.refusee`) ; un 401 de l'extracteur de session (jeton mort) reste `session.expiree` (MB2).
+fn refus_identifiants((statut, msg): (StatusCode, String)) -> axum::response::Response {
+    if statut == StatusCode::UNAUTHORIZED {
+        crate::enveloppe::avec_code(ent_types::erreurs::CodeErreur::AuthRefusee, msg)
+    } else {
+        axum::response::IntoResponse::into_response((statut, msg))
     }
 }
 

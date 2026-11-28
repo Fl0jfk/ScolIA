@@ -1,0 +1,16 @@
+{
+  "corps": [
+    {
+      "classe": "4B",
+      "consigne": "Préparer la potion de croissance (ch.4) — à rendre pour la prochaine séance.",
+      "created_at": "2027-03-08T09:00:00Z",
+      "cree_le": "2027-03-08",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "matiere_libelle": "Potions",
+      "pour_le": "2027-03-08",
+      "titre": "Devoir maison Potions 4B (audit)"
+    }
+  ],
+  "route": "GET /cahier-texte",
+  "statut": 200
+}

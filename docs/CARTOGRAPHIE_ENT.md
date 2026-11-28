@@ -20,7 +20,7 @@ Convention : **[F]** = fait vérifié dans le code (chemin) ; **[P]** = proposit
 | Ancienne UI JS | 54 170 lignes, une page unique ; écrans par rôle (cf. §0.1) ; **à remplacer module par module, jamais à étendre (F-001)** | `ent-api/src/ui.rs` (fonction `navHtml`, l. ~24782) |
 | Établissement | `etablissement_id UUID` partout, **aucune table `ent_etablissement`** ; paramètres en clé/valeur (`ent_param_etab`) | `migrations/076_param_salle.sql` |
 | Chantiers en cours | trois worktrees ouverts sur `44aeb64b` : `v2-l3`, `v2-referentiel`, `v2-viescolaire` (non lus ici) | `.claude/worktrees/` |
-| Mobile | 4 prototypes non compilables, à fusionner (D-003) | `ent-rust/apps/` |
+| Mobile | une appli Android (Kotlin/Compose) et une appli iOS (SwiftUI) pour tous les rôles (D-003), en CI depuis le palier MB1 client | `ent-rust/apps/android`, `ent-rust/apps/ios` |
 
 ### 0.1 Écrans de l'ancienne UI par rôle [F] (`ui.rs`, `navHtml`)
 

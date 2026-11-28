@@ -402,6 +402,8 @@ mod tests_palette_p6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_mobile_mb1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_contrat_mobile;
+#[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;
