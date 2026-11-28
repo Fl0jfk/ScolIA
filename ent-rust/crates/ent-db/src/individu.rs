@@ -15,10 +15,10 @@
 
 use chrono::{DateTime, Utc};
 use ent_auth::Action;
-use serde::Serialize;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use crate::notifications::{notifier_personne, EnvoiAPlanifier};
 use crate::rate_limit::{Decision, Quota};
 use crate::ref_commun::{db, introuvable};
 use crate::service::{EntDbError, PgEnt, RefusMetier};
@@ -27,12 +27,10 @@ use crate::tenant_tx::TenantTx;
 /// Déclarations d'individu par compte : 5 par jour (anti-énumération des adresses).
 pub const QUOTA_DECLARATIONS: Quota = Quota::new(5, 86_400);
 
-/// Motifs codés d'un lien posé par la direction ou le secrétariat.
-pub const MOTIFS_LIEN: [&str; 4] = ["deux_comptes", "fiche_sans_compte", "doublon_agent", "autre"];
-/// Motifs codés d'une levée.
-pub const MOTIFS_LEVEE: [&str; 3] = ["erreur", "homonyme", "autre"];
-/// Motifs codés d'une proposition écartée.
-pub const MOTIFS_ECARTEE: [&str; 3] = ["homonyme", "coordonnee_partagee", "autre"];
+pub use ent_types::individu::{
+    DeclarationRecue, LienIndividu, MonIndividu, MonLienIndividu, PropositionIndividu, MOTIFS_ECARTEE, MOTIFS_LEVEE,
+    MOTIFS_LIEN,
+};
 
 /// Refus : l'individu concerné lève son propre lien.
 pub const MSG_LEVEE_PAR_SOI: &str =
@@ -166,46 +164,100 @@ pub(crate) async fn agents_meme_individu(
 
 // ───────────────────────── Vues ─────────────────────────
 
-/// Un lien d'individu, vu de la direction ou du secrétariat.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct LienIndividu {
-    pub id: Uuid,
-    pub personne_a: Uuid,
-    pub personne_b: Uuid,
-    pub nom_a: String,
-    pub nom_b: String,
-    pub origine: String,
-    pub motif_code: String,
-    pub pose_le: DateTime<Utc>,
+// ───────────────────────── Avis à l'intéressé ─────────────────────────
+//
+// Un lien posé ou levé change ce que la personne peut faire (des refus en plus, ou en moins) : elle en est prévenue
+// sur **tous** ses comptes de l'établissement, dans l'ENT et par e-mail ou push selon ses préférences. Les textes ne
+// nomment ni une fiche ni une personne (un lien posé à tort désignerait quelqu'un d'autre, et l'e-mail sort de l'ENT) ;
+// le détail est dans « Compte › Mes autres comptes ». Le geste qui ne regarde que son auteur ne prévient personne : un
+// refus de déclaration n'est jamais annoncé au déclarant (anti-énumération des adresses).
+
+/// Avis : deux fiches de la personne ont été reliées.
+pub const AVIS_LIEN_POSE: (&str, &str, &str) = (
+    "individu_lien_pose",
+    "Deux de vos fiches ont été reliées",
+    "L'établissement a reconnu que deux de vos fiches ou deux de vos comptes désignent la même personne. Cela n'ouvre \
+     aucun accès : certaines décisions qui vous concernent, vous ou vos enfants, seront désormais prises par une autre \
+     personne. En cas d'erreur, signalez-le au secrétariat. Détail : Compte, Mes autres comptes.",
+);
+/// Avis : un lien entre deux fiches de la personne a été levé.
+pub const AVIS_LIEN_LEVE: (&str, &str, &str) = (
+    "individu_lien_leve",
+    "Un lien entre vos fiches a été levé",
+    "La direction a levé un lien entre deux fiches qui vous désignaient comme une seule personne. Détail : Compte, Mes \
+     autres comptes.",
+);
+/// Avis : un autre compte déclare être aussi la personne.
+pub const AVIS_DECLARATION_RECUE: (&str, &str, &str) = (
+    "individu_declaration_recue",
+    "Un autre compte déclare être aussi vous",
+    "Un autre compte de l'établissement déclare appartenir à la même personne que vous. Confirmez ou refusez dans les \
+     24 heures depuis Compte, Mes autres comptes. Si vous ne reconnaissez pas cette demande, refusez-la.",
+);
+/// Avis : la déclaration faite depuis ce compte a été confirmée depuis l'autre.
+pub const AVIS_DECLARATION_CONFIRMEE: (&str, &str, &str) = (
+    "individu_declaration_confirmee",
+    "Votre autre compte est reconnu",
+    "Votre déclaration a été confirmée depuis votre autre compte : l'établissement sait désormais que ces deux comptes \
+     sont à la même personne. Détail : Compte, Mes autres comptes.",
+);
+
+/// Comptes de l'individu formé par ces fiches (fiches reliées, fusions, comptes d'élève), triés.
+async fn comptes_des_fiches(conn: &mut PgConnection, etab: Uuid, fiches: &[Uuid]) -> Result<Vec<Uuid>, EntDbError> {
+    sqlx::query_scalar(
+        "WITH f AS (SELECT unnest(public.ent_individu_personnes($1, $2)) AS id)
+         SELECT DISTINCT u FROM (
+             SELECT p.user_id AS u FROM public.ent_personne p JOIN f ON f.id = p.id
+              WHERE p.etablissement_id = $1 AND p.user_id IS NOT NULL
+             UNION
+             SELECT ec.user_id FROM public.ent_personne p JOIN f ON f.id = p.id
+               JOIN public.ent_eleve_compte ec ON ec.etablissement_id = p.etablissement_id AND ec.eleve_id = p.eleve_id
+              WHERE p.etablissement_id = $1
+         ) x ORDER BY u",
+    )
+    .bind(etab)
+    .bind(fiches)
+    .fetch_all(conn)
+    .await
+    .map_err(db)
 }
 
-/// Une déclaration reçue, en attente de confirmation par le compte cible.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct DeclarationRecue {
-    pub id: Uuid,
-    /// Nom affiché du compte déclarant (la personne qui déclare se fait connaître de son autre compte).
-    pub declarant: String,
-    pub declare_le: DateTime<Utc>,
-    pub expire_le: DateTime<Utc>,
-}
-
-/// Ce que le compte voit de son individu : le nombre de ses autres comptes reconnus et ses déclarations reçues.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct MonIndividu {
-    pub autres_comptes: i64,
-    pub fiches_reliees: i64,
-    pub declarations_recues: Vec<DeclarationRecue>,
-}
-
-/// Une ressemblance entre deux fiches (une au moins est un agent). Jamais la coordonnée elle-même.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct PropositionIndividu {
-    pub personne_a: Uuid,
-    pub personne_b: Uuid,
-    pub nom_a: String,
-    pub nom_b: String,
-    /// `email`, `telephone`.
-    pub raisons: Vec<String>,
+/// Prévient chaque compte (sauf `sauf`) : notification dans l'ENT, e-mail ou push selon ses préférences. Idempotent
+/// par geste (`geste_id` : le lien ou la déclaration).
+async fn prevenir(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    comptes: &[Uuid],
+    sauf: Option<Uuid>,
+    avis: (&'static str, &'static str, &'static str),
+    geste_id: Uuid,
+) -> Result<(), EntDbError> {
+    let (kind, titre, corps) = avis;
+    let maintenant = Utc::now();
+    for &u in comptes.iter().filter(|u| Some(**u) != sauf) {
+        notifier_personne(
+            &mut *conn,
+            EnvoiAPlanifier {
+                etablissement_id: etab,
+                user_id: u,
+                kind,
+                titre,
+                corps,
+                eleve_id: None,
+                notification_id: None,
+                source_type: "systeme",
+                source_id: geste_id,
+                cle_dedup: format!("{kind}:{geste_id}"),
+                droit_requis: None,
+                regroupable: false,
+                canaux_voulus: &["email", "push"],
+            },
+            geste_id,
+            maintenant,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 fn paire(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
@@ -278,17 +330,20 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if !en_attente {
+            let id = Uuid::new_v4();
             sqlx::query(
                 "INSERT INTO ent_individu_declaration (id, etablissement_id, declarant_user_id, cible_user_id, expire_le)
                  VALUES ($1, $2, $3, $4, now() + interval '24 hours')",
             )
-            .bind(Uuid::new_v4())
+            .bind(id)
             .bind(etab)
             .bind(actor)
             .bind(cible)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+            // Seul le compte cible est prévenu : le déclarant n'apprend rien de plus que la réponse neutre.
+            prevenir(&mut tx, etab, &[cible], None, AVIS_DECLARATION_RECUE, id).await?;
         }
         tx.commit().await.map_err(db)
     }
@@ -310,7 +365,22 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        // Les liens actifs entre ses fiches : quand et comment, jamais l'autre fiche (minimisation, §4 de la conception).
+        let liens: Vec<(String, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT l.origine, l.motif_code, l.pose_le FROM ent_individu_lien l
+              WHERE l.etablissement_id = $1 AND l.leve_le IS NULL AND l.personne_a = ANY($2)
+              ORDER BY l.pose_le DESC, l.id",
+        )
+        .bind(etab)
+        .bind(&fiches)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
         Ok(MonIndividu {
+            liens: liens
+                .into_iter()
+                .map(|(origine, motif_code, pose_le)| MonLienIndividu { origine, motif_code, pose_le })
+                .collect(),
             autres_comptes: i64::try_from(comptes.len().saturating_sub(1)).unwrap_or(0),
             fiches_reliees: i64::try_from(fiches.len()).unwrap_or(0),
             declarations_recues: recues
@@ -410,6 +480,8 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db_individu)?;
+        // La cible vient de confirmer elle-même ; le compte déclarant est prévenu (il a prouvé posséder les deux).
+        prevenir(&mut tx, etab, &[declarant], None, AVIS_DECLARATION_CONFIRMEE, declaration_id).await?;
         tx.commit().await.map_err(db)?;
         Ok(lien)
     }
@@ -463,6 +535,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db_individu)?;
+        // Tous les comptes de l'individu ainsi formé sont prévenus (sauf l'auteur, s'il relie ses propres fiches).
+        let comptes = comptes_des_fiches(&mut tx, etab, &[a]).await?;
+        prevenir(&mut tx, etab, &comptes, Some(actor), AVIS_LIEN_POSE, id).await?;
         tx.commit().await.map_err(db)?;
         Ok(id)
     }
@@ -504,6 +579,8 @@ impl PgEnt {
         if miennes.contains(&a) || miennes.contains(&b) {
             return Err(refus(RefusMetier::Interdit, MSG_LEVEE_PAR_SOI));
         }
+        // Les comptes à prévenir se calculent **avant** la levée : après, l'individu peut se scinder en deux.
+        let comptes = comptes_des_fiches(&mut tx, etab, &[a, b]).await?;
         sqlx::query(
             "UPDATE ent_individu_lien SET leve_le = now(), leve_par_user_id = $3, leve_motif_code = $4
               WHERE etablissement_id = $1 AND id = $2",
@@ -515,6 +592,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db_individu)?;
+        prevenir(&mut tx, etab, &comptes, Some(actor), AVIS_LIEN_LEVE, lien_id).await?;
         tx.commit().await.map_err(db)
     }
 

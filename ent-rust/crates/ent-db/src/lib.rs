@@ -571,7 +571,8 @@ pub use delegation::{
     droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
 };
 pub use individu::{
-    DeclarationRecue, LienIndividu, MonIndividu, PropositionIndividu, MOTIFS_ECARTEE, MOTIFS_LEVEE, MOTIFS_LIEN,
+    DeclarationRecue, LienIndividu, MonIndividu, MonLienIndividu, PropositionIndividu, MOTIFS_ECARTEE, MOTIFS_LEVEE,
+    MOTIFS_LIEN,
 };
 pub use dossier_personnes::{
     AjoutResponsable, LienEnAttente, LienResultat,
@@ -636,6 +637,8 @@ mod tests_individu;
 mod tests_individu_voyages;
 #[cfg(all(test, feature = "labo"))]
 mod tests_individu_socles;
+#[cfg(all(test, feature = "labo"))]
+mod tests_individu_avis;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]

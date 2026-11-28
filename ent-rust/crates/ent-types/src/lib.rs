@@ -47,6 +47,7 @@ pub mod finances_grilles;
 pub mod fusion;
 pub mod identifiants;
 pub mod identite;
+pub mod individu;
 pub mod inscriptions;
 pub mod inscriptions_decisions;
 pub mod inscriptions_pieces;
