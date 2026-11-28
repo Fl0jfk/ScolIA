@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 
@@ -246,16 +247,17 @@ class EcransComposeTest {
         rule.onNodeWithTag("module-SIGNALER").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Vous n'avez rien signalé dans cet établissement.") > 0 }
         // Phrase vide : refusée localement, rien ne part.
-        rule.onNodeWithTag("signaler-envoyer").performClick()
-        rule.onNodeWithText("Dites en une phrase ce qui s'est passé.").assertIsDisplayed()
-        rule.onNodeWithTag("signaler-intitule").performTextInput("Clé USB perdue")
-        rule.onNodeWithTag("signaler-envoyer").performClick()
+        // Écran plus haut que la fenêtre de test : on fait défiler jusqu'à chaque élément avant d'agir.
+        rule.onNodeWithTag("signaler-envoyer").performScrollTo().performClick()
+        rule.onNodeWithText("Dites en une phrase ce qui s'est passé.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("signaler-intitule").performScrollTo().performTextInput("Clé USB perdue")
+        rule.onNodeWithTag("signaler-envoyer").performScrollTo().performClick()
         // Envoi : la direction est alertée, rien ne part sans confirmation.
         rule.onNodeWithText("Prévenir la direction ?").assertIsDisplayed()
         assertTrue(api.recues.none { it == "POST /rgpd/violations/declarations" })
         rule.onNodeWithTag("signaler-confirmer").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTag("signaler-recu").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText("Signalement V-2027-003 enregistré").assertIsDisplayed()
+        rule.onNodeWithText("Signalement V-2027-003 enregistré").performScrollTo().assertIsDisplayed()
         assertEquals(1, api.recues.count { it == "POST /rgpd/violations/declarations" })
     }
 }
