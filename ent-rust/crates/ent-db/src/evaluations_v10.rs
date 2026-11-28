@@ -241,9 +241,8 @@ async fn charger_periode_tx(
     let mut resultats = Vec::with_capacity(lignes.len());
     for l in &lignes {
         let id: Uuid = l.try_get("id").map_err(db)?;
-        if !evals.contains_key(&id) {
-            evals.insert(
-                id,
+        if let std::collections::hash_map::Entry::Vacant(v) = evals.entry(id) {
+            v.insert(
                 EvalLue {
                     id,
                     cours_id: l.try_get("cours_id").map_err(db)?,
@@ -589,7 +588,7 @@ impl PgEnt {
                 mon_cours: mes_cours.contains(&cours_id),
             })
             .collect();
-        evaluations.sort_by(|a, b| (a.cours_libelle.to_lowercase(), a.cours_id).cmp(&(b.cours_libelle.to_lowercase(), b.cours_id)));
+        evaluations.sort_by_key(|a| (a.cours_libelle.to_lowercase(), a.cours_id));
         Ok(CommuneDto {
             id: c.id,
             libelle: c.libelle.clone(),
@@ -828,9 +827,8 @@ impl PgEnt {
         for l in &lignes {
             let id: Uuid = l.try_get("id").map_err(db)?;
             let statut: String = l.try_get("statut").map_err(db)?;
-            if !entetes.contains_key(&id) {
-                entetes.insert(
-                    id,
+            if let std::collections::hash_map::Entry::Vacant(v) = entetes.entry(id) {
+                v.insert(
                     EvalCalcul {
                         id,
                         titre: l.try_get("titre").map_err(db)?,
@@ -880,7 +878,7 @@ impl PgEnt {
                 autres.extend(notes);
             }
         }
-        groupes.sort_by(|a, b| (a.cours_libelle.to_lowercase(), a.cours_id).cmp(&(b.cours_libelle.to_lowercase(), b.cours_id)));
+        groupes.sort_by_key(|a| (a.cours_libelle.to_lowercase(), a.cours_id));
         let (ensemble, autres_groupes) = if direction {
             (serie(&toutes, &regles, &mut avertissements, &c.libelle), None)
         } else {
@@ -1037,7 +1035,7 @@ impl PgEnt {
                 ecart(&ex, &cc, *id, *cours_id, libelle)
             })
             .collect();
-        groupes.sort_by(|a, b| (a.cours_libelle.to_lowercase(), a.cours_id).cmp(&(b.cours_libelle.to_lowercase(), b.cours_id)));
+        groupes.sort_by_key(|a| (a.cours_libelle.to_lowercase(), a.cours_id));
         let ensemble = ecart(&tout_ex, &tout_cc, c.id, Uuid::nil(), c.libelle.clone());
         journaliser_tx(
             &mut tx,
@@ -1137,7 +1135,7 @@ impl PgEnt {
                 }
             })
             .collect();
-        lignes.sort_by(|a, b| (a.libelle.to_lowercase(), a.cle).cmp(&(b.libelle.to_lowercase(), b.cle)));
+        lignes.sort_by_key(|a| (a.libelle.to_lowercase(), a.cle));
         Ok(StatistiquesPeriodeDto { periode_id: periode, axe, lignes, avertissements })
     }
 
@@ -1214,7 +1212,7 @@ impl PgEnt {
                 }
             })
             .collect();
-        lignes.sort_by(|a, b| (a.libelle.to_lowercase(), a.nature_id).cmp(&(b.libelle.to_lowercase(), b.nature_id)));
+        lignes.sort_by_key(|a| (a.libelle.to_lowercase(), a.nature_id));
         Ok(RepartitionNaturesDto { periode_id: periode, lignes, avertissements })
     }
 
@@ -1289,13 +1287,11 @@ impl PgEnt {
                         }
                     })
                     .collect();
-                classes.sort_by(|a, b| {
-                    (a.classe_libelle.to_lowercase(), a.classe_id).cmp(&(b.classe_libelle.to_lowercase(), b.classe_id))
-                });
+                classes.sort_by_key(|a| (a.classe_libelle.to_lowercase(), a.classe_id));
                 MatiereHarmonisationDto { matiere_id, matiere_libelle: libelle, niveau: niveau_stats, classes }
             })
             .collect();
-        out.sort_by(|a, b| (a.matiere_libelle.to_lowercase(), a.matiere_id).cmp(&(b.matiere_libelle.to_lowercase(), b.matiere_id)));
+        out.sort_by_key(|a| (a.matiere_libelle.to_lowercase(), a.matiere_id));
         Ok(HarmonisationDto { periode_id: periode, niveau_id: niveau, niveau_libelle, matieres: out, avertissements })
     }
 
@@ -1558,10 +1554,9 @@ mod tests {
 
     #[test]
     fn seuil_anonymat_jamais_sous_le_plancher() {
-        let mut r = ReglesMoteur::default();
-        r.seuil_effectif_stats = 1;
+        let r = ReglesMoteur { seuil_effectif_stats: 1, ..Default::default() };
         assert_eq!(seuil_anonymat(&r), SEUIL_STATS_PLANCHER);
-        r.seuil_effectif_stats = 8;
+        let r = ReglesMoteur { seuil_effectif_stats: 8, ..Default::default() };
         assert_eq!(seuil_anonymat(&r), 8);
     }
 
