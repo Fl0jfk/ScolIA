@@ -553,12 +553,13 @@ impl PgEnt {
         if !(1..=ACCES_DUREE_MAX_JOURS).contains(&duree) {
             return Err(invalide("durée de l'accès : 1 à 90 jours"));
         }
-        // M1 : un pouvoir = une action. On n'accorde pas un accès d'inspection à soi-même (contrôle du droit, avant l'existence).
-        if b.beneficiaire_user_id == a.user_id {
-            return Err(EntDbError::Forbidden);
-        }
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // M1 : un pouvoir = une action. On n'accorde pas un accès d'inspection à soi-même, ni à un autre de ses comptes
+        // (transverse « individu », 2026-11-27 ; doublé en base par 2421). Contrôle du droit, avant l'existence.
+        if crate::individu::meme_individu(&mut tx, etab, b.beneficiaire_user_id, a.user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
         // Le bénéficiaire est un compte de l'établissement, jamais un élève ni un responsable.
         // Faible 10 : le rôle se lit avec les casquettes (`ent_membership_casquette`), pas sur le seul `ent_membership.role`.
         match compte_personnel(&mut tx, etab, b.beneficiaire_user_id).await? {
@@ -682,7 +683,7 @@ impl PgEnt {
             return Err(introuvable());
         };
         // M1 : le bénéficiaire ne prolonge pas son propre accès (l'accès existe, mais le pouvoir n'est pas le sien).
-        if beneficiaire == a.user_id {
+        if crate::individu::meme_individu(&mut tx, etab, beneficiaire, a.user_id).await? {
             return Err(EntDbError::Forbidden);
         }
         if revoque.is_some() {
@@ -1364,8 +1365,8 @@ impl PgEnt {
         else {
             return Err(conflit("aucune demande de réouverture en attente : une première personne de la direction doit la demander"));
         };
-        if demandeur == a.user_id {
-            // Un pouvoir = une action : on ne valide pas sa propre demande.
+        if crate::individu::meme_individu(&mut tx, etab, demandeur, a.user_id).await? {
+            // Un pouvoir = une action : on ne valide pas sa propre demande, ni depuis un autre de ses comptes.
             return Err(EntDbError::Forbidden);
         }
         let id = Uuid::new_v4();

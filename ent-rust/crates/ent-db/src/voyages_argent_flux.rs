@@ -352,7 +352,8 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(introuvable)?;
         // Séparation des tâches : on ne reçoit pas son propre bordereau.
-        if saisi_par == a.user_id {
+        // Transverse « individu » (659) : ni la personne qui a saisi, ni un autre de ses comptes.
+        if crate::individu::meme_individu(&mut t, a.etablissement_id, saisi_par, a.user_id).await? {
             return Err(refus(RefusMetier::Interdit, "Le bordereau est remis à une autre personne que celle qui l'a saisi."));
         }
         let lignes: Vec<(Uuid, i64)> = sqlx::query_as(

@@ -10,6 +10,7 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
 mod absence_repo;
+mod individu;
 mod assiduite;
 mod assiduite_as1;
 mod assiduite_as2;
@@ -569,6 +570,9 @@ pub use edt_remplacement::{
 pub use delegation::{
     droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
 };
+pub use individu::{
+    DeclarationRecue, LienIndividu, MonIndividu, PropositionIndividu, MOTIFS_ECARTEE, MOTIFS_LEVEE, MOTIFS_LIEN,
+};
 pub use dossier_personnes::{
     AjoutResponsable, LienEnAttente, LienResultat,
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
@@ -626,6 +630,12 @@ mod tests_absences_personnels;
 mod tests_absences_personnels_pieces;
 #[cfg(all(test, feature = "labo"))]
 mod tests_absences_personnels_parametres;
+#[cfg(all(test, feature = "labo"))]
+mod tests_individu;
+#[cfg(all(test, feature = "labo"))]
+mod tests_individu_voyages;
+#[cfg(all(test, feature = "labo"))]
+mod tests_individu_socles;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]

@@ -229,7 +229,9 @@ impl PgEnt {
         })
     }
 
-    /// Conflit d'intérêts de cet agent vis-à-vis de cet élève (R-A18). `None` pour une famille ou
+    /// Conflit d'intérêts de cet agent vis-à-vis de cet élève (R-A18), jugé sur l'**individu** (transverse 2026-11-27) :
+    /// une fiche reliée à celle de l'agent (second compte parent, fiche parent sans compte) ouvre le conflit, comme un
+    /// conflit déclaré sur un autre de ses comptes. `None` pour une famille ou
     /// un élève (leurs droits viennent du lien, jamais d'un rôle professionnel).
     pub async fn conflit_interet_eleve(
         &self,
@@ -246,13 +248,13 @@ impl PgEnt {
                  WHEN EXISTS (SELECT 1 FROM ent_personne p
                                 JOIN ent_eleve_lien l
                                   ON l.personne_id = p.id AND l.etablissement_id = p.etablissement_id
-                               WHERE p.etablissement_id = $1 AND p.user_id = $2 AND l.eleve_id = $3) THEN 1
+                               WHERE p.etablissement_id = $1 AND p.id = ANY (public.ent_individu_personnes_du_compte($1, $2)) AND l.eleve_id = $3) THEN 1
                  WHEN EXISTS (SELECT 1 FROM ent_personne p
                                 JOIN ent_eleve_contact_urgence c
                                   ON c.personne_id = p.id AND c.etablissement_id = p.etablissement_id
-                               WHERE p.etablissement_id = $1 AND p.user_id = $2 AND c.eleve_id = $3) THEN 2
+                               WHERE p.etablissement_id = $1 AND p.id = ANY (public.ent_individu_personnes_du_compte($1, $2)) AND c.eleve_id = $3) THEN 2
                  WHEN EXISTS (SELECT 1 FROM ent_conflit_interet
-                               WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3
+                               WHERE etablissement_id = $1 AND user_id = ANY (public.ent_individu_comptes($1, $2)) AND eleve_id = $3
                                  AND leve_le IS NULL) THEN 3
                  ELSE 0 END",
         )
@@ -521,14 +523,14 @@ impl PgEnt {
             "WITH conflits AS (
                 SELECT l.eleve_id FROM ent_personne p
                   JOIN ent_eleve_lien l ON l.personne_id = p.id AND l.etablissement_id = p.etablissement_id
-                 WHERE p.etablissement_id = $1 AND p.user_id = $2
+                 WHERE p.etablissement_id = $1 AND p.id = ANY (public.ent_individu_personnes_du_compte($1, $2))
                 UNION
                 SELECT c.eleve_id FROM ent_personne p
                   JOIN ent_eleve_contact_urgence c ON c.personne_id = p.id AND c.etablissement_id = p.etablissement_id
-                 WHERE p.etablissement_id = $1 AND p.user_id = $2
+                 WHERE p.etablissement_id = $1 AND p.id = ANY (public.ent_individu_personnes_du_compte($1, $2))
                 UNION
                 SELECT eleve_id FROM ent_conflit_interet
-                 WHERE etablissement_id = $1 AND user_id = $2 AND leve_le IS NULL)
+                 WHERE etablissement_id = $1 AND user_id = ANY (public.ent_individu_comptes($1, $2)) AND leve_le IS NULL)
              SELECT DISTINCT x.personne_id FROM (
                 SELECT personne_id, eleve_id FROM ent_eleve_lien WHERE etablissement_id = $1
                 UNION ALL

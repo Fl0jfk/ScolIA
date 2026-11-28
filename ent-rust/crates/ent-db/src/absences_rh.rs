@@ -318,7 +318,10 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         // Idempotence : l'état demandé est déjà posé (et la règle de l'auto-validation passe avant).
-        if decision != Decision::Annuler && actor == current.user_id {
+        // R-AP10 sur l'individu : ni l'absent ni un autre de ses comptes ne décide (l'annulation reste sur le compte).
+        if decision != Decision::Annuler
+            && crate::individu::meme_individu(&mut tx, etab, actor, current.user_id).await?
+        {
             return Err(auto_validation());
         }
         if current.statut == decision.statut_cible() {
