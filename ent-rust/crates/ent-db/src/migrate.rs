@@ -616,6 +616,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // échec du contrôle d'existence d'un avis (faible 3 de la contre-revue E1 passe 5). 482 à 494 sont versées et ne changent
     // pas (règle 25). Aucune fonction. `MIGRATION_TAG` inchangé.
     m!("495_msg_controle_echec_depuis"),
+    // Socle 21, lot V7 « famille et élève » (703, plage d'extension 701–719 du socle 21 ; **fin de tableau**, règle 38) :
+    // demandes de révision tenues (rôle du demandeur, auteur de la réponse, retrait, une demande ouverte par résultat et
+    // par demandeur, garde d'immuabilité). 466 est versée et ne change pas (règle 25) ; sa fonction porte son
+    // `search_path`. Aucune table. Sous 3808 : `MIGRATION_TAG` inchangé.
+    m!("703_eva_v7_famille_eleve"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

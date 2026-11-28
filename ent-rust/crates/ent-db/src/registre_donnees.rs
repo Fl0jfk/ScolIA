@@ -1342,6 +1342,7 @@ pub const REGISTRE: &[ClasseTable] = &[
         .export_si("EXISTS (SELECT 1 FROM eva_resultat r JOIN eva_evaluation e ON e.etablissement_id = r.etablissement_id AND e.id = r.evaluation_id WHERE r.etablissement_id = x.etablissement_id AND r.id = x.resultat_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     // Demande de revue de la famille et réponse qui lui a été faite (`reponse` n'existe que si l'état est « repondue »).
     t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        // V7 (703) : rôle du demandeur, auteur de la réponse et instant du retrait, tous communiqués au demandeur.
         .tout_exportable("message de la famille et réponse qui lui a été adressée : aucun champ interne dans la table"),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),

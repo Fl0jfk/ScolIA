@@ -457,7 +457,13 @@ pub const CONSOMMATEUR_EVALUATIONS: &str = "d6.evaluations";
 
 pub struct ConsommateurEvaluations;
 
-const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", "evaluations.publiee", types::NOTE_BULLETIN_PUBLIE];
+const TYPES_EVALUATIONS: &[&str] = &[
+    "evaluation.publiee",
+    "evaluations.publiee",
+    types::NOTE_BULLETIN_PUBLIE,
+    crate::evaluations_v7::types_v7::REVISION_DEMANDEE,
+    crate::evaluations_v7::types_v7::REVISION_REPONDUE,
+];
 
 /// Destinataires d'un élève relus au traitement : responsables au lien ACTIF avec
 /// `peut_voir_notes` (compte parent membre) et le compte de l'élève lui-même.
@@ -628,6 +634,79 @@ async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -
                         "Les résultats de « {titre} » ({matiere}) sont disponibles pour {}.",
                         prenoms.join(", ")
                     ),
+                    e.id,
+                )
+                .await?;
+            }
+        }
+        // V7 (EVA-166) : demande de révision → les professeurs du cours ; réponse → le seul demandeur, s'il a encore le
+        // droit de lire les notes de l'élève (lien relu au traitement). Ni note, ni message, ni réponse dans l'avis.
+        crate::evaluations_v7::types_v7::REVISION_DEMANDEE | crate::evaluations_v7::types_v7::REVISION_REPONDUE => {
+            let Some(revision_id) = e
+                .payload
+                .get("revision_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Uuid::parse_str(s).ok())
+            else {
+                return Ok(());
+            };
+            let row: Option<(Uuid, Uuid, String, String, Uuid, String)> = sqlx::query_as(
+                r#"
+                SELECT r.eleve_id, ev.cours_id, ev.titre, COALESCE(m.libelle, 'Autre enseignement'), d.demandeur, d.etat
+                  FROM eva_revision_demande d
+                  JOIN eva_resultat r ON r.id = d.resultat_id AND r.etablissement_id = d.etablissement_id
+                  JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
+                  JOIN ent_cours co ON co.id = ev.cours_id AND co.etablissement_id = ev.etablissement_id
+                  LEFT JOIN ent_matiere m ON m.id = co.matiere_id AND m.etablissement_id = co.etablissement_id
+                 WHERE d.etablissement_id = $1 AND d.id = $2
+                "#,
+            )
+            .bind(etab)
+            .bind(revision_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((eleve_id, cours_id, titre, matiere, demandeur, etat)) = row else {
+                return Ok(());
+            };
+            if e.type_name == crate::evaluations_v7::types_v7::REVISION_DEMANDEE {
+                if etat != "ouverte" {
+                    return Ok(());
+                }
+                let profs: Vec<(Uuid,)> = sqlx::query_as(
+                    "SELECT DISTINCT prof_user_id FROM ent_service_enseignement
+                      WHERE etablissement_id = $1 AND cours_id = $2",
+                )
+                .bind(etab)
+                .bind(cours_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+                for (prof,) in profs {
+                    inserer_notification(
+                        tx,
+                        etab,
+                        prof,
+                        eleve_id,
+                        "revision_demandee",
+                        &format!("Demande de révision en {matiere}"),
+                        &format!("Une demande de révision vous est adressée sur « {titre} » ({matiere}). Elle est à lire dans l'espace évaluations."),
+                        e.id,
+                    )
+                    .await?;
+                }
+            } else {
+                if etat != "repondue" || !destinataires_notes(tx, etab, eleve_id).await?.contains(&demandeur) {
+                    return Ok(());
+                }
+                inserer_notification(
+                    tx,
+                    etab,
+                    demandeur,
+                    eleve_id,
+                    "revision_repondue",
+                    "Réponse à votre demande de révision",
+                    &format!("Une réponse a été donnée à votre demande sur « {titre} » ({matiere}). Elle est à lire dans l'espace évaluations."),
                     e.id,
                 )
                 .await?;
