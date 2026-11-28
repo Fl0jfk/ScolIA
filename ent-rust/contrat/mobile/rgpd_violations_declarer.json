@@ -1,0 +1,12 @@
+{
+  "corps": {
+    "avancement": "recue",
+    "connue_le": "2027-03-08T09:00:00Z",
+    "id": "00000000-0000-4000-8000-000000000001",
+    "intitule": "Clé USB avec des copies perdue (banc mobile)",
+    "message": "Merci : votre déclaration est enregistrée et la direction est prévenue. Déclarer vite est le bon réflexe ; aucune suite ne vise la personne qui déclare.",
+    "reference": "V-2026-001"
+  },
+  "route": "POST /rgpd/violations/declarations",
+  "statut": 201
+}

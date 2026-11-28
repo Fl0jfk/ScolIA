@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
@@ -278,6 +279,7 @@ fun icone(m: Module): ImageVector = when (m) {
     Module.AGENDA -> Icons.Filled.List
     Module.EDT -> Icons.Filled.DateRange
     Module.MESSAGERIE -> Icons.Filled.Email
+    Module.SIGNALER -> Icons.Filled.Lock
     Module.PROFIL -> Icons.Filled.AccountCircle
 }
 

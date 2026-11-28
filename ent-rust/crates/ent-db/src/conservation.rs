@@ -335,6 +335,8 @@ pub fn categorie_de_table(t: &ClasseTable) -> &'static str {
         // Lot G3a : le guichet des droits a sa propre catégorie (clôture + 60 mois, prescription), distincte
         // de la gouvernance de conformité. Le compteur de numéros la suit : il est l'ossature des références.
         "conformite" if n.starts_with("rgp_demande") => "rgpd.demande",
+        // Palier G5 : le registre des violations a sa catégorie (art. 33.5) ; la violation de plateforme la suit.
+        "conformite" if n.starts_with("rgp_violation") => "rgpd.violation",
         "conformite" => "rgpd.gouvernance",
         "documents" => "doc.document",
         "espaces" => "esp.espace",

@@ -409,3 +409,27 @@ data class Effectif(val classe: String, val jour: String, val eleves: List<Eleve
 /** Corps de `POST /eleves/{id}/notes`. */
 
 const val CLIENT_MOBILE = "mobile"
+
+// ---------- Signaler un incident (registre des violations, socle 27, complément G5) ----------
+// Source : `ent-types/src/rgpd_violations.rs` (`DeclarationBody`, `MaDeclarationDto`).
+
+/** Corps de `POST /rgpd/violations/declarations` : une phrase obligatoire, des précisions facultatives. */
+@Serializable
+data class DeclarationIncidentBody(
+    val intitule: String,
+    val description: String? = null,
+    /** Avis du déclarant : aucune donnée personnelle touchée. La direction requalifie ; l'horloge ne s'éteint pas. */
+    @SerialName("incident_securite") val incidentSecurite: Boolean = false,
+)
+
+/** Ce que voit le déclarant (R-RG32) : la référence et l'avancement, rien d'autre. */
+@Serializable
+data class MaDeclaration(
+    val id: String,
+    val reference: String,
+    val intitule: String,
+    @SerialName("connue_le") val connueLe: String,
+    /** `recue`, `en_cours` ou `close`. */
+    val avancement: String,
+    val message: String = "",
+)

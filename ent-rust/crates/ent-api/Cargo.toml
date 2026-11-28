@@ -85,6 +85,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 ent-oidc = { path = "../ent-oidc" }
+ent-pdf = { path = "../ent-pdf" }
 http-body-util = "0.1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
 tower = { version = "0.5", features = ["util"] }

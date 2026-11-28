@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 
@@ -226,6 +227,38 @@ class EcransComposeTest {
         assertTrue(api.recues.none { it.endsWith("/publication") })
         rule.onNodeWithTag("eva-publication-confirmer").performClick()
         rule.waitUntil(5_000) { api.recues.any { it.endsWith("/publication") } }
+    }
+
+    @Test
+    fun signaler_un_incident_apres_confirmation_puis_suivre_l_avancement() {
+        val api = FauxApi(
+            mapOf(
+                "GET /edt/mes-creneaux" to "[]",
+                "GET /annonces" to "[]",
+                "GET /rgpd/violations/declarations" to "[]",
+                "POST /rgpd/violations/declarations" to """{"id":"v1","reference":"V-2027-003","intitule":"Clé USB perdue",
+                    "connue_le":"2027-03-08T10:00:00Z","avancement":"recue","message":"Merci : votre déclaration est enregistrée."}""",
+            ),
+        )
+        connecter(api, "prof", listOf(Droit("absences.lire", "mes_classes"), Droit("violations.declarer", "etablissement")))
+        modele.verrouille = false
+        afficher()
+        if (rule.onAllNodesWithTag("module-SIGNALER").fetchSemanticsNodes().isEmpty()) rule.onNodeWithText("Plus").performClick()
+        rule.onNodeWithTag("module-SIGNALER").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Vous n'avez rien signalé dans cet établissement.") > 0 }
+        // Phrase vide : refusée localement, rien ne part.
+        // Écran plus haut que la fenêtre de test : on fait défiler jusqu'à chaque élément avant d'agir.
+        rule.onNodeWithTag("signaler-envoyer").performScrollTo().performClick()
+        rule.onNodeWithText("Dites en une phrase ce qui s'est passé.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("signaler-intitule").performScrollTo().performTextInput("Clé USB perdue")
+        rule.onNodeWithTag("signaler-envoyer").performScrollTo().performClick()
+        // Envoi : la direction est alertée, rien ne part sans confirmation.
+        rule.onNodeWithText("Prévenir la direction ?").assertIsDisplayed()
+        assertTrue(api.recues.none { it == "POST /rgpd/violations/declarations" })
+        rule.onNodeWithTag("signaler-confirmer").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("signaler-recu").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Signalement V-2027-003 enregistré").performScrollTo().assertIsDisplayed()
+        assertEquals(1, api.recues.count { it == "POST /rgpd/violations/declarations" })
     }
 }
 

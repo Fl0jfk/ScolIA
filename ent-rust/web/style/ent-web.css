@@ -10,6 +10,7 @@
 @import "eleves.css";
 @import "grille-notes.css";
 @import "rgpd-droits.css";
+@import "rgpd-violations.css";
 
 /* --- Commun --------------------------------------------------------------- */
 .lien-evitement {

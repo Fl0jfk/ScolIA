@@ -822,6 +822,34 @@ async fn parcours() -> Option<(Banc, LaboCast, String)> {
         "case saisie absente de la grille relue : {relue}"
     );
 
+    // --- Signaler un incident (registre des violations, socle 27, complément G5) ------------------------------
+    // Tout personnel déclare en trente secondes et suit l'avancement de ses déclarations, rien d'autre (R-RG32).
+    let declaration = b
+        .jouer(
+            "rgpd_violations_declarer",
+            "POST /rgpd/violations/declarations",
+            "/rgpd/violations/declarations",
+            Some(&prof),
+            Some(json!({
+                "intitule": "Clé USB avec des copies perdue (banc mobile)",
+                "description": "Perdue dans le bus.",
+                "incident_securite": false,
+            })),
+        )
+        .await;
+    assert_eq!(declaration["avancement"], "recue", "déclaration : {declaration}");
+    for champ in ["risque", "echeance_cnil_le", "chronologie"] {
+        assert!(declaration.get(champ).is_none(), "{champ} exposé au déclarant : {declaration}");
+    }
+    b.jouer(
+        "rgpd_violations_mes_declarations",
+        "GET /rgpd/violations/declarations",
+        "/rgpd/violations/declarations",
+        Some(&prof),
+        None,
+    )
+    .await;
+
     // Annonces : la direction en publie une pour tous et une pour les familles de la classe de Harry (sinon les
     // fixtures n'auraient que des listes vides, que tout modèle décode).
     for corps in [
@@ -1079,6 +1107,7 @@ async fn contrat_mobile_banc_de_parite() {
         "/annonces".into(),
         "/notifications".into(),
         "/eva/enseignements".into(),
+        "/rgpd/violations/declarations".into(),
     ];
     for (eleve, classe) in [(lea, &harry.classe), (tom, &draco.classe)] {
         lectures.extend([

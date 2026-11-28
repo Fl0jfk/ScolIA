@@ -324,6 +324,21 @@ class ApiClient(
     suspend fun notifications(): List<Notification> =
         get("/notifications", ListSerializer(Notification.serializer()))
 
+    // ---------- Signaler un incident (registre des violations, socle 27) ----------
+
+    /** 201 : la référence (`V-2027-003`), l'avancement et un merci ; la direction est alertée par le serveur. */
+    suspend fun declarerIncident(body: DeclarationIncidentBody, cle: String? = null): MaDeclaration =
+        post(
+            "/rgpd/violations/declarations",
+            json.encodeToString(DeclarationIncidentBody.serializer(), body),
+            MaDeclaration.serializer(),
+            cle = cle,
+        )
+
+    /** Mes déclarations : référence et avancement seulement (R-RG32). */
+    suspend fun mesDeclarations(): List<MaDeclaration> =
+        get("/rgpd/violations/declarations", ListSerializer(MaDeclaration.serializer()))
+
     // ---------- Mécanique ----------
 
     /** GET brut (JSON texte), utilisé par le cache hors ligne. */

@@ -111,6 +111,7 @@ struct EcranModule: View {
         case .saisieNotes: EcranSaisieNotes(modele: modele)
         case .edt: EcranEdt(modele: modele, me: me, espace: espace)
         case .messagerie: EcranMessagerie(modele: modele)
+        case .signaler: EcranSignaler(modele: modele)
         case .profil: EcranProfil(modele: modele, me: me)
         }
     }

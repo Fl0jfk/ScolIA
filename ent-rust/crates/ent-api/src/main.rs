@@ -1,4 +1,7 @@
 use ent_api::{app, boot_from_env};
+
+// Console de l'éditeur : violations de la plateforme (socle 27, complément G5 ; pas de route HTTP).
+mod console_violations;
 use tracing_subscriber::EnvFilter;
 
 /// Format des journaux : `text` (défaut, lisible en console) ou `json`
@@ -50,6 +53,10 @@ fn main() {
     // Opérateur de la plateforme : établissements et domaines (B-02, pas de route HTTP).
     if args.first().map(String::as_str) == Some("plateforme-domaine") {
         let code = rt.block_on(plateforme_domaine(&args[1..]));
+        std::process::exit(code);
+    }
+    if args.first().map(String::as_str) == Some("plateforme-violation") {
+        let code = rt.block_on(console_violations::lancer(&args[1..]));
         std::process::exit(code);
     }
     rt.block_on(run_api());
@@ -609,6 +616,23 @@ async fn run_api() {
         })
     });
 
+    // Socle 27 (G5) : alertes H-24 et H-6 avant l'échéance de notification à la CNIL d'une violation non réglée.
+    // Toutes les 5 minutes, idempotente (une alerte par palier et par violation).
+    let violations_echeances = (std::env::var("ENT_TACHES_VIOLATIONS").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(75)).await;
+            loop {
+                match ent.violations_echeances_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(n, "alertes d'échéance CNIL envoyées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("alertes d'échéance CNIL : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            }
+        })
+    });
+
     // Socle 15 (A5) : état du remplacement des absences longues (« nommé » → « en cours » → « terminé »), une
     // seule notification par étape. Chaque minute, idempotente.
     let remplacements_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
@@ -828,6 +852,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = sollicitations_absences {
+        t.abort();
+    }
+    if let Some(t) = violations_echeances {
         t.abort();
     }
     if let Some(t) = remplacements_absences {

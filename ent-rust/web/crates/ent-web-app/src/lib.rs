@@ -163,6 +163,11 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("rgpd/demandes/:id") view=modules::rgpd_droits::PageDemandeDroit/>
                     <Route path=path!("mes-donnees") view=modules::rgpd_droits::PageMesDonnees/>
                     <Route path=path!("mes-donnees/demande") view=modules::rgpd_droits::PageDeposerDemandeDroit/>
+                    // Socle 27, palier G5 : signaler un incident (tout personnel) et registre des violations.
+                    <Route path=path!("incident") view=modules::rgpd_violations::PageDeclarerIncident/>
+                    <Route path=path!("rgpd/violations") view=modules::rgpd_violations::PageRegistreViolations/>
+                    <Route path=path!("rgpd/violations/saisir") view=modules::rgpd_violations::PageSaisirViolation/>
+                    <Route path=path!("rgpd/violations/:id") view=modules::rgpd_violations::PageViolation/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::assiduite_vs::signalements::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>

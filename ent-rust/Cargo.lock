@@ -520,6 +520,7 @@ dependencies = [
  "ent-db",
  "ent-obs",
  "ent-oidc",
+ "ent-pdf",
  "ent-sms",
  "ent-types",
  "http-body-util",
