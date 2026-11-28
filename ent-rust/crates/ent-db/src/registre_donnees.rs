@@ -323,6 +323,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     // (le test « chaque partition est couverte par son parent » vérifie RLS, FORCE, politique et déclencheur sur
     // chacune). Neutralisation : aucune (rien à ré-émettre). `acc_purge` est le registre de plateforme des purges.
     t("acc_alerte", "conformite", Portee::Etablissement).perso(),
+    t("acc_balayage", "conformite", Portee::Etablissement),
     t("acc_controle", "conformite", Portee::Etablissement).perso(),
     t("acc_differe", "conformite", Portee::Etablissement).perso(),
     t("acc_motif", "conformite", Portee::Etablissement),

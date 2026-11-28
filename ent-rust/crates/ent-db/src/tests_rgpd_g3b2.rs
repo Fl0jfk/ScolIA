@@ -327,6 +327,7 @@ async fn g3b2_levee_motivee_et_ajout_manuel() {
                 &table,
                 None,
                 None,
+                None,
                 "précision de la famille",
             )
             .await

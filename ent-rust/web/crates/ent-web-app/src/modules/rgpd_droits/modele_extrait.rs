@@ -77,9 +77,16 @@ pub fn valeur_marquee(c: &ContenuExtraitDto, m: &MarquageDto) -> String {
     else {
         return String::new();
     };
-    let ligne = match m.ligne_id {
-        Some(id) => t.lignes.iter().find(|l| l.id == Some(id)),
-        None => t.lignes.get(m.rang as usize),
+    let ligne = match (m.ligne_id, m.rang) {
+        (Some(id), _) => t.lignes.iter().find(|l| l.id == Some(id)),
+        (None, Some(r)) => t.lignes.get(r as usize),
+        // Toutes les lignes de la table (masquage manuel d'une table ou d'une colonne).
+        (None, None) => {
+            return match &m.colonne {
+                Some(_) => "(colonne entière)".to_string(),
+                None => "(table entière)".to_string(),
+            }
+        }
     };
     let Some(l) = ligne else {
         return String::new();
@@ -97,9 +104,10 @@ pub fn valeur_marquee(c: &ContenuExtraitDto, m: &MarquageDto) -> String {
 
 /// Où se trouve l'élément marqué.
 pub fn cible(m: &MarquageDto) -> String {
-    match &m.colonne {
-        Some(c) => format!("{} · {}", m.table, c),
-        None => format!("{} · ligne {}", m.table, m.rang + 1),
+    match (&m.colonne, m.rang) {
+        (Some(c), _) => format!("{} · {}", m.table, c),
+        (None, Some(r)) => format!("{} · ligne {}", m.table, r + 1),
+        (None, None) => format!("{} · toutes les lignes", m.table),
     }
 }
 
@@ -115,7 +123,7 @@ mod tests {
             fournisseur: "administratif".into(),
             table: "ent_eleve".into(),
             ligne_id: None,
-            rang: 0,
+            rang: Some(0),
             colonne: colonne.map(str::to_string),
             raison: "autre_parent".into(),
             propose_par: "sys".into(),
@@ -154,6 +162,7 @@ mod tests {
             destinataires_externes: vec![],
             soustraitants: vec![],
             marquages: vec![],
+            elements_reserves_direction: 0,
         }
     }
 

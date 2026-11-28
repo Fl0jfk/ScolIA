@@ -422,6 +422,20 @@ fn limite_traces(maintenant: DateTime<Utc>, mois: i32) -> DateTime<Utc> {
 
 // ─────────────────────────────── Services ───────────────────────────────
 
+/// Début de la fenêtre d'un balayage d'alertes : 26 h par défaut ; depuis le dernier balayage réussi moins 2 h s'il est
+/// plus ancien ; jamais plus de 35 jours en arrière (au-delà, les traces relèvent d'un contrôle interne, pas d'une alerte).
+pub(crate) fn fenetre_de_balayage(
+    dernier: Option<DateTime<Utc>>,
+    maintenant: DateTime<Utc>,
+) -> DateTime<Utc> {
+    let defaut = maintenant - Duration::hours(26);
+    let plancher = maintenant - Duration::days(35);
+    match dernier {
+        Some(d) if d - Duration::hours(2) < defaut => (d - Duration::hours(2)).max(plancher),
+        _ => defaut,
+    }
+}
+
 impl PgEnt {
     // ── Réglages ──
 
@@ -1077,8 +1091,12 @@ impl PgEnt {
 
     // ── Alertes ──
 
-    /// Évalue les règles déterministes d'un établissement sur les 26 dernières heures (RGP-196) ; idempotent : une alerte
-    /// par règle, agent et fenêtre. Notifie la direction et le DPO, **jamais** l'agent. Renvoie le nombre d'alertes **nouvelles**.
+    /// Évalue les règles déterministes d'un établissement (RGP-196) ; idempotent : une alerte par règle, agent et
+    /// fenêtre. Notifie la direction et le DPO, **jamais** l'agent. Renvoie le nombre d'alertes **nouvelles**.
+    ///
+    /// Fenêtre : les 26 dernières heures, **ou davantage** si le dernier balayage réussi est plus ancien (serveur
+    /// arrêté, tâche en échec) : on repart de lui, moins 2 h de recouvrement, sans remonter au-delà de 35 jours
+    /// (`acc_balayage`). L'instant atteint n'est noté qu'avec les alertes, dans la même transaction.
     pub async fn acces_alertes_evaluer_a(
         &self,
         etab: Uuid,
@@ -1086,7 +1104,12 @@ impl PgEnt {
     ) -> Result<usize, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = lire_reglage_acces(&mut tx, etab).await?;
-        let depuis = maintenant - Duration::hours(26);
+        let dernier: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT jusqu_au FROM acc_balayage WHERE etablissement_id = $1 FOR UPDATE")
+                .bind(etab)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let depuis = fenetre_de_balayage(dernier, maintenant);
         // (règle, agent, début de fenêtre, fin, nombre)
         let mut trouvees: Vec<(&'static str, Uuid, DateTime<Utc>, DateTime<Utc>, i32)> = Vec::new();
 
@@ -1240,6 +1263,15 @@ impl PgEnt {
                 .await?;
             }
         }
+        sqlx::query(
+            "INSERT INTO acc_balayage (etablissement_id, jusqu_au, modifie_le) VALUES ($1, $2, $2)
+             ON CONFLICT (etablissement_id) DO UPDATE
+                SET jusqu_au = GREATEST(acc_balayage.jusqu_au, EXCLUDED.jusqu_au), modifie_le = EXCLUDED.modifie_le",
+        )
+        .bind(etab)
+        .bind(maintenant)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(nouvelles)
     }
@@ -1689,4 +1721,33 @@ pub(crate) async fn lignes_extrait(
         out.push(v);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests_balayage {
+    use super::fenetre_de_balayage;
+    use chrono::{DateTime, Duration, Utc};
+
+    fn t(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn la_fenetre_reprend_apres_un_arret_long_sans_remonter_au_dela_de_35_jours() {
+        let maintenant = t("2027-03-10T12:00:00Z");
+        // Premier balayage, ou balayage récent : 26 h.
+        assert_eq!(fenetre_de_balayage(None, maintenant), maintenant - Duration::hours(26));
+        assert_eq!(
+            fenetre_de_balayage(Some(maintenant - Duration::hours(1)), maintenant),
+            maintenant - Duration::hours(26)
+        );
+        // Serveur arrêté 3 jours : on repart du dernier balayage, moins 2 h de recouvrement.
+        let dernier = maintenant - Duration::days(3);
+        assert_eq!(fenetre_de_balayage(Some(dernier), maintenant), dernier - Duration::hours(2));
+        // Arrêt de deux mois : plancher de 35 jours.
+        assert_eq!(
+            fenetre_de_balayage(Some(maintenant - Duration::days(60)), maintenant),
+            maintenant - Duration::days(35)
+        );
+    }
 }

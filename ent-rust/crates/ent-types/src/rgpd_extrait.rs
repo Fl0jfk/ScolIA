@@ -53,9 +53,11 @@ pub struct MarquageDto {
     pub fournisseur: String,
     pub table: String,
     pub ligne_id: Option<Uuid>,
-    pub rang: i32,
+    /// Rang de la ligne dans sa table ; `None` : toutes les lignes (masquage manuel d'une table ou d'une colonne).
+    pub rang: Option<i32>,
     pub colonne: Option<String>,
-    /// Raison visible du lecteur : `a_arbitrer` pour une protection quand il n'a pas `droits.arbitrer` (R-RG46).
+    /// Raison visible du lecteur : `a_arbitrer` pour toute raison réservée à la direction quand il n'a pas
+    /// `droits.arbitrer` (R-RG46). Une protection n'y est même pas listée.
     pub raison: String,
     /// `sys` (règle déterministe) ou `agent`.
     pub propose_par: String,
@@ -113,6 +115,10 @@ pub struct ContenuExtraitDto {
     pub destinataires_externes: Vec<String>,
     pub soustraitants: Vec<String>,
     pub marquages: Vec<MarquageDto>,
+    /// Éléments retirés de la vue parce que réservés à la direction (lecteur sans `droits.arbitrer`) ; ni listés
+    /// ni situés.
+    #[serde(default)]
+    pub elements_reserves_direction: usize,
 }
 
 // ─────────────────────────────── Entrées ───────────────────────────────
@@ -167,6 +173,9 @@ pub struct AjoutMasquageBody {
     pub table: String,
     #[serde(default)]
     pub ligne_id: Option<Uuid>,
+    /// Rang de la ligne (0 pour la première) quand elle n'a pas d'identifiant. Ni ligne ni rang : toute la table.
+    #[serde(default)]
+    pub rang: Option<i32>,
     #[serde(default)]
     pub colonne: Option<String>,
     pub motif: String,

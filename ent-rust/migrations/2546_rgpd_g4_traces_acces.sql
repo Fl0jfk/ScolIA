@@ -451,4 +451,15 @@ LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $
     VALUES (gen_random_uuid(), p_mois, 'differee', GREATEST(p_lignes, 0), left(p_motif, 200), p_maintenant)
 $$;
 
-SELECT ent_rls_poser(ARRAY['acc_trace', 'acc_motif', 'acc_controle', 'acc_alerte', 'acc_differe', 'acc_nom_communique']);
+-- ─────────────────────── Reprise du balayage des alertes (suites du palier) ───────────────────────
+-- Instant jusqu'auquel les règles d'alerte d'un établissement ont été évaluées. Le balayage horaire repart de là
+-- (borné à 35 jours) : un serveur arrêté plus de 26 h ne laisse plus de trou dans la surveillance (RGP-196).
+CREATE TABLE IF NOT EXISTS acc_balayage (
+    etablissement_id UUID PRIMARY KEY
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    jusqu_au TIMESTAMPTZ NOT NULL,
+    modifie_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+SELECT ent_rls_poser(ARRAY['acc_trace', 'acc_motif', 'acc_controle', 'acc_alerte', 'acc_differe', 'acc_nom_communique',
+                           'acc_balayage']);

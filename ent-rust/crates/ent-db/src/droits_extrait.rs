@@ -195,6 +195,9 @@ pub struct ContenuExtrait {
     pub sources: Vec<String>,
     /// Éléments marqués à relire (lot G3b-2) ; vide hors lecture. Ne fait pas partie de l'empreinte.
     pub marquages: Vec<crate::droits_extrait_masquage::MarquageVue>,
+    /// M4 : pour un lecteur sans `droits.arbitrer`, nombre d'éléments protégés retirés de ce qu'il voit (ni listés ni
+    /// situés). Toujours présent, 0 sinon.
+    pub elements_reserves_direction: usize,
     /// Instant d'arrêt de la section « consultations » (conservé à l'assemblage, relu à la remise).
     #[serde(skip)]
     pub instant: DateTime<Utc>,
@@ -408,6 +411,36 @@ const TABLES_MESSAGERIE: &[&str] = &[
     "ent_msg_brouillon",
     "ent_msg_lien_decision",
 ];
+
+/// F3 : tables de la messagerie qu'aucune règle ne rend, **déclarées** dans la section (l'extrait ne se dit pas
+/// complet en les taisant). Les écarter est prudent (elles mêlent le demandeur et des tiers, ou ne sont que de
+/// la mécanique), mais le demandeur doit savoir qu'elles existent et qu'elles se demandent au guichet.
+fn exclusions_messagerie() -> Vec<Exclusion> {
+    let rendues: BTreeSet<&str> = regles_messagerie(true).iter().map(|r| r.table).collect();
+    TABLES_MESSAGERIE
+        .iter()
+        .filter(|t| !rendues.contains(**t))
+        .map(|t| Exclusion {
+            table: (*t).to_string(),
+            motif: match *t {
+                "ent_msg_telephone" => {
+                    "notes d'appels téléphoniques : elles citent aussi l'interlocuteur et l'agent ; remises sur demande \
+                     au guichet, après relecture"
+                }
+                "ent_msg_lien_decision" => {
+                    "décisions sur les liens de messagerie (sortie d'un fil, interdiction) : remises sur demande au \
+                     guichet, après relecture de la direction"
+                }
+                "ent_msg_brouillon" => "brouillons jamais envoyés : non remis",
+                "ent_msg_lecture" | "ent_msg_fil_eleve" => {
+                    "données techniques de la messagerie (lectures, rattachement des fils) : non remises"
+                }
+                _ => "non couverte par l'extrait automatique : remise sur demande au guichet",
+            }
+            .to_string(),
+        })
+        .collect()
+}
 
 /// Tables de finances rattachées à un **foyer payeur** (et non à l'élève) : elles décrivent la famille qui paie,
 /// donc aussi l'autre parent (CL27-01) ; elles relèvent de l'extrait de la personne payeuse.
@@ -977,6 +1010,7 @@ async fn section_eleve(
         for r in messagerie {
             a_traiter.push((r, None));
         }
+        exclusions.extend(exclusions_messagerie());
     }
     let cols_msg = if f.code == "messagerie" {
         let n: Vec<&str> = TABLES_MESSAGERIE.to_vec();
@@ -1193,10 +1227,15 @@ async fn section_personne(
         }
     }
     contenu.sort_by(|a, b| a.nom.cmp(&b.nom));
+    let exclusions = if f.code == "messagerie" {
+        exclusions_messagerie()
+    } else {
+        vec![]
+    };
     Ok(finir_section(
         f,
         contenu,
-        vec![],
+        exclusions,
         sans_rattachement,
         lignes,
         false,
@@ -1250,6 +1289,7 @@ impl PgEnt {
             durees: meta.3,
             sources: meta.4,
             marquages: Vec::new(),
+            elements_reserves_direction: 0,
             instant: ctx.instant,
         })
     }
@@ -1509,18 +1549,32 @@ async fn marques_calculees(
     ctx: &ContexteSujet,
     contenu: &ContenuExtrait,
 ) -> Result<Vec<crate::droits_extrait_masquage::MarquageCalcule>, EntDbError> {
-    if !ctx.est_eleve() {
-        return Ok(Vec::new());
-    }
-    let faits = crate::droits_extrait_masquage::faits_eleve(
-        conn,
-        etab,
-        ctx.sujet_id,
-        info.demandeur_compte,
-        ctx.dem_personne,
-        ctx.dem_est_sujet,
-    )
-    .await?;
+    let mut faits = if ctx.est_eleve() {
+        crate::droits_extrait_masquage::faits_eleve(
+            conn,
+            etab,
+            ctx.sujet_id,
+            info.demandeur_compte,
+            ctx.dem_personne,
+            ctx.dem_est_sujet,
+        )
+        .await?
+    } else {
+        // M6 : sujet « personne » ou « agent » : pièces de tiers et autres élèves.
+        let Some(personne) = ctx.personne else {
+            return Ok(Vec::new());
+        };
+        crate::droits_extrait_masquage::faits_personne(
+            conn,
+            etab,
+            personne,
+            info.demandeur_compte,
+            ctx.dem_personne,
+        )
+        .await?
+    };
+    faits.noms_autres_eleves =
+        crate::droits_extrait_masquage::noms_des_autres_eleves(conn, etab, contenu, &faits).await?;
     Ok(crate::droits_extrait_masquage::marquer(contenu, &faits))
 }
 
@@ -1900,6 +1954,7 @@ impl PgEnt {
         }
         crate::droits_extrait_masquage::persister_marquages(
             tx,
+            self.secrets()?,
             etab,
             demande,
             id,
@@ -2034,8 +2089,9 @@ impl PgEnt {
         .ok_or(EntDbError::Domain(DomainError::NotFound))?;
         let soumis: Option<DateTime<Utc>> = r.get("soumis_dpo_le");
         if !traite && soumis.is_none() {
-            // Le DPO n'ouvre que ce qu'on lui soumet : même refus que s'il n'avait aucun droit.
-            return Err(EntDbError::Forbidden);
+            // Le DPO n'ouvre que ce qu'on lui soumet. F6 : même réponse qu'un extrait inexistant (pas d'oracle
+            // d'existence).
+            return Err(EntDbError::Domain(DomainError::NotFound));
         }
         let sujet_type: String = r.get("sujet_type");
         let sujet_id: Uuid = r.get("sujet_id");
@@ -2128,6 +2184,58 @@ impl PgEnt {
             crate::droits_extrait_masquage::cacher_protections(&contenu, &marques)
         };
         tx.commit().await?;
+        Ok(contenu)
+    }
+
+    /// Contenu **reconstruit** d'un extrait, sans trace ni service (M5 : valider un ajout manuel contre ce qui existe
+    /// vraiment). Refuse un extrait dont le contenu ou les protections ont changé depuis l'assemblage (409). Aucun droit
+    /// n'est vérifié ici : l'appelant l'a fait.
+    pub(crate) async fn droits_contenu_reconstruit(
+        &self,
+        tx: &mut PgConnection,
+        etab: Uuid,
+        demande: Uuid,
+        extrait: Uuid,
+    ) -> Result<ContenuExtrait, EntDbError> {
+        let module_sante = self.module_sante_actif(etab).await?;
+        let info = info_demande(&mut *tx, etab, demande).await?;
+        let r = sqlx::query(
+            "SELECT sujet_type, sujet_id, empreinte, marquage_empreinte, periode_du, periode_au, consultations_jusqu_au
+               FROM rgp_extrait WHERE etablissement_id = $1 AND demande_id = $2 AND id = $3",
+        )
+        .bind(etab)
+        .bind(demande)
+        .bind(extrait)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let sujet_type: String = r.get("sujet_type");
+        let instant: Option<DateTime<Utc>> = r.get("consultations_jusqu_au");
+        let mut ctx = contexte_sujet(
+            &mut *tx,
+            etab,
+            &info,
+            &sujet_type,
+            r.get("sujet_id"),
+            module_sante,
+            demande,
+            instant.unwrap_or_else(Utc::now),
+        )
+        .await?;
+        ctx.du = r.get("periode_du");
+        ctx.au = r.get("periode_au");
+        let contenu = self.construire_contenu(&mut *tx, &ctx, &[]).await?;
+        let stockee: String = r.get("empreinte");
+        let marq_stockee: String = r.get("marquage_empreinte");
+        let marq_courante = crate::droits_extrait_masquage::empreinte_marques(
+            &marques_calculees(&mut *tx, etab, &info, &ctx, &contenu).await?,
+        );
+        if contenu.empreinte != stockee || marq_courante != marq_stockee {
+            return Err(EntDbError::ConflitDossier(
+                "extrait périmé : le contenu ou les protections ont changé, assembler une nouvelle version",
+            ));
+        }
         Ok(contenu)
     }
 

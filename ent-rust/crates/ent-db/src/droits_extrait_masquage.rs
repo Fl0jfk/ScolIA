@@ -137,6 +137,12 @@ pub struct Faits {
     pub proteges: BTreeSet<Uuid>,
     /// Personnes de la famille du demandeur et de l'élève dont une pièce est « pour lui ».
     pub siens: BTreeSet<Uuid>,
+    /// Sujet « personne » ou « agent » (M6) : les élèves dont la personne est responsable (lien actif ou non).
+    /// Tout autre élève cité dans ses données est un « autre élève ».
+    pub eleves_lies: BTreeSet<Uuid>,
+    /// F7 : noms (`prénom nom`, puis `nom`) des autres élèves cités dans le contenu, tirés de la base. Une cellule de
+    /// texte qui les contient est marquée `autre_eleve`, comme l'identifiant.
+    pub noms_autres_eleves: Vec<String>,
 }
 
 /// Un élément marqué (calculé, pas encore décidé).
@@ -150,6 +156,61 @@ pub struct MarquageCalcule {
     /// `None` : la ligne entière.
     pub colonne: Option<String>,
     pub raison: &'static str,
+    /// Forme canonique de l'élément marqué (la cellule, ou la ligne entière), **en mémoire seulement** : sert à
+    /// calculer l'empreinte à clé qui conditionne le report d'une décision (M2). Jamais stockée.
+    pub element: String,
+}
+
+/// Forme canonique d'une ligne (colonnes triées à l'assemblage) ou d'une cellule.
+fn element_de(l: &crate::droits_extrait::LigneContenu, colonne: Option<&str>) -> String {
+    match colonne {
+        Some(c) => l
+            .valeurs
+            .iter()
+            .find(|(n, _)| n == c)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default(),
+        None => l
+            .valeurs
+            .iter()
+            .map(|(n, v)| format!("{n}={v}"))
+            .collect::<Vec<_>>()
+            .join("\u{1f}"),
+    }
+}
+
+/// F7 : la cellule cite-t-elle un autre élève par son nom ? Comparaison sans casse, sur un mot entier.
+fn cite_un_nom(valeur: &str, noms: &[String]) -> bool {
+    if noms.is_empty() || valeur.len() < 3 {
+        return false;
+    }
+    let v = valeur.to_lowercase();
+    noms.iter().any(|n| {
+        let n = n.to_lowercase();
+        let mut depart = 0;
+        while let Some(i) = v[depart..].find(&n) {
+            let a = depart + i;
+            let b = a + n.len();
+            let avant = v[..a].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+            let apres = v[b..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+            if avant && apres {
+                return true;
+            }
+            depart = b;
+        }
+        false
+    })
+}
+
+/// Types de pièce qui ne concernent que leur porteur (personne, agent) : toute autre pièce, au nom d'une personne,
+/// concerne aussi un tiers (pièce du foyer : livret de famille, justificatif de domicile ; décision de justice ; type
+/// inconnu) et n'est jamais remise sans arbitrage (R-RG45, M6).
+fn piece_propre_au_porteur(type_code: &str) -> bool {
+    use crate::documents_pieces::{type_piece, PortePiece};
+    matches!(
+        type_piece(type_code).map(|t| &t.portee),
+        Some(PortePiece::Personne | PortePiece::Agent)
+    )
 }
 
 fn uuid_de(v: &str) -> Option<Uuid> {
@@ -187,13 +248,27 @@ fn marquer_section(
                     rang,
                     colonne: colonne.map(str::to_string),
                     raison,
+                    element: element_de(l, colonne),
                 });
             };
             if signalement {
                 marque(None, "signalement");
                 continue;
             }
-            if t.nom == "ent_doc_piece" {
+            if t.nom == "ent_doc_piece" && !eleve {
+                // M6 : sujet « personne » ou « agent » ; la pièce est à son nom (règle de lecture), seul son type dit
+                // si elle concerne aussi un tiers.
+                let type_code = l
+                    .valeurs
+                    .iter()
+                    .find(|(c, _)| c == "type_code")
+                    .map(|(_, v)| v.as_str())
+                    .unwrap_or("");
+                if !piece_propre_au_porteur(type_code) {
+                    marque(None, "piece_tiers");
+                    continue;
+                }
+            } else if t.nom == "ent_doc_piece" {
                 let deposant = l
                     .valeurs
                     .iter()
@@ -225,8 +300,19 @@ fn marquer_section(
                 }
             }
             for (c, v) in &l.valeurs {
-                let Some(u) = uuid_de(v) else { continue };
-                if eleve && c.ends_with("eleve_id") && u != sujet {
+                let Some(u) = uuid_de(v) else {
+                    // F7 : le nom d'un autre élève dans un texte (fait collectif, observation).
+                    if cite_un_nom(v, &f.noms_autres_eleves) {
+                        marque(Some(c), "autre_eleve");
+                    }
+                    continue;
+                };
+                let autre_eleve = if eleve {
+                    u != sujet
+                } else {
+                    !f.eleves_lies.contains(&u)
+                };
+                if c.ends_with("eleve_id") && autre_eleve {
                     marque(Some(c), "autre_eleve");
                 }
                 if note && COLONNES_REDACTEUR.contains(&c.as_str()) {
@@ -275,11 +361,51 @@ pub fn appliquer_masques(contenu: &ContenuExtrait, marques: &[MarquageVue]) -> C
     })
 }
 
-/// Pour un lecteur sans `droits.arbitrer` : les éléments protégés ne sont pas montrés, même pendant la relecture.
+/// Pour un lecteur sans `droits.arbitrer` (R-RG46, M4) : les éléments protégés sont **absents** de ce qu'il voit
+/// (la cellule, ou la ligne entière, est retirée du contenu ; le marquage n'est pas listé) et seul un compteur global
+/// `elements_reserves_direction` dit qu'il en reste, sans dire où. Les autres raisons réservées à la direction gardent
+/// leur emplacement, avec le libellé neutre « à arbitrer » : le code ne distingue plus une protection.
 pub fn cacher_protections(contenu: &ContenuExtrait, marques: &[MarquageVue]) -> ContenuExtrait {
-    remplacer(contenu, marques, |m| {
-        (m.raison_interne == "adresse_protegee").then(|| "[réservé à la direction]".to_string())
-    })
+    let (proteges, visibles): (Vec<MarquageVue>, Vec<MarquageVue>) = marques
+        .iter()
+        .cloned()
+        .partition(|m| m.raison_interne == "adresse_protegee");
+    let mut c = contenu.clone();
+    for s in &mut c.sections {
+        for t in &mut s.tables {
+            let mut rang = 0i32;
+            t.lignes.retain_mut(|l| {
+                let r = rang;
+                rang += 1;
+                let lid = l.id;
+                let concernes: Vec<&MarquageVue> = proteges
+                    .iter()
+                    .filter(|m| m.fournisseur == s.fournisseur && m.table == t.nom && vise(m, lid, r))
+                    .collect();
+                if concernes.iter().any(|m| m.colonne.is_none()) {
+                    return false;
+                }
+                l.valeurs
+                    .retain(|(col, _)| !concernes.iter().any(|m| m.colonne.as_deref() == Some(col)));
+                true
+            });
+        }
+        let n: usize = s.tables.iter().map(|t| t.lignes.len()).sum();
+        s.lignes = n;
+    }
+    c.elements_reserves_direction = proteges.len();
+    c.marquages = visibles;
+    c
+}
+
+/// Le marquage vise-t-il la ligne `lid` de rang `rang` ? Identifiant d'abord ; sans identifiant de marquage, le rang
+/// (`None` : toutes les lignes de la table, ajout manuel M5).
+fn vise(m: &MarquageVue, lid: Option<Uuid>, rang: i32) -> bool {
+    match (m.ligne_id, lid) {
+        (Some(a), Some(b)) => a == b,
+        (Some(_), None) => false,
+        (None, _) => m.rang.is_none_or(|x| x == rang),
+    }
 }
 
 fn remplacer(
@@ -293,12 +419,7 @@ fn remplacer(
             for (rang, l) in t.lignes.iter_mut().enumerate() {
                 let lid = l.id;
                 for m in marques.iter().filter(|m| {
-                    m.fournisseur == s.fournisseur
-                        && m.table == t.nom
-                        && match (m.ligne_id, lid) {
-                            (Some(a), Some(b)) => a == b,
-                            _ => m.rang == rang as i32,
-                        }
+                    m.fournisseur == s.fournisseur && m.table == t.nom && vise(m, lid, rang as i32)
                 }) {
                     let Some(masque) = texte(m) else { continue };
                     for (col, val) in &mut l.valeurs {
@@ -327,9 +448,11 @@ pub struct MarquageVue {
     pub fournisseur: String,
     pub table: String,
     pub ligne_id: Option<Uuid>,
-    pub rang: i32,
+    /// `None` : toutes les lignes de la table (ajout manuel sans ligne désignée, M5).
+    pub rang: Option<i32>,
     pub colonne: Option<String>,
-    /// Raison **telle que le lecteur peut la voir** (opaque `a_arbitrer` pour une protection, R-RG46).
+    /// Raison **telle que le lecteur peut la voir** (opaque `a_arbitrer` pour toute raison réservée à la direction
+    /// quand le lecteur n'a pas `droits.arbitrer`, R-RG46, M4).
     pub raison: String,
     #[serde(skip)]
     pub raison_interne: String,
@@ -343,7 +466,8 @@ pub struct MarquageVue {
 }
 
 fn raison_visible(raison: &str, peut_arbitrer: bool) -> String {
-    if raison == "adresse_protegee" && !peut_arbitrer {
+    // M4 : l'alias couvre toutes les raisons réservées, sinon il équivaudrait au code `adresse_protegee`.
+    if levee_reservee_direction(raison) && !peut_arbitrer {
         "a_arbitrer".to_string()
     } else {
         raison.to_string()
@@ -452,10 +576,126 @@ pub(crate) async fn faits_eleve(
     Ok(f)
 }
 
+/// M6 : faits de marquage d'un sujet **personne** ou **agent** (sa fiche personne). Les élèves dont il est
+/// responsable ne sont pas des « autres élèves » ; ses pièces sont à son nom.
+pub(crate) async fn faits_personne(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    personne: Uuid,
+    dem_compte: Option<Uuid>,
+    dem_personne: Option<Uuid>,
+) -> Result<Faits, EntDbError> {
+    let eleves: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT l.eleve_id FROM public.ent_eleve_lien l
+          WHERE l.etablissement_id = $1 AND l.personne_id = $2",
+    )
+    .bind(etab)
+    .bind(personne)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(Faits {
+        sujet: None,
+        dem_compte,
+        dem_personne,
+        dem_est_sujet: false,
+        siens: [personne].into_iter().collect(),
+        eleves_lies: eleves.into_iter().collect(),
+        ..Faits::default()
+    })
+}
+
+/// F7 : les noms des **autres** élèves que le contenu cite par leur identifiant (`…eleve_id`), pour marquer aussi
+/// leur nom dans les textes. Lecture d'identité seule, jamais rendue.
+pub(crate) async fn noms_des_autres_eleves(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    contenu: &ContenuExtrait,
+    f: &Faits,
+) -> Result<Vec<String>, EntDbError> {
+    let eleve = contenu.sujet_type == "eleve";
+    let mut ids: BTreeSet<Uuid> = BTreeSet::new();
+    for s in &contenu.sections {
+        for t in &s.tables {
+            for l in &t.lignes {
+                for (c, v) in &l.valeurs {
+                    if !c.ends_with("eleve_id") {
+                        continue;
+                    }
+                    if let Some(u) = uuid_de(v) {
+                        let autre = if eleve {
+                            u != contenu.sujet_id
+                        } else {
+                            !f.eleves_lies.contains(&u)
+                        };
+                        if autre {
+                            ids.insert(u);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<Uuid> = ids.into_iter().collect();
+    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT e.prenom, e.nom FROM public.ent_eleve e WHERE e.etablissement_id = $1 AND e.id = ANY($2)",
+    )
+    .bind(etab)
+    .bind(&ids)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut noms: BTreeSet<String> = BTreeSet::new();
+    for (prenom, nom) in rows {
+        let nom = nom.map(|n| n.trim().to_string()).filter(|n| n.chars().count() >= 3);
+        let prenom = prenom.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+        if let (Some(p), Some(n)) = (&prenom, &nom) {
+            noms.insert(format!("{p} {n}"));
+        }
+        if let Some(n) = nom {
+            noms.insert(n);
+        }
+    }
+    // Les plus longs d'abord : déterministe, et « Léa Martin » se trouve avant « Martin ».
+    let mut v: Vec<String> = noms.into_iter().collect();
+    v.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+    Ok(v)
+}
+
+/// Usage de la clé dérivée qui calcule l'empreinte d'un élément marqué (M2).
+pub const USAGE_EMPREINTE_ELEMENT: &str = "marquage-rgpd:v1";
+
+/// Empreinte **à clé** d'un élément marqué, liée à la demande et à sa place (M2).
+pub(crate) fn empreinte_element(
+    secrets: &ent_auth::SecretBox,
+    demande: Uuid,
+    m: &MarquageCalcule,
+) -> Result<String, EntDbError> {
+    let donnees = format!(
+        "{demande}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        m.fournisseur,
+        m.table,
+        m.colonne.as_deref().unwrap_or("*"),
+        m.element
+    );
+    secrets
+        .hmac_hex(USAGE_EMPREINTE_ELEMENT, donnees.as_bytes())
+        .map_err(EntDbError::Secrets)
+}
+
 /// Écrit les marquages d'un extrait ; une décision déjà prise sur le **même élément** d'une version précédente
 /// du même extrait est reportée (la relecture n'est pas à refaire quand rien n'a changé).
+///
+/// M2 : « même élément » veut dire même place **et** même contenu (empreinte à clé identique). Une ligne avec
+/// identifiant se retrouve par son identifiant, quel que soit son rang ; une ligne sans identifiant par son rang,
+/// et une **levée** n'est jamais reportée sur elle (une insertion décale les rangs : on ne lève pas à l'aveugle).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn persister_marquages(
     conn: &mut PgConnection,
+    secrets: &ent_auth::SecretBox,
     etab: Uuid,
     demande: Uuid,
     extrait: Uuid,
@@ -464,12 +704,13 @@ pub(crate) async fn persister_marquages(
     marques: &[MarquageCalcule],
 ) -> Result<(), EntDbError> {
     for m in marques {
+        let empreinte = empreinte_element(secrets, demande, m)?;
         sqlx::query(
             "INSERT INTO rgp_extrait_masquage
                  (id, etablissement_id, extrait_id, fournisseur_code, table_nom, ligne_id, rang, colonne,
-                  raison, propose_par, decision, motif, decide_par_compte_id, decide_le)
+                  raison, propose_par, decision, motif, decide_par_compte_id, decide_le, element_empreinte)
              SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, 'sys',
-                    COALESCE(prev.decision, 'a_decider'), prev.motif, prev.decide_par_compte_id, prev.decide_le
+                    COALESCE(prev.decision, 'a_decider'), prev.motif, prev.decide_par_compte_id, prev.decide_le, $13
                FROM (SELECT 1) AS x
                LEFT JOIN LATERAL (
                     SELECT mm.decision, mm.motif, mm.decide_par_compte_id, mm.decide_le
@@ -478,9 +719,11 @@ pub(crate) async fn persister_marquages(
                      WHERE e.etablissement_id = $2 AND e.demande_id = $10 AND e.sujet_type = $11
                        AND e.sujet_id = $12 AND e.id <> $3
                        AND mm.fournisseur_code = $4 AND mm.table_nom = $5
-                       AND mm.ligne_id IS NOT DISTINCT FROM $6 AND mm.rang = $7
+                       AND (($6::uuid IS NOT NULL AND mm.ligne_id = $6)
+                            OR ($6::uuid IS NULL AND mm.ligne_id IS NULL AND mm.rang = $7 AND mm.decision <> 'leve'))
                        AND mm.colonne IS NOT DISTINCT FROM $8 AND mm.raison = $9
                        AND mm.propose_par = 'sys' AND mm.decision <> 'a_decider'
+                       AND mm.element_empreinte = $13
                      ORDER BY e.version DESC LIMIT 1) prev ON true",
         )
         .bind(Uuid::new_v4())
@@ -495,6 +738,7 @@ pub(crate) async fn persister_marquages(
         .bind(demande)
         .bind(sujet_type)
         .bind(sujet_id)
+        .bind(&empreinte)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
@@ -551,7 +795,7 @@ pub(crate) async fn marquages_de(
         "SELECT id, fournisseur_code, table_nom, ligne_id, rang, colonne, raison, propose_par, decision, motif,
                 decide_le
            FROM rgp_extrait_masquage WHERE etablissement_id = $1 AND extrait_id = $2
-          ORDER BY fournisseur_code, table_nom, rang, colonne NULLS FIRST, id",
+          ORDER BY fournisseur_code, table_nom, rang NULLS FIRST, colonne NULLS FIRST, id",
     )
     .bind(etab)
     .bind(extrait)
@@ -567,7 +811,7 @@ pub(crate) async fn marquages_de(
                 fournisseur: r.get("fournisseur_code"),
                 table: r.get("table_nom"),
                 ligne_id: r.get("ligne_id"),
-                rang: r.get("rang"),
+                rang: r.get::<Option<i32>, _>("rang"),
                 colonne: r.get("colonne"),
                 raison: raison_visible(&raison, peut_arbitrer),
                 levee_reservee_direction: levee_reservee_direction(&raison),
@@ -579,6 +823,54 @@ pub(crate) async fn marquages_de(
             }
         })
         .collect())
+}
+
+/// M4 : pour un lecteur sans `droits.arbitrer`, les marquages de protection ne sont pas listés.
+pub(crate) fn sans_protections_si(v: Vec<MarquageVue>, peut_arbitrer: bool) -> Vec<MarquageVue> {
+    if peut_arbitrer {
+        v
+    } else {
+        v.into_iter()
+            .filter(|m| m.raison_interne != "adresse_protegee")
+            .collect()
+    }
+}
+
+/// F5 : toute décision de marquage prise après l'avis du DPO l'efface (l'avis portait sur une autre relecture) ; la
+/// soumission reste, le DPO redonne son avis.
+async fn effacer_avis_dpo(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+    extrait: Uuid,
+    acteur: Uuid,
+    role: &str,
+) -> Result<(), EntDbError> {
+    let n = sqlx::query(
+        "UPDATE rgp_extrait
+            SET dpo_avis_le = NULL, dpo_avis_par_compte_id = NULL, dpo_avis_code = NULL, dpo_avis_texte = NULL,
+                modifie_le = now()
+          WHERE etablissement_id = $1 AND id = $2 AND dpo_avis_le IS NOT NULL",
+    )
+    .bind(etab)
+    .bind(extrait)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?
+    .rows_affected();
+    if n > 0 {
+        journal(
+            conn,
+            etab,
+            demande,
+            "extrait_avis_dpo",
+            Some("avis du DPO retiré : la relecture a changé depuis, nouvel avis à donner"),
+            Some(acteur),
+            Some(role),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Nombre de marquages restant à décider : aucune remise tant qu'il n'est pas nul.
@@ -656,9 +948,11 @@ impl PgEnt {
             return Err(EntDbError::Domain(DomainError::NotFound));
         };
         if !traite && soumis.is_none() {
-            return Err(EntDbError::Forbidden);
+            // F6 : même réponse qu'un extrait inexistant (pas d'oracle d'existence pour le DPO).
+            return Err(EntDbError::Domain(DomainError::NotFound));
         }
-        marquages_de(&mut tx, etab, extrait, arbitre).await
+        let v = marquages_de(&mut tx, etab, extrait, arbitre).await?;
+        Ok(sans_protections_si(v, arbitre))
     }
 
     /// **RGP-150** — décide un marquage : `masque` (accepté, la valeur est masquée dans ce qui est remis) ou
@@ -739,13 +1033,21 @@ impl PgEnt {
             Some(role),
         )
         .await?;
+        effacer_avis_dpo(&mut tx, etab, demande, extrait, acteur, role).await?;
         let v = marquages_de(&mut tx, etab, extrait, peut_arbitrer).await?;
         tx.commit().await?;
-        Ok(v)
+        Ok(sans_protections_si(v, peut_arbitrer))
     }
 
-    /// **RGP-151** — ajoute à la main un masquage (une table, une ligne ou une colonne de l'extrait), avec motif.
-    /// Il est décidé « masqué » d'emblée. `droits.traiter`.
+    /// **RGP-151** — ajoute à la main un masquage, avec motif. Il est décidé « masqué » d'emblée. `droits.traiter`.
+    ///
+    /// M5 : l'élément désigné doit **exister** dans le contenu de l'extrait (reconstruit, jamais servi ici) :
+    /// * une table entière (ni ligne ni rang) : toutes ses lignes, ou toute une colonne si `colonne` est donnée ;
+    /// * une ligne par son identifiant (`ligne_id`), ou par son rang (`rang`, 0 pour la première) si elle n'en a pas ;
+    /// * une colonne, qui doit figurer dans la ou les lignes désignées.
+    ///
+    /// Un élément introuvable est refusé (une faute de frappe ne crée plus un masquage sans effet affiché « masqué ») ;
+    /// le même élément masqué deux fois à la main est refusé (409).
     #[allow(clippy::too_many_arguments)]
     pub async fn droits_masquage_ajouter(
         &self,
@@ -757,6 +1059,7 @@ impl PgEnt {
         fournisseur: &str,
         table: &str,
         ligne_id: Option<Uuid>,
+        rang: Option<i32>,
         colonne: Option<&str>,
         motif: &str,
     ) -> Result<Vec<MarquageVue>, EntDbError> {
@@ -770,6 +1073,12 @@ impl PgEnt {
         };
         if !ident(fournisseur) || !ident(table) || colonne.is_some_and(|c| !ident(c)) {
             return Err(invalide("élément à masquer incohérent"));
+        }
+        if ligne_id.is_some() && rang.is_some() {
+            return Err(invalide("désigner la ligne par son identifiant ou par son rang, pas les deux"));
+        }
+        if rang.is_some_and(|r| r < 0) {
+            return Err(invalide("rang de ligne incohérent"));
         }
         let peut_arbitrer = self
             .a_action_etablissement(etab, acteur, role, Action::DroitsArbitrer)
@@ -791,11 +1100,41 @@ impl PgEnt {
         if !section {
             return Err(EntDbError::Domain(DomainError::NotFound));
         }
+        let contenu = self
+            .droits_contenu_reconstruit(&mut tx, etab, demande, extrait)
+            .await?;
+        // Pour un lecteur sans `droits.arbitrer`, ce qui est protégé n'existe pas : il ne peut pas le désigner.
+        let contenu = if peut_arbitrer {
+            contenu
+        } else {
+            let m = marquages_de(&mut tx, etab, extrait, false).await?;
+            cacher_protections(&contenu, &m)
+        };
+        element_existe(&contenu, fournisseur, table, ligne_id, rang, colonne)?;
+        let deja: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rgp_extrait_masquage
+                             WHERE etablissement_id = $1 AND extrait_id = $2 AND fournisseur_code = $3
+                               AND table_nom = $4 AND ligne_id IS NOT DISTINCT FROM $5 AND rang IS NOT DISTINCT FROM $6
+                               AND colonne IS NOT DISTINCT FROM $7 AND raison = 'manuel')",
+        )
+        .bind(etab)
+        .bind(extrait)
+        .bind(fournisseur)
+        .bind(table)
+        .bind(ligne_id)
+        .bind(rang)
+        .bind(colonne)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if deja {
+            return Err(EntDbError::ConflitDossier("cet élément est déjà masqué à la main"));
+        }
         sqlx::query(
             "INSERT INTO rgp_extrait_masquage
                  (id, etablissement_id, extrait_id, fournisseur_code, table_nom, ligne_id, rang, colonne,
                   raison, propose_par, decision, motif, decide_par_compte_id, decide_le)
-             VALUES ($1, $2, $3, $4, $5, $6, 0, $7, 'manuel', 'agent', 'masque', $8, $9, now())",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manuel', 'agent', 'masque', $9, $10, now())",
         )
         .bind(Uuid::new_v4())
         .bind(etab)
@@ -803,6 +1142,7 @@ impl PgEnt {
         .bind(fournisseur)
         .bind(table)
         .bind(ligne_id)
+        .bind(rang)
         .bind(colonne)
         .bind(&motif)
         .bind(acteur)
@@ -819,10 +1159,44 @@ impl PgEnt {
             Some(role),
         )
         .await?;
+        effacer_avis_dpo(&mut tx, etab, demande, extrait, acteur, role).await?;
         let v = marquages_de(&mut tx, etab, extrait, peut_arbitrer).await?;
         tx.commit().await?;
-        Ok(v)
+        Ok(sans_protections_si(v, peut_arbitrer))
     }
+}
+
+/// M5 : l'élément désigné par un ajout manuel existe-t-il dans le contenu ?
+fn element_existe(
+    contenu: &ContenuExtrait,
+    fournisseur: &str,
+    table: &str,
+    ligne_id: Option<Uuid>,
+    rang: Option<i32>,
+    colonne: Option<&str>,
+) -> Result<(), EntDbError> {
+    let absent = || invalide("élément à masquer absent de l'extrait");
+    let t = contenu
+        .sections
+        .iter()
+        .filter(|s| s.fournisseur == fournisseur)
+        .flat_map(|s| s.tables.iter())
+        .find(|t| t.nom == table)
+        .ok_or_else(absent)?;
+    let lignes: Vec<&crate::droits_extrait::LigneContenu> = match (ligne_id, rang) {
+        (Some(id), _) => t.lignes.iter().filter(|l| l.id == Some(id)).collect(),
+        (None, Some(r)) => t.lignes.get(r as usize).into_iter().collect(),
+        (None, None) => t.lignes.iter().collect(),
+    };
+    if lignes.is_empty() {
+        return Err(absent());
+    }
+    if let Some(c) = colonne {
+        if !lignes.iter().any(|l| l.valeurs.iter().any(|(n, _)| n == c)) {
+            return Err(absent());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -866,6 +1240,7 @@ mod tests {
             durees: vec![],
             sources: vec![],
             marquages: vec![],
+            elements_reserves_direction: 0,
             instant: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
         }
     }
@@ -956,7 +1331,7 @@ mod tests {
             fournisseur: "administratif".into(),
             table: "ent_eleve".into(),
             ligne_id: Some(Uuid::from_u128(1)),
-            rang: 0,
+            rang: Some(0),
             colonne: Some("ville".into()),
             raison: "adresse_protegee".into(),
             raison_interne: "adresse_protegee".into(),
@@ -989,5 +1364,194 @@ mod tests {
         }
         assert_eq!(raison_visible("adresse_protegee", false), "a_arbitrer");
         assert_eq!(raison_visible("adresse_protegee", true), "adresse_protegee");
+    }
+
+    fn vue_de(m: &MarquageCalcule, id: u128) -> MarquageVue {
+        MarquageVue {
+            id: Uuid::from_u128(id),
+            fournisseur: m.fournisseur.clone(),
+            table: m.table.clone(),
+            ligne_id: m.ligne_id,
+            rang: Some(m.rang),
+            colonne: m.colonne.clone(),
+            raison: m.raison.into(),
+            raison_interne: m.raison.into(),
+            propose_par: "sys".into(),
+            decision: "a_decider".into(),
+            motif: None,
+            decide_le: None,
+            levee_reservee_direction: levee_reservee_direction(m.raison),
+        }
+    }
+
+    /// F7 : le nom d'un autre élève dans un texte est marqué, sur un mot entier et sans casse.
+    #[test]
+    fn le_nom_d_un_autre_eleve_dans_un_texte_est_marque() {
+        let t = TableContenu {
+            nom: "ent_incident".into(),
+            lignes: vec![l(
+                Some(Uuid::from_u128(5)),
+                &[
+                    ("eleve_id", &Uuid::from_u128(1).to_string()),
+                    ("recit", "Bousculade avec Tom MARTIN dans la cour"),
+                    ("lieu", "Martinique"),
+                ],
+            )],
+        };
+        let f = Faits {
+            noms_autres_eleves: vec!["Tom Martin".into(), "Martin".into()],
+            ..Faits::default()
+        };
+        let a = marquer(&contenu(vec![t]), &f);
+        assert_eq!(a.len(), 1, "{a:?}");
+        assert_eq!(a[0].colonne.as_deref(), Some("recit"));
+        assert_eq!(a[0].raison, "autre_eleve");
+        assert!(!cite_un_nom("Martinique", &["Martin".into()]));
+        assert!(cite_un_nom("vu par martin.", &["Martin".into()]));
+    }
+
+    /// M6 : pour un sujet « personne », une pièce du foyer est marquée ; une pièce propre au porteur ne l'est pas ;
+    /// un élève qui n'est pas le sien est un « autre élève ».
+    #[test]
+    fn sujet_personne_pieces_de_tiers_et_autres_eleves() {
+        let enfant = Uuid::from_u128(21);
+        let autre = Uuid::from_u128(22);
+        let mut c = contenu(vec![
+            TableContenu {
+                nom: "ent_doc_piece".into(),
+                lignes: vec![
+                    l(Some(Uuid::from_u128(31)), &[("type_code", "livret_famille")]),
+                    l(Some(Uuid::from_u128(32)), &[("type_code", "type_disparu")]),
+                ],
+            },
+            TableContenu {
+                nom: "ent_rdv".into(),
+                lignes: vec![
+                    l(Some(Uuid::from_u128(41)), &[("eleve_id", &enfant.to_string())]),
+                    l(Some(Uuid::from_u128(42)), &[("eleve_id", &autre.to_string())]),
+                ],
+            },
+        ]);
+        c.sujet_type = "personne".into();
+        let f = Faits {
+            eleves_lies: [enfant].into_iter().collect(),
+            ..Faits::default()
+        };
+        let a = marquer(&c, &f);
+        let pieces: Vec<_> = a.iter().filter(|m| m.raison == "piece_tiers").collect();
+        assert_eq!(pieces.len(), 2, "pièce du foyer et type inconnu : {a:?}");
+        let eleves: Vec<_> = a.iter().filter(|m| m.raison == "autre_eleve").collect();
+        assert_eq!(eleves.len(), 1);
+        assert_eq!(eleves[0].ligne_id, Some(Uuid::from_u128(42)));
+    }
+
+    /// M2 : l'élément porté par un marquage suit le contenu (sa forme canonique change avec la valeur).
+    #[test]
+    fn l_element_marque_suit_le_contenu() {
+        let mere = Uuid::from_u128(7);
+        let t = |tel: &str| TableContenu {
+            nom: "ent_inscription_responsable".into(),
+            lignes: vec![l(
+                Some(Uuid::from_u128(9)),
+                &[("personne_id", &mere.to_string()), ("telephone", tel)],
+            )],
+        };
+        let f = Faits {
+            autres: [mere].into_iter().collect(),
+            ..Faits::default()
+        };
+        let a = marquer(&contenu(vec![t("0600000000")]), &f);
+        let b = marquer(&contenu(vec![t("0611111111")]), &f);
+        assert_eq!(a.len(), 1);
+        assert_ne!(a[0].element, b[0].element);
+        assert_eq!(
+            empreinte_marques(&a),
+            empreinte_marques(&b),
+            "les faits n'ont pas changé : l'extrait n'est pas périmé pour autant"
+        );
+        let k = ent_auth::SecretBox::dev();
+        let d = Uuid::from_u128(3);
+        assert_ne!(
+            empreinte_element(&k, d, &a[0]).unwrap(),
+            empreinte_element(&k, d, &b[0]).unwrap()
+        );
+        assert_eq!(
+            empreinte_element(&k, d, &a[0]).unwrap(),
+            empreinte_element(&k, d, &a[0].clone()).unwrap()
+        );
+    }
+
+    /// M4 : sans `droits.arbitrer`, la cellule protégée disparaît, la ligne protégée aussi ; seul le compteur reste.
+    #[test]
+    fn une_protection_est_absente_de_la_vue_du_secretariat() {
+        let mere = Uuid::from_u128(7);
+        let c = contenu(vec![
+            TableContenu {
+                nom: "ent_eleve".into(),
+                lignes: vec![l(Some(Uuid::from_u128(1)), &[("nom", "Lea"), ("ville", "Lyon")])],
+            },
+            TableContenu {
+                nom: "ent_inscription_responsable".into(),
+                lignes: vec![
+                    l(Some(Uuid::from_u128(9)), &[("nom", "Dupont"), ("personne_id", &mere.to_string())]),
+                    l(Some(Uuid::from_u128(10)), &[("nom", "Granger")]),
+                ],
+            },
+        ]);
+        let f = Faits {
+            autres: [mere].into_iter().collect(),
+            proteges: [mere].into_iter().collect(),
+            dem_personne: Some(Uuid::from_u128(99)),
+            ..Faits::default()
+        };
+        let marques: Vec<MarquageVue> = marquer(&c, &f)
+            .iter()
+            .enumerate()
+            .map(|(i, m)| vue_de(m, i as u128 + 1))
+            .collect();
+        let vu = cacher_protections(&c, &marques);
+        let t = format!("{:?}", vu.sections[0].tables);
+        assert!(!t.contains("Lyon") && !t.contains("ville") && !t.contains("Dupont"), "{t}");
+        assert!(t.contains("Lea"));
+        assert!(vu.elements_reserves_direction > 0);
+        assert!(vu.marquages.iter().all(|m| m.raison_interne != "adresse_protegee"));
+        // Toutes les raisons réservées portent le même alias.
+        for r in ["autre_parent", "adresse_protegee", "piece_tiers", "signalement"] {
+            assert_eq!(raison_visible(r, false), "a_arbitrer");
+        }
+        assert_eq!(raison_visible("redacteur", false), "redacteur");
+    }
+
+    /// M5 : un masquage sans ligne ni rang vise toutes les lignes ; avec un rang, la seule ligne de ce rang.
+    #[test]
+    fn un_masquage_sans_ligne_vise_toute_la_table() {
+        let c = contenu(vec![TableContenu {
+            nom: "ent_note".into(),
+            lignes: vec![l(None, &[("texte", "a")]), l(None, &[("texte", "b")])],
+        }]);
+        let mut m = vue_de(
+            &MarquageCalcule {
+                fournisseur: "administratif".into(),
+                table: "ent_note".into(),
+                ligne_id: None,
+                rang: 0,
+                colonne: Some("texte".into()),
+                raison: "manuel",
+                element: String::new(),
+            },
+            1,
+        );
+        m.decision = "masque".into();
+        m.rang = None;
+        let r = appliquer_masques(&c, std::slice::from_ref(&m));
+        assert!(r.sections[0].tables[0].lignes.iter().all(|l| l.valeurs[0].1 == "[masqué]"));
+        m.rang = Some(1);
+        let r = appliquer_masques(&c, &[m]);
+        assert_eq!(r.sections[0].tables[0].lignes[0].valeurs[0].1, "a");
+        assert_eq!(r.sections[0].tables[0].lignes[1].valeurs[0].1, "[masqué]");
+        assert!(element_existe(&c, "administratif", "ent_note", None, Some(1), Some("texte")).is_ok());
+        assert!(element_existe(&c, "administratif", "ent_note", None, Some(2), None).is_err());
+        assert!(element_existe(&c, "administratif", "ent_absente", None, None, None).is_err());
+        assert!(element_existe(&c, "autre", "ent_note", None, None, None).is_err());
     }
 }

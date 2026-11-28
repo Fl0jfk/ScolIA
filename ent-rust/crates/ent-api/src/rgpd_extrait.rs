@@ -181,6 +181,7 @@ fn contenu_dto(c: ent_db::droits_extrait::ContenuExtrait) -> ContenuExtraitDto {
         destinataires_externes: c.destinataires_externes,
         soustraitants: c.soustraitants,
         marquages: c.marquages.into_iter().map(marquage).collect(),
+        elements_reserves_direction: c.elements_reserves_direction,
     }
 }
 
@@ -247,11 +248,26 @@ async fn ajouter_sujet(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// F4 : cette lecture **écrit** (trace de consultation, journal, passage à « périmé »). Un GET à effet de bord ne
+/// doit ni être mis en cache (`private, no-store`) ni partir d'une page tierce : une requête que le navigateur
+/// déclare `Sec-Fetch-Site: cross-site` (lien ou image sur un autre site, que `SameSite=Lax` laisserait passer) est
+/// refusée avant toute écriture. Les applications natives (jeton Bearer) n'envoient pas cet en-tête.
 async fn contenu(
     State(s): State<AppState>,
     session: EntSession,
+    entetes: axum::http::HeaderMap,
     Path((id, extrait)): Path<(Uuid, Uuid)>,
-) -> Res<Json<ContenuExtraitDto>> {
+) -> Res<Response> {
+    if entetes
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("cross-site"))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "lecture d'un extrait refusée depuis un autre site".into(),
+        ));
+    }
     let c = s
         .ent
         .droits_extrait_lire(
@@ -263,7 +279,12 @@ async fn contenu(
         )
         .await
         .map_err(map_db)?;
-    Ok(Json(contenu_dto(c)))
+    let mut res = Json(contenu_dto(c)).into_response();
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(res)
 }
 
 async fn arbitrer_incomplet(
@@ -373,6 +394,7 @@ async fn ajouter_masquage(
             &b.fournisseur,
             &b.table,
             b.ligne_id,
+            b.rang,
             b.colonne.as_deref(),
             &b.motif,
         )

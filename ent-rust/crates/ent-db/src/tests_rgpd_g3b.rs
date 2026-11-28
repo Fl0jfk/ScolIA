@@ -59,7 +59,7 @@ async fn demande_prete(ent: &PgEnt, cast: &LaboCast) -> Uuid {
 }
 
 /// Un rôle « DPO » : `droits.arbitrer` **sans** `droits.traiter`.
-async fn donner_role_dpo(ent: &PgEnt, cast: &LaboCast) -> Uuid {
+pub(super) async fn donner_role_dpo(ent: &PgEnt, cast: &LaboCast) -> Uuid {
     let etab = cast.etablissement_id;
     let admin = cast.admin.user_id;
     let compte = cast.comptas[0].user_id;

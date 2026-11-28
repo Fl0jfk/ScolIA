@@ -220,6 +220,8 @@ mod tests_rgpd_g3b2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rgpd_g3b3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g3b4;
+#[cfg(all(test, feature = "labo"))]
 mod tests_acces_g4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_acces_g4b;

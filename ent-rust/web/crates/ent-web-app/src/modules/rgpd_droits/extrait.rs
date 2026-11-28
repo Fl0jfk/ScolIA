@@ -163,8 +163,15 @@ fn Relecture(demande: Uuid, extrait: Uuid, ecriture: Ecriture) -> impl IntoView 
                     let reste = restants(&c.marquages);
                     let lignes: Vec<(MarquageDto, String)> = c.marquages.iter()
                         .map(|m| (m.clone(), valeur_marquee(&c, m))).collect();
+                    let reserves = c.elements_reserves_direction;
                     view! {
                         <p>{format!("{reste} marquage(s) restant à décider.")}</p>
+                        // R-RG46 (M4) : ce qui est réservé à la direction n'est ni listé ni situé ; seul le nombre est dit.
+                        {(reserves > 0).then(|| view! {
+                            <Alerte niveau=Niveau::Info titre=format!("{reserves} élément(s) réservé(s) à la direction.")>
+                                <p>"Ils ne sont pas affichés ici. La direction les relit avant la remise."</p>
+                            </Alerte>
+                        })}
                         {(c.marquages.is_empty()).then(|| view! {
                             <Alerte niveau=Niveau::Info titre="Aucun élément marqué.".to_string()>
                                 <p>"Relisez tout de même le contenu avant la remise."</p>

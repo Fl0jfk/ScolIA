@@ -222,9 +222,20 @@ BEGIN
        OR NEW.marquage_empreinte IS DISTINCT FROM OLD.marquage_empreinte
        OR NEW.nb_sections IS DISTINCT FROM OLD.nb_sections
        OR NEW.nb_lignes IS DISTINCT FROM OLD.nb_lignes
-       OR NEW.assemble_le IS DISTINCT FROM OLD.assemble_le THEN
-        RAISE EXCEPTION 'rgp_extrait : version, sujet, empreinte et complétude sont figés'
+       OR NEW.assemble_le IS DISTINCT FROM OLD.assemble_le
+       -- F2 (contre-revue des lots 1 et 2) : la période copiée de la demande, l'auteur de l'assemblage et l'instant
+       -- d'arrêt des consultations font partie de ce qui a été assemblé.
+       OR NEW.periode_du IS DISTINCT FROM OLD.periode_du
+       OR NEW.periode_au IS DISTINCT FROM OLD.periode_au
+       OR NEW.assemble_par_compte_id IS DISTINCT FROM OLD.assemble_par_compte_id
+       OR NEW.consultations_jusqu_au IS DISTINCT FROM OLD.consultations_jusqu_au THEN
+        RAISE EXCEPTION 'rgp_extrait : version, sujet, période, empreinte et complétude sont figés'
             USING ERRCODE = '42501';
+    END IF;
+    -- F2 : un extrait périmé le reste (on ne « dépérime » pas une version : on en assemble une nouvelle).
+    IF OLD.perime_le IS NOT NULL
+       AND (NEW.perime_le IS DISTINCT FROM OLD.perime_le OR NEW.perime_motif IS DISTINCT FROM OLD.perime_motif) THEN
+        RAISE EXCEPTION 'rgp_extrait : un extrait périmé le reste' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
 END
@@ -259,7 +270,9 @@ CREATE TABLE IF NOT EXISTS rgp_extrait_masquage (
     fournisseur_code TEXT NOT NULL CHECK (fournisseur_code ~ '^[a-z][a-z0-9_]{1,39}$'),
     table_nom TEXT NOT NULL CHECK (table_nom ~ '^[a-z][a-z0-9_]{1,62}$'),
     ligne_id UUID,
-    rang INT NOT NULL DEFAULT 0 CHECK (rang >= 0),
+    -- Rang de la ligne dans sa table quand elle n'a pas d'identifiant. NULL avec `ligne_id` NULL : **toutes** les
+    -- lignes de la table (masquage ajouté à la main sur une table ou une colonne entière, M5).
+    rang INT CHECK (rang IS NULL OR rang >= 0),
     colonne TEXT CHECK (colonne IS NULL OR colonne ~ '^[a-z][a-z0-9_]{0,62}$'),
     raison TEXT NOT NULL CHECK (raison IN (
         'autre_parent', 'adresse_protegee', 'parent_donnees_propres', 'autre_eleve', 'redacteur',
@@ -269,6 +282,10 @@ CREATE TABLE IF NOT EXISTS rgp_extrait_masquage (
     motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 3 AND 1000),
     decide_par_compte_id UUID REFERENCES ent_user (id),
     decide_le TIMESTAMPTZ,
+    -- M2 : empreinte **à clé** (HMAC serveur, usage `marquage-rgpd:v1`) de l'élément marqué tel qu'il était à
+    -- l'assemblage. Une décision n'est reportée sur la version suivante que si l'élément n'a pas changé. Jamais la
+    -- valeur : sans le secret serveur, l'empreinte d'un numéro de téléphone ne se retrouve pas par essais.
+    element_empreinte TEXT CHECK (element_empreinte IS NULL OR element_empreinte ~ '^[0-9a-f]{64}$'),
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Lever un marquage exige un motif écrit.
     CONSTRAINT rgp_extrait_masquage_leve_motive CHECK (decision <> 'leve' OR motif IS NOT NULL),
@@ -279,6 +296,44 @@ CREATE TABLE IF NOT EXISTS rgp_extrait_masquage (
 );
 CREATE INDEX IF NOT EXISTS rgp_extrait_masquage_extrait_idx
     ON rgp_extrait_masquage (etablissement_id, extrait_id, decision);
+-- F1 : un élément ne porte qu'un marquage par raison (un ajout manuel en double est refusé).
+CREATE UNIQUE INDEX IF NOT EXISTS rgp_extrait_masquage_element_uq
+    ON rgp_extrait_masquage (etablissement_id, extrait_id, fournisseur_code, table_nom, ligne_id, rang, colonne, raison)
+    NULLS NOT DISTINCT;
+
+-- F1 : un marquage ne se supprime pas et l'élément qu'il désigne est figé ; seule la décision humaine change, et elle
+-- ne revient jamais à « à décider ». L'historique des décisions est au journal de la demande.
+CREATE OR REPLACE FUNCTION rgp_extrait_masquage_garde() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'rgp_extrait_masquage : suppression interdite' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.etablissement_id IS DISTINCT FROM OLD.etablissement_id
+       OR NEW.extrait_id IS DISTINCT FROM OLD.extrait_id
+       OR NEW.fournisseur_code IS DISTINCT FROM OLD.fournisseur_code
+       OR NEW.table_nom IS DISTINCT FROM OLD.table_nom
+       OR NEW.ligne_id IS DISTINCT FROM OLD.ligne_id
+       OR NEW.rang IS DISTINCT FROM OLD.rang
+       OR NEW.colonne IS DISTINCT FROM OLD.colonne
+       OR NEW.raison IS DISTINCT FROM OLD.raison
+       OR NEW.propose_par IS DISTINCT FROM OLD.propose_par
+       OR NEW.element_empreinte IS DISTINCT FROM OLD.element_empreinte
+       OR NEW.cree_le IS DISTINCT FROM OLD.cree_le THEN
+        RAISE EXCEPTION 'rgp_extrait_masquage : l''élément marqué est figé' USING ERRCODE = '42501';
+    END IF;
+    IF OLD.decision <> 'a_decider' AND NEW.decision = 'a_decider' THEN
+        RAISE EXCEPTION 'rgp_extrait_masquage : une décision ne revient pas à « à décider »' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS rgp_extrait_masquage_garde_trg ON rgp_extrait_masquage;
+CREATE TRIGGER rgp_extrait_masquage_garde_trg
+    BEFORE UPDATE OR DELETE ON rgp_extrait_masquage
+    FOR EACH ROW EXECUTE FUNCTION rgp_extrait_masquage_garde();
 
 -- ─────────────────────── Remise, téléchargements, clôture (lot G3b-3) ───────────────────────
 -- Les fichiers remis (PDF, CSV) sont **scellés** au repos (SecretBox, usage dérivé « extrait-rgpd:v1 », AAD liée à

@@ -169,6 +169,26 @@ async fn g3b_http_extrait_parcours_et_refus() {
     .await;
     assert_eq!(st, StatusCode::OK);
     assert_eq!(c["empreinte"], e[0]["empreinte"]);
+    assert_eq!(c["elements_reserves_direction"], 0);
+    // F4 : lecture à effet de bord, jamais mise en cache, refusée depuis un autre site (avant toute écriture).
+    let lire = |site: Option<&'static str>| {
+        let mut b = Request::builder()
+            .method("GET")
+            .uri(format!("/rgpd/demandes/{id}/extraits/{extrait}/contenu"))
+            .header("authorization", format!("Bearer {dir}"));
+        if let Some(s) = site {
+            b = b.header("sec-fetch-site", s);
+        }
+        app.clone().oneshot(b.body(Body::empty()).unwrap())
+    };
+    let res = lire(Some("same-origin")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("private, no-store")
+    );
+    let res = lire(Some("cross-site")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
     let (st, m) = appel(
         &app,
         "GET",
