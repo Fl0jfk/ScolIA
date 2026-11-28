@@ -3195,6 +3195,43 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
     });
 }
 
+/// V14 : les 12 routes `/eva/v14/*` du personnel (dépôt, rapprochement, distribution, retrait, aperçu, bandeau, export
+/// d'assiduité) répondent **403** à la famille et à l'élève, quel que soit le corps, avant toute lecture ni écriture. Les
+/// lectures ouvertes à la famille ne disent rien d'un élève ou d'un bulletin qu'elle ne peut pas lire : liste vide, 404.
+#[test]
+fn evaluations_v14_famille_et_eleve_recoivent_403_sur_les_routes_du_personnel() {
+    let Some(m) = monde() else { return };
+    let id = Uuid::new_v4();
+    let eleve = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", format!("/eva/v14/lots?periode_id={id}"), None),
+        ("POST", "/eva/v14/lots".into(), Some(json!({"periode_id": id}))),
+        ("GET", format!("/eva/v14/lots/{id}"), None),
+        ("POST", format!("/eva/v14/lots/{id}/fichiers"), Some(json!({"nom_fichier": "b.pdf", "contenu_base64": "JVBERi0xLjQK"}))),
+        ("GET", format!("/eva/v14/lots/{id}/controle"), None),
+        ("POST", format!("/eva/v14/lots/{id}/distribuer"), None),
+        ("POST", format!("/eva/v14/bulletins/{id}/rapprocher"), Some(json!({"eleve_id": eleve}))),
+        ("POST", format!("/eva/v14/bulletins/{id}/ecarter"), Some(json!({"motif": "essai de la famille"}))),
+        ("POST", format!("/eva/v14/bulletins/{id}/retirer"), Some(json!({"motif": "essai de la famille"}))),
+        ("GET", format!("/eva/v14/bulletins/{id}/apercu"), None),
+        ("PUT", "/eva/v14/cohabitation".into(), Some(json!({"actif": true, "logiciel_libelle": "X", "url": null, "message": "essai"}))),
+        ("GET", format!("/eva/v14/assiduite?periode_id={id}&classe_id={id}"), None),
+    ];
+    assert_eq!(routes.len(), 12, "toutes les routes du personnel de evaluations_v14.rs sont couvertes");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+            let r = m.appel("GET", &format!("/eva/v14/eleves/{eleve}/bulletins"), Some(m.jeton(a)), None).await;
+            assert_eq!((r.statut.as_u16(), r.texte.as_str()), (200, "[]"), "{a:?} : liste vide, aucun oracle");
+            let r = m.appel("GET", &format!("/eva/v14/bulletins/{id}/pdf"), Some(m.jeton(a)), None).await;
+            assert_eq!(r.statut.as_u16(), 404, "{a:?} : bulletin inconnu");
+        }
+    });
+}
+
 /// Les 12 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
 fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
     vec![
