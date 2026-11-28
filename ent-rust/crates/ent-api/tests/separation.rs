@@ -3429,3 +3429,34 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }
+
+/// V11 : les 9 points d'entrée `/eva/v11/*` (réglage des alertes, alertes d'une classe et d'un cours, changements
+/// depuis le dernier conseil, suites humaines, exclusions de l'IA, journal des consultations) sont réservés au
+/// personnel : la famille et l'élève reçoivent **403**, quel que soit le corps, avant toute lecture ni écriture (aucune
+/// ligne de journal, aucune suite posée). Une alerte n'est jamais visible de la famille ni de l'élève (§13.3).
+#[test]
+fn evaluations_v11_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
+    let Some(m) = monde() else { return };
+    let p = Uuid::new_v4();
+    let id = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", format!("/eva/v11/reglage-alertes?annee={id}"), None),
+        ("PUT", "/eva/v11/reglage-alertes".into(), Some(json!({"annee_id": id, "position": "strict"}))),
+        ("GET", format!("/eva/v11/classes/{id}/alertes?periode={p}"), None),
+        ("GET", format!("/eva/v11/cours/{id}/alertes?periode={p}"), None),
+        ("GET", format!("/eva/v11/eleves/{id}/changements?periode={p}"), None),
+        ("GET", format!("/eva/v11/eleves/{id}/suites?periode={p}"), None),
+        ("POST", format!("/eva/v11/eleves/{id}/suites"), Some(json!({"periode_id": p, "nature": "vue"}))),
+        ("GET", "/eva/v11/ia/exclusions".into(), None),
+        ("GET", "/eva/v11/consultations".into(), None),
+    ];
+    assert_eq!(routes.len(), 9, "toutes les routes de evaluations_v11.rs sont couvertes (chaque méthode d'un même chemin comptée)");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}

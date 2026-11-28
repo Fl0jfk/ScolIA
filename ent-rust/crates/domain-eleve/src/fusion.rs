@@ -269,6 +269,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_travail_remise", &["id"]),
     d("ent_voeu_inscription", &["id"]),
     d("ent_vs_commission_dossier", &["id"]),
+    r("eva_alerte_consultation", &["id"], "journal en ajout seul des consultations d'alertes (socle 21 V11) : trace de qui a regardé, reste sur la fiche consultée"),
+    r("eva_alerte_suite", &["id"], "suite humaine donnée à une alerte (socle 21 V11), en ajout seul : trace datée d'un geste d'une personne, reste sur la fiche où elle a été posée"),
     r("eva_appreciation", &["id"], "appréciation versionnée du socle 21 : élève immuable (déclencheur de 465) ; les appréciations restent sur la fiche où elles ont été saisies (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
     r("eva_consultation", &["id"], "journal en ajout seul des consultations de résultats : trace de qui a regardé, reste sur la fiche consultée"),
     d("eva_dispense_port", &["id"]),
