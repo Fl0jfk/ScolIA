@@ -351,4 +351,50 @@ fonctions d'extension (fichiers `Individu.kt`, `Individu.swift`) pour ne pas tou
 - Swift `ScolIACoreTests/IndividuTests.swift` : mêmes cas ; **non exécuté** (pas de chaîne Swift ici).
 - Robolectric `MesAutresComptesComposeTest` (3) : confirmer et refuser passent par une confirmation, contrôle local
   puis réponse neutre ; **non exécuté** (Google Maven inaccessible).
-- `ent-web-server --test individu_contrat_mobile` : vert (lancé trois fois) ; `--test individu` (PR 172) : 3 verts.
+- `ent-web-server --test individu_contrat_mobile` : vert (lancé quatre fois) ; `--test individu` (PR 172) : 3 verts ;
+  modèle d'écran web : 8 verts ; clippy `-D warnings` wasm `hydrate` et serveur `labo` ; `cargo fmt --check` web.
+
+### 11.4 Parcours navigateur (web, PR 172 et ce complément)
+
+`ent-rust/web/tests-navigateur/individu.cjs` (Playwright, Chromium sans fenêtre, axe-core 4.10 WCAG 2.1 A et AA) contre
+le serveur de labo construit (`cargo leptos build --bin-features labo`) : « Mes autres comptes » et « Fiches reliées »
+à **375 px et 1280 px**, **au clavier seulement** (Tab, Entrée, Échap) : confirmer une demande reçue, déclarer une
+adresse fausse puis juste, chercher et choisir deux fiches, relier avec un motif, lever. **72 contrôles verts, deux
+lancements de suite** : aucune violation axe-core (page, résultats de recherche, chaque boîte de dialogue ouverte, après
+écriture), aucun défilement horizontal, focus dans chaque boîte et rendu au bouton à la fermeture par Échap, aucune
+erreur dans la console. Il a trouvé deux défauts de la PR 172, corrigés ici :
+
+- le champ e-mail de « Déclarer un autre compte » (`type=email`) laissait la bulle du navigateur bloquer l'envoi
+  sans le message de l'écran : formulaire en `novalidate`, le contrôle de l'écran s'affiche et s'annonce ;
+- après « Choisir » (et « Changer »), le focus tombait sur la page (F5 de la contre-revue des écrans) : il va
+  désormais sur « Changer » (et sur le champ de recherche).
+
+Outillage, hors CI : Playwright et axe-core installés à part ; une fixture de contraste attend la fin des animations
+d'entrée (une mesure pendant le fondu donne de faux échecs). À brancher sur la CI (job frontend) en suite.
+
+### 11.5 Contre-revue indépendante (2026-11-28)
+
+Rapport : `/mnt/project-files/revues/TRANSVERSE_INDIVIDU_MOBILE_CONTRE_REVUE.md`. Aucun constat élevé.
+
+| Constat | Suite |
+|---|---|
+| M1 parcours navigateur : confirmation impossible sans fiche | **corrigé** : la direction rattache une fiche à chaque compte ; parcours vert. |
+| F1 Android : rien quand aucune demande ; intertitres non annoncés comme titres | **corrigé**. |
+| F2 nom accessible sans le libellé visible (WCAG 2.5.3) | **corrigé** sur les deux applis **et** le web (« C'est moi : … »). |
+| F3 iOS propose l'adresse du compte, réponse « enregistrée » trompeuse | **corrigé** : refus local de l'adresse du compte (deux applis). |
+| F4 demande expirée ou traitée restée affichée après le refus du serveur | **corrigé** : rechargement après un refus définitif. |
+| F5 iOS : rechargement qui vide l'écran | **corrigé** : relance du chargeur. |
+| F6 boutons côte à côte en grande taille de texte | **corrigé** : `FlowRow`, `ViewThatFits` (non vu sur appareil). |
+| F7 longueur en unités UTF-16, saisie coupée à 254 | **corrigé** : octets, plus de coupe. |
+| F8 test de contrat instable (nombre de chiffres de la fraction) | **corrigé** : seule la présence de la fraction est gardée. |
+| F9 fixture sans vrai nom, commentaires faux, rejeu et 409 non joués | commentaires corrigés ; le nom affiché vaut « Un autre compte » pour un compte sans nom (fait du serveur) ; rejeu et 409 couverts côté cœur (`IndividuTest`). |
+| F10 test du refus sur un 429 (incertain) | **corrigé** : 409 définitif (clé oubliée) et 503 incertain (clé gardée). |
+| F11 heure de l'appareil, refus confirmé sur mobile seulement, 426, doc, anciennes applis | 426 traité ; doc à jour ; le reste est voulu (§11.1) ou noté (§11.6). |
+
+### 11.6 Limites (faits)
+
+- Swift (cœur, tests, écran) et interface Compose (écran, Robolectric) **non compilés ni exécutés** ici.
+- Aucun test au lecteur d'écran réel (TalkBack, VoiceOver, NVDA).
+- Une appli antérieure à ce complément n'a pas l'écran vers lequel l'avis renvoie (le web l'a).
+- `docs/MOBILE.md` (modifié par la PR 173) n'est pas mis à jour : à faire avec la fusion du contrat dans le banc MB2.
+- Le parcours navigateur n'est pas dans la CI.

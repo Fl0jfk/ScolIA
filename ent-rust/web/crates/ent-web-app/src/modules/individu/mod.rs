@@ -217,7 +217,9 @@ fn Declarer(ecriture: Ecriture) -> impl IntoView {
                 "Saisissez l'adresse e-mail de votre autre compte dans l'établissement. La demande se confirme ensuite \
                  depuis cet autre compte, dans les 24 heures : sans confirmation, elle ne vaut rien. Cinq demandes par jour au plus."
             </p>
-            <form class="ra-formulaire" on:submit=move |ev| { ev.prevent_default(); envoyer(); }>
+            // `novalidate` : le contrôle de l'écran (`adresse_a_envoyer`) affiche son message, lié au champ, au lieu de
+            // la bulle du navigateur, qui bloquait l'envoi sans rien annoncer.
+            <form class="ra-formulaire" novalidate on:submit=move |ev| { ev.prevent_default(); envoyer(); }>
                 <ChampTexte id="ind-email" libelle="Adresse e-mail de l'autre compte" valeur=email genre="email"
                     autocomplete="off" erreur=Signal::derive(move || erreur.get())/>
                 <Bouton soumettre=true en_cours=Signal::derive(move || ecriture.en_cours.get())>
@@ -496,8 +498,30 @@ fn TableauLiens(
     }
 }
 
+/// Place le focus sur le premier élément du sélecteur, après le rendu.
+#[cfg(target_arch = "wasm32")]
+fn focaliser(selecteur: String) {
+    use leptos::wasm_bindgen::JsCast;
+    leptos::prelude::set_timeout(
+        move || {
+            if let Some(el) = leptos::prelude::document()
+                .query_selector(&selecteur)
+                .ok()
+                .flatten()
+                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+            {
+                let _ = el.focus();
+            }
+        },
+        std::time::Duration::from_millis(60),
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn focaliser(_selecteur: String) {}
+
 /// Choix d'une fiche : recherche (deux caractères au moins), puis « Choisir ». Aucune coordonnée
-/// n'est affichée (nom, compte, élèves liés seulement).
+/// n'est affichée (nom, compte, élèves liés seulement). Le focus suit le choix (« Changer », puis le champ).
 #[component]
 fn ChoixFiche(
     #[prop(into)] id: String,
@@ -519,8 +543,11 @@ fn ChoixFiche(
     let champ = format!("{id}-recherche");
     let liste_libelle = format!("Fiches trouvées pour : {libelle}");
     let titre = libelle.clone();
+    // Le bouton activé disparaît (« Choisir » devient « Changer » et inversement) : le focus irait sur la page.
+    let vers_changer = format!("#{id} button");
+    let vers_champ = format!("#{champ}");
     view! {
-        <fieldset>
+        <fieldset id=id>
             <legend>{titre}</legend>
             {move || match choisie.get() {
                 Some(f) => view! {
@@ -528,7 +555,13 @@ fn ChoixFiche(
                         <span>{f.libelle}</span>
                         " "
                         <Bouton variante=Variante::Discret taille=Taille::Compacte
-                            on_click=Callback::new(move |_| choisie.set(None))>
+                            on_click=Callback::new({
+                                let vers_champ = vers_champ.clone();
+                                move |_| {
+                                    choisie.set(None);
+                                    focaliser(vers_champ.clone());
+                                }
+                            })>
                             "Changer"
                         </Bouton>
                     </p>
@@ -536,6 +569,7 @@ fn ChoixFiche(
                 None => {
                     let champ = champ.clone();
                     let liste_libelle = liste_libelle.clone();
+                    let vers_changer = vers_changer.clone();
                     view! {
                         <form class="ra-formulaire" on:submit=move |ev| {
                             ev.prevent_default();
@@ -563,13 +597,17 @@ fn ChoixFiche(
                                         <ul class="ui-liste" aria-label=liste_libelle>
                                             {c.into_iter().map(|f| {
                                                 let acc = format!("Choisir {}", f.libelle);
+                                                let vers_changer = vers_changer.clone();
                                                 let texte = f.libelle.clone();
                                                 view! {
                                                     <li class="ui-liste__element">
                                                         <div class="ui-liste__principal"><span class="ui-liste__titre">{texte}</span></div>
                                                         <Bouton variante=Variante::Secondaire taille=Taille::Compacte
                                                             libelle_accessible=acc
-                                                            on_click=Callback::new(move |_| choisie.set(Some(f.clone())))>
+                                                            on_click=Callback::new(move |_| {
+                                                                choisie.set(Some(f.clone()));
+                                                                focaliser(vers_changer.clone());
+                                                            })>
                                                             "Choisir"
                                                         </Bouton>
                                                     </li>

@@ -88,7 +88,10 @@ async fn fiche_du_compte(base: &str, direction: &str, jeton: &str) {
     )
     .await;
     assert!(s == 200 || s == 201, "fiche : {s} {p}");
-    let id = serde_json::from_str::<Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+    let id = serde_json::from_str::<Value>(&p).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let (s, c) = appel(
         base,
         direction,
@@ -219,7 +222,10 @@ async fn routes_mes_autres_comptes_de_l_appli() {
     // Confirmer : l'identifiant du lien posé.
     let (_, moi) = appel(&base, &cible, "GET", "/dossier/individu/moi", None).await;
     let moi: Value = serde_json::from_str(&moi).unwrap();
-    let d1 = moi["declarations_recues"][0]["id"].as_str().unwrap().to_string();
+    let d1 = moi["declarations_recues"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let (s, c) = appel(
         &base,
         &cible,
@@ -250,7 +256,10 @@ async fn routes_mes_autres_comptes_de_l_appli() {
     verifier("moi", &c, &noms, &mut erreurs);
 
     // Refuser : `null`.
-    let d2 = v["declarations_recues"][0]["id"].as_str().unwrap().to_string();
+    let d2 = v["declarations_recues"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let (s, c) = appel(
         &base,
         &cible,
@@ -274,7 +283,10 @@ async fn routes_mes_autres_comptes_de_l_appli() {
         "POST /dossier/individu/declarations",
         "POST /dossier/individu/declarations/{id}/reponse",
     ] {
-        assert!(routes.lines().any(|l| l.trim() == r), "{r} absente de routes.txt");
+        assert!(
+            routes.lines().any(|l| l.trim() == r),
+            "{r} absente de routes.txt"
+        );
     }
 
     assert!(erreurs.is_empty(), "{}", erreurs.join("\n\n"));

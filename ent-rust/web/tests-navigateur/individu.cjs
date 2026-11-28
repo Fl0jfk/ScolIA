@@ -96,6 +96,12 @@ async function tabJusqua(page, nom) {
   return false;
 }
 
+/** Boîte de dialogue ouverte et animation d'entrée finie (axe mesure le contraste pendant un fondu sinon). */
+async function ouverte(page) {
+  await page.locator('dialog[open]').waitFor();
+  await page.waitForTimeout(800);
+}
+
 async function focusDans(page, selecteur) {
   return page.evaluate((s) => !!document.activeElement?.closest(s), selecteur);
 }
@@ -122,7 +128,7 @@ async function mesAutresComptes(navigateur, largeur) {
   // Clavier : « C'est moi » → la boîte s'ouvre, focus sur « Annuler » ; Échap la ferme ; on recommence et on confirme.
   verifier(await tabJusqua(page, "C'est moi : le compte"), `Mes autres comptes ${largeur} px : « C'est moi » atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByRole('dialog').waitFor();
+  await ouverte(page);
   verifier(await focusDans(page, '[role=dialog], dialog'), `Mes autres comptes ${largeur} px : le focus entre dans la confirmation`);
   await audit(page, `Mes autres comptes ${largeur} px (confirmation ouverte)`);
   await page.keyboard.press('Escape');
@@ -130,22 +136,23 @@ async function mesAutresComptes(navigateur, largeur) {
   const retour = await page.evaluate(() => (document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName || ''));
   verifier(retour.startsWith("C'est moi : le compte"), `Mes autres comptes ${largeur} px : Échap ferme et rend le focus au bouton (focus sur « ${retour} »)`);
   await page.keyboard.press('Enter');
-  await page.getByRole('dialog').waitFor();
+  await ouverte(page);
   verifier(await tabJusqua(page, "Oui, c'est mon compte"), `Mes autres comptes ${largeur} px : bouton de confirmation atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByText('Confirmé : les deux comptes sont reconnus comme une seule personne.').waitFor({ timeout: 10000 });
-  await page.getByText("1 autre compte de l'établissement vous appartient", { exact: false }).or(page.getByText('1 autre compte', { exact: false })).first().waitFor();
+  await page.getByText('Confirmé : les deux comptes sont reconnus comme une seule personne.').first().waitFor({ timeout: 10000 });
+  await page.getByText('1 autre compte de', { exact: false }).first().waitFor({ timeout: 10000 });
   verifier(true, `Mes autres comptes ${largeur} px : confirmation annoncée, lien affiché`);
 
   // Déclarer au clavier : Tab jusqu'au champ, saisie d'une adresse fausse puis juste, Entrée.
   verifier(await tabJusqua(page, "Adresse e-mail de l'autre compte"), `Mes autres comptes ${largeur} px : champ de déclaration atteint au clavier`);
   await page.keyboard.type('pas-une-adresse');
   await page.keyboard.press('Enter');
-  await page.getByText("Cette adresse e-mail n'est pas valide.").waitFor();
+  await page.getByText("Cette adresse e-mail n'est pas valide.").first().waitFor();
   await page.keyboard.type('@nulle-part.example');
   await page.keyboard.press('Enter');
-  await page.getByText('Demande enregistrée.', { exact: false }).waitFor({ timeout: 10000 });
+  await page.getByText('Demande enregistrée.', { exact: false }).first().waitFor({ timeout: 10000 });
   verifier((await page.locator('#ind-email').inputValue()) === '', `Mes autres comptes ${largeur} px : saisie effacée après l'accord du serveur`);
+  await page.waitForTimeout(800); // animation d'entrée de la notification
   await audit(page, `Mes autres comptes ${largeur} px (après déclaration)`);
   verifier(erreursConsole.length === 0, `Mes autres comptes ${largeur} px : aucune erreur dans la console${erreursConsole.length ? ' : ' + erreursConsole.join(' | ') : ''}`);
   await ctx.close();
@@ -176,32 +183,33 @@ async function fichesReliees(navigateur, largeur) {
     verifier(await tabJusqua(page, 'Choisir'), `Fiches reliées ${largeur} px : « Choisir » atteint au clavier (${n})`);
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Changer' }).nth(rang).waitFor();
-    const f = await page.evaluate(() => document.activeElement?.tagName || '');
-    notes.push(`note ${largeur} px : focus après « Choisir » (${n}) sur ${f}`);
+    await page.waitForTimeout(300); // le focus est posé juste après le rendu
+    const f = await page.evaluate(() => document.activeElement?.textContent?.trim() || document.activeElement?.tagName || '');
+    verifier(f === 'Changer', `Fiches reliées ${largeur} px : après « Choisir » (${n}), le focus va sur « Changer » (${f})`);
   }
 
   // Relier : la boîte de dialogue, motif au clavier (flèches dans la liste), confirmer.
   verifier(await tabJusqua(page, 'Relier ces deux fiches'), `Fiches reliées ${largeur} px : « Relier ces deux fiches… » atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByRole('dialog').waitFor();
+  await ouverte(page);
   verifier(await focusDans(page, '[role=dialog], dialog'), `Fiches reliées ${largeur} px : le focus entre dans « Relier deux fiches »`);
   await audit(page, `Fiches reliées ${largeur} px (boîte « Relier »)`);
   verifier(await tabJusqua(page, 'Motif'), `Fiches reliées ${largeur} px : motif atteint au clavier`);
   await page.locator('#ind-motif-lien').selectOption('fiche_sans_compte');
   verifier(await tabJusqua(page, 'Relier'), `Fiches reliées ${largeur} px : bouton « Relier » atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByText('Fiches reliées : les comptes concernés sont prévenus.').waitFor({ timeout: 10000 });
-  await page.getByRole('button', { name: /^Lever le lien entre/ }).waitFor();
+  await page.getByText('Fiches reliées : les comptes concernés sont prévenus.').first().waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: new RegExp('^Lever le lien entre .*' + nom) }).first().waitFor();
   await audit(page, `Fiches reliées ${largeur} px (lien actif, tableau)`);
 
   // Lever au clavier.
-  verifier(await tabJusqua(page, 'Lever le lien entre'), `Fiches reliées ${largeur} px : « Lever… » atteint au clavier`);
+  verifier(await tabJusqua(page, 'Lever le lien entre ' + nom), `Fiches reliées ${largeur} px : « Lever… » atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByRole('dialog').waitFor();
+  await ouverte(page);
   await page.locator('#ind-motif-levee').selectOption('erreur');
   verifier(await tabJusqua(page, 'Lever'), `Fiches reliées ${largeur} px : bouton « Lever » atteint au clavier`);
   await page.keyboard.press('Enter');
-  await page.getByText('Aucun lien', { exact: true }).waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: new RegExp('^Lever le lien entre .*' + nom) }).first().waitFor({ state: 'detached', timeout: 10000 });
   verifier(true, `Fiches reliées ${largeur} px : lien levé`);
   verifier(erreursConsole.length === 0, `Fiches reliées ${largeur} px : aucune erreur dans la console${erreursConsole.length ? ' : ' + erreursConsole.join(' | ') : ''}`);
   await ctx.close();
@@ -215,7 +223,7 @@ async function fichesReliees(navigateur, largeur) {
         try {
           await f(navigateur, largeur);
         } catch (e) {
-          echecs.push(`${nom} ${largeur} px : parcours interrompu : ${e.message.split('\n')[0]}`);
+          echecs.push(`${nom} ${largeur} px : parcours interrompu : ${e.message.split('\n').slice(0, 3).join(' ')}`);
         }
       }
     }
