@@ -457,7 +457,14 @@ pub const CONSOMMATEUR_EVALUATIONS: &str = "d6.evaluations";
 
 pub struct ConsommateurEvaluations;
 
-const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", "evaluations.publiee", types::NOTE_BULLETIN_PUBLIE];
+const TYPES_EVALUATIONS: &[&str] = &[
+    "evaluation.publiee",
+    "evaluations.publiee",
+    types::NOTE_BULLETIN_PUBLIE,
+    crate::evaluations_v8::types_v8::RELANCE,
+    crate::evaluations_v8::types_v8::RAPPEL_SAISIE,
+    crate::evaluations_v8::types_v8::CORRECTION_DECIDEE,
+];
 
 /// Destinataires d'un élève relus au traitement : responsables au lien ACTIF avec
 /// `peut_voir_notes` (compte parent membre) et le compte de l'élève lui-même.
@@ -510,6 +517,37 @@ async fn inserer_notification(
     .bind(etab)
     .bind(user)
     .bind(eleve)
+    .bind(kind)
+    .bind(titre)
+    .bind(corps)
+    .bind(source)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Avis à un membre du personnel, rattaché à aucun élève (V8 : relances, rappels, décisions de correction).
+async fn inserer_notification_personnel(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    kind: &str,
+    titre: &str,
+    corps: &str,
+    source: Uuid,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        INSERT INTO ent_notification (
+            id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id
+        ) VALUES ($1,$2,$3,NULL,$4,$5,$6,$7)
+        ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(user)
     .bind(kind)
     .bind(titre)
     .bind(corps)
@@ -632,6 +670,80 @@ async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -
                 )
                 .await?;
             }
+        }
+        // V8 (EVA-179, EVA-239) : relance ou rappel J-7 / J-2 → le professeur visé, relu au traitement. Des nombres,
+        // jamais un nom d'élève ; l'avis n'est rattaché à aucun élève.
+        crate::evaluations_v8::types_v8::RELANCE | crate::evaluations_v8::types_v8::RAPPEL_SAISIE => {
+            let Some(relance_id) = e.payload.get("relance_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok())
+            else {
+                return Ok(());
+            };
+            let row: Option<(Uuid, String, Option<String>, String)> = sqlx::query_as(
+                "SELECT r.prof_user_id, r.nature, r.message, c.libelle
+                   FROM eva_relance r JOIN ent_classe c ON c.id = r.classe_id AND c.etablissement_id = r.etablissement_id
+                  WHERE r.etablissement_id = $1 AND r.id = $2",
+            )
+            .bind(etab)
+            .bind(relance_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((prof, nature, message, classe)) = row else {
+                return Ok(());
+            };
+            let titre = if nature == "manuelle" {
+                format!("Relance de la direction : classe {classe}")
+            } else {
+                format!("Arrêt des notes bientôt : classe {classe}")
+            };
+            inserer_notification_personnel(
+                tx,
+                etab,
+                prof,
+                if nature == "manuelle" { "evaluations_relance" } else { "evaluations_rappel_saisie" },
+                &titre,
+                message.as_deref().unwrap_or("Des évaluations restent à compléter pour cette classe."),
+                e.id,
+            )
+            .await?;
+        }
+        // V8 (EVA-190) : décision sur une demande de correction → son demandeur.
+        crate::evaluations_v8::types_v8::CORRECTION_DECIDEE => {
+            let Some(demande_id) = e.payload.get("demande_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok())
+            else {
+                return Ok(());
+            };
+            let row: Option<(Uuid, String, String)> = sqlx::query_as(
+                "SELECT d.demandeur, d.etat, ev.titre
+                   FROM eva_correction_demande d
+                   JOIN eva_resultat r ON r.id = d.resultat_id AND r.etablissement_id = d.etablissement_id
+                   JOIN eva_evaluation ev ON ev.id = r.evaluation_id AND ev.etablissement_id = r.etablissement_id
+                  WHERE d.etablissement_id = $1 AND d.id = $2",
+            )
+            .bind(etab)
+            .bind(demande_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((demandeur, etat, titre)) = row else {
+                return Ok(());
+            };
+            if !["acceptee", "refusee"].contains(&etat.as_str()) {
+                return Ok(());
+            }
+            inserer_notification_personnel(
+                tx,
+                etab,
+                demandeur,
+                "evaluations_correction_decidee",
+                "Décision sur votre demande de correction",
+                &format!(
+                    "Votre demande de correction sur « {titre} » a été {}. Le détail est dans l'espace évaluations.",
+                    if etat == "acceptee" { "acceptée" } else { "refusée" }
+                ),
+                e.id,
+            )
+            .await?;
         }
         _ => {}
     }

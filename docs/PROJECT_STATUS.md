@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V8 « fin de période » (2026-11-28, branche `claude/project-thread-oewt41`, base `origin/ENT` 06333a59)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir la PR ; non validé par Florian, pas prêt pilote.** Détail, décisions par défaut (D-069) et reste à faire : `docs/socles/21_EVALUATIONS_V8_LIVRAISON.md`. Migration **704** (+3 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé.
+- Pilotage de la saisie et relances groupées, rappels automatiques J-7 et J-2 ; arrêt des notes avec aperçu, publication de tout le non publié (R-V9) et instantané versionné à empreinte (R-V11), comparaison des versions.
+- Rattrapages jusqu'à la veille du conseil (R-V10), réouverture motivée et bornée (30 jours), clôture automatique des appréciations, contrôle de 3ᵉ bloquant la clôture (R-03, CE-63).
+- Corrections : demande du professeur, effet chiffré (moyennes, seuils) montré à la direction, décision ou correction directe, journal. 19 routes (API seule).
+- **Non fait** : écrans Leptos, seuils paramétrables, lien avec le conseil (socle 23) et bulletin v2.
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).

@@ -8,7 +8,9 @@
 //!    (photos d'élèves, F2 d'E9 ; exports de l'argent des voyages, F7) ;
 //! 4. **arrêt automatique des notes** à la date d'arrêt de la période (socle 21, `arret_auto`, M8) : chaque classe
 //!    encore ouverte passe en `notes_arretees` avec l'origine `auto`, au jour de l'établissement, une seule fois
-//!    (une classe rouverte par la direction n'est jamais ré-arrêtée).
+//!    (une classe rouverte par la direction n'est jamais ré-arrêtée) ; puis la **fin de période** du lot V8
+//!    (`eva_v8_passage_au`) : réouvertures échues, publication à l'arrêt et instantané, clôture des appréciations la
+//!    veille du conseil, rappels J-7 / J-2.
 //!
 //! Même modèle que `tache_nocturne_eleves` : **idempotent**, lancé toutes les heures (le jour dépend du fuseau de
 //! chaque établissement), désactivable par `ENT_TACHES_VOYAGES_OBJETS=0`, un échec sur un établissement ne bloque
@@ -94,6 +96,9 @@ pub struct BilanPassagesQuotidiens {
     pub periodes_arretees: usize,
     /// Évaluations publiées automatiquement (programmées ou au délai maximal) et rappels envoyés (socle 21, V3).
     pub publications_automatiques: usize,
+    /// Fin de période (socle 21, V8) : réouvertures échues refermées, arrêts finalisés (publication et instantané),
+    /// appréciations closes la veille du conseil, rappels J-7 / J-2 aux professeurs.
+    pub fin_de_periode: usize,
     /// Étapes en échec (journalisées ; l'étape suivante et l'établissement suivant sont traités).
     pub erreurs: usize,
 }
@@ -106,6 +111,7 @@ impl BilanPassagesQuotidiens {
         self.exports_orphelins += autre.exports_orphelins;
         self.periodes_arretees += autre.periodes_arretees;
         self.publications_automatiques += autre.publications_automatiques;
+        self.fin_de_periode += autre.fin_de_periode;
         self.erreurs += autre.erreurs;
     }
 }
@@ -223,6 +229,15 @@ impl PgEnt {
                 }
             },
         };
+        // V8 : réouvertures échues, publication et instantané des classes arrêtées, clôture des appréciations la veille
+        // du conseil, rappels J-7 / J-2 (après l'arrêt automatique, pour finaliser les classes qu'il vient d'arrêter).
+        match self.eva_v8_passage_au(etab, jour, maintenant).await {
+            Ok(bilan) => b.fin_de_periode += bilan.total(),
+            Err(e) => {
+                b.erreurs += 1;
+                tracing::warn!(%etab, erreur = classe_erreur(&e), "passage quotidien : fin de période des évaluations en échec");
+            }
+        }
         match jour_eval {
             Ok(j) => match self.eva_v3_publications_automatiques_au(etab, maintenant, j).await {
                 Ok(bilan) => b.publications_automatiques += bilan.programmees + bilan.delai_max + bilan.rappels,

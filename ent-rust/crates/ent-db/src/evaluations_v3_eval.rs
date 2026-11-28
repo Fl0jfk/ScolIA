@@ -937,7 +937,7 @@ impl PgEnt {
     }
 }
 
-async fn publier_auto(
+pub(crate) async fn publier_auto(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     id: Uuid,
@@ -1004,7 +1004,7 @@ async fn publier_evt(
     Ok(())
 }
 
-async fn publier_evt_sys(
+pub(crate) async fn publier_evt_sys(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     type_name: &str,

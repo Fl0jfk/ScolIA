@@ -1259,8 +1259,12 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_coefficient_sous_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_consultation", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // La demande (motif, état, date de décision) est celle de la famille ; la personne qui a décidé est interne.
+    // V8 (704) : la même table porte les demandes de correction des PROFESSEURS après l'arrêt (EVA-189, proposition
+    // posée) : échange interne entre le professeur et la direction, jamais communiqué à la famille, donc hors de l'extrait.
     t("eva_correction_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
-        .hors_export(&["decide_par"])
+        .hors_export(&["decide_par", "version_vue", "statut_propose", "valeur_proposee", "decision_motif", "matiere_avant_m",
+                       "matiere_apres_m", "generale_avant_m", "generale_apres_m", "version_ecrite", "retiree_le"])
+        .export_si("x.statut_propose IS NULL")
         .tout_exportable("demande de la famille sur une note publiée : motif, état et date de décision lui ont été communiqués"),
     // Suites V5 passe 5 (F3, D-069 : on n'exporte que ce qui est communiqué à la famille). Aucune colonne ne dit qu'une
     // dispense a été notifiée à la famille (ni lecture familiale de la table dans l'ENT) : valeur par défaut PRUDENTE =
@@ -1282,6 +1286,8 @@ pub const REGISTRE: &[ClasseTable] = &[
         .export_si("EXISTS (SELECT 1 FROM eva_evaluation e WHERE e.etablissement_id = x.etablissement_id AND e.id = x.evaluation_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     t("eva_import_journal", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_instantane", "evaluations_pedagogie", Portee::Etablissement),
+    // V8 (704) : versions des appréciations retenues par une version de l'instantané (identifiants et numéros) : interne.
+    t("eva_instantane_appreciation", "evaluations_pedagogie", Portee::Etablissement),
     // Instantané d'arrêt (dérivé : moyennes figées, statistiques de classe) pris AVANT la publication du bulletin et calculé
     // sur des notes pas toutes publiées : retiré de l'export. Le bulletin figé et les notes publiées portent ce que la
     // famille a reçu ; l'assemblage de l'extrait (G3) reprendra le bulletin.
@@ -1323,6 +1329,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_rattrapage_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_reglage", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reglage_historique", "evaluations_pedagogie", Portee::Etablissement),
+    // V8 (704) : relances et rappels aux professeurs (des nombres, jamais un nom d'élève) : donnée du professeur, interne.
+    t("eva_relance", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    // V8 (704) : journal des réouvertures motivées (classe, motif, durée, auteur) : décision interne de la direction.
+    t("eva_reouverture", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_compte", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_execution", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_reprise_ligne", "evaluations_pedagogie", Portee::Etablissement),
