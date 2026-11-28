@@ -207,3 +207,14 @@ Sept actions `documents.*` (portée « établissement » seulement ; la portée 
 
 Les actions existantes `documents.lire` (domaines scolarité, social, disciplinaire) et `documents.lire_sante` (domaine santé) sont inchangées. Le CPE et la comptabilité émettent sans pouvoir relire (le modèle historique de `documents.lire` n'a pas été modifié) ; le secrétariat n'a pas `documents.restreints.lire` (décision de l'établissement). Détail et limites : `docs/socles/07_DOCUMENTS_D2_D3_LIVRAISON.md`.
 
+
+## Actions ajoutées par le transverse « individu » (2026-11-27)
+
+| Action | Modèles par défaut | Portée | Sens |
+|---|---|---|---|
+| `personnes.individu.relier` | Direction, Administratif | établissement | relier deux fiches du même individu, lire les liens et les propositions, écarter une proposition |
+| `personnes.individu.lever` | Direction | établissement | lever un lien ; **jamais par l'individu concerné** (lever retire des refus) |
+
+`TOUTES` passe de 286 à 288. Tout compte peut déclarer « cet autre compte est aussi moi » ; la déclaration ne vaut
+qu'une fois confirmée depuis l'autre compte (24 h). Un lien ne fait que **restreindre** : les règles « une autre
+personne » et « jamais pour soi » le voient, aucune règle qui accorde. Détail : `socles/TRANSVERSE_INDIVIDU.md`.

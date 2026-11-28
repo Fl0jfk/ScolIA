@@ -616,6 +616,22 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // échec du contrôle d'existence d'un avis (faible 3 de la contre-revue E1 passe 5). 482 à 494 sont versées et ne changent
     // pas (règle 25). Aucune fonction. `MIGRATION_TAG` inchangé.
     m!("495_msg_controle_echec_depuis"),
+    // Transverse « la deuxième personne fondée sur la personne physique », lot 1 (279, dernière de la plage 260–279 du
+    // socle 4 ; **fin de tableau**, règle 38) : liens d'individu entre fiches, déclarations en deux temps, propositions
+    // écartées, fonctions `ent_individu_*` et `ent_meme_individu` (docs/socles/TRANSVERSE_INDIVIDU.md). Aucune migration
+    // versée modifiée ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("279_personne_individu"),
+    // Même transverse, lot 2 (659, dernière de la plage 640–659 du socle 42 ; **après 279**, fin de tableau) : la règle 3,
+    // la seconde validation et le contournement des voyages jugent l'individu, plus le compte. 640 à 658 sont versées et
+    // ne changent pas (règle 25) ; ses fonctions portent leur `search_path`. `MIGRATION_TAG` inchangé.
+    m!("659_sortie_regle3_individu"),
+    // Même transverse, lot 3 (2421, plage d'extension 2420–2429 du socle 20 ; **après 279**, fin de tableau) : la réouverture
+    // du cahier et l'accès d'inspection jugent l'individu. 2407 est versée et ne change pas (règle 25) ; sa fonction recréée
+    // porte son `search_path`. `MIGRATION_TAG` inchangé.
+    m!("2421_cdt_individu"),
+    // Même transverse, lot 3 (2316, plage du socle 15 ; **après 279**, fin de tableau) : R-AP10 juge l'individu (projection
+    // `ent_absence_rh`, valideur du circuit, décisions). 2300 et 2302 sont versées et ne changent pas (règle 25).
+    m!("2316_absp_individu"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un

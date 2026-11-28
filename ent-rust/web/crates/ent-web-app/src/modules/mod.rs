@@ -25,6 +25,7 @@ pub mod eleves;
 pub mod evaluations;
 pub mod finances;
 pub mod formulaires;
+pub mod individu;
 pub mod infirmerie;
 pub mod inscriptions;
 pub mod journee_vs;

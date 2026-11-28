@@ -1499,10 +1499,11 @@ impl PgEnt {
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let f = charger(&mut tx, etab, id).await?;
-        if f.auteur_user_id == user {
+        // FRM-145 sur l'individu (transverse 2026-11-27) : ni l'auteur ni un co-auteur, depuis aucun de leurs comptes.
+        if crate::individu::meme_individu(&mut tx, etab, f.auteur_user_id, user).await? {
             return Err(refus_interdit("un formulaire ne se valide pas soi-même : un autre responsable valide (quatre yeux)"));
         }
-        let co: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM ent_frm_auteur WHERE etablissement_id = $1 AND formulaire_id = $2 AND user_id = $3")
+        let co: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM ent_frm_auteur WHERE etablissement_id = $1 AND formulaire_id = $2 AND user_id = ANY (public.ent_individu_comptes($1, $3))")
             .bind(etab)
             .bind(id)
             .bind(user)
@@ -1547,7 +1548,7 @@ impl PgEnt {
         if f.statut != "soumis" {
             return Err(conflit("ce formulaire n'attend pas de validation"));
         }
-        if f.auteur_user_id == user {
+        if crate::individu::meme_individu(&mut tx, etab, f.auteur_user_id, user).await? {
             return Err(refus_interdit("un formulaire ne se valide pas soi-même"));
         }
         sqlx::query("UPDATE ent_frm_formulaire SET statut = 'brouillon', soumis_le = NULL WHERE etablissement_id = $1 AND id = $2")

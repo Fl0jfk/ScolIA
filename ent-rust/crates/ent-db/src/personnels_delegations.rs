@@ -386,7 +386,7 @@ async fn inserer_delegation_tx(
 
 /// Contrôles communs : dates (début non passé, fin obligatoire, durée plafonnée) et délégataire (agent en poste de
 /// CET établissement, avec compte, distinct du délégant). Renvoie le compte du délégataire.
-async fn controles_delegataire_tx(
+pub(crate) async fn controles_delegataire_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     delegant: Uuid,
@@ -403,7 +403,8 @@ async fn controles_delegataire_tx(
             "Fin obligatoire, après le début et d'un an au plus.",
         ));
     }
-    if delegataire == delegant {
+    // Ni à une autre fiche d'agent du même individu (transverse « individu », 2026-11-27).
+    if crate::individu::agents_meme_individu(conn, etab, delegataire, delegant).await? {
         return Err(invalide("On ne se délègue rien à soi-même."));
     }
     agent_tx(conn, etab, delegataire, true).await?;

@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Transverse « la deuxième personne fondée sur la personne physique » (2026-11-27, branche `claude/project-thread-lfmutb`)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`, `ENT_ENV=test`) ; CI sur la PR en brouillon ; non validé par Florian, pas prêt pilote.** Traite le faible 9 de la contre-revue V3 des voyages. Détail : `docs/socles/TRANSVERSE_INDIVIDU.md` §9.
+- **L'individu** (migration 279) : deux fiches d'un établissement reliées (par la direction ou le secrétariat, ou par déclaration depuis un compte confirmée depuis l'autre sous 24 h) désignent le même humain ; levée par la direction seule, jamais par l'intéressé ; propositions sur coordonnée partagée, jamais de rapprochement automatique. Actions `personnes.individu.relier/lever` (`TOUTES` 288), routes `/dossier/individu/*`.
+- **Règles converties** (restrictions seulement, jamais un droit) : règle 3, seconde validation, contournement, annulation et bordereau des voyages (659) ; réouverture et accès d'inspection du cahier (2421) ; R-AP10 des absences (2316) ; formulaires, sorties de groupe, signature, délégations, reprographie, conflit d'intérêts R-A18.
+- **Complément (2026-11-28, branche `claude/project-thread-isgco5`)** : écrans « Mes autres comptes » et « Fiches reliées », avis à l'intéressé (pose, levée, déclaration reçue et confirmée ; jamais au déclarant refusé), relance bloquée 30 jours après un refus. Détail : §10.
+- **Non fait** : écrans mobiles ; parcours navigateur ; tableau de bord des conflits encore par compte.
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).
