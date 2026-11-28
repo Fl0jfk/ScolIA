@@ -152,6 +152,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    // Transverse « individu » : mes autres comptes (tout compte), fiches reliées (direction, secrétariat).
+                    <Route path=path!("securite/mes-comptes") view=modules::individu::PageMesComptes/>
                     <Route path=path!("notifications") view=modules::notifications::PagePreferencesNotification/>
                     <Route path=path!("campagnes") view=modules::campagnes::PageCampagnes/>
                     <Route path=path!("rencontres") view=modules::rendez_vous::PageRencontres/>
@@ -180,6 +182,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("referentiel/grille") view=modules::referentiel_admin::PageGrille/>
                     <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
                     <Route path=path!("direction/protections") view=modules::protections::PageProtections/>
+                    <Route path=path!("direction/fiches-reliees") view=modules::individu::PageFichesReliees/>
                     <Route path=path!("direction/roles") view=modules::roles::PageRoles/>
                     <Route path=path!("direction/roles/nouveau") view=modules::roles::PageNouveauRole/>
                     <Route path=path!("direction/roles/groupes") view=modules::roles::PageResponsables/>

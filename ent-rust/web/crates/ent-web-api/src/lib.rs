@@ -45,6 +45,7 @@ mod eleves;
 mod evaluations;
 mod evaluations_v3;
 mod finances;
+mod individu;
 mod inscriptions;
 mod journee_vs;
 mod portail;

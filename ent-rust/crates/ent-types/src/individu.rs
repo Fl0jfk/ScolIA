@@ -10,7 +10,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Motifs codés d'un lien posé par la direction ou le secrétariat.
-pub const MOTIFS_LIEN: [&str; 4] = ["deux_comptes", "fiche_sans_compte", "doublon_agent", "autre"];
+pub const MOTIFS_LIEN: [&str; 4] = [
+    "deux_comptes",
+    "fiche_sans_compte",
+    "doublon_agent",
+    "autre",
+];
 /// Motifs codés d'une levée.
 pub const MOTIFS_LEVEE: [&str; 3] = ["erreur", "homonyme", "autre"];
 /// Motifs codés d'une proposition écartée.

@@ -36,6 +36,16 @@ pub fn PageSecurite() -> impl IntoView {
             <SectionSession/>
             <SectionPasskeys annonce=annonce/>
             <SectionAppareils annonce=annonce/>
+            // Transverse « individu » : tout compte peut déclarer un autre compte et répondre à une demande.
+            <section class="securite__bloc" aria-labelledby="securite-comptes-titre">
+                <h2 id="securite-comptes-titre" class="securite__titre">"Mes autres comptes"</h2>
+                <p>"Plusieurs comptes ou fiches dans l'établissement (personnel et parent, par exemple) : faites-les reconnaître comme une seule personne, et répondez aux demandes reçues."</p>
+                <p>
+                    <LienBouton href=navigation::MES_COMPTES variante=Variante::Secondaire>
+                        "Mes autres comptes"
+                    </LienBouton>
+                </p>
+            </section>
             {move || {
                 droits
                     .get()

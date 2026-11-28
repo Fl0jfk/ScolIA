@@ -92,6 +92,9 @@ pub const DEMANDES_HSE: &str = "/web/demandes/hse";
 pub const DEMANDES_COPIES: &str = "/web/demandes/copies";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
+/// Fiches reliées (transverse « individu ») : `personnes.individu.relier` ; « Mes autres comptes » sous le compte.
+pub const FICHES_RELIEES: &str = "/web/direction/fiches-reliees";
+pub const MES_COMPTES: &str = "/web/securite/mes-comptes";
 pub const ROLES: &str = "/web/direction/roles";
 pub const ROLES_NOUVEAU: &str = "/web/direction/roles/nouveau";
 pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
@@ -370,6 +373,10 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     // S2-9 : comptabilité selon le moteur de droits (rôles paramétrés compris).
     if moteur.peut_lire_facturation() {
         v.push(entree("Comptabilité", COMPTABILITE, NomIcone::Salle));
+    }
+    // Transverse « individu » : relier les fiches d'une même personne (direction, secrétariat ; le serveur reste juge).
+    if moteur.a_etablissement("personnes.individu.relier") {
+        v.push(entree("Fiches reliées", FICHES_RELIEES, NomIcone::Personne));
     }
     // Administration des rôles : toujours en dernier.
     if droits.gerer_roles {
