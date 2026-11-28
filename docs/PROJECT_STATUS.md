@@ -3,6 +3,11 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V7 « famille et élève » (2026-11-28, branche `claude/project-thread-9zu5zq`, base `origin/ENT` 06333a59)
+- **Implémenté et testé en local** (base PostgreSQL de test) : relevé de la famille et de l'élève sur le nouveau modèle (publié seulement, moyennes provisoires expliquées par le moteur, statistiques sous le seuil, évaluations retirées « pour vérification », dates de la période, journal des consultations), évaluations annoncées, rattrapages et dispenses sans motif, projet d'évaluation et coefficients, simulateur de l'élève (aucune écriture), demandes de révision (une ouverte par résultat et par demandeur, jusqu'au conseil, réponse du professeur du cours ou de la direction, retrait, avis neutres, un parent ne voit jamais celles de l'autre), glossaire. Migration **703** (aucune table). Routes `/eva/v7/*`.
+- **Reste** : écrans Leptos et applis, bascule de l'ancien relevé famille (V12). Détail : `docs/socles/21_EVALUATIONS_V7_LIVRAISON.md`.
+- **Pas encore** : contre-revue indépendante, CI, versement sur `ENT`.
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).

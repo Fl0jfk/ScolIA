@@ -1445,6 +1445,19 @@ pub(crate) async fn moyennes_tx(
     periode_id: Uuid,
     publiees_seulement: bool,
 ) -> Result<MoyennesEleve, EntDbError> {
+    moyennes_tx_avec(tx, etab, eleve_id, periode_id, publiees_seulement, None).await
+}
+
+/// Comme [`moyennes_tx`], avec un résultat **imaginé** ajouté dans une matière (simulation de l'élève, V7, EVA-270) :
+/// le même moteur, les mêmes règles ; rien n'est écrit.
+pub(crate) async fn moyennes_tx_avec(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    eleve_id: Uuid,
+    periode_id: Uuid,
+    publiees_seulement: bool,
+    supplement: Option<(Uuid, EntreeCalcul)>,
+) -> Result<MoyennesEleve, EntDbError> {
     let periode = sqlx::query(
         "SELECT annee_id, date_debut, date_fin FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
     )
@@ -1527,6 +1540,11 @@ pub(crate) async fn moyennes_tx(
                 statut,
                 valeur_m: l.try_get("valeur_m").map_err(db)?,
             });
+    }
+
+    // V7 (EVA-270) : la note imaginée par l'élève compte comme une note de l'établissement dans sa matière.
+    if let Some((matiere, entree)) = supplement {
+        par_matiere.entry(matiere).or_default().push(entree);
     }
 
     // V5 (CE-02, CE-06, CE-07) : résultats d'un autre établissement, du CNED ou de l'étranger, DÉCIDÉS « comptés » par le

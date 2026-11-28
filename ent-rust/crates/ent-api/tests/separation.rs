@@ -3195,6 +3195,82 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
     });
 }
 
+/// V7 : les lectures de l'élève (`releve`, `a-venir`, `projet`, `revisions`) et la demande de révision sont réservées à la
+/// famille liée avec « voir les notes » et à l'élève lui-même : le personnel reçoit 403 (il lit par les grilles), un parent
+/// d'un autre foyer ou sans le drapeau « notes » aussi, avant toute lecture. La simulation est à l'élève seul ; la liste
+/// et la réponse aux demandes, au personnel seul. Le glossaire est lisible de tous.
+#[test]
+fn evaluations_v7_famille_eleve_et_personnel_chacun_a_sa_place() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let id = Uuid::new_v4();
+    let harry = o.eleve;
+    let lectures = |e: Uuid| -> Vec<(&'static str, String, Option<Value>)> {
+        vec![
+            ("GET", format!("/eva/v7/eleves/{e}/releve?periode_id={id}"), None),
+            ("GET", format!("/eva/v7/eleves/{e}/a-venir"), None),
+            ("GET", format!("/eva/v7/eleves/{e}/projet?periode_id={id}"), None),
+            ("GET", format!("/eva/v7/eleves/{e}/revisions"), None),
+            ("POST", format!("/eva/v7/eleves/{e}/simulation"), Some(json!({"periode_id": id, "matiere_id": id, "valeur_m": 12000}))),
+            ("POST", "/eva/v7/revisions".into(), Some(json!({"eleve_id": e, "evaluation_id": id, "message": "Un exercice semble oublié."}))),
+        ]
+    };
+    rt().block_on(async {
+        // Personnel : jamais par ces routes.
+        for a in Acteur::STAFF {
+            for (methode, chemin, corps) in lectures(harry) {
+                let r = m.appel(methode, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+        // Famille sans lien utile sur Harry : 403 avant toute lecture.
+        for a in [ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in lectures(harry) {
+                let r = m.appel(methode, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+        // Le parent de Harry ne simule pas (l'élève seulement, S-130).
+        let r = m
+            .appel("POST", &format!("/eva/v7/eleves/{harry}/simulation"), Some(m.jeton(Parent)),
+                   Some(&json!({"periode_id": id, "matiere_id": id, "valeur_m": 12000})))
+            .await;
+        assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
+        // Le parent de Harry lit à venir et ses demandes (listes, éventuellement vides).
+        for chemin in [format!("/eva/v7/eleves/{harry}/a-venir"), format!("/eva/v7/eleves/{harry}/revisions")] {
+            let r = m.appel("GET", &chemin, Some(m.jeton(Parent)), None).await;
+            assert!(r.est_succes(), "{chemin} : {} {}", r.statut, r.texte);
+        }
+        // Une période inconnue : introuvable, sans rien dire de plus.
+        let r = m.appel("GET", &format!("/eva/v7/eleves/{harry}/releve?periode_id={id}"), Some(m.jeton(Parent)), None).await;
+        assert_eq!(r.statut.as_u16(), 404, "{}", r.texte);
+        // Les routes du personnel : 403 à toute la famille.
+        for a in Acteur::FAMILLE {
+            let r = m.appel("GET", "/eva/v7/revisions", Some(m.jeton(a)), None).await;
+            assert_eq!(r.statut.as_u16(), 403, "{a:?} : {}", r.texte);
+            let r = m
+                .appel("POST", &format!("/eva/v7/revisions/{id}/repondre"), Some(m.jeton(a)), Some(&json!({"reponse": "essai"})))
+                .await;
+            assert_eq!(r.statut.as_u16(), 403, "{a:?} : {}", r.texte);
+        }
+        // Retirer la demande d'un autre (ou une inconnue) : introuvable pour la famille, interdit au personnel.
+        let r = m.appel("POST", &format!("/eva/v7/revisions/{id}/retirer"), Some(m.jeton(Parent)), None).await;
+        assert_eq!(r.statut.as_u16(), 404, "{}", r.texte);
+        let r = m.appel("POST", &format!("/eva/v7/revisions/{id}/retirer"), Some(m.jeton(Direction)), None).await;
+        assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
+        // Le professeur répond à une demande inconnue : 403 (aucun oracle) ; la direction : 404.
+        let r = m
+            .appel("POST", &format!("/eva/v7/revisions/{id}/repondre"), Some(m.jeton(Prof)), Some(&json!({"reponse": "essai"})))
+            .await;
+        assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
+        // Le glossaire : lisible de tous.
+        for a in Acteur::TOUS {
+            let r = m.appel("GET", "/eva/v7/glossaire", Some(m.jeton(a)), None).await;
+            assert!(r.est_succes() && r.json.as_array().is_some_and(|x| !x.is_empty()), "{a:?} : {}", r.texte);
+        }
+    });
+}
+
 /// Les 12 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
 fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
     vec![
