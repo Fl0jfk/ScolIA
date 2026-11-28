@@ -269,12 +269,13 @@ pub struct EntreeGlossaireDto {
 
 /// Glossaire des statuts, des mentions et des statistiques, en mots simples (EVA-272). Statique.
 pub fn glossaire() -> Vec<EntreeGlossaireDto> {
-    let e = |categorie: &str, terme: &str, abreviation: &str, definition: &str| EntreeGlossaireDto {
-        categorie: categorie.to_string(),
-        terme: terme.to_string(),
-        abreviation: abreviation.to_string(),
-        definition: definition.to_string(),
-    };
+    let e =
+        |categorie: &str, terme: &str, abreviation: &str, definition: &str| EntreeGlossaireDto {
+            categorie: categorie.to_string(),
+            terme: terme.to_string(),
+            abreviation: abreviation.to_string(),
+            definition: definition.to_string(),
+        };
     vec![
         e("statut", "Note", "", "La copie est corrigée et notée ; la note compte dans la moyenne selon son coefficient."),
         e("statut", "Absent", "Abs", "L'élève était absent. Une absence ne vaut jamais zéro : elle ne compte pas dans la moyenne."),
@@ -357,8 +358,18 @@ pub fn libelle_dispense(nature: &str) -> &'static str {
 /// Mois en toutes lettres.
 fn mois(m: u32) -> &'static str {
     [
-        "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
-        "novembre", "décembre",
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
     ]
     .get(m.saturating_sub(1) as usize)
     .copied()
@@ -368,15 +379,24 @@ fn mois(m: u32) -> &'static str {
 /// « 5 décembre 2031 ».
 pub fn date_fr(d: NaiveDate) -> String {
     use chrono::Datelike;
-    let jour = if d.day() == 1 { "1er".to_string() } else { d.day().to_string() };
+    let jour = if d.day() == 1 {
+        "1er".to_string()
+    } else {
+        d.day().to_string()
+    };
     format!("{jour} {} {}", mois(d.month()), d.year())
 }
 
 /// Phrase « provisoire » du relevé (§10.1).
 pub fn mention_provisoire(date_arret: Option<NaiveDate>) -> String {
     match date_arret {
-        Some(d) => format!("Moyennes provisoires, susceptibles d'évoluer jusqu'à l'arrêt des notes du {}.", date_fr(d)),
-        None => "Moyennes provisoires, susceptibles d'évoluer jusqu'à l'arrêt des notes.".to_string(),
+        Some(d) => format!(
+            "Moyennes provisoires, susceptibles d'évoluer jusqu'à l'arrêt des notes du {}.",
+            date_fr(d)
+        ),
+        None => {
+            "Moyennes provisoires, susceptibles d'évoluer jusqu'à l'arrêt des notes.".to_string()
+        }
     }
 }
 
@@ -390,7 +410,10 @@ mod tests {
 
     #[test]
     fn message_de_revision_borne_et_nettoye() {
-        assert_eq!(controler_message_revision("  Je crois qu'un exercice a été oublié.  ").unwrap(), "Je crois qu'un exercice a été oublié.");
+        assert_eq!(
+            controler_message_revision("  Je crois qu'un exercice a été oublié.  ").unwrap(),
+            "Je crois qu'un exercice a été oublié."
+        );
         assert!(controler_message_revision("ok").is_err());
         assert!(controler_message_revision(&"a".repeat(1001)).is_err());
         assert!(controler_message_revision("bonjour\u{7}").is_err());
@@ -408,19 +431,27 @@ mod tests {
             bareme_m,
             coef_m,
         };
-        assert_eq!(controler_simulation(&b(12_000, None, None)), Ok((12_000, 20_000, 1_000)));
+        assert_eq!(
+            controler_simulation(&b(12_000, None, None)),
+            Ok((12_000, 20_000, 1_000))
+        );
         assert!(controler_simulation(&b(21_000, None, None)).is_err());
         assert!(controler_simulation(&b(-1, None, None)).is_err());
         assert!(controler_simulation(&b(5_000, Some(0), None)).is_err());
         assert!(controler_simulation(&b(5_000, Some(10_000), Some(0))).is_err());
-        assert_eq!(controler_simulation(&b(8_000, Some(10_000), Some(2_000))), Ok((8_000, 10_000, 2_000)));
+        assert_eq!(
+            controler_simulation(&b(8_000, Some(10_000), Some(2_000))),
+            Ok((8_000, 10_000, 2_000))
+        );
     }
 
     #[test]
     fn dates_et_mentions_en_francais() {
         assert_eq!(date_fr(d(2031, 12, 5)), "5 décembre 2031");
         assert_eq!(date_fr(d(2032, 3, 1)), "1er mars 2032");
-        assert!(mention_provisoire(Some(d(2031, 12, 5))).contains("arrêt des notes du 5 décembre 2031"));
+        assert!(
+            mention_provisoire(Some(d(2031, 12, 5))).contains("arrêt des notes du 5 décembre 2031")
+        );
         assert!(mention_provisoire(None).starts_with("Moyennes provisoires"));
     }
 
@@ -434,7 +465,9 @@ mod tests {
         for cat in ["statut", "mention", "statistique"] {
             assert!(g.iter().any(|x| x.categorie == cat), "{cat}");
         }
-        assert!(g.iter().any(|x| x.terme == "Absent" && x.definition.contains("jamais zéro")));
+        assert!(g
+            .iter()
+            .any(|x| x.terme == "Absent" && x.definition.contains("jamais zéro")));
         assert_eq!(libelle_dispense("inconnu"), "disposition particulière");
     }
 }
