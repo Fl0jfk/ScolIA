@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::tests_evaluations::labo;
-use crate::tests_evaluations_v1::{arreter, d, monde_v1, W, DIR, PROF};
+use crate::tests_evaluations_v1::{arreter, d, monde_v1, DIR, PROF, W};
 use chrono::{NaiveDate, TimeZone, Utc};
 use domain_eleve::DomainError;
 use ent_types::evaluations_v6::*;
@@ -86,27 +86,46 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
 
     // Brouillon : version 1, lisible de son seul auteur.
     let b = ent
-        .eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", maths, "Bon début.", false, None))
+        .eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Bon début.", false, None),
+        )
         .await
         .unwrap()
         .appreciation;
-    assert_eq!((b.etat.as_str(), b.version, b.de_moi, b.limite), ("brouillon", 1, true, 400));
+    assert_eq!(
+        (b.etat.as_str(), b.version, b.de_moi, b.limite),
+        ("brouillon", 1, true, 400)
+    );
     let rel = ent
         .eva_v6_appreciations_eleve_for_actor(w.etab, w.direction, DIR, e, w.t1, jour())
         .await
         .unwrap();
-    assert!(rel.appreciations.is_empty(), "le brouillon d'un autre n'est jamais montré");
+    assert!(
+        rel.appreciations.is_empty(),
+        "le brouillon d'un autre n'est jamais montré"
+    );
     assert_eq!(rel.etat_periode.as_deref(), Some("ouverte"));
     // Pour la direction (`notes.corriger`), le brouillon d'un autre est « introuvable » : il n'existe pas pour elle.
     assert!(matches!(
-        ent.eva_v6_historique_for_actor(w.etab, w.direction, DIR, b.id, jour()).await,
+        ent.eva_v6_historique_for_actor(w.etab, w.direction, DIR, b.id, jour())
+            .await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
 
     // Un professeur qui n'enseigne pas le cours, un élève hors du cours, la famille : refusés.
     est_interdit(
-        ent.eva_v6_saisir_for_actor(w.etab, autre, PROF, jour(), &corps(&w, e, "cours", maths, "Texte.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            autre,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Texte.", true, None),
+        )
+        .await,
     );
     est_interdit(
         ent.eva_v6_saisir_for_actor(
@@ -141,12 +160,24 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
     );
     // Cours absent pour une appréciation de cours, type inconnu, texte trop long : refusés, jamais tronqués.
     est_refus(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", None, "Texte.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", None, "Texte.", true, None),
+        )
+        .await,
     );
     est_refus(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "conseil", maths, "Texte.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "conseil", maths, "Texte.", true, None),
+        )
+        .await,
     );
     est_refus(
         ent.eva_v6_saisir_for_actor(
@@ -161,12 +192,24 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
 
     // Conflits de version, puis validation : version 2.
     est_conflit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", maths, "Bien.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Bien.", true, None),
+        )
+        .await,
     );
     est_conflit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", maths, "Bien.", true, Some(7)))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Bien.", true, Some(7)),
+        )
+        .await,
     );
     let v = ent
         .eva_v6_saisir_for_actor(
@@ -174,7 +217,15 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, e, "cours", maths, "Bon trimestre, travail régulier.", true, Some(1)),
+            &corps(
+                &w,
+                e,
+                "cours",
+                maths,
+                "Bon trimestre, travail régulier.",
+                true,
+                Some(1),
+            ),
         )
         .await
         .unwrap()
@@ -187,32 +238,63 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, e, "cours", maths, "Bon trimestre, travail régulier.", true, Some(2)),
+            &corps(
+                &w,
+                e,
+                "cours",
+                maths,
+                "Bon trimestre, travail régulier.",
+                true,
+                Some(2),
+            ),
         )
         .await
         .unwrap()
         .appreciation;
     assert_eq!(same.version, 2);
     est_refus(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", maths, "Autre.", false, Some(2)))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Autre.", false, Some(2)),
+        )
+        .await,
     );
     let h = ent
         .eva_v6_historique_for_actor(w.etab, w.prof, PROF, v.id, jour())
         .await
         .unwrap();
-    assert_eq!(h.iter().map(|x| x.version).collect::<Vec<_>>(), [1, 2], "l'auteur voit ses brouillons");
+    assert_eq!(
+        h.iter().map(|x| x.version).collect::<Vec<_>>(),
+        [1, 2],
+        "l'auteur voit ses brouillons"
+    );
     let h = ent
         .eva_v6_historique_for_actor(w.etab, w.direction, DIR, v.id, jour())
         .await
         .unwrap();
-    assert_eq!(h.iter().map(|x| x.version).collect::<Vec<_>>(), [2], "la direction ne lit que les versions validées");
+    assert_eq!(
+        h.iter().map(|x| x.version).collect::<Vec<_>>(),
+        [2],
+        "la direction ne lit que les versions validées"
+    );
     assert!(!h[0].de_moi);
-    est_interdit(ent.eva_v6_historique_for_actor(w.etab, autre, PROF, v.id, jour()).await);
+    est_interdit(
+        ent.eva_v6_historique_for_actor(w.etab, autre, PROF, v.id, jour())
+            .await,
+    );
 
     // Intermédiaire : période ouverte seulement.
     let i = ent
-        .eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "intermediaire", maths, "Point d'étape.", true, None))
+        .eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "intermediaire", maths, "Point d'étape.", true, None),
+        )
         .await
         .unwrap()
         .appreciation;
@@ -226,7 +308,15 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, e, "cours", maths, "Bon trimestre, travail sérieux.", true, Some(2)),
+            &corps(
+                &w,
+                e,
+                "cours",
+                maths,
+                "Bon trimestre, travail sérieux.",
+                true,
+                Some(2),
+            ),
         )
         .await
         .unwrap()
@@ -238,7 +328,15 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, e, "intermediaire", maths, "Autre point.", true, Some(i.version)),
+            &corps(
+                &w,
+                e,
+                "intermediaire",
+                maths,
+                "Autre point.",
+                true,
+                Some(i.version),
+            ),
         )
         .await,
     );
@@ -246,14 +344,34 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
     // Appréciations closes : l'auteur ne peut plus ; la direction corrige avec un motif journalisé.
     etat(&ent, &w, "appreciations_closes").await;
     est_conflit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "cours", maths, "Tardif.", true, Some(3)))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "cours", maths, "Tardif.", true, Some(3)),
+        )
+        .await,
     );
     est_refus(
-        ent.eva_v6_saisir_for_actor(w.etab, w.direction, DIR, jour(), &corps(&w, e, "cours", maths, "Corrigé.", true, Some(3)))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            &corps(&w, e, "cours", maths, "Corrigé.", true, Some(3)),
+        )
+        .await,
     );
-    let mut c = corps(&w, e, "cours", maths, "Bon trimestre, travail sérieux et régulier.", true, Some(3));
+    let mut c = corps(
+        &w,
+        e,
+        "cours",
+        maths,
+        "Bon trimestre, travail sérieux et régulier.",
+        true,
+        Some(3),
+    );
     c.motif_correction = Some("Faute de frappe signalée par la famille".into());
     let v4 = ent
         .eva_v6_saisir_for_actor(w.etab, w.direction, DIR, jour(), &c)
@@ -267,7 +385,10 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
         .unwrap();
     let derniere = h.last().unwrap();
     assert_eq!(derniere.version, 4);
-    assert_eq!(derniere.motif_correction.as_deref(), Some("Faute de frappe signalée par la famille"));
+    assert_eq!(
+        derniere.motif_correction.as_deref(),
+        Some("Faute de frappe signalée par la famille")
+    );
     assert!(!derniere.de_moi);
     let n: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM eva_appreciation_correction WHERE etablissement_id = $1 AND appreciation_id = $2",
@@ -291,8 +412,14 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
 
     // Générale : le professeur non principal est refusé ; le PP de la classe écrit jusqu'au conseil.
     est_interdit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "generale", None, "Bilan.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "generale", None, "Bilan.", true, None),
+        )
+        .await,
     );
     sqlx::query(
         "UPDATE ent_service_enseignement SET professeur_principal = true
@@ -305,7 +432,13 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
     .await
     .unwrap();
     let g = ent
-        .eva_v6_saisir_for_actor(w.etab, autre, PROF, jour(), &corps(&w, e, "generale", None, "Bilan satisfaisant.", true, None))
+        .eva_v6_saisir_for_actor(
+            w.etab,
+            autre,
+            PROF,
+            jour(),
+            &corps(&w, e, "generale", None, "Bilan satisfaisant.", true, None),
+        )
         .await
         .unwrap()
         .appreciation;
@@ -316,13 +449,27 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
         cast.cpe.user_id,
         "cpe",
         jour(),
-        &corps(&w, e, "vie_scolaire", None, "Ponctuel et assidu.", true, None),
+        &corps(
+            &w,
+            e,
+            "vie_scolaire",
+            None,
+            "Ponctuel et assidu.",
+            true,
+            None,
+        ),
     )
     .await
     .unwrap();
     est_interdit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, e, "vie_scolaire", None, "Assidu.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, e, "vie_scolaire", None, "Assidu.", true, None),
+        )
+        .await,
     );
     // Relecture du PP : cours, intermédiaire, vie scolaire, générale (dans cet ordre).
     let rel = ent
@@ -330,11 +477,15 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
         .await
         .unwrap();
     assert_eq!(
-        rel.appreciations.iter().map(|a| a.type_appreciation.as_str()).collect::<Vec<_>>(),
+        rel.appreciations
+            .iter()
+            .map(|a| a.type_appreciation.as_str())
+            .collect::<Vec<_>>(),
         ["cours", "vie_scolaire", "generale", "intermediaire"]
     );
     est_interdit(
-        ent.eva_v6_appreciations_eleve_for_actor(w.etab, w.prof, PROF, e, w.t1, jour()).await,
+        ent.eva_v6_appreciations_eleve_for_actor(w.etab, w.prof, PROF, e, w.t1, jour())
+            .await,
     );
 
     // Conseil tenu : la générale est fermée au PP.
@@ -345,7 +496,15 @@ async fn saisie_versions_brouillons_fenetres_et_corrections() {
             autre,
             PROF,
             jour(),
-            &corps(&w, e, "generale", None, "Bilan modifié.", true, Some(g.version)),
+            &corps(
+                &w,
+                e,
+                "generale",
+                None,
+                "Bilan modifié.",
+                true,
+                Some(g.version),
+            ),
         )
         .await,
     );
@@ -364,19 +523,46 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
 
     // Mots interdits : la direction seule les règle ; un doublon (casse ignorée) rend le même mot.
     est_interdit(
-        ent.eva_v6_ajouter_mot_interdit_for_actor(w.etab, w.prof, PROF, &AjouterMotInterditBody { mot: "paresseux".into() })
-            .await,
+        ent.eva_v6_ajouter_mot_interdit_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            &AjouterMotInterditBody {
+                mot: "paresseux".into(),
+            },
+        )
+        .await,
     );
     let m = ent
-        .eva_v6_ajouter_mot_interdit_for_actor(w.etab, w.direction, DIR, &AjouterMotInterditBody { mot: "paresseux".into() })
+        .eva_v6_ajouter_mot_interdit_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            &AjouterMotInterditBody {
+                mot: "paresseux".into(),
+            },
+        )
         .await
         .unwrap();
     let m2 = ent
-        .eva_v6_ajouter_mot_interdit_for_actor(w.etab, w.direction, DIR, &AjouterMotInterditBody { mot: " Paresseux ".into() })
+        .eva_v6_ajouter_mot_interdit_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            &AjouterMotInterditBody {
+                mot: " Paresseux ".into(),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(m.id, m2.id);
-    assert_eq!(ent.eva_v6_mots_interdits_for_actor(w.etab, PROF).await.unwrap().len(), 1);
+    assert_eq!(
+        ent.eva_v6_mots_interdits_for_actor(w.etab, PROF)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     // Même texte pour les trois élèves (sous le seuil de 5) avec un mot interdit ; puis un texte de santé.
     for (i, e) in w.eleves_a.iter().enumerate() {
@@ -387,11 +573,25 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
                 w.prof,
                 PROF,
                 jour(),
-                &corps(&w, *e, "cours", maths, "Travail sérieux, parfois paresseux.", i < 2, None),
+                &corps(
+                    &w,
+                    *e,
+                    "cours",
+                    maths,
+                    "Travail sérieux, parfois paresseux.",
+                    i < 2,
+                    None,
+                ),
             )
             .await
             .unwrap();
-        assert_eq!(r.controles.iter().map(|c| c.code.as_str()).collect::<Vec<_>>(), ["mot_interdit"]);
+        assert_eq!(
+            r.controles
+                .iter()
+                .map(|c| c.code.as_str())
+                .collect::<Vec<_>>(),
+            ["mot_interdit"]
+        );
     }
     let s = ent
         .eva_v6_saisir_for_actor(
@@ -399,43 +599,101 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, w.eleves_a[1], "cours", maths, "Élève dyslexique, courageux.", true, Some(1)),
+            &corps(
+                &w,
+                w.eleves_a[1],
+                "cours",
+                maths,
+                "Élève dyslexique, courageux.",
+                true,
+                Some(1),
+            ),
         )
         .await
         .unwrap();
-    assert_eq!(s.controles.iter().map(|c| c.code.as_str()).collect::<Vec<_>>(), ["sante"]);
+    assert_eq!(
+        s.controles
+            .iter()
+            .map(|c| c.code.as_str())
+            .collect::<Vec<_>>(),
+        ["sante"]
+    );
 
     // Série du professeur : les trois élèves de la classe A, avec leur appréciation et ses contrôles.
     let serie = ent
-        .eva_v6_serie_cours_for_actor(w.etab, w.prof, PROF, w.cours_maths, w.t1, jour(), maintenant)
+        .eva_v6_serie_cours_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            w.cours_maths,
+            w.t1,
+            jour(),
+            maintenant,
+        )
         .await
         .unwrap();
     assert!(serie.peut_saisir);
     assert_eq!(serie.eleves.len(), 3);
     for l in &serie.eleves {
         assert!(l.saisie_ouverte && !l.brouillon_d_un_autre, "{l:?}");
-        assert!(l.appreciation.is_some(), "validée, ou brouillon de l'acteur");
+        assert!(
+            l.appreciation.is_some(),
+            "validée, ou brouillon de l'acteur"
+        );
         assert_eq!(l.etat_periode.as_deref(), Some("ouverte"));
     }
     // La direction ne voit pas le brouillon du professeur : elle sait seulement qu'il existe.
     let serie_dir = ent
-        .eva_v6_serie_cours_for_actor(w.etab, w.direction, DIR, w.cours_maths, w.t1, jour(), maintenant)
+        .eva_v6_serie_cours_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            w.cours_maths,
+            w.t1,
+            jour(),
+            maintenant,
+        )
         .await
         .unwrap();
-    let l2 = serie_dir.eleves.iter().find(|l| l.eleve_id == w.eleves_a[2]).unwrap();
-    assert!(l2.appreciation.is_none() && l2.brouillon_d_un_autre && !l2.saisie_ouverte, "{l2:?}");
+    let l2 = serie_dir
+        .eleves
+        .iter()
+        .find(|l| l.eleve_id == w.eleves_a[2])
+        .unwrap();
+    assert!(
+        l2.appreciation.is_none() && l2.brouillon_d_un_autre && !l2.saisie_ouverte,
+        "{l2:?}"
+    );
     est_conflit(
         ent.eva_v6_saisir_for_actor(
             w.etab,
             w.direction,
             DIR,
             jour(),
-            &corps(&w, w.eleves_a[2], "cours", maths, "Texte de la direction.", true, None),
+            &corps(
+                &w,
+                w.eleves_a[2],
+                "cours",
+                maths,
+                "Texte de la direction.",
+                true,
+                None,
+            ),
         )
         .await,
     );
-    let l1 = serie.eleves.iter().find(|l| l.eleve_id == w.eleves_a[1]).unwrap();
-    assert_eq!(l1.controles.iter().map(|c| c.code.as_str()).collect::<Vec<_>>(), ["sante"]);
+    let l1 = serie
+        .eleves
+        .iter()
+        .find(|l| l.eleve_id == w.eleves_a[1])
+        .unwrap();
+    assert_eq!(
+        l1.controles
+            .iter()
+            .map(|c| c.code.as_str())
+            .collect::<Vec<_>>(),
+        ["sante"]
+    );
     // Un professeur sans le cours ne lit pas la série.
     assert!(ent
         .eva_v6_serie_cours_for_actor(w.etab, autre, PROF, w.cours_maths, w.t1, jour(), maintenant)
@@ -456,7 +714,10 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
             DIR,
             app0.id,
             jour(),
-            &RemarqueBody { texte: "Retirez « paresseux ».".into(), version: 9 },
+            &RemarqueBody {
+                texte: "Retirez « paresseux ».".into(),
+                version: 9,
+            },
         )
         .await,
     );
@@ -467,7 +728,10 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
             PROF,
             app0.id,
             jour(),
-            &RemarqueBody { texte: "Retirez « paresseux ».".into(), version: app0.version },
+            &RemarqueBody {
+                texte: "Retirez « paresseux ».".into(),
+                version: app0.version,
+            },
         )
         .await,
     );
@@ -478,7 +742,10 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
             DIR,
             app0.id,
             jour(),
-            &RemarqueBody { texte: "Retirez « paresseux ».".into(), version: app0.version },
+            &RemarqueBody {
+                texte: "Retirez « paresseux ».".into(),
+                version: app0.version,
+            },
         )
         .await
         .unwrap();
@@ -500,53 +767,143 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
         ent.eva_v6_traiter_remarque_for_actor(w.etab, w.prof, PROF, rq.id)
             .await,
     );
-    assert!(sqlx::query("UPDATE eva_appreciation_remarque SET texte = 'x' WHERE id = $1")
-        .bind(rq.id)
-        .execute(ent.pool_verif())
-        .await
-        .is_err(), "une remarque ne se modifie pas");
+    assert!(
+        sqlx::query("UPDATE eva_appreciation_remarque SET texte = 'x' WHERE id = $1")
+            .bind(rq.id)
+            .execute(ent.pool_verif())
+            .await
+            .is_err(),
+        "une remarque ne se modifie pas"
+    );
 
     // Banque de phrases : personnelle, sans doublon ; la phrase d'un autre ne se retire pas.
     let p = ent
-        .eva_v6_ajouter_phrase_for_actor(w.etab, w.prof, PROF, &AjouterPhraseBody { texte: "Peut mieux faire.".into(), etiquettes: Some("relance".into()) })
+        .eva_v6_ajouter_phrase_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            &AjouterPhraseBody {
+                texte: "Peut mieux faire.".into(),
+                etiquettes: Some("relance".into()),
+            },
+        )
         .await
         .unwrap();
     let p2 = ent
-        .eva_v6_ajouter_phrase_for_actor(w.etab, w.prof, PROF, &AjouterPhraseBody { texte: " Peut mieux faire. ".into(), etiquettes: None })
+        .eva_v6_ajouter_phrase_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            &AjouterPhraseBody {
+                texte: " Peut mieux faire. ".into(),
+                etiquettes: None,
+            },
+        )
         .await
         .unwrap();
     assert_eq!(p.id, p2.id);
-    assert_eq!(ent.eva_v6_banque_for_actor(w.etab, w.prof, PROF).await.unwrap().len(), 1);
-    assert!(ent.eva_v6_banque_for_actor(w.etab, autre, PROF).await.unwrap().is_empty());
-    est_interdit(ent.eva_v6_retirer_phrase_for_actor(w.etab, autre, PROF, p.id).await);
+    assert_eq!(
+        ent.eva_v6_banque_for_actor(w.etab, w.prof, PROF)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(ent
+        .eva_v6_banque_for_actor(w.etab, autre, PROF)
+        .await
+        .unwrap()
+        .is_empty());
+    est_interdit(
+        ent.eva_v6_retirer_phrase_for_actor(w.etab, autre, PROF, p.id)
+            .await,
+    );
     ent.eva_v6_retirer_phrase_for_actor(w.etab, w.prof, PROF, p.id)
         .await
         .unwrap();
 
     // Dispositif : réservé à la direction ; brouillon de la direction, jeté puis réécrit.
     est_interdit(
-        ent.eva_v6_saisir_for_actor(w.etab, w.prof, PROF, jour(), &corps(&w, w.eleves_a[2], "dispositif", None, "ULIS.", true, None))
-            .await,
+        ent.eva_v6_saisir_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            jour(),
+            &corps(&w, w.eleves_a[2], "dispositif", None, "ULIS.", true, None),
+        )
+        .await,
     );
     let br = ent
-        .eva_v6_saisir_for_actor(w.etab, w.direction, DIR, jour(), &corps(&w, w.eleves_a[2], "dispositif", None, "Suivi ULIS.", false, None))
+        .eva_v6_saisir_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            &corps(
+                &w,
+                w.eleves_a[2],
+                "dispositif",
+                None,
+                "Suivi ULIS.",
+                false,
+                None,
+            ),
+        )
         .await
         .unwrap()
         .appreciation;
     // Le professeur ne jette pas le brouillon d'un autre ; l'auteur le jette ; la clé se réécrit ensuite.
     est_interdit(
-        ent.eva_v6_jeter_for_actor(w.etab, w.prof, PROF, br.id, &JeterBrouillonBody { version_attendue: br.version })
-            .await,
+        ent.eva_v6_jeter_for_actor(
+            w.etab,
+            w.prof,
+            PROF,
+            br.id,
+            &JeterBrouillonBody {
+                version_attendue: br.version,
+            },
+        )
+        .await,
     );
     est_conflit(
-        ent.eva_v6_jeter_for_actor(w.etab, w.direction, DIR, br.id, &JeterBrouillonBody { version_attendue: 9 })
-            .await,
+        ent.eva_v6_jeter_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            br.id,
+            &JeterBrouillonBody {
+                version_attendue: 9,
+            },
+        )
+        .await,
     );
-    ent.eva_v6_jeter_for_actor(w.etab, w.direction, DIR, br.id, &JeterBrouillonBody { version_attendue: br.version })
-        .await
-        .unwrap();
+    ent.eva_v6_jeter_for_actor(
+        w.etab,
+        w.direction,
+        DIR,
+        br.id,
+        &JeterBrouillonBody {
+            version_attendue: br.version,
+        },
+    )
+    .await
+    .unwrap();
     let neuf = ent
-        .eva_v6_saisir_for_actor(w.etab, w.direction, DIR, jour(), &corps(&w, w.eleves_a[2], "dispositif", None, "Suivi ULIS régulier.", true, None))
+        .eva_v6_saisir_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            jour(),
+            &corps(
+                &w,
+                w.eleves_a[2],
+                "dispositif",
+                None,
+                "Suivi ULIS régulier.",
+                true,
+                None,
+            ),
+        )
         .await
         .unwrap()
         .appreciation;
@@ -563,7 +920,15 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
             w.prof,
             PROF,
             jour(),
-            &corps(&w, w.eleves_a[2], "cours", maths, "Travail sérieux.", true, Some(1)),
+            &corps(
+                &w,
+                w.eleves_a[2],
+                "cours",
+                maths,
+                "Travail sérieux.",
+                true,
+                Some(1),
+            ),
         )
         .await
         .unwrap()
@@ -575,13 +940,26 @@ async fn serie_controles_banque_mots_interdits_et_remarques() {
         .await
         .unwrap();
     assert!(matches!(
-        ent.eva_v6_retirer_mot_interdit_for_actor(w.etab, w.direction, DIR, m.id).await,
+        ent.eva_v6_retirer_mot_interdit_for_actor(w.etab, w.direction, DIR, m.id)
+            .await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
     let serie = ent
-        .eva_v6_serie_cours_for_actor(w.etab, w.direction, DIR, w.cours_maths, w.t1, jour(), maintenant)
+        .eva_v6_serie_cours_for_actor(
+            w.etab,
+            w.direction,
+            DIR,
+            w.cours_maths,
+            w.t1,
+            jour(),
+            maintenant,
+        )
         .await
         .unwrap();
-    let l0 = serie.eleves.iter().find(|l| l.eleve_id == w.eleves_a[0]).unwrap();
+    let l0 = serie
+        .eleves
+        .iter()
+        .find(|l| l.eleve_id == w.eleves_a[0])
+        .unwrap();
     assert!(l0.controles.is_empty(), "{:?}", l0.controles);
 }

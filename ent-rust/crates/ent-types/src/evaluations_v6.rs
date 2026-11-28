@@ -396,16 +396,17 @@ pub fn controler(texte: &str, ctx: &ContexteControle) -> Vec<ControleDto> {
     if let Some(t) = TERMES_DISCIPLINE.iter().find(|t| contient(&n, t)) {
         out.push(ControleDto {
             code: "disciplinaire".into(),
-            message: format!(
-                "« {t} » : un fait disciplinaire n'a pas sa place au bulletin."
-            ),
+            message: format!("« {t} » : un fait disciplinaire n'a pas sa place au bulletin."),
         });
     }
     for m in &ctx.mots_interdits {
         if contient(&n, m) {
             out.push(ControleDto {
                 code: "mot_interdit".into(),
-                message: format!("« {} » figure dans la liste des mots à éviter de l'établissement.", m.trim()),
+                message: format!(
+                    "« {} » figure dans la liste des mots à éviter de l'établissement.",
+                    m.trim()
+                ),
             });
         }
     }
@@ -453,33 +454,63 @@ mod tests {
 
     #[test]
     fn prenom_d_un_autre_eleve_mot_entier_seulement() {
-        assert_eq!(codes(&controler("Travaille bien avec Ernie.", &ctx())), ["autre_prenom"]);
-        assert!(controler("Hannah progresse.", &ctx()).is_empty(), "son propre prénom");
-        assert!(controler("Il est sûr de lui.", &ctx()).is_empty(), "prénom trop court ignoré");
+        assert_eq!(
+            codes(&controler("Travaille bien avec Ernie.", &ctx())),
+            ["autre_prenom"]
+        );
+        assert!(
+            controler("Hannah progresse.", &ctx()).is_empty(),
+            "son propre prénom"
+        );
+        assert!(
+            controler("Il est sûr de lui.", &ctx()).is_empty(),
+            "prénom trop court ignoré"
+        );
         assert!(controler("Les zoés", &ctx()).is_empty(), "mot entier");
-        assert_eq!(codes(&controler("Aide ZOE souvent.", &ctx())), ["autre_prenom"]);
+        assert_eq!(
+            codes(&controler("Aide ZOE souvent.", &ctx())),
+            ["autre_prenom"]
+        );
     }
 
     #[test]
     fn eloge_sous_huit_de_moyenne() {
         let mut c = ctx();
         c.moyenne_m = Some(7990);
-        assert_eq!(codes(&controler("Excellent trimestre !", &c)), ["eloge_sous_moyenne"]);
+        assert_eq!(
+            codes(&controler("Excellent trimestre !", &c)),
+            ["eloge_sous_moyenne"]
+        );
         c.moyenne_m = Some(8000);
         assert!(controler("Excellent trimestre !", &c).is_empty());
         c.moyenne_m = None;
-        assert!(controler("Excellent trimestre !", &c).is_empty(), "sans moyenne : rien");
+        assert!(
+            controler("Excellent trimestre !", &c).is_empty(),
+            "sans moyenne : rien"
+        );
     }
 
     #[test]
     fn sante_disciplinaire_et_mots_interdits() {
-        assert_eq!(codes(&controler("Élève dyslexique, courageux.", &ctx())), ["sante"]);
-        assert_eq!(codes(&controler("Depuis son exclusion, mieux.", &ctx())), ["disciplinaire"]);
         assert_eq!(
-            codes(&controler("Un peu paresseux, passé un conseil de discipline.", &ctx())),
+            codes(&controler("Élève dyslexique, courageux.", &ctx())),
+            ["sante"]
+        );
+        assert_eq!(
+            codes(&controler("Depuis son exclusion, mieux.", &ctx())),
+            ["disciplinaire"]
+        );
+        assert_eq!(
+            codes(&controler(
+                "Un peu paresseux, passé un conseil de discipline.",
+                &ctx()
+            )),
             ["disciplinaire", "mot_interdit"]
         );
-        assert!(controler("Exclusivement à l'oral.", &ctx()).is_empty(), "mot entier");
+        assert!(
+            controler("Exclusivement à l'oral.", &ctx()).is_empty(),
+            "mot entier"
+        );
     }
 
     #[test]

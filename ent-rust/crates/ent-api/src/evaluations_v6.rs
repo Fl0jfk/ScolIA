@@ -33,7 +33,10 @@ pub fn routes() -> Router<AppState> {
         .route("/eva/v6/appreciations/{id}/historique", get(historique))
         .route("/eva/v6/appreciations/{id}/remarques", post(remarquer))
         .route("/eva/v6/cours/{id}/serie", get(serie))
-        .route("/eva/v6/eleves/{id}/appreciations", get(appreciations_eleve))
+        .route(
+            "/eva/v6/eleves/{id}/appreciations",
+            get(appreciations_eleve),
+        )
         .route("/eva/v6/remarques", get(mes_remarques))
         .route("/eva/v6/remarques/{id}/traiter", post(traiter_remarque))
         .route("/eva/v6/banque", get(banque).post(ajouter_phrase))
@@ -206,10 +209,7 @@ async fn traiter_remarque(
         .map_err(map_db)
 }
 
-async fn banque(
-    State(s): State<AppState>,
-    session: EntSession,
-) -> Res<Json<Vec<PhraseBanqueDto>>> {
+async fn banque(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<PhraseBanqueDto>>> {
     s.ent
         .eva_v6_banque_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await

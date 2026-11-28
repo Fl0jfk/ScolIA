@@ -36,7 +36,8 @@ use crate::evaluations_v1::moyennes_tx;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
-const COLONNES: &str = "a.id, a.periode_id, a.eleve_id, a.type, a.cours_id, a.texte, a.etat, a.version, a.aide_ia,
+const COLONNES: &str =
+    "a.id, a.periode_id, a.eleve_id, a.type, a.cours_id, a.texte, a.etat, a.version, a.aide_ia,
     COALESCE(a.modifie_par, a.auteur) AS editeur, a.maj_le";
 
 /// Rang d'un état de période (même échelle que `eva_etat_rang`, 463).
@@ -513,7 +514,9 @@ impl PgEnt {
             });
         let s = match s {
             Ok(s) => s,
-            Err(EntDbError::Forbidden) => return Err(self.eva_v6_inconnu(etab, acteur, role).await),
+            Err(EntDbError::Forbidden) => {
+                return Err(self.eva_v6_inconnu(etab, acteur, role).await)
+            }
             Err(e) => return Err(e),
         };
         let corriger = self
@@ -537,7 +540,9 @@ impl PgEnt {
                 ));
             }
             if !body.valider {
-                return Err(refus("une correction après la fenêtre est validée, jamais un brouillon"));
+                return Err(refus(
+                    "une correction après la fenêtre est validée, jamais un brouillon",
+                ));
             }
             Some(motif_correction(body.motif_correction.as_deref())?)
         } else {
@@ -563,7 +568,9 @@ impl PgEnt {
         let (id, ecrite) = match existante {
             None => {
                 if body.version_attendue.is_some() {
-                    return Err(conflit("appréciation modifiée ou jetée entre-temps : relisez-la"));
+                    return Err(conflit(
+                        "appréciation modifiée ou jetée entre-temps : relisez-la",
+                    ));
                 }
                 let id = Uuid::new_v4();
                 sqlx::query(
@@ -601,7 +608,9 @@ impl PgEnt {
                     return Err(conflit("appréciation modifiée entre-temps : relisez-la"));
                 }
                 if l.dto.etat == "validee" && !body.valider {
-                    return Err(refus("une appréciation validée ne repasse pas en brouillon"));
+                    return Err(refus(
+                        "une appréciation validée ne repasse pas en brouillon",
+                    ));
                 }
                 let avant = l.dto.version;
                 let apres: i32 = sqlx::query_scalar(
@@ -785,9 +794,12 @@ impl PgEnt {
         let mut eleves = Vec::with_capacity(grille.eleves.len());
         for e in &grille.eleves {
             let etat = etat_de.get(&e.eleve_id).cloned();
-            let ouverte = etat.as_deref().is_some_and(|x| rang(x) < fin_fenetre("cours"));
+            let ouverte = etat
+                .as_deref()
+                .is_some_and(|x| rang(x) < fin_fenetre("cours"));
             let a = app.get(&e.eleve_id);
-            let brouillon_d_un_autre = a.is_some_and(|l| l.dto.etat == "brouillon" && l.editeur != acteur);
+            let brouillon_d_un_autre =
+                a.is_some_and(|l| l.dto.etat == "brouillon" && l.editeur != acteur);
             let appreciation = a.filter(|l| visible(l, acteur)).map(|l| l.dto.clone());
             let controles: Vec<ControleDto> = match &appreciation {
                 Some(x) => {
@@ -848,7 +860,8 @@ impl PgEnt {
             }
             Err(e) => return Err(e),
         };
-        self.eva_v6_droit_relire(etab, acteur, role, eleve, &s).await?;
+        self.eva_v6_droit_relire(etab, acteur, role, eleve, &s)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let rows = sqlx::query(&format!(
             "SELECT {COLONNES} FROM eva_appreciation a
@@ -1006,7 +1019,9 @@ impl PgEnt {
             return Err(refus("seule une appréciation validée se relit"));
         }
         if l.dto.version != body.version {
-            return Err(conflit("appréciation modifiée depuis la relecture : relisez-la"));
+            return Err(conflit(
+                "appréciation modifiée depuis la relecture : relisez-la",
+            ));
         }
         if l.editeur == acteur {
             return Err(refus("vous êtes l'auteur de cette version"));
@@ -1325,11 +1340,13 @@ impl PgEnt {
         }
         let mot = texte_borne(mot, 60)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('eva_mots_interdits:' || $1::text, 0))")
-            .bind(etab)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('eva_mots_interdits:' || $1::text, 0))",
+        )
+        .bind(etab)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         let existant: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT id, mot FROM eva_appreciation_mot_interdit WHERE etablissement_id = $1 AND lower(mot) = lower($2)",
         )
