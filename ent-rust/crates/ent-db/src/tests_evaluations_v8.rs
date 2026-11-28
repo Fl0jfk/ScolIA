@@ -260,7 +260,7 @@ async fn arret_publication_instantane_correction_et_reouverture() {
 
     // Réouverture : motif et durée contrôlés ; la classe rouverte se saisit de nouveau.
     let corps = |motif: &str, jusqu_au: NaiveDate| RouvrirBody { classes: vec![w.classe_a], motif: motif.into(), jusqu_au, vers: None };
-    est_refus(ent.eva_v8_rouvrir_for_actor(w.etab, w.direction, DIR, jour(), w.t1, &corps("trop court", jour() + chrono::Duration::days(3))).await);
+    est_refus(ent.eva_v8_rouvrir_for_actor(w.etab, w.direction, DIR, jour(), w.t1, &corps("trop bref", jour() + chrono::Duration::days(3))).await);
     est_refus(ent.eva_v8_rouvrir_for_actor(w.etab, w.direction, DIR, jour(), w.t1, &corps("copies retrouvées au CDI", jour() + chrono::Duration::days(31))).await);
     est_interdit(ent.eva_v8_rouvrir_for_actor(w.etab, w.prof, PROF, jour(), w.t1, &corps("copies retrouvées au CDI", jour() + chrono::Duration::days(3))).await);
     let ro = ent
