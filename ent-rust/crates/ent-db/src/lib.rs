@@ -47,6 +47,7 @@ pub mod evaluations_v3_eval;
 pub mod evaluations_v3_import;
 pub mod evaluations_v4;
 pub mod evaluations_v5;
+pub mod evaluations_v8;
 mod evaluations_bulletin;
 mod enseignements;
 pub mod cours;
@@ -104,6 +105,8 @@ mod tests_evaluations_v3c;
 mod tests_evaluations_v4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v8;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d0;
 pub mod campagnes;

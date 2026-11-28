@@ -41,6 +41,7 @@ pub mod evaluations;
 pub mod evaluations_v3;
 pub mod evaluations_v4;
 pub mod evaluations_v5;
+pub mod evaluations_v8;
 pub mod finances;
 pub mod finances_comptes;
 pub mod finances_grilles;

@@ -3429,3 +3429,48 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }
+
+/// V8 : les 22 points d'entrée `/eva/v8/*` (arrêt, clôtures, réouverture, instantanés, rattrapages, corrections,
+/// pilotage, relances) sont réservés au personnel : la famille et l'élève reçoivent **403**, quel que soit le corps, avant
+/// toute lecture ni écriture.
+#[test]
+fn evaluations_v8_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
+    let Some(m) = monde() else { return };
+    let p = Uuid::new_v4();
+    let c = Uuid::new_v4();
+    let id = Uuid::new_v4();
+    let classes = json!({"classes": [c]});
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/apercu-arret"), None),
+        ("POST", format!("/eva/v8/periodes/{p}/arreter"), Some(classes.clone())),
+        ("POST", format!("/eva/v8/periodes/{p}/date-arret"), Some(json!({"classes": [c], "date_arret": "2031-12-05"}))),
+        ("POST", format!("/eva/v8/periodes/{p}/clore-appreciations"), Some(classes.clone())),
+        ("POST", format!("/eva/v8/periodes/{p}/rouvrir"), Some(json!({"classes": [c], "motif": "essai de la famille", "jusqu_au": "2031-12-05"}))),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/reouvertures"), None),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/controle-3e"), None),
+        ("POST", format!("/eva/v8/periodes/{p}/classes/{c}/clore"), None),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/instantanes"), None),
+        ("POST", format!("/eva/v8/periodes/{p}/classes/{c}/instantanes"), Some(json!({"motif": "essai"}))),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/instantanes/1?comparer_a=2"), None),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/corrections"), None),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/etat-saisie"), None),
+        ("GET", format!("/eva/v8/periodes/{p}/classes/{c}/relances"), None),
+        ("POST", format!("/eva/v8/periodes/{p}/classes/{c}/relances"), Some(json!({}))),
+        ("POST", "/eva/v8/rattrapages".into(), Some(json!({"evaluation_id": id, "eleve_id": id, "jusqu_au": "2031-12-05", "motif": "essai"}))),
+        ("POST", "/eva/v8/corrections".into(), Some(json!({"evaluation_id": id, "eleve_id": id, "statut": "note", "valeur_m": 20000, "motif": "essai"}))),
+        ("GET", "/eva/v8/corrections/demandes?etat=toutes".into(), None),
+        ("POST", "/eva/v8/corrections/demandes".into(), Some(json!({"evaluation_id": id, "eleve_id": id, "version_vue": 1, "statut": "note", "valeur_m": 20000, "motif": "essai"}))),
+        ("GET", format!("/eva/v8/corrections/demandes/{id}/effet"), None),
+        ("POST", format!("/eva/v8/corrections/demandes/{id}/decider"), Some(json!({"accepter": true}))),
+        ("POST", format!("/eva/v8/corrections/demandes/{id}/retirer"), None),
+    ];
+    assert_eq!(routes.len(), 22, "toutes les routes de evaluations_v8.rs sont couvertes (GET et POST d'un même chemin comptés)");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}

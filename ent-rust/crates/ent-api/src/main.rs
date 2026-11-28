@@ -514,7 +514,7 @@ async fn run_api() {
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
             loop {
                 match ent.passages_quotidiens(None).await {
-                    Ok(b) if b.acomptes_alertes + b.exports_purges + b.photos_orphelines + b.exports_orphelins + b.periodes_arretees + b.publications_automatiques + b.erreurs > 0 => {
+                    Ok(b) if b.acomptes_alertes + b.exports_purges + b.photos_orphelines + b.exports_orphelins + b.periodes_arretees + b.publications_automatiques + b.fin_de_periode + b.erreurs > 0 => {
                         tracing::info!(?b, "passages quotidiens des voyages et balayage des objets")
                     }
                     Ok(_) => {}
