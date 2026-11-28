@@ -326,7 +326,10 @@ mod tests {
 
     #[test]
     fn axe_en_snake_case() {
-        assert_eq!(serde_json::to_string(&AxeStatistiques::Professeur).unwrap(), "\"professeur\"");
+        assert_eq!(
+            serde_json::to_string(&AxeStatistiques::Professeur).unwrap(),
+            "\"professeur\""
+        );
         let a: AxeStatistiques = serde_json::from_str("\"matiere\"").unwrap();
         assert_eq!(a, AxeStatistiques::Matiere);
         for a in [
@@ -336,14 +339,19 @@ mod tests {
             AxeStatistiques::Professeur,
             AxeStatistiques::Cours,
         ] {
-            assert_eq!(serde_json::to_string(&a).unwrap(), format!("\"{}\"", a.as_str()));
+            assert_eq!(
+                serde_json::to_string(&a).unwrap(),
+                format!("\"{}\"", a.as_str())
+            );
         }
     }
 
     #[test]
     fn creer_commune_sans_evaluations_par_defaut() {
-        let b: CreerCommuneBody =
-            serde_json::from_str(r#"{"libelle":"Bac blanc","date_eval":"2032-02-10","bareme_m":20000}"#).unwrap();
+        let b: CreerCommuneBody = serde_json::from_str(
+            r#"{"libelle":"Bac blanc","date_eval":"2032-02-10","bareme_m":20000}"#,
+        )
+        .unwrap();
         assert!(b.evaluations.is_empty());
         assert!(!b.examen_blanc);
     }
