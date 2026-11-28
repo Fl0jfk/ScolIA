@@ -3,6 +3,11 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V6 « appréciations » (2026-11-28, branche `claude/project-thread-tbh550`, base `origin/ENT` 06333a59)
+- **Implémenté et testé en local** (base PostgreSQL de test) : saisie des appréciations de cours, générale, de vie scolaire, intermédiaire et de dispositif, en versions (éditeur de chaque version gardé), brouillon visible de son seul auteur, conflits de version, fenêtre selon l'état de la période de la classe de l'élève, correction motivée de la direction après la fenêtre (journal), saisie en série d'un cours avec la moyenne à côté, contrôles de cohérence non bloquants (texte identique, prénom d'un autre élève, éloge sous 8, santé, fait disciplinaire, mots interdits), relecture et remarques aux auteurs, banque de phrases personnelle. Migration **702** (3 tables avec RLS). Routes `/eva/v6/*`.
+- **Reste** : propositions de l'IA (V11), écrans Leptos et applis, bascule de l'ancienne route `POST /evaluations/appreciations`. Détail : `docs/socles/21_EVALUATIONS_V6_LIVRAISON.md`.
+- **Pas encore** : contre-revue indépendante, CI, versement sur `ENT`.
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).

@@ -3195,6 +3195,41 @@ fn evaluations_v5_famille_et_eleve_recoivent_403_sur_les_routes_et_sans_acces_a_
     });
 }
 
+/// V6 : les 14 routes `/eva/v6/*` (saisie, jeter, historique, remarques, série, relecture, banque de phrases, mots
+/// interdits) sont réservées au personnel : la famille et l'élève reçoivent **403**, quel que soit le corps, avant toute
+/// lecture ni écriture (ils lisent les appréciations publiées par les lectures existantes).
+#[test]
+fn evaluations_v6_famille_et_eleve_recoivent_403_sur_toutes_les_routes() {
+    let Some(m) = monde() else { return };
+    let id = Uuid::new_v4();
+    let eleve = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("POST", "/eva/v6/appreciations".into(), Some(json!({"periode_id": id, "eleve_id": eleve, "type": "cours", "cours_id": id, "texte": "essai de la famille", "valider": true}))),
+        ("POST", format!("/eva/v6/appreciations/{id}/jeter"), Some(json!({"version_attendue": 1}))),
+        ("GET", format!("/eva/v6/appreciations/{id}/historique"), None),
+        ("POST", format!("/eva/v6/appreciations/{id}/remarques"), Some(json!({"texte": "essai de la famille", "version": 1}))),
+        ("GET", format!("/eva/v6/cours/{id}/serie?periode_id={id}"), None),
+        ("GET", format!("/eva/v6/eleves/{eleve}/appreciations?periode_id={id}"), None),
+        ("GET", "/eva/v6/remarques".into(), None),
+        ("POST", format!("/eva/v6/remarques/{id}/traiter"), None),
+        ("GET", "/eva/v6/banque".into(), None),
+        ("POST", "/eva/v6/banque".into(), Some(json!({"texte": "essai de la famille"}))),
+        ("POST", format!("/eva/v6/banque/{id}/retirer"), None),
+        ("GET", "/eva/v6/mots-interdits".into(), None),
+        ("POST", "/eva/v6/mots-interdits".into(), Some(json!({"mot": "essai"}))),
+        ("POST", format!("/eva/v6/mots-interdits/{id}/retirer"), None),
+    ];
+    assert_eq!(routes.len(), 14, "toutes les routes de evaluations_v6.rs sont couvertes (GET et POST de /banque comptés)");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+    });
+}
+
 /// Les 12 routes `/eva/v5/*` avec des identifiants fournis par l'appelant (revue de V5, F5).
 fn routes_v5(eleve: Uuid, matiere: Uuid, cours: Uuid, id: Uuid) -> Vec<(&'static str, String, Option<Value>)> {
     vec![
