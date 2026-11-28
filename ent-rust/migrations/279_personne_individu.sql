@@ -124,6 +124,12 @@ BEGIN
                OLD.pose_par_user_id, OLD.pose_le, OLD.declaration_id) THEN
             RAISE EXCEPTION 'un lien d''individu ne change pas : il se lève une seule fois' USING ERRCODE = '23514';
         END IF;
+        -- Lever retire des refus : jamais par l'individu concerné, même en SQL direct (l'application le refuse déjà).
+        IF NEW.leve_par_user_id IS NULL
+           OR public.ent_individu_personnes(NEW.etablissement_id, ARRAY[NEW.personne_a])
+              && public.ent_individu_personnes_du_compte(NEW.etablissement_id, NEW.leve_par_user_id) THEN
+            RAISE EXCEPTION 'un lien d''individu ne se lève pas par la personne concernée' USING ERRCODE = '23514';
+        END IF;
         NEW.leve_le := pg_catalog.now();
         RETURN NEW;
     ELSIF TG_TABLE_NAME = 'ent_individu_declaration' THEN
@@ -161,6 +167,11 @@ BEGIN
         IF NEW.personne_b = ANY(public.ent_individu_personnes(NEW.etablissement_id, ARRAY[NEW.personne_a])) THEN
             RAISE EXCEPTION 'ces deux fiches sont déjà le même individu' USING ERRCODE = '23505';
         END IF;
+        -- Borne : un individu compte au plus 16 fiches (fermeture courte, chaîne d'erreurs visible).
+        IF pg_catalog.cardinality(public.ent_individu_personnes(NEW.etablissement_id,
+                                                                ARRAY[NEW.personne_a, NEW.personne_b])) > 16 THEN
+            RAISE EXCEPTION 'un individu compte au plus 16 fiches reliées' USING ERRCODE = '23514';
+        END IF;
     ELSIF TG_TABLE_NAME = 'ent_individu_declaration' THEN
         IF NEW.issue IS NOT NULL OR NEW.issue_le IS NOT NULL OR NEW.lien_id IS NOT NULL THEN
             RAISE EXCEPTION 'une déclaration d''individu naît en attente' USING ERRCODE = '23514';
@@ -196,7 +207,7 @@ $$;
 
 -- Fermeture : les fiches du même individu que `personnes`, dans l'établissement : liens actifs (dans les deux sens),
 -- chaîne de fusion (la fiche absorbée suit sa cible ; la cible retrouve ses absorbées). Ensemble fini : l'UNION
--- récursive s'arrête d'elle-même.
+-- récursive s'arrête d'elle-même ; la pose d'un lien est refusée au-delà de 16 fiches (garde d'insertion).
 CREATE OR REPLACE FUNCTION ent_individu_personnes(etab UUID, personnes UUID[]) RETURNS UUID[]
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp

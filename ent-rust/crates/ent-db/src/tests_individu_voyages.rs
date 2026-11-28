@@ -267,6 +267,22 @@ async fn contournement_un_second_compte_de_la_demandeuse_ne_decide_pas() {
         .await
         .unwrap_err();
     assert!(refus_msg(&e, MSG_DEMANDEUSE_DECIDE), "{e:?}");
+    // En base (déclencheur recréé par 659), sans passer par l'application : même refus.
+    {
+        let mut tx = TenantTx::begin(ent.pool(), x.c.etab).await.unwrap();
+        let e = sqlx::query(
+            "INSERT INTO ent_sortie_argent_contournement_evt (id, etablissement_id, contournement_id, evenement, par_user_id, motif)
+             VALUES ($1, $2, $3, 'refuse', $4, 'Refus en direct')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.c.etab)
+        .bind(c.id)
+        .bind(bis)
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+        assert!(e.to_string().contains("autre personne que la demandeuse"), "{e}");
+    }
     // Une personne libre décide.
     let ok = ent
         .voyage_contournement_decider_a(&x.compta(), x.s.id, c.id, true, None, t0)

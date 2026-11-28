@@ -194,15 +194,39 @@ non validé par Florian, pas prêt pilote.** Pas d'écran (frontend en retrait) 
   propositions sans rapprochement automatique.
 - `tests_individu_voyages.rs` (5) : règle 3 par un second compte parent et par une fiche parent sans compte, seconde
   validation et annulation (application et base), contournement, bordereau.
+- `tests_cahier_individu.rs` (sous-module de `tests_cahier`) : réouverture refusée à un second compte du demandeur,
+  dans l'application et en base (2421).
 - `tests_individu_socles.rs` : R-AP10 (application et les trois déclencheurs de 2316), délégation, accès d'inspection
   (2421, en base), conflit d'intérêts R-A18 par une fiche parent sans compte reliée, et une **garde statique** : aucune
   égalité de comptes ne reste dans les refus convertis.
 
 ### 9.4 Limites connues (faits)
 
-- Formulaires, sorties de groupe, signature, reprographie et réouverture du cahier : la conversion est un appel au port
-  (testé) et la garde statique verrouille l'ancien motif ; pas de test de bout en bout par règle pour ces cinq-là.
+- Formulaires, sorties de groupe, signature et reprographie : la conversion est un appel au port (testé) ; la garde
+  statique vérifie que l'ancien motif a disparu **et** que l'appel au port est présent ; pas de test de bout en bout pour
+  ces quatre-là.
 - Le tableau de bord des conflits d'intérêts (direction) liste toujours les conflits par compte ; seule la détection
   (qui ferme les groupes) voit l'individu.
 - Hors palier, inchangés : noter son propre enfant (Q-P3), quatre yeux des diffusions (NTF-50), RGPD (PR 165, 166),
   écrans.
+
+### 9.5 Contre-revue indépendante (2026-11-27)
+
+Rapport : `/mnt/project-files/revues/TRANSVERSE_INDIVIDU_CONTRE_REVUE.md`. **Aucun constat élevé, aucune escalade.**
+Fonctions recréées comparées aux originaux : identiques sauf la comparaison convertie.
+
+| Constat | Suite |
+|---|---|
+| M1 propositions quadratiques | **corrigé** : la jointure part des fiches d'agent ; une coordonnée partagée par plus de 5 fiches (standard, remplissage d'import) ne propose rien. |
+| M2 noms de fiches protégées | **corrigé** : la liste des liens masque le nom d'une fiche fermée au lecteur (`personnes_en_conflit` : R-A18 et adresse protégée) ; une proposition qui en touche une n'est pas montrée. |
+| M3 tests insuffisants | **corrigé** : cloisonnement avec des fiches dans les deux établissements et lien inter-établissements refusé en base ; contournement refusé par le déclencheur de 659 en SQL direct ; réouverture du cahier (2421) testée ; garde statique positive. |
+| F2 levée en SQL direct | **corrigé** : la base refuse la levée par l'individu concerné (et sans auteur). |
+| F3 fermeture non bornée | **corrigé** : la pose d'un lien est refusée au-delà de 16 fiches (test). |
+| F1 défusion | noté : défaire une fusion retire l'effet de la fusion, pas un lien d'individu ; c'est un geste de `personnes.fusionner` (admin, direction), sans la garde « jamais l'intéressé ». Suite possible. |
+| F4 écarter irréversible | noté (D-069) : écarter ne masque qu'une suggestion ; la direction peut toujours relier les deux fiches. |
+| F5 nom du déclarant montré à la cible | noté : la confirmation se fait depuis la session de la cible, qui sait si l'autre compte est le sien ; aucune coordonnée montrée. |
+| F6 élève sans compte signataire | noté : un élève signataire sans compte n'a pas de fiche `ent_personne` à relier. |
+| F7, F8 | notés : restrictions d'usage, pas de fuite ; la notification de l'intéressé à la pose d'un lien est une suite produit. |
+
+Branche signalée `absences_personnels.rs` (prolonger, écourter) : elle **accorde** à l'absent ; elle reste sur le compte
+(principe 1).

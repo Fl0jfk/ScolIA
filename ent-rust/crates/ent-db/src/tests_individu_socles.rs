@@ -228,6 +228,26 @@ fn garde_statique_aucune_egalite_de_comptes_dans_les_refus_convertis() {
     for (fichier, src, motif) in interdits {
         assert!(!src.contains(motif), "{fichier} compare encore deux comptes : « {motif} »");
     }
+    // Et la conversion est bien là (pas seulement l'ancien motif retiré) : nombre minimal d'appels au port par fichier.
+    let requis: &[(&str, &str, &str, usize)] = &[
+        ("voyages_argent_v3.rs", include_str!("voyages_argent_v3.rs"), "meme_individu", 2),
+        ("voyages_contournement.rs", include_str!("voyages_contournement.rs"), "meme_individu", 1),
+        ("voyages_argent_flux.rs", include_str!("voyages_argent_flux.rs"), "meme_individu", 1),
+        ("frm_service.rs", include_str!("frm_service.rs"), "meme_individu", 2),
+        ("frm_service.rs", include_str!("frm_service.rs"), "ent_individu_comptes", 1),
+        ("cahier_c8_acces.rs", include_str!("cahier_c8_acces.rs"), "meme_individu", 3),
+        ("internat_sorties/groupes.rs", include_str!("internat_sorties/groupes.rs"), "meme_individu", 1),
+        ("absences_rh.rs", include_str!("absences_rh.rs"), "meme_individu", 1),
+        ("absences_personnels.rs", include_str!("absences_personnels.rs"), "compte_est_agent", 4),
+        ("documents_signature_signer.rs", include_str!("documents_signature_signer.rs"), "signataire_est_l_individu", 2),
+        ("personnels_delegations.rs", include_str!("personnels_delegations.rs"), "agents_meme_individu", 1),
+        ("demandes_repro.rs", include_str!("demandes_repro.rs"), "ent_individu_personnes_du_compte", 2),
+        ("dossier_droits.rs", include_str!("dossier_droits.rs"), "ent_individu_personnes_du_compte", 4),
+        ("dossier_droits.rs", include_str!("dossier_droits.rs"), "ent_individu_comptes", 2),
+    ];
+    for (fichier, src, appel, n) in requis {
+        assert!(src.matches(appel).count() >= *n, "{fichier} : moins de {n} appel(s) à {appel}");
+    }
     // Absences des personnels : chaque refus R-AP10 passe par `absent_individu`, jamais par le seul compte.
     let abs = include_str!("absences_personnels.rs");
     for motif in ["valider_droit && !suis_absent", "instructeur) && !suis_absent", "let ok = !suis_absent", "if suis_absent ||"] {

@@ -37,6 +37,10 @@ pub const MOTIFS_ECARTEE: [&str; 3] = ["homonyme", "coordonnee_partagee", "autre
 /// Refus : l'individu concerné lève son propre lien.
 pub const MSG_LEVEE_PAR_SOI: &str =
     "Un lien d'individu ne se lève pas par la personne concernée : un autre membre de la direction le lève.";
+/// Nom affiché d'une fiche fermée au lecteur (conflit d'intérêts, adresse protégée).
+pub const NOM_MASQUE: &str = "Fiche protégée";
+/// Une coordonnée partagée par plus de fiches que cela n'est pas un indice d'individu (standard, remplissage d'import).
+const PROPOSITION_VALEUR_MAX_FICHES: i64 = 5;
 /// Refus : les deux fiches sont déjà le même individu.
 pub const MSG_DEJA_RELIEES: &str = "Ces deux fiches sont déjà reliées : elles désignent le même individu.";
 
@@ -48,6 +52,9 @@ fn db_individu(err: sqlx::Error) -> EntDbError {
     if let sqlx::Error::Database(d) = &err {
         if d.code().as_deref() == Some("23505") {
             return refus(RefusMetier::Conflit, MSG_DEJA_RELIEES);
+        }
+        if d.code().as_deref() == Some("23514") && d.message().contains("16 fiches") {
+            return refus(RefusMetier::Conflit, "Un individu compte au plus 16 fiches reliées : vérifiez les liens existants.");
         }
         if d.code().as_deref() == Some("23514") && d.message().contains("expirée") {
             return refus(RefusMetier::Conflit, "Cette déclaration a expiré : déclarez de nouveau.");
@@ -534,14 +541,19 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        drop(tx);
+        // Même minimisation que le dossier (R-A18, adresse protégée) : le nom d'une fiche fermée au lecteur est masqué.
+        let ids: Vec<Uuid> = lignes.iter().flat_map(|l| [l.1, l.2]).collect();
+        let fermees = self.personnes_en_conflit(etab, actor, role, &ids).await?;
+        let nom = |id: Uuid, n: String| if fermees.contains(&id) { NOM_MASQUE.to_string() } else { n };
         Ok(lignes
             .into_iter()
             .map(|(id, personne_a, personne_b, nom_a, nom_b, origine, motif_code, pose_le)| LienIndividu {
                 id,
                 personne_a,
                 personne_b,
-                nom_a,
-                nom_b,
+                nom_a: nom(personne_a, nom_a),
+                nom_b: nom(personne_b, nom_b),
                 origine,
                 motif_code,
                 pose_le,
@@ -574,11 +586,23 @@ impl PgEnt {
                   CROSS JOIN LATERAL (VALUES (p.telephone), (p.telephone_2)) AS t(tel)
                  WHERE p.etablissement_id = $1 AND p.fusionnee_dans IS NULL AND t.tel IS NOT NULL
              ),
+             -- Une valeur partagée par plus de $2 fiches (standard, adresse de remplissage d'un import) ne propose rien :
+             -- c'est une coordonnée commune, pas un indice d'individu, et cela borne le nombre de paires.
+             cv AS (
+                SELECT c.id, c.v, c.k FROM (
+                    SELECT c.*, count(*) OVER (PARTITION BY c.k, c.v) AS n FROM c
+                     WHERE c.v IS NOT NULL AND length(c.v) >= 6) c
+                 WHERE c.n <= $2
+             ),
+             -- Un côté de la paire au moins est un agent : la jointure part des fiches d'agent.
+             ag AS (
+                SELECT cv.* FROM cv
+                 WHERE EXISTS (SELECT 1 FROM ent_agent g WHERE g.etablissement_id = $1 AND g.personne_id = cv.id)
+             ),
              paires AS (
-                SELECT x.id AS a, y.id AS b, array_agg(DISTINCT x.k ORDER BY x.k) AS raisons
-                  FROM c x JOIN c y ON x.k = y.k AND x.v = y.v AND x.id < y.id
-                 WHERE x.v IS NOT NULL AND length(x.v) >= 6
-                 GROUP BY x.id, y.id
+                SELECT LEAST(x.id, y.id) AS a, GREATEST(x.id, y.id) AS b, array_agg(DISTINCT x.k ORDER BY x.k) AS raisons
+                  FROM ag x JOIN cv y ON x.k = y.k AND x.v = y.v AND x.id <> y.id
+                 GROUP BY 1, 2
              )
              SELECT q.a, q.b,
                     btrim(pa.nom || ' ' || COALESCE(pa.prenom, '')), btrim(pb.nom || ' ' || COALESCE(pb.prenom, '')),
@@ -586,19 +610,24 @@ impl PgEnt {
                FROM paires q
                JOIN ent_personne pa ON pa.etablissement_id = $1 AND pa.id = q.a
                JOIN ent_personne pb ON pb.etablissement_id = $1 AND pb.id = q.b
-              WHERE (EXISTS (SELECT 1 FROM ent_agent g WHERE g.etablissement_id = $1 AND g.personne_id IN (q.a, q.b)))
-                AND NOT (q.b = ANY(ent_individu_personnes($1, ARRAY[q.a])))
+              WHERE NOT (q.b = ANY(ent_individu_personnes($1, ARRAY[q.a])))
                 AND NOT EXISTS (SELECT 1 FROM ent_individu_proposition_ecartee e
                                  WHERE e.etablissement_id = $1 AND e.personne_a = q.a AND e.personne_b = q.b)
               ORDER BY 3, 4, q.a, q.b
               LIMIT 200",
         )
         .bind(etab)
+        .bind(PROPOSITION_VALEUR_MAX_FICHES)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
+        drop(tx);
+        // Une fiche fermée au lecteur (R-A18, adresse protégée) n'est jamais proposée : ni son nom, ni le rapprochement.
+        let ids: Vec<Uuid> = lignes.iter().flat_map(|l| [l.0, l.1]).collect();
+        let fermees = self.personnes_en_conflit(etab, actor, role, &ids).await?;
         Ok(lignes
             .into_iter()
+            .filter(|l| !fermees.contains(&l.0) && !fermees.contains(&l.1))
             .map(|(personne_a, personne_b, nom_a, nom_b, raisons)| PropositionIndividu {
                 personne_a,
                 personne_b,

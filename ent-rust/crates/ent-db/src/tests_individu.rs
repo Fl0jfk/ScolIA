@@ -198,6 +198,19 @@ async fn individu_la_direction_ne_leve_pas_son_propre_lien() {
     let e = ent.individu_lever_for_actor(etab, dir, "direction", l, "erreur").await.unwrap_err();
     assert!(matches!(e, EntDbError::Refus(RefusMetier::Interdit, m) if m == MSG_LEVEE_PAR_SOI), "{e:?}");
     assert!(meme(&ent, etab, dir, parent).await, "le refus ne lève rien");
+    // En base aussi : ni le compte de direction, ni le compte parent du même individu ne lèvent en SQL direct.
+    for sujet in [dir, parent] {
+        let mut tx = TenantTx::begin(ent.pool(), etab).await.unwrap();
+        let e = sqlx::query(
+            "UPDATE ent_individu_lien SET leve_le = now(), leve_par_user_id = $2, leve_motif_code = 'erreur' WHERE id = $1",
+        )
+        .bind(l)
+        .bind(sujet)
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+        assert!(e.to_string().contains("personne concernée"), "{e}");
+    }
     ent.individu_lever_for_actor(etab, dir2, "direction", l, "homonyme").await.unwrap();
     assert!(!meme(&ent, etab, dir, parent).await);
 }
@@ -399,7 +412,25 @@ async fn individu_cloisonne_par_etablissement() {
         .await
         .unwrap();
     assert!(meme(&ent, a, prof, parent).await);
+    // Les deux comptes ont aussi une fiche dans B : le lien posé dans A n'y vaut rien.
+    let pb_prof = fiche_du_compte(&ent, b, prof).await;
+    let pb_parent = fiche_du_compte(&ent, b, parent).await;
     assert!(!meme(&ent, b, prof, parent).await, "le lien de A ne vaut pas dans B");
+    assert!(!fiches(&ent, b, prof).await.contains(&pb_parent));
+    assert!(!fiches(&ent, a, prof).await.contains(&pb_parent), "aucune fiche de B dans l'individu de A");
+    // En base : un lien entre une fiche de A et une fiche de B est refusé (clés composites).
+    let r = sqlx::query(
+        "INSERT INTO ent_individu_lien (id, etablissement_id, personne_a, personne_b, origine, motif_code, pose_par_user_id)
+         VALUES ($1, $2, LEAST($3::uuid, $4::uuid), GREATEST($3::uuid, $4::uuid), 'declaration_direction', 'autre', $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(a)
+    .bind(p_prof)
+    .bind(pb_prof)
+    .bind(dir_a)
+    .execute(ent.pool())
+    .await;
+    assert!(r.is_err(), "lien entre deux établissements accepté");
     let e = ent
         .individu_relier_for_actor(a, dir_a, "direction", p_prof, p_b, "autre", false)
         .await
@@ -508,4 +539,30 @@ async fn individu_propositions_sans_rapprochement_automatique() {
     let liens = ent.individu_liens_for_actor(etab, dir, "direction").await.unwrap();
     assert_eq!(liens.len(), 1);
     assert_eq!(liens[0].origine, "proposition_acceptee");
+}
+
+/// Borne : un individu compte au plus 16 fiches reliées (la fermeture reste courte).
+#[tokio::test]
+async fn individu_borne_a_16_fiches() {
+    let Some(ent) = connecter().await else {
+        return eprintln!("skip : ENT_DATABASE_URL");
+    };
+    let etab = Uuid::new_v4();
+    let (dir, _) = compte(&ent, etab, "direction").await;
+    let (prof, _) = compte(&ent, etab, "prof").await;
+    let mut tete = fiche_du_compte(&ent, etab, prof).await;
+    for i in 0..15 {
+        let f = fiche_sans_compte(&ent, etab, &format!("Doublon {i}"), None).await;
+        ent.individu_relier_for_actor(etab, dir, "direction", tete, f, "doublon_agent", false)
+            .await
+            .unwrap();
+        tete = f;
+    }
+    assert_eq!(fiches(&ent, etab, prof).await.len(), 16);
+    let f = fiche_sans_compte(&ent, etab, "De trop", None).await;
+    let e = ent
+        .individu_relier_for_actor(etab, dir, "direction", tete, f, "doublon_agent", false)
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e, RefusMetier::Conflit), "{e:?}");
 }
