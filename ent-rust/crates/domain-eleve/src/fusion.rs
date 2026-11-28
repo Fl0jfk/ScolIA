@@ -282,6 +282,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("eva_resultat", &["id"], "résultat d'évaluation du socle 21 : élève immuable (déclencheur de 464), historique en ajout seul ; les résultats restent sur la fiche où ils ont été saisis, mais le moteur de moyennes les rattache à l'élève conservé (`eva_fiches_de_l_eleve`, contre-revue de V5) : la note suit l'élève ; le rapprochement des autres lectures pédagogiques est une suite du lot V3"),
     r("eva_resultat_externe", &["id"], "résultat obtenu hors de l'établissement : déclaré pour cette fiche, les résultats restent sur la fiche où ils ont été saisis (lisibles via la fusion) ; le rapprochement pédagogique vers l'élève conservé est une suite du lot V3"),
     r("eva_resultat_historique", &["id"], "historique en ajout seul des corrections de résultats : trace, reste sur la fiche d'origine"),
+    r("eva_tiers_bulletin", &["id"], "bulletin du logiciel tiers (socle 21 V14) : rapproché d'une fiche puis distribué, figé par sa garde (migration 701) ; le document distribué est au coffre de cette fiche, la ligne reste sur la fiche où elle a été rapprochée"),
+    r("eva_tiers_journal", &["id"], "journal en ajout seul des bulletins du logiciel tiers : trace, reste sur la fiche d'origine"),
 ];
 
 /// Domaine métier d'une table, pour l'aperçu (libellé que le lecteur comprend, pas le nom
