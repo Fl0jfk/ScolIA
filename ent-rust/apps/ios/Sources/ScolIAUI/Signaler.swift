@@ -1,5 +1,6 @@
-import SwiftUI
+#if os(iOS)
 import ScolIACore
+import SwiftUI
 
 private func direct<T>(_ v: T) -> Lecture<T> { Lecture(valeur: v, horsLigne: false, horodatage: Date()) }
 
@@ -92,3 +93,4 @@ struct EcranSignaler: View {
         .navigationTitle("Signaler un incident")
     }
 }
+#endif
