@@ -189,6 +189,24 @@ pub fn trier_propositions(mut v: Vec<PropositionIndividu>) -> Vec<PropositionInd
     v
 }
 
+/// « 1 lien actif », « 3 liens actifs ».
+pub fn libelle_nombre_liens(n: usize) -> String {
+    if n <= 1 {
+        format!("{n} lien actif")
+    } else {
+        format!("{n} liens actifs")
+    }
+}
+
+/// « 1 fiche trouvée », « 4 fiches trouvées » (annoncé au lecteur d'écran).
+pub fn libelle_nombre_fiches(n: usize) -> String {
+    if n <= 1 {
+        format!("{n} fiche trouvée")
+    } else {
+        format!("{n} fiches trouvées")
+    }
+}
+
 /// Désignation d'une paire, lue par le lecteur d'écran sur chaque bouton.
 pub fn designation_paire(nom_a: &str, nom_b: &str) -> String {
     format!("{} et {}", nom_ou_defaut(nom_a), nom_ou_defaut(nom_b))
@@ -422,6 +440,9 @@ mod tests {
         let n: Vec<&str> = v.iter().map(|x| x.nom_b.as_str()).collect();
         assert_eq!(n, ["Léa", "Adam", "Zoé"]);
         assert_eq!(designation_paire(" ", "Martin"), "fiche sans nom et Martin");
+        assert_eq!(libelle_nombre_liens(1), "1 lien actif");
+        assert_eq!(libelle_nombre_liens(3), "3 liens actifs");
+        assert_eq!(libelle_nombre_fiches(2), "2 fiches trouvées");
     }
 
     #[test]

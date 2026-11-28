@@ -230,3 +230,78 @@ Fonctions recréées comparées aux originaux : identiques sauf la comparaison c
 
 Branche signalée `absences_personnels.rs` (prolonger, écourter) : elle **accorde** à l'absent ; elle reste sur le compte
 (principe 1).
+
+## 10. Complément : écrans et avis à l'intéressé (2026-11-28, branche `claude/project-thread-isgco5`, sur la PR 170)
+
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI sur la PR en brouillon ; non validé par
+Florian, pas prêt pilote.** Lève deux « non fait » de §9 : les écrans et la notification de l'intéressé. Aucune migration.
+
+### 10.1 Avis à l'intéressé
+
+Dans l'ENT (toujours) et par e-mail ou push selon ses préférences (jamais de SMS), source `systeme`, une clé par geste
+(idempotent), **dans la transaction du geste** (une erreur annule les deux ; l'expédition reste différée).
+
+| Geste | Prévenus | Pas prévenus |
+|---|---|---|
+| Lien posé (direction, secrétariat) | tous les comptes de l'individu ainsi formé (fiches reliées, fusions, comptes d'élève) | l'auteur |
+| Lien levé (direction) | les comptes des deux côtés, calculés **avant** la levée | l'auteur |
+| Déclaration reçue | le compte cible | le déclarant (réponse neutre inchangée) |
+| Déclaration confirmée | tous les autres comptes de l'individu ainsi formé, déclarant compris | la cible, qui vient de confirmer |
+| Déclaration refusée | personne (anti-énumération) | |
+
+Textes sans nom, sans fiche, sans coordonnée (ils peuvent sortir par e-mail), au plus 240 caractères (un push coupe
+au-delà ; testé). Après un **refus**, le même déclarant ne peut plus redemander à la même cible pendant 30 jours : même
+réponse neutre, aucun avis (contre-revue, M1 : sans cela, refuser rouvrait la porte à des avis répétés).
+
+« Moi » (`GET /dossier/individu/moi`) renvoie aussi `liens` : origine, motif, date des liens actifs de l'individu,
+**jamais l'autre fiche** (un lien posé à tort désignerait une autre personne). Les types vivent dans `ent-types::individu`
+(une seule définition, réexportée par `ent-db`) avec les listes fermées des motifs.
+
+### 10.2 Écrans (Leptos, `modules/individu/`)
+
+- **Mes autres comptes** (`/web/securite/mes-comptes`, tout compte, lien depuis « Sécurité du compte ») : ce que
+  l'établissement reconnaît (nombres, liens datés), demandes reçues (« C'est moi » avec confirmation qui rappelle
+  l'effet, « Ce n'est pas moi »), déclaration d'un autre compte par son adresse (contrôle local, réponse identique que
+  l'adresse soit connue ou non, saisie effacée seulement après l'accord du serveur), « Pourquoi ? ».
+- **Fiches reliées** (`/web/direction/fiches-reliees`, menu si `personnes.individu.relier` sur l'établissement) :
+  propositions (raison lisible sans la coordonnée ; « Relier… », « Écarter… » avec motif), relier deux fiches choisies par
+  la recherche existante (`personnes.gerer` sur l'établissement ; nom, compte, élèves liés, **aucune coordonnée**
+  affichée), liens actifs en tableau (cartes sous 640 px), « Lever… » si `personnes.individu.lever`. Une boîte de
+  dialogue par action, motif en liste fermée copiée d'`ent-types`, écritures par `Ecriture::lancer`. Aucune feuille de
+  style nouvelle (classes existantes : moins de conflits avec les écrans écrits en parallèle).
+
+### 10.3 Tests
+
+- `tests_individu_avis.rs` (4) : pose et levée (destinataires, auteur exclu, chaîne, e-mail planifié, pas de SMS, « moi »
+  sans fiche), déclaration (cible seule, un avis pour deux demandes, rien au refus, pas de relance après refus),
+  confirmation qui prévient un compte déjà relié, longueur des textes.
+- `tests_individu.rs` : l'expiration passe par un autre déclarant (la relance après refus est désormais bloquée).
+- Modèle d'écran (8) : libellés de chaque motif du serveur, raisons, résumés, adresse, tris, fiche trouvée sans
+  coordonnée, choix des deux fiches.
+- `ent-web-server/tests/individu.rs` (3) contre le vrai backend, établissement neuf : pages rendues (CSP, aucun style en
+  ligne), relier et lever selon les droits (professeur 403, secrétariat relie mais ne lève pas, direction lève), « Mes
+  autres comptes » (réponse neutre, demande vue de la seule cible, refus sans lien).
+
+### 10.4 Contre-revue indépendante (2026-11-28)
+
+Rapport : `/mnt/project-files/revues/TRANSVERSE_INDIVIDU_ECRANS_CONTRE_REVUE.md`. Aucun constat élevé.
+
+| Constat | Suite |
+|---|---|
+| M1 avis répétés après refus | **corrigé** : blocage silencieux de 30 jours de la même paire après un refus (test). |
+| M2 temps de réponse selon que l'adresse existe | noté : l'écart existait (PR 170 : insertion et validation) ; borné par le quota de 5 par jour. Égaliser le temps est une suite possible. |
+| F1 confirmation : seul le déclarant prévenu | **corrigé** : tout l'individu formé, sauf la cible (test). |
+| F2 texte coupé dans un push ; renvoi à un écran absent du mobile | **corrigé** : 240 caractères au plus (test) ; les textes disent « dans ScolIA sur le web ». |
+| F3 droit de recherche testé sans la portée | **corrigé** : `a_etablissement("personnes.gerer")`. |
+| F4 saisies effacées avant la réponse ; contrôle refait à la main | **corrigé** : effacées après l'accord du serveur ; `lien_a_envoyer` utilisé. |
+| F5 nombre de fiches trouvées non annoncé ; focus après « Choisir » | nombre annoncé (`role="status"`) ; le focus reste une limite (pas de test au lecteur d'écran). |
+| F6 libellé de recherche ; nom d'une fiche protégée dans la recherche | libellé corrigé ; la recherche (`/dossier/personnes`) est antérieure et inchangée : noté. |
+| F7 texte « réservé » avant la réponse du moteur | texte neutre. |
+| F8 « 1 liens actifs », surtitre, « Ce n'est pas moi » sans confirmation | pluriel et surtitre corrigés ; le refus reste direct (la cible peut toujours déclarer elle-même ; l'écran dit le blocage de 30 jours). |
+| F9 ce que les tests ne prouvent pas | en partie couvert (relance après refus, confirmation) ; restent notés : destinataires sur un compte d'élève ou une fiche fusionnée (couverts par la fonction SQL déjà testée, pas par un test d'avis), masquage des boutons sans droit (pas de test de rendu avec session). |
+
+### 10.5 Limites (faits)
+
+- Applis mobiles : rien (les avis y arrivent comme toute notification ; répondre se fait sur le web).
+- Aucun parcours navigateur (Playwright, axe-core, 375 px) ni test au lecteur d'écran n'a été fait pour ces écrans.
+- Le tableau de bord des conflits d'intérêts liste toujours par compte (inchangé, §9.4).

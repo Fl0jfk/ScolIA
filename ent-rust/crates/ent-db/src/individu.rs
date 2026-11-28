@@ -26,6 +26,8 @@ use crate::tenant_tx::TenantTx;
 
 /// Déclarations d'individu par compte : 5 par jour (anti-énumération des adresses).
 pub const QUOTA_DECLARATIONS: Quota = Quota::new(5, 86_400);
+/// Après un refus, le même compte ne peut pas redemander à la même cible pendant ce délai (aucun nouvel avis).
+const REFUS_BLOQUE: &str = "30 days";
 
 pub use ent_types::individu::{
     DeclarationRecue, LienIndividu, MonIndividu, MonLienIndividu, PropositionIndividu, MOTIFS_ECARTEE, MOTIFS_LEVEE,
@@ -172,34 +174,36 @@ pub(crate) async fn agents_meme_individu(
 // le détail est dans « Compte › Mes autres comptes ». Le geste qui ne regarde que son auteur ne prévient personne : un
 // refus de déclaration n'est jamais annoncé au déclarant (anti-énumération des adresses).
 
+/// Longueur maximale du texte d'un avis : un push coupe au-delà de 240 caractères.
+pub const AVIS_TEXTE_MAX: usize = 240;
+
 /// Avis : deux fiches de la personne ont été reliées.
 pub const AVIS_LIEN_POSE: (&str, &str, &str) = (
     "individu_lien_pose",
     "Deux de vos fiches ont été reliées",
-    "L'établissement a reconnu que deux de vos fiches ou deux de vos comptes désignent la même personne. Cela n'ouvre \
-     aucun accès : certaines décisions qui vous concernent, vous ou vos enfants, seront désormais prises par une autre \
-     personne. En cas d'erreur, signalez-le au secrétariat. Détail : Compte, Mes autres comptes.",
+    "L'établissement reconnaît deux de vos fiches ou comptes comme une seule personne. Aucun accès en plus : certaines \
+     décisions qui vous concernent seront prises par une autre personne. Une erreur ? Prévenez le secrétariat.",
 );
 /// Avis : un lien entre deux fiches de la personne a été levé.
 pub const AVIS_LIEN_LEVE: (&str, &str, &str) = (
     "individu_lien_leve",
     "Un lien entre vos fiches a été levé",
-    "La direction a levé un lien entre deux fiches qui vous désignaient comme une seule personne. Détail : Compte, Mes \
-     autres comptes.",
+    "La direction a levé un lien entre deux fiches qui vous désignaient comme une seule personne. Détail dans ScolIA \
+     sur le web : Compte, Mes autres comptes.",
 );
 /// Avis : un autre compte déclare être aussi la personne.
 pub const AVIS_DECLARATION_RECUE: (&str, &str, &str) = (
     "individu_declaration_recue",
     "Un autre compte déclare être aussi vous",
-    "Un autre compte de l'établissement déclare appartenir à la même personne que vous. Confirmez ou refusez dans les \
-     24 heures depuis Compte, Mes autres comptes. Si vous ne reconnaissez pas cette demande, refusez-la.",
+    "Un autre compte de l'établissement déclare être à vous. Répondez sous 24 h dans ScolIA sur le web : Compte, Mes \
+     autres comptes. Vous ne le reconnaissez pas ? Refusez.",
 );
-/// Avis : la déclaration faite depuis ce compte a été confirmée depuis l'autre.
+/// Avis : la déclaration a été confirmée depuis l'autre compte.
 pub const AVIS_DECLARATION_CONFIRMEE: (&str, &str, &str) = (
     "individu_declaration_confirmee",
     "Votre autre compte est reconnu",
-    "Votre déclaration a été confirmée depuis votre autre compte : l'établissement sait désormais que ces deux comptes \
-     sont à la même personne. Détail : Compte, Mes autres comptes.",
+    "Votre déclaration a été confirmée depuis l'autre compte : l'établissement sait que ces comptes sont à la même \
+     personne. Détail dans ScolIA sur le web : Compte, Mes autres comptes.",
 );
 
 /// Comptes de l'individu formé par ces fiches (fiches reliées, fusions, comptes d'élève), triés.
@@ -233,6 +237,7 @@ async fn prevenir(
     geste_id: Uuid,
 ) -> Result<(), EntDbError> {
     let (kind, titre, corps) = avis;
+    debug_assert!(corps.chars().count() <= AVIS_TEXTE_MAX, "avis trop long pour un push : {kind}");
     let maintenant = Utc::now();
     for &u in comptes.iter().filter(|u| Some(**u) != sauf) {
         notifier_personne(
@@ -321,14 +326,18 @@ impl PgEnt {
         let en_attente: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_individu_declaration
                              WHERE etablissement_id = $1 AND declarant_user_id = $2 AND cible_user_id = $3
-                               AND issue IS NULL AND expire_le > now())",
+                               AND ((issue IS NULL AND expire_le > now())
+                                    OR (issue = 'refusee' AND issue_le > now() - $4::interval)))",
         )
         .bind(etab)
         .bind(actor)
         .bind(cible)
+        .bind(REFUS_BLOQUE)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // Une demande en attente, ou refusée par la cible il y a moins de 30 jours, n'est pas renouvelée (en silence :
+        // même réponse) : refuser met fin aux avis répétés du même déclarant (contre-revue des écrans, M1).
         if !en_attente {
             let id = Uuid::new_v4();
             sqlx::query(
@@ -480,8 +489,10 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db_individu)?;
-        // La cible vient de confirmer elle-même ; le compte déclarant est prévenu (il a prouvé posséder les deux).
-        prevenir(&mut tx, etab, &[declarant], None, AVIS_DECLARATION_CONFIRMEE, declaration_id).await?;
+        // La cible vient de confirmer elle-même ; les autres comptes de l'individu ainsi formé (le déclarant, et ceux
+        // déjà reliés à l'une des deux fiches) sont prévenus.
+        let comptes = comptes_des_fiches(&mut tx, etab, &[fa, fb]).await?;
+        prevenir(&mut tx, etab, &comptes, Some(actor), AVIS_DECLARATION_CONFIRMEE, declaration_id).await?;
         tx.commit().await.map_err(db)?;
         Ok(lien)
     }

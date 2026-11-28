@@ -3,7 +3,9 @@
 //! `labo`). Sans `ENT_DATABASE_URL` : ignorés en local et **en échec en CI**.
 
 use super::*;
-use crate::individu::{AVIS_DECLARATION_CONFIRMEE, AVIS_DECLARATION_RECUE, AVIS_LIEN_LEVE, AVIS_LIEN_POSE};
+use crate::individu::{
+    AVIS_DECLARATION_CONFIRMEE, AVIS_DECLARATION_RECUE, AVIS_LIEN_LEVE, AVIS_LIEN_POSE, AVIS_TEXTE_MAX,
+};
 use crate::tests_individu::{compte, connecter, fiche_du_compte, fiche_sans_compte};
 use uuid::Uuid;
 
@@ -149,4 +151,49 @@ async fn individu_avis_declaration() {
     .await
     .unwrap();
     assert_eq!(n, 0, "aucun avis au déclarant refusé");
+    drop(tx);
+
+    // Après un refus, le même déclarant ne relance pas la cible (30 jours) : même réponse neutre, aucun avis de plus.
+    let avant = avis(&ent, etab, prof2, AVIS_DECLARATION_RECUE.0).await.len();
+    for _ in 0..3 {
+        ent.individu_declarer_for_actor(etab, cpe, &email_prof2).await.unwrap();
+    }
+    assert_eq!(avis(&ent, etab, prof2, AVIS_DECLARATION_RECUE.0).await.len(), avant, "pas de relance après refus");
+    assert!(ent.individu_moi_for_actor(etab, prof2).await.unwrap().declarations_recues.is_empty());
+}
+
+/// Une confirmation prévient tous les autres comptes de l'individu ainsi formé, pas seulement le déclarant.
+#[tokio::test]
+async fn individu_avis_confirmation_previent_tout_l_individu() {
+    let Some(ent) = connecter().await else {
+        return eprintln!("skip : ENT_DATABASE_URL");
+    };
+    let etab = Uuid::new_v4();
+    let (sec, _) = compte(&ent, etab, "administratif").await;
+    let (prof, _) = compte(&ent, etab, "prof").await;
+    let (parent, email_parent) = compte(&ent, etab, "parent").await;
+    let (agent2, _) = compte(&ent, etab, "cpe").await;
+    let p_prof = fiche_du_compte(&ent, etab, prof).await;
+    fiche_du_compte(&ent, etab, parent).await;
+    let p_agent2 = fiche_du_compte(&ent, etab, agent2).await;
+    // Deux comptes du professeur déjà reliés par le secrétariat.
+    ent.individu_relier_for_actor(etab, sec, "administratif", p_prof, p_agent2, "doublon_agent", false)
+        .await
+        .unwrap();
+    ent.individu_declarer_for_actor(etab, prof, &email_parent).await.unwrap();
+    let d = ent.individu_moi_for_actor(etab, parent).await.unwrap().declarations_recues[0].id;
+    ent.individu_repondre_for_actor(etab, parent, d, true).await.unwrap();
+    assert_eq!(avis(&ent, etab, prof, AVIS_DECLARATION_CONFIRMEE.0).await.len(), 1);
+    assert_eq!(avis(&ent, etab, agent2, AVIS_DECLARATION_CONFIRMEE.0).await.len(), 1, "l'autre compte déjà relié");
+    assert!(avis(&ent, etab, parent, AVIS_DECLARATION_CONFIRMEE.0).await.is_empty(), "pas la cible qui confirme");
+}
+
+/// Les textes tiennent dans un push (240 caractères) et ne citent jamais un nom.
+#[test]
+fn individu_avis_textes_courts() {
+    for (kind, titre, corps) in [AVIS_LIEN_POSE, AVIS_LIEN_LEVE, AVIS_DECLARATION_RECUE, AVIS_DECLARATION_CONFIRMEE] {
+        assert!(corps.chars().count() <= AVIS_TEXTE_MAX, "{kind} : {} caractères", corps.chars().count());
+        assert!(titre.chars().count() <= 60, "{kind}");
+        assert!(!corps.contains("  "), "{kind} : espace double (continuation de ligne)");
+    }
 }

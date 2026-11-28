@@ -278,7 +278,9 @@ async fn individu_declaration_en_deux_temps() {
     assert_eq!(ent.individu_repondre_for_actor(etab, prof2, d2, false).await.unwrap(), None);
     assert!(!meme(&ent, etab, cpe, prof2).await);
 
-    // Expiration : une déclaration de plus de 24 h ne se confirme plus (vieillie par la purge volontaire seulement).
+    // Expiration : une déclaration de plus de 24 h ne se confirme plus (vieillie par la purge volontaire seulement). Un
+    // autre déclarant : après un refus, `cpe` ne peut plus redemander à `prof2` pendant 30 jours.
+    let (cpe, _) = compte(&ent, etab, "cpe").await;
     ent.individu_declarer_for_actor(etab, cpe, &email_prof2).await.unwrap();
     let d3 = ent.individu_moi_for_actor(etab, prof2).await.unwrap().declarations_recues[0].id;
     {

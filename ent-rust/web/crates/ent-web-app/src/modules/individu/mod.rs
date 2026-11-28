@@ -15,7 +15,7 @@ pub mod modele;
 use ent_types::dossier::PersonneTrouveeDto;
 use ent_types::individu::{
     DeclarationRecue, EcarterPropositionBody, LienIndividu, MonIndividu, PropositionIndividu,
-    RelierFichesBody, MOTIFS_ECARTEE, MOTIFS_LEVEE,
+    RelierFichesBody, MOTIFS_ECARTEE, MOTIFS_LEVEE, MOTIFS_LIEN,
 };
 use ent_web_api::ApiError;
 use ent_web_ui::{
@@ -134,7 +134,8 @@ fn DemandesRecues(recues: Vec<DeclarationRecue>, ecriture: Ecriture) -> impl Int
                 }.into_any()
             } else {
                 view! {
-                    <p>"Un autre compte de l'établissement déclare être aussi vous. Ne confirmez que si ce compte est bien le vôtre."</p>
+                    <p>"Un autre compte de l'établissement déclare être aussi vous. Ne confirmez que si ce compte est bien le vôtre. \
+                        Après un refus, ce compte ne peut plus vous le redemander pendant 30 jours."</p>
                     <ul class="ui-liste">
                         {recues.into_iter().map(|d| {
                             let id = d.id;
@@ -198,12 +199,13 @@ fn Declarer(ecriture: Ecriture) -> impl IntoView {
         Err(m) => erreur.set(Some(m.to_string())),
         Ok(e) => {
             erreur.set(None);
-            email.set(String::new());
             ecriture.lancer(async move {
-                session::client()
-                    .individu_declarer(&e)
-                    .await
-                    .map(|()| MESSAGE_DECLARATION.to_string())
+                let r = session::client().individu_declarer(&e).await;
+                // La saisie n'est effacée qu'après l'accord du serveur (un refus la laisse à corriger).
+                if r.is_ok() {
+                    email.set(String::new());
+                }
+                r.map(|()| MESSAGE_DECLARATION.to_string())
             });
         }
     };
@@ -313,12 +315,12 @@ pub fn PageFichesReliees() -> impl IntoView {
     }));
     let peut_relier = Memo::new(move |_| moteur.get().a_etablissement("personnes.individu.relier"));
     let peut_lever = Memo::new(move |_| moteur.get().a_etablissement("personnes.individu.lever"));
-    let peut_chercher = Memo::new(move |_| moteur.get().a("personnes.gerer"));
+    let peut_chercher = Memo::new(move |_| moteur.get().a_etablissement("personnes.gerer"));
     let d = Dialogues::new();
     view! {
         <Title text="Fiches reliées"/>
         <EnTetePage
-            surtitre="Direction".to_string()
+            surtitre="Direction et secrétariat".to_string()
             titre="Fiches reliées".to_string()
             sous_titre="Reconnaître deux fiches ou deux comptes d'une même personne, pour que les règles « jamais pour \
                 soi ni pour son enfant » la voient aussi depuis son autre compte.".to_string()
@@ -350,7 +352,7 @@ pub fn PageFichesReliees() -> impl IntoView {
             <h2 id="ind-relier" class="vs-section-titre">"Relier deux fiches"</h2>
             {move || {
                 if !peut_relier.get() {
-                    view! { <p>"Relier des fiches est réservé à la direction et au secrétariat."</p> }.into_any()
+                    view! { <p>"Relier des fiches demande le droit de relier les fiches d'une même personne (direction et secrétariat par défaut)."</p> }.into_any()
                 } else if !peut_chercher.get() {
                     view! { <p>"Chercher une fiche demande le droit de gérer les personnes : utilisez les propositions."</p> }.into_any()
                 } else {
@@ -448,7 +450,7 @@ fn TableauLiens(
     view! {
         <div class="ui-tableau-cadre">
             <table class="ui-tableau ui-tableau--cartes">
-                <caption class="ui-sr">{format!("{n} liens actifs")}</caption>
+                <caption class="ui-sr">{libelle_nombre_liens(n)}</caption>
                 <thead>
                     <tr>
                         <th scope="col">"Fiches"</th>
@@ -538,7 +540,7 @@ fn ChoixFiche(
                             ev.prevent_default();
                             requete.set(recherche_a_envoyer(&saisie.get_untracked()));
                         }>
-                            <ChampTexte id=champ libelle="Nom, prénom ou adresse" valeur=saisie genre="search"
+                            <ChampTexte id=champ libelle="Nom, prénom, e-mail ou téléphone" valeur=saisie genre="search"
                                 autocomplete="off" aide="Deux caractères au moins."/>
                             <Bouton soumettre=true variante=Variante::Secondaire>"Chercher"</Bouton>
                         </form>
@@ -554,7 +556,9 @@ fn ChoixFiche(
                                     view! { <EtatVide titre="Aucune fiche trouvée"/> }.into_any()
                                 } else {
                                     let liste_libelle = liste_libelle.clone();
+                                    let nombre = libelle_nombre_fiches(c.len());
                                     view! {
+                                        <p role="status">{nombre}</p>
                                         <ul class="ui-liste" aria-label=liste_libelle>
                                             {c.into_iter().map(|f| {
                                                 let acc = format!("Choisir {}", f.libelle);
@@ -590,18 +594,22 @@ fn RelierManuel(ecriture: Ecriture, dialogues: Dialogues) -> impl IntoView {
     let erreur = RwSignal::new(None::<String>);
     let ouvrir = move |_| {
         let (fa, fb) = (a.get_untracked(), b.get_untracked());
-        match (fa, fb) {
-            (Some(fa), Some(fb)) if fa.id != fb.id => {
+        // Même contrôle que l'envoi (le motif se choisit ensuite dans la boîte de dialogue).
+        match lien_a_envoyer(fa.as_ref(), fb.as_ref(), MOTIFS_LIEN[0]) {
+            Err(m) => erreur.set(Some(m.to_string())),
+            Ok((ia, ib, _)) => {
                 erreur.set(None);
+                let designation = designation_paire(
+                    &fa.map(|f| f.libelle).unwrap_or_default(),
+                    &fb.map(|f| f.libelle).unwrap_or_default(),
+                );
                 d.ouvrir_relier(PaireARelier {
-                    a: fa.id,
-                    b: fb.id,
-                    designation: format!("{} et {}", fa.libelle, fb.libelle),
+                    a: ia,
+                    b: ib,
+                    designation,
                     depuis_proposition: false,
                 });
             }
-            (Some(_), Some(_)) => erreur.set(Some("Choisissez deux fiches différentes.".into())),
-            _ => erreur.set(Some("Choisissez les deux fiches à relier.".into())),
         }
     };
     // Une fois la liaison manuelle confirmée, les deux choix sont effacés (pas au premier passage).
@@ -634,18 +642,13 @@ fn DialogueRelier(ecriture: Ecriture, d: Dialogues) -> impl IntoView {
         let Some(p) = d.paire.get_untracked() else {
             return;
         };
-        let motif = match motif_valide(
-            &d.motif_lien.get_untracked(),
-            &ent_types::individu::MOTIFS_LIEN,
-        ) {
+        let motif = match motif_valide(&d.motif_lien.get_untracked(), &MOTIFS_LIEN) {
             Ok(m) => m,
             Err(m) => return d.erreur_lien.set(Some(m.to_string())),
         };
         d.relier.set(false);
         d.paire.set(None);
-        if !p.depuis_proposition {
-            d.relies_manuels.update(|n| *n += 1);
-        }
+        let manuel = !p.depuis_proposition;
         let body = RelierFichesBody {
             personne_a: p.a,
             personne_b: p.b,
@@ -653,10 +656,12 @@ fn DialogueRelier(ecriture: Ecriture, d: Dialogues) -> impl IntoView {
             depuis_proposition: p.depuis_proposition,
         };
         ecriture.lancer(async move {
-            session::client()
-                .individu_relier(&body)
-                .await
-                .map(|_| "Fiches reliées : les comptes concernés sont prévenus.".to_string())
+            let r = session::client().individu_relier(&body).await;
+            // Les deux choix ne sont effacés qu'une fois le lien posé (un refus les laisse à corriger).
+            if r.is_ok() && manuel {
+                d.relies_manuels.update(|n| *n += 1);
+            }
+            r.map(|_| "Fiches reliées : les comptes concernés sont prévenus.".to_string())
         });
     };
     view! {
