@@ -582,7 +582,7 @@ impl PgEnt {
                 return Err(EntDbError::Forbidden);
             }
         }
-        self.exiger_eleve_visible_conn(&mut **tx, etab, acteur, role, eleve)
+        self.exiger_eleve_visible_conn(tx, etab, acteur, role, eleve)
             .await
     }
 
@@ -720,7 +720,7 @@ impl PgEnt {
         let mut effectif = 0;
         for (eleve_id, nom, prenom) in membres {
             if self
-                .eleve_cache_au_tiers_conn(&mut *tx, etab, acteur, role, eleve_id)
+                .eleve_cache_au_tiers_conn(&mut tx, etab, acteur, role, eleve_id)
                 .await?
             {
                 continue;
@@ -901,7 +901,7 @@ impl PgEnt {
         let mut sous_seuil = 0;
         for eleve_id in ordre {
             if self
-                .eleve_cache_au_tiers_conn(&mut *tx, etab, acteur, role, eleve_id)
+                .eleve_cache_au_tiers_conn(&mut tx, etab, acteur, role, eleve_id)
                 .await?
             {
                 continue;
