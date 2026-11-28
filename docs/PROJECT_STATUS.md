@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 21 — lot V3f « barème détaillé, conversion des notes, duplication » (2026-11-28, branche `claude/project-thread-j72q4c`, base `origin/ENT` 06333a59)
+**Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir la PR ; non validé par Florian, pas prêt pilote.** Détail, décisions par défaut (D-069) et reste à faire : `docs/socles/21_EVALUATIONS_V3F_LIVRAISON.md`. Migration **707** (aucune table nouvelle, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé.
+- Barème détaillé par exercice : la note est la somme des points, saisie par la voie de la grille ; réussite par exercice sans nom ni rang ; détail montré à l'élève et à la famille sur choix du professeur, avec la note publiée et seulement s'il est à jour.
+- Conversion des notes après aperçu et empreinte, tout ou rien, historique gardé : changement de barème (CE-39) et exercice annulé (CE-83).
+- Duplication de plusieurs évaluations sans résultats (EVA-125). 9 points d'entrée (API seule).
+- **Non fait** : écrans Leptos, QCM (EVA-265, socle 20), avis « note modifiée » côté famille (V7).
+
 ## Socle 24 « Finances » — lot F3 « catalogue qualifié, grilles votées, simulateur » (2026-11-22, branche `ent-socle-24-code-suite`, base `origin/ENT` 02659006)
 **Niveau : implémenté + testé en local (PostgreSQL 16, feature `labo`) ; CI : voir le message au pilote ; non validé par Florian, pas prêt pilote.** Détail, écarts et questions : `docs/socles/24_FACTURATION_F3_LIVRAISON.md`. Migration **523** (+7 tables avec RLS, `MIGRATION_TAG` inchangé), `Action::TOUTES` inchangé (269).
 - **Articles qualifiés** (nature légale, TVA, unité, mode) depuis 20 modèles ou par validation des articles existants (MIG-6 : jamais modifiés d'office, proposition par règle) ; nature figée dès qu'une ligne existe ; qualification exigée à l'émission par réglage (faux par défaut pour l'existant).

@@ -984,7 +984,7 @@ async fn journal_publication(
     Ok(())
 }
 
-async fn publier_evt(
+pub(crate) async fn publier_evt(
     tx: &mut TenantTx<'_>,
     etab: Uuid,
     type_name: &str,
@@ -1026,7 +1026,7 @@ async fn publier_evt_sys(
 
 /// Un refus de garde de la base (SQLSTATE 23514 : déclencheurs et contraintes) devient un refus lisible, sans
 /// recopier le texte brut de la base.
-fn map_garde(e: sqlx::Error) -> EntDbError {
+pub(crate) fn map_garde(e: sqlx::Error) -> EntDbError {
     if let Some(d) = e.as_database_error() {
         if d.code().as_deref() == Some("23514") || d.code().as_deref() == Some("23503") {
             return refus(

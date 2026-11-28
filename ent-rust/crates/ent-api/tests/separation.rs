@@ -3429,3 +3429,48 @@ fn evaluations_v5_externes_famille_rend_le_resultat_publie_a_la_famille_liee() {
         assert_eq!(r.statut.as_u16(), 403, "{}", r.texte);
     });
 }
+
+/// V3f : les 9 points d'entrée `/eva/v3f/*` du personnel (barème détaillé, visibilité, détails, conversion, duplication)
+/// répondent **403** à la famille et à l'élève, quel que soit le corps, avant toute lecture ni écriture. La seule lecture
+/// famille (`…/detail`) refuse un parent d'un autre foyer et un parent sans le drapeau « notes » (403), et ne révèle
+/// rien d'une évaluation inconnue au parent lié (404).
+#[test]
+fn evaluations_v3f_famille_et_eleve_recoivent_403_sur_les_routes_du_personnel() {
+    let Some(m) = monde() else { return };
+    let o = &m.a.objets;
+    let id = Uuid::new_v4();
+    let x = Uuid::new_v4();
+    let routes: Vec<(&str, String, Option<Value>)> = vec![
+        ("GET", format!("/eva/v3f/evaluations/{id}/bareme"), None),
+        ("PUT", format!("/eva/v3f/evaluations/{id}/bareme"),
+         Some(json!({"version_attendue": 1, "exercices": [{"libelle": "Exercice 1", "maximum_m": 20000}]}))),
+        ("PUT", format!("/eva/v3f/evaluations/{id}/bareme/visibilite"), Some(json!({"version_attendue": 1, "visible": true}))),
+        ("GET", format!("/eva/v3f/evaluations/{id}/details"), None),
+        ("POST", format!("/eva/v3f/evaluations/{id}/details"),
+         Some(json!({"eleves": [{"eleve_id": o.eleve, "points": [{"exercice_id": x, "points_m": 1000}], "version_attendue": null, "motif": null}]}))),
+        ("POST", format!("/eva/v3f/evaluations/{id}/conversion/apercu"),
+         Some(json!({"version_attendue": 1, "nouveau_bareme_m": 10000, "annuler_exercice_id": null}))),
+        ("POST", format!("/eva/v3f/evaluations/{id}/conversion"),
+         Some(json!({"version_attendue": 1, "nouveau_bareme_m": 10000, "annuler_exercice_id": null, "empreinte": "x", "motif": "Erreur de barème"}))),
+        ("POST", "/eva/v3f/dupliquer".into(),
+         Some(json!({"cours_cible_id": id, "evaluations": [{"evaluation_id": x, "date_eval": "2031-10-10"}]}))),
+    ];
+    assert_eq!(routes.len(), 8, "routes du personnel de evaluations_v3f.rs (GET, PUT et POST d'un même chemin comptés)");
+    rt().block_on(async {
+        for a in [Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            for (methode, chemin, corps) in &routes {
+                let r = m.appel(methode, chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                assert_eq!(r.statut.as_u16(), 403, "{a:?} {methode} {chemin} : {}", r.texte);
+            }
+        }
+        let famille = format!("/eva/v3f/eleves/{}/evaluations/{id}/detail", o.eleve);
+        // Parent d'un autre foyer sur Harry ; Molly sur Ginny, à qui son lien ne donne pas les notes.
+        for (a, eleve) in [(ParentAutreFoyer, o.eleve), (ParentSansDrapeaux, o.eleve_ginny)] {
+            let chemin = format!("/eva/v3f/eleves/{eleve}/evaluations/{id}/detail");
+            let r = m.appel("GET", &chemin, Some(m.jeton(a)), None).await;
+            assert_eq!(r.statut.as_u16(), 403, "{a:?} {chemin} : {}", r.texte);
+        }
+        let r = m.appel("GET", &famille, Some(m.jeton(Parent)), None).await;
+        assert_eq!(r.statut.as_u16(), 404, "parent lié, évaluation inconnue : {}", r.texte);
+    });
+}
