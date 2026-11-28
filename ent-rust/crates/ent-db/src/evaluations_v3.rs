@@ -1084,7 +1084,7 @@ impl PgEnt {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn eva_v3_une_case(
+    pub(crate) async fn eva_v3_une_case(
         &self,
         tx: &mut TenantTx<'_>,
         etab: Uuid,

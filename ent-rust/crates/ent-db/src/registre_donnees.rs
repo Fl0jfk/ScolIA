@@ -1338,7 +1338,10 @@ pub const REGISTRE: &[ClasseTable] = &[
         .export_si("x.publiee_le IS NOT NULL AND x.compte_dans_cours_id IS NOT NULL AND x.retiree_le IS NULL"),
     // Journal en ajout seul des résultats (valeurs successives, motifs, auteurs, y compris avant publication) : interne.
     t("eva_resultat_historique", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    // V3f (707) : `saisi_par` (auteur de la saisie) est interne ; `resultat_version` dit quelle version de la note le
+    // détail compose.
     t("eva_resultat_item", "evaluations_pedagogie", Portee::Etablissement).perso().export()
+        .hors_export(&["saisi_par"])
         .export_si("EXISTS (SELECT 1 FROM eva_resultat r JOIN eva_evaluation e ON e.etablissement_id = r.etablissement_id AND e.id = r.evaluation_id WHERE r.etablissement_id = x.etablissement_id AND r.id = x.resultat_id AND e.publiee_le IS NOT NULL AND e.etat IN ('ouverte', 'annulee'))"),
     // Demande de revue de la famille et réponse qui lui a été faite (`reponse` n'existe que si l'état est « repondue »).
     t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
