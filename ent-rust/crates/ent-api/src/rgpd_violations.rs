@@ -6,7 +6,9 @@
 //! * **Gestionnaires** (`violations.gerer`) : `GET /rgpd/violations` (registre), `GET /rgpd/violations/export.csv`,
 //!   `POST /rgpd/violations` (saisie, prise de connaissance antérieure possible), `GET /rgpd/violations/{id}` (fiche),
 //!   `GET …/{id}/brouillon-cnil`, `POST …/{id}/qualification`, `…/mesures`, `…/avis-dpo`, `…/notification-cnil`,
-//!   `…/notification-complementaire`, `…/personnes` (calcul), `GET …/information` (aperçu), `…/cloture`.
+//!   `…/notification-complementaire`, `…/personnes` (calcul), `GET …/information` (aperçu), `…/cloture` ; fiches PDF
+//!   (complément G5, NX27-18) : `GET /rgpd/violations/registre.pdf` (même filtre que le registre) et
+//!   `GET /rgpd/violations/{id}/fiche.pdf`.
 //! * **Direction** (`violations.decider` ★) : `POST …/{id}/risque`, `…/non-notification`, `POST …/information`
 //!   (confirmée par le nombre de destinataires), `…/non-information`.
 //!
@@ -38,6 +40,8 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/rgpd/violations", get(registre).post(saisir))
         .route("/rgpd/violations/export.csv", get(export_csv))
+        .route("/rgpd/violations/registre.pdf", get(registre_pdf))
+        .route("/rgpd/violations/{id}/fiche.pdf", get(fiche_pdf))
         .route("/rgpd/violations/{id}", get(fiche))
         .route("/rgpd/violations/{id}/brouillon-cnil", get(brouillon_cnil))
         .route("/rgpd/violations/{id}/qualification", post(qualifier))
@@ -311,6 +315,59 @@ async fn export_csv(
         ],
         corps,
     ))
+}
+
+/// PDF : jamais en cache (registre interne), téléchargé sous un nom sans donnée personnelle.
+fn reponse_pdf(nom: String, corps: Vec<u8>) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{nom}\""),
+            ),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+        ],
+        corps,
+    )
+}
+
+/// NX27-18 — registre en PDF (même filtre que `GET /rgpd/violations`).
+async fn registre_pdf(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<FiltreRegistreQuery>,
+) -> Res<impl IntoResponse> {
+    let corps = s
+        .ent
+        .violations_registre_pdf(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            filtre(&q),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(reponse_pdf("registre-violations.pdf".into(), corps))
+}
+
+/// NX27-18 — fiche PDF d'une violation.
+async fn fiche_pdf(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<impl IntoResponse> {
+    let (reference, corps) = s
+        .ent
+        .violations_fiche_pdf(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    // La référence (« V-2027-003 ») n'a que des lettres, chiffres et tirets ; filtrée quand même.
+    let nom: String = reference
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    Ok(reponse_pdf(format!("violation-{nom}.pdf"), corps))
 }
 
 async fn fiche(

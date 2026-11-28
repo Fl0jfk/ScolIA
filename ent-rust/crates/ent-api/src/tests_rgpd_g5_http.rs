@@ -267,3 +267,80 @@ async fn g5_http_registre_parcours_et_refus() {
         String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
     assert!(corps.contains("Clé USB avec les notes"));
 }
+
+/// Complément G5 (NX27-18) : fiche et registre en PDF, réservés aux gestionnaires, jamais en cache, 404 neutre.
+#[tokio::test]
+async fn g5_http_fiches_pdf() {
+    let Some(url) = super::tests_l3::url_locale() else {
+        eprintln!("skip G5 HTTP PDF: ENT_DATABASE_URL");
+        return;
+    };
+    let ent = PgEnt::connect(&url).await.unwrap();
+    ent.migrate().await.unwrap();
+    let state = AppState::nouveau(ent);
+    let cast = state.ent.seed_labo_cast().await.expect("cast");
+    let app = app(state.clone());
+    let (dir, prof) = (cast.direction.token.as_str(), cast.prof.token.as_str());
+    let (st, v) = appel(
+        &app,
+        "POST",
+        "/rgpd/violations/declarations",
+        Some(prof),
+        Some(json!({"intitule": "Liste de la 3e A affichée par erreur sur le portail"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let id: Uuid = v["id"].as_str().unwrap().parse().unwrap();
+    let reference = v["reference"].as_str().unwrap().to_string();
+
+    let fiche = format!("/rgpd/violations/{id}/fiche.pdf");
+    // Sans session : 401 ; le déclarant (professeur) n'a pas le registre : 403.
+    for uri in [fiche.as_str(), "/rgpd/violations/registre.pdf"] {
+        let (st, _) = appel(&app, "GET", uri, None, None).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{uri}");
+        let (st, _) = appel(&app, "GET", uri, Some(prof), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{uri}");
+    }
+    // Violation inconnue : 404 neutre.
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/rgpd/violations/{}/fiche.pdf", Uuid::new_v4()),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Filtre invalide : refusé comme pour le registre à l'écran.
+    let (st, _) = appel(&app, "GET", "/rgpd/violations/registre.pdf?etat=perdue", Some(dir), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    for (uri, nom) in [
+        (fiche.clone(), format!("violation-{reference}.pdf")),
+        (
+            "/rgpd/violations/registre.pdf?a_notifier=true".to_string(),
+            "registre-violations.pdf".to_string(),
+        ),
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .header("authorization", format!("Bearer {dir}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+        let h = |n: &str| res.headers().get(n).unwrap().to_str().unwrap().to_string();
+        assert_eq!(h("content-type"), "application/pdf");
+        assert_eq!(h("cache-control"), "no-store");
+        assert_eq!(h("content-disposition"), format!("attachment; filename=\"{nom}\""));
+        let corps = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+        assert!(corps.starts_with(b"%PDF-"), "{uri}");
+        let texte = ent_pdf::releve::texte(&corps);
+        assert!(texte.contains(&reference), "{uri} : {texte}");
+    }
+}

@@ -115,10 +115,11 @@ sécurité, close).
 ## 4. Non fait (et pourquoi)
 
 * Échanges tracés avec la CNIL et les personnes (`rgp_violation_echange`) : palier G11.
-* Fiches PDF du registre (NX27-18) : attend le gabarit du socle 7.
-* Console plateforme (routes de l'éditeur) : hors de ce palier ; les appels système sont prêts et testés.
-* Déclaration depuis l'application mobile : la route `POST /rgpd/violations/declarations` est prête ; l'écran
-  mobile attend le palier des applications (n° 3).
+* Fiches PDF du registre (NX27-18) : **faites dans le complément** (`27_G5_COMPLEMENT_LIVRAISON.md`), en-tête
+  textuel en attendant le gabarit du socle 7.
+* Console plateforme : **commande d'opérateur faite dans le complément** (`ent-api plateforme-violation`) ; pas de
+  route HTTP de l'éditeur.
+* Déclaration depuis l'application mobile : **faite dans le complément** (écran « Signaler un incident », contrat MB2).
 * Choix des élèves ou des classes par liste à l'écran : la fiche accepte des identifiants collés ; un sélecteur
   viendra avec la fiche hub des élèves.
 

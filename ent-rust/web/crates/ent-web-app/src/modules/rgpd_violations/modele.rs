@@ -327,10 +327,53 @@ pub fn message_information_recevable(m: &str) -> bool {
     (20..=4000).contains(&m.trim().chars().count())
 }
 
+/// Lien du registre en PDF avec le filtre de l'écran (même paramètres que `GET /rgpd/violations`). L'état vient d'une
+/// liste fermée ; il est quand même vérifié, un état inconnu étant omis.
+pub fn lien_registre_pdf(etat: &str, a_notifier: bool) -> String {
+    let mut params = Vec::new();
+    if ETATS.contains(&etat) {
+        params.push(format!("etat={etat}"));
+    }
+    if a_notifier {
+        params.push("a_notifier=true".to_string());
+    }
+    if params.is_empty() {
+        "/rgpd/violations/registre.pdf".to_string()
+    } else {
+        format!("/rgpd/violations/registre.pdf?{}", params.join("&"))
+    }
+}
+
+/// Lien de la fiche PDF d'une violation.
+pub fn lien_fiche_pdf(id: Uuid) -> String {
+    format!("/rgpd/violations/{id}/fiche.pdf")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn liens_pdf_avec_le_filtre() {
+        assert_eq!(
+            lien_registre_pdf("", false),
+            "/rgpd/violations/registre.pdf"
+        );
+        assert_eq!(
+            lien_registre_pdf("close", true),
+            "/rgpd/violations/registre.pdf?etat=close&a_notifier=true"
+        );
+        assert_eq!(
+            lien_registre_pdf("x&y=1", false),
+            "/rgpd/violations/registre.pdf",
+            "état hors liste omis"
+        );
+        assert_eq!(
+            lien_fiche_pdf(Uuid::nil()),
+            "/rgpd/violations/00000000-0000-0000-0000-000000000000/fiche.pdf"
+        );
+    }
 
     fn ligne(etat: &str, heures: i64, notifiee: bool, connue_jour: u32) -> ViolationLigneDto {
         ViolationLigneDto {

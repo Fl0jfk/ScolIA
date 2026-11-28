@@ -38,9 +38,9 @@ use crate::noyau::temps::date_heure_paris;
 use modele::{
     compter, corps_personnes, corps_qualification, declaration_recevable, echeance_reglee,
     echeance_reglee_ligne, instant_saisi, libelle_avancement, libelle_etape, libelle_etat,
-    libelle_origine, libelle_risque, message_information_recevable, phrase_horloge,
-    retard_a_motiver, saisie_depuis, trier_registre, urgence, SaisieQualification, Urgence,
-    CATEGORIES, ETATS, RISQUES,
+    libelle_origine, libelle_risque, lien_fiche_pdf, lien_registre_pdf,
+    message_information_recevable, phrase_horloge, retard_a_motiver, saisie_depuis, trier_registre,
+    urgence, SaisieQualification, Urgence, CATEGORIES, ETATS, RISQUES,
 };
 
 fn ton_urgence(u: Urgence) -> TonEtat {
@@ -234,6 +234,10 @@ pub fn PageRegistreViolations() -> impl IntoView {
                 </LienBouton>
                 <a class="ui-bouton ui-bouton-secondaire" href="/rgpd/violations/export.csv" download="registre-violations.csv">
                     "Exporter le registre (CSV)"
+                </a>
+                <a class="ui-bouton ui-bouton-secondaire" download="registre-violations.pdf"
+                    href=move || lien_registre_pdf(&etat.get(), a_notifier.get())>
+                    "Registre en PDF (filtre appliqué)"
                 </a>
             })}
         </EnTetePage>
@@ -482,6 +486,10 @@ fn Fiche(v: ViolationDto, version: RwSignal<u32>) -> impl IntoView {
             sous_titre=sous_titre
         >
             <LienBouton href="/web/rgpd/violations" variante=Variante::Secondaire>"Registre"</LienBouton>
+            <a class="ui-bouton ui-bouton-secondaire" href=lien_fiche_pdf(v.id)
+                download=format!("violation-{}.pdf", v.reference)>
+                "Fiche PDF"
+            </a>
         </EnTetePage>
         <RetourEcriture ecriture=ecriture/>
         {horloge.map(|h| view! {

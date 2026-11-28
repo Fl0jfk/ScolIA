@@ -377,3 +377,31 @@ public struct NotificationEnt: Codable, Identifiable, Sendable {
     public let lu: Bool
     public let createdAt: String
 }
+
+// MARK: Signaler un incident (registre des violations, socle 27, complément G5)
+// Source : `ent-types/src/rgpd_violations.rs` (`DeclarationBody`, `MaDeclarationDto`).
+
+/// Corps de `POST /rgpd/violations/declarations` : une phrase obligatoire, des précisions facultatives.
+public struct DeclarationIncidentBody: Codable, Equatable, Sendable {
+    public let intitule: String
+    public let description: String?
+    /// Avis du déclarant : aucune donnée personnelle touchée. La direction requalifie ; l'horloge ne s'éteint pas.
+    public let incidentSecurite: Bool
+
+    public init(intitule: String, description: String? = nil, incidentSecurite: Bool = false) {
+        self.intitule = intitule
+        self.description = description
+        self.incidentSecurite = incidentSecurite
+    }
+}
+
+/// Ce que voit le déclarant (R-RG32) : la référence et l'avancement, rien d'autre.
+public struct MaDeclaration: Codable, Identifiable, Sendable {
+    public let id: String
+    public let reference: String
+    public let intitule: String
+    public let connueLe: String
+    /// `recue`, `en_cours` ou `close`.
+    public let avancement: String
+    public let message: String
+}

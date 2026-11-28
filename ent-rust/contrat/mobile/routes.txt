@@ -55,3 +55,8 @@ GET /eva/grille
 POST /eva/evaluations
 POST /eva/saisie
 POST /eva/evaluations/{id}/publication
+
+# Signaler un incident (registre des violations, socle 27, complément G5) : tout personnel déclare en trente secondes
+# et suit l'avancement de ses déclarations (référence et avancement seulement, R-RG32). Le registre reste sur le web.
+POST /rgpd/violations/declarations
+GET /rgpd/violations/declarations

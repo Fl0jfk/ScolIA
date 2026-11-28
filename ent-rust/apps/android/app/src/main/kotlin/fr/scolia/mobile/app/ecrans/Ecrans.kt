@@ -78,6 +78,7 @@ fun EcranModule(module: Module, modele: AppModele, c: EtatConnexion.Connecte, ou
         Module.SAISIE_NOTES -> EcranSaisieNotes(modele)
         Module.EDT -> EcranEdt(modele, c)
         Module.MESSAGERIE -> EcranMessagerie(modele)
+        Module.SIGNALER -> EcranSignaler(modele)
         Module.PROFIL -> EcranProfil(modele, c)
     }
 }

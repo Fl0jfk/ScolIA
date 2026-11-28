@@ -34,6 +34,8 @@ use serde::Serialize;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+pub mod pdf;
+
 fn db(e: sqlx::Error) -> EntDbError {
     EntDbError::Sqlx(e)
 }
@@ -1389,7 +1391,7 @@ impl PgEnt {
                 AND ($4::text IS NULL OR nature_incident = $4)
                 AND (NOT $5 OR (etat <> 'close' AND nature_incident = 'violation'
                                 AND notifiee_cnil_le IS NULL AND non_notification_motif IS NULL))
-              ORDER BY annee DESC, numero DESC LIMIT 1000"
+              ORDER BY annee DESC, numero DESC LIMIT 1000" /* = pdf::REGISTRE_LIMITE */
         );
         let rows = sqlx::query(&sql)
             .bind(etab)
@@ -2580,6 +2582,167 @@ impl PgEnt {
             out.push('\n');
         }
         Ok(out)
+    }
+}
+
+/// Instants écrits dans le fuseau de l'établissement, en une requête (« 12/03/2027 à 14 h 05 »).
+async fn instants_locaux(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    instants: &[DateTime<Utc>],
+) -> Result<std::collections::HashMap<DateTime<Utc>, String>, EntDbError> {
+    // Rang d'entrée (WITH ORDINALITY) et non l'instant renvoyé : Postgres tronque à la microseconde, un
+    // `Utc::now()` en nanosecondes ne se retrouverait pas par égalité.
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT u.rang, to_char(u.t AT TIME ZONE COALESCE(
+                    (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $1),
+                    'Europe/Paris'), 'DD/MM/YYYY \"à\" HH24 \"h\" MI')
+           FROM unnest($2::timestamptz[]) WITH ORDINALITY AS u(t, rang)",
+    )
+    .bind(etab)
+    .bind(instants)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(rang, texte)| {
+            let i = usize::try_from(rang).ok()?.checked_sub(1)?;
+            instants.get(i).map(|t| (*t, texte))
+        })
+        .collect())
+}
+
+async fn nom_etablissement(conn: &mut PgConnection, etab: Uuid) -> Result<String, EntDbError> {
+    let nom: Option<String> = sqlx::query_scalar("SELECT nom FROM ent_etablissement WHERE id = $1")
+        .bind(etab)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(nom.unwrap_or_else(|| "Établissement".into()))
+}
+
+fn instants_de_fiche(v: &ViolationVue, maintenant: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+    let mut t = vec![maintenant, v.connue_le, v.echeance_cnil_le];
+    t.extend(
+        [
+            v.constatee_le,
+            v.qualifiee_le,
+            v.avis_dpo_le,
+            v.risque_decide_le,
+            v.notifiee_cnil_le,
+            v.personnes_informees_le,
+            v.close_le,
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    t.extend(v.mesures.iter().map(|m| m.le));
+    t.extend(v.notifications.iter().map(|n| n.notifiee_le));
+    t.extend(v.chronologie.iter().map(|e| e.le));
+    if let Some(p) = &v.plateforme_element {
+        t.extend([p.connue_editeur_le, p.informe_le]);
+        t.extend(p.notifiee_cnil_par_editeur_le);
+    }
+    t.sort();
+    t.dedup();
+    t
+}
+
+/// Le filtre du registre dit en clair, en tête du PDF.
+fn filtre_en_clair(f: &FiltreRegistre<'_>) -> String {
+    let mut morceaux = vec![match f.annee {
+        Some(a) => format!("Année {a}"),
+        None => "Toutes les années".to_string(),
+    }];
+    if let Some(e) = f.etat {
+        morceaux.push(format!("état « {} »", ent_types::rgpd_violations::libelle_etat(e)));
+    }
+    match f.nature_incident {
+        Some("violation") => morceaux.push("violations de données seulement".into()),
+        Some("incident_securite") => morceaux.push("incidents de sécurité seulement".into()),
+        _ => {}
+    }
+    if f.a_notifier {
+        morceaux.push("à notifier seulement".into());
+    }
+    morceaux.join(", ")
+}
+
+impl PgEnt {
+    /// **NX27-18** — fiche PDF d'une violation (gestionnaires), rendue à la demande, jamais stockée.
+    pub async fn violations_fiche_pdf(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        id: Uuid,
+    ) -> Result<(String, Vec<u8>), EntDbError> {
+        self.violations_fiche_pdf_a(etab, acteur, role, id, Utc::now())
+            .await
+    }
+
+    pub(crate) async fn violations_fiche_pdf_a(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        id: Uuid,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(String, Vec<u8>), EntDbError> {
+        self.exiger_action_etab(etab, acteur, role, Action::ViolationsGerer)
+            .await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let v = charger(&mut tx, etab, id, maintenant).await?;
+        let locaux = instants_locaux(&mut tx, etab, &instants_de_fiche(&v, maintenant)).await?;
+        let nom = nom_etablissement(&mut tx, etab).await?;
+        tx.commit().await?;
+        let quand = |t: DateTime<Utc>| locaux.get(&t).cloned().unwrap_or_else(|| t.to_rfc3339());
+        let edite_le = quand(maintenant);
+        let pdf = pdf::rendre_fiche(
+            &v,
+            &pdf::Edition {
+                etablissement: &nom,
+                edite_le: &edite_le,
+                instant: &quand,
+            },
+        );
+        Ok((v.reference, pdf))
+    }
+
+    /// **RGP-258, NX27-18** — registre en PDF, avec le même filtre que l'écran (1 000 lignes au plus, comme la lecture).
+    pub async fn violations_registre_pdf(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        f: FiltreRegistre<'_>,
+    ) -> Result<Vec<u8>, EntDbError> {
+        let maintenant = Utc::now();
+        let filtre = filtre_en_clair(&f);
+        let lignes = self
+            .violations_registre_a(etab, acteur, role, f, maintenant)
+            .await?;
+        let mut instants: Vec<DateTime<Utc>> = vec![maintenant];
+        instants.extend(lignes.iter().map(|l| l.connue_le));
+        instants.extend(lignes.iter().filter_map(|l| l.notifiee_cnil_le));
+        instants.sort();
+        instants.dedup();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        let locaux = instants_locaux(&mut tx, etab, &instants).await?;
+        let nom = nom_etablissement(&mut tx, etab).await?;
+        tx.commit().await?;
+        let quand = |t: DateTime<Utc>| locaux.get(&t).cloned().unwrap_or_else(|| t.to_rfc3339());
+        let edite_le = quand(maintenant);
+        Ok(pdf::rendre_registre(
+            &lignes,
+            &filtre,
+            &pdf::Edition {
+                etablissement: &nom,
+                edite_le: &edite_le,
+                instant: &quand,
+            },
+        ))
     }
 }
 

@@ -1,7 +1,8 @@
 //! Socle 27, palier G5 : registre des violations de données. Routes `/rgpd/violations/*` d'`ent-api` ; types
 //! d'`ent-types::rgpd_violations`.
 //!
-//! L'export CSV n'a pas de méthode : c'est un simple lien `GET /rgpd/violations/export.csv` (cookie de session).
+//! L'export CSV et les fiches PDF (`…/registre.pdf`, `…/{id}/fiche.pdf`) n'ont pas de méthode : ce sont de simples
+//! liens (cookie de session).
 
 use ent_types::rgpd_violations::*;
 use uuid::Uuid;

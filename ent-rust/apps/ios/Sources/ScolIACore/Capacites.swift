@@ -2,7 +2,7 @@ import Foundation
 
 /// Écrans de l'appli quotidienne (D-003), dans l'ordre d'affichage par défaut.
 public enum Module: String, CaseIterable, Identifiable, Sendable {
-    case accueil, appel, vieScolaire, absences, notes, saisieNotes, agenda, edt, messagerie, profil
+    case accueil, appel, vieScolaire, absences, notes, saisieNotes, agenda, edt, messagerie, signaler, profil
     public var id: String { rawValue }
     public var titre: String {
         switch self {
@@ -15,6 +15,7 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .agenda: return "Cahier de textes"
         case .edt: return "Emploi du temps"
         case .messagerie: return "Messages"
+        case .signaler: return "Signaler un incident"
         case .profil: return "Mon compte"
         }
     }
@@ -30,6 +31,7 @@ public enum Module: String, CaseIterable, Identifiable, Sendable {
         case .agenda: return "book"
         case .edt: return "calendar"
         case .messagerie: return "envelope"
+        case .signaler: return "lock.shield"
         case .profil: return "person.crop.circle"
         }
     }
@@ -96,8 +98,11 @@ public enum Capacites {
             if a("notes.saisir") { m.append(.saisieNotes) }
             if enseigne { m.append(.agenda) }
             m += [.messagerie, .edt]
+            // Registre des violations (socle 27) : tout personnel déclare en trente secondes ; le registre reste
+            // sur le web. Élèves et familles passent par le guichet des droits.
+            if a("violations.declarer") { m.append(.signaler) }
         }
-        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda, .saisieNotes]
+        let ordre: [Module] = [.accueil, .appel, .vieScolaire, .absences, .messagerie, .notes, .edt, .agenda, .saisieNotes, .signaler]
         let tries = m.sorted { (ordre.firstIndex(of: $0) ?? 99) < (ordre.firstIndex(of: $1) ?? 99) }
         return Espace(profil: profil, modules: tries + [.profil], enrolementRequis: false, enseigne: enseigne)
     }

@@ -1,4 +1,7 @@
 use ent_api::{app, boot_from_env};
+
+// Console de l'éditeur : violations de la plateforme (socle 27, complément G5 ; pas de route HTTP).
+mod console_violations;
 use tracing_subscriber::EnvFilter;
 
 /// Format des journaux : `text` (défaut, lisible en console) ou `json`
@@ -50,6 +53,10 @@ fn main() {
     // Opérateur de la plateforme : établissements et domaines (B-02, pas de route HTTP).
     if args.first().map(String::as_str) == Some("plateforme-domaine") {
         let code = rt.block_on(plateforme_domaine(&args[1..]));
+        std::process::exit(code);
+    }
+    if args.first().map(String::as_str) == Some("plateforme-violation") {
+        let code = rt.block_on(console_violations::lancer(&args[1..]));
         std::process::exit(code);
     }
     rt.block_on(run_api());

@@ -1427,3 +1427,142 @@ async fn g5_risque_releve_apres_non_notification() {
         .await
         .expect("notification après relèvement");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Complément G5 : console de l'éditeur et fiches PDF (docs/socles/27_G5_COMPLEMENT_LIVRAISON.md)
+// ---------------------------------------------------------------------------------------------
+
+/// Console de l'éditeur : la violation se retrouve par sa référence (casse indifférente) ou son identifiant ; la liste
+/// des propagations ne nomme que les établissements réellement informés, avec la référence de leur registre ; la cible
+/// d'une propagation se lit par son slug (confirmation).
+#[tokio::test]
+async fn g5c_console_editeur_trouver_lister_propagations() {
+    use crate::violations_plateforme::DeclarationPlateforme;
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let maintenant = instant();
+    let (pv, reference) = ent
+        .violations_plateforme_declarer(
+            "Équipe sécurité ScolIA",
+            DeclarationPlateforme {
+                intitule: "Sauvegarde d'un sous-traitant exposée",
+                description: "Une sauvegarde chiffrée a été rendue publique une heure.",
+                connue_le: maintenant - Duration::hours(2),
+                disponibilite: true,
+                ..Default::default()
+            },
+            maintenant,
+        )
+        .await
+        .unwrap();
+    let v = ent.violations_plateforme_trouver(&reference).await.unwrap();
+    assert_eq!(v.id, pv);
+    assert_eq!(v.etat, "ouverte");
+    assert_eq!(
+        ent.violations_plateforme_trouver(&reference.to_lowercase()).await.unwrap().id,
+        pv,
+        "référence saisie en minuscules"
+    );
+    assert_eq!(ent.violations_plateforme_trouver(&pv.to_string()).await.unwrap().reference, reference);
+    assert!(matches!(
+        ent.violations_plateforme_trouver("P-1999-999").await,
+        Err(EntDbError::Domain(DomainError::NotFound))
+    ));
+    assert!(ent
+        .violations_plateforme_lister()
+        .await
+        .unwrap()
+        .iter()
+        .any(|l| l.id == pv));
+    // Personne n'est informé tant que l'éditeur n'a pas propagé.
+    assert!(ent.violations_plateforme_propagations(pv).await.unwrap().is_empty());
+    // Le labo ne crée pas toujours la fiche de l'établissement (la production l'a toujours).
+    sqlx::query(
+        "INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, 'g5c-' || substr($1::text, 1, 8), 'Collège G5c')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(cast.etablissement_id)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
+    let cible = ent.violations_plateforme_cible(cast.etablissement_id).await.unwrap();
+    assert!(!cible.slug.is_empty());
+    assert!(matches!(
+        ent.violations_plateforme_cible(Uuid::new_v4()).await,
+        Err(EntDbError::Domain(DomainError::NotFound))
+    ));
+    let (va, _) = ent
+        .violations_plateforme_propager(pv, cast.etablissement_id, "travaux de 3e indisponibles", Some(90), maintenant)
+        .await
+        .unwrap();
+    let p = ent.violations_plateforme_propagations(pv).await.unwrap();
+    assert_eq!(p.len(), 1, "seul l'établissement informé : {p:?}");
+    assert_eq!(p[0].etablissement_id, cast.etablissement_id);
+    assert_eq!(p[0].etablissement_slug, cible.slug);
+    assert_eq!(p[0].personnes_nombre, Some(90));
+    let fiche = ent
+        .violations_fiche_a(cast.etablissement_id, cast.direction.user_id, DIR, va, maintenant)
+        .await
+        .unwrap();
+    assert_eq!(p[0].reference_locale, fiche.reference);
+    assert!(!p.iter().any(|x| x.etablissement_id == autre.etablissement_id));
+}
+
+/// Fiches PDF : réservées aux gestionnaires, instants dans le fuseau de l'établissement, filtre dit en clair, 404
+/// neutre pour une violation d'un autre établissement.
+#[tokio::test]
+async fn g5c_fiches_pdf_droits_fuseau_et_cloisonnement() {
+    let Some((ent, cast)) = labo().await else {
+        return;
+    };
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let maintenant = instant();
+    let id = violation_connue_il_y_a(&ent, &cast, maintenant, Duration::hours(5)).await;
+    let (reference, pdf) = ent
+        .violations_fiche_pdf_a(cast.etablissement_id, cast.direction.user_id, DIR, id, maintenant)
+        .await
+        .unwrap();
+    assert!(reference.starts_with("V-"));
+    let texte = ent_pdf::releve::texte(&pdf);
+    assert!(texte.contains(&reference), "{texte}");
+    assert!(texte.contains("liste de classe envoyée"), "{texte}");
+    // Heure de Paris, comme la base l'écrit pour l'établissement.
+    let attendu: String = sqlx::query_scalar(
+        "SELECT to_char(($1::timestamptz - interval '5 hours') AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY \"à\" HH24 \"h\" MI')",
+    )
+    .bind(maintenant)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(texte.contains(&attendu), "prise de connaissance « {attendu} » : {texte}");
+    // Un professeur n'a pas le registre ; une autre direction ne voit pas cette violation (404 neutre).
+    assert!(matches!(
+        ent.violations_fiche_pdf_a(cast.etablissement_id, cast.prof.user_id, PROF, id, maintenant).await,
+        Err(EntDbError::Forbidden)
+    ));
+    assert!(matches!(
+        ent.violations_fiche_pdf_a(autre.etablissement_id, autre.direction.user_id, DIR, id, maintenant).await,
+        Err(EntDbError::Domain(DomainError::NotFound))
+    ));
+    let registre = ent
+        .violations_registre_pdf(
+            cast.etablissement_id,
+            cast.direction.user_id,
+            DIR,
+            FiltreRegistre {
+                etat: Some("ouverte"),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let t = ent_pdf::releve::texte(&registre);
+    assert!(t.contains(&reference) && t.contains("état « à qualifier »"), "{t}");
+    assert!(matches!(
+        ent.violations_registre_pdf(cast.etablissement_id, cast.prof.user_id, PROF, FiltreRegistre::default())
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
+}

@@ -227,6 +227,37 @@ class EcransComposeTest {
         rule.onNodeWithTag("eva-publication-confirmer").performClick()
         rule.waitUntil(5_000) { api.recues.any { it.endsWith("/publication") } }
     }
+
+    @Test
+    fun signaler_un_incident_apres_confirmation_puis_suivre_l_avancement() {
+        val api = FauxApi(
+            mapOf(
+                "GET /edt/mes-creneaux" to "[]",
+                "GET /annonces" to "[]",
+                "GET /rgpd/violations/declarations" to "[]",
+                "POST /rgpd/violations/declarations" to """{"id":"v1","reference":"V-2027-003","intitule":"Clé USB perdue",
+                    "connue_le":"2027-03-08T10:00:00Z","avancement":"recue","message":"Merci : votre déclaration est enregistrée."}""",
+            ),
+        )
+        connecter(api, "prof", listOf(Droit("absences.lire", "mes_classes"), Droit("violations.declarer", "etablissement")))
+        modele.verrouille = false
+        afficher()
+        if (rule.onAllNodesWithTag("module-SIGNALER").fetchSemanticsNodes().isEmpty()) rule.onNodeWithText("Plus").performClick()
+        rule.onNodeWithTag("module-SIGNALER").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTextCount("Vous n'avez rien signalé dans cet établissement.") > 0 }
+        // Phrase vide : refusée localement, rien ne part.
+        rule.onNodeWithTag("signaler-envoyer").performClick()
+        rule.onNodeWithText("Dites en une phrase ce qui s'est passé.").assertIsDisplayed()
+        rule.onNodeWithTag("signaler-intitule").performTextInput("Clé USB perdue")
+        rule.onNodeWithTag("signaler-envoyer").performClick()
+        // Envoi : la direction est alertée, rien ne part sans confirmation.
+        rule.onNodeWithText("Prévenir la direction ?").assertIsDisplayed()
+        assertTrue(api.recues.none { it == "POST /rgpd/violations/declarations" })
+        rule.onNodeWithTag("signaler-confirmer").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("signaler-recu").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Signalement V-2027-003 enregistré").assertIsDisplayed()
+        assertEquals(1, api.recues.count { it == "POST /rgpd/violations/declarations" })
+    }
 }
 
 private const val ENSEIGNEMENTS = """[{"cours_id":"c1","libelle":"Maths 4B","cible_code":"4B","matiere_id":null,"sans_matiere":false,"droit":"saisie"},

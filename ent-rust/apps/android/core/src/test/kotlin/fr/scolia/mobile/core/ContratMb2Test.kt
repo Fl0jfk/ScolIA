@@ -86,6 +86,8 @@ class ContratMb2Test {
         "eva_saisie_lot" to { c -> c.saisirNotes(SaisieEvaBody("c1", listOf(CelluleSaisieEva("ev1", "e1", "15,5", 1), CelluleSaisieEva("ev1", "e2", "21")))) },
         "eva_grille_apres_saisie" to { c -> c.evaGrille("c1", "p1") },
         "eva_evaluations_publication" to { c -> c.publierEvaluation("ev1", "maintenant") },
+        "rgpd_violations_declarer" to { c -> c.declarerIncident(Signalement.corps("Clé USB perdue", "", false)) },
+        "rgpd_violations_mes_declarations" to { c -> c.mesDeclarations() },
     )
 
     /** Méthodes publiques d'[ApiClient] qui ne consomment pas une fixture, avec la raison. */
@@ -159,6 +161,7 @@ class ContratMb2Test {
             "devoirsClasse", "devoirsEleve", "effectif", "cahierTexte", "fils", "fil", "repondre",
             "annonces", "annoncesEleve", "notifications",
             "evaEnseignements", "evaPeriodes", "evaGrille", "creerEvaluation", "saisirNotes", "publierEvaluation",
+            "declarerIncident", "mesDeclarations",
         ) + horsFixtures.keys
         val publiques = ApiClient::class.java.declaredMethods
             .filter { java.lang.reflect.Modifier.isPublic(it.modifiers) && !it.isSynthetic }

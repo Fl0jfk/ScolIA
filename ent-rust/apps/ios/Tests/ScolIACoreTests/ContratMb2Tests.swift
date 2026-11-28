@@ -85,6 +85,10 @@ final class ContratMb2Tests: XCTestCase {
         },
         "eva_grille_apres_saisie": { _ = try await $0.evaGrille(coursId: "c1", periodeId: "p1") },
         "eva_evaluations_publication": { _ = try await $0.publierEvaluation("ev1", action: "maintenant") },
+        "rgpd_violations_declarer": {
+            _ = try await $0.declarerIncident(Signalement.corps(intitule: "Clé USB perdue", description: "", sansDonneePersonnelle: false))
+        },
+        "rgpd_violations_mes_declarations": { _ = try await $0.mesDeclarations() },
     ]
 
     static func gabaritVersRegex(_ route: String) -> NSRegularExpression {

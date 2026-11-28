@@ -285,6 +285,16 @@ public final class ApiClient: @unchecked Sendable {
         return try decoder(try await envoyer("POST", "/eva/evaluations/\(seg(evaluationId))/publication", corps: try Self.encodeur.encode(corps), cle: cle))
     }
 
+    // MARK: Signaler un incident (registre des violations, socle 27)
+
+    /// 201 : la référence (`V-2027-003`), l'avancement et un merci ; la direction est alertée par le serveur.
+    public func declarerIncident(_ body: DeclarationIncidentBody, cle: String? = nil) async throws -> MaDeclaration {
+        try decoder(try await envoyer("POST", "/rgpd/violations/declarations", corps: try Self.encodeur.encode(body), cle: cle))
+    }
+
+    /// Mes déclarations : référence et avancement seulement (R-RG32).
+    public func mesDeclarations() async throws -> [MaDeclaration] { try await get("/rgpd/violations/declarations") }
+
     // MARK: Mécanique
 
     public func getBrut(_ chemin: String) async throws -> Data { try await envoyer("GET", chemin, corps: nil) }

@@ -7,11 +7,12 @@
 //! l'établissement (son horloge de 72 h part de l'instant où l'éditeur l'informe, art. 33.2), la direction est
 //! alertée comme pour toute déclaration, et décide ensuite de sa propre notification.
 //!
-//! Ces appels sont des **appels système** de la console plateforme (à venir) : aucune route utilisateur ne les expose,
-//! aucun droit d'établissement ne les permet (même régime que les sous-traitants de la plateforme, G2).
+//! Ces appels sont des **appels système** de la console de l'éditeur : la commande d'opérateur `ent-api
+//! plateforme-violation` (complément G5), comme `ent-api plateforme-domaine`. Aucune route HTTP ne les expose, aucun
+//! droit d'établissement ne les permet (même régime que les sous-traitants de la plateforme, G2).
 
 use crate::service::{EntDbError, PgEnt};
-use crate::tenant_tx::TenantTx;
+use crate::tenant_tx::{etablissements_systeme, ContexteSysteme, TenantTx};
 use crate::violations::{alerter_declaration, etape, inserer, Insertion};
 use chrono::{DateTime, Datelike, Duration, Utc};
 use domain_eleve::DomainError;
@@ -56,8 +57,7 @@ pub fn reference_plateforme(annee: i32, numero: i64) -> String {
 impl PgEnt {
     /// **RGP-254 (appel système)** — l'éditeur déclare une violation de la plateforme. Rend l'identifiant et la
     /// référence « P-AAAA-NNN » (numérotée par année de prise de connaissance, UTC : la plateforme n'a pas de fuseau).
-    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // console plateforme (à venir) ; seuls des tests labo l'exercent
-    pub(crate) async fn violations_plateforme_declarer(
+    pub async fn violations_plateforme_declarer(
         &self,
         declaree_par: &str,
         d: DeclarationPlateforme<'_>,
@@ -128,8 +128,7 @@ impl PgEnt {
     /// les éléments qui le concernent seul (ses comptes, ses données). Crée la violation d'origine `plateforme` dans son
     /// registre et alerte ses gestionnaires. Idempotent : une seconde propagation au même établissement rend la même
     /// violation (`false` : déjà propagée) sans rien réécrire.
-    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // console plateforme (à venir) ; seuls des tests labo l'exercent
-    pub(crate) async fn violations_plateforme_propager(
+    pub async fn violations_plateforme_propager(
         &self,
         violation_plateforme: Uuid,
         etab: Uuid,
@@ -253,8 +252,7 @@ impl PgEnt {
 
     /// **RGP-311 (appel système)** — ScolIA, responsable de la couche compte, saisit sa propre notification à la CNIL.
     /// Réservé aux violations qui touchent la couche compte ; une seule fois.
-    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // console plateforme (à venir) ; seuls des tests labo l'exercent
-    pub(crate) async fn violations_plateforme_notifier_cnil(
+    pub async fn violations_plateforme_notifier_cnil(
         &self,
         violation_plateforme: Uuid,
         notifiee_le: DateTime<Utc>,
@@ -312,8 +310,7 @@ impl PgEnt {
 
     /// **Appel système** — l'éditeur clôt sa violation : plus de propagation. Les violations propagées restent au
     /// registre de chaque établissement, qui les instruit et les clôt lui-même.
-    #[cfg_attr(not(all(test, feature = "labo")), allow(dead_code))] // console plateforme (à venir) ; seuls des tests labo l'exercent
-    pub(crate) async fn violations_plateforme_clore(
+    pub async fn violations_plateforme_clore(
         &self,
         violation_plateforme: Uuid,
         maintenant: DateTime<Utc>,
@@ -334,6 +331,180 @@ impl PgEnt {
             ));
         }
         Ok(())
+    }
+}
+
+/// Une violation de la plateforme, vue de la console de l'éditeur.
+#[derive(Clone, Debug)]
+pub struct ViolationPlateformeVue {
+    pub id: Uuid,
+    pub reference: String,
+    pub intitule: String,
+    pub description: String,
+    pub connue_le: DateTime<Utc>,
+    pub declaree_le: DateTime<Utc>,
+    pub declaree_par: String,
+    pub confidentialite: bool,
+    pub integrite: bool,
+    pub disponibilite: bool,
+    pub couche_compte: bool,
+    pub notifiee_cnil_le: Option<DateTime<Utc>>,
+    pub reference_cnil: Option<String>,
+    pub etat: String,
+    pub close_le: Option<DateTime<Utc>>,
+}
+
+/// Ce que l'éditeur sait d'une propagation : l'établissement informé, quand, et la référence de la violation dans son
+/// registre (pour le suivi). Jamais ce que l'établissement en a décidé (qualification, risque, notification) : c'est
+/// sa décision de responsable de traitement (D-069).
+#[derive(Clone, Debug)]
+pub struct PropagationVue {
+    pub etablissement_id: Uuid,
+    pub etablissement_slug: String,
+    pub etablissement_nom: String,
+    pub informe_le: DateTime<Utc>,
+    pub reference_locale: String,
+    pub personnes_nombre: Option<i32>,
+}
+
+/// Fiche publique d'un établissement (slug, nom), pour la confirmation d'une propagation.
+#[derive(Clone, Debug)]
+pub struct EtablissementCible {
+    pub id: Uuid,
+    pub slug: String,
+    pub nom: String,
+}
+
+const COLONNES_P: &str = "id, reference, intitule, description, connue_le, declaree_le, declaree_par, confidentialite, \
+     integrite, disponibilite, couche_compte, notifiee_cnil_le, reference_cnil, etat, close_le";
+
+type LigneP = (
+    Uuid,
+    String,
+    String,
+    String,
+    DateTime<Utc>,
+    DateTime<Utc>,
+    String,
+    bool,
+    bool,
+    bool,
+    bool,
+    Option<DateTime<Utc>>,
+    Option<String>,
+    String,
+    Option<DateTime<Utc>>,
+);
+
+fn vue_p(r: LigneP) -> ViolationPlateformeVue {
+    ViolationPlateformeVue {
+        id: r.0,
+        reference: r.1,
+        intitule: r.2,
+        description: r.3,
+        connue_le: r.4,
+        declaree_le: r.5,
+        declaree_par: r.6,
+        confidentialite: r.7,
+        integrite: r.8,
+        disponibilite: r.9,
+        couche_compte: r.10,
+        notifiee_cnil_le: r.11,
+        reference_cnil: r.12,
+        etat: r.13,
+        close_le: r.14,
+    }
+}
+
+impl PgEnt {
+    /// **Console de l'éditeur** — les violations de la plateforme, ouvertes d'abord, puis de la plus récente à la plus
+    /// ancienne (500 au plus).
+    pub async fn violations_plateforme_lister(&self) -> Result<Vec<ViolationPlateformeVue>, EntDbError> {
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let rows: Vec<LigneP> = sqlx::query_as(&format!(
+            "SELECT {COLONNES_P} FROM rgp_violation_plateforme
+              ORDER BY (etat = 'ouverte') DESC, connue_le DESC, reference DESC LIMIT 500"
+        ))
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        Ok(rows.into_iter().map(vue_p).collect())
+    }
+
+    /// **Console de l'éditeur** — une violation de la plateforme, par sa référence (« P-2027-002 ») ou son identifiant.
+    pub async fn violations_plateforme_trouver(
+        &self,
+        reference_ou_id: &str,
+    ) -> Result<ViolationPlateformeVue, EntDbError> {
+        let cle = reference_ou_id.trim();
+        let id = Uuid::parse_str(cle).ok();
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let r: Option<LigneP> = sqlx::query_as(&format!(
+            "SELECT {COLONNES_P} FROM rgp_violation_plateforme WHERE id = $1 OR reference = upper($2)"
+        ))
+        .bind(id.unwrap_or_else(Uuid::nil))
+        .bind(cle)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        r.map(vue_p).ok_or(EntDbError::Domain(DomainError::NotFound))
+    }
+
+    /// **Console de l'éditeur** — l'établissement visé par une propagation (pour la confirmation par le slug).
+    pub async fn violations_plateforme_cible(&self, etab: Uuid) -> Result<EtablissementCible, EntDbError> {
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let r: Option<(String, String)> =
+            sqlx::query_as("SELECT slug, nom FROM ent_etablissement WHERE id = $1")
+                .bind(etab)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        let (slug, nom) = r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        Ok(EtablissementCible { id: etab, slug, nom })
+    }
+
+    /// **Console de l'éditeur** — à quels établissements une violation de la plateforme a été propagée. La table des
+    /// propagations est sous RLS : chaque établissement est lu dans son propre contexte (contexte système nommé).
+    pub async fn violations_plateforme_propagations(
+        &self,
+        violation_plateforme: Uuid,
+    ) -> Result<Vec<PropagationVue>, EntDbError> {
+        let mut out = Vec::new();
+        for etab in etablissements_systeme(self.pool(), ContexteSysteme::JobPlanifie("console_violations_plateforme"))
+            .await
+            .map_err(db)?
+        {
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            let r: Option<(DateTime<Utc>, Option<i32>, i32, i32, String, String)> = sqlx::query_as(
+                "SELECT e.informe_le, e.personnes_nombre, v.annee, v.numero,
+                        COALESCE(x.slug, e.etablissement_id::text), COALESCE(x.nom, 'établissement sans fiche')
+                   FROM rgp_violation_plateforme_etab e
+                   JOIN rgp_violation v ON v.etablissement_id = e.etablissement_id AND v.id = e.violation_id
+                   LEFT JOIN ent_etablissement x ON x.id = e.etablissement_id
+                  WHERE e.etablissement_id = $1 AND e.violation_plateforme_id = $2",
+            )
+            .bind(etab)
+            .bind(violation_plateforme)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            tx.commit().await?;
+            if let Some((informe_le, personnes_nombre, annee, numero, slug, nom)) = r {
+                out.push(PropagationVue {
+                    etablissement_id: etab,
+                    etablissement_slug: slug,
+                    etablissement_nom: nom,
+                    informe_le,
+                    reference_locale: crate::violations::reference(annee, numero),
+                    personnes_nombre,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.informe_le.cmp(&b.informe_le).then(a.etablissement_slug.cmp(&b.etablissement_slug)));
+        Ok(out)
     }
 }
 

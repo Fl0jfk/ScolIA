@@ -14,6 +14,7 @@ enum class Module(val titre: String) {
     AGENDA("Cahier de textes"),
     EDT("Emploi du temps"),
     MESSAGERIE("Messages"),
+    SIGNALER("Signaler un incident"),
     PROFIL("Mon compte"),
 }
 
@@ -80,6 +81,9 @@ object Capacites {
                 if (a("notes.saisir")) m += Module.SAISIE_NOTES
                 if (enseigne) m += Module.AGENDA
                 m += listOf(Module.MESSAGERIE, Module.EDT)
+                // Registre des violations (socle 27) : tout personnel déclare en trente secondes ; le registre reste
+                // sur le web. Élèves et familles passent par le guichet des droits.
+                if (a("violations.declarer")) m += Module.SIGNALER
             }
         }
         m += Module.PROFIL
@@ -100,7 +104,7 @@ object Capacites {
     private fun ordreNavigation(modules: List<Module>): List<Module> {
         val prioritaires = listOf(
             Module.ACCUEIL, Module.APPEL, Module.VIE_SCOLAIRE, Module.ABSENCES,
-            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA, Module.SAISIE_NOTES,
+            Module.MESSAGERIE, Module.NOTES, Module.EDT, Module.AGENDA, Module.SAISIE_NOTES, Module.SIGNALER,
         )
         val tri = modules.sortedBy { mod -> prioritaires.indexOf(mod).let { if (it < 0) Int.MAX_VALUE else it } }
         // « Mon compte » toujours en dernier.
