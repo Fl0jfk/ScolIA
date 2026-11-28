@@ -10,8 +10,10 @@ import XCTest
 /// réencodage : c'est une clé que le modèle n'a pas gardée. Une clé ignorée volontairement est déclarée dans
 /// `contrat/mobile/cles_ignorees.txt` (plateformes `tous` ou `ios`) ; toute autre clé rend le test rouge.
 ///
-/// Limite : un modèle dont l'encodage différerait de son décodage (encodage écrit à la main) fausserait la mesure ;
-/// aucun modèle du cœur n'en a aujourd'hui.
+/// Limites : la mesure suppose que l'encodage synthétisé reflète le décodage. Un modèle à `init(from:)` écrit à la main
+/// (`Me`) qui ne décoderait pas une propriété la réencoderait quand même (faux négatif) ; un encodage écrit à la main
+/// fausserait la mesure (aucun aujourd'hui). Une clé nulle dans toutes les fixtures, ou un élément de liste toujours
+/// vide, n'est jamais éprouvé (voir `11_MB2_PARITE_COMPLETE.md`).
 private final class ServeurCles: Transport, @unchecked Sendable {
     let statut: Int
     let corps: Data
@@ -80,59 +82,61 @@ final class ContratClesTests: XCTestCase {
     static func ignorees() throws -> [String: String] {
         let texte = try String(contentsOf: ContratMb2Tests.dossier.appendingPathComponent("cles_ignorees.txt"), encoding: .utf8)
         var sortie: [String: String] = [:]
+        var toutes = Set<String>()
         for brut in texte.split(separator: "\n") {
             let ligne = brut.trimmingCharacters(in: .whitespaces)
             if ligne.isEmpty || ligne.hasPrefix("#") { continue }
             let parties = ligne.components(separatedBy: " — ")
-            let tete = parties[0].split(separator: " ", maxSplits: 1).map(String.init)
+            let tete = parties[0].split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
             let raison = parties.count > 1 ? parties[1].trimmingCharacters(in: .whitespaces) : ""
             guard tete.count == 2, ["tous", "android", "ios"].contains(tete[0]), tete[1].contains(":"), !raison.isEmpty else {
                 XCTFail("« \(ligne) » : attendu « plateformes fixture:chemin — raison »")
                 continue
             }
             let cle = tete[1].trimmingCharacters(in: .whitespaces)
-            XCTAssertNil(sortie[cle], "« \(cle) » déclarée deux fois")
+            XCTAssertFalse(toutes.contains(cle), "« \(cle) » déclarée deux fois")
+            toutes.insert(cle)
             if tete[0] != "android" { sortie[cle] = raison }
         }
         return sortie
     }
 
-    /// Clés non nulles de `fixture` absentes de `lu` (même chemin) ; `[]` pour un élément de liste.
+    /// Nom Swift d'une clé décodée par `convertFromSnakeCase` (`moyenne_sur_20` → `moyenneSur20`).
+    static func camel(_ k: String) -> String {
+        let parties = k.split(separator: "_", omittingEmptySubsequences: false).map(String.init)
+        guard parties.count > 1 else { return k }
+        return parties[0] + parties.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+    }
+
+    /// Clés non nulles de `fixture` absentes de `lu` (même chemin) ; `[]` pour un élément de liste. Une clé est
+    /// retrouvée sous son nom (modèle à `CodingKeys` explicites, réencodé tel quel) ou sous son nom Swift (modèle
+    /// décodé par `convertFromSnakeCase`, réencodé sans stratégie : `convertToSnakeCase` ne rendrait pas les chiffres).
     static func clesNonLues(_ fixture: Any, _ lu: Any?, _ chemin: String, _ sortie: inout [String]) {
         if let o = fixture as? [String: Any] {
-            let l = lu as? [String: Any]
+            guard let l = lu as? [String: Any] else {
+                if lu != nil { sortie.append(chemin.isEmpty ? "(racine)" : chemin) }
+                return
+            }
             for (k, x) in o where !(x is NSNull) {
                 let ici = chemin.isEmpty ? k : "\(chemin).\(k)"
-                if let l, let y = l[k] {
+                if let y = l[k] ?? l[camel(k)] {
                     clesNonLues(x, y, ici, &sortie)
-                } else if l != nil {
+                } else {
                     sortie.append(ici)
                 }
             }
-        } else if let a = fixture as? [Any], let b = lu as? [Any] {
-            for (i, x) in a.enumerated() where i < b.count { clesNonLues(x, b[i], "\(chemin)[]", &sortie) }
+        } else if let a = fixture as? [Any] {
+            guard let b = lu as? [Any], b.count == a.count else {
+                sortie.append("\(chemin)[] (liste réduite ou réordonnée par le client)")
+                return
+            }
+            for (x, y) in zip(a, b) { clesNonLues(x, y, "\(chemin)[]", &sortie) }
         }
     }
 
-    /// Réencodage d'une valeur décodée : les deux conventions de clés (modèles à `CodingKeys` explicites et modèles
-    /// décodés par `convertFromSnakeCase`), réunies.
+    /// Réencodage d'une valeur décodée, sans stratégie de clés.
     static func reencoder(_ v: any Encodable) throws -> Any {
-        func encoder(_ snake: Bool) throws -> Any {
-            let e = JSONEncoder()
-            if snake { e.keyEncodingStrategy = .convertToSnakeCase }
-            return try JSONSerialization.jsonObject(with: e.encode(v), options: [.fragmentsAllowed])
-        }
-        return reunir(try encoder(false), try encoder(true))
-    }
-
-    static func reunir(_ a: Any, _ b: Any) -> Any {
-        if let x = a as? [String: Any], let y = b as? [String: Any] {
-            return x.merging(y) { p, q in reunir(p, q) }
-        }
-        if let x = a as? [Any], let y = b as? [Any], x.count == y.count {
-            return zip(x, y).map { reunir($0, $1) }
-        }
-        return a
+        try JSONSerialization.jsonObject(with: JSONEncoder().encode(v), options: [.fragmentsAllowed])
     }
 
     func testChaqueCleNonNulleDesFixturesEstLueParLeModeleOuDeclareeIgnoree() async throws {

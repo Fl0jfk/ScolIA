@@ -25,6 +25,10 @@ import kotlin.test.fail
  * chaque clé non nulle que le modèle ignore. Une clé ignorée volontairement est déclarée dans [ignorees] avec sa raison ;
  * toute autre clé rend le test rouge : le serveur a ajouté ou renommé un champ, il faut le lire ou le déclarer.
  *
+ * Limites : une clé nulle dans toutes les fixtures, ou un élément de liste toujours vide, n'est jamais éprouvé ; la
+ * table [modeles] est recopiée des méthodes d'[ApiClient] (vérifiée à la main, contrôlée en partie : le modèle doit
+ * décoder la fixture).
+ *
  * Miroir Swift : `ContratClesTests.swift` (même liste de clés ignorées).
  */
 class ContratClesTest {
@@ -32,7 +36,10 @@ class ContratClesTest {
         System.getProperty("scolia.contrat") ?: "../../../contrat/mobile",
     ).canonicalFile
 
-    private val lecteur = Json { ignoreUnknownKeys = true }
+    /** Le décodeur du vrai client (`ignoreUnknownKeys`, `explicitNulls = false`…). */
+    private val lecteur: Json = ApiClient(FauxServeur.BASE, object : Transport {
+        override suspend fun executer(requete: RequeteHttp): ReponseHttp = ReponseHttp(500, "")
+    }, { "jeton" }).json
 
     /** Le modèle qui décode chaque fixture (celui de la méthode d'[ApiClient] du cas de [ContratMb2Test]). */
     private val modeles: Map<String, DeserializationStrategy<*>> = mapOf(
@@ -164,12 +171,13 @@ object ClesIgnorees {
         val f = File(dossier, "cles_ignorees.txt")
         assertTrue(f.isFile, "liste des clés ignorées introuvable : $f")
         val sortie = mutableMapOf<String, String>()
+        val toutes = mutableSetOf<String>()
         for (ligne in f.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }) {
             val (tete, raison) = ligne.split(" — ", limit = 2).let { it[0].trim() to it.getOrElse(1) { "" }.trim() }
             val (qui, cle) = tete.split(Regex("\\s+"), limit = 2).let { it[0] to it.getOrElse(1) { "" } }
             assertTrue(qui in setOf("tous", "android", "ios"), "« $ligne » : plateforme inconnue « $qui »")
             assertTrue(cle.contains(':') && raison.isNotEmpty(), "« $ligne » : attendu « plateformes fixture:chemin — raison »")
-            assertTrue(cle !in sortie, "« $cle » déclarée deux fois")
+            assertTrue(toutes.add(cle), "« $cle » déclarée deux fois")
             if (qui == "tous" || qui == plateforme) sortie[cle] = raison
         }
         return sortie

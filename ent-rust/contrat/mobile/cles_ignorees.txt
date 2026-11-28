@@ -37,7 +37,6 @@ ios eleves_annonces:[].auteur_user_id — modèle iOS en retard sur Android (le 
 ios eleves_annonces:[].cible_classe — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
 ios eleves_devoirs:[].coef — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
 ios eleves_edt:[].semaine_ab — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
-ios eleves_moyennes:[].moyenne_sur_20 — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
 ios eleves_notes:[].devoir_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
 ios eleves_notes:[].periode_id — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
 ios famille_enfants:[].lien — modèle iOS en retard sur Android (le cœur Kotlin la lit) : à aligner, voir docs/socles/11_MB2_PARITE_COMPLETE.md
