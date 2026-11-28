@@ -1,9 +1,10 @@
 //! **Fournisseurs d'extrait** (socle 27, §6, R-RG14) : squelette du lot G0.
 //!
 //! Le droit d'accès (art. 15) assemble, pour une personne et une période, des **sections typées**
-//! fournies par chaque socle. Ce fichier déclare le port et **qui couvre quelles tables** ;
-//! l'assemblage, le masquage des tiers (R-RG15) et la remise viennent avec le lot G3. Rien ici ne
-//! lit de donnée : le test ne vérifie que la couverture déclarée.
+//! fournies par chaque socle. Ce fichier déclare le port et **qui couvre quelles tables** ; l'assemblage
+//! lui-même est dans `droits_extrait.rs` (palier G3b : sujet **élève** par le moteur générique du registre,
+//! sujet **personne** par cinq fournisseurs écrits ; tout autre cas rend une section « non couverte »). Rien
+//! ici ne lit de donnée : le test ne vérifie que la couverture déclarée.
 //!
 //! Remplace l'ancien drapeau `export_portabilite` du registre (RG-D05), qui n'avait aucun lecteur.
 
@@ -22,21 +23,16 @@ pub struct SectionExtrait {
     pub mentions_tiers: Vec<String>,
 }
 
-/// État d'un fournisseur.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EtatFournisseur {
-    /// Déclaré, pas encore écrit (lot G3).
-    Declare,
-    Implemente,
-}
-
 /// Un fournisseur déclaré : un code et les domaines du registre des tables qu'il couvre.
 #[derive(Clone, Copy, Debug)]
 pub struct Fournisseur {
     pub code: &'static str,
     pub socle: &'static str,
     pub domaines: &'static [&'static str],
-    pub etat: EtatFournisseur,
+    /// Écrit pour un sujet **personne** (parent pour lui-même, personnel) : fournisseurs du palier G3b (socles 1, 4, 6,
+    /// 7 et 16). Pour un sujet **élève**, tous passent par le moteur générique du registre. Un fournisseur non écrit
+    /// pour un sujet rend une section « non couverte » : jamais un silence (R-RG18).
+    pub personne: bool,
 }
 
 const fn f(
@@ -48,7 +44,21 @@ const fn f(
         code,
         socle,
         domaines,
-        etat: EtatFournisseur::Declare,
+        personne: false,
+    }
+}
+
+/// Fournisseur écrit pour un sujet personne.
+const fn fp(
+    code: &'static str,
+    socle: &'static str,
+    domaines: &'static [&'static str],
+) -> Fournisseur {
+    Fournisseur {
+        code,
+        socle,
+        domaines,
+        personne: true,
     }
 }
 
@@ -56,13 +66,13 @@ const fn f(
 pub const FOURNISSEURS: &[Fournisseur] = &[
     f("eleve", "2", &["dossier_eleve", "structure_scolaire"]),
     f("inscriptions", "3", &["inscriptions"]),
-    f("administratif", "4", &["dossier_personnes"]),
-    f("personnels", "6", &["personnels"]),
+    fp("administratif", "4", &["dossier_personnes"]),
+    fp("personnels", "6", &["personnels"]),
     f("assiduite", "12", &["assiduite"]),
     f("vie_scolaire", "13", &["vie_scolaire"]),
     f("cahier_de_textes", "14", &["cahier_textes"]),
     f("absences_personnels", "15", &["personnels_absences"]),
-    f("messagerie", "16", &["messagerie"]),
+    fp("messagerie", "16", &["messagerie"]),
     f("evaluations", "21", &["evaluations_pedagogie"]),
     f("finances", "24", &["finances"]),
     f(
@@ -76,8 +86,8 @@ pub const FOURNISSEURS: &[Fournisseur] = &[
     f("stages", "39", &["stages"]),
     f("vie_pratique", "41", &["vie_pratique"]),
     f("sante", "34", &["sante"]),
-    f("comptes", "1", &["identite_acces"]),
-    f("documents", "7", &["documents"]),
+    fp("comptes", "1", &["identite_acces"]),
+    fp("documents", "7", &["documents"]),
     // Socle 32 (espaces de travail) : fichiers et métadonnées dont la personne est propriétaire ou déposante, ses appartenances
     // (membre ajouté) et les partages reçus ; sans le contenu des fichiers (pièces par référence) ; assemblage au lot G3.
     f("espaces", "32", &["espaces"]),

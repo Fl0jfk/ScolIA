@@ -14,6 +14,7 @@
 //!   (`VersDto`), voir la proposition.
 
 pub mod absences_personnels;
+pub mod acces_traces;
 pub mod afaire;
 pub mod agenda;
 pub mod appel;
@@ -66,6 +67,7 @@ pub mod recherche;
 pub mod referentiel;
 pub mod referentiel_admin;
 pub mod rgpd_droits;
+pub mod rgpd_extrait;
 pub mod sante;
 pub mod scolarite;
 pub mod stages;

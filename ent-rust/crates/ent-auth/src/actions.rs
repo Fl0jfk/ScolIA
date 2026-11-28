@@ -595,6 +595,13 @@ pub enum Action {
     /// Socle 27, lot G3a : arbitrages réservés à la direction — refus motivé, demande manifestement excessive
     /// (R-RG17), prolongation de deux mois, communication du nom d'un agent. Établissement seulement.
     DroitsArbitrer,
+    /// Socle 27, lot G4 : consulter les traces d'accès **d'un sujet ou d'un agent**, dans le cadre d'une demande ouverte
+    /// ou d'un contrôle ouvert (la lecture est elle-même tracée), les alertes d'accès et les réglages de contrôle.
+    /// Direction ; le DPO l'obtient par un rôle D-017 (jamais par défaut). Établissement seulement.
+    AccesConsulterTraces,
+    /// ★ Socle 27, lot G4 : ouvrir un contrôle interne sur un agent (motif, durée bornée). Passkey récente exigée par
+    /// le code (défi lié au contrôle). Direction ; établissement seulement.
+    AccesControleOuvrir,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -696,7 +703,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 286] = [
+    pub const TOUTES: [Action; 288] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -888,6 +895,8 @@ impl Action {
         Action::DroitsTraiter,
         Action::DroitsRemettre,
         Action::DroitsArbitrer,
+        Action::AccesConsulterTraces,
+        Action::AccesControleOuvrir,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -1267,6 +1276,8 @@ impl Action {
             Self::DroitsTraiter => "droits.traiter",
             Self::DroitsRemettre => "droits.remettre",
             Self::DroitsArbitrer => "droits.arbitrer",
+            Self::AccesConsulterTraces => "acces.consulter_traces",
+            Self::AccesControleOuvrir => "acces.controle_ouvrir",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1561,6 +1572,8 @@ impl Action {
             Self::DroitsTraiter => "Qualifier, instruire et clore une demande de droit",
             Self::DroitsRemettre => "Remettre l'extrait d'une demande de droit",
             Self::DroitsArbitrer => "Prolonger, refuser ou arbitrer une demande de droit (direction)",
+            Self::AccesConsulterTraces => "Consulter les traces d'accès d'un sujet ou d'un agent, et les alertes d'accès",
+            Self::AccesControleOuvrir => "Ouvrir un contrôle interne sur un agent (passkey récente)",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1885,6 +1898,8 @@ impl Action {
             | Self::DroitsRecevoir
             | Self::DroitsTraiter
             | Self::DroitsRemettre
+            | Self::AccesConsulterTraces
+            | Self::AccesControleOuvrir
             | Self::DroitsArbitrer => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
@@ -2728,6 +2743,9 @@ fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
         d.push(etab(DroitsTraiter));
         d.push(etab(DroitsRemettre));
         d.push(etab(DroitsArbitrer));
+        // Lot G4 : traces d'accès et contrôles internes ; le DPO les reçoit par un rôle D-017, jamais par défaut.
+        d.push(etab(AccesConsulterTraces));
+        d.push(etab(AccesControleOuvrir));
     }
     // Secrétariat (scolarité) : enregistre une demande et l'instruit. La REMISE de l'extrait reste
     // réservée (« secrétariat habilité », §12.1) : elle s'attribue nommément, jamais par défaut ;
@@ -3082,6 +3100,16 @@ mod tests {
         assert!(a(Role::Direction, DroitsTraiter));
         assert!(a(Role::Direction, DroitsRemettre));
         assert!(a(Role::Direction, DroitsArbitrer));
+        // Lot G4 : traces d'accès et contrôle interne, à la direction seule (le DPO par rôle D-017).
+        for r in [
+            Role::Admin, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
+            Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve,
+        ] {
+            assert!(!a(r, AccesConsulterTraces), "{r:?} ne doit pas lire les traces par défaut");
+            assert!(!a(r, AccesControleOuvrir), "{r:?} ne doit pas ouvrir de contrôle par défaut");
+        }
+        assert!(a(Role::Direction, AccesConsulterTraces));
+        assert!(a(Role::Direction, AccesControleOuvrir));
         assert!(a(Role::Administratif, DroitsRecevoir));
         assert!(a(Role::Administratif, DroitsTraiter));
         assert!(

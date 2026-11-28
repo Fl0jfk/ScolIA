@@ -53,6 +53,8 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("sante_acc", ".fetch_optional(self.pool())", "ent_user : table d'identité sans RLS"),
     ("securite_repo", ".execute(self.pool())", "ent_session / ent_membership : tables sans RLS"),
     ("assiduite_as1", ".fetch_all(self.pool())", "ref_asd_nature_motif, ref_asd_profil_academique, ref_asd_profil_niveau : référentiels globaux sans établissement ni RLS (socle 12, AS1)"),
+    ("acces_controle", "self.pool().acquire()", "purge par partition : fonctions SECURITY DEFINER de plateforme (catalogue des partitions, DROP), aucune table lue ; les lignes sont lues par établissement sous TenantTx (socle 27, G4)"),
+    ("acces_traces", "self.pool().acquire()", "acc_trace_assurer_partitions : fonction SECURITY DEFINER de plateforme, aucune table lue (socle 27, G4)"),
     ("gouvernance_rgpd", "self.pool().begin()", "rgp_soustraitant, rgp_soustraitant_donnee : tables de plateforme sans établissement ni RLS (socle 27, G2) ; appel système réservé à la console plateforme"),
     ("gouvernance_rgpd", ".execute(self.pool())", "rgp_soustraitant_annonce : table de plateforme sans établissement ni RLS (socle 27, G2) ; appel système"),
     ("controle_demarrage", ".fetch_one(pool)", "contrôle au démarrage (T2) : lit le catalogue (to_regprocedure, has_function_privilege) pour le rôle courant ; aucune table métier, aucune donnée d'établissement (T3 : exception ciblée sur la ligne, plus sur le fichier)"),
