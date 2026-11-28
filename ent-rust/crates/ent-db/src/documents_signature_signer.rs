@@ -974,7 +974,7 @@ impl PgEnt {
         if !matches!(p.role.as_str(), "titulaire" | "eleve" | "externe") {
             return Err(refus(RefusMetier::Conflit, "le guichet ne sert que les familles, les élèves et les externes"));
         }
-        if compte_du_signataire(&mut tx, a.etablissement_id, c.signataire_id).await? == Some(a.user_id) {
+        if signataire_est_l_individu(&mut tx, a.etablissement_id, c.signataire_id, a.user_id).await? {
             return Err(refus(RefusMetier::Conflit, "un agent ne constate pas sa propre signature"));
         }
         let (niveau, confirmation, defi, lien) = match &c.confirmation {
@@ -1153,7 +1153,7 @@ impl PgEnt {
         self.exiger_sur_signataire(a, Action::DocumentsSignaturesGerer, signataire_id).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let p = preparer(&mut tx, a, signataire_id, ModeSignature::Papier, "papier_depose").await?;
-        if compte_du_signataire(&mut tx, a.etablissement_id, signataire_id).await? == Some(a.user_id) {
+        if signataire_est_l_individu(&mut tx, a.etablissement_id, signataire_id, a.user_id).await? {
             return Err(refus(RefusMetier::Conflit, "on ne contrôle pas son propre papier"));
         }
         let (cle,): (Option<String>,) = sqlx::query_as(

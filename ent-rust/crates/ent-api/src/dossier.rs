@@ -78,6 +78,14 @@ pub fn routes() -> Router<AppState> {
         .route("/dossier/eleves/{id}/conflit-interet", post(declarer_conflit_interet))
         .route("/dossier/conflits-interet", get(conflits_interet))
         .route("/dossier/conflits-interet/{id}/lever", post(lever_conflit_interet))
+        // Transverse « individu » (migration 279, docs/socles/TRANSVERSE_INDIVIDU.md)
+        .route("/dossier/individu/moi", get(individu_moi))
+        .route("/dossier/individu/declarations", post(individu_declarer))
+        .route("/dossier/individu/declarations/{id}/reponse", post(individu_repondre))
+        .route("/dossier/individu/liens", get(individu_liens).post(individu_relier))
+        .route("/dossier/individu/liens/{id}/lever", post(individu_lever))
+        .route("/dossier/individu/propositions", get(individu_propositions))
+        .route("/dossier/individu/propositions/ecarter", post(individu_ecarter))
         .route("/dossier/eleves/{id}/payeurs", put(payeurs))
         .route("/dossier/eleves/{id}/contacts", get(contacts).post(ajouter_contact))
         .route("/dossier/eleves/{id}/personne-eleve", post(personne_eleve))
@@ -1110,6 +1118,150 @@ async fn conflits_interet(
         .await
         .map_err(map_db)?;
     Ok(sans_cache(v.into_iter().map(conflit_dto).collect::<Vec<_>>()))
+}
+
+// -- Transverse « individu » (279) --------------------------------------------
+
+#[derive(Deserialize)]
+struct IndividuDeclarationBody {
+    email: String,
+}
+
+#[derive(Deserialize)]
+struct IndividuReponseBody {
+    confirmer: bool,
+}
+
+#[derive(Deserialize)]
+struct IndividuLienBody {
+    personne_a: Uuid,
+    personne_b: Uuid,
+    motif_code: String,
+    #[serde(default)]
+    depuis_proposition: bool,
+}
+
+#[derive(Deserialize)]
+struct IndividuMotifBody {
+    motif_code: String,
+}
+
+#[derive(Deserialize)]
+struct IndividuEcarterBody {
+    personne_a: Uuid,
+    personne_b: Uuid,
+    motif_code: String,
+}
+
+/// Ce que le compte voit de son individu (nombres, déclarations reçues).
+async fn individu_moi(State(state): State<AppState>, session: EntSession) -> Res<Response> {
+    let v = state
+        .ent
+        .individu_moi_for_actor(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v))
+}
+
+/// « Ce compte est aussi moi » : réponse 202 identique que l'adresse soit connue ou non.
+async fn individu_declarer(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<IndividuDeclarationBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .individu_declarer_for_actor(session.etablissement_id, session.user_id, &b.email)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn individu_repondre(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<IndividuReponseBody>,
+) -> Res<Json<Option<Uuid>>> {
+    let lien = state
+        .ent
+        .individu_repondre_for_actor(session.etablissement_id, session.user_id, id, b.confirmer)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(lien))
+}
+
+async fn individu_liens(State(state): State<AppState>, session: EntSession) -> Res<Response> {
+    let v = state
+        .ent
+        .individu_liens_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v))
+}
+
+async fn individu_relier(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<IndividuLienBody>,
+) -> Res<(StatusCode, Json<Uuid>)> {
+    let id = state
+        .ent
+        .individu_relier_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            b.personne_a,
+            b.personne_b,
+            &b.motif_code,
+            b.depuis_proposition,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(id)))
+}
+
+async fn individu_lever(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<IndividuMotifBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .individu_lever_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b.motif_code)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn individu_propositions(State(state): State<AppState>, session: EntSession) -> Res<Response> {
+    let v = state
+        .ent
+        .individu_propositions_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v))
+}
+
+async fn individu_ecarter(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<IndividuEcarterBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .individu_ecarter_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            b.personne_a,
+            b.personne_b,
+            &b.motif_code,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // -- Lot A2 : conversions ---------------------------------------------------

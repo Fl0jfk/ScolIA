@@ -1379,7 +1379,8 @@ impl PgEnt {
         if g.statut != "soumise" {
             return Err(conflit("cette sortie n'attend pas de décision"));
         }
-        if g.cree_par == actor {
+        // Ni depuis un autre de ses comptes (transverse « individu », 2026-11-27).
+        if crate::individu::meme_individu(&mut tx, etab, g.cree_par, actor).await? {
             return Err(refus("l'auteur d'une sortie ne la décide pas : une autre personne de la direction décide"));
         }
         let parts = participants_tx(&mut tx, etab, id).await?;

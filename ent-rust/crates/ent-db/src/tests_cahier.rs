@@ -2143,3 +2143,5 @@ mod c7;
 mod c8;
 #[path = "tests_cahier_c9.rs"]
 mod c9;
+#[path = "tests_cahier_individu.rs"]
+mod individu;
