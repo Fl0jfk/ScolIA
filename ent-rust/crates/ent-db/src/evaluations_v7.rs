@@ -395,7 +395,7 @@ impl PgEnt {
                 resultats,
             });
         }
-        matieres.sort_by(|a, b| a.matiere_libelle.to_lowercase().cmp(&b.matiere_libelle.to_lowercase()));
+        matieres.sort_by_key(|m| m.matiere_libelle.to_lowercase());
 
         // Retirées après publication (§10.1) : l'élève y avait un résultat, l'évaluation n'est plus publiée.
         let retirees = sqlx::query(
