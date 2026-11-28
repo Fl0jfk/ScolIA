@@ -902,6 +902,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::evaluations_v3::routes());
     let r = r.merge(crate::evaluations_v4::routes());
     let r = r.merge(crate::evaluations_v5::routes());
+    // Socle 21, lot V10 : pilotage et statistiques (`evaluations_v10.rs`).
+    let r = r.merge(crate::evaluations_v10::routes());
     // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).
     let r = r.merge(crate::eleve_propositions::routes());
     // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).

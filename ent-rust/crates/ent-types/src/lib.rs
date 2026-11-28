@@ -38,6 +38,7 @@ pub mod eleve_protection;
 pub mod eleve_synthese;
 pub mod erreurs;
 pub mod evaluations;
+pub mod evaluations_v10;
 pub mod evaluations_v3;
 pub mod evaluations_v4;
 pub mod evaluations_v5;

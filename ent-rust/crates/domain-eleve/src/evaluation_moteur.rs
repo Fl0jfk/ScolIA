@@ -1642,6 +1642,18 @@ pub fn statistiques_evaluation(
     resultats: &[(StatutCalcul, Option<i64>)],
     regles: &ReglesMoteur,
 ) -> Result<Option<Statistiques>, ErreurCalcul> {
+    let notes = notes_ramenees(evaluation, resultats, regles)?;
+    statistiques(&notes, regles)
+}
+
+/// Notes **ramenées à l'échelle** d'une évaluation, telles que [`statistiques_evaluation`] les compte (même `classer`
+/// que la moyenne, comptage et coefficient neutralisés). Sert aux statistiques qui réunissent plusieurs évaluations
+/// (évaluation commune, lot V10) : la série commune est la réunion des séries, jamais une moyenne de moyennes.
+pub fn notes_ramenees(
+    evaluation: &EvalCalcul,
+    resultats: &[(StatutCalcul, Option<i64>)],
+    regles: &ReglesMoteur,
+) -> Result<Vec<Rat>, ErreurCalcul> {
     regles.controle()?;
     let mut neutre = evaluation.clone();
     neutre.comptage = Comptage::Normal;
@@ -1657,7 +1669,7 @@ pub fn statistiques_evaluation(
             notes.push(ramenee);
         }
     }
-    statistiques(&notes, regles)
+    Ok(notes)
 }
 
 // ---------------------------------------------------------------------------

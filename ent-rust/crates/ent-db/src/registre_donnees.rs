@@ -1258,6 +1258,9 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_coefficient_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_sous_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_consultation", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    // V10 (705) : journal des consultations de statistiques par le personnel (qui, quelle vue, quand ; aucune valeur, aucun
+    // élève) : donnée du membre du personnel, interne.
+    t("eva_consultation_pilotage", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // La demande (motif, état, date de décision) est celle de la famille ; la personne qui a décidé est interne.
     t("eva_correction_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .hors_export(&["decide_par"])
