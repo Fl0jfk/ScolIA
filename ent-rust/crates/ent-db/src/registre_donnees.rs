@@ -1350,7 +1350,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_tiers_bulletin", "evaluations_pedagogie", Portee::Etablissement).perso().fichiers(Fichiers::Objet),
     t("eva_tiers_destinataire", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_tiers_export", "evaluations_pedagogie", Portee::Etablissement),
-    t("eva_tiers_journal", "evaluations_pedagogie", Portee::Etablissement).perso().exc(Exception::SansHorodatage, "journal en ajout seul : l'instant est la colonne `le`"),
+    t("eva_tiers_journal", "evaluations_pedagogie", Portee::Etablissement).perso(),
     t("eva_tiers_lot", "evaluations_pedagogie", Portee::Etablissement),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),

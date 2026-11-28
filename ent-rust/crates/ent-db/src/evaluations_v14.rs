@@ -59,7 +59,10 @@ pub const MAX_FICHIERS_LOT: i64 = 2000;
 const SANS_ACCES: &str = "aucun droit sur les bulletins du logiciel tiers";
 
 fn empreinte(octets: &[u8]) -> String {
-    Sha256::digest(octets).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(octets)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn motif_valide(m: &str) -> Result<String, EntDbError> {
@@ -119,7 +122,9 @@ pub fn csv_assiduite_tiers(e: &ExportAssiduiteTiersDto, classe: &str) -> String 
             cellule(l.ine.as_deref().unwrap_or("")),
             cellule(&l.nom),
             cellule(&l.prenom),
-            l.date_naissance.map(|d| d.format("%d/%m/%Y").to_string()).unwrap_or_default(),
+            l.date_naissance
+                .map(|d| d.format("%d/%m/%Y").to_string())
+                .unwrap_or_default(),
             cellule(classe),
             e.du.format("%d/%m/%Y").to_string(),
             e.au.format("%d/%m/%Y").to_string(),
@@ -211,7 +216,11 @@ async fn journaliser(
 
 /// Destinataires d'un bulletin, relus à l'instant (EVA-235) : responsables au lien **communicant** (actif, personne non
 /// absorbée, hors interdiction de communication) avec `peut_voir_notes`, compte parent membre ; et le compte de l'élève.
-async fn destinataires(c: &mut PgConnection, etab: Uuid, eleve: Uuid) -> Result<Vec<(Uuid, &'static str)>, EntDbError> {
+async fn destinataires(
+    c: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+) -> Result<Vec<(Uuid, &'static str)>, EntDbError> {
     let rows: Vec<(Uuid, bool)> = sqlx::query_as(
         "SELECT DISTINCT l.user_id, false
            FROM ent_eleve_lien_communicant l
@@ -252,10 +261,19 @@ impl PgEnt {
     }
 
     /// Déposer, rapprocher, écarter, consulter la file : `imports.appliquer` ou `bulletins.publier`.
-    async fn v14_exiger_depot(&self, etab: Uuid, acteur: Uuid, role: &str) -> Result<(), EntDbError> {
+    async fn v14_exiger_depot(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
         Self::v14_exiger_staff(role)?;
-        if self.a_action_etablissement(etab, acteur, role, Action::ImportsAppliquer).await?
-            || self.a_action_etablissement(etab, acteur, role, Action::BulletinsPublier).await?
+        if self
+            .a_action_etablissement(etab, acteur, role, Action::ImportsAppliquer)
+            .await?
+            || self
+                .a_action_etablissement(etab, acteur, role, Action::BulletinsPublier)
+                .await?
         {
             Ok(())
         } else {
@@ -265,16 +283,29 @@ impl PgEnt {
     }
 
     /// Distribuer, retirer, contrôler, régler le bandeau : `bulletins.publier`.
-    async fn v14_exiger_publier(&self, etab: Uuid, acteur: Uuid, role: &str) -> Result<(), EntDbError> {
+    async fn v14_exiger_publier(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
         Self::v14_exiger_staff(role)?;
-        if self.a_action_etablissement(etab, acteur, role, Action::BulletinsPublier).await? {
+        if self
+            .a_action_etablissement(etab, acteur, role, Action::BulletinsPublier)
+            .await?
+        {
             Ok(())
         } else {
             Err(EntDbError::Forbidden)
         }
     }
 
-    async fn v14_periode(&self, c: &mut PgConnection, etab: Uuid, periode: Uuid) -> Result<PeriodeV14, EntDbError> {
+    async fn v14_periode(
+        &self,
+        c: &mut PgConnection,
+        etab: Uuid,
+        periode: Uuid,
+    ) -> Result<PeriodeV14, EntDbError> {
         let r: Option<(String, String, NaiveDate, NaiveDate)> = sqlx::query_as(
             "SELECT code, libelle, date_debut, date_fin FROM ent_periode WHERE etablissement_id = $1 AND id = $2",
         )
@@ -284,7 +315,12 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (code, libelle, debut, fin) = r.ok_or_else(introuvable)?;
-        Ok(PeriodeV14 { code, libelle, debut, fin })
+        Ok(PeriodeV14 {
+            code,
+            libelle,
+            debut,
+            fin,
+        })
     }
 
     // ───────────────────────────── EVA-234 : dépôt et rapprochement ─────────────────────────────
@@ -306,11 +342,15 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let p = self.v14_periode(&mut tx, etab, b.periode_id).await?;
         if jour < p.debut {
-            return Err(conflit("la période n'a pas commencé : aucun bulletin ne peut encore être déposé"));
+            return Err(conflit(
+                "la période n'a pas commencé : aucun bulletin ne peut encore être déposé",
+            ));
         }
         let libelle = match b.libelle.as_deref().map(str::trim) {
             None | Some("") => format!("Bulletins {}", p.libelle),
-            Some(l) if l.chars().count() > 120 => return Err(refus("intitulé de 120 caractères au plus")),
+            Some(l) if l.chars().count() > 120 => {
+                return Err(refus("intitulé de 120 caractères au plus"))
+            }
             Some(l) => texte_borne(l, 120)?,
         };
         let id = Uuid::new_v4();
@@ -353,7 +393,9 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(introuvable)?;
         tx.commit().await.map_err(db)?;
-        let n = |c: &str| -> Result<u32, EntDbError> { Ok(r.try_get::<i32, _>(c).map_err(db)?.max(0) as u32) };
+        let n = |c: &str| -> Result<u32, EntDbError> {
+            Ok(r.try_get::<i32, _>(c).map_err(db)?.max(0) as u32)
+        };
         Ok(LotTiersDto {
             id: r.try_get("id").map_err(db)?,
             periode_id: r.try_get("periode_id").map_err(db)?,
@@ -413,11 +455,19 @@ impl PgEnt {
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
-        let b = rows.iter().map(dto_bulletin).collect::<Result<Vec<_>, _>>()?;
+        let b = rows
+            .iter()
+            .map(dto_bulletin)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok((l, b))
     }
 
-    async fn v14_bulletin(&self, c: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<BulletinTiersDto, EntDbError> {
+    async fn v14_bulletin(
+        &self,
+        c: &mut PgConnection,
+        etab: Uuid,
+        id: Uuid,
+    ) -> Result<BulletinTiersDto, EntDbError> {
         let r = sqlx::query(&format!(
             "SELECT {COLONNES_BULLETIN} {FROM_BULLETIN} WHERE b.etablissement_id = $1 AND b.id = $2"
         ))
@@ -529,7 +579,12 @@ impl PgEnt {
         self.v14_exiger_depot(etab, acteur, role).await?;
         let valide = self
             .politique_fichiers()
-            .valider(UsageFichier::Document, &b.nom_fichier, Some("application/pdf"), contenu)
+            .valider(
+                UsageFichier::Document,
+                &b.nom_fichier,
+                Some("application/pdf"),
+                contenu,
+            )
             .map_err(EntDbError::Fichier)?;
         if valide.type_fichier != TypeFichier::Pdf {
             return Err(refus("seul un bulletin PDF peut être déposé"));
@@ -546,23 +601,27 @@ impl PgEnt {
 
         // Contrôles avant d'écrire le moindre objet.
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let lot_row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT periode_id FROM eva_tiers_lot WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(lot)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(db)?;
+        let lot_row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT periode_id FROM eva_tiers_lot WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(lot)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
         let (periode,) = lot_row.ok_or_else(introuvable)?;
-        let (n,): (i64,) =
-            sqlx::query_as("SELECT count(*) FROM eva_tiers_bulletin WHERE etablissement_id = $1 AND lot_id = $2")
-                .bind(etab)
-                .bind(lot)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM eva_tiers_bulletin WHERE etablissement_id = $1 AND lot_id = $2",
+        )
+        .bind(etab)
+        .bind(lot)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
         if n >= MAX_FICHIERS_LOT {
-            return Err(conflit("dépôt complet : ouvrez un autre dépôt pour la suite"));
+            return Err(conflit(
+                "dépôt complet : ouvrez un autre dépôt pour la suite",
+            ));
         }
         let (doublon,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM eva_tiers_bulletin
@@ -583,7 +642,8 @@ impl PgEnt {
         // La clé est produite ici, jamais fournie par le client ; elle suit le schéma des bulletins (`{etab}/bulletins/{id}.pdf`),
         // seul admis pour un document « bulletin » du coffre.
         let cle = ObjectStore::key_for(etab, "bulletins", id, "pdf");
-        self.stocker_objet(etab, &cle, Some("application/pdf"), contenu).await?;
+        self.stocker_objet(etab, &cle, Some("application/pdf"), contenu)
+            .await?;
 
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Verrou de la période du dépôt : deux dépôts simultanés ne rapprochent pas deux fichiers vers le même élève.
@@ -667,7 +727,9 @@ impl PgEnt {
         .map_err(db)?;
         let (periode, statut) = r.ok_or_else(introuvable)?;
         if !matches!(statut.as_str(), "a_rapprocher" | "rapproche") {
-            return Err(conflit("ce bulletin n'est plus à rapprocher (distribué, remplacé, retiré ou écarté)"));
+            return Err(conflit(
+                "ce bulletin n'est plus à rapprocher (distribué, remplacé, retiré ou écarté)",
+            ));
         }
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('eva_tiers:' || $1::text, 0))")
             .bind(periode)
@@ -703,7 +765,17 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        journaliser(&mut tx, etab, id, "rapproche", Some(b.eleve_id), Some("manuel"), acteur, None).await?;
+        journaliser(
+            &mut tx,
+            etab,
+            id,
+            "rapproche",
+            Some(b.eleve_id),
+            Some("manuel"),
+            acteur,
+            None,
+        )
+        .await?;
         let dto = self.v14_bulletin(&mut tx, etab, id).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -735,9 +807,21 @@ impl PgEnt {
         if n == 0 {
             // Existe-t-il ? (personnel habilité : pas d'oracle à protéger, le message aide.)
             self.v14_bulletin(&mut tx, etab, id).await?;
-            return Err(conflit("un bulletin distribué se retire, il ne s'écarte pas"));
+            return Err(conflit(
+                "un bulletin distribué se retire, il ne s'écarte pas",
+            ));
         }
-        journaliser(&mut tx, etab, id, "ecarte", None, None, acteur, Some(&motif)).await?;
+        journaliser(
+            &mut tx,
+            etab,
+            id,
+            "ecarte",
+            None,
+            None,
+            acteur,
+            Some(&motif),
+        )
+        .await?;
         let dto = self.v14_bulletin(&mut tx, etab, id).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -780,13 +864,14 @@ impl PgEnt {
     ) -> Result<RapportDistributionDto, EntDbError> {
         self.v14_exiger_publier(etab, acteur, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let lot_row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT periode_id FROM eva_tiers_lot WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(lot)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(db)?;
+        let lot_row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT periode_id FROM eva_tiers_lot WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(lot)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
         let (periode,) = lot_row.ok_or_else(introuvable)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('eva_tiers:' || $1::text, 0))")
             .bind(periode)
@@ -873,7 +958,17 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-                journaliser(&mut tx, etab, ancien_id, "remplace", Some(eleve), None, acteur, None).await?;
+                journaliser(
+                    &mut tx,
+                    etab,
+                    ancien_id,
+                    "remplace",
+                    Some(eleve),
+                    None,
+                    acteur,
+                    None,
+                )
+                .await?;
             }
             let doc = Uuid::new_v4();
             sqlx::query(
@@ -915,7 +1010,17 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
             }
-            journaliser(&mut tx, etab, id, "distribue", Some(eleve), None, acteur, None).await?;
+            journaliser(
+                &mut tx,
+                etab,
+                id,
+                "distribue",
+                Some(eleve),
+                None,
+                acteur,
+                None,
+            )
+            .await?;
             tx.publier(MetierEventDraft {
                 etablissement_id: etab,
                 type_name: evenements::BULLETIN_TIERS_DISTRIBUE.to_string(),
@@ -941,7 +1046,8 @@ impl PgEnt {
         jour: NaiveDate,
         lot: Uuid,
     ) -> Result<RapportDistributionDto, EntDbError> {
-        self.v14_distribuer(etab, acteur, role, jour, lot, false).await
+        self.v14_distribuer(etab, acteur, role, jour, lot, false)
+            .await
     }
 
     pub async fn eva_v14_distribuer_for_actor(
@@ -952,7 +1058,8 @@ impl PgEnt {
         jour: NaiveDate,
         lot: Uuid,
     ) -> Result<RapportDistributionDto, EntDbError> {
-        self.v14_distribuer(etab, acteur, role, jour, lot, true).await
+        self.v14_distribuer(etab, acteur, role, jour, lot, true)
+            .await
     }
 
     /// Retire un bulletin distribué (mauvais élève, version fautive) : il disparaît du coffre des familles, motif tracé.
@@ -988,7 +1095,17 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        journaliser(&mut tx, etab, id, "retire", Some(eleve), None, acteur, Some(&motif)).await?;
+        journaliser(
+            &mut tx,
+            etab,
+            id,
+            "retire",
+            Some(eleve),
+            None,
+            acteur,
+            Some(&motif),
+        )
+        .await?;
         tx.publier(MetierEventDraft {
             etablissement_id: etab,
             type_name: evenements::BULLETIN_TIERS_RETIRE.to_string(),
@@ -1036,13 +1153,17 @@ impl PgEnt {
         .map_err(db)?;
         Ok(rows
             .into_iter()
-            .map(|(id, periode_id, periode_libelle, distribue_le, document_id)| BulletinTiersFamilleDto {
-                id,
-                periode_id,
-                periode_libelle,
-                distribue_le,
-                document_id,
-            })
+            .map(
+                |(id, periode_id, periode_libelle, distribue_le, document_id)| {
+                    BulletinTiersFamilleDto {
+                        id,
+                        periode_id,
+                        periode_libelle,
+                        distribue_le,
+                        document_id,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -1071,17 +1192,27 @@ impl PgEnt {
             return Err(introuvable());
         };
         if statut != "distribue" || !self.actor_can_read_notes(etab, acteur, role, eleve).await? {
-            return Err(if staff && statut == "distribue" { EntDbError::Forbidden } else { introuvable() });
+            return Err(if staff && statut == "distribue" {
+                EntDbError::Forbidden
+            } else {
+                introuvable()
+            });
         }
         let octets = self.lire_objet_empreinte(etab, &cle, Some(&sha)).await?;
-        let code: String = code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+        let code: String = code
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
         Ok((format!("bulletin-{code}.pdf"), octets))
     }
 
     // ───────────────────────────── EVA-237 : bandeau « où sont les notes » ─────────────────────────────
 
     /// Bandeau de l'établissement (tout membre ; `None` : aucun réglage).
-    pub async fn eva_v14_cohabitation(&self, etab: Uuid) -> Result<Option<CohabitationDto>, EntDbError> {
+    pub async fn eva_v14_cohabitation(
+        &self,
+        etab: Uuid,
+    ) -> Result<Option<CohabitationDto>, EntDbError> {
         let r: Option<(bool, String, Option<String>, String)> = sqlx::query_as(
             "SELECT actif, logiciel_libelle, url, message FROM eva_cohabitation WHERE etablissement_id = $1",
         )
@@ -1089,7 +1220,14 @@ impl PgEnt {
         .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
-        Ok(r.map(|(actif, logiciel_libelle, url, message)| CohabitationDto { actif, logiciel_libelle, url, message }))
+        Ok(
+            r.map(|(actif, logiciel_libelle, url, message)| CohabitationDto {
+                actif,
+                logiciel_libelle,
+                url,
+                message,
+            }),
+        )
     }
 
     pub async fn eva_v14_regler_cohabitation_for_actor(
@@ -1116,9 +1254,13 @@ impl PgEnt {
                 let ok = u.len() <= 500
                     && u.starts_with("https://")
                     && u.len() > "https://".len()
-                    && !u.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '"' | '\''));
+                    && !u.chars().any(|c| {
+                        c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '"' | '\'')
+                    });
                 if !ok {
-                    return Err(refus("lien en https:// seulement, sans espace ni guillemet"));
+                    return Err(refus(
+                        "lien en https:// seulement, sans espace ni guillemet",
+                    ));
                 }
                 Some(u.to_string())
             }
@@ -1141,7 +1283,12 @@ impl PgEnt {
         .await
         .map_err(db)?;
         tx.commit().await.map_err(db)?;
-        Ok(CohabitationDto { actif: b.actif, logiciel_libelle: logiciel, url, message })
+        Ok(CohabitationDto {
+            actif: b.actif,
+            logiciel_libelle: logiciel,
+            url,
+            message,
+        })
     }
 
     // ───────────────────────────── EVA-233 : export de l'assiduité ─────────────────────────────
@@ -1159,7 +1306,10 @@ impl PgEnt {
         classe: Uuid,
     ) -> Result<(ExportAssiduiteTiersDto, String), EntDbError> {
         Self::v14_exiger_staff(role)?;
-        if !self.a_action_etablissement(etab, acteur, role, Action::ExportsOfficiels).await? {
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::ExportsOfficiels)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1175,24 +1325,29 @@ impl PgEnt {
         let (classe_libelle,) = cl.ok_or_else(introuvable)?;
         tx.commit().await.map_err(db)?;
         if jour < p.debut {
-            return Err(conflit("la période n'a pas commencé : aucune assiduité à exporter"));
+            return Err(conflit(
+                "la période n'a pas commencé : aucune assiduité à exporter",
+            ));
         }
         let au = p.fin.min(jour);
         let du = p.debut;
         let effectif = self.eva_effectif(etab, Some(classe), None, du, au).await?;
         let mut lignes = Vec::with_capacity(effectif.len());
         for (eleve, nom, prenom) in effectif {
-            let dj = self.calculer_demi_journees(etab, Some(eleve), du, au).await?;
+            let dj = self
+                .calculer_demi_journees(etab, Some(eleve), du, au)
+                .await?;
             let comptees = dj.iter().filter(|d| d.compte).count() as u32;
             let nj = dj.iter().filter(|d| d.compte && d.non_justifiee).count() as u32;
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let (ine, naissance): (Option<String>, Option<NaiveDate>) =
-                sqlx::query_as("SELECT ine, date_naissance FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
-                    .bind(etab)
-                    .bind(eleve)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
+            let (ine, naissance): (Option<String>, Option<NaiveDate>) = sqlx::query_as(
+                "SELECT ine, date_naissance FROM ent_eleve WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(eleve)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
             let (retards,): (i64,) = sqlx::query_as(
                 "SELECT count(*) FROM ent_appel_ligne l
                    JOIN ent_appel a ON a.id = l.appel_id AND a.etablissement_id = l.etablissement_id
@@ -1273,8 +1428,14 @@ mod tests {
         assert!(!ine_plausible("12345678AB"));
         assert!(!ine_plausible("123456789ab"));
         assert!(!ine_plausible("ABCDEFGHIJK"));
-        assert_eq!(ine_du_nom_fichier("2NDE_A_123456789ab_DUPONT.pdf").as_deref(), Some("123456789AB"));
-        assert_eq!(ine_du_nom_fichier("C:\\depot\\1234567890A.pdf").as_deref(), Some("1234567890A"));
+        assert_eq!(
+            ine_du_nom_fichier("2NDE_A_123456789ab_DUPONT.pdf").as_deref(),
+            Some("123456789AB")
+        );
+        assert_eq!(
+            ine_du_nom_fichier("C:\\depot\\1234567890A.pdf").as_deref(),
+            Some("1234567890A")
+        );
         // Deux INE ou aucun : rien n'est deviné.
         assert_eq!(ine_du_nom_fichier("123456789AB_123456789CD.pdf"), None);
         assert_eq!(ine_du_nom_fichier("DUPONT Jean.pdf"), None);
@@ -1306,6 +1467,9 @@ mod tests {
         let ligne = csv.lines().nth(1).unwrap();
         assert!(ligne.contains("\"'=HYPERLINK(\"\"x\"\")\""), "{ligne}");
         assert!(ligne.contains("\"Léa; Marie\""), "{ligne}");
-        assert!(ligne.ends_with("03/02/2015;2de A;01/09/2031;30/11/2031;4;3;1;2"), "{ligne}");
+        assert!(
+            ligne.ends_with("03/02/2015;2de A;01/09/2031;30/11/2031;4;3;1;2"),
+            "{ligne}"
+        );
     }
 }
