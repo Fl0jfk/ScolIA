@@ -457,7 +457,12 @@ pub const CONSOMMATEUR_EVALUATIONS: &str = "d6.evaluations";
 
 pub struct ConsommateurEvaluations;
 
-const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", "evaluations.publiee", types::NOTE_BULLETIN_PUBLIE];
+const TYPES_EVALUATIONS: &[&str] = &[
+    "evaluation.publiee",
+    "evaluations.publiee",
+    types::NOTE_BULLETIN_PUBLIE,
+    crate::evaluations_v14::evenements::BULLETIN_TIERS_DISTRIBUE,
+];
 
 /// Destinataires d'un élève relus au traitement : responsables au lien ACTIF avec
 /// `peut_voir_notes` (compte parent membre) et le compte de l'élève lui-même.
@@ -565,6 +570,64 @@ async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -
                     "bulletin_publie",
                     &format!("Bulletin de {prenom} disponible"),
                     &format!("Le bulletin « {periode} » de {prenom} est disponible dans l'espace évaluations."),
+                    e.id,
+                )
+                .await?;
+            }
+        }
+        // V14 : bulletin du logiciel tiers distribué. Avis aux destinataires FIGÉS à la distribution qui le restent au
+        // traitement (lien encore sollicitable avec « voir les notes », ou compte de l'élève) ; bulletin encore distribué.
+        crate::evaluations_v14::evenements::BULLETIN_TIERS_DISTRIBUE => {
+            let Some(eleve_id) = e.eleve_id else {
+                return Ok(());
+            };
+            let Some(bulletin_id) = e
+                .payload
+                .get("bulletin_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Uuid::parse_str(s).ok())
+            else {
+                return Ok(());
+            };
+            let row: Option<(String, String)> = sqlx::query_as(
+                r#"
+                SELECT el.prenom, p.libelle
+                  FROM eva_tiers_bulletin b
+                  JOIN ent_eleve el ON el.id = b.eleve_id AND el.etablissement_id = b.etablissement_id
+                  JOIN ent_periode p ON p.id = b.periode_id AND p.etablissement_id = b.etablissement_id
+                 WHERE b.etablissement_id = $1 AND b.id = $2 AND b.eleve_id = $3 AND b.statut = 'distribue'
+                "#,
+            )
+            .bind(etab)
+            .bind(bulletin_id)
+            .bind(eleve_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((prenom, periode)) = row else {
+                return Ok(());
+            };
+            let figes: Vec<(Uuid,)> = sqlx::query_as(
+                "SELECT user_id FROM eva_tiers_destinataire WHERE etablissement_id = $1 AND bulletin_id = $2",
+            )
+            .bind(etab)
+            .bind(bulletin_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let actuels = destinataires_notes(tx, etab, eleve_id).await?;
+            for (user,) in figes {
+                if !actuels.contains(&user) {
+                    continue;
+                }
+                inserer_notification(
+                    tx,
+                    etab,
+                    user,
+                    eleve_id,
+                    "bulletin_publie",
+                    &format!("Bulletin de {prenom} disponible"),
+                    &format!("Le bulletin « {periode} » de {prenom} est disponible dans ses documents."),
                     e.id,
                 )
                 .await?;

@@ -1257,6 +1257,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("eva_bareme_item", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_matiere", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_coefficient_sous_matiere", "evaluations_pedagogie", Portee::Etablissement),
+    t("eva_cohabitation", "evaluations_pedagogie", Portee::Etablissement),
     t("eva_consultation", "evaluations_pedagogie", Portee::Etablissement).perso(),
     // La demande (motif, état, date de décision) est celle de la famille ; la personne qui a décidé est interne.
     t("eva_correction_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
@@ -1343,6 +1344,14 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Demande de revue de la famille et réponse qui lui a été faite (`reponse` n'existe que si l'état est « repondue »).
     t("eva_revision_demande", "evaluations_pedagogie", Portee::Etablissement).perso().export()
         .tout_exportable("message de la famille et réponse qui lui a été adressée : aucun champ interne dans la table"),
+    // Socle 21, lot V14 (migration 701) : bulletins du logiciel tiers (dépôt, rapprochement, distribution), destinataires
+    // figés, journaux en ajout seul, exports d'assiduité, bandeau « où sont les notes ». Le PDF est au magasin d'objets
+    // (`storage_key` + empreinte) ; neutralisation à la restauration : aucune (un bulletin distribué l'a bien été).
+    t("eva_tiers_bulletin", "evaluations_pedagogie", Portee::Etablissement).perso().fichiers(Fichiers::Objet),
+    t("eva_tiers_destinataire", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_tiers_export", "evaluations_pedagogie", Portee::Etablissement),
+    t("eva_tiers_journal", "evaluations_pedagogie", Portee::Etablissement).perso(),
+    t("eva_tiers_lot", "evaluations_pedagogie", Portee::Etablissement),
     t("ref_asd_nature_motif", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_academique", "assiduite", Portee::ReferentielGlobal),
     t("ref_asd_profil_niveau", "assiduite", Portee::ReferentielGlobal),
