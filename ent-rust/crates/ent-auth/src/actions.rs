@@ -748,8 +748,6 @@ impl Action {
         Action::ReferentielLire,
         Action::ReferentielGerer,
         Action::PersonnesGerer,
-        Action::PersonnesIndividuRelier,
-        Action::PersonnesIndividuLever,
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
@@ -776,6 +774,9 @@ impl Action {
         Action::CahierLire,
         Action::CahierEcrire,
         Action::CahierViser,
+        // Transverse « individu » (2026-11-27) : hors des 53 historiques et hors de la fin du tableau (positions testées).
+        Action::PersonnesIndividuRelier,
+        Action::PersonnesIndividuLever,
         Action::ExportsOfficiels,
         Action::EdtAnnulerMasse,
         Action::DelegationsGerer,
